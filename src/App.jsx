@@ -3,6 +3,7 @@ import { AuthProvider, useAuth } from './hooks/useAuth'
 import Layout from './components/Layout'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
+import Scadenzario from './pages/Scadenzario'
 
 function ProtectedRoute({ children }) {
   const { session, loading } = useAuth()
@@ -41,7 +42,7 @@ function AppRoutes() {
       <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
         <Route index element={<Dashboard />} />
         <Route path="outlet" element={<Placeholder title="Outlet" />} />
-        <Route path="scadenzario" element={<Placeholder title="Scadenzario" />} />
+        <Route path="scadenzario" element={<Scadenzario />} />
         <Route path="banche" element={<Placeholder title="Banche" />} />
         <Route path="dipendenti" element={<Placeholder title="Dipendenti" />} />
         <Route path="contratti" element={<Placeholder title="Contratti" />} />
