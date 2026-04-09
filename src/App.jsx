@@ -3,7 +3,23 @@ import { AuthProvider, useAuth } from './hooks/useAuth'
 import Layout from './components/Layout'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
-import Scadenzario from './pages/Scadenzario'
+import Scadenzario from './pages/ScadenzarioSmart'
+import Banche from './pages/Banche'
+import Outlet from './pages/Outlet'
+import Dipendenti from './pages/Dipendenti'
+import Impostazioni from './pages/Impostazioni'
+import ContoEconomico from './pages/ContoEconomico'
+import ConfrontoOutlet from './pages/ConfrontoOutlet'
+import BudgetControl from './pages/BudgetControl'
+import StockSellthrough from './pages/StockSellthrough'
+import AnalyticsPOS from './pages/AnalyticsPOS'
+import CashFlow from './pages/CashFlow'
+import OpenToBuy from './pages/OpenToBuy'
+import Produttivita from './pages/Produttivita'
+import ScenarioPlanning from './pages/ScenarioPlanning'
+import MarginiCategoria from './pages/MarginiCategoria'
+import StoreManager from './pages/StoreManager'
+import ImportHub from './pages/ImportHub'
 
 function ProtectedRoute({ children }) {
   const { session, loading } = useAuth()
@@ -41,13 +57,23 @@ function AppRoutes() {
       <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
       <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
         <Route index element={<Dashboard />} />
-        <Route path="outlet" element={<Placeholder title="Outlet" />} />
+        <Route path="outlet" element={<Outlet />} />
         <Route path="scadenzario" element={<Scadenzario />} />
-        <Route path="banche" element={<Placeholder title="Banche" />} />
-        <Route path="dipendenti" element={<Placeholder title="Dipendenti" />} />
-        <Route path="contratti" element={<Placeholder title="Contratti" />} />
-        <Route path="importazioni" element={<Placeholder title="Importazioni" />} />
-        <Route path="impostazioni" element={<Placeholder title="Impostazioni" />} />
+        <Route path="banche" element={<Banche />} />
+        <Route path="dipendenti" element={<Dipendenti />} />
+        <Route path="conto-economico" element={<ContoEconomico />} />
+        <Route path="confronto-outlet" element={<ConfrontoOutlet />} />
+        <Route path="budget" element={<BudgetControl />} />
+        <Route path="stock" element={<StockSellthrough />} />
+        <Route path="analytics-pos" element={<AnalyticsPOS />} />
+        <Route path="cash-flow" element={<CashFlow />} />
+        <Route path="open-to-buy" element={<OpenToBuy />} />
+        <Route path="produttivita" element={<Produttivita />} />
+        <Route path="scenario" element={<ScenarioPlanning />} />
+        <Route path="margini" element={<MarginiCategoria />} />
+        <Route path="store-manager" element={<StoreManager />} />
+        <Route path="import-hub" element={<ImportHub />} />
+        <Route path="impostazioni" element={<Impostazioni />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
