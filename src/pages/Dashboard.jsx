@@ -273,7 +273,9 @@ export default function Dashboard() {
             sede: companyData.sede_legale || '—',
             piva: companyData.partita_iva || '—',
             amministratore: companyData.amministratore || '—',
-            soci: companyData.soci || '—',
+            soci: Array.isArray(companyData.soci)
+              ? companyData.soci.map(s => `${s.nome} (${s.quota})`).join(', ')
+              : (companyData.soci || '—'),
             ateco: companyData.ateco || '—',
             costituzione: companyData.data_costituzione || '—',
           })
