@@ -1,1015 +1,658 @@
-import React, { useState, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import {
-  BarChart,
-  Bar,
-  PieChart,
-  Pie,
-  LineChart,
-  Line,
-  Cell,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  ResponsiveContainer,
-} from 'recharts';
+  BarChart, Bar, PieChart, Pie, Cell, LineChart, Line, Area, AreaChart,
+  XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
+} from 'recharts'
 import {
-  Download,
-  TrendingUp,
-  TrendingDown,
-  AlertCircle,
-  Check,
-} from 'lucide-react';
-import { GlassTooltip, AXIS_STYLE, GRID_STYLE } from '../components/ChartTheme';
+  TrendingUp, TrendingDown, Store, Download, Calendar,
+  ArrowUpRight, ArrowDownRight, Loader2, AlertCircle, Building2,
+  Banknote, Receipt, PieChart as PieChartIcon, BarChart3, Target,
+  ChevronDown, Info,
+} from 'lucide-react'
+import {
+  GlassTooltip, AXIS_STYLE, GRID_STYLE, PALETTE, OUTLET_COLORS,
+  ChartGradients, ModernLegend, ModernPieLabel, fmtK, fmtEuro, BAR_RADIUS,
+} from '../components/ChartTheme'
+import { supabase } from '../lib/supabase'
+import { useAuth } from '../hooks/useAuth'
 
-const MarginiCategoria = () => {
-  const [selectedOutlet, setSelectedOutlet] = useState('tutti');
-  const [sortConfig, setSortConfig] = useState({
-    key: 'marginePercentuale',
-    direction: 'desc',
-  });
+// ═══ HELPERS ═══
+const fmt = (n) => n == null ? '—' : new Intl.NumberFormat('it-IT', { maximumFractionDigits: 0 }).format(n)
+const fmtPct = (n) => n == null ? '—' : `${n.toFixed(1)}%`
+const MONTHS_IT = ['Gen', 'Feb', 'Mar', 'Apr', 'Mag', 'Giu', 'Lug', 'Ago', 'Set', 'Ott', 'Nov', 'Dic']
 
-  // Outlet definitions
-  const outlets = [
-    { id: 'tutti', label: 'Tutti gli outlet' },
-    { id: 'valdichiana', label: 'Valdichiana' },
-    { id: 'barberino', label: 'Barberino' },
-    { id: 'palmanova', label: 'Palmanova' },
-    { id: 'franciacorta', label: 'Franciacorta' },
-    { id: 'brugnato', label: 'Brugnato' },
-    { id: 'valmontone', label: 'Valmontone' },
-    { id: 'torino', label: 'Torino' },
-  ];
+function getMonthLabel(dateStr) {
+  const d = new Date(dateStr)
+  return `${MONTHS_IT[d.getMonth()]} ${d.getFullYear().toString().slice(2)}`
+}
 
-  // Hardcoded data per category and outlet
-  const categoryData = {
-    'T-shirt': {
-      valdichiana: {
-        ricavo: 145000,
-        costoAcquisto: 72500,
-        pezziVenduti: 2900,
-        prezzoMedioVendita: 50,
-        prezzoMedioAcquisto: 25,
-      },
-      barberino: {
-        ricavo: 138000,
-        costoAcquisto: 69000,
-        pezziVenduti: 2760,
-        prezzoMedioVendita: 50,
-        prezzoMedioAcquisto: 25,
-      },
-      palmanova: {
-        ricavo: 155000,
-        costoAcquisto: 77500,
-        pezziVenduti: 3100,
-        prezzoMedioVendita: 50,
-        prezzoMedioAcquisto: 25,
-      },
-      franciacorta: {
-        ricavo: 125000,
-        costoAcquisto: 62500,
-        pezziVenduti: 2500,
-        prezzoMedioVendita: 50,
-        prezzoMedioAcquisto: 25,
-      },
-      brugnato: {
-        ricavo: 95000,
-        costoAcquisto: 47500,
-        pezziVenduti: 1900,
-        prezzoMedioVendita: 50,
-        prezzoMedioAcquisto: 25,
-      },
-      valmontone: {
-        ricavo: 110000,
-        costoAcquisto: 55000,
-        pezziVenduti: 2200,
-        prezzoMedioVendita: 50,
-        prezzoMedioAcquisto: 25,
-      },
-      torino: {
-        ricavo: 165000,
-        costoAcquisto: 82500,
-        pezziVenduti: 3300,
-        prezzoMedioVendita: 50,
-        prezzoMedioAcquisto: 25,
-      },
-    },
-    Felpe: {
-      valdichiana: {
-        ricavo: 185000,
-        costoAcquisto: 83250,
-        pezziVenduti: 1850,
-        prezzoMedioVendita: 100,
-        prezzoMedioAcquisto: 45,
-      },
-      barberino: {
-        ricavo: 172000,
-        costoAcquisto: 77400,
-        pezziVenduti: 1720,
-        prezzoMedioVendita: 100,
-        prezzoMedioAcquisto: 45,
-      },
-      palmanova: {
-        ricavo: 198000,
-        costoAcquisto: 89100,
-        pezziVenduti: 1980,
-        prezzoMedioVendita: 100,
-        prezzoMedioAcquisto: 45,
-      },
-      franciacorta: {
-        ricavo: 165000,
-        costoAcquisto: 74250,
-        pezziVenduti: 1650,
-        prezzoMedioVendita: 100,
-        prezzoMedioAcquisto: 45,
-      },
-      brugnato: {
-        ricavo: 125000,
-        costoAcquisto: 56250,
-        pezziVenduti: 1250,
-        prezzoMedioVendita: 100,
-        prezzoMedioAcquisto: 45,
-      },
-      valmontone: {
-        ricavo: 145000,
-        costoAcquisto: 65250,
-        pezziVenduti: 1450,
-        prezzoMedioVendita: 100,
-        prezzoMedioAcquisto: 45,
-      },
-      torino: {
-        ricavo: 210000,
-        costoAcquisto: 94500,
-        pezziVenduti: 2100,
-        prezzoMedioVendita: 100,
-        prezzoMedioAcquisto: 45,
-      },
-    },
-    Pantaloni: {
-      valdichiana: {
-        ricavo: 216000,
-        costoAcquisto: 86400,
-        pezziVenduti: 1800,
-        prezzoMedioVendita: 120,
-        prezzoMedioAcquisto: 48,
-      },
-      barberino: {
-        ricavo: 204000,
-        costoAcquisto: 81600,
-        pezziVenduti: 1700,
-        prezzoMedioVendita: 120,
-        prezzoMedioAcquisto: 48,
-      },
-      palmanova: {
-        ricavo: 234000,
-        costoAcquisto: 93600,
-        pezziVenduti: 1950,
-        prezzoMedioVendita: 120,
-        prezzoMedioAcquisto: 48,
-      },
-      franciacorta: {
-        ricavo: 198000,
-        costoAcquisto: 79200,
-        pezziVenduti: 1650,
-        prezzoMedioVendita: 120,
-        prezzoMedioAcquisto: 48,
-      },
-      brugnato: {
-        ricavo: 150000,
-        costoAcquisto: 60000,
-        pezziVenduti: 1250,
-        prezzoMedioVendita: 120,
-        prezzoMedioAcquisto: 48,
-      },
-      valmontone: {
-        ricavo: 174000,
-        costoAcquisto: 69600,
-        pezziVenduti: 1450,
-        prezzoMedioVendita: 120,
-        prezzoMedioAcquisto: 48,
-      },
-      torino: {
-        ricavo: 252000,
-        costoAcquisto: 100800,
-        pezziVenduti: 2100,
-        prezzoMedioVendita: 120,
-        prezzoMedioAcquisto: 48,
-      },
-    },
-    Giacche: {
-      valdichiana: {
-        ricavo: 280000,
-        costoAcquisto: 98000,
-        pezziVenduti: 700,
-        prezzoMedioVendita: 400,
-        prezzoMedioAcquisto: 140,
-      },
-      barberino: {
-        ricavo: 260000,
-        costoAcquisto: 91000,
-        pezziVenduti: 650,
-        prezzoMedioVendita: 400,
-        prezzoMedioAcquisto: 140,
-      },
-      palmanova: {
-        ricavo: 300000,
-        costoAcquisto: 105000,
-        pezziVenduti: 750,
-        prezzoMedioVendita: 400,
-        prezzoMedioAcquisto: 140,
-      },
-      franciacorta: {
-        ricavo: 320000,
-        costoAcquisto: 112000,
-        pezziVenduti: 800,
-        prezzoMedioVendita: 400,
-        prezzoMedioAcquisto: 140,
-      },
-      brugnato: {
-        ricavo: 200000,
-        costoAcquisto: 70000,
-        pezziVenduti: 500,
-        prezzoMedioVendita: 400,
-        prezzoMedioAcquisto: 140,
-      },
-      valmontone: {
-        ricavo: 240000,
-        costoAcquisto: 84000,
-        pezziVenduti: 600,
-        prezzoMedioVendita: 400,
-        prezzoMedioAcquisto: 140,
-      },
-      torino: {
-        ricavo: 360000,
-        costoAcquisto: 126000,
-        pezziVenduti: 900,
-        prezzoMedioVendita: 400,
-        prezzoMedioAcquisto: 140,
-      },
-    },
-    Accessori: {
-      valdichiana: {
-        ricavo: 125000,
-        costoAcquisto: 37500,
-        pezziVenduti: 2500,
-        prezzoMedioVendita: 50,
-        prezzoMedioAcquisto: 15,
-      },
-      barberino: {
-        ricavo: 118000,
-        costoAcquisto: 35400,
-        pezziVenduti: 2360,
-        prezzoMedioVendita: 50,
-        prezzoMedioAcquisto: 15,
-      },
-      palmanova: {
-        ricavo: 135000,
-        costoAcquisto: 40500,
-        pezziVenduti: 2700,
-        prezzoMedioVendita: 50,
-        prezzoMedioAcquisto: 15,
-      },
-      franciacorta: {
-        ricavo: 110000,
-        costoAcquisto: 33000,
-        pezziVenduti: 2200,
-        prezzoMedioVendita: 50,
-        prezzoMedioAcquisto: 15,
-      },
-      brugnato: {
-        ricavo: 85000,
-        costoAcquisto: 25500,
-        pezziVenduti: 1700,
-        prezzoMedioVendita: 50,
-        prezzoMedioAcquisto: 15,
-      },
-      valmontone: {
-        ricavo: 100000,
-        costoAcquisto: 30000,
-        pezziVenduti: 2000,
-        prezzoMedioVendita: 50,
-        prezzoMedioAcquisto: 15,
-      },
-      torino: {
-        ricavo: 145000,
-        costoAcquisto: 43500,
-        pezziVenduti: 2900,
-        prezzoMedioVendita: 50,
-        prezzoMedioAcquisto: 15,
-      },
-    },
-    Calzature: {
-      valdichiana: {
-        ricavo: 195000,
-        costoAcquisto: 78000,
-        pezziVenduti: 1300,
-        prezzoMedioVendita: 150,
-        prezzoMedioAcquisto: 60,
-      },
-      barberino: {
-        ricavo: 182000,
-        costoAcquisto: 72800,
-        pezziVenduti: 1213,
-        prezzoMedioVendita: 150,
-        prezzoMedioAcquisto: 60,
-      },
-      palmanova: {
-        ricavo: 210000,
-        costoAcquisto: 84000,
-        pezziVenduti: 1400,
-        prezzoMedioVendita: 150,
-        prezzoMedioAcquisto: 60,
-      },
-      franciacorta: {
-        ricavo: 225000,
-        costoAcquisto: 90000,
-        pezziVenduti: 1500,
-        prezzoMedioVendita: 150,
-        prezzoMedioAcquisto: 60,
-      },
-      brugnato: {
-        ricavo: 155000,
-        costoAcquisto: 62000,
-        pezziVenduti: 1033,
-        prezzoMedioVendita: 150,
-        prezzoMedioAcquisto: 60,
-      },
-      valmontone: {
-        ricavo: 180000,
-        costoAcquisto: 72000,
-        pezziVenduti: 1200,
-        prezzoMedioVendita: 150,
-        prezzoMedioAcquisto: 60,
-      },
-      torino: {
-        ricavo: 240000,
-        costoAcquisto: 96000,
-        pezziVenduti: 1600,
-        prezzoMedioVendita: 150,
-        prezzoMedioAcquisto: 60,
-      },
-    },
-    Borse: {
-      valdichiana: {
-        ricavo: 185000,
-        costoAcquisto: 55500,
-        pezziVenduti: 925,
-        prezzoMedioVendita: 200,
-        prezzoMedioAcquisto: 60,
-      },
-      barberino: {
-        ricavo: 172000,
-        costoAcquisto: 51600,
-        pezziVenduti: 860,
-        prezzoMedioVendita: 200,
-        prezzoMedioAcquisto: 60,
-      },
-      palmanova: {
-        ricavo: 198000,
-        costoAcquisto: 59400,
-        pezziVenduti: 990,
-        prezzoMedioVendita: 200,
-        prezzoMedioAcquisto: 60,
-      },
-      franciacorta: {
-        ricavo: 220000,
-        costoAcquisto: 66000,
-        pezziVenduti: 1100,
-        prezzoMedioVendita: 200,
-        prezzoMedioAcquisto: 60,
-      },
-      brugnato: {
-        ricavo: 150000,
-        costoAcquisto: 45000,
-        pezziVenduti: 750,
-        prezzoMedioVendita: 200,
-        prezzoMedioAcquisto: 60,
-      },
-      valmontone: {
-        ricavo: 175000,
-        costoAcquisto: 52500,
-        pezziVenduti: 875,
-        prezzoMedioVendita: 200,
-        prezzoMedioAcquisto: 60,
-      },
-      torino: {
-        ricavo: 245000,
-        costoAcquisto: 73500,
-        pezziVenduti: 1225,
-        prezzoMedioVendita: 200,
-        prezzoMedioAcquisto: 60,
-      },
-    },
-    Intimo: {
-      valdichiana: {
-        ricavo: 95000,
-        costoAcquisto: 28500,
-        pezziVenduti: 1900,
-        prezzoMedioVendita: 50,
-        prezzoMedioAcquisto: 15,
-      },
-      barberino: {
-        ricavo: 88000,
-        costoAcquisto: 26400,
-        pezziVenduti: 1760,
-        prezzoMedioVendita: 50,
-        prezzoMedioAcquisto: 15,
-      },
-      palmanova: {
-        ricavo: 105000,
-        costoAcquisto: 31500,
-        pezziVenduti: 2100,
-        prezzoMedioVendita: 50,
-        prezzoMedioAcquisto: 15,
-      },
-      franciacorta: {
-        ricavo: 92000,
-        costoAcquisto: 27600,
-        pezziVenduti: 1840,
-        prezzoMedioVendita: 50,
-        prezzoMedioAcquisto: 15,
-      },
-      brugnato: {
-        ricavo: 68000,
-        costoAcquisto: 20400,
-        pezziVenduti: 1360,
-        prezzoMedioVendita: 50,
-        prezzoMedioAcquisto: 15,
-      },
-      valmontone: {
-        ricavo: 82000,
-        costoAcquisto: 24600,
-        pezziVenduti: 1640,
-        prezzoMedioVendita: 50,
-        prezzoMedioAcquisto: 15,
-      },
-      torino: {
-        ricavo: 115000,
-        costoAcquisto: 34500,
-        pezziVenduti: 2300,
-        prezzoMedioVendita: 50,
-        prezzoMedioAcquisto: 15,
-      },
-    },
-  };
+// ═══ MAIN COMPONENT ═══
+export default function MarginiCategoria() {
+  const { profile } = useAuth()
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
+  const [tab, setTab] = useState('outlet') // outlet | costi | trend
+  const [period, setPeriod] = useState('ytd') // ytd | last12 | custom
+  const [year, setYear] = useState(new Date().getFullYear())
 
-  // Calculate aggregated data based on selected outlet
-  const calculateCategoryStats = useMemo(() => {
-    const stats = {};
+  // Raw data
+  const [outlets, setOutlets] = useState([])
+  const [revenue, setRevenue] = useState([])
+  const [costs, setCosts] = useState([])       // from payables
+  const [bankCosts, setBankCosts] = useState([]) // from cash_movements (uscite)
+  const [costCategories, setCostCategories] = useState([])
+  const [budgets, setBudgets] = useState([])   // outlet_cost_template
 
-    Object.entries(categoryData).forEach(([categoria, outletData]) => {
-      let totalRicavo = 0;
-      let totalCosto = 0;
-      let totalPezzi = 0;
-
-      if (selectedOutlet === 'tutti') {
-        Object.values(outletData).forEach((data) => {
-          totalRicavo += data.ricavo;
-          totalCosto += data.costoAcquisto;
-          totalPezzi += data.pezziVenduti;
-        });
-      } else {
-        const data = outletData[selectedOutlet];
-        if (data) {
-          totalRicavo = data.ricavo;
-          totalCosto = data.costoAcquisto;
-          totalPezzi = data.pezziVenduti;
-        }
-      }
-
-      const margineLoardo = totalRicavo - totalCosto;
-      const marginePercentuale =
-        totalRicavo > 0 ? ((margineLoardo / totalRicavo) * 100).toFixed(2) : 0;
-      const ricarico =
-        totalCosto > 0
-          ? (((totalRicavo - totalCosto) / totalCosto) * 100).toFixed(2)
-          : 0;
-      const prezzoMedioVendita =
-        totalPezzi > 0 ? (totalRicavo / totalPezzi).toFixed(2) : 0;
-      const prezzoMedioAcquisto =
-        totalPezzi > 0 ? (totalCosto / totalPezzi).toFixed(2) : 0;
-
-      stats[categoria] = {
-        categoria,
-        ricavo: totalRicavo,
-        costoAcquisto: totalCosto,
-        margineLoardo,
-        marginePercentuale: parseFloat(marginePercentuale),
-        ricarico: parseFloat(ricarico),
-        pezziVenduti: totalPezzi,
-        prezzoMedioVendita: parseFloat(prezzoMedioVendita),
-        prezzoMedioAcquisto: parseFloat(prezzoMedioAcquisto),
-      };
-    });
-
-    return stats;
-  }, [selectedOutlet]);
-
-  // Prepare chart data
-  const chartDataMargine = useMemo(() => {
-    return Object.values(calculateCategoryStats)
-      .sort((a, b) => b.marginePercentuale - a.marginePercentuale)
-      .map((item) => ({
-        name: item.categoria,
-        'Margine %': parseFloat(item.marginePercentuale),
-      }));
-  }, [calculateCategoryStats]);
-
-  const chartDataRicavi = useMemo(() => {
-    return Object.values(calculateCategoryStats).map((item) => ({
-      name: item.categoria,
-      value: item.ricavo,
-    }));
-  }, [calculateCategoryStats]);
-
-  const chartDataCostoMargine = useMemo(() => {
-    return Object.values(calculateCategoryStats).map((item) => ({
-      name: item.categoria,
-      Costo: item.costoAcquisto,
-      Margine: item.margineLoardo,
-    }));
-  }, [calculateCategoryStats]);
-
-  // Trend data (simulated month-over-month)
-  const trendData = useMemo(() => {
-    const months = [
-      'Set 2025',
-      'Ott 2025',
-      'Nov 2025',
-      'Dic 2025',
-      'Gen 2026',
-      'Feb 2026',
-    ];
-    const categories = Object.keys(categoryData);
-
-    return months.map((month, idx) => {
-      const dataPoint = { month };
-      categories.forEach((cat) => {
-        const baseMargin =
-          calculateCategoryStats[cat].marginePercentuale || 0;
-        const variation = (Math.random() - 0.5) * 8;
-        dataPoint[cat] = Math.max(
-          20,
-          Math.min(70, baseMargin + variation)
-        ).toFixed(1);
-      });
-      return dataPoint;
-    });
-  }, [calculateCategoryStats]);
-
-  // Sort table data
-  const sortedData = useMemo(() => {
-    let sorted = [...Object.values(calculateCategoryStats)];
-
-    sorted.sort((a, b) => {
-      const aValue = a[sortConfig.key];
-      const bValue = b[sortConfig.key];
-
-      if (aValue < bValue) {
-        return sortConfig.direction === 'asc' ? -1 : 1;
-      }
-      if (aValue > bValue) {
-        return sortConfig.direction === 'asc' ? 1 : -1;
-      }
-      return 0;
-    });
-
-    return sorted;
-  }, [calculateCategoryStats, sortConfig]);
-
-  // Color coding function
-  const getMargineColor = (percentage) => {
-    if (percentage >= 55) return 'bg-green-50 border-l-4 border-green-500';
-    if (percentage >= 45) return 'bg-yellow-50 border-l-4 border-yellow-500';
-    return 'bg-red-50 border-l-4 border-red-500';
-  };
-
-  const getMargineTextColor = (percentage) => {
-    if (percentage >= 55) return 'text-green-700 font-semibold';
-    if (percentage >= 45) return 'text-yellow-700 font-semibold';
-    return 'text-red-700 font-semibold';
-  };
-
-  // Find best and worst
-  const bestCategory = sortedData[0];
-  const worstCategory = sortedData[sortedData.length - 1];
-
-  // Colors for pie chart
-  const COLORS = [
-    '#10b981',
-    '#f59e0b',
-    '#ef4444',
-    '#8b5cf6',
-    '#3b82f6',
-    '#ec4899',
-    '#14b8a6',
-    '#f97316',
-  ];
-
-  const handleSort = (key) => {
-    let direction = 'desc';
-    if (sortConfig.key === key && sortConfig.direction === 'desc') {
-      direction = 'asc';
+  // ── Date range ──
+  const dateRange = useMemo(() => {
+    const now = new Date()
+    if (period === 'ytd') {
+      return { from: `${year}-01-01`, to: `${year}-12-31` }
     }
-    setSortConfig({ key, direction });
-  };
+    if (period === 'last12') {
+      const from = new Date(now)
+      from.setMonth(from.getMonth() - 12)
+      return { from: from.toISOString().slice(0, 10), to: now.toISOString().slice(0, 10) }
+    }
+    return { from: `${year}-01-01`, to: `${year}-12-31` }
+  }, [period, year])
+
+  // ── Fetch all data ──
+  const fetchData = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const [outletRes, revenueRes, costsRes, bankRes, catRes, budgetRes] = await Promise.all([
+        supabase.from('outlets').select('id, name, code, rent_monthly, staff_budget_monthly, condo_marketing_monthly, admin_cost_monthly, target_margin_pct, target_cogs_pct, is_active').eq('is_active', true).order('name'),
+        supabase.from('daily_revenue').select('outlet_id, date, gross_revenue, net_revenue, transactions_count').gte('date', dateRange.from).lte('date', dateRange.to),
+        supabase.from('payables').select('outlet_id, invoice_date, net_amount, vat_amount, gross_amount, cost_category_id, status').gte('invoice_date', dateRange.from).lte('invoice_date', dateRange.to),
+        supabase.from('cash_movements').select('outlet_id, date, type, amount, cost_category_id').eq('type', 'uscita').gte('date', dateRange.from).lte('date', dateRange.to),
+        supabase.from('cost_categories').select('id, code, name, macro_group, is_fixed, sort_order').order('sort_order'),
+        supabase.from('outlet_cost_template').select('outlet_id, cost_category_id, budget_monthly, budget_annual, is_fixed'),
+      ])
+
+      if (outletRes.error) throw outletRes.error
+      setOutlets(outletRes.data || [])
+      setRevenue(revenueRes.data || [])
+      setCosts(costsRes.data || [])
+      setBankCosts(bankRes.data || [])
+      setCostCategories(catRes.data || [])
+      setBudgets(budgetRes.data || [])
+    } catch (err) {
+      console.error('Fetch error:', err)
+      setError(err.message)
+    } finally {
+      setLoading(false)
+    }
+  }, [dateRange])
+
+  useEffect(() => { fetchData() }, [fetchData])
+
+  // ═══ COMPUTED DATA ═══
+
+  // Revenue per outlet
+  const revenueByOutlet = useMemo(() => {
+    const map = {}
+    revenue.forEach(r => {
+      if (!map[r.outlet_id]) map[r.outlet_id] = { gross: 0, net: 0, transactions: 0 }
+      map[r.outlet_id].gross += Number(r.gross_revenue) || 0
+      map[r.outlet_id].net += Number(r.net_revenue) || 0
+      map[r.outlet_id].transactions += Number(r.transactions_count) || 0
+    })
+    return map
+  }, [revenue])
+
+  // Costs per outlet (from payables)
+  const costsByOutlet = useMemo(() => {
+    const map = {}
+    costs.forEach(c => {
+      const oid = c.outlet_id || '_company'
+      if (!map[oid]) map[oid] = { total: 0, byCategory: {} }
+      const amt = Number(c.gross_amount) || 0
+      map[oid].total += amt
+      const catId = c.cost_category_id || '_uncategorized'
+      map[oid].byCategory[catId] = (map[oid].byCategory[catId] || 0) + amt
+    })
+    return map
+  }, [costs])
+
+  // Bank costs per outlet (from cash_movements uscite)
+  const bankCostsByOutlet = useMemo(() => {
+    const map = {}
+    bankCosts.forEach(m => {
+      const oid = m.outlet_id || '_company'
+      if (!map[oid]) map[oid] = { total: 0, byCategory: {} }
+      const amt = Number(m.amount) || 0
+      map[oid].total += amt
+      const catId = m.cost_category_id || '_uncategorized'
+      map[oid].byCategory[catId] = (map[oid].byCategory[catId] || 0) + amt
+    })
+    return map
+  }, [bankCosts])
+
+  // Budget annuale per outlet
+  const budgetByOutlet = useMemo(() => {
+    const map = {}
+    budgets.forEach(b => {
+      if (!map[b.outlet_id]) map[b.outlet_id] = 0
+      map[b.outlet_id] += Number(b.budget_annual) || (Number(b.budget_monthly) || 0) * 12
+    })
+    // Also add from outlets table (rent, staff, etc.)
+    outlets.forEach(o => {
+      const monthlyTotal = (Number(o.rent_monthly) || 0) + (Number(o.staff_budget_monthly) || 0) +
+        (Number(o.condo_marketing_monthly) || 0) + (Number(o.admin_cost_monthly) || 0)
+      if (!map[o.id]) map[o.id] = 0
+      // Only add if no template budget exists
+      if (map[o.id] === 0 && monthlyTotal > 0) {
+        const months = period === 'last12' ? 12 : new Date().getMonth() + 1
+        map[o.id] = monthlyTotal * months
+      }
+    })
+    return map
+  }, [budgets, outlets, period])
+
+  // Outlet table data
+  const outletData = useMemo(() => {
+    return outlets.map(o => {
+      const rev = revenueByOutlet[o.id] || { gross: 0, net: 0, transactions: 0 }
+      const payCosts = costsByOutlet[o.id]?.total || 0
+      const bnkCosts = bankCostsByOutlet[o.id]?.total || 0
+      // Use the larger of the two cost sources to avoid double counting
+      const totalCosts = Math.max(payCosts, bnkCosts)
+      const margin = rev.gross - totalCosts
+      const marginPct = rev.gross > 0 ? (margin / rev.gross) * 100 : 0
+      const budget = budgetByOutlet[o.id] || 0
+      const budgetVar = budget > 0 ? ((totalCosts - budget) / budget) * 100 : null
+      const targetMargin = Number(o.target_margin_pct) || 60
+
+      return {
+        id: o.id,
+        name: o.name,
+        code: o.code,
+        revenue: rev.gross,
+        netRevenue: rev.net,
+        transactions: rev.transactions,
+        avgTicket: rev.transactions > 0 ? rev.gross / rev.transactions : 0,
+        costs: totalCosts,
+        margin,
+        marginPct,
+        budget,
+        budgetVar,
+        targetMargin,
+        onTarget: marginPct >= targetMargin,
+        color: OUTLET_COLORS[o.name]?.main || PALETTE[0],
+      }
+    }).sort((a, b) => b.revenue - a.revenue)
+  }, [outlets, revenueByOutlet, costsByOutlet, bankCostsByOutlet, budgetByOutlet])
+
+  // Totals
+  const totals = useMemo(() => {
+    const t = outletData.reduce((acc, o) => ({
+      revenue: acc.revenue + o.revenue,
+      costs: acc.costs + o.costs,
+      margin: acc.margin + o.margin,
+      transactions: acc.transactions + o.transactions,
+      budget: acc.budget + o.budget,
+    }), { revenue: 0, costs: 0, margin: 0, transactions: 0, budget: 0 })
+    t.marginPct = t.revenue > 0 ? (t.margin / t.revenue) * 100 : 0
+    t.budgetVar = t.budget > 0 ? ((t.costs - t.budget) / t.budget) * 100 : null
+    return t
+  }, [outletData])
+
+  // Cost breakdown by macro_group
+  const costBreakdown = useMemo(() => {
+    const catMap = {}
+    costCategories.forEach(c => { catMap[c.id] = c })
+
+    const groups = {}
+    // Merge payables costs
+    Object.values(costsByOutlet).forEach(outlet => {
+      Object.entries(outlet.byCategory).forEach(([catId, amt]) => {
+        const cat = catMap[catId]
+        const group = cat?.macro_group || 'altro'
+        const name = cat?.name || 'Non categorizzato'
+        if (!groups[group]) groups[group] = { group, name: groupLabel(group), total: 0, items: {} }
+        groups[group].total += amt
+        groups[group].items[name] = (groups[group].items[name] || 0) + amt
+      })
+    })
+    return Object.values(groups).sort((a, b) => b.total - a.total)
+  }, [costsByOutlet, costCategories])
+
+  // Monthly trend
+  const monthlyTrend = useMemo(() => {
+    const map = {}
+    revenue.forEach(r => {
+      const m = r.date?.slice(0, 7) // YYYY-MM
+      if (!m) return
+      if (!map[m]) map[m] = { month: m, revenue: 0, costs: 0 }
+      map[m].revenue += Number(r.gross_revenue) || 0
+    })
+    costs.forEach(c => {
+      const m = c.invoice_date?.slice(0, 7)
+      if (!m) return
+      if (!map[m]) map[m] = { month: m, revenue: 0, costs: 0 }
+      map[m].costs += Number(c.gross_amount) || 0
+    })
+    return Object.values(map)
+      .sort((a, b) => a.month.localeCompare(b.month))
+      .map(m => ({
+        ...m,
+        label: getMonthLabel(m.month + '-01'),
+        margin: m.revenue - m.costs,
+        marginPct: m.revenue > 0 ? ((m.revenue - m.costs) / m.revenue) * 100 : 0,
+      }))
+  }, [revenue, costs])
+
+  // Best / worst outlet
+  const bestOutlet = outletData.length ? outletData.reduce((a, b) => a.marginPct > b.marginPct ? a : b) : null
+  const worstOutlet = outletData.length ? outletData.reduce((a, b) => a.marginPct < b.marginPct ? a : b) : null
+
+  // ── Export CSV ──
+  const handleExport = () => {
+    const header = 'Outlet;Ricavi;Costi;Margine;Margine%;Scontrini;Scontrino Medio;Budget;Var Budget%\n'
+    const rows = outletData.map(o =>
+      `${o.name};${o.revenue};${o.costs};${o.margin};${o.marginPct.toFixed(1)};${o.transactions};${o.avgTicket.toFixed(0)};${o.budget};${o.budgetVar?.toFixed(1) || ''}`
+    ).join('\n')
+    const blob = new Blob([header + rows], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url; a.download = `margini_outlet_${year}.csv`; a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  // ═══ RENDER ═══
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <Loader2 className="animate-spin text-indigo-500" size={32} />
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="p-6">
+        <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-center gap-3">
+          <AlertCircle className="text-red-500" size={20} />
+          <span className="text-red-700 text-sm">Errore nel caricamento: {error}</span>
+        </div>
+      </div>
+    )
+  }
+
+  const noData = outletData.every(o => o.revenue === 0 && o.costs === 0)
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 p-8">
-      <div className="max-w-full mx-auto space-y-8">
-        {/* Header */}
-        <div className="bg-white rounded-lg shadow-sm p-6 border-l-4 border-blue-600">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-3xl font-bold text-gray-900">
-                Analisi Margini per Categoria
-              </h1>
-              <p className="text-gray-600 mt-2">
-                Dettagli performance di margine lordo, ricarico e vendite per
-                categoria prodotto
-              </p>
-            </div>
-            <button className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition">
-              <Download size={20} />
-              Esporta
-            </button>
-          </div>
+    <div className="p-6 space-y-6 max-w-[1400px] mx-auto">
+      {/* Header */}
+      <div className="flex items-center justify-between flex-wrap gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900">Margini per Outlet</h1>
+          <p className="text-sm text-slate-500 mt-1">Ricavi, costi e margini operativi per punto vendita</p>
         </div>
-
-        {/* Outlet Filter */}
-        <div className="bg-white rounded-lg shadow-sm p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">
-            Filtro Outlet
-          </h2>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            {outlets.map((outlet) => (
-              <button
-                key={outlet.id}
-                onClick={() => setSelectedOutlet(outlet.id)}
-                className={`p-3 rounded-lg font-medium transition ${
-                  selectedOutlet === outlet.id
-                    ? 'bg-blue-600 text-white shadow-md'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                {outlet.label}
+        <div className="flex items-center gap-3">
+          {/* Period selector */}
+          <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-1">
+            {[
+              { key: 'ytd', label: `YTD ${year}` },
+              { key: 'last12', label: 'Ultimi 12m' },
+            ].map(p => (
+              <button key={p.key} onClick={() => setPeriod(p.key)}
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition ${period === p.key ? 'bg-white shadow text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}>
+                {p.label}
               </button>
             ))}
           </div>
+          <button onClick={handleExport} className="flex items-center gap-2 px-3 py-2 text-xs font-medium text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition">
+            <Download size={14} /> CSV
+          </button>
         </div>
+      </div>
 
-        {/* KPI Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-          <div className="bg-white rounded-lg shadow-sm p-6 border-t-4 border-blue-500">
-            <div className="text-gray-600 text-sm font-semibold mb-1">
-              Ricavo Totale
-            </div>
-            <div className="text-2xl font-bold text-gray-900">
-              €
-              {Object.values(calculateCategoryStats)
-                .reduce((sum, cat) => sum + cat.ricavo, 0)
-                .toLocaleString('it-IT')}
-            </div>
-          </div>
+      {/* KPI Row */}
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+        <Kpi icon={Banknote} label="Ricavi totali" value={`${fmtK(totals.revenue)} €`} color="blue" />
+        <Kpi icon={Receipt} label="Costi totali" value={`${fmtK(totals.costs)} €`} color="red" />
+        <Kpi icon={TrendingUp} label="Margine" value={`${fmtK(totals.margin)} €`}
+          sub={fmtPct(totals.marginPct)} color={totals.margin >= 0 ? 'green' : 'red'} />
+        <Kpi icon={Store} label="Outlet attivi" value={outlets.length} color="indigo" />
+        <Kpi icon={Target} label="Miglior margine"
+          value={bestOutlet ? fmtPct(bestOutlet.marginPct) : '—'}
+          sub={bestOutlet?.name || ''} color="green" />
+        <Kpi icon={AlertCircle} label="Peggior margine"
+          value={worstOutlet ? fmtPct(worstOutlet.marginPct) : '—'}
+          sub={worstOutlet?.name || ''} color="amber" />
+      </div>
 
-          <div className="bg-white rounded-lg shadow-sm p-6 border-t-4 border-green-500">
-            <div className="text-gray-600 text-sm font-semibold mb-1">
-              Margine Lordo Totale
-            </div>
-            <div className="text-2xl font-bold text-green-700">
-              €
-              {Object.values(calculateCategoryStats)
-                .reduce((sum, cat) => sum + cat.margineLoardo, 0)
-                .toLocaleString('it-IT')}
-            </div>
-          </div>
-
-          <div className="bg-white rounded-lg shadow-sm p-6 border-t-4 border-purple-500">
-            <div className="text-gray-600 text-sm font-semibold mb-1">
-              Margine % Medio
-            </div>
-            <div className="text-2xl font-bold text-purple-700">
-              {(
-                Object.values(calculateCategoryStats).reduce(
-                  (sum, cat) => sum + cat.marginePercentuale,
-                  0
-                ) / Object.keys(calculateCategoryStats).length
-              ).toFixed(1)}
-              %
-            </div>
-          </div>
-
-          <div className="bg-white rounded-lg shadow-sm p-6 border-t-4 border-orange-500">
-            <div className="text-gray-600 text-sm font-semibold mb-1">
-              Pezzi Venduti
-            </div>
-            <div className="text-2xl font-bold text-orange-700">
-              {Object.values(calculateCategoryStats)
-                .reduce((sum, cat) => sum + cat.pezziVenduti, 0)
-                .toLocaleString('it-IT')}
-            </div>
-          </div>
-        </div>
-
-        {/* Best/Worst Categories */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {bestCategory && (
-            <div className="bg-white rounded-lg shadow-sm p-6 border-l-4 border-green-600">
-              <div className="flex items-start gap-4">
-                <div className="bg-green-100 p-3 rounded-lg">
-                  <TrendingUp className="text-green-600" size={24} />
-                </div>
-                <div className="flex-1">
-                  <h3 className="text-sm font-semibold text-gray-600 mb-1">
-                    Categoria Migliore
-                  </h3>
-                  <p className="text-2xl font-bold text-gray-900">
-                    {bestCategory.categoria}
-                  </p>
-                  <p className="text-green-700 font-semibold mt-1">
-                    {bestCategory.marginePercentuale}% di margine
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {worstCategory && (
-            <div className="bg-white rounded-lg shadow-sm p-6 border-l-4 border-red-600">
-              <div className="flex items-start gap-4">
-                <div className="bg-red-100 p-3 rounded-lg">
-                  <TrendingDown className="text-red-600" size={24} />
-                </div>
-                <div className="flex-1">
-                  <h3 className="text-sm font-semibold text-gray-600 mb-1">
-                    Categoria Peggiore
-                  </h3>
-                  <p className="text-2xl font-bold text-gray-900">
-                    {worstCategory.categoria}
-                  </p>
-                  <p className="text-red-700 font-semibold mt-1">
-                    {worstCategory.marginePercentuale}% di margine
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Charts Section */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Horizontal Bar Chart - Margine % */}
-          <div className="rounded-lg shadow-lg p-6" style={{ background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)', border: '1px solid rgba(99,102,241,0.08)' }}>
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">
-              Margine % per Categoria
-            </h3>
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart
-                data={chartDataMargine}
-                layout="vertical"
-                margin={{ top: 5, right: 30, left: 120, bottom: 5 }}
-              >
-                <defs>
-                  <linearGradient id="grad-margine-cat" x1="0" y1="0" x2="1" y2="0">
-                    <stop offset="0%" stopColor="#3b82f6" stopOpacity={0.5} />
-                    <stop offset="100%" stopColor="#3b82f6" stopOpacity={1} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid {...GRID_STYLE} />
-                <XAxis type="number" {...AXIS_STYLE} />
-                <YAxis dataKey="name" type="category" width={110} {...AXIS_STYLE} />
-                <Tooltip content={<GlassTooltip formatter={(value) => `${value.toFixed(1)}%`} />} cursor={{ fill: 'rgba(99,102,241,0.04)', radius: 8 }} />
-                <Bar dataKey="Margine %" fill="url(#grad-margine-cat)" radius={[0, 8, 8, 0]} animationDuration={800} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-
-          {/* Pie Chart - Composizione Ricavi */}
-          <div className="rounded-lg shadow-lg p-6" style={{ background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)', border: '1px solid rgba(99,102,241,0.08)' }}>
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">
-              Composizione Ricavi per Categoria
-            </h3>
-            <ResponsiveContainer width="100%" height={300}>
-              <PieChart>
-                <defs>
-                  <linearGradient id="pie-margini-1" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#10b981" stopOpacity={1} />
-                    <stop offset="100%" stopColor="#10b981" stopOpacity={0.6} />
-                  </linearGradient>
-                  <linearGradient id="pie-margini-2" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#f59e0b" stopOpacity={1} />
-                    <stop offset="100%" stopColor="#f59e0b" stopOpacity={0.6} />
-                  </linearGradient>
-                  <linearGradient id="pie-margini-3" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#ef4444" stopOpacity={1} />
-                    <stop offset="100%" stopColor="#ef4444" stopOpacity={0.6} />
-                  </linearGradient>
-                  <linearGradient id="pie-margini-4" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#8b5cf6" stopOpacity={1} />
-                    <stop offset="100%" stopColor="#8b5cf6" stopOpacity={0.6} />
-                  </linearGradient>
-                  <linearGradient id="pie-margini-5" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#3b82f6" stopOpacity={1} />
-                    <stop offset="100%" stopColor="#3b82f6" stopOpacity={0.6} />
-                  </linearGradient>
-                  <linearGradient id="pie-margini-6" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#ec4899" stopOpacity={1} />
-                    <stop offset="100%" stopColor="#ec4899" stopOpacity={0.6} />
-                  </linearGradient>
-                  <linearGradient id="pie-margini-7" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#14b8a6" stopOpacity={1} />
-                    <stop offset="100%" stopColor="#14b8a6" stopOpacity={0.6} />
-                  </linearGradient>
-                  <linearGradient id="pie-margini-8" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#f97316" stopOpacity={1} />
-                    <stop offset="100%" stopColor="#f97316" stopOpacity={0.6} />
-                  </linearGradient>
-                </defs>
-                <Pie
-                  data={chartDataRicavi}
-                  cx="50%"
-                  cy="50%"
-                  labelLine={false}
-                  label={({ name, percent }) =>
-                    `${name}: ${(percent * 100).toFixed(0)}%`
-                  }
-                  outerRadius={80}
-                  fill="#8884d8"
-                  dataKey="value"
-                  paddingAngle={3}
-                  strokeWidth={0}
-                >
-                  {chartDataRicavi.map((entry, index) => {
-                    const gradId = `pie-margini-${index + 1}`;
-                    return <Cell key={`cell-${index}`} fill={`url(#${gradId})`} stroke="white" strokeWidth={2} />;
-                  })}
-                </Pie>
-                <Tooltip content={<GlassTooltip formatter={(value) => `€${value.toLocaleString()}`} />} cursor={{ fill: 'rgba(99,102,241,0.04)', radius: 8 }} />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        {/* Stacked Bar Chart - Costo vs Margine */}
-        <div className="rounded-lg shadow-lg p-6" style={{ background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)', border: '1px solid rgba(99,102,241,0.08)' }}>
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">
-            Composizione Ricavi: Costo vs Margine
-          </h3>
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart
-              data={chartDataCostoMargine}
-              margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
-            >
-              <defs>
-                <linearGradient id="grad-costo-margine-cost" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#ef4444" stopOpacity={1} />
-                  <stop offset="100%" stopColor="#ef4444" stopOpacity={0.5} />
-                </linearGradient>
-                <linearGradient id="grad-costo-margine-marg" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#10b981" stopOpacity={1} />
-                  <stop offset="100%" stopColor="#10b981" stopOpacity={0.5} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid {...GRID_STYLE} />
-              <XAxis dataKey="name" {...AXIS_STYLE} />
-              <YAxis {...AXIS_STYLE} />
-              <Tooltip content={<GlassTooltip formatter={(value) => `€${value.toLocaleString()}`} />} cursor={{ fill: 'rgba(99,102,241,0.04)', radius: 8 }} />
-              <Legend />
-              <Bar dataKey="Costo" stackId="a" fill="url(#grad-costo-margine-cost)" radius={[8, 8, 0, 0]} animationDuration={800} />
-              <Bar dataKey="Margine" stackId="a" fill="url(#grad-costo-margine-marg)" radius={[8, 8, 0, 0]} animationDuration={800} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-
-        {/* Trend Chart - 6 Months */}
-        <div className="rounded-lg shadow-lg p-6" style={{ background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)', border: '1px solid rgba(99,102,241,0.08)' }}>
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">
-            Trend Margine % - Ultimi 6 Mesi
-          </h3>
-          <ResponsiveContainer width="100%" height={350}>
-            <LineChart
-              data={trendData}
-              margin={{ top: 5, right: 30, left: 0, bottom: 5 }}
-            >
-              <CartesianGrid {...GRID_STYLE} />
-              <XAxis dataKey="month" {...AXIS_STYLE} />
-              <YAxis {...AXIS_STYLE} />
-              <Tooltip content={<GlassTooltip formatter={(value) => `${value}%`} />} cursor={{ fill: 'rgba(99,102,241,0.04)', radius: 8 }} />
-              <Legend />
-              {Object.keys(categoryData).map((categoria, idx) => (
-                <Line
-                  key={categoria}
-                  type="monotone"
-                  dataKey={categoria}
-                  stroke={COLORS[idx % COLORS.length]}
-                  dot={{ r: 4 }}
-                  strokeWidth={2.5}
-                />
-              ))}
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-
-        {/* Data Table */}
-        <div className="bg-white rounded-lg shadow-sm overflow-hidden">
-          <div className="p-6 border-b border-gray-200">
-            <h3 className="text-lg font-semibold text-gray-900">
-              Dettagli Categorie
-            </h3>
-            <p className="text-sm text-gray-600 mt-1">
-              Clicca sulle colonne per ordinare. I margini sono colorati in base
-              alla performance.
+      {noData && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
+          <Info className="text-amber-500 mt-0.5" size={18} />
+          <div>
+            <p className="text-sm font-medium text-amber-800">Nessun dato nel periodo selezionato</p>
+            <p className="text-xs text-amber-600 mt-1">
+              Importa i corrispettivi e le fatture fornitori dall'Import Hub per vedere i margini reali.
             </p>
           </div>
+        </div>
+      )}
 
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50 border-b border-gray-200">
-                <tr>
-                  {[
-                    { key: 'categoria', label: 'Categoria' },
-                    { key: 'pezziVenduti', label: 'Pezzi' },
-                    { key: 'ricavo', label: 'Ricavo' },
-                    { key: 'costoAcquisto', label: 'Costo' },
-                    { key: 'margineLoardo', label: 'Margine €' },
-                    { key: 'marginePercentuale', label: 'Margine %' },
-                    { key: 'ricarico', label: 'Ricarico %' },
-                    { key: 'prezzoMedioVendita', label: 'Prezzo Medio V.' },
-                    { key: 'prezzoMedioAcquisto', label: 'Prezzo Medio A.' },
-                  ].map((col) => (
-                    <th
-                      key={col.key}
-                      onClick={() => handleSort(col.key)}
-                      className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider cursor-pointer hover:bg-gray-100 transition"
-                    >
-                      {col.label}
-                      {sortConfig.key === col.key && (
-                        <span className="ml-2">
-                          {sortConfig.direction === 'asc' ? '↑' : '↓'}
-                        </span>
-                      )}
-                    </th>
-                  ))}
+      {/* Tabs */}
+      <div className="flex gap-1 bg-slate-100 rounded-lg p-1 w-fit">
+        {[
+          { key: 'outlet', label: 'Per Outlet', icon: Store },
+          { key: 'costi', label: 'Struttura Costi', icon: PieChartIcon },
+          { key: 'trend', label: 'Trend Mensile', icon: BarChart3 },
+        ].map(t => (
+          <button key={t.key} onClick={() => setTab(t.key)}
+            className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-md transition ${tab === t.key ? 'bg-white shadow text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}>
+            <t.icon size={15} /> {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Tab Content */}
+      {tab === 'outlet' && <OutletTab outletData={outletData} totals={totals} />}
+      {tab === 'costi' && <CostiTab costBreakdown={costBreakdown} totalCosts={totals.costs} />}
+      {tab === 'trend' && <TrendTab data={monthlyTrend} />}
+    </div>
+  )
+}
+
+// ═══ OUTLET TAB ═══
+function OutletTab({ outletData, totals }) {
+  const [sortKey, setSortKey] = useState('revenue')
+  const [sortDir, setSortDir] = useState('desc')
+
+  const sorted = useMemo(() => {
+    return [...outletData].sort((a, b) => sortDir === 'desc' ? b[sortKey] - a[sortKey] : a[sortKey] - b[sortKey])
+  }, [outletData, sortKey, sortDir])
+
+  const toggleSort = (key) => {
+    if (sortKey === key) setSortDir(d => d === 'desc' ? 'asc' : 'desc')
+    else { setSortKey(key); setSortDir('desc') }
+  }
+
+  const SortHeader = ({ k, label }) => (
+    <th onClick={() => toggleSort(k)}
+      className="py-3 px-3 text-xs font-semibold text-slate-500 text-right cursor-pointer hover:text-slate-700 select-none whitespace-nowrap">
+      {label} {sortKey === k && (sortDir === 'desc' ? '↓' : '↑')}
+    </th>
+  )
+
+  // Bar chart data
+  const chartData = outletData.map(o => ({
+    name: o.name, ricavi: o.revenue, costi: o.costs, margine: o.margin,
+  }))
+
+  return (
+    <div className="space-y-6">
+      {/* Bar chart */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+        <h3 className="text-sm font-semibold text-slate-900 mb-4">Ricavi vs Costi per Outlet</h3>
+        <ResponsiveContainer width="100%" height={320}>
+          <BarChart data={chartData} barGap={2}>
+            <CartesianGrid {...GRID_STYLE} />
+            <XAxis dataKey="name" {...AXIS_STYLE} />
+            <YAxis {...AXIS_STYLE} tickFormatter={fmtK} />
+            <Tooltip content={<GlassTooltip />} />
+            <Legend content={<ModernLegend />} />
+            <Bar dataKey="ricavi" name="Ricavi" fill="#6366f1" radius={BAR_RADIUS} />
+            <Bar dataKey="costi" name="Costi" fill="#ef4444" radius={BAR_RADIUS} />
+            <Bar dataKey="margine" name="Margine" fill="#10b981" radius={BAR_RADIUS} />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* Table */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead className="bg-slate-50 border-b border-slate-200">
+              <tr>
+                <th className="py-3 px-4 text-xs font-semibold text-slate-500 text-left">Outlet</th>
+                <SortHeader k="revenue" label="Ricavi" />
+                <SortHeader k="costs" label="Costi" />
+                <SortHeader k="margin" label="Margine" />
+                <SortHeader k="marginPct" label="Margine %" />
+                <SortHeader k="transactions" label="Scontrini" />
+                <SortHeader k="avgTicket" label="Scontrino Medio" />
+                <th className="py-3 px-3 text-xs font-semibold text-slate-500 text-right">Budget</th>
+                <th className="py-3 px-3 text-xs font-semibold text-slate-500 text-center">Target</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sorted.map((o, i) => (
+                <tr key={o.id} className={`border-b border-slate-50 hover:bg-slate-50/50 transition ${i % 2 === 0 ? '' : 'bg-slate-25'}`}>
+                  <td className="py-3 px-4">
+                    <div className="flex items-center gap-2">
+                      <div className="w-2.5 h-2.5 rounded-full" style={{ background: o.color }} />
+                      <span className="text-sm font-medium text-slate-900">{o.name}</span>
+                    </div>
+                  </td>
+                  <td className="py-3 px-3 text-sm text-right tabular-nums text-slate-700">{fmt(o.revenue)} €</td>
+                  <td className="py-3 px-3 text-sm text-right tabular-nums text-slate-700">{fmt(o.costs)} €</td>
+                  <td className={`py-3 px-3 text-sm text-right tabular-nums font-medium ${o.margin >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                    {fmt(o.margin)} €
+                  </td>
+                  <td className="py-3 px-3 text-right">
+                    <span className={`inline-flex items-center gap-1 text-sm font-medium ${o.marginPct >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                      {o.marginPct >= 0 ? <ArrowUpRight size={13} /> : <ArrowDownRight size={13} />}
+                      {fmtPct(o.marginPct)}
+                    </span>
+                  </td>
+                  <td className="py-3 px-3 text-sm text-right tabular-nums text-slate-600">{fmt(o.transactions)}</td>
+                  <td className="py-3 px-3 text-sm text-right tabular-nums text-slate-600">{fmt(o.avgTicket)} €</td>
+                  <td className="py-3 px-3 text-sm text-right tabular-nums text-slate-500">
+                    {o.budget > 0 ? (
+                      <span>
+                        {fmt(o.budget)} €
+                        {o.budgetVar != null && (
+                          <span className={`ml-1 text-xs ${o.budgetVar > 0 ? 'text-red-500' : 'text-emerald-500'}`}>
+                            ({o.budgetVar > 0 ? '+' : ''}{o.budgetVar.toFixed(0)}%)
+                          </span>
+                        )}
+                      </span>
+                    ) : '—'}
+                  </td>
+                  <td className="py-3 px-3 text-center">
+                    {o.revenue > 0 ? (
+                      <span className={`inline-block w-2 h-2 rounded-full ${o.onTarget ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+                    ) : (
+                      <span className="inline-block w-2 h-2 rounded-full bg-slate-300" />
+                    )}
+                  </td>
                 </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200">
-                {sortedData.map((category) => (
-                  <tr
-                    key={category.categoria}
-                    className={getMargineColor(category.marginePercentuale)}
-                  >
-                    <td className="px-6 py-4 whitespace-nowrap font-semibold text-gray-900">
-                      {category.categoria}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-gray-700">
-                      {category.pezziVenduti.toLocaleString('it-IT')}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-gray-700">
-                      €{category.ricavo.toLocaleString('it-IT')}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-gray-700">
-                      €{category.costoAcquisto.toLocaleString('it-IT')}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap font-semibold text-green-700">
-                      €{category.margineLoardo.toLocaleString('it-IT')}
-                    </td>
-                    <td
-                      className={`px-6 py-4 whitespace-nowrap ${getMargineTextColor(
-                        category.marginePercentuale
-                      )}`}
-                    >
-                      {category.marginePercentuale}%
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-gray-700">
-                      {category.ricarico}%
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-gray-700">
-                      €{category.prezzoMedioVendita.toFixed(2)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-gray-700">
-                      €{category.prezzoMedioAcquisto.toFixed(2)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+              ))}
+              {/* Totals row */}
+              <tr className="bg-slate-100 border-t-2 border-slate-300 font-semibold">
+                <td className="py-3 px-4 text-sm text-slate-900">Totale</td>
+                <td className="py-3 px-3 text-sm text-right tabular-nums">{fmt(totals.revenue)} €</td>
+                <td className="py-3 px-3 text-sm text-right tabular-nums">{fmt(totals.costs)} €</td>
+                <td className={`py-3 px-3 text-sm text-right tabular-nums ${totals.margin >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>
+                  {fmt(totals.margin)} €
+                </td>
+                <td className="py-3 px-3 text-sm text-right">{fmtPct(totals.marginPct)}</td>
+                <td className="py-3 px-3 text-sm text-right tabular-nums">{fmt(totals.transactions)}</td>
+                <td className="py-3 px-3 text-sm text-right tabular-nums">
+                  {totals.transactions > 0 ? `${fmt(Math.round(totals.revenue / totals.transactions))} €` : '—'}
+                </td>
+                <td className="py-3 px-3 text-sm text-right tabular-nums">
+                  {totals.budget > 0 ? `${fmt(totals.budget)} €` : '—'}
+                </td>
+                <td />
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ═══ COSTI TAB ═══
+function CostiTab({ costBreakdown, totalCosts }) {
+  const pieData = costBreakdown.map((g, i) => ({
+    name: g.name, value: g.total, fill: PALETTE[i % PALETTE.length],
+  }))
+
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Pie chart */}
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+          <h3 className="text-sm font-semibold text-slate-900 mb-4">Distribuzione Costi per Macro-Gruppo</h3>
+          {pieData.length > 0 ? (
+            <ResponsiveContainer width="100%" height={320}>
+              <PieChart>
+                <Pie data={pieData} cx="50%" cy="50%" outerRadius={120} innerRadius={60}
+                  dataKey="value" label={<ModernPieLabel />} paddingAngle={2}>
+                  {pieData.map((entry, i) => <Cell key={i} fill={entry.fill} />)}
+                </Pie>
+                <Tooltip content={<GlassTooltip />} />
+              </PieChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="h-[320px] flex items-center justify-center text-slate-400 text-sm">
+              Nessun dato costi disponibile
+            </div>
+          )}
         </div>
 
-        {/* Footer Note */}
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 flex gap-3">
-          <AlertCircle className="text-blue-600 flex-shrink-0" size={20} />
-          <div className="text-sm text-blue-800">
-            <strong>Nota:</strong> I dati sono aggregati da tutti gli outlet
-            selezionati. I margini sono codificati per colore: verde ({'>='} 55%),
-            giallo (45-55%), rosso ({'<'} 45%). I dati di trend sono simulati per
-            illustrare l'analisi mensile.
+        {/* Cost breakdown table */}
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+          <h3 className="text-sm font-semibold text-slate-900 mb-4">Dettaglio per Categoria</h3>
+          <div className="space-y-4 max-h-[400px] overflow-y-auto">
+            {costBreakdown.map((group, gi) => (
+              <div key={gi}>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <div className="w-3 h-3 rounded" style={{ background: PALETTE[gi % PALETTE.length] }} />
+                    <span className="text-sm font-semibold text-slate-800">{group.name}</span>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-sm font-bold text-slate-900">{fmt(group.total)} €</span>
+                    <span className="text-xs text-slate-400 ml-2">
+                      {totalCosts > 0 ? fmtPct((group.total / totalCosts) * 100) : ''}
+                    </span>
+                  </div>
+                </div>
+                {/* Progress bar */}
+                <div className="h-1.5 bg-slate-100 rounded-full mb-2">
+                  <div className="h-full rounded-full transition-all" style={{
+                    width: totalCosts > 0 ? `${Math.min((group.total / totalCosts) * 100, 100)}%` : '0%',
+                    background: PALETTE[gi % PALETTE.length],
+                  }} />
+                </div>
+                {/* Sub-items */}
+                <div className="ml-5 space-y-1">
+                  {Object.entries(group.items)
+                    .sort(([, a], [, b]) => b - a)
+                    .map(([name, amt], i) => (
+                      <div key={i} className="flex justify-between text-xs">
+                        <span className="text-slate-500">{name}</span>
+                        <span className="text-slate-700 tabular-nums">{fmt(amt)} €</span>
+                      </div>
+                    ))}
+                </div>
+              </div>
+            ))}
+            {costBreakdown.length === 0 && (
+              <p className="text-sm text-slate-400 text-center py-8">
+                Nessun costo categorizzato nel periodo selezionato
+              </p>
+            )}
           </div>
         </div>
       </div>
     </div>
-  );
-};
+  )
+}
 
-export default MarginiCategoria;
+// ═══ TREND TAB ═══
+function TrendTab({ data }) {
+  return (
+    <div className="space-y-6">
+      {/* Revenue vs Costs trend */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+        <h3 className="text-sm font-semibold text-slate-900 mb-4">Trend Ricavi vs Costi (mensile)</h3>
+        {data.length > 0 ? (
+          <ResponsiveContainer width="100%" height={320}>
+            <BarChart data={data} barGap={2}>
+              <CartesianGrid {...GRID_STYLE} />
+              <XAxis dataKey="label" {...AXIS_STYLE} />
+              <YAxis {...AXIS_STYLE} tickFormatter={fmtK} />
+              <Tooltip content={<GlassTooltip />} />
+              <Legend content={<ModernLegend />} />
+              <Bar dataKey="revenue" name="Ricavi" fill="#6366f1" radius={BAR_RADIUS} />
+              <Bar dataKey="costs" name="Costi" fill="#ef4444" radius={BAR_RADIUS} />
+            </BarChart>
+          </ResponsiveContainer>
+        ) : (
+          <div className="h-[320px] flex items-center justify-center text-slate-400 text-sm">
+            Nessun dato nel periodo selezionato
+          </div>
+        )}
+      </div>
+
+      {/* Margin % trend */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+        <h3 className="text-sm font-semibold text-slate-900 mb-4">Trend Margine %</h3>
+        {data.length > 0 ? (
+          <ResponsiveContainer width="100%" height={280}>
+            <AreaChart data={data}>
+              <defs>
+                <linearGradient id="gradMargin" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#10b981" stopOpacity={0.3} />
+                  <stop offset="100%" stopColor="#10b981" stopOpacity={0.02} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid {...GRID_STYLE} />
+              <XAxis dataKey="label" {...AXIS_STYLE} />
+              <YAxis {...AXIS_STYLE} tickFormatter={v => `${v.toFixed(0)}%`} />
+              <Tooltip content={<GlassTooltip suffix="%" />} />
+              <Area type="monotone" dataKey="marginPct" name="Margine %" stroke="#10b981" strokeWidth={2.5}
+                fill="url(#gradMargin)" dot={{ r: 4, fill: '#10b981' }} />
+            </AreaChart>
+          </ResponsiveContainer>
+        ) : (
+          <div className="h-[280px] flex items-center justify-center text-slate-400 text-sm">
+            Nessun dato nel periodo selezionato
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ═══ HELPERS ═══
+function groupLabel(macro) {
+  const labels = {
+    locazione: 'Locazione & Affitti',
+    personale: 'Personale',
+    generali_amministrative: 'Generali & Amministrative',
+    finanziarie: 'Oneri Finanziari',
+    oneri_diversi: 'Oneri Diversi',
+  }
+  return labels[macro] || macro || 'Altro'
+}
+
+function Kpi({ icon: Icon, label, value, sub, color }) {
+  const colors = {
+    blue: 'bg-blue-50 text-blue-600', green: 'bg-emerald-50 text-emerald-600',
+    amber: 'bg-amber-50 text-amber-600', red: 'bg-red-50 text-red-600',
+    indigo: 'bg-indigo-50 text-indigo-600', purple: 'bg-purple-50 text-purple-600',
+  }
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+      <div className="flex items-center gap-3">
+        <div className={`p-2 rounded-lg ${colors[color] || colors.indigo}`}><Icon size={18} /></div>
+        <div className="min-w-0">
+          <div className="text-lg font-bold text-slate-900 truncate">{value}</div>
+          <div className="text-xs text-slate-500">{label}</div>
+          {sub && <div className="text-xs text-slate-400">{sub}</div>}
+        </div>
+      </div>
+    </div>
+  )
+}

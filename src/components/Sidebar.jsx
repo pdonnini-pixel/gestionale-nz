@@ -9,7 +9,7 @@ import { useState } from 'react'
 
 // Pages preserved but not yet integrated — marked "Next Future"
 const FUTURE_ROUTES = new Set([
-  '/margini', '/stock', '/analytics-pos', '/cash-flow', '/open-to-buy',
+  '/stock', '/analytics-pos', '/cash-flow', '/open-to-buy',
   '/produttivita', '/scenario', '/store-manager',
 ])
 
@@ -20,7 +20,7 @@ const navItems = {
     { to: '/confronto-outlet', icon: GitCompare, label: 'Confronto Outlet' },
     { to: '/budget', icon: Calculator, label: 'Budget & Controllo' },
     { to: '/conto-economico', icon: BarChart3, label: 'Conto Economico' },
-    { to: '/margini', icon: PieChart, label: 'Margini Categoria' },
+    { to: '/margini', icon: PieChart, label: 'Margini Outlet' },
     { to: '/stock', icon: Package, label: 'Stock & Sell-through' },
     { to: '/analytics-pos', icon: CreditCard, label: 'Analytics POS' },
     { to: '/cash-flow', icon: Wallet, label: 'Cash Flow' },
@@ -41,7 +41,7 @@ const navItems = {
     { to: '/confronto-outlet', icon: GitCompare, label: 'Confronto Outlet' },
     { to: '/budget', icon: Calculator, label: 'Budget & Controllo' },
     { to: '/conto-economico', icon: BarChart3, label: 'Conto Economico' },
-    { to: '/margini', icon: PieChart, label: 'Margini Categoria' },
+    { to: '/margini', icon: PieChart, label: 'Margini Outlet' },
     { to: '/cash-flow', icon: Wallet, label: 'Cash Flow' },
     { to: '/produttivita', icon: UserCheck, label: 'Produttività' },
     { to: '/scenario', icon: Map, label: 'Scenario Planning' },
@@ -53,7 +53,7 @@ const navItems = {
     { to: '/confronto-outlet', icon: GitCompare, label: 'Confronto Outlet' },
     { to: '/budget', icon: Calculator, label: 'Budget & Controllo' },
     { to: '/conto-economico', icon: BarChart3, label: 'Conto Economico' },
-    { to: '/margini', icon: PieChart, label: 'Margini Categoria' },
+    { to: '/margini', icon: PieChart, label: 'Margini Outlet' },
     { to: '/cash-flow', icon: Wallet, label: 'Cash Flow' },
     { to: '/scadenzario', icon: Receipt, label: 'Scadenzario' },
     { to: '/fornitori', icon: Building2, label: 'Fornitori' },
