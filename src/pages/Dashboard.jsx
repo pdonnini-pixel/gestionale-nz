@@ -150,7 +150,7 @@ export default function Dashboard() {
           .select('*')
           .eq('company_id', COMPANY_ID)
           .eq('year', YEAR)
-          .single()
+          .maybeSingle()
 
         if (dashErr) throw dashErr
 
@@ -164,7 +164,7 @@ export default function Dashboard() {
           .select('total_revenue')
           .eq('company_id', COMPANY_ID)
           .eq('year', YEAR - 1)
-          .single()
+          .maybeSingle()
 
         setRicaviPrevYear(dashPrevData?.total_revenue || 0)
 
