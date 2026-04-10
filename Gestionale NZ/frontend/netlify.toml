@@ -1,6 +1,6 @@
 [build]
   command = "echo skip"
-  publish = "Gestionale NZ/frontend/dist"
+  publish = "dist"
 
 [[redirects]]
   from = "/*"
