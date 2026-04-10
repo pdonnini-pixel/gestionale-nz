@@ -239,7 +239,7 @@ export default function Dashboard() {
           'Servizi': 0,
           'Affitti': 0,
           'Altro': 0,
-        }
+        };
 
         (pnlData || []).forEach(row => {
           costCategories['Merci'] += row.cogs || 0
@@ -261,7 +261,7 @@ export default function Dashboard() {
         // 8. Fetch company settings
         const { data: companyData, error: companyErr } = await supabase
           .from('company_settings')
-          .select('ragione_sociale, sede, p_iva, amministratore, soci, ateco, data_costituzione')
+          .select('ragione_sociale, sede_legale, partita_iva, amministratore, soci, ateco, data_costituzione')
           .eq('company_id', COMPANY_ID)
           .maybeSingle()
 
@@ -270,8 +270,8 @@ export default function Dashboard() {
         if (companyData) {
           setVisura({
             denominazione: companyData.ragione_sociale || '—',
-            sede: companyData.sede || '—',
-            piva: companyData.p_iva || '—',
+            sede: companyData.sede_legale || '—',
+            piva: companyData.partita_iva || '—',
             amministratore: companyData.amministratore || '—',
             soci: companyData.soci || '—',
             ateco: companyData.ateco || '—',
