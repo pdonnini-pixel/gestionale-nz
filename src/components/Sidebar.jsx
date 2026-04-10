@@ -28,6 +28,7 @@ const navItems = {
     { to: '/produttivita', icon: UserCheck, label: 'Produttività' },
     { to: '/scenario', icon: Map, label: 'Scenario Planning' },
     { to: '/scadenzario', icon: Receipt, label: 'Scadenzario' },
+    { to: '/fornitori', icon: Building2, label: 'Fornitori' },
     { to: '/store-manager', icon: ClipboardList, label: 'Store Manager' },
     { to: '/banche', icon: Landmark, label: 'Banche' },
     { to: '/dipendenti', icon: Users, label: 'Dipendenti' },
@@ -55,6 +56,7 @@ const navItems = {
     { to: '/margini', icon: PieChart, label: 'Margini Categoria' },
     { to: '/cash-flow', icon: Wallet, label: 'Cash Flow' },
     { to: '/scadenzario', icon: Receipt, label: 'Scadenzario' },
+    { to: '/fornitori', icon: Building2, label: 'Fornitori' },
     { to: '/banche', icon: Landmark, label: 'Banche' },
     { to: '/import-hub', icon: DatabaseZap, label: 'Import Hub' },
   ],
@@ -70,6 +72,7 @@ const navItems = {
   contabile: [
     { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
     { to: '/scadenzario', icon: Receipt, label: 'Scadenzario' },
+    { to: '/fornitori', icon: Building2, label: 'Fornitori' },
     { to: '/banche', icon: Landmark, label: 'Banche' },
     { to: '/import-hub', icon: DatabaseZap, label: 'Import Hub' },
   ],
