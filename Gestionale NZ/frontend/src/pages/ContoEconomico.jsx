@@ -514,6 +514,14 @@ export default function ContoEconomico() {
 
       if (uploadError) throw uploadError
 
+      // Delete previous imports for same year/period (avoid duplicates)
+      await supabase
+        .from('balance_sheet_imports')
+        .delete()
+        .eq('company_id', COMPANY_ID)
+        .eq('year', year)
+        .eq('period_type', periodType)
+
       // Create import record
       const { error: insertError } = await supabase
         .from('balance_sheet_imports')
@@ -617,27 +625,8 @@ export default function ContoEconomico() {
       }
     })
 
-    // Cross-field validation
-    const personale = parseFloat(formData.totale_personale) || 0
-    const stipendi = parseFloat(formData.salari_stipendi) || 0
-    const oneriSoc = parseFloat(formData.oneri_sociali) || 0
-    const tfr = parseFloat(formData.tfr) || 0
-    const sumPersonale = stipendi + oneriSoc + tfr
-    if (personale > 0 && sumPersonale > 0 && Math.abs(personale - sumPersonale) > 1) {
-      errors.totale_personale = `Totale personale (${fmt(personale)}) ≠ somma componenti (${fmt(sumPersonale)})`
-      hasErrors = true
-    }
-
-    const ricavi = parseFloat(formData.ricavi_vendite) || 0
-    const costiProd = parseFloat(formData.totale_costi_produzione) || 0
-    const diffAB = parseFloat(formData.differenza_ab) || 0
-    if (ricavi > 0 && costiProd > 0 && diffAB !== 0) {
-      const expectedDiff = ricavi - costiProd
-      if (Math.abs(diffAB - expectedDiff) > 1) {
-        errors.differenza_ab = `EBITDA (${fmt(diffAB)}) ≠ Ricavi - Costi (${fmt(expectedDiff)})`
-        hasErrors = true
-      }
-    }
+    // Cross-field validations removed — bilancio values from PDF may include
+    // sub-items not broken out in the form (e.g., "altri costi del personale")
 
     setFormErrors(errors)
     return !hasErrors
@@ -1173,80 +1162,7 @@ export default function ContoEconomico() {
         </div>
       )}
 
-      {/* Conto Economico Table */}
-      {!loading && (
-        <Section title={`Conto Economico — ${periodType} ${year}`} icon={Calculator} defaultOpen={true}>
-          <div className="rounded-2xl overflow-hidden shadow-lg" style={{ background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)', border: '1px solid rgba(99,102,241,0.08)' }}>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-[11px] text-slate-500 uppercase tracking-wider bg-slate-50 border-b border-slate-200">
-                    <th className="py-2 px-4 text-left font-medium">Voce</th>
-                    <th className="py-2 px-3 text-right font-medium">{year} (€)</th>
-                    <th className="py-2 px-3 text-right font-medium">%</th>
-                    <th className="py-2 px-3 text-right font-medium">{year - 1} (€)</th>
-                    <th className="py-2 px-3 text-right font-medium">%</th>
-                    <th className="py-2 px-3 text-right font-medium">Var.</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <CeRow label="A) Valore della produzione" bold />
-                  <CeRow label="Ricavi delle vendite" v2025={ce25.ricavi_vendite || 0} v2024={cePrev.ricavi_vendite}
-                    total2025={ricavi25} total2024={ricaviPrev} indent
-                    editable={simulationMode} onChange={(v) => handleSimulationChange('ricavi_vendite', v)} simMode={simulationMode}
-                    onEditChange={(k, dirty) => setDirtyFields({...dirtyFields, [k]: dirty})} fieldKey="ricavi_vendite" isDirty={dirtyFields.ricavi_vendite} />
-                  <CeRow label="Totale valore produzione" v2025={ce25.totale_valore_produzione || ricavi25} v2024={cePrev.totale_valore_produzione || ricaviPrev}
-                    total2025={ricavi25} total2024={ricaviPrev} bold highlight border />
-                  <CeRow label="B) Costi della produzione" bold />
-                  <CeRow label="Materie prime e merci" v2025={ce25.materie_prime || 0} v2024={cePrev.materie_prime}
-                    total2025={ricavi25} total2024={ricaviPrev} indent
-                    editable={simulationMode} onChange={(v) => handleSimulationChange('materie_prime', v)} simMode={simulationMode}
-                    onEditChange={(k, dirty) => setDirtyFields({...dirtyFields, [k]: dirty})} fieldKey="materie_prime" isDirty={dirtyFields.materie_prime} />
-                  <CeRow label="Servizi" v2025={ce25.servizi || 0} v2024={cePrev.servizi}
-                    total2025={ricavi25} total2024={ricaviPrev} indent
-                    editable={simulationMode} onChange={(v) => handleSimulationChange('servizi', v)} simMode={simulationMode}
-                    onEditChange={(k, dirty) => setDirtyFields({...dirtyFields, [k]: dirty})} fieldKey="servizi" isDirty={dirtyFields.servizi} />
-                  <CeRow label="Godimento beni di terzi (affitti)" v2025={ce25.godimento_beni_terzi || 0} v2024={cePrev.godimento_beni_terzi}
-                    total2025={ricavi25} total2024={ricaviPrev} indent
-                    editable={simulationMode} onChange={(v) => handleSimulationChange('godimento_beni_terzi', v)} simMode={simulationMode}
-                    onEditChange={(k, dirty) => setDirtyFields({...dirtyFields, [k]: dirty})} fieldKey="godimento_beni_terzi" isDirty={dirtyFields.godimento_beni_terzi} />
-                  <CeRow label="Personale" v2025={ce25.totale_personale || 0} v2024={cePrev.totale_personale}
-                    total2025={ricavi25} total2024={ricaviPrev} indent bold
-                    editable={simulationMode} onChange={(v) => handleSimulationChange('totale_personale', v)} simMode={simulationMode}
-                    onEditChange={(k, dirty) => setDirtyFields({...dirtyFields, [k]: dirty})} fieldKey="totale_personale" isDirty={dirtyFields.totale_personale} />
-                  <CeRow label="  — Stipendi" v2025={ce25.salari_stipendi || 0} v2024={cePrev.salari_stipendi} total2025={ricavi25} total2024={ricaviPrev} sub />
-                  <CeRow label="  — Oneri sociali" v2025={ce25.oneri_sociali || 0} v2024={cePrev.oneri_sociali} total2025={ricavi25} total2024={ricaviPrev} sub />
-                  <CeRow label="  — TFR" v2025={ce25.tfr || 0} v2024={cePrev.tfr} total2025={ricavi25} total2024={ricaviPrev} sub />
-                  <CeRow label="Ammortamenti" v2025={ce25.totale_ammortamenti || 0} v2024={cePrev.totale_ammortamenti}
-                    total2025={ricavi25} total2024={ricaviPrev} indent
-                    editable={simulationMode} onChange={(v) => handleSimulationChange('totale_ammortamenti', v)} simMode={simulationMode}
-                    onEditChange={(k, dirty) => setDirtyFields({...dirtyFields, [k]: dirty})} fieldKey="totale_ammortamenti" isDirty={dirtyFields.totale_ammortamenti} />
-                  <CeRow label="Variazione rimanenze" v2025={ce25.variazione_rimanenze || 0} v2024={cePrev.variazione_rimanenze}
-                    total2025={ricavi25} total2024={ricaviPrev} indent
-                    editable={simulationMode} onChange={(v) => handleSimulationChange('variazione_rimanenze', v)} simMode={simulationMode}
-                    onEditChange={(k, dirty) => setDirtyFields({...dirtyFields, [k]: dirty})} fieldKey="variazione_rimanenze" isDirty={dirtyFields.variazione_rimanenze} />
-                  <CeRow label="Oneri diversi" v2025={ce25.oneri_diversi || 0} v2024={cePrev.oneri_diversi}
-                    total2025={ricavi25} total2024={ricaviPrev} indent
-                    editable={simulationMode} onChange={(v) => handleSimulationChange('oneri_diversi', v)} simMode={simulationMode}
-                    onEditChange={(k, dirty) => setDirtyFields({...dirtyFields, [k]: dirty})} fieldKey="oneri_diversi" isDirty={dirtyFields.oneri_diversi} />
-                  <CeRow label="Totale costi produzione" v2025={ce25.totale_costi_produzione || 0} v2024={cePrev.totale_costi_produzione}
-                    total2025={ricavi25} total2024={ricaviPrev} bold highlight border />
-                  <CeRow label="EBITDA (Differenza A - B)" v2025={ce25.differenza_ab || 0} v2024={cePrev.differenza_ab}
-                    total2025={ricavi25} total2024={ricaviPrev} bold highlight border />
-                  <CeRow label="Oneri finanziari" v2025={-(ce25.oneri_finanziari || 0)} v2024={cePrev.oneri_finanziari ? -cePrev.oneri_finanziari : undefined}
-                    total2025={ricavi25} total2024={ricaviPrev} indent
-                    editable={simulationMode} onChange={(v) => handleSimulationChange('oneri_finanziari', v)} simMode={simulationMode}
-                    onEditChange={(k, dirty) => setDirtyFields({...dirtyFields, [k]: dirty})} fieldKey="oneri_finanziari" isDirty={dirtyFields.oneri_finanziari} />
-                  <CeRow label="Imposte" v2025={-(ce25.imposte || 0)} v2024={cePrev.imposte ? -cePrev.imposte : undefined}
-                    total2025={ricavi25} total2024={ricaviPrev} indent />
-                  <CeRow label="UTILE (PERDITA) D'ESERCIZIO" v2025={ce25.utile_netto || 0} v2024={cePrev.utile_netto}
-                    total2025={ricavi25} total2024={ricaviPrev} bold highlight border />
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </Section>
-      )}
+      {/* CE comparison table removed — tree view provides full detail */}
 
       {/* Feature 1: Analisi punti di forza/debolezza */}
       {!loading && ricavi25 > 0 && (
