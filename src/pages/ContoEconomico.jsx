@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, lazy, Suspense } from 'react'
+import { useState, useEffect, useCallback, useMemo, Suspense } from 'react'
 import {
   TrendingUp, TrendingDown, DollarSign, PieChart, BarChart3, Upload,
   ArrowUpRight, ArrowDownRight, ChevronDown, ChevronUp, AlertCircle,
@@ -15,7 +15,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { GlassTooltip, AXIS_STYLE, GRID_STYLE } from '../components/ChartTheme'
 
-const PdfViewer = lazy(() => import('../components/PdfViewer'))
+import PdfViewer from '../components/PdfViewer'
 
 // ===== HELPERS =====
 function fmt(n, decimals = 0) {
@@ -53,19 +53,38 @@ const CE_FIELDS = [
 ]
 
 // PDF text extraction patterns for Italian P&L
+// Supports both standard CE format and "sezioni contrapposte" (codici contabili 51, 61, 63...)
 const PDF_PATTERNS = [
-  { pattern: /ricavi\s*(?:delle\s*)?vendite[^\d]*?([\d.,]+)/i, field: 'ricavi_vendite' },
-  { pattern: /materie\s*prime[^\d]*?([\d.,]+)/i, field: 'materie_prime' },
-  { pattern: /servizi[^\d]*?([\d.,]+)/i, field: 'servizi' },
-  { pattern: /godimento\s*beni[^\d]*?([\d.,]+)/i, field: 'godimento_beni_terzi' },
+  // Ricavi — codice 51 o "Valore della produzione" o "Ricavi delle vendite"
+  { pattern: /(?:valore\s*della\s*produzione|ricavi\s*(?:delle\s*)?vendite\s*(?:e\s*delle\s*prest)?)[^\d]*?([\d.,]+)/i, field: 'ricavi_vendite' },
+  // Materie prime — codice 61 o "Costi della produzione" o "materie prime"
+  { pattern: /(?:per\s*)?materie\s*prime[^\d]*?([\d.,]+)/i, field: 'materie_prime' },
+  { pattern: /costi\s*della\s*produzione[^\d]*?([\d.,]+)/i, field: 'materie_prime' },
+  // Servizi — codice 63 o "Per servizi"
+  { pattern: /(?:^|\s)(?:per\s+)?servizi\b[^\d]*?([\d.,]+)/im, field: 'servizi' },
+  // Godimento beni di terzi — codice 65
+  { pattern: /(?:per\s*)?godimento\s*(?:di\s*)?beni\s*(?:di\s*)?terzi[^\d]*?([\d.,]+)/i, field: 'godimento_beni_terzi' },
+  // Salari e stipendi
   { pattern: /salari\s*(?:e\s*)?stipendi[^\d]*?([\d.,]+)/i, field: 'salari_stipendi' },
+  // Oneri sociali
   { pattern: /oneri\s*sociali[^\d]*?([\d.,]+)/i, field: 'oneri_sociali' },
-  { pattern: /(?:trattamento\s*fine\s*rapporto|t\.?f\.?r\.?)[^\d]*?([\d.,]+)/i, field: 'tfr' },
-  { pattern: /totale\s*(?:costo\s*del\s*)?personale[^\d]*?([\d.,]+)/i, field: 'totale_personale' },
-  { pattern: /ammortament[io][^\d]*?([\d.,]+)/i, field: 'totale_ammortamenti' },
-  { pattern: /oneri\s*finanziari[^\d]*?([\d.,]+)/i, field: 'oneri_finanziari' },
-  { pattern: /imposte[^\d]*?([\d.,]+)/i, field: 'imposte' },
-  { pattern: /utile\s*(?:netto|d'esercizio|di\s*esercizio)[^\d]*?([\d.,]+)/i, field: 'utile_netto' },
+  // TFR
+  { pattern: /(?:trattamento\s*(?:di\s*)?fine\s*rapporto|t\.?f\.?r\.?)[^\d]*?([\d.,]+)/i, field: 'tfr' },
+  // Totale personale — codice 67 o "Per il personale"
+  { pattern: /(?:per\s*il\s*personale|totale\s*(?:costo\s*del\s*)?personale)[^\d]*?([\d.,]+)/i, field: 'totale_personale' },
+  // Ammortamenti — codice 69 + 71 o "Amm."
+  { pattern: /amm(?:ortament[io]|\.)\s*(?:delle\s*)?immobilizzazion[ie][^\d]*?([\d.,]+)/i, field: 'totale_ammortamenti' },
+  // Variazione rimanenze — codice 73
+  { pattern: /variaz(?:ione)?\s*riman(?:enze)?[^\d-]*?(-?[\d.,]+)/i, field: 'variazione_rimanenze' },
+  // Oneri diversi di gestione — codice 77
+  { pattern: /oneri\s*diversi\s*(?:di\s*gestione)?[^\d]*?([\d.,]+)/i, field: 'oneri_diversi' },
+  // Oneri finanziari — codice 83
+  { pattern: /(?:interessi\s*e\s*(?:altri\s*)?)?oneri\s*finanziari[^\d]*?([\d.,]+)/i, field: 'oneri_finanziari' },
+  // Imposte
+  { pattern: /imposte\s*(?:sul\s*reddito|correnti)?[^\d]*?([\d.,]+)/i, field: 'imposte' },
+  // Utile/Perdita
+  { pattern: /(?:utile|perdita)\s*(?:netto|netta|d['']esercizio|di\s*esercizio)?[^\d]*?([\d.,]+)/i, field: 'utile_netto' },
+  // Differenza A-B / EBITDA
   { pattern: /differenza\s*(?:tra\s*)?(?:valore\s*e\s*costi|A[\s-]*B)[^\d]*?([\d.,]+)/i, field: 'differenza_ab' },
 ]
 
