@@ -33,6 +33,21 @@ function variation(curr, prev) {
   return ((curr - prev) / Math.abs(prev) * 100)
 }
 
+// ===== Italian number formatting for form inputs =====
+function fmtInput(n) {
+  if (n == null || n === '') return ''
+  const num = typeof n === 'string' ? parseFloat(n) : n
+  if (isNaN(num)) return ''
+  return new Intl.NumberFormat('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(num)
+}
+function parseInputNumber(str) {
+  if (!str || typeof str !== 'string') return ''
+  // Remove thousand separators (dots), replace comma with dot for decimal
+  const cleaned = str.replace(/\./g, '').replace(',', '.')
+  const n = parseFloat(cleaned)
+  return isNaN(n) ? '' : n
+}
+
 // ===== FORM FIELDS with labels and validation =====
 const CE_FIELDS = [
   { key: 'ricavi_vendite', label: 'Ricavi delle vendite', required: true, min: 0 },
@@ -965,19 +980,21 @@ export default function ContoEconomico() {
                       {parsedFields?.[field.key] !== undefined && <span className="text-green-500 ml-1 text-[10px]">PDF</span>}
                     </label>
                     <input
-                      type="number"
-                      value={formData[field.key] ?? ''}
+                      type="text"
+                      inputMode="decimal"
+                      value={fmtInput(formData[field.key])}
                       onChange={(e) => {
-                        setFormData({ ...formData, [field.key]: e.target.value })
+                        const raw = e.target.value.replace(/[^\d.,-]/g, '')
+                        const parsed = parseInputNumber(raw)
+                        setFormData({ ...formData, [field.key]: parsed })
                         if (formErrors[field.key]) setFormErrors({ ...formErrors, [field.key]: null })
                       }}
-                      className={`w-full px-2 py-1 border rounded text-sm ${
+                      className={`w-full px-2 py-1 border rounded text-sm text-right tabular-nums ${
                         formErrors[field.key] ? 'border-red-400 bg-red-50' :
                         parsedFields?.[field.key] !== undefined ? 'border-green-300 bg-green-50' :
                         'border-slate-300'
                       }`}
-                      placeholder="0"
-                      step="0.01"
+                      placeholder="0,00"
                     />
                     {formErrors[field.key] && (
                       <p className="text-[10px] text-red-600 mt-0.5 flex items-center gap-0.5">
@@ -1006,6 +1023,108 @@ export default function ContoEconomico() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* ═══ BILANCIO TREE VIEW — right after import form ═══ */}
+      {showBilancioTree && bilancioData && (
+        <Section title="Bilancio importato — Dettaglio completo" icon={FileText} defaultOpen={true}
+          badge={`${(bilancioData.contoEconomico?.costi?.length || 0) + (bilancioData.contoEconomico?.ricavi?.length || 0) + (bilancioData.patrimoniale?.attivita?.length || 0) + (bilancioData.patrimoniale?.passivita?.length || 0)} voci`}>
+          <div className="p-5 space-y-6">
+            {/* Save button */}
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-slate-600">
+                  {bilancioData.meta?.company || 'Azienda'} — {bilancioData.meta?.period || 'Periodo'}
+                </p>
+                <p className="text-xs text-slate-400 mt-1">
+                  SP: {bilancioData.patrimoniale?.attivita?.length || 0} voci attività, {bilancioData.patrimoniale?.passivita?.length || 0} voci passività |
+                  CE: {bilancioData.contoEconomico?.costi?.length || 0} voci costi, {bilancioData.contoEconomico?.ricavi?.length || 0} voci ricavi
+                </p>
+              </div>
+              <button onClick={handleSaveBilancio} disabled={bilancioSaving || bilancioSaved}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition ${
+                  bilancioSaved ? 'bg-emerald-100 text-emerald-700 border border-emerald-300' :
+                  'bg-blue-600 text-white hover:bg-blue-700'
+                }`}>
+                {bilancioSaving ? <><Loader2 size={14} className="animate-spin" /> Salvataggio...</> :
+                 bilancioSaved ? <><CheckCircle size={14} /> Salvato in Supabase</> :
+                 <><Save size={14} /> Salva bilancio completo</>}
+              </button>
+            </div>
+
+            {/* Stato Patrimoniale */}
+            <div>
+              <h3 className="text-sm font-bold text-slate-800 mb-3 flex items-center gap-2">
+                <Building2 size={16} className="text-indigo-500" /> Stato Patrimoniale
+              </h3>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div>
+                  <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Attività</div>
+                  <BilancioTree rows={bilancioData.patrimoniale?.attivitaTree || []} />
+                  {bilancioData.patrimoniale?.totals?.attivita != null && (
+                    <div className="mt-2 pt-2 border-t-2 border-slate-300 flex justify-between px-2">
+                      <span className="text-sm font-bold text-slate-900">TOTALE</span>
+                      <span className="text-sm font-bold text-slate-900">{fmt(bilancioData.patrimoniale.totals.attivita)} €</span>
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Passività</div>
+                  <BilancioTree rows={bilancioData.patrimoniale?.passivitaTree || []} />
+                  {bilancioData.patrimoniale?.totals?.passivita != null && (
+                    <div className="mt-2 pt-2 border-t-2 border-slate-300 flex justify-between px-2">
+                      <span className="text-sm font-bold text-slate-900">TOTALE</span>
+                      <span className="text-sm font-bold text-slate-900">{fmt(bilancioData.patrimoniale.totals.passivita)} €</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+              {bilancioData.patrimoniale?.totals?.risultato != null && (
+                <div className={`mt-3 p-3 rounded-lg text-center font-bold text-sm ${
+                  bilancioData.patrimoniale.totals.risultato >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'
+                }`}>
+                  {bilancioData.patrimoniale.totals.risultato >= 0 ? 'Utile' : 'Perdita'}: {fmt(Math.abs(bilancioData.patrimoniale.totals.risultato))} €
+                </div>
+              )}
+            </div>
+
+            {/* Conto Economico dettagliato */}
+            <div>
+              <h3 className="text-sm font-bold text-slate-800 mb-3 flex items-center gap-2">
+                <BarChart3 size={16} className="text-blue-500" /> Conto Economico
+              </h3>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div>
+                  <div className="text-xs font-semibold text-red-500 uppercase tracking-wider mb-2">Componenti Negative</div>
+                  <BilancioTree rows={bilancioData.contoEconomico?.costiTree || []} />
+                  {bilancioData.contoEconomico?.totals?.costi != null && (
+                    <div className="mt-2 pt-2 border-t-2 border-slate-300 flex justify-between px-2">
+                      <span className="text-sm font-bold text-slate-900">TOTALE COSTI</span>
+                      <span className="text-sm font-bold text-red-600">{fmt(bilancioData.contoEconomico.totals.costi)} €</span>
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <div className="text-xs font-semibold text-emerald-500 uppercase tracking-wider mb-2">Componenti Positive</div>
+                  <BilancioTree rows={bilancioData.contoEconomico?.ricaviTree || []} />
+                  {bilancioData.contoEconomico?.totals?.ricavi != null && (
+                    <div className="mt-2 pt-2 border-t-2 border-slate-300 flex justify-between px-2">
+                      <span className="text-sm font-bold text-slate-900">TOTALE RICAVI</span>
+                      <span className="text-sm font-bold text-emerald-600">{fmt(bilancioData.contoEconomico.totals.ricavi)} €</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+              {bilancioData.contoEconomico?.totals?.risultato != null && (
+                <div className={`mt-3 p-3 rounded-lg text-center font-bold text-sm ${
+                  bilancioData.contoEconomico.totals.risultato >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'
+                }`}>
+                  {bilancioData.contoEconomico.totals.risultato >= 0 ? 'Utile' : 'Perdita'}: {fmt(Math.abs(bilancioData.contoEconomico.totals.risultato))} €
+                </div>
+              )}
+            </div>
+          </div>
+        </Section>
       )}
 
       {/* KPI Row */}
@@ -1345,108 +1464,6 @@ export default function ContoEconomico() {
             </div>
           </div>
         </div>
-      )}
-
-      {/* ═══ BILANCIO TREE VIEW ═══ */}
-      {showBilancioTree && bilancioData && (
-        <Section title="Bilancio importato — Dettaglio completo" icon={FileText} defaultOpen={true}
-          badge={`${bilancioData.contoEconomico.costi.length + bilancioData.contoEconomico.ricavi.length + bilancioData.patrimoniale.attivita.length + bilancioData.patrimoniale.passivita.length} voci`}>
-          <div className="p-5 space-y-6">
-            {/* Save button */}
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-slate-600">
-                  {bilancioData.meta.company} — {bilancioData.meta.period}
-                </p>
-                <p className="text-xs text-slate-400 mt-1">
-                  SP: {bilancioData.patrimoniale.attivita.length} voci attività, {bilancioData.patrimoniale.passivita.length} voci passività |
-                  CE: {bilancioData.contoEconomico.costi.length} voci costi, {bilancioData.contoEconomico.ricavi.length} voci ricavi
-                </p>
-              </div>
-              <button onClick={handleSaveBilancio} disabled={bilancioSaving || bilancioSaved}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition ${
-                  bilancioSaved ? 'bg-emerald-100 text-emerald-700 border border-emerald-300' :
-                  'bg-blue-600 text-white hover:bg-blue-700'
-                }`}>
-                {bilancioSaving ? <><Loader2 size={14} className="animate-spin" /> Salvataggio...</> :
-                 bilancioSaved ? <><CheckCircle size={14} /> Salvato in Supabase</> :
-                 <><Save size={14} /> Salva bilancio completo</>}
-              </button>
-            </div>
-
-            {/* Stato Patrimoniale */}
-            <div>
-              <h3 className="text-sm font-bold text-slate-800 mb-3 flex items-center gap-2">
-                <Building2 size={16} className="text-indigo-500" /> Stato Patrimoniale
-              </h3>
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <div>
-                  <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Attività</div>
-                  <BilancioTree rows={bilancioData.patrimoniale.attivitaTree} />
-                  {bilancioData.patrimoniale.totals.attivita && (
-                    <div className="mt-2 pt-2 border-t-2 border-slate-300 flex justify-between px-2">
-                      <span className="text-sm font-bold text-slate-900">TOTALE</span>
-                      <span className="text-sm font-bold text-slate-900">{fmt(bilancioData.patrimoniale.totals.attivita)} €</span>
-                    </div>
-                  )}
-                </div>
-                <div>
-                  <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Passività</div>
-                  <BilancioTree rows={bilancioData.patrimoniale.passivitaTree} />
-                  {bilancioData.patrimoniale.totals.passivita && (
-                    <div className="mt-2 pt-2 border-t-2 border-slate-300 flex justify-between px-2">
-                      <span className="text-sm font-bold text-slate-900">TOTALE</span>
-                      <span className="text-sm font-bold text-slate-900">{fmt(bilancioData.patrimoniale.totals.passivita)} €</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-              {bilancioData.patrimoniale.totals.risultato != null && (
-                <div className={`mt-3 p-3 rounded-lg text-center font-bold text-sm ${
-                  bilancioData.patrimoniale.totals.risultato >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'
-                }`}>
-                  {bilancioData.patrimoniale.totals.risultato >= 0 ? 'Utile' : 'Perdita'}: {fmt(Math.abs(bilancioData.patrimoniale.totals.risultato))} €
-                </div>
-              )}
-            </div>
-
-            {/* Conto Economico */}
-            <div>
-              <h3 className="text-sm font-bold text-slate-800 mb-3 flex items-center gap-2">
-                <BarChart3 size={16} className="text-blue-500" /> Conto Economico
-              </h3>
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <div>
-                  <div className="text-xs font-semibold text-red-500 uppercase tracking-wider mb-2">Componenti Negative</div>
-                  <BilancioTree rows={bilancioData.contoEconomico.costiTree} />
-                  {bilancioData.contoEconomico.totals.costi && (
-                    <div className="mt-2 pt-2 border-t-2 border-slate-300 flex justify-between px-2">
-                      <span className="text-sm font-bold text-slate-900">TOTALE COSTI</span>
-                      <span className="text-sm font-bold text-red-600">{fmt(bilancioData.contoEconomico.totals.costi)} €</span>
-                    </div>
-                  )}
-                </div>
-                <div>
-                  <div className="text-xs font-semibold text-emerald-500 uppercase tracking-wider mb-2">Componenti Positive</div>
-                  <BilancioTree rows={bilancioData.contoEconomico.ricaviTree} />
-                  {bilancioData.contoEconomico.totals.ricavi && (
-                    <div className="mt-2 pt-2 border-t-2 border-slate-300 flex justify-between px-2">
-                      <span className="text-sm font-bold text-slate-900">TOTALE RICAVI</span>
-                      <span className="text-sm font-bold text-emerald-600">{fmt(bilancioData.contoEconomico.totals.ricavi)} €</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-              {bilancioData.contoEconomico.totals.risultato != null && (
-                <div className={`mt-3 p-3 rounded-lg text-center font-bold text-sm ${
-                  bilancioData.contoEconomico.totals.risultato >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'
-                }`}>
-                  {bilancioData.contoEconomico.totals.risultato >= 0 ? 'Utile' : 'Perdita'}: {fmt(Math.abs(bilancioData.contoEconomico.totals.risultato))} €
-                </div>
-              )}
-            </div>
-          </div>
-        </Section>
       )}
 
       {/* Loading indicator */}
