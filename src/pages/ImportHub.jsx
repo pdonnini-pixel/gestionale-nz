@@ -1,9 +1,13 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   Upload,
   Database,
   CheckCircle,
   AlertCircle,
+  Play,
+  Loader2,
+  FileSearch,
+  Zap,
   Clock,
   Settings,
   BarChart3,
@@ -30,6 +34,7 @@ import { BarChart, Bar, PieChart as RechartsPieChart, Pie, Cell, XAxis, YAxis, C
 import { GlassTooltip, AXIS_STYLE, GRID_STYLE } from '../components/ChartTheme';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
+import { processImport, previewImport } from '../lib/parsers/importEngine';
 
 // Storage bucket mapping for each import source
 const IMPORT_SOURCE_CONFIG = {
@@ -129,6 +134,14 @@ export default function ImportHub() {
   const [validationErrors, setValidationErrors] = useState({});
   const [outlets, setOutlets] = useState([]);
   const [toast, setToast] = useState(null);
+
+  // ─── PROCESSING STATE ───────────────────────────────────────
+  const [processing, setProcessing] = useState(false);
+  const [processProgress, setProcessProgress] = useState(0);
+  const [processMessage, setProcessMessage] = useState('');
+  const [processResult, setProcessResult] = useState(null);
+  const [previewData, setPreviewData] = useState(null);
+  const pendingFileRef = useRef(null); // holds the raw File for re-processing
 
   const months = ['Gen', 'Feb', 'Mar', 'Apr', 'Mag', 'Giu', 'Lug', 'Ago', 'Set', 'Ott', 'Nov', 'Dic'];
   const years = Array.from({ length: 10 }, (_, i) => new Date().getFullYear() - i);
@@ -392,7 +405,11 @@ export default function ImportHub() {
         setUploadProgress(((idx + 1) / files.length) * 100);
       }
 
-      showToast(`${files.length} file caricati con successo`);
+      showToast(`${files.length} file caricati con successo${canProcess(sourceId) ? ' — premi "Processa" per importare i dati' : ''}`);
+      // Keep last file reference for immediate processing
+      if (files.length === 1 && canProcess(sourceId)) {
+        pendingFileRef.current = files[0];
+      }
       await loadImportDocs();
       setBatchSelected(new Set());
     } catch (err) {
@@ -462,6 +479,115 @@ export default function ImportHub() {
     if (batchSelected.size === uploadedFiles.length) setBatchSelected(new Set());
     else setBatchSelected(new Set(uploadedFiles.map(f => f.id)));
   };
+
+  // ─── PROCESSING FUNCTIONS ─────────────────────────────────────
+
+  // Check if source type supports processing
+  const canProcess = (sourceId) => ['bank', 'invoices', 'pos_data', 'receipts'].includes(sourceId);
+
+  // Preview a file before processing
+  async function handlePreview(file, fileRecord) {
+    if (!canProcess(selectedSource)) return;
+    setPreviewData(null);
+
+    try {
+      // Download file from storage for preview
+      const config = IMPORT_SOURCE_CONFIG[selectedSource];
+      const { data: blob, error } = await supabase.storage.from(config.bucket).download(fileRecord.file_path);
+      if (error) { showToast('Errore download file per anteprima', 'error'); return; }
+
+      const fileObj = new File([blob], fileRecord.file_name);
+      pendingFileRef.current = fileObj;
+
+      const result = await previewImport({
+        file: fileObj,
+        sourceType: selectedSource,
+        context: {
+          company_id: COMPANY_ID,
+          csvOptions: { skipRows: 0 },
+        },
+      });
+
+      setPreviewData({ ...result, fileRecord });
+    } catch (err) {
+      console.error('Preview error:', err);
+      showToast('Errore anteprima: ' + err.message, 'error');
+    }
+  }
+
+  // Process a file (parse + insert into DB)
+  async function handleProcessFile(fileRecord, mappingOverride = null) {
+    if (!canProcess(selectedSource) || processing) return;
+    setProcessing(true);
+    setProcessProgress(0);
+    setProcessMessage('Avvio elaborazione...');
+    setProcessResult(null);
+
+    try {
+      const config = IMPORT_SOURCE_CONFIG[selectedSource];
+
+      // Use pending file ref or download from storage
+      let fileObj = pendingFileRef.current;
+      if (!fileObj || fileObj.name !== fileRecord.file_name) {
+        const { data: blob, error } = await supabase.storage.from(config.bucket).download(fileRecord.file_path);
+        if (error) throw new Error('Download fallito: ' + error.message);
+        fileObj = new File([blob], fileRecord.file_name);
+      }
+
+      const result = await processImport({
+        file: fileObj,
+        sourceType: selectedSource,
+        context: {
+          company_id: COMPANY_ID,
+          bank_account_id: selectedBankAccount || fileRecord.bank_account_id,
+          outlet_id: selectedOutlet || fileRecord.outlet_id,
+          csvOptions: { skipRows: 0 },
+        },
+        mappingOverride,
+        onProgress: (pct, msg) => {
+          setProcessProgress(pct);
+          setProcessMessage(msg);
+        },
+      });
+
+      setProcessResult(result);
+
+      if (result.success) {
+        showToast(`Importati ${result.imported} record con successo!`);
+        // Update file status in source table
+        await supabase.from(config.table).update({
+          upload_status: 'parsed',
+          import_status: 'completed',
+        }).eq('id', fileRecord.id);
+        await loadImportDocs();
+      } else {
+        showToast(`Errori durante l'elaborazione`, 'error');
+      }
+    } catch (err) {
+      console.error('Process error:', err);
+      setProcessResult({ success: false, imported: 0, errors: [{ message: err.message }] });
+      showToast('Errore elaborazione: ' + err.message, 'error');
+    } finally {
+      setProcessing(false);
+      pendingFileRef.current = null;
+    }
+  }
+
+  // Process all pending files for current source
+  async function handleProcessAll() {
+    const pendingFiles = uploadedFiles.filter(f => {
+      const status = f.upload_status || f.import_status || f.document_status || 'uploaded';
+      return status === 'uploaded' || status === 'pending' || status === 'pending_parsing';
+    });
+    if (pendingFiles.length === 0) {
+      showToast('Nessun file da elaborare', 'error');
+      return;
+    }
+
+    for (const f of pendingFiles) {
+      await handleProcessFile(f);
+    }
+  }
 
   const importSources = Object.entries(IMPORT_SOURCE_CONFIG).map(([id, config]) => ({
     id,
@@ -948,6 +1074,12 @@ export default function ImportHub() {
                         {batchSelected.size === uploadedFiles.length ? <CheckSquare size={14} /> : <Square size={14} />}
                         {batchSelected.size === uploadedFiles.length ? 'Deseleziona tutti' : 'Seleziona tutti'}
                       </button>
+                      {canProcess(selectedSource) && uploadedFiles.some(f => ['uploaded','pending','pending_parsing'].includes(f.upload_status || f.import_status || f.document_status || 'uploaded')) && (
+                        <button onClick={handleProcessAll} disabled={processing} className="px-3 py-1 bg-emerald-50 text-emerald-700 rounded-lg text-xs font-semibold hover:bg-emerald-100 flex items-center gap-1 border border-emerald-200 disabled:opacity-50">
+                          {processing ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} />}
+                          {processing ? 'Elaborazione...' : 'Processa tutti'}
+                        </button>
+                      )}
                       {batchSelected.size > 0 && (
                         <button onClick={handleBatchDelete} className="px-3 py-1 bg-red-50 text-red-700 rounded-lg text-xs font-semibold hover:bg-red-100 flex items-center gap-1 border border-red-200">
                           <Trash2 size={13} /> Elimina {batchSelected.size}
@@ -980,6 +1112,22 @@ export default function ImportHub() {
                             <span className={`px-2 py-1 rounded text-xs font-medium border ${getStatusColor(statusLabel)}`}>
                               {statusLabel}
                             </span>
+                            {canProcess(selectedSource) && (statusLabel === 'uploaded' || statusLabel === 'pending' || statusLabel === 'pending_parsing') && (
+                              <>
+                                <button onClick={() => handlePreview(null, f)} className="p-1.5 rounded-lg hover:bg-amber-50 text-slate-400 hover:text-amber-600 transition" title="Anteprima dati">
+                                  <FileSearch size={16} />
+                                </button>
+                                <button
+                                  onClick={() => handleProcessFile(f)}
+                                  disabled={processing}
+                                  className="px-2.5 py-1 bg-emerald-50 text-emerald-700 rounded-lg text-xs font-semibold hover:bg-emerald-100 flex items-center gap-1 border border-emerald-200 disabled:opacity-50"
+                                  title="Elabora e importa dati"
+                                >
+                                  {processing ? <Loader2 size={13} className="animate-spin" /> : <Zap size={13} />}
+                                  Processa
+                                </button>
+                              </>
+                            )}
                             {isPdf && f.file_path && (
                               <button onClick={() => openPreview(f)} className="p-1.5 rounded-lg hover:bg-blue-50 text-slate-400 hover:text-blue-600 transition" title="Anteprima PDF">
                                 <Eye size={16} />
@@ -996,6 +1144,137 @@ export default function ImportHub() {
                 </div>
               )}
             </div>
+
+            {/* PROCESSING PROGRESS BAR */}
+            {processing && (
+              <div className="mt-4 p-4 bg-indigo-50 rounded-xl border border-indigo-200">
+                <div className="flex items-center gap-3 mb-2">
+                  <Loader2 size={18} className="animate-spin text-indigo-600" />
+                  <span className="text-sm font-medium text-indigo-700">{processMessage}</span>
+                </div>
+                <div className="w-full bg-indigo-200 rounded-full h-2">
+                  <div className="bg-indigo-600 h-2 rounded-full transition-all" style={{ width: `${processProgress}%` }} />
+                </div>
+              </div>
+            )}
+
+            {/* PROCESS RESULT PANEL */}
+            {processResult && !processing && (
+              <div className={`mt-4 p-4 rounded-xl border ${processResult.success ? 'bg-emerald-50 border-emerald-200' : 'bg-red-50 border-red-200'}`}>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    {processResult.success ? <CheckCircle size={18} className="text-emerald-600" /> : <AlertCircle size={18} className="text-red-600" />}
+                    <span className={`text-sm font-semibold ${processResult.success ? 'text-emerald-700' : 'text-red-700'}`}>
+                      {processResult.success ? `${processResult.imported} record importati con successo` : 'Errori durante l\'elaborazione'}
+                    </span>
+                  </div>
+                  <button onClick={() => setProcessResult(null)} className="text-slate-400 hover:text-slate-600"><X size={16} /></button>
+                </div>
+                {processResult.errors.length > 0 && (
+                  <div className="mt-2 max-h-32 overflow-y-auto">
+                    {processResult.errors.slice(0, 10).map((e, i) => (
+                      <div key={i} className="text-xs text-red-600 py-0.5">
+                        {e.row ? `Riga ${e.row}: ` : ''}{e.message}
+                      </div>
+                    ))}
+                    {processResult.errors.length > 10 && (
+                      <div className="text-xs text-red-500 mt-1">...e altri {processResult.errors.length - 10} errori</div>
+                    )}
+                  </div>
+                )}
+                {processResult.details && (
+                  <div className="mt-2 text-xs text-slate-600">
+                    {processResult.details.fatture && <span>Fatture: {processResult.details.fatture} </span>}
+                    {processResult.details.scadenze && <span>| Scadenze create: {processResult.details.scadenze} </span>}
+                    {processResult.details.fornitore && <span>| Fornitore: {processResult.details.fornitore}</span>}
+                    {processResult.details.totalParsed && <span>Righe parsate: {processResult.details.totalParsed} </span>}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* PREVIEW PANEL */}
+            {previewData && !processing && (
+              <div className="mt-4 p-4 bg-amber-50 rounded-xl border border-amber-200">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <FileSearch size={18} className="text-amber-600" />
+                    <span className="text-sm font-semibold text-amber-800">
+                      Anteprima: {previewData.fileRecord?.file_name}
+                    </span>
+                    {previewData.confidence && (
+                      <span className={`px-2 py-0.5 rounded text-xs font-medium ${previewData.confidence >= 70 ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                        Mapping {previewData.confidence}%
+                      </span>
+                    )}
+                  </div>
+                  <button onClick={() => setPreviewData(null)} className="text-slate-400 hover:text-slate-600"><X size={16} /></button>
+                </div>
+
+                {/* CSV Preview Table */}
+                {previewData.headers && (
+                  <div className="overflow-x-auto mb-3">
+                    <table className="w-full text-xs border-collapse">
+                      <thead>
+                        <tr>
+                          {previewData.headers.map((h, i) => (
+                            <th key={i} className="px-2 py-1.5 bg-amber-100 text-amber-800 font-semibold text-left border border-amber-200 whitespace-nowrap">
+                              {h}
+                              {previewData.mapping && Object.entries(previewData.mapping).find(([, v]) => v === h) && (
+                                <span className="ml-1 text-emerald-600">{'\u2192'} {Object.entries(previewData.mapping).find(([, v]) => v === h)[0]}</span>
+                              )}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {previewData.sampleRows?.slice(0, 5).map((row, i) => (
+                          <tr key={i} className="hover:bg-amber-50">
+                            {previewData.headers.map((h, j) => (
+                              <td key={j} className="px-2 py-1 border border-amber-100 text-slate-700 whitespace-nowrap max-w-48 truncate">
+                                {row[h]}
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    <div className="text-xs text-slate-500 mt-1">
+                      Mostrate {Math.min(5, previewData.sampleRows?.length || 0)} di {previewData.totalRows} righe totali
+                    </div>
+                  </div>
+                )}
+
+                {/* Invoice Preview */}
+                {previewData.invoices && (
+                  <div className="space-y-2 mb-3">
+                    {previewData.invoices.map((inv, i) => (
+                      <div key={i} className="p-2 bg-white rounded-lg border border-amber-200 text-xs">
+                        <div className="flex justify-between">
+                          <span className="font-semibold text-slate-700">{inv.tipo_label} n. {inv.invoice_number}</span>
+                          <span className="font-bold text-slate-900">{'\u20AC'} {inv.gross_amount?.toLocaleString('it-IT', { minimumFractionDigits: 2 })}</span>
+                        </div>
+                        <div className="text-slate-500 mt-0.5">
+                          {inv.supplier_name} | {inv.invoice_date} | Netto: {'\u20AC'}{inv.net_amount?.toLocaleString('it-IT', { minimumFractionDigits: 2 })} + IVA: {'\u20AC'}{inv.vat_amount?.toLocaleString('it-IT', { minimumFractionDigits: 2 })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <button
+                  onClick={() => {
+                    const fr = previewData.fileRecord;
+                    setPreviewData(null);
+                    handleProcessFile(fr, previewData.mapping || null);
+                  }}
+                  className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-semibold hover:bg-emerald-700 flex items-center gap-2"
+                >
+                  <Zap size={16} /> Conferma e processa
+                </button>
+              </div>
+            )}
+
           </div>
         )}
 
