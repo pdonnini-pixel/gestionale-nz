@@ -1,0 +1,9 @@
+[build]
+  base = "Gestionale NZ/frontend"
+  command = "echo skip"
+  publish = "Gestionale NZ/frontend/dist"
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
