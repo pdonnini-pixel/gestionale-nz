@@ -4,7 +4,7 @@ import {
   ArrowUpRight, ArrowDownRight, ChevronDown, ChevronUp, AlertCircle,
   Building2, Users, Warehouse, Banknote, Calculator, ShieldCheck, Store, MapPin,
   FileUp, Download, Lock, CheckCircle, Clock, ThumbsUp, ThumbsDown,
-  Lightbulb, AlertTriangle, FileText, Save, X, Sparkles, LineChart as LineChartIcon
+  Lightbulb, AlertTriangle, FileText, Save, X, Sparkles, LineChart as LineChartIcon, Loader2
 } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -16,6 +16,7 @@ import { useAuth } from '../hooks/useAuth'
 import { GlassTooltip, AXIS_STYLE, GRID_STYLE } from '../components/ChartTheme'
 
 import PdfViewer from '../components/PdfViewer'
+import { parseBilancio, toSupabaseRecords } from '../lib/parsers/bilancioParser'
 
 // ===== HELPERS =====
 function fmt(n, decimals = 0) {
@@ -297,6 +298,10 @@ export default function ContoEconomico() {
   const [pdfParsing, setPdfParsing] = useState(false)
   const [parsedFields, setParsedFields] = useState(null)
   const [pdfPreview, setPdfPreview] = useState(null)
+  const [bilancioData, setBilancioData] = useState(null) // full parsed bilancio tree
+  const [showBilancioTree, setShowBilancioTree] = useState(false)
+  const [bilancioSaving, setBilancioSaving] = useState(false)
+  const [bilancioSaved, setBilancioSaved] = useState(false)
 
   // Feature 6: Trend multi-anno
   const [trendData, setTrendData] = useState([])
@@ -512,35 +517,51 @@ export default function ContoEconomico() {
 
       if (insertError) throw insertError
 
-      // Try to parse PDF text
+      // Try to parse PDF with advanced bilancio parser
       if (file.type === 'application/pdf') {
         try {
           const arrayBuffer = await file.arrayBuffer()
-          const pdfjsLib = await import('pdfjs-dist')
-          pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.min.mjs', import.meta.url).toString()
-          const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise
-          let fullText = ''
-          for (let i = 1; i <= Math.min(pdf.numPages, 10); i++) {
-            const page = await pdf.getPage(i)
-            const content = await page.getTextContent()
-            fullText += content.items.map(item => item.str).join(' ') + '\n'
-          }
 
-          // Extract values using patterns
-          const extracted = {}
-          let matchCount = 0
-          PDF_PATTERNS.forEach(({ pattern, field }) => {
-            const match = fullText.match(pattern)
-            if (match) {
-              extracted[field] = parseItalianNumber(match[1])
-              matchCount++
-            }
+          // Use advanced bilancio parser (extracts full chart of accounts)
+          const parsed = await parseBilancio(arrayBuffer)
+          setBilancioData(parsed)
+          setShowBilancioTree(true)
+          setBilancioSaved(false)
+
+          // Also populate legacy form fields for backward compatibility
+          const t = parsed.contoEconomico.totals
+          const ceMacro = {}
+          parsed.contoEconomico.costi.forEach(row => {
+            if (row.isMacro) ceMacro[row.code] = row.amount
+          })
+          const ceSub = {}
+          parsed.contoEconomico.costi.forEach(row => {
+            if (row.level === 1) ceSub[row.code] = row.amount
           })
 
-          if (matchCount > 0) {
-            setParsedFields(extracted)
-            setFormData(prev => ({ ...prev, ...extracted }))
+          const extracted = {
+            ricavi_vendite: t.ricavi || 0,
+            materie_prime: ceMacro['61'] || 0,
+            servizi: ceMacro['63'] || 0,
+            godimento_beni_terzi: ceMacro['65'] || 0,
+            salari_stipendi: ceSub['6701'] || 0,
+            oneri_sociali: ceSub['6703'] || 0,
+            tfr: ceSub['6705'] || 0,
+            totale_personale: ceMacro['67'] || 0,
+            totale_ammortamenti: (ceMacro['69'] || 0) + (ceMacro['71'] || 0),
+            variazione_rimanenze: ceMacro['73'] || 0,
+            oneri_diversi: ceMacro['77'] || 0,
+            oneri_finanziari: ceMacro['83'] || 0,
+            imposte: 0,
+            utile_netto: t.risultato || 0,
           }
+          extracted.totale_costi_produzione = extracted.materie_prime + extracted.servizi +
+            extracted.godimento_beni_terzi + extracted.totale_personale +
+            extracted.totale_ammortamenti + extracted.variazione_rimanenze + extracted.oneri_diversi
+          extracted.differenza_ab = extracted.ricavi_vendite - extracted.totale_costi_produzione
+
+          setParsedFields(extracted)
+          setFormData(prev => ({ ...prev, ...extracted }))
 
           // Store PDF for preview
           setPdfPreview(arrayBuffer)
@@ -702,6 +723,43 @@ export default function ContoEconomico() {
       setTimeout(() => setSaveMessage(null), 5000)
     } finally {
       setSaving(false)
+    }
+  }
+
+  // Feature 7: Save full bilancio data (all accounts)
+  const handleSaveBilancio = async () => {
+    if (!bilancioData || !COMPANY_ID) return
+    setBilancioSaving(true)
+    try {
+      const records = toSupabaseRecords(bilancioData, COMPANY_ID, year, periodType)
+
+      // Delete existing data for this year/period (all sections)
+      const sections = ['sp_attivita', 'sp_passivita', 'ce_costi', 'ce_ricavi', 'conto_economico']
+      for (const section of sections) {
+        await supabase
+          .from('balance_sheet_data')
+          .delete()
+          .eq('company_id', COMPANY_ID)
+          .eq('year', year)
+          .eq('period_type', periodType)
+          .eq('section', section)
+      }
+
+      // Insert in batches of 100
+      for (let i = 0; i < records.length; i += 100) {
+        const batch = records.slice(i, i + 100)
+        const { error } = await supabase.from('balance_sheet_data').insert(batch)
+        if (error) throw error
+      }
+
+      setBilancioSaved(true)
+      loadPeriodData()
+      loadAvailableYears()
+    } catch (error) {
+      console.error('Error saving bilancio:', error)
+      alert('Errore nel salvataggio: ' + (error.message || 'sconosciuto'))
+    } finally {
+      setBilancioSaving(false)
     }
   }
 
@@ -1285,11 +1343,175 @@ export default function ContoEconomico() {
         </div>
       )}
 
+      {/* ═══ BILANCIO TREE VIEW ═══ */}
+      {showBilancioTree && bilancioData && (
+        <Section title="Bilancio importato — Dettaglio completo" icon={FileText} defaultOpen={true}
+          badge={`${bilancioData.contoEconomico.costi.length + bilancioData.contoEconomico.ricavi.length + bilancioData.patrimoniale.attivita.length + bilancioData.patrimoniale.passivita.length} voci`}>
+          <div className="p-5 space-y-6">
+            {/* Save button */}
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-slate-600">
+                  {bilancioData.meta.company} — {bilancioData.meta.period}
+                </p>
+                <p className="text-xs text-slate-400 mt-1">
+                  SP: {bilancioData.patrimoniale.attivita.length} voci attività, {bilancioData.patrimoniale.passivita.length} voci passività |
+                  CE: {bilancioData.contoEconomico.costi.length} voci costi, {bilancioData.contoEconomico.ricavi.length} voci ricavi
+                </p>
+              </div>
+              <button onClick={handleSaveBilancio} disabled={bilancioSaving || bilancioSaved}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition ${
+                  bilancioSaved ? 'bg-emerald-100 text-emerald-700 border border-emerald-300' :
+                  'bg-blue-600 text-white hover:bg-blue-700'
+                }`}>
+                {bilancioSaving ? <><Loader2 size={14} className="animate-spin" /> Salvataggio...</> :
+                 bilancioSaved ? <><CheckCircle size={14} /> Salvato in Supabase</> :
+                 <><Save size={14} /> Salva bilancio completo</>}
+              </button>
+            </div>
+
+            {/* Stato Patrimoniale */}
+            <div>
+              <h3 className="text-sm font-bold text-slate-800 mb-3 flex items-center gap-2">
+                <Building2 size={16} className="text-indigo-500" /> Stato Patrimoniale
+              </h3>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div>
+                  <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Attività</div>
+                  <BilancioTree rows={bilancioData.patrimoniale.attivitaTree} />
+                  {bilancioData.patrimoniale.totals.attivita && (
+                    <div className="mt-2 pt-2 border-t-2 border-slate-300 flex justify-between px-2">
+                      <span className="text-sm font-bold text-slate-900">TOTALE</span>
+                      <span className="text-sm font-bold text-slate-900">{fmt(bilancioData.patrimoniale.totals.attivita)} €</span>
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Passività</div>
+                  <BilancioTree rows={bilancioData.patrimoniale.passivitaTree} />
+                  {bilancioData.patrimoniale.totals.passivita && (
+                    <div className="mt-2 pt-2 border-t-2 border-slate-300 flex justify-between px-2">
+                      <span className="text-sm font-bold text-slate-900">TOTALE</span>
+                      <span className="text-sm font-bold text-slate-900">{fmt(bilancioData.patrimoniale.totals.passivita)} €</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+              {bilancioData.patrimoniale.totals.risultato != null && (
+                <div className={`mt-3 p-3 rounded-lg text-center font-bold text-sm ${
+                  bilancioData.patrimoniale.totals.risultato >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'
+                }`}>
+                  {bilancioData.patrimoniale.totals.risultato >= 0 ? 'Utile' : 'Perdita'}: {fmt(Math.abs(bilancioData.patrimoniale.totals.risultato))} €
+                </div>
+              )}
+            </div>
+
+            {/* Conto Economico */}
+            <div>
+              <h3 className="text-sm font-bold text-slate-800 mb-3 flex items-center gap-2">
+                <BarChart3 size={16} className="text-blue-500" /> Conto Economico
+              </h3>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div>
+                  <div className="text-xs font-semibold text-red-500 uppercase tracking-wider mb-2">Componenti Negative</div>
+                  <BilancioTree rows={bilancioData.contoEconomico.costiTree} />
+                  {bilancioData.contoEconomico.totals.costi && (
+                    <div className="mt-2 pt-2 border-t-2 border-slate-300 flex justify-between px-2">
+                      <span className="text-sm font-bold text-slate-900">TOTALE COSTI</span>
+                      <span className="text-sm font-bold text-red-600">{fmt(bilancioData.contoEconomico.totals.costi)} €</span>
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <div className="text-xs font-semibold text-emerald-500 uppercase tracking-wider mb-2">Componenti Positive</div>
+                  <BilancioTree rows={bilancioData.contoEconomico.ricaviTree} />
+                  {bilancioData.contoEconomico.totals.ricavi && (
+                    <div className="mt-2 pt-2 border-t-2 border-slate-300 flex justify-between px-2">
+                      <span className="text-sm font-bold text-slate-900">TOTALE RICAVI</span>
+                      <span className="text-sm font-bold text-emerald-600">{fmt(bilancioData.contoEconomico.totals.ricavi)} €</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+              {bilancioData.contoEconomico.totals.risultato != null && (
+                <div className={`mt-3 p-3 rounded-lg text-center font-bold text-sm ${
+                  bilancioData.contoEconomico.totals.risultato >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'
+                }`}>
+                  {bilancioData.contoEconomico.totals.risultato >= 0 ? 'Utile' : 'Perdita'}: {fmt(Math.abs(bilancioData.contoEconomico.totals.risultato))} €
+                </div>
+              )}
+            </div>
+          </div>
+        </Section>
+      )}
+
       {/* Loading indicator */}
       {loading && (
         <div className="flex items-center justify-center py-8">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
           <span className="ml-2 text-slate-600">Caricamento dati...</span>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ═══ BILANCIO TREE COMPONENT ═══
+function BilancioTree({ rows }) {
+  if (!rows || rows.length === 0) return <p className="text-xs text-slate-400 italic">Nessun dato</p>
+  return (
+    <div className="space-y-0.5">
+      {rows.map((node, i) => <TreeNode key={`${node.code}-${i}`} node={node} />)}
+    </div>
+  )
+}
+
+function TreeNode({ node, depth = 0 }) {
+  const [open, setOpen] = useState(node.level === 0) // macro level open by default
+  const hasChildren = node.children && node.children.length > 0
+  const isMacroRow = node.level === 0
+  const isNegative = node.amount < 0
+
+  const fmtAmount = (n) => {
+    if (n == null) return '—'
+    const formatted = new Intl.NumberFormat('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Math.abs(n))
+    return n < 0 ? `-${formatted}` : formatted
+  }
+
+  return (
+    <div>
+      <div
+        onClick={() => hasChildren && setOpen(!open)}
+        className={`flex items-center justify-between py-1 px-2 rounded transition ${
+          hasChildren ? 'cursor-pointer hover:bg-slate-50' : ''
+        } ${isMacroRow ? 'bg-slate-50' : ''}`}
+        style={{ paddingLeft: `${8 + depth * 16}px` }}
+      >
+        <div className="flex items-center gap-1.5 min-w-0 flex-1">
+          {hasChildren ? (
+            <span className="text-slate-400 w-4 shrink-0 text-center text-xs">{open ? '▾' : '▸'}</span>
+          ) : (
+            <span className="w-4 shrink-0" />
+          )}
+          <span className={`font-mono text-slate-400 shrink-0 ${isMacroRow ? 'text-xs font-bold' : 'text-[10px]'}`}
+            style={{ width: node.code.length > 4 ? '60px' : '30px' }}>
+            {node.code}
+          </span>
+          <span className={`truncate ${isMacroRow ? 'text-xs font-bold text-slate-900' : 'text-xs text-slate-600'}`}>
+            {node.description}
+          </span>
+        </div>
+        <span className={`tabular-nums text-right shrink-0 ml-2 ${
+          isMacroRow ? 'text-xs font-bold text-slate-900' : 'text-[11px] text-slate-600'
+        } ${isNegative ? 'text-red-600' : ''}`}>
+          {fmtAmount(node.amount)} €
+        </span>
+      </div>
+      {open && hasChildren && (
+        <div>
+          {node.children.map((child, i) => (
+            <TreeNode key={`${child.code}-${i}`} node={child} depth={depth + 1} />
+          ))}
         </div>
       )}
     </div>
