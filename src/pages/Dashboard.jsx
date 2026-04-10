@@ -263,7 +263,7 @@ export default function Dashboard() {
           .from('company_settings')
           .select('ragione_sociale, sede, p_iva, amministratore, soci, ateco, data_costituzione')
           .eq('company_id', COMPANY_ID)
-          .single()
+          .maybeSingle()
 
         if (companyErr && companyErr.code !== 'PGRST116') throw companyErr
 
