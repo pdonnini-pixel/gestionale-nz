@@ -6,7 +6,7 @@ import {
   TrendingUp, TrendingDown, DollarSign, Store, Wallet, Users,
   ArrowUpRight, ArrowRight, Landmark, Building2, HandCoins,
   BarChart3, GitCompare, Receipt, FileText, Percent,
-  AlertTriangle, CheckCircle2, Target, Loader
+  AlertTriangle, CheckCircle2, Target, Loader, Info
 } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
@@ -96,12 +96,13 @@ function AlertCard({ icon: Icon, color, title, children }) {
 export default function Dashboard() {
   const { profile } = useAuth()
   const COMPANY_ID = profile?.company_id
-  const CURRENT_YEAR = 2025
-  const YEAR = CURRENT_YEAR - 1
+  const CURRENT_YEAR = new Date().getFullYear()
+  const [dashYear, setDashYear] = useState(CURRENT_YEAR)
 
   // State for all data
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [dataSource, setDataSource] = useState('') // 'views' or 'bilancio'
 
   // Financial data
   const [ricavi, setRicavi] = useState(0)
@@ -138,148 +139,257 @@ export default function Dashboard() {
   // Fetch all data from Supabase
   useEffect(() => {
     if (!COMPANY_ID) return
+    const YEAR = dashYear
 
     const fetchData = async () => {
       try {
         setLoading(true)
         setError(null)
 
-        // 1. Fetch executive dashboard for current year
-        const { data: dashData, error: dashErr } = await supabase
-          .from('v_executive_dashboard')
-          .select('*')
-          .eq('company_id', COMPANY_ID)
-          .eq('year', YEAR)
-          .maybeSingle()
+        // 1. Try operational views first
+        let hasViewData = false
+        try {
+          const { data: dashData } = await supabase
+            .from('v_executive_dashboard')
+            .select('*')
+            .eq('company_id', COMPANY_ID)
+            .eq('year', YEAR)
+            .maybeSingle()
 
-        if (dashErr) throw dashErr
+          if (dashData?.total_revenue) {
+            setRicavi(dashData.total_revenue)
+            setUtile(dashData.total_net_result || 0)
+            setTotalCosti(dashData.total_cogs || 0)
+            hasViewData = true
+            setDataSource('views')
+          }
+        } catch (e) { console.warn('v_executive_dashboard not available:', e.message) }
 
-        setRicavi(dashData?.total_revenue || 0)
-        setUtile(dashData?.total_net_result || 0)
-        setTotalCosti(dashData?.total_cogs || 0)
+        // 2. FALLBACK: Read from balance_sheet_data (bilancio importato)
+        if (!hasViewData) {
+          const { data: bsData } = await supabase
+            .from('balance_sheet_data')
+            .select('account_code, amount')
+            .eq('company_id', COMPANY_ID)
+            .eq('year', YEAR)
+            .eq('period_type', 'annuale')
+            .eq('section', 'conto_economico')
 
-        // 2. Fetch executive dashboard for previous year
-        const { data: dashPrevData } = await supabase
-          .from('v_executive_dashboard')
-          .select('total_revenue')
-          .eq('company_id', COMPANY_ID)
-          .eq('year', YEAR - 1)
-          .maybeSingle()
+          if (bsData && bsData.length > 0) {
+            const bs = {}
+            bsData.forEach(r => { bs[r.account_code] = r.amount })
+            setRicavi(bs.ricavi_vendite || 0)
+            setUtile(bs.utile_netto || 0)
+            setTotalCosti(bs.totale_costi_produzione || 0)
+            setStaffCosts(bs.totale_personale || 0)
+            setDataSource('bilancio')
 
-        setRicaviPrevYear(dashPrevData?.total_revenue || 0)
-
-        // 3. Fetch outlet ranking
-        const { data: outletsRaw, error: outletsErr } = await supabase
-          .from('v_outlet_ranking')
-          .select('*')
-          .eq('company_id', COMPANY_ID)
-          .eq('year', YEAR)
-          .order('rank_revenue', { ascending: true })
-
-        if (outletsErr) throw outletsErr
-
-        const outlets = (outletsRaw || []).map((o, i) => ({
-          name: o.outlet_name,
-          ricavi: o.ytd_revenue || 0,
-          dip: o.staff_count || 0,
-          colore: OUTLET_COLORS[i % OUTLET_COLORS.length],
-        }))
-
-        setOutletsData(outlets)
-        setTotalOutlets(outlets.length)
-
-        // 4. Fetch cash position
-        const { data: cashData, error: cashErr } = await supabase
-          .from('v_cash_position')
-          .select('current_balance')
-          .eq('company_id', COMPANY_ID)
-
-        if (cashErr) throw cashErr
-
-        const totalLiquidita = (cashData || []).reduce((sum, c) => sum + (c.current_balance || 0), 0)
-        setLiquidita(totalLiquidita)
-
-        // 5. Fetch loans overview
-        const { data: loansData, error: loansErr } = await supabase
-          .from('v_loans_overview')
-          .select('total_amount')
-          .eq('company_id', COMPANY_ID)
-
-        if (loansErr) throw loansErr
-
-        const totalDebts = (loansData || []).reduce((sum, l) => sum + (l.total_amount || 0), 0)
-        setDebtiFin(totalDebts)
-
-        // 6. Fetch staff analysis
-        const { data: staffData, error: staffErr } = await supabase
-          .from('v_staff_analysis')
-          .select('active_employees, total_annual_cost')
-          .eq('company_id', COMPANY_ID)
-
-        if (staffErr) throw staffErr
-
-        const totalEmps = (staffData || []).reduce((sum, s) => sum + (s.active_employees || 0), 0)
-        const totalStaffCosts = (staffData || []).reduce((sum, s) => sum + (s.total_annual_cost || 0), 0)
-        setTotalStaff(totalEmps)
-        setStaffCosts(totalStaffCosts)
-
-        // 7. Fetch P&L monthly for cost composition
-        const { data: pnlData, error: pnlErr } = await supabase
-          .from('v_pnl_monthly')
-          .select('*')
-          .eq('company_id', COMPANY_ID)
-          .eq('year', YEAR)
-
-        if (pnlErr) throw pnlErr
-
-        // Aggregate costs by category
-        const costCategories = {
-          'Merci': 0,
-          'Personale': 0,
-          'Servizi': 0,
-          'Affitti': 0,
-          'Altro': 0,
-        };
-
-        (pnlData || []).forEach(row => {
-          costCategories['Merci'] += row.cogs || 0
-          costCategories['Personale'] += row.staff_costs || 0
-          costCategories['Servizi'] += row.general_admin_costs || 0
-          costCategories['Affitti'] += row.location_costs || 0
-          costCategories['Altro'] += (row.financial_costs || 0) + (row.other_costs || 0)
-        })
-
-        const costColors = ['#f43f5e', '#6366f1', '#06b6d4', '#8b5cf6', '#94a3b8']
-        const costEntries = Object.entries(costCategories).map(([name, value], i) => ({
-          name,
-          value,
-          color: costColors[i],
-        }))
-
-        setPieCosti(costEntries)
-
-        // 8. Fetch company settings
-        const { data: companyData, error: companyErr } = await supabase
-          .from('company_settings')
-          .select('ragione_sociale, sede_legale, partita_iva, amministratore, soci, ateco, data_costituzione')
-          .eq('company_id', COMPANY_ID)
-          .maybeSingle()
-
-        if (companyErr && companyErr.code !== 'PGRST116') throw companyErr
-
-        if (companyData) {
-          setVisura({
-            denominazione: companyData.ragione_sociale || '—',
-            sede: companyData.sede_legale || '—',
-            piva: companyData.partita_iva || '—',
-            amministratore: companyData.amministratore || '—',
-            soci: Array.isArray(companyData.soci)
-              ? companyData.soci.map(s => `${s.nome} (${s.quota})`).join(', ')
-              : (companyData.soci || '—'),
-            ateco: companyData.ateco || '—',
-            costituzione: companyData.data_costituzione || '—',
-          })
+            // Cost composition from bilancio
+            const costColors = ['#f43f5e', '#6366f1', '#06b6d4', '#8b5cf6', '#94a3b8']
+            const costEntries = [
+              { name: 'Merci', value: bs.materie_prime || 0, color: costColors[0] },
+              { name: 'Personale', value: bs.totale_personale || 0, color: costColors[1] },
+              { name: 'Servizi', value: bs.servizi || 0, color: costColors[2] },
+              { name: 'Affitti', value: bs.godimento_beni_terzi || 0, color: costColors[3] },
+              { name: 'Altro', value: (bs.oneri_finanziari || 0) + (bs.oneri_diversi || 0), color: costColors[4] },
+            ]
+            setPieCosti(costEntries)
+            hasViewData = true // prevent fatture fallback
+          }
         }
+
+        // 3. FALLBACK: Read from fatture / monthly_actuals (dati operativi)
+        if (!hasViewData) {
+          try {
+            // Get monthly purchases from monthly_actuals
+            const { data: maData } = await supabase
+              .from('monthly_actuals')
+              .select('month, purchases')
+              .eq('company_id', COMPANY_ID)
+              .eq('year', YEAR)
+              .is('outlet_id', null)
+
+            // Get cost breakdown from monthly_cost_lines via monthly_actuals
+            const maIds = (maData || []).map(r => r.id).filter(Boolean)
+            const totalPurchases = (maData || []).reduce((s, r) => s + parseFloat(r.purchases || 0), 0)
+
+            // Get electronic invoices summary
+            const { data: invData } = await supabase
+              .from('electronic_invoices')
+              .select('gross_amount, invoice_date')
+              .eq('company_id', COMPANY_ID)
+              .gte('invoice_date', `${YEAR}-01-01`)
+              .lte('invoice_date', `${YEAR}-12-31`)
+
+            if (invData && invData.length > 0) {
+              const totalGross = invData.reduce((s, r) => s + parseFloat(r.gross_amount || 0), 0)
+              setTotalCosti(totalGross)
+              setDataSource('fatture')
+
+              // Get cost breakdown by category from monthly_cost_lines
+              const { data: mclData } = await supabase
+                .from('monthly_cost_lines')
+                .select('amount, cost_category_id, label, monthly_actual_id')
+
+              // Filter to only our monthly_actuals
+              const ourMaIds = new Set((maData || []).map(r => r.id))
+              const ourCostLines = (mclData || []).filter(r => ourMaIds.has(r.monthly_actual_id))
+
+              // Get cost categories for labeling
+              const { data: catData } = await supabase
+                .from('cost_categories')
+                .select('id, code, name, macro_group')
+                .eq('company_id', COMPANY_ID)
+
+              const catMap = {}
+              ;(catData || []).forEach(c => { catMap[c.id] = c })
+
+              // Aggregate by macro_group
+              const macroTotals = { locazione: 0, personale: 0, generali_amministrative: 0, finanziarie: 0, oneri_diversi: 0 }
+              let merciTotal = 0
+              ourCostLines.forEach(cl => {
+                const cat = catMap[cl.cost_category_id]
+                if (cat) {
+                  macroTotals[cat.macro_group] = (macroTotals[cat.macro_group] || 0) + parseFloat(cl.amount || 0)
+                }
+              })
+              // Merci = total purchases - sum of cost lines (the rest is costo venduto)
+              const costLinesTotal = Object.values(macroTotals).reduce((s, v) => s + v, 0)
+              merciTotal = totalGross - costLinesTotal
+
+              const costColors = ['#f43f5e', '#6366f1', '#06b6d4', '#8b5cf6', '#94a3b8']
+              setPieCosti([
+                { name: 'Merci/Merce', value: Math.max(0, merciTotal), color: costColors[0] },
+                { name: 'Locazioni', value: macroTotals.locazione || 0, color: costColors[3] },
+                { name: 'Servizi/Admin', value: macroTotals.generali_amministrative || 0, color: costColors[2] },
+                { name: 'Personale', value: macroTotals.personale || 0, color: costColors[1] },
+                { name: 'Altro', value: (macroTotals.finanziarie || 0) + (macroTotals.oneri_diversi || 0), color: costColors[4] },
+              ])
+            }
+          } catch (e) { console.warn('fatture fallback error:', e.message) }
+        }
+
+        // 3. Previous year for comparison
+        let prevRicavi = 0
+        try {
+          const { data: dashPrevData } = await supabase
+            .from('v_executive_dashboard')
+            .select('total_revenue')
+            .eq('company_id', COMPANY_ID)
+            .eq('year', YEAR - 1)
+            .maybeSingle()
+          prevRicavi = dashPrevData?.total_revenue || 0
+        } catch (e) {}
+        if (!prevRicavi) {
+          const { data: bsPrev } = await supabase
+            .from('balance_sheet_data')
+            .select('amount')
+            .eq('company_id', COMPANY_ID)
+            .eq('year', YEAR - 1)
+            .eq('period_type', 'annuale')
+            .eq('section', 'conto_economico')
+            .eq('account_code', 'ricavi_vendite')
+            .maybeSingle()
+          prevRicavi = bsPrev?.amount || 0
+        }
+        setRicaviPrevYear(prevRicavi)
+
+        // 4. Outlet ranking (from views)
+        try {
+          const { data: outletsRaw } = await supabase
+            .from('v_outlet_ranking')
+            .select('*')
+            .eq('company_id', COMPANY_ID)
+            .eq('year', YEAR)
+            .order('rank_revenue', { ascending: true })
+
+          const outlets = (outletsRaw || []).map((o, i) => ({
+            name: o.outlet_name,
+            ricavi: o.ytd_revenue || 0,
+            dip: o.staff_count || 0,
+            colore: OUTLET_COLORS[i % OUTLET_COLORS.length],
+          }))
+          setOutletsData(outlets)
+          setTotalOutlets(outlets.length)
+        } catch (e) { console.warn('v_outlet_ranking not available:', e.message) }
+
+        // 5. Cash position
+        try {
+          const { data: cashData } = await supabase
+            .from('v_cash_position')
+            .select('current_balance')
+            .eq('company_id', COMPANY_ID)
+          setLiquidita((cashData || []).reduce((sum, c) => sum + (c.current_balance || 0), 0))
+        } catch (e) { console.warn('v_cash_position not available:', e.message) }
+
+        // 6. Loans
+        try {
+          const { data: loansData } = await supabase
+            .from('v_loans_overview')
+            .select('total_amount')
+            .eq('company_id', COMPANY_ID)
+          setDebtiFin((loansData || []).reduce((sum, l) => sum + (l.total_amount || 0), 0))
+        } catch (e) { console.warn('v_loans_overview not available:', e.message) }
+
+        // 7. Staff
+        try {
+          const { data: staffData } = await supabase
+            .from('v_staff_analysis')
+            .select('active_employees, total_annual_cost')
+            .eq('company_id', COMPANY_ID)
+          if (staffData && staffData.length > 0) {
+            setTotalStaff(staffData.reduce((sum, s) => sum + (s.active_employees || 0), 0))
+            const viewStaffCosts = staffData.reduce((sum, s) => sum + (s.total_annual_cost || 0), 0)
+            if (viewStaffCosts > 0) setStaffCosts(viewStaffCosts)
+          }
+        } catch (e) { console.warn('v_staff_analysis not available:', e.message) }
+
+        // 8. P&L monthly for cost composition (only if views had data)
+        if (hasViewData) {
+          try {
+            const { data: pnlData } = await supabase
+              .from('v_pnl_monthly')
+              .select('*')
+              .eq('company_id', COMPANY_ID)
+              .eq('year', YEAR)
+
+            const costCategories = { 'Merci': 0, 'Personale': 0, 'Servizi': 0, 'Affitti': 0, 'Altro': 0 }
+            ;(pnlData || []).forEach(row => {
+              costCategories['Merci'] += row.cogs || 0
+              costCategories['Personale'] += row.staff_costs || 0
+              costCategories['Servizi'] += row.general_admin_costs || 0
+              costCategories['Affitti'] += row.location_costs || 0
+              costCategories['Altro'] += (row.financial_costs || 0) + (row.other_costs || 0)
+            })
+            const costColors = ['#f43f5e', '#6366f1', '#06b6d4', '#8b5cf6', '#94a3b8']
+            setPieCosti(Object.entries(costCategories).map(([name, value], i) => ({
+              name, value, color: costColors[i],
+            })))
+          } catch (e) { console.warn('v_pnl_monthly not available:', e.message) }
+        }
+
+        // 9. Company settings
+        try {
+          const { data: companyData } = await supabase
+            .from('company_settings')
+            .select('ragione_sociale, sede_legale, partita_iva, amministratore, soci, ateco, data_costituzione')
+            .eq('company_id', COMPANY_ID)
+            .maybeSingle()
+
+          if (companyData) {
+            setVisura({
+              denominazione: companyData.ragione_sociale || '—',
+              sede: companyData.sede_legale || '—',
+              piva: companyData.partita_iva || '—',
+              amministratore: companyData.amministratore || '—',
+              soci: Array.isArray(companyData.soci)
+                ? companyData.soci.map(s => `${s.nome} (${s.quota})`).join(', ')
+                : (companyData.soci || '—'),
+              ateco: companyData.ateco || '—',
+              costituzione: companyData.data_costituzione || '—',
+            })
+          }
+        } catch (e) { console.warn('company_settings error:', e.message) }
 
         setLoading(false)
       } catch (err) {
@@ -290,9 +400,10 @@ export default function Dashboard() {
     }
 
     fetchData()
-  }, [COMPANY_ID, YEAR])
+  }, [COMPANY_ID, dashYear])
 
   // Derived calculations
+  const YEAR = dashYear
   const deltaRicaviPct = ricaviPrevYear > 0 ? ((ricavi - ricaviPrevYear) / ricaviPrevYear * 100) : 0
   const pfn = liquidita - debtiFin
   const incidenzaPersonale = ricavi > 0 ? (staffCosts / ricavi * 100) : 0
@@ -328,13 +439,29 @@ export default function Dashboard() {
   return (
     <div className="p-6 space-y-6 max-w-[1400px] mx-auto">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-slate-900">
-          Buongiorno, {profile?.first_name || 'Patrizio'}
-        </h1>
-        <p className="text-sm text-slate-500">
-          {visura.denominazione} — Cruscotto direzionale | Dati {YEAR}
-        </p>
+      <div className="flex items-start justify-between flex-wrap gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900">
+            Buongiorno, {profile?.first_name || 'Patrizio'}
+          </h1>
+          <p className="text-sm text-slate-500">
+            {visura.denominazione} — Cruscotto direzionale | Dati {YEAR}
+          </p>
+          {dataSource === 'bilancio' && (
+            <p className="text-xs text-blue-500 mt-0.5 flex items-center gap-1">
+              <FileText size={12} /> Dati da bilancio importato (Conto Economico)
+            </p>
+          )}
+          {dataSource === 'fatture' && (
+            <p className="text-xs text-emerald-500 mt-0.5 flex items-center gap-1">
+              <Receipt size={12} /> Dati da fatture elettroniche AdE (Q1 {YEAR})
+            </p>
+          )}
+        </div>
+        <select value={dashYear} onChange={(e) => setDashYear(parseInt(e.target.value))}
+          className="px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white">
+          {[2023, 2024, 2025, 2026].map(y => <option key={y} value={y}>{y}</option>)}
+        </select>
       </div>
 
       {/* ─── KPI PRINCIPALI ─── */}

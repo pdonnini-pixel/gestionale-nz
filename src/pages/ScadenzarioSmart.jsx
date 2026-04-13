@@ -20,6 +20,12 @@ import {
   Save,
   X,
   Download,
+  CheckSquare,
+  Square,
+  Settings,
+  Send,
+  Ban,
+  Wallet,
 } from 'lucide-react';
 import {
   BarChart,
@@ -103,6 +109,51 @@ const ScadenzarioSmart = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [isSaving, setIsSaving] = useState(false);
 
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [paymentPlan, setPaymentPlan] = useState({});
+  const [emailRecipients, setEmailRecipients] = useState('');
+  const [showEmailConfig, setShowEmailConfig] = useState(false);
+  const [confirmResult, setConfirmResult] = useState(null);
+
+  // Selection helpers for bulk payment workflow
+  const toggleSelect = (id, payable) => {
+    const next = new Set(selectedIds);
+    const nextPlan = { ...paymentPlan };
+    if (next.has(id)) {
+      next.delete(id);
+      delete nextPlan[id];
+    } else {
+      next.add(id);
+      nextPlan[id] = { bankId: '', type: 'saldo', amount: payable.amount_remaining || 0, note: '' };
+    }
+    setSelectedIds(next);
+    setPaymentPlan(nextPlan);
+  };
+
+  const toggleSelectAll = () => {
+    const nonPaid = filteredPayables.filter(p => p.status !== 'pagato' && (p.gross_amount || 0) >= 0);
+    if (selectedIds.size === nonPaid.length) {
+      setSelectedIds(new Set());
+      setPaymentPlan({});
+    } else {
+      const next = new Set();
+      const nextPlan = {};
+      nonPaid.forEach(p => {
+        next.add(p.id);
+        nextPlan[p.id] = paymentPlan[p.id] || { bankId: '', type: 'saldo', amount: p.amount_remaining || 0, note: '' };
+      });
+      setSelectedIds(next);
+      setPaymentPlan(nextPlan);
+    }
+  };
+
+  const updatePlan = (id, field, value) => {
+    setPaymentPlan(prev => ({
+      ...prev,
+      [id]: { ...prev[id], [field]: value }
+    }));
+  };
+
   // Calculate dynamic date range: 3 months ago to 6 months ahead
   const getDynamicDateRange = () => {
     const now = new Date();
@@ -117,6 +168,29 @@ const ScadenzarioSmart = () => {
   };
 
   const [dateRange, setDateRange] = useState(getDynamicDateRange());
+
+  // Compute bank balances with real-time deductions from payment plan
+  const bankBalances = useMemo(() => {
+    const balances = {};
+    bankAccounts.forEach(ba => { balances[ba.id] = ba.current_balance || 0; });
+    Object.values(paymentPlan).forEach(plan => {
+      if (plan.bankId && balances[plan.bankId] !== undefined) {
+        balances[plan.bankId] -= (plan.amount || 0);
+      }
+    });
+    return balances;
+  }, [bankAccounts, paymentPlan]);
+
+  const hasNegativeBalance = useMemo(() => {
+    return Object.values(bankBalances).some(b => b < 0);
+  }, [bankBalances]);
+
+  const selectedTotal = useMemo(() => {
+    return Array.from(selectedIds).reduce((sum, id) => {
+      const plan = paymentPlan[id];
+      return sum + (plan?.amount || 0);
+    }, 0);
+  }, [selectedIds, paymentPlan]);
 
   // Modals
   const [modals, setModals] = useState({
@@ -137,25 +211,19 @@ const ScadenzarioSmart = () => {
       try {
         setLoading(true);
 
-        // Fetch payment schedule with invoice and supplier info
-        const { data: scheduleData, error: scheduleError } = await supabase
-          .from('payment_schedule')
-          .select('*')
-          .eq('company_id', COMPANY_ID)
-          .in('status', ['pending', 'paid', 'partial', 'overdue', 'suspended', 'postponed']);
+        // Fetch payables from operative view (includes supplier/outlet/cost info)
+        const { data: viewData, error: viewError } = await supabase
+          .from('v_payables_operative')
+          .select('*');
 
-        // Fetch invoices
-        const { data: invoicesData } = await supabase
-          .from('invoices')
-          .select('*')
-          .eq('company_id', COMPANY_ID);
+        if (viewError) console.warn('v_payables_operative error:', viewError.message);
 
         // Fetch suppliers
         const { data: suppliersData, error: suppliersError } = await supabase
           .from('suppliers')
           .select('*')
           .eq('company_id', COMPANY_ID)
-          .eq('is_active', true);
+          .or('is_deleted.is.null,is_deleted.eq.false');
 
         if (suppliersError) throw suppliersError;
         setSuppliers(suppliersData || []);
@@ -170,39 +238,50 @@ const ScadenzarioSmart = () => {
         if (accountsError) throw accountsError;
         setBankAccounts(accountsData || []);
 
-        // Build payables from payment_schedule + invoices + suppliers
-        const invoiceMap = {};
-        (invoicesData || []).forEach(inv => { invoiceMap[inv.id] = inv; });
-        const supplierMap = {};
-        (suppliersData || []).forEach(s => { supplierMap[s.id] = s; });
-
-        const enrichedPayables = (scheduleData || []).map(ps => {
-          const invoice = invoiceMap[ps.invoice_id] || {};
-          const supplier = supplierMap[invoice.supplier_id] || {};
-          return {
-            id: ps.id,
-            invoice_number: invoice.invoice_number || '-',
-            invoice_date: invoice.invoice_date,
-            due_date: ps.due_date,
-            gross_amount: ps.amount || 0,
-            amount_paid: ps.paid_amount || 0,
-            amount_remaining: (ps.amount || 0) - (ps.paid_amount || 0),
-            status: ps.status === 'pending' ? 'da_pagare' : ps.status === 'overdue' ? 'scaduto' : ps.status === 'partial' ? 'parziale' : ps.status,
-            payment_method: ps.payment_method || invoice.payment_method,
-            supplier_id: invoice.supplier_id,
-            cost_center: invoice.cost_center || 'all',
-            notes: ps.note,
-            suppliers: supplier,
-            invoice_id: ps.invoice_id,
-            bank_account_id: ps.bank_account_id,
-          };
-        });
+        // Map view data to component format
+        const enrichedPayables = (viewData || []).map(row => ({
+          id: row.id,
+          invoice_number: row.invoice_number || '-',
+          invoice_date: row.invoice_date,
+          due_date: row.due_date,
+          original_due_date: row.original_due_date,
+          gross_amount: row.gross_amount || 0,
+          amount_paid: row.amount_paid || 0,
+          amount_remaining: row.amount_remaining || 0,
+          status: row.status,
+          payment_method: row.payment_method,
+          outlet_id: row.outlet_id,
+          outlet_name: row.outlet_name,
+          cost_center: row.cost_category_name || row.macro_group || 'altro',
+          notes: row.suspend_reason,
+          days_to_due: row.days_to_due,
+          urgency: row.urgency,
+          priority: row.priority,
+          suppliers: {
+            name: row.supplier_name,
+            ragione_sociale: row.supplier_name,
+            category: row.supplier_category || 'altro',
+          },
+          last_action_type: row.last_action_type,
+          last_action_note: row.last_action_note,
+          last_action_date: row.last_action_date,
+        }));
 
         setPayables(enrichedPayables);
 
         // Calculate cash position from bank account balances
         const totalBalance = (accountsData || []).reduce((sum, acc) => sum + (acc.current_balance || 0), 0);
         setCashPosition(totalBalance);
+
+        // Load email recipients from company settings
+        const { data: companyData } = await supabase
+          .from('companies')
+          .select('settings')
+          .eq('id', COMPANY_ID)
+          .single();
+        if (companyData?.settings?.email_scadenzario) {
+          setEmailRecipients(companyData.settings.email_scadenzario);
+        }
 
       } catch (error) {
         console.error('Error fetching data:', error);
@@ -218,7 +297,11 @@ const ScadenzarioSmart = () => {
   const filteredPayables = useMemo(() => {
     return payables.filter((p) => {
       const matchOutlet = !selectedOutlet || p.outlet_id === selectedOutlet;
-      const matchStatus = !selectedStatus || p.status === selectedStatus;
+      const isNotaCredito = (p.gross_amount || 0) < 0;
+      const matchStatus = !selectedStatus
+        || (selectedStatus === 'nota_credito' && isNotaCredito)
+        || (selectedStatus === 'da_saldare' && !isNotaCredito && p.status !== 'pagato')
+        || (selectedStatus !== 'nota_credito' && selectedStatus !== 'da_saldare' && p.status === selectedStatus);
       const matchSearch =
         !searchTerm ||
         p.invoice_number.includes(searchTerm) ||
@@ -322,9 +405,91 @@ const ScadenzarioSmart = () => {
     }));
   }, [filteredPayables, today]);
 
+  // Grouped by supplier
+  const groupedBySupplier = useMemo(() => {
+    const groups = {};
+    filteredPayables.forEach(p => {
+      const name = p.suppliers?.ragione_sociale || p.suppliers?.name || 'N/A';
+      if (!groups[name]) groups[name] = { items: [], total: 0, paid: 0, remaining: 0 };
+      groups[name].items.push(p);
+      groups[name].total += p.gross_amount || 0;
+      groups[name].paid += p.amount_paid || 0;
+      groups[name].remaining += p.amount_remaining || 0;
+    });
+    return Object.entries(groups).sort((a, b) => a[0].localeCompare(b[0]));
+  }, [filteredPayables]);
+
+  // Grouped by month
+  const groupedByMonth = useMemo(() => {
+    const groups = {};
+    filteredPayables.forEach(p => {
+      const d = p.due_date ? new Date(p.due_date) : null;
+      const key = d ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` : 'N/D';
+      const label = d ? d.toLocaleDateString('it-IT', { month: 'long', year: 'numeric' }) : 'Senza data';
+      if (!groups[key]) groups[key] = { label, items: [], total: 0, paid: 0, remaining: 0 };
+      groups[key].items.push(p);
+      groups[key].total += p.gross_amount || 0;
+      groups[key].paid += p.amount_paid || 0;
+      groups[key].remaining += p.amount_remaining || 0;
+    });
+    return Object.entries(groups).sort((a, b) => a[0].localeCompare(b[0]));
+  }, [filteredPayables]);
+
   // Format currency
   const formatCurrency = (num) =>
     new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' }).format(num);
+
+  // Render inline payment controls for a selected row
+  const renderPaymentRow = (p, colSpan = 9) => {
+    if (!selectedIds.has(p.id) || !paymentPlan[p.id]) return null;
+    const plan = paymentPlan[p.id];
+    return (
+      <tr className="bg-indigo-50 border-b border-indigo-100">
+        <td colSpan={colSpan} className="px-6 py-3">
+          <div className="flex items-center gap-4 flex-wrap">
+            <div>
+              <label className="text-xs text-slate-500 block mb-1">Banca</label>
+              <select value={plan.bankId} onChange={e => updatePlan(p.id, 'bankId', e.target.value)}
+                className="px-2 py-1.5 border border-slate-300 rounded-lg text-sm w-52 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                <option value="">Seleziona banca...</option>
+                {bankAccounts.map(ba => (
+                  <option key={ba.id} value={ba.id}>{ba.bank_name} ({formatCurrency(bankBalances[ba.id] || 0)})</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-slate-500 block mb-1">Tipo</label>
+              <div className="flex rounded-lg overflow-hidden border border-slate-300">
+                <button onClick={() => { updatePlan(p.id, 'type', 'saldo'); updatePlan(p.id, 'amount', p.amount_remaining || 0); }}
+                  className={`px-3 py-1.5 text-sm font-medium transition ${plan.type === 'saldo' ? 'bg-emerald-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}>
+                  Saldo
+                </button>
+                <button onClick={() => updatePlan(p.id, 'type', 'parziale')}
+                  className={`px-3 py-1.5 text-sm font-medium transition ${plan.type === 'parziale' ? 'bg-amber-500 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}>
+                  Parziale
+                </button>
+              </div>
+            </div>
+            {plan.type === 'parziale' && (
+              <>
+                <div>
+                  <label className="text-xs text-slate-500 block mb-1">Importo</label>
+                  <input type="number" step="0.01" value={plan.amount}
+                    onChange={e => updatePlan(p.id, 'amount', Math.min(parseFloat(e.target.value) || 0, p.amount_remaining || 0))}
+                    className="px-2 py-1.5 border border-slate-300 rounded-lg text-sm w-28 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                </div>
+                <div className="flex-1 min-w-48">
+                  <label className="text-xs text-slate-500 block mb-1">Note</label>
+                  <input type="text" value={plan.note} onChange={e => updatePlan(p.id, 'note', e.target.value)}
+                    placeholder="Motivo parziale..." className="px-2 py-1.5 border border-slate-300 rounded-lg text-sm w-full focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                </div>
+              </>
+            )}
+          </div>
+        </td>
+      </tr>
+    );
+  };
 
   // Status color helper
   const getStatusColor = (status) => COLORI_STATO[status] || COLORI_STATO.da_pagare;
@@ -334,14 +499,12 @@ const ScadenzarioSmart = () => {
     async (payableId, amount, bankAccountId, bankReference) => {
       try {
         const { error } = await supabase
-          .from('payment_schedule')
+          .from('payables')
           .update({
-            paid_amount: amount,
-            paid_date: today.toISOString().split('T')[0],
-            bank_account_id: bankAccountId,
-            bank_reference: bankReference,
-            status: 'paid',
-            updated_at: new Date().toISOString(),
+            amount_paid: amount,
+            payment_date: today.toISOString().split('T')[0],
+            payment_bank_account_id: bankAccountId,
+            status: amount >= (modals.payment.payable?.amount_remaining || 0) ? 'pagato' : 'parziale',
           })
           .eq('id', payableId);
 
@@ -359,8 +522,8 @@ const ScadenzarioSmart = () => {
   const handleCreateInvoice = useCallback(
     async (invoiceData) => {
       try {
-        // 1. Create invoice
-        const { data: inv, error: invErr } = await supabase.from('invoices').insert([
+        // 1. Create electronic invoice
+        const { data: inv, error: invErr } = await supabase.from('electronic_invoices').insert([
           {
             company_id: COMPANY_ID,
             supplier_id: invoiceData.supplierId,
@@ -368,29 +531,30 @@ const ScadenzarioSmart = () => {
             invoice_date: invoiceData.invoiceDate,
             due_date: invoiceData.dueDate,
             total_amount: invoiceData.grossAmount,
-            net_amount: invoiceData.netAmount || invoiceData.grossAmount * 0.8,
-            tax_amount: invoiceData.vatAmount || invoiceData.grossAmount * 0.2,
+            taxable_amount: invoiceData.netAmount || invoiceData.grossAmount * 0.8,
+            vat_amount: invoiceData.vatAmount || invoiceData.grossAmount * 0.2,
             payment_method: invoiceData.paymentMethod,
-            status: 'da_pagare',
-            cost_center: invoiceData.costCenter || 'all',
+            source: 'manual',
           },
         ]).select();
 
         if (invErr) throw invErr;
 
-        // 2. Create payment schedule entry
-        if (inv && inv[0]) {
-          await supabase.from('payment_schedule').insert([
-            {
-              company_id: COMPANY_ID,
-              invoice_id: inv[0].id,
-              due_date: invoiceData.dueDate,
-              amount: invoiceData.grossAmount,
-              payment_method: invoiceData.paymentMethod,
-              status: 'pending',
-            },
-          ]);
-        }
+        // 2. Create payable entry
+        await supabase.from('payables').insert([
+          {
+            company_id: COMPANY_ID,
+            supplier_id: invoiceData.supplierId,
+            invoice_number: invoiceData.invoiceNumber,
+            invoice_date: invoiceData.invoiceDate,
+            due_date: invoiceData.dueDate,
+            original_due_date: invoiceData.dueDate,
+            gross_amount: invoiceData.grossAmount,
+            amount_remaining: invoiceData.grossAmount,
+            payment_method: invoiceData.paymentMethod || 'bonifico',
+            electronic_invoice_id: inv?.[0]?.id,
+          },
+        ]);
 
         window.location.reload();
       } catch (error) {
@@ -439,13 +603,12 @@ const ScadenzarioSmart = () => {
       try {
         setIsSaving(true);
         const { error } = await supabase
-          .from('payment_schedule')
+          .from('payables')
           .update({
-            amount: scheduleData.amount,
+            gross_amount: scheduleData.amount,
             due_date: scheduleData.due_date,
             status: scheduleData.status,
-            note: scheduleData.note,
-            updated_at: new Date().toISOString(),
+            amount_remaining: (scheduleData.amount || 0) - (scheduleData.amount_paid || 0),
           })
           .eq('id', scheduleData.id);
 
@@ -468,8 +631,8 @@ const ScadenzarioSmart = () => {
       try {
         setIsSaving(true);
         const { error } = await supabase
-          .from('payment_schedule')
-          .delete()
+          .from('payables')
+          .update({ status: 'annullato' })
           .eq('id', scheduleId);
 
         if (error) throw error;
@@ -485,6 +648,83 @@ const ScadenzarioSmart = () => {
     [modals]
   );
 
+  // Confirm and process bulk payments
+  const confirmPayments = async () => {
+    if (hasNegativeBalance || selectedIds.size === 0) return;
+    setIsSaving(true);
+    const results = [];
+    const today = new Date().toISOString().split('T')[0];
+
+    try {
+      for (const id of selectedIds) {
+        const plan = paymentPlan[id];
+        const payable = payables.find(p => p.id === id);
+        if (!plan || !payable) continue;
+
+        const newPaid = (payable.amount_paid || 0) + plan.amount;
+        const newStatus = plan.type === 'saldo' ? 'pagato' : 'parziale';
+        const bank = bankAccounts.find(b => b.id === plan.bankId);
+
+        const { error: updateError } = await supabase.from('payables').update({
+          amount_paid: newPaid,
+          amount_remaining: payable.gross_amount - newPaid,
+          payment_date: today,
+          payment_bank_account_id: plan.bankId || null,
+          status: newStatus,
+        }).eq('id', id);
+
+        if (updateError) throw updateError;
+
+        const { error: actionError } = await supabase.from('payable_actions').insert({
+          payable_id: id,
+          action_type: newStatus === 'pagato' ? 'pagamento' : 'pagamento_parziale',
+          old_status: payable.status,
+          new_status: newStatus,
+          amount: plan.amount,
+          bank_account_id: plan.bankId || null,
+          note: plan.note || null,
+        });
+
+        if (actionError) throw actionError;
+
+        results.push({
+          fornitore: payable.suppliers?.ragione_sociale || payable.suppliers?.name || 'N/A',
+          fattura: payable.invoice_number,
+          importo: plan.amount,
+          banca: bank?.bank_name || 'N/D',
+          iban: bank?.iban || '',
+          tipo: plan.type === 'saldo' ? 'SALDO' : 'PARZIALE',
+          note: plan.note || '',
+        });
+      }
+
+      // Build email summary
+      const bankTotals = {};
+      results.forEach(r => {
+        bankTotals[r.banca] = (bankTotals[r.banca] || 0) + r.importo;
+      });
+
+      const emailBody = `RIEPILOGO PAGAMENTI - ${new Date().toLocaleDateString('it-IT')}\n\n` +
+        results.map((r, i) =>
+          `${i+1}. ${r.fornitore}\n   Fattura: ${r.fattura} | ${r.tipo} | ${new Intl.NumberFormat('it-IT', {style:'currency',currency:'EUR'}).format(r.importo)}\n   Banca: ${r.banca} (${r.iban})${r.note ? '\n   Note: ' + r.note : ''}`
+        ).join('\n\n') +
+        `\n\n--- TOTALI PER BANCA ---\n` +
+        Object.entries(bankTotals).map(([b, t]) => `${b}: ${new Intl.NumberFormat('it-IT', {style:'currency',currency:'EUR'}).format(t)}`).join('\n') +
+        `\n\nTOTALE COMPLESSIVO: ${new Intl.NumberFormat('it-IT', {style:'currency',currency:'EUR'}).format(results.reduce((s,r) => s + r.importo, 0))}`;
+
+      setConfirmResult({ results, emailBody });
+      setSelectedIds(new Set());
+      setPaymentPlan({});
+      setIsSaving(false);
+
+      // Reload data
+      window.location.reload();
+    } catch (error) {
+      console.error('Error confirming payments:', error);
+      setIsSaving(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-6 flex items-center justify-center">
@@ -497,8 +737,40 @@ const ScadenzarioSmart = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-6">
-      <div className="max-w-7xl mx-auto">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
+      {/* Bank Balances - Sticky (direct child of min-h-screen so it sticks across the whole page) */}
+      <div className="sticky top-0 z-30 bg-gradient-to-br from-slate-50 to-slate-100 shadow-sm border-b border-slate-200 px-6 py-3">
+        <div className="max-w-7xl mx-auto">
+          {bankAccounts.length > 0 ? (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {bankAccounts.map(ba => {
+                const bal = bankBalances[ba.id] || 0;
+                const orig = ba.current_balance || 0;
+                const used = orig - bal;
+                const isNeg = bal < 0;
+                return (
+                  <div key={ba.id} className={`bg-white rounded-xl shadow-sm p-3 border-l-4 ${isNeg ? 'border-red-500 bg-red-50' : 'border-emerald-500'}`}>
+                    <div className="text-xs text-slate-500 font-medium truncate">{ba.bank_name}</div>
+                    <div className="text-xs text-slate-400 truncate">{ba.account_name || ba.iban?.slice(-8)}</div>
+                    <div className={`text-lg font-bold ${isNeg ? 'text-red-600' : 'text-emerald-600'}`}>
+                      {formatCurrency(bal)}
+                    </div>
+                    {used > 0 && <div className="text-xs text-amber-600">Assegnati: {formatCurrency(used)}</div>}
+                    {isNeg && <div className="text-xs text-red-500 font-semibold">⚠ Saldo insufficiente</div>}
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-sm text-amber-700 flex items-center gap-2">
+              <Wallet className="w-4 h-4" /> Nessun conto bancario configurato. Aggiungi conti dalla sezione Banche.
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="p-6">
+        <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="mb-8">
           <div className="flex items-center justify-between mb-4">
@@ -506,6 +778,9 @@ const ScadenzarioSmart = () => {
               <h1 className="text-4xl font-bold text-slate-900 flex items-center gap-3">
                 <Clock className="w-10 h-10 text-indigo-600" />
                 Scadenzario Smart
+                <button onClick={() => setShowEmailConfig(true)} className="text-slate-400 hover:text-indigo-600 ml-2 transition" title="Configura email">
+                  <Settings className="w-6 h-6" />
+                </button>
               </h1>
               <p className="text-slate-600 mt-1">Gestione intelligente scadenze fornitori</p>
             </div>
@@ -576,10 +851,13 @@ const ScadenzarioSmart = () => {
                 className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
               >
                 <option value="">Tutti</option>
+                <option value="da_saldare">Da Saldare</option>
                 <option value="da_pagare">Da Pagare</option>
                 <option value="in_scadenza">In Scadenza</option>
                 <option value="scaduto">Scaduto</option>
                 <option value="parziale">Parziale</option>
+                <option value="pagato">Pagato</option>
+                <option value="nota_credito">Note di Credito</option>
               </select>
             </div>
             <div>
@@ -605,28 +883,24 @@ const ScadenzarioSmart = () => {
 
         {/* View Mode Selector */}
         <div className="flex gap-3 mb-6">
-          <button
-            onClick={() => setViewMode('timeline')}
-            className={`px-4 py-2 rounded-lg font-medium transition ${
-              viewMode === 'timeline'
-                ? 'bg-indigo-600 text-white'
-                : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50'
-            }`}
-          >
-            <Clock3 className="w-4 h-4 inline mr-2" />
-            Timeline
-          </button>
-          <button
-            onClick={() => setViewMode('charts')}
-            className={`px-4 py-2 rounded-lg font-medium transition ${
-              viewMode === 'charts'
-                ? 'bg-indigo-600 text-white'
-                : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50'
-            }`}
-          >
-            <BarChart3 className="w-4 h-4 inline mr-2" />
-            Grafici
-          </button>
+          {[
+            { key: 'timeline', icon: Clock3, label: 'Timeline' },
+            { key: 'fornitore', icon: Filter, label: 'Per Fornitore' },
+            { key: 'mese', icon: Calendar, label: 'Per Mese' },
+            { key: 'charts', icon: BarChart3, label: 'Grafici' },
+          ].map(v => (
+            <button key={v.key}
+              onClick={() => setViewMode(v.key)}
+              className={`px-4 py-2 rounded-lg font-medium transition ${
+                viewMode === v.key
+                  ? 'bg-indigo-600 text-white'
+                  : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50'
+              }`}
+            >
+              <v.icon className="w-4 h-4 inline mr-2" />
+              {v.label}
+            </button>
+          ))}
         </div>
 
         {/* Action Buttons */}
@@ -654,6 +928,11 @@ const ScadenzarioSmart = () => {
               <table className="w-full text-sm">
                 <thead className="bg-slate-50 border-b border-slate-200">
                   <tr>
+                    <th className="px-3 py-3 text-center w-10">
+                      <button onClick={toggleSelectAll} className="text-slate-400 hover:text-indigo-600 transition" title="Seleziona tutto">
+                        {selectedIds.size > 0 ? <CheckSquare size={18} /> : <Square size={18} />}
+                      </button>
+                    </th>
                     <th className="px-6 py-3 text-left font-semibold text-slate-900">Fornitore</th>
                     <th className="px-6 py-3 text-left font-semibold text-slate-900">Fattura</th>
                     <th className="px-6 py-3 text-left font-semibold text-slate-900">Scadenza</th>
@@ -671,10 +950,18 @@ const ScadenzarioSmart = () => {
                       (new Date(p.due_date) - today) / (1000 * 60 * 60 * 24)
                     );
                     return (
-                      <tr key={p.id} className="hover:bg-slate-50 transition">
-                        <td className="px-6 py-3 text-slate-900 font-medium">
-                          {p.suppliers?.ragione_sociale || suppliers?.name || 'N/A'}
-                        </td>
+                      <React.Fragment key={p.id}>
+                        <tr className={`hover:bg-slate-50 transition ${p.status === 'pagato' ? 'bg-emerald-50 border-l-4 border-emerald-400' : ''} ${selectedIds.has(p.id) ? 'bg-indigo-50' : ''}`}>
+                          <td className="px-3 py-3 text-center">
+                            {p.status !== 'pagato' && (p.gross_amount || 0) >= 0 && (
+                              <button onClick={() => toggleSelect(p.id, p)} className={selectedIds.has(p.id) ? 'text-indigo-600' : 'text-slate-300 hover:text-slate-500'} title="Seleziona">
+                                {selectedIds.has(p.id) ? <CheckSquare size={18} /> : <Square size={18} />}
+                              </button>
+                            )}
+                          </td>
+                          <td className="px-6 py-3 text-slate-900 font-medium">
+                            {p.suppliers?.ragione_sociale || suppliers?.name || 'N/A'}
+                          </td>
                         <td className="px-6 py-3 text-slate-600">{p.invoice_number}</td>
                         <td className="px-6 py-3 text-slate-600">
                           {new Date(p.due_date).toLocaleDateString('it-IT')}
@@ -702,14 +989,6 @@ const ScadenzarioSmart = () => {
                           <div className="flex gap-2">
                             <button
                               onClick={() =>
-                                setModals({ ...modals, payment: { open: true, payable: p } })
-                              }
-                              className="text-indigo-600 hover:text-indigo-700 font-medium text-xs"
-                            >
-                              Gestisci
-                            </button>
-                            <button
-                              onClick={() =>
                                 setModals({ ...modals, editSchedule: { open: true, schedule: p } })
                               }
                               className="text-blue-600 hover:text-blue-700 font-medium text-xs flex items-center gap-1"
@@ -732,6 +1011,53 @@ const ScadenzarioSmart = () => {
                           </div>
                         </td>
                       </tr>
+                      {selectedIds.has(p.id) && paymentPlan[p.id] && (
+                        <tr className="bg-indigo-50 border-b border-indigo-100">
+                          <td colSpan={9} className="px-6 py-3">
+                            <div className="flex items-center gap-4 flex-wrap">
+                              <div>
+                                <label className="text-xs text-slate-500 block mb-1">Banca</label>
+                                <select value={paymentPlan[p.id].bankId} onChange={e => updatePlan(p.id, 'bankId', e.target.value)}
+                                  className="px-2 py-1.5 border border-slate-300 rounded-lg text-sm w-48 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                                  <option value="">Seleziona...</option>
+                                  {bankAccounts.map(ba => (
+                                    <option key={ba.id} value={ba.id}>{ba.bank_name} ({formatCurrency(bankBalances[ba.id] || 0)})</option>
+                                  ))}
+                                </select>
+                              </div>
+                              <div>
+                                <label className="text-xs text-slate-500 block mb-1">Tipo</label>
+                                <div className="flex rounded-lg overflow-hidden border border-slate-300">
+                                  <button onClick={() => { updatePlan(p.id, 'type', 'saldo'); updatePlan(p.id, 'amount', p.amount_remaining || 0); }}
+                                    className={`px-3 py-1.5 text-sm font-medium transition ${paymentPlan[p.id].type === 'saldo' ? 'bg-emerald-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}>
+                                    Saldo
+                                  </button>
+                                  <button onClick={() => updatePlan(p.id, 'type', 'parziale')}
+                                    className={`px-3 py-1.5 text-sm font-medium transition ${paymentPlan[p.id].type === 'parziale' ? 'bg-amber-500 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}>
+                                    Parziale
+                                  </button>
+                                </div>
+                              </div>
+                              {paymentPlan[p.id].type === 'parziale' && (
+                                <>
+                                  <div>
+                                    <label className="text-xs text-slate-500 block mb-1">Importo</label>
+                                    <input type="number" step="0.01" value={paymentPlan[p.id].amount}
+                                      onChange={e => updatePlan(p.id, 'amount', Math.min(parseFloat(e.target.value) || 0, p.amount_remaining || 0))}
+                                      className="px-2 py-1.5 border border-slate-300 rounded-lg text-sm w-28 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                                  </div>
+                                  <div className="flex-1 min-w-48">
+                                    <label className="text-xs text-slate-500 block mb-1">Note</label>
+                                    <input type="text" value={paymentPlan[p.id].note} onChange={e => updatePlan(p.id, 'note', e.target.value)}
+                                      placeholder="Motivo parziale..." className="px-2 py-1.5 border border-slate-300 rounded-lg text-sm w-full focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                                  </div>
+                                </>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
                     );
                   })}
                 </tbody>
@@ -741,6 +1067,150 @@ const ScadenzarioSmart = () => {
               <div className="text-center py-12 text-slate-500">
                 Nessun pagamento trovato
               </div>
+            )}
+          </div>
+        )}
+
+        {/* Per Fornitore View */}
+        {viewMode === 'fornitore' && (
+          <div className="space-y-4 mb-6">
+            {groupedBySupplier.map(([name, group]) => (
+              <div key={name} className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                <div className="px-6 py-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+                  <div>
+                    <h3 className="font-semibold text-slate-900">{name}</h3>
+                    <span className="text-xs text-slate-500">{group.items.length} fatture</span>
+                  </div>
+                  <div className="flex gap-6 text-sm">
+                    <div className="text-right">
+                      <div className="text-xs text-slate-500">Totale</div>
+                      <div className="font-bold text-slate-900">{formatCurrency(group.total)}</div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-xs text-slate-500">Pagato</div>
+                      <div className="font-bold text-emerald-600">{formatCurrency(group.paid)}</div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-xs text-slate-500">Rimane</div>
+                      <div className="font-bold text-red-600">{formatCurrency(group.remaining)}</div>
+                    </div>
+                  </div>
+                </div>
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-50 border-b border-slate-100">
+                    <tr>
+                      <th className="px-3 py-2 text-center w-10"></th>
+                      <th className="px-4 py-2 text-left text-xs font-semibold text-slate-600">Fattura</th>
+                      <th className="px-4 py-2 text-left text-xs font-semibold text-slate-600">Scadenza</th>
+                      <th className="px-4 py-2 text-right text-xs font-semibold text-slate-600">Importo</th>
+                      <th className="px-4 py-2 text-right text-xs font-semibold text-slate-600">Rimane</th>
+                      <th className="px-4 py-2 text-left text-xs font-semibold text-slate-600">Stato</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {group.items.map(p => {
+                      const sc = getStatusColor(p.status);
+                      return (
+                        <React.Fragment key={p.id}>
+                          <tr className={`${p.status === 'pagato' ? 'bg-emerald-50 border-l-4 border-emerald-400' : ''} ${selectedIds.has(p.id) ? 'bg-indigo-50' : ''}`}>
+                            <td className="px-3 py-2 text-center">
+                              {p.status !== 'pagato' && (p.gross_amount || 0) >= 0 && (
+                                <button onClick={() => toggleSelect(p.id, p)} className={selectedIds.has(p.id) ? 'text-indigo-600' : 'text-slate-300 hover:text-slate-500'}>
+                                  {selectedIds.has(p.id) ? <CheckSquare size={16} /> : <Square size={16} />}
+                                </button>
+                              )}
+                            </td>
+                            <td className="px-4 py-2 text-slate-700">{p.invoice_number}</td>
+                            <td className="px-4 py-2 text-slate-600">{p.due_date ? new Date(p.due_date).toLocaleDateString('it-IT') : '-'}</td>
+                            <td className="px-4 py-2 text-right text-slate-900">{formatCurrency(p.gross_amount)}</td>
+                            <td className="px-4 py-2 text-right font-semibold text-slate-900">{formatCurrency(p.amount_remaining || 0)}</td>
+                            <td className="px-4 py-2">
+                              <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-semibold ${sc.bg} ${sc.text}`}>{p.status}</span>
+                            </td>
+                          </tr>
+                          {renderPaymentRow(p, 6)}
+                        </React.Fragment>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ))}
+            {groupedBySupplier.length === 0 && (
+              <div className="text-center py-12 text-slate-500">Nessun pagamento trovato</div>
+            )}
+          </div>
+        )}
+
+        {/* Per Mese View */}
+        {viewMode === 'mese' && (
+          <div className="space-y-4 mb-6">
+            {groupedByMonth.map(([key, group]) => (
+              <div key={key} className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                <div className="px-6 py-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+                  <div>
+                    <h3 className="font-semibold text-slate-900 capitalize">{group.label}</h3>
+                    <span className="text-xs text-slate-500">{group.items.length} fatture</span>
+                  </div>
+                  <div className="flex gap-6 text-sm">
+                    <div className="text-right">
+                      <div className="text-xs text-slate-500">Totale</div>
+                      <div className="font-bold text-slate-900">{formatCurrency(group.total)}</div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-xs text-slate-500">Pagato</div>
+                      <div className="font-bold text-emerald-600">{formatCurrency(group.paid)}</div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-xs text-slate-500">Rimane</div>
+                      <div className="font-bold text-red-600">{formatCurrency(group.remaining)}</div>
+                    </div>
+                  </div>
+                </div>
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-50 border-b border-slate-100">
+                    <tr>
+                      <th className="px-3 py-2 text-center w-10"></th>
+                      <th className="px-4 py-2 text-left text-xs font-semibold text-slate-600">Fornitore</th>
+                      <th className="px-4 py-2 text-left text-xs font-semibold text-slate-600">Fattura</th>
+                      <th className="px-4 py-2 text-left text-xs font-semibold text-slate-600">Scadenza</th>
+                      <th className="px-4 py-2 text-right text-xs font-semibold text-slate-600">Importo</th>
+                      <th className="px-4 py-2 text-right text-xs font-semibold text-slate-600">Rimane</th>
+                      <th className="px-4 py-2 text-left text-xs font-semibold text-slate-600">Stato</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {group.items.map(p => {
+                      const sc = getStatusColor(p.status);
+                      return (
+                        <React.Fragment key={p.id}>
+                          <tr className={`${p.status === 'pagato' ? 'bg-emerald-50 border-l-4 border-emerald-400' : ''} ${selectedIds.has(p.id) ? 'bg-indigo-50' : ''}`}>
+                            <td className="px-3 py-2 text-center">
+                              {p.status !== 'pagato' && (p.gross_amount || 0) >= 0 && (
+                                <button onClick={() => toggleSelect(p.id, p)} className={selectedIds.has(p.id) ? 'text-indigo-600' : 'text-slate-300 hover:text-slate-500'}>
+                                  {selectedIds.has(p.id) ? <CheckSquare size={16} /> : <Square size={16} />}
+                                </button>
+                              )}
+                            </td>
+                            <td className="px-4 py-2 text-slate-900 font-medium">{p.suppliers?.ragione_sociale || p.suppliers?.name || 'N/A'}</td>
+                            <td className="px-4 py-2 text-slate-600">{p.invoice_number}</td>
+                            <td className="px-4 py-2 text-slate-600">{p.due_date ? new Date(p.due_date).toLocaleDateString('it-IT') : '-'}</td>
+                            <td className="px-4 py-2 text-right text-slate-900">{formatCurrency(p.gross_amount)}</td>
+                            <td className="px-4 py-2 text-right font-semibold text-slate-900">{formatCurrency(p.amount_remaining || 0)}</td>
+                            <td className="px-4 py-2">
+                              <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-semibold ${sc.bg} ${sc.text}`}>{p.status}</span>
+                            </td>
+                          </tr>
+                          {renderPaymentRow(p, 7)}
+                        </React.Fragment>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ))}
+            {groupedByMonth.length === 0 && (
+              <div className="text-center py-12 text-slate-500">Nessun pagamento trovato</div>
             )}
           </div>
         )}
@@ -845,6 +1315,82 @@ const ScadenzarioSmart = () => {
             </div>
           </div>
         )}
+
+        {/* Floating Action Bar */}
+        {selectedIds.size > 0 && (
+          <div className="fixed bottom-0 left-0 right-0 bg-white border-t-2 border-indigo-500 shadow-2xl p-4 z-40">
+            <div className="max-w-7xl mx-auto flex items-center justify-between">
+              <div className="flex items-center gap-6">
+                <span className="text-sm font-medium text-slate-600 flex items-center gap-2">
+                  <CheckSquare className="w-4 h-4 text-indigo-600" />
+                  {selectedIds.size} fatture selezionate
+                </span>
+                <span className="text-lg font-bold text-slate-900">{formatCurrency(selectedTotal)}</span>
+                {hasNegativeBalance && (
+                  <span className="text-sm font-semibold text-red-600 flex items-center gap-1">
+                    <Ban className="w-4 h-4" /> Saldo insufficiente su una o più banche
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-3">
+                <button onClick={() => { setSelectedIds(new Set()); setPaymentPlan({}); }}
+                  className="px-4 py-2 text-slate-600 bg-slate-100 rounded-lg hover:bg-slate-200 transition text-sm font-medium">
+                  Annulla
+                </button>
+                <button onClick={confirmPayments}
+                  disabled={isSaving || hasNegativeBalance || Array.from(selectedIds).some(id => !paymentPlan[id]?.bankId)}
+                  className="px-6 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition text-sm font-bold disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2">
+                  <Send className="w-4 h-4" />
+                  {isSaving ? 'Elaborazione...' : 'Conferma Pagamenti'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Confirm Result Modal */}
+        {confirmResult && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-2xl shadow-xl max-w-2xl w-full max-h-[80vh] overflow-y-auto">
+              <div className="sticky top-0 bg-emerald-600 text-white px-6 py-4 rounded-t-2xl flex justify-between items-center">
+                <h2 className="text-lg font-bold flex items-center gap-2"><CheckCircle2 className="w-5 h-5" /> Pagamenti Confermati</h2>
+                <button onClick={() => setConfirmResult(null)} className="text-white hover:text-emerald-200 transition"><X className="w-5 h-5" /></button>
+              </div>
+              <div className="p-6">
+                <p className="text-sm text-slate-600 mb-3">{confirmResult.results.length} pagamenti registrati. Copia il riepilogo e invialo agli indirizzi amministrativi.</p>
+                {emailRecipients && <p className="text-sm text-indigo-600 mb-3">Destinatari: {emailRecipients}</p>}
+                <textarea readOnly value={confirmResult.emailBody} rows={15}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs font-mono bg-slate-50 focus:outline-none" />
+                <button onClick={() => { navigator.clipboard.writeText(confirmResult.emailBody); }}
+                  className="mt-3 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition text-sm font-medium w-full">
+                  Copia Riepilogo
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Email Config Modal */}
+        {showEmailConfig && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
+              <h3 className="font-bold text-slate-900 mb-3">Destinatari Email Riepilogativa</h3>
+              <p className="text-xs text-slate-500 mb-3">Inserisci gli indirizzi email separati da virgola</p>
+              <input type="text" value={emailRecipients} onChange={e => setEmailRecipients(e.target.value)}
+                placeholder="admin@azienda.com, contabile@azienda.com"
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm mb-4 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+              <div className="flex justify-end gap-2">
+                <button onClick={() => setShowEmailConfig(false)} className="px-4 py-2 bg-slate-100 rounded-lg text-sm hover:bg-slate-200 transition">Annulla</button>
+                <button onClick={async () => {
+                  await supabase.from('companies').update({ settings: { email_scadenzario: emailRecipients } }).eq('id', COMPANY_ID);
+                  setShowEmailConfig(false);
+                }} className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700 transition font-medium">
+                  <Save className="w-4 h-4 inline mr-1" /> Salva
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Payment Modal */}
@@ -941,6 +1487,7 @@ const ScadenzarioSmart = () => {
             </div>
           </div>
         )}
+      </div>
       </div>
     </div>
   );

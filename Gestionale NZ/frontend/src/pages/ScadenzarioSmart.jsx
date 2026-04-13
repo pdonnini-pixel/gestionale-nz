@@ -737,8 +737,40 @@ const ScadenzarioSmart = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-6">
-      <div className="max-w-7xl mx-auto">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
+      {/* Bank Balances - Sticky (direct child of min-h-screen so it sticks across the whole page) */}
+      <div className="sticky top-0 z-30 bg-gradient-to-br from-slate-50 to-slate-100 shadow-sm border-b border-slate-200 px-6 py-3">
+        <div className="max-w-7xl mx-auto">
+          {bankAccounts.length > 0 ? (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {bankAccounts.map(ba => {
+                const bal = bankBalances[ba.id] || 0;
+                const orig = ba.current_balance || 0;
+                const used = orig - bal;
+                const isNeg = bal < 0;
+                return (
+                  <div key={ba.id} className={`bg-white rounded-xl shadow-sm p-3 border-l-4 ${isNeg ? 'border-red-500 bg-red-50' : 'border-emerald-500'}`}>
+                    <div className="text-xs text-slate-500 font-medium truncate">{ba.bank_name}</div>
+                    <div className="text-xs text-slate-400 truncate">{ba.account_name || ba.iban?.slice(-8)}</div>
+                    <div className={`text-lg font-bold ${isNeg ? 'text-red-600' : 'text-emerald-600'}`}>
+                      {formatCurrency(bal)}
+                    </div>
+                    {used > 0 && <div className="text-xs text-amber-600">Assegnati: {formatCurrency(used)}</div>}
+                    {isNeg && <div className="text-xs text-red-500 font-semibold">⚠ Saldo insufficiente</div>}
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-sm text-amber-700 flex items-center gap-2">
+              <Wallet className="w-4 h-4" /> Nessun conto bancario configurato. Aggiungi conti dalla sezione Banche.
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="p-6">
+        <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="mb-8">
           <div className="flex items-center justify-between mb-4">
@@ -755,35 +787,6 @@ const ScadenzarioSmart = () => {
             <div className="text-right text-sm text-slate-500">
               Data riferimento: {today.toLocaleDateString('it-IT')}
             </div>
-          </div>
-
-          {/* Bank Balances - Sticky */}
-          <div className="sticky top-0 z-30 bg-gradient-to-br from-slate-50 to-slate-100 pb-3 -mx-6 px-6 pt-2">
-            {bankAccounts.length > 0 ? (
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                {bankAccounts.map(ba => {
-                  const bal = bankBalances[ba.id] || 0;
-                  const orig = ba.current_balance || 0;
-                  const used = orig - bal;
-                  const isNeg = bal < 0;
-                  return (
-                    <div key={ba.id} className={`bg-white rounded-xl shadow-sm p-3 border-l-4 ${isNeg ? 'border-red-500 bg-red-50' : 'border-emerald-500'}`}>
-                      <div className="text-xs text-slate-500 font-medium truncate">{ba.bank_name}</div>
-                      <div className="text-xs text-slate-400 truncate">{ba.account_name || ba.iban?.slice(-8)}</div>
-                      <div className={`text-lg font-bold ${isNeg ? 'text-red-600' : 'text-emerald-600'}`}>
-                        {formatCurrency(bal)}
-                      </div>
-                      {used > 0 && <div className="text-xs text-amber-600">Assegnati: {formatCurrency(used)}</div>}
-                      {isNeg && <div className="text-xs text-red-500 font-semibold">⚠ Saldo insufficiente</div>}
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-sm text-amber-700 flex items-center gap-2">
-                <Wallet className="w-4 h-4" /> Nessun conto bancario configurato. Aggiungi conti dalla sezione Banche.
-              </div>
-            )}
           </div>
 
           {/* KPI Cards */}
@@ -1484,6 +1487,7 @@ const ScadenzarioSmart = () => {
             </div>
           </div>
         )}
+      </div>
       </div>
     </div>
   );

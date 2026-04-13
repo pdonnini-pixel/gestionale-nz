@@ -21,7 +21,8 @@ import { parseBilancio, toSupabaseRecords } from '../lib/parsers/bilancioParser'
 // ===== HELPERS =====
 function fmt(n, decimals = 0) {
   if (n == null) return '—'
-  return new Intl.NumberFormat('it-IT', { minimumFractionDigits: decimals, maximumFractionDigits: decimals }).format(n)
+  const rounded = Math.round(n * 100) / 100
+  return new Intl.NumberFormat('it-IT', { minimumFractionDigits: decimals, maximumFractionDigits: decimals }).format(rounded)
 }
 function pct(v, total) {
   if (!total || total === 0) return '—'
@@ -30,6 +31,21 @@ function pct(v, total) {
 function variation(curr, prev) {
   if (!prev || prev === 0) return null
   return ((curr - prev) / Math.abs(prev) * 100)
+}
+
+// ===== Italian number formatting for form inputs =====
+function fmtInput(n) {
+  if (n == null || n === '') return ''
+  const num = typeof n === 'string' ? parseFloat(n) : n
+  if (isNaN(num)) return ''
+  return new Intl.NumberFormat('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(num)
+}
+function parseInputNumber(str) {
+  if (!str || typeof str !== 'string') return ''
+  // Remove thousand separators (dots), replace comma with dot for decimal
+  const cleaned = str.replace(/\./g, '').replace(',', '.')
+  const n = parseFloat(cleaned)
+  return isNaN(n) ? '' : n
 }
 
 // ===== FORM FIELDS with labels and validation =====
@@ -313,6 +329,132 @@ export default function ContoEconomico() {
   const [saveMessage, setSaveMessage] = useState(null)
   const [availableYears, setAvailableYears] = useState([2023, 2024, 2025, 2026])
 
+  // ═══ Load bilancio tree from Supabase (persists across page reloads) ═══
+  const loadBilancioFromSupabase = async () => {
+    try {
+      const sections = ['sp_attivita', 'sp_passivita', 'ce_costi', 'ce_ricavi']
+      const { data } = await supabase
+        .from('balance_sheet_data')
+        .select('*')
+        .eq('company_id', COMPANY_ID)
+        .eq('year', year)
+        .eq('period_type', periodType)
+        .in('section', sections)
+        .order('sort_order')
+
+      if (!data || data.length === 0) {
+        setBilancioData(null)
+        setShowBilancioTree(false)
+        return
+      }
+
+      // Filter out header/footer junk rows that were captured from PDF
+      const junkPattern = /Azienda:|Cod\.\s*Fiscale|Partita\s*IVA|^VIA\s|PERIODO\s*DAL|Totali\s*fino|Considera\s*anche|^Pag\./i
+      const cleanData = data.filter(row => !junkPattern.test(row.account_name || ''))
+
+      // Reconstruct bilancio tree structure from flat Supabase records
+      const bySection = { sp_attivita: [], sp_passivita: [], ce_costi: [], ce_ricavi: [] }
+      cleanData.forEach(row => {
+        if (bySection[row.section]) {
+          bySection[row.section].push({
+            code: row.account_code || '',
+            description: row.account_name || '',
+            amount: row.amount || 0,
+            level: getCodeLevel(row.account_code),
+            isMacro: (row.account_code || '').replace(/\s/g, '').length <= 2,
+          })
+        }
+      })
+
+      // Build trees
+      const buildTree = (rows) => {
+        if (!rows || rows.length === 0) return []
+        const tree = []
+        const stack = []
+        for (const row of rows) {
+          const node = { ...row, children: [] }
+          while (stack.length > 0 && stack[stack.length - 1].level >= node.level) stack.pop()
+          if (stack.length === 0) tree.push(node)
+          else stack[stack.length - 1].node.children.push(node)
+          stack.push({ node, level: node.level })
+        }
+        return tree
+      }
+
+      // Calculate totals
+      const spAttMacros = bySection.sp_attivita.filter(r => r.isMacro)
+      const spPasMacros = bySection.sp_passivita.filter(r => r.isMacro)
+      const ceCostiMacros = bySection.ce_costi.filter(r => r.isMacro)
+      const ceRicaviMacros = bySection.ce_ricavi.filter(r => r.isMacro)
+
+      const totAttivita = spAttMacros.reduce((s, r) => s + r.amount, 0)
+      const totPassivita = spPasMacros.reduce((s, r) => s + r.amount, 0)
+      const totCosti = ceCostiMacros.reduce((s, r) => s + r.amount, 0)
+      const totRicavi = ceRicaviMacros.reduce((s, r) => s + r.amount, 0)
+
+      // Get risultato from conto_economico section
+      const { data: ceData } = await supabase
+        .from('balance_sheet_data')
+        .select('amount')
+        .eq('company_id', COMPANY_ID)
+        .eq('year', year)
+        .eq('period_type', periodType)
+        .eq('section', 'conto_economico')
+        .eq('account_code', 'utile_netto')
+        .maybeSingle()
+
+      const risultato = ceData?.amount || 0
+
+      // Get company info for meta
+      const { data: impData } = await supabase
+        .from('balance_sheet_imports')
+        .select('file_name, period_label')
+        .eq('company_id', COMPANY_ID)
+        .eq('year', year)
+        .eq('period_type', periodType)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+      const reconstructed = {
+        meta: {
+          company: companyInfo?.denominazione || 'NEW ZAGO S.R.L.',
+          period: impData?.period_label || `${periodType} ${year}`,
+        },
+        patrimoniale: {
+          attivita: bySection.sp_attivita,
+          passivita: bySection.sp_passivita,
+          attivitaTree: buildTree(bySection.sp_attivita),
+          passivitaTree: buildTree(bySection.sp_passivita),
+          totals: { attivita: totAttivita, passivita: totPassivita, risultato },
+        },
+        contoEconomico: {
+          costi: bySection.ce_costi,
+          ricavi: bySection.ce_ricavi,
+          costiTree: buildTree(bySection.ce_costi),
+          ricaviTree: buildTree(bySection.ce_ricavi),
+          totals: { costi: totCosti, ricavi: totRicavi, risultato },
+        },
+      }
+
+      setBilancioData(reconstructed)
+      setShowBilancioTree(true)
+      setBilancioSaved(true) // already saved since we loaded from DB
+    } catch (err) {
+      console.error('Error loading bilancio tree:', err)
+    }
+  }
+
+  // Helper to determine level from account code length
+  function getCodeLevel(code) {
+    if (!code) return 0
+    const len = code.replace(/\s/g, '').length
+    if (len <= 2) return 0
+    if (len <= 4) return 1
+    if (len <= 6) return 2
+    return 3
+  }
+
   // Load data on mount and when year/period changes
   useEffect(() => {
     if (!COMPANY_ID) return
@@ -321,6 +463,7 @@ export default function ContoEconomico() {
     loadImports()
     loadNotaIntegrativa()
     loadAvailableYears()
+    loadBilancioFromSupabase()
   }, [year, periodType, COMPANY_ID])
 
   // Feature 6: Load trend on toggle
@@ -498,6 +641,14 @@ export default function ContoEconomico() {
 
       if (uploadError) throw uploadError
 
+      // Delete previous imports for same year/period (avoid duplicates)
+      await supabase
+        .from('balance_sheet_imports')
+        .delete()
+        .eq('company_id', COMPANY_ID)
+        .eq('year', year)
+        .eq('period_type', periodType)
+
       // Create import record
       const { error: insertError } = await supabase
         .from('balance_sheet_imports')
@@ -522,11 +673,17 @@ export default function ContoEconomico() {
         try {
           const arrayBuffer = await file.arrayBuffer()
 
+          // Clone buffer for PDF viewer (parseBilancio may detach the original)
+          const pdfViewerCopy = arrayBuffer.slice(0)
+
           // Use advanced bilancio parser (extracts full chart of accounts)
           const parsed = await parseBilancio(arrayBuffer)
           setBilancioData(parsed)
           setShowBilancioTree(true)
           setBilancioSaved(false)
+
+          // Store PDF copy for preview (use the cloned buffer)
+          setPdfPreview(pdfViewerCopy)
 
           // Also populate legacy form fields for backward compatibility
           const t = parsed.contoEconomico.totals
@@ -555,16 +712,13 @@ export default function ContoEconomico() {
             imposte: 0,
             utile_netto: t.risultato || 0,
           }
-          extracted.totale_costi_produzione = extracted.materie_prime + extracted.servizi +
+          extracted.totale_costi_produzione = Math.round((extracted.materie_prime + extracted.servizi +
             extracted.godimento_beni_terzi + extracted.totale_personale +
-            extracted.totale_ammortamenti + extracted.variazione_rimanenze + extracted.oneri_diversi
-          extracted.differenza_ab = extracted.ricavi_vendite - extracted.totale_costi_produzione
+            extracted.totale_ammortamenti + extracted.variazione_rimanenze + extracted.oneri_diversi) * 100) / 100
+          extracted.differenza_ab = Math.round((extracted.ricavi_vendite - extracted.totale_costi_produzione) * 100) / 100
 
           setParsedFields(extracted)
           setFormData(prev => ({ ...prev, ...extracted }))
-
-          // Store PDF for preview
-          setPdfPreview(arrayBuffer)
         } catch (parseErr) {
           console.error('PDF parsing failed:', parseErr)
         }
@@ -598,27 +752,8 @@ export default function ContoEconomico() {
       }
     })
 
-    // Cross-field validation
-    const personale = parseFloat(formData.totale_personale) || 0
-    const stipendi = parseFloat(formData.salari_stipendi) || 0
-    const oneriSoc = parseFloat(formData.oneri_sociali) || 0
-    const tfr = parseFloat(formData.tfr) || 0
-    const sumPersonale = stipendi + oneriSoc + tfr
-    if (personale > 0 && sumPersonale > 0 && Math.abs(personale - sumPersonale) > 1) {
-      errors.totale_personale = `Totale personale (${fmt(personale)}) ≠ somma componenti (${fmt(sumPersonale)})`
-      hasErrors = true
-    }
-
-    const ricavi = parseFloat(formData.ricavi_vendite) || 0
-    const costiProd = parseFloat(formData.totale_costi_produzione) || 0
-    const diffAB = parseFloat(formData.differenza_ab) || 0
-    if (ricavi > 0 && costiProd > 0 && diffAB !== 0) {
-      const expectedDiff = ricavi - costiProd
-      if (Math.abs(diffAB - expectedDiff) > 1) {
-        errors.differenza_ab = `EBITDA (${fmt(diffAB)}) ≠ Ricavi - Costi (${fmt(expectedDiff)})`
-        hasErrors = true
-      }
-    }
+    // Cross-field validations removed — bilancio values from PDF may include
+    // sub-items not broken out in the form (e.g., "altri costi del personale")
 
     setFormErrors(errors)
     return !hasErrors
@@ -961,19 +1096,21 @@ export default function ContoEconomico() {
                       {parsedFields?.[field.key] !== undefined && <span className="text-green-500 ml-1 text-[10px]">PDF</span>}
                     </label>
                     <input
-                      type="number"
-                      value={formData[field.key] ?? ''}
+                      type="text"
+                      inputMode="decimal"
+                      value={fmtInput(formData[field.key])}
                       onChange={(e) => {
-                        setFormData({ ...formData, [field.key]: e.target.value })
+                        const raw = e.target.value.replace(/[^\d.,-]/g, '')
+                        const parsed = parseInputNumber(raw)
+                        setFormData({ ...formData, [field.key]: parsed })
                         if (formErrors[field.key]) setFormErrors({ ...formErrors, [field.key]: null })
                       }}
-                      className={`w-full px-2 py-1 border rounded text-sm ${
+                      className={`w-full px-2 py-1 border rounded text-sm text-right tabular-nums ${
                         formErrors[field.key] ? 'border-red-400 bg-red-50' :
                         parsedFields?.[field.key] !== undefined ? 'border-green-300 bg-green-50' :
                         'border-slate-300'
                       }`}
-                      placeholder="0"
-                      step="0.01"
+                      placeholder="0,00"
                     />
                     {formErrors[field.key] && (
                       <p className="text-[10px] text-red-600 mt-0.5 flex items-center gap-0.5">
@@ -1020,6 +1157,153 @@ export default function ContoEconomico() {
           sub={`${ebitPct25.toFixed(1)}% ricavi`} trend={variation(ebit25, cePrev.differenza_ab)} />
       </div>
 
+      {/* ═══ INDICI DI BILANCIO — right after KPIs ═══ */}
+      <Section title="Indici di bilancio" icon={ShieldCheck}>
+        <div className="p-5">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {[
+              {
+                label: 'Margine lordo %',
+                value: `${margineLordoPct25.toFixed(1)}%`,
+                status: margineLordoPct25 > 30 ? 'green' : 'amber',
+                formula: `(Ricavi − Materie prime + Var. rimanenze) / Ricavi × 100`,
+                detail: `(${fmt(ricavi25)} − ${fmt(ce25.materie_prime || 0)} + ${fmt(ce25.variazione_rimanenze || 0)}) / ${fmt(ricavi25)} = ${margineLordoPct25.toFixed(1)}%`,
+                benchmark: 'Retail moda: >45% buono, >55% eccellente',
+              },
+              {
+                label: 'Incidenza personale',
+                value: `${personaleOnRicavi.toFixed(1)}%`,
+                status: personaleOnRicavi < 30 ? 'green' : 'amber',
+                formula: `Totale personale / Ricavi × 100`,
+                detail: `${fmt(ce25.totale_personale || 0)} / ${fmt(ricavi25)} = ${personaleOnRicavi.toFixed(1)}%`,
+                benchmark: 'Retail: <20% ottimo, 20-30% normale, >30% critico',
+              },
+              {
+                label: 'Incidenza affitti',
+                value: `${affitiOnRicavi.toFixed(1)}%`,
+                status: affitiOnRicavi < 18 ? 'green' : 'amber',
+                formula: `Godimento beni terzi / Ricavi × 100`,
+                detail: `${fmt(ce25.godimento_beni_terzi || 0)} / ${fmt(ricavi25)} = ${affitiOnRicavi.toFixed(1)}%`,
+                benchmark: 'Retail: <12% ottimo, 12-18% normale, >18% critico',
+              },
+              {
+                label: 'EBIT %',
+                value: `${ebitPct25.toFixed(2)}%`,
+                status: ebitPct25 > 3 ? 'green' : 'red',
+                formula: `Differenza A-B / Ricavi × 100`,
+                detail: `${fmt(ebit25)} / ${fmt(ricavi25)} = ${ebitPct25.toFixed(2)}%`,
+                benchmark: '>8% eccellente, 3-8% buono, <3% critico',
+              },
+              { label: 'Periodo', value: `${periodType} ${year}`, status: 'blue' },
+              { label: 'Stato', value: simulationMode ? 'Simulazione' : 'Dati reali', status: simulationMode ? 'purple' : 'green' },
+            ].map(r => (
+              <IndiceCard key={r.label} {...r} />
+            ))}
+          </div>
+        </div>
+      </Section>
+
+      {/* ═══ BILANCIO TREE VIEW — after Indici ═══ */}
+      {showBilancioTree && bilancioData && (
+        <Section title="Bilancio — Dettaglio completo" icon={FileText} defaultOpen={true}
+          badge={`${(bilancioData.contoEconomico?.costi?.length || 0) + (bilancioData.contoEconomico?.ricavi?.length || 0) + (bilancioData.patrimoniale?.attivita?.length || 0) + (bilancioData.patrimoniale?.passivita?.length || 0)} voci`}>
+          <div className="p-5 space-y-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-slate-600">
+                  {bilancioData.meta?.company || 'Azienda'} — {bilancioData.meta?.period || 'Periodo'}
+                </p>
+                <p className="text-xs text-slate-400 mt-1">
+                  SP: {bilancioData.patrimoniale?.attivita?.length || 0} voci attività, {bilancioData.patrimoniale?.passivita?.length || 0} voci passività |
+                  CE: {bilancioData.contoEconomico?.costi?.length || 0} voci costi, {bilancioData.contoEconomico?.ricavi?.length || 0} voci ricavi
+                </p>
+              </div>
+              <button onClick={handleSaveBilancio} disabled={bilancioSaving || bilancioSaved}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition ${
+                  bilancioSaved ? 'bg-emerald-100 text-emerald-700 border border-emerald-300' :
+                  'bg-blue-600 text-white hover:bg-blue-700'
+                }`}>
+                {bilancioSaving ? <><Loader2 size={14} className="animate-spin" /> Salvataggio...</> :
+                 bilancioSaved ? <><CheckCircle size={14} /> Salvato in Supabase</> :
+                 <><Save size={14} /> Salva bilancio completo</>}
+              </button>
+            </div>
+
+            {/* Stato Patrimoniale */}
+            <div>
+              <h3 className="text-sm font-bold text-slate-800 mb-3 flex items-center gap-2">
+                <Building2 size={16} className="text-indigo-500" /> Stato Patrimoniale
+              </h3>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div>
+                  <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Attività</div>
+                  <BilancioTree rows={bilancioData.patrimoniale?.attivitaTree || []} />
+                  {bilancioData.patrimoniale?.totals?.attivita != null && (
+                    <div className="mt-2 pt-2 border-t-2 border-slate-300 flex justify-between px-2">
+                      <span className="text-sm font-bold text-slate-900">TOTALE</span>
+                      <span className="text-sm font-bold text-slate-900">{fmt(bilancioData.patrimoniale.totals.attivita)} €</span>
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Passività</div>
+                  <BilancioTree rows={bilancioData.patrimoniale?.passivitaTree || []} />
+                  {bilancioData.patrimoniale?.totals?.passivita != null && (
+                    <div className="mt-2 pt-2 border-t-2 border-slate-300 flex justify-between px-2">
+                      <span className="text-sm font-bold text-slate-900">TOTALE</span>
+                      <span className="text-sm font-bold text-slate-900">{fmt(bilancioData.patrimoniale.totals.passivita)} €</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+              {bilancioData.patrimoniale?.totals?.risultato != null && (
+                <div className={`mt-3 p-3 rounded-lg text-center font-bold text-sm ${
+                  bilancioData.patrimoniale.totals.risultato >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'
+                }`}>
+                  {bilancioData.patrimoniale.totals.risultato >= 0 ? 'Utile' : 'Perdita'}: {fmt(Math.abs(bilancioData.patrimoniale.totals.risultato))} €
+                </div>
+              )}
+            </div>
+
+            {/* Conto Economico dettagliato */}
+            <div>
+              <h3 className="text-sm font-bold text-slate-800 mb-3 flex items-center gap-2">
+                <BarChart3 size={16} className="text-blue-500" /> Conto Economico
+              </h3>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div>
+                  <div className="text-xs font-semibold text-red-500 uppercase tracking-wider mb-2">Componenti Negative</div>
+                  <BilancioTree rows={bilancioData.contoEconomico?.costiTree || []} />
+                  {bilancioData.contoEconomico?.totals?.costi != null && (
+                    <div className="mt-2 pt-2 border-t-2 border-slate-300 flex justify-between px-2">
+                      <span className="text-sm font-bold text-slate-900">TOTALE COSTI</span>
+                      <span className="text-sm font-bold text-red-600">{fmt(bilancioData.contoEconomico.totals.costi)} €</span>
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <div className="text-xs font-semibold text-emerald-500 uppercase tracking-wider mb-2">Componenti Positive</div>
+                  <BilancioTree rows={bilancioData.contoEconomico?.ricaviTree || []} />
+                  {bilancioData.contoEconomico?.totals?.ricavi != null && (
+                    <div className="mt-2 pt-2 border-t-2 border-slate-300 flex justify-between px-2">
+                      <span className="text-sm font-bold text-slate-900">TOTALE RICAVI</span>
+                      <span className="text-sm font-bold text-emerald-600">{fmt(bilancioData.contoEconomico.totals.ricavi)} €</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+              {bilancioData.contoEconomico?.totals?.risultato != null && (
+                <div className={`mt-3 p-3 rounded-lg text-center font-bold text-sm ${
+                  bilancioData.contoEconomico.totals.risultato >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'
+                }`}>
+                  {bilancioData.contoEconomico.totals.risultato >= 0 ? 'Utile' : 'Perdita'}: {fmt(Math.abs(bilancioData.contoEconomico.totals.risultato))} €
+                </div>
+              )}
+            </div>
+          </div>
+        </Section>
+      )}
+
       {/* Feature 6: Trend multi-anno */}
       {showTrend && trendData.length > 0 && (
         <Section title={`Trend multi-anno — ${periodType}`} icon={LineChartIcon} badge={`${trendData.length} anni`}>
@@ -1050,80 +1334,7 @@ export default function ContoEconomico() {
         </div>
       )}
 
-      {/* Conto Economico Table */}
-      {!loading && (
-        <Section title={`Conto Economico — ${periodType} ${year}`} icon={Calculator} defaultOpen={true}>
-          <div className="rounded-2xl overflow-hidden shadow-lg" style={{ background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)', border: '1px solid rgba(99,102,241,0.08)' }}>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-[11px] text-slate-500 uppercase tracking-wider bg-slate-50 border-b border-slate-200">
-                    <th className="py-2 px-4 text-left font-medium">Voce</th>
-                    <th className="py-2 px-3 text-right font-medium">{year} (€)</th>
-                    <th className="py-2 px-3 text-right font-medium">%</th>
-                    <th className="py-2 px-3 text-right font-medium">{year - 1} (€)</th>
-                    <th className="py-2 px-3 text-right font-medium">%</th>
-                    <th className="py-2 px-3 text-right font-medium">Var.</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <CeRow label="A) Valore della produzione" bold />
-                  <CeRow label="Ricavi delle vendite" v2025={ce25.ricavi_vendite || 0} v2024={cePrev.ricavi_vendite}
-                    total2025={ricavi25} total2024={ricaviPrev} indent
-                    editable={simulationMode} onChange={(v) => handleSimulationChange('ricavi_vendite', v)} simMode={simulationMode}
-                    onEditChange={(k, dirty) => setDirtyFields({...dirtyFields, [k]: dirty})} fieldKey="ricavi_vendite" isDirty={dirtyFields.ricavi_vendite} />
-                  <CeRow label="Totale valore produzione" v2025={ce25.totale_valore_produzione || ricavi25} v2024={cePrev.totale_valore_produzione || ricaviPrev}
-                    total2025={ricavi25} total2024={ricaviPrev} bold highlight border />
-                  <CeRow label="B) Costi della produzione" bold />
-                  <CeRow label="Materie prime e merci" v2025={ce25.materie_prime || 0} v2024={cePrev.materie_prime}
-                    total2025={ricavi25} total2024={ricaviPrev} indent
-                    editable={simulationMode} onChange={(v) => handleSimulationChange('materie_prime', v)} simMode={simulationMode}
-                    onEditChange={(k, dirty) => setDirtyFields({...dirtyFields, [k]: dirty})} fieldKey="materie_prime" isDirty={dirtyFields.materie_prime} />
-                  <CeRow label="Servizi" v2025={ce25.servizi || 0} v2024={cePrev.servizi}
-                    total2025={ricavi25} total2024={ricaviPrev} indent
-                    editable={simulationMode} onChange={(v) => handleSimulationChange('servizi', v)} simMode={simulationMode}
-                    onEditChange={(k, dirty) => setDirtyFields({...dirtyFields, [k]: dirty})} fieldKey="servizi" isDirty={dirtyFields.servizi} />
-                  <CeRow label="Godimento beni di terzi (affitti)" v2025={ce25.godimento_beni_terzi || 0} v2024={cePrev.godimento_beni_terzi}
-                    total2025={ricavi25} total2024={ricaviPrev} indent
-                    editable={simulationMode} onChange={(v) => handleSimulationChange('godimento_beni_terzi', v)} simMode={simulationMode}
-                    onEditChange={(k, dirty) => setDirtyFields({...dirtyFields, [k]: dirty})} fieldKey="godimento_beni_terzi" isDirty={dirtyFields.godimento_beni_terzi} />
-                  <CeRow label="Personale" v2025={ce25.totale_personale || 0} v2024={cePrev.totale_personale}
-                    total2025={ricavi25} total2024={ricaviPrev} indent bold
-                    editable={simulationMode} onChange={(v) => handleSimulationChange('totale_personale', v)} simMode={simulationMode}
-                    onEditChange={(k, dirty) => setDirtyFields({...dirtyFields, [k]: dirty})} fieldKey="totale_personale" isDirty={dirtyFields.totale_personale} />
-                  <CeRow label="  — Stipendi" v2025={ce25.salari_stipendi || 0} v2024={cePrev.salari_stipendi} total2025={ricavi25} total2024={ricaviPrev} sub />
-                  <CeRow label="  — Oneri sociali" v2025={ce25.oneri_sociali || 0} v2024={cePrev.oneri_sociali} total2025={ricavi25} total2024={ricaviPrev} sub />
-                  <CeRow label="  — TFR" v2025={ce25.tfr || 0} v2024={cePrev.tfr} total2025={ricavi25} total2024={ricaviPrev} sub />
-                  <CeRow label="Ammortamenti" v2025={ce25.totale_ammortamenti || 0} v2024={cePrev.totale_ammortamenti}
-                    total2025={ricavi25} total2024={ricaviPrev} indent
-                    editable={simulationMode} onChange={(v) => handleSimulationChange('totale_ammortamenti', v)} simMode={simulationMode}
-                    onEditChange={(k, dirty) => setDirtyFields({...dirtyFields, [k]: dirty})} fieldKey="totale_ammortamenti" isDirty={dirtyFields.totale_ammortamenti} />
-                  <CeRow label="Variazione rimanenze" v2025={ce25.variazione_rimanenze || 0} v2024={cePrev.variazione_rimanenze}
-                    total2025={ricavi25} total2024={ricaviPrev} indent
-                    editable={simulationMode} onChange={(v) => handleSimulationChange('variazione_rimanenze', v)} simMode={simulationMode}
-                    onEditChange={(k, dirty) => setDirtyFields({...dirtyFields, [k]: dirty})} fieldKey="variazione_rimanenze" isDirty={dirtyFields.variazione_rimanenze} />
-                  <CeRow label="Oneri diversi" v2025={ce25.oneri_diversi || 0} v2024={cePrev.oneri_diversi}
-                    total2025={ricavi25} total2024={ricaviPrev} indent
-                    editable={simulationMode} onChange={(v) => handleSimulationChange('oneri_diversi', v)} simMode={simulationMode}
-                    onEditChange={(k, dirty) => setDirtyFields({...dirtyFields, [k]: dirty})} fieldKey="oneri_diversi" isDirty={dirtyFields.oneri_diversi} />
-                  <CeRow label="Totale costi produzione" v2025={ce25.totale_costi_produzione || 0} v2024={cePrev.totale_costi_produzione}
-                    total2025={ricavi25} total2024={ricaviPrev} bold highlight border />
-                  <CeRow label="EBITDA (Differenza A - B)" v2025={ce25.differenza_ab || 0} v2024={cePrev.differenza_ab}
-                    total2025={ricavi25} total2024={ricaviPrev} bold highlight border />
-                  <CeRow label="Oneri finanziari" v2025={-(ce25.oneri_finanziari || 0)} v2024={cePrev.oneri_finanziari ? -cePrev.oneri_finanziari : undefined}
-                    total2025={ricavi25} total2024={ricaviPrev} indent
-                    editable={simulationMode} onChange={(v) => handleSimulationChange('oneri_finanziari', v)} simMode={simulationMode}
-                    onEditChange={(k, dirty) => setDirtyFields({...dirtyFields, [k]: dirty})} fieldKey="oneri_finanziari" isDirty={dirtyFields.oneri_finanziari} />
-                  <CeRow label="Imposte" v2025={-(ce25.imposte || 0)} v2024={cePrev.imposte ? -cePrev.imposte : undefined}
-                    total2025={ricavi25} total2024={ricaviPrev} indent />
-                  <CeRow label="UTILE (PERDITA) D'ESERCIZIO" v2025={ce25.utile_netto || 0} v2024={cePrev.utile_netto}
-                    total2025={ricavi25} total2024={ricaviPrev} bold highlight border />
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </Section>
-      )}
+      {/* CE comparison table removed — tree view provides full detail */}
 
       {/* Feature 1: Analisi punti di forza/debolezza */}
       {!loading && ricavi25 > 0 && (
@@ -1285,33 +1496,6 @@ export default function ContoEconomico() {
         </div>
       </Section>
 
-      {/* Key metrics */}
-      <Section title="Indici di bilancio" icon={ShieldCheck}>
-        <div className="p-5">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-            {[
-              { label: 'Margine lordo %', value: `${margineLordoPct25.toFixed(1)}%`, status: margineLordoPct25 > 30 ? 'green' : 'amber' },
-              { label: 'Incidenza personale', value: `${personaleOnRicavi.toFixed(1)}%`, status: personaleOnRicavi < 30 ? 'green' : 'amber' },
-              { label: 'Incidenza affitti', value: `${affitiOnRicavi.toFixed(1)}%`, status: affitiOnRicavi < 18 ? 'green' : 'amber' },
-              { label: 'EBIT %', value: `${ebitPct25.toFixed(2)}%`, status: ebitPct25 > 3 ? 'green' : 'red' },
-              { label: 'Periodo', value: `${periodType} ${year}`, status: 'blue' },
-              { label: 'Stato', value: simulationMode ? 'Simulazione' : 'Dati reali', status: simulationMode ? 'purple' : 'green' },
-            ].map(r => (
-              <div key={r.label} className={`rounded-lg p-3 border ${
-                r.status === 'green' ? 'bg-emerald-50/50 border-emerald-200' :
-                r.status === 'amber' ? 'bg-amber-50/50 border-amber-200' :
-                r.status === 'red' ? 'bg-red-50/50 border-red-200' :
-                r.status === 'blue' ? 'bg-blue-50/50 border-blue-200' :
-                'bg-purple-50/50 border-purple-200'
-              }`}>
-                <p className="text-xs text-slate-500 font-medium">{r.label}</p>
-                <p className="text-lg font-bold text-slate-900 mt-1">{r.value}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </Section>
-
       {/* Approval confirmation modal */}
       {showApproveConfirm && (
         <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={() => setShowApproveConfirm(null)}>
@@ -1343,113 +1527,59 @@ export default function ContoEconomico() {
         </div>
       )}
 
-      {/* ═══ BILANCIO TREE VIEW ═══ */}
-      {showBilancioTree && bilancioData && (
-        <Section title="Bilancio importato — Dettaglio completo" icon={FileText} defaultOpen={true}
-          badge={`${bilancioData.contoEconomico.costi.length + bilancioData.contoEconomico.ricavi.length + bilancioData.patrimoniale.attivita.length + bilancioData.patrimoniale.passivita.length} voci`}>
-          <div className="p-5 space-y-6">
-            {/* Save button */}
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-slate-600">
-                  {bilancioData.meta.company} — {bilancioData.meta.period}
-                </p>
-                <p className="text-xs text-slate-400 mt-1">
-                  SP: {bilancioData.patrimoniale.attivita.length} voci attività, {bilancioData.patrimoniale.passivita.length} voci passività |
-                  CE: {bilancioData.contoEconomico.costi.length} voci costi, {bilancioData.contoEconomico.ricavi.length} voci ricavi
-                </p>
-              </div>
-              <button onClick={handleSaveBilancio} disabled={bilancioSaving || bilancioSaved}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition ${
-                  bilancioSaved ? 'bg-emerald-100 text-emerald-700 border border-emerald-300' :
-                  'bg-blue-600 text-white hover:bg-blue-700'
-                }`}>
-                {bilancioSaving ? <><Loader2 size={14} className="animate-spin" /> Salvataggio...</> :
-                 bilancioSaved ? <><CheckCircle size={14} /> Salvato in Supabase</> :
-                 <><Save size={14} /> Salva bilancio completo</>}
-              </button>
-            </div>
-
-            {/* Stato Patrimoniale */}
-            <div>
-              <h3 className="text-sm font-bold text-slate-800 mb-3 flex items-center gap-2">
-                <Building2 size={16} className="text-indigo-500" /> Stato Patrimoniale
-              </h3>
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <div>
-                  <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Attività</div>
-                  <BilancioTree rows={bilancioData.patrimoniale.attivitaTree} />
-                  {bilancioData.patrimoniale.totals.attivita && (
-                    <div className="mt-2 pt-2 border-t-2 border-slate-300 flex justify-between px-2">
-                      <span className="text-sm font-bold text-slate-900">TOTALE</span>
-                      <span className="text-sm font-bold text-slate-900">{fmt(bilancioData.patrimoniale.totals.attivita)} €</span>
-                    </div>
-                  )}
-                </div>
-                <div>
-                  <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Passività</div>
-                  <BilancioTree rows={bilancioData.patrimoniale.passivitaTree} />
-                  {bilancioData.patrimoniale.totals.passivita && (
-                    <div className="mt-2 pt-2 border-t-2 border-slate-300 flex justify-between px-2">
-                      <span className="text-sm font-bold text-slate-900">TOTALE</span>
-                      <span className="text-sm font-bold text-slate-900">{fmt(bilancioData.patrimoniale.totals.passivita)} €</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-              {bilancioData.patrimoniale.totals.risultato != null && (
-                <div className={`mt-3 p-3 rounded-lg text-center font-bold text-sm ${
-                  bilancioData.patrimoniale.totals.risultato >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'
-                }`}>
-                  {bilancioData.patrimoniale.totals.risultato >= 0 ? 'Utile' : 'Perdita'}: {fmt(Math.abs(bilancioData.patrimoniale.totals.risultato))} €
-                </div>
-              )}
-            </div>
-
-            {/* Conto Economico */}
-            <div>
-              <h3 className="text-sm font-bold text-slate-800 mb-3 flex items-center gap-2">
-                <BarChart3 size={16} className="text-blue-500" /> Conto Economico
-              </h3>
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <div>
-                  <div className="text-xs font-semibold text-red-500 uppercase tracking-wider mb-2">Componenti Negative</div>
-                  <BilancioTree rows={bilancioData.contoEconomico.costiTree} />
-                  {bilancioData.contoEconomico.totals.costi && (
-                    <div className="mt-2 pt-2 border-t-2 border-slate-300 flex justify-between px-2">
-                      <span className="text-sm font-bold text-slate-900">TOTALE COSTI</span>
-                      <span className="text-sm font-bold text-red-600">{fmt(bilancioData.contoEconomico.totals.costi)} €</span>
-                    </div>
-                  )}
-                </div>
-                <div>
-                  <div className="text-xs font-semibold text-emerald-500 uppercase tracking-wider mb-2">Componenti Positive</div>
-                  <BilancioTree rows={bilancioData.contoEconomico.ricaviTree} />
-                  {bilancioData.contoEconomico.totals.ricavi && (
-                    <div className="mt-2 pt-2 border-t-2 border-slate-300 flex justify-between px-2">
-                      <span className="text-sm font-bold text-slate-900">TOTALE RICAVI</span>
-                      <span className="text-sm font-bold text-emerald-600">{fmt(bilancioData.contoEconomico.totals.ricavi)} €</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-              {bilancioData.contoEconomico.totals.risultato != null && (
-                <div className={`mt-3 p-3 rounded-lg text-center font-bold text-sm ${
-                  bilancioData.contoEconomico.totals.risultato >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'
-                }`}>
-                  {bilancioData.contoEconomico.totals.risultato >= 0 ? 'Utile' : 'Perdita'}: {fmt(Math.abs(bilancioData.contoEconomico.totals.risultato))} €
-                </div>
-              )}
-            </div>
-          </div>
-        </Section>
-      )}
-
       {/* Loading indicator */}
       {loading && (
         <div className="flex items-center justify-center py-8">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
           <span className="ml-2 text-slate-600">Caricamento dati...</span>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ═══ INDICE CARD WITH TOOLTIP ═══
+function IndiceCard({ label, value, status, formula, detail, benchmark }) {
+  const [showTip, setShowTip] = useState(false)
+  const colors = {
+    green: 'bg-emerald-50/50 border-emerald-200',
+    amber: 'bg-amber-50/50 border-amber-200',
+    red: 'bg-red-50/50 border-red-200',
+    blue: 'bg-blue-50/50 border-blue-200',
+    purple: 'bg-purple-50/50 border-purple-200',
+  }
+  return (
+    <div className={`rounded-lg p-3 border relative ${colors[status] || colors.blue}`}>
+      <div className="flex items-center justify-between">
+        <p className="text-xs text-slate-500 font-medium">{label}</p>
+        {formula && (
+          <button
+            onClick={() => setShowTip(!showTip)}
+            className="w-5 h-5 rounded-full bg-slate-200 text-slate-500 text-[10px] font-bold flex items-center justify-center hover:bg-slate-300 transition"
+            title="Come viene calcolato">
+            ?
+          </button>
+        )}
+      </div>
+      <p className="text-lg font-bold text-slate-900 mt-1">{value}</p>
+      {showTip && formula && (
+        <div className="mt-2 p-2.5 bg-white rounded-lg border border-slate-200 shadow-sm text-xs space-y-1.5">
+          <div>
+            <span className="font-semibold text-slate-700">Formula: </span>
+            <span className="text-slate-600">{formula}</span>
+          </div>
+          {detail && (
+            <div>
+              <span className="font-semibold text-slate-700">Calcolo: </span>
+              <span className="text-slate-600 font-mono">{detail}</span>
+            </div>
+          )}
+          {benchmark && (
+            <div>
+              <span className="font-semibold text-slate-700">Benchmark: </span>
+              <span className="text-slate-600">{benchmark}</span>
+            </div>
+          )}
         </div>
       )}
     </div>
