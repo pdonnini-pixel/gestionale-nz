@@ -96,7 +96,7 @@ function AlertCard({ icon: Icon, color, title, children }) {
 export default function Dashboard() {
   const { profile } = useAuth()
   const COMPANY_ID = profile?.company_id
-  const CURRENT_YEAR = 2025
+  const CURRENT_YEAR = new Date().getFullYear()
   const [dashYear, setDashYear] = useState(CURRENT_YEAR)
 
   // State for all data
@@ -194,7 +194,79 @@ export default function Dashboard() {
               { name: 'Altro', value: (bs.oneri_finanziari || 0) + (bs.oneri_diversi || 0), color: costColors[4] },
             ]
             setPieCosti(costEntries)
+            hasViewData = true // prevent fatture fallback
           }
+        }
+
+        // 3. FALLBACK: Read from fatture / monthly_actuals (dati operativi)
+        if (!hasViewData) {
+          try {
+            // Get monthly purchases from monthly_actuals
+            const { data: maData } = await supabase
+              .from('monthly_actuals')
+              .select('month, purchases')
+              .eq('company_id', COMPANY_ID)
+              .eq('year', YEAR)
+              .is('outlet_id', null)
+
+            // Get cost breakdown from monthly_cost_lines via monthly_actuals
+            const maIds = (maData || []).map(r => r.id).filter(Boolean)
+            const totalPurchases = (maData || []).reduce((s, r) => s + parseFloat(r.purchases || 0), 0)
+
+            // Get electronic invoices summary
+            const { data: invData } = await supabase
+              .from('electronic_invoices')
+              .select('gross_amount, invoice_date')
+              .eq('company_id', COMPANY_ID)
+              .gte('invoice_date', `${YEAR}-01-01`)
+              .lte('invoice_date', `${YEAR}-12-31`)
+
+            if (invData && invData.length > 0) {
+              const totalGross = invData.reduce((s, r) => s + parseFloat(r.gross_amount || 0), 0)
+              setTotalCosti(totalGross)
+              setDataSource('fatture')
+
+              // Get cost breakdown by category from monthly_cost_lines
+              const { data: mclData } = await supabase
+                .from('monthly_cost_lines')
+                .select('amount, cost_category_id, label, monthly_actual_id')
+
+              // Filter to only our monthly_actuals
+              const ourMaIds = new Set((maData || []).map(r => r.id))
+              const ourCostLines = (mclData || []).filter(r => ourMaIds.has(r.monthly_actual_id))
+
+              // Get cost categories for labeling
+              const { data: catData } = await supabase
+                .from('cost_categories')
+                .select('id, code, name, macro_group')
+                .eq('company_id', COMPANY_ID)
+
+              const catMap = {}
+              ;(catData || []).forEach(c => { catMap[c.id] = c })
+
+              // Aggregate by macro_group
+              const macroTotals = { locazione: 0, personale: 0, generali_amministrative: 0, finanziarie: 0, oneri_diversi: 0 }
+              let merciTotal = 0
+              ourCostLines.forEach(cl => {
+                const cat = catMap[cl.cost_category_id]
+                if (cat) {
+                  macroTotals[cat.macro_group] = (macroTotals[cat.macro_group] || 0) + parseFloat(cl.amount || 0)
+                }
+              })
+              // Merci = total purchases - sum of cost lines (the rest is costo venduto)
+              const costLinesTotal = Object.values(macroTotals).reduce((s, v) => s + v, 0)
+              merciTotal = totalGross - costLinesTotal
+
+              const costColors = ['#f43f5e', '#6366f1', '#06b6d4', '#8b5cf6', '#94a3b8']
+              setPieCosti([
+                { name: 'Merci/Merce', value: Math.max(0, merciTotal), color: costColors[0] },
+                { name: 'Locazioni', value: macroTotals.locazione || 0, color: costColors[3] },
+                { name: 'Servizi/Admin', value: macroTotals.generali_amministrative || 0, color: costColors[2] },
+                { name: 'Personale', value: macroTotals.personale || 0, color: costColors[1] },
+                { name: 'Altro', value: (macroTotals.finanziarie || 0) + (macroTotals.oneri_diversi || 0), color: costColors[4] },
+              ])
+            }
+          } catch (e) { console.warn('fatture fallback error:', e.message) }
         }
 
         // 3. Previous year for comparison
@@ -378,6 +450,11 @@ export default function Dashboard() {
           {dataSource === 'bilancio' && (
             <p className="text-xs text-blue-500 mt-0.5 flex items-center gap-1">
               <FileText size={12} /> Dati da bilancio importato (Conto Economico)
+            </p>
+          )}
+          {dataSource === 'fatture' && (
+            <p className="text-xs text-emerald-500 mt-0.5 flex items-center gap-1">
+              <Receipt size={12} /> Dati da fatture elettroniche AdE (Q1 {YEAR})
             </p>
           )}
         </div>
