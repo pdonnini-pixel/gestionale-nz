@@ -348,9 +348,13 @@ export default function ContoEconomico() {
         return
       }
 
+      // Filter out header/footer junk rows that were captured from PDF
+      const junkPattern = /Azienda:|Cod\.\s*Fiscale|Partita\s*IVA|^VIA\s|PERIODO\s*DAL|Totali\s*fino|Considera\s*anche|^Pag\./i
+      const cleanData = data.filter(row => !junkPattern.test(row.account_name || ''))
+
       // Reconstruct bilancio tree structure from flat Supabase records
       const bySection = { sp_attivita: [], sp_passivita: [], ce_costi: [], ce_ricavi: [] }
-      data.forEach(row => {
+      cleanData.forEach(row => {
         if (bySection[row.section]) {
           bySection[row.section].push({
             code: row.account_code || '',
@@ -1158,23 +1162,42 @@ export default function ContoEconomico() {
         <div className="p-5">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
             {[
-              { label: 'Margine lordo %', value: `${margineLordoPct25.toFixed(1)}%`, status: margineLordoPct25 > 30 ? 'green' : 'amber' },
-              { label: 'Incidenza personale', value: `${personaleOnRicavi.toFixed(1)}%`, status: personaleOnRicavi < 30 ? 'green' : 'amber' },
-              { label: 'Incidenza affitti', value: `${affitiOnRicavi.toFixed(1)}%`, status: affitiOnRicavi < 18 ? 'green' : 'amber' },
-              { label: 'EBIT %', value: `${ebitPct25.toFixed(2)}%`, status: ebitPct25 > 3 ? 'green' : 'red' },
+              {
+                label: 'Margine lordo %',
+                value: `${margineLordoPct25.toFixed(1)}%`,
+                status: margineLordoPct25 > 30 ? 'green' : 'amber',
+                formula: `(Ricavi − Materie prime + Var. rimanenze) / Ricavi × 100`,
+                detail: `(${fmt(ricavi25)} − ${fmt(ce25.materie_prime || 0)} + ${fmt(ce25.variazione_rimanenze || 0)}) / ${fmt(ricavi25)} = ${margineLordoPct25.toFixed(1)}%`,
+                benchmark: 'Retail moda: >45% buono, >55% eccellente',
+              },
+              {
+                label: 'Incidenza personale',
+                value: `${personaleOnRicavi.toFixed(1)}%`,
+                status: personaleOnRicavi < 30 ? 'green' : 'amber',
+                formula: `Totale personale / Ricavi × 100`,
+                detail: `${fmt(ce25.totale_personale || 0)} / ${fmt(ricavi25)} = ${personaleOnRicavi.toFixed(1)}%`,
+                benchmark: 'Retail: <20% ottimo, 20-30% normale, >30% critico',
+              },
+              {
+                label: 'Incidenza affitti',
+                value: `${affitiOnRicavi.toFixed(1)}%`,
+                status: affitiOnRicavi < 18 ? 'green' : 'amber',
+                formula: `Godimento beni terzi / Ricavi × 100`,
+                detail: `${fmt(ce25.godimento_beni_terzi || 0)} / ${fmt(ricavi25)} = ${affitiOnRicavi.toFixed(1)}%`,
+                benchmark: 'Retail: <12% ottimo, 12-18% normale, >18% critico',
+              },
+              {
+                label: 'EBIT %',
+                value: `${ebitPct25.toFixed(2)}%`,
+                status: ebitPct25 > 3 ? 'green' : 'red',
+                formula: `Differenza A-B / Ricavi × 100`,
+                detail: `${fmt(ebit25)} / ${fmt(ricavi25)} = ${ebitPct25.toFixed(2)}%`,
+                benchmark: '>8% eccellente, 3-8% buono, <3% critico',
+              },
               { label: 'Periodo', value: `${periodType} ${year}`, status: 'blue' },
               { label: 'Stato', value: simulationMode ? 'Simulazione' : 'Dati reali', status: simulationMode ? 'purple' : 'green' },
             ].map(r => (
-              <div key={r.label} className={`rounded-lg p-3 border ${
-                r.status === 'green' ? 'bg-emerald-50/50 border-emerald-200' :
-                r.status === 'amber' ? 'bg-amber-50/50 border-amber-200' :
-                r.status === 'red' ? 'bg-red-50/50 border-red-200' :
-                r.status === 'blue' ? 'bg-blue-50/50 border-blue-200' :
-                'bg-purple-50/50 border-purple-200'
-              }`}>
-                <p className="text-xs text-slate-500 font-medium">{r.label}</p>
-                <p className="text-lg font-bold text-slate-900 mt-1">{r.value}</p>
-              </div>
+              <IndiceCard key={r.label} {...r} />
             ))}
           </div>
         </div>
@@ -1509,6 +1532,54 @@ export default function ContoEconomico() {
         <div className="flex items-center justify-center py-8">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
           <span className="ml-2 text-slate-600">Caricamento dati...</span>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ═══ INDICE CARD WITH TOOLTIP ═══
+function IndiceCard({ label, value, status, formula, detail, benchmark }) {
+  const [showTip, setShowTip] = useState(false)
+  const colors = {
+    green: 'bg-emerald-50/50 border-emerald-200',
+    amber: 'bg-amber-50/50 border-amber-200',
+    red: 'bg-red-50/50 border-red-200',
+    blue: 'bg-blue-50/50 border-blue-200',
+    purple: 'bg-purple-50/50 border-purple-200',
+  }
+  return (
+    <div className={`rounded-lg p-3 border relative ${colors[status] || colors.blue}`}>
+      <div className="flex items-center justify-between">
+        <p className="text-xs text-slate-500 font-medium">{label}</p>
+        {formula && (
+          <button
+            onClick={() => setShowTip(!showTip)}
+            className="w-5 h-5 rounded-full bg-slate-200 text-slate-500 text-[10px] font-bold flex items-center justify-center hover:bg-slate-300 transition"
+            title="Come viene calcolato">
+            ?
+          </button>
+        )}
+      </div>
+      <p className="text-lg font-bold text-slate-900 mt-1">{value}</p>
+      {showTip && formula && (
+        <div className="mt-2 p-2.5 bg-white rounded-lg border border-slate-200 shadow-sm text-xs space-y-1.5">
+          <div>
+            <span className="font-semibold text-slate-700">Formula: </span>
+            <span className="text-slate-600">{formula}</span>
+          </div>
+          {detail && (
+            <div>
+              <span className="font-semibold text-slate-700">Calcolo: </span>
+              <span className="text-slate-600 font-mono">{detail}</span>
+            </div>
+          )}
+          {benchmark && (
+            <div>
+              <span className="font-semibold text-slate-700">Benchmark: </span>
+              <span className="text-slate-600">{benchmark}</span>
+            </div>
+          )}
         </div>
       )}
     </div>

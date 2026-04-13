@@ -140,6 +140,9 @@ export async function parseBilancio(pdfData) {
 
       if (/TOTALE\s*A\s*PAREGGIO/i.test(fullLine)) continue
 
+      // Skip repeated header/footer lines from PDF (company info, metadata, page breaks)
+      if (/Azienda:|Cod\.\s*Fiscale|Partita\s*IVA|^VIA\s|PERIODO\s*DAL|Totali\s*fino\s*al\s*livello|Considera\s*anche\s*i\s*movimenti|^Pag\./i.test(fullLine)) continue
+
       // Split into left column (x < 290) and right column (x >= 290)
       const midX = 290
       const leftCells = cells.filter(c => c.x < midX)
