@@ -273,6 +273,16 @@ const ScadenzarioSmart = () => {
         const totalBalance = (accountsData || []).reduce((sum, acc) => sum + (acc.current_balance || 0), 0);
         setCashPosition(totalBalance);
 
+        // Load email recipients from company settings
+        const { data: companyData } = await supabase
+          .from('companies')
+          .select('settings')
+          .eq('id', COMPANY_ID)
+          .single();
+        if (companyData?.settings?.email_scadenzario) {
+          setEmailRecipients(companyData.settings.email_scadenzario);
+        }
+
       } catch (error) {
         console.error('Error fetching data:', error);
       } finally {
@@ -394,6 +404,36 @@ const ScadenzarioSmart = () => {
       value: Math.round(value / 1000),
     }));
   }, [filteredPayables, today]);
+
+  // Grouped by supplier
+  const groupedBySupplier = useMemo(() => {
+    const groups = {};
+    filteredPayables.forEach(p => {
+      const name = p.suppliers?.ragione_sociale || p.suppliers?.name || 'N/A';
+      if (!groups[name]) groups[name] = { items: [], total: 0, paid: 0, remaining: 0 };
+      groups[name].items.push(p);
+      groups[name].total += p.gross_amount || 0;
+      groups[name].paid += p.amount_paid || 0;
+      groups[name].remaining += p.amount_remaining || 0;
+    });
+    return Object.entries(groups).sort((a, b) => a[0].localeCompare(b[0]));
+  }, [filteredPayables]);
+
+  // Grouped by month
+  const groupedByMonth = useMemo(() => {
+    const groups = {};
+    filteredPayables.forEach(p => {
+      const d = p.due_date ? new Date(p.due_date) : null;
+      const key = d ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` : 'N/D';
+      const label = d ? d.toLocaleDateString('it-IT', { month: 'long', year: 'numeric' }) : 'Senza data';
+      if (!groups[key]) groups[key] = { label, items: [], total: 0, paid: 0, remaining: 0 };
+      groups[key].items.push(p);
+      groups[key].total += p.gross_amount || 0;
+      groups[key].paid += p.amount_paid || 0;
+      groups[key].remaining += p.amount_remaining || 0;
+    });
+    return Object.entries(groups).sort((a, b) => a[0].localeCompare(b[0]));
+  }, [filteredPayables]);
 
   // Format currency
   const formatCurrency = (num) =>
@@ -783,28 +823,24 @@ const ScadenzarioSmart = () => {
 
         {/* View Mode Selector */}
         <div className="flex gap-3 mb-6">
-          <button
-            onClick={() => setViewMode('timeline')}
-            className={`px-4 py-2 rounded-lg font-medium transition ${
-              viewMode === 'timeline'
-                ? 'bg-indigo-600 text-white'
-                : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50'
-            }`}
-          >
-            <Clock3 className="w-4 h-4 inline mr-2" />
-            Timeline
-          </button>
-          <button
-            onClick={() => setViewMode('charts')}
-            className={`px-4 py-2 rounded-lg font-medium transition ${
-              viewMode === 'charts'
-                ? 'bg-indigo-600 text-white'
-                : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50'
-            }`}
-          >
-            <BarChart3 className="w-4 h-4 inline mr-2" />
-            Grafici
-          </button>
+          {[
+            { key: 'timeline', icon: Clock3, label: 'Timeline' },
+            { key: 'fornitore', icon: Filter, label: 'Per Fornitore' },
+            { key: 'mese', icon: Calendar, label: 'Per Mese' },
+            { key: 'charts', icon: BarChart3, label: 'Grafici' },
+          ].map(v => (
+            <button key={v.key}
+              onClick={() => setViewMode(v.key)}
+              className={`px-4 py-2 rounded-lg font-medium transition ${
+                viewMode === v.key
+                  ? 'bg-indigo-600 text-white'
+                  : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50'
+              }`}
+            >
+              <v.icon className="w-4 h-4 inline mr-2" />
+              {v.label}
+            </button>
+          ))}
         </div>
 
         {/* Action Buttons */}
@@ -855,7 +891,7 @@ const ScadenzarioSmart = () => {
                     );
                     return (
                       <React.Fragment key={p.id}>
-                        <tr className="hover:bg-slate-50 transition">
+                        <tr className={`hover:bg-slate-50 transition ${p.status === 'pagato' ? 'bg-emerald-50 border-l-4 border-emerald-400' : ''} ${selectedIds.has(p.id) ? 'bg-indigo-50' : ''}`}>
                           <td className="px-3 py-3 text-center">
                             {p.status !== 'pagato' && (p.gross_amount || 0) >= 0 && (
                               <button onClick={() => toggleSelect(p.id, p)} className={selectedIds.has(p.id) ? 'text-indigo-600' : 'text-slate-300 hover:text-slate-500'} title="Seleziona">
@@ -891,14 +927,6 @@ const ScadenzarioSmart = () => {
                         </td>
                         <td className="px-6 py-3">
                           <div className="flex gap-2">
-                            <button
-                              onClick={() =>
-                                setModals({ ...modals, payment: { open: true, payable: p } })
-                              }
-                              className="text-indigo-600 hover:text-indigo-700 font-medium text-xs"
-                            >
-                              Gestisci
-                            </button>
                             <button
                               onClick={() =>
                                 setModals({ ...modals, editSchedule: { open: true, schedule: p } })
@@ -979,6 +1007,144 @@ const ScadenzarioSmart = () => {
               <div className="text-center py-12 text-slate-500">
                 Nessun pagamento trovato
               </div>
+            )}
+          </div>
+        )}
+
+        {/* Per Fornitore View */}
+        {viewMode === 'fornitore' && (
+          <div className="space-y-4 mb-6">
+            {groupedBySupplier.map(([name, group]) => (
+              <div key={name} className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                <div className="px-6 py-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+                  <div>
+                    <h3 className="font-semibold text-slate-900">{name}</h3>
+                    <span className="text-xs text-slate-500">{group.items.length} fatture</span>
+                  </div>
+                  <div className="flex gap-6 text-sm">
+                    <div className="text-right">
+                      <div className="text-xs text-slate-500">Totale</div>
+                      <div className="font-bold text-slate-900">{formatCurrency(group.total)}</div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-xs text-slate-500">Pagato</div>
+                      <div className="font-bold text-emerald-600">{formatCurrency(group.paid)}</div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-xs text-slate-500">Rimane</div>
+                      <div className="font-bold text-red-600">{formatCurrency(group.remaining)}</div>
+                    </div>
+                  </div>
+                </div>
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-50 border-b border-slate-100">
+                    <tr>
+                      <th className="px-3 py-2 text-center w-10"></th>
+                      <th className="px-4 py-2 text-left text-xs font-semibold text-slate-600">Fattura</th>
+                      <th className="px-4 py-2 text-left text-xs font-semibold text-slate-600">Scadenza</th>
+                      <th className="px-4 py-2 text-right text-xs font-semibold text-slate-600">Importo</th>
+                      <th className="px-4 py-2 text-right text-xs font-semibold text-slate-600">Rimane</th>
+                      <th className="px-4 py-2 text-left text-xs font-semibold text-slate-600">Stato</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {group.items.map(p => {
+                      const sc = getStatusColor(p.status);
+                      return (
+                        <tr key={p.id} className={`${p.status === 'pagato' ? 'bg-emerald-50 border-l-4 border-emerald-400' : ''} ${selectedIds.has(p.id) ? 'bg-indigo-50' : ''}`}>
+                          <td className="px-3 py-2 text-center">
+                            {p.status !== 'pagato' && (p.gross_amount || 0) >= 0 && (
+                              <button onClick={() => toggleSelect(p.id, p)} className={selectedIds.has(p.id) ? 'text-indigo-600' : 'text-slate-300 hover:text-slate-500'}>
+                                {selectedIds.has(p.id) ? <CheckSquare size={16} /> : <Square size={16} />}
+                              </button>
+                            )}
+                          </td>
+                          <td className="px-4 py-2 text-slate-700">{p.invoice_number}</td>
+                          <td className="px-4 py-2 text-slate-600">{p.due_date ? new Date(p.due_date).toLocaleDateString('it-IT') : '-'}</td>
+                          <td className="px-4 py-2 text-right text-slate-900">{formatCurrency(p.gross_amount)}</td>
+                          <td className="px-4 py-2 text-right font-semibold text-slate-900">{formatCurrency(p.amount_remaining || 0)}</td>
+                          <td className="px-4 py-2">
+                            <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-semibold ${sc.bg} ${sc.text}`}>{p.status}</span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ))}
+            {groupedBySupplier.length === 0 && (
+              <div className="text-center py-12 text-slate-500">Nessun pagamento trovato</div>
+            )}
+          </div>
+        )}
+
+        {/* Per Mese View */}
+        {viewMode === 'mese' && (
+          <div className="space-y-4 mb-6">
+            {groupedByMonth.map(([key, group]) => (
+              <div key={key} className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                <div className="px-6 py-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+                  <div>
+                    <h3 className="font-semibold text-slate-900 capitalize">{group.label}</h3>
+                    <span className="text-xs text-slate-500">{group.items.length} fatture</span>
+                  </div>
+                  <div className="flex gap-6 text-sm">
+                    <div className="text-right">
+                      <div className="text-xs text-slate-500">Totale</div>
+                      <div className="font-bold text-slate-900">{formatCurrency(group.total)}</div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-xs text-slate-500">Pagato</div>
+                      <div className="font-bold text-emerald-600">{formatCurrency(group.paid)}</div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-xs text-slate-500">Rimane</div>
+                      <div className="font-bold text-red-600">{formatCurrency(group.remaining)}</div>
+                    </div>
+                  </div>
+                </div>
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-50 border-b border-slate-100">
+                    <tr>
+                      <th className="px-3 py-2 text-center w-10"></th>
+                      <th className="px-4 py-2 text-left text-xs font-semibold text-slate-600">Fornitore</th>
+                      <th className="px-4 py-2 text-left text-xs font-semibold text-slate-600">Fattura</th>
+                      <th className="px-4 py-2 text-left text-xs font-semibold text-slate-600">Scadenza</th>
+                      <th className="px-4 py-2 text-right text-xs font-semibold text-slate-600">Importo</th>
+                      <th className="px-4 py-2 text-right text-xs font-semibold text-slate-600">Rimane</th>
+                      <th className="px-4 py-2 text-left text-xs font-semibold text-slate-600">Stato</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {group.items.map(p => {
+                      const sc = getStatusColor(p.status);
+                      return (
+                        <tr key={p.id} className={`${p.status === 'pagato' ? 'bg-emerald-50 border-l-4 border-emerald-400' : ''} ${selectedIds.has(p.id) ? 'bg-indigo-50' : ''}`}>
+                          <td className="px-3 py-2 text-center">
+                            {p.status !== 'pagato' && (p.gross_amount || 0) >= 0 && (
+                              <button onClick={() => toggleSelect(p.id, p)} className={selectedIds.has(p.id) ? 'text-indigo-600' : 'text-slate-300 hover:text-slate-500'}>
+                                {selectedIds.has(p.id) ? <CheckSquare size={16} /> : <Square size={16} />}
+                              </button>
+                            )}
+                          </td>
+                          <td className="px-4 py-2 text-slate-900 font-medium">{p.suppliers?.ragione_sociale || p.suppliers?.name || 'N/A'}</td>
+                          <td className="px-4 py-2 text-slate-600">{p.invoice_number}</td>
+                          <td className="px-4 py-2 text-slate-600">{p.due_date ? new Date(p.due_date).toLocaleDateString('it-IT') : '-'}</td>
+                          <td className="px-4 py-2 text-right text-slate-900">{formatCurrency(p.gross_amount)}</td>
+                          <td className="px-4 py-2 text-right font-semibold text-slate-900">{formatCurrency(p.amount_remaining || 0)}</td>
+                          <td className="px-4 py-2">
+                            <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-semibold ${sc.bg} ${sc.text}`}>{p.status}</span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ))}
+            {groupedByMonth.length === 0 && (
+              <div className="text-center py-12 text-slate-500">Nessun pagamento trovato</div>
             )}
           </div>
         )}
@@ -1148,7 +1314,13 @@ const ScadenzarioSmart = () => {
                 placeholder="admin@azienda.com, contabile@azienda.com"
                 className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm mb-4 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
               <div className="flex justify-end gap-2">
-                <button onClick={() => setShowEmailConfig(false)} className="px-4 py-2 bg-slate-100 rounded-lg text-sm hover:bg-slate-200 transition">Chiudi</button>
+                <button onClick={() => setShowEmailConfig(false)} className="px-4 py-2 bg-slate-100 rounded-lg text-sm hover:bg-slate-200 transition">Annulla</button>
+                <button onClick={async () => {
+                  await supabase.from('companies').update({ settings: { email_scadenzario: emailRecipients } }).eq('id', COMPANY_ID);
+                  setShowEmailConfig(false);
+                }} className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700 transition font-medium">
+                  <Save className="w-4 h-4 inline mr-1" /> Salva
+                </button>
               </div>
             </div>
           </div>
