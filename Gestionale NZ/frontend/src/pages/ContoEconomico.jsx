@@ -1137,12 +1137,54 @@ export default function ContoEconomico() {
         </div>
       )}
 
-      {/* ═══ BILANCIO TREE VIEW — right after import form ═══ */}
+      {/* KPI Row */}
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+        <Kpi icon={DollarSign} label="Ricavi" value={`${fmt(ricavi25)} €`} color="blue"
+          sub={`${periodType} ${year}`} trend={variation(ricavi25, ricaviPrev)} />
+        <Kpi icon={TrendingUp} label="Margine lordo" value={`${margineLordoPct25.toFixed(1)}%`} color="green"
+          sub={`${fmt(margineLordo25)} €`} />
+        <Kpi icon={Users} label="Costo personale" value={`${fmt(ce25.totale_personale || 0)} €`} color="amber"
+          sub={`${personaleOnRicavi.toFixed(1)}% ricavi`} />
+        <Kpi icon={Building2} label="Affitti" value={`${fmt(ce25.godimento_beni_terzi || 0)} €`} color="purple"
+          sub={`${affitiOnRicavi.toFixed(1)}% ricavi`} />
+        <Kpi icon={Banknote} label="Utile" value={`${fmt(ce25.utile_netto || 0)} €`} color="green"
+          sub={ricavi25 > 0 ? `${((ce25.utile_netto || 0) / ricavi25 * 100).toFixed(1)}%` : '—'} />
+        <Kpi icon={Calculator} label="EBIT" value={`${fmt(ebit25)} €`} color="indigo"
+          sub={`${ebitPct25.toFixed(1)}% ricavi`} trend={variation(ebit25, cePrev.differenza_ab)} />
+      </div>
+
+      {/* ═══ INDICI DI BILANCIO — right after KPIs ═══ */}
+      <Section title="Indici di bilancio" icon={ShieldCheck}>
+        <div className="p-5">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {[
+              { label: 'Margine lordo %', value: `${margineLordoPct25.toFixed(1)}%`, status: margineLordoPct25 > 30 ? 'green' : 'amber' },
+              { label: 'Incidenza personale', value: `${personaleOnRicavi.toFixed(1)}%`, status: personaleOnRicavi < 30 ? 'green' : 'amber' },
+              { label: 'Incidenza affitti', value: `${affitiOnRicavi.toFixed(1)}%`, status: affitiOnRicavi < 18 ? 'green' : 'amber' },
+              { label: 'EBIT %', value: `${ebitPct25.toFixed(2)}%`, status: ebitPct25 > 3 ? 'green' : 'red' },
+              { label: 'Periodo', value: `${periodType} ${year}`, status: 'blue' },
+              { label: 'Stato', value: simulationMode ? 'Simulazione' : 'Dati reali', status: simulationMode ? 'purple' : 'green' },
+            ].map(r => (
+              <div key={r.label} className={`rounded-lg p-3 border ${
+                r.status === 'green' ? 'bg-emerald-50/50 border-emerald-200' :
+                r.status === 'amber' ? 'bg-amber-50/50 border-amber-200' :
+                r.status === 'red' ? 'bg-red-50/50 border-red-200' :
+                r.status === 'blue' ? 'bg-blue-50/50 border-blue-200' :
+                'bg-purple-50/50 border-purple-200'
+              }`}>
+                <p className="text-xs text-slate-500 font-medium">{r.label}</p>
+                <p className="text-lg font-bold text-slate-900 mt-1">{r.value}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </Section>
+
+      {/* ═══ BILANCIO TREE VIEW — after Indici ═══ */}
       {showBilancioTree && bilancioData && (
-        <Section title="Bilancio importato — Dettaglio completo" icon={FileText} defaultOpen={true}
+        <Section title="Bilancio — Dettaglio completo" icon={FileText} defaultOpen={true}
           badge={`${(bilancioData.contoEconomico?.costi?.length || 0) + (bilancioData.contoEconomico?.ricavi?.length || 0) + (bilancioData.patrimoniale?.attivita?.length || 0) + (bilancioData.patrimoniale?.passivita?.length || 0)} voci`}>
           <div className="p-5 space-y-6">
-            {/* Save button */}
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-slate-600">
@@ -1238,22 +1280,6 @@ export default function ContoEconomico() {
           </div>
         </Section>
       )}
-
-      {/* KPI Row */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-        <Kpi icon={DollarSign} label="Ricavi" value={`${fmt(ricavi25)} €`} color="blue"
-          sub={`${periodType} ${year}`} trend={variation(ricavi25, ricaviPrev)} />
-        <Kpi icon={TrendingUp} label="Margine lordo" value={`${margineLordoPct25.toFixed(1)}%`} color="green"
-          sub={`${fmt(margineLordo25)} €`} />
-        <Kpi icon={Users} label="Costo personale" value={`${fmt(ce25.totale_personale || 0)} €`} color="amber"
-          sub={`${personaleOnRicavi.toFixed(1)}% ricavi`} />
-        <Kpi icon={Building2} label="Affitti" value={`${fmt(ce25.godimento_beni_terzi || 0)} €`} color="purple"
-          sub={`${affitiOnRicavi.toFixed(1)}% ricavi`} />
-        <Kpi icon={Banknote} label="Utile" value={`${fmt(ce25.utile_netto || 0)} €`} color="green"
-          sub={ricavi25 > 0 ? `${((ce25.utile_netto || 0) / ricavi25 * 100).toFixed(1)}%` : '—'} />
-        <Kpi icon={Calculator} label="EBIT" value={`${fmt(ebit25)} €`} color="indigo"
-          sub={`${ebitPct25.toFixed(1)}% ricavi`} trend={variation(ebit25, cePrev.differenza_ab)} />
-      </div>
 
       {/* Feature 6: Trend multi-anno */}
       {showTrend && trendData.length > 0 && (
@@ -1443,33 +1469,6 @@ export default function ContoEconomico() {
             <span className="text-xs text-slate-400">
               {notaIntegrativa.length > 0 ? `${notaIntegrativa.length} caratteri` : 'Nessuna nota inserita'}
             </span>
-          </div>
-        </div>
-      </Section>
-
-      {/* Key metrics */}
-      <Section title="Indici di bilancio" icon={ShieldCheck}>
-        <div className="p-5">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-            {[
-              { label: 'Margine lordo %', value: `${margineLordoPct25.toFixed(1)}%`, status: margineLordoPct25 > 30 ? 'green' : 'amber' },
-              { label: 'Incidenza personale', value: `${personaleOnRicavi.toFixed(1)}%`, status: personaleOnRicavi < 30 ? 'green' : 'amber' },
-              { label: 'Incidenza affitti', value: `${affitiOnRicavi.toFixed(1)}%`, status: affitiOnRicavi < 18 ? 'green' : 'amber' },
-              { label: 'EBIT %', value: `${ebitPct25.toFixed(2)}%`, status: ebitPct25 > 3 ? 'green' : 'red' },
-              { label: 'Periodo', value: `${periodType} ${year}`, status: 'blue' },
-              { label: 'Stato', value: simulationMode ? 'Simulazione' : 'Dati reali', status: simulationMode ? 'purple' : 'green' },
-            ].map(r => (
-              <div key={r.label} className={`rounded-lg p-3 border ${
-                r.status === 'green' ? 'bg-emerald-50/50 border-emerald-200' :
-                r.status === 'amber' ? 'bg-amber-50/50 border-amber-200' :
-                r.status === 'red' ? 'bg-red-50/50 border-red-200' :
-                r.status === 'blue' ? 'bg-blue-50/50 border-blue-200' :
-                'bg-purple-50/50 border-purple-200'
-              }`}>
-                <p className="text-xs text-slate-500 font-medium">{r.label}</p>
-                <p className="text-lg font-bold text-slate-900 mt-1">{r.value}</p>
-              </div>
-            ))}
           </div>
         </div>
       </Section>
