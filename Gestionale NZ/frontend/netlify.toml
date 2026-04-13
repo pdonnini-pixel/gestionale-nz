@@ -1,7 +1,9 @@
 [build]
-  command = "echo skip"
+  base = "Gestionale NZ/frontend"
+  command = "echo 'Pre-built dist deployed'"
   publish = "dist"
 
+# Redirect tutte le route a index.html (SPA)
 [[redirects]]
   from = "/*"
   to = "/index.html"
