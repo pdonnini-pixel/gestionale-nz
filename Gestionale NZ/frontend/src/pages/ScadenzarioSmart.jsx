@@ -439,6 +439,58 @@ const ScadenzarioSmart = () => {
   const formatCurrency = (num) =>
     new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' }).format(num);
 
+  // Render inline payment controls for a selected row
+  const renderPaymentRow = (p, colSpan = 9) => {
+    if (!selectedIds.has(p.id) || !paymentPlan[p.id]) return null;
+    const plan = paymentPlan[p.id];
+    return (
+      <tr className="bg-indigo-50 border-b border-indigo-100">
+        <td colSpan={colSpan} className="px-6 py-3">
+          <div className="flex items-center gap-4 flex-wrap">
+            <div>
+              <label className="text-xs text-slate-500 block mb-1">Banca</label>
+              <select value={plan.bankId} onChange={e => updatePlan(p.id, 'bankId', e.target.value)}
+                className="px-2 py-1.5 border border-slate-300 rounded-lg text-sm w-52 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                <option value="">Seleziona banca...</option>
+                {bankAccounts.map(ba => (
+                  <option key={ba.id} value={ba.id}>{ba.bank_name} ({formatCurrency(bankBalances[ba.id] || 0)})</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-slate-500 block mb-1">Tipo</label>
+              <div className="flex rounded-lg overflow-hidden border border-slate-300">
+                <button onClick={() => { updatePlan(p.id, 'type', 'saldo'); updatePlan(p.id, 'amount', p.amount_remaining || 0); }}
+                  className={`px-3 py-1.5 text-sm font-medium transition ${plan.type === 'saldo' ? 'bg-emerald-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}>
+                  Saldo
+                </button>
+                <button onClick={() => updatePlan(p.id, 'type', 'parziale')}
+                  className={`px-3 py-1.5 text-sm font-medium transition ${plan.type === 'parziale' ? 'bg-amber-500 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}>
+                  Parziale
+                </button>
+              </div>
+            </div>
+            {plan.type === 'parziale' && (
+              <>
+                <div>
+                  <label className="text-xs text-slate-500 block mb-1">Importo</label>
+                  <input type="number" step="0.01" value={plan.amount}
+                    onChange={e => updatePlan(p.id, 'amount', Math.min(parseFloat(e.target.value) || 0, p.amount_remaining || 0))}
+                    className="px-2 py-1.5 border border-slate-300 rounded-lg text-sm w-28 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                </div>
+                <div className="flex-1 min-w-48">
+                  <label className="text-xs text-slate-500 block mb-1">Note</label>
+                  <input type="text" value={plan.note} onChange={e => updatePlan(p.id, 'note', e.target.value)}
+                    placeholder="Motivo parziale..." className="px-2 py-1.5 border border-slate-300 rounded-lg text-sm w-full focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                </div>
+              </>
+            )}
+          </div>
+        </td>
+      </tr>
+    );
+  };
+
   // Status color helper
   const getStatusColor = (status) => COLORI_STATO[status] || COLORI_STATO.da_pagare;
 
@@ -705,29 +757,34 @@ const ScadenzarioSmart = () => {
             </div>
           </div>
 
-          {/* Bank Balances */}
-          {bankAccounts.length > 0 ? (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-              {bankAccounts.map(ba => {
-                const bal = bankBalances[ba.id] || 0;
-                const isNeg = bal < 0;
-                return (
-                  <div key={ba.id} className={`bg-white rounded-xl shadow-sm p-3 border-l-4 ${isNeg ? 'border-red-500 bg-red-50' : 'border-emerald-500'}`}>
-                    <div className="text-xs text-slate-500 font-medium truncate">{ba.bank_name}</div>
-                    <div className="text-xs text-slate-400 truncate">{ba.account_name || ba.iban?.slice(-8)}</div>
-                    <div className={`text-lg font-bold ${isNeg ? 'text-red-600' : 'text-emerald-600'}`}>
-                      {formatCurrency(bal)}
+          {/* Bank Balances - Sticky */}
+          <div className="sticky top-0 z-30 bg-gradient-to-br from-slate-50 to-slate-100 pb-3 -mx-6 px-6 pt-2">
+            {bankAccounts.length > 0 ? (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                {bankAccounts.map(ba => {
+                  const bal = bankBalances[ba.id] || 0;
+                  const orig = ba.current_balance || 0;
+                  const used = orig - bal;
+                  const isNeg = bal < 0;
+                  return (
+                    <div key={ba.id} className={`bg-white rounded-xl shadow-sm p-3 border-l-4 ${isNeg ? 'border-red-500 bg-red-50' : 'border-emerald-500'}`}>
+                      <div className="text-xs text-slate-500 font-medium truncate">{ba.bank_name}</div>
+                      <div className="text-xs text-slate-400 truncate">{ba.account_name || ba.iban?.slice(-8)}</div>
+                      <div className={`text-lg font-bold ${isNeg ? 'text-red-600' : 'text-emerald-600'}`}>
+                        {formatCurrency(bal)}
+                      </div>
+                      {used > 0 && <div className="text-xs text-amber-600">Assegnati: {formatCurrency(used)}</div>}
+                      {isNeg && <div className="text-xs text-red-500 font-semibold">⚠ Saldo insufficiente</div>}
                     </div>
-                    {isNeg && <div className="text-xs text-red-500 font-semibold">⚠ Saldo insufficiente</div>}
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-4 text-sm text-amber-700 flex items-center gap-2">
-              <Wallet className="w-4 h-4" /> Nessun conto bancario configurato. Aggiungi conti dalla sezione Banche.
-            </div>
-          )}
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-sm text-amber-700 flex items-center gap-2">
+                <Wallet className="w-4 h-4" /> Nessun conto bancario configurato. Aggiungi conti dalla sezione Banche.
+              </div>
+            )}
+          </div>
 
           {/* KPI Cards */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
@@ -1051,22 +1108,25 @@ const ScadenzarioSmart = () => {
                     {group.items.map(p => {
                       const sc = getStatusColor(p.status);
                       return (
-                        <tr key={p.id} className={`${p.status === 'pagato' ? 'bg-emerald-50 border-l-4 border-emerald-400' : ''} ${selectedIds.has(p.id) ? 'bg-indigo-50' : ''}`}>
-                          <td className="px-3 py-2 text-center">
-                            {p.status !== 'pagato' && (p.gross_amount || 0) >= 0 && (
-                              <button onClick={() => toggleSelect(p.id, p)} className={selectedIds.has(p.id) ? 'text-indigo-600' : 'text-slate-300 hover:text-slate-500'}>
-                                {selectedIds.has(p.id) ? <CheckSquare size={16} /> : <Square size={16} />}
-                              </button>
-                            )}
-                          </td>
-                          <td className="px-4 py-2 text-slate-700">{p.invoice_number}</td>
-                          <td className="px-4 py-2 text-slate-600">{p.due_date ? new Date(p.due_date).toLocaleDateString('it-IT') : '-'}</td>
-                          <td className="px-4 py-2 text-right text-slate-900">{formatCurrency(p.gross_amount)}</td>
-                          <td className="px-4 py-2 text-right font-semibold text-slate-900">{formatCurrency(p.amount_remaining || 0)}</td>
-                          <td className="px-4 py-2">
-                            <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-semibold ${sc.bg} ${sc.text}`}>{p.status}</span>
-                          </td>
-                        </tr>
+                        <React.Fragment key={p.id}>
+                          <tr className={`${p.status === 'pagato' ? 'bg-emerald-50 border-l-4 border-emerald-400' : ''} ${selectedIds.has(p.id) ? 'bg-indigo-50' : ''}`}>
+                            <td className="px-3 py-2 text-center">
+                              {p.status !== 'pagato' && (p.gross_amount || 0) >= 0 && (
+                                <button onClick={() => toggleSelect(p.id, p)} className={selectedIds.has(p.id) ? 'text-indigo-600' : 'text-slate-300 hover:text-slate-500'}>
+                                  {selectedIds.has(p.id) ? <CheckSquare size={16} /> : <Square size={16} />}
+                                </button>
+                              )}
+                            </td>
+                            <td className="px-4 py-2 text-slate-700">{p.invoice_number}</td>
+                            <td className="px-4 py-2 text-slate-600">{p.due_date ? new Date(p.due_date).toLocaleDateString('it-IT') : '-'}</td>
+                            <td className="px-4 py-2 text-right text-slate-900">{formatCurrency(p.gross_amount)}</td>
+                            <td className="px-4 py-2 text-right font-semibold text-slate-900">{formatCurrency(p.amount_remaining || 0)}</td>
+                            <td className="px-4 py-2">
+                              <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-semibold ${sc.bg} ${sc.text}`}>{p.status}</span>
+                            </td>
+                          </tr>
+                          {renderPaymentRow(p, 6)}
+                        </React.Fragment>
                       );
                     })}
                   </tbody>
@@ -1120,23 +1180,26 @@ const ScadenzarioSmart = () => {
                     {group.items.map(p => {
                       const sc = getStatusColor(p.status);
                       return (
-                        <tr key={p.id} className={`${p.status === 'pagato' ? 'bg-emerald-50 border-l-4 border-emerald-400' : ''} ${selectedIds.has(p.id) ? 'bg-indigo-50' : ''}`}>
-                          <td className="px-3 py-2 text-center">
-                            {p.status !== 'pagato' && (p.gross_amount || 0) >= 0 && (
-                              <button onClick={() => toggleSelect(p.id, p)} className={selectedIds.has(p.id) ? 'text-indigo-600' : 'text-slate-300 hover:text-slate-500'}>
-                                {selectedIds.has(p.id) ? <CheckSquare size={16} /> : <Square size={16} />}
-                              </button>
-                            )}
-                          </td>
-                          <td className="px-4 py-2 text-slate-900 font-medium">{p.suppliers?.ragione_sociale || p.suppliers?.name || 'N/A'}</td>
-                          <td className="px-4 py-2 text-slate-600">{p.invoice_number}</td>
-                          <td className="px-4 py-2 text-slate-600">{p.due_date ? new Date(p.due_date).toLocaleDateString('it-IT') : '-'}</td>
-                          <td className="px-4 py-2 text-right text-slate-900">{formatCurrency(p.gross_amount)}</td>
-                          <td className="px-4 py-2 text-right font-semibold text-slate-900">{formatCurrency(p.amount_remaining || 0)}</td>
-                          <td className="px-4 py-2">
-                            <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-semibold ${sc.bg} ${sc.text}`}>{p.status}</span>
-                          </td>
-                        </tr>
+                        <React.Fragment key={p.id}>
+                          <tr className={`${p.status === 'pagato' ? 'bg-emerald-50 border-l-4 border-emerald-400' : ''} ${selectedIds.has(p.id) ? 'bg-indigo-50' : ''}`}>
+                            <td className="px-3 py-2 text-center">
+                              {p.status !== 'pagato' && (p.gross_amount || 0) >= 0 && (
+                                <button onClick={() => toggleSelect(p.id, p)} className={selectedIds.has(p.id) ? 'text-indigo-600' : 'text-slate-300 hover:text-slate-500'}>
+                                  {selectedIds.has(p.id) ? <CheckSquare size={16} /> : <Square size={16} />}
+                                </button>
+                              )}
+                            </td>
+                            <td className="px-4 py-2 text-slate-900 font-medium">{p.suppliers?.ragione_sociale || p.suppliers?.name || 'N/A'}</td>
+                            <td className="px-4 py-2 text-slate-600">{p.invoice_number}</td>
+                            <td className="px-4 py-2 text-slate-600">{p.due_date ? new Date(p.due_date).toLocaleDateString('it-IT') : '-'}</td>
+                            <td className="px-4 py-2 text-right text-slate-900">{formatCurrency(p.gross_amount)}</td>
+                            <td className="px-4 py-2 text-right font-semibold text-slate-900">{formatCurrency(p.amount_remaining || 0)}</td>
+                            <td className="px-4 py-2">
+                              <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-semibold ${sc.bg} ${sc.text}`}>{p.status}</span>
+                            </td>
+                          </tr>
+                          {renderPaymentRow(p, 7)}
+                        </React.Fragment>
                       );
                     })}
                   </tbody>
