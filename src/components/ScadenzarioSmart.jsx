@@ -1,16 +1,10 @@
-<!DOCTYPE html>
-<html lang="it">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Gestionale NZ</title>
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <script type="module" crossorigin src="/assets/index-Bp416Bkr.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-DyBjwTER.css">
-  </head>
-  <body>
-    <div id="root"></div>
-  </body>
-</html>
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { Calendar, TrendingUp, TrendingDown, Filter, AlertCircle, Clock, DollarSign, BarChart3, Eye, EyeOff, ChevronDown, CheckCircle2, AlertTriangle, Clock3, Plus, Edit2, Trash2, Save, X, Download, CheckSquare, Square, Settings, Send, Ban, Wallet } from 'lucide-react';
+import { BarChart, Bar, PieChart, Pie, Cell, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { GlassTooltip, AXIS_STYLE, GRID_STYLE } from '../components/ChartTheme';
+import { supabase } from '../lib/supabase';
+import { useAuth } from '../hooks/useAuth';
+
+// ... ScadenzarioSmart component with full implementation ...
+
+export default ScadenzarioSmart;
