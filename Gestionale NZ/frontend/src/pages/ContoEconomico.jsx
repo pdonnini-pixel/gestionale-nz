@@ -329,6 +329,128 @@ export default function ContoEconomico() {
   const [saveMessage, setSaveMessage] = useState(null)
   const [availableYears, setAvailableYears] = useState([2023, 2024, 2025, 2026])
 
+  // ═══ Load bilancio tree from Supabase (persists across page reloads) ═══
+  const loadBilancioFromSupabase = async () => {
+    try {
+      const sections = ['sp_attivita', 'sp_passivita', 'ce_costi', 'ce_ricavi']
+      const { data } = await supabase
+        .from('balance_sheet_data')
+        .select('*')
+        .eq('company_id', COMPANY_ID)
+        .eq('year', year)
+        .eq('period_type', periodType)
+        .in('section', sections)
+        .order('sort_order')
+
+      if (!data || data.length === 0) {
+        setBilancioData(null)
+        setShowBilancioTree(false)
+        return
+      }
+
+      // Reconstruct bilancio tree structure from flat Supabase records
+      const bySection = { sp_attivita: [], sp_passivita: [], ce_costi: [], ce_ricavi: [] }
+      data.forEach(row => {
+        if (bySection[row.section]) {
+          bySection[row.section].push({
+            code: row.account_code || '',
+            description: row.account_name || '',
+            amount: row.amount || 0,
+            level: getCodeLevel(row.account_code),
+            isMacro: (row.account_code || '').replace(/\s/g, '').length <= 2,
+          })
+        }
+      })
+
+      // Build trees
+      const buildTree = (rows) => {
+        if (!rows || rows.length === 0) return []
+        const tree = []
+        const stack = []
+        for (const row of rows) {
+          const node = { ...row, children: [] }
+          while (stack.length > 0 && stack[stack.length - 1].level >= node.level) stack.pop()
+          if (stack.length === 0) tree.push(node)
+          else stack[stack.length - 1].node.children.push(node)
+          stack.push({ node, level: node.level })
+        }
+        return tree
+      }
+
+      // Calculate totals
+      const spAttMacros = bySection.sp_attivita.filter(r => r.isMacro)
+      const spPasMacros = bySection.sp_passivita.filter(r => r.isMacro)
+      const ceCostiMacros = bySection.ce_costi.filter(r => r.isMacro)
+      const ceRicaviMacros = bySection.ce_ricavi.filter(r => r.isMacro)
+
+      const totAttivita = spAttMacros.reduce((s, r) => s + r.amount, 0)
+      const totPassivita = spPasMacros.reduce((s, r) => s + r.amount, 0)
+      const totCosti = ceCostiMacros.reduce((s, r) => s + r.amount, 0)
+      const totRicavi = ceRicaviMacros.reduce((s, r) => s + r.amount, 0)
+
+      // Get risultato from conto_economico section
+      const { data: ceData } = await supabase
+        .from('balance_sheet_data')
+        .select('amount')
+        .eq('company_id', COMPANY_ID)
+        .eq('year', year)
+        .eq('period_type', periodType)
+        .eq('section', 'conto_economico')
+        .eq('account_code', 'utile_netto')
+        .maybeSingle()
+
+      const risultato = ceData?.amount || 0
+
+      // Get company info for meta
+      const { data: impData } = await supabase
+        .from('balance_sheet_imports')
+        .select('file_name, period_label')
+        .eq('company_id', COMPANY_ID)
+        .eq('year', year)
+        .eq('period_type', periodType)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+      const reconstructed = {
+        meta: {
+          company: companyInfo?.denominazione || 'NEW ZAGO S.R.L.',
+          period: impData?.period_label || `${periodType} ${year}`,
+        },
+        patrimoniale: {
+          attivita: bySection.sp_attivita,
+          passivita: bySection.sp_passivita,
+          attivitaTree: buildTree(bySection.sp_attivita),
+          passivitaTree: buildTree(bySection.sp_passivita),
+          totals: { attivita: totAttivita, passivita: totPassivita, risultato },
+        },
+        contoEconomico: {
+          costi: bySection.ce_costi,
+          ricavi: bySection.ce_ricavi,
+          costiTree: buildTree(bySection.ce_costi),
+          ricaviTree: buildTree(bySection.ce_ricavi),
+          totals: { costi: totCosti, ricavi: totRicavi, risultato },
+        },
+      }
+
+      setBilancioData(reconstructed)
+      setShowBilancioTree(true)
+      setBilancioSaved(true) // already saved since we loaded from DB
+    } catch (err) {
+      console.error('Error loading bilancio tree:', err)
+    }
+  }
+
+  // Helper to determine level from account code length
+  function getCodeLevel(code) {
+    if (!code) return 0
+    const len = code.replace(/\s/g, '').length
+    if (len <= 2) return 0
+    if (len <= 4) return 1
+    if (len <= 6) return 2
+    return 3
+  }
+
   // Load data on mount and when year/period changes
   useEffect(() => {
     if (!COMPANY_ID) return
@@ -337,6 +459,7 @@ export default function ContoEconomico() {
     loadImports()
     loadNotaIntegrativa()
     loadAvailableYears()
+    loadBilancioFromSupabase()
   }, [year, periodType, COMPANY_ID])
 
   // Feature 6: Load trend on toggle
