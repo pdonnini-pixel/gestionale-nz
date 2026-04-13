@@ -213,7 +213,11 @@ const ScadenzarioSmart = () => {
   const filteredPayables = useMemo(() => {
     return payables.filter((p) => {
       const matchOutlet = !selectedOutlet || p.outlet_id === selectedOutlet;
-      const matchStatus = !selectedStatus || p.status === selectedStatus;
+      const isNotaCredito = (p.gross_amount || 0) < 0;
+      const matchStatus = !selectedStatus
+        || (selectedStatus === 'nota_credito' && isNotaCredito)
+        || (selectedStatus === 'da_saldare' && !isNotaCredito && p.status !== 'pagato')
+        || (selectedStatus !== 'nota_credito' && selectedStatus !== 'da_saldare' && p.status === selectedStatus);
       const matchSearch =
         !searchTerm ||
         p.invoice_number.includes(searchTerm) ||
@@ -569,10 +573,13 @@ const ScadenzarioSmart = () => {
                 className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
               >
                 <option value="">Tutti</option>
+                <option value="da_saldare">Da Saldare</option>
                 <option value="da_pagare">Da Pagare</option>
                 <option value="in_scadenza">In Scadenza</option>
                 <option value="scaduto">Scaduto</option>
                 <option value="parziale">Parziale</option>
+                <option value="pagato">Pagato</option>
+                <option value="nota_credito">Note di Credito</option>
               </select>
             </div>
             <div>
