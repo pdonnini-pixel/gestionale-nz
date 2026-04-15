@@ -305,10 +305,7 @@ const ScadenzarioSmart = () => {
 
       let matchMethodGroup = true;
       if (selectedMethodGroup) {
-        const group = paymentGroups.find(g => g.key === selectedMethodGroup);
-        if (group) {
-          matchMethodGroup = group.methods.includes(p.payment_method);
-        }
+        matchMethodGroup = p.payment_method === selectedMethodGroup;
       }
 
       return matchOutlet && matchStatus && matchSearch && matchDate && matchMethodGroup;
@@ -348,17 +345,17 @@ const ScadenzarioSmart = () => {
     };
   }, [filteredPayables, cashPosition, today]);
 
-  // Method group totals
-  const methodGroupTotals = useMemo(() => {
+  // Totali per singolo metodo di pagamento (KPI individuali)
+  const methodTotals = useMemo(() => {
     const activePays = payables.filter(p => p.status !== 'pagato' && p.status !== 'annullato');
-    return paymentGroups.map(group => {
-      const groupPayables = activePays.filter(p => group.methods.includes(p.payment_method));
-      return {
-        ...group,
-        total: groupPayables.reduce((sum, p) => sum + (p.amount_remaining || 0), 0),
-        count: groupPayables.length,
-      };
+    const map = {};
+    activePays.forEach(p => {
+      const m = p.payment_method || 'altro';
+      if (!map[m]) map[m] = { key: m, label: paymentMethodLabels[m] || m, total: 0, count: 0 };
+      map[m].total += (p.amount_remaining || 0);
+      map[m].count += 1;
     });
+    return Object.values(map).sort((a, b) => b.total - a.total);
   }, [payables]);
 
   // Monthly data
@@ -622,6 +619,31 @@ const ScadenzarioSmart = () => {
   }
 
   return (
+    <div>
+      {/* Sticky Bank Bar */}
+      <div className="sticky top-0 z-40 bg-white border-b border-slate-200 px-6 py-3">
+        <div className="max-w-[1400px] mx-auto">
+          {bankAccounts.length > 0 ? (
+            <div className="flex items-center gap-3 overflow-x-auto pb-1">
+              {bankAccounts.map(ba => {
+                const bal = bankBalances[ba.id] || 0;
+                const isNeg = bal < 0;
+                return (
+                  <div key={ba.id} className={`flex-shrink-0 px-4 py-2 rounded-lg border ${isNeg ? 'bg-red-50 border-red-200' : 'bg-slate-50 border-slate-200'}`}>
+                    <div className="text-xs font-medium text-slate-600">{ba.bank_name}</div>
+                    <div className={`text-sm font-bold mt-0.5 ${isNeg ? 'text-red-600' : 'text-emerald-600'}`}>{fmt(bal)} €</div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-2 text-xs text-amber-700 flex items-center gap-2 w-fit">
+              <Wallet size={14} /> Nessun conto bancario. Aggiungi dalla sezione Banche.
+            </div>
+          )}
+        </div>
+      </div>
+
     <div className="p-6 space-y-5 max-w-[1400px] mx-auto">
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
@@ -679,17 +701,25 @@ const ScadenzarioSmart = () => {
 
           {/* Payment Method Filter Chips */}
           <div className="flex flex-wrap gap-2">
-            {methodGroupTotals.map(group => {
-              const isActive = selectedMethodGroup === group.key;
+            {/* Tasto Tutti */}
+            <button onClick={() => setSelectedMethodGroup(null)}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-medium transition ${
+                !selectedMethodGroup ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-700 border-slate-200 hover:border-indigo-300'
+              }`}>
+              Tutti
+            </button>
+            {/* KPI per ogni singolo metodo di pagamento presente */}
+            {methodTotals.map(m => {
+              const isActive = selectedMethodGroup === m.key;
               return (
-                <button key={group.key} onClick={() => setSelectedMethodGroup(isActive ? null : group.key)}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-medium transition ${
+                <button key={m.key} onClick={() => setSelectedMethodGroup(isActive ? null : m.key)}
+                  className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium transition ${
                     isActive ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-700 border-slate-200 hover:border-indigo-300'
                   }`}>
-                  <span>{group.label}</span>
-                  <span className="font-bold">{fmt(group.total)} €</span>
+                  <span>{m.label}</span>
+                  <span className="font-bold">{fmt(m.total)} €</span>
                   <span className={`text-xs px-1.5 py-0.5 rounded-full ${isActive ? 'bg-indigo-500 text-white' : 'bg-slate-100 text-slate-500'}`}>
-                    {group.count}
+                    {m.count}
                   </span>
                 </button>
               );
@@ -713,10 +743,14 @@ const ScadenzarioSmart = () => {
             <select value={selectedStatus} onChange={(e) => setSelectedStatus(e.target.value)}
               className="px-3 py-2 rounded-lg border border-slate-200 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none">
               <option value="">Tutti gli stati</option>
+              <option value="da_saldare">Da Saldare</option>
               <option value="da_pagare">Da Pagare</option>
               <option value="in_scadenza">In Scadenza</option>
               <option value="scaduto">Scaduto</option>
+              <option value="parziale">Parziale</option>
               <option value="pagato">Pagato</option>
+              <option value="contestato">Contestato</option>
+              <option value="nota_credito">Note di Credito</option>
             </select>
             <div className="flex gap-1">
               {[
@@ -733,6 +767,18 @@ const ScadenzarioSmart = () => {
                 </button>
               ))}
             </div>
+          </div>
+
+          {/* Action Buttons */}
+          <div className="flex gap-2 justify-end">
+            <button onClick={() => setModals({ ...modals, invoice: { open: true, data: null } })}
+              className="flex items-center gap-1.5 px-4 py-2 text-sm rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 transition">
+              <Plus size={15} /> Nuova Fattura
+            </button>
+            <button onClick={() => setModals({ ...modals, supplier: { open: true, data: null } })}
+              className="flex items-center gap-1.5 px-4 py-2 text-sm rounded-lg bg-slate-200 text-slate-700 hover:bg-slate-300 transition">
+              <Plus size={15} /> Fornitore
+            </button>
           </div>
 
           {/* Timeline View */}
@@ -1141,6 +1187,45 @@ const ScadenzarioSmart = () => {
           <EditScheduleModal schedule={modals.editSchedule.schedule} onUpdate={(s) => setModals({ ...modals, editSchedule: { open: true, schedule: s } })} onSave={handleEditSchedule} />
         </Modal>
       )}
+
+      {/* Invoice Modal */}
+      {modals.invoice.open && (
+        <Modal open={true} onClose={() => setModals({ ...modals, invoice: { open: false, data: null } })} title="Nuova Fattura Fornitore">
+          <InvoiceModal suppliers={suppliers} paymentGroups={paymentGroups} paymentMethodLabels={paymentMethodLabels} onSave={handleCreateInvoice} onClose={() => setModals({ ...modals, invoice: { open: false, data: null } })} />
+        </Modal>
+      )}
+
+      {/* Supplier Modal */}
+      {modals.supplier.open && (
+        <Modal open={true} onClose={() => setModals({ ...modals, supplier: { open: false, data: null } })} title="Nuovo Fornitore">
+          <SupplierModal onSave={handleCreateSupplier} onClose={() => setModals({ ...modals, supplier: { open: false, data: null } })} />
+        </Modal>
+      )}
+
+      {/* Confirm Result Modal */}
+      {confirmResult && (
+        <Modal open={true} onClose={() => setConfirmResult(null)} title="Pagamenti Confermati" wide>
+          <div className="space-y-3">
+            <div className="p-3 bg-emerald-50 rounded-lg border border-emerald-200">
+              <p className="text-sm font-medium text-emerald-900 flex items-center gap-2">
+                <CheckCircle2 size={16} /> {confirmResult.results.length} pagamenti registrati
+              </p>
+            </div>
+            {emailRecipients && (
+              <div className="p-3 bg-indigo-50 rounded-lg border border-indigo-200">
+                <p className="text-xs text-indigo-600 font-medium">Destinatari: {emailRecipients}</p>
+              </div>
+            )}
+            <textarea readOnly value={confirmResult.emailBody} rows={12}
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs font-mono bg-slate-50" />
+            <button onClick={() => navigator.clipboard.writeText(confirmResult.emailBody)}
+              className="w-full py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 flex items-center justify-center gap-2">
+              <Download size={14} /> Copia Riepilogo
+            </button>
+          </div>
+        </Modal>
+      )}
+    </div>
     </div>
   );
 };
@@ -1177,6 +1262,121 @@ const EditScheduleModal = ({ schedule, onUpdate, onSave }) => {
       </div>
       <div className="flex gap-3 pt-2">
         <button onClick={() => onSave({ ...schedule, ...formData })} className="flex-1 py-2.5 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700">Salva</button>
+      </div>
+    </div>
+  );
+};
+
+// Invoice Modal Component
+const InvoiceModal = ({ suppliers, paymentGroups, paymentMethodLabels, onSave, onClose }) => {
+  const [formData, setFormData] = useState({
+    supplierId: '',
+    invoiceNumber: '',
+    invoiceDate: new Date().toISOString().split('T')[0],
+    dueDate: '',
+    grossAmount: 0,
+    paymentMethod: 'bonifico_ordinario',
+  });
+
+  return (
+    <div className="space-y-3">
+      <div>
+        <label className="block text-sm font-medium text-slate-700 mb-1">Fornitore</label>
+        <select value={formData.supplierId} onChange={e => setFormData({ ...formData, supplierId: e.target.value })}
+          className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none">
+          <option value="">Seleziona fornitore...</option>
+          {suppliers.map(s => <option key={s.id} value={s.id}>{s.ragione_sociale || s.name}</option>)}
+        </select>
+      </div>
+      <div>
+        <label className="block text-sm font-medium text-slate-700 mb-1">Numero Fattura</label>
+        <input type="text" value={formData.invoiceNumber} onChange={e => setFormData({ ...formData, invoiceNumber: e.target.value })}
+          className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none" />
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-sm font-medium text-slate-700 mb-1">Data Fattura</label>
+          <input type="date" value={formData.invoiceDate} onChange={e => setFormData({ ...formData, invoiceDate: e.target.value })}
+            className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none" />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-slate-700 mb-1">Scadenza</label>
+          <input type="date" value={formData.dueDate} onChange={e => setFormData({ ...formData, dueDate: e.target.value })}
+            className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none" />
+        </div>
+      </div>
+      <div>
+        <label className="block text-sm font-medium text-slate-700 mb-1">Importo Lordo</label>
+        <input type="number" step="0.01" value={formData.grossAmount} onChange={e => setFormData({ ...formData, grossAmount: parseFloat(e.target.value) })}
+          className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none" />
+      </div>
+      <div>
+        <label className="block text-sm font-medium text-slate-700 mb-1">Metodo Pagamento</label>
+        <select value={formData.paymentMethod} onChange={e => setFormData({ ...formData, paymentMethod: e.target.value })}
+          className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none">
+          {paymentGroups.map(g => (
+            <optgroup key={g.label} label={g.label}>
+              {g.methods.map(m => <option key={m} value={m}>{paymentMethodLabels[m]}</option>)}
+            </optgroup>
+          ))}
+        </select>
+      </div>
+      <div className="flex gap-3 pt-2">
+        <button onClick={onClose} className="flex-1 py-2.5 rounded-lg border border-slate-200 text-sm font-medium hover:bg-slate-50">Annulla</button>
+        <button onClick={() => onSave(formData)} className="flex-1 py-2.5 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">Crea Fattura</button>
+      </div>
+    </div>
+  );
+};
+
+// Supplier Modal Component
+const SupplierModal = ({ onSave, onClose }) => {
+  const [formData, setFormData] = useState({
+    name: '', vat: '', fiscal: '', iban: '', category: 'merce',
+    paymentMethod: 'bonifico_ordinario', paymentTerms: 30,
+  });
+
+  return (
+    <div className="space-y-3">
+      <div>
+        <label className="block text-sm font-medium text-slate-700 mb-1">Ragione Sociale *</label>
+        <input type="text" value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} required
+          className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none" />
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-sm font-medium text-slate-700 mb-1">P.IVA</label>
+          <input type="text" value={formData.vat} onChange={e => setFormData({ ...formData, vat: e.target.value })} maxLength={16}
+            className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none" />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-slate-700 mb-1">Codice Fiscale</label>
+          <input type="text" value={formData.fiscal} onChange={e => setFormData({ ...formData, fiscal: e.target.value })} maxLength={16}
+            className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none" />
+        </div>
+      </div>
+      <div>
+        <label className="block text-sm font-medium text-slate-700 mb-1">IBAN</label>
+        <input type="text" value={formData.iban} onChange={e => setFormData({ ...formData, iban: e.target.value })} maxLength={34}
+          className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm font-mono focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none" />
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-sm font-medium text-slate-700 mb-1">Categoria</label>
+          <select value={formData.category} onChange={e => setFormData({ ...formData, category: e.target.value })}
+            className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none">
+            {['merce', 'servizi', 'utenze', 'affitti', 'stipendi', 'imposte', 'finanziamenti'].map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-slate-700 mb-1">Termini (gg)</label>
+          <input type="number" value={formData.paymentTerms} onChange={e => setFormData({ ...formData, paymentTerms: parseInt(e.target.value) })}
+            className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none" />
+        </div>
+      </div>
+      <div className="flex gap-3 pt-2">
+        <button onClick={onClose} className="flex-1 py-2.5 rounded-lg border border-slate-200 text-sm font-medium hover:bg-slate-50">Annulla</button>
+        <button onClick={() => onSave(formData)} className="flex-1 py-2.5 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700">Crea Fornitore</button>
       </div>
     </div>
   );
