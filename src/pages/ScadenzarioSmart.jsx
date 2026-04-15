@@ -191,6 +191,17 @@ const ScadenzarioSmart = () => {
     return balances;
   }, [bankAccounts, paymentPlan]);
 
+  // Totale allocato per banca (quanto si sta pagando)
+  const bankSpending = useMemo(() => {
+    const spending = {};
+    Object.values(paymentPlan).forEach(plan => {
+      if (plan.bankId) {
+        spending[plan.bankId] = (spending[plan.bankId] || 0) + (plan.amount || 0);
+      }
+    });
+    return spending;
+  }, [paymentPlan]);
+
   const hasNegativeBalance = useMemo(() => {
     return Object.values(bankBalances).some(b => b < 0);
   }, [bankBalances]);
@@ -653,23 +664,35 @@ const ScadenzarioSmart = () => {
         {bankAccounts.length > 0 ? (
           <div className="flex items-center gap-3 overflow-x-auto">
             {bankAccounts.map((ba, idx) => {
-              const bal = bankBalances[ba.id] || 0;
-              const isNeg = bal < 0;
+              const saldoIniziale = ba.current_balance || 0;
+              const spending = bankSpending[ba.id] || 0;
+              const saldoProiettato = bankBalances[ba.id] || 0;
+              const isNeg = saldoProiettato < 0;
+              const hasSpending = spending > 0;
               const colors = [
-                { bg: 'bg-blue-50', border: 'border-blue-200', name: 'text-blue-700' },
-                { bg: 'bg-emerald-50', border: 'border-emerald-200', name: 'text-emerald-700' },
-                { bg: 'bg-purple-50', border: 'border-purple-200', name: 'text-purple-700' },
-                { bg: 'bg-amber-50', border: 'border-amber-200', name: 'text-amber-700' },
-                { bg: 'bg-rose-50', border: 'border-rose-200', name: 'text-rose-700' },
-                { bg: 'bg-cyan-50', border: 'border-cyan-200', name: 'text-cyan-700' },
+                { bg: 'bg-blue-50', border: 'border-blue-200', name: 'text-blue-700', spend: 'text-blue-500' },
+                { bg: 'bg-emerald-50', border: 'border-emerald-200', name: 'text-emerald-700', spend: 'text-emerald-500' },
+                { bg: 'bg-purple-50', border: 'border-purple-200', name: 'text-purple-700', spend: 'text-purple-500' },
+                { bg: 'bg-amber-50', border: 'border-amber-200', name: 'text-amber-700', spend: 'text-amber-500' },
+                { bg: 'bg-rose-50', border: 'border-rose-200', name: 'text-rose-700', spend: 'text-rose-500' },
+                { bg: 'bg-cyan-50', border: 'border-cyan-200', name: 'text-cyan-700', spend: 'text-cyan-500' },
               ];
               const c = isNeg
-                ? { bg: 'bg-red-50', border: 'border-red-300', name: 'text-red-700' }
+                ? { bg: 'bg-red-50', border: 'border-red-300 ring-2 ring-red-400/50', name: 'text-red-700', spend: 'text-red-500' }
                 : colors[idx % colors.length];
               return (
-                <div key={ba.id} className={`flex-shrink-0 px-5 py-3 rounded-xl border ${c.bg} ${c.border}`}>
+                <div key={ba.id} className={`flex-shrink-0 px-5 py-3 rounded-xl border ${c.bg} ${c.border} ${isNeg ? 'animate-pulse' : ''}`}>
                   <div className={`text-xs font-semibold ${c.name}`}>{ba.bank_name}</div>
-                  <div className={`text-lg font-bold mt-1 ${isNeg ? 'text-red-600' : 'text-slate-900'}`}>{fmt(bal)} €</div>
+                  <div className="text-base font-bold mt-1 text-slate-900">{fmt(saldoIniziale)} €</div>
+                  {hasSpending && (
+                    <>
+                      <div className={`text-xs mt-1 ${c.spend} font-medium`}>− {fmt(spending)} €</div>
+                      <div className={`text-sm font-bold mt-0.5 pt-1 border-t ${isNeg ? 'border-red-300 text-red-600' : 'border-slate-200 text-slate-700'}`}>
+                        = {fmt(saldoProiettato)} €
+                        {isNeg && <span className="ml-1 text-xs">⚠️</span>}
+                      </div>
+                    </>
+                  )}
                 </div>
               );
             })}
@@ -1153,8 +1176,13 @@ const ScadenzarioSmart = () => {
                       className="px-4 py-2 text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg text-sm font-medium">
                       Annulla
                     </button>
+                    {hasNegativeBalance && (
+                      <div className="flex items-center gap-1.5 px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700 font-medium">
+                        <AlertTriangle size={14} /> Saldo insufficiente su una o più banche
+                      </div>
+                    )}
                     <button onClick={confirmPayments} disabled={isSaving || hasNegativeBalance || Array.from(selectedIds).some(id => !paymentPlan[id]?.bankId)}
-                      className="px-6 py-2 bg-emerald-600 text-white hover:bg-emerald-700 rounded-lg text-sm font-bold disabled:opacity-50">
+                      className="px-6 py-2 bg-emerald-600 text-white hover:bg-emerald-700 rounded-lg text-sm font-bold disabled:opacity-50 disabled:cursor-not-allowed">
                       {isSaving ? 'Elaborazione...' : 'Conferma'}
                     </button>
                   </div>
