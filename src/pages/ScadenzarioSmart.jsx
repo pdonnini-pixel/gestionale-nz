@@ -253,6 +253,9 @@ const ScadenzarioSmart = () => {
         days_to_due: row.days_to_due,
         urgency: row.urgency,
         priority: row.priority,
+        supplier_id: row.supplier_id,
+        supplier_iban: row.supplier_iban || '',
+        supplier_vat: row.supplier_vat || '',
         suppliers: {
           name: row.supplier_name,
           ragione_sociale: row.supplier_name,
@@ -579,6 +582,8 @@ const ScadenzarioSmart = () => {
           bankId: plan.bankId,
           banca: bank?.bank_name || 'N/D',
           iban: bank?.iban || '',
+          ibanBeneficiario: payable.supplier_iban || '',
+          pivaBeneficiario: payable.supplier_vat || '',
           tipo: plan.type === 'saldo' ? 'SALDO' : 'PARZIALE',
           metodo: paymentMethodLabels[payable.payment_method] || '',
           note: plan.note || '',
@@ -614,7 +619,7 @@ const ScadenzarioSmart = () => {
       const emailBody = `Buongiorno,\n\ndi seguito la disposizione dei pagamenti fornitori da eseguire in data odierna (${dataStr}).\n\n` +
         banks.map(b => {
           const header = `═══ ${b.bankName} ═══\nIBAN: ${b.iban}\nSaldo attuale: ${fmt(b.saldoIniziale)} €\n`;
-          const rows = b.pagamenti.map((r, i) => `  ${i+1}. ${r.fornitore}\n     Fattura: ${r.fattura} | ${r.tipo} | Importo: ${fmt(r.importo)} €${r.metodo ? '\n     Metodo: ' + r.metodo : ''}${r.note ? '\n     Note: ' + r.note : ''}`).join('\n');
+          const rows = b.pagamenti.map((r, i) => `  ${i+1}. ${r.fornitore}${r.pivaBeneficiario ? ' (P.IVA: ' + r.pivaBeneficiario + ')' : ''}\n     Fattura: ${r.fattura} | ${r.tipo} | Importo: ${fmt(r.importo)} €${r.ibanBeneficiario ? '\n     IBAN beneficiario: ' + r.ibanBeneficiario : ''}${r.metodo ? '\n     Metodo: ' + r.metodo : ''}${r.note ? '\n     Note: ' + r.note : ''}`).join('\n');
           const footer = `\n  Totale banca: ${fmt(b.totalePagamenti)} €\n  Saldo residuo stimato: ${fmt(b.saldoFinale)} €`;
           return header + rows + footer;
         }).join('\n\n') +
@@ -1320,16 +1325,28 @@ const ScadenzarioSmart = () => {
                   {/* Lista pagamenti */}
                   <div className="divide-y divide-slate-50">
                     {bank.pagamenti.map((p, pIdx) => (
-                      <div key={pIdx} className="px-4 py-2.5 flex items-center justify-between bg-white hover:bg-slate-50/50">
-                        <div className="flex-1 min-w-0">
-                          <div className="text-sm font-medium text-slate-800 truncate">{p.fornitore}</div>
-                          <div className="flex items-center gap-2 mt-0.5">
-                            <span className="text-xs text-slate-500">Fatt. {p.fattura}</span>
-                            {p.metodo && <span className="text-xs text-slate-400">• {p.metodo}</span>}
-                            <span className={`text-xs px-1.5 py-0.5 rounded ${p.tipo === 'SALDO' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{p.tipo}</span>
+                      <div key={pIdx} className="px-4 py-2.5 bg-white hover:bg-slate-50/50">
+                        <div className="flex items-center justify-between">
+                          <div className="flex-1 min-w-0">
+                            <div className="text-sm font-medium text-slate-800 truncate">{p.fornitore}</div>
+                            <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                              <span className="text-xs text-slate-500">Fatt. {p.fattura}</span>
+                              {p.metodo && <span className="text-xs text-slate-400">• {p.metodo}</span>}
+                              <span className={`text-xs px-1.5 py-0.5 rounded ${p.tipo === 'SALDO' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{p.tipo}</span>
+                            </div>
                           </div>
+                          <div className="text-sm font-bold text-slate-900 ml-4">{fmt(p.importo)} €</div>
                         </div>
-                        <div className="text-sm font-bold text-slate-900 ml-4">{fmt(p.importo)} €</div>
+                        {(p.ibanBeneficiario || p.pivaBeneficiario) && (
+                          <div className="mt-1.5 flex items-center gap-3 text-xs">
+                            {p.ibanBeneficiario && (
+                              <span className="text-slate-500 font-mono bg-slate-50 px-2 py-0.5 rounded">IBAN: {p.ibanBeneficiario}</span>
+                            )}
+                            {p.pivaBeneficiario && (
+                              <span className="text-slate-400">P.IVA: {p.pivaBeneficiario}</span>
+                            )}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
