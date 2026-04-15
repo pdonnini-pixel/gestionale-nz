@@ -335,15 +335,26 @@ function autoPOSMapping(headers) {
 
 async function upsertSupplier(supplierRecord) {
   try {
-    // Check if supplier exists by P.IVA
+    const piva = supplierRecord.partita_iva;
+    if (!piva) return null;
+
+    // Check if supplier exists by P.IVA (could be in vat_number OR partita_iva column)
     const { data: existing } = await supabase
       .from('suppliers')
-      .select('id')
+      .select('id, iban')
       .eq('company_id', supplierRecord.company_id)
-      .eq('partita_iva', supplierRecord.partita_iva)
+      .or(`partita_iva.eq.${piva},vat_number.eq.${piva}`)
       .maybeSingle();
 
-    if (existing) return existing.id;
+    if (existing) {
+      // Update IBAN if we have one from XML and supplier doesn't have it yet
+      if (supplierRecord.iban && !existing.iban) {
+        await supabase.from('suppliers')
+          .update({ iban: supplierRecord.iban })
+          .eq('id', existing.id);
+      }
+      return existing.id;
+    }
 
     // Create new supplier
     const { data: created, error } = await supabase

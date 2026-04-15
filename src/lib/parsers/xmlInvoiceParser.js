@@ -244,6 +244,7 @@ const TIPO_DOCUMENTO_MAP = {
 
 // ─── MODALITA PAGAMENTO MAP ─────────────────────────────────────
 
+// Label leggibili per UI
 export const MODALITA_PAGAMENTO_MAP = {
   'MP01': 'Contanti',
   'MP02': 'Assegno',
@@ -270,6 +271,35 @@ export const MODALITA_PAGAMENTO_MAP = {
   'MP23': 'PagoPA',
 };
 
+// Mapping da codice SDI → valore enum DB v2 (payment_method)
+// L'enum nel DB è dettagliato: bonifico_ordinario, riba_30, sdd_core, ecc.
+// Per RIBA il default è riba_30 (la scadenza specifica va dedotta dal CondizioniPagamento)
+export const MODALITA_TO_DB_ENUM = {
+  'MP01': 'contanti',
+  'MP02': 'assegno',
+  'MP03': 'assegno',           // assegno circolare
+  'MP04': 'contanti',          // contanti presso Tesoreria
+  'MP05': 'bonifico_ordinario',
+  'MP06': 'altro',             // vaglia cambiario
+  'MP07': 'bollettino_postale',
+  'MP08': 'carta_credito',
+  'MP09': 'rid',
+  'MP10': 'rid',               // RID utenze
+  'MP11': 'rid',               // RID veloce
+  'MP12': 'riba_30',           // RIBA — default 30gg
+  'MP13': 'mav',
+  'MP14': 'altro',             // quietanza erario
+  'MP15': 'altro',             // giroconto
+  'MP16': 'sdd_core',          // domiciliazione bancaria → SDD Core
+  'MP17': 'bollettino_postale',
+  'MP18': 'bollettino_postale',
+  'MP19': 'sdd_core',          // SEPA Direct Debit
+  'MP20': 'sdd_core',          // SEPA DD CORE
+  'MP21': 'sdd_b2b',           // SEPA DD B2B
+  'MP22': 'compensazione',
+  'MP23': 'altro',             // PagoPA
+};
+
 // ─── TRANSFORM TO DB RECORDS ────────────────────────────────────
 
 /**
@@ -281,17 +311,29 @@ export const MODALITA_PAGAMENTO_MAP = {
 export function transformInvoiceToRecords(invoices, supplier, context) {
   const { company_id, import_batch_id } = context;
 
+  // Extract IBAN from first payment detail that has one
+  const firstIban = invoices
+    .flatMap(inv => inv.payment_details || [])
+    .map(pd => pd.iban)
+    .find(iban => iban && iban.trim().length > 0) || null;
+
   // Build supplier record for auto-creation
+  // NOTA: il DB ha sia vat_number che partita_iva; usiamo entrambi per compatibilità
   const supplierRecord = supplier ? {
     company_id,
+    name: supplier.ragione_sociale,
     ragione_sociale: supplier.ragione_sociale,
+    vat_number: supplier.partita_iva,
     partita_iva: supplier.partita_iva,
     codice_fiscale: supplier.codice_fiscale,
+    fiscal_code: supplier.codice_fiscale,
     // Address
     indirizzo: supplier.sede?.indirizzo,
     cap: supplier.sede?.cap,
     comune: supplier.sede?.comune,
     provincia: supplier.sede?.provincia,
+    // IBAN from payment details (if present in XML)
+    iban: firstIban,
     source: 'xml_sdi',
   } : null;
 
@@ -310,32 +352,52 @@ export function transformInvoiceToRecords(invoices, supplier, context) {
     is_reconciled: false,
   }));
 
+  // Metodi che implicano pagamento già avvenuto (al momento dell'acquisto)
+  const ALREADY_PAID_METHODS = new Set([
+    'contanti', 'carta_credito', 'carta_debito',
+  ]);
+
   // Create payable records from payment details
   const payableRecords = [];
   invoices.forEach(inv => {
     if (inv.payment_details.length > 0) {
-      inv.payment_details.forEach(pd => {
+      inv.payment_details.forEach((pd, idx) => {
+        const dbEnum = MODALITA_TO_DB_ENUM[pd.modalita] || 'altro';
+        const label = MODALITA_PAGAMENTO_MAP[pd.modalita] || pd.modalita;
+        const grossAmt = pd.importo || inv.gross_amount;
+        const isAlreadyPaid = ALREADY_PAID_METHODS.has(dbEnum);
         payableRecords.push({
           company_id,
           invoice_number: inv.invoice_number,
+          invoice_date: inv.invoice_date,
           supplier_name: inv.supplier_name,
           supplier_vat: inv.supplier_vat,
-          amount: pd.importo || inv.gross_amount,
+          gross_amount: grossAmt,
+          amount_paid: isAlreadyPaid ? grossAmt : 0,
+          amount_remaining: isAlreadyPaid ? 0 : grossAmt,
           due_date: pd.data_scadenza || inv.invoice_date,
-          payment_method: MODALITA_PAGAMENTO_MAP[pd.modalita] || pd.modalita,
+          payment_date: isAlreadyPaid ? inv.invoice_date : null,
+          payment_method: dbEnum,
+          payment_method_code: pd.modalita,       // codice SDI originale (MP05, MP12, ecc.)
+          payment_method_label: label,             // etichetta leggibile
           iban: pd.iban,
-          status: 'da_pagare',
+          status: isAlreadyPaid ? 'pagato' : 'da_pagare',
+          // Se ci sono più rate, indica il numero rata
+          ...(inv.payment_details.length > 1 ? { installment_number: idx + 1, installment_total: inv.payment_details.length } : {}),
         });
       });
     } else {
-      // No payment details: create single payable
+      // No payment details: create single payable — default bonifico_ordinario
       payableRecords.push({
         company_id,
         invoice_number: inv.invoice_number,
+        invoice_date: inv.invoice_date,
         supplier_name: inv.supplier_name,
         supplier_vat: inv.supplier_vat,
-        amount: inv.gross_amount,
+        gross_amount: inv.gross_amount,
+        amount_remaining: inv.gross_amount,
         due_date: inv.invoice_date,
+        payment_method: 'bonifico_ordinario',
         status: 'da_pagare',
       });
     }

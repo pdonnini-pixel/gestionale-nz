@@ -140,6 +140,9 @@ export async function parseBilancio(pdfData) {
 
       if (/TOTALE\s*A\s*PAREGGIO/i.test(fullLine)) continue
 
+      // Skip repeated header/footer lines from PDF (company info, metadata, page breaks)
+      if (/Azienda:|Cod\.\s*Fiscale|Partita\s*IVA|^VIA\s|PERIODO\s*DAL|Totali\s*fino\s*al\s*livello|Considera\s*anche\s*i\s*movimenti|^Pag\./i.test(fullLine)) continue
+
       // Split into left column (x < 290) and right column (x >= 290)
       const midX = 290
       const leftCells = cells.filter(c => c.x < midX)
@@ -374,7 +377,7 @@ export function toSupabaseRecords(parsed, companyId, year, periodType = 'annuale
   const ricaviTotale = t.ricavi || 0
   const costiProduzione = (ceMap.materie_prime + ceMap.servizi + ceMap.godimento_beni_terzi +
     ceMap.totale_personale + ceMap.totale_ammortamenti + ceMap.variazione_rimanenze + ceMap.oneri_diversi)
-  ceMap.differenza_ab = ricaviTotale - costiProduzione
+  ceMap.differenza_ab = Math.round((ricaviTotale - costiProduzione) * 100) / 100
   ceMap.imposte = 0 // not in this bilancio (loss)
 
   Object.entries(ceMap).forEach(([key, amount]) => {

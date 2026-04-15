@@ -19,8 +19,50 @@ const EMPTY_FORM = {
   ragione_sociale: '', partita_iva: '', codice_fiscale: '', codice_sdi: '',
   pec: '', email: '', telefono: '', iban: '', indirizzo: '', citta: '',
   provincia: '', cap: '', category: '', payment_terms: 30,
-  payment_method: 'bonifico', cost_center: 'all', note: '',
+  payment_method: 'bonifico_ordinario', cost_center: 'all', note: '',
 };
+
+// v2 payment method enum options for dropdown
+const PAYMENT_METHOD_OPTIONS = [
+  { group: 'Bonifico', items: [
+    { value: 'bonifico_ordinario', label: 'Bonifico Ordinario' },
+    { value: 'bonifico_urgente', label: 'Bonifico Urgente' },
+    { value: 'bonifico_sepa', label: 'Bonifico SEPA' },
+  ]},
+  { group: 'RIBA', items: [
+    { value: 'riba_30', label: 'Ri.Ba. 30gg' },
+    { value: 'riba_60', label: 'Ri.Ba. 60gg' },
+    { value: 'riba_90', label: 'Ri.Ba. 90gg' },
+    { value: 'riba_120', label: 'Ri.Ba. 120gg' },
+  ]},
+  { group: 'RID / SDD', items: [
+    { value: 'rid', label: 'RID' },
+    { value: 'sdd_core', label: 'SDD Core' },
+    { value: 'sdd_b2b', label: 'SDD B2B' },
+  ]},
+  { group: 'Altro', items: [
+    { value: 'rimessa_diretta', label: 'Rimessa Diretta' },
+    { value: 'carta_credito', label: 'Carta di Credito' },
+    { value: 'carta_debito', label: 'Carta di Debito' },
+    { value: 'assegno', label: 'Assegno' },
+    { value: 'contanti', label: 'Contanti' },
+    { value: 'compensazione', label: 'Compensazione' },
+    { value: 'f24', label: 'F24' },
+    { value: 'mav', label: 'MAV' },
+    { value: 'rav', label: 'RAV' },
+    { value: 'bollettino_postale', label: 'Bollettino Postale' },
+    { value: 'altro', label: 'Altro' },
+  ]},
+];
+
+// Human-readable label for payment method enum
+const PAYMENT_LABEL = {};
+PAYMENT_METHOD_OPTIONS.forEach(g => g.items.forEach(i => { PAYMENT_LABEL[i.value] = i.label; }));
+// v1 fallbacks
+PAYMENT_LABEL.bonifico = 'Bonifico';
+PAYMENT_LABEL.riba = 'Ri.Ba.';
+PAYMENT_LABEL.rid = 'RID';
+PAYMENT_LABEL.carta = 'Carta';
 
 const CATEGORIES = [
   'Merci', 'Servizi', 'Affitti', 'Utenze', 'Marketing', 'Logistica',
@@ -88,34 +130,55 @@ export default function Fornitori() {
 
   // ─── COMPUTED DATA ────────────────────────────────────────────
 
-  // Aggregate payable data per supplier
+  // Aggregate payable data per supplier — keyed by supplier_id
   const supplierStats = useMemo(() => {
     const stats = {};
     payables.forEach(p => {
-      const key = p.supplier_name || p.supplier_vat || 'unknown';
-      if (!stats[key]) stats[key] = { total: 0, paid: 0, pending: 0, overdue: 0, count: 0 };
-      const amount = parseFloat(p.amount) || 0;
-      stats[key].total += amount;
+      const key = p.supplier_id;
+      if (!key) return;
+      if (!stats[key]) stats[key] = { total: 0, paid: 0, pending: 0, overdue: 0, count: 0, lastDate: null, grossTotal: 0, methods: new Set() };
+      const gross = parseFloat(p.gross_amount) || 0;
+      const remaining = parseFloat(p.amount_remaining) || 0;
+      stats[key].grossTotal += gross;
       stats[key].count++;
-      if (p.status === 'pagato') stats[key].paid += amount;
-      else if (p.status === 'scaduto') stats[key].overdue += amount;
-      else stats[key].pending += amount;
+      if (p.payment_method) stats[key].methods.add(p.payment_method);
+      if (p.status === 'pagato') {
+        stats[key].paid += gross;
+      } else if (p.status === 'scaduto') {
+        stats[key].overdue += remaining;
+        stats[key].pending += remaining;
+      } else if (p.status !== 'annullato' && p.status !== 'bloccato') {
+        stats[key].pending += remaining;
+      }
+      // Track last invoice date
+      if (p.invoice_date && (!stats[key].lastDate || p.invoice_date > stats[key].lastDate)) {
+        stats[key].lastDate = p.invoice_date;
+      }
     });
     return stats;
   }, [payables]);
 
-  // Invoice totals per supplier
+  // Invoice totals per supplier — keyed by supplier_id
   const invoiceStats = useMemo(() => {
     const stats = {};
     invoices.forEach(inv => {
-      const key = inv.supplier_vat || inv.supplier_name || 'unknown';
+      // Try supplier_id first, fallback to vat match
+      let key = inv.supplier_id;
+      if (!key) {
+        const match = suppliers.find(s =>
+          (inv.supplier_vat && (s.partita_iva === inv.supplier_vat || s.vat_number === inv.supplier_vat)) ||
+          (inv.supplier_name && (s.ragione_sociale === inv.supplier_name || s.name === inv.supplier_name))
+        );
+        key = match?.id;
+      }
+      if (!key) return;
       if (!stats[key]) stats[key] = { totalGross: 0, totalNet: 0, count: 0 };
       stats[key].totalGross += parseFloat(inv.gross_amount) || 0;
       stats[key].totalNet += parseFloat(inv.net_amount) || 0;
       stats[key].count++;
     });
     return stats;
-  }, [invoices]);
+  }, [invoices, suppliers]);
 
   // Filtered & sorted suppliers
   const filteredSuppliers = useMemo(() => {
@@ -154,12 +217,15 @@ export default function Fornitori() {
   // KPIs
   const kpis = useMemo(() => {
     const active = suppliers.filter(s => s.is_active !== false).length;
-    const totalPayables = payables.reduce((s, p) => s + (parseFloat(p.amount) || 0), 0);
-    const overdue = payables.filter(p => p.status === 'scaduto').reduce((s, p) => s + (parseFloat(p.amount) || 0), 0);
-    const avgPaymentTerms = suppliers.length > 0
-      ? Math.round(suppliers.reduce((s, sup) => s + (sup.payment_terms || 30), 0) / suppliers.length)
-      : 30;
-    return { active, total: suppliers.length, totalPayables, overdue, avgPaymentTerms };
+    const totalPending = payables
+      .filter(p => p.status !== 'pagato' && p.status !== 'annullato' && p.status !== 'bloccato')
+      .reduce((s, p) => s + (parseFloat(p.amount_remaining) || 0), 0);
+    const overdue = payables
+      .filter(p => p.status === 'scaduto')
+      .reduce((s, p) => s + (parseFloat(p.amount_remaining) || 0), 0);
+    const totalFatturato = payables.reduce((s, p) => s + (parseFloat(p.gross_amount) || 0), 0);
+    const withPayables = new Set(payables.map(p => p.supplier_id).filter(Boolean)).size;
+    return { active, total: suppliers.length, totalPending, overdue, totalFatturato, withPayables };
   }, [suppliers, payables]);
 
   // Charts data
@@ -168,9 +234,8 @@ export default function Fornitori() {
     suppliers.forEach(s => {
       const cat = s.category || 'Non categorizzato';
       if (!map[cat]) map[cat] = { name: cat, value: 0, count: 0 };
-      const key = s.partita_iva || s.vat_number || s.ragione_sociale || s.name;
-      const stats = supplierStats[key] || supplierStats[s.ragione_sociale] || { total: 0 };
-      map[cat].value += stats.total;
+      const stats = supplierStats[s.id] || { grossTotal: 0 };
+      map[cat].value += stats.grossTotal;
       map[cat].count++;
     });
     return Object.values(map).filter(c => c.value > 0).sort((a, b) => b.value - a.value);
@@ -179,9 +244,8 @@ export default function Fornitori() {
   const topSuppliersBySpend = useMemo(() => {
     return suppliers
       .map(s => {
-        const key = s.partita_iva || s.vat_number || s.ragione_sociale || s.name;
-        const stats = supplierStats[key] || supplierStats[s.ragione_sociale] || { total: 0 };
-        return { name: (s.ragione_sociale || s.name || '').substring(0, 20), value: stats.total };
+        const stats = supplierStats[s.id] || { grossTotal: 0 };
+        return { name: (s.ragione_sociale || s.name || '').substring(0, 20), value: stats.grossTotal };
       })
       .filter(s => s.value > 0)
       .sort((a, b) => b.value - a.value)
@@ -244,9 +308,12 @@ export default function Fornitori() {
         cap: form.cap.trim() || null,
         category: form.category || null,
         payment_terms: parseInt(form.payment_terms) || 30,
-        payment_method: form.payment_method || 'bonifico',
+        default_payment_terms: parseInt(form.payment_terms) || 30,
+        payment_method: form.payment_method || 'bonifico_ordinario',
+        default_payment_method: form.payment_method || 'bonifico_ordinario',
         cost_center: form.cost_center || 'all',
         note: form.note.trim() || null,
+        notes: form.note.trim() || null,
         is_active: true,
         is_deleted: false,
         updated_at: new Date().toISOString(),
@@ -344,11 +411,11 @@ export default function Fornitori() {
 
       {/* KPI CARDS */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
-        <KpiCard icon={Building2} label="Fornitori attivi" value={kpis.active} sub={`${kpis.total} totali`} color="indigo" />
-        <KpiCard icon={Banknote} label="Totale debiti" value={`€ ${kpis.totalPayables.toLocaleString('it-IT', { minimumFractionDigits: 0 })}`} color="blue" />
+        <KpiCard icon={Building2} label="Fornitori attivi" value={kpis.active} sub={`${kpis.withPayables} con fatture`} color="indigo" />
+        <KpiCard icon={Banknote} label="Tot. fatturato" value={`€ ${kpis.totalFatturato.toLocaleString('it-IT', { minimumFractionDigits: 0 })}`} color="blue" />
+        <KpiCard icon={Clock} label="Da pagare" value={`€ ${kpis.totalPending.toLocaleString('it-IT', { minimumFractionDigits: 0 })}`} color="amber" />
         <KpiCard icon={AlertTriangle} label="Scaduto" value={`€ ${kpis.overdue.toLocaleString('it-IT', { minimumFractionDigits: 0 })}`} color={kpis.overdue > 0 ? 'red' : 'green'} />
-        <KpiCard icon={Clock} label="Termini medi" value={`${kpis.avgPaymentTerms} gg`} color="amber" />
-        <KpiCard icon={FileText} label="Fatture ricevute" value={invoices.length} color="purple" />
+        <KpiCard icon={FileText} label="Fatture importate" value={invoices.length} color="purple" />
       </div>
 
       {/* TAB NAV */}
@@ -398,156 +465,233 @@ export default function Fornitori() {
 
           {/* SUPPLIER LIST */}
           <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
-            {/* Table header */}
-            <div className="grid grid-cols-12 gap-2 px-4 py-3 bg-slate-50 border-b text-xs font-semibold text-slate-500 uppercase tracking-wider">
-              <div className="col-span-3 flex items-center gap-1 cursor-pointer" onClick={() => toggleSort('ragione_sociale')}>
-                Ragione Sociale <ArrowUpDown size={12} />
-              </div>
-              <div className="col-span-2">P.IVA / Cod. SDI</div>
-              <div className="col-span-2">Contatti</div>
-              <div className="col-span-1 flex items-center gap-1 cursor-pointer" onClick={() => toggleSort('category')}>
-                Categoria <ArrowUpDown size={12} />
-              </div>
-              <div className="col-span-1 text-right">Debito</div>
-              <div className="col-span-1 text-right">Scaduto</div>
-              <div className="col-span-1 text-center">Termini</div>
-              <div className="col-span-1 text-center">Azioni</div>
-            </div>
+            {/* Table */}
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 border-b border-slate-200">
+                <tr>
+                  <th className="px-3 py-2.5 text-left text-xs font-semibold text-slate-600 cursor-pointer" onClick={() => toggleSort('ragione_sociale')}>
+                    <span className="flex items-center gap-1">Fornitore <ArrowUpDown size={11} /></span>
+                  </th>
+                  <th className="px-3 py-2.5 text-left text-xs font-semibold text-slate-600">P.IVA</th>
+                  <th className="px-3 py-2.5 text-center text-xs font-semibold text-slate-600 cursor-pointer" onClick={() => toggleSort('category')}>
+                    <span className="flex items-center gap-1 justify-center">Cat. <ArrowUpDown size={11} /></span>
+                  </th>
+                  <th className="px-3 py-2.5 text-center text-xs font-semibold text-slate-600">Metodo</th>
+                  <th className="px-3 py-2.5 text-right text-xs font-semibold text-slate-600">Fatturato</th>
+                  <th className="px-3 py-2.5 text-right text-xs font-semibold text-slate-600">Da pagare</th>
+                  <th className="px-3 py-2.5 text-center text-xs font-semibold text-slate-600 w-20">Azioni</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
 
             {/* Table rows */}
             {filteredSuppliers.length === 0 ? (
-              <div className="p-12 text-center">
-                <Building2 className="mx-auto text-slate-300 mb-3" size={48} />
-                <p className="text-slate-500 font-medium">Nessun fornitore trovato</p>
-                <p className="text-slate-400 text-sm mt-1">
-                  {suppliers.length === 0
-                    ? 'Importa fatture XML dall\'Import Hub per creare fornitori automaticamente'
-                    : 'Prova a modificare i filtri di ricerca'}
-                </p>
-                {suppliers.length === 0 && (
-                  <a href="/import-hub" className="inline-flex items-center gap-2 mt-4 px-4 py-2 bg-indigo-50 text-indigo-700 rounded-lg text-sm font-medium hover:bg-indigo-100">
-                    <ExternalLink size={16} /> Vai all'Import Hub
-                  </a>
-                )}
-              </div>
+              <tr>
+                <td colSpan={7} className="p-12 text-center">
+                  <Building2 className="mx-auto text-slate-300 mb-3" size={48} />
+                  <p className="text-slate-500 font-medium">Nessun fornitore trovato</p>
+                  <p className="text-slate-400 text-sm mt-1">
+                    {suppliers.length === 0
+                      ? 'Importa fatture XML dall\'Import Hub per creare fornitori automaticamente'
+                      : 'Prova a modificare i filtri di ricerca'}
+                  </p>
+                  {suppliers.length === 0 && (
+                    <a href="/import-hub" className="inline-flex items-center gap-2 mt-4 px-4 py-2 bg-indigo-50 text-indigo-700 rounded-lg text-sm font-medium hover:bg-indigo-100">
+                      <ExternalLink size={16} /> Vai all'Import Hub
+                    </a>
+                  )}
+                </td>
+              </tr>
             ) : (
-              <div className="divide-y divide-slate-100">
+              <>
                 {filteredSuppliers.map(s => {
                   const name = getName(s);
                   const vat = getVat(s);
-                  const stats = supplierStats[vat] || supplierStats[name] || { total: 0, overdue: 0, pending: 0, paid: 0, count: 0 };
+                  const stats = supplierStats[s.id] || { grossTotal: 0, overdue: 0, pending: 0, paid: 0, count: 0, lastDate: null, methods: new Set() };
                   const isExpanded = expandedId === s.id;
+                  const pm = s.payment_method || s.default_payment_method;
 
                   return (
-                    <div key={s.id}>
+                    <React.Fragment key={s.id}>
                       {/* Main row */}
-                      <div
-                        className={`grid grid-cols-12 gap-2 px-4 py-3 items-center hover:bg-slate-50/50 cursor-pointer transition ${isExpanded ? 'bg-indigo-50/30' : ''}`}
+                      <tr
+                        className={`hover:bg-slate-50/50 cursor-pointer transition ${isExpanded ? 'bg-indigo-50/30' : ''}`}
                         onClick={() => setExpandedId(isExpanded ? null : s.id)}
                       >
-                        <div className="col-span-3">
+                        <td className="px-3 py-2.5">
                           <div className="flex items-center gap-2">
-                            <div className={`w-2 h-2 rounded-full ${s.is_active !== false ? 'bg-emerald-400' : 'bg-slate-300'}`} />
-                            <span className="font-medium text-slate-800 text-sm truncate">{name}</span>
+                            <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${s.is_active !== false ? 'bg-emerald-400' : 'bg-slate-300'}`} />
+                            <div className="min-w-0">
+                              <div className="font-medium text-slate-800 truncate">{name}</div>
+                              <div className="text-xs text-slate-400 truncate">
+                                {[s.citta, s.provincia ? `(${s.provincia})` : ''].filter(Boolean).join(' ') || (s.email || s.pec || '')}
+                              </div>
+                            </div>
                           </div>
-                          {(s.citta || s.provincia) && (
-                            <div className="text-xs text-slate-400 ml-4 mt-0.5">{[s.citta, s.provincia].filter(Boolean).join(', ')}</div>
-                          )}
-                        </div>
-                        <div className="col-span-2">
-                          <div className="text-sm text-slate-700 font-mono">{vat || '—'}</div>
-                          {s.codice_sdi && <div className="text-xs text-slate-400">SDI: {s.codice_sdi}</div>}
-                        </div>
-                        <div className="col-span-2">
-                          {s.email && <div className="text-xs text-slate-500 truncate flex items-center gap-1"><Mail size={10} />{s.email}</div>}
-                          {s.telefono && <div className="text-xs text-slate-500 flex items-center gap-1"><Phone size={10} />{s.telefono}</div>}
-                          {s.pec && <div className="text-xs text-indigo-500 truncate">PEC: {s.pec}</div>}
-                        </div>
-                        <div className="col-span-1">
+                        </td>
+                        <td className="px-3 py-2.5">
+                          <div className="text-xs text-slate-600 font-mono">{vat || '—'}</div>
+                        </td>
+                        <td className="px-3 py-2.5 text-center">
                           {s.category ? (
                             <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-xs">{s.category}</span>
                           ) : (
                             <span className="text-xs text-slate-300">—</span>
                           )}
-                        </div>
-                        <div className="col-span-1 text-right text-sm font-medium text-slate-700">
-                          {stats.total > 0 ? `€ ${stats.total.toLocaleString('it-IT', { minimumFractionDigits: 0 })}` : '—'}
-                        </div>
-                        <div className="col-span-1 text-right">
-                          {stats.overdue > 0 ? (
-                            <span className="text-sm font-semibold text-red-600">€ {stats.overdue.toLocaleString('it-IT', { minimumFractionDigits: 0 })}</span>
+                        </td>
+                        <td className="px-3 py-2.5 text-center">
+                          {pm ? (
+                            <span className="text-xs text-slate-600">{PAYMENT_LABEL[pm] || pm}</span>
                           ) : (
-                            <span className="text-xs text-emerald-500">In regola</span>
+                            <span className="text-xs text-slate-300">—</span>
                           )}
-                        </div>
-                        <div className="col-span-1 text-center text-sm text-slate-600">
-                          {s.payment_terms || s.default_payment_terms || 30} gg
-                        </div>
-                        <div className="col-span-1 flex items-center justify-center gap-1">
-                          <button onClick={(e) => { e.stopPropagation(); openEdit(s); }} className="p-1.5 rounded-lg hover:bg-indigo-50 text-slate-400 hover:text-indigo-600 transition" title="Modifica">
-                            <Edit3 size={15} />
-                          </button>
-                          <button onClick={(e) => { e.stopPropagation(); handleDelete(s.id); }} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 transition" title="Disattiva">
-                            <Trash2 size={15} />
-                          </button>
-                          {isExpanded ? <ChevronUp size={15} className="text-slate-400" /> : <ChevronDown size={15} className="text-slate-400" />}
-                        </div>
-                      </div>
+                        </td>
+                        <td className="px-3 py-2.5 text-right">
+                          {stats.grossTotal > 0 ? (
+                            <div>
+                              <div className="font-medium text-slate-700">€ {stats.grossTotal.toLocaleString('it-IT', { minimumFractionDigits: 0 })}</div>
+                              <div className="text-xs text-slate-400">{stats.count} fatt.</div>
+                            </div>
+                          ) : <span className="text-xs text-slate-300">—</span>}
+                        </td>
+                        <td className="px-3 py-2.5 text-right">
+                          {stats.overdue > 0 ? (
+                            <div>
+                              <div className="font-semibold text-red-600">€ {stats.pending.toLocaleString('it-IT', { minimumFractionDigits: 0 })}</div>
+                              <div className="text-xs text-red-500">{stats.overdue.toLocaleString('it-IT', { minimumFractionDigits: 0 })} scaduto</div>
+                            </div>
+                          ) : stats.pending > 0 ? (
+                            <div className="font-medium text-amber-600">€ {stats.pending.toLocaleString('it-IT', { minimumFractionDigits: 0 })}</div>
+                          ) : stats.grossTotal > 0 ? (
+                            <span className="text-xs text-emerald-500 font-medium">Saldato</span>
+                          ) : <span className="text-xs text-slate-300">—</span>}
+                        </td>
+                        <td className="px-2 py-2.5 text-center">
+                          <div className="flex items-center justify-center gap-0.5">
+                            <button onClick={(e) => { e.stopPropagation(); openEdit(s); }} className="p-1 rounded hover:bg-indigo-50 text-slate-400 hover:text-indigo-600 transition" title="Modifica">
+                              <Edit3 size={14} />
+                            </button>
+                            <button onClick={(e) => { e.stopPropagation(); handleDelete(s.id); }} className="p-1 rounded hover:bg-red-50 text-slate-400 hover:text-red-500 transition" title="Disattiva">
+                              <Trash2 size={14} />
+                            </button>
+                            {isExpanded ? <ChevronUp size={14} className="text-slate-400" /> : <ChevronDown size={14} className="text-slate-400" />}
+                          </div>
+                        </td>
+                      </tr>
 
                       {/* Expanded detail */}
-                      {isExpanded && (
-                        <div className="px-6 py-4 bg-slate-50/50 border-t border-slate-100">
-                          <div className="grid grid-cols-3 gap-6">
-                            {/* Col 1: Anagrafica */}
-                            <div>
-                              <h4 className="text-xs font-semibold text-slate-500 uppercase mb-2">Anagrafica completa</h4>
-                              <div className="space-y-1.5 text-sm">
-                                <Detail label="Ragione Sociale" value={name} />
-                                <Detail label="P.IVA" value={vat} />
-                                <Detail label="Codice Fiscale" value={s.codice_fiscale || s.fiscal_code} />
-                                <Detail label="Codice SDI" value={s.codice_sdi} />
-                                <Detail label="PEC" value={s.pec} />
-                                <Detail label="IBAN" value={s.iban} mono />
-                              </div>
-                            </div>
-                            {/* Col 2: Indirizzo & Contatti */}
-                            <div>
-                              <h4 className="text-xs font-semibold text-slate-500 uppercase mb-2">Indirizzo & contatti</h4>
-                              <div className="space-y-1.5 text-sm">
-                                <Detail label="Indirizzo" value={s.indirizzo} />
-                                <Detail label="Città" value={[s.cap, s.citta, s.provincia].filter(Boolean).join(' ')} />
-                                <Detail label="Email" value={s.email} />
-                                <Detail label="Telefono" value={s.telefono} />
-                                <Detail label="Note" value={s.note || s.notes} />
-                              </div>
-                            </div>
-                            {/* Col 3: Condizioni e Statistiche */}
-                            <div>
-                              <h4 className="text-xs font-semibold text-slate-500 uppercase mb-2">Condizioni & statistiche</h4>
-                              <div className="space-y-1.5 text-sm">
-                                <Detail label="Termini pagamento" value={`${s.payment_terms || s.default_payment_terms || 30} giorni`} />
-                                <Detail label="Metodo pagamento" value={s.payment_method || s.default_payment_method || 'bonifico'} />
-                                <Detail label="Categoria" value={s.category} />
-                                <Detail label="Centro di costo" value={s.cost_center === 'all' ? 'Tutti' : s.cost_center} />
-                                <div className="border-t border-slate-200 pt-2 mt-2">
-                                  <Detail label="Fatture totali" value={stats.count || 0} />
-                                  <Detail label="Totale fatturato" value={stats.total > 0 ? `€ ${stats.total.toLocaleString('it-IT', { minimumFractionDigits: 2 })}` : '—'} />
-                                  <Detail label="Già pagato" value={stats.paid > 0 ? `€ ${stats.paid.toLocaleString('it-IT', { minimumFractionDigits: 2 })}` : '—'} />
+                      {isExpanded && (() => {
+                        // Find payables for this supplier by ID
+                        const supplierPays = payables.filter(p => p.supplier_id === s.id)
+                          .sort((a, b) => new Date(b.invoice_date || b.created_at) - new Date(a.invoice_date || a.created_at));
+                        const avgAmount = supplierPays.length > 0
+                          ? supplierPays.reduce((acc, p) => acc + (parseFloat(p.gross_amount) || 0), 0) / supplierPays.length
+                          : 0;
+                        return (
+                        <tr className="bg-slate-50/50">
+                          <td colSpan={7} className="px-4 py-4">
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                              {/* Col 1: Anagrafica completa */}
+                              <div>
+                                <h4 className="text-xs font-semibold text-slate-500 uppercase mb-2 flex items-center gap-1.5">
+                                  <Building2 size={14} className="text-indigo-500" /> Anagrafica
+                                </h4>
+                                <div className="bg-white rounded-lg border border-slate-200 p-3 space-y-1.5 text-sm">
+                                  <Detail label="Ragione Sociale" value={name} />
+                                  <Detail label="P.IVA" value={vat} mono />
+                                  <Detail label="Cod. Fiscale" value={s.codice_fiscale || s.fiscal_code} mono />
+                                  <Detail label="Codice SDI" value={s.codice_sdi} mono />
+                                  <Detail label="PEC" value={s.pec} />
+                                  <Detail label="IBAN" value={s.iban} mono />
+                                  <div className="border-t border-slate-100 pt-1.5 mt-1.5" />
+                                  <Detail label="Indirizzo" value={s.indirizzo} />
+                                  <Detail label="Città" value={[s.cap, s.citta, s.provincia ? `(${s.provincia})` : ''].filter(Boolean).join(' ')} />
+                                  <Detail label="Email" value={s.email} />
+                                  <Detail label="Telefono" value={s.telefono} />
                                 </div>
                               </div>
+                              {/* Col 2: Condizioni & classificazione */}
+                              <div>
+                                <h4 className="text-xs font-semibold text-slate-500 uppercase mb-2 flex items-center gap-1.5">
+                                  <CreditCard size={14} className="text-indigo-500" /> Condizioni
+                                </h4>
+                                <div className="bg-white rounded-lg border border-slate-200 p-3 space-y-1.5 text-sm">
+                                  <Detail label="Termini pag." value={`${s.payment_terms || s.default_payment_terms || 30} giorni`} />
+                                  <Detail label="Metodo pag." value={PAYMENT_LABEL[s.payment_method || s.default_payment_method] || s.payment_method || s.default_payment_method || '—'} />
+                                  <Detail label="Categoria" value={s.category} />
+                                  <Detail label="Centro costo" value={s.cost_center === 'all' ? 'Tutti gli outlet' : s.cost_center} />
+                                  <Detail label="Stato" value={s.is_active !== false ? '✓ Attivo' : '✗ Disattivato'} />
+                                  {(s.note || s.notes) && (
+                                    <>
+                                      <div className="border-t border-slate-100 pt-1.5 mt-1.5" />
+                                      <div className="text-xs text-slate-500 italic">{s.note || s.notes}</div>
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                              {/* Col 3: Statistiche & ultime fatture */}
+                              <div>
+                                <h4 className="text-xs font-semibold text-slate-500 uppercase mb-2 flex items-center gap-1.5">
+                                  <BarChart3 size={14} className="text-indigo-500" /> Statistiche
+                                </h4>
+                                <div className="bg-white rounded-lg border border-slate-200 p-3 space-y-1.5 text-sm">
+                                  <Detail label="Tot. fatture" value={stats.count || 0} />
+                                  <Detail label="Tot. fatturato" value={stats.grossTotal > 0 ? `€ ${stats.grossTotal.toLocaleString('it-IT', { minimumFractionDigits: 2 })}` : '—'} />
+                                  <Detail label="Già pagato" value={stats.paid > 0 ? `€ ${stats.paid.toLocaleString('it-IT', { minimumFractionDigits: 2 })}` : '—'} />
+                                  <Detail label="Da pagare" value={stats.pending > 0 ? `€ ${stats.pending.toLocaleString('it-IT', { minimumFractionDigits: 2 })}` : '—'} />
+                                  {stats.overdue > 0 && (
+                                    <div className="flex">
+                                      <span className="text-red-500 w-28 shrink-0 text-xs font-medium">Scaduto</span>
+                                      <span className="text-red-600 text-xs font-semibold">€ {stats.overdue.toLocaleString('it-IT', { minimumFractionDigits: 2 })}</span>
+                                    </div>
+                                  )}
+                                  {avgAmount > 0 && (
+                                    <Detail label="Media fattura" value={`€ ${avgAmount.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} />
+                                  )}
+                                  {stats.lastDate && (
+                                    <Detail label="Ultima fattura" value={new Date(stats.lastDate).toLocaleDateString('it-IT')} />
+                                  )}
+                                </div>
+                                {/* Ultime 5 scadenze */}
+                                {supplierPays.length > 0 && (
+                                  <div className="mt-3">
+                                    <h4 className="text-xs font-semibold text-slate-400 uppercase mb-1.5">Ultime scadenze</h4>
+                                    <div className="space-y-1">
+                                      {supplierPays.slice(0, 5).map((pay, i) => (
+                                        <div key={i} className="bg-white rounded border border-slate-200 px-2.5 py-1.5 flex items-center justify-between text-xs">
+                                          <div className="flex items-center gap-2 min-w-0">
+                                            <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                                              pay.status === 'pagato' ? 'bg-emerald-400' : pay.status === 'scaduto' ? 'bg-red-400' : 'bg-amber-400'
+                                            }`} />
+                                            <span className="font-medium text-slate-700 truncate">{pay.invoice_number}</span>
+                                            <span className="text-slate-400">{pay.due_date ? new Date(pay.due_date).toLocaleDateString('it-IT') : ''}</span>
+                                          </div>
+                                          <span className="font-semibold text-slate-700 shrink-0 ml-2">€ {(parseFloat(pay.gross_amount) || 0).toLocaleString('it-IT', { minimumFractionDigits: 2 })}</span>
+                                        </div>
+                                      ))}
+                                      {supplierPays.length > 5 && (
+                                        <div className="text-xs text-slate-400 text-center pt-0.5">+ altre {supplierPays.length - 5} scadenze</div>
+                                      )}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
                             </div>
-                          </div>
-                        </div>
-                      )}
-                    </div>
+                          </td>
+                        </tr>
+                        );
+                      })()}
+                    </React.Fragment>
                   );
                 })}
-              </div>
+              </>
             )}
+              </tbody>
+            </table>
 
             {/* Footer */}
-            <div className="px-4 py-3 bg-slate-50 border-t text-xs text-slate-500">
-              {filteredSuppliers.length} fornitori visualizzati su {suppliers.length} totali
+            <div className="px-4 py-2.5 bg-slate-50 border-t text-xs text-slate-500">
+              {filteredSuppliers.length} fornitori su {suppliers.length} totali
             </div>
           </div>
         </div>
@@ -629,17 +773,16 @@ export default function Fornitori() {
                     <tbody className="divide-y divide-slate-100">
                       {suppliers
                         .map(s => {
-                          const key = getVat(s) || getName(s);
-                          const st = supplierStats[key] || supplierStats[getName(s)] || { total: 0, paid: 0, pending: 0, overdue: 0, count: 0 };
+                          const st = supplierStats[s.id] || { grossTotal: 0, paid: 0, pending: 0, overdue: 0, count: 0 };
                           return { ...s, ...st, displayName: getName(s) };
                         })
-                        .filter(s => s.total > 0)
-                        .sort((a, b) => b.total - a.total)
+                        .filter(s => s.grossTotal > 0)
+                        .sort((a, b) => b.grossTotal - a.grossTotal)
                         .slice(0, 15)
                         .map(s => (
                           <tr key={s.id} className="hover:bg-slate-50">
                             <td className="py-2 px-3 font-medium text-slate-700">{s.displayName}</td>
-                            <td className="py-2 px-3 text-right font-semibold">€ {s.total.toLocaleString('it-IT', { minimumFractionDigits: 0 })}</td>
+                            <td className="py-2 px-3 text-right font-semibold">€ {s.grossTotal.toLocaleString('it-IT', { minimumFractionDigits: 0 })}</td>
                             <td className="py-2 px-3 text-right text-emerald-600">€ {s.paid.toLocaleString('it-IT', { minimumFractionDigits: 0 })}</td>
                             <td className="py-2 px-3 text-right text-amber-600">€ {s.pending.toLocaleString('it-IT', { minimumFractionDigits: 0 })}</td>
                             <td className="py-2 px-3 text-right text-red-600 font-semibold">{s.overdue > 0 ? `€ ${s.overdue.toLocaleString('it-IT', { minimumFractionDigits: 0 })}` : '—'}</td>
@@ -647,9 +790,8 @@ export default function Fornitori() {
                           </tr>
                         ))}
                       {suppliers.every(s => {
-                        const key = getVat(s) || getName(s);
-                        const st = supplierStats[key] || supplierStats[getName(s)] || { total: 0 };
-                        return st.total === 0;
+                        const st = supplierStats[s.id] || { grossTotal: 0 };
+                        return st.grossTotal === 0;
                       }) && (
                         <tr>
                           <td colSpan="6" className="py-8 text-center text-slate-400">Nessun dato di fatturazione disponibile</td>
@@ -757,12 +899,11 @@ export default function Fornitori() {
                   <div>
                     <label className="text-xs font-medium text-slate-600">Metodo pagamento</label>
                     <select value={form.payment_method} onChange={e => setForm(f => ({ ...f, payment_method: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm">
-                      <option value="bonifico">Bonifico</option>
-                      <option value="riba">Ri.Ba.</option>
-                      <option value="rid">RID / SDD</option>
-                      <option value="assegno">Assegno</option>
-                      <option value="contanti">Contanti</option>
-                      <option value="carta">Carta</option>
+                      {PAYMENT_METHOD_OPTIONS.map(g => (
+                        <optgroup key={g.group} label={g.group}>
+                          {g.items.map(i => <option key={i.value} value={i.value}>{i.label}</option>)}
+                        </optgroup>
+                      ))}
                     </select>
                   </div>
                   <div className="col-span-2">

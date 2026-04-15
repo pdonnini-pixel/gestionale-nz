@@ -1186,38 +1186,45 @@ export default function Banche() {
   const posizioneNetta = totalBanks - totalDebiti
 
   return (
-    <div className="p-6 space-y-8 max-w-[1400px] mx-auto">
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">Banche & Tesoreria</h1>
-          <p className="text-sm text-slate-500">Posizione finanziaria aggiornata in tempo reale</p>
-        </div>
-        <div className="flex gap-1 bg-slate-100 rounded-lg p-1">
-          {[
-            { key: 'panoramica', label: 'Panoramica', icon: Landmark },
-            { key: 'movimenti', label: 'Movimenti', icon: ListOrdered },
-            { key: 'riconciliazione', label: 'Riconciliazione', icon: ArrowLeftRight },
-          ].map(t => (
-            <button key={t.key} onClick={() => setActiveTab(t.key)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition ${
-                activeTab === t.key ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
-              }`}>
-              <t.icon size={14} /> {t.label}
-            </button>
-          ))}
+    <div className="min-h-screen">
+      {/* Sticky header: titolo + tab + KPI — sempre visibili */}
+      <div className="sticky top-0 z-40 bg-gradient-to-br from-slate-50 to-slate-100 shadow-md border-b border-slate-200 px-6 pt-4 pb-4">
+        <div className="max-w-[1400px] mx-auto space-y-4">
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <div>
+              <h1 className="text-2xl font-bold text-slate-900">Banche & Tesoreria</h1>
+              <p className="text-sm text-slate-500">Posizione finanziaria aggiornata in tempo reale</p>
+            </div>
+            <div className="flex gap-1 bg-slate-100 rounded-lg p-1">
+              {[
+                { key: 'panoramica', label: 'Panoramica', icon: Landmark },
+                { key: 'movimenti', label: 'Movimenti', icon: ListOrdered },
+                { key: 'riconciliazione', label: 'Riconciliazione', icon: ArrowLeftRight },
+              ].map(t => (
+                <button key={t.key} onClick={() => setActiveTab(t.key)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition ${
+                    activeTab === t.key ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                  }`}>
+                  <t.icon size={14} /> {t.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* KPI Cards - sticky, sempre visibili */}
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+            <KpiCard icon={Landmark} title="Totale banche" value={`${fmt(totalBancari)} €`} subtitle={`${accounts.filter(a => a.account_type !== 'cassa').length} conti`} color="blue" />
+            <KpiCard icon={Store} title="Totale casse" value={`${fmt(totalCashes)} €`} subtitle={`${accounts.filter(a => a.account_type === 'cassa').length} outlet`} color="green" />
+            <KpiCard icon={Wallet} title="Liquidit totale" value={`${fmt(totalBanks)} €`} subtitle="Banche + casse" color="cyan" />
+            <KpiCard icon={HandCoins} title="Debiti finanziari" value={`${fmt(totalDebiti)} €`} subtitle={`${loans.filter(l => l.is_active).length} finanziamenti`} color="amber" />
+            <KpiCard icon={PiggyBank} title="Posizione fin. netta" value={`${fmt(posizioneNetta)} €`}
+              subtitle={posizioneNetta < 0 ? 'Indebitamento' : 'Liquidit netta'}
+              color={posizioneNetta >= 0 ? 'green' : 'red'} />
+          </div>
         </div>
       </div>
 
-      {/* KPI Cards - always visible */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-        <KpiCard icon={Landmark} title="Totale banche" value={`${fmt(totalBancari)} €`} subtitle={`${accounts.filter(a => a.account_type !== 'cassa').length} conti`} color="blue" />
-        <KpiCard icon={Store} title="Totale casse" value={`${fmt(totalCashes)} €`} subtitle={`${accounts.filter(a => a.account_type === 'cassa').length} outlet`} color="green" />
-        <KpiCard icon={Wallet} title="Liquidità totale" value={`${fmt(totalBanks)} €`} subtitle="Banche + casse" color="cyan" />
-        <KpiCard icon={HandCoins} title="Debiti finanziari" value={`${fmt(totalDebiti)} €`} subtitle={`${loans.filter(l => l.is_active).length} finanziamenti`} color="amber" />
-        <KpiCard icon={PiggyBank} title="Posizione fin. netta" value={`${fmt(posizioneNetta)} €`}
-          subtitle={posizioneNetta < 0 ? 'Indebitamento' : 'Liquidità netta'}
-          color={posizioneNetta >= 0 ? 'green' : 'red'} />
-      </div>
+      <div className="p-6 space-y-8 max-w-[1400px] mx-auto">
 
       {/* Tab: Movimenti */}
       {activeTab === 'movimenti' && (
@@ -1289,6 +1296,9 @@ export default function Banche() {
 
       </>}
       {/* end panoramica tab */}
+
+      </div>
+      {/* end scrollable content */}
 
       {/* Modals */}
       <ModalBankAccount

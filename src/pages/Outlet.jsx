@@ -8,6 +8,7 @@ import {
   Eye, Filter, Folder, Bell, History, User
 } from 'lucide-react'
 import OutletWizard from '../components/OutletWizard'
+import OutletValutazione from '../components/OutletValutazione'
 const PdfViewer = lazy(() => import('../components/PdfViewer'))
 import ContractUploader from '../components/ContractUploader'
 import {
@@ -1527,6 +1528,7 @@ export default function Outlet() {
   const [editOutlet, setEditOutlet] = useState(null)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(null)
   const [deleting, setDeleting] = useState(false)
+  const [tab, setTab] = useState('operativi')
   const canWrite = profile?.role === 'super_advisor'
   const currentYear = new Date().getFullYear()
 
@@ -1692,77 +1694,109 @@ export default function Outlet() {
 
   return (
     <div className="p-6 space-y-6 max-w-[1400px] mx-auto">
-      {selectedOutlet ? (
-        <OutletDetail
-          outlet={selectedOutlet}
-          revenue={revenue}
-          onBack={() => setSelectedOutlet(null)}
-          onEdit={handleEdit}
-          onDelete={handleDelete}
-        />
-      ) : (
+      {/* ── Tab bar (hide when viewing outlet detail) ── */}
+      {!selectedOutlet && (
+        <div className="flex gap-1 bg-slate-100 rounded-lg p-1 w-fit">
+          {[
+            { key: 'operativi', label: 'Outlet operativi' },
+            { key: 'valutazione', label: 'Outlet in valutazione' },
+          ].map(t => (
+            <button
+              key={t.key}
+              onClick={() => setTab(t.key)}
+              className={`px-4 py-2 text-sm font-medium rounded-md transition ${
+                tab === t.key
+                  ? 'bg-white text-blue-700 shadow-sm'
+                  : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* ── Tab: Outlet in valutazione ── */}
+      {tab === 'valutazione' && !selectedOutlet && (
+        <OutletValutazione />
+      )}
+
+      {/* ── Tab: Outlet operativi ── */}
+      {(tab === 'operativi' || selectedOutlet) && (
         <>
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold text-slate-900">Outlet</h1>
-              <p className="text-sm text-slate-500">
-                {outlets.length} punti vendita — Fatturato catena {currentYear - 1}: {fmt(totalRevenue)} €
-              </p>
-            </div>
-            <div className="flex gap-2">
-              <button
-                onClick={loadData}
-                className="flex items-center gap-2 px-4 py-2 text-sm rounded-lg border border-slate-200 hover:bg-white transition"
-              >
-                <RefreshCw size={16} />
-                Aggiorna
-              </button>
-              {canWrite && (
-                <>
-                  <button
-                    onClick={() => setShowContractUploader(true)}
-                    className="flex items-center gap-2 px-4 py-2 text-sm rounded-lg border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 transition"
-                  >
-                    <Upload size={16} />
-                    Crea da contratto
-                  </button>
-                  <button
-                    onClick={() => { setWizardInitialData(null); setWizardAllegati(null); setShowWizard(true) }}
-                    className="flex items-center gap-2 px-4 py-2 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition"
-                  >
-                    <Plus size={16} />
-                    Nuovo outlet
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
-
-          <div className="relative">
-            <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input
-              type="text"
-              placeholder="Cerca per nome, codice o centro commerciale..."
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              className="w-full pl-10 pr-4 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-            />
-          </div>
-
-          {filtered.length === 0 ? (
-            <div className="text-center py-16 text-slate-400">
-              <Store size={40} className="mx-auto mb-3 opacity-50" />
-              <p className="text-sm">{search ? 'Nessun outlet trovato per la ricerca.' : 'Nessun outlet disponibile.'}</p>
-              {!search && outlets.length === 0 && (
-                <p className="text-xs mt-1">Verifica le policy RLS e i permessi del tuo utente.</p>
-              )}
-            </div>
-          ) : (
-            <OutletGrid
-              outlets={filtered}
+          {selectedOutlet ? (
+            <OutletDetail
+              outlet={selectedOutlet}
               revenue={revenue}
-              onSelect={setSelectedOutlet}
+              onBack={() => setSelectedOutlet(null)}
+              onEdit={handleEdit}
+              onDelete={handleDelete}
             />
+          ) : (
+            <>
+              <div className="flex items-center justify-between">
+                <div>
+                  <h1 className="text-2xl font-bold text-slate-900">Outlet</h1>
+                  <p className="text-sm text-slate-500">
+                    {outlets.length} punti vendita — Fatturato catena {currentYear - 1}: {fmt(totalRevenue)} €
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={loadData}
+                    className="flex items-center gap-2 px-4 py-2 text-sm rounded-lg border border-slate-200 hover:bg-white transition"
+                  >
+                    <RefreshCw size={16} />
+                    Aggiorna
+                  </button>
+                  {canWrite && (
+                    <>
+                      <button
+                        onClick={() => setShowContractUploader(true)}
+                        className="flex items-center gap-2 px-4 py-2 text-sm rounded-lg border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 transition"
+                      >
+                        <Upload size={16} />
+                        Crea da contratto
+                      </button>
+                      <button
+                        onClick={() => { setWizardInitialData(null); setWizardAllegati(null); setShowWizard(true) }}
+                        className="flex items-center gap-2 px-4 py-2 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition"
+                      >
+                        <Plus size={16} />
+                        Nuovo outlet
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              <div className="relative">
+                <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Cerca per nome, codice o centro commerciale..."
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                />
+              </div>
+
+              {filtered.length === 0 ? (
+                <div className="text-center py-16 text-slate-400">
+                  <Store size={40} className="mx-auto mb-3 opacity-50" />
+                  <p className="text-sm">{search ? 'Nessun outlet trovato per la ricerca.' : 'Nessun outlet disponibile.'}</p>
+                  {!search && outlets.length === 0 && (
+                    <p className="text-xs mt-1">Verifica le policy RLS e i permessi del tuo utente.</p>
+                  )}
+                </div>
+              ) : (
+                <OutletGrid
+                  outlets={filtered}
+                  revenue={revenue}
+                  onSelect={setSelectedOutlet}
+                />
+              )}
+            </>
           )}
         </>
       )}
