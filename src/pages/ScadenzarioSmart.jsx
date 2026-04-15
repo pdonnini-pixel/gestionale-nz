@@ -683,15 +683,11 @@ const ScadenzarioSmart = () => {
               return (
                 <div key={ba.id} className={`flex-shrink-0 px-5 py-3 rounded-xl border ${c.bg} ${c.border} ${isNeg ? 'animate-pulse' : ''}`}>
                   <div className={`text-xs font-semibold ${c.name}`}>{ba.bank_name}</div>
-                  <div className="text-base font-bold mt-1 text-slate-900">{fmt(saldoIniziale)} €</div>
+                  <div className={`text-base font-bold mt-1 ${isNeg ? 'text-red-600' : 'text-slate-900'}`}>{fmt(saldoProiettato)} €</div>
                   {hasSpending && (
-                    <>
-                      <div className={`text-xs mt-1 ${c.spend} font-medium`}>− {fmt(spending)} €</div>
-                      <div className={`text-sm font-bold mt-0.5 pt-1 border-t ${isNeg ? 'border-red-300 text-red-600' : 'border-slate-200 text-slate-700'}`}>
-                        = {fmt(saldoProiettato)} €
-                        {isNeg && <span className="ml-1 text-xs">⚠️</span>}
-                      </div>
-                    </>
+                    <div className={`text-xs mt-1 ${isNeg ? 'text-red-500' : c.spend} font-medium`}>
+                      − {fmt(spending)} €{isNeg && ' ⚠️'}
+                    </div>
                   )}
                 </div>
               );
