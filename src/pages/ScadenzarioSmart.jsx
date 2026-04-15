@@ -827,17 +827,14 @@ const ScadenzarioSmart = () => {
                 </button>
               ))}
             </div>
-          </div>
-
-          {/* Action Buttons */}
-          <div className="flex gap-2 justify-end">
+            <div className="border-l border-slate-200 h-6 mx-1" />
             <button onClick={() => setModals({ ...modals, invoice: { open: true, data: null } })}
-              className="flex items-center gap-1.5 px-4 py-2 text-sm rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 transition">
-              <Plus size={15} /> Nuova Fattura
+              className="flex items-center gap-1 px-3 py-2 text-xs rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 transition font-medium">
+              <Plus size={13} /> Fattura
             </button>
             <button onClick={() => setModals({ ...modals, supplier: { open: true, data: null } })}
-              className="flex items-center gap-1.5 px-4 py-2 text-sm rounded-lg bg-slate-200 text-slate-700 hover:bg-slate-300 transition">
-              <Plus size={15} /> Fornitore
+              className="flex items-center gap-1 px-3 py-2 text-xs rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200 transition font-medium border border-slate-200">
+              <Plus size={13} /> Fornitore
             </button>
           </div>
 
