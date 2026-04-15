@@ -213,82 +213,79 @@ const ScadenzarioSmart = () => {
 
   const today = new Date();
 
-  // Load data
-  useEffect(() => {
+  // Load data (funzione riusabile)
+  const fetchData = useCallback(async () => {
     if (!COMPANY_ID) return;
+    try {
+      setLoading(true);
 
-    const fetchData = async () => {
-      try {
-        setLoading(true);
+      const { data: viewData } = await supabase
+        .from('v_payables_operative')
+        .select('*');
 
-        const { data: viewData } = await supabase
-          .from('v_payables_operative')
-          .select('*');
+      const { data: suppliersData } = await supabase
+        .from('suppliers')
+        .select('*')
+        .eq('company_id', COMPANY_ID)
+        .or('is_deleted.is.null,is_deleted.eq.false');
 
-        const { data: suppliersData } = await supabase
-          .from('suppliers')
-          .select('*')
-          .eq('company_id', COMPANY_ID)
-          .or('is_deleted.is.null,is_deleted.eq.false');
+      const { data: accountsData } = await supabase
+        .from('bank_accounts')
+        .select('*')
+        .eq('company_id', COMPANY_ID)
+        .eq('is_active', true);
 
-        const { data: accountsData } = await supabase
-          .from('bank_accounts')
-          .select('*')
-          .eq('company_id', COMPANY_ID)
-          .eq('is_active', true);
+      const enrichedPayables = (viewData || []).map(row => ({
+        id: row.id,
+        invoice_number: row.invoice_number || '-',
+        invoice_date: row.invoice_date,
+        due_date: row.due_date,
+        original_due_date: row.original_due_date,
+        gross_amount: row.gross_amount || 0,
+        amount_paid: row.amount_paid || 0,
+        amount_remaining: row.amount_remaining || 0,
+        status: row.status,
+        payment_method: row.payment_method,
+        outlet_id: row.outlet_id,
+        outlet_name: row.outlet_name,
+        cost_center: row.cost_category_name || row.macro_group || 'altro',
+        notes: row.suspend_reason,
+        days_to_due: row.days_to_due,
+        urgency: row.urgency,
+        priority: row.priority,
+        suppliers: {
+          name: row.supplier_name,
+          ragione_sociale: row.supplier_name,
+          category: row.supplier_category || 'altro',
+        },
+        last_action_type: row.last_action_type,
+        last_action_note: row.last_action_note,
+        last_action_date: row.last_action_date,
+      }));
 
-        const enrichedPayables = (viewData || []).map(row => ({
-          id: row.id,
-          invoice_number: row.invoice_number || '-',
-          invoice_date: row.invoice_date,
-          due_date: row.due_date,
-          original_due_date: row.original_due_date,
-          gross_amount: row.gross_amount || 0,
-          amount_paid: row.amount_paid || 0,
-          amount_remaining: row.amount_remaining || 0,
-          status: row.status,
-          payment_method: row.payment_method,
-          outlet_id: row.outlet_id,
-          outlet_name: row.outlet_name,
-          cost_center: row.cost_category_name || row.macro_group || 'altro',
-          notes: row.suspend_reason,
-          days_to_due: row.days_to_due,
-          urgency: row.urgency,
-          priority: row.priority,
-          suppliers: {
-            name: row.supplier_name,
-            ragione_sociale: row.supplier_name,
-            category: row.supplier_category || 'altro',
-          },
-          last_action_type: row.last_action_type,
-          last_action_note: row.last_action_note,
-          last_action_date: row.last_action_date,
-        }));
+      setPayables(enrichedPayables);
+      setSuppliers(suppliersData || []);
+      setBankAccounts(accountsData || []);
 
-        setPayables(enrichedPayables);
-        setSuppliers(suppliersData || []);
-        setBankAccounts(accountsData || []);
+      const totalBalance = (accountsData || []).reduce((sum, acc) => sum + (acc.current_balance || 0), 0);
+      setCashPosition(totalBalance);
 
-        const totalBalance = (accountsData || []).reduce((sum, acc) => sum + (acc.current_balance || 0), 0);
-        setCashPosition(totalBalance);
-
-        const { data: companyData } = await supabase
-          .from('companies')
-          .select('settings')
-          .eq('id', COMPANY_ID)
-          .single();
-        if (companyData?.settings?.email_scadenzario) {
-          setEmailRecipients(companyData.settings.email_scadenzario);
-        }
-      } catch (error) {
-        console.error('Error fetching data:', error);
-      } finally {
-        setLoading(false);
+      const { data: companyData } = await supabase
+        .from('companies')
+        .select('settings')
+        .eq('id', COMPANY_ID)
+        .single();
+      if (companyData?.settings?.email_scadenzario) {
+        setEmailRecipients(companyData.settings.email_scadenzario);
       }
-    };
-
-    fetchData();
+    } catch (error) {
+      console.error('Error fetching data:', error);
+    } finally {
+      setLoading(false);
+    }
   }, [COMPANY_ID]);
+
+  useEffect(() => { fetchData(); }, [fetchData]);
 
   // Filter payables
   const filteredPayables = useMemo(() => {
@@ -450,7 +447,7 @@ const ScadenzarioSmart = () => {
         payment_bank_account_id: bankAccountId,
         status: amount >= (modals.payment.payable?.amount_remaining || 0) ? 'pagato' : 'parziale',
       }).eq('id', payableId);
-      window.location.reload();
+      fetchData();
     } catch (error) {
       console.error('Error marking payment:', error);
     }
@@ -482,7 +479,7 @@ const ScadenzarioSmart = () => {
         electronic_invoice_id: inv?.[0]?.id,
       }]);
 
-      window.location.reload();
+      fetchData();
     } catch (error) {
       console.error('Error creating invoice:', error);
     }
@@ -522,7 +519,7 @@ const ScadenzarioSmart = () => {
       }).eq('id', scheduleData.id);
 
       setModals({ ...modals, editSchedule: { open: false, schedule: null } });
-      window.location.reload();
+      fetchData();
     } catch (error) {
       console.error('Error updating schedule:', error);
       setIsSaving(false);
@@ -534,7 +531,7 @@ const ScadenzarioSmart = () => {
       setIsSaving(true);
       await supabase.from('payables').update({ status: 'annullato' }).eq('id', scheduleId);
       setModals({ ...modals, deleteConfirm: { open: false, scheduleId: null, invoiceNumber: null } });
-      window.location.reload();
+      fetchData();
     } catch (error) {
       console.error('Error deleting schedule:', error);
       setIsSaving(false);
@@ -600,7 +597,6 @@ const ScadenzarioSmart = () => {
       setSelectedIds(new Set());
       setPaymentPlan({});
       setIsSaving(false);
-      window.location.reload();
     } catch (error) {
       console.error('Error confirming payments:', error);
       setIsSaving(false);
@@ -619,32 +615,39 @@ const ScadenzarioSmart = () => {
   }
 
   return (
-    <div>
-      {/* Sticky Bank Bar */}
-      <div className="sticky top-0 z-40 bg-white border-b border-slate-200 px-6 py-3">
-        <div className="max-w-[1400px] mx-auto">
-          {bankAccounts.length > 0 ? (
-            <div className="flex items-center gap-3 overflow-x-auto pb-1">
-              {bankAccounts.map(ba => {
-                const bal = bankBalances[ba.id] || 0;
-                const isNeg = bal < 0;
-                return (
-                  <div key={ba.id} className={`flex-shrink-0 px-4 py-2 rounded-lg border ${isNeg ? 'bg-red-50 border-red-200' : 'bg-slate-50 border-slate-200'}`}>
-                    <div className="text-xs font-medium text-slate-600">{ba.bank_name}</div>
-                    <div className={`text-sm font-bold mt-0.5 ${isNeg ? 'text-red-600' : 'text-emerald-600'}`}>{fmt(bal)} €</div>
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-2 text-xs text-amber-700 flex items-center gap-2 w-fit">
-              <Wallet size={14} /> Nessun conto bancario. Aggiungi dalla sezione Banche.
-            </div>
-          )}
-        </div>
-      </div>
-
     <div className="p-6 space-y-5 max-w-[1400px] mx-auto">
+      {/* Barre Banche — sticky dentro griglia */}
+      <div className="sticky top-0 z-40 -mx-6 px-6 py-3 bg-white border-b border-slate-200">
+        {bankAccounts.length > 0 ? (
+          <div className="flex items-center gap-3 overflow-x-auto">
+            {bankAccounts.map((ba, idx) => {
+              const bal = bankBalances[ba.id] || 0;
+              const isNeg = bal < 0;
+              const colors = [
+                { bg: 'bg-blue-50', border: 'border-blue-200', name: 'text-blue-700' },
+                { bg: 'bg-emerald-50', border: 'border-emerald-200', name: 'text-emerald-700' },
+                { bg: 'bg-purple-50', border: 'border-purple-200', name: 'text-purple-700' },
+                { bg: 'bg-amber-50', border: 'border-amber-200', name: 'text-amber-700' },
+                { bg: 'bg-rose-50', border: 'border-rose-200', name: 'text-rose-700' },
+                { bg: 'bg-cyan-50', border: 'border-cyan-200', name: 'text-cyan-700' },
+              ];
+              const c = isNeg
+                ? { bg: 'bg-red-50', border: 'border-red-300', name: 'text-red-700' }
+                : colors[idx % colors.length];
+              return (
+                <div key={ba.id} className={`flex-shrink-0 px-5 py-3 rounded-xl border ${c.bg} ${c.border}`}>
+                  <div className={`text-xs font-semibold ${c.name}`}>{ba.bank_name}</div>
+                  <div className={`text-lg font-bold mt-1 ${isNeg ? 'text-red-600' : 'text-slate-900'}`}>{fmt(bal)} €</div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-2 text-xs text-amber-700 flex items-center gap-2 w-fit">
+            <Wallet size={14} /> Nessun conto bancario. Aggiungi dalla sezione Banche.
+          </div>
+        )}
+      </div>
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
@@ -679,23 +682,48 @@ const ScadenzarioSmart = () => {
         <>
           {/* KPI Cards */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <div className="bg-white rounded-xl border border-slate-200 p-4">
-              <div className="text-xs text-slate-500 mb-1">Da Pagare</div>
-              <div className="text-xl font-bold">{fmt(kpis.totalToPay)} €</div>
+            <div className="bg-white rounded-xl border border-blue-200 p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="flex items-center gap-1.5 text-xs text-blue-600 font-medium mb-1"><DollarSign size={13} /> Da Pagare</div>
+                  <div className="text-xl font-bold text-slate-900">{fmt(kpis.totalToPay)} €</div>
+                </div>
+                <div className="p-2 bg-blue-50 rounded-lg"><DollarSign size={18} className="text-blue-500" /></div>
+              </div>
             </div>
             <div className="bg-white rounded-xl border border-red-200 p-4">
-              <div className="flex items-center gap-1 text-xs text-red-600 mb-1"><AlertTriangle size={12} /> Scaduto</div>
-              <div className="text-xl font-bold text-red-700">{fmt(kpis.totalOverdue)} €</div>
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="flex items-center gap-1.5 text-xs text-red-600 font-medium mb-1"><AlertTriangle size={13} /> Scaduto</div>
+                  <div className="text-xl font-bold text-red-700">{fmt(kpis.totalOverdue)} €</div>
+                </div>
+                <div className="p-2 bg-red-50 rounded-lg"><AlertTriangle size={18} className="text-red-400" /></div>
+              </div>
             </div>
             <div className="bg-white rounded-xl border border-amber-200 p-4">
-              <div className="flex items-center gap-1 text-xs text-amber-600 mb-1"><Clock size={12} /> Prossimi 7 gg</div>
-              <div className="text-xl font-bold text-amber-700">{fmt(kpis.nextSevenDays)} €</div>
-            </div>
-            <div className="bg-white rounded-xl border border-slate-200 p-4">
-              <div className="flex items-center gap-1 text-xs text-slate-500 mb-1"><Wallet size={12} /> Cassa</div>
-              <div className={`text-xl font-bold ${kpis.cashShortfall > 0 ? 'text-red-600' : 'text-emerald-600'}`}>
-                {fmt(kpis.availableCash)} €
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="flex items-center gap-1.5 text-xs text-amber-600 font-medium mb-1"><Clock size={13} /> Prossimi 7 gg</div>
+                  <div className="text-xl font-bold text-amber-700">{fmt(kpis.nextSevenDays)} €</div>
+                </div>
+                <div className="p-2 bg-amber-50 rounded-lg"><Clock size={18} className="text-amber-400" /></div>
               </div>
+            </div>
+            <div className="bg-white rounded-xl border border-emerald-200 p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="flex items-center gap-1.5 text-xs text-emerald-600 font-medium mb-1"><Wallet size={13} /> Cassa</div>
+                  <div className={`text-xl font-bold ${kpis.cashShortfall > 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                    {fmt(kpis.availableCash)} €
+                  </div>
+                </div>
+                <div className={`p-2 rounded-lg ${kpis.cashShortfall > 0 ? 'bg-red-50' : 'bg-emerald-50'}`}>
+                  <Wallet size={18} className={kpis.cashShortfall > 0 ? 'text-red-400' : 'text-emerald-400'} />
+                </div>
+              </div>
+              {kpis.cashShortfall > 0 && (
+                <div className="mt-2 text-xs text-red-600 font-medium">Deficit: {fmt(kpis.cashShortfall)} €</div>
+              )}
             </div>
           </div>
 
@@ -1204,7 +1232,7 @@ const ScadenzarioSmart = () => {
 
       {/* Confirm Result Modal */}
       {confirmResult && (
-        <Modal open={true} onClose={() => setConfirmResult(null)} title="Pagamenti Confermati" wide>
+        <Modal open={true} onClose={() => { setConfirmResult(null); fetchData(); }} title="Pagamenti Confermati" wide>
           <div className="space-y-3">
             <div className="p-3 bg-emerald-50 rounded-lg border border-emerald-200">
               <p className="text-sm font-medium text-emerald-900 flex items-center gap-2">
@@ -1225,7 +1253,6 @@ const ScadenzarioSmart = () => {
           </div>
         </Modal>
       )}
-    </div>
     </div>
   );
 };
