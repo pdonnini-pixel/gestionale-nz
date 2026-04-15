@@ -27,6 +27,7 @@ import {
   Ban,
   Wallet,
   Repeat,
+  ChevronRight,
 } from 'lucide-react';
 import CostiRicorrenti from '../components/CostiRicorrenti';
 import {
@@ -733,7 +734,7 @@ const ScadenzarioSmart = () => {
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-6 flex items-center justify-center">
         <div className="text-center">
           <div className="inline-block w-12 h-12 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin mb-4"></div>
-          <p className="text-slate-600">Caricamento scadenzario...</p>
+          <p className="text-slate-600 font-medium">Caricamento scadenzario...</p>
         </div>
       </div>
     );
@@ -741,32 +742,38 @@ const ScadenzarioSmart = () => {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
-      {/* Bank Balances - Sticky (direct child of min-h-screen so it sticks across the whole page) */}
-      <div className="sticky top-0 z-30 bg-gradient-to-br from-slate-50 to-slate-100 shadow-sm border-b border-slate-200 px-6 py-3">
+      {/* Sticky Bank Bar - Glassmorphism */}
+      <div className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-slate-200/50 px-6 py-3 transition-all duration-200">
         <div className="max-w-7xl mx-auto">
           {bankAccounts.length > 0 ? (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="flex items-center gap-3 overflow-x-auto pb-1">
               {bankAccounts.map(ba => {
                 const bal = bankBalances[ba.id] || 0;
                 const orig = ba.current_balance || 0;
                 const used = orig - bal;
                 const isNeg = bal < 0;
+                const percentUsed = orig > 0 ? (used / orig) * 100 : 0;
                 return (
-                  <div key={ba.id} className={`bg-white rounded-xl shadow-sm p-3 border-l-4 ${isNeg ? 'border-red-500 bg-red-50' : 'border-emerald-500'}`}>
-                    <div className="text-xs text-slate-500 font-medium truncate">{ba.bank_name}</div>
-                    <div className="text-xs text-slate-400 truncate">{ba.account_name || ba.iban?.slice(-8)}</div>
-                    <div className={`text-lg font-bold ${isNeg ? 'text-red-600' : 'text-emerald-600'}`}>
+                  <div
+                    key={ba.id}
+                    className={`flex-shrink-0 px-4 py-2.5 rounded-xl border transition-all duration-200 ${
+                      isNeg
+                        ? 'bg-red-50/50 border-red-300/50'
+                        : 'bg-slate-50/50 border-slate-200/50'
+                    }`}
+                  >
+                    <div className="text-xs font-semibold text-slate-600">{ba.bank_name}</div>
+                    <div className={`text-sm font-bold mt-0.5 ${isNeg ? 'text-red-600' : 'text-emerald-600'}`}>
                       {formatCurrency(bal)}
                     </div>
-                    {used > 0 && <div className="text-xs text-amber-600">Assegnati: {formatCurrency(used)}</div>}
-                    {isNeg && <div className="text-xs text-red-500 font-semibold">⚠ Saldo insufficiente</div>}
                   </div>
                 );
               })}
             </div>
           ) : (
-            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-sm text-amber-700 flex items-center gap-2">
-              <Wallet className="w-4 h-4" /> Nessun conto bancario configurato. Aggiungi conti dalla sezione Banche.
+            <div className="bg-amber-50/50 border border-amber-200/50 rounded-xl px-4 py-2.5 text-xs text-amber-700 flex items-center gap-2 w-fit transition-all duration-200">
+              <Wallet className="w-4 h-4 flex-shrink-0" />
+              <span className="font-medium">Nessun conto bancario. Aggiungi dalla sezione Banche.</span>
             </div>
           )}
         </div>
@@ -774,73 +781,120 @@ const ScadenzarioSmart = () => {
 
       <div className="p-6">
         <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="mb-8">
-          <div className="flex items-center justify-between mb-4">
+          {/* Clean Header - Single Line */}
+          <div className="flex items-center justify-between mb-8 transition-all duration-200">
             <div>
-              <h1 className="text-4xl font-bold text-slate-900 flex items-center gap-3">
-                <Clock className="w-10 h-10 text-indigo-600" />
-                Scadenzario Smart
-                <button onClick={() => setShowEmailConfig(true)} className="text-slate-400 hover:text-indigo-600 ml-2 transition" title="Configura email">
-                  <Settings className="w-6 h-6" />
-                </button>
-              </h1>
-              <p className="text-slate-600 mt-1">Gestione intelligente scadenze fornitori</p>
+              <h1 className="text-2xl font-bold text-slate-900">Scadenzario</h1>
             </div>
-            <div className="text-right text-sm text-slate-500">
-              Data riferimento: {today.toLocaleDateString('it-IT')}
-            </div>
-          </div>
-
-          {/* KPI Cards */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-            <div className="bg-white rounded-xl shadow-sm p-4 border-l-4 border-blue-500">
-              <div className="text-sm text-slate-600 font-medium">Totale da Pagare</div>
-              <div className="text-2xl font-bold text-blue-600">{formatCurrency(kpis.totalToPay)}</div>
-              <div className="text-xs text-slate-500 mt-1">pendente</div>
-            </div>
-            <div className="bg-white rounded-xl shadow-sm p-4 border-l-4 border-red-500">
-              <div className="text-sm text-slate-600 font-medium">Scaduto</div>
-              <div className="text-2xl font-bold text-red-600">{formatCurrency(kpis.totalOverdue)}</div>
-              <div className="text-xs text-slate-500 mt-1">urgente</div>
-            </div>
-            <div className="bg-white rounded-xl shadow-sm p-4 border-l-4 border-orange-500">
-              <div className="text-sm text-slate-600 font-medium">Prossimi 7gg</div>
-              <div className="text-2xl font-bold text-orange-600">{formatCurrency(kpis.nextSevenDays)}</div>
-              <div className="text-xs text-slate-500 mt-1">in scadenza</div>
-            </div>
-            <div
-              className={`bg-white rounded-xl shadow-sm p-4 border-l-4 ${
-                kpis.cashShortfall > 0 ? 'border-red-500' : 'border-emerald-500'
-              }`}
-            >
-              <div className="text-sm text-slate-600 font-medium">Disponibilità Cassa</div>
-              <div
-                className={`text-2xl font-bold ${
-                  kpis.cashShortfall > 0 ? 'text-red-600' : 'text-emerald-600'
-                }`}
+            <div className="flex items-center gap-4">
+              <span className="text-sm font-medium text-slate-500">
+                {today.toLocaleDateString('it-IT')}
+              </span>
+              <button
+                onClick={() => setShowEmailConfig(true)}
+                className="p-2 hover:bg-slate-100 rounded-lg text-slate-600 hover:text-indigo-600 transition-all duration-200"
+                title="Configura email"
               >
-                {formatCurrency(kpis.availableCash)}
-              </div>
-              <div className="text-xs text-slate-500 mt-1">
-                {kpis.cashShortfall > 0 ? `Mancano: ${formatCurrency(kpis.cashShortfall)}` : 'Sufficiente'}
-              </div>
+                <Settings className="w-5 h-5" />
+              </button>
             </div>
           </div>
-        </div>
 
-        {/* Tab Scadenze / Costi Ricorrenti */}
-        <div className="flex gap-2 mb-5">
+          {/* KPI Cards - Horizontal Strip with Modern Design */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+            {/* Total to Pay */}
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 hover:shadow-md transition-all duration-200 hover:scale-[1.02]">
+              <div className="flex items-start justify-between">
+                <div className="flex-1">
+                  <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Da Pagare</div>
+                  <div className="text-2xl font-bold text-slate-900 mt-2 font-mono">{formatCurrency(kpis.totalToPay)}</div>
+                </div>
+                <div className="p-2.5 bg-blue-100/50 rounded-lg">
+                  <DollarSign className="w-5 h-5 text-blue-600" />
+                </div>
+              </div>
+              <div className="border-t-4 border-blue-500 mt-3 pt-2"></div>
+            </div>
+
+            {/* Overdue */}
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 hover:shadow-md transition-all duration-200 hover:scale-[1.02]">
+              <div className="flex items-start justify-between">
+                <div className="flex-1">
+                  <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Scaduto</div>
+                  <div className="text-2xl font-bold text-red-600 mt-2 font-mono">{formatCurrency(kpis.totalOverdue)}</div>
+                </div>
+                <div className="p-2.5 bg-red-100/50 rounded-lg">
+                  <AlertTriangle className="w-5 h-5 text-red-600" />
+                </div>
+              </div>
+              <div className="border-t-4 border-red-500 mt-3 pt-2"></div>
+            </div>
+
+            {/* Next 7 Days */}
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 hover:shadow-md transition-all duration-200 hover:scale-[1.02]">
+              <div className="flex items-start justify-between">
+                <div className="flex-1">
+                  <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Prossimi 7gg</div>
+                  <div className="text-2xl font-bold text-orange-600 mt-2 font-mono">{formatCurrency(kpis.nextSevenDays)}</div>
+                </div>
+                <div className="p-2.5 bg-orange-100/50 rounded-lg">
+                  <Clock className="w-5 h-5 text-orange-600" />
+                </div>
+              </div>
+              <div className="border-t-4 border-orange-500 mt-3 pt-2"></div>
+            </div>
+
+            {/* Cash Position */}
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 hover:shadow-md transition-all duration-200 hover:scale-[1.02]">
+              <div className="flex items-start justify-between">
+                <div className="flex-1">
+                  <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Cassa</div>
+                  <div
+                    className={`text-2xl font-bold mt-2 font-mono ${
+                      kpis.cashShortfall > 0 ? 'text-red-600' : 'text-emerald-600'
+                    }`}
+                  >
+                    {formatCurrency(kpis.availableCash)}
+                  </div>
+                </div>
+                <div
+                  className={`p-2.5 rounded-lg ${
+                    kpis.cashShortfall > 0 ? 'bg-red-100/50' : 'bg-emerald-100/50'
+                  }`}
+                >
+                  <Wallet className={`w-5 h-5 ${kpis.cashShortfall > 0 ? 'text-red-600' : 'text-emerald-600'}`} />
+                </div>
+              </div>
+              {kpis.cashShortfall > 0 && (
+                <>
+                  <div className="mt-3 bg-red-50 rounded-lg p-2">
+                    <div className="text-xs text-red-700 font-semibold">Deficit: {formatCurrency(kpis.cashShortfall)}</div>
+                    <div className="w-full bg-red-200 rounded-full h-1.5 mt-2">
+                      <div
+                        className="bg-red-600 h-1.5 rounded-full"
+                        style={{ width: `${Math.min((kpis.totalToPay / (kpis.availableCash + kpis.cashShortfall)) * 100, 100)}%` }}
+                      ></div>
+                    </div>
+                  </div>
+                </>
+              )}
+              <div className={`border-t-4 mt-3 pt-2 ${kpis.cashShortfall > 0 ? 'border-red-500' : 'border-emerald-500'}`}></div>
+            </div>
+          </div>
+
+        {/* Tab Scadenze / Costi Ricorrenti - Underline Style */}
+        <div className="flex gap-6 mb-8 border-b border-slate-200 transition-all duration-200">
           {[
             { key: 'scadenze', icon: Clock3, label: 'Scadenze SDI' },
             { key: 'ricorrenti', icon: Repeat, label: 'Costi Ricorrenti' },
           ].map(t => (
-            <button key={t.key}
+            <button
+              key={t.key}
               onClick={() => setSection(t.key)}
-              className={`px-5 py-2.5 rounded-xl text-sm font-semibold transition flex items-center gap-2 ${
+              className={`px-1 py-3 text-sm font-semibold flex items-center gap-2 transition-all duration-200 border-b-2 ${
                 section === t.key
-                  ? 'bg-indigo-600 text-white shadow-md'
-                  : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+                  ? 'text-indigo-600 border-indigo-600'
+                  : 'text-slate-600 border-transparent hover:text-slate-900'
               }`}
             >
               <t.icon className="w-4 h-4" />
@@ -852,32 +906,44 @@ const ScadenzarioSmart = () => {
         {section === 'ricorrenti' ? (
           <CostiRicorrenti />
         ) : (
-        <>
-        {/* Filters */}
-        <div className="bg-white rounded-xl shadow-sm p-4 mb-6 border border-slate-200">
-          <div className="flex items-center gap-2 mb-4">
-            <Filter className="w-5 h-5 text-slate-600" />
-            <h3 className="font-semibold text-slate-900">Filtri</h3>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-            <div>
-              <label className="text-sm text-slate-600 font-medium block mb-2">Ricerca</label>
-              <input
-                type="text"
-                placeholder="Fornitore o fattura..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              />
-            </div>
-            <div>
-              <label className="text-sm text-slate-600 font-medium block mb-2">Stato</label>
+          <div>
+            {/* Filters - Single Row, Smarter Layout */}
+            <div className="flex flex-col lg:flex-row items-start lg:items-center gap-4 mb-8 transition-all duration-200">
+              {/* Search + Status in one row */}
+              <div className="flex-1 min-w-0">
+                <input
+                  type="text"
+                  placeholder="Cerca fornitore o fattura..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full px-4 py-2.5 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all duration-200"
+                />
+              </div>
+
+              {/* Date Range - Inline Style */}
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <input
+                  type="date"
+                  value={dateRange.start}
+                  onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })}
+                  className="px-4 py-2.5 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all duration-200"
+                />
+                <span className="text-slate-400 font-medium">—</span>
+                <input
+                  type="date"
+                  value={dateRange.end}
+                  onChange={(e) => setDateRange({ ...dateRange, end: e.target.value })}
+                  className="px-4 py-2.5 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all duration-200"
+                />
+              </div>
+
+              {/* Status Filter */}
               <select
                 value={selectedStatus}
                 onChange={(e) => setSelectedStatus(e.target.value)}
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="px-4 py-2.5 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white transition-all duration-200 flex-shrink-0"
               >
-                <option value="">Tutti</option>
+                <option value="">Tutti gli stati</option>
                 <option value="da_saldare">Da Saldare</option>
                 <option value="da_pagare">Da Pagare</option>
                 <option value="in_scadenza">In Scadenza</option>
@@ -886,243 +952,294 @@ const ScadenzarioSmart = () => {
                 <option value="pagato">Pagato</option>
                 <option value="nota_credito">Note di Credito</option>
               </select>
-            </div>
-            <div>
-              <label className="text-sm text-slate-600 font-medium block mb-2">Dal</label>
-              <input
-                type="date"
-                value={dateRange.start}
-                onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })}
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              />
-            </div>
-            <div>
-              <label className="text-sm text-slate-600 font-medium block mb-2">Al</label>
-              <input
-                type="date"
-                value={dateRange.end}
-                onChange={(e) => setDateRange({ ...dateRange, end: e.target.value })}
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              />
-            </div>
-          </div>
-        </div>
 
-        {/* View Mode Selector */}
-        <div className="flex gap-3 mb-6">
-          {[
-            { key: 'timeline', icon: Clock3, label: 'Timeline' },
-            { key: 'fornitore', icon: Filter, label: 'Per Fornitore' },
-            { key: 'mese', icon: Calendar, label: 'Per Mese' },
-            { key: 'charts', icon: BarChart3, label: 'Grafici' },
-          ].map(v => (
-            <button key={v.key}
-              onClick={() => setViewMode(v.key)}
-              className={`px-4 py-2 rounded-lg font-medium transition ${
-                viewMode === v.key
-                  ? 'bg-indigo-600 text-white'
-                  : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50'
-              }`}
-            >
-              <v.icon className="w-4 h-4 inline mr-2" />
-              {v.label}
-            </button>
-          ))}
-        </div>
+              {/* View Mode Icons - Right Aligned */}
+              <div className="flex items-center gap-1 border-l border-slate-200 pl-4 flex-shrink-0">
+                {[
+                  { key: 'timeline', icon: Clock3, label: 'Timeline' },
+                  { key: 'fornitore', icon: Filter, label: 'Per Fornitore' },
+                  { key: 'mese', icon: Calendar, label: 'Per Mese' },
+                  { key: 'charts', icon: BarChart3, label: 'Grafici' },
+                ].map(v => (
+                  <button
+                    key={v.key}
+                    onClick={() => setViewMode(v.key)}
+                    className={`p-2.5 rounded-lg transition-all duration-200 ${
+                      viewMode === v.key
+                        ? 'bg-indigo-100 text-indigo-600'
+                        : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'
+                    }`}
+                    title={v.label}
+                  >
+                    <v.icon className="w-4 h-4" />
+                  </button>
+                ))}
+              </div>
+            </div>
 
-        {/* Action Buttons */}
-        <div className="flex gap-3 mb-6">
-          <button
-            onClick={() => setModals({ ...modals, invoice: { open: true, data: null } })}
-            className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition flex items-center gap-2"
-          >
-            <Plus className="w-4 h-4" />
-            Nuova Fattura
-          </button>
-          <button
-            onClick={() => setModals({ ...modals, supplier: { open: true, data: null } })}
-            className="px-4 py-2 bg-slate-600 text-white rounded-lg hover:bg-slate-700 transition flex items-center gap-2"
-          >
-            <Plus className="w-4 h-4" />
-            Nuovo Fornitore
-          </button>
-        </div>
+            {/* Action Buttons - Top Right of Content */}
+            <div className="flex gap-2 mb-6 justify-end">
+              <button
+                onClick={() => setModals({ ...modals, invoice: { open: true, data: null } })}
+                className="px-4 py-2.5 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-all duration-200 flex items-center gap-2 hover:shadow-md"
+              >
+                <Plus className="w-4 h-4" />
+                Nuova Fattura
+              </button>
+              <button
+                onClick={() => setModals({ ...modals, supplier: { open: true, data: null } })}
+                className="px-4 py-2.5 bg-slate-200 text-slate-700 text-sm font-medium rounded-lg hover:bg-slate-300 transition-all duration-200 flex items-center gap-2 hover:shadow-md"
+              >
+                <Plus className="w-4 h-4" />
+                Fornitore
+              </button>
+            </div>
 
-        {/* Timeline View - Payables Table */}
-        {viewMode === 'timeline' && (
-          <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-slate-50 border-b border-slate-200">
-                  <tr>
-                    <th className="px-3 py-3 text-center w-10">
-                      <button onClick={toggleSelectAll} className="text-slate-400 hover:text-indigo-600 transition" title="Seleziona tutto">
-                        {selectedIds.size > 0 ? <CheckSquare size={18} /> : <Square size={18} />}
-                      </button>
-                    </th>
-                    <th className="px-6 py-3 text-left font-semibold text-slate-900">Fornitore</th>
-                    <th className="px-6 py-3 text-left font-semibold text-slate-900">Fattura</th>
-                    <th className="px-6 py-3 text-left font-semibold text-slate-900">Scadenza</th>
-                    <th className="px-6 py-3 text-right font-semibold text-slate-900">Importo</th>
-                    <th className="px-6 py-3 text-right font-semibold text-slate-900">Pagato</th>
-                    <th className="px-6 py-3 text-right font-semibold text-slate-900">Rimane</th>
-                    <th className="px-6 py-3 text-left font-semibold text-slate-900">Stato</th>
-                    <th className="px-6 py-3 text-left font-semibold text-slate-900">Azioni</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-200">
-                  {filteredPayables.map((p) => {
-                    const statusColor = getStatusColor(p.status);
-                    const daysTo = Math.ceil(
-                      (new Date(p.due_date) - today) / (1000 * 60 * 60 * 24)
-                    );
-                    return (
-                      <React.Fragment key={p.id}>
-                        <tr className={`hover:bg-slate-50 transition ${p.status === 'pagato' ? 'bg-emerald-50 border-l-4 border-emerald-400' : ''} ${selectedIds.has(p.id) ? 'bg-indigo-50' : ''}`}>
-                          <td className="px-3 py-3 text-center">
-                            {p.status !== 'pagato' && (p.gross_amount || 0) >= 0 && (
-                              <button onClick={() => toggleSelect(p.id, p)} className={selectedIds.has(p.id) ? 'text-indigo-600' : 'text-slate-300 hover:text-slate-500'} title="Seleziona">
-                                {selectedIds.has(p.id) ? <CheckSquare size={18} /> : <Square size={18} />}
-                              </button>
-                            )}
-                          </td>
-                          <td className="px-6 py-3 text-slate-900 font-medium">
-                            {p.suppliers?.ragione_sociale || suppliers?.name || 'N/A'}
-                          </td>
-                        <td className="px-6 py-3 text-slate-600">{p.invoice_number}</td>
-                        <td className="px-6 py-3 text-slate-600">
-                          {new Date(p.due_date).toLocaleDateString('it-IT')}
-                          <div className="text-xs text-slate-500">
-                            {daysTo < 0 ? `${Math.abs(daysTo)}gg scaduto` : `${daysTo}gg`}
-                          </div>
-                        </td>
-                        <td className="px-6 py-3 text-right text-slate-900">
-                          {formatCurrency(p.gross_amount)}
-                        </td>
-                        <td className="px-6 py-3 text-right text-emerald-600">
-                          {formatCurrency(p.amount_paid || 0)}
-                        </td>
-                        <td className="px-6 py-3 text-right text-slate-900 font-semibold">
-                          {formatCurrency(p.amount_remaining || 0)}
-                        </td>
-                        <td className="px-6 py-3">
-                          <span
-                            className={`inline-block px-3 py-1 rounded-full text-xs font-semibold ${statusColor.bg} ${statusColor.text}`}
+            {/* Timeline View - Clean Table */}
+            {viewMode === 'timeline' && (
+              <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden transition-all duration-200">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="sticky top-0 bg-slate-50 border-b border-slate-200 z-10">
+                      <tr>
+                        <th className="px-4 py-3 text-center w-12">
+                          <button
+                            onClick={toggleSelectAll}
+                            className="text-slate-400 hover:text-indigo-600 transition-all duration-200"
+                            title="Seleziona tutto"
                           >
-                            {p.status}
-                          </span>
-                        </td>
-                        <td className="px-6 py-3">
-                          <div className="flex gap-2">
-                            <button
-                              onClick={() =>
-                                setModals({ ...modals, editSchedule: { open: true, schedule: p } })
-                              }
-                              className="text-blue-600 hover:text-blue-700 font-medium text-xs flex items-center gap-1"
-                            >
-                              <Edit2 className="w-3 h-3" />
-                              Modifica
-                            </button>
-                            <button
-                              onClick={() =>
-                                setModals({
-                                  ...modals,
-                                  deleteConfirm: { open: true, scheduleId: p.id, invoiceNumber: p.invoice_number },
-                                })
-                              }
-                              className="text-red-600 hover:text-red-700 font-medium text-xs flex items-center gap-1"
-                            >
-                              <Trash2 className="w-3 h-3" />
-                              Cancella
-                            </button>
-                          </div>
-                        </td>
+                            {selectedIds.size > 0 ? <CheckSquare size={18} className="text-indigo-600" /> : <Square size={18} />}
+                          </button>
+                        </th>
+                        <th className="px-6 py-3 text-left font-semibold text-slate-900 text-xs uppercase tracking-wider">Fornitore</th>
+                        <th className="px-6 py-3 text-left font-semibold text-slate-900 text-xs uppercase tracking-wider">Fattura</th>
+                        <th className="px-6 py-3 text-left font-semibold text-slate-900 text-xs uppercase tracking-wider">Scadenza</th>
+                        <th className="px-6 py-3 text-right font-semibold text-slate-900 text-xs uppercase tracking-wider">Importo</th>
+                        <th className="px-6 py-3 text-right font-semibold text-slate-900 text-xs uppercase tracking-wider">Pagato</th>
+                        <th className="px-6 py-3 text-right font-semibold text-slate-900 text-xs uppercase tracking-wider">Rimane</th>
+                        <th className="px-6 py-3 text-left font-semibold text-slate-900 text-xs uppercase tracking-wider">Stato</th>
+                        <th className="px-6 py-3 text-center font-semibold text-slate-900 text-xs uppercase tracking-wider">Azioni</th>
                       </tr>
-                      {selectedIds.has(p.id) && paymentPlan[p.id] && (
-                        <tr className="bg-indigo-50 border-b border-indigo-100">
-                          <td colSpan={9} className="px-6 py-3">
-                            <div className="flex items-center gap-4 flex-wrap">
-                              <div>
-                                <label className="text-xs text-slate-500 block mb-1">Banca</label>
-                                <select value={paymentPlan[p.id].bankId} onChange={e => updatePlan(p.id, 'bankId', e.target.value)}
-                                  className="px-2 py-1.5 border border-slate-300 rounded-lg text-sm w-48 focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                                  <option value="">Seleziona...</option>
-                                  {bankAccounts.map(ba => (
-                                    <option key={ba.id} value={ba.id}>{ba.bank_name} ({formatCurrency(bankBalances[ba.id] || 0)})</option>
-                                  ))}
-                                </select>
-                              </div>
-                              <div>
-                                <label className="text-xs text-slate-500 block mb-1">Tipo</label>
-                                <div className="flex rounded-lg overflow-hidden border border-slate-300">
-                                  <button onClick={() => { updatePlan(p.id, 'type', 'saldo'); updatePlan(p.id, 'amount', p.amount_remaining || 0); }}
-                                    className={`px-3 py-1.5 text-sm font-medium transition ${paymentPlan[p.id].type === 'saldo' ? 'bg-emerald-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}>
-                                    Saldo
+                    </thead>
+                    <tbody className="divide-y divide-slate-200">
+                      {filteredPayables.map((p, idx) => {
+                        const statusColor = getStatusColor(p.status);
+                        const daysTo = Math.ceil(
+                          (new Date(p.due_date) - today) / (1000 * 60 * 60 * 24)
+                        );
+                        const isOverdue = daysTo < 0;
+                        return (
+                          <React.Fragment key={p.id}>
+                            <tr
+                              className={`transition-all duration-200 ${
+                                idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/30'
+                              } ${
+                                selectedIds.has(p.id) ? 'bg-indigo-50 border-l-4 border-indigo-500' : ''
+                              } ${
+                                p.status === 'pagato' ? 'opacity-60' : ''
+                              } hover:bg-slate-100/50`}
+                            >
+                              <td className="px-4 py-3.5 text-center">
+                                {p.status !== 'pagato' && (p.gross_amount || 0) >= 0 && (
+                                  <button
+                                    onClick={() => toggleSelect(p.id, p)}
+                                    className={`transition-all duration-200 ${
+                                      selectedIds.has(p.id)
+                                        ? 'text-indigo-600'
+                                        : 'text-slate-300 hover:text-slate-500'
+                                    }`}
+                                    title="Seleziona"
+                                  >
+                                    {selectedIds.has(p.id) ? <CheckSquare size={18} /> : <Square size={18} />}
                                   </button>
-                                  <button onClick={() => updatePlan(p.id, 'type', 'parziale')}
-                                    className={`px-3 py-1.5 text-sm font-medium transition ${paymentPlan[p.id].type === 'parziale' ? 'bg-amber-500 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}>
-                                    Parziale
+                                )}
+                              </td>
+                              <td className="px-6 py-3.5 text-slate-900 font-semibold">
+                                {p.suppliers?.ragione_sociale || p.suppliers?.name || 'N/A'}
+                              </td>
+                              <td className="px-6 py-3.5 text-slate-600 font-mono text-xs">{p.invoice_number}</td>
+                              <td className="px-6 py-3.5">
+                                <div className="text-slate-900 font-medium">
+                                  {new Date(p.due_date).toLocaleDateString('it-IT')}
+                                </div>
+                                <div
+                                  className={`text-xs font-semibold inline-block mt-1 px-2 py-1 rounded-full ${
+                                    isOverdue
+                                      ? 'bg-red-100 text-red-700'
+                                      : daysTo <= 7
+                                      ? 'bg-orange-100 text-orange-700'
+                                      : 'bg-emerald-100 text-emerald-700'
+                                  }`}
+                                >
+                                  {isOverdue ? `${Math.abs(daysTo)}gg scaduto` : `${daysTo}gg`}
+                                </div>
+                              </td>
+                              <td className="px-6 py-3.5 text-right text-slate-900 font-mono font-semibold">
+                                {formatCurrency(p.gross_amount)}
+                              </td>
+                              <td className="px-6 py-3.5 text-right text-emerald-600 font-mono font-semibold">
+                                {formatCurrency(p.amount_paid || 0)}
+                              </td>
+                              <td className="px-6 py-3.5 text-right text-slate-900 font-mono font-bold">
+                                {formatCurrency(p.amount_remaining || 0)}
+                              </td>
+                              <td className="px-6 py-3.5">
+                                <span
+                                  className={`inline-block px-3 py-1 rounded-full text-xs font-semibold transition-all duration-200 ${statusColor.bg} ${statusColor.text}`}
+                                >
+                                  {p.status.charAt(0).toUpperCase() + p.status.slice(1)}
+                                </span>
+                              </td>
+                              <td className="px-6 py-3.5 text-center">
+                                <div className="flex justify-center gap-1">
+                                  <button
+                                    onClick={() =>
+                                      setModals({ ...modals, editSchedule: { open: true, schedule: p } })
+                                    }
+                                    className="p-1.5 hover:bg-blue-100 rounded-lg text-blue-600 hover:text-blue-700 transition-all duration-200"
+                                    title="Modifica"
+                                  >
+                                    <Edit2 className="w-4 h-4" />
+                                  </button>
+                                  <button
+                                    onClick={() =>
+                                      setModals({
+                                        ...modals,
+                                        deleteConfirm: { open: true, scheduleId: p.id, invoiceNumber: p.invoice_number },
+                                      })
+                                    }
+                                    className="p-1.5 hover:bg-red-100 rounded-lg text-red-600 hover:text-red-700 transition-all duration-200"
+                                    title="Cancella"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
                                   </button>
                                 </div>
-                              </div>
-                              {paymentPlan[p.id].type === 'parziale' && (
-                                <>
-                                  <div>
-                                    <label className="text-xs text-slate-500 block mb-1">Importo</label>
-                                    <input type="number" step="0.01" value={paymentPlan[p.id].amount}
-                                      onChange={e => updatePlan(p.id, 'amount', Math.min(parseFloat(e.target.value) || 0, p.amount_remaining || 0))}
-                                      className="px-2 py-1.5 border border-slate-300 rounded-lg text-sm w-28 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                              </td>
+                            </tr>
+                            {selectedIds.has(p.id) && paymentPlan[p.id] && (
+                              <tr className="bg-indigo-50/50 border-b border-indigo-200">
+                                <td colSpan={9} className="px-6 py-4">
+                                  <div className="flex items-center gap-4 flex-wrap">
+                                    <div>
+                                      <label className="text-xs font-semibold text-slate-600 block mb-2">Banca</label>
+                                      <select
+                                        value={paymentPlan[p.id].bankId}
+                                        onChange={e => updatePlan(p.id, 'bankId', e.target.value)}
+                                        className="px-3 py-2 border border-slate-300 rounded-lg text-sm w-52 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all duration-200"
+                                      >
+                                        <option value="">Seleziona banca...</option>
+                                        {bankAccounts.map(ba => (
+                                          <option key={ba.id} value={ba.id}>
+                                            {ba.bank_name} ({formatCurrency(bankBalances[ba.id] || 0)})
+                                          </option>
+                                        ))}
+                                      </select>
+                                    </div>
+                                    <div>
+                                      <label className="text-xs font-semibold text-slate-600 block mb-2">Tipo</label>
+                                      <div className="flex rounded-lg overflow-hidden border border-slate-300">
+                                        <button
+                                          onClick={() => {
+                                            updatePlan(p.id, 'type', 'saldo');
+                                            updatePlan(p.id, 'amount', p.amount_remaining || 0);
+                                          }}
+                                          className={`px-4 py-2 text-sm font-medium transition-all duration-200 ${
+                                            paymentPlan[p.id].type === 'saldo'
+                                              ? 'bg-emerald-600 text-white'
+                                              : 'bg-white text-slate-600 hover:bg-slate-50'
+                                          }`}
+                                        >
+                                          Saldo
+                                        </button>
+                                        <button
+                                          onClick={() => updatePlan(p.id, 'type', 'parziale')}
+                                          className={`px-4 py-2 text-sm font-medium transition-all duration-200 ${
+                                            paymentPlan[p.id].type === 'parziale'
+                                              ? 'bg-amber-500 text-white'
+                                              : 'bg-white text-slate-600 hover:bg-slate-50'
+                                          }`}
+                                        >
+                                          Parziale
+                                        </button>
+                                      </div>
+                                    </div>
+                                    {paymentPlan[p.id].type === 'parziale' && (
+                                      <>
+                                        <div>
+                                          <label className="text-xs font-semibold text-slate-600 block mb-2">Importo</label>
+                                          <input
+                                            type="number"
+                                            step="0.01"
+                                            value={paymentPlan[p.id].amount}
+                                            onChange={e =>
+                                              updatePlan(
+                                                p.id,
+                                                'amount',
+                                                Math.min(parseFloat(e.target.value) || 0, p.amount_remaining || 0)
+                                              )
+                                            }
+                                            className="px-3 py-2 border border-slate-300 rounded-lg text-sm w-32 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all duration-200"
+                                          />
+                                        </div>
+                                        <div className="flex-1 min-w-64">
+                                          <label className="text-xs font-semibold text-slate-600 block mb-2">Note</label>
+                                          <input
+                                            type="text"
+                                            value={paymentPlan[p.id].note}
+                                            onChange={e => updatePlan(p.id, 'note', e.target.value)}
+                                            placeholder="Motivo parziale..."
+                                            className="px-3 py-2 border border-slate-300 rounded-lg text-sm w-full focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all duration-200"
+                                          />
+                                        </div>
+                                      </>
+                                    )}
                                   </div>
-                                  <div className="flex-1 min-w-48">
-                                    <label className="text-xs text-slate-500 block mb-1">Note</label>
-                                    <input type="text" value={paymentPlan[p.id].note} onChange={e => updatePlan(p.id, 'note', e.target.value)}
-                                      placeholder="Motivo parziale..." className="px-2 py-1.5 border border-slate-300 rounded-lg text-sm w-full focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-                                  </div>
-                                </>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      )}
-                    </React.Fragment>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-            {filteredPayables.length === 0 && (
-              <div className="text-center py-12 text-slate-500">
-                Nessun pagamento trovato
+                                </td>
+                              </tr>
+                            )}
+                          </React.Fragment>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                {filteredPayables.length === 0 && (
+                  <div className="text-center py-16 text-slate-500">
+                    <div className="text-4xl mb-3">∅</div>
+                    <p className="font-medium">Nessun pagamento trovato</p>
+                  </div>
+                )}
               </div>
             )}
-          </div>
-        )}
 
-        {/* Per Fornitore View */}
-        {viewMode === 'fornitore' && (
-          <div className="space-y-4 mb-6">
-            {groupedBySupplier.map(([name, group]) => (
-              <div key={name} className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-                <div className="px-6 py-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
-                  <div>
-                    <h3 className="font-semibold text-slate-900">{name}</h3>
-                    <span className="text-xs text-slate-500">{group.items.length} fatture</span>
-                  </div>
-                  <div className="flex gap-6 text-sm">
-                    <div className="text-right">
-                      <div className="text-xs text-slate-500">Totale</div>
-                      <div className="font-bold text-slate-900">{formatCurrency(group.total)}</div>
+            {/* Per Fornitore View - Accordion Style */}
+            {viewMode === 'fornitore' && (
+              <div className="space-y-3 mb-6">
+                {groupedBySupplier.map(([name, group]) => (
+                  <div
+                    key={name}
+                    className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden hover:shadow-md transition-all duration-200"
+                  >
+                    <div className="px-6 py-4 bg-gradient-to-r from-slate-50 to-white border-b border-slate-200 flex items-center justify-between hover:bg-slate-50 transition-all duration-200">
+                      <div className="flex-1">
+                        <h3 className="font-semibold text-slate-900">{name}</h3>
+                        <span className="text-xs text-slate-500 font-medium">{group.items.length} fatture</span>
+                      </div>
+                      <div className="flex gap-8 text-sm flex-shrink-0">
+                        <div className="text-right">
+                          <div className="text-xs text-slate-500 font-medium uppercase tracking-wide">Totale</div>
+                          <div className="font-bold text-slate-900 font-mono mt-0.5">{formatCurrency(group.total)}</div>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-xs text-emerald-600 font-medium uppercase tracking-wide">Pagato</div>
+                          <div className="font-bold text-emerald-600 font-mono mt-0.5">{formatCurrency(group.paid)}</div>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-xs text-red-600 font-medium uppercase tracking-wide">Rimane</div>
+                          <div className="font-bold text-red-600 font-mono mt-0.5">{formatCurrency(group.remaining)}</div>
+                        </div>
+                      </div>
                     </div>
-                    <div className="text-right">
-                      <div className="text-xs text-slate-500">Pagato</div>
-                      <div className="font-bold text-emerald-600">{formatCurrency(group.paid)}</div>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-xs text-slate-500">Rimane</div>
-                      <div className="font-bold text-red-600">{formatCurrency(group.remaining)}</div>
-                    </div>
-                  </div>
-                </div>
                 <table className="w-full text-sm">
                   <thead className="bg-slate-50 border-b border-slate-100">
                     <tr>
@@ -1169,31 +1286,34 @@ const ScadenzarioSmart = () => {
           </div>
         )}
 
-        {/* Per Mese View */}
-        {viewMode === 'mese' && (
-          <div className="space-y-4 mb-6">
-            {groupedByMonth.map(([key, group]) => (
-              <div key={key} className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-                <div className="px-6 py-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
-                  <div>
-                    <h3 className="font-semibold text-slate-900 capitalize">{group.label}</h3>
-                    <span className="text-xs text-slate-500">{group.items.length} fatture</span>
-                  </div>
-                  <div className="flex gap-6 text-sm">
-                    <div className="text-right">
-                      <div className="text-xs text-slate-500">Totale</div>
-                      <div className="font-bold text-slate-900">{formatCurrency(group.total)}</div>
+            {/* Per Mese View - Accordion Style */}
+            {viewMode === 'mese' && (
+              <div className="space-y-3 mb-6">
+                {groupedByMonth.map(([key, group]) => (
+                  <div
+                    key={key}
+                    className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden hover:shadow-md transition-all duration-200"
+                  >
+                    <div className="px-6 py-4 bg-gradient-to-r from-slate-50 to-white border-b border-slate-200 flex items-center justify-between hover:bg-slate-50 transition-all duration-200">
+                      <div className="flex-1">
+                        <h3 className="font-semibold text-slate-900 capitalize">{group.label}</h3>
+                        <span className="text-xs text-slate-500 font-medium">{group.items.length} fatture</span>
+                      </div>
+                      <div className="flex gap-8 text-sm flex-shrink-0">
+                        <div className="text-right">
+                          <div className="text-xs text-slate-500 font-medium uppercase tracking-wide">Totale</div>
+                          <div className="font-bold text-slate-900 font-mono mt-0.5">{formatCurrency(group.total)}</div>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-xs text-emerald-600 font-medium uppercase tracking-wide">Pagato</div>
+                          <div className="font-bold text-emerald-600 font-mono mt-0.5">{formatCurrency(group.paid)}</div>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-xs text-red-600 font-medium uppercase tracking-wide">Rimane</div>
+                          <div className="font-bold text-red-600 font-mono mt-0.5">{formatCurrency(group.remaining)}</div>
+                        </div>
+                      </div>
                     </div>
-                    <div className="text-right">
-                      <div className="text-xs text-slate-500">Pagato</div>
-                      <div className="font-bold text-emerald-600">{formatCurrency(group.paid)}</div>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-xs text-slate-500">Rimane</div>
-                      <div className="font-bold text-red-600">{formatCurrency(group.remaining)}</div>
-                    </div>
-                  </div>
-                </div>
                 <table className="w-full text-sm">
                   <thead className="bg-slate-50 border-b border-slate-100">
                     <tr>
@@ -1236,140 +1356,161 @@ const ScadenzarioSmart = () => {
                 </table>
               </div>
             ))}
-            {groupedByMonth.length === 0 && (
-              <div className="text-center py-12 text-slate-500">Nessun pagamento trovato</div>
-            )}
-          </div>
-        )}
-
-        {/* Charts View */}
-        {viewMode === 'charts' && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-            {/* Monthly Projection */}
-            <div className="bg-white rounded-xl shadow-sm p-6 border border-slate-200">
-              <h3 className="font-semibold text-slate-900 mb-4">Proiezione Scadenze (6 mesi)</h3>
-              <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={monthlyData}>
-                  <CartesianGrid strokeDasharray="3 3" {...GRID_STYLE} />
-                  <XAxis dataKey="month" {...AXIS_STYLE} />
-                  <YAxis {...AXIS_STYLE} />
-                  <Tooltip content={<GlassTooltip />} />
-                  <Bar dataKey="scadenze" fill="#6366f1" radius={[8, 8, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-
-            {/* Category Breakdown */}
-            <div className="bg-white rounded-xl shadow-sm p-6 border border-slate-200">
-              <h3 className="font-semibold text-slate-900 mb-4">Breakdown per Categoria</h3>
-              <ResponsiveContainer width="100%" height={300}>
-                <PieChart>
-                  <Pie
-                    data={categoryData}
-                    cx="50%"
-                    cy="50%"
-                    labelLine={false}
-                    label={({ name, value }) => `${name}: €${value}k`}
-                    outerRadius={80}
-                    dataKey="value"
-                  >
-                    {categoryData.map((entry, index) => (
-                      <Cell
-                        key={`cell-${index}`}
-                        fill={['#6366f1', '#ec4899', '#14b8a6', '#f59e0b', '#ef4444'][index % 5]}
-                      />
-                    ))}
-                  </Pie>
-                  <Tooltip />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-
-            {/* Aging Analysis */}
-            <div className="bg-white rounded-xl shadow-sm p-6 border border-slate-200">
-              <h3 className="font-semibold text-slate-900 mb-4">Analisi Aging</h3>
-              <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={agingAnalysis}>
-                  <CartesianGrid strokeDasharray="3 3" {...GRID_STYLE} />
-                  <XAxis dataKey="range" {...AXIS_STYLE} />
-                  <YAxis {...AXIS_STYLE} />
-                  <Tooltip content={<GlassTooltip />} />
-                  <Bar dataKey="value" fill="#ef4444" radius={[8, 8, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-
-            {/* Summary Stats */}
-            <div className="bg-white rounded-xl shadow-sm p-6 border border-slate-200">
-              <h3 className="font-semibold text-slate-900 mb-4">Statistiche</h3>
-              <div className="space-y-4">
-                <div className="flex justify-between items-center pb-3 border-b border-slate-200">
-                  <span className="text-slate-600">Numero Fatture</span>
-                  <span className="font-bold text-slate-900">{filteredPayables.length}</span>
-                </div>
-                <div className="flex justify-between items-center pb-3 border-b border-slate-200">
-                  <span className="text-slate-600">Fornitori</span>
-                  <span className="font-bold text-slate-900">
-                    {new Set(filteredPayables.map((p) => p.supplier_id)).size}
-                  </span>
-                </div>
-                <div className="flex justify-between items-center pb-3 border-b border-slate-200">
-                  <span className="text-slate-600">Importo Medio</span>
-                  <span className="font-bold text-slate-900">
-                    {formatCurrency(
-                      filteredPayables.length > 0
-                        ? filteredPayables.reduce((s, p) => s + (p.amount_remaining || 0), 0) /
-                            filteredPayables.length
-                        : 0
-                    )}
-                  </span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-slate-600">Giorni Medi</span>
-                  <span className="font-bold text-slate-900">
-                    {Math.round(
-                      filteredPayables.length > 0
-                        ? filteredPayables.reduce(
-                            (s, p) =>
-                              s + Math.ceil((new Date(p.due_date) - today) / (1000 * 60 * 60 * 24)),
-                            0
-                          ) / filteredPayables.length
-                        : 0
-                    )}
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Floating Action Bar */}
-        {selectedIds.size > 0 && (
-          <div className="fixed bottom-0 left-0 right-0 bg-white border-t-2 border-indigo-500 shadow-2xl p-4 z-40">
-            <div className="max-w-7xl mx-auto flex items-center justify-between">
-              <div className="flex items-center gap-6">
-                <span className="text-sm font-medium text-slate-600 flex items-center gap-2">
-                  <CheckSquare className="w-4 h-4 text-indigo-600" />
-                  {selectedIds.size} fatture selezionate
-                </span>
-                <span className="text-lg font-bold text-slate-900">{formatCurrency(selectedTotal)}</span>
-                {hasNegativeBalance && (
-                  <span className="text-sm font-semibold text-red-600 flex items-center gap-1">
-                    <Ban className="w-4 h-4" /> Saldo insufficiente su una o più banche
-                  </span>
+                {groupedByMonth.length === 0 && (
+                  <div className="text-center py-16 text-slate-500">
+                    <div className="text-4xl mb-3">∅</div>
+                    <p className="font-medium">Nessun pagamento trovato</p>
+                  </div>
                 )}
               </div>
-              <div className="flex items-center gap-3">
-                <button onClick={() => { setSelectedIds(new Set()); setPaymentPlan({}); }}
-                  className="px-4 py-2 text-slate-600 bg-slate-100 rounded-lg hover:bg-slate-200 transition text-sm font-medium">
-                  Annulla
-                </button>
-                <button onClick={confirmPayments}
-                  disabled={isSaving || hasNegativeBalance || Array.from(selectedIds).some(id => !paymentPlan[id]?.bankId)}
-                  className="px-6 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition text-sm font-bold disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2">
-                  <Send className="w-4 h-4" />
-                  {isSaving ? 'Elaborazione...' : 'Conferma Pagamenti'}
-                </button>
+            )}
+
+            {/* Charts View - Dashboard Feel */}
+            {viewMode === 'charts' && (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                {/* Monthly Projection */}
+                <div className="bg-white rounded-xl shadow-sm p-6 border border-slate-200 hover:shadow-md transition-all duration-200">
+                  <h3 className="font-semibold text-slate-900 mb-1">Proiezione Scadenze</h3>
+                  <p className="text-xs text-slate-500 mb-4 font-medium">Prossimi 6 mesi</p>
+                  <ResponsiveContainer width="100%" height={300}>
+                    <BarChart data={monthlyData}>
+                      <CartesianGrid strokeDasharray="3 3" {...GRID_STYLE} />
+                      <XAxis dataKey="month" {...AXIS_STYLE} />
+                      <YAxis {...AXIS_STYLE} />
+                      <Tooltip content={<GlassTooltip />} />
+                      <Bar dataKey="scadenze" fill="#6366f1" radius={[8, 8, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+
+                {/* Category Breakdown */}
+                <div className="bg-white rounded-xl shadow-sm p-6 border border-slate-200 hover:shadow-md transition-all duration-200">
+                  <h3 className="font-semibold text-slate-900 mb-1">Breakdown per Categoria</h3>
+                  <p className="text-xs text-slate-500 mb-4 font-medium">Incidenza per categoria</p>
+                  <ResponsiveContainer width="100%" height={300}>
+                    <PieChart>
+                      <Pie
+                        data={categoryData}
+                        cx="50%"
+                        cy="50%"
+                        labelLine={false}
+                        label={({ name, value }) => `${name}: €${value}k`}
+                        outerRadius={80}
+                        dataKey="value"
+                      >
+                        {categoryData.map((entry, index) => (
+                          <Cell
+                            key={`cell-${index}`}
+                            fill={['#6366f1', '#ec4899', '#14b8a6', '#f59e0b', '#ef4444'][index % 5]}
+                          />
+                        ))}
+                      </Pie>
+                      <Tooltip />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+
+                {/* Aging Analysis */}
+                <div className="bg-white rounded-xl shadow-sm p-6 border border-slate-200 hover:shadow-md transition-all duration-200">
+                  <h3 className="font-semibold text-slate-900 mb-1">Analisi Aging</h3>
+                  <p className="text-xs text-slate-500 mb-4 font-medium">Distribuzione per giorni</p>
+                  <ResponsiveContainer width="100%" height={300}>
+                    <BarChart data={agingAnalysis}>
+                      <CartesianGrid strokeDasharray="3 3" {...GRID_STYLE} />
+                      <XAxis dataKey="range" {...AXIS_STYLE} />
+                      <YAxis {...AXIS_STYLE} />
+                      <Tooltip content={<GlassTooltip />} />
+                      <Bar dataKey="value" fill="#ef4444" radius={[8, 8, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+
+                {/* Summary Stats */}
+                <div className="bg-white rounded-xl shadow-sm p-6 border border-slate-200 hover:shadow-md transition-all duration-200">
+                  <h3 className="font-semibold text-slate-900 mb-1">Statistiche</h3>
+                  <p className="text-xs text-slate-500 mb-4 font-medium">Riepilogo metriche</p>
+                  <div className="space-y-4">
+                    <div className="flex justify-between items-center pb-3 border-b border-slate-200">
+                      <span className="text-sm text-slate-600 font-medium">Numero Fatture</span>
+                      <span className="font-bold text-slate-900 text-lg">{filteredPayables.length}</span>
+                    </div>
+                    <div className="flex justify-between items-center pb-3 border-b border-slate-200">
+                      <span className="text-sm text-slate-600 font-medium">Fornitori</span>
+                      <span className="font-bold text-slate-900 text-lg">
+                        {new Set(filteredPayables.map((p) => p.supplier_id)).size}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center pb-3 border-b border-slate-200">
+                      <span className="text-sm text-slate-600 font-medium">Importo Medio</span>
+                      <span className="font-bold text-slate-900 text-sm font-mono">
+                        {formatCurrency(
+                          filteredPayables.length > 0
+                            ? filteredPayables.reduce((s, p) => s + (p.amount_remaining || 0), 0) /
+                                filteredPayables.length
+                            : 0
+                        )}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-slate-600 font-medium">Giorni Medi</span>
+                      <span className="font-bold text-slate-900 text-lg">
+                        {Math.round(
+                          filteredPayables.length > 0
+                            ? filteredPayables.reduce(
+                                (s, p) =>
+                                  s + Math.ceil((new Date(p.due_date) - today) / (1000 * 60 * 60 * 24)),
+                                0
+                              ) / filteredPayables.length
+                            : 0
+                        )}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+        {/* Floating Action Bar - Premium Pill */}
+        {selectedIds.size > 0 && (
+          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 transition-all duration-200">
+            <div className="bg-white/90 backdrop-blur-xl border border-slate-200/50 rounded-2xl shadow-2xl px-6 py-4">
+              <div className="flex items-center justify-between gap-8">
+                <div className="flex items-center gap-6">
+                  <span className="text-sm font-semibold text-slate-900 flex items-center gap-2">
+                    <CheckSquare className="w-5 h-5 text-indigo-600" />
+                    {selectedIds.size} fattura{selectedIds.size !== 1 ? 'e' : ''}
+                  </span>
+                  <div className="w-px h-6 bg-slate-200"></div>
+                  <span className="text-lg font-bold text-slate-900 font-mono">{formatCurrency(selectedTotal)}</span>
+                  {hasNegativeBalance && (
+                    <>
+                      <div className="w-px h-6 bg-slate-200"></div>
+                      <span className="text-sm font-semibold text-red-600 flex items-center gap-1">
+                        <Ban className="w-4 h-4" />
+                        Saldo insufficiente
+                      </span>
+                    </>
+                  )}
+                </div>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => {
+                      setSelectedIds(new Set());
+                      setPaymentPlan({});
+                    }}
+                    className="px-4 py-2 text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg text-sm font-medium transition-all duration-200"
+                  >
+                    Annulla
+                  </button>
+                  <button
+                    onClick={confirmPayments}
+                    disabled={isSaving || hasNegativeBalance || Array.from(selectedIds).some(id => !paymentPlan[id]?.bankId)}
+                    className="px-6 py-2 bg-emerald-600 text-white hover:bg-emerald-700 rounded-lg text-sm font-bold flex items-center gap-2 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-emerald-600"
+                  >
+                    <Send className="w-4 h-4" />
+                    {isSaving ? 'Elaborazione...' : 'Conferma'}
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -1377,19 +1518,49 @@ const ScadenzarioSmart = () => {
 
         {/* Confirm Result Modal */}
         {confirmResult && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-2xl shadow-xl max-w-2xl w-full max-h-[80vh] overflow-y-auto">
-              <div className="sticky top-0 bg-emerald-600 text-white px-6 py-4 rounded-t-2xl flex justify-between items-center">
-                <h2 className="text-lg font-bold flex items-center gap-2"><CheckCircle2 className="w-5 h-5" /> Pagamenti Confermati</h2>
-                <button onClick={() => setConfirmResult(null)} className="text-white hover:text-emerald-200 transition"><X className="w-5 h-5" /></button>
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4 transition-all duration-200">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[85vh] overflow-hidden border border-slate-200 flex flex-col">
+              <div className="sticky top-0 bg-gradient-to-r from-emerald-600 to-teal-600 text-white px-6 py-4 flex justify-between items-center">
+                <h2 className="text-lg font-bold flex items-center gap-2">
+                  <CheckCircle2 className="w-5 h-5" />
+                  Pagamenti Confermati
+                </h2>
+                <button
+                  onClick={() => setConfirmResult(null)}
+                  className="p-1 hover:bg-emerald-700/50 rounded-lg transition-all duration-200"
+                >
+                  <X className="w-5 h-5" />
+                </button>
               </div>
-              <div className="p-6">
-                <p className="text-sm text-slate-600 mb-3">{confirmResult.results.length} pagamenti registrati. Copia il riepilogo e invialo agli indirizzi amministrativi.</p>
-                {emailRecipients && <p className="text-sm text-indigo-600 mb-3">Destinatari: {emailRecipients}</p>}
-                <textarea readOnly value={confirmResult.emailBody} rows={15}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs font-mono bg-slate-50 focus:outline-none" />
-                <button onClick={() => { navigator.clipboard.writeText(confirmResult.emailBody); }}
-                  className="mt-3 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition text-sm font-medium w-full">
+              <div className="flex-1 overflow-y-auto p-6">
+                <div className="mb-4 p-4 bg-emerald-50 rounded-lg border border-emerald-200">
+                  <p className="text-sm font-semibold text-emerald-900 flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4" />
+                    {confirmResult.results.length} pagamenti registrati
+                  </p>
+                </div>
+                {emailRecipients && (
+                  <div className="mb-4 p-4 bg-indigo-50 rounded-lg border border-indigo-200">
+                    <p className="text-xs text-indigo-600 font-medium">Destinatari Email:</p>
+                    <p className="text-sm text-indigo-700 mt-1">{emailRecipients}</p>
+                  </div>
+                )}
+                <p className="text-xs text-slate-500 mb-3 font-medium uppercase tracking-wide">Riepilogo</p>
+                <textarea
+                  readOnly
+                  value={confirmResult.emailBody}
+                  rows={12}
+                  className="w-full px-4 py-3 border border-slate-300 rounded-lg text-xs font-mono bg-slate-50 focus:outline-none transition-all duration-200"
+                />
+              </div>
+              <div className="border-t border-slate-200 px-6 py-4 bg-slate-50/50">
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(confirmResult.emailBody);
+                  }}
+                  className="w-full px-4 py-2.5 bg-indigo-600 text-white hover:bg-indigo-700 rounded-lg text-sm font-bold transition-all duration-200 flex items-center justify-center gap-2"
+                >
+                  <Download className="w-4 h-4" />
                   Copia Riepilogo
                 </button>
               </div>
@@ -1397,31 +1568,49 @@ const ScadenzarioSmart = () => {
           </div>
         )}
 
-        </>
+        </div>
         )}
 
-        {/* Email Config Modal */}
-        {showEmailConfig && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
-              <h3 className="font-bold text-slate-900 mb-3">Destinatari Email Riepilogativa</h3>
-              <p className="text-xs text-slate-500 mb-3">Inserisci gli indirizzi email separati da virgola</p>
-              <input type="text" value={emailRecipients} onChange={e => setEmailRecipients(e.target.value)}
-                placeholder="admin@azienda.com, contabile@azienda.com"
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm mb-4 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-              <div className="flex justify-end gap-2">
-                <button onClick={() => setShowEmailConfig(false)} className="px-4 py-2 bg-slate-100 rounded-lg text-sm hover:bg-slate-200 transition">Annulla</button>
-                <button onClick={async () => {
-                  await supabase.from('companies').update({ settings: { email_scadenzario: emailRecipients } }).eq('id', COMPANY_ID);
-                  setShowEmailConfig(false);
-                }} className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700 transition font-medium">
-                  <Save className="w-4 h-4 inline mr-1" /> Salva
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
+        </div>
       </div>
+
+            {/* Email Config Modal */}
+            {showEmailConfig && (
+              <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4 transition-all duration-200">
+                <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 border border-slate-200">
+                  <h3 className="font-bold text-slate-900 mb-2 text-lg">Destinatari Email</h3>
+                  <p className="text-xs text-slate-500 mb-4 font-medium">Indirizzi separati da virgola</p>
+                  <input
+                    type="text"
+                    value={emailRecipients}
+                    onChange={e => setEmailRecipients(e.target.value)}
+                    placeholder="admin@azienda.com, contabile@azienda.com"
+                    className="w-full px-4 py-2.5 border border-slate-300 rounded-lg text-sm mb-6 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all duration-200"
+                  />
+                  <div className="flex justify-end gap-2">
+                    <button
+                      onClick={() => setShowEmailConfig(false)}
+                      className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-sm font-medium transition-all duration-200"
+                    >
+                      Annulla
+                    </button>
+                    <button
+                      onClick={async () => {
+                        await supabase
+                          .from('companies')
+                          .update({ settings: { email_scadenzario: emailRecipients } })
+                          .eq('id', COMPANY_ID);
+                        setShowEmailConfig(false);
+                      }}
+                      className="px-4 py-2.5 bg-indigo-600 text-white hover:bg-indigo-700 rounded-lg text-sm font-medium transition-all duration-200 flex items-center gap-2"
+                    >
+                      <Save className="w-4 h-4" />
+                      Salva
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
 
       {/* Payment Modal */}
       <Modal
@@ -1481,35 +1670,35 @@ const ScadenzarioSmart = () => {
       {/* Delete Confirmation Modal */}
       <div>
         {modals.deleteConfirm.open && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-2xl shadow-xl max-w-md w-full">
-              <div className="p-6 border-b border-slate-200">
-                <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
-                  <AlertTriangle className="w-5 h-5 text-red-600" />
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4 transition-all duration-200">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full border border-slate-200">
+              <div className="p-6 border-b border-red-200 bg-red-50">
+                <h2 className="text-lg font-bold text-red-900 flex items-center gap-2">
+                  <AlertTriangle className="w-5 h-5" />
                   Conferma Cancellazione
                 </h2>
               </div>
               <div className="p-6">
-                <p className="text-slate-700 mb-2">
-                  Sei sicuro di voler cancellare la scadenza <strong>{modals.deleteConfirm.invoiceNumber}</strong>?
+                <p className="text-slate-700 mb-3 font-medium">
+                  Sei sicuro di voler cancellare la scadenza <span className="font-mono text-sm text-red-600">{modals.deleteConfirm.invoiceNumber}</span>?
                 </p>
-                <p className="text-sm text-slate-500">
-                  Questa azione non pu essere annullata.
+                <p className="text-sm text-slate-500 font-medium">
+                  Questa azione non potra essere annullata.
                 </p>
               </div>
-              <div className="border-t border-slate-200 px-6 py-4 flex justify-end gap-3">
+              <div className="border-t border-slate-200 px-6 py-4 bg-slate-50/50 flex justify-end gap-3">
                 <button
                   onClick={() =>
                     setModals({ ...modals, deleteConfirm: { open: false, scheduleId: null, invoiceNumber: null } })
                   }
-                  className="px-4 py-2 text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200 transition"
+                  className="px-4 py-2.5 text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg text-sm font-medium transition-all duration-200"
                 >
                   Annulla
                 </button>
                 <button
                   onClick={() => handleDeleteSchedule(modals.deleteConfirm.scheduleId)}
                   disabled={isSaving}
-                  className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition disabled:opacity-50"
+                  className="px-4 py-2.5 bg-red-600 text-white hover:bg-red-700 rounded-lg text-sm font-medium transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isSaving ? 'Cancellazione...' : 'Cancella'}
                 </button>
@@ -1517,7 +1706,6 @@ const ScadenzarioSmart = () => {
             </div>
           </div>
         )}
-      </div>
       </div>
     </div>
   );
