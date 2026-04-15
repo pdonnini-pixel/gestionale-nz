@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
-  Plus, Edit2, Trash2, Save, X, RefreshCw, CheckCircle2, Search, Filter,
-  CalendarClock, Repeat, AlertCircle, Loader
+  Plus, Edit2, Trash2, Save, X, RefreshCw, Search, Filter,
+  CalendarClock, Repeat, AlertCircle, CheckCircle2, Loader
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
@@ -55,89 +55,56 @@ const macroGroupLabels = {
   oneri_diversi: 'Oneri diversi',
 };
 
-const formatCurrency = (num) => {
-  if (num === null || num === undefined) return '€ 0,00';
+const formatCurrency = (value) => {
+  if (!value && value !== 0) return '€ 0,00';
   return new Intl.NumberFormat('it-IT', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
-  }).format(num) + ' €';
+  }).format(value) + ' €';
 };
 
-const formatDate = (dateStr) => {
-  if (!dateStr) return '';
-  const date = new Date(dateStr);
-  return date.toLocaleDateString('it-IT');
+const getCurrentMonthYear = () => {
+  const now = new Date();
+  return { year: now.getFullYear(), month: now.getMonth() + 1 };
 };
 
-const parseDate = (dateStr) => {
-  if (!dateStr) return null;
-  return dateStr.split('T')[0];
-};
-
-const calculateMonthlyEquivalent = (amount, frequency) => {
-  const divisor = frequencyToMonthlyDivisor[frequency] || 1;
-  return amount / divisor;
-};
-
-const getMonthlyExpenditureByMonth = (costs, year = 2026) => {
-  const months = Array(12).fill(0).map((_, i) => 0);
-
-  costs.forEach((cost) => {
-    if (!cost.is_active) return;
-
-    const startDate = cost.start_date ? new Date(cost.start_date) : null;
-    const endDate = cost.end_date ? new Date(cost.end_date) : null;
-
-    for (let month = 0; month < 12; month++) {
-      const monthDate = new Date(year, month, 15);
-
-      if (startDate && monthDate < startDate) continue;
-      if (endDate && monthDate > endDate) continue;
-
-      const monthlyAmount = calculateMonthlyEquivalent(cost.amount, cost.frequency);
-
-      if (cost.frequency === 'monthly') {
-        months[month] += monthlyAmount;
-      } else if (cost.frequency === 'bimonthly') {
-        if (month % 2 === (startDate?.getMonth() % 2)) {
-          months[month] += monthlyAmount;
-        }
-      } else if (cost.frequency === 'quarterly') {
-        if (Math.floor(month / 3) === Math.floor((startDate?.getMonth() || 0) / 3)) {
-          months[month] += monthlyAmount;
-        }
-      } else if (cost.frequency === 'semiannual') {
-        if (Math.floor(month / 6) === Math.floor((startDate?.getMonth() || 0) / 6)) {
-          months[month] += monthlyAmount;
-        }
-      } else if (cost.frequency === 'annual') {
-        if (month === (startDate?.getMonth() || 0)) {
-          months[month] += monthlyAmount;
-        }
-      }
-    }
-  });
-
+const getMonthsArray = () => {
+  const months = [];
+  for (let i = 1; i <= 12; i++) {
+    months.push({
+      month: i,
+      label: new Intl.DateTimeFormat('it-IT', { month: 'long' }).format(
+        new Date(2026, i - 1)
+      ),
+    });
+  }
   return months;
 };
 
-export default function CostiRicorrenti() {
+function CostiRicorrenti() {
   const { profile } = useAuth();
   const COMPANY_ID = profile?.company_id;
 
-  const [costs, setCosts] = useState([]);
-  const [categories, setCategories] = useState([]);
+  // State
+  const [recurringCosts, setRecurringCosts] = useState([]);
+  const [costCategories, setCostCategories] = useState([]);
   const [costCenters, setCostCenters] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [success, setSuccess] = useState(null);
 
+  // Filter state
   const [filterOutlet, setFilterOutlet] = useState('');
   const [filterMacroGroup, setFilterMacroGroup] = useState('');
   const [filterActive, setFilterActive] = useState('all');
   const [searchDescription, setSearchDescription] = useState('');
 
+  // Modal state
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState(null);
+  const [deleteConfirmId, setDeleteConfirmId] = useState(null);
+
+  // Form state
   const [formData, setFormData] = useState({
     cost_center: '',
     cost_category_id: '',
@@ -153,150 +120,147 @@ export default function CostiRicorrenti() {
     is_active: true,
   });
 
-  const [deleteConfirm, setDeleteConfirm] = useState(null);
-  const [submitting, setSubmitting] = useState(false);
+  // Load data on mount
+  useEffect(() => {
+    if (COMPANY_ID) {
+      loadData();
+    }
+  }, [COMPANY_ID]);
 
-  // Fetch data
-  const fetchData = useCallback(async () => {
-    if (!COMPANY_ID) return;
-    setLoading(true);
-    setError(null);
+  const loadData = async () => {
     try {
+      setLoading(true);
+      setError(null);
+
       const [costsRes, categoriesRes, centersRes] = await Promise.all([
         supabase
           .from('recurring_costs')
           .select('*')
-          .eq('company_id', COMPANY_ID),
+          .eq('company_id', COMPANY_ID)
+          .order('created_at', { ascending: false }),
         supabase
           .from('cost_categories')
           .select('*')
           .eq('company_id', COMPANY_ID)
-          .order('sort_order'),
+          .order('sort_order', { ascending: true }),
         supabase
           .from('cost_centers')
           .select('*')
           .eq('company_id', COMPANY_ID)
-          .order('sort_order'),
+          .order('sort_order', { ascending: true }),
       ]);
 
       if (costsRes.error) throw costsRes.error;
       if (categoriesRes.error) throw categoriesRes.error;
       if (centersRes.error) throw centersRes.error;
 
-      setCosts(costsRes.data || []);
-      setCategories(categoriesRes.data || []);
+      setRecurringCosts(costsRes.data || []);
+      setCostCategories(categoriesRes.data || []);
       setCostCenters(centersRes.data || []);
     } catch (err) {
-      console.error('Error fetching data:', err);
-      setError(err.message || 'Errore nel caricamento dei dati');
+      console.error('Error loading data:', err);
+      setError('Errore nel caricamento dei dati');
     } finally {
       setLoading(false);
     }
-  }, [COMPANY_ID]);
+  };
 
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
-
-  // Filtered costs
-  const filteredCosts = useMemo(() => {
-    return costs.filter((cost) => {
+  // Get filtered and searched costs
+  const getFilteredCosts = () => {
+    return recurringCosts.filter((cost) => {
+      // Outlet filter
       if (filterOutlet && cost.cost_center !== filterOutlet) return false;
+
+      // Active filter
       if (filterActive === 'active' && !cost.is_active) return false;
       if (filterActive === 'inactive' && cost.is_active) return false;
 
-      const category = categories.find((c) => c.id === cost.cost_category_id);
-      if (filterMacroGroup && category?.macro_group !== filterMacroGroup)
-        return false;
+      // Macro group filter
+      if (filterMacroGroup) {
+        const category = costCategories.find((c) => c.id === cost.cost_category_id);
+        if (!category || category.macro_group !== filterMacroGroup) return false;
+      }
 
+      // Search by description
       if (
         searchDescription &&
-        !cost.description
-          .toLowerCase()
-          .includes(searchDescription.toLowerCase())
-      )
+        !cost.description.toLowerCase().includes(searchDescription.toLowerCase())
+      ) {
         return false;
+      }
 
       return true;
     });
-  }, [costs, filterOutlet, filterActive, searchDescription, filterMacroGroup, categories]);
+  };
 
-  // Summary calculations
-  const summary = useMemo(() => {
-    const activeCosts = costs.filter((c) => c.is_active);
-    const monthlyTotal = activeCosts.reduce((sum, cost) => {
-      return sum + calculateMonthlyEquivalent(cost.amount, cost.frequency);
-    }, 0);
-    const annualTotal = monthlyTotal * 12;
-    const activeCount = activeCosts.length;
+  const filteredCosts = getFilteredCosts();
 
-    const byMacroGroup = {};
+  // Calculate summary metrics
+  const calculateSummaries = () => {
+    const activeCosts = filteredCosts.filter((c) => c.is_active);
+    let totalMonthly = 0;
+    let byMacroGroup = {};
+
     activeCosts.forEach((cost) => {
-      const category = categories.find((c) => c.id === cost.cost_category_id);
-      const macroGroup = category?.macro_group || 'unknown';
-      if (!byMacroGroup[macroGroup]) {
-        byMacroGroup[macroGroup] = { monthly: 0, count: 0 };
+      const monthlyAmount = cost.amount / frequencyToMonthlyDivisor[cost.frequency];
+      totalMonthly += monthlyAmount;
+
+      const category = costCategories.find((c) => c.id === cost.cost_category_id);
+      if (category) {
+        const macroGroup = category.macro_group;
+        if (!byMacroGroup[macroGroup]) {
+          byMacroGroup[macroGroup] = 0;
+        }
+        byMacroGroup[macroGroup] += monthlyAmount;
       }
-      byMacroGroup[macroGroup].monthly += calculateMonthlyEquivalent(
-        cost.amount,
-        cost.frequency
-      );
-      byMacroGroup[macroGroup].count += 1;
     });
 
     return {
-      monthlyTotal,
-      annualTotal,
-      activeCount,
+      totalMonthly,
+      totalAnnual: totalMonthly * 12,
+      activeCount: activeCosts.length,
       byMacroGroup,
     };
-  }, [costs, categories]);
+  };
 
-  // Monthly projection
-  const monthlyProjection = useMemo(() => {
-    return getMonthlyExpenditureByMonth(filteredCosts);
-  }, [filteredCosts]);
+  const summaries = calculateSummaries();
 
-  const monthNames = [
-    'Gennaio', 'Febbraio', 'Marzo', 'Aprile', 'Maggio', 'Giugno',
-    'Luglio', 'Agosto', 'Settembre', 'Ottobre', 'Novembre', 'Dicembre',
-  ];
+  // Modal handlers
+  const openAddModal = () => {
+    setEditingId(null);
+    setFormData({
+      cost_center: '',
+      cost_category_id: '',
+      description: '',
+      amount: '',
+      frequency: 'monthly',
+      day_of_month: 1,
+      payment_method: 'bonifico_ordinario',
+      supplier_name: '',
+      notes: '',
+      start_date: new Date().toISOString().split('T')[0],
+      end_date: '',
+      is_active: true,
+    });
+    setShowModal(true);
+  };
 
-  // Handlers
-  const openModal = (cost = null) => {
-    if (cost) {
-      setEditingId(cost.id);
-      setFormData({
-        cost_center: cost.cost_center,
-        cost_category_id: cost.cost_category_id,
-        description: cost.description,
-        amount: cost.amount.toString(),
-        frequency: cost.frequency,
-        day_of_month: cost.day_of_month,
-        payment_method: cost.payment_method,
-        supplier_name: cost.supplier_name || '',
-        notes: cost.notes || '',
-        start_date: parseDate(cost.start_date),
-        end_date: parseDate(cost.end_date) || '',
-        is_active: cost.is_active,
-      });
-    } else {
-      setEditingId(null);
-      setFormData({
-        cost_center: '',
-        cost_category_id: '',
-        description: '',
-        amount: '',
-        frequency: 'monthly',
-        day_of_month: 1,
-        payment_method: 'bonifico_ordinario',
-        supplier_name: '',
-        notes: '',
-        start_date: new Date().toISOString().split('T')[0],
-        end_date: '',
-        is_active: true,
-      });
-    }
+  const openEditModal = (cost) => {
+    setEditingId(cost.id);
+    setFormData({
+      cost_center: cost.cost_center,
+      cost_category_id: cost.cost_category_id,
+      description: cost.description,
+      amount: cost.amount,
+      frequency: cost.frequency,
+      day_of_month: cost.day_of_month,
+      payment_method: cost.payment_method,
+      supplier_name: cost.supplier_name || '',
+      notes: cost.notes || '',
+      start_date: cost.start_date,
+      end_date: cost.end_date || '',
+      is_active: cost.is_active,
+    });
     setShowModal(true);
   };
 
@@ -305,12 +269,21 @@ export default function CostiRicorrenti() {
     setEditingId(null);
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setSubmitting(true);
+  const handleFormChange = (field, value) => {
+    setFormData((prev) => ({ ...prev, [field]: value }));
+  };
 
+  const saveRecurringCost = async () => {
     try {
-      const payload = {
+      setError(null);
+
+      if (!formData.cost_center || !formData.cost_category_id || !formData.description || !formData.amount) {
+        setError('Completa tutti i campi obbligatori');
+        return;
+      }
+
+      const costData = {
+        company_id: COMPANY_ID,
         cost_center: formData.cost_center,
         cost_category_id: formData.cost_category_id,
         description: formData.description,
@@ -323,199 +296,212 @@ export default function CostiRicorrenti() {
         start_date: formData.start_date,
         end_date: formData.end_date || null,
         is_active: formData.is_active,
-        company_id: COMPANY_ID,
       };
 
       if (editingId) {
-        const { error } = await supabase
+        // Update
+        const { error: updateError } = await supabase
           .from('recurring_costs')
-          .update(payload)
+          .update(costData)
           .eq('id', editingId);
 
-        if (error) throw error;
+        if (updateError) throw updateError;
+        setSuccess('Costo ricorrente aggiornato');
       } else {
-        const { error } = await supabase
+        // Insert
+        const { error: insertError } = await supabase
           .from('recurring_costs')
-          .insert([payload]);
+          .insert([costData]);
 
-        if (error) throw error;
+        if (insertError) throw insertError;
+        setSuccess('Costo ricorrente creato');
       }
 
-      await fetchData();
       closeModal();
+      await loadData();
     } catch (err) {
       console.error('Error saving cost:', err);
-      setError(err.message || 'Errore nel salvataggio');
-    } finally {
-      setSubmitting(false);
+      setError('Errore nel salvataggio del costo');
     }
   };
 
-  const handleDelete = async (id) => {
+  const deleteRecurringCost = async (id) => {
     try {
-      const { error } = await supabase
-        .from('recurring_costs')
-        .delete()
-        .eq('id', id);
+      setError(null);
+      const { error } = await supabase.from('recurring_costs').delete().eq('id', id);
 
       if (error) throw error;
-      await fetchData();
-      setDeleteConfirm(null);
+      setSuccess('Costo ricorrente eliminato');
+      setDeleteConfirmId(null);
+      await loadData();
     } catch (err) {
       console.error('Error deleting cost:', err);
-      setError(err.message || 'Errore nella cancellazione');
+      setError('Errore nell\'eliminazione del costo');
     }
   };
 
-  const toggleActive = async (id, currentState) => {
+  const toggleActive = async (cost) => {
     try {
+      setError(null);
       const { error } = await supabase
         .from('recurring_costs')
-        .update({ is_active: !currentState })
-        .eq('id', id);
+        .update({ is_active: !cost.is_active })
+        .eq('id', cost.id);
 
       if (error) throw error;
-      await fetchData();
+      await loadData();
     } catch (err) {
-      console.error('Error toggling active state:', err);
-      setError(err.message || 'Errore nell\'aggiornamento');
+      console.error('Error toggling active status:', err);
+      setError('Errore nell\'aggiornamento dello stato');
     }
   };
 
-  const getCategoryName = (categoryId) => {
-    return categories.find((c) => c.id === categoryId)?.name || '';
+  // 12-month projection
+  const getMonthProjection = () => {
+    const months = getMonthsArray();
+    const projection = {};
+
+    months.forEach((m) => {
+      projection[m.month] = {
+        total: 0,
+        costs: [],
+      };
+    });
+
+    filteredCosts
+      .filter((c) => c.is_active)
+      .forEach((cost) => {
+        const startDate = new Date(cost.start_date);
+        const endDate = cost.end_date ? new Date(cost.end_date) : new Date('2099-12-31');
+        const startMonth = startDate.getMonth() + 1;
+        const startYear = startDate.getFullYear();
+
+        months.forEach((m) => {
+          const checkDate = new Date(2026, m.month - 1, cost.day_of_month || 1);
+
+          if (checkDate >= startDate && checkDate <= endDate) {
+            let included = false;
+
+            if (cost.frequency === 'monthly') {
+              included = true;
+            } else if (cost.frequency === 'bimonthly') {
+              const monthsSinceStart = (m.month - startMonth) % 12;
+              included = monthsSinceStart % 2 === 0;
+            } else if (cost.frequency === 'quarterly') {
+              const monthsSinceStart = (m.month - startMonth) % 12;
+              included = monthsSinceStart % 3 === 0;
+            } else if (cost.frequency === 'semiannual') {
+              const monthsSinceStart = (m.month - startMonth) % 12;
+              included = monthsSinceStart % 6 === 0;
+            } else if (cost.frequency === 'annual') {
+              included = m.month === startMonth;
+            }
+
+            if (included) {
+              projection[m.month].total += cost.amount / frequencyToMonthlyDivisor[cost.frequency];
+              projection[m.month].costs.push(cost.description);
+            }
+          }
+        });
+      });
+
+    return { months, projection };
   };
 
-  const getCenterLabel = (centerCode) => {
-    return costCenters.find((c) => c.code === centerCode) || {};
-  };
+  const { months, projection } = getMonthProjection();
 
   if (loading) {
     return (
       <div className="flex items-center justify-center h-96">
-        <div className="flex flex-col items-center gap-3">
-          <Loader className="w-8 h-8 text-indigo-600 animate-spin" />
-          <p className="text-slate-600">Caricamento costi ricorrenti...</p>
-        </div>
+        <Loader className="w-8 h-8 text-indigo-600 animate-spin" />
       </div>
     );
   }
 
   return (
-    <div className="p-6 space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">Costi Ricorrenti</h1>
-          <p className="text-sm text-slate-600 mt-1">
-            Gestione costi non-SDI con frequenza ricorrente
-          </p>
-        </div>
-        <button
-          onClick={() => openModal()}
-          className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
-        >
-          <Plus className="w-4 h-4" />
-          Nuovo costo
-        </button>
-      </div>
-
-      {/* Error message */}
+    <div className="space-y-6">
+      {/* Alerts */}
       {error && (
-        <div className="flex items-start gap-3 p-4 bg-red-50 border border-red-200 rounded-lg">
-          <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
-          <div className="flex-1">
-            <p className="text-sm font-medium text-red-900">{error}</p>
-            <button
-              onClick={() => setError(null)}
-              className="text-xs text-red-700 hover:text-red-900 mt-1"
-            >
-              Chiudi
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Summary cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm">
-          <p className="text-xs font-semibold text-slate-600 uppercase tracking-wide">
-            Totale mensile stimato
-          </p>
-          <p className="text-2xl font-bold text-indigo-600 mt-1">
-            {formatCurrency(summary.monthlyTotal)}
-          </p>
-        </div>
-
-        <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm">
-          <p className="text-xs font-semibold text-slate-600 uppercase tracking-wide">
-            Totale annuale stimato
-          </p>
-          <p className="text-2xl font-bold text-indigo-600 mt-1">
-            {formatCurrency(summary.annualTotal)}
-          </p>
-        </div>
-
-        <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm">
-          <p className="text-xs font-semibold text-slate-600 uppercase tracking-wide">
-            Costi attivi
-          </p>
-          <p className="text-2xl font-bold text-indigo-600 mt-1">
-            {summary.activeCount}
-          </p>
-        </div>
-
-        <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm">
-          <p className="text-xs font-semibold text-slate-600 uppercase tracking-wide">
-            Azioni
-          </p>
+        <div className="flex items-center gap-3 p-4 bg-red-50 border border-red-200 rounded-lg">
+          <AlertCircle className="w-5 h-5 text-red-600" />
+          <p className="text-sm text-red-800">{error}</p>
           <button
-            onClick={fetchData}
-            className="flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-700 mt-2 font-medium"
+            onClick={() => setError(null)}
+            className="ml-auto text-red-600 hover:text-red-800"
           >
-            <RefreshCw className="w-4 h-4" />
-            Aggiorna
+            <X className="w-4 h-4" />
           </button>
         </div>
-      </div>
+      )}
 
-      {/* Macro group summary */}
-      {Object.keys(summary.byMacroGroup).length > 0 && (
-        <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm">
-          <h3 className="text-sm font-semibold text-slate-900 mb-3">
-            Suddivisione per categoria
-          </h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-            {Object.entries(summary.byMacroGroup).map(([group, data]) => (
-              <div
-                key={group}
-                className="p-3 bg-slate-50 rounded-lg border border-slate-100"
-              >
-                <p className="text-xs font-semibold text-slate-600">
-                  {macroGroupLabels[group] || group}
-                </p>
-                <div className="flex items-baseline justify-between mt-2">
-                  <p className="text-lg font-bold text-slate-900">
-                    {formatCurrency(data.monthly)}
-                  </p>
-                  <p className="text-xs text-slate-500">
-                    {data.count} {data.count === 1 ? 'costo' : 'costi'}
-                  </p>
-                </div>
-              </div>
-            ))}
-          </div>
+      {success && (
+        <div className="flex items-center gap-3 p-4 bg-green-50 border border-green-200 rounded-lg">
+          <CheckCircle2 className="w-5 h-5 text-green-600" />
+          <p className="text-sm text-green-800">{success}</p>
+          <button
+            onClick={() => setSuccess(null)}
+            className="ml-auto text-green-600 hover:text-green-800"
+          >
+            <X className="w-4 h-4" />
+          </button>
         </div>
       )}
 
-      {/* Filters */}
-      <div className="flex flex-col md:flex-row gap-3 items-start md:items-end">
-        <div className="flex-1">
-          <label className="block text-xs font-semibold text-slate-700 mb-1">
-            Ricerca
-          </label>
+      {/* Summary Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="p-4 bg-white border border-slate-200 rounded-xl shadow-sm">
+          <p className="text-xs text-slate-600 font-medium mb-1">Totale mensile stimato</p>
+          <p className="text-2xl font-semibold text-indigo-600">
+            {formatCurrency(summaries.totalMonthly)}
+          </p>
+        </div>
+
+        <div className="p-4 bg-white border border-slate-200 rounded-xl shadow-sm">
+          <p className="text-xs text-slate-600 font-medium mb-1">Totale annuale stimato</p>
+          <p className="text-2xl font-semibold text-indigo-600">
+            {formatCurrency(summaries.totalAnnual)}
+          </p>
+        </div>
+
+        <div className="p-4 bg-white border border-slate-200 rounded-xl shadow-sm">
+          <p className="text-xs text-slate-600 font-medium mb-1">Costi attivi</p>
+          <p className="text-2xl font-semibold text-indigo-600">{summaries.activeCount}</p>
+        </div>
+
+        <div className="p-4 bg-white border border-slate-200 rounded-xl shadow-sm">
+          <p className="text-xs text-slate-600 font-medium mb-1">Macro gruppi</p>
+          <div className="space-y-1">
+            {Object.entries(summaries.byMacroGroup)
+              .slice(0, 2)
+              .map(([group, amount]) => (
+                <p key={group} className="text-xs text-slate-600">
+                  {macroGroupLabels[group]}: {formatCurrency(amount)}
+                </p>
+              ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Filters & Actions */}
+      <div className="p-4 bg-white border border-slate-200 rounded-xl shadow-sm space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
+            <Filter className="w-4 h-4" />
+            Filtri
+          </h3>
+          <button
+            onClick={openAddModal}
+            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            Aggiungi costo
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          {/* Search */}
           <div className="relative">
-            <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
+            <Search className="absolute left-3 top-3 w-4 h-4 text-slate-400" />
             <input
               type="text"
               placeholder="Cerca per descrizione..."
@@ -524,274 +510,205 @@ export default function CostiRicorrenti() {
               className="w-full pl-10 pr-4 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
             />
           </div>
-        </div>
 
-        <div>
-          <label className="block text-xs font-semibold text-slate-700 mb-1">
-            Outlet
-          </label>
+          {/* Outlet filter */}
           <select
             value={filterOutlet}
             onChange={(e) => setFilterOutlet(e.target.value)}
-            className="px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            className="px-4 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
           >
-            <option value="">Tutti</option>
+            <option value="">Tutti gli outlet</option>
             {costCenters.map((center) => (
               <option key={center.id} value={center.code}>
                 {center.label}
               </option>
             ))}
           </select>
-        </div>
 
-        <div>
-          <label className="block text-xs font-semibold text-slate-700 mb-1">
-            Categoria
-          </label>
+          {/* Macro group filter */}
           <select
             value={filterMacroGroup}
             onChange={(e) => setFilterMacroGroup(e.target.value)}
-            className="px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            className="px-4 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
           >
-            <option value="">Tutte</option>
+            <option value="">Tutti i gruppi</option>
             {Object.entries(macroGroupLabels).map(([key, label]) => (
               <option key={key} value={key}>
                 {label}
               </option>
             ))}
           </select>
-        </div>
 
-        <div>
-          <label className="block text-xs font-semibold text-slate-700 mb-1">
-            Stato
-          </label>
+          {/* Active filter */}
           <select
             value={filterActive}
             onChange={(e) => setFilterActive(e.target.value)}
-            className="px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            className="px-4 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
           >
             <option value="all">Tutti</option>
-            <option value="active">Attivi</option>
-            <option value="inactive">Disattivi</option>
+            <option value="active">Solo attivi</option>
+            <option value="inactive">Solo inattivi</option>
           </select>
         </div>
       </div>
 
-      {/* Table */}
-      <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
-        {filteredCosts.length === 0 ? (
-          <div className="p-8 text-center">
-            <Repeat className="w-12 h-12 text-slate-300 mx-auto mb-2" />
-            <p className="text-slate-600">Nessun costo ricorrente trovato</p>
-            <button
-              onClick={() => openModal()}
-              className="text-indigo-600 hover:text-indigo-700 text-sm font-medium mt-2"
-            >
-              Crea il primo costo
-            </button>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-slate-200 bg-slate-50">
-                  <th className="px-4 py-3 text-left font-semibold text-slate-700">
-                    Outlet
-                  </th>
-                  <th className="px-4 py-3 text-left font-semibold text-slate-700">
-                    Categoria
-                  </th>
-                  <th className="px-4 py-3 text-left font-semibold text-slate-700">
-                    Descrizione
-                  </th>
-                  <th className="px-4 py-3 text-right font-semibold text-slate-700">
-                    Importo
-                  </th>
-                  <th className="px-4 py-3 text-left font-semibold text-slate-700">
-                    Frequenza
-                  </th>
-                  <th className="px-4 py-3 text-center font-semibold text-slate-700">
-                    Giorno
-                  </th>
-                  <th className="px-4 py-3 text-left font-semibold text-slate-700">
-                    Metodo pagamento
-                  </th>
-                  <th className="px-4 py-3 text-center font-semibold text-slate-700">
-                    Stato
-                  </th>
-                  <th className="px-4 py-3 text-center font-semibold text-slate-700">
-                    Azioni
-                  </th>
+      {/* Costs Table */}
+      <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50 border-b border-slate-200">
+              <tr>
+                <th className="px-4 py-3 text-left font-semibold text-slate-900">Outlet</th>
+                <th className="px-4 py-3 text-left font-semibold text-slate-900">Categoria</th>
+                <th className="px-4 py-3 text-left font-semibold text-slate-900">Descrizione</th>
+                <th className="px-4 py-3 text-right font-semibold text-slate-900">Importo</th>
+                <th className="px-4 py-3 text-left font-semibold text-slate-900">Frequenza</th>
+                <th className="px-4 py-3 text-center font-semibold text-slate-900">Giorno</th>
+                <th className="px-4 py-3 text-left font-semibold text-slate-900">Metodo pagamento</th>
+                <th className="px-4 py-3 text-center font-semibold text-slate-900">Stato</th>
+                <th className="px-4 py-3 text-center font-semibold text-slate-900">Azioni</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredCosts.length === 0 ? (
+                <tr>
+                  <td colSpan="9" className="px-4 py-8 text-center text-slate-500">
+                    Nessun costo ricorrente trovato
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {filteredCosts.map((cost) => {
-                  const center = getCenterLabel(cost.cost_center);
-                  const categoryName = getCategoryName(cost.cost_category_id);
+              ) : (
+                filteredCosts.map((cost) => {
+                  const category = costCategories.find((c) => c.id === cost.cost_category_id);
+                  const center = costCenters.find((c) => c.code === cost.cost_center);
+
                   return (
-                    <tr
-                      key={cost.id}
-                      className="border-b border-slate-200 hover:bg-slate-50 transition-colors"
-                    >
+                    <tr key={cost.id} className="border-b border-slate-200 hover:bg-slate-50">
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
                           <div
-                            className={`w-3 h-3 rounded-full ${
-                              center.color || 'bg-slate-400'
-                            }`}
+                            className={`w-3 h-3 rounded-full ${center?.color || 'bg-slate-300'}`}
                           />
-                          <span className="text-sm font-medium text-slate-900">
-                            {center.label || '—'}
-                          </span>
+                          <span className="text-slate-700">{center?.label || cost.cost_center}</span>
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-slate-700">{categoryName}</td>
-                      <td className="px-4 py-3 text-slate-700">
-                        {cost.description}
+                      <td className="px-4 py-3">
+                        <span className="text-slate-700">{category?.name || '-'}</span>
                       </td>
-                      <td className="px-4 py-3 text-right font-medium text-slate-900">
-                        {formatCurrency(cost.amount)}
+                      <td className="px-4 py-3">
+                        <span className="text-slate-700">{cost.description}</span>
                       </td>
-                      <td className="px-4 py-3 text-slate-700">
-                        {frequencyLabels[cost.frequency] || cost.frequency}
+                      <td className="px-4 py-3 text-right">
+                        <span className="font-medium text-slate-900">{formatCurrency(cost.amount)}</span>
                       </td>
-                      <td className="px-4 py-3 text-center text-slate-700">
-                        {cost.day_of_month || '—'}
+                      <td className="px-4 py-3">
+                        <span className="text-slate-700">{frequencyLabels[cost.frequency]}</span>
                       </td>
-                      <td className="px-4 py-3 text-slate-700">
-                        <span className="text-xs bg-slate-100 text-slate-700 px-2 py-1 rounded">
-                          {paymentMethodLabels[cost.payment_method] ||
-                            cost.payment_method}
+                      <td className="px-4 py-3 text-center">
+                        <span className="text-slate-700">{cost.day_of_month}</span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="text-xs text-slate-600">
+                          {paymentMethodLabels[cost.payment_method] || cost.payment_method}
                         </span>
                       </td>
                       <td className="px-4 py-3 text-center">
                         <button
-                          onClick={() => toggleActive(cost.id, cost.is_active)}
-                          className={`transition-colors ${
+                          onClick={() => toggleActive(cost)}
+                          className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium transition-colors ${
                             cost.is_active
-                              ? 'text-green-600 hover:text-green-700'
-                              : 'text-slate-400 hover:text-slate-500'
+                              ? 'bg-green-100 text-green-700 hover:bg-green-200'
+                              : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                           }`}
-                          title={
-                            cost.is_active
-                              ? 'Disattiva'
-                              : 'Attiva'
-                          }
                         >
-                          <CheckCircle2 className="w-5 h-5" />
+                          {cost.is_active ? 'Attivo' : 'Inattivo'}
                         </button>
                       </td>
                       <td className="px-4 py-3 text-center">
                         <div className="flex items-center justify-center gap-2">
                           <button
-                            onClick={() => openModal(cost)}
-                            className="text-indigo-600 hover:text-indigo-700 transition-colors"
+                            onClick={() => openEditModal(cost)}
+                            className="p-1 hover:bg-slate-200 rounded transition-colors"
                             title="Modifica"
                           >
-                            <Edit2 className="w-4 h-4" />
+                            <Edit2 className="w-4 h-4 text-slate-600" />
                           </button>
                           <button
-                            onClick={() => setDeleteConfirm(cost.id)}
-                            className="text-red-600 hover:text-red-700 transition-colors"
+                            onClick={() => setDeleteConfirmId(cost.id)}
+                            className="p-1 hover:bg-red-100 rounded transition-colors"
                             title="Elimina"
                           >
-                            <Trash2 className="w-4 h-4" />
+                            <Trash2 className="w-4 h-4 text-red-600" />
                           </button>
                         </div>
                       </td>
                     </tr>
                   );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
 
-      {/* 12-month projection */}
-      {filteredCosts.length > 0 && (
-        <div className="bg-white p-6 rounded-lg border border-slate-200 shadow-sm">
-          <h3 className="text-sm font-semibold text-slate-900 mb-4 flex items-center gap-2">
-            <CalendarClock className="w-4 h-4" />
-            Proiezione 12 mesi
-          </h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
-            {monthNames.map((month, idx) => (
-              <div
-                key={idx}
-                className="p-3 bg-slate-50 border border-slate-100 rounded-lg"
-              >
-                <p className="text-xs font-semibold text-slate-600 mb-2">
-                  {month}
-                </p>
-                <p className="text-lg font-bold text-indigo-600">
-                  {formatCurrency(monthlyProjection[idx])}
-                </p>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      {/* 12-Month Projection */}
+      <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6">
+        <h3 className="text-sm font-semibold text-slate-900 mb-4 flex items-center gap-2">
+          <CalendarClock className="w-4 h-4" />
+          Proiezione 12 mesi (2026)
+        </h3>
 
-      {/* Delete confirmation dialog */}
-      {deleteConfirm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-sm w-full mx-4">
-            <h3 className="font-bold text-lg text-slate-900 mb-2">
-              Eliminare costo ricorrente?
-            </h3>
-            <p className="text-sm text-slate-600 mb-6">
-              Questa azione non può essere annullata. Il costo sarà rimosso
-              definitivamente dal sistema.
-            </p>
-            <div className="flex gap-3 justify-end">
-              <button
-                onClick={() => setDeleteConfirm(null)}
-                className="px-4 py-2 text-slate-700 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
-              >
-                Annulla
-              </button>
-              <button
-                onClick={() => handleDelete(deleteConfirm)}
-                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
-              >
-                Elimina
-              </button>
+        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
+          {months.map((m) => (
+            <div key={m.month} className="p-3 bg-slate-50 rounded-lg border border-slate-200">
+              <p className="text-xs font-semibold text-slate-900 mb-2 capitalize">{m.label}</p>
+              <p className="text-lg font-semibold text-indigo-600 mb-2">
+                {formatCurrency(projection[m.month].total)}
+              </p>
+              {projection[m.month].costs.length > 0 && (
+                <details className="text-xs text-slate-600">
+                  <summary className="cursor-pointer hover:text-slate-900">
+                    {projection[m.month].costs.length} costo/i
+                  </summary>
+                  <ul className="mt-2 space-y-1 ml-2 border-l border-slate-300 pl-2">
+                    {projection[m.month].costs.map((desc, idx) => (
+                      <li key={idx} className="text-slate-600 truncate" title={desc}>
+                        {desc}
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              )}
             </div>
-          </div>
+          ))}
         </div>
-      )}
+      </div>
 
-      {/* Add/Edit modal */}
+      {/* Add/Edit Modal */}
       {showModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
-            <div className="sticky top-0 flex items-center justify-between p-6 border-b border-slate-200 bg-white">
-              <h2 className="text-lg font-bold text-slate-900">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-lg max-w-2xl w-full max-h-96 overflow-y-auto">
+            <div className="flex items-center justify-between p-6 border-b border-slate-200 sticky top-0 bg-white">
+              <h2 className="text-lg font-semibold text-slate-900">
                 {editingId ? 'Modifica costo ricorrente' : 'Nuovo costo ricorrente'}
               </h2>
               <button
                 onClick={closeModal}
-                className="text-slate-500 hover:text-slate-700"
+                className="p-1 hover:bg-slate-100 rounded transition-colors"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="p-6 space-y-4">
+            <div className="p-6 space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* Outlet */}
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  <label className="block text-sm font-medium text-slate-900 mb-1">
                     Outlet *
                   </label>
                   <select
-                    required
                     value={formData.cost_center}
-                    onChange={(e) =>
-                      setFormData({ ...formData, cost_center: e.target.value })
-                    }
+                    onChange={(e) => handleFormChange('cost_center', e.target.value)}
                     className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                   >
                     <option value="">Seleziona outlet</option>
@@ -805,28 +722,22 @@ export default function CostiRicorrenti() {
 
                 {/* Category */}
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  <label className="block text-sm font-medium text-slate-900 mb-1">
                     Categoria *
                   </label>
                   <select
-                    required
                     value={formData.cost_category_id}
-                    onChange={(e) =>
-                      setFormData({
-                        ...formData,
-                        cost_category_id: e.target.value,
-                      })
-                    }
+                    onChange={(e) => handleFormChange('cost_category_id', e.target.value)}
                     className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                   >
                     <option value="">Seleziona categoria</option>
-                    {Object.entries(macroGroupLabels).map(([group, groupLabel]) => (
-                      <optgroup key={group} label={groupLabel}>
-                        {categories
-                          .filter((c) => c.macro_group === group)
-                          .map((cat) => (
-                            <option key={cat.id} value={cat.id}>
-                              {cat.name}
+                    {Object.entries(macroGroupLabels).map(([macroKey, macroLabel]) => (
+                      <optgroup key={macroKey} label={macroLabel}>
+                        {costCategories
+                          .filter((c) => c.macro_group === macroKey)
+                          .map((c) => (
+                            <option key={c.id} value={c.id}>
+                              {c.name}
                             </option>
                           ))}
                       </optgroup>
@@ -836,51 +747,41 @@ export default function CostiRicorrenti() {
 
                 {/* Description */}
                 <div className="md:col-span-2">
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  <label className="block text-sm font-medium text-slate-900 mb-1">
                     Descrizione *
                   </label>
                   <input
-                    required
                     type="text"
                     value={formData.description}
-                    onChange={(e) =>
-                      setFormData({ ...formData, description: e.target.value })
-                    }
+                    onChange={(e) => handleFormChange('description', e.target.value)}
+                    placeholder="Es: Affitto negozio, Compenso consulente"
                     className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                    placeholder="Es. Affitto negozio"
                   />
                 </div>
 
                 {/* Amount */}
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Importo (€) *
+                  <label className="block text-sm font-medium text-slate-900 mb-1">
+                    Importo *
                   </label>
                   <input
-                    required
                     type="number"
                     step="0.01"
-                    min="0"
                     value={formData.amount}
-                    onChange={(e) =>
-                      setFormData({ ...formData, amount: e.target.value })
-                    }
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    onChange={(e) => handleFormChange('amount', e.target.value)}
                     placeholder="0,00"
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                   />
                 </div>
 
                 {/* Frequency */}
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  <label className="block text-sm font-medium text-slate-900 mb-1">
                     Frequenza *
                   </label>
                   <select
-                    required
                     value={formData.frequency}
-                    onChange={(e) =>
-                      setFormData({ ...formData, frequency: e.target.value })
-                    }
+                    onChange={(e) => handleFormChange('frequency', e.target.value)}
                     className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                   >
                     {Object.entries(frequencyLabels).map(([key, label]) => (
@@ -893,7 +794,7 @@ export default function CostiRicorrenti() {
 
                 {/* Day of month */}
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  <label className="block text-sm font-medium text-slate-900 mb-1">
                     Giorno del mese (1-28)
                   </label>
                   <input
@@ -901,30 +802,19 @@ export default function CostiRicorrenti() {
                     min="1"
                     max="28"
                     value={formData.day_of_month}
-                    onChange={(e) =>
-                      setFormData({
-                        ...formData,
-                        day_of_month: parseInt(e.target.value),
-                      })
-                    }
+                    onChange={(e) => handleFormChange('day_of_month', e.target.value)}
                     className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                   />
                 </div>
 
                 {/* Payment method */}
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Metodo pagamento *
+                  <label className="block text-sm font-medium text-slate-900 mb-1">
+                    Metodo di pagamento
                   </label>
                   <select
-                    required
                     value={formData.payment_method}
-                    onChange={(e) =>
-                      setFormData({
-                        ...formData,
-                        payment_method: e.target.value,
-                      })
-                    }
+                    onChange={(e) => handleFormChange('payment_method', e.target.value)}
                     className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                   >
                     {Object.entries(paymentMethodLabels).map(([key, label]) => (
@@ -937,116 +827,125 @@ export default function CostiRicorrenti() {
 
                 {/* Supplier name */}
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Fornitore (opzionale)
+                  <label className="block text-sm font-medium text-slate-900 mb-1">
+                    Fornitore
                   </label>
                   <input
                     type="text"
                     value={formData.supplier_name}
-                    onChange={(e) =>
-                      setFormData({ ...formData, supplier_name: e.target.value })
-                    }
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    onChange={(e) => handleFormChange('supplier_name', e.target.value)}
                     placeholder="Nome fornitore"
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                   />
                 </div>
 
                 {/* Start date */}
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Data inizio *
+                  <label className="block text-sm font-medium text-slate-900 mb-1">
+                    Data inizio
                   </label>
                   <input
-                    required
                     type="date"
                     value={formData.start_date}
-                    onChange={(e) =>
-                      setFormData({ ...formData, start_date: e.target.value })
-                    }
+                    onChange={(e) => handleFormChange('start_date', e.target.value)}
                     className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                   />
                 </div>
 
                 {/* End date */}
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  <label className="block text-sm font-medium text-slate-900 mb-1">
                     Data fine (opzionale)
                   </label>
                   <input
                     type="date"
                     value={formData.end_date}
-                    onChange={(e) =>
-                      setFormData({ ...formData, end_date: e.target.value })
-                    }
+                    onChange={(e) => handleFormChange('end_date', e.target.value)}
                     className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                   />
                 </div>
 
                 {/* Notes */}
                 <div className="md:col-span-2">
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Note (opzionale)
+                  <label className="block text-sm font-medium text-slate-900 mb-1">
+                    Note
                   </label>
                   <textarea
                     value={formData.notes}
-                    onChange={(e) =>
-                      setFormData({ ...formData, notes: e.target.value })
-                    }
-                    rows="3"
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    onChange={(e) => handleFormChange('notes', e.target.value)}
                     placeholder="Note aggiuntive..."
+                    rows="2"
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                   />
                 </div>
 
-                {/* Active toggle */}
+                {/* Active */}
                 <div className="md:col-span-2">
-                  <label className="flex items-center gap-3">
+                  <label className="flex items-center gap-2">
                     <input
                       type="checkbox"
                       checked={formData.is_active}
-                      onChange={(e) =>
-                        setFormData({ ...formData, is_active: e.target.checked })
-                      }
-                      className="w-4 h-4 text-indigo-600 border-slate-200 rounded focus:ring-2 focus:ring-indigo-500"
+                      onChange={(e) => handleFormChange('is_active', e.target.checked)}
+                      className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
                     />
-                    <span className="text-sm font-medium text-slate-700">
-                      Costo attivo
-                    </span>
+                    <span className="text-sm font-medium text-slate-900">Attivo</span>
                   </label>
                 </div>
               </div>
+            </div>
 
-              {/* Buttons */}
-              <div className="flex gap-3 justify-end pt-4 border-t border-slate-200">
+            <div className="flex items-center justify-end gap-2 p-6 border-t border-slate-200 sticky bottom-0 bg-white">
+              <button
+                onClick={closeModal}
+                className="px-4 py-2 border border-slate-200 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+              >
+                Annulla
+              </button>
+              <button
+                onClick={saveRecurringCost}
+                className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+              >
+                <Save className="w-4 h-4" />
+                Salva
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {deleteConfirmId && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-lg max-w-sm w-full">
+            <div className="p-6">
+              <h2 className="text-lg font-semibold text-slate-900 mb-2">
+                Elimina costo ricorrente?
+              </h2>
+              <p className="text-sm text-slate-600 mb-6">
+                Questa azione non può essere annullata. Il costo ricorrente verrà eliminato
+                permanentemente.
+              </p>
+
+              <div className="flex items-center justify-end gap-2">
                 <button
-                  type="button"
-                  onClick={closeModal}
-                  className="px-4 py-2 text-slate-700 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
+                  onClick={() => setDeleteConfirmId(null)}
+                  className="px-4 py-2 border border-slate-200 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
                 >
                   Annulla
                 </button>
                 <button
-                  type="submit"
-                  disabled={submitting}
-                  className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  onClick={() => deleteRecurringCost(deleteConfirmId)}
+                  className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 transition-colors"
                 >
-                  {submitting ? (
-                    <>
-                      <Loader className="w-4 h-4 animate-spin" />
-                      Salvataggio...
-                    </>
-                  ) : (
-                    <>
-                      <Save className="w-4 h-4" />
-                      Salva
-                    </>
-                  )}
+                  Elimina
                 </button>
               </div>
-            </form>
+            </div>
           </div>
         </div>
       )}
     </div>
   );
 }
+
+export default CostiRicorrenti;

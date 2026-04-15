@@ -6,7 +6,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import {
-  getCodeLevel, buildTree, sumMacros, applyEditsZero, flattenLeaves, fmt, fmtC
+  getCodeLevel, buildTree, sumMacros, applyEditsZero, applyEdits, flattenLeaves, fmt, fmtC
 } from '../lib/ceHelpers'
 import {
   Rocket, Plus, Save, Trash2, Copy, ChevronDown, ChevronUp, CheckCircle2,
@@ -191,14 +191,10 @@ export default function OutletValutazione() {
     loadAll()
   }
 
-  const [confirmAction, setConfirmAction] = useState(null)
-
   function clearAll() {
-    setConfirmAction({
-      title: 'Svuota simulazione',
-      message: 'Tutti i costi e ricavi di questa simulazione verranno cancellati.',
-      action: () => { setCostEdits({}); setRevEdits({}); show('Dati cancellati') }
-    })
+    setCostEdits({})
+    setRevEdits({})
+    show('Dati cancellati')
   }
 
   function copyFromOutlet(simId) {
@@ -213,7 +209,7 @@ export default function OutletValutazione() {
   // ─── COMPUTED ────────────────────────────────────────────
 
   const editedC = applyEditsZero(costiTree, costEdits)
-  const editedR = applyEditsZero(ricaviTree, revEdits)
+  const editedR = applyEdits(ricaviTree, revEdits)
   const totC = sumMacros(editedC)
   const totR = sumMacros(editedR)
   const ris = totR - totC
@@ -293,9 +289,11 @@ export default function OutletValutazione() {
                   {simulations.filter(s => s.id !== activeSimId).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                 </select>
               )}
-              <button onClick={clearAll} className="px-3 py-1.5 border border-red-200 text-red-600 rounded-lg text-xs font-medium hover:bg-red-50 flex items-center gap-1.5">
-                <Trash2 size={12} /> Cancella dati
-              </button>
+              {hasEdits && (
+                <button onClick={clearAll} className="px-3 py-1.5 border border-red-200 text-red-600 rounded-lg text-xs font-medium hover:bg-red-50 flex items-center gap-1.5">
+                  <Trash2 size={12} /> Cancella dati
+                </button>
+              )}
               <button onClick={saveSimulation} disabled={saving} className="px-4 py-1.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 flex items-center gap-1.5">
                 <Save size={14} /> {saving ? 'Salvo...' : 'Salva'}
               </button>
@@ -332,25 +330,6 @@ export default function OutletValutazione() {
             <div className="text-xs font-normal mt-1 opacity-70">
               Ricavi {fmtC(totR)} — Costi {fmtC(totC)}
               {totR > 0 && ` — Margine ${(ris / totR * 100).toFixed(1)}%`}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* CONFIRM DIALOG */}
-      {confirmAction && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setConfirmAction(null)}>
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center gap-3 mb-4">
-              <div className="p-2.5 rounded-full bg-red-50"><Trash2 size={22} className="text-red-600" /></div>
-              <div>
-                <h3 className="text-lg font-semibold text-slate-900">{confirmAction.title}</h3>
-                <p className="text-sm text-slate-500">{confirmAction.message}</p>
-              </div>
-            </div>
-            <div className="flex justify-end gap-3 mt-6">
-              <button onClick={() => setConfirmAction(null)} className="px-4 py-2 text-sm rounded-lg border border-slate-200 hover:bg-slate-50 transition">Annulla</button>
-              <button onClick={() => { confirmAction.action(); setConfirmAction(null) }} className="px-4 py-2 text-sm rounded-lg bg-red-600 text-white hover:bg-red-700 transition">Svuota</button>
             </div>
           </div>
         </div>
