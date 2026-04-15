@@ -28,6 +28,8 @@ import {
   Wallet,
   Repeat,
   ChevronRight,
+  Landmark,
+  Building2,
 } from 'lucide-react';
 import CostiRicorrenti from '../components/CostiRicorrenti';
 import {
@@ -60,6 +62,68 @@ const COLORI_STATO = {
 
 const PAYMENT_METHODS = ['bonifico', 'riba', 'rid', 'carta', 'contanti', 'compensazione', 'altro'];
 const SUPPLIER_CATEGORIES = ['merce', 'servizi', 'utenze', 'affitti', 'stipendi', 'imposte', 'finanziamenti'];
+
+// --- Etichette metodi pagamento (da fatture SDI) ---
+const paymentMethodLabels = {
+  bonifico_ordinario: 'Bonifico ordinario',
+  bonifico_urgente: 'Bonifico urgente',
+  bonifico_sepa: 'Bonifico SEPA',
+  bonifico: 'Bonifico',
+  riba_30: 'RiBa 30 gg',
+  riba_60: 'RiBa 60 gg',
+  riba_90: 'RiBa 90 gg',
+  riba_120: 'RiBa 120 gg',
+  riba: 'RiBa',
+  rid: 'RID',
+  sdd_core: 'SDD Core',
+  sdd_b2b: 'SDD B2B',
+  rimessa_diretta: 'Rimessa diretta',
+  carta_credito: 'Carta di credito',
+  carta_debito: 'Carta di debito',
+  carta: 'Carta',
+  assegno: 'Assegno',
+  contanti: 'Contanti',
+  compensazione: 'Compensazione',
+  f24: 'F24',
+  mav: 'MAV',
+  rav: 'RAV',
+  bollettino_postale: 'Bollettino postale',
+  altro: 'Altro',
+};
+
+// --- Raggruppamento metodi pagamento per KPI ---
+const paymentGroups = [
+  { label: 'Bonifici', key: 'bonifici', methods: ['bonifico_ordinario', 'bonifico_urgente', 'bonifico_sepa', 'bonifico'] },
+  { label: 'RiBa', key: 'riba', methods: ['riba_30', 'riba_60', 'riba_90', 'riba_120', 'riba'] },
+  { label: 'Addebito diretto', key: 'addebito', methods: ['rid', 'sdd_core', 'sdd_b2b'] },
+  { label: 'Altro', key: 'altro', methods: ['rimessa_diretta', 'carta_credito', 'carta_debito', 'carta', 'assegno', 'contanti', 'compensazione', 'f24', 'mav', 'rav', 'bollettino_postale', 'altro'] },
+];
+
+// RIBA maturity days lookup
+const RIBA_DAYS = { riba_30: 30, riba_60: 60, riba_90: 90, riba_120: 120 };
+
+// --- StatusPill con etichette italiane ---
+const statusLabels = {
+  scaduto: 'Scaduto',
+  in_scadenza: 'In scadenza',
+  da_pagare: 'Da pagare',
+  parziale: 'Parziale',
+  sospeso: 'Sospeso',
+  rimandato: 'Rimandato',
+  pagato: 'Pagato',
+  annullato: 'Annullato',
+  contestato: 'Contestato',
+};
+
+function StatusPill({ status }) {
+  const colors = COLORI_STATO[status] || COLORI_STATO.da_pagare;
+  const label = statusLabels[status] || status;
+  return (
+    <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-medium ${colors.bg} ${colors.text}`}>
+      {label}
+    </span>
+  );
+}
 
 // Modal wrapper component
 const Modal = ({ isOpen, title, children, onClose, onSave, isSaving }) => {
@@ -118,6 +182,8 @@ const ScadenzarioSmart = () => {
   const [emailRecipients, setEmailRecipients] = useState('');
   const [showEmailConfig, setShowEmailConfig] = useState(false);
   const [confirmResult, setConfirmResult] = useState(null);
+  const [selectedMethodGroup, setSelectedMethodGroup] = useState(null); // filtro per gruppo metodo pagamento
+  const [supplierDetail, setSupplierDetail] = useState(null); // popup dettaglio fornitore
 
   // Selection helpers for bulk payment workflow
   const toggleSelect = (id, payable) => {
@@ -314,9 +380,18 @@ const ScadenzarioSmart = () => {
       const dueDate = new Date(p.due_date);
       const matchDate = dueDate >= new Date(dateRange.start) && dueDate <= new Date(dateRange.end);
 
-      return matchOutlet && matchStatus && matchSearch && matchDate;
+      // Filtro per gruppo metodo pagamento
+      let matchMethodGroup = true;
+      if (selectedMethodGroup) {
+        const group = paymentGroups.find(g => g.key === selectedMethodGroup);
+        if (group) {
+          matchMethodGroup = group.methods.includes(p.payment_method);
+        }
+      }
+
+      return matchOutlet && matchStatus && matchSearch && matchDate && matchMethodGroup;
     });
-  }, [payables, selectedOutlet, selectedStatus, searchTerm, dateRange]);
+  }, [payables, selectedOutlet, selectedStatus, searchTerm, dateRange, selectedMethodGroup]);
 
   // Calculate KPIs
   const kpis = useMemo(() => {
@@ -355,6 +430,19 @@ const ScadenzarioSmart = () => {
       availableCash: cashPosition,
     };
   }, [filteredPayables, cashPosition, today]);
+
+  // Totali per gruppo metodo pagamento (per KPI chips)
+  const methodGroupTotals = useMemo(() => {
+    const activePays = payables.filter(p => p.status !== 'pagato' && p.status !== 'annullato');
+    return paymentGroups.map(group => {
+      const groupPayables = activePays.filter(p => group.methods.includes(p.payment_method));
+      return {
+        ...group,
+        total: groupPayables.reduce((sum, p) => sum + (p.amount_remaining || 0), 0),
+        count: groupPayables.length,
+      };
+    });
+  }, [payables]);
 
   // Monthly projection
   const monthlyData = useMemo(() => {
@@ -882,6 +970,42 @@ const ScadenzarioSmart = () => {
             </div>
           </div>
 
+        {/* KPI Modalità Pagamento - Clickable Chips */}
+        <div className="flex flex-wrap gap-2 mb-8">
+          {methodGroupTotals.map(group => {
+            const isActive = selectedMethodGroup === group.key;
+            return (
+              <button
+                key={group.key}
+                onClick={() => setSelectedMethodGroup(isActive ? null : group.key)}
+                className={`flex items-center gap-2 px-4 py-2.5 rounded-xl border text-sm font-medium transition-all duration-200 ${
+                  isActive
+                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-md'
+                    : 'bg-white text-slate-700 border-slate-200 hover:border-indigo-300 hover:bg-indigo-50'
+                }`}
+              >
+                <span>{group.label}</span>
+                <span className={`font-bold ${isActive ? 'text-white' : 'text-slate-900'}`}>
+                  {formatCurrency(group.total)}
+                </span>
+                <span className={`text-xs px-1.5 py-0.5 rounded-full ${
+                  isActive ? 'bg-indigo-500 text-white' : 'bg-slate-100 text-slate-500'
+                }`}>
+                  {group.count}
+                </span>
+              </button>
+            );
+          })}
+          {selectedMethodGroup && (
+            <button
+              onClick={() => setSelectedMethodGroup(null)}
+              className="flex items-center gap-1 px-3 py-2.5 rounded-xl border border-red-200 text-red-600 text-sm font-medium hover:bg-red-50 transition-all duration-200"
+            >
+              <X className="w-3.5 h-3.5" /> Rimuovi filtro
+            </button>
+          )}
+        </div>
+
         {/* Tab Scadenze / Costi Ricorrenti - Underline Style */}
         <div className="flex gap-6 mb-8 border-b border-slate-200 transition-all duration-200">
           {[
@@ -1018,6 +1142,7 @@ const ScadenzarioSmart = () => {
                         <th className="px-6 py-3 text-right font-semibold text-slate-900 text-xs uppercase tracking-wider">Pagato</th>
                         <th className="px-6 py-3 text-right font-semibold text-slate-900 text-xs uppercase tracking-wider">Rimane</th>
                         <th className="px-6 py-3 text-left font-semibold text-slate-900 text-xs uppercase tracking-wider">Stato</th>
+                        <th className="px-6 py-3 text-center font-semibold text-slate-900 text-xs uppercase tracking-wider">Metodo</th>
                         <th className="px-6 py-3 text-center font-semibold text-slate-900 text-xs uppercase tracking-wider">Azioni</th>
                       </tr>
                     </thead>
@@ -1055,7 +1180,19 @@ const ScadenzarioSmart = () => {
                                 )}
                               </td>
                               <td className="px-6 py-3.5 text-slate-900 font-semibold">
-                                {p.suppliers?.ragione_sociale || p.suppliers?.name || 'N/A'}
+                                <button
+                                  onClick={() => {
+                                    const sup = suppliers.find(s =>
+                                      s.ragione_sociale === (p.suppliers?.ragione_sociale || p.suppliers?.name) ||
+                                      s.name === (p.suppliers?.name || p.suppliers?.ragione_sociale)
+                                    );
+                                    setSupplierDetail(sup || { ragione_sociale: p.suppliers?.ragione_sociale || p.suppliers?.name || 'N/A' });
+                                  }}
+                                  className="text-left hover:text-indigo-600 hover:underline transition-colors"
+                                  title="Clicca per dettagli fornitore"
+                                >
+                                  {p.suppliers?.ragione_sociale || p.suppliers?.name || 'N/A'}
+                                </button>
                               </td>
                               <td className="px-6 py-3.5 text-slate-600 font-mono text-xs">{p.invoice_number}</td>
                               <td className="px-6 py-3.5">
@@ -1084,11 +1221,10 @@ const ScadenzarioSmart = () => {
                                 {formatCurrency(p.amount_remaining || 0)}
                               </td>
                               <td className="px-6 py-3.5">
-                                <span
-                                  className={`inline-block px-3 py-1 rounded-full text-xs font-semibold transition-all duration-200 ${statusColor.bg} ${statusColor.text}`}
-                                >
-                                  {p.status.charAt(0).toUpperCase() + p.status.slice(1)}
-                                </span>
+                                <StatusPill status={p.status} />
+                              </td>
+                              <td className="px-6 py-3.5 text-xs text-center text-slate-500">
+                                {paymentMethodLabels[p.payment_method] || p.payment_method || '—'}
                               </td>
                               <td className="px-6 py-3.5 text-center">
                                 <div className="flex justify-center gap-1">
@@ -1118,7 +1254,7 @@ const ScadenzarioSmart = () => {
                             </tr>
                             {selectedIds.has(p.id) && paymentPlan[p.id] && (
                               <tr className="bg-indigo-50/50 border-b border-indigo-200">
-                                <td colSpan={9} className="px-6 py-4">
+                                <td colSpan={10} className="px-6 py-4">
                                   <div className="flex items-center gap-4 flex-wrap">
                                     <div>
                                       <label className="text-xs font-semibold text-slate-600 block mb-2">Banca</label>
@@ -1269,7 +1405,7 @@ const ScadenzarioSmart = () => {
                             <td className="px-4 py-2 text-right text-slate-900">{formatCurrency(p.gross_amount)}</td>
                             <td className="px-4 py-2 text-right font-semibold text-slate-900">{formatCurrency(p.amount_remaining || 0)}</td>
                             <td className="px-4 py-2">
-                              <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-semibold ${sc.bg} ${sc.text}`}>{p.status}</span>
+                              <StatusPill status={p.status} />
                             </td>
                           </tr>
                           {renderPaymentRow(p, 6)}
@@ -1345,7 +1481,7 @@ const ScadenzarioSmart = () => {
                             <td className="px-4 py-2 text-right text-slate-900">{formatCurrency(p.gross_amount)}</td>
                             <td className="px-4 py-2 text-right font-semibold text-slate-900">{formatCurrency(p.amount_remaining || 0)}</td>
                             <td className="px-4 py-2">
-                              <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-semibold ${sc.bg} ${sc.text}`}>{p.status}</span>
+                              <StatusPill status={p.status} />
                             </td>
                           </tr>
                           {renderPaymentRow(p, 7)}
@@ -1573,6 +1709,77 @@ const ScadenzarioSmart = () => {
 
         </div>
       </div>
+
+      {/* Supplier Detail Popup */}
+      {supplierDetail && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setSupplierDetail(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full border border-slate-200" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+              <h3 className="text-lg font-semibold text-slate-900 flex items-center gap-2">
+                <Building2 className="w-5 h-5 text-indigo-600" />
+                Dettaglio Fornitore
+              </h3>
+              <button onClick={() => setSupplierDetail(null)} className="p-1 rounded-lg hover:bg-slate-100 text-slate-400">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-6 space-y-3">
+              <div>
+                <div className="text-xs font-medium text-slate-500 uppercase tracking-wide">Ragione Sociale</div>
+                <div className="text-base font-semibold text-slate-900 mt-0.5">{supplierDetail.ragione_sociale || supplierDetail.name || '—'}</div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <div className="text-xs font-medium text-slate-500 uppercase tracking-wide">P.IVA</div>
+                  <div className="text-sm font-mono text-slate-800 mt-0.5">{supplierDetail.partita_iva || '—'}</div>
+                </div>
+                <div>
+                  <div className="text-xs font-medium text-slate-500 uppercase tracking-wide">Codice Fiscale</div>
+                  <div className="text-sm font-mono text-slate-800 mt-0.5">{supplierDetail.codice_fiscale || '—'}</div>
+                </div>
+              </div>
+              <div>
+                <div className="text-xs font-medium text-slate-500 uppercase tracking-wide">IBAN</div>
+                <div className="text-sm font-mono text-slate-800 mt-0.5">{supplierDetail.iban || '—'}</div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <div className="text-xs font-medium text-slate-500 uppercase tracking-wide">Email</div>
+                  <div className="text-sm text-slate-800 mt-0.5">{supplierDetail.email || '—'}</div>
+                </div>
+                <div>
+                  <div className="text-xs font-medium text-slate-500 uppercase tracking-wide">Telefono</div>
+                  <div className="text-sm text-slate-800 mt-0.5">{supplierDetail.telefono || '—'}</div>
+                </div>
+              </div>
+              {supplierDetail.indirizzo && (
+                <div>
+                  <div className="text-xs font-medium text-slate-500 uppercase tracking-wide">Indirizzo</div>
+                  <div className="text-sm text-slate-800 mt-0.5">{supplierDetail.indirizzo}</div>
+                </div>
+              )}
+              {supplierDetail.category && (
+                <div>
+                  <div className="text-xs font-medium text-slate-500 uppercase tracking-wide">Categoria</div>
+                  <div className="text-sm text-slate-800 mt-0.5 capitalize">{supplierDetail.category}</div>
+                </div>
+              )}
+              {supplierDetail.note && (
+                <div>
+                  <div className="text-xs font-medium text-slate-500 uppercase tracking-wide">Note</div>
+                  <div className="text-sm text-slate-600 mt-0.5">{supplierDetail.note}</div>
+                </div>
+              )}
+            </div>
+            <div className="border-t border-slate-100 px-6 py-3 flex justify-end">
+              <button onClick={() => setSupplierDetail(null)}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 rounded-lg text-sm font-medium transition">
+                Chiudi
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
             {/* Email Config Modal */}
             {showEmailConfig && (
