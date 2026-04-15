@@ -576,24 +576,51 @@ const ScadenzarioSmart = () => {
           fornitore: payable.suppliers?.ragione_sociale || payable.suppliers?.name || 'N/A',
           fattura: payable.invoice_number,
           importo: plan.amount,
+          bankId: plan.bankId,
           banca: bank?.bank_name || 'N/D',
           iban: bank?.iban || '',
           tipo: plan.type === 'saldo' ? 'SALDO' : 'PARZIALE',
+          metodo: paymentMethodLabels[payable.payment_method] || '',
           note: plan.note || '',
         });
       }
 
-      const bankTotals = {};
+      // Raggruppa per banca con saldi prima/dopo
+      const bankMap = {};
       results.forEach(r => {
-        bankTotals[r.banca] = (bankTotals[r.banca] || 0) + r.importo;
+        if (!bankMap[r.bankId]) {
+          const ba = bankAccounts.find(b => b.id === r.bankId);
+          bankMap[r.bankId] = {
+            bankName: r.banca,
+            iban: ba?.iban || '',
+            saldoIniziale: ba?.current_balance || 0,
+            totalePagamenti: 0,
+            pagamenti: [],
+          };
+        }
+        bankMap[r.bankId].totalePagamenti += r.importo;
+        bankMap[r.bankId].pagamenti.push(r);
       });
+      // Calcola saldo finale per banca
+      Object.values(bankMap).forEach(b => {
+        b.saldoFinale = b.saldoIniziale - b.totalePagamenti;
+      });
+      const banks = Object.values(bankMap);
+      const totaleComplessivo = results.reduce((s, r) => s + r.importo, 0);
+      const dataStr = new Date().toLocaleDateString('it-IT');
 
-      const emailBody = `RIEPILOGO PAGAMENTI - ${new Date().toLocaleDateString('it-IT')}\n\n` +
-        results.map((r, i) => `${i+1}. ${r.fornitore}\n   Fattura: ${r.fattura} | ${r.tipo} | ${fmt(r.importo)} €\n   Banca: ${r.banca}${r.note ? '\n   Note: ' + r.note : ''}`).join('\n\n') +
-        `\n\n--- TOTALI PER BANCA ---\n${Object.entries(bankTotals).map(([b, t]) => `${b}: ${fmt(t)} €`).join('\n')}` +
-        `\n\nTOTALE COMPLESSIVO: ${fmt(results.reduce((s,r) => s + r.importo, 0))} €`;
+      // Costruisci email strutturata
+      const emailSubject = `Disposizione pagamenti fornitori - ${dataStr}`;
+      const emailBody = `Buongiorno,\n\ndi seguito la disposizione dei pagamenti fornitori da eseguire in data odierna (${dataStr}).\n\n` +
+        banks.map(b => {
+          const header = `═══ ${b.bankName} ═══\nIBAN: ${b.iban}\nSaldo attuale: ${fmt(b.saldoIniziale)} €\n`;
+          const rows = b.pagamenti.map((r, i) => `  ${i+1}. ${r.fornitore}\n     Fattura: ${r.fattura} | ${r.tipo} | Importo: ${fmt(r.importo)} €${r.metodo ? '\n     Metodo: ' + r.metodo : ''}${r.note ? '\n     Note: ' + r.note : ''}`).join('\n');
+          const footer = `\n  Totale banca: ${fmt(b.totalePagamenti)} €\n  Saldo residuo stimato: ${fmt(b.saldoFinale)} €`;
+          return header + rows + footer;
+        }).join('\n\n') +
+        `\n\n${'─'.repeat(40)}\nTOTALE COMPLESSIVO: ${fmt(totaleComplessivo)} €\nNumero operazioni: ${results.length}\n\nCordiali saluti`;
 
-      setConfirmResult({ results, emailBody });
+      setConfirmResult({ results, banks, totaleComplessivo, emailBody, emailSubject });
       setSelectedIds(new Set());
       setPaymentPlan({});
       setIsSaving(false);
@@ -1233,23 +1260,118 @@ const ScadenzarioSmart = () => {
       {/* Confirm Result Modal */}
       {confirmResult && (
         <Modal open={true} onClose={() => { setConfirmResult(null); fetchData(); }} title="Pagamenti Confermati" wide>
-          <div className="space-y-3">
-            <div className="p-3 bg-emerald-50 rounded-lg border border-emerald-200">
-              <p className="text-sm font-medium text-emerald-900 flex items-center gap-2">
-                <CheckCircle2 size={16} /> {confirmResult.results.length} pagamenti registrati
+          <div className="space-y-4">
+            {/* Header riepilogo */}
+            <div className="flex items-center justify-between p-3 bg-emerald-50 rounded-xl border border-emerald-200">
+              <p className="text-sm font-semibold text-emerald-800 flex items-center gap-2">
+                <CheckCircle2 size={18} /> {confirmResult.results.length} pagamenti registrati con successo
               </p>
+              <span className="text-lg font-bold text-emerald-700">{fmt(confirmResult.totaleComplessivo)} €</span>
             </div>
-            {emailRecipients && (
-              <div className="p-3 bg-indigo-50 rounded-lg border border-indigo-200">
-                <p className="text-xs text-indigo-600 font-medium">Destinatari: {emailRecipients}</p>
+
+            {/* Dettaglio per banca */}
+            {confirmResult.banks.map((bank, bIdx) => {
+              const bankColors = [
+                { bg: 'bg-blue-50', border: 'border-blue-200', text: 'text-blue-700', accent: 'text-blue-600', bar: 'bg-blue-500' },
+                { bg: 'bg-emerald-50', border: 'border-emerald-200', text: 'text-emerald-700', accent: 'text-emerald-600', bar: 'bg-emerald-500' },
+                { bg: 'bg-purple-50', border: 'border-purple-200', text: 'text-purple-700', accent: 'text-purple-600', bar: 'bg-purple-500' },
+                { bg: 'bg-amber-50', border: 'border-amber-200', text: 'text-amber-700', accent: 'text-amber-600', bar: 'bg-amber-500' },
+                { bg: 'bg-rose-50', border: 'border-rose-200', text: 'text-rose-700', accent: 'text-rose-600', bar: 'bg-rose-500' },
+                { bg: 'bg-cyan-50', border: 'border-cyan-200', text: 'text-cyan-700', accent: 'text-cyan-600', bar: 'bg-cyan-500' },
+              ];
+              const c = bank.saldoFinale < 0
+                ? { bg: 'bg-red-50', border: 'border-red-300', text: 'text-red-700', accent: 'text-red-600', bar: 'bg-red-500' }
+                : bankColors[bIdx % bankColors.length];
+
+              return (
+                <div key={bIdx} className={`rounded-xl border ${c.border} overflow-hidden`}>
+                  {/* Intestazione banca */}
+                  <div className={`${c.bg} px-4 py-3 flex items-center justify-between`}>
+                    <div className="flex items-center gap-2">
+                      <Landmark size={16} className={c.text} />
+                      <div>
+                        <div className={`text-sm font-bold ${c.text}`}>{bank.bankName}</div>
+                        {bank.iban && <div className="text-xs text-slate-500 font-mono">{bank.iban}</div>}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-xs text-slate-500">Totale disposto</div>
+                      <div className={`text-base font-bold ${c.text}`}>{fmt(bank.totalePagamenti)} €</div>
+                    </div>
+                  </div>
+
+                  {/* Saldi banca */}
+                  <div className="px-4 py-2 bg-white border-b border-slate-100 flex items-center gap-6">
+                    <div className="flex items-center gap-2">
+                      <div className="text-xs text-slate-500">Saldo prima:</div>
+                      <div className="text-sm font-semibold text-slate-700">{fmt(bank.saldoIniziale)} €</div>
+                    </div>
+                    <ChevronRight size={14} className="text-slate-300" />
+                    <div className="flex items-center gap-2">
+                      <div className="text-xs text-slate-500">Saldo dopo:</div>
+                      <div className={`text-sm font-semibold ${bank.saldoFinale < 0 ? 'text-red-600' : 'text-emerald-600'}`}>{fmt(bank.saldoFinale)} €</div>
+                    </div>
+                    {/* Barra progresso saldo */}
+                    <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
+                      <div className={`h-full ${c.bar} rounded-full transition-all`} style={{ width: `${Math.max(0, Math.min(100, (bank.saldoFinale / bank.saldoIniziale) * 100))}%` }} />
+                    </div>
+                  </div>
+
+                  {/* Lista pagamenti */}
+                  <div className="divide-y divide-slate-50">
+                    {bank.pagamenti.map((p, pIdx) => (
+                      <div key={pIdx} className="px-4 py-2.5 flex items-center justify-between bg-white hover:bg-slate-50/50">
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-medium text-slate-800 truncate">{p.fornitore}</div>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <span className="text-xs text-slate-500">Fatt. {p.fattura}</span>
+                            {p.metodo && <span className="text-xs text-slate-400">• {p.metodo}</span>}
+                            <span className={`text-xs px-1.5 py-0.5 rounded ${p.tipo === 'SALDO' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{p.tipo}</span>
+                          </div>
+                        </div>
+                        <div className="text-sm font-bold text-slate-900 ml-4">{fmt(p.importo)} €</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+
+            {/* Totale complessivo */}
+            <div className="flex items-center justify-between p-3 bg-slate-100 rounded-xl">
+              <span className="text-sm font-semibold text-slate-700">Totale complessivo</span>
+              <span className="text-lg font-bold text-slate-900">{fmt(confirmResult.totaleComplessivo)} €</span>
+            </div>
+
+            {/* Azioni email */}
+            <div className="border border-slate-200 rounded-xl overflow-hidden">
+              <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Send size={14} className="text-indigo-600" />
+                  <span className="text-sm font-semibold text-slate-700">Disposizione pagamenti via email</span>
+                </div>
+                {emailRecipients && <span className="text-xs text-slate-500">A: {emailRecipients}</span>}
               </div>
-            )}
-            <textarea readOnly value={confirmResult.emailBody} rows={12}
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs font-mono bg-slate-50" />
-            <button onClick={() => navigator.clipboard.writeText(confirmResult.emailBody)}
-              className="w-full py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 flex items-center justify-center gap-2">
-              <Download size={14} /> Copia Riepilogo
-            </button>
+              <div className="p-3">
+                <textarea readOnly value={confirmResult.emailBody} rows={8}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs font-mono bg-slate-50 mb-3" />
+                <div className="flex gap-2">
+                  <button onClick={() => navigator.clipboard.writeText(confirmResult.emailBody)}
+                    className="flex-1 py-2.5 bg-slate-200 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-300 flex items-center justify-center gap-2">
+                    <Download size={14} /> Copia testo
+                  </button>
+                  <button onClick={() => {
+                    const to = emailRecipients || '';
+                    const subject = encodeURIComponent(confirmResult.emailSubject);
+                    const body = encodeURIComponent(confirmResult.emailBody);
+                    window.open(`mailto:${to}?subject=${subject}&body=${body}`, '_blank');
+                  }}
+                    className="flex-1 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 flex items-center justify-center gap-2">
+                    <Send size={14} /> Apri nella posta
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         </Modal>
       )}
