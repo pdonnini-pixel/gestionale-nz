@@ -1425,10 +1425,10 @@ function SezioneRiconciliazione({ companyId, accounts }) {
                           {fmtEuro(item.movement?.amount)}
                         </td>
                         <td className="py-2 px-4 text-center"><Link2 size={14} className="text-emerald-500 mx-auto" /></td>
-                        <td className="py-2 px-4 text-slate-700">{item.payable?.supplier_name || '—'}</td>
+                        <td className="py-2 px-4 text-slate-700">{item.payable?.suppliers?.ragione_sociale || item.payable?.suppliers?.name || item.payable?.supplier_name || '—'}</td>
                         <td className="py-2 px-4 text-slate-500 text-xs">{item.payable?.invoice_number || '—'}</td>
                         <td className="py-2 px-4 text-right font-medium text-slate-700 whitespace-nowrap">
-                          {fmtEuro(item.payable?.total_amount)}
+                          {fmtEuro(item.payable?.gross_amount || item.payable?.total_amount)}
                         </td>
                         <td className="py-2 px-4 text-center">
                           <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
@@ -1438,7 +1438,7 @@ function SezioneRiconciliazione({ companyId, accounts }) {
                           </span>
                         </td>
                         <td className="py-2 px-4 text-center">
-                          <span className="text-xs font-medium text-emerald-700">{item.confidence != null ? `${item.confidence}%` : '—'}</span>
+                          <span className="text-xs font-medium text-emerald-700">{(item.score || item.confidence) != null ? `${item.score || item.confidence}%` : '—'}</span>
                         </td>
                         <td className="py-2 px-4 text-center">
                           <button
@@ -1489,7 +1489,7 @@ function SezioneRiconciliazione({ companyId, accounts }) {
                   </thead>
                   <tbody>
                     {paginate(reconData.suggested, suggestedPage).map((item, i) => {
-                      const conf = item.confidence || 0
+                      const conf = item.score || item.confidence || 0
                       return (
                         <tr key={item.movement?.id || i} className="border-b border-slate-50 hover:bg-slate-50/50 transition">
                           <td className="py-2 px-4 text-slate-600 whitespace-nowrap border-l-4 border-l-amber-500">
@@ -1502,10 +1502,10 @@ function SezioneRiconciliazione({ companyId, accounts }) {
                             {fmtEuro(item.movement?.amount)}
                           </td>
                           <td className="py-2 px-4 text-center"><ArrowLeftRight size={14} className="text-amber-500 mx-auto" /></td>
-                          <td className="py-2 px-4 text-slate-700">{item.payable?.supplier_name || '—'}</td>
+                          <td className="py-2 px-4 text-slate-700">{item.payable?.suppliers?.ragione_sociale || item.payable?.suppliers?.name || item.payable?.supplier_name || '—'}</td>
                           <td className="py-2 px-4 text-slate-500 text-xs">{item.payable?.invoice_number || '—'}</td>
                           <td className="py-2 px-4 text-right font-medium text-slate-700 whitespace-nowrap">
-                            {fmtEuro(item.payable?.total_amount)}
+                            {fmtEuro(item.payable?.gross_amount || item.payable?.total_amount)}
                           </td>
                           <td className="py-2.5 px-4">
                             <div className="flex items-center gap-2">
@@ -1516,12 +1516,25 @@ function SezioneRiconciliazione({ companyId, accounts }) {
                             </div>
                           </td>
                           <td className="py-2 px-4 text-xs text-slate-500">
-                            {(item.matchReasons || []).map((r, ri) => (
-                              <span key={ri} className="inline-flex items-center px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 mr-1 mb-0.5">
-                                {r}
-                              </span>
-                            ))}
-                            {(!item.matchReasons || item.matchReasons.length === 0) && '—'}
+                            {item.details ? (
+                              <div className="flex flex-wrap gap-1">
+                                {item.details.amountScore > 0 && (
+                                  <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700">
+                                    €{item.details.amountScore}pt {item.details.amountDiff != null ? `(Δ${item.details.amountDiff}€)` : ''}
+                                  </span>
+                                )}
+                                {item.details.nameScore > 0 && (
+                                  <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-blue-50 text-blue-700">
+                                    Nome {item.details.nameScore}pt
+                                  </span>
+                                )}
+                                {item.details.dateScore > 0 && (
+                                  <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-purple-50 text-purple-700">
+                                    Data {item.details.dateScore}pt {item.details.daysDiff != null ? `(${item.details.daysDiff}gg)` : ''}
+                                  </span>
+                                )}
+                              </div>
+                            ) : '—'}
                           </td>
                           <td className="py-2 px-4 text-center">
                             <div className="flex items-center justify-center gap-1">
