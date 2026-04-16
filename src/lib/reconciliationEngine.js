@@ -87,7 +87,7 @@ export async function runAutoReconciliation(companyId, bankAccountId = null, opt
     // ── Fetch unpaid payables (or paid but not yet linked to a movement) ──
     const { data: payables, error: payError } = await supabase
       .from('payables')
-      .select('*, suppliers!inner(id, ragione_sociale, name, p_iva)')
+      .select('*, suppliers!inner(id, ragione_sociale, name, partita_iva)')
       .eq('company_id', companyId)
       .or('status.eq.da_pagare,status.eq.in_scadenza,status.eq.scaduto,status.eq.parziale,cash_movement_id.is.null')
       .is('cash_movement_id', null);
@@ -100,7 +100,7 @@ export async function runAutoReconciliation(companyId, bankAccountId = null, opt
     // ── Fetch all suppliers for name matching ──
     const { data: suppliers } = await supabase
       .from('suppliers')
-      .select('id, ragione_sociale, name, p_iva')
+      .select('id, ragione_sociale, name, partita_iva')
       .eq('company_id', companyId);
 
     const supplierMap = {};

@@ -1125,7 +1125,9 @@ function SezioneRiconciliazione({ companyId, accounts }) {
         unmatched: (result.unmatched || []).length,
       })
       if (result.errors && result.errors.length > 0) {
-        setError(`Completato con ${result.errors.length} errori`)
+        const errMsgs = result.errors.map(e => e.message || JSON.stringify(e)).join('; ')
+        setError(`Completato con ${result.errors.length} errori: ${errMsgs}`)
+        console.error('Reconciliation errors:', result.errors)
       }
       // Reset pagination
       setReconciledPage(1)
