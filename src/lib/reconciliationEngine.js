@@ -108,6 +108,16 @@ export async function runAutoReconciliation(companyId, bankAccountId = null, opt
       supplierMap[s.id] = s;
     }
 
+    // ── Fetch rejected pairs (operator explicitly said "no match") ──
+    const { data: rejectedPairs } = await supabase
+      .from('reconciliation_rejected_pairs')
+      .select('cash_movement_id, payable_id')
+      .eq('company_id', companyId);
+
+    const rejectedSet = new Set(
+      (rejectedPairs || []).map(r => `${r.cash_movement_id}::${r.payable_id}`)
+    );
+
     // ── Filter out POS incoming movements ──
     const outflowMovements = (movements || []).filter(m => !isPOSMovement(m.description));
 
@@ -126,6 +136,8 @@ export async function runAutoReconciliation(companyId, bankAccountId = null, opt
 
       for (const payable of (payables || [])) {
         if (matchedPayableIds.has(payable.id)) continue;
+        // Skip pairs explicitly rejected by operator
+        if (rejectedSet.has(`${movement.id}::${payable.id}`)) continue;
 
         const supplier = payable.suppliers || supplierMap[payable.supplier_id] || {};
         const payableAmount = payable.amount_remaining != null && payable.amount_remaining > 0
@@ -310,13 +322,23 @@ export async function applyReconciliation(movementId, payableId, matchType = 'ma
       resolvedCompanyId = mov?.company_id;
     }
 
-    // ── Update payable: link to movement ──
+    // ── Fetch current payable status before changing ──
+    const { data: currentPayable } = await supabase
+      .from('payables')
+      .select('status')
+      .eq('id', payableId)
+      .single();
+
+    const previousStatus = currentPayable?.status || 'da_pagare';
+
+    // ── Update payable: link to movement, save previous status ──
     const { error: payError } = await supabase
       .from('payables')
       .update({
         cash_movement_id: movementId,
         payment_date: now.split('T')[0],
         status: 'pagato',
+        previous_status: previousStatus,
       })
       .eq('id', payableId);
 
@@ -348,6 +370,8 @@ export async function applyReconciliation(movementId, payableId, matchType = 'ma
         performed_by: performedBy,
         performed_at: now,
         notes: notes || `Riconciliazione ${matchType}`,
+        previous_payable_status: previousStatus,
+        new_payable_status: 'pagato',
       });
 
     if (logError) {
@@ -389,13 +413,25 @@ export async function undoReconciliation(movementId, payableId, options = {}) {
       resolvedCompanyId = mov?.company_id;
     }
 
-    // ── Clear payable link ──
+    // ── Fetch payable to restore original status ──
+    const { data: currentPayable } = await supabase
+      .from('payables')
+      .select('status, previous_status')
+      .eq('id', payableId)
+      .single();
+
+    const currentStatus = currentPayable?.status || 'pagato';
+    // Restore to previous_status if available, otherwise fallback to da_pagare
+    const restoredStatus = currentPayable?.previous_status || 'da_pagare';
+
+    // ── Clear payable link and restore original status ──
     const { error: payError } = await supabase
       .from('payables')
       .update({
         cash_movement_id: null,
         payment_date: null,
-        status: 'da_pagare',
+        status: restoredStatus,
+        previous_status: null,
       })
       .eq('id', payableId);
 
@@ -427,6 +463,8 @@ export async function undoReconciliation(movementId, payableId, options = {}) {
         performed_by: performedBy,
         performed_at: now,
         notes: notes || 'Riconciliazione annullata',
+        previous_payable_status: currentStatus,
+        new_payable_status: restoredStatus,
       });
 
     if (logError) {
@@ -617,13 +655,23 @@ export async function applyBatchReconciliation(movementId, payableIds, options =
 async function writeReconciliation(movementId, payableId, companyId, matchType, score, details, performedBy) {
   const now = new Date().toISOString();
 
-  // Update payable
+  // Fetch current payable status BEFORE changing it (for audit + restore)
+  const { data: currentPayable } = await supabase
+    .from('payables')
+    .select('status')
+    .eq('id', payableId)
+    .single();
+
+  const previousStatus = currentPayable?.status || 'da_pagare';
+
+  // Update payable — save previous_status for future restore
   const { error: payError } = await supabase
     .from('payables')
     .update({
       cash_movement_id: movementId,
       payment_date: now.split('T')[0],
       status: 'pagato',
+      previous_status: previousStatus,
     })
     .eq('id', payableId);
 
@@ -655,6 +703,8 @@ async function writeReconciliation(movementId, payableId, companyId, matchType, 
       performed_by: performedBy,
       performed_at: now,
       notes: `Riconciliazione automatica (score: ${score})`,
+      previous_payable_status: previousStatus,
+      new_payable_status: 'pagato',
     });
 
   if (logError) {

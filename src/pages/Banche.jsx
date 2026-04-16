@@ -1225,9 +1225,17 @@ function SezioneRiconciliazione({ companyId, accounts }) {
   }
 
   const handleReject = async (movementId, payableId) => {
+    // Confirm with operator
+    const ok = window.confirm(
+      'Rifiuti questo abbinamento?\n\n' +
+      'Il movimento tornerà tra quelli senza match e questa coppia non verrà più proposta in futuro.\n' +
+      'La fattura resta invariata nel suo stato attuale.'
+    )
+    if (!ok) return
+
     setActionLoading(movementId)
     try {
-      // Suggestion was NOT applied — just remove the suggestion log entry, don't undo anything
+      // 1. Remove suggestion log entry
       if (payableId) {
         await supabase
           .from('reconciliation_log')
@@ -1236,7 +1244,17 @@ function SezioneRiconciliazione({ companyId, accounts }) {
           .eq('payable_id', payableId)
           .eq('match_type', 'auto_fuzzy')
       }
-      // Move from suggested to unmatched
+      // 2. Save rejected pair so engine won't re-suggest it
+      if (payableId) {
+        await supabase
+          .from('reconciliation_rejected_pairs')
+          .upsert({
+            company_id: companyId,
+            cash_movement_id: movementId,
+            payable_id: payableId,
+          }, { onConflict: 'cash_movement_id,payable_id' })
+      }
+      // 3. Move from suggested to unmatched
       setReconData(prev => {
         const item = prev.suggested.find(s => s.movement?.id === movementId)
         return {
@@ -1254,18 +1272,34 @@ function SezioneRiconciliazione({ companyId, accounts }) {
   }
 
   const handleUnlink = async (movementId, payableId) => {
+    // Find the item to show details in the confirmation
+    const item = reconData.reconciled.find(r => r.movement?.id === movementId)
+    const supplierName = item?.payable?.suppliers?.ragione_sociale || item?.payable?.suppliers?.name || 'fornitore'
+    const invoiceNum = item?.payable?.invoice_number || ''
+    const amount = item?.movement?.amount ? `€${Math.abs(item.movement.amount).toFixed(2)}` : ''
+
+    const ok = window.confirm(
+      `Stai scollegando questo movimento dalla fattura ${invoiceNum} di ${supplierName} per ${amount}.\n\n` +
+      `La fattura tornerà allo stato precedente la riconciliazione e il movimento dovrà essere riabbinato.\n` +
+      `L'operazione verrà registrata nel log di audit.\n\n` +
+      `Continuare?`
+    )
+    if (!ok) return
+
     setActionLoading(movementId)
     try {
       await undoReconciliation(movementId, payableId)
+      // Scollega → move to "Da Confermare" (not Senza Match)
+      // The movement exists and was already matched — operator just says "wrong match"
       setReconData(prev => {
         const item = prev.reconciled.find(r => r.movement?.id === movementId)
         return {
           ...prev,
           reconciled: prev.reconciled.filter(r => r.movement?.id !== movementId),
-          unmatched: item ? [...prev.unmatched, { movement: item.movement }] : prev.unmatched,
+          suggested: item ? [...prev.suggested, { ...item, matchType: 'da_rivedere', score: 0 }] : prev.suggested,
         }
       })
-      setStats(prev => ({ ...prev, reconciled: prev.reconciled - 1, unmatched: prev.unmatched + 1 }))
+      setStats(prev => ({ ...prev, reconciled: prev.reconciled - 1, suggested: prev.suggested + 1 }))
     } catch (err) {
       alert('Errore: ' + (err.message || 'Impossibile scollegare'))
     } finally {
