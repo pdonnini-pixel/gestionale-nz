@@ -1,9 +1,9 @@
 import { useState, useMemo, useEffect } from 'react';
 import {
-  AreaChart, Area, BarChart, Bar, ComposedChart, XAxis, YAxis,
-  CartesianGrid, Tooltip, Legend, ResponsiveContainer
+  AreaChart, Area, BarChart, Bar, ComposedChart, Line, XAxis, YAxis,
+  CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine
 } from 'recharts';
-import { AlertTriangle, TrendingDown, TrendingUp, Wallet } from 'lucide-react';
+import { AlertTriangle, TrendingDown, TrendingUp, Wallet, CheckCircle, Clock } from 'lucide-react';
 import { GlassTooltip, AXIS_STYLE, GRID_STYLE, BAR_RADIUS, ModernLegend, fmtEuro, fmtK } from '../components/ChartTheme';
 import { useAuth } from '../hooks/useAuth';
 import { supabase } from '../lib/supabase';
@@ -36,6 +36,9 @@ export default function CashFlow() {
   const [fixedCosts, setFixedCosts] = useState({});
   const [loanPayment, setLoanPayment] = useState(0);
   const [seasonalFactors, setSeasonalFactors] = useState(DEFAULT_SEASONAL_FACTORS);
+
+  // State for actual (consuntivo) weekly data from cash_movements
+  const [actualWeeklyData, setActualWeeklyData] = useState([]);
 
   // Fetch data from Supabase
   useEffect(() => {
@@ -141,6 +144,59 @@ export default function CashFlow() {
           }
 
           setSeasonalFactors(newSeasonalFactors);
+        }
+
+        // 6. Fetch actual weekly data from cash_movements (last 13 weeks)
+        const { data: actualData, error: actualError } = await supabase
+          .rpc('get_weekly_cash_movements', { p_company_id: COMPANY_ID })
+          .select('*');
+
+        // If RPC doesn't exist, fall back to direct query
+        if (actualError) {
+          // Try direct query on cash_movements
+          const { data: rawMovements, error: rawError } = await supabase
+            .from('cash_movements')
+            .select('date, type, amount')
+            .eq('company_id', COMPANY_ID)
+            .gte('date', new Date(Date.now() - 91 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10))
+            .order('date', { ascending: true });
+
+          if (!rawError && rawMovements && rawMovements.length > 0) {
+            // Group by ISO week manually
+            const weekMap = {};
+            rawMovements.forEach(m => {
+              const d = new Date(m.date);
+              // Get Monday of the week
+              const day = d.getDay();
+              const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+              const monday = new Date(d);
+              monday.setDate(diff);
+              const weekKey = monday.toISOString().slice(0, 10);
+
+              if (!weekMap[weekKey]) {
+                weekMap[weekKey] = { week: weekKey, entrate: 0, uscite: 0, netto: 0 };
+              }
+              if (m.type === 'entrata') {
+                weekMap[weekKey].entrate += Math.abs(m.amount || 0);
+              } else {
+                weekMap[weekKey].uscite += Math.abs(m.amount || 0);
+              }
+            });
+
+            // Calculate netto
+            Object.values(weekMap).forEach(w => {
+              w.netto = w.entrate - w.uscite;
+            });
+
+            const sorted = Object.values(weekMap).sort((a, b) => a.week.localeCompare(b.week));
+            setActualWeeklyData(sorted);
+          } else {
+            setActualWeeklyData([]);
+          }
+        } else if (actualData && actualData.length > 0) {
+          setActualWeeklyData(actualData);
+        } else {
+          setActualWeeklyData([]);
         }
 
         setLoading(false);
@@ -254,6 +310,43 @@ export default function CashFlow() {
 
     return Object.values(summary);
   }, [weeklyData, initialBalance]);
+
+  // Combine actual (consuntivo) + forecast data for the unified chart
+  const combinedChartData = useMemo(() => {
+    const today = new Date();
+    const todayStr = today.toISOString().slice(0, 10);
+
+    // Format actual weeks
+    const actualFormatted = actualWeeklyData.map((w, idx) => {
+      const weekDate = new Date(w.week);
+      return {
+        label: weekDate.toLocaleDateString('it-IT', { day: 'numeric', month: 'short' }),
+        tipo: 'Consuntivo',
+        entrate_reali: Math.round(w.entrate),
+        uscite_reali: Math.round(w.uscite),
+        netto_reale: Math.round(w.netto),
+        entrate_previste: null,
+        uscite_previste: null,
+        saldo_finale: null,
+        sortKey: w.week
+      };
+    });
+
+    // Format forecast weeks
+    const forecastFormatted = weeklyData.map(w => ({
+      label: w.weekStart,
+      tipo: 'Previsione',
+      entrate_reali: null,
+      uscite_reali: null,
+      netto_reale: null,
+      entrate_previste: w.entrate_previste,
+      uscite_previste: w.uscite_totali,
+      saldo_finale: w.saldo_finale,
+      sortKey: `2026-${String(w.month).padStart(2, '0')}-${String(w.week).padStart(2, '0')}`
+    }));
+
+    return [...actualFormatted, ...forecastFormatted];
+  }, [actualWeeklyData, weeklyData]);
 
   const hasWarnings = weeklyData.some(w => w.warning);
 
@@ -468,9 +561,114 @@ export default function CashFlow() {
           </ResponsiveContainer>
         </div>
 
+        {/* Combined Consuntivo + Previsione Chart */}
+        {actualWeeklyData.length > 0 && (
+          <div className="rounded-2xl shadow-lg p-6 mb-8" style={{ background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)', border: '1px solid rgba(99,102,241,0.08)' }}>
+            <h2 className="text-lg font-semibold text-slate-900 mb-1">Consuntivo vs Previsione</h2>
+            <p className="text-sm text-slate-500 mb-4">Dati reali (ultime 13 settimane) e previsioni a confronto</p>
+            <ResponsiveContainer width="100%" height={350}>
+              <ComposedChart data={combinedChartData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="grad-entrate-reali" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#059669" stopOpacity={1} />
+                    <stop offset="100%" stopColor="#059669" stopOpacity={0.6} />
+                  </linearGradient>
+                  <linearGradient id="grad-uscite-reali" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#dc2626" stopOpacity={1} />
+                    <stop offset="100%" stopColor="#dc2626" stopOpacity={0.6} />
+                  </linearGradient>
+                  <linearGradient id="grad-entrate-prev" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#10b981" stopOpacity={0.6} />
+                    <stop offset="100%" stopColor="#10b981" stopOpacity={0.2} />
+                  </linearGradient>
+                  <linearGradient id="grad-uscite-prev" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#ef4444" stopOpacity={0.6} />
+                    <stop offset="100%" stopColor="#ef4444" stopOpacity={0.2} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid {...GRID_STYLE} />
+                <XAxis dataKey="label" {...AXIS_STYLE} />
+                <YAxis {...AXIS_STYLE} />
+                <Tooltip content={<GlassTooltip formatter={fmtEuro} />} cursor={{ fill: 'rgba(99,102,241,0.04)', radius: 8 }} />
+                <Legend content={<ModernLegend />} />
+                <Bar dataKey="entrate_reali" fill="url(#grad-entrate-reali)" name="Entrate Reali" radius={[6, 6, 0, 0]} animationDuration={800} />
+                <Bar dataKey="uscite_reali" fill="url(#grad-uscite-reali)" name="Uscite Reali" radius={[6, 6, 0, 0]} animationDuration={800} />
+                <Bar dataKey="entrate_previste" fill="url(#grad-entrate-prev)" name="Entrate Previste" radius={[6, 6, 0, 0]} animationDuration={800} />
+                <Bar dataKey="uscite_previste" fill="url(#grad-uscite-prev)" name="Uscite Previste" radius={[6, 6, 0, 0]} animationDuration={800} />
+              </ComposedChart>
+            </ResponsiveContainer>
+            <div className="flex items-center gap-6 justify-center mt-3 text-xs text-slate-500">
+              <span className="flex items-center gap-1"><CheckCircle size={14} className="text-emerald-700" /> Consuntivo (dati reali)</span>
+              <span className="flex items-center gap-1"><Clock size={14} className="text-emerald-400" /> Previsione (stima)</span>
+            </div>
+          </div>
+        )}
+
+        {/* Consuntivo Table - Actual Past Weeks */}
+        {actualWeeklyData.length > 0 && (
+          <div className="rounded-2xl shadow-lg p-6 mb-8" style={{ background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)', border: '1px solid rgba(99,102,241,0.08)' }}>
+            <div className="flex items-center gap-2 mb-4">
+              <CheckCircle className="text-emerald-600" size={20} />
+              <h2 className="text-lg font-semibold text-slate-900">Consuntivo Settimanale (Dati Reali)</h2>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200 bg-emerald-50">
+                    <th className="px-4 py-3 text-left font-semibold text-slate-700">Settimana</th>
+                    <th className="px-4 py-3 text-right font-semibold text-green-700">Entrate</th>
+                    <th className="px-4 py-3 text-right font-semibold text-red-700">Uscite</th>
+                    <th className="px-4 py-3 text-right font-semibold text-slate-700">Flusso Netto</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {actualWeeklyData.map((week, idx) => {
+                    const weekDate = new Date(week.week);
+                    return (
+                      <tr key={idx} className="border-b border-slate-100 hover:bg-slate-50">
+                        <td className="px-4 py-3 font-medium text-slate-900">
+                          {weekDate.toLocaleDateString('it-IT', { day: 'numeric', month: 'short', year: 'numeric' })}
+                        </td>
+                        <td className="px-4 py-3 text-right text-green-600 font-medium">
+                          {fmt(Math.round(week.entrate))}
+                        </td>
+                        <td className="px-4 py-3 text-right text-red-600 font-medium">
+                          {fmt(Math.round(week.uscite))}
+                        </td>
+                        <td className={`px-4 py-3 text-right font-bold ${week.netto >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                          {fmt(Math.round(week.netto))}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                <tfoot>
+                  <tr className="border-t-2 border-slate-300 bg-slate-50">
+                    <td className="px-4 py-3 font-bold text-slate-900">Totale</td>
+                    <td className="px-4 py-3 text-right text-green-600 font-bold">
+                      {fmt(actualWeeklyData.reduce((s, w) => s + w.entrate, 0))}
+                    </td>
+                    <td className="px-4 py-3 text-right text-red-600 font-bold">
+                      {fmt(actualWeeklyData.reduce((s, w) => s + w.uscite, 0))}
+                    </td>
+                    <td className={`px-4 py-3 text-right font-bold ${
+                      actualWeeklyData.reduce((s, w) => s + w.netto, 0) >= 0 ? 'text-green-600' : 'text-red-600'
+                    }`}>
+                      {fmt(actualWeeklyData.reduce((s, w) => s + w.netto, 0))}
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </div>
+        )}
+
         {/* Weekly Detail Table */}
         <div className="rounded-2xl shadow-lg p-6 mb-8" style={{ background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)', border: '1px solid rgba(99,102,241,0.08)' }}>
-          <h2 className="text-lg font-semibold text-slate-900 mb-4">Dettaglio Settimanale</h2>
+          <div className="flex items-center gap-2 mb-4">
+            <Clock className="text-blue-600" size={20} />
+            <h2 className="text-lg font-semibold text-slate-900">Previsione Settimanale</h2>
+          </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>

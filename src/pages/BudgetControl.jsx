@@ -219,6 +219,11 @@ export default function BudgetControl() {
   const [ceRawRicavi, setCeRawRicavi] = useState([])
   const [budgetEntries, setBudgetEntries] = useState([])
 
+  // Cash-basis data from cash_movements
+  const [cashTotals, setCashTotals] = useState({ entrate: 0, uscite: 0, netto: 0, count: 0 })
+  const [cashByMonth, setCashByMonth] = useState({}) // { month: { entrate, uscite } }
+  const [cashLoaded, setCashLoaded] = useState(false)
+
   // BP edits: { outletCode: { accountCode: amount } }
   const [bpEdits, setBpEdits] = useState({})
 
@@ -232,6 +237,51 @@ export default function BudgetControl() {
   const [revMonthly, setRevMonthly] = useState({})    // ricavi previsti mensile
   const [consMonthly, setConsMonthly] = useState({})   // consuntivo mensile
 
+
+  // ─── LOAD CASH MOVEMENTS ─────────────────────────────────
+  const loadCashMovements = async () => {
+    if (!CID) return
+    try {
+      const { data, error } = await supabase
+        .from('cash_movements')
+        .select('id, date, type, amount')
+        .eq('company_id', CID)
+        .gte('date', `${year}-01-01`)
+        .lte('date', `${year}-12-31`)
+        .order('date')
+
+      if (error) throw error
+
+      if (!data || data.length === 0) {
+        setCashTotals({ entrate: 0, uscite: 0, netto: 0, count: 0 })
+        setCashByMonth({})
+        setCashLoaded(true)
+        return
+      }
+
+      let totalEntrate = 0, totalUscite = 0
+      const byMonth = {}
+      data.forEach(row => {
+        const month = new Date(row.date).getMonth() + 1
+        if (!byMonth[month]) byMonth[month] = { entrate: 0, uscite: 0 }
+        const amt = Math.abs(row.amount || 0)
+        if (row.type === 'entrata') {
+          totalEntrate += amt
+          byMonth[month].entrate += amt
+        } else {
+          totalUscite += amt
+          byMonth[month].uscite += amt
+        }
+      })
+
+      setCashTotals({ entrate: totalEntrate, uscite: totalUscite, netto: totalEntrate - totalUscite, count: data.length })
+      setCashByMonth(byMonth)
+      setCashLoaded(true)
+    } catch (err) {
+      console.error('Error loading cash movements:', err)
+      setCashLoaded(true)
+    }
+  }
 
   // ─── LOAD ──────────────────────────────────────────────────
   useEffect(() => { if (CID) loadAll() }, [CID])
@@ -300,6 +350,9 @@ export default function BudgetControl() {
       // Set first outlet with BP data as default for confronto
       const outletCodes = Object.keys(edits).filter(k => k !== 'all' && k !== HQ_CODE)
       if (outletCodes.length > 0 && !confOutlet) setConfOutlet(outletCodes[0])
+
+      // Load cash movements for cassa column
+      await loadCashMovements()
     } catch (err) { console.error(err) } finally { setLoading(false) }
   }
 
@@ -621,6 +674,8 @@ export default function BudgetControl() {
                   costiTree={costiTree}
                   ricaviTree={filterRicaviTree(ricaviTree, confOutlet)}
                   year={year}
+                  cashTotals={cashTotals}
+                  cashLoaded={cashLoaded}
                 />
               )}
               {confOutlet && confView === 'mensile' && (
@@ -1070,7 +1125,7 @@ function ConfrontoRow({ prevNode, consNode, rettNode, depth = 0, consEdits, onCo
    CONFRONTO PANEL — Preventivo | Consuntivo | Rettifica | Scostamento
    Scostamento = Consuntivo + Rettifica - Preventivo
    ═══════════════════════════════════════════════════════════ */
-function ConfrontoPanel({ outletCode, outletLabel, prevEdits, consEdits, onConsEdit, rettEdits, onRettEdit, costiTree, ricaviTree, year }) {
+function ConfrontoPanel({ outletCode, outletLabel, prevEdits, consEdits, onConsEdit, rettEdits, onRettEdit, costiTree, ricaviTree, year, cashTotals, cashLoaded }) {
   const prevC = applyEdits(costiTree, prevEdits)
   const prevR = applyEdits(ricaviTree, prevEdits)
   const consC = applyEditsZero(costiTree, consEdits)
@@ -1088,11 +1143,17 @@ function ConfrontoPanel({ outletCode, outletLabel, prevEdits, consEdits, onConsE
   const scostR = totConsR + totRettR - totPrevR
   const scostTot = (risCons + risRett) - risPrev
 
+  // Cash-basis values
+  const cashNetto = cashTotals?.netto || 0
+  const hasCash = cashLoaded && cashTotals?.count > 0
+
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         <Kpi icon={Lock} label="Risultato preventivo" value={fmtC(risPrev)} color={risPrev>=0?'green':'red'} />
         <Kpi icon={Unlock} label="Consuntivo + Rettifica" value={fmtC(risCons + risRett)} color={(risCons+risRett)>=0?'green':'red'} />
+        <Kpi icon={Target} label="Netto Cassa" value={hasCash ? fmtC(cashNetto) : '—'} color={hasCash ? (cashNetto>=0?'green':'red') : 'amber'}
+          sub={hasCash ? `${cashTotals.count} movimenti bancari` : 'Nessun dato bancario'} />
         <Kpi icon={TrendingDown} label="Δ costi" value={totPrevC>0 ? `${(scostC/totPrevC*100).toFixed(1)}%` : '—'} color={scostC>0?'red':'green'} />
         <Kpi icon={TrendingUp} label="Δ ricavi" value={totPrevR>0 ? `${(scostR/totPrevR*100).toFixed(1)}%` : '—'} color={scostR>=0?'green':'red'} />
       </div>
@@ -1164,17 +1225,90 @@ function ConfrontoPanel({ outletCode, outletLabel, prevEdits, consEdits, onConsE
         </div>
 
         {/* Risultati */}
-        <div className="border-t border-slate-200 px-5 py-3 grid grid-cols-3 gap-4">
+        <div className="border-t border-slate-200 px-5 py-3 grid grid-cols-4 gap-4">
           <div className={`p-3 rounded-lg text-center font-bold text-sm ${risPrev>=0?'bg-indigo-50 text-indigo-700':'bg-red-50 text-red-700'}`}>
-            Preventivo: {risPrev>=0?'Utile':'Perdita'} {fmtC(Math.abs(risPrev))}
+            <div className="text-[10px] font-semibold uppercase tracking-wider opacity-60 mb-1">Budget</div>
+            {risPrev>=0?'Utile':'Perdita'} {fmtC(Math.abs(risPrev))}
           </div>
           <div className={`p-3 rounded-lg text-center font-bold text-sm ${(risCons+risRett)>=0?'bg-emerald-50 text-emerald-700':'bg-red-50 text-red-700'}`}>
-            Cons.+Rett.: {(risCons+risRett)>=0?'Utile':'Perdita'} {fmtC(Math.abs(risCons+risRett))}
+            <div className="text-[10px] font-semibold uppercase tracking-wider opacity-60 mb-1">Consuntivo</div>
+            {(risCons+risRett)>=0?'Utile':'Perdita'} {fmtC(Math.abs(risCons+risRett))}
           </div>
-          <div className={`p-3 rounded-lg text-center font-bold text-sm ${scostTot>=0?'bg-emerald-50 text-emerald-700':'bg-red-50 text-red-700'}`}>
-            Scostamento: {scostTot>=0?'+':''}{fmtC(scostTot)}
+          <div className={`p-3 rounded-lg text-center font-bold text-sm ${hasCash ? (cashNetto>=0?'bg-teal-50 text-teal-700':'bg-red-50 text-red-700') : 'bg-slate-50 text-slate-400'}`}>
+            <div className="text-[10px] font-semibold uppercase tracking-wider opacity-60 mb-1">Cassa</div>
+            {hasCash ? (
+              <>
+                {cashNetto>=0?'Entrate nette':'Uscite nette'} {fmtC(Math.abs(cashNetto))}
+              </>
+            ) : 'Nessun dato bancario importato'}
+          </div>
+          <div className={`p-3 rounded-lg text-center font-bold text-sm ${scostTot>=0?'bg-amber-50 text-amber-700':'bg-red-50 text-red-700'}`}>
+            <div className="text-[10px] font-semibold uppercase tracking-wider opacity-60 mb-1">Varianza</div>
+            {scostTot>=0?'+':''}{fmtC(scostTot)}
           </div>
         </div>
+
+        {/* Variance table: Budget → Consuntivo → Cassa */}
+        {hasCash && (
+          <div className="border-t border-slate-200 px-5 py-3">
+            <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Budget → Consuntivo (competenza) → Cassa</h4>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200 text-[10px] text-slate-400 uppercase tracking-wider">
+                    <th className="py-1.5 px-2 text-left">Voce</th>
+                    <th className="py-1.5 px-2 text-right text-indigo-400">Budget</th>
+                    <th className="py-1.5 px-2 text-right text-emerald-400">Consuntivo</th>
+                    <th className="py-1.5 px-2 text-right text-teal-400">Cassa</th>
+                    <th className="py-1.5 px-2 text-right text-amber-500">Var. Budget→Cassa</th>
+                  </tr>
+                </thead>
+                <tbody className="text-xs">
+                  <tr className="border-b border-slate-50">
+                    <td className="py-1.5 px-2 text-slate-700 font-medium">Entrate / Ricavi</td>
+                    <td className="py-1.5 px-2 text-right tabular-nums text-indigo-600">{fmt(totPrevR)} €</td>
+                    <td className="py-1.5 px-2 text-right tabular-nums text-emerald-600">{fmt(totConsR + totRettR)} €</td>
+                    <td className="py-1.5 px-2 text-right tabular-nums text-teal-600">{fmt(cashTotals.entrate)} €</td>
+                    <td className={`py-1.5 px-2 text-right tabular-nums font-medium ${(cashTotals.entrate - totPrevR) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                      {(cashTotals.entrate - totPrevR) >= 0 ? '+' : ''}{fmt(cashTotals.entrate - totPrevR)} €
+                    </td>
+                  </tr>
+                  <tr className="border-b border-slate-50">
+                    <td className="py-1.5 px-2 text-slate-700 font-medium">Uscite / Costi</td>
+                    <td className="py-1.5 px-2 text-right tabular-nums text-indigo-600">{fmt(totPrevC)} €</td>
+                    <td className="py-1.5 px-2 text-right tabular-nums text-emerald-600">{fmt(totConsC + totRettC)} €</td>
+                    <td className="py-1.5 px-2 text-right tabular-nums text-teal-600">{fmt(cashTotals.uscite)} €</td>
+                    <td className={`py-1.5 px-2 text-right tabular-nums font-medium ${(cashTotals.uscite - totPrevC) <= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                      {(cashTotals.uscite - totPrevC) > 0 ? '+' : ''}{fmt(cashTotals.uscite - totPrevC)} €
+                    </td>
+                  </tr>
+                  <tr className="border-t-2 border-slate-300 font-bold">
+                    <td className="py-2 px-2 text-slate-900">Risultato netto</td>
+                    <td className={`py-2 px-2 text-right tabular-nums ${risPrev>=0?'text-indigo-700':'text-red-700'}`}>{fmt(risPrev)} €</td>
+                    <td className={`py-2 px-2 text-right tabular-nums ${(risCons+risRett)>=0?'text-emerald-700':'text-red-700'}`}>{fmt(risCons+risRett)} €</td>
+                    <td className={`py-2 px-2 text-right tabular-nums ${cashNetto>=0?'text-teal-700':'text-red-700'}`}>{fmt(cashNetto)} €</td>
+                    <td className={`py-2 px-2 text-right tabular-nums ${(cashNetto - risPrev)>=0?'text-emerald-700':'text-red-700'}`}>
+                      {(cashNetto - risPrev) >= 0 ? '+' : ''}{fmt(cashNetto - risPrev)} €
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <p className="text-[10px] text-slate-400 mt-2 text-center">
+              I dati di cassa provengono dai movimenti bancari reali. Le differenze con il consuntivo sono normali (tempistiche incasso/pagamento).
+            </p>
+          </div>
+        )}
+
+        {/* No cash data notice */}
+        {cashLoaded && !hasCash && (
+          <div className="border-t border-slate-200 px-5 py-3">
+            <div className="flex items-center gap-2 p-3 bg-slate-50 rounded-lg">
+              <AlertTriangle size={14} className="text-slate-400 shrink-0" />
+              <p className="text-xs text-slate-500">Nessun dato bancario importato per {year}. Importa i movimenti dalla sezione Banche per visualizzare la colonna Cassa.</p>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )

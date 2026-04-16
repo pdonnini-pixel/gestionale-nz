@@ -136,7 +136,7 @@ export default function Fornitori() {
     payables.forEach(p => {
       const key = p.supplier_id;
       if (!key) return;
-      if (!stats[key]) stats[key] = { total: 0, paid: 0, pending: 0, overdue: 0, count: 0, lastDate: null, grossTotal: 0, methods: new Set() };
+      if (!stats[key]) stats[key] = { total: 0, paid: 0, pending: 0, overdue: 0, count: 0, lastDate: null, grossTotal: 0, methods: new Set(), paidCount: 0, reconciledCount: 0 };
       const gross = parseFloat(p.gross_amount) || 0;
       const remaining = parseFloat(p.amount_remaining) || 0;
       stats[key].grossTotal += gross;
@@ -144,6 +144,8 @@ export default function Fornitori() {
       if (p.payment_method) stats[key].methods.add(p.payment_method);
       if (p.status === 'pagato') {
         stats[key].paid += gross;
+        stats[key].paidCount++;
+        if (p.cash_movement_id) stats[key].reconciledCount++;
       } else if (p.status === 'scaduto') {
         stats[key].overdue += remaining;
         stats[key].pending += remaining;
@@ -479,6 +481,7 @@ export default function Fornitori() {
                   <th className="px-3 py-2.5 text-center text-xs font-semibold text-slate-600">Metodo</th>
                   <th className="px-3 py-2.5 text-right text-xs font-semibold text-slate-600">Fatturato</th>
                   <th className="px-3 py-2.5 text-right text-xs font-semibold text-slate-600">Da pagare</th>
+                  <th className="px-3 py-2.5 text-center text-xs font-semibold text-slate-600">Banca</th>
                   <th className="px-3 py-2.5 text-center text-xs font-semibold text-slate-600 w-20">Azioni</th>
                 </tr>
               </thead>
@@ -487,7 +490,7 @@ export default function Fornitori() {
             {/* Table rows */}
             {filteredSuppliers.length === 0 ? (
               <tr>
-                <td colSpan={7} className="p-12 text-center">
+                <td colSpan={8} className="p-12 text-center">
                   <Building2 className="mx-auto text-slate-300 mb-3" size={48} />
                   <p className="text-slate-500 font-medium">Nessun fornitore trovato</p>
                   <p className="text-slate-400 text-sm mt-1">
@@ -507,7 +510,7 @@ export default function Fornitori() {
                 {filteredSuppliers.map(s => {
                   const name = getName(s);
                   const vat = getVat(s);
-                  const stats = supplierStats[s.id] || { grossTotal: 0, overdue: 0, pending: 0, paid: 0, count: 0, lastDate: null, methods: new Set() };
+                  const stats = supplierStats[s.id] || { grossTotal: 0, overdue: 0, pending: 0, paid: 0, count: 0, lastDate: null, methods: new Set(), paidCount: 0, reconciledCount: 0 };
                   const isExpanded = expandedId === s.id;
                   const pm = s.payment_method || s.default_payment_method;
 
@@ -566,6 +569,27 @@ export default function Fornitori() {
                             <span className="text-xs text-emerald-500 font-medium">Saldato</span>
                           ) : <span className="text-xs text-slate-300">—</span>}
                         </td>
+                        <td className="px-3 py-2.5 text-center">
+                          {stats.paidCount > 0 ? (
+                            <div className="flex items-center justify-center gap-1" title={`${stats.reconciledCount}/${stats.paidCount} pagamenti riconciliati in banca`}>
+                              {stats.reconciledCount === stats.paidCount ? (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-50 text-emerald-700 rounded text-xs font-medium">
+                                  &#x2705; {stats.reconciledCount}/{stats.paidCount}
+                                </span>
+                              ) : stats.reconciledCount > 0 ? (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-50 text-amber-700 rounded text-xs font-medium">
+                                  &#x26A0;&#xFE0F; {stats.reconciledCount}/{stats.paidCount}
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-50 text-amber-600 rounded text-xs font-medium">
+                                  &#x26A0;&#xFE0F; 0/{stats.paidCount}
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-xs text-slate-300">—</span>
+                          )}
+                        </td>
                         <td className="px-2 py-2.5 text-center">
                           <div className="flex items-center justify-center gap-0.5">
                             <button onClick={(e) => { e.stopPropagation(); openEdit(s); }} className="p-1 rounded hover:bg-indigo-50 text-slate-400 hover:text-indigo-600 transition" title="Modifica">
@@ -589,7 +613,7 @@ export default function Fornitori() {
                           : 0;
                         return (
                         <tr className="bg-slate-50/50">
-                          <td colSpan={7} className="px-4 py-4">
+                          <td colSpan={8} className="px-4 py-4">
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
                               {/* Col 1: Anagrafica completa */}
                               <div>
@@ -638,6 +662,9 @@ export default function Fornitori() {
                                   <Detail label="Tot. fatture" value={stats.count || 0} />
                                   <Detail label="Tot. fatturato" value={stats.grossTotal > 0 ? `€ ${stats.grossTotal.toLocaleString('it-IT', { minimumFractionDigits: 2 })}` : '—'} />
                                   <Detail label="Già pagato" value={stats.paid > 0 ? `€ ${stats.paid.toLocaleString('it-IT', { minimumFractionDigits: 2 })}` : '—'} />
+                                  {stats.paidCount > 0 && (
+                                    <Detail label="Riconciliati" value={`${stats.reconciledCount}/${stats.paidCount} in banca`} />
+                                  )}
                                   <Detail label="Da pagare" value={stats.pending > 0 ? `€ ${stats.pending.toLocaleString('it-IT', { minimumFractionDigits: 2 })}` : '—'} />
                                   {stats.overdue > 0 && (
                                     <div className="flex">

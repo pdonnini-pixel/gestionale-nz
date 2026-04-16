@@ -125,6 +125,10 @@ export default function Dashboard() {
   // Costs breakdown
   const [pieCosti, setPieCosti] = useState([])
 
+  // Cash flow trends (weekly)
+  const [cashFlowWeekly, setCashFlowWeekly] = useState([])
+  const [cashFlowTotals, setCashFlowTotals] = useState({ entrate: 0, uscite: 0 })
+
   // Company info
   const [visura, setVisura] = useState({
     denominazione: '—',
@@ -321,6 +325,48 @@ export default function Dashboard() {
             .eq('company_id', COMPANY_ID)
           setLiquidita((cashData || []).reduce((sum, c) => sum + (c.current_balance || 0), 0))
         } catch (e) { console.warn('v_cash_position not available:', e.message) }
+
+        // 5b. Cash flow trends (weekly from cash_movements, last 30 days)
+        try {
+          const thirtyDaysAgo = new Date()
+          thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
+          const fromDate = thirtyDaysAgo.toISOString().split('T')[0]
+
+          const { data: cmData } = await supabase
+            .from('cash_movements')
+            .select('date, type, amount')
+            .eq('company_id', COMPANY_ID)
+            .gte('date', fromDate)
+
+          if (cmData && cmData.length > 0) {
+            // Aggregate by week and type
+            const weekMap = {}
+            let totEntrate = 0, totUscite = 0
+            cmData.forEach(row => {
+              const d = new Date(row.date)
+              // Get Monday of the week
+              const day = d.getDay()
+              const diff = d.getDate() - day + (day === 0 ? -6 : 1)
+              const monday = new Date(d.setDate(diff))
+              const weekKey = monday.toISOString().split('T')[0]
+              if (!weekMap[weekKey]) weekMap[weekKey] = { week: weekKey, entrate: 0, uscite: 0 }
+              const absAmount = Math.abs(parseFloat(row.amount) || 0)
+              if (row.type === 'inflow') {
+                weekMap[weekKey].entrate += absAmount
+                totEntrate += absAmount
+              } else {
+                weekMap[weekKey].uscite += absAmount
+                totUscite += absAmount
+              }
+            })
+            const weeklyData = Object.values(weekMap).sort((a, b) => a.week.localeCompare(b.week))
+            setCashFlowWeekly(weeklyData)
+            setCashFlowTotals({ entrate: totEntrate, uscite: totUscite })
+          } else {
+            setCashFlowWeekly([])
+            setCashFlowTotals({ entrate: 0, uscite: 0 })
+          }
+        } catch (e) { console.warn('cash_movements trends error:', e.message) }
 
         // 6. Loans
         try {
@@ -521,6 +567,81 @@ export default function Dashboard() {
           <div className="text-xs text-slate-400">Media per outlet</div>
           <div className="text-xl font-bold text-slate-700">{fmt(ricavoMedioOutlet)} €</div>
         </div>
+      </div>
+
+      {/* ─── FLUSSO DI CASSA REALE ─── */}
+      <div className="rounded-2xl p-5 shadow-lg" style={{ background: 'linear-gradient(135deg, #ffffff 0%, #f0fdf4 100%)', border: '1px solid rgba(16,185,129,0.12)' }}>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
+            <Wallet size={16} className="text-emerald-500" /> Flusso di Cassa Reale — Ultimi 30 giorni
+          </h2>
+          <Link to="/banche" className="flex items-center gap-1 text-xs text-emerald-600 font-medium hover:text-emerald-800">
+            Dettaglio banche <ArrowRight size={12} />
+          </Link>
+        </div>
+
+        {cashFlowWeekly.length === 0 ? (
+          <div className="flex items-center gap-3 py-6 px-4 bg-slate-50 rounded-xl">
+            <Info size={18} className="text-slate-400 shrink-0" />
+            <p className="text-sm text-slate-500">
+              Importa estratti conto da ImportHub per vedere il flusso di cassa reale
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+            {/* Summary cards */}
+            <div className="space-y-3">
+              <div className="bg-white rounded-xl border border-emerald-100 p-4">
+                <div className="text-xs text-slate-400 mb-1">Totale Entrate</div>
+                <div className="text-xl font-bold text-emerald-600">+{fmt(cashFlowTotals.entrate)} €</div>
+              </div>
+              <div className="bg-white rounded-xl border border-red-100 p-4">
+                <div className="text-xs text-slate-400 mb-1">Totale Uscite</div>
+                <div className="text-xl font-bold text-red-500">-{fmt(cashFlowTotals.uscite)} €</div>
+              </div>
+              <div className="bg-white rounded-xl border border-slate-200 p-4">
+                <div className="text-xs text-slate-400 mb-1">Flusso Netto</div>
+                <div className={`text-xl font-bold ${(cashFlowTotals.entrate - cashFlowTotals.uscite) >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                  {(cashFlowTotals.entrate - cashFlowTotals.uscite) >= 0 ? '+' : ''}{fmt(cashFlowTotals.entrate - cashFlowTotals.uscite)} €
+                </div>
+              </div>
+            </div>
+
+            {/* Weekly bar chart */}
+            <div className="lg:col-span-2">
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart data={cashFlowWeekly} margin={{ top: 10, right: 10, left: 10, bottom: 5 }}>
+                  <defs>
+                    <linearGradient id="grad-entrate" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#10b981" stopOpacity={1} />
+                      <stop offset="100%" stopColor="#10b981" stopOpacity={0.5} />
+                    </linearGradient>
+                    <linearGradient id="grad-uscite" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#ef4444" stopOpacity={1} />
+                      <stop offset="100%" stopColor="#ef4444" stopOpacity={0.5} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid {...GRID_STYLE} />
+                  <XAxis
+                    dataKey="week"
+                    {...AXIS_STYLE}
+                    tickFormatter={v => {
+                      const d = new Date(v)
+                      return d.toLocaleDateString('it-IT', { day: '2-digit', month: 'short' })
+                    }}
+                  />
+                  <YAxis {...AXIS_STYLE} tickFormatter={v => `${(v/1000).toFixed(0)}k`} />
+                  <Tooltip
+                    content={<GlassTooltip suffix="€" />}
+                    cursor={{ fill: 'rgba(16,185,129,0.04)', radius: 8 }}
+                  />
+                  <Bar dataKey="entrate" name="Entrate" fill="url(#grad-entrate)" radius={[6, 6, 0, 0]} />
+                  <Bar dataKey="uscite" name="Uscite" fill="url(#grad-uscite)" radius={[6, 6, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ─── GRAFICI + OUTLET RANKING ─── */}

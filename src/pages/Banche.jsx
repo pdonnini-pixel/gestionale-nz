@@ -736,7 +736,128 @@ function SezioneComposizione({ accounts, totalLiquidity }) {
 }
 
 /* ────────────────────────────────────────
-   Sezione: Movimenti Bancari
+   Sezione: Movimenti Reali (cash_movements)
+   ──────────────────────────────────────── */
+function SezioneMovimentiReali({ movements, accounts, search, loading, onLoadMore, hasMore, selectedAccountId, onSelectAccount }) {
+  const filtered = useMemo(() => {
+    let list = movements || []
+    if (search) {
+      const q = search.toLowerCase()
+      list = list.filter(m =>
+        (m.description || '').toLowerCase().includes(q) ||
+        (m.counterpart || '').toLowerCase().includes(q)
+      )
+    }
+    return list
+  }, [movements, search])
+
+  const getAccountName = (id) => {
+    const acc = accounts.find(a => a.id === id)
+    return acc ? `${acc.bank_name} — ${acc.account_name}` : '—'
+  }
+
+  const fmtDate = (d) => d ? new Date(d).toLocaleDateString('it-IT') : '—'
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <h2 className="text-lg font-semibold text-slate-900 flex items-center gap-2">
+          <ListOrdered size={20} className="text-indigo-600" />
+          Movimenti bancari
+          <span className="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">{filtered.length} operazioni</span>
+        </h2>
+        <div>
+          <select
+            value={selectedAccountId || ''}
+            onChange={e => onSelectAccount(e.target.value || null)}
+            className="px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+          >
+            <option value="">Tutti i conti</option>
+            {accounts.map(a => (
+              <option key={a.id} value={a.id}>{a.bank_name} — {a.account_name}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        {loading ? (
+          <div className="p-12 text-center text-slate-400 text-sm">Caricamento movimenti...</div>
+        ) : filtered.length === 0 ? (
+          <div className="p-12 text-center text-slate-400 text-sm">
+            Nessun movimento trovato. Importare un estratto conto per visualizzare i movimenti.
+          </div>
+        ) : (
+          <>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-100 text-xs text-slate-500 uppercase tracking-wider">
+                    <th className="py-2.5 px-4 text-left font-medium">Data</th>
+                    <th className="py-2.5 px-4 text-left font-medium">Conto</th>
+                    <th className="py-2.5 px-4 text-left font-medium">Descrizione</th>
+                    <th className="py-2.5 px-4 text-center font-medium">Tipo</th>
+                    <th className="py-2.5 px-4 text-right font-medium">Importo</th>
+                    <th className="py-2.5 px-4 text-right font-medium">Saldo</th>
+                    <th className="py-2.5 px-4 text-center font-medium">Riconciliato</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map(m => {
+                    const isEntrata = m.type === 'entrata'
+                    return (
+                      <tr key={m.id} className="border-b border-slate-50 hover:bg-slate-50/50 transition">
+                        <td className="py-2 px-4 text-slate-600 whitespace-nowrap">{fmtDate(m.date)}</td>
+                        <td className="py-2 px-4 text-xs text-slate-500">{getAccountName(m.bank_account_id)}</td>
+                        <td className="py-2 px-4 text-slate-900 max-w-xs truncate" title={m.description || ''}>
+                          {m.description || '—'}
+                          {m.counterpart && <span className="block text-[10px] text-slate-400 truncate">{m.counterpart}</span>}
+                        </td>
+                        <td className="py-2 px-4 text-center">
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+                            isEntrata ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'
+                          }`}>
+                            {isEntrata ? 'Entrata' : 'Uscita'}
+                          </span>
+                        </td>
+                        <td className={`py-2 px-4 text-right font-medium whitespace-nowrap ${isEntrata ? 'text-emerald-600' : 'text-red-600'}`}>
+                          {isEntrata ? '+' : ''}{fmt(m.amount)} €
+                        </td>
+                        <td className="py-2 px-4 text-right font-medium text-slate-700 whitespace-nowrap">
+                          {m.balance_after != null ? `${fmt(m.balance_after)} €` : '—'}
+                        </td>
+                        <td className="py-2 px-4 text-center">
+                          {m.is_reconciled ? (
+                            <Check size={14} className="text-emerald-500 mx-auto" />
+                          ) : (
+                            <span className="text-slate-300">—</span>
+                          )}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+            {hasMore && (
+              <div className="p-3 text-center border-t border-slate-100">
+                <button
+                  onClick={onLoadMore}
+                  className="px-4 py-2 text-sm font-medium text-blue-600 hover:bg-blue-50 rounded-lg transition"
+                >
+                  Carica altri movimenti...
+                </button>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/* ────────────────────────────────────────
+   Sezione: Movimenti Bancari (legacy bank_transactions)
    ──────────────────────────────────────── */
 function SezioneMovimenti({ transactions, accounts, suppliers, search }) {
   const filtered = useMemo(() => {
@@ -1048,6 +1169,11 @@ export default function Banche() {
   const [accounts, setAccounts] = useState([])
   const [loans, setLoans] = useState([])
   const [transactions, setTransactions] = useState([])
+  const [cashMovements, setCashMovements] = useState([])
+  const [cashMovementsLoading, setCashMovementsLoading] = useState(false)
+  const [cashMovementsHasMore, setCashMovementsHasMore] = useState(true)
+  const [cashMovementsLimit, setCashMovementsLimit] = useState(50)
+  const [cashMovementsAccountFilter, setCashMovementsAccountFilter] = useState(null)
   const [payableActions, setPayableActions] = useState([])
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
@@ -1061,6 +1187,34 @@ export default function Banche() {
     if (!COMPANY_ID) return;
     loadData()
   }, [COMPANY_ID])
+
+  const loadCashMovements = async (limit = 50, accountId = null) => {
+    try {
+      setCashMovementsLoading(true)
+      let query = supabase
+        .from('cash_movements')
+        .select('*')
+        .eq('company_id', COMPANY_ID)
+        .order('date', { ascending: false })
+        .limit(limit)
+
+      if (accountId) {
+        query = query.eq('bank_account_id', accountId)
+      }
+
+      const { data, error } = await query
+      if (error) {
+        console.error('Error loading cash_movements:', error)
+      } else {
+        setCashMovements(data || [])
+        setCashMovementsHasMore((data || []).length >= limit)
+      }
+    } catch (error) {
+      console.error('Error loading cash_movements:', error)
+    } finally {
+      setCashMovementsLoading(false)
+    }
+  }
 
   const loadData = async () => {
     try {
@@ -1076,11 +1230,29 @@ export default function Banche() {
       if (loansRes.data) setLoans(loansRes.data)
       if (txRes.data) setTransactions(txRes.data)
       if (actionsRes.data) setPayableActions(actionsRes.data)
+
+      // Also load cash_movements (real bank data)
+      await loadCashMovements(cashMovementsLimit, cashMovementsAccountFilter)
     } catch (error) {
       console.error('Error loading data:', error)
     } finally {
       setLoading(false)
     }
+  }
+
+  // Reload cash_movements when filter or limit changes
+  useEffect(() => {
+    if (!COMPANY_ID) return
+    loadCashMovements(cashMovementsLimit, cashMovementsAccountFilter)
+  }, [cashMovementsLimit, cashMovementsAccountFilter])
+
+  const handleCashMovementsLoadMore = () => {
+    setCashMovementsLimit(prev => prev + 50)
+  }
+
+  const handleCashMovementsAccountFilter = (accountId) => {
+    setCashMovementsAccountFilter(accountId)
+    setCashMovementsLimit(50) // reset pagination on filter change
   }
 
   const handleAddEditAccount = (account) => {
@@ -1229,8 +1401,32 @@ export default function Banche() {
       {/* Tab: Movimenti */}
       {activeTab === 'movimenti' && (
         <>
+          {/* Barra di ricerca movimenti */}
+          <div className="relative">
+            <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Cerca per descrizione o controparte..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              className="w-full pl-10 pr-4 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+            />
+          </div>
           <SezioneImport accounts={accounts} onImportComplete={loadData} />
-          <SezioneMovimenti transactions={transactions} accounts={accounts} suppliers={[]} search={search} />
+          <SezioneMovimentiReali
+            movements={cashMovements}
+            accounts={accounts}
+            search={search}
+            loading={cashMovementsLoading}
+            onLoadMore={handleCashMovementsLoadMore}
+            hasMore={cashMovementsHasMore}
+            selectedAccountId={cashMovementsAccountFilter}
+            onSelectAccount={handleCashMovementsAccountFilter}
+          />
+          {/* Legacy bank_transactions — shown only if cash_movements is empty and bank_transactions has data */}
+          {cashMovements.length === 0 && transactions.length > 0 && (
+            <SezioneMovimenti transactions={transactions} accounts={accounts} suppliers={[]} search={search} />
+          )}
         </>
       )}
 

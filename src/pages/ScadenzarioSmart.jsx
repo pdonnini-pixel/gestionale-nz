@@ -234,6 +234,14 @@ const ScadenzarioSmart = () => {
         .from('v_payables_operative')
         .select('*');
 
+      // Fetch cash_movement_id for reconciliation indicators
+      const { data: payablesRaw } = await supabase
+        .from('payables')
+        .select('id, cash_movement_id')
+        .eq('company_id', COMPANY_ID);
+      const cashMovementMap = {};
+      (payablesRaw || []).forEach(p => { cashMovementMap[p.id] = p.cash_movement_id || null; });
+
       const { data: suppliersData } = await supabase
         .from('suppliers')
         .select('*')
@@ -275,6 +283,7 @@ const ScadenzarioSmart = () => {
         last_action_type: row.last_action_type,
         last_action_note: row.last_action_note,
         last_action_date: row.last_action_date,
+        cash_movement_id: cashMovementMap[row.id] || null,
       }));
 
       setPayables(enrichedPayables);
@@ -346,6 +355,11 @@ const ScadenzarioSmart = () => {
 
     const cashShortfall = totalToPay > cashPosition ? totalToPay - cashPosition : 0;
 
+    // Reconciliation: how many paid payables have cash_movement_id
+    const paidPayables = filteredPayables.filter(p => p.status === 'pagato');
+    const reconciledCount = paidPayables.filter(p => p.cash_movement_id).length;
+    const paidCount = paidPayables.length;
+
     return {
       totalDuePending,
       totalOverdue,
@@ -353,6 +367,8 @@ const ScadenzarioSmart = () => {
       totalToPay,
       cashShortfall,
       availableCash: cashPosition,
+      reconciledCount,
+      paidCount,
     };
   }, [filteredPayables, cashPosition, today]);
 
@@ -732,7 +748,7 @@ const ScadenzarioSmart = () => {
       ) : (
         <>
           {/* KPI Cards */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
             <div className="bg-white rounded-xl border border-blue-200 p-4">
               <div className="flex items-center justify-between">
                 <div>
@@ -774,6 +790,20 @@ const ScadenzarioSmart = () => {
               </div>
               {kpis.cashShortfall > 0 && (
                 <div className="mt-2 text-xs text-red-600 font-medium">Deficit: {fmt(kpis.cashShortfall)} €</div>
+              )}
+            </div>
+            <div className={`bg-white rounded-xl border ${kpis.paidCount > 0 && kpis.reconciledCount < kpis.paidCount ? 'border-amber-200' : 'border-emerald-200'} p-4`}>
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="flex items-center gap-1.5 text-xs text-slate-600 font-medium mb-1"><Landmark size={13} /> Riconciliati</div>
+                  <div className="text-xl font-bold text-slate-900">{kpis.reconciledCount}/{kpis.paidCount}</div>
+                </div>
+                <div className={`p-2 rounded-lg ${kpis.paidCount > 0 && kpis.reconciledCount < kpis.paidCount ? 'bg-amber-50' : 'bg-emerald-50'}`}>
+                  <Landmark size={18} className={kpis.paidCount > 0 && kpis.reconciledCount < kpis.paidCount ? 'text-amber-400' : 'text-emerald-400'} />
+                </div>
+              </div>
+              {kpis.paidCount > 0 && kpis.reconciledCount < kpis.paidCount && (
+                <div className="mt-2 text-xs text-amber-600 font-medium">{kpis.paidCount - kpis.reconciledCount} senza mov. banca</div>
               )}
             </div>
           </div>
@@ -905,7 +935,16 @@ const ScadenzarioSmart = () => {
                           <td className="py-3 px-4 text-sm text-center">{fmtDate(p.due_date)}</td>
                           <td className="py-3 px-4 text-sm text-right font-medium">{fmt(p.gross_amount)} €</td>
                           <td className="py-3 px-4 text-sm text-right font-bold">{fmt(p.amount_remaining)} €</td>
-                          <td className="py-3 px-4 text-center"><StatusPill status={p.status} /></td>
+                          <td className="py-3 px-4 text-center">
+                            <div className="flex items-center justify-center gap-1.5">
+                              <StatusPill status={p.status} />
+                              {p.status === 'pagato' && (
+                                p.cash_movement_id
+                                  ? <span title="Riconciliato con movimento bancario" className="text-emerald-500 text-sm">&#x2705;</span>
+                                  : <span title="Pagato ma non riconciliato in banca" className="text-amber-500 text-sm">&#x26A0;&#xFE0F;</span>
+                              )}
+                            </div>
+                          </td>
                           <td className="py-3 px-4 text-xs text-center text-slate-500">{paymentMethodLabels[p.payment_method] || '—'}</td>
                           <td className="py-3 px-4 text-right">
                             <div className="flex justify-end gap-1">
@@ -1023,7 +1062,16 @@ const ScadenzarioSmart = () => {
                             <td className="py-2 px-4">{p.invoice_number}</td>
                             <td className="py-2 px-4">{fmtDate(p.due_date)}</td>
                             <td className="py-2 px-4 text-right">{fmt(p.amount_remaining)} €</td>
-                            <td className="py-2 px-4"><StatusPill status={p.status} /></td>
+                            <td className="py-2 px-4">
+                              <div className="flex items-center gap-1">
+                                <StatusPill status={p.status} />
+                                {p.status === 'pagato' && (
+                                  p.cash_movement_id
+                                    ? <span title="Riconciliato" className="text-emerald-500 text-xs">&#x2705;</span>
+                                    : <span title="Non riconciliato" className="text-amber-500 text-xs">&#x26A0;&#xFE0F;</span>
+                                )}
+                              </div>
+                            </td>
                           </tr>
                         ))}
                       </tbody>
@@ -1083,7 +1131,16 @@ const ScadenzarioSmart = () => {
                             <td className="py-2 px-4 font-medium">{p.suppliers?.ragione_sociale || p.suppliers?.name || 'N/A'}</td>
                             <td className="py-2 px-4">{p.invoice_number}</td>
                             <td className="py-2 px-4 text-right">{fmt(p.amount_remaining)} €</td>
-                            <td className="py-2 px-4"><StatusPill status={p.status} /></td>
+                            <td className="py-2 px-4">
+                              <div className="flex items-center gap-1">
+                                <StatusPill status={p.status} />
+                                {p.status === 'pagato' && (
+                                  p.cash_movement_id
+                                    ? <span title="Riconciliato" className="text-emerald-500 text-xs">&#x2705;</span>
+                                    : <span title="Non riconciliato" className="text-amber-500 text-xs">&#x26A0;&#xFE0F;</span>
+                                )}
+                              </div>
+                            </td>
                           </tr>
                         ))}
                       </tbody>

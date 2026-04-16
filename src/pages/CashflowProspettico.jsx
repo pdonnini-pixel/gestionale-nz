@@ -18,7 +18,9 @@ import {
   Download,
   Filter,
   Calendar,
-  Loader
+  Loader,
+  CheckCircle,
+  Clock
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
@@ -60,6 +62,9 @@ export default function CashflowProspettico() {
   const [costCenters, setCostCenters] = useState([]);
   const [monthlyData, setMonthlyData] = useState([]);
   const [hasNegativeMonth, setHasNegativeMonth] = useState(false);
+
+  // Actual monthly data from cash_movements
+  const [actualMonthlyData, setActualMonthlyData] = useState([]);
 
   // Summary KPIs
   const [totalInflows, setTotalInflows] = useState(0);
@@ -228,6 +233,61 @@ export default function CashflowProspettico() {
         }
       });
 
+      // 7. Fetch actual monthly data from cash_movements for the selected year
+      const yearStart = `${year}-01-01`;
+      const yearEnd = `${year}-12-31`;
+      const { data: rawMovements, error: movError } = await supabase
+        .from('cash_movements')
+        .select('date, type, amount')
+        .eq('company_id', COMPANY_ID)
+        .gte('date', yearStart)
+        .lte('date', yearEnd)
+        .order('date', { ascending: true });
+
+      if (!movError && rawMovements && rawMovements.length > 0) {
+        const monthActual = Array.from({ length: 12 }, (_, i) => ({
+          month: i,
+          entrate: 0,
+          uscite: 0,
+          netto: 0,
+          hasData: false
+        }));
+
+        rawMovements.forEach(m => {
+          const monthIdx = new Date(m.date).getMonth();
+          monthActual[monthIdx].hasData = true;
+          if (m.type === 'entrata') {
+            monthActual[monthIdx].entrate += Math.abs(m.amount || 0);
+          } else {
+            monthActual[monthIdx].uscite += Math.abs(m.amount || 0);
+          }
+        });
+
+        monthActual.forEach(m => {
+          m.netto = m.entrate - m.uscite;
+        });
+
+        setActualMonthlyData(monthActual);
+      } else {
+        setActualMonthlyData([]);
+      }
+
+      // Merge actual data flags into monthData for display
+      const today = new Date();
+      const currentMonth = today.getMonth(); // 0-11
+      const currentYear = today.getFullYear();
+
+      monthData.forEach((month, idx) => {
+        // Determine if this month is in the past (has actual data)
+        if (year < currentYear || (year === currentYear && idx < currentMonth)) {
+          month.tipo = 'Consuntivo';
+        } else if (year === currentYear && idx === currentMonth) {
+          month.tipo = 'In corso';
+        } else {
+          month.tipo = 'Previsione';
+        }
+      });
+
       setMonthlyData(monthData);
       setTotalInflows(totalIn);
       setTotalOutflows(totalOut);
@@ -244,10 +304,12 @@ export default function CashflowProspettico() {
 
   const handleExportCSV = () => {
     let csv = 'Cashflow Prospettico - ' + year + '\n';
-    csv += 'Mese,Entrate SDI,Entrate Budget,Tot Entrate,Uscite SDI,Costi Ricorrenti,Rate Finanziamenti,Tot Uscite,Flusso Netto,Saldo Progressivo\n';
+    csv += 'Mese,Tipo,Entrate Reali,Uscite Reali,Netto Reale,Entrate SDI,Entrate Budget,Tot Entrate,Uscite SDI,Costi Ricorrenti,Rate Finanziamenti,Tot Uscite,Flusso Netto,Saldo Progressivo\n';
 
-    monthlyData.forEach(month => {
-      csv += `${month.monthName},${month.entrate_sdi},${month.entrate_budget},${month.tot_entrate},${month.uscite_sdi},${month.uscite_ricorrenti},${month.rate_finanziamenti},${month.tot_uscite},${month.flusso_netto},${month.saldo_progressivo}\n`;
+    monthlyData.forEach((month, idx) => {
+      const actual = actualMonthlyData[idx];
+      const hasActual = actual && actual.hasData;
+      csv += `${month.monthName},${month.tipo || 'Previsione'},${hasActual ? Math.round(actual.entrate) : ''},${hasActual ? Math.round(actual.uscite) : ''},${hasActual ? Math.round(actual.netto) : ''},${month.entrate_sdi},${month.entrate_budget},${month.tot_entrate},${month.uscite_sdi},${month.uscite_ricorrenti},${month.rate_finanziamenti},${month.tot_uscite},${month.flusso_netto},${month.saldo_progressivo}\n`;
     });
 
     navigator.clipboard.writeText(csv).then(() => {
@@ -391,16 +453,33 @@ export default function CashflowProspettico() {
 
       {/* Chart */}
       <div className="bg-white rounded-xl shadow-sm p-6 mb-8 border border-slate-200">
-        <h2 className="text-lg font-bold text-slate-900 mb-6">Andamento Cashflow 12 Mesi</h2>
+        <h2 className="text-lg font-bold text-slate-900 mb-2">Andamento Cashflow 12 Mesi</h2>
+        <div className="flex items-center gap-4 mb-4 text-xs text-slate-500">
+          <span className="flex items-center gap-1"><CheckCircle size={14} className="text-emerald-700" /> Consuntivo (barre piene)</span>
+          <span className="flex items-center gap-1"><Clock size={14} className="text-emerald-400" /> Previsione (barre sfumate)</span>
+        </div>
         <ResponsiveContainer width="100%" height={400}>
-          <ComposedChart data={monthlyData}>
+          <ComposedChart data={monthlyData.map((m, idx) => {
+            const actual = actualMonthlyData[idx];
+            const hasActual = actual && actual.hasData;
+            return {
+              ...m,
+              entrate_reali: hasActual ? Math.round(actual.entrate) : null,
+              uscite_reali: hasActual ? Math.round(actual.uscite) : null,
+              netto_reale: hasActual ? Math.round(actual.netto) : null,
+            };
+          })}>
             <CartesianGrid {...GRID_STYLE} />
             <XAxis dataKey="monthName" {...AXIS_STYLE} />
             <YAxis {...AXIS_STYLE} />
             <Tooltip content={<GlassTooltip />} />
             <Legend />
-            <Bar dataKey="tot_entrate" fill="#10b981" name="Entrate" radius={[8, 8, 0, 0]} />
-            <Bar dataKey="tot_uscite" fill="#ef4444" name="Uscite" radius={[8, 8, 0, 0]} />
+            {/* Actual bars (solid, darker) */}
+            <Bar dataKey="entrate_reali" fill="#059669" name="Entrate Reali" radius={[8, 8, 0, 0]} />
+            <Bar dataKey="uscite_reali" fill="#dc2626" name="Uscite Reali" radius={[8, 8, 0, 0]} />
+            {/* Projected bars (lighter) */}
+            <Bar dataKey="tot_entrate" fill="#10b981" name="Entrate Previste" radius={[8, 8, 0, 0]} opacity={0.5} />
+            <Bar dataKey="tot_uscite" fill="#ef4444" name="Uscite Previste" radius={[8, 8, 0, 0]} opacity={0.5} />
             <Line
               type="monotone"
               dataKey="saldo_progressivo"
@@ -421,49 +500,78 @@ export default function CashflowProspettico() {
             <thead>
               <tr className="bg-slate-50 border-b border-slate-200">
                 <th className="px-4 py-3 text-left font-semibold text-slate-900">Mese</th>
-                <th className="px-4 py-3 text-right font-semibold text-slate-900">Entrate SDI</th>
-                <th className="px-4 py-3 text-right font-semibold text-slate-900">Entrate Budget</th>
-                <th className="px-4 py-3 text-right font-semibold text-slate-900">Tot Entrate</th>
-                <th className="px-4 py-3 text-right font-semibold text-slate-900">Uscite SDI</th>
-                <th className="px-4 py-3 text-right font-semibold text-slate-900">Costi Ricorrenti</th>
-                <th className="px-4 py-3 text-right font-semibold text-slate-900">Rate Finanziamenti</th>
-                <th className="px-4 py-3 text-right font-semibold text-slate-900">Tot Uscite</th>
+                <th className="px-4 py-3 text-center font-semibold text-slate-900">Tipo</th>
+                <th className="px-4 py-3 text-right font-semibold text-emerald-800">Entrate Reali</th>
+                <th className="px-4 py-3 text-right font-semibold text-red-800">Uscite Reali</th>
+                <th className="px-4 py-3 text-right font-semibold text-slate-900">Tot Entrate (prev.)</th>
+                <th className="px-4 py-3 text-right font-semibold text-slate-900">Tot Uscite (prev.)</th>
                 <th className="px-4 py-3 text-right font-semibold text-slate-900">Flusso Netto</th>
                 <th className="px-4 py-3 text-right font-semibold text-slate-900">Saldo Progressivo</th>
               </tr>
             </thead>
             <tbody>
-              {monthlyData.map((month, idx) => (
-                <tr
-                  key={idx}
-                  className={`border-b border-slate-200 hover:bg-slate-50 transition ${
-                    month.saldo_progressivo < 0 ? 'bg-red-50' : ''
-                  }`}
-                >
-                  <td className="px-4 py-3 font-semibold text-slate-900">{month.monthName}</td>
-                  <td className="px-4 py-3 text-right text-slate-700">{formatCurrency(month.entrate_sdi)}</td>
-                  <td className="px-4 py-3 text-right text-slate-700">{formatCurrency(month.entrate_budget)}</td>
-                  <td className="px-4 py-3 text-right font-semibold text-green-600">
-                    {formatCurrency(month.tot_entrate)}
-                  </td>
-                  <td className="px-4 py-3 text-right text-slate-700">{formatCurrency(month.uscite_sdi)}</td>
-                  <td className="px-4 py-3 text-right text-slate-700">{formatCurrency(month.uscite_ricorrenti)}</td>
-                  <td className="px-4 py-3 text-right text-slate-700">{formatCurrency(month.rate_finanziamenti)}</td>
-                  <td className="px-4 py-3 text-right font-semibold text-red-600">
-                    {formatCurrency(month.tot_uscite)}
-                  </td>
-                  <td className={`px-4 py-3 text-right font-semibold ${
-                    month.flusso_netto >= 0 ? 'text-green-600' : 'text-red-600'
-                  }`}>
-                    {formatCurrency(month.flusso_netto)}
-                  </td>
-                  <td className={`px-4 py-3 text-right font-bold ${
-                    month.saldo_progressivo >= 0 ? 'text-green-600' : 'text-red-600'
-                  }`}>
-                    {formatCurrency(month.saldo_progressivo)}
-                  </td>
-                </tr>
-              ))}
+              {monthlyData.map((month, idx) => {
+                const actual = actualMonthlyData[idx];
+                const hasActual = actual && actual.hasData;
+                const isConsuntivo = month.tipo === 'Consuntivo';
+                const isInCorso = month.tipo === 'In corso';
+
+                return (
+                  <tr
+                    key={idx}
+                    className={`border-b border-slate-200 hover:bg-slate-50 transition ${
+                      month.saldo_progressivo < 0 ? 'bg-red-50' : ''
+                    } ${isConsuntivo ? 'bg-emerald-50/30' : ''}`}
+                  >
+                    <td className="px-4 py-3 font-semibold text-slate-900">{month.monthName}</td>
+                    <td className="px-4 py-3 text-center">
+                      {isConsuntivo && (
+                        <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-emerald-100 text-emerald-700 text-xs font-medium">
+                          <CheckCircle size={12} /> Consuntivo
+                        </span>
+                      )}
+                      {isInCorso && (
+                        <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-amber-100 text-amber-700 text-xs font-medium">
+                          <Clock size={12} /> In corso
+                        </span>
+                      )}
+                      {month.tipo === 'Previsione' && (
+                        <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-blue-100 text-blue-700 text-xs font-medium">
+                          <Clock size={12} /> Previsione
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-right text-emerald-700 font-medium">
+                      {hasActual ? formatCurrency(Math.round(actual.entrate)) : '-'}
+                    </td>
+                    <td className="px-4 py-3 text-right text-red-700 font-medium">
+                      {hasActual ? formatCurrency(Math.round(actual.uscite)) : '-'}
+                    </td>
+                    <td className="px-4 py-3 text-right font-semibold text-green-600">
+                      {formatCurrency(month.tot_entrate)}
+                    </td>
+                    <td className="px-4 py-3 text-right font-semibold text-red-600">
+                      {formatCurrency(month.tot_uscite)}
+                    </td>
+                    <td className={`px-4 py-3 text-right font-semibold ${
+                      (hasActual ? actual.netto : month.flusso_netto) >= 0 ? 'text-green-600' : 'text-red-600'
+                    }`}>
+                      {hasActual
+                        ? formatCurrency(Math.round(actual.netto))
+                        : formatCurrency(month.flusso_netto)
+                      }
+                      {hasActual && (
+                        <span className="text-xs text-slate-400 ml-1">(reale)</span>
+                      )}
+                    </td>
+                    <td className={`px-4 py-3 text-right font-bold ${
+                      month.saldo_progressivo >= 0 ? 'text-green-600' : 'text-red-600'
+                    }`}>
+                      {formatCurrency(month.saldo_progressivo)}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

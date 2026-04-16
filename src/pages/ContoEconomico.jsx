@@ -323,6 +323,11 @@ export default function ContoEconomico() {
   const [trendData, setTrendData] = useState([])
   const [showTrend, setShowTrend] = useState(false)
 
+  // Feature: Cash-basis (Cassa) view
+  const [viewMode, setViewMode] = useState('competenza') // 'competenza' | 'cassa'
+  const [cashData, setCashData] = useState(null) // { monthly: [...], byCategory: [...], totals: {} }
+  const [cashLoading, setCashLoading] = useState(false)
+
   // NEW: Manual save functionality
   const [dirtyFields, setDirtyFields] = useState({})
   const [saving, setSaving] = useState(false)
@@ -624,6 +629,94 @@ export default function ContoEconomico() {
       console.error('Error loading trend data:', error)
     }
   }
+
+  // Feature: Load cash-basis data from cash_movements
+  const loadCashData = useCallback(async () => {
+    if (!COMPANY_ID) return
+    setCashLoading(true)
+    try {
+      const { data, error } = await supabase
+        .from('cash_movements')
+        .select('id, date, type, amount, cost_category_id, description')
+        .eq('company_id', COMPANY_ID)
+        .gte('date', `${year}-01-01`)
+        .lte('date', `${year}-12-31`)
+        .order('date')
+
+      if (error) throw error
+
+      if (!data || data.length === 0) {
+        setCashData({ monthly: [], byCategory: [], totals: { entrate: 0, uscite: 0, netto: 0 }, count: 0, hasCategorized: false })
+        setCashLoading(false)
+        return
+      }
+
+      // Aggregate monthly
+      const monthlyMap = {}
+      for (let m = 1; m <= 12; m++) {
+        monthlyMap[m] = { mese: m, meseLabel: new Date(year, m - 1, 1).toLocaleDateString('it-IT', { month: 'short' }), entrate: 0, uscite: 0, netto: 0 }
+      }
+
+      let totalEntrate = 0, totalUscite = 0
+      let categorizedCount = 0
+      const categoryMap = {}
+
+      data.forEach(row => {
+        const month = new Date(row.date).getMonth() + 1
+        const amt = Math.abs(row.amount || 0)
+        if (row.type === 'entrata') {
+          monthlyMap[month].entrate += amt
+          totalEntrate += amt
+        } else {
+          monthlyMap[month].uscite += amt
+          totalUscite += amt
+        }
+        monthlyMap[month].netto = monthlyMap[month].entrate - monthlyMap[month].uscite
+
+        if (row.cost_category_id) {
+          categorizedCount++
+          const key = row.cost_category_id
+          if (!categoryMap[key]) categoryMap[key] = { category_id: key, entrate: 0, uscite: 0 }
+          if (row.type === 'entrata') categoryMap[key].entrate += amt
+          else categoryMap[key].uscite += amt
+        }
+      })
+
+      const monthly = Object.values(monthlyMap).filter(m => m.entrate > 0 || m.uscite > 0)
+
+      // Load category names if we have categorized data
+      let byCategory = Object.values(categoryMap)
+      if (byCategory.length > 0) {
+        const catIds = byCategory.map(c => c.category_id)
+        const { data: cats } = await supabase
+          .from('cost_categories')
+          .select('id, name')
+          .in('id', catIds)
+        const catNameMap = {}
+        ;(cats || []).forEach(c => { catNameMap[c.id] = c.name })
+        byCategory = byCategory.map(c => ({ ...c, name: catNameMap[c.category_id] || `Categoria ${c.category_id}` }))
+          .sort((a, b) => (b.uscite + b.entrate) - (a.uscite + a.entrate))
+      }
+
+      setCashData({
+        monthly,
+        byCategory,
+        totals: { entrate: totalEntrate, uscite: totalUscite, netto: totalEntrate - totalUscite },
+        count: data.length,
+        hasCategorized: categorizedCount > data.length * 0.1, // at least 10% categorized
+      })
+    } catch (err) {
+      console.error('Error loading cash data:', err)
+      setCashData(null)
+    } finally {
+      setCashLoading(false)
+    }
+  }, [COMPANY_ID, year])
+
+  // Load cash data when switching to cassa view or year changes
+  useEffect(() => {
+    if (viewMode === 'cassa') loadCashData()
+  }, [viewMode, year, loadCashData])
 
   // Feature 4: PDF parsing with pdfjs-dist
   const handleFileUpload = async (e) => {
@@ -1017,6 +1110,23 @@ export default function ContoEconomico() {
               {periodi.map(p => <option key={p} value={p}>{p}</option>)}
             </select>
           </div>
+          {/* Competenza / Cassa toggle */}
+          <div className="flex gap-0.5 bg-slate-100 rounded-lg p-0.5">
+            <button
+              onClick={() => setViewMode('competenza')}
+              className={`px-3 py-1.5 rounded-md text-sm font-medium transition ${
+                viewMode === 'competenza' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+              }`}>
+              Competenza
+            </button>
+            <button
+              onClick={() => setViewMode('cassa')}
+              className={`px-3 py-1.5 rounded-md text-sm font-medium transition flex items-center gap-1 ${
+                viewMode === 'cassa' ? 'bg-white text-emerald-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+              }`}>
+              <Banknote size={13} /> Cassa
+            </button>
+          </div>
           <button
             onClick={() => setShowTrend(!showTrend)}
             className={`px-3 py-2 rounded-lg text-sm font-medium transition flex items-center gap-1 ${
@@ -1157,7 +1267,197 @@ export default function ContoEconomico() {
           sub={`${ebitPct25.toFixed(1)}% ricavi`} trend={variation(ebit25, cePrev.differenza_ab)} />
       </div>
 
+      {/* ═══ CASSA VIEW — Cash-basis metrics from bank movements ═══ */}
+      {viewMode === 'cassa' && (
+        <div className="space-y-5">
+          {cashLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 size={24} className="animate-spin text-emerald-600" />
+              <span className="ml-2 text-slate-600">Caricamento movimenti bancari...</span>
+            </div>
+          ) : !cashData || cashData.count === 0 ? (
+            <div className="bg-white rounded-xl border border-slate-200 p-8 text-center">
+              <Banknote size={32} className="mx-auto mb-3 text-slate-300" />
+              <p className="text-sm font-medium text-slate-600">Nessun dato bancario importato</p>
+              <p className="text-xs text-slate-400 mt-1">Importa i movimenti bancari dalla sezione Banche per visualizzare la vista per cassa</p>
+            </div>
+          ) : (
+            <>
+              {/* Cash KPIs */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <Kpi icon={TrendingUp} label="Entrate (cassa)" value={`${fmt(cashData.totals.entrate)} €`} color="green"
+                  sub={`${cashData.count} movimenti — ${year}`} />
+                <Kpi icon={TrendingDown} label="Uscite (cassa)" value={`${fmt(cashData.totals.uscite)} €`} color="red"
+                  sub={`Anno ${year}`} />
+                <Kpi icon={Banknote} label="Netto (cassa)" value={`${fmt(cashData.totals.netto)} €`}
+                  color={cashData.totals.netto >= 0 ? 'green' : 'red'}
+                  sub="Entrate - Uscite" />
+                <Kpi icon={Calculator} label="Movimenti" value={cashData.count}
+                  color="blue" sub={cashData.hasCategorized ? 'Parzialmente categorizzati' : 'Non categorizzati'} />
+              </div>
+
+              {/* Monthly cash chart */}
+              {cashData.monthly.length > 0 && (
+                <Section title={`Flussi di cassa mensili — ${year}`} icon={BarChart3} badge={`${cashData.monthly.length} mesi`}>
+                  <div className="p-5">
+                    <ResponsiveContainer width="100%" height={320}>
+                      <BarChart data={cashData.monthly} barGap={2}>
+                        <CartesianGrid {...GRID_STYLE} />
+                        <XAxis dataKey="meseLabel" {...AXIS_STYLE} />
+                        <YAxis {...AXIS_STYLE} tickFormatter={v => v >= 1000000 ? `${(v/1000000).toFixed(1)}M` : v >= 1000 ? `${(v/1000).toFixed(0)}k` : v} />
+                        <Tooltip content={<GlassTooltip formatter={v => `${fmt(v)} €`} suffix="" />} />
+                        <Legend />
+                        <Bar dataKey="entrate" name="Entrate" fill="#10b981" radius={[4,4,0,0]} />
+                        <Bar dataKey="uscite" name="Uscite" fill="#ef4444" radius={[4,4,0,0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+
+                    {/* Monthly table */}
+                    <div className="mt-4 overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b border-slate-200 text-xs text-slate-500 uppercase tracking-wider">
+                            <th className="py-2 px-3 text-left">Mese</th>
+                            <th className="py-2 px-3 text-right">Entrate</th>
+                            <th className="py-2 px-3 text-right">Uscite</th>
+                            <th className="py-2 px-3 text-right">Netto</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {cashData.monthly.map(m => (
+                            <tr key={m.mese} className="border-b border-slate-50 hover:bg-slate-50">
+                              <td className="py-1.5 px-3 text-slate-700 font-medium capitalize">{m.meseLabel}</td>
+                              <td className="py-1.5 px-3 text-right tabular-nums text-emerald-600">{fmt(m.entrate)} €</td>
+                              <td className="py-1.5 px-3 text-right tabular-nums text-red-600">{fmt(m.uscite)} €</td>
+                              <td className={`py-1.5 px-3 text-right tabular-nums font-semibold ${m.netto >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>
+                                {fmt(m.netto)} €
+                              </td>
+                            </tr>
+                          ))}
+                          <tr className="border-t-2 border-slate-300 font-bold">
+                            <td className="py-2 px-3 text-slate-900">Totale</td>
+                            <td className="py-2 px-3 text-right tabular-nums text-emerald-700">{fmt(cashData.totals.entrate)} €</td>
+                            <td className="py-2 px-3 text-right tabular-nums text-red-700">{fmt(cashData.totals.uscite)} €</td>
+                            <td className={`py-2 px-3 text-right tabular-nums ${cashData.totals.netto >= 0 ? 'text-emerald-800' : 'text-red-800'}`}>
+                              {fmt(cashData.totals.netto)} €
+                            </td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </Section>
+              )}
+
+              {/* Breakdown by category */}
+              {cashData.hasCategorized && cashData.byCategory.length > 0 ? (
+                <Section title="Dettaglio per categoria (cassa)" icon={PieChart} badge={`${cashData.byCategory.length} categorie`}>
+                  <div className="p-5">
+                    <ResponsiveContainer width="100%" height={280}>
+                      <RePie>
+                        <Pie data={cashData.byCategory.map(c => ({ name: c.name, value: c.uscite }))} dataKey="value" nameKey="name"
+                          cx="50%" cy="50%" innerRadius={55} outerRadius={105} paddingAngle={3} strokeWidth={0}
+                          label={({ name, percent }) => percent > 0.03 ? `${name.split(' ')[0]} ${(percent * 100).toFixed(0)}%` : ''}>
+                          {cashData.byCategory.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} stroke="white" strokeWidth={2} />)}
+                        </Pie>
+                        <Tooltip content={<GlassTooltip formatter={v => `${fmt(v)} €`} suffix="" />} />
+                      </RePie>
+                    </ResponsiveContainer>
+                    <div className="mt-4 overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b border-slate-200 text-xs text-slate-500 uppercase tracking-wider">
+                            <th className="py-2 px-3 text-left">Categoria</th>
+                            <th className="py-2 px-3 text-right">Entrate</th>
+                            <th className="py-2 px-3 text-right">Uscite</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {cashData.byCategory.map((c, i) => (
+                            <tr key={c.category_id} className="border-b border-slate-50">
+                              <td className="py-1.5 px-3 flex items-center gap-2">
+                                <div className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ backgroundColor: COLORS[i % COLORS.length] }} />
+                                <span className="text-slate-700">{c.name}</span>
+                              </td>
+                              <td className="py-1.5 px-3 text-right tabular-nums text-emerald-600">{c.entrate > 0 ? `${fmt(c.entrate)} €` : '—'}</td>
+                              <td className="py-1.5 px-3 text-right tabular-nums text-red-600">{c.uscite > 0 ? `${fmt(c.uscite)} €` : '—'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </Section>
+              ) : (
+                <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
+                  <AlertTriangle size={18} className="text-amber-600 mt-0.5 shrink-0" />
+                  <div>
+                    <p className="text-sm font-medium text-amber-800">Categorizza i movimenti bancari per dettaglio</p>
+                    <p className="text-xs text-amber-600 mt-0.5">
+                      I movimenti bancari non sono ancora categorizzati. Assegna le categorie di costo dalla sezione Banche per vedere il dettaglio per voce.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Competenza vs Cassa comparison */}
+              {ricavi25 > 0 && (
+                <Section title="Confronto Competenza vs Cassa" icon={Calculator} defaultOpen={true}>
+                  <div className="p-5">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b border-slate-200 text-xs text-slate-500 uppercase tracking-wider">
+                            <th className="py-2 px-3 text-left">Voce</th>
+                            <th className="py-2 px-3 text-right">Competenza</th>
+                            <th className="py-2 px-3 text-right">Cassa</th>
+                            <th className="py-2 px-3 text-right">Varianza</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr className="border-b border-slate-50">
+                            <td className="py-1.5 px-3 text-slate-700 font-medium">Ricavi / Entrate</td>
+                            <td className="py-1.5 px-3 text-right tabular-nums text-blue-600">{fmt(ricavi25)} €</td>
+                            <td className="py-1.5 px-3 text-right tabular-nums text-emerald-600">{fmt(cashData.totals.entrate)} €</td>
+                            <td className={`py-1.5 px-3 text-right tabular-nums font-medium ${(cashData.totals.entrate - ricavi25) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                              {fmt(cashData.totals.entrate - ricavi25)} €
+                            </td>
+                          </tr>
+                          <tr className="border-b border-slate-50">
+                            <td className="py-1.5 px-3 text-slate-700 font-medium">Costi / Uscite</td>
+                            <td className="py-1.5 px-3 text-right tabular-nums text-blue-600">{fmt(ce25.totale_costi_produzione || 0)} €</td>
+                            <td className="py-1.5 px-3 text-right tabular-nums text-red-600">{fmt(cashData.totals.uscite)} €</td>
+                            <td className={`py-1.5 px-3 text-right tabular-nums font-medium ${(cashData.totals.uscite - (ce25.totale_costi_produzione || 0)) <= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                              {fmt(cashData.totals.uscite - (ce25.totale_costi_produzione || 0))} €
+                            </td>
+                          </tr>
+                          <tr className="border-t-2 border-slate-300 font-bold">
+                            <td className="py-2 px-3 text-slate-900">Risultato / Netto</td>
+                            <td className="py-2 px-3 text-right tabular-nums text-blue-700">{fmt(ce25.utile_netto || ebit25)} €</td>
+                            <td className={`py-2 px-3 text-right tabular-nums ${cashData.totals.netto >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>
+                              {fmt(cashData.totals.netto)} €
+                            </td>
+                            <td className={`py-2 px-3 text-right tabular-nums ${(cashData.totals.netto - (ce25.utile_netto || ebit25)) >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>
+                              {fmt(cashData.totals.netto - (ce25.utile_netto || ebit25))} €
+                            </td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                    <p className="text-xs text-slate-400 mt-3 text-center">
+                      La varianza indica la differenza tra i flussi di cassa effettivi e i valori per competenza.
+                      Differenze sono normali e dipendono da tempistiche di incasso/pagamento.
+                    </p>
+                  </div>
+                </Section>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
       {/* ═══ INDICI DI BILANCIO — right after KPIs ═══ */}
+      {viewMode === 'competenza' && (
       <Section title="Indici di bilancio" icon={ShieldCheck}>
         <div className="p-5">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -1202,9 +1502,10 @@ export default function ContoEconomico() {
           </div>
         </div>
       </Section>
+      )}
 
       {/* ═══ BILANCIO TREE VIEW — after Indici ═══ */}
-      {showBilancioTree && bilancioData && (
+      {viewMode === 'competenza' && showBilancioTree && bilancioData && (
         <Section title="Bilancio — Dettaglio completo" icon={FileText} defaultOpen={true}
           badge={`${(bilancioData.contoEconomico?.costi?.length || 0) + (bilancioData.contoEconomico?.ricavi?.length || 0) + (bilancioData.patrimoniale?.attivita?.length || 0) + (bilancioData.patrimoniale?.passivita?.length || 0)} voci`}>
           <div className="p-5 space-y-6">
@@ -1305,7 +1606,7 @@ export default function ContoEconomico() {
       )}
 
       {/* Feature 6: Trend multi-anno */}
-      {showTrend && trendData.length > 0 && (
+      {viewMode === 'competenza' && showTrend && trendData.length > 0 && (
         <Section title={`Trend multi-anno — ${periodType}`} icon={LineChartIcon} badge={`${trendData.length} anni`}>
           <div className="p-5">
             <ResponsiveContainer width="100%" height={320}>
@@ -1327,7 +1628,7 @@ export default function ContoEconomico() {
           </div>
         </Section>
       )}
-      {showTrend && trendData.length === 0 && (
+      {viewMode === 'competenza' && showTrend && trendData.length === 0 && (
         <div className="bg-white rounded-xl border border-slate-200 p-6 text-center text-sm text-slate-500">
           <LineChartIcon size={24} className="mx-auto mb-2 text-slate-300" />
           Nessun dato disponibile per il trend multi-anno. Inserire i dati del Conto Economico per più anni.
@@ -1337,7 +1638,7 @@ export default function ContoEconomico() {
       {/* CE comparison table removed — tree view provides full detail */}
 
       {/* Feature 1: Analisi punti di forza/debolezza */}
-      {!loading && ricavi25 > 0 && (
+      {viewMode === 'competenza' && !loading && ricavi25 > 0 && (
         <Section title="Analisi e raccomandazioni" icon={Lightbulb} defaultOpen={true}>
           <div className="p-5 space-y-4">
             {/* Strengths */}
