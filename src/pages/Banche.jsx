@@ -1099,6 +1099,7 @@ function SezioneRiconciliazione({ companyId, accounts }) {
   const [manualSearchQuery, setManualSearchQuery] = useState('')
   const [unpaidPayables, setUnpaidPayables] = useState([])
   const [payablesLoading, setPayablesLoading] = useState(false)
+  const [initialLoaded, setInitialLoaded] = useState(false)
   // Pagination
   const PAGE_SIZE = 20
   const [reconciledPage, setReconciledPage] = useState(1)
@@ -1108,6 +1109,52 @@ function SezioneRiconciliazione({ companyId, accounts }) {
 
   const fmtDate = (d) => d ? new Date(d).toLocaleDateString('it-IT') : '—'
   const fmtEuro = (n) => n != null ? `€${fmt(n)}` : '—'
+
+  // ── Load persisted reconciliation state from DB on mount ──
+  useEffect(() => {
+    if (!companyId || initialLoaded) return
+    const loadPersistedState = async () => {
+      try {
+        // 1. Fetch already-reconciled movements
+        const { data: reconMovements } = await supabase
+          .from('cash_movements')
+          .select('*')
+          .eq('company_id', companyId)
+          .eq('type', 'uscita')
+          .eq('is_reconciled', true)
+          .order('date', { ascending: true })
+
+        // 2. Fetch payables linked to movements
+        const { data: linkedPayables } = await supabase
+          .from('payables')
+          .select('*, suppliers(id, ragione_sociale, name)')
+          .eq('company_id', companyId)
+          .not('cash_movement_id', 'is', null)
+
+        // 3. Build reconciled pairs
+        const payableByMovId = {}
+        for (const p of (linkedPayables || [])) {
+          payableByMovId[p.cash_movement_id] = p
+        }
+        const reconciledItems = (reconMovements || []).map(m => ({
+          movement: m,
+          payable: payableByMovId[m.id] || null,
+          matchType: 'confermato',
+          score: 100,
+        })).filter(item => item.payable)
+
+        if (reconciledItems.length > 0) {
+          setReconData(prev => ({ ...prev, reconciled: reconciledItems }))
+          setStats(prev => ({ ...prev, reconciled: reconciledItems.length }))
+        }
+        setInitialLoaded(true)
+      } catch (err) {
+        console.error('Error loading persisted reconciliation state:', err)
+        setInitialLoaded(true)
+      }
+    }
+    loadPersistedState()
+  }, [companyId, initialLoaded])
 
   const handleRunAutoReconciliation = useCallback(async () => {
     setLoading(true)
@@ -1147,8 +1194,8 @@ function SezioneRiconciliazione({ companyId, accounts }) {
       if (filterAccountId) filters.bankAccountId = filterAccountId
       if (filterDateFrom) filters.dateFrom = filterDateFrom
       if (filterDateTo) filters.dateTo = filterDateTo
-      const log = await getReconciliationLog(companyId, filters)
-      setReconLog(log || [])
+      const result = await getReconciliationLog(companyId, filters)
+      setReconLog(result?.data || [])
       setLogPage(1)
     } catch (err) {
       console.error('Log load error:', err)
@@ -1180,7 +1227,15 @@ function SezioneRiconciliazione({ companyId, accounts }) {
   const handleReject = async (movementId, payableId) => {
     setActionLoading(movementId)
     try {
-      await undoReconciliation(movementId, payableId)
+      // Suggestion was NOT applied — just remove the suggestion log entry, don't undo anything
+      if (payableId) {
+        await supabase
+          .from('reconciliation_log')
+          .delete()
+          .eq('cash_movement_id', movementId)
+          .eq('payable_id', payableId)
+          .eq('match_type', 'auto_fuzzy')
+      }
       // Move from suggested to unmatched
       setReconData(prev => {
         const item = prev.suggested.find(s => s.movement?.id === movementId)
@@ -1247,9 +1302,9 @@ function SezioneRiconciliazione({ companyId, accounts }) {
     try {
       const { data } = await supabase
         .from('payables')
-        .select('id, supplier_name, invoice_number, total_amount, due_date')
+        .select('id, invoice_number, gross_amount, due_date, supplier_id, suppliers(ragione_sociale, name)')
         .eq('company_id', companyId)
-        .eq('status', 'da_pagare')
+        .is('cash_movement_id', null)
         .order('due_date', { ascending: false })
         .limit(200)
       setUnpaidPayables(data || [])
@@ -1270,9 +1325,10 @@ function SezioneRiconciliazione({ companyId, accounts }) {
     if (!manualSearchQuery) return unpaidPayables.slice(0, 20)
     const q = manualSearchQuery.toLowerCase()
     return unpaidPayables.filter(p =>
-      (p.supplier_name || '').toLowerCase().includes(q) ||
+      (p.suppliers?.ragione_sociale || '').toLowerCase().includes(q) ||
+      (p.suppliers?.name || '').toLowerCase().includes(q) ||
       (p.invoice_number || '').toLowerCase().includes(q) ||
-      String(p.total_amount).includes(q)
+      String(p.gross_amount).includes(q)
     ).slice(0, 20)
   }, [unpaidPayables, manualSearchQuery])
 
@@ -1645,10 +1701,10 @@ function SezioneRiconciliazione({ companyId, accounts }) {
                                         className="w-full flex items-center justify-between p-2 rounded-lg text-left hover:bg-blue-50 transition text-xs disabled:opacity-50"
                                       >
                                         <div>
-                                          <div className="font-medium text-slate-900">{p.supplier_name}</div>
+                                          <div className="font-medium text-slate-900">{p.suppliers?.ragione_sociale || p.suppliers?.name || '—'}</div>
                                           <div className="text-slate-400">Fatt. {p.invoice_number || '—'} — Scad. {fmtDate(p.due_date)}</div>
                                         </div>
-                                        <div className="font-medium text-slate-700 whitespace-nowrap ml-2">{fmtEuro(p.total_amount)}</div>
+                                        <div className="font-medium text-slate-700 whitespace-nowrap ml-2">{fmtEuro(p.gross_amount)}</div>
                                       </button>
                                     ))
                                   )}
@@ -1705,27 +1761,38 @@ function SezioneRiconciliazione({ companyId, accounts }) {
                   <tbody>
                     {paginate(reconLog, logPage).map((entry, i) => (
                       <tr key={entry.id || i} className="border-b border-slate-50 hover:bg-slate-50/50 transition">
-                        <td className="py-2 px-4 text-slate-600 whitespace-nowrap">{fmtDate(entry.created_at)}</td>
+                        <td className="py-2 px-4 text-slate-600 whitespace-nowrap">{fmtDate(entry.performed_at || entry.created_at)}</td>
                         <td className="py-2 px-4">
                           <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
-                            entry.action === 'riconciliato' ? 'bg-emerald-50 text-emerald-700' :
-                            entry.action === 'scollegato' ? 'bg-red-50 text-red-700' :
-                            entry.action === 'confermato' ? 'bg-blue-50 text-blue-700' :
+                            entry.match_type === 'auto_exact' ? 'bg-emerald-50 text-emerald-700' :
+                            entry.match_type === 'unlinked' ? 'bg-red-50 text-red-700' :
+                            entry.match_type === 'auto_fuzzy' ? 'bg-amber-50 text-amber-700' :
+                            entry.match_type === 'manual' || entry.match_type === 'confermato' ? 'bg-blue-50 text-blue-700' :
                             'bg-slate-100 text-slate-600'
                           }`}>
-                            {entry.action || '—'}
+                            {entry.match_type === 'auto_exact' ? 'Auto' :
+                             entry.match_type === 'auto_fuzzy' ? 'Proposta' :
+                             entry.match_type === 'manual' ? 'Manuale' :
+                             entry.match_type === 'confermato' ? 'Confermato' :
+                             entry.match_type === 'unlinked' ? 'Scollegato' :
+                             entry.match_type || '—'}
                           </span>
                         </td>
-                        <td className="py-2 px-4 text-slate-900 text-xs max-w-xs truncate">{entry.movement_description || entry.movement_id || '—'}</td>
-                        <td className="py-2 px-4 text-slate-500 text-xs">{entry.invoice_number || entry.payable_id || '—'}</td>
+                        <td className="py-2 px-4 text-slate-900 text-xs max-w-xs truncate" title={entry.cash_movements?.description || ''}>
+                          {entry.cash_movements?.description
+                            ? `${fmtDate(entry.cash_movements.date)} — ${entry.cash_movements.description.substring(0, 50)}…`
+                            : entry.cash_movement_id?.substring(0, 8) || '—'}
+                        </td>
+                        <td className="py-2 px-4 text-slate-500 text-xs">
+                          {entry.payables?.invoice_number || entry.payable_id?.substring(0, 8) || '—'}
+                          {entry.payables?.suppliers?.ragione_sociale ? ` (${entry.payables.suppliers.ragione_sociale})` : ''}
+                        </td>
                         <td className="py-2 px-4 text-center">
-                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
-                            entry.match_type === 'auto' ? 'bg-blue-50 text-blue-700' : 'bg-purple-50 text-purple-700'
-                          }`}>
-                            {entry.match_type || '—'}
-                          </span>
+                          {entry.confidence != null && (
+                            <span className="text-xs font-medium text-slate-600">{entry.confidence}%</span>
+                          )}
                         </td>
-                        <td className="py-2 px-4 text-slate-500 text-xs">{entry.user_name || entry.user_id || '—'}</td>
+                        <td className="py-2 px-4 text-slate-500 text-xs">{entry.notes || '—'}</td>
                       </tr>
                     ))}
                   </tbody>
