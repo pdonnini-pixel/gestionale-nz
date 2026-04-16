@@ -112,107 +112,59 @@ export default function ArchivioDocumenti() {
     if (!COMPANY_ID) return;
     setLoading(true);
 
-    try {
-      const results = [];
+    const results = [];
 
-      // 1. import_documents (central import registry)
-      const { data: imports } = await supabase
-        .from('import_documents')
-        .select('*')
-        .eq('company_id', COMPANY_ID)
-        .order('uploaded_at', { ascending: false });
-
-      (imports || []).forEach(doc => {
-        results.push({
-          ...doc,
-          _table: 'import_documents',
-          _date: doc.uploaded_at || doc.created_at,
-          _status: doc.status || doc.upload_status || 'uploaded',
-        });
-      });
-
-      // 2. contract_documents
-      const { data: contracts } = await supabase
-        .from('contract_documents')
-        .select('*, contracts(title, outlet_code)')
-        .eq('company_id', COMPANY_ID)
-        .order('created_at', { ascending: false });
-
-      (contracts || []).forEach(doc => {
-        results.push({
-          ...doc,
-          _table: 'contract_documents',
-          _date: doc.created_at,
-          _status: 'archiviato',
-          _ref: doc.contracts?.title || doc.contracts?.outlet_code || null,
-        });
-      });
-
-      // 3. employee_documents
-      const { data: empDocs } = await supabase
-        .from('employee_documents')
-        .select('*, employees(nome, cognome)')
-        .eq('company_id', COMPANY_ID)
-        .order('created_at', { ascending: false });
-
-      (empDocs || []).forEach(doc => {
-        results.push({
-          ...doc,
-          _table: 'employee_documents',
-          _date: doc.created_at,
-          _status: doc.status || 'archiviato',
-          _ref: doc.employees ? `${doc.employees.cognome} ${doc.employees.nome}` : null,
-        });
-      });
-
-      // 4. outlet_attachments
-      const { data: outletDocs } = await supabase
-        .from('outlet_attachments')
-        .select('*, outlets(name)')
-        .eq('company_id', COMPANY_ID)
-        .order('created_at', { ascending: false });
-
-      (outletDocs || []).forEach(doc => {
-        results.push({
-          ...doc,
-          _table: 'outlet_attachments',
-          _date: doc.created_at,
-          _status: 'archiviato',
-          _ref: doc.outlets?.name || null,
-        });
-      });
-
-      // 5. documents (general)
-      const { data: genDocs } = await supabase
-        .from('documents')
-        .select('*')
-        .eq('company_id', COMPANY_ID)
-        .order('created_at', { ascending: false });
-
-      (genDocs || []).forEach(doc => {
-        results.push({
-          ...doc,
-          _table: 'documents',
-          _date: doc.created_at || doc.updated_at,
-          _status: doc.document_status || 'archiviato',
-        });
-      });
-
-      setAllDocs(results);
-
-      // Compute stats
-      const bySource = {};
-      for (const d of results) {
-        bySource[d._table] = (bySource[d._table] || 0) + 1;
+    // Helper: safe query that never throws
+    async function safeQuery(table, query, transform) {
+      try {
+        const { data, error } = await query;
+        if (error) { console.warn(`ArchivioDocumenti: ${table} query error:`, error.message); return; }
+        (data || []).forEach(doc => results.push(transform(doc)));
+      } catch (err) {
+        console.warn(`ArchivioDocumenti: ${table} exception:`, err.message);
       }
-      setStats({ total: results.length, bySource });
-
-    } catch (err) {
-      console.error('ArchivioDocumenti load error:', err);
-      showToast('Errore caricamento documenti', 'error');
-    } finally {
-      setLoading(false);
     }
+
+    // 1. import_documents (central import registry)
+    await safeQuery('import_documents',
+      supabase.from('import_documents').select('*').eq('company_id', COMPANY_ID).order('uploaded_at', { ascending: false }),
+      doc => ({ ...doc, _table: 'import_documents', _date: doc.uploaded_at || doc.created_at, _status: doc.status || doc.upload_status || 'uploaded' })
+    );
+
+    // 2. contract_documents (simple select, no join)
+    await safeQuery('contract_documents',
+      supabase.from('contract_documents').select('*').order('created_at', { ascending: false }),
+      doc => ({ ...doc, _table: 'contract_documents', _date: doc.created_at, _status: 'archiviato' })
+    );
+
+    // 3. employee_documents
+    await safeQuery('employee_documents',
+      supabase.from('employee_documents').select('*').eq('company_id', COMPANY_ID).order('created_at', { ascending: false }),
+      doc => ({ ...doc, _table: 'employee_documents', _date: doc.created_at, _status: doc.status || 'archiviato' })
+    );
+
+    // 4. outlet_attachments
+    await safeQuery('outlet_attachments',
+      supabase.from('outlet_attachments').select('*').eq('company_id', COMPANY_ID).order('created_at', { ascending: false }),
+      doc => ({ ...doc, _table: 'outlet_attachments', _date: doc.created_at, _status: 'archiviato' })
+    );
+
+    // 5. documents (general)
+    await safeQuery('documents',
+      supabase.from('documents').select('*').eq('company_id', COMPANY_ID).order('created_at', { ascending: false }),
+      doc => ({ ...doc, _table: 'documents', _date: doc.created_at || doc.updated_at, _status: doc.document_status || 'archiviato' })
+    );
+
+    setAllDocs(results);
+
+    // Compute stats
+    const bySource = {};
+    for (const d of results) {
+      bySource[d._table] = (bySource[d._table] || 0) + 1;
+    }
+    setStats({ total: results.length, bySource });
+
+    setLoading(false);
   }, [COMPANY_ID]);
 
   useEffect(() => {
