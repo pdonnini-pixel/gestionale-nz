@@ -483,7 +483,7 @@ export default function ImportHub() {
   // ─── PROCESSING FUNCTIONS ─────────────────────────────────────
 
   // Check if source type supports processing
-  const canProcess = (sourceId) => ['bank', 'invoices', 'pos_data', 'receipts'].includes(sourceId);
+  const canProcess = (sourceId) => ['bank', 'invoices', 'pos_data', 'receipts', 'balance_sheet', 'payroll'].includes(sourceId);
 
   // Preview a file before processing
   async function handlePreview(file, fileRecord) {
@@ -541,6 +541,9 @@ export default function ImportHub() {
           company_id: COMPANY_ID,
           bank_account_id: selectedBankAccount || fileRecord.bank_account_id,
           outlet_id: selectedOutlet || fileRecord.outlet_id,
+          fiscal_year: selectedYear || new Date().getFullYear(),
+          month: selectedMonthYear ? parseInt(selectedMonthYear.split('-')[0], 10) : new Date().getMonth() + 1,
+          year: selectedMonthYear ? parseInt(selectedMonthYear.split('-')[1], 10) : new Date().getFullYear(),
           csvOptions: { skipRows: 0 },
         },
         mappingOverride,
@@ -1183,11 +1186,17 @@ export default function ImportHub() {
                   </div>
                 )}
                 {processResult.details && (
-                  <div className="mt-2 text-xs text-slate-600">
-                    {processResult.details.fatture && <span>Fatture: {processResult.details.fatture} </span>}
-                    {processResult.details.scadenze && <span>| Scadenze create: {processResult.details.scadenze} </span>}
-                    {processResult.details.fornitore && <span>| Fornitore: {processResult.details.fornitore}</span>}
-                    {processResult.details.totalParsed && <span>Righe parsate: {processResult.details.totalParsed} </span>}
+                  <div className="mt-2 text-xs text-slate-600 space-y-0.5">
+                    {processResult.details.fatture != null && <div>Fatture: {processResult.details.fatture} | Scadenze: {processResult.details.scadenze} | Fornitore: {processResult.details.fornitore}</div>}
+                    {processResult.details.totalParsed != null && <div>Righe parsate: {processResult.details.totalParsed}</div>}
+                    {processResult.details.anno != null && (
+                      <div>Bilancio {processResult.details.anno}: {processResult.details.attivita} attività, {processResult.details.passivita} passività, {processResult.details.costi} costi, {processResult.details.ricavi} ricavi
+                        {processResult.details.risultato != null && <span className="font-semibold"> | Risultato: {processResult.details.risultato >= 0 ? '+' : ''}{processResult.details.risultato.toLocaleString('it-IT')} €</span>}
+                      </div>
+                    )}
+                    {processResult.details.dipendentiTrovati != null && (
+                      <div>Dipendenti aggiornati: {processResult.details.dipendentiTrovati} | Non trovati: {processResult.details.dipendentiNonTrovati} | Periodo: {processResult.details.mese}</div>
+                    )}
                   </div>
                 )}
               </div>

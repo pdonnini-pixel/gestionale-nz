@@ -12,6 +12,7 @@
 import { supabase } from '../supabase';
 import { parseCSV, autoDetectBankMapping, transformBankRows, transformPOSRows, parseItalianNumber } from './csvParser';
 import { parseFatturaPA, transformInvoiceToRecords } from './xmlInvoiceParser';
+import { parseBilancio, toSupabaseRecords as bilancioToRecords } from './bilancioParser';
 
 const BATCH_SIZE = 100; // max rows per insert
 
@@ -43,10 +44,15 @@ export async function processImport({
   try {
     onProgress(5, 'Lettura file...');
 
-    // 1. Read file content
-    const text = await readFileContent(file, storagePath, bucket);
-    if (!text || text.trim().length === 0) {
+    // 1. Read file content — binary for PDF, text for CSV/XML
+    const fileName = file?.name || storagePath || '';
+    const isPDF = fileName.toLowerCase().endsWith('.pdf');
+    const content = await readFileContent(file, storagePath, bucket, { asBinary: isPDF });
+    if (!isPDF && (!content || (typeof content === 'string' && content.trim().length === 0))) {
       return { success: false, imported: 0, errors: [{ message: 'File vuoto o non leggibile' }], batchId: null };
+    }
+    if (isPDF && (!content || content.byteLength === 0)) {
+      return { success: false, imported: 0, errors: [{ message: 'File PDF vuoto o non leggibile' }], batchId: null };
     }
 
     onProgress(15, 'Creazione batch di import...');
@@ -60,13 +66,22 @@ export async function processImport({
     let result;
     switch (sourceType) {
       case 'bank':
-        result = await processBankCSV(text, context, batchId, mappingOverride, onProgress);
+        result = await processBankCSV(content, context, batchId, mappingOverride, onProgress);
         break;
       case 'invoices':
-        result = await processInvoiceXML(text, context, batchId, onProgress);
+        result = await processInvoiceXML(content, context, batchId, onProgress);
         break;
       case 'pos_data':
-        result = await processPOSCSV(text, context, batchId, mappingOverride, onProgress);
+        result = await processPOSCSV(content, context, batchId, mappingOverride, onProgress);
+        break;
+      case 'balance_sheet':
+        result = await processBalanceSheetPDF(content, context, batchId, onProgress);
+        break;
+      case 'receipts':
+        result = await processReceiptsCSV(content, context, batchId, mappingOverride, onProgress);
+        break;
+      case 'payroll':
+        result = await processPayrollCSV(content, context, batchId, mappingOverride, onProgress);
         break;
       default:
         return { success: false, imported: 0, errors: [{ message: `Tipo sorgente non supportato: ${sourceType}` }], batchId };
@@ -106,21 +121,26 @@ export async function processImport({
 
 // ─── FILE READING ───────────────────────────────────────────────
 
-async function readFileContent(file, storagePath, bucket) {
+async function readFileContent(file, storagePath, bucket, { asBinary = false } = {}) {
   if (file) {
-    // Direct File object from upload
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = (e) => resolve(e.target.result);
       reader.onerror = () => reject(new Error('Errore lettura file'));
-      reader.readAsText(file, 'UTF-8');
+      if (asBinary) {
+        reader.readAsArrayBuffer(file);
+      } else {
+        reader.readAsText(file, 'UTF-8');
+      }
     });
   }
 
   if (storagePath && bucket) {
-    // Download from Supabase Storage
     const { data, error } = await supabase.storage.from(bucket).download(storagePath);
     if (error) throw new Error(`Errore download: ${error.message}`);
+    if (asBinary) {
+      return await data.arrayBuffer();
+    }
     return await data.text();
   }
 
@@ -135,6 +155,8 @@ async function createImportBatch(companyId, sourceType, fileName) {
     invoices: 'xml_sdi',
     pos_data: 'csv_pos',
     receipts: 'csv_ade',
+    balance_sheet: 'pdf_bilancio',
+    payroll: 'csv_cedolini',
   };
 
   const { data, error } = await supabase
@@ -303,7 +325,329 @@ async function processPOSCSV(text, context, batchId, mappingOverride, onProgress
   };
 }
 
+// ─── BALANCE SHEET PDF PROCESSOR ────────────────────────────────
+
+async function processBalanceSheetPDF(pdfData, context, batchId, onProgress) {
+  try {
+    onProgress(25, 'Parsing PDF bilancio...');
+
+    const parsed = await parseBilancio(pdfData);
+
+    if (!parsed || (!parsed.patrimoniale.attivita.length && !parsed.contoEconomico.costi.length)) {
+      return { imported: 0, errors: [{ message: 'Nessun dato trovato nel PDF bilancio' }] };
+    }
+
+    onProgress(50, 'Conversione dati per Supabase...');
+
+    const year = context.fiscal_year || new Date().getFullYear();
+    const records = bilancioToRecords(parsed, context.company_id, year);
+
+    if (records.length === 0) {
+      return { imported: 0, errors: [{ message: 'Nessun record generato dal parser' }] };
+    }
+
+    onProgress(60, `Pulizia dati precedenti anno ${year}...`);
+
+    // Delete existing records for this company/year to allow re-import
+    await supabase
+      .from('balance_sheet_data')
+      .delete()
+      .eq('company_id', context.company_id)
+      .eq('year', year);
+
+    onProgress(70, `Inserimento ${records.length} voci di bilancio...`);
+
+    const { inserted, insertErrors } = await batchInsert('balance_sheet_data', records, onProgress, 70, 95);
+
+    return {
+      imported: inserted,
+      errors: insertErrors,
+      details: {
+        anno: year,
+        attivita: parsed.patrimoniale.attivita.length,
+        passivita: parsed.patrimoniale.passivita.length,
+        costi: parsed.contoEconomico.costi.length,
+        ricavi: parsed.contoEconomico.ricavi.length,
+        totaleRicavi: parsed.contoEconomico.totals?.ricavi,
+        totaleCosti: parsed.contoEconomico.totals?.costi,
+        risultato: parsed.contoEconomico.totals?.risultato,
+      },
+    };
+  } catch (err) {
+    return { imported: 0, errors: [{ message: `Errore parsing bilancio: ${err.message}` }] };
+  }
+}
+
+// ─── RECEIPTS (CORRISPETTIVI) CSV PROCESSOR ────────────────────
+
+async function processReceiptsCSV(text, context, batchId, mappingOverride, onProgress) {
+  const { headers, rows, errors: parseErrors } = parseCSV(text, {
+    delimiter: context.csvOptions?.delimiter,
+    skipRows: context.csvOptions?.skipRows || 0,
+    dateFormat: context.csvOptions?.dateFormat || 'DD/MM/YYYY',
+  });
+
+  if (rows.length === 0) {
+    return { imported: 0, errors: [...parseErrors.map(e => ({ message: e })), { message: 'Nessuna riga dati' }] };
+  }
+
+  onProgress(30, `Parsate ${rows.length} righe corrispettivi...`);
+
+  const mapping = mappingOverride || autoReceiptsMapping(headers);
+
+  onProgress(40, 'Trasformazione dati...');
+
+  const records = [];
+  const errors = [];
+
+  rows.forEach((row, idx) => {
+    try {
+      const date = row[mapping.date];
+      const gross = parseItalianNumber(row[mapping.gross] || '0');
+      const net = mapping.net ? parseItalianNumber(row[mapping.net] || '0') : gross;
+      const vat = mapping.vat ? parseItalianNumber(row[mapping.vat] || '0') : (gross - net);
+      const txCount = mapping.transactions ? parseInt(row[mapping.transactions] || '0', 10) : 1;
+
+      if (!date || gross === 0) return; // skip empty rows
+
+      records.push({
+        company_id: context.company_id,
+        outlet_id: context.outlet_id || null,
+        import_batch_id: batchId,
+        date,
+        gross_revenue: gross,
+        net_revenue: net,
+        vat_amount: Math.round(vat * 100) / 100,
+        transactions_count: txCount,
+        source: 'corrispettivi_import',
+        cash_amount: mapping.cash ? parseItalianNumber(row[mapping.cash] || '0') : null,
+        card_amount: mapping.card ? parseItalianNumber(row[mapping.card] || '0') : null,
+        avg_ticket: txCount > 0 ? Math.round((gross / txCount) * 100) / 100 : 0,
+      });
+    } catch (err) {
+      errors.push({ message: `Riga ${idx + 1}: ${err.message}` });
+    }
+  });
+
+  if (records.length === 0) {
+    return { imported: 0, errors: [...errors, { message: 'Nessun record valido trovato' }] };
+  }
+
+  onProgress(60, `Inserimento ${records.length} corrispettivi...`);
+
+  const { inserted, insertErrors } = await batchInsert('daily_revenue', records, onProgress, 60, 95);
+
+  return {
+    imported: inserted,
+    errors: [...errors, ...insertErrors],
+    details: { headers, mapping, totalParsed: rows.length },
+  };
+}
+
+// ─── PAYROLL CSV/XLSX PROCESSOR ────────────────────────────────
+
+async function processPayrollCSV(content, context, batchId, mappingOverride, onProgress) {
+  // If PDF, we can't parse payroll PDFs yet — need structured CSV
+  if (content instanceof ArrayBuffer) {
+    return {
+      imported: 0,
+      errors: [{ message: 'Per i cedolini usa il formato CSV/Excel. Il parsing PDF cedolini sarà disponibile prossimamente.' }],
+    };
+  }
+
+  const { headers, rows, errors: parseErrors } = parseCSV(content, {
+    delimiter: context.csvOptions?.delimiter || ';',
+    skipRows: context.csvOptions?.skipRows || 0,
+  });
+
+  if (rows.length === 0) {
+    return { imported: 0, errors: [...parseErrors.map(e => ({ message: e })), { message: 'Nessuna riga dati' }] };
+  }
+
+  onProgress(30, `Parsate ${rows.length} righe cedolini...`);
+
+  const mapping = mappingOverride || autoPayrollMapping(headers);
+
+  onProgress(40, 'Trasformazione dati...');
+
+  const records = [];
+  const errors = [];
+  const month = context.month || new Date().getMonth() + 1;
+  const year = context.year || new Date().getFullYear();
+
+  rows.forEach((row, idx) => {
+    try {
+      const cognome = (row[mapping.cognome] || '').trim();
+      const nome = (row[mapping.nome] || '').trim();
+      if (!cognome && !nome) return;
+
+      const retribuzione = parseItalianNumber(row[mapping.retribuzione] || '0');
+      const contributi = parseItalianNumber(row[mapping.contributi] || '0');
+      const inail = parseItalianNumber(row[mapping.inail] || '0');
+      const tfr = parseItalianNumber(row[mapping.tfr] || '0');
+      const altriCosti = parseItalianNumber(row[mapping.altri_costi] || '0');
+      const nettoInBusta = mapping.netto ? parseItalianNumber(row[mapping.netto] || '0') : 0;
+
+      records.push({
+        company_id: context.company_id,
+        import_batch_id: batchId,
+        cognome,
+        nome,
+        month,
+        year,
+        retribuzione,
+        contributi,
+        inail,
+        tfr,
+        altri_costi: altriCosti,
+        netto_in_busta: nettoInBusta,
+        totale_costo: retribuzione + contributi + inail + tfr + altriCosti,
+        source: 'import',
+      });
+    } catch (err) {
+      errors.push({ message: `Riga ${idx + 1}: ${err.message}` });
+    }
+  });
+
+  if (records.length === 0) {
+    return { imported: 0, errors: [...errors, { message: 'Nessun record valido' }] };
+  }
+
+  onProgress(55, 'Collegamento dipendenti...');
+
+  // Match records to existing employees by cognome+nome
+  const { data: employees } = await supabase
+    .from('employees')
+    .select('id, nome, cognome')
+    .eq('company_id', context.company_id)
+    .or('is_active.is.null,is_active.eq.true');
+
+  const costRecords = [];
+  const unmatchedEmployees = [];
+
+  for (const rec of records) {
+    const emp = (employees || []).find(e =>
+      (e.cognome || '').toLowerCase() === rec.cognome.toLowerCase() &&
+      (e.nome || '').toLowerCase() === rec.nome.toLowerCase()
+    );
+
+    if (emp) {
+      costRecords.push({
+        employee_id: emp.id,
+        company_id: rec.company_id,
+        year: rec.year,
+        month: rec.month,
+        retribuzione: rec.retribuzione,
+        contributi: rec.contributi,
+        inail: rec.inail,
+        tfr: rec.tfr,
+        altri_costi: rec.altri_costi,
+        source: 'import',
+      });
+    } else {
+      unmatchedEmployees.push(`${rec.cognome} ${rec.nome}`);
+    }
+  }
+
+  if (unmatchedEmployees.length > 0) {
+    errors.push({
+      message: `${unmatchedEmployees.length} dipendenti non trovati: ${unmatchedEmployees.slice(0, 5).join(', ')}${unmatchedEmployees.length > 5 ? '...' : ''}`,
+    });
+  }
+
+  if (costRecords.length === 0) {
+    return { imported: 0, errors: [...errors, { message: 'Nessun dipendente corrisponde ai dati del file' }] };
+  }
+
+  onProgress(70, `Inserimento costi per ${costRecords.length} dipendenti...`);
+
+  // Upsert: delete existing for same month/year, then insert
+  for (const rec of costRecords) {
+    await supabase
+      .from('employee_costs')
+      .delete()
+      .eq('employee_id', rec.employee_id)
+      .eq('year', rec.year)
+      .eq('month', rec.month);
+  }
+
+  const { inserted, insertErrors } = await batchInsert('employee_costs', costRecords, onProgress, 75, 95);
+
+  return {
+    imported: inserted,
+    errors: [...errors, ...insertErrors],
+    details: {
+      headers,
+      mapping,
+      dipendentiTrovati: costRecords.length,
+      dipendentiNonTrovati: unmatchedEmployees.length,
+      mese: `${month}/${year}`,
+    },
+  };
+}
+
 // ─── HELPERS ────────────────────────────────────────────────────
+
+function autoReceiptsMapping(headers) {
+  const normalized = headers.map(h => h.toLowerCase().trim());
+  const mapping = {};
+
+  const dateKw = ['data', 'date', 'giorno', 'data_corrispettivo'];
+  const grossKw = ['incasso', 'lordo', 'gross', 'totale', 'importo', 'corrispettivo'];
+  const netKw = ['netto', 'net', 'imponibile'];
+  const vatKw = ['iva', 'imposta', 'vat', 'tax'];
+  const txKw = ['scontrini', 'transazioni', 'n_scontrini', 'num'];
+  const cashKw = ['contanti', 'cash', 'contante'];
+  const cardKw = ['carta', 'card', 'pos', 'bancomat', 'elettronico'];
+
+  headers.forEach((h, i) => {
+    const low = normalized[i];
+    if (!mapping.date && dateKw.some(k => low.includes(k))) mapping.date = h;
+    if (!mapping.gross && grossKw.some(k => low.includes(k)) && !low.includes('net')) mapping.gross = h;
+    if (!mapping.net && netKw.some(k => low.includes(k))) mapping.net = h;
+    if (!mapping.vat && vatKw.some(k => low.includes(k))) mapping.vat = h;
+    if (!mapping.transactions && txKw.some(k => low.includes(k))) mapping.transactions = h;
+    if (!mapping.cash && cashKw.some(k => low.includes(k))) mapping.cash = h;
+    if (!mapping.card && cardKw.some(k => low.includes(k))) mapping.card = h;
+  });
+
+  if (!mapping.date && headers.length >= 2) mapping.date = headers[0];
+  if (!mapping.gross && headers.length >= 2) mapping.gross = headers[1];
+
+  return mapping;
+}
+
+function autoPayrollMapping(headers) {
+  const normalized = headers.map(h => h.toLowerCase().trim());
+  const mapping = {};
+
+  const cognomeKw = ['cognome', 'surname', 'last_name', 'dipendente'];
+  const nomeKw = ['nome', 'name', 'first_name'];
+  const retribKw = ['retribuzione', 'lordo', 'ral', 'stipendio', 'paga_base'];
+  const contribKw = ['contributi', 'inps', 'contributi_datore'];
+  const inailKw = ['inail'];
+  const tfrKw = ['tfr', 'trattamento'];
+  const altriKw = ['altri_costi', 'altri', 'benefits', 'premi'];
+  const nettoKw = ['netto', 'netto_in_busta', 'net'];
+
+  headers.forEach((h, i) => {
+    const low = normalized[i];
+    if (!mapping.cognome && cognomeKw.some(k => low.includes(k))) mapping.cognome = h;
+    if (!mapping.nome && nomeKw.some(k => low.includes(k)) && !low.includes('cogno')) mapping.nome = h;
+    if (!mapping.retribuzione && retribKw.some(k => low.includes(k))) mapping.retribuzione = h;
+    if (!mapping.contributi && contribKw.some(k => low.includes(k))) mapping.contributi = h;
+    if (!mapping.inail && inailKw.some(k => low.includes(k))) mapping.inail = h;
+    if (!mapping.tfr && tfrKw.some(k => low.includes(k))) mapping.tfr = h;
+    if (!mapping.altri_costi && altriKw.some(k => low.includes(k))) mapping.altri_costi = h;
+    if (!mapping.netto && nettoKw.some(k => low.includes(k))) mapping.netto = h;
+  });
+
+  // Fallback: try first two columns
+  if (!mapping.cognome && headers.length >= 2) mapping.cognome = headers[0];
+  if (!mapping.nome && headers.length >= 2) mapping.nome = headers[1];
+
+  return mapping;
+}
 
 function autoPOSMapping(headers) {
   const normalized = headers.map(h => h.toLowerCase().trim());
@@ -416,11 +760,15 @@ async function batchInsert(tableName, records, onProgress, progressStart, progre
  */
 export async function previewImport({ file, sourceType, context, maxRows = 10 }) {
   try {
-    const text = await readFileContent(file, null, null);
+    const fileName = file?.name || '';
+    const isPDF = fileName.toLowerCase().endsWith('.pdf');
 
-    if (sourceType === 'bank' || sourceType === 'pos_data') {
+    // CSV-based sources
+    if (['bank', 'pos_data', 'receipts', 'payroll'].includes(sourceType) && !isPDF) {
+      const text = await readFileContent(file, null, null);
       const { headers, rows } = parseCSV(text, {
         skipRows: context.csvOptions?.skipRows || 0,
+        delimiter: sourceType === 'payroll' ? ';' : undefined,
       });
 
       let mapping, confidence;
@@ -428,6 +776,12 @@ export async function previewImport({ file, sourceType, context, maxRows = 10 })
         const detected = autoDetectBankMapping(headers);
         mapping = detected.mapping;
         confidence = detected.confidence;
+      } else if (sourceType === 'receipts') {
+        mapping = autoReceiptsMapping(headers);
+        confidence = mapping.date && mapping.gross ? 70 : 30;
+      } else if (sourceType === 'payroll') {
+        mapping = autoPayrollMapping(headers);
+        confidence = mapping.cognome && mapping.retribuzione ? 70 : 30;
       } else {
         mapping = autoPOSMapping(headers);
         confidence = Object.keys(mapping).length > 1 ? 70 : 30;
@@ -444,7 +798,9 @@ export async function previewImport({ file, sourceType, context, maxRows = 10 })
       };
     }
 
+    // XML invoices
     if (sourceType === 'invoices') {
+      const text = await readFileContent(file, null, null);
       const { invoices, supplier, errors } = parseFatturaPA(text);
       return {
         success: invoices.length > 0,
@@ -453,6 +809,27 @@ export async function previewImport({ file, sourceType, context, maxRows = 10 })
         totalInvoices: invoices.length,
         errors,
         sourceType,
+      };
+    }
+
+    // PDF balance sheet
+    if (sourceType === 'balance_sheet' && isPDF) {
+      const pdfData = await readFileContent(file, null, null, { asBinary: true });
+      const parsed = await parseBilancio(pdfData);
+      return {
+        success: true,
+        sourceType,
+        summary: {
+          attivita: parsed.patrimoniale.attivita.length,
+          passivita: parsed.patrimoniale.passivita.length,
+          costi: parsed.contoEconomico.costi.length,
+          ricavi: parsed.contoEconomico.ricavi.length,
+          totaleRicavi: parsed.contoEconomico.totals?.ricavi,
+          totaleCosti: parsed.contoEconomico.totals?.costi,
+          risultato: parsed.contoEconomico.totals?.risultato,
+        },
+        sampleCosti: parsed.contoEconomico.costi.filter(r => r.isMacro).slice(0, maxRows),
+        sampleRicavi: parsed.contoEconomico.ricavi.filter(r => r.isMacro).slice(0, maxRows),
       };
     }
 

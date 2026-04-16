@@ -127,47 +127,59 @@ export default function Dipendenti() {
     try {
       setLoading(true);
 
-      // Load employees
+      // Load employees (filtered by company)
       const { data: empData, error: empError } = await supabase
         .from('employees')
         .select('*')
-        .eq('is_active', true)
+        .eq('company_id', COMPANY_ID)
+        .or('is_active.is.null,is_active.eq.true')
         .order('cognome');
 
       if (empError) throw empError;
       setEmployees(empData || []);
 
-      // Load allocations
-      const { data: allocData, error: allocError } = await supabase
-        .from('employee_outlet_allocations')
-        .select('*')
-        .order('employee_id');
+      // Load allocations (for company employees)
+      const empIds = (empData || []).map(e => e.id);
+      let allocData = [];
+      if (empIds.length > 0) {
+        const { data, error: allocError } = await supabase
+          .from('employee_outlet_allocations')
+          .select('*')
+          .in('employee_id', empIds)
+          .order('employee_id');
+        if (allocError) throw allocError;
+        allocData = data || [];
+      }
+      setAllocations(allocData);
 
-      if (allocError) throw allocError;
-      setAllocations(allocData || []);
+      // Load costs (for company employees)
+      let costData = [];
+      if (empIds.length > 0) {
+        const { data, error: costError } = await supabase
+          .from('employee_costs')
+          .select('*')
+          .in('employee_id', empIds)
+          .order('employee_id');
+        if (costError) throw costError;
+        costData = data || [];
+      }
+      setCosts(costData);
 
-      // Load costs
-      const { data: costData, error: costError } = await supabase
-        .from('employee_costs')
-        .select('*')
-        .order('employee_id');
-
-      if (costError) throw costError;
-      setCosts(costData || []);
-
-      // Load cost centers
+      // Load cost centers (company-scoped)
       const { data: ccData, error: ccError } = await supabase
         .from('cost_centers')
         .select('*')
+        .eq('company_id', COMPANY_ID)
         .order('label');
 
       if (ccError) throw ccError;
       setCostCenters(ccData || []);
 
-      // Load employee documents
+      // Load employee documents (company-scoped)
       const { data: docsData } = await supabase
         .from('employee_documents')
         .select('*')
+        .eq('company_id', COMPANY_ID)
         .order('created_at', { ascending: false });
       setEmployeeDocs(docsData || []);
 
@@ -311,6 +323,23 @@ export default function Dipendenti() {
   // ========== EMPLOYEE FORM HANDLERS ==========
 
   const handleSaveEmployee = async (formData) => {
+    // Validazioni
+    if (!formData.nome?.trim() || !formData.cognome?.trim()) {
+      alert('Nome e cognome sono obbligatori'); return;
+    }
+    if (formData.codice_fiscale && formData.codice_fiscale.length > 0 && formData.codice_fiscale.length !== 16) {
+      alert('Il codice fiscale deve avere 16 caratteri'); return;
+    }
+    // Duplicate check
+    if (!editingEmployee) {
+      const dup = employees.find(e =>
+        e.cognome?.toLowerCase() === formData.cognome?.toLowerCase() &&
+        e.nome?.toLowerCase() === formData.nome?.toLowerCase()
+      );
+      if (dup) {
+        if (!confirm(`Dipendente "${formData.cognome} ${formData.nome}" esiste già. Creare comunque?`)) return;
+      }
+    }
     try {
       if (editingEmployee) {
         const { error } = await supabase
@@ -321,7 +350,7 @@ export default function Dipendenti() {
       } else {
         const { error } = await supabase
           .from('employees')
-          .insert([{ ...formData, is_active: true }]);
+          .insert([{ ...formData, company_id: COMPANY_ID, is_active: true }]);
         if (error) throw error;
       }
       await loadAllData();
@@ -329,6 +358,7 @@ export default function Dipendenti() {
       setEditingEmployee(null);
     } catch (err) {
       console.error('Errore nel salvataggio dipendente:', err);
+      alert('Errore nel salvataggio: ' + err.message);
     }
   };
 
@@ -1085,9 +1115,35 @@ export default function Dipendenti() {
             {batchImporting ? 'Importazione...' : 'Import batch CSV'}
             <input ref={batchFileRef} type="file" accept=".csv,.txt,.xlsx" onChange={handleBatchImport} className="hidden" disabled={batchImporting} />
           </label>
-          <button className="flex items-center gap-2 px-4 py-2 bg-slate-200 text-slate-900 rounded-lg hover:bg-slate-300 transition font-medium">
+          <button onClick={() => {
+            const year = viewMode === 'consuntivo' ? 2025 : 2026;
+            const yearCosts = costs.filter(c => c.year === year);
+            const rows = [['Cognome', 'Nome', 'Qualifica', 'Contratto', 'Outlet', 'Allocazione%', 'Mese', 'Retribuzione', 'Contributi', 'INAIL', 'TFR', 'Totale']];
+            employees.forEach(emp => {
+              const empCosts = yearCosts.filter(c => c.employee_id === emp.id);
+              const empAllocs = allocations.filter(a => a.employee_id === emp.id);
+              const outletName = empAllocs.length > 0
+                ? costCenters.find(cc => cc.id === empAllocs[0].cost_center_id)?.label || '-'
+                : '-';
+              const allocPct = empAllocs.length > 0 ? empAllocs[0].allocation_pct : 100;
+              if (empCosts.length === 0) {
+                rows.push([emp.cognome, emp.nome, emp.qualifica || '', emp.contratto || '', outletName, allocPct, '-', 0, 0, 0, 0, 0]);
+              } else {
+                empCosts.forEach(c => {
+                  const tot = (c.retribuzione || 0) + (c.contributi || 0) + (c.inail || 0) + (c.tfr || 0);
+                  rows.push([emp.cognome, emp.nome, emp.qualifica || '', emp.contratto || '', outletName, allocPct, c.month,
+                    c.retribuzione || 0, c.contributi || 0, c.inail || 0, c.tfr || 0, tot]);
+                });
+              }
+            });
+            const csv = rows.map(r => r.map(v => typeof v === 'string' && v.includes(',') ? `"${v}"` : v).join(';')).join('\n');
+            const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a'); a.href = url; a.download = `dipendenti_${year}.csv`; a.click();
+            URL.revokeObjectURL(url);
+          }} className="flex items-center gap-2 px-4 py-2 bg-slate-200 text-slate-900 rounded-lg hover:bg-slate-300 transition font-medium">
             <Download className="w-4 h-4" />
-            Esporta PDF
+            Esporta CSV
           </button>
         </div>
 

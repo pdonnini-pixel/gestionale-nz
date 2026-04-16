@@ -87,7 +87,7 @@ function getCentroColor(id) {
 // ==========================================
 // SEZIONE AZIENDA
 // ==========================================
-function CompanySection({ showToast }) {
+function CompanySection({ showToast, companyId: COMPANY_ID }) {
   const [company, setCompany] = useState(null)
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState(null)
@@ -120,7 +120,18 @@ function CompanySection({ showToast }) {
   }
 
   const handleSave = async () => {
+    // Validazioni
+    if (formData.partita_iva && !/^\d{11}$/.test(formData.partita_iva.replace(/\s/g, ''))) {
+      showToast?.('P.IVA deve avere 11 cifre', 'error'); return
+    }
+    if (formData.codice_fiscale && formData.codice_fiscale.length > 0 && formData.codice_fiscale.length < 11) {
+      showToast?.('Codice fiscale non valido', 'error'); return
+    }
+    if (formData.pec && formData.pec.length > 0 && !formData.pec.includes('@')) {
+      showToast?.('PEC non valida', 'error'); return
+    }
     try {
+      if (!COMPANY_ID) { showToast?.('ID azienda mancante', 'error'); return }
       const { error } = await supabase
         .from('company_settings')
         .update(formData)
@@ -150,8 +161,17 @@ function CompanySection({ showToast }) {
     setSociForm(prev => prev.map((s, i) => i === idx ? { ...s, [field]: value } : s))
   }
   const saveSoci = async () => {
+    // Validazione quote
+    const totalQuota = sociForm.reduce((s, soc) => s + (parseFloat(soc.quota) || 0), 0)
+    if (totalQuota > 100) {
+      showToast?.(`Le quote superano il 100% (${totalQuota}%)`, 'error'); return
+    }
+    if (sociForm.some(s => !s.nome || !s.nome.trim())) {
+      showToast?.('Tutti i soci devono avere un nome', 'error'); return
+    }
     try {
       setSavingSoci(true)
+      if (!COMPANY_ID) { showToast?.('ID azienda mancante', 'error'); return }
       const { error } = await supabase
         .from('company_settings')
         .update({ soci: sociForm })
@@ -289,7 +309,7 @@ function CompanySection({ showToast }) {
 // ==========================================
 // SEZIONE UTENTI (CRUD)
 // ==========================================
-function UserSection({ showToast }) {
+function UserSection({ showToast, companyId: COMPANY_ID }) {
   const [users, setUsers] = useState([])
   const [loading, setLoading] = useState(true)
   const [costCenters, setCostCenters] = useState([])
@@ -600,7 +620,7 @@ function UserSection({ showToast }) {
 // ==========================================
 // SEZIONE COSTI (CRUD)
 // ==========================================
-function CostSection({ showToast }) {
+function CostSection({ showToast, companyId: COMPANY_ID }) {
   const [costs, setCosts] = useState([])
   const [costCenters, setCostCenters] = useState([])
   const [loading, setLoading] = useState(true)
@@ -660,7 +680,18 @@ function CostSection({ showToast }) {
   }
 
   const handleSave = async () => {
-    if (!form.name.trim() || !form.code.trim()) return
+    if (!form.name.trim() || !form.code.trim()) {
+      showToast?.('Codice e nome sono obbligatori', 'error'); return
+    }
+    // Check duplicate code
+    const existingCode = costs.find(c => c.code === form.code.toUpperCase() && c.id !== editingId)
+    if (existingCode) {
+      showToast?.(`Codice "${form.code.toUpperCase()}" già esistente`, 'error'); return
+    }
+    // Guard against circular parent
+    if (form.parent_id && form.parent_id === editingId) {
+      showToast?.('Una voce non può essere sotto-conto di sé stessa', 'error'); return
+    }
 
     try {
       setSaving(true)
@@ -1003,7 +1034,7 @@ function CostSection({ showToast }) {
 // ==========================================
 // SEZIONE CENTRI DI COSTO
 // ==========================================
-function CentriDiCostoSection({ showToast }) {
+function CentriDiCostoSection({ showToast, companyId: COMPANY_ID }) {
   const [centers, setCenters] = useState([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
@@ -1302,7 +1333,7 @@ export default function Impostazioni() {
               </div>
               {isOpen && hasAccess && (
                 <div className="border-t border-slate-100">
-                  <Component showToast={showToast} />
+                  <Component showToast={showToast} companyId={COMPANY_ID} />
                 </div>
               )}
             </div>
