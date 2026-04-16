@@ -89,7 +89,7 @@ export async function runAutoReconciliation(companyId, bankAccountId = null, opt
       .from('payables')
       .select('*, suppliers!inner(id, ragione_sociale, name, p_iva)')
       .eq('company_id', companyId)
-      .or('status.eq.unpaid,status.eq.partial,cash_movement_id.is.null')
+      .or('status.eq.da_pagare,status.eq.in_scadenza,status.eq.scaduto,status.eq.parziale,cash_movement_id.is.null')
       .is('cash_movement_id', null);
 
     if (payError) {
@@ -316,7 +316,7 @@ export async function applyReconciliation(movementId, payableId, matchType = 'ma
       .update({
         cash_movement_id: movementId,
         payment_date: now.split('T')[0],
-        status: 'paid',
+        status: 'pagato',
       })
       .eq('id', payableId);
 
@@ -395,7 +395,7 @@ export async function undoReconciliation(movementId, payableId, options = {}) {
       .update({
         cash_movement_id: null,
         payment_date: null,
-        status: 'unpaid',
+        status: 'da_pagare',
       })
       .eq('id', payableId);
 
@@ -562,7 +562,7 @@ export async function applyBatchReconciliation(movementId, payableIds, options =
         .update({
           cash_movement_id: movementId,
           payment_date: movement.date,
-          status: 'paid',
+          status: 'pagato',
         })
         .eq('id', payable.id);
 
@@ -623,7 +623,7 @@ async function writeReconciliation(movementId, payableId, companyId, matchType, 
     .update({
       cash_movement_id: movementId,
       payment_date: now.split('T')[0],
-      status: 'paid',
+      status: 'pagato',
     })
     .eq('id', payableId);
 
