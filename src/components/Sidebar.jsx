@@ -4,7 +4,7 @@ import {
   LayoutDashboard, Store, Receipt, Building2, Users, FileText,
   Settings, LogOut, ChevronLeft, ChevronRight, ChevronDown, ChevronUp,
   Landmark, Upload, BarChart3, GitCompare, Calculator,
-  Package, CreditCard, Wallet, ShoppingBag, UserCheck, Map, PieChart, CalendarClock, ClipboardList, DatabaseZap
+  Package, CreditCard, Wallet, ShoppingBag, UserCheck, Map, PieChart, CalendarClock, ClipboardList, DatabaseZap, Archive
 } from 'lucide-react'
 import { useState } from 'react'
 
@@ -22,6 +22,7 @@ const mainItems = {
     { to: '/banche', icon: Landmark, label: 'Banche' },
     { to: '/dipendenti', icon: Users, label: 'Dipendenti' },
     { to: '/import-hub', icon: DatabaseZap, label: 'Import Hub' },
+    { to: '/archivio', icon: Archive, label: 'Archivio Documenti' },
     { to: '/impostazioni', icon: Settings, label: 'Impostazioni' },
   ],
   ceo: [
@@ -45,6 +46,7 @@ const mainItems = {
     { to: '/fornitori', icon: Building2, label: 'Fornitori' },
     { to: '/banche', icon: Landmark, label: 'Banche' },
     { to: '/import-hub', icon: DatabaseZap, label: 'Import Hub' },
+    { to: '/archivio', icon: Archive, label: 'Archivio Documenti' },
   ],
   coo: [
     { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
@@ -57,6 +59,7 @@ const mainItems = {
     { to: '/fornitori', icon: Building2, label: 'Fornitori' },
     { to: '/banche', icon: Landmark, label: 'Banche' },
     { to: '/import-hub', icon: DatabaseZap, label: 'Import Hub' },
+    { to: '/archivio', icon: Archive, label: 'Archivio Documenti' },
   ],
 }
 

@@ -21,6 +21,7 @@ import MarginiCategoria from './pages/MarginiCategoria'
 import StoreManager from './pages/StoreManager'
 import ImportHub from './pages/ImportHub'
 import Fornitori from './pages/Fornitori'
+import ArchivioDocumenti from './pages/ArchivioDocumenti'
 
 function ProtectedRoute({ children }) {
   const { session, loading } = useAuth()
@@ -75,6 +76,7 @@ function AppRoutes() {
         <Route path="store-manager" element={<StoreManager />} />
         <Route path="import-hub" element={<ImportHub />} />
         <Route path="fornitori" element={<Fornitori />} />
+        <Route path="archivio" element={<ArchivioDocumenti />} />
         <Route path="impostazioni" element={<Impostazioni />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
