@@ -522,8 +522,27 @@ async function processPayrollCSV(content, context, batchId, mappingOverride, onP
     .eq('company_id', context.company_id)
     .or('is_active.is.null,is_active.eq.true');
 
+  // Load outlet allocations for all active employees (for cost splitting)
+  const empIds = (employees || []).map(e => e.id);
+  let allocations = [];
+  if (empIds.length > 0) {
+    const { data: allocData } = await supabase
+      .from('employee_outlet_allocations')
+      .select('employee_id, outlet_id, allocation_pct')
+      .in('employee_id', empIds);
+    allocations = allocData || [];
+  }
+
+  // Build allocation map: employee_id -> [{ outlet_id, pct }]
+  const allocMap = {};
+  for (const a of allocations) {
+    if (!allocMap[a.employee_id]) allocMap[a.employee_id] = [];
+    allocMap[a.employee_id].push({ outlet_id: a.outlet_id, pct: parseFloat(a.allocation_pct || 100) });
+  }
+
   const costRecords = [];
   const unmatchedEmployees = [];
+  const multiOutletDetails = [];
 
   for (const rec of records) {
     const emp = (employees || []).find(e =>
@@ -532,18 +551,62 @@ async function processPayrollCSV(content, context, batchId, mappingOverride, onP
     );
 
     if (emp) {
-      costRecords.push({
-        employee_id: emp.id,
-        company_id: rec.company_id,
-        year: rec.year,
-        month: rec.month,
-        retribuzione: rec.retribuzione,
-        contributi: rec.contributi,
-        inail: rec.inail,
-        tfr: rec.tfr,
-        altri_costi: rec.altri_costi,
-        source: 'import',
-      });
+      const empAllocations = allocMap[emp.id] || [];
+
+      // If context has a forced outlet_id, use it for all records
+      if (context.outlet_id) {
+        costRecords.push({
+          employee_id: emp.id,
+          company_id: rec.company_id,
+          outlet_id: context.outlet_id,
+          year: rec.year,
+          month: rec.month,
+          retribuzione: rec.retribuzione,
+          contributi: rec.contributi,
+          inail: rec.inail,
+          tfr: rec.tfr,
+          altri_costi: rec.altri_costi,
+          allocation_pct: 100,
+          source: 'import',
+        });
+      } else if (empAllocations.length <= 1) {
+        // Single outlet or no allocation — assign full cost
+        costRecords.push({
+          employee_id: emp.id,
+          company_id: rec.company_id,
+          outlet_id: empAllocations.length === 1 ? empAllocations[0].outlet_id : null,
+          year: rec.year,
+          month: rec.month,
+          retribuzione: rec.retribuzione,
+          contributi: rec.contributi,
+          inail: rec.inail,
+          tfr: rec.tfr,
+          altri_costi: rec.altri_costi,
+          allocation_pct: 100,
+          source: 'import',
+        });
+      } else {
+        // Multi-outlet employee — split costs proportionally
+        const totalPct = empAllocations.reduce((sum, a) => sum + a.pct, 0) || 100;
+        for (const alloc of empAllocations) {
+          const ratio = alloc.pct / totalPct;
+          costRecords.push({
+            employee_id: emp.id,
+            company_id: rec.company_id,
+            outlet_id: alloc.outlet_id,
+            year: rec.year,
+            month: rec.month,
+            retribuzione: Math.round(rec.retribuzione * ratio * 100) / 100,
+            contributi: Math.round(rec.contributi * ratio * 100) / 100,
+            inail: Math.round(rec.inail * ratio * 100) / 100,
+            tfr: Math.round(rec.tfr * ratio * 100) / 100,
+            altri_costi: Math.round(rec.altri_costi * ratio * 100) / 100,
+            allocation_pct: alloc.pct,
+            source: 'import',
+          });
+        }
+        multiOutletDetails.push(`${rec.cognome} ${rec.nome} → ${empAllocations.length} outlet`);
+      }
     } else {
       unmatchedEmployees.push(`${rec.cognome} ${rec.nome}`);
     }
@@ -559,16 +622,17 @@ async function processPayrollCSV(content, context, batchId, mappingOverride, onP
     return { imported: 0, errors: [...errors, { message: 'Nessun dipendente corrisponde ai dati del file' }] };
   }
 
-  onProgress(70, `Inserimento costi per ${costRecords.length} dipendenti...`);
+  onProgress(70, `Inserimento costi per ${costRecords.length} record (${new Set(costRecords.map(r => r.employee_id)).size} dipendenti)...`);
 
-  // Upsert: delete existing for same month/year, then insert
-  for (const rec of costRecords) {
+  // Upsert: delete existing for same employee/month/year, then insert
+  const uniqueEmployeeIds = [...new Set(costRecords.map(r => r.employee_id))];
+  for (const empId of uniqueEmployeeIds) {
     await supabase
       .from('employee_costs')
       .delete()
-      .eq('employee_id', rec.employee_id)
-      .eq('year', rec.year)
-      .eq('month', rec.month);
+      .eq('employee_id', empId)
+      .eq('year', year)
+      .eq('month', month);
   }
 
   const { inserted, insertErrors } = await batchInsert('employee_costs', costRecords, onProgress, 75, 95);
@@ -579,8 +643,10 @@ async function processPayrollCSV(content, context, batchId, mappingOverride, onP
     details: {
       headers,
       mapping,
-      dipendentiTrovati: costRecords.length,
+      dipendentiTrovati: uniqueEmployeeIds.length,
       dipendentiNonTrovati: unmatchedEmployees.length,
+      dipendentiMultiOutlet: multiOutletDetails.length,
+      multiOutletInfo: multiOutletDetails.length > 0 ? multiOutletDetails.slice(0, 5).join(', ') : null,
       mese: `${month}/${year}`,
     },
   };

@@ -170,6 +170,7 @@ export default function Dipendenti() {
         .from('cost_centers')
         .select('*')
         .eq('company_id', COMPANY_ID)
+        .eq('is_active', true)
         .order('label');
 
       if (ccError) throw ccError;

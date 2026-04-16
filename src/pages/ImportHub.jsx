@@ -114,7 +114,7 @@ export default function ImportHub() {
   const { profile } = useAuth();
   const COMPANY_ID = profile?.company_id;
 
-  const [activeTab, setActiveTab] = useState('overview');
+  const [activeTab, setActiveTab] = useState('sources');
   const [selectedSource, setSelectedSource] = useState(null);
   const [dragActive, setDragActive] = useState(false);
   const [uploadedFiles, setUploadedFiles] = useState([]);
@@ -164,6 +164,7 @@ export default function ImportHub() {
       .from('bank_accounts')
       .select('id, account_name, bank_name')
       .eq('company_id', COMPANY_ID)
+      .eq('is_active', true)
       .order('bank_name', { ascending: true });
     setBankAccounts(data || []);
   }
@@ -173,6 +174,7 @@ export default function ImportHub() {
       .from('outlets')
       .select('id, name')
       .eq('company_id', COMPANY_ID)
+      .eq('is_active', true)
       .order('name', { ascending: true });
     setOutlets(data || []);
   }
@@ -722,8 +724,8 @@ export default function ImportHub() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <nav className="flex space-x-8">
             {[
+              { id: 'sources', label: 'Fonti di importazioni', icon: Database },
               { id: 'overview', label: 'Panoramica', icon: BarChart3 },
-              { id: 'sources', label: 'Fonti di Importazione', icon: Database },
               { id: 'history', label: 'Cronologia', icon: Clock },
             ].map((tab) => {
               const Icon = tab.icon;
@@ -929,27 +931,46 @@ export default function ImportHub() {
               )}
 
               {selectedSource === 'payroll' && (
-                <div className="mb-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
-                  <label className="block text-sm font-semibold text-gray-900 mb-2">Seleziona Mese e Anno</label>
-                  <div className="flex gap-3">
+                <div className="mb-6 p-4 bg-blue-50 rounded-lg border border-blue-200 space-y-4">
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-900 mb-2">Seleziona Mese e Anno</label>
+                    <div className="flex gap-3">
+                      <select
+                        value={selectedMonthYear}
+                        onChange={(e) => setSelectedMonthYear(e.target.value)}
+                        className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      >
+                        <option value="">-- Seleziona mese/anno --</option>
+                        {months.map((m, idx) =>
+                          Array.from({ length: 3 }, (_, y) => {
+                            const year = new Date().getFullYear() - y;
+                            const val = `${String(idx + 1).padStart(2, '0')}-${year}`;
+                            return (
+                              <option key={val} value={val}>
+                                {m} {year}
+                              </option>
+                            );
+                          })
+                        )}
+                      </select>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-900 mb-2">
+                      <Store className="inline w-4 h-4 mr-1" />
+                      Punto Vendita (opzionale)
+                    </label>
                     <select
-                      value={selectedMonthYear}
-                      onChange={(e) => setSelectedMonthYear(e.target.value)}
-                      className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      value={selectedOutlet}
+                      onChange={(e) => setSelectedOutlet(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     >
-                      <option value="">-- Seleziona mese/anno --</option>
-                      {months.map((m, idx) =>
-                        Array.from({ length: 3 }, (_, y) => {
-                          const year = new Date().getFullYear() - y;
-                          const val = `${String(idx + 1).padStart(2, '0')}-${year}`;
-                          return (
-                            <option key={val} value={val}>
-                              {m} {year}
-                            </option>
-                          );
-                        })
-                      )}
+                      <option value="">-- Auto da allocazioni dipendente --</option>
+                      {outlets.map((o) => (
+                        <option key={o.id} value={o.id}>{o.name}</option>
+                      ))}
                     </select>
+                    <p className="text-xs text-blue-700 mt-1">Se non selezionato, i costi vengono ripartiti automaticamente in base alle allocazioni outlet di ogni dipendente</p>
                   </div>
                 </div>
               )}

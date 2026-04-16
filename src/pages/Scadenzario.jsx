@@ -628,7 +628,7 @@ export default function Scadenzario() {
     const [payRes, bankRes, supRes] = await Promise.all([
       supabase.from('v_payables_operative').select('*'),
       supabase.from('v_bank_accounts_detail').select('*'),
-      supabase.from('suppliers').select('*').order('ragione_sociale'),
+      supabase.from('suppliers').select('*').or('is_deleted.is.null,is_deleted.eq.false').order('ragione_sociale'),
     ])
     if (payRes.data) setPayables(payRes.data)
     if (bankRes.data) setBankAccounts(bankRes.data)

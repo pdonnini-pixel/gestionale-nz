@@ -48,6 +48,7 @@ function UploadArea({ onUpload, uploading }) {
 
   useEffect(() => {
     supabase.from('outlets').select('id, name, code')
+      .eq('is_active', true)
       .order('name')
       .then(({ data }) => { if (data) setOutlets(data) })
   }, [])

@@ -463,7 +463,7 @@ export default function Contratti() {
     setLoading(true)
     const [conRes, outRes] = await Promise.all([
       supabase.from('contracts').select('*').order('end_date', { ascending: true }),
-      supabase.from('outlets').select('id, name, code').order('name')
+      supabase.from('outlets').select('id, name, code').eq('is_active', true).order('name')
     ])
     if (conRes.data) setContracts(conRes.data)
     if (outRes.data) setOutlets(outRes.data)
