@@ -13,6 +13,7 @@ import { supabase } from '../supabase';
 import { parseCSV, autoDetectBankMapping, transformBankRows, transformPOSRows, parseItalianNumber } from './csvParser';
 import { parseFatturaPA, transformInvoiceToRecords } from './xmlInvoiceParser';
 import { parseBilancio, toSupabaseRecords as bilancioToRecords } from './bilancioParser';
+import * as XLSX from 'xlsx';
 
 const BATCH_SIZE = 100; // max rows per insert
 
@@ -44,15 +45,18 @@ export async function processImport({
   try {
     onProgress(5, 'Lettura file...');
 
-    // 1. Read file content — binary for PDF, text for CSV/XML
+    // 1. Read file content — binary for PDF/XLS/XLSX, text for CSV/XML
     const fileName = file?.name || storagePath || '';
-    const isPDF = fileName.toLowerCase().endsWith('.pdf');
-    const content = await readFileContent(file, storagePath, bucket, { asBinary: isPDF });
-    if (!isPDF && (!content || (typeof content === 'string' && content.trim().length === 0))) {
+    const ext = fileName.toLowerCase().split('.').pop();
+    const isPDF = ext === 'pdf';
+    const isExcel = ext === 'xls' || ext === 'xlsx' || ext === 'xlsm';
+    const needsBinary = isPDF || isExcel;
+    const content = await readFileContent(file, storagePath, bucket, { asBinary: needsBinary });
+    if (!needsBinary && (!content || (typeof content === 'string' && content.trim().length === 0))) {
       return { success: false, imported: 0, errors: [{ message: 'File vuoto o non leggibile' }], batchId: null };
     }
-    if (isPDF && (!content || content.byteLength === 0)) {
-      return { success: false, imported: 0, errors: [{ message: 'File PDF vuoto o non leggibile' }], batchId: null };
+    if (needsBinary && (!content || content.byteLength === 0)) {
+      return { success: false, imported: 0, errors: [{ message: 'File vuoto o non leggibile' }], batchId: null };
     }
 
     onProgress(15, 'Creazione batch di import...');
@@ -66,7 +70,7 @@ export async function processImport({
     let result;
     switch (sourceType) {
       case 'bank':
-        result = await processBankCSV(content, context, batchId, mappingOverride, onProgress);
+        result = await processBankStatement(content, context, batchId, mappingOverride, onProgress, { isExcel, fileName });
         break;
       case 'invoices':
         result = await processInvoiceXML(content, context, batchId, onProgress);
@@ -186,15 +190,71 @@ async function updateImportBatch(batchId, updates) {
 
 // ─── BANK CSV PROCESSOR ─────────────────────────────────────────
 
-async function processBankCSV(text, context, batchId, mappingOverride, onProgress) {
-  // Parse CSV
-  const { headers, rows, errors: parseErrors } = parseCSV(text, {
-    delimiter: context.csvOptions?.delimiter,
-    skipRows: context.csvOptions?.skipRows || 0,
-    dateFormat: context.csvOptions?.dateFormat || 'DD/MM/YYYY',
-  });
+/**
+ * Converte un file Excel (XLS/XLSX) in { headers, rows } come se fosse CSV.
+ * Skippa righe di riepilogo finali (RIEPILOGO, Totali, vuote).
+ */
+function excelToHeadersRows(arrayBuffer) {
+  const workbook = XLSX.read(arrayBuffer, { type: 'array', cellDates: true, raw: false });
+  const sheetName = workbook.SheetNames[0];
+  const sheet = workbook.Sheets[sheetName];
 
-  if (rows.length === 0) {
+  // Convert to array of arrays
+  const allRows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', raw: false });
+  if (allRows.length < 2) return { headers: [], rows: [] };
+
+  const headers = allRows[0].map(h => (h || '').toString().trim());
+
+  // Build row objects (like CSV parser does) and skip summary/empty rows
+  const dataRows = [];
+  for (let i = 1; i < allRows.length; i++) {
+    const raw = allRows[i];
+    const firstCell = (raw[0] || '').toString().trim();
+
+    // Stop at summary rows
+    if (/^(riepilogo|totali|saldo finale|$)/i.test(firstCell) && (!raw[1] || raw[1] === '')) {
+      // Check if truly empty/summary
+      if (firstCell === '' && raw.every(c => !c || c.toString().trim() === '')) break;
+      if (/riepilogo|totali/i.test(firstCell)) break;
+    }
+
+    const rowObj = {};
+    headers.forEach((h, idx) => {
+      rowObj[h] = raw[idx] !== undefined ? raw[idx].toString() : '';
+    });
+    dataRows.push(rowObj);
+  }
+
+  return { headers, rows: dataRows };
+}
+
+async function processBankStatement(content, context, batchId, mappingOverride, onProgress, { isExcel = false, fileName = '' } = {}) {
+  let headers, rows;
+  let parseErrors = [];
+
+  if (isExcel) {
+    // Parse Excel file
+    onProgress(25, 'Conversione file Excel...');
+    try {
+      const result = excelToHeadersRows(content);
+      headers = result.headers;
+      rows = result.rows;
+    } catch (err) {
+      return { imported: 0, errors: [{ message: `Errore lettura Excel: ${err.message}` }] };
+    }
+  } else {
+    // Parse CSV
+    const csvResult = parseCSV(content, {
+      delimiter: context.csvOptions?.delimiter,
+      skipRows: context.csvOptions?.skipRows || 0,
+      dateFormat: context.csvOptions?.dateFormat || 'DD/MM/YYYY',
+    });
+    headers = csvResult.headers;
+    rows = csvResult.rows;
+    parseErrors = csvResult.errors || [];
+  }
+
+  if (!rows || rows.length === 0) {
     return { imported: 0, errors: [...parseErrors.map(e => ({ message: e })), { message: 'Nessuna riga dati trovata' }] };
   }
 
@@ -210,7 +270,7 @@ async function processBankCSV(text, context, batchId, mappingOverride, onProgres
     if (detected.confidence < 50) {
       return {
         imported: 0,
-        errors: [{ message: `Mapping colonne incerto (${detected.confidence}%). Configurare manualmente.` }],
+        errors: [{ message: `Mapping colonne incerto (${detected.confidence}%). Headers trovati: [${headers.join(', ')}]. Configurare manualmente.` }],
         details: { headers, detectedMapping: detected },
       };
     }
@@ -225,7 +285,7 @@ async function processBankCSV(text, context, batchId, mappingOverride, onProgres
   });
 
   if (records.length === 0) {
-    return { imported: 0, errors: transformErrors };
+    return { imported: 0, errors: [...parseErrors.map(e => ({ message: e })), ...transformErrors] };
   }
 
   onProgress(60, `Inserimento ${records.length} movimenti bancari...`);
@@ -233,9 +293,29 @@ async function processBankCSV(text, context, batchId, mappingOverride, onProgres
   // Insert in batches
   const { inserted, insertErrors } = await batchInsert('cash_movements', records, onProgress, 60, 95);
 
+  // Update bank account balance with last known balance_after
+  if (inserted > 0 && context.bank_account_id) {
+    const lastRecord = records.filter(r => r.balance_after != null).pop();
+    if (lastRecord) {
+      await supabase.from('bank_accounts').update({
+        current_balance: lastRecord.balance_after,
+        last_update: new Date().toISOString(),
+      }).eq('id', context.bank_account_id);
+    } else {
+      // Calculate balance from movements sum if no balance_after column
+      const { data: bankData } = await supabase.from('bank_accounts').select('current_balance').eq('id', context.bank_account_id).single();
+      const movementSum = records.reduce((sum, r) => sum + r.amount, 0);
+      const newBalance = (bankData?.current_balance || 0) + movementSum;
+      await supabase.from('bank_accounts').update({
+        current_balance: newBalance,
+        last_update: new Date().toISOString(),
+      }).eq('id', context.bank_account_id);
+    }
+  }
+
   return {
     imported: inserted,
-    errors: [...transformErrors, ...insertErrors],
+    errors: [...parseErrors.map(e => ({ message: e })), ...transformErrors, ...insertErrors],
     details: { headers, mapping, totalParsed: rows.length },
   };
 }
@@ -829,13 +909,27 @@ export async function previewImport({ file, sourceType, context, maxRows = 10 })
     const fileName = file?.name || '';
     const isPDF = fileName.toLowerCase().endsWith('.pdf');
 
-    // CSV-based sources
+    // CSV/Excel-based sources
+    const ext = fileName.toLowerCase().split('.').pop();
+    const isExcel = ext === 'xls' || ext === 'xlsx' || ext === 'xlsm';
+
     if (['bank', 'pos_data', 'receipts', 'payroll'].includes(sourceType) && !isPDF) {
-      const text = await readFileContent(file, null, null);
-      const { headers, rows } = parseCSV(text, {
-        skipRows: context.csvOptions?.skipRows || 0,
-        delimiter: sourceType === 'payroll' ? ';' : undefined,
-      });
+      let headers, rows;
+
+      if (isExcel) {
+        const arrayBuf = await readFileContent(file, null, null, { asBinary: true });
+        const result = excelToHeadersRows(arrayBuf);
+        headers = result.headers;
+        rows = result.rows;
+      } else {
+        const text = await readFileContent(file, null, null);
+        const csvResult = parseCSV(text, {
+          skipRows: context.csvOptions?.skipRows || 0,
+          delimiter: sourceType === 'payroll' ? ';' : undefined,
+        });
+        headers = csvResult.headers;
+        rows = csvResult.rows;
+      }
 
       let mapping, confidence;
       if (sourceType === 'bank') {

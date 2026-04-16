@@ -262,6 +262,21 @@ export const BANK_CSV_PRESETS = {
     delimiter: ';',
     dateFormat: 'DD/MM/YYYY',
   },
+  mps: {
+    name: 'Monte dei Paschi di Siena',
+    mapping: {
+      date: ['Data'],
+      value_date: ['Valuta'],
+      dare: ['Dare'],      // colonna uscite (valori negativi)
+      avere: ['Avere'],     // colonna entrate (valori positivi)
+      description: ['Descrizione operazioni', 'Descrizione'],
+      counterpart: ['Causale'],
+    },
+    dualAmount: true, // flag: usa dare/avere separati anziché singolo importo
+    skipRows: 0,
+    delimiter: ';',
+    dateFormat: 'DD/MM/YYYY',
+  },
   generic: {
     name: 'Generico',
     mapping: {
@@ -269,6 +284,8 @@ export const BANK_CSV_PRESETS = {
       value_date: ['Data Valuta', 'Value Date', 'data_valuta'],
       description: ['Descrizione', 'Description', 'Causale', 'descrizione'],
       amount: ['Importo', 'Amount', 'importo'],
+      dare: ['Dare', 'Addebiti', 'Uscite'],
+      avere: ['Avere', 'Accrediti', 'Entrate'],
       balance_after: ['Saldo', 'Balance', 'saldo'],
       counterpart: ['Controparte', 'Beneficiario', 'controparte'],
     },
@@ -347,19 +364,54 @@ export function transformBankRows(rows, columnMapping, context) {
   const records = [];
   const errors = [];
 
+  // Detect dual-column (Dare/Avere) mode
+  const hasDualAmount = !!(columnMapping.dare || columnMapping.avere);
+  const hasSingleAmount = !!columnMapping.amount;
+
   rows.forEach((row, idx) => {
     try {
       const dateStr = row[columnMapping.date];
       const date = parseDate(dateStr, dateFormat);
       if (!date) {
+        // Skip summary/empty rows at end of file (e.g. "RIEPILOGO", "Totali Pagina")
+        if (!dateStr || dateStr.trim() === '' || /riepilogo|totali|saldo/i.test(dateStr)) return;
         errors.push({ row: idx + 1, message: `Data non valida: "${dateStr}"` });
         return;
       }
 
-      const amountStr = row[columnMapping.amount];
-      const amount = parseItalianNumber(amountStr, decimalSep, thousandSep);
-      if (amount === null) {
-        errors.push({ row: idx + 1, message: `Importo non valido: "${amountStr}"` });
+      let amount = null;
+
+      if (hasDualAmount) {
+        // Dare/Avere mode (e.g. MPS): Dare = uscite (negative), Avere = entrate (positive)
+        const dareStr = columnMapping.dare ? (row[columnMapping.dare] || '').toString().trim() : '';
+        const avereStr = columnMapping.avere ? (row[columnMapping.avere] || '').toString().trim() : '';
+
+        if (dareStr && dareStr !== '' && dareStr !== '0') {
+          const dareVal = parseItalianNumber(dareStr.replace(/^-/, ''), decimalSep, thousandSep);
+          if (dareVal !== null && dareVal !== 0) {
+            amount = -Math.abs(dareVal); // Dare is always negative (uscita)
+          }
+        }
+        if (amount === null && avereStr && avereStr !== '' && avereStr !== '0') {
+          const avereVal = parseItalianNumber(avereStr, decimalSep, thousandSep);
+          if (avereVal !== null && avereVal !== 0) {
+            amount = Math.abs(avereVal); // Avere is always positive (entrata)
+          }
+        }
+
+        if (amount === null || amount === 0) {
+          // Skip rows with no dare and no avere (empty/separator rows)
+          return;
+        }
+      } else if (hasSingleAmount) {
+        const amountStr = row[columnMapping.amount];
+        amount = parseItalianNumber(amountStr, decimalSep, thousandSep);
+        if (amount === null) {
+          errors.push({ row: idx + 1, message: `Importo non valido: "${amountStr}"` });
+          return;
+        }
+      } else {
+        errors.push({ row: idx + 1, message: 'Nessuna colonna importo trovata (amount o dare/avere)' });
         return;
       }
 
