@@ -185,7 +185,13 @@ export function parseDate(str, format = 'DD/MM/YYYY') {
 
   let day, month, year;
 
-  if (format === 'DD/MM/YYYY' || format === 'DD-MM-YYYY') {
+  // Try ISO format first (YYYY-MM-DD) — SheetJS sometimes outputs this
+  const isoMatch = cleaned.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (isoMatch) {
+    [, year, month, day] = isoMatch.map(Number);
+  }
+  // Try explicit format
+  else if (format === 'DD/MM/YYYY' || format === 'DD-MM-YYYY') {
     const sep = format.includes('/') ? '/' : '-';
     const parts = cleaned.split(sep);
     if (parts.length !== 3) return null;
@@ -198,6 +204,10 @@ export function parseDate(str, format = 'DD/MM/YYYY') {
     const parts = cleaned.split('.');
     if (parts.length !== 3) return null;
     [day, month, year] = parts.map(p => parseInt(p, 10));
+  } else if (format === 'M/D/YY' || format === 'M/D/YYYY') {
+    const parts = cleaned.split('/');
+    if (parts.length !== 3) return null;
+    [month, day, year] = parts.map(p => parseInt(p, 10));
   } else {
     return null;
   }
@@ -205,7 +215,13 @@ export function parseDate(str, format = 'DD/MM/YYYY') {
   // Handle 2-digit years
   if (year < 100) year += 2000;
 
-  // Validate
+  // Validate — if day > 12 and month <= 12, it's fine.
+  // But if parsing as DD/MM produced month > 12 (e.g. "3/31/26" parsed as day=3,month=31),
+  // try swapping to M/D/YY interpretation
+  if (month > 12 && day <= 12) {
+    [day, month] = [month, day];
+  }
+
   if (!day || !month || !year || month < 1 || month > 12 || day < 1 || day > 31) return null;
 
   const mm = String(month).padStart(2, '0');

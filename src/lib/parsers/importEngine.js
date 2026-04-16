@@ -195,32 +195,48 @@ async function updateImportBatch(batchId, updates) {
  * Skippa righe di riepilogo finali (RIEPILOGO, Totali, vuote).
  */
 function excelToHeadersRows(arrayBuffer) {
-  const workbook = XLSX.read(arrayBuffer, { type: 'array', cellDates: true, raw: false });
+  // Read with cellDates so date cells become JS Date objects
+  const workbook = XLSX.read(arrayBuffer, { type: 'array', cellDates: true });
   const sheetName = workbook.SheetNames[0];
   const sheet = workbook.Sheets[sheetName];
 
-  // Convert to array of arrays
-  const allRows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', raw: false });
+  // Get raw data (with raw:true so dates stay as Date objects, numbers as numbers)
+  const allRows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', raw: true });
   if (allRows.length < 2) return { headers: [], rows: [] };
 
   const headers = allRows[0].map(h => (h || '').toString().trim());
+
+  /**
+   * Format a cell value to string.
+   * Date objects → 'DD/MM/YYYY' (Italian format, unambiguous for our parser)
+   * Numbers → string as-is
+   */
+  function cellToString(val) {
+    if (val === null || val === undefined || val === '') return '';
+    if (val instanceof Date && !isNaN(val.getTime())) {
+      const dd = String(val.getDate()).padStart(2, '0');
+      const mm = String(val.getMonth() + 1).padStart(2, '0');
+      const yyyy = val.getFullYear();
+      return `${dd}/${mm}/${yyyy}`;
+    }
+    return val.toString();
+  }
 
   // Build row objects (like CSV parser does) and skip summary/empty rows
   const dataRows = [];
   for (let i = 1; i < allRows.length; i++) {
     const raw = allRows[i];
-    const firstCell = (raw[0] || '').toString().trim();
+    const firstCell = cellToString(raw[0]).trim();
 
     // Stop at summary rows
     if (/^(riepilogo|totali|saldo finale|$)/i.test(firstCell) && (!raw[1] || raw[1] === '')) {
-      // Check if truly empty/summary
-      if (firstCell === '' && raw.every(c => !c || c.toString().trim() === '')) break;
+      if (firstCell === '' && raw.every(c => !c || cellToString(c).trim() === '')) break;
       if (/riepilogo|totali/i.test(firstCell)) break;
     }
 
     const rowObj = {};
     headers.forEach((h, idx) => {
-      rowObj[h] = raw[idx] !== undefined ? raw[idx].toString() : '';
+      rowObj[h] = raw[idx] !== undefined ? cellToString(raw[idx]) : '';
     });
     dataRows.push(rowObj);
   }
