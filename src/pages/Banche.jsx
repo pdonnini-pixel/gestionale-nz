@@ -1,15 +1,19 @@
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import {
   Landmark, Building2, Wallet, CreditCard, TrendingUp,
   Search, ChevronDown, ChevronUp, Banknote, Store,
   PiggyBank, HandCoins, Info, Calculator, FileUp, Percent, Calendar,
   Plus, Edit2, Trash2, Check, X, AlertCircle, Download,
-  ArrowLeftRight, Upload, Clock, ListOrdered, Link2, RefreshCw
+  ArrowLeftRight, Upload, Clock, ListOrdered, Link2, RefreshCw,
+  Unlink, History
 } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, PieChart, Pie, CartesianGrid } from 'recharts'
 import { supabase } from '../lib/supabase'
 import { GlassTooltip, AXIS_STYLE, GRID_STYLE } from '../components/ChartTheme'
 import { useAuth } from '../hooks/useAuth'
+
+/* ───── reconciliation engine ───── */
+import { runAutoReconciliation, applyReconciliation, undoReconciliation, getReconciliationLog } from '../lib/reconciliationEngine'
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ef4444', '#06b6d4', '#ec4899']
 
 /* ───── helpers ───── */
@@ -1077,84 +1081,646 @@ function SezioneImport({ accounts, onImportComplete }) {
 }
 
 /* ────────────────────────────────────────
-   Sezione: Riconciliazione bancaria
+   Sezione: Riconciliazione bancaria (v2)
    ──────────────────────────────────────── */
-function SezioneRiconciliazione({ transactions, payableActions }) {
-  // Match bank transactions with payable actions by amount and date proximity
-  const matches = useMemo(() => {
-    if (!transactions.length || !payableActions.length) return []
+function SezioneRiconciliazione({ companyId, accounts }) {
+  const [reconData, setReconData] = useState({ reconciled: [], suggested: [], unmatched: [] })
+  const [reconLog, setReconLog] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(null)
+  const [stats, setStats] = useState({ reconciled: 0, suggested: 0, unmatched: 0 })
+  const [openSection, setOpenSection] = useState('suggested') // reconciled | suggested | unmatched
+  const [logOpen, setLogOpen] = useState(false)
+  const [filterAccountId, setFilterAccountId] = useState('')
+  const [filterDateFrom, setFilterDateFrom] = useState('')
+  const [filterDateTo, setFilterDateTo] = useState('')
+  const [actionLoading, setActionLoading] = useState(null) // id of item being acted upon
+  const [manualSearchOpen, setManualSearchOpen] = useState(null) // movementId for manual search
+  const [manualSearchQuery, setManualSearchQuery] = useState('')
+  const [unpaidPayables, setUnpaidPayables] = useState([])
+  const [payablesLoading, setPayablesLoading] = useState(false)
+  // Pagination
+  const PAGE_SIZE = 20
+  const [reconciledPage, setReconciledPage] = useState(1)
+  const [suggestedPage, setSuggestedPage] = useState(1)
+  const [unmatchedPage, setUnmatchedPage] = useState(1)
+  const [logPage, setLogPage] = useState(1)
 
-    return transactions.slice(0, 50).map(t => {
-      // Find matching payable action (same amount, within 3 days)
-      const matchedAction = payableActions.find(a => {
-        if (!a.amount) return false
-        const amountMatch = Math.abs(Math.abs(t.amount) - a.amount) < 0.02
-        if (!amountMatch) return false
-        const tDate = new Date(t.transaction_date)
-        const aDate = new Date(a.created_at)
-        const daysDiff = Math.abs((tDate - aDate) / (1000 * 60 * 60 * 24))
-        return daysDiff <= 3
+  const fmtDate = (d) => d ? new Date(d).toLocaleDateString('it-IT') : '—'
+  const fmtEuro = (n) => n != null ? `€${fmt(n)}` : '—'
+
+  const handleRunAutoReconciliation = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const result = await runAutoReconciliation(companyId, filterAccountId || null)
+      setReconData({
+        reconciled: result.reconciled || [],
+        suggested: result.suggested || [],
+        unmatched: result.unmatched || [],
       })
+      setStats({
+        reconciled: (result.reconciled || []).length,
+        suggested: (result.suggested || []).length,
+        unmatched: (result.unmatched || []).length,
+      })
+      if (result.errors && result.errors.length > 0) {
+        setError(`Completato con ${result.errors.length} errori`)
+      }
+      // Reset pagination
+      setReconciledPage(1)
+      setSuggestedPage(1)
+      setUnmatchedPage(1)
+    } catch (err) {
+      console.error('Reconciliation error:', err)
+      setError(err.message || 'Errore durante la riconciliazione')
+    } finally {
+      setLoading(false)
+    }
+  }, [companyId, filterAccountId])
 
-      return { transaction: t, match: matchedAction }
-    })
-  }, [transactions, payableActions])
+  const loadLog = useCallback(async () => {
+    try {
+      const filters = {}
+      if (filterAccountId) filters.bankAccountId = filterAccountId
+      if (filterDateFrom) filters.dateFrom = filterDateFrom
+      if (filterDateTo) filters.dateTo = filterDateTo
+      const log = await getReconciliationLog(companyId, filters)
+      setReconLog(log || [])
+      setLogPage(1)
+    } catch (err) {
+      console.error('Log load error:', err)
+      setReconLog([])
+    }
+  }, [companyId, filterAccountId, filterDateFrom, filterDateTo])
 
-  const matched = matches.filter(m => m.match)
-  const unmatched = matches.filter(m => !m.match)
+  const handleConfirm = async (movementId, payableId) => {
+    setActionLoading(movementId)
+    try {
+      await applyReconciliation(movementId, payableId, 'confermato', '')
+      // Move from suggested to reconciled
+      setReconData(prev => {
+        const item = prev.suggested.find(s => s.movement?.id === movementId)
+        return {
+          ...prev,
+          suggested: prev.suggested.filter(s => s.movement?.id !== movementId),
+          reconciled: item ? [...prev.reconciled, { ...item, matchType: 'confermato' }] : prev.reconciled,
+        }
+      })
+      setStats(prev => ({ ...prev, suggested: prev.suggested - 1, reconciled: prev.reconciled + 1 }))
+    } catch (err) {
+      alert('Errore: ' + (err.message || 'Impossibile confermare'))
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
+  const handleReject = async (movementId, payableId) => {
+    setActionLoading(movementId)
+    try {
+      await undoReconciliation(movementId, payableId)
+      // Move from suggested to unmatched
+      setReconData(prev => {
+        const item = prev.suggested.find(s => s.movement?.id === movementId)
+        return {
+          ...prev,
+          suggested: prev.suggested.filter(s => s.movement?.id !== movementId),
+          unmatched: item ? [...prev.unmatched, { movement: item.movement }] : prev.unmatched,
+        }
+      })
+      setStats(prev => ({ ...prev, suggested: prev.suggested - 1, unmatched: prev.unmatched + 1 }))
+    } catch (err) {
+      alert('Errore: ' + (err.message || 'Impossibile rifiutare'))
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
+  const handleUnlink = async (movementId, payableId) => {
+    setActionLoading(movementId)
+    try {
+      await undoReconciliation(movementId, payableId)
+      setReconData(prev => {
+        const item = prev.reconciled.find(r => r.movement?.id === movementId)
+        return {
+          ...prev,
+          reconciled: prev.reconciled.filter(r => r.movement?.id !== movementId),
+          unmatched: item ? [...prev.unmatched, { movement: item.movement }] : prev.unmatched,
+        }
+      })
+      setStats(prev => ({ ...prev, reconciled: prev.reconciled - 1, unmatched: prev.unmatched + 1 }))
+    } catch (err) {
+      alert('Errore: ' + (err.message || 'Impossibile scollegare'))
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
+  const handleManualMatch = async (movementId, payableId) => {
+    setActionLoading(movementId)
+    try {
+      await applyReconciliation(movementId, payableId, 'manuale', '')
+      setReconData(prev => {
+        const item = prev.unmatched.find(u => u.movement?.id === movementId)
+        const payable = unpaidPayables.find(p => p.id === payableId)
+        return {
+          ...prev,
+          unmatched: prev.unmatched.filter(u => u.movement?.id !== movementId),
+          reconciled: item ? [...prev.reconciled, { ...item, payable, matchType: 'manuale', confidence: 100 }] : prev.reconciled,
+        }
+      })
+      setStats(prev => ({ ...prev, unmatched: prev.unmatched - 1, reconciled: prev.reconciled + 1 }))
+      setManualSearchOpen(null)
+      setManualSearchQuery('')
+    } catch (err) {
+      alert('Errore: ' + (err.message || 'Impossibile collegare'))
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
+  const loadUnpaidPayables = async () => {
+    if (unpaidPayables.length > 0) return
+    setPayablesLoading(true)
+    try {
+      const { data } = await supabase
+        .from('payables')
+        .select('id, supplier_name, invoice_number, total_amount, due_date')
+        .eq('company_id', companyId)
+        .eq('status', 'da_pagare')
+        .order('due_date', { ascending: false })
+        .limit(200)
+      setUnpaidPayables(data || [])
+    } catch (err) {
+      console.error('Error loading payables:', err)
+    } finally {
+      setPayablesLoading(false)
+    }
+  }
+
+  const openManualSearch = (movementId) => {
+    setManualSearchOpen(movementId)
+    setManualSearchQuery('')
+    loadUnpaidPayables()
+  }
+
+  const filteredPayables = useMemo(() => {
+    if (!manualSearchQuery) return unpaidPayables.slice(0, 20)
+    const q = manualSearchQuery.toLowerCase()
+    return unpaidPayables.filter(p =>
+      (p.supplier_name || '').toLowerCase().includes(q) ||
+      (p.invoice_number || '').toLowerCase().includes(q) ||
+      String(p.total_amount).includes(q)
+    ).slice(0, 20)
+  }, [unpaidPayables, manualSearchQuery])
+
+  const confidenceColor = (score) => {
+    if (score >= 65) return 'bg-yellow-400'
+    return 'bg-amber-500'
+  }
+
+  const confidenceTextColor = (score) => {
+    if (score >= 65) return 'text-yellow-700'
+    return 'text-amber-700'
+  }
+
+  const paginate = (arr, page) => arr.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+  const totalPages = (arr) => Math.max(1, Math.ceil(arr.length / PAGE_SIZE))
+
+  const PaginationControls = ({ page, setPage, total }) => {
+    const tp = totalPages(total)
+    if (tp <= 1) return null
+    return (
+      <div className="flex items-center justify-between px-4 py-2 border-t border-slate-100 text-xs text-slate-500">
+        <span>Pagina {page} di {tp} ({total.length} elementi)</span>
+        <div className="flex gap-1">
+          <button disabled={page <= 1} onClick={() => setPage(p => p - 1)}
+            className="px-2 py-1 rounded border border-slate-200 hover:bg-slate-50 disabled:opacity-30 transition">Prec.</button>
+          <button disabled={page >= tp} onClick={() => setPage(p => p + 1)}
+            className="px-2 py-1 rounded border border-slate-200 hover:bg-slate-50 disabled:opacity-30 transition">Succ.</button>
+        </div>
+      </div>
+    )
+  }
+
+  const SectionHeader = ({ sectionKey, label, count, borderColor, icon: SIcon }) => (
+    <button
+      onClick={() => setOpenSection(openSection === sectionKey ? null : sectionKey)}
+      className="w-full flex items-center justify-between p-4 hover:bg-slate-50/50 transition"
+    >
+      <div className="flex items-center gap-3">
+        <div className={`w-1 h-8 rounded-full ${borderColor}`} />
+        <SIcon size={18} className="text-slate-500" />
+        <span className="font-semibold text-slate-900">{label}</span>
+        <span className="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">{count}</span>
+      </div>
+      {openSection === sectionKey ? <ChevronUp size={16} className="text-slate-400" /> : <ChevronDown size={16} className="text-slate-400" />}
+    </button>
+  )
 
   return (
     <div className="space-y-4">
-      <h2 className="text-lg font-semibold text-slate-900 flex items-center gap-2">
-        <ArrowLeftRight size={20} className="text-cyan-600" />
-        Riconciliazione bancaria
-        <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">{matched.length} riconciliati</span>
-        {unmatched.length > 0 && (
-          <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">{unmatched.length} da verificare</span>
-        )}
-      </h2>
+      {/* ── Action Bar ── */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 space-y-3">
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <button
+            onClick={handleRunAutoReconciliation}
+            disabled={loading}
+            className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 disabled:opacity-50 transition shadow-sm"
+          >
+            <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
+            {loading ? 'Riconciliazione in corso...' : 'Avvia Riconciliazione Automatica'}
+          </button>
 
-      {matches.length === 0 ? (
-        <div className="bg-white rounded-xl border border-slate-200 p-8 text-center text-slate-400 text-sm">
-          Importare movimenti bancari e registrare pagamenti nello Scadenzario per attivare la riconciliazione automatica.
-        </div>
-      ) : (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-slate-100 text-xs text-slate-500 uppercase">
-                  <th className="py-2.5 px-4 text-left">Data</th>
-                  <th className="py-2.5 px-4 text-left">Descrizione movimento</th>
-                  <th className="py-2.5 px-4 text-right">Importo</th>
-                  <th className="py-2.5 px-4 text-center">Stato</th>
-                  <th className="py-2.5 px-4 text-left">Pagamento collegato</th>
-                </tr>
-              </thead>
-              <tbody>
-                {matches.map(({ transaction: t, match }, i) => (
-                  <tr key={t.id || i} className={`border-b border-slate-50 ${!match ? 'bg-amber-50/30' : ''}`}>
-                    <td className="py-2 px-4">{t.transaction_date ? new Date(t.transaction_date).toLocaleDateString('it-IT') : '—'}</td>
-                    <td className="py-2 px-4 max-w-64 truncate">{t.description || '—'}</td>
-                    <td className={`py-2 px-4 text-right font-medium ${t.amount >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                      {fmt(Math.abs(t.amount))} €
-                    </td>
-                    <td className="py-2 px-4 text-center">
-                      {match
-                        ? <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-emerald-100 text-emerald-700"><Check size={10} /> OK</span>
-                        : <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-amber-100 text-amber-700"><AlertCircle size={10} /> ?</span>
-                      }
-                    </td>
-                    <td className="py-2 px-4 text-xs text-slate-500">
-                      {match ? `${match.action_type} — ${fmt(match.amount)} € (${new Date(match.created_at).toLocaleDateString('it-IT')})` : '—'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="flex items-center gap-4 text-sm flex-wrap">
+            <span className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
+              <span className="font-medium text-slate-700">{stats.reconciled}</span>
+              <span className="text-slate-400">riconciliati</span>
+            </span>
+            <span className="text-slate-300">|</span>
+            <span className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-amber-500" />
+              <span className="font-medium text-slate-700">{stats.suggested}</span>
+              <span className="text-slate-400">da confermare</span>
+            </span>
+            <span className="text-slate-300">|</span>
+            <span className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-slate-400" />
+              <span className="font-medium text-slate-700">{stats.unmatched}</span>
+              <span className="text-slate-400">senza match</span>
+            </span>
           </div>
         </div>
-      )}
+
+        {/* Filters */}
+        <div className="flex items-end gap-3 flex-wrap">
+          <div>
+            <label className="block text-xs text-slate-500 mb-1">Conto bancario</label>
+            <select value={filterAccountId} onChange={e => setFilterAccountId(e.target.value)}
+              className="px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+              <option value="">Tutti i conti</option>
+              {accounts.map(a => (
+                <option key={a.id} value={a.id}>{a.bank_name} — {a.account_name}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs text-slate-500 mb-1">Data da</label>
+            <input type="date" value={filterDateFrom} onChange={e => setFilterDateFrom(e.target.value)}
+              className="px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white" />
+          </div>
+          <div>
+            <label className="block text-xs text-slate-500 mb-1">Data a</label>
+            <input type="date" value={filterDateTo} onChange={e => setFilterDateTo(e.target.value)}
+              className="px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white" />
+          </div>
+        </div>
+
+        {error && (
+          <div className="flex items-center gap-2 p-3 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700">
+            <AlertCircle size={16} /> {error}
+          </div>
+        )}
+      </div>
+
+      {/* ── Section: Riconciliati ── */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <SectionHeader sectionKey="reconciled" label="Riconciliati" count={stats.reconciled} borderColor="bg-emerald-500" icon={Link2} />
+        {openSection === 'reconciled' && (
+          <>
+            {reconData.reconciled.length === 0 ? (
+              <div className="p-8 text-center text-slate-400 text-sm border-t border-slate-100">
+                Nessun movimento riconciliato. Avvia la riconciliazione automatica per iniziare.
+              </div>
+            ) : (
+              <div className="overflow-x-auto border-t border-slate-100">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-100 text-xs text-slate-500 uppercase tracking-wider">
+                      <th className="py-2.5 px-4 text-left font-medium">Data Mov.</th>
+                      <th className="py-2.5 px-4 text-left font-medium">Descrizione Banca</th>
+                      <th className="py-2.5 px-4 text-right font-medium">Importo</th>
+                      <th className="py-2.5 px-4 text-center font-medium"><ArrowLeftRight size={12} className="inline" /></th>
+                      <th className="py-2.5 px-4 text-left font-medium">Fornitore</th>
+                      <th className="py-2.5 px-4 text-left font-medium">N. Fattura</th>
+                      <th className="py-2.5 px-4 text-right font-medium">Imp. Fattura</th>
+                      <th className="py-2.5 px-4 text-center font-medium">Tipo</th>
+                      <th className="py-2.5 px-4 text-center font-medium">Conf. %</th>
+                      <th className="py-2.5 px-4 text-center font-medium">Azioni</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {paginate(reconData.reconciled, reconciledPage).map((item, i) => (
+                      <tr key={item.movement?.id || i} className="border-b border-slate-50 hover:bg-slate-50/50 transition">
+                        <td className="py-2 px-4 text-slate-600 whitespace-nowrap border-l-4 border-l-emerald-500">
+                          {fmtDate(item.movement?.date || item.movement?.transaction_date)}
+                        </td>
+                        <td className="py-2 px-4 text-slate-900 max-w-xs truncate" title={item.movement?.description || ''}>
+                          {item.movement?.description || '—'}
+                        </td>
+                        <td className="py-2 px-4 text-right font-medium text-red-600 whitespace-nowrap">
+                          {fmtEuro(item.movement?.amount)}
+                        </td>
+                        <td className="py-2 px-4 text-center"><Link2 size={14} className="text-emerald-500 mx-auto" /></td>
+                        <td className="py-2 px-4 text-slate-700">{item.payable?.supplier_name || '—'}</td>
+                        <td className="py-2 px-4 text-slate-500 text-xs">{item.payable?.invoice_number || '—'}</td>
+                        <td className="py-2 px-4 text-right font-medium text-slate-700 whitespace-nowrap">
+                          {fmtEuro(item.payable?.total_amount)}
+                        </td>
+                        <td className="py-2 px-4 text-center">
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+                            item.matchType === 'auto' ? 'bg-blue-50 text-blue-700' : 'bg-purple-50 text-purple-700'
+                          }`}>
+                            {item.matchType === 'auto' ? 'Auto' : item.matchType === 'manuale' ? 'Manuale' : 'Confermato'}
+                          </span>
+                        </td>
+                        <td className="py-2 px-4 text-center">
+                          <span className="text-xs font-medium text-emerald-700">{item.confidence != null ? `${item.confidence}%` : '—'}</span>
+                        </td>
+                        <td className="py-2 px-4 text-center">
+                          <button
+                            onClick={() => handleUnlink(item.movement?.id, item.payable?.id)}
+                            disabled={actionLoading === item.movement?.id}
+                            className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50 rounded-lg transition disabled:opacity-50"
+                            title="Scollega"
+                          >
+                            <Unlink size={12} /> Scollega
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <PaginationControls page={reconciledPage} setPage={setReconciledPage} total={reconData.reconciled} />
+          </>
+        )}
+      </div>
+
+      {/* ── Section: Da Confermare ── */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <SectionHeader sectionKey="suggested" label="Da Confermare" count={stats.suggested} borderColor="bg-amber-500" icon={AlertCircle} />
+        {openSection === 'suggested' && (
+          <>
+            {reconData.suggested.length === 0 ? (
+              <div className="p-8 text-center text-slate-400 text-sm border-t border-slate-100">
+                Nessun suggerimento da confermare.
+              </div>
+            ) : (
+              <div className="overflow-x-auto border-t border-slate-100">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-100 text-xs text-slate-500 uppercase tracking-wider">
+                      <th className="py-2.5 px-4 text-left font-medium">Data Mov.</th>
+                      <th className="py-2.5 px-4 text-left font-medium">Descrizione Banca</th>
+                      <th className="py-2.5 px-4 text-right font-medium">Importo</th>
+                      <th className="py-2.5 px-4 text-center font-medium"><ArrowLeftRight size={12} className="inline" /></th>
+                      <th className="py-2.5 px-4 text-left font-medium">Fornitore</th>
+                      <th className="py-2.5 px-4 text-left font-medium">N. Fattura</th>
+                      <th className="py-2.5 px-4 text-right font-medium">Imp. Fattura</th>
+                      <th className="py-2.5 px-4 text-center font-medium">Confidenza</th>
+                      <th className="py-2.5 px-4 text-left font-medium">Motivo</th>
+                      <th className="py-2.5 px-4 text-center font-medium">Azioni</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {paginate(reconData.suggested, suggestedPage).map((item, i) => {
+                      const conf = item.confidence || 0
+                      return (
+                        <tr key={item.movement?.id || i} className="border-b border-slate-50 hover:bg-slate-50/50 transition">
+                          <td className="py-2 px-4 text-slate-600 whitespace-nowrap border-l-4 border-l-amber-500">
+                            {fmtDate(item.movement?.date || item.movement?.transaction_date)}
+                          </td>
+                          <td className="py-2 px-4 text-slate-900 max-w-xs truncate" title={item.movement?.description || ''}>
+                            {item.movement?.description || '—'}
+                          </td>
+                          <td className="py-2 px-4 text-right font-medium text-red-600 whitespace-nowrap">
+                            {fmtEuro(item.movement?.amount)}
+                          </td>
+                          <td className="py-2 px-4 text-center"><ArrowLeftRight size={14} className="text-amber-500 mx-auto" /></td>
+                          <td className="py-2 px-4 text-slate-700">{item.payable?.supplier_name || '—'}</td>
+                          <td className="py-2 px-4 text-slate-500 text-xs">{item.payable?.invoice_number || '—'}</td>
+                          <td className="py-2 px-4 text-right font-medium text-slate-700 whitespace-nowrap">
+                            {fmtEuro(item.payable?.total_amount)}
+                          </td>
+                          <td className="py-2.5 px-4">
+                            <div className="flex items-center gap-2">
+                              <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
+                                <div className={`h-full rounded-full ${confidenceColor(conf)}`} style={{ width: `${conf}%` }} />
+                              </div>
+                              <span className={`text-xs font-medium whitespace-nowrap ${confidenceTextColor(conf)}`}>{conf}%</span>
+                            </div>
+                          </td>
+                          <td className="py-2 px-4 text-xs text-slate-500">
+                            {(item.matchReasons || []).map((r, ri) => (
+                              <span key={ri} className="inline-flex items-center px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 mr-1 mb-0.5">
+                                {r}
+                              </span>
+                            ))}
+                            {(!item.matchReasons || item.matchReasons.length === 0) && '—'}
+                          </td>
+                          <td className="py-2 px-4 text-center">
+                            <div className="flex items-center justify-center gap-1">
+                              <button
+                                onClick={() => handleConfirm(item.movement?.id, item.payable?.id)}
+                                disabled={actionLoading === item.movement?.id}
+                                className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-emerald-600 hover:bg-emerald-50 rounded-lg transition disabled:opacity-50"
+                                title="Conferma"
+                              >
+                                <Check size={12} /> Conferma
+                              </button>
+                              <button
+                                onClick={() => handleReject(item.movement?.id, item.payable?.id)}
+                                disabled={actionLoading === item.movement?.id}
+                                className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50 rounded-lg transition disabled:opacity-50"
+                                title="Rifiuta"
+                              >
+                                <X size={12} /> Rifiuta
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <PaginationControls page={suggestedPage} setPage={setSuggestedPage} total={reconData.suggested} />
+          </>
+        )}
+      </div>
+
+      {/* ── Section: Senza Match ── */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <SectionHeader sectionKey="unmatched" label="Senza Match" count={stats.unmatched} borderColor="bg-slate-400" icon={Unlink} />
+        {openSection === 'unmatched' && (
+          <>
+            {reconData.unmatched.length === 0 ? (
+              <div className="p-8 text-center text-slate-400 text-sm border-t border-slate-100">
+                Nessun movimento senza match.
+              </div>
+            ) : (
+              <div className="overflow-x-auto border-t border-slate-100">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-100 text-xs text-slate-500 uppercase tracking-wider">
+                      <th className="py-2.5 px-4 text-left font-medium">Data Mov.</th>
+                      <th className="py-2.5 px-4 text-left font-medium">Descrizione Banca</th>
+                      <th className="py-2.5 px-4 text-left font-medium">Controparte</th>
+                      <th className="py-2.5 px-4 text-right font-medium">Importo</th>
+                      <th className="py-2.5 px-4 text-center font-medium">Azioni</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {paginate(reconData.unmatched, unmatchedPage).map((item, i) => (
+                      <tr key={item.movement?.id || i} className="border-b border-slate-50 hover:bg-slate-50/50 transition relative">
+                        <td className="py-2 px-4 text-slate-600 whitespace-nowrap border-l-4 border-l-slate-400">
+                          {fmtDate(item.movement?.date || item.movement?.transaction_date)}
+                        </td>
+                        <td className="py-2 px-4 text-slate-900 max-w-xs truncate" title={item.movement?.description || ''}>
+                          {item.movement?.description || '—'}
+                        </td>
+                        <td className="py-2 px-4 text-slate-500 text-xs">{item.movement?.counterpart || '—'}</td>
+                        <td className="py-2 px-4 text-right font-medium text-red-600 whitespace-nowrap">
+                          {fmtEuro(item.movement?.amount)}
+                        </td>
+                        <td className="py-2 px-4 text-center">
+                          <div className="relative">
+                            <button
+                              onClick={() => openManualSearch(item.movement?.id)}
+                              className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-blue-600 hover:bg-blue-50 rounded-lg transition"
+                              title="Cerca fattura"
+                            >
+                              <Search size={12} /> Cerca fattura
+                            </button>
+                            {/* Manual search dropdown */}
+                            {manualSearchOpen === item.movement?.id && (
+                              <div className="absolute right-0 top-full mt-1 w-96 bg-white border border-slate-200 rounded-xl shadow-xl z-50 p-3 space-y-2">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-xs font-semibold text-slate-700">Cerca fattura da collegare</span>
+                                  <button onClick={() => setManualSearchOpen(null)} className="p-1 hover:bg-slate-100 rounded transition">
+                                    <X size={14} className="text-slate-400" />
+                                  </button>
+                                </div>
+                                <div className="relative">
+                                  <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                                  <input
+                                    type="text"
+                                    placeholder="Fornitore, n. fattura, importo..."
+                                    value={manualSearchQuery}
+                                    onChange={e => setManualSearchQuery(e.target.value)}
+                                    className="w-full pl-8 pr-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    autoFocus
+                                  />
+                                </div>
+                                <div className="max-h-48 overflow-y-auto space-y-1">
+                                  {payablesLoading ? (
+                                    <div className="text-center py-4 text-xs text-slate-400">Caricamento fatture...</div>
+                                  ) : filteredPayables.length === 0 ? (
+                                    <div className="text-center py-4 text-xs text-slate-400">Nessuna fattura trovata</div>
+                                  ) : (
+                                    filteredPayables.map(p => (
+                                      <button
+                                        key={p.id}
+                                        onClick={() => handleManualMatch(item.movement?.id, p.id)}
+                                        disabled={actionLoading === item.movement?.id}
+                                        className="w-full flex items-center justify-between p-2 rounded-lg text-left hover:bg-blue-50 transition text-xs disabled:opacity-50"
+                                      >
+                                        <div>
+                                          <div className="font-medium text-slate-900">{p.supplier_name}</div>
+                                          <div className="text-slate-400">Fatt. {p.invoice_number || '—'} — Scad. {fmtDate(p.due_date)}</div>
+                                        </div>
+                                        <div className="font-medium text-slate-700 whitespace-nowrap ml-2">{fmtEuro(p.total_amount)}</div>
+                                      </button>
+                                    ))
+                                  )}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <PaginationControls page={unmatchedPage} setPage={setUnmatchedPage} total={reconData.unmatched} />
+          </>
+        )}
+      </div>
+
+      {/* ── Cronologia Riconciliazioni (log) ── */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <button
+          onClick={() => { setLogOpen(!logOpen); if (!logOpen) loadLog() }}
+          className="w-full flex items-center justify-between p-4 hover:bg-slate-50/50 transition"
+        >
+          <div className="flex items-center gap-3">
+            <History size={18} className="text-slate-500" />
+            <span className="font-semibold text-slate-900">Cronologia Riconciliazioni</span>
+            {reconLog.length > 0 && (
+              <span className="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">{reconLog.length}</span>
+            )}
+          </div>
+          {logOpen ? <ChevronUp size={16} className="text-slate-400" /> : <ChevronDown size={16} className="text-slate-400" />}
+        </button>
+        {logOpen && (
+          <>
+            {reconLog.length === 0 ? (
+              <div className="p-8 text-center text-slate-400 text-sm border-t border-slate-100">
+                Nessuna operazione di riconciliazione registrata.
+              </div>
+            ) : (
+              <div className="overflow-x-auto border-t border-slate-100">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-100 text-xs text-slate-500 uppercase tracking-wider">
+                      <th className="py-2.5 px-4 text-left font-medium">Data</th>
+                      <th className="py-2.5 px-4 text-left font-medium">Azione</th>
+                      <th className="py-2.5 px-4 text-left font-medium">Movimento</th>
+                      <th className="py-2.5 px-4 text-left font-medium">Fattura</th>
+                      <th className="py-2.5 px-4 text-center font-medium">Tipo</th>
+                      <th className="py-2.5 px-4 text-left font-medium">Utente</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {paginate(reconLog, logPage).map((entry, i) => (
+                      <tr key={entry.id || i} className="border-b border-slate-50 hover:bg-slate-50/50 transition">
+                        <td className="py-2 px-4 text-slate-600 whitespace-nowrap">{fmtDate(entry.created_at)}</td>
+                        <td className="py-2 px-4">
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+                            entry.action === 'riconciliato' ? 'bg-emerald-50 text-emerald-700' :
+                            entry.action === 'scollegato' ? 'bg-red-50 text-red-700' :
+                            entry.action === 'confermato' ? 'bg-blue-50 text-blue-700' :
+                            'bg-slate-100 text-slate-600'
+                          }`}>
+                            {entry.action || '—'}
+                          </span>
+                        </td>
+                        <td className="py-2 px-4 text-slate-900 text-xs max-w-xs truncate">{entry.movement_description || entry.movement_id || '—'}</td>
+                        <td className="py-2 px-4 text-slate-500 text-xs">{entry.invoice_number || entry.payable_id || '—'}</td>
+                        <td className="py-2 px-4 text-center">
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+                            entry.match_type === 'auto' ? 'bg-blue-50 text-blue-700' : 'bg-purple-50 text-purple-700'
+                          }`}>
+                            {entry.match_type || '—'}
+                          </span>
+                        </td>
+                        <td className="py-2 px-4 text-slate-500 text-xs">{entry.user_name || entry.user_id || '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <PaginationControls page={logPage} setPage={setLogPage} total={reconLog} />
+          </>
+        )}
+      </div>
     </div>
   )
 }
@@ -1432,7 +1998,7 @@ export default function Banche() {
 
       {/* Tab: Riconciliazione */}
       {activeTab === 'riconciliazione' && (
-        <SezioneRiconciliazione transactions={transactions} payableActions={payableActions} />
+        <SezioneRiconciliazione companyId={COMPANY_ID} accounts={accounts} />
       )}
 
       {/* Tab: Panoramica */}
