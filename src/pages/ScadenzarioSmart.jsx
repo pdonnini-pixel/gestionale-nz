@@ -749,7 +749,7 @@ const ScadenzarioSmart = () => {
         <>
           {/* KPI Cards */}
           <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-            <div className="bg-white rounded-xl border border-blue-200 p-4">
+            <div className="bg-white rounded-xl border border-blue-200 p-4 relative group cursor-help">
               <div className="flex items-center justify-between">
                 <div>
                   <div className="flex items-center gap-1.5 text-xs text-blue-600 font-medium mb-1"><DollarSign size={13} /> Da Pagare</div>
@@ -757,8 +757,12 @@ const ScadenzarioSmart = () => {
                 </div>
                 <div className="p-2 bg-blue-50 rounded-lg"><DollarSign size={18} className="text-blue-500" /></div>
               </div>
+              <div className="hidden group-hover:block absolute z-20 bottom-full left-1/2 -translate-x-1/2 mb-2 w-56 p-2.5 bg-slate-800 text-white text-xs rounded-lg shadow-lg leading-relaxed">
+                Totale delle fatture ancora da saldare, escluse quelle annullate o già pagate.
+                <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-800" />
+              </div>
             </div>
-            <div className="bg-white rounded-xl border border-red-200 p-4">
+            <div className="bg-white rounded-xl border border-red-200 p-4 relative group cursor-help">
               <div className="flex items-center justify-between">
                 <div>
                   <div className="flex items-center gap-1.5 text-xs text-red-600 font-medium mb-1"><AlertTriangle size={13} /> Scaduto</div>
@@ -766,8 +770,12 @@ const ScadenzarioSmart = () => {
                 </div>
                 <div className="p-2 bg-red-50 rounded-lg"><AlertTriangle size={18} className="text-red-400" /></div>
               </div>
+              <div className="hidden group-hover:block absolute z-20 bottom-full left-1/2 -translate-x-1/2 mb-2 w-56 p-2.5 bg-slate-800 text-white text-xs rounded-lg shadow-lg leading-relaxed">
+                Importo delle fatture con data di scadenza superata e non ancora saldate. Richiede attenzione immediata.
+                <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-800" />
+              </div>
             </div>
-            <div className="bg-white rounded-xl border border-amber-200 p-4">
+            <div className="bg-white rounded-xl border border-amber-200 p-4 relative group cursor-help">
               <div className="flex items-center justify-between">
                 <div>
                   <div className="flex items-center gap-1.5 text-xs text-amber-600 font-medium mb-1"><Clock size={13} /> Prossimi 7 gg</div>
@@ -775,8 +783,12 @@ const ScadenzarioSmart = () => {
                 </div>
                 <div className="p-2 bg-amber-50 rounded-lg"><Clock size={18} className="text-amber-400" /></div>
               </div>
+              <div className="hidden group-hover:block absolute z-20 bottom-full left-1/2 -translate-x-1/2 mb-2 w-56 p-2.5 bg-slate-800 text-white text-xs rounded-lg shadow-lg leading-relaxed">
+                Fatture in scadenza nei prossimi 7 giorni. Pianifica i pagamenti per evitare ritardi.
+                <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-800" />
+              </div>
             </div>
-            <div className="bg-white rounded-xl border border-emerald-200 p-4">
+            <div className="bg-white rounded-xl border border-emerald-200 p-4 relative group cursor-help">
               <div className="flex items-center justify-between">
                 <div>
                   <div className="flex items-center gap-1.5 text-xs text-emerald-600 font-medium mb-1"><Wallet size={13} /> Cassa</div>
@@ -791,8 +803,12 @@ const ScadenzarioSmart = () => {
               {kpis.cashShortfall > 0 && (
                 <div className="mt-2 text-xs text-red-600 font-medium">Deficit: {fmt(kpis.cashShortfall)} €</div>
               )}
+              <div className="hidden group-hover:block absolute z-20 bottom-full left-1/2 -translate-x-1/2 mb-2 w-60 p-2.5 bg-slate-800 text-white text-xs rounded-lg shadow-lg leading-relaxed">
+                Liquidità disponibile sui conti bancari. Se in rosso, i fondi non bastano a coprire le scadenze imminenti.
+                <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-800" />
+              </div>
             </div>
-            <div className={`bg-white rounded-xl border ${kpis.paidCount > 0 && kpis.reconciledCount < kpis.paidCount ? 'border-amber-200' : 'border-emerald-200'} p-4`}>
+            <div className={`bg-white rounded-xl border ${kpis.paidCount > 0 && kpis.reconciledCount < kpis.paidCount ? 'border-amber-200' : 'border-emerald-200'} p-4 relative group cursor-help`}>
               <div className="flex items-center justify-between">
                 <div>
                   <div className="flex items-center gap-1.5 text-xs text-slate-600 font-medium mb-1"><Landmark size={13} /> Riconciliati</div>
@@ -805,6 +821,10 @@ const ScadenzarioSmart = () => {
               {kpis.paidCount > 0 && kpis.reconciledCount < kpis.paidCount && (
                 <div className="mt-2 text-xs text-amber-600 font-medium">{kpis.paidCount - kpis.reconciledCount} senza mov. banca</div>
               )}
+              <div className="hidden group-hover:block absolute z-20 bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 p-2.5 bg-slate-800 text-white text-xs rounded-lg shadow-lg leading-relaxed">
+                Quanti pagamenti registrati hanno un riscontro effettivo nell'estratto conto bancario. Verde = tutto verificato. Arancione = ci sono pagamenti senza conferma dalla banca.
+                <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-800" />
+              </div>
             </div>
           </div>
 
@@ -940,8 +960,8 @@ const ScadenzarioSmart = () => {
                               <StatusPill status={p.status} />
                               {p.status === 'pagato' && (
                                 p.cash_movement_id
-                                  ? <span title="Riconciliato con movimento bancario" className="text-emerald-500 text-sm">&#x2705;</span>
-                                  : <span title="Pagato ma non riconciliato in banca" className="text-amber-500 text-sm">&#x26A0;&#xFE0F;</span>
+                                  ? <span className="relative group/rc cursor-help"><span className="text-emerald-500 text-sm">&#x2705;</span><span className="hidden group-hover/rc:block absolute z-20 bottom-full left-1/2 -translate-x-1/2 mb-1 w-48 p-2 bg-slate-800 text-white text-xs rounded-lg shadow-lg text-center">Verificato: il pagamento risulta nell'estratto conto bancario<span className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-800" /></span></span>
+                                  : <span className="relative group/rc cursor-help"><span className="text-amber-500 text-sm">&#x26A0;&#xFE0F;</span><span className="hidden group-hover/rc:block absolute z-20 bottom-full left-1/2 -translate-x-1/2 mb-1 w-52 p-2 bg-slate-800 text-white text-xs rounded-lg shadow-lg text-center">Pagamento registrato nel sistema ma non ancora trovato nell'estratto conto bancario<span className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-800" /></span></span>
                               )}
                             </div>
                           </td>
