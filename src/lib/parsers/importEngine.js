@@ -209,7 +209,8 @@ function excelToHeadersRows(arrayBuffer) {
   /**
    * Format a cell value to string.
    * Date objects → 'DD/MM/YYYY' (Italian format, unambiguous for our parser)
-   * Numbers → string as-is
+   * Numbers → Italian format with comma decimal (e.g. 153.45 → "153,45")
+   *           so that parseItalianNumber (which expects comma-decimal) works correctly
    */
   function cellToString(val) {
     if (val === null || val === undefined || val === '') return '';
@@ -218,6 +219,13 @@ function excelToHeadersRows(arrayBuffer) {
       const mm = String(val.getMonth() + 1).padStart(2, '0');
       const yyyy = val.getFullYear();
       return `${dd}/${mm}/${yyyy}`;
+    }
+    if (typeof val === 'number' && !isNaN(val)) {
+      // Convert JS number to Italian format: dot→comma for decimal
+      // e.g. 153.45 → "153,45" so parseItalianNumber handles it correctly
+      // Use fixed 2 decimals for amounts, but preserve integers
+      const str = Number.isInteger(val) ? val.toString() : val.toFixed(2);
+      return str.replace('.', ',');
     }
     return val.toString();
   }
