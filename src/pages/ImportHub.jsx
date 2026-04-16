@@ -204,7 +204,7 @@ export default function ImportHub() {
           .from('import_documents')
           .select('*')
           .eq('company_id', COMPANY_ID)
-          .eq('source_type', selectedSource)
+          .eq('source', selectedSource)
           .order('uploaded_at', { ascending: false })
           .limit(20);
         setImportHistory(history || []);
@@ -333,52 +333,46 @@ export default function ImportHub() {
           continue;
         }
 
-        // Create record in appropriate table
-        const baseRecord = {
-          company_id: COMPANY_ID,
-          file_name: file.name,
-          file_path: filePath,
-          file_size: file.size,
-          file_type: file.name.split('.').pop().toLowerCase(),
-          upload_status: 'uploaded',
-        };
+        // Create record in source-specific table
+        // Column names MUST match the actual DB schema
+        const fileExt = file.name.split('.').pop().toLowerCase();
+        let record = { company_id: COMPANY_ID, file_name: file.name, file_path: filePath, file_size: file.size };
 
-        // Add source-specific fields
-        let record = { ...baseRecord };
-
-        if (sourceId === 'bank' && selectedBankAccount) {
-          record.bank_account_id = selectedBankAccount;
-          record.import_status = 'pending';
-        }
-
-        if (sourceId === 'invoices') {
+        if (sourceId === 'bank') {
+          // bank_imports schema: file_format, status, bank_account_id
+          record.file_format = fileExt;
+          record.status = 'uploaded';
+          if (selectedBankAccount) record.bank_account_id = selectedBankAccount;
+        } else if (sourceId === 'invoices') {
+          record.file_type = fileExt;
+          record.upload_status = 'uploaded';
           record.category = 'fattura';
           record.document_status = 'pending_parsing';
-        }
-
-        if (sourceId === 'payroll' && selectedMonthYear) {
+        } else if (sourceId === 'payroll' && selectedMonthYear) {
+          record.file_type = fileExt;
+          record.upload_status = 'uploaded';
           const [month, year] = selectedMonthYear.split('-');
           record.month = parseInt(month);
           record.year = parseInt(year);
-        }
-
-        if (sourceId === 'balance_sheet') {
+        } else if (sourceId === 'balance_sheet') {
+          record.file_type = fileExt;
+          record.upload_status = 'uploaded';
           record.fiscal_year = selectedYear;
-          record.import_status = 'pending';
-        }
-
-        if (sourceId === 'general_docs') {
+        } else if (sourceId === 'general_docs') {
+          record.file_type = fileExt;
+          record.upload_status = 'uploaded';
           record.category = selectedDocCategory;
-        }
-
-        if (sourceId === 'pos_data' && selectedOutlet) {
+        } else if (sourceId === 'pos_data' && selectedOutlet) {
+          record.file_type = fileExt;
+          record.upload_status = 'uploaded';
           record.outlet_id = selectedOutlet;
-          record.import_status = 'pending';
-        }
-
-        if (sourceId === 'receipts' && selectedOutlet) {
+        } else if (sourceId === 'receipts' && selectedOutlet) {
+          record.file_type = fileExt;
+          record.upload_status = 'uploaded';
           record.outlet_id = selectedOutlet;
-          record.import_status = 'pending';
+        } else {
+          record.file_type = fileExt;
+          record.upload_status = 'uploaded';
         }
 
         // Insert into source-specific table
@@ -387,16 +381,20 @@ export default function ImportHub() {
           .insert([record])
           .select();
 
+        if (insertErr) {
+          console.error(`Insert error for ${config.table}:`, insertErr);
+        }
+
         // Also log to import_documents for history
+        // import_documents schema: file_type, source (not source_type, not status)
         await supabase.from('import_documents').insert([
           {
             company_id: COMPANY_ID,
             file_name: file.name,
             file_path: filePath,
             file_size: file.size,
-            file_type: file.name.split('.').pop().toLowerCase(),
-            source_type: sourceId,
-            status: insertErr ? 'error' : 'uploaded',
+            file_type: fileExt,
+            source: sourceId,
           },
         ]);
 
@@ -559,11 +557,11 @@ export default function ImportHub() {
 
       if (result.success) {
         showToast(`Importati ${result.imported} record con successo!`);
-        // Update file status in source table
-        await supabase.from(config.table).update({
-          upload_status: 'parsed',
-          import_status: 'completed',
-        }).eq('id', fileRecord.id);
+        // Update file status in source table (use correct column per table)
+        const statusUpdate = selectedSource === 'bank'
+          ? { status: 'completed' }
+          : { upload_status: 'parsed', import_status: 'completed' };
+        await supabase.from(config.table).update(statusUpdate).eq('id', fileRecord.id);
         await loadImportDocs();
       } else {
         showToast(`Errori durante l'elaborazione`, 'error');
@@ -581,7 +579,7 @@ export default function ImportHub() {
   // Process all pending files for current source
   async function handleProcessAll() {
     const pendingFiles = uploadedFiles.filter(f => {
-      const status = f.upload_status || f.import_status || f.document_status || 'uploaded';
+      const status = f.status || f.upload_status || f.import_status || f.document_status || 'uploaded';
       return status === 'uploaded' || status === 'pending' || status === 'pending_parsing';
     });
     if (pendingFiles.length === 0) {
@@ -1098,7 +1096,7 @@ export default function ImportHub() {
                         {batchSelected.size === uploadedFiles.length ? <CheckSquare size={14} /> : <Square size={14} />}
                         {batchSelected.size === uploadedFiles.length ? 'Deseleziona tutti' : 'Seleziona tutti'}
                       </button>
-                      {canProcess(selectedSource) && uploadedFiles.some(f => ['uploaded','pending','pending_parsing'].includes(f.upload_status || f.import_status || f.document_status || 'uploaded')) && (
+                      {canProcess(selectedSource) && uploadedFiles.some(f => ['uploaded','pending','pending_parsing'].includes(f.status || f.upload_status || f.import_status || f.document_status || 'uploaded')) && (
                         <button onClick={handleProcessAll} disabled={processing} className="px-3 py-1 bg-emerald-50 text-emerald-700 rounded-lg text-xs font-semibold hover:bg-emerald-100 flex items-center gap-1 border border-emerald-200 disabled:opacity-50">
                           {processing ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} />}
                           {processing ? 'Elaborazione...' : 'Processa tutti'}
@@ -1114,7 +1112,7 @@ export default function ImportHub() {
                   <div className="space-y-2 max-h-96 overflow-y-auto">
                     {uploadedFiles.map((f) => {
                       const isPdf = f.file_type === 'pdf';
-                      const statusLabel = f.upload_status || f.import_status || f.document_status || 'uploaded';
+                      const statusLabel = f.status || f.upload_status || f.import_status || f.document_status || 'uploaded';
                       const isSelected = batchSelected.has(f.id);
                       return (
                         <div key={f.id} className={`flex items-center justify-between p-3 bg-white rounded-xl border group hover:border-indigo-200 transition ${isSelected ? 'border-indigo-300 bg-indigo-50/30' : 'border-slate-200'}`}>
