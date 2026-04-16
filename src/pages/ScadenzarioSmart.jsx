@@ -356,9 +356,9 @@ const ScadenzarioSmart = () => {
     };
   }, [filteredPayables, cashPosition, today]);
 
-  // Totali per singolo metodo di pagamento (KPI individuali)
+  // Totali per singolo metodo di pagamento (stessa base filtrata dei KPI)
   const methodTotals = useMemo(() => {
-    const activePays = payables.filter(p => p.status !== 'pagato' && p.status !== 'annullato');
+    const activePays = filteredPayables.filter(p => p.status !== 'pagato' && p.status !== 'annullato');
     const map = {};
     activePays.forEach(p => {
       const m = p.payment_method || 'altro';
@@ -367,7 +367,7 @@ const ScadenzarioSmart = () => {
       map[m].count += 1;
     });
     return Object.values(map).sort((a, b) => b.total - a.total);
-  }, [payables]);
+  }, [filteredPayables]);
 
   // Monthly data
   const monthlyData = useMemo(() => {
