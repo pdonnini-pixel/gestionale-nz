@@ -1440,6 +1440,19 @@ function SezioneRiconciliazione({ companyId, accounts }) {
             <AlertCircle size={16} /> {error}
           </div>
         )}
+
+        {/* Info per l'operatore */}
+        <div className="flex items-start gap-2 p-3 rounded-lg bg-blue-50/60 border border-blue-100 text-xs text-blue-700 leading-relaxed">
+          <Info size={14} className="mt-0.5 flex-shrink-0" />
+          <div>
+            <strong>Come funziona:</strong> Clicca "Avvia Riconciliazione Automatica" per abbinare i movimenti bancari alle fatture fornitori.
+            Il sistema confronta importi, nomi e date per proporre gli abbinamenti migliori.
+            I <strong>riconciliati</strong> (in verde) sono confermati e salvati in modo permanente.
+            I <strong>da confermare</strong> (in arancione) richiedono la tua verifica: puoi confermarli o rifiutarli.
+            I <strong>senza match</strong> possono essere collegati manualmente cercando la fattura.
+            Tutte le operazioni vengono registrate nella <strong>Cronologia</strong> per tracciabilità.
+          </div>
+        </div>
       </div>
 
       {/* ── Section: Riconciliati ── */}
@@ -1448,8 +1461,9 @@ function SezioneRiconciliazione({ companyId, accounts }) {
         {openSection === 'reconciled' && (
           <>
             {reconData.reconciled.length === 0 ? (
-              <div className="p-8 text-center text-slate-400 text-sm border-t border-slate-100">
-                Nessun movimento riconciliato. Avvia la riconciliazione automatica per iniziare.
+              <div className="p-8 text-center border-t border-slate-100">
+                <p className="text-slate-400 text-sm">Nessun movimento riconciliato al momento.</p>
+                <p className="text-slate-300 text-xs mt-1">Quando confermi un abbinamento, lo troverai qui. I dati riconciliati sono salvati e non si perdono.</p>
               </div>
             ) : (
               <div className="overflow-x-auto border-t border-slate-100">
@@ -1524,7 +1538,7 @@ function SezioneRiconciliazione({ companyId, accounts }) {
           <>
             {reconData.suggested.length === 0 ? (
               <div className="p-8 text-center text-slate-400 text-sm border-t border-slate-100">
-                Nessun suggerimento da confermare.
+                Nessun suggerimento da confermare. Clicca "Avvia Riconciliazione Automatica" per analizzare i movimenti.
               </div>
             ) : (
               <div className="overflow-x-auto border-t border-slate-100">
@@ -1631,7 +1645,7 @@ function SezioneRiconciliazione({ companyId, accounts }) {
           <>
             {reconData.unmatched.length === 0 ? (
               <div className="p-8 text-center text-slate-400 text-sm border-t border-slate-100">
-                Nessun movimento senza match.
+                Nessun movimento senza match. Avvia la riconciliazione per vedere i movimenti non abbinati.
               </div>
             ) : (
               <div className="overflow-x-auto border-t border-slate-100">
