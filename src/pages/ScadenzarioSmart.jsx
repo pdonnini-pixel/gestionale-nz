@@ -422,52 +422,6 @@ const ScadenzarioSmart = () => {
     }));
   }, [payables]);
 
-  // Aging analysis
-  const agingAnalysis = useMemo(() => {
-    const buckets = { '0-30': 0, '31-60': 0, '61-90': 0, '90+': 0 };
-    filteredPayables.forEach((p) => {
-      const diff = Math.floor((today - new Date(p.due_date)) / (1000 * 60 * 60 * 24));
-      if (diff <= 30) buckets['0-30'] += p.amount_remaining || 0;
-      else if (diff <= 60) buckets['31-60'] += p.amount_remaining || 0;
-      else if (diff <= 90) buckets['61-90'] += p.amount_remaining || 0;
-      else buckets['90+'] += p.amount_remaining || 0;
-    });
-    return Object.entries(buckets).map(([range, value]) => ({
-      range,
-      value: Math.round(value / 1000),
-    }));
-  }, [filteredPayables, today]);
-
-  // Grouped by supplier
-  const groupedBySupplier = useMemo(() => {
-    const groups = {};
-    filteredPayables.forEach(p => {
-      const name = p.suppliers?.ragione_sociale || p.suppliers?.name || 'N/A';
-      if (!groups[name]) groups[name] = { items: [], total: 0, paid: 0, remaining: 0 };
-      groups[name].items.push(p);
-      groups[name].total += p.gross_amount || 0;
-      groups[name].paid += p.amount_paid || 0;
-      groups[name].remaining += p.amount_remaining || 0;
-    });
-    return Object.entries(groups).sort((a, b) => a[0].localeCompare(b[0]));
-  }, [filteredPayables]);
-
-  // Grouped by month
-  const groupedByMonth = useMemo(() => {
-    const groups = {};
-    filteredPayables.forEach(p => {
-      const d = p.due_date ? new Date(p.due_date) : null;
-      const key = d ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` : 'N/D';
-      const label = d ? d.toLocaleDateString('it-IT', { month: 'long', year: 'numeric' }) : 'Senza data';
-      if (!groups[key]) groups[key] = { label, items: [], total: 0, paid: 0, remaining: 0 };
-      groups[key].items.push(p);
-      groups[key].total += p.gross_amount || 0;
-      groups[key].paid += p.amount_paid || 0;
-      groups[key].remaining += p.amount_remaining || 0;
-    });
-    return Object.entries(groups).sort((a, b) => a[0].localeCompare(b[0]));
-  }, [filteredPayables]);
-
   // Handlers
   const handleMarkAsPaid = useCallback(async (payableId, amount, bankAccountId) => {
     try {
@@ -662,249 +616,223 @@ const ScadenzarioSmart = () => {
     }
   };
 
+  // Sibill-style sub-tab counts
+  const tabCounts = useMemo(() => {
+    const all = payables || [];
+    return {
+      tutte: filteredPayables.length,
+      scadute: filteredPayables.filter(p => p.status === 'scaduto').length,
+      da_saldare: filteredPayables.filter(p => p.status !== 'pagato' && p.status !== 'annullato' && (p.gross_amount || 0) >= 0).length,
+      saldate: filteredPayables.filter(p => p.status === 'pagato').length,
+    };
+  }, [filteredPayables, payables]);
+
+  // Sibill-style sub-tab filter for the table
+  const [sibillTab, setSibillTab] = useState('tutte');
+
+  const displayPayables = useMemo(() => {
+    let list = filteredPayables;
+    if (sibillTab === 'scadute') list = list.filter(p => p.status === 'scaduto');
+    else if (sibillTab === 'da_saldare') list = list.filter(p => p.status !== 'pagato' && p.status !== 'annullato' && (p.gross_amount || 0) >= 0);
+    else if (sibillTab === 'saldate') list = list.filter(p => p.status === 'pagato');
+    return list;
+  }, [filteredPayables, sibillTab]);
+
+  // Aging analysis
+  const agingAnalysis = useMemo(() => {
+    const buckets = { '0-30': 0, '31-60': 0, '61-90': 0, '90+': 0 };
+    displayPayables.forEach((p) => {
+      const diff = Math.floor((today - new Date(p.due_date)) / (1000 * 60 * 60 * 24));
+      if (diff <= 30) buckets['0-30'] += p.amount_remaining || 0;
+      else if (diff <= 60) buckets['31-60'] += p.amount_remaining || 0;
+      else if (diff <= 90) buckets['61-90'] += p.amount_remaining || 0;
+      else buckets['90+'] += p.amount_remaining || 0;
+    });
+    return Object.entries(buckets).map(([range, value]) => ({
+      range,
+      value: Math.round(value / 1000),
+    }));
+  }, [displayPayables, today]);
+
+  // Grouped by supplier
+  const groupedBySupplier = useMemo(() => {
+    const groups = {};
+    displayPayables.forEach(p => {
+      const name = p.suppliers?.ragione_sociale || p.suppliers?.name || 'N/A';
+      if (!groups[name]) groups[name] = { items: [], total: 0, paid: 0, remaining: 0 };
+      groups[name].items.push(p);
+      groups[name].total += p.gross_amount || 0;
+      groups[name].paid += p.amount_paid || 0;
+      groups[name].remaining += p.amount_remaining || 0;
+    });
+    return Object.entries(groups).sort((a, b) => a[0].localeCompare(b[0]));
+  }, [displayPayables]);
+
+  // Grouped by month
+  const groupedByMonth = useMemo(() => {
+    const groups = {};
+    displayPayables.forEach(p => {
+      const d = p.due_date ? new Date(p.due_date) : null;
+      const key = d ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` : 'N/D';
+      const label = d ? d.toLocaleDateString('it-IT', { month: 'long', year: 'numeric' }) : 'Senza data';
+      if (!groups[key]) groups[key] = { label, items: [], total: 0, paid: 0, remaining: 0 };
+      groups[key].items.push(p);
+      groups[key].total += p.gross_amount || 0;
+      groups[key].paid += p.amount_paid || 0;
+      groups[key].remaining += p.amount_remaining || 0;
+    });
+    return Object.entries(groups).sort((a, b) => a[0].localeCompare(b[0]));
+  }, [displayPayables]);
+
   if (loading) {
     return (
       <div className="p-6 max-w-[1400px] mx-auto flex items-center justify-center min-h-screen">
         <div className="text-center">
-          <RefreshCw size={24} className="animate-spin text-blue-600 mx-auto mb-4" />
-          <p className="text-slate-600 font-medium">Caricamento scadenzario...</p>
+          <RefreshCw size={20} className="animate-spin text-slate-400 mx-auto mb-3" />
+          <p className="text-sm text-slate-500">Caricamento scadenzario...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="p-6 space-y-5 max-w-[1400px] mx-auto">
-      {/* Barre Banche — sticky dentro griglia */}
-      <div className="sticky top-0 z-40 -mx-6 px-6 py-3 bg-white border-b border-slate-200">
-        {bankAccounts.length > 0 ? (
-          <div className="flex items-center gap-3 overflow-x-auto">
-            {bankAccounts.map((ba, idx) => {
-              const saldoIniziale = ba.current_balance || 0;
-              const spending = bankSpending[ba.id] || 0;
-              const saldoProiettato = bankBalances[ba.id] || 0;
-              const isNeg = saldoProiettato < 0;
-              const hasSpending = spending > 0;
-              const colors = [
-                { bg: 'bg-blue-50', border: 'border-blue-200', name: 'text-blue-700', spend: 'text-blue-500' },
-                { bg: 'bg-emerald-50', border: 'border-emerald-200', name: 'text-emerald-700', spend: 'text-emerald-500' },
-                { bg: 'bg-purple-50', border: 'border-purple-200', name: 'text-purple-700', spend: 'text-purple-500' },
-                { bg: 'bg-amber-50', border: 'border-amber-200', name: 'text-amber-700', spend: 'text-amber-500' },
-                { bg: 'bg-rose-50', border: 'border-rose-200', name: 'text-rose-700', spend: 'text-rose-500' },
-                { bg: 'bg-cyan-50', border: 'border-cyan-200', name: 'text-cyan-700', spend: 'text-cyan-500' },
-              ];
-              const c = isNeg
-                ? { bg: 'bg-red-50', border: 'border-red-300 ring-2 ring-red-400/50', name: 'text-red-700', spend: 'text-red-500' }
-                : colors[idx % colors.length];
-              return (
-                <div key={ba.id} className={`flex-shrink-0 px-5 py-3 rounded-xl border ${c.bg} ${c.border} ${isNeg ? 'animate-pulse' : ''}`}>
-                  <div className={`text-xs font-semibold ${c.name}`}>{ba.bank_name}</div>
-                  <div className={`text-base font-bold mt-1 ${isNeg ? 'text-red-600' : 'text-slate-900'}`}>{fmt(saldoProiettato)} €</div>
-                  {hasSpending && (
-                    <div className={`text-xs mt-1 ${isNeg ? 'text-red-500' : c.spend} font-medium`}>
-                      − {fmt(spending)} €{isNeg && ' ⚠️'}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+    <div className="min-h-screen bg-slate-50/50">
+      {/* Sticky header — stile Sibill */}
+      <div className="sticky top-0 z-40 bg-white/95 backdrop-blur-sm border-b border-slate-200/60 px-6 py-3">
+        <div className="max-w-[1400px] mx-auto">
+          <div className="flex items-center justify-between">
+            <h1 className="text-lg font-semibold text-slate-800">Scadenze</h1>
+            <div className="flex items-center gap-2">
+              <div className="flex gap-0.5 bg-slate-100/80 rounded-lg p-0.5">
+                {[
+                  { key: 'scadenze', label: 'Scadenzario', icon: Clock3 },
+                  { key: 'ricorrenti', label: 'Ricorrenze', icon: Repeat },
+                ].map(t => (
+                  <button key={t.key} onClick={() => setSection(t.key)}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition ${
+                      section === t.key ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                    }`}>
+                    <t.icon size={13} /> {t.label}
+                  </button>
+                ))}
+              </div>
+              <button onClick={() => setShowEmailConfig(true)} className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-400">
+                <Settings size={14} />
+              </button>
+            </div>
           </div>
-        ) : (
-          <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-2 text-xs text-amber-700 flex items-center gap-2 w-fit">
-            <Wallet size={14} /> Nessun conto bancario. Aggiungi dalla sezione Banche.
-          </div>
-        )}
-      </div>
-      {/* Header */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">Scadenzario</h1>
-          <p className="text-sm text-slate-500">Gestione scadenze fornitori</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <button onClick={() => setShowEmailConfig(true)} className="p-2 hover:bg-slate-100 rounded-lg text-slate-600">
-            <Settings size={16} />
-          </button>
+
+          {/* KPI barra Sibill — saldo | pagamenti | scaduto | saldo proiettato */}
+          {section === 'scadenze' && (
+            <div className="flex items-center gap-6 mt-3 text-sm">
+              <div className="flex items-center gap-1.5">
+                <Wallet size={13} className="text-slate-400" />
+                <span className="text-slate-400 text-xs">Saldo oggi</span>
+                <span className={`font-bold ${cashPosition >= 0 ? 'text-slate-800' : 'text-red-600'}`}>{fmt(cashPosition)} €</span>
+              </div>
+              <div className="text-slate-200">|</div>
+              <div className="flex items-center gap-1.5">
+                <DollarSign size={13} className="text-red-400" />
+                <span className="text-slate-400 text-xs">Da pagare</span>
+                <span className="font-bold text-red-500">{fmt(kpis.totalToPay)} €</span>
+              </div>
+              <div className="text-slate-200">|</div>
+              <div className="flex items-center gap-1.5">
+                <AlertTriangle size={13} className="text-amber-400" />
+                <span className="text-slate-400 text-xs">Scaduto</span>
+                <span className="font-bold text-amber-600">{fmt(kpis.totalOverdue)} €</span>
+              </div>
+              <div className="text-slate-200">|</div>
+              <div className="flex items-center gap-1.5">
+                <Clock size={13} className="text-blue-400" />
+                <span className="text-slate-400 text-xs">7 giorni</span>
+                <span className="font-semibold text-blue-600">{fmt(kpis.nextSevenDays)} €</span>
+              </div>
+              <div className="text-slate-200">|</div>
+              <div className="flex items-center gap-1.5">
+                <TrendingDown size={13} className={cashPosition - kpis.totalToPay >= 0 ? 'text-emerald-400' : 'text-red-400'} />
+                <span className="text-slate-400 text-xs">Proiettato</span>
+                <span className={`font-bold ${(cashPosition - kpis.totalToPay) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                  {fmt(cashPosition - kpis.totalToPay)} €
+                </span>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Tab: Scadenze / Ricorrenti */}
-      <div className="flex gap-1 bg-slate-100 rounded-lg p-1 w-fit">
-        {[
-          { key: 'scadenze', label: 'Scadenze', icon: Clock3 },
-          { key: 'ricorrenti', label: 'Costi Ricorrenti', icon: Repeat },
-        ].map(t => (
-          <button key={t.key} onClick={() => setSection(t.key)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition ${
-              section === t.key ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
-            }`}>
-            <t.icon size={14} /> {t.label}
-          </button>
-        ))}
-      </div>
+      <div className="p-6 space-y-4 max-w-[1400px] mx-auto">
 
       {section === 'ricorrenti' ? (
         <CostiRicorrenti />
       ) : (
         <>
-          {/* Barra sintesi tesoreria stile Sibill */}
-          <div className="bg-white rounded-xl border border-slate-200/80 shadow-sm p-4">
-            <div className="flex items-center justify-between flex-wrap gap-4">
-              <div className="flex items-center gap-8">
-                <div>
-                  <div className="text-[11px] text-slate-400 uppercase tracking-wider mb-0.5">Saldo oggi</div>
-                  <div className={`text-lg font-bold ${cashPosition >= 0 ? 'text-slate-900' : 'text-red-600'}`}>{fmt(cashPosition)} €</div>
-                </div>
-                <div className="h-8 w-px bg-slate-200" />
-                <div>
-                  <div className="text-[11px] text-slate-400 uppercase tracking-wider mb-0.5">Da pagare</div>
-                  <div className="text-lg font-bold text-red-500">-{fmt(kpis.totalToPay)} €</div>
-                </div>
-                <div className="h-8 w-px bg-slate-200" />
-                <div>
-                  <div className="text-[11px] text-slate-400 uppercase tracking-wider mb-0.5">Scaduto</div>
-                  <div className="text-lg font-bold text-amber-600">{fmt(kpis.totalOverdue)} €</div>
-                </div>
-                <div className="h-8 w-px bg-slate-200" />
-                <div>
-                  <div className="text-[11px] text-slate-400 uppercase tracking-wider mb-0.5">Saldo proiettato</div>
-                  <div className={`text-lg font-bold ${(cashPosition - kpis.totalToPay) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                    {fmt(cashPosition - kpis.totalToPay)} €
-                  </div>
-                </div>
-              </div>
-              <div className="flex items-center gap-3 text-xs text-slate-400">
-                <span>{filteredPayables.filter(p => p.status !== 'pagato').length} scadenze attive</span>
-                <span>•</span>
-                <span>{kpis.reconciledCount}/{kpis.paidCount} riconciliati</span>
-              </div>
-            </div>
-          </div>
-
-          {/* KPI Cards dettaglio */}
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-            <div className="bg-white rounded-xl border border-blue-200 p-4 relative group cursor-help">
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="flex items-center gap-1.5 text-xs text-blue-600 font-medium mb-1"><DollarSign size={13} /> Da Pagare</div>
-                  <div className="text-xl font-bold text-slate-900">{fmt(kpis.totalToPay)} €</div>
-                </div>
-                <div className="p-2 bg-blue-50 rounded-lg"><DollarSign size={18} className="text-blue-500" /></div>
-              </div>
-              <div className="hidden group-hover:block absolute z-20 bottom-full left-1/2 -translate-x-1/2 mb-2 w-56 p-2.5 bg-slate-800 text-white text-xs rounded-lg shadow-lg leading-relaxed">
-                Totale delle fatture ancora da saldare, escluse quelle annullate o già pagate.
-                <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-800" />
-              </div>
-            </div>
-            <div className="bg-white rounded-xl border border-red-200 p-4 relative group cursor-help">
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="flex items-center gap-1.5 text-xs text-red-600 font-medium mb-1"><AlertTriangle size={13} /> Scaduto</div>
-                  <div className="text-xl font-bold text-red-700">{fmt(kpis.totalOverdue)} €</div>
-                </div>
-                <div className="p-2 bg-red-50 rounded-lg"><AlertTriangle size={18} className="text-red-400" /></div>
-              </div>
-              <div className="hidden group-hover:block absolute z-20 bottom-full left-1/2 -translate-x-1/2 mb-2 w-56 p-2.5 bg-slate-800 text-white text-xs rounded-lg shadow-lg leading-relaxed">
-                Importo delle fatture con data di scadenza superata e non ancora saldate. Richiede attenzione immediata.
-                <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-800" />
-              </div>
-            </div>
-            <div className="bg-white rounded-xl border border-amber-200 p-4 relative group cursor-help">
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="flex items-center gap-1.5 text-xs text-amber-600 font-medium mb-1"><Clock size={13} /> Prossimi 7 gg</div>
-                  <div className="text-xl font-bold text-amber-700">{fmt(kpis.nextSevenDays)} €</div>
-                </div>
-                <div className="p-2 bg-amber-50 rounded-lg"><Clock size={18} className="text-amber-400" /></div>
-              </div>
-              <div className="hidden group-hover:block absolute z-20 bottom-full left-1/2 -translate-x-1/2 mb-2 w-56 p-2.5 bg-slate-800 text-white text-xs rounded-lg shadow-lg leading-relaxed">
-                Fatture in scadenza nei prossimi 7 giorni. Pianifica i pagamenti per evitare ritardi.
-                <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-800" />
-              </div>
-            </div>
-            <div className="bg-white rounded-xl border border-emerald-200 p-4 relative group cursor-help">
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="flex items-center gap-1.5 text-xs text-emerald-600 font-medium mb-1"><Wallet size={13} /> Cassa</div>
-                  <div className={`text-xl font-bold ${kpis.cashShortfall > 0 ? 'text-red-600' : 'text-emerald-600'}`}>
-                    {fmt(kpis.availableCash)} €
-                  </div>
-                </div>
-                <div className={`p-2 rounded-lg ${kpis.cashShortfall > 0 ? 'bg-red-50' : 'bg-emerald-50'}`}>
-                  <Wallet size={18} className={kpis.cashShortfall > 0 ? 'text-red-400' : 'text-emerald-400'} />
-                </div>
-              </div>
-              {kpis.cashShortfall > 0 && (
-                <div className="mt-2 text-xs text-red-600 font-medium">Deficit: {fmt(kpis.cashShortfall)} €</div>
-              )}
-              <div className="hidden group-hover:block absolute z-20 bottom-full left-1/2 -translate-x-1/2 mb-2 w-60 p-2.5 bg-slate-800 text-white text-xs rounded-lg shadow-lg leading-relaxed">
-                Liquidità disponibile sui conti bancari. Se in rosso, i fondi non bastano a coprire le scadenze imminenti.
-                <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-800" />
-              </div>
-            </div>
-            <div className={`bg-white rounded-xl border ${kpis.paidCount > 0 && kpis.reconciledCount < kpis.paidCount ? 'border-amber-200' : 'border-emerald-200'} p-4 relative group cursor-help`}>
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="flex items-center gap-1.5 text-xs text-slate-600 font-medium mb-1"><Landmark size={13} /> Riconciliati</div>
-                  <div className="text-xl font-bold text-slate-900">{kpis.reconciledCount}/{kpis.paidCount}</div>
-                </div>
-                <div className={`p-2 rounded-lg ${kpis.paidCount > 0 && kpis.reconciledCount < kpis.paidCount ? 'bg-amber-50' : 'bg-emerald-50'}`}>
-                  <Landmark size={18} className={kpis.paidCount > 0 && kpis.reconciledCount < kpis.paidCount ? 'text-amber-400' : 'text-emerald-400'} />
-                </div>
-              </div>
-              {kpis.paidCount > 0 && kpis.reconciledCount < kpis.paidCount && (
-                <div className="mt-2 text-xs text-amber-600 font-medium">{kpis.paidCount - kpis.reconciledCount} senza mov. banca</div>
-              )}
-              <div className="hidden group-hover:block absolute z-20 bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 p-2.5 bg-slate-800 text-white text-xs rounded-lg shadow-lg leading-relaxed">
-                Quanti pagamenti registrati hanno un riscontro effettivo nell'estratto conto bancario. Verde = tutto verificato. Arancione = ci sono pagamenti senza conferma dalla banca.
-                <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-800" />
-              </div>
-            </div>
-          </div>
-
-          {/* Payment Method Filter Chips */}
-          <div className="flex flex-wrap gap-2">
-            {/* Tasto Tutti */}
-            <button onClick={() => setSelectedMethodGroup(null)}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-medium transition ${
-                !selectedMethodGroup ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-700 border-slate-200 hover:border-indigo-300'
-              }`}>
-              Tutti
-            </button>
-            {/* KPI per ogni singolo metodo di pagamento presente */}
-            {methodTotals.map(m => {
-              const isActive = selectedMethodGroup === m.key;
-              return (
-                <button key={m.key} onClick={() => setSelectedMethodGroup(isActive ? null : m.key)}
-                  className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium transition ${
-                    isActive ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-700 border-slate-200 hover:border-indigo-300'
+          {/* Sub-tab Sibill: Tutte / Scadute / Da saldare / Saldate */}
+          <div className="flex items-center justify-between">
+            <div className="flex gap-1 bg-slate-100/80 rounded-lg p-0.5">
+              {[
+                { key: 'tutte', label: 'Tutte' },
+                { key: 'scadute', label: 'Scadute' },
+                { key: 'da_saldare', label: 'Da saldare' },
+                { key: 'saldate', label: 'Saldate' },
+              ].map(t => (
+                <button key={t.key} onClick={() => setSibillTab(t.key)}
+                  className={`px-3 py-1.5 rounded-md text-xs font-medium transition ${
+                    sibillTab === t.key
+                      ? 'bg-white text-slate-900 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-700'
                   }`}>
-                  <span>{m.label}</span>
-                  <span className="font-bold">{fmt(m.total)} €</span>
-                  <span className={`text-xs px-1.5 py-0.5 rounded-full ${isActive ? 'bg-indigo-500 text-white' : 'bg-slate-100 text-slate-500'}`}>
-                    {m.count}
-                  </span>
+                  {t.label}
+                  <span className={`ml-1.5 text-[10px] px-1.5 py-0.5 rounded-full ${
+                    sibillTab === t.key ? 'bg-slate-100 text-slate-600' : 'bg-transparent text-slate-400'
+                  }`}>{tabCounts[t.key]}</span>
                 </button>
-              );
-            })}
-          </div>
-
-          {/* Filters */}
-          <div className="flex flex-col lg:flex-row gap-3 items-start lg:items-center">
-            <div className="flex-1">
-              <input type="text" placeholder="Cerca fornitore o fattura..." value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none" />
+              ))}
             </div>
             <div className="flex items-center gap-2">
-              <input type="date" value={dateRange.start} onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })}
-                className="px-3 py-2 rounded-lg border border-slate-200 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none" />
-              <span className="text-slate-400">—</span>
-              <input type="date" value={dateRange.end} onChange={(e) => setDateRange({ ...dateRange, end: e.target.value })}
-                className="px-3 py-2 rounded-lg border border-slate-200 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none" />
+              {/* View mode icons */}
+              <div className="flex gap-0.5">
+                {[
+                  { key: 'timeline', icon: Clock3 },
+                  { key: 'fornitore', icon: Building2 },
+                  { key: 'mese', icon: Calendar },
+                  { key: 'charts', icon: BarChart3 },
+                ].map(v => (
+                  <button key={v.key} onClick={() => setViewMode(v.key)}
+                    className={`p-1.5 rounded-md transition ${
+                      viewMode === v.key ? 'bg-slate-200 text-slate-700' : 'text-slate-300 hover:text-slate-500'
+                    }`}>
+                    <v.icon size={13} />
+                  </button>
+                ))}
+              </div>
+              <div className="h-5 w-px bg-slate-200" />
+              <button onClick={() => setModals({ ...modals, invoice: { open: true, data: null } })}
+                className="flex items-center gap-1 px-2.5 py-1.5 text-[11px] rounded-lg bg-slate-800 text-white hover:bg-slate-700 transition font-medium">
+                <Plus size={12} /> Fattura
+              </button>
+              <button onClick={() => setModals({ ...modals, supplier: { open: true, data: null } })}
+                className="flex items-center gap-1 px-2.5 py-1.5 text-[11px] rounded-lg bg-white text-slate-600 hover:bg-slate-50 transition font-medium border border-slate-200">
+                <Plus size={12} /> Fornitore
+              </button>
             </div>
+          </div>
+
+          {/* Filters — compact Sibill-style */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="relative flex-1 min-w-[200px] max-w-[320px]">
+              <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-300" />
+              <input type="text" placeholder="Cerca fornitore o fattura..." value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-8 pr-3 py-1.5 rounded-lg border border-slate-200/80 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400/40 focus:border-blue-300 bg-white placeholder:text-slate-300" />
+            </div>
+            <input type="date" value={dateRange.start} onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })}
+              className="px-2.5 py-1.5 rounded-lg border border-slate-200/80 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400/40 bg-white text-slate-500" />
+            <span className="text-slate-300 text-xs">—</span>
+            <input type="date" value={dateRange.end} onChange={(e) => setDateRange({ ...dateRange, end: e.target.value })}
+              className="px-2.5 py-1.5 rounded-lg border border-slate-200/80 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400/40 bg-white text-slate-500" />
             <select value={selectedStatus} onChange={(e) => setSelectedStatus(e.target.value)}
-              className="px-3 py-2 rounded-lg border border-slate-200 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none">
+              className="px-2.5 py-1.5 rounded-lg border border-slate-200/80 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400/40 bg-white text-slate-500">
               <option value="">Tutti gli stati</option>
               <option value="da_saldare">Da Saldare</option>
               <option value="da_pagare">Da Pagare</option>
@@ -915,107 +843,103 @@ const ScadenzarioSmart = () => {
               <option value="contestato">Contestato</option>
               <option value="nota_credito">Note di Credito</option>
             </select>
-            <div className="flex gap-1">
-              {[
-                { key: 'timeline', icon: Clock3 },
-                { key: 'fornitore', icon: Building2 },
-                { key: 'mese', icon: Calendar },
-                { key: 'charts', icon: BarChart3 },
-              ].map(v => (
-                <button key={v.key} onClick={() => setViewMode(v.key)}
-                  className={`p-2 rounded-lg transition ${
-                    viewMode === v.key ? 'bg-indigo-100 text-indigo-600' : 'text-slate-400 hover:text-slate-600'
-                  }`}>
-                  <v.icon size={14} />
-                </button>
-              ))}
+            {/* Payment method filter chips — compact */}
+            <div className="flex gap-1 flex-wrap">
+              <button onClick={() => setSelectedMethodGroup(null)}
+                className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition border ${
+                  !selectedMethodGroup ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'
+                }`}>
+                Tutti
+              </button>
+              {methodTotals.slice(0, 5).map(m => {
+                const isActive = selectedMethodGroup === m.key;
+                return (
+                  <button key={m.key} onClick={() => setSelectedMethodGroup(isActive ? null : m.key)}
+                    className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition border ${
+                      isActive ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'
+                    }`}>
+                    {m.label} <span className="opacity-60">{m.count}</span>
+                  </button>
+                );
+              })}
             </div>
-            <div className="border-l border-slate-200 h-6 mx-1" />
-            <button onClick={() => setModals({ ...modals, invoice: { open: true, data: null } })}
-              className="flex items-center gap-1 px-3 py-2 text-xs rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 transition font-medium">
-              <Plus size={13} /> Fattura
-            </button>
-            <button onClick={() => setModals({ ...modals, supplier: { open: true, data: null } })}
-              className="flex items-center gap-1 px-3 py-2 text-xs rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200 transition font-medium border border-slate-200">
-              <Plus size={13} /> Fornitore
-            </button>
           </div>
 
-          {/* Timeline View */}
+          {/* Timeline View — Sibill style */}
           {viewMode === 'timeline' && (
-            <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+            <div className="bg-white rounded-xl border border-slate-200/80 overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="w-full">
                   <thead>
-                    <tr className="border-b border-slate-100 text-xs text-slate-500 uppercase tracking-wider">
-                      <th className="py-3 px-4 text-center w-12">
-                        <button onClick={toggleSelectAll} className="text-slate-400 hover:text-indigo-600">
-                          {selectedIds.size > 0 ? <CheckSquare size={18} /> : <Square size={18} />}
+                    <tr className="border-b border-slate-100 text-[11px] text-slate-400 uppercase tracking-wider">
+                      <th className="py-2.5 px-3 text-center w-10">
+                        <button onClick={toggleSelectAll} className="text-slate-300 hover:text-slate-600">
+                          {selectedIds.size > 0 ? <CheckSquare size={15} /> : <Square size={15} />}
                         </button>
                       </th>
-                      <th className="py-3 px-4 text-left font-medium">Fornitore</th>
-                      <th className="py-3 px-4 text-left font-medium">Fattura</th>
-                      <th className="py-3 px-4 text-center font-medium">Scadenza</th>
-                      <th className="py-3 px-4 text-right font-medium">Importo</th>
-                      <th className="py-3 px-4 text-right font-medium">Rimane</th>
-                      <th className="py-3 px-4 text-center font-medium">Stato</th>
-                      <th className="py-3 px-4 text-center font-medium">Metodo</th>
-                      <th className="py-3 px-4 text-right font-medium">Azioni</th>
+                      <th className="py-2.5 px-3 text-left font-medium">Scadenza</th>
+                      <th className="py-2.5 px-3 text-left font-medium">Controparte</th>
+                      <th className="py-2.5 px-3 text-left font-medium">Fattura</th>
+                      <th className="py-2.5 px-3 text-right font-medium">Importo</th>
+                      <th className="py-2.5 px-3 text-center font-medium">Stato</th>
+                      <th className="py-2.5 px-3 text-center font-medium">Metodo</th>
+                      <th className="py-2.5 px-3 text-right font-medium w-16"></th>
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredPayables.map((p) => (
+                    {displayPayables.map((p) => (
                       <React.Fragment key={p.id}>
-                        <tr className="border-b border-slate-50 hover:bg-slate-50/50">
-                          <td className="py-3 px-4 text-center">
+                        <tr className="border-b border-slate-50 hover:bg-blue-50/30 transition group">
+                          <td className="py-2.5 px-3 text-center">
                             {p.status !== 'pagato' && (p.gross_amount || 0) >= 0 && (
                               <button onClick={() => toggleSelect(p.id, p)}>
-                                {selectedIds.has(p.id) ? <CheckSquare size={18} className="text-indigo-600" /> : <Square size={18} />}
+                                {selectedIds.has(p.id) ? <CheckSquare size={15} className="text-slate-700" /> : <Square size={15} className="text-slate-300" />}
                               </button>
                             )}
                           </td>
-                          <td className="py-3 px-4 text-sm font-medium">
+                          <td className="py-2.5 px-3 text-xs text-slate-500 whitespace-nowrap">{fmtDate(p.due_date)}</td>
+                          <td className="py-2.5 px-3">
                             <button onClick={() => {
                               const sup = suppliers.find(s =>
                                 s.ragione_sociale === (p.suppliers?.ragione_sociale || p.suppliers?.name) ||
                                 s.name === (p.suppliers?.name || p.suppliers?.ragione_sociale)
                               );
                               setSupplierDetail(sup || { ragione_sociale: p.suppliers?.ragione_sociale || p.suppliers?.name || 'N/A' });
-                            }} className="text-left hover:text-indigo-600 hover:underline">
+                            }} className="text-left text-[13px] text-slate-800 hover:text-blue-600 font-medium truncate block max-w-[220px]">
                               {p.suppliers?.ragione_sociale || p.suppliers?.name || 'N/A'}
                             </button>
                           </td>
-                          <td className="py-3 px-4 text-sm text-slate-600">{p.invoice_number}</td>
-                          <td className="py-3 px-4 text-sm text-center">{fmtDate(p.due_date)}</td>
-                          <td className="py-3 px-4 text-sm text-right font-medium">{fmt(p.gross_amount)} €</td>
-                          <td className="py-3 px-4 text-sm text-right font-bold">{fmt(p.amount_remaining)} €</td>
-                          <td className="py-3 px-4 text-center">
-                            <div className="flex items-center justify-center gap-1.5">
-                              <StatusPill status={p.status} />
-                              {p.status === 'pagato' && (
-                                p.cash_movement_id
-                                  ? <span className="relative group/rc cursor-help"><span className="text-emerald-500 text-sm">&#x2705;</span><span className="hidden group-hover/rc:block absolute z-20 bottom-full left-1/2 -translate-x-1/2 mb-1 w-48 p-2 bg-slate-800 text-white text-xs rounded-lg shadow-lg text-center">Verificato: il pagamento risulta nell'estratto conto bancario<span className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-800" /></span></span>
-                                  : <span className="relative group/rc cursor-help"><span className="text-amber-500 text-sm">&#x26A0;&#xFE0F;</span><span className="hidden group-hover/rc:block absolute z-20 bottom-full left-1/2 -translate-x-1/2 mb-1 w-52 p-2 bg-slate-800 text-white text-xs rounded-lg shadow-lg text-center">Pagamento registrato nel sistema ma non ancora trovato nell'estratto conto bancario<span className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-800" /></span></span>
-                              )}
-                            </div>
+                          <td className="py-2.5 px-3 text-xs text-slate-400">{p.invoice_number}</td>
+                          <td className={`py-2.5 px-3 text-right text-[13px] font-medium whitespace-nowrap ${
+                            p.status === 'pagato' ? 'text-slate-400' : p.status === 'scaduto' ? 'text-red-600' : 'text-slate-800'
+                          }`}>
+                            {p.amount_remaining > 0 && p.amount_remaining !== p.gross_amount
+                              ? <><span className="text-slate-300 line-through text-[11px] mr-1">{fmt(p.gross_amount)}</span>{fmt(p.amount_remaining)} €</>
+                              : <>{fmt(p.gross_amount)} €</>
+                            }
                           </td>
-                          <td className="py-3 px-4 text-xs text-center text-slate-500">{paymentMethodLabels[p.payment_method] || '—'}</td>
-                          <td className="py-3 px-4 text-right">
-                            <div className="flex justify-end gap-1">
+                          <td className="py-2.5 px-3 text-center">
+                            <StatusPill status={p.status} />
+                          </td>
+                          <td className="py-2.5 px-3 text-center">
+                            <span className="text-[10px] text-slate-400">{paymentMethodLabels[p.payment_method] || '—'}</span>
+                          </td>
+                          <td className="py-2.5 px-3 text-right">
+                            <div className="flex justify-end gap-0.5 opacity-0 group-hover:opacity-100 transition">
                               <button onClick={() => setModals({ ...modals, editSchedule: { open: true, schedule: p } })}
-                                className="p-1.5 rounded text-slate-400 hover:text-blue-600 hover:bg-blue-50">
-                                <Edit2 size={14} />
+                                className="p-1 rounded text-slate-400 hover:text-blue-600 hover:bg-blue-50">
+                                <Edit2 size={12} />
                               </button>
                               <button onClick={() => setModals({ ...modals, deleteConfirm: { open: true, scheduleId: p.id, invoiceNumber: p.invoice_number } })}
-                                className="p-1.5 rounded text-slate-400 hover:text-red-600 hover:bg-red-50">
-                                <Trash2 size={14} />
+                                className="p-1 rounded text-slate-400 hover:text-red-600 hover:bg-red-50">
+                                <Trash2 size={12} />
                               </button>
                             </div>
                           </td>
                         </tr>
                         {selectedIds.has(p.id) && paymentPlan[p.id] && (
-                          <tr className="bg-indigo-50 border-b border-indigo-200">
-                            <td colSpan={9} className="px-4 py-3">
+                          <tr className="bg-slate-50 border-b border-slate-200">
+                            <td colSpan={8} className="px-4 py-2.5">
                               <div className="flex items-center gap-4 flex-wrap">
                                 <div>
                                   <label className="text-xs font-medium text-slate-600 block mb-1">Banca</label>
@@ -1253,15 +1177,15 @@ const ScadenzarioSmart = () => {
                 <div className="space-y-3 text-sm">
                   <div className="flex justify-between pb-2 border-b border-slate-200">
                     <span className="text-slate-600">Fatture</span>
-                    <span className="font-bold">{filteredPayables.length}</span>
+                    <span className="font-bold">{displayPayables.length}</span>
                   </div>
                   <div className="flex justify-between pb-2 border-b border-slate-200">
                     <span className="text-slate-600">Fornitori</span>
-                    <span className="font-bold">{new Set(filteredPayables.map(p => p.suppliers?.ragione_sociale)).size}</span>
+                    <span className="font-bold">{new Set(displayPayables.map(p => p.suppliers?.ragione_sociale)).size}</span>
                   </div>
                   <div className="flex justify-between pb-2 border-b border-slate-200">
                     <span className="text-slate-600">Importo Medio</span>
-                    <span className="font-bold">{fmt(filteredPayables.length > 0 ? filteredPayables.reduce((s, p) => s + (p.amount_remaining || 0), 0) / filteredPayables.length : 0)} €</span>
+                    <span className="font-bold">{fmt(displayPayables.length > 0 ? displayPayables.reduce((s, p) => s + (p.amount_remaining || 0), 0) / displayPayables.length : 0)} €</span>
                   </div>
                 </div>
               </div>
@@ -1299,6 +1223,7 @@ const ScadenzarioSmart = () => {
           )}
         </>
       )}
+      </div>{/* chiude p-6 content wrapper */}
 
       {/* Email Config Modal */}
       {showEmailConfig && (
