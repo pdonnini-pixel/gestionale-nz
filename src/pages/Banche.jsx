@@ -5,7 +5,8 @@ import {
   PiggyBank, HandCoins, Info, Calculator, FileUp, Percent, Calendar,
   Plus, Edit2, Trash2, Check, X, AlertCircle, Download,
   ArrowLeftRight, Upload, Clock, ListOrdered, Link2, RefreshCw,
-  Unlink, History
+  Unlink, History, CheckCircle2, Eye, EyeOff, ArrowUpRight, ArrowDownLeft,
+  Filter, CircleDot
 } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, PieChart, Pie, CartesianGrid } from 'recharts'
 import { supabase } from '../lib/supabase'
@@ -742,7 +743,10 @@ function SezioneComposizione({ accounts, totalLiquidity }) {
 /* ────────────────────────────────────────
    Sezione: Movimenti Reali (cash_movements)
    ──────────────────────────────────────── */
-function SezioneMovimentiReali({ movements, accounts, search, loading, onLoadMore, hasMore, selectedAccountId, onSelectAccount }) {
+function SezioneMovimentiReali({ movements, setMovements, accounts, search, loading, onLoadMore, hasMore, selectedAccountId, onSelectAccount }) {
+  const [subTab, setSubTab] = useState('tutti') // tutti, entrate, uscite, da_verificare
+  const [togglingId, setTogglingId] = useState(null)
+
   const filtered = useMemo(() => {
     let list = movements || []
     if (search) {
@@ -752,8 +756,21 @@ function SezioneMovimentiReali({ movements, accounts, search, loading, onLoadMor
         (m.counterpart || '').toLowerCase().includes(q)
       )
     }
+    // Sub-tab filter
+    if (subTab === 'entrate') list = list.filter(m => m.type === 'entrata')
+    else if (subTab === 'uscite') list = list.filter(m => m.type === 'uscita')
+    else if (subTab === 'da_verificare') list = list.filter(m => !m.verified)
     return list
-  }, [movements, search])
+  }, [movements, search, subTab])
+
+  // KPI calcolati sui movimenti caricati (non solo quelli filtrati per sub-tab)
+  const kpi = useMemo(() => {
+    const all = movements || []
+    const entrate = all.filter(m => m.type === 'entrata').reduce((s, m) => s + Number(m.amount || 0), 0)
+    const uscite = all.filter(m => m.type === 'uscita').reduce((s, m) => s + Number(m.amount || 0), 0)
+    const nonVerificati = all.filter(m => !m.verified).length
+    return { count: all.length, entrate, uscite, netto: entrate - uscite, nonVerificati }
+  }, [movements])
 
   const getAccountName = (id) => {
     const acc = accounts.find(a => a.id === id)
@@ -762,79 +779,159 @@ function SezioneMovimentiReali({ movements, accounts, search, loading, onLoadMor
 
   const fmtDate = (d) => d ? new Date(d).toLocaleDateString('it-IT') : '—'
 
+  const handleToggleVerified = async (movement) => {
+    setTogglingId(movement.id)
+    try {
+      const newVal = !movement.verified
+      const { error } = await supabase
+        .from('cash_movements')
+        .update({
+          verified: newVal,
+          verified_at: newVal ? new Date().toISOString() : null,
+        })
+        .eq('id', movement.id)
+      if (!error && setMovements) {
+        setMovements(prev => prev.map(m =>
+          m.id === movement.id
+            ? { ...m, verified: newVal, verified_at: newVal ? new Date().toISOString() : null }
+            : m
+        ))
+      }
+    } catch (e) {
+      console.error('Toggle verified error:', e)
+    } finally {
+      setTogglingId(null)
+    }
+  }
+
+  const subTabs = [
+    { key: 'tutti', label: 'Tutti', count: movements?.length || 0 },
+    { key: 'entrate', label: 'Entrate', count: (movements || []).filter(m => m.type === 'entrata').length },
+    { key: 'uscite', label: 'Uscite', count: (movements || []).filter(m => m.type === 'uscita').length },
+    { key: 'da_verificare', label: 'Da verificare', count: kpi.nonVerificati },
+  ]
+
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <h2 className="text-lg font-semibold text-slate-900 flex items-center gap-2">
-          <ListOrdered size={20} className="text-indigo-600" />
-          Movimenti bancari
-          <span className="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">{filtered.length} operazioni</span>
-        </h2>
-        <div>
-          <select
-            value={selectedAccountId || ''}
-            onChange={e => onSelectAccount(e.target.value || null)}
-            className="px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-          >
-            <option value="">Tutti i conti</option>
-            {accounts.map(a => (
-              <option key={a.id} value={a.id}>{a.bank_name} — {a.account_name}</option>
-            ))}
-          </select>
-        </div>
+      {/* KPI barra leggera stile Sibill */}
+      <div className="flex items-center gap-6 px-1 text-sm">
+        <span className="text-slate-400">{kpi.count} movimenti</span>
+        <span className="text-slate-300">|</span>
+        <span className="text-emerald-600 font-medium flex items-center gap-1">
+          <ArrowDownLeft size={13} /> +{fmt(kpi.entrate)} €
+        </span>
+        <span className="text-slate-300">|</span>
+        <span className="text-red-500 font-medium flex items-center gap-1">
+          <ArrowUpRight size={13} /> -{fmt(kpi.uscite)} €
+        </span>
+        <span className="text-slate-300">|</span>
+        <span className={`font-semibold ${kpi.netto >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
+          Netto {kpi.netto >= 0 ? '+' : ''}{fmt(kpi.netto)} €
+        </span>
       </div>
 
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+      {/* Sub-tab + filtro conto */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div className="flex gap-1 bg-slate-100/80 rounded-lg p-0.5">
+          {subTabs.map(t => (
+            <button key={t.key} onClick={() => setSubTab(t.key)}
+              className={`px-3 py-1.5 rounded-md text-xs font-medium transition ${
+                subTab === t.key
+                  ? 'bg-white text-slate-900 shadow-sm'
+                  : 'text-slate-500 hover:text-slate-700'
+              }`}>
+              {t.label}
+              <span className={`ml-1.5 text-[10px] px-1.5 py-0.5 rounded-full ${
+                subTab === t.key ? 'bg-slate-100 text-slate-600' : 'bg-transparent text-slate-400'
+              }`}>{t.count}</span>
+            </button>
+          ))}
+        </div>
+        <select
+          value={selectedAccountId || ''}
+          onChange={e => onSelectAccount(e.target.value || null)}
+          className="px-3 py-1.5 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/30 bg-white text-slate-600"
+        >
+          <option value="">Tutti i conti</option>
+          {accounts.map(a => (
+            <option key={a.id} value={a.id}>{a.bank_name} — {a.account_name}</option>
+          ))}
+        </select>
+      </div>
+
+      {/* Tabella movimenti */}
+      <div className="bg-white rounded-xl border border-slate-200/80 shadow-sm overflow-hidden">
         {loading ? (
           <div className="p-12 text-center text-slate-400 text-sm">Caricamento movimenti...</div>
         ) : filtered.length === 0 ? (
           <div className="p-12 text-center text-slate-400 text-sm">
-            Nessun movimento trovato. Importare un estratto conto per visualizzare i movimenti.
+            {subTab === 'da_verificare'
+              ? 'Tutti i movimenti sono stati verificati.'
+              : 'Nessun movimento trovato. Importare un estratto conto per visualizzare i movimenti.'}
           </div>
         ) : (
           <>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-slate-100 text-xs text-slate-500 uppercase tracking-wider">
+                  <tr className="border-b border-slate-100 text-[11px] text-slate-400 uppercase tracking-wider">
                     <th className="py-2.5 px-4 text-left font-medium">Data</th>
-                    <th className="py-2.5 px-4 text-left font-medium">Conto</th>
                     <th className="py-2.5 px-4 text-left font-medium">Descrizione</th>
-                    <th className="py-2.5 px-4 text-center font-medium">Tipo</th>
+                    <th className="py-2.5 px-4 text-left font-medium">Controparte</th>
                     <th className="py-2.5 px-4 text-right font-medium">Importo</th>
                     <th className="py-2.5 px-4 text-right font-medium">Saldo</th>
-                    <th className="py-2.5 px-4 text-center font-medium">Riconciliato</th>
+                    <th className="py-2.5 px-4 text-center font-medium w-20">Verificato</th>
+                    <th className="py-2.5 px-4 text-center font-medium w-16">Riconc.</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filtered.map(m => {
                     const isEntrata = m.type === 'entrata'
                     return (
-                      <tr key={m.id} className="border-b border-slate-50 hover:bg-slate-50/50 transition">
-                        <td className="py-2 px-4 text-slate-600 whitespace-nowrap">{fmtDate(m.date)}</td>
-                        <td className="py-2 px-4 text-xs text-slate-500">{getAccountName(m.bank_account_id)}</td>
-                        <td className="py-2 px-4 text-slate-900 max-w-xs truncate" title={m.description || ''}>
-                          {m.description || '—'}
-                          {m.counterpart && <span className="block text-[10px] text-slate-400 truncate">{m.counterpart}</span>}
+                      <tr key={m.id} className="border-b border-slate-50 hover:bg-blue-50/30 transition group">
+                        <td className="py-2.5 px-4 text-slate-500 whitespace-nowrap text-xs">
+                          {fmtDate(m.date)}
                         </td>
-                        <td className="py-2 px-4 text-center">
-                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
-                            isEntrata ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'
-                          }`}>
-                            {isEntrata ? 'Entrata' : 'Uscita'}
+                        <td className="py-2.5 px-4 text-slate-800 max-w-[280px]">
+                          <span className="block truncate text-[13px]" title={m.description || ''}>
+                            {m.description || '—'}
                           </span>
                         </td>
-                        <td className={`py-2 px-4 text-right font-medium whitespace-nowrap ${isEntrata ? 'text-emerald-600' : 'text-red-600'}`}>
-                          {isEntrata ? '+' : ''}{fmt(m.amount)} €
+                        <td className="py-2.5 px-4 text-xs text-slate-500 max-w-[180px] truncate" title={m.counterpart || ''}>
+                          {m.counterpart || '—'}
                         </td>
-                        <td className="py-2 px-4 text-right font-medium text-slate-700 whitespace-nowrap">
+                        <td className={`py-2.5 px-4 text-right font-medium whitespace-nowrap text-[13px] ${isEntrata ? 'text-emerald-600' : 'text-red-500'}`}>
+                          {isEntrata ? '+' : '-'}{fmt(Math.abs(m.amount))} €
+                        </td>
+                        <td className="py-2.5 px-4 text-right text-xs text-slate-400 whitespace-nowrap">
                           {m.balance_after != null ? `${fmt(m.balance_after)} €` : '—'}
                         </td>
-                        <td className="py-2 px-4 text-center">
+                        <td className="py-2.5 px-4 text-center">
+                          <button
+                            onClick={() => handleToggleVerified(m)}
+                            disabled={togglingId === m.id}
+                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium transition cursor-pointer ${
+                              m.verified
+                                ? 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100'
+                                : 'bg-slate-50 text-slate-400 hover:bg-slate-100 hover:text-slate-600'
+                            }`}
+                          >
+                            {togglingId === m.id ? (
+                              <Clock size={11} className="animate-spin" />
+                            ) : m.verified ? (
+                              <><CheckCircle2 size={11} /> Sì</>
+                            ) : (
+                              <><CircleDot size={11} /> No</>
+                            )}
+                          </button>
+                        </td>
+                        <td className="py-2.5 px-4 text-center">
                           {m.is_reconciled ? (
-                            <Check size={14} className="text-emerald-500 mx-auto" />
+                            <span className="inline-flex items-center gap-0.5 text-[10px] text-emerald-500 font-medium">
+                              <Link2 size={11} /> Sì
+                            </span>
                           ) : (
-                            <span className="text-slate-300">—</span>
+                            <span className="text-slate-300 text-[10px]">—</span>
                           )}
                         </td>
                       </tr>
@@ -847,7 +944,7 @@ function SezioneMovimentiReali({ movements, accounts, search, loading, onLoadMor
               <div className="p-3 text-center border-t border-slate-100">
                 <button
                   onClick={onLoadMore}
-                  className="px-4 py-2 text-sm font-medium text-blue-600 hover:bg-blue-50 rounded-lg transition"
+                  className="px-4 py-1.5 text-xs font-medium text-blue-600 hover:bg-blue-50 rounded-lg transition"
                 >
                   Carica altri movimenti...
                 </button>
@@ -2274,6 +2371,7 @@ export default function Banche() {
           <SezioneImport accounts={accounts} onImportComplete={loadData} />
           <SezioneMovimentiReali
             movements={cashMovements}
+            setMovements={setCashMovements}
             accounts={accounts}
             search={search}
             loading={cashMovementsLoading}

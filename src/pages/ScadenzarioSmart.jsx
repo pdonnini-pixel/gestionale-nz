@@ -747,7 +747,41 @@ const ScadenzarioSmart = () => {
         <CostiRicorrenti />
       ) : (
         <>
-          {/* KPI Cards */}
+          {/* Barra sintesi tesoreria stile Sibill */}
+          <div className="bg-white rounded-xl border border-slate-200/80 shadow-sm p-4">
+            <div className="flex items-center justify-between flex-wrap gap-4">
+              <div className="flex items-center gap-8">
+                <div>
+                  <div className="text-[11px] text-slate-400 uppercase tracking-wider mb-0.5">Saldo oggi</div>
+                  <div className={`text-lg font-bold ${cashPosition >= 0 ? 'text-slate-900' : 'text-red-600'}`}>{fmt(cashPosition)} €</div>
+                </div>
+                <div className="h-8 w-px bg-slate-200" />
+                <div>
+                  <div className="text-[11px] text-slate-400 uppercase tracking-wider mb-0.5">Da pagare</div>
+                  <div className="text-lg font-bold text-red-500">-{fmt(kpis.totalToPay)} €</div>
+                </div>
+                <div className="h-8 w-px bg-slate-200" />
+                <div>
+                  <div className="text-[11px] text-slate-400 uppercase tracking-wider mb-0.5">Scaduto</div>
+                  <div className="text-lg font-bold text-amber-600">{fmt(kpis.totalOverdue)} €</div>
+                </div>
+                <div className="h-8 w-px bg-slate-200" />
+                <div>
+                  <div className="text-[11px] text-slate-400 uppercase tracking-wider mb-0.5">Saldo proiettato</div>
+                  <div className={`text-lg font-bold ${(cashPosition - kpis.totalToPay) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                    {fmt(cashPosition - kpis.totalToPay)} €
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center gap-3 text-xs text-slate-400">
+                <span>{filteredPayables.filter(p => p.status !== 'pagato').length} scadenze attive</span>
+                <span>•</span>
+                <span>{kpis.reconciledCount}/{kpis.paidCount} riconciliati</span>
+              </div>
+            </div>
+          </div>
+
+          {/* KPI Cards dettaglio */}
           <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
             <div className="bg-white rounded-xl border border-blue-200 p-4 relative group cursor-help">
               <div className="flex items-center justify-between">
