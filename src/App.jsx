@@ -23,6 +23,7 @@ import StoreManager from './pages/StoreManager'
 import ImportHub from './pages/ImportHub'
 import Fornitori from './pages/Fornitori'
 import ArchivioDocumenti from './pages/ArchivioDocumenti'
+import Onboarding from './pages/Onboarding'
 
 function ProtectedRoute({ children }) {
   const { session, loading } = useAuth()
@@ -58,6 +59,7 @@ function AppRoutes() {
   return (
     <Routes>
       <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
+      <Route path="/onboarding" element={<ProtectedRoute><Onboarding /></ProtectedRoute>} />
       <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
         <Route index element={<Dashboard />} />
         <Route path="outlet" element={<Outlet />} />
