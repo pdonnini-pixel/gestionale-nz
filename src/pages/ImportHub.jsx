@@ -356,8 +356,10 @@ export default function ImportHub() {
           record.year = parseInt(year);
         } else if (sourceId === 'balance_sheet') {
           record.file_type = fileExt;
-          record.upload_status = 'uploaded';
-          record.fiscal_year = selectedYear;
+          record.status = 'uploaded';
+          record.year = selectedYear || new Date().getFullYear();
+          record.period_type = 'annuale';
+          record.period_label = `Bilancio ${selectedYear || new Date().getFullYear()}`;
         } else if (sourceId === 'general_docs') {
           record.file_type = fileExt;
           record.upload_status = 'uploaded';
@@ -558,9 +560,14 @@ export default function ImportHub() {
       if (result.success) {
         showToast(`Importati ${result.imported} record con successo!`);
         // Update file status in source table (use correct column per table)
-        const statusUpdate = selectedSource === 'bank'
-          ? { status: 'completed' }
-          : { upload_status: 'parsed', import_status: 'completed' };
+        let statusUpdate;
+        if (selectedSource === 'bank') {
+          statusUpdate = { status: 'completed' };
+        } else if (selectedSource === 'balance_sheet') {
+          statusUpdate = { status: 'parsed' };
+        } else {
+          statusUpdate = { upload_status: 'parsed', import_status: 'completed' };
+        }
         await supabase.from(config.table).update(statusUpdate).eq('id', fileRecord.id);
         await loadImportDocs();
       } else {
