@@ -1157,6 +1157,26 @@ export default function ImportHub() {
                                 </button>
                               </>
                             )}
+                            {/* Riprocessa: per file già elaborati (parsed/approved/completed) */}
+                            {canProcess(selectedSource) && (statusLabel === 'parsed' || statusLabel === 'approved' || statusLabel === 'completed' || statusLabel === 'verified') && (
+                              <button
+                                onClick={() => {
+                                  if (window.confirm(
+                                    'Vuoi riprocessare questo file?\n\n' +
+                                    'I dati esistenti per lo stesso anno verranno sostituiti con quelli del file.\n' +
+                                    'Questa operazione non può essere annullata.'
+                                  )) {
+                                    handleProcessFile(f)
+                                  }
+                                }}
+                                disabled={processing}
+                                className="px-2.5 py-1 bg-amber-50 text-amber-700 rounded-lg text-xs font-semibold hover:bg-amber-100 flex items-center gap-1 border border-amber-200 disabled:opacity-50"
+                                title="Riprocessa — i dati esistenti per lo stesso anno verranno sostituiti"
+                              >
+                                {processing ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
+                                Riprocessa
+                              </button>
+                            )}
                             {isPdf && f.file_path && (
                               <button onClick={() => openPreview(f)} className="p-1.5 rounded-lg hover:bg-blue-50 text-slate-400 hover:text-blue-600 transition" title="Anteprima PDF">
                                 <Eye size={16} />
