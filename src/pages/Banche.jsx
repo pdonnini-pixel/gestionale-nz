@@ -6,12 +6,13 @@ import {
   Plus, Edit2, Trash2, Check, X, AlertCircle, Download,
   ArrowLeftRight, Upload, Clock, ListOrdered, Link2, RefreshCw,
   Unlink, History, CheckCircle2, Eye, EyeOff, ArrowUpRight, ArrowDownLeft,
-  Filter, CircleDot
+  Filter, CircleDot, Globe
 } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, PieChart, Pie, CartesianGrid } from 'recharts'
 import { supabase } from '../lib/supabase'
 import { GlassTooltip, AXIS_STYLE, GRID_STYLE } from '../components/ChartTheme'
 import { useAuth } from '../hooks/useAuth'
+import OpenBanking from '../components/OpenBanking'
 
 /* ───── reconciliation engine ───── */
 import { runAutoReconciliation, applyReconciliation, undoReconciliation, getReconciliationLog } from '../lib/reconciliationEngine'
@@ -2320,6 +2321,7 @@ export default function Banche() {
             <div className="flex gap-0.5 bg-slate-100/80 rounded-lg p-0.5">
               {[
                 { key: 'panoramica', label: 'Panoramica', icon: Landmark },
+                { key: 'open-banking', label: 'Open Banking', icon: Globe },
                 { key: 'movimenti', label: 'Movimenti', icon: ListOrdered },
                 { key: 'riconciliazione', label: 'Riconciliazione', icon: ArrowLeftRight },
               ].map(t => (
@@ -2369,6 +2371,11 @@ export default function Banche() {
       </div>
 
       <div className="p-6 space-y-6 max-w-[1400px] mx-auto">
+
+      {/* Tab: Open Banking */}
+      {activeTab === 'open-banking' && (
+        <OpenBanking />
+      )}
 
       {/* Tab: Movimenti */}
       {activeTab === 'movimenti' && (
