@@ -338,41 +338,38 @@ function SezioneBanche({ accounts, totalBanks, search, onAddEdit, onDelete, load
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-slate-900 flex items-center gap-2">
-          <Building2 size={20} className="text-blue-600" />
+        <h2 className="text-sm font-medium text-slate-500 flex items-center gap-2">
+          <Building2 size={15} className="text-slate-400" />
           Conti Bancari
         </h2>
         <button
           onClick={() => onAddEdit(null)}
-          className="flex items-center gap-1 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition"
+          className="flex items-center gap-1 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-medium hover:bg-blue-700 transition"
         >
-          <Plus size={16} /> Nuovo
+          <Plus size={14} /> Nuovo
         </button>
       </div>
 
       {Object.entries(perBanca).map(([banca, conti]) => {
         const totBanca = conti.reduce((s, c) => s + c.current_balance, 0)
         return (
-          <div key={banca} className="rounded-2xl overflow-hidden shadow-lg" style={{ background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)', border: '1px solid rgba(99,102,241,0.08)' }}>
+          <div key={banca} className="bg-white rounded-xl border border-slate-200/80 overflow-hidden">
             <div
-              className="p-4 cursor-pointer hover:bg-slate-50/50 transition flex items-center justify-between"
+              className="px-4 py-3 cursor-pointer hover:bg-slate-50/30 transition flex items-center justify-between"
               onClick={() => setExpanded(expanded === banca ? null : banca)}
             >
               <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-blue-50 text-blue-600">
-                  <Landmark size={18} />
-                </div>
+                <Landmark size={16} className="text-blue-500" />
                 <div>
-                  <div className="font-semibold text-slate-900">{banca}</div>
-                  <div className="text-xs text-slate-400">{conti.length} {conti.length === 1 ? 'conto' : 'conti'}</div>
+                  <div className="font-medium text-slate-800 text-sm">{banca}</div>
+                  <div className="text-[10px] text-slate-400">{conti.length} {conti.length === 1 ? 'conto' : 'conti'}</div>
                 </div>
               </div>
               <div className="flex items-center gap-4">
                 <div className="text-right">
-                  <div className="text-lg font-bold text-slate-900">{fmt(totBanca)} €</div>
-                  <div className="text-xs text-slate-400">{totalBanks > 0 ? ((totBanca / totalBanks) * 100).toFixed(1) : 0}% del totale</div>
+                  <div className="text-base font-semibold text-slate-900">{fmt(totBanca)} €</div>
                 </div>
-                {expanded === banca ? <ChevronUp size={16} className="text-slate-400" /> : <ChevronDown size={16} className="text-slate-400" />}
+                {expanded === banca ? <ChevronUp size={14} className="text-slate-300" /> : <ChevronDown size={14} className="text-slate-300" />}
               </div>
             </div>
 
@@ -705,8 +702,8 @@ function SezioneComposizione({ accounts, totalLiquidity }) {
   ]
 
   return (
-    <div className="rounded-2xl overflow-hidden shadow-lg p-5" style={{ background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)', border: '1px solid rgba(99,102,241,0.08)' }}>
-      <h3 className="text-sm font-semibold text-slate-700 mb-4">Composizione liquidità</h3>
+    <div className="bg-white rounded-xl border border-slate-200/80 p-5">
+      <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-4">Composizione liquidità</h3>
       <div className="flex items-center gap-6">
         <ResponsiveContainer width={180} height={180}>
           <PieChart>
@@ -2314,58 +2311,77 @@ export default function Banche() {
   const posizioneNetta = totalBanks - totalDebiti
 
   return (
-    <div className="min-h-screen">
-      {/* Sticky header: titolo + tab + KPI — sempre visibili */}
-      <div className="sticky top-0 z-40 bg-gradient-to-br from-slate-50 to-slate-100 shadow-md border-b border-slate-200 px-6 pt-4 pb-4">
-        <div className="max-w-[1400px] mx-auto space-y-4">
+    <div className="min-h-screen bg-slate-50/50">
+      {/* Sticky header — stile leggero Sibill */}
+      <div className="sticky top-0 z-40 bg-white/95 backdrop-blur-sm border-b border-slate-200/60 px-6 py-3">
+        <div className="max-w-[1400px] mx-auto">
           <div className="flex items-center justify-between flex-wrap gap-3">
-            <div>
-              <h1 className="text-2xl font-bold text-slate-900">Banche & Tesoreria</h1>
-              <p className="text-sm text-slate-500">Posizione finanziaria aggiornata in tempo reale</p>
-            </div>
-            <div className="flex gap-1 bg-slate-100 rounded-lg p-1">
+            <h1 className="text-lg font-semibold text-slate-800">Banche & Tesoreria</h1>
+            <div className="flex gap-0.5 bg-slate-100/80 rounded-lg p-0.5">
               {[
                 { key: 'panoramica', label: 'Panoramica', icon: Landmark },
                 { key: 'movimenti', label: 'Movimenti', icon: ListOrdered },
                 { key: 'riconciliazione', label: 'Riconciliazione', icon: ArrowLeftRight },
               ].map(t => (
                 <button key={t.key} onClick={() => setActiveTab(t.key)}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition ${
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition ${
                     activeTab === t.key ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
                   }`}>
-                  <t.icon size={14} /> {t.label}
+                  <t.icon size={13} /> {t.label}
                 </button>
               ))}
             </div>
           </div>
 
-          {/* KPI Cards - sticky, sempre visibili */}
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
-            <KpiCard icon={Landmark} title="Totale banche" value={`${fmt(totalBancari)} €`} subtitle={`${accounts.filter(a => a.account_type !== 'cassa').length} conti`} color="blue" />
-            <KpiCard icon={Store} title="Totale casse" value={`${fmt(totalCashes)} €`} subtitle={`${accounts.filter(a => a.account_type === 'cassa').length} outlet`} color="green" />
-            <KpiCard icon={Wallet} title="Liquidit totale" value={`${fmt(totalBanks)} €`} subtitle="Banche + casse" color="cyan" />
-            <KpiCard icon={HandCoins} title="Debiti finanziari" value={`${fmt(totalDebiti)} €`} subtitle={`${loans.filter(l => l.is_active).length} finanziamenti`} color="amber" />
-            <KpiCard icon={PiggyBank} title="Posizione fin. netta" value={`${fmt(posizioneNetta)} €`}
-              subtitle={posizioneNetta < 0 ? 'Indebitamento' : 'Liquidit netta'}
-              color={posizioneNetta >= 0 ? 'green' : 'red'} />
+          {/* KPI barra orizzontale leggera — stile Sibill */}
+          <div className="flex items-center gap-6 mt-3 text-sm">
+            <div className="flex items-center gap-1.5">
+              <Landmark size={13} className="text-blue-500" />
+              <span className="text-slate-400 text-xs">Banche</span>
+              <span className="font-semibold text-slate-800">{fmt(totalBancari)} €</span>
+            </div>
+            <div className="text-slate-200">|</div>
+            <div className="flex items-center gap-1.5">
+              <Store size={13} className="text-emerald-500" />
+              <span className="text-slate-400 text-xs">Casse</span>
+              <span className="font-semibold text-slate-800">{fmt(totalCashes)} €</span>
+            </div>
+            <div className="text-slate-200">|</div>
+            <div className="flex items-center gap-1.5">
+              <Wallet size={13} className="text-cyan-500" />
+              <span className="text-slate-400 text-xs">Liquidità</span>
+              <span className="font-bold text-slate-900">{fmt(totalBanks)} €</span>
+            </div>
+            <div className="text-slate-200">|</div>
+            <div className="flex items-center gap-1.5">
+              <HandCoins size={13} className="text-amber-500" />
+              <span className="text-slate-400 text-xs">Debiti</span>
+              <span className="font-semibold text-amber-600">{fmt(totalDebiti)} €</span>
+            </div>
+            <div className="text-slate-200">|</div>
+            <div className="flex items-center gap-1.5">
+              <PiggyBank size={13} className={posizioneNetta >= 0 ? 'text-emerald-500' : 'text-red-500'} />
+              <span className="text-slate-400 text-xs">Netta</span>
+              <span className={`font-bold ${posizioneNetta >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>{fmt(posizioneNetta)} €</span>
+            </div>
           </div>
         </div>
       </div>
 
-      <div className="p-6 space-y-8 max-w-[1400px] mx-auto">
+      <div className="p-6 space-y-6 max-w-[1400px] mx-auto">
 
       {/* Tab: Movimenti */}
       {activeTab === 'movimenti' && (
         <>
-          {/* Barra di ricerca movimenti */}
+          {/* Barra di ricerca movimenti — leggera */}
           <div className="relative">
-            <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" />
             <input
               type="text"
               placeholder="Cerca per descrizione o controparte..."
               value={search}
               onChange={e => setSearch(e.target.value)}
-              className="w-full pl-10 pr-4 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+              className="w-full pl-9 pr-4 py-2 text-sm border border-slate-200/80 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-400/40 focus:border-blue-300 bg-white placeholder:text-slate-300"
             />
           </div>
           <SezioneImport accounts={accounts} onImportComplete={loadData} />
@@ -2398,8 +2414,8 @@ export default function Banche() {
       {/* Composizione + Riepilogo */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <SezioneComposizione accounts={accounts} totalLiquidity={totalBanks} />
-        <div className="lg:col-span-2 rounded-2xl overflow-hidden shadow-lg p-5" style={{ background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)', border: '1px solid rgba(99,102,241,0.08)' }}>
-          <h3 className="text-sm font-semibold text-slate-700 mb-4">Riepilogo finanziario</h3>
+        <div className="lg:col-span-2 bg-white rounded-xl border border-slate-200/80 p-5">
+          <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-4">Riepilogo finanziario</h3>
           <div className="grid grid-cols-2 gap-x-8 gap-y-2 text-sm">
             <div className="flex justify-between"><span className="text-slate-500">Conti correnti</span><span className="font-medium">{fmt(accounts.filter(c => c.account_type === 'conto_corrente').reduce((s,c)=>s+c.current_balance,0))} €</span></div>
             <div className="flex justify-between"><span className="text-slate-500">Conti deposito</span><span className="font-medium">{fmt(accounts.filter(c => c.account_type === 'deposito').reduce((s,c)=>s+c.current_balance,0))} €</span></div>
@@ -2417,13 +2433,13 @@ export default function Banche() {
 
       {/* Search */}
       <div className="relative">
-        <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+        <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" />
         <input
           type="text"
           placeholder="Cerca per banca o conto..."
           value={search}
           onChange={e => setSearch(e.target.value)}
-          className="w-full pl-10 pr-4 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+          className="w-full pl-9 pr-4 py-2 text-sm border border-slate-200/80 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-400/40 focus:border-blue-300 bg-white placeholder:text-slate-300"
         />
       </div>
 
