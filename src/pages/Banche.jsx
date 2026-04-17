@@ -1100,6 +1100,7 @@ function SezioneRiconciliazione({ companyId, accounts }) {
   const [unpaidPayables, setUnpaidPayables] = useState([])
   const [payablesLoading, setPayablesLoading] = useState(false)
   const [initialLoaded, setInitialLoaded] = useState(false)
+  const [hasRunThisSession, setHasRunThisSession] = useState(false)
   // Pagination
   const PAGE_SIZE = 20
   const [reconciledPage, setReconciledPage] = useState(1)
@@ -1161,16 +1162,24 @@ function SezioneRiconciliazione({ companyId, accounts }) {
     setError(null)
     try {
       const result = await runAutoReconciliation(companyId, filterAccountId || null)
-      setReconData({
-        reconciled: result.reconciled || [],
-        suggested: result.suggested || [],
-        unmatched: result.unmatched || [],
+
+      // Merge: keep previously-saved reconciled items + add new ones from this run
+      setReconData(prev => {
+        const existingReconIds = new Set(prev.reconciled.map(r => r.movement?.id))
+        const newReconciled = (result.reconciled || []).filter(r => !existingReconIds.has(r.movement?.id))
+        return {
+          reconciled: [...prev.reconciled, ...newReconciled],
+          suggested: result.suggested || [],
+          unmatched: result.unmatched || [],
+        }
       })
-      setStats({
-        reconciled: (result.reconciled || []).length,
+      setStats(prev => ({
+        reconciled: prev.reconciled + (result.reconciled || []).length,
         suggested: (result.suggested || []).length,
         unmatched: (result.unmatched || []).length,
-      })
+      }))
+      setHasRunThisSession(true)
+
       if (result.errors && result.errors.length > 0) {
         const errMsgs = result.errors.map(e => e.message || JSON.stringify(e)).join('; ')
         setError(`Completato con ${result.errors.length} errori: ${errMsgs}`)
@@ -1475,18 +1484,30 @@ function SezioneRiconciliazione({ companyId, accounts }) {
           </div>
         )}
 
-        {/* Info per l'operatore */}
-        <div className="flex items-start gap-2 p-3 rounded-lg bg-blue-50/60 border border-blue-100 text-xs text-blue-700 leading-relaxed">
-          <Info size={14} className="mt-0.5 flex-shrink-0" />
-          <div>
-            <strong>Come funziona:</strong> Clicca "Avvia Riconciliazione Automatica" per abbinare i movimenti bancari alle fatture fornitori.
-            Il sistema confronta importi, nomi e date per proporre gli abbinamenti migliori.
-            I <strong>riconciliati</strong> (in verde) sono confermati e salvati in modo permanente.
-            I <strong>da confermare</strong> (in arancione) richiedono la tua verifica: puoi confermarli o rifiutarli.
-            I <strong>senza match</strong> possono essere collegati manualmente cercando la fattura.
-            Tutte le operazioni vengono registrate nella <strong>Cronologia</strong> per tracciabilità.
+        {/* Info per l'operatore — diverso se prima o dopo aver avviato */}
+        {!hasRunThisSession ? (
+          <div className="flex items-start gap-2 p-3 rounded-lg bg-blue-50/60 border border-blue-100 text-xs text-blue-700 leading-relaxed">
+            <Info size={14} className="mt-0.5 flex-shrink-0" />
+            <div>
+              <strong>Clicca "Avvia Riconciliazione Automatica"</strong> per abbinare i movimenti bancari alle fatture fornitori.
+              Il sistema analizza importi, nomi e date per trovare le corrispondenze.
+              {stats.reconciled > 0 && (
+                <> Gli <strong>{stats.reconciled} abbinamenti già confermati</strong> in precedenza sono visibili nella sezione Riconciliati.</>
+              )}
+            </div>
           </div>
-        </div>
+        ) : (
+          <div className="flex items-start gap-2 p-3 rounded-lg bg-emerald-50/60 border border-emerald-100 text-xs text-emerald-700 leading-relaxed">
+            <Info size={14} className="mt-0.5 flex-shrink-0" />
+            <div>
+              <strong>Riconciliazione completata.</strong>{' '}
+              I <strong>riconciliati</strong> (in verde) sono confermati e salvati in modo permanente.{' '}
+              I <strong>da confermare</strong> (in arancione) richiedono la tua verifica: puoi confermarli o rifiutarli.{' '}
+              I <strong>senza match</strong> possono essere collegati manualmente cercando la fattura.{' '}
+              Tutte le operazioni sono registrate nella <strong>Cronologia</strong>.
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ── Section: Riconciliati ── */}
