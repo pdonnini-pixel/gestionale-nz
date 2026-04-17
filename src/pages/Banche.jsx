@@ -1101,6 +1101,7 @@ function SezioneRiconciliazione({ companyId, accounts }) {
   const [payablesLoading, setPayablesLoading] = useState(false)
   const [initialLoaded, setInitialLoaded] = useState(false)
   const [hasRunThisSession, setHasRunThisSession] = useState(false)
+  const [expandedMovement, setExpandedMovement] = useState(null) // movementId expanded to show candidates
   // Pagination
   const PAGE_SIZE = 20
   const [reconciledPage, setReconciledPage] = useState(1)
@@ -1216,15 +1217,25 @@ function SezioneRiconciliazione({ companyId, accounts }) {
     setActionLoading(movementId)
     try {
       await applyReconciliation(movementId, payableId, 'confermato', '')
-      // Move from suggested to reconciled
+      // Move from suggested to reconciled — use the CHOSEN payable (not necessarily the "best")
       setReconData(prev => {
-        const item = prev.suggested.find(s => s.movement?.id === movementId)
+        const suggestedItem = prev.suggested.find(s => s.movement?.id === movementId)
+        if (!suggestedItem) return prev
+        // Find the chosen candidate's payable from the candidates list
+        const chosenCandidate = suggestedItem.candidates?.find(c => c.payable?.id === payableId)
+        const chosenPayable = chosenCandidate?.payable || suggestedItem.payable
         return {
           ...prev,
           suggested: prev.suggested.filter(s => s.movement?.id !== movementId),
-          reconciled: item ? [...prev.reconciled, { ...item, matchType: 'confermato' }] : prev.reconciled,
+          reconciled: [...prev.reconciled, {
+            movement: suggestedItem.movement,
+            payable: chosenPayable,
+            matchType: 'confermato',
+            score: chosenCandidate?.score || suggestedItem.score,
+          }],
         }
       })
+      setExpandedMovement(null)
       setStats(prev => ({ ...prev, suggested: prev.suggested - 1, reconciled: prev.reconciled + 1 }))
     } catch (err) {
       alert('Errore: ' + (err.message || 'Impossibile confermare'))
@@ -1502,7 +1513,7 @@ function SezioneRiconciliazione({ companyId, accounts }) {
             <div>
               <strong>Riconciliazione completata.</strong>{' '}
               I <strong>riconciliati</strong> (in verde) sono confermati e salvati in modo permanente.{' '}
-              I <strong>da confermare</strong> (in arancione) richiedono la tua verifica: puoi confermarli o rifiutarli.{' '}
+              I <strong>da confermare</strong> (in arancione) mostrano i movimenti con le fatture candidate per importo — clicca su un movimento per vedere le opzioni e scegli la fattura corretta.{' '}
               I <strong>senza match</strong> possono essere collegati manualmente cercando la fattura.{' '}
               Tutte le operazioni sono registrate nella <strong>Cronologia</strong>.
             </div>
@@ -1543,8 +1554,14 @@ function SezioneRiconciliazione({ companyId, accounts }) {
                         <td className="py-2 px-4 text-slate-600 whitespace-nowrap border-l-4 border-l-emerald-500">
                           {fmtDate(item.movement?.date || item.movement?.transaction_date)}
                         </td>
-                        <td className="py-2 px-4 text-slate-900 max-w-xs truncate" title={item.movement?.description || ''}>
-                          {item.movement?.description || '—'}
+                        <td className="py-2 px-4 text-slate-900 max-w-[280px] relative group">
+                          <span className="block truncate cursor-help">{item.movement?.description || '—'}</span>
+                          {item.movement?.description && (
+                            <div className="hidden group-hover:block absolute z-50 left-0 top-full mt-1 p-3 bg-slate-800 text-white text-xs rounded-lg shadow-xl max-w-md whitespace-pre-wrap leading-relaxed border border-slate-600">
+                              <div className="font-semibold text-slate-300 mb-1">Descrizione completa:</div>
+                              {item.movement.description}
+                            </div>
+                          )}
                         </td>
                         <td className="py-2 px-4 text-right font-medium text-red-600 whitespace-nowrap">
                           {fmtEuro(item.movement?.amount)}
@@ -1586,106 +1603,225 @@ function SezioneRiconciliazione({ companyId, accounts }) {
         )}
       </div>
 
-      {/* ── Section: Da Confermare ── */}
+      {/* ── Section: Da Confermare (NEW: candidate list per movement) ── */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         <SectionHeader sectionKey="suggested" label="Da Confermare" count={stats.suggested} borderColor="bg-amber-500" icon={AlertCircle} />
         {openSection === 'suggested' && (
           <>
             {reconData.suggested.length === 0 ? (
               <div className="p-8 text-center text-slate-400 text-sm border-t border-slate-100">
-                Nessun suggerimento da confermare. Clicca "Avvia Riconciliazione Automatica" per analizzare i movimenti.
+                <div className="mb-2">Nessun movimento da abbinare.</div>
+                <div>Clicca <strong>"Avvia Riconciliazione Automatica"</strong> per analizzare i movimenti bancari e trovare le corrispondenze con le fatture fornitori.</div>
               </div>
             ) : (
-              <div className="overflow-x-auto border-t border-slate-100">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-slate-100 text-xs text-slate-500 uppercase tracking-wider">
-                      <th className="py-2.5 px-4 text-left font-medium">Data Mov.</th>
-                      <th className="py-2.5 px-4 text-left font-medium">Descrizione Banca</th>
-                      <th className="py-2.5 px-4 text-right font-medium">Importo</th>
-                      <th className="py-2.5 px-4 text-center font-medium"><ArrowLeftRight size={12} className="inline" /></th>
-                      <th className="py-2.5 px-4 text-left font-medium">Fornitore</th>
-                      <th className="py-2.5 px-4 text-left font-medium">N. Fattura</th>
-                      <th className="py-2.5 px-4 text-right font-medium">Imp. Fattura</th>
-                      <th className="py-2.5 px-4 text-center font-medium">Confidenza</th>
-                      <th className="py-2.5 px-4 text-left font-medium">Motivo</th>
-                      <th className="py-2.5 px-4 text-center font-medium">Azioni</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {paginate(reconData.suggested, suggestedPage).map((item, i) => {
-                      const conf = item.score || item.confidence || 0
-                      return (
-                        <tr key={item.movement?.id || i} className="border-b border-slate-50 hover:bg-slate-50/50 transition">
-                          <td className="py-2 px-4 text-slate-600 whitespace-nowrap border-l-4 border-l-amber-500">
+              <div className="border-t border-slate-100">
+                {/* Info banner for operator */}
+                <div className="px-4 py-3 bg-amber-50 border-b border-amber-100 text-xs text-amber-800 flex items-start gap-2">
+                  <Info size={14} className="text-amber-500 mt-0.5 shrink-0" />
+                  <div>
+                    <strong>Come funziona:</strong> Per ogni movimento bancario sono elencate le fatture con importo corrispondente.
+                    Clicca sulla riga del movimento per vedere tutte le fatture candidate, poi scegli quella corretta con il pulsante <strong>"Assegna"</strong>.
+                    Se nessuna fattura corrisponde, clicca <strong>"Nessuna corrispondenza"</strong>.
+                  </div>
+                </div>
+
+                <div className="divide-y divide-slate-100">
+                  {paginate(reconData.suggested, suggestedPage).map((item, i) => {
+                    const movId = item.movement?.id
+                    const isExpanded = expandedMovement === movId
+                    const candidateCount = item.candidates?.length || 1
+                    const exactCount = (item.candidates || []).filter(c => c.details?.amountLabel === 'esatto').length
+                    const bestCandidate = item.candidates?.[0] || { payable: item.payable, score: item.score, details: item.details }
+
+                    return (
+                      <div key={movId || i}>
+                        {/* ── Movement row (clickable to expand candidates) ── */}
+                        <div
+                          className={`flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-slate-50 transition ${isExpanded ? 'bg-amber-50/50' : ''}`}
+                          onClick={() => setExpandedMovement(isExpanded ? null : movId)}
+                        >
+                          {/* Expand arrow */}
+                          <div className="shrink-0 text-slate-400">
+                            {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                          </div>
+
+                          {/* Date */}
+                          <div className="shrink-0 text-xs text-slate-500 w-20">
                             {fmtDate(item.movement?.date || item.movement?.transaction_date)}
-                          </td>
-                          <td className="py-2 px-4 text-slate-900 max-w-xs truncate" title={item.movement?.description || ''}>
-                            {item.movement?.description || '—'}
-                          </td>
-                          <td className="py-2 px-4 text-right font-medium text-red-600 whitespace-nowrap">
+                          </div>
+
+                          {/* Description with tooltip */}
+                          <div className="flex-1 min-w-0 relative group">
+                            <div className="text-sm font-medium text-slate-900 truncate">{item.movement?.description || '—'}</div>
+                            {item.movement?.description && (
+                              <div className="hidden group-hover:block absolute z-50 left-0 top-full mt-1 p-3 bg-slate-800 text-white text-xs rounded-lg shadow-xl max-w-md whitespace-pre-wrap leading-relaxed border border-slate-600">
+                                <div className="font-semibold text-slate-300 mb-1">Descrizione completa:</div>
+                                {item.movement.description}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Amount */}
+                          <div className="shrink-0 text-sm font-bold text-red-600 w-28 text-right">
                             {fmtEuro(item.movement?.amount)}
-                          </td>
-                          <td className="py-2 px-4 text-center"><ArrowLeftRight size={14} className="text-amber-500 mx-auto" /></td>
-                          <td className="py-2 px-4 text-slate-700">{item.payable?.suppliers?.ragione_sociale || item.payable?.suppliers?.name || item.payable?.supplier_name || '—'}</td>
-                          <td className="py-2 px-4 text-slate-500 text-xs">{item.payable?.invoice_number || '—'}</td>
-                          <td className="py-2 px-4 text-right font-medium text-slate-700 whitespace-nowrap">
-                            {fmtEuro(item.payable?.gross_amount || item.payable?.total_amount)}
-                          </td>
-                          <td className="py-2.5 px-4">
-                            <div className="flex items-center gap-2">
-                              <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
-                                <div className={`h-full rounded-full ${confidenceColor(conf)}`} style={{ width: `${conf}%` }} />
-                              </div>
-                              <span className={`text-xs font-medium whitespace-nowrap ${confidenceTextColor(conf)}`}>{conf}%</span>
-                            </div>
-                          </td>
-                          <td className="py-2 px-4 text-xs text-slate-500">
-                            {item.details ? (
-                              <div className="flex flex-wrap gap-1">
-                                {item.details.amountScore > 0 && (
-                                  <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700">
-                                    €{item.details.amountScore}pt {item.details.amountDiff != null ? `(Δ${item.details.amountDiff}€)` : ''}
-                                  </span>
-                                )}
-                                {item.details.nameScore > 0 && (
-                                  <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-blue-50 text-blue-700">
-                                    Nome {item.details.nameScore}pt
-                                  </span>
-                                )}
-                                {item.details.dateScore > 0 && (
-                                  <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-purple-50 text-purple-700">
-                                    Data {item.details.dateScore}pt {item.details.daysDiff != null ? `(${item.details.daysDiff}gg)` : ''}
-                                  </span>
-                                )}
-                              </div>
-                            ) : '—'}
-                          </td>
-                          <td className="py-2 px-4 text-center">
-                            <div className="flex items-center justify-center gap-1">
+                          </div>
+
+                          {/* Candidate count badge */}
+                          <div className="shrink-0 flex items-center gap-1.5">
+                            {exactCount > 0 && (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-xs font-medium">
+                                {exactCount} {exactCount === 1 ? 'importo esatto' : 'importi esatti'}
+                              </span>
+                            )}
+                            {candidateCount > exactCount && (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 text-xs">
+                                +{candidateCount - exactCount} {candidateCount - exactCount === 1 ? 'simile' : 'simili'}
+                              </span>
+                            )}
+                            {candidateCount === 0 && (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-slate-100 text-slate-400 text-xs">
+                                nessuna corrispondenza
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Quick action: if only 1 exact match, show quick-assign */}
+                          <div className="shrink-0">
+                            {!isExpanded && exactCount === 1 && (
                               <button
-                                onClick={() => handleConfirm(item.movement?.id, item.payable?.id)}
-                                disabled={actionLoading === item.movement?.id}
-                                className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-emerald-600 hover:bg-emerald-50 rounded-lg transition disabled:opacity-50"
-                                title="Conferma"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  const exactCandidate = (item.candidates || []).find(c => c.details?.amountLabel === 'esatto')
+                                  if (exactCandidate) handleConfirm(movId, exactCandidate.payable?.id)
+                                }}
+                                disabled={actionLoading === movId}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-lg transition disabled:opacity-50"
+                                title="Assegna il match esatto"
                               >
-                                <Check size={12} /> Conferma
+                                <Check size={12} /> Assegna
                               </button>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* ── Expanded: Candidate list ── */}
+                        {isExpanded && (
+                          <div className="bg-slate-50/80 border-t border-slate-100">
+                            <div className="px-4 py-2 text-xs text-slate-500 font-medium uppercase tracking-wider flex items-center gap-2 border-b border-slate-100">
+                              <ListOrdered size={12} />
+                              Fatture candidate per questo movimento — seleziona quella corretta
+                            </div>
+
+                            {(item.candidates && item.candidates.length > 0 ? item.candidates : [{ payable: item.payable, score: item.score, details: item.details }]).map((candidate, ci) => {
+                              const cPayable = candidate.payable
+                              const cDetails = candidate.details || {}
+                              const isExact = cDetails.amountLabel === 'esatto'
+                              const supplierName = cPayable?.suppliers?.ragione_sociale || cPayable?.suppliers?.name || '—'
+
+                              return (
+                                <div
+                                  key={cPayable?.id || ci}
+                                  className={`flex items-center gap-3 px-4 py-2.5 border-b border-slate-100 last:border-b-0 hover:bg-white transition ${isExact ? 'bg-emerald-50/40' : ''}`}
+                                >
+                                  {/* Rank indicator */}
+                                  <div className={`shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${isExact ? 'bg-emerald-500 text-white' : 'bg-slate-200 text-slate-600'}`}>
+                                    {ci + 1}
+                                  </div>
+
+                                  {/* Amount match indicator */}
+                                  <div className="shrink-0 w-24">
+                                    {isExact ? (
+                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-xs font-semibold">
+                                        <Check size={10} /> 100%
+                                      </span>
+                                    ) : (
+                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-xs">
+                                        Δ €{cDetails.amountDiff || '?'} ({cDetails.pctDiff || '?'}%)
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  {/* Supplier */}
+                                  <div className="flex-1 min-w-0">
+                                    <div className="text-sm font-medium text-slate-800 truncate">{supplierName}</div>
+                                    <div className="text-xs text-slate-500 flex items-center gap-2">
+                                      <span>Fatt. {cPayable?.invoice_number || '—'}</span>
+                                      <span>·</span>
+                                      <span>{fmtEuro(cPayable?.gross_amount)}</span>
+                                      {cPayable?.due_date && (
+                                        <>
+                                          <span>·</span>
+                                          <span>Scad. {fmtDate(cPayable.due_date)}</span>
+                                        </>
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  {/* Name match badge */}
+                                  <div className="shrink-0 w-28">
+                                    {cDetails.nameScore >= 20 ? (
+                                      <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 text-xs">
+                                        Nome ✓
+                                      </span>
+                                    ) : cDetails.nameScore >= 10 ? (
+                                      <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-blue-50 text-blue-500 text-xs">
+                                        Nome ~
+                                      </span>
+                                    ) : (
+                                      <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-slate-100 text-slate-400 text-xs">
+                                        Nome ?
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  {/* Date proximity badge */}
+                                  <div className="shrink-0 w-20">
+                                    {cDetails.daysDiff != null && cDetails.daysDiff <= 30 ? (
+                                      <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-purple-50 text-purple-700 text-xs">
+                                        {cDetails.daysDiff}gg
+                                      </span>
+                                    ) : cDetails.daysDiff != null ? (
+                                      <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-slate-100 text-slate-400 text-xs">
+                                        {cDetails.daysDiff}gg
+                                      </span>
+                                    ) : null}
+                                  </div>
+
+                                  {/* Assign button */}
+                                  <div className="shrink-0">
+                                    <button
+                                      onClick={() => handleConfirm(movId, cPayable?.id)}
+                                      disabled={actionLoading === movId}
+                                      className={`inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg transition disabled:opacity-50 ${
+                                        isExact
+                                          ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+                                          : 'text-emerald-600 border border-emerald-200 hover:bg-emerald-50'
+                                      }`}
+                                    >
+                                      <Check size={12} /> Assegna
+                                    </button>
+                                  </div>
+                                </div>
+                              )
+                            })}
+
+                            {/* "Nessuna corrispondenza" footer */}
+                            <div className="px-4 py-2.5 bg-slate-50 flex items-center justify-between border-t border-slate-200">
+                              <span className="text-xs text-slate-500">Nessuna di queste fatture corrisponde a questo movimento?</span>
                               <button
-                                onClick={() => handleReject(item.movement?.id, item.payable?.id)}
-                                disabled={actionLoading === item.movement?.id}
-                                className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50 rounded-lg transition disabled:opacity-50"
-                                title="Rifiuta"
+                                onClick={() => handleReject(movId, item.payable?.id)}
+                                disabled={actionLoading === movId}
+                                className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-slate-600 border border-slate-300 hover:bg-slate-100 rounded-lg transition disabled:opacity-50"
                               >
-                                <X size={12} /> Rifiuta
+                                <X size={12} /> Nessuna corrispondenza
                               </button>
                             </div>
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
               </div>
             )}
             <PaginationControls page={suggestedPage} setPage={setSuggestedPage} total={reconData.suggested} />
@@ -1720,8 +1856,14 @@ function SezioneRiconciliazione({ companyId, accounts }) {
                         <td className="py-2 px-4 text-slate-600 whitespace-nowrap border-l-4 border-l-slate-400">
                           {fmtDate(item.movement?.date || item.movement?.transaction_date)}
                         </td>
-                        <td className="py-2 px-4 text-slate-900 max-w-xs truncate" title={item.movement?.description || ''}>
-                          {item.movement?.description || '—'}
+                        <td className="py-2 px-4 text-slate-900 max-w-[280px] relative group">
+                          <span className="block truncate cursor-help">{item.movement?.description || '—'}</span>
+                          {item.movement?.description && (
+                            <div className="hidden group-hover:block absolute z-50 left-0 top-full mt-1 p-3 bg-slate-800 text-white text-xs rounded-lg shadow-xl max-w-md whitespace-pre-wrap leading-relaxed border border-slate-600">
+                              <div className="font-semibold text-slate-300 mb-1">Descrizione completa:</div>
+                              {item.movement.description}
+                            </div>
+                          )}
                         </td>
                         <td className="py-2 px-4 text-slate-500 text-xs">{item.movement?.counterpart || '—'}</td>
                         <td className="py-2 px-4 text-right font-medium text-red-600 whitespace-nowrap">

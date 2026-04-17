@@ -22,11 +22,6 @@ import { supabase } from './supabase';
 const THRESHOLD_AUTO = 80;
 const THRESHOLD_SUGGEST = 50;
 
-const AMOUNT_EXACT = 50;
-const AMOUNT_WITHIN_2 = 40;
-const AMOUNT_WITHIN_5 = 30;
-const AMOUNT_WITHIN_10 = 20;
-
 const NAME_EXACT = 30;
 const NAME_PARTIAL = 20;
 const NAME_SINGLE_WORD = 10;
@@ -42,6 +37,19 @@ const POS_PATTERNS = [
   /INCASSO POS/i,
   /POS.*NEXI/i,
   /ACCREDITO CARTE/i,
+];
+
+// Patterns for bank/card fees and terminal costs — NOT supplier invoice payments
+const BANK_FEE_PATTERNS = [
+  /NEXI PAYMENTS/i,
+  /AMERICAN EXPRESS PAYMENTS/i,
+  /CANONE.*MPS/i,
+  /CANONE.*SET DI BASE/i,
+  /COMMISSIONI.*CARTA/i,
+  /COMPETENZE E SPESE/i,
+  /INTERESSI.*DEBITORI/i,
+  /IMPOSTA.*BOLLO/i,
+  /GLOBAL BLUE ITALIA/i,     // tax-free refunds, not supplier invoices
 ];
 
 // ─── 1. MAIN RECONCILIATION ───────────────────────────────────
@@ -118,21 +126,22 @@ export async function runAutoReconciliation(companyId, bankAccountId = null, opt
       (rejectedPairs || []).map(r => `${r.cash_movement_id}::${r.payable_id}`)
     );
 
-    // ── Filter out POS incoming movements ──
-    const outflowMovements = (movements || []).filter(m => !isPOSMovement(m.description));
+    // ── Filter out POS incoming movements and bank/card fees ──
+    const outflowMovements = (movements || []).filter(m =>
+      !isPOSMovement(m.description) && !isBankFeeMovement(m.description)
+    );
 
-    // Track which payables have been matched (1-to-1)
+    // Track which payables have been auto-matched (1-to-1, only for score >= 80)
     const matchedPayableIds = new Set();
 
     // ── Run matching for each movement ──
+    // NEW PARADIGM: collect ALL candidates per movement, let operator choose
     for (const movement of outflowMovements) {
       const absAmount = Math.abs(movement.amount);
       const bankSupplierName = extractSupplierName(movement.description || '');
       const movementDate = movement.date ? new Date(movement.date) : null;
 
-      let bestMatch = null;
-      let bestScore = 0;
-      let bestDetails = {};
+      const candidates = [];
 
       for (const payable of (payables || [])) {
         if (matchedPayableIds.has(payable.id)) continue;
@@ -146,14 +155,29 @@ export async function runAutoReconciliation(companyId, bankAccountId = null, opt
 
         // ── Score: Amount ──
         const amountDiff = Math.abs(absAmount - payableAmount);
+        const maxAmt = Math.max(absAmount, payableAmount, 1);
+        const pctDiff = (amountDiff / maxAmt) * 100;
         let amountScore = 0;
-        if (amountDiff < 0.01) amountScore = AMOUNT_EXACT;
-        else if (amountDiff <= 2) amountScore = AMOUNT_WITHIN_2;
-        else if (amountDiff <= 5) amountScore = AMOUNT_WITHIN_5;
-        else if (amountDiff <= 10) amountScore = AMOUNT_WITHIN_10;
+        let amountLabel = '';
 
-        // Skip if amount is way off (no point computing name/date)
-        if (amountScore === 0 && amountDiff > 50) continue;
+        if (amountDiff < 0.01) {
+          amountScore = 50;
+          amountLabel = 'esatto';       // 100% match
+        } else if (pctDiff <= 0.5 && amountDiff <= 5) {
+          amountScore = 45;
+          amountLabel = 'quasi_esatto'; // ~99.5%
+        } else if (pctDiff <= 1 && amountDiff <= 10) {
+          amountScore = 40;
+          amountLabel = 'trascurabile'; // ~99%
+        } else if (pctDiff <= 2 && amountDiff <= 20) {
+          amountScore = 30;
+          amountLabel = 'vicino';       // ~98%
+        } else if (pctDiff <= 5 && amountDiff <= 50) {
+          amountScore = 20;
+          amountLabel = 'approssimato'; // ~95%
+        }
+        // STOP here — no more loose matches. If >5% diff, skip entirely.
+        if (amountScore === 0) continue;
 
         // ── Score: Name ──
         const supplierNames = [
@@ -186,14 +210,16 @@ export async function runAutoReconciliation(companyId, bankAccountId = null, opt
 
         const totalScore = amountScore + nameScore + dateScore;
 
-        if (totalScore > bestScore) {
-          bestScore = totalScore;
-          bestMatch = payable;
-          bestDetails = {
+        candidates.push({
+          payable,
+          score: totalScore,
+          details: {
             amountScore,
+            amountLabel,
             nameScore,
             dateScore,
             amountDiff: Math.round(amountDiff * 100) / 100,
+            pctDiff: Math.round(pctDiff * 10) / 10,
             bankSupplierName: bankSupplierName || null,
             matchedSupplierName: matchedName || null,
             movementAmount: absAmount,
@@ -201,76 +227,69 @@ export async function runAutoReconciliation(companyId, bankAccountId = null, opt
             daysDiff: movementDate && dueDate
               ? Math.abs(Math.round((movementDate - dueDate) / (1000 * 60 * 60 * 24)))
               : null,
-          };
-        }
+          },
+        });
       }
 
-      if (bestMatch && bestScore >= THRESHOLD_AUTO) {
-        // ── Auto reconciliation ──
+      // Sort candidates: exact amount first, then by total score
+      candidates.sort((a, b) => {
+        // Exact amounts always on top
+        if (a.details.amountLabel === 'esatto' && b.details.amountLabel !== 'esatto') return -1;
+        if (b.details.amountLabel === 'esatto' && a.details.amountLabel !== 'esatto') return 1;
+        return b.score - a.score;
+      });
+
+      const bestCandidate = candidates[0] || null;
+
+      if (bestCandidate && bestCandidate.score >= THRESHOLD_AUTO) {
+        // ── Auto reconciliation: only when score ≥80 (importo esatto + nome confermato) ──
         const matchType = 'auto_exact';
-        matchedPayableIds.add(bestMatch.id);
+        matchedPayableIds.add(bestCandidate.payable.id);
 
         if (!dryRun) {
           try {
-            await writeReconciliation(movement.id, bestMatch.id, companyId, matchType, bestScore, bestDetails, performedBy);
+            await writeReconciliation(movement.id, bestCandidate.payable.id, companyId, matchType, bestCandidate.score, bestCandidate.details, performedBy);
             reconciled.push({
               movement,
-              payable: bestMatch,
-              score: bestScore,
+              payable: bestCandidate.payable,
+              score: bestCandidate.score,
               matchType,
-              details: bestDetails,
+              details: bestCandidate.details,
             });
           } catch (err) {
             errors.push({
               message: `Errore riconciliazione mov ${movement.id}: ${err.message}`,
               movementId: movement.id,
-              payableId: bestMatch.id,
+              payableId: bestCandidate.payable.id,
             });
           }
         } else {
           reconciled.push({
             movement,
-            payable: bestMatch,
-            score: bestScore,
+            payable: bestCandidate.payable,
+            score: bestCandidate.score,
             matchType,
-            details: bestDetails,
+            details: bestCandidate.details,
           });
         }
-      } else if (bestMatch && bestScore >= THRESHOLD_SUGGEST) {
-        // ── Suggestion (needs manual confirmation) ──
-        if (!dryRun) {
-          // Log the suggestion but don't apply it
-          try {
-            await supabase.from('reconciliation_log').insert({
-              company_id: companyId,
-              cash_movement_id: movement.id,
-              payable_id: bestMatch.id,
-              match_type: 'auto_fuzzy',
-              confidence: bestScore,
-              match_details: bestDetails,
-              performed_by: performedBy,
-              performed_at: new Date().toISOString(),
-              notes: 'Proposta automatica — in attesa di conferma',
-            });
-          } catch (err) {
-            errors.push({ message: `Errore log suggerimento: ${err.message}` });
-          }
-        }
-
+      } else if (candidates.length > 0) {
+        // ── NEW: Suggest with ALL candidates — operator picks the right one ──
+        // The first candidate is the "recommended" one, but operator sees the full list
         suggested.push({
           movement,
-          payable: bestMatch,
-          score: bestScore,
+          payable: bestCandidate.payable,      // backward compat: best candidate
+          score: bestCandidate.score,
           matchType: 'auto_fuzzy',
-          details: bestDetails,
+          details: bestCandidate.details,
+          candidates,                          // NEW: full list for operator
         });
       } else {
-        // ── No match ──
+        // ── No candidates at all (amount too different from every payable) ──
         unmatched.push({
           movement,
-          bestScore,
-          bestDetails: bestMatch ? bestDetails : null,
-          bestCandidate: bestMatch || null,
+          bestScore: 0,
+          bestDetails: null,
+          bestCandidate: null,
         });
       }
     }
@@ -763,6 +782,14 @@ function extractSupplierName(description) {
 function isPOSMovement(description) {
   if (!description) return false;
   return POS_PATTERNS.some(p => p.test(description));
+}
+
+/**
+ * Determina se un movimento è una commissione/canone bancario (non è un pagamento fornitore).
+ */
+function isBankFeeMovement(description) {
+  if (!description) return false;
+  return BANK_FEE_PATTERNS.some(p => p.test(description));
 }
 
 // ─── HELPERS: Fuzzy name matching ──────────────────────────────
