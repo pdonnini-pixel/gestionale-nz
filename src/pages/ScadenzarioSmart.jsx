@@ -696,212 +696,255 @@ const ScadenzarioSmart = () => {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50/50">
-      {/* Sticky header — stile Sibill */}
-      <div className="sticky top-0 z-40 bg-white/95 backdrop-blur-sm border-b border-slate-200/60 px-6 py-3">
-        <div className="max-w-[1400px] mx-auto">
-          <div className="flex items-center justify-between">
-            <h1 className="text-lg font-semibold text-slate-800">Scadenze</h1>
-            <div className="flex items-center gap-2">
-              <div className="flex gap-0.5 bg-slate-100/80 rounded-lg p-0.5">
-                {[
-                  { key: 'scadenze', label: 'Scadenzario', icon: Clock3 },
-                  { key: 'ricorrenti', label: 'Ricorrenze', icon: Repeat },
-                ].map(t => (
-                  <button key={t.key} onClick={() => setSection(t.key)}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition ${
-                      section === t.key ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
-                    }`}>
-                    <t.icon size={13} /> {t.label}
-                  </button>
-                ))}
-              </div>
-              <button onClick={() => setShowEmailConfig(true)} className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-400">
-                <Settings size={14} />
-              </button>
-            </div>
-          </div>
-
-          {/* KPI barra Sibill — saldo | pagamenti | scaduto | saldo proiettato */}
-          {section === 'scadenze' && (
-            <div className="flex items-center gap-6 mt-3 text-sm">
-              <div className="flex items-center gap-1.5">
-                <Wallet size={13} className="text-slate-400" />
-                <span className="text-slate-400 text-xs">Saldo oggi</span>
-                <span className={`font-bold ${cashPosition >= 0 ? 'text-slate-800' : 'text-red-600'}`}>{fmt(cashPosition)} €</span>
-              </div>
-              <div className="text-slate-200">|</div>
-              <div className="flex items-center gap-1.5">
-                <DollarSign size={13} className="text-red-400" />
-                <span className="text-slate-400 text-xs">Da pagare</span>
-                <span className="font-bold text-red-500">{fmt(kpis.totalToPay)} €</span>
-              </div>
-              <div className="text-slate-200">|</div>
-              <div className="flex items-center gap-1.5">
-                <AlertTriangle size={13} className="text-amber-400" />
-                <span className="text-slate-400 text-xs">Scaduto</span>
-                <span className="font-bold text-amber-600">{fmt(kpis.totalOverdue)} €</span>
-              </div>
-              <div className="text-slate-200">|</div>
-              <div className="flex items-center gap-1.5">
-                <Clock size={13} className="text-blue-400" />
-                <span className="text-slate-400 text-xs">7 giorni</span>
-                <span className="font-semibold text-blue-600">{fmt(kpis.nextSevenDays)} €</span>
-              </div>
-              <div className="text-slate-200">|</div>
-              <div className="flex items-center gap-1.5">
-                <TrendingDown size={13} className={cashPosition - kpis.totalToPay >= 0 ? 'text-emerald-400' : 'text-red-400'} />
-                <span className="text-slate-400 text-xs">Proiettato</span>
-                <span className={`font-bold ${(cashPosition - kpis.totalToPay) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                  {fmt(cashPosition - kpis.totalToPay)} €
-                </span>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-
-      <div className="p-6 space-y-4 max-w-[1400px] mx-auto">
-
-      {section === 'ricorrenti' ? (
-        <CostiRicorrenti />
-      ) : (
-        <>
-          {/* Sub-tab Sibill: Tutte / Scadute / Da saldare / Saldate */}
-          <div className="flex items-center justify-between">
-            <div className="flex gap-1 bg-slate-100/80 rounded-lg p-0.5">
+    <div className="min-h-screen bg-white">
+      {/* ===== TOP BAR — Logo + 4 Tab principali Sibill ===== */}
+      <div className="border-b border-slate-200">
+        <div className="max-w-[1400px] mx-auto px-6 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-8">
+            <h1 className="text-base font-bold text-slate-800 tracking-tight">Scadenze</h1>
+            {/* 4 tab principali come Sibill: Situazione | Scadenzario | Ricorrenze | Regole */}
+            <div className="flex gap-1">
               {[
-                { key: 'tutte', label: 'Tutte' },
-                { key: 'scadute', label: 'Scadute' },
-                { key: 'da_saldare', label: 'Da saldare' },
-                { key: 'saldate', label: 'Saldate' },
+                { key: 'situazione', label: 'Situazione' },
+                { key: 'scadenze', label: 'Scadenzario' },
+                { key: 'ricorrenti', label: 'Ricorrenze' },
+                { key: 'regole', label: 'Regole' },
               ].map(t => (
-                <button key={t.key} onClick={() => setSibillTab(t.key)}
-                  className={`px-3 py-1.5 rounded-md text-xs font-medium transition ${
-                    sibillTab === t.key
-                      ? 'bg-white text-slate-900 shadow-sm'
-                      : 'text-slate-500 hover:text-slate-700'
+                <button key={t.key} onClick={() => setSection(t.key)}
+                  className={`px-4 py-2 rounded-full text-sm font-medium transition ${
+                    section === t.key
+                      ? 'bg-slate-800 text-white'
+                      : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700'
                   }`}>
                   {t.label}
-                  <span className={`ml-1.5 text-[10px] px-1.5 py-0.5 rounded-full ${
-                    sibillTab === t.key ? 'bg-slate-100 text-slate-600' : 'bg-transparent text-slate-400'
-                  }`}>{tabCounts[t.key]}</span>
                 </button>
               ))}
             </div>
-            <div className="flex items-center gap-2">
-              {/* View mode icons */}
-              <div className="flex gap-0.5">
-                {[
-                  { key: 'timeline', icon: Clock3 },
-                  { key: 'fornitore', icon: Building2 },
-                  { key: 'mese', icon: Calendar },
-                  { key: 'charts', icon: BarChart3 },
-                ].map(v => (
-                  <button key={v.key} onClick={() => setViewMode(v.key)}
-                    className={`p-1.5 rounded-md transition ${
-                      viewMode === v.key ? 'bg-slate-200 text-slate-700' : 'text-slate-300 hover:text-slate-500'
-                    }`}>
-                    <v.icon size={13} />
-                  </button>
+          </div>
+          <div className="flex items-center gap-2">
+            <button onClick={() => setModals({ ...modals, invoice: { open: true, data: null } })}
+              className="flex items-center gap-1.5 px-3 py-2 text-xs rounded-lg bg-slate-800 text-white hover:bg-slate-700 transition font-medium">
+              <Plus size={13} /> Aggiungi scadenza
+            </button>
+            <button onClick={() => setShowEmailConfig(true)}
+              className="flex items-center gap-1.5 px-3 py-2 text-xs rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition font-medium">
+              <Download size={13} /> Scarica
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="max-w-[1400px] mx-auto px-6 py-5 space-y-4">
+
+      {/* ===== TAB SITUAZIONE — riepilogo come Sibill ===== */}
+      {section === 'situazione' && (
+        <div className="space-y-6">
+          <div className="grid grid-cols-2 gap-6">
+            {/* DA PAGARE */}
+            <div className="bg-white border border-slate-200 rounded-xl p-6">
+              <div className="flex items-baseline justify-between mb-1">
+                <span className={`text-2xl font-bold ${kpis.totalToPay > 0 ? 'text-slate-800' : 'text-slate-400'}`}>{fmt(kpis.totalToPay)} €</span>
+                <span className="text-xs font-semibold text-red-500 uppercase tracking-wide">Da pagare</span>
+              </div>
+              <p className="text-xs text-slate-400 mb-4">Prossime {displayPayables.filter(p => p.status !== 'pagato').length} scadenze</p>
+              <div className="space-y-2">
+                {displayPayables.filter(p => p.status !== 'pagato' && p.status !== 'annullato').slice(0, 3).map(p => (
+                  <div key={p.id} className="flex items-center justify-between text-sm">
+                    <span className="text-slate-600 truncate max-w-[200px]">{p.suppliers?.ragione_sociale || p.suppliers?.name || '—'}</span>
+                    <span className="font-medium text-slate-800">{fmt(p.amount_remaining || p.gross_amount)} €</span>
+                  </div>
                 ))}
               </div>
-              <div className="h-5 w-px bg-slate-200" />
-              <button onClick={() => setModals({ ...modals, invoice: { open: true, data: null } })}
-                className="flex items-center gap-1 px-2.5 py-1.5 text-[11px] rounded-lg bg-slate-800 text-white hover:bg-slate-700 transition font-medium">
-                <Plus size={12} /> Fattura
-              </button>
-              <button onClick={() => setModals({ ...modals, supplier: { open: true, data: null } })}
-                className="flex items-center gap-1 px-2.5 py-1.5 text-[11px] rounded-lg bg-white text-slate-600 hover:bg-slate-50 transition font-medium border border-slate-200">
-                <Plus size={12} /> Fornitore
-              </button>
+              {displayPayables.filter(p => p.status !== 'pagato').length > 3 && (
+                <button onClick={() => setSection('scadenze')} className="mt-4 text-xs text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1">
+                  Vedi tutte <ChevronRight size={12} />
+                </button>
+              )}
+            </div>
+            {/* DA INCASSARE — placeholder */}
+            <div className="bg-white border border-slate-200 rounded-xl p-6">
+              <div className="flex items-baseline justify-between mb-1">
+                <span className="text-2xl font-bold text-slate-400">0,00 €</span>
+                <span className="text-xs font-semibold text-blue-500 uppercase tracking-wide">Da incassare</span>
+              </div>
+              <p className="text-xs text-slate-400 mb-4">Nessuna scadenza in entrata</p>
+              <div className="flex flex-col items-center justify-center py-6 text-slate-300">
+                <CheckCircle2 size={32} className="mb-2" />
+                <span className="text-xs">Nessuna scadenza prevista. Ottimo lavoro!</span>
+              </div>
+            </div>
+          </div>
+          {/* Pagamenti ed incassi scaduti */}
+          <div>
+            <h3 className="text-sm font-semibold text-slate-700 mb-3">Pagamenti ed incassi scaduti</h3>
+            <div className="grid grid-cols-2 gap-6">
+              <div className="bg-white border border-slate-200 rounded-xl p-6">
+                <div className="flex items-baseline justify-between mb-1">
+                  <span className="text-2xl font-bold text-slate-800">{fmt(kpis.totalOverdue)} €</span>
+                  <span className="text-xs font-semibold text-red-500 uppercase tracking-wide">Pagamenti scaduti</span>
+                </div>
+              </div>
+              <div className="bg-white border border-slate-200 rounded-xl p-6">
+                <div className="flex items-baseline justify-between mb-1">
+                  <span className="text-2xl font-bold text-slate-400">0,00 €</span>
+                  <span className="text-xs font-semibold text-blue-500 uppercase tracking-wide">Incassi scaduti</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          {/* KPI tesoreria */}
+          <div className="bg-slate-50 border border-slate-200 rounded-xl p-5">
+            <h3 className="text-sm font-semibold text-slate-700 mb-3">Riepilogo tesoreria</h3>
+            <div className="grid grid-cols-5 gap-4 text-center">
+              <div>
+                <span className="text-[10px] text-slate-400 uppercase block">Saldo oggi</span>
+                <span className={`text-lg font-bold ${cashPosition >= 0 ? 'text-slate-800' : 'text-red-600'}`}>{fmt(cashPosition)} €</span>
+              </div>
+              <div>
+                <span className="text-[10px] text-slate-400 uppercase block">Da pagare</span>
+                <span className="text-lg font-bold text-red-500">{fmt(kpis.totalToPay)} €</span>
+              </div>
+              <div>
+                <span className="text-[10px] text-slate-400 uppercase block">Scaduto</span>
+                <span className="text-lg font-bold text-amber-600">{fmt(kpis.totalOverdue)} €</span>
+              </div>
+              <div>
+                <span className="text-[10px] text-slate-400 uppercase block">Prossimi 7gg</span>
+                <span className="text-lg font-bold text-blue-600">{fmt(kpis.nextSevenDays)} €</span>
+              </div>
+              <div>
+                <span className="text-[10px] text-slate-400 uppercase block">Saldo proiettato</span>
+                <span className={`text-lg font-bold ${(cashPosition - kpis.totalToPay) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>{fmt(cashPosition - kpis.totalToPay)} €</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===== TAB REGOLE — placeholder ===== */}
+      {section === 'regole' && (
+        <div className="bg-white border border-slate-200 rounded-xl p-8 text-center">
+          <Settings size={32} className="mx-auto text-slate-300 mb-3" />
+          <h3 className="text-sm font-semibold text-slate-700 mb-1">Regole automatiche</h3>
+          <p className="text-xs text-slate-400">Imposta regole per la categorizzazione automatica delle scadenze. Funzionalità in arrivo.</p>
+        </div>
+      )}
+
+      {section === 'ricorrenti' ? (
+        <CostiRicorrenti />
+      ) : section === 'scadenze' ? (
+        <>
+          {/* Sub-tab Sibill: Pagamenti | Incassi | Tutte le scadenze */}
+          <div className="flex items-center justify-between">
+            <div className="flex gap-1">
+              {[
+                { key: 'tutte', label: 'Pagamenti' },
+                { key: 'saldate', label: 'Incassi' },
+                { key: 'da_saldare', label: 'Tutte le scadenze' },
+              ].map(t => (
+                <button key={t.key} onClick={() => setSibillTab(t.key)}
+                  className={`px-3 py-1.5 text-sm font-medium transition border-b-2 ${
+                    sibillTab === t.key
+                      ? 'border-slate-800 text-slate-800'
+                      : 'border-transparent text-slate-400 hover:text-slate-600'
+                  }`}>
+                  {t.label}
+                </button>
+              ))}
             </div>
           </div>
 
-          {/* Filters — Sibill-style with removable chips */}
+          {/* Filters — Sibill-style */}
           <div className="flex items-center gap-2 flex-wrap">
-            <div className="relative flex-1 min-w-[180px] max-w-[280px]">
+            <div className="relative flex-1 min-w-[180px] max-w-[240px]">
               <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-300" />
               <input type="text" placeholder="Ricerca" value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-8 pr-3 py-1.5 rounded-lg border border-slate-200/80 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400/40 focus:border-blue-300 bg-white placeholder:text-slate-300" />
+                className="w-full pl-8 pr-3 py-1.5 rounded-lg border border-slate-200 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400/40 focus:border-blue-300 bg-white placeholder:text-slate-300" />
             </div>
             <input type="date" value={dateRange.start} onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })}
-              className="px-2.5 py-1.5 rounded-lg border border-slate-200/80 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400/40 bg-white text-slate-500" />
+              className="px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs bg-white text-slate-500" />
             <input type="date" value={dateRange.end} onChange={(e) => setDateRange({ ...dateRange, end: e.target.value })}
-              className="px-2.5 py-1.5 rounded-lg border border-slate-200/80 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400/40 bg-white text-slate-500" />
+              className="px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs bg-white text-slate-500" />
             <select value={selectedStatus} onChange={(e) => setSelectedStatus(e.target.value)}
-              className="px-2.5 py-1.5 rounded-lg border border-slate-200/80 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400/40 bg-white text-slate-500">
+              className="px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs bg-white text-slate-500">
               <option value="">Tutti gli stati</option>
               <option value="da_pagare">Da pagare</option>
-              <option value="in_scadenza">In Scadenza</option>
               <option value="scaduto">Scaduto</option>
               <option value="parziale">Parziale</option>
               <option value="pagato">Pagato</option>
-              <option value="contestato">Contestato</option>
             </select>
-            {/* Payment method chips — Sibill style */}
-            <div className="flex gap-1 flex-wrap">
-              {methodTotals.slice(0, 5).map(m => {
-                const isActive = selectedMethodGroup === m.key;
-                return (
-                  <button key={m.key} onClick={() => setSelectedMethodGroup(isActive ? null : m.key)}
-                    className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition border ${
-                      isActive ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'
-                    }`}>
-                    {m.label} <span className="opacity-60">{m.count}</span>
-                  </button>
-                );
-              })}
-            </div>
+            {/* Filter count badge — Sibill */}
+            {(searchTerm || selectedStatus || selectedMethodGroup || dateRange.start || dateRange.end) && (
+              <span className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs text-slate-600 bg-slate-50">
+                <Filter size={12} /> Filtri ({[searchTerm, selectedStatus, selectedMethodGroup, dateRange.start, dateRange.end].filter(Boolean).length})
+              </span>
+            )}
+            <div className="flex-1" />
+            {/* Payment method chips */}
+            {methodTotals.slice(0, 4).map(m => {
+              const isActive = selectedMethodGroup === m.key;
+              return (
+                <button key={m.key} onClick={() => setSelectedMethodGroup(isActive ? null : m.key)}
+                  className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition border ${
+                    isActive ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-400 border-slate-200 hover:border-slate-300'
+                  }`}>
+                  {m.label} {m.count}
+                </button>
+              );
+            })}
           </div>
 
-          {/* Active filters as removable chips — Sibill style */}
+          {/* Active filter chips — removable, Sibill style */}
           {(searchTerm || selectedStatus || selectedMethodGroup || dateRange.start || dateRange.end) && (
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-[11px] text-slate-400">Filtri ({[searchTerm, selectedStatus, selectedMethodGroup, dateRange.start, dateRange.end].filter(Boolean).length}):</span>
-              {searchTerm && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 text-[11px] text-slate-600">
-                  {searchTerm} <button onClick={() => setSearchTerm('')} className="text-slate-400 hover:text-slate-600"><X size={10} /></button>
+              {dateRange.start && (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 text-xs text-slate-600">
+                  A partire da oggi <button onClick={() => setDateRange({ ...dateRange, start: '' })} className="text-slate-400 hover:text-slate-600"><X size={11} /></button>
                 </span>
               )}
               {selectedStatus && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 text-[11px] text-slate-600">
-                  {statusConfig[selectedStatus]?.label || selectedStatus} <button onClick={() => setSelectedStatus('')} className="text-slate-400 hover:text-slate-600"><X size={10} /></button>
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 text-xs text-slate-600">
+                  {statusConfig[selectedStatus]?.label || selectedStatus} <button onClick={() => setSelectedStatus('')} className="text-slate-400 hover:text-slate-600"><X size={11} /></button>
+                </span>
+              )}
+              {searchTerm && (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 text-xs text-slate-600">
+                  "{searchTerm}" <button onClick={() => setSearchTerm('')} className="text-slate-400 hover:text-slate-600"><X size={11} /></button>
                 </span>
               )}
               {selectedMethodGroup && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 text-[11px] text-slate-600">
-                  {paymentGroups.find(g => g.key === selectedMethodGroup)?.label || selectedMethodGroup} <button onClick={() => setSelectedMethodGroup(null)} className="text-slate-400 hover:text-slate-600"><X size={10} /></button>
-                </span>
-              )}
-              {dateRange.start && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 text-[11px] text-slate-600">
-                  A partire da {fmtDate(dateRange.start)} <button onClick={() => setDateRange({ ...dateRange, start: '' })} className="text-slate-400 hover:text-slate-600"><X size={10} /></button>
-                </span>
-              )}
-              {dateRange.end && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 text-[11px] text-slate-600">
-                  Fino a {fmtDate(dateRange.end)} <button onClick={() => setDateRange({ ...dateRange, end: '' })} className="text-slate-400 hover:text-slate-600"><X size={10} /></button>
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 text-xs text-slate-600">
+                  {paymentGroups.find(g => g.key === selectedMethodGroup)?.label || selectedMethodGroup} <button onClick={() => setSelectedMethodGroup(null)} className="text-slate-400 hover:text-slate-600"><X size={11} /></button>
                 </span>
               )}
               <button onClick={() => { setSearchTerm(''); setSelectedStatus(''); setSelectedMethodGroup(null); setDateRange({ start: '', end: '' }); }}
-                className="text-[11px] text-red-500 hover:text-red-600 font-medium ml-1">
+                className="text-xs text-red-500 hover:text-red-600 font-medium">
                 Rimuovi filtri
               </button>
             </div>
           )}
 
+          {/* Quick filter chips — Sibill sub-filters */}
+          <div className="flex items-center gap-2">
+            <button onClick={() => { setSelectedStatus('da_pagare'); setDateRange({ start: new Date().toISOString().split('T')[0], end: new Date(Date.now() + 30*86400000).toISOString().split('T')[0] }); }}
+              className="px-3 py-1 rounded-full text-xs border border-slate-200 text-slate-500 hover:bg-slate-50 transition">
+              Da pagare nei prossimi 30 giorni
+            </button>
+            <button onClick={() => setSelectedStatus('scaduto')}
+              className="px-3 py-1 rounded-full text-xs border border-slate-200 text-slate-500 hover:bg-slate-50 transition">
+              Scaduto
+            </button>
+          </div>
+
           {/* Result count + total — Sibill style */}
-          {viewMode === 'timeline' && (
-            <div className="flex items-center justify-between">
-              <span className="text-xs text-slate-500">{displayPayables.length} risultati</span>
-              <div className="flex items-center gap-1.5 text-xs">
-                <TrendingDown size={12} className="text-slate-400" />
-                <span className="font-bold text-slate-700">{fmt(displayPayables.reduce((s, p) => s + (p.amount_remaining || 0), 0))} €</span>
-              </div>
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-slate-500">{displayPayables.length} risultati</span>
+            <div className="flex items-center gap-1.5">
+              <TrendingDown size={14} className="text-slate-400" />
+              <span className="text-sm font-bold text-slate-700">{fmt(displayPayables.reduce((s, p) => s + (p.amount_remaining || 0), 0))} €</span>
             </div>
-          )}
+          </div>
 
           {/* Timeline View — Sibill style */}
           {viewMode === 'timeline' && (
@@ -1294,8 +1337,8 @@ const ScadenzarioSmart = () => {
             </div>
           )}
         </>
-      )}
-      </div>{/* chiude p-6 content wrapper */}
+      ) : null}
+      </div>{/* chiude content wrapper */}
 
       {/* Email Config Modal */}
       {showEmailConfig && (
