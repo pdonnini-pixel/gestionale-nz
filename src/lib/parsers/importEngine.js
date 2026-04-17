@@ -154,6 +154,7 @@ async function readFileContent(file, storagePath, bucket, { asBinary = false } =
 // ─── BATCH MANAGEMENT ───────────────────────────────────────────
 
 async function createImportBatch(companyId, sourceType, fileName) {
+  // Values MUST match the import_source enum in PostgreSQL
   const sourceMap = {
     bank: 'csv_banca',
     invoices: 'xml_sdi',
