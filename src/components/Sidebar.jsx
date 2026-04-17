@@ -1,12 +1,14 @@
 import { NavLink } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
+import { useCompany } from '../hooks/useCompany'
 import {
   LayoutDashboard, Store, Receipt, Building2, Users, FileText,
   Settings, LogOut, ChevronLeft, ChevronRight, ChevronDown, ChevronUp,
   Landmark, Upload, BarChart3, GitCompare, Calculator,
-  Package, CreditCard, Wallet, ShoppingBag, UserCheck, Map, PieChart, CalendarClock, ClipboardList, DatabaseZap, Archive
+  Package, CreditCard, Wallet, ShoppingBag, UserCheck, Map, PieChart, CalendarClock, ClipboardList, DatabaseZap, Archive,
+  Building, ChevronsUpDown
 } from 'lucide-react'
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 
 // Pagine operative (sempre visibili)
 const mainItems = {
@@ -93,8 +95,11 @@ const devItems = {
 
 export default function Sidebar() {
   const { profile, signOut } = useAuth()
+  const { company, companies, switchCompany } = useCompany()
   const [collapsed, setCollapsed] = useState(false)
   const [devOpen, setDevOpen] = useState(false)
+  const [companyDropdownOpen, setCompanyDropdownOpen] = useState(false)
+  const dropdownRef = useRef(null)
   const role = profile?.role || 'ceo'
   const items = mainItems[role] || mainItems.ceo
   const devPages = devItems[role] || []
@@ -104,6 +109,22 @@ export default function Sidebar() {
     ceo: 'CEO', cfo: 'CFO', coo: 'COO',
     contabile: 'Contabile'
   }
+
+  // Chiudi dropdown quando si clicca fuori
+  useEffect(() => {
+    function handleClickOutside(e) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+        setCompanyDropdownOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  // Genera abbreviazione azienda (prime lettere delle parole)
+  const companyAbbrev = company?.name
+    ? company.name.split(/\s+/).map(w => w[0]).join('').toUpperCase().slice(0, 3)
+    : '...'
 
   const renderNavItem = (item, dimmed = false) => (
     <NavLink
@@ -129,20 +150,68 @@ export default function Sidebar() {
 
   return (
     <aside className={`${collapsed ? 'w-16' : 'w-60'} h-screen bg-slate-900 text-white flex flex-col transition-all duration-200 shrink-0`}>
-      {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b border-slate-700/50">
-        {!collapsed && (
-          <div>
-            <div className="font-bold text-lg">NZ</div>
-            <div className="text-xs text-slate-400">New Zago</div>
-          </div>
-        )}
-        <button
-          onClick={() => setCollapsed(!collapsed)}
-          className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition"
-        >
-          {collapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
-        </button>
+      {/* Header — Company Selector */}
+      <div className="p-3 border-b border-slate-700/50">
+        <div className="flex items-center justify-between">
+          {!collapsed ? (
+            <div className="relative flex-1 mr-2" ref={dropdownRef}>
+              <button
+                onClick={() => companies.length > 1 && setCompanyDropdownOpen(!companyDropdownOpen)}
+                className={`flex items-center gap-2 w-full px-2 py-1.5 rounded-lg transition text-left ${
+                  companies.length > 1
+                    ? 'hover:bg-slate-800 cursor-pointer'
+                    : 'cursor-default'
+                }`}
+              >
+                <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-xs font-bold shrink-0">
+                  {companyAbbrev}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="font-semibold text-sm truncate">{company?.name || 'Caricamento...'}</div>
+                  {company?.vat_number && (
+                    <div className="text-[10px] text-slate-400 truncate">P.IVA {company.vat_number}</div>
+                  )}
+                </div>
+                {companies.length > 1 && (
+                  <ChevronsUpDown size={14} className="text-slate-400 shrink-0" />
+                )}
+              </button>
+
+              {/* Dropdown lista aziende */}
+              {companyDropdownOpen && companies.length > 1 && (
+                <div className="absolute left-0 right-0 mt-1 bg-slate-800 border border-slate-600 rounded-lg shadow-xl z-50 py-1 max-h-60 overflow-y-auto">
+                  {companies.map(c => (
+                    <button
+                      key={c.id}
+                      onClick={() => {
+                        switchCompany(c.id)
+                        setCompanyDropdownOpen(false)
+                      }}
+                      className={`flex items-center gap-2 w-full px-3 py-2 text-left text-sm transition ${
+                        c.id === company?.id
+                          ? 'bg-blue-600/20 text-blue-300'
+                          : 'text-slate-300 hover:bg-slate-700'
+                      }`}
+                    >
+                      <Building size={14} />
+                      <span className="truncate">{c.name}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-xs font-bold mx-auto" title={company?.name}>
+              {companyAbbrev}
+            </div>
+          )}
+          <button
+            onClick={() => setCollapsed(!collapsed)}
+            className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition shrink-0"
+          >
+            {collapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
+          </button>
+        </div>
       </div>
 
       {/* Navigation */}
