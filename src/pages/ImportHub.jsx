@@ -355,9 +355,9 @@ export default function ImportHub() {
           record.month = parseInt(month);
           record.year = parseInt(year);
         } else if (sourceId === 'balance_sheet') {
-          record.file_type = fileExt;
+          // balance_sheet_imports NON ha file_type — solo file_name, file_path, file_size
           record.status = 'uploaded';
-          record.year = selectedYear || new Date().getFullYear();
+          record.year = parseInt(selectedYear) || new Date().getFullYear();
           record.period_type = 'annuale';
           record.period_label = `Bilancio ${selectedYear || new Date().getFullYear()}`;
         } else if (sourceId === 'general_docs') {
@@ -385,6 +385,9 @@ export default function ImportHub() {
 
         if (insertErr) {
           console.error(`Insert error for ${config.table}:`, insertErr);
+          showToast(`Errore salvataggio ${file.name}: ${insertErr.message}`, 'error');
+          setUploadProgress(((idx + 1) / files.length) * 100);
+          continue; // Skip to next file — don't log incomplete upload
         }
 
         // Also log to import_documents for history
@@ -399,10 +402,6 @@ export default function ImportHub() {
             source: sourceId,
           },
         ]);
-
-        if (insertErr) {
-          showToast(`Errore caricamento ${file.name}`, 'error');
-        }
 
         setUploadProgress(((idx + 1) / files.length) * 100);
       }
