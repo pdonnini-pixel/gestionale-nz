@@ -104,7 +104,7 @@ const ScadenzarioSmart = () => {
   const { profile } = useAuth();
   const COMPANY_ID = profile?.company_id;
 
-  const [section, setSection] = useState('scadenze'); // 'scadenze' | 'ricorrenti'
+  const [section, setSection] = useState('scadenze'); // 'situazione' | 'scadenze' | 'ricorrenti' | 'regole'
   const [loading, setLoading] = useState(true);
   const [payables, setPayables] = useState([]);
   const [suppliers, setSuppliers] = useState([]);
@@ -124,6 +124,10 @@ const ScadenzarioSmart = () => {
   const [confirmResult, setConfirmResult] = useState(null);
   const [selectedMethodGroup, setSelectedMethodGroup] = useState(null);
   const [supplierDetail, setSupplierDetail] = useState(null);
+  const [categories, setCategories] = useState([]);
+  const [categoryDropdownId, setCategoryDropdownId] = useState(null);
+  const [categorySearch, setCategorySearch] = useState('');
+  const [statusDropdownId, setStatusDropdownId] = useState(null);
 
   // Selection helpers
   const toggleSelect = (id, payable) => {
@@ -234,13 +238,23 @@ const ScadenzarioSmart = () => {
         .from('v_payables_operative')
         .select('*');
 
-      // Fetch cash_movement_id for reconciliation indicators
+      // Fetch extra fields from payables (cost_category_id, verified, cash_movement_id)
       const { data: payablesRaw } = await supabase
         .from('payables')
-        .select('id, cash_movement_id')
+        .select('id, cash_movement_id, cost_category_id, verified')
         .eq('company_id', COMPANY_ID);
-      const cashMovementMap = {};
-      (payablesRaw || []).forEach(p => { cashMovementMap[p.id] = p.cash_movement_id || null; });
+      const payablesExtraMap = {};
+      (payablesRaw || []).forEach(p => {
+        payablesExtraMap[p.id] = { cash_movement_id: p.cash_movement_id || null, cost_category_id: p.cost_category_id || null, verified: p.verified || false };
+      });
+
+      // Fetch categories
+      const { data: categoriesData } = await supabase
+        .from('cost_categories')
+        .select('*')
+        .eq('company_id', COMPANY_ID)
+        .order('sort_order', { ascending: true });
+      setCategories(categoriesData || []);
 
       const { data: suppliersData } = await supabase
         .from('suppliers')
@@ -283,7 +297,9 @@ const ScadenzarioSmart = () => {
         last_action_type: row.last_action_type,
         last_action_note: row.last_action_note,
         last_action_date: row.last_action_date,
-        cash_movement_id: cashMovementMap[row.id] || null,
+        cash_movement_id: payablesExtraMap[row.id]?.cash_movement_id || null,
+        cost_category_id: payablesExtraMap[row.id]?.cost_category_id || null,
+        verified: payablesExtraMap[row.id]?.verified || false,
       }));
 
       setPayables(enrichedPayables);
@@ -309,6 +325,52 @@ const ScadenzarioSmart = () => {
   }, [COMPANY_ID]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
+
+  // Close dropdowns on outside click
+  useEffect(() => {
+    const handler = () => { setCategoryDropdownId(null); setStatusDropdownId(null); };
+    document.addEventListener('click', handler);
+    return () => document.removeEventListener('click', handler);
+  }, []);
+
+  // Handler: toggle verified (green lever / orange lever)
+  const handleToggleVerified = async (payable) => {
+    const newVal = !payable.verified;
+    const { error } = await supabase
+      .from('payables')
+      .update({ verified: newVal, verified_at: newVal ? new Date().toISOString() : null })
+      .eq('id', payable.id);
+    if (!error) {
+      setPayables(prev => prev.map(p => p.id === payable.id ? { ...p, verified: newVal } : p));
+    }
+  };
+
+  // Handler: update category
+  const handleSetCategory = async (payableId, categoryId) => {
+    const { error } = await supabase
+      .from('payables')
+      .update({ cost_category_id: categoryId })
+      .eq('id', payableId);
+    if (!error) {
+      setPayables(prev => prev.map(p => p.id === payableId ? { ...p, cost_category_id: categoryId } : p));
+    }
+    setCategoryDropdownId(null);
+    setCategorySearch('');
+  };
+
+  // Handler: update status inline
+  const handleSetStatus = async (payableId, newStatus) => {
+    const updates = { status: newStatus };
+    if (newStatus === 'pagato') { updates.payment_date = new Date().toISOString().split('T')[0]; }
+    const { error } = await supabase
+      .from('payables')
+      .update(updates)
+      .eq('id', payableId);
+    if (!error) {
+      setPayables(prev => prev.map(p => p.id === payableId ? { ...p, status: newStatus } : p));
+    }
+    setStatusDropdownId(null);
+  };
 
   // Filter payables
   const filteredPayables = useMemo(() => {
@@ -1014,28 +1076,75 @@ const ScadenzarioSmart = () => {
                               : <>{fmt(p.gross_amount)} €</>
                             }
                           </td>
-                          {/* STATO — colored badge Sibill */}
-                          <td className="py-2.5 px-3 text-center">
-                            <StatusPill status={p.status} />
+                          {/* STATO — dropdown editabile Sibill */}
+                          <td className="py-2.5 px-3 text-center relative">
+                            <button onClick={(e) => { e.stopPropagation(); setStatusDropdownId(statusDropdownId === p.id ? null : p.id); setCategoryDropdownId(null); }}>
+                              <StatusPill status={p.status} />
+                            </button>
+                            {statusDropdownId === p.id && (
+                              <div className="absolute z-50 top-full left-1/2 -translate-x-1/2 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg py-1 min-w-[140px]" onClick={e => e.stopPropagation()}>
+                                {['da_pagare', 'scaduto', 'parziale', 'pagato', 'contestato', 'annullato'].map(s => (
+                                  <button key={s} onClick={() => handleSetStatus(p.id, s)}
+                                    className={`w-full text-left px-3 py-1.5 text-xs hover:bg-slate-50 flex items-center gap-2 ${p.status === s ? 'font-bold' : ''}`}>
+                                    <span className={`w-2 h-2 rounded-full ${statusConfig[s]?.bg?.split(' ')[0] || 'bg-slate-200'}`} />
+                                    {statusConfig[s]?.label || s}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
                           </td>
-                          {/* CONTO — badge con iniziali banca */}
+                          {/* CONTO — badge */}
                           <td className="py-2.5 px-3 text-center">
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 text-[10px] text-slate-500 font-medium">
                               <Landmark size={10} /> {paymentMethodLabels[p.payment_method]?.substring(0, 3)?.toUpperCase() || 'NA'}
                             </span>
                           </td>
-                          {/* CATEGORIA — colored badge */}
-                          <td className="py-2.5 px-3 text-center">
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 text-[10px] text-amber-700 font-medium border border-amber-200/60">
-                              Non categorizzata
-                            </span>
+                          {/* CATEGORIA — dropdown con ricerca Sibill */}
+                          <td className="py-2.5 px-3 text-center relative">
+                            {(() => {
+                              const cat = categories.find(c => c.id === p.cost_category_id);
+                              return (
+                                <button onClick={(e) => { e.stopPropagation(); setCategoryDropdownId(categoryDropdownId === p.id ? null : p.id); setCategorySearch(''); setStatusDropdownId(null); }}
+                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border transition hover:shadow-sm"
+                                  style={cat ? { backgroundColor: cat.color + '18', color: cat.color, borderColor: cat.color + '40' } : { backgroundColor: '#f8fafc', color: '#94a3b8', borderColor: '#e2e8f0' }}>
+                                  {cat ? <><span className="w-2 h-2 rounded-full" style={{ backgroundColor: cat.color }} />{cat.name}</> : 'Non categorizzata'}
+                                </button>
+                              );
+                            })()}
+                            {categoryDropdownId === p.id && (
+                              <div className="absolute z-50 top-full left-1/2 -translate-x-1/2 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg w-[220px] max-h-[280px] overflow-hidden" onClick={e => e.stopPropagation()}>
+                                <div className="p-2 border-b border-slate-100">
+                                  <input type="text" placeholder="Cerca o crea una categoria" value={categorySearch}
+                                    onChange={e => setCategorySearch(e.target.value)} autoFocus
+                                    className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                                </div>
+                                <div className="overflow-y-auto max-h-[220px] py-1">
+                                  <button onClick={() => handleSetCategory(p.id, null)}
+                                    className="w-full text-left px-3 py-1.5 text-xs hover:bg-slate-50 text-slate-400 flex items-center gap-2">
+                                    <X size={10} /> Rimuovi categoria
+                                  </button>
+                                  {categories
+                                    .filter(c => !categorySearch || c.name.toLowerCase().includes(categorySearch.toLowerCase()))
+                                    .map(c => (
+                                    <button key={c.id} onClick={() => handleSetCategory(p.id, c.id)}
+                                      className={`w-full text-left px-3 py-1.5 text-xs hover:bg-slate-50 flex items-center gap-2 ${p.cost_category_id === c.id ? 'font-bold bg-slate-50' : ''}`}>
+                                      <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: c.color }} />
+                                      <span className="truncate">{c.name}</span>
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
                           </td>
-                          {/* VERIFICATO — toggle icon Sibill-style */}
+                          {/* VERIFICATO — toggle leva verde/arancio Sibill */}
                           <td className="py-2.5 px-3 text-center">
-                            <button className={`p-1 rounded-full transition ${
-                              p.status === 'pagato' ? 'text-emerald-500' : 'text-orange-400 hover:text-orange-500'
-                            }`}>
-                              {p.status === 'pagato' ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
+                            <button onClick={() => handleToggleVerified(p)}
+                              className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                                p.verified ? 'bg-emerald-500' : 'bg-orange-400'
+                              }`}>
+                              <span className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow transform transition-transform ${
+                                p.verified ? 'translate-x-4.5' : 'translate-x-0.5'
+                              }`} style={{ transform: p.verified ? 'translateX(16px)' : 'translateX(2px)' }} />
                             </button>
                           </td>
                           {/* AZIONI — hover reveal */}
