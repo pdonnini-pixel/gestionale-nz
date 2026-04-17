@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import {
   Landmark, Building2, Search, Plus, RefreshCw, Link2, Unlink,
   ChevronRight, Clock, CheckCircle2, AlertCircle, XCircle,
-  ArrowDownLeft, ArrowUpRight, Wallet, ExternalLink, Loader2,
+  ArrowDownLeft, ArrowUpRight, Wallet, ExternalLink, Loader2, Download,
   CreditCard, Globe, Shield, ChevronDown, ChevronUp, X
 } from 'lucide-react'
 import { useYapily } from '../hooks/useYapily'
@@ -231,6 +231,7 @@ export default function OpenBanking() {
   const [showBankModal, setShowBankModal] = useState(false)
   const [connecting, setConnecting] = useState(false)
   const [syncingAccount, setSyncingAccount] = useState(null)
+  const [syncResult, setSyncResult] = useState(null) // { synced, imported, skipped }
   const [callbackStatus, setCallbackStatus] = useState(null) // from URL params
   const [showConsents, setShowConsents] = useState(false)
 
@@ -278,13 +279,14 @@ export default function OpenBanking() {
     }
   }
 
-  // Sync transactions for an account
+  // Full sync: Yapily API → yapily_transactions → cash_movements
   const handleSync = async (accountId) => {
     setSyncingAccount(accountId)
+    setSyncResult(null)
     try {
-      await yapily.syncTransactions(accountId)
-      await yapily.refreshBalances(accountId)
-      await loadData() // Refresh displayed data
+      const result = await yapily.fullSync(accountId)
+      if (result) setSyncResult(result)
+      await loadData()
     } catch (err) {
       console.error('Sync failed:', err)
     } finally {
@@ -295,11 +297,17 @@ export default function OpenBanking() {
   // Sync all accounts
   const handleSyncAll = async () => {
     setSyncingAccount('all')
+    setSyncResult(null)
+    let totalImported = 0, totalSynced = 0
     try {
       for (const acc of accounts) {
-        await yapily.syncTransactions(acc.id)
+        const result = await yapily.fullSync(acc.id)
+        if (result) {
+          totalSynced += result.synced || 0
+          totalImported += result.imported || 0
+        }
       }
-      await yapily.refreshBalances()
+      setSyncResult({ synced: totalSynced, imported: totalImported })
       await loadData()
     } catch (err) {
       console.error('Sync all failed:', err)
@@ -348,6 +356,25 @@ export default function OpenBanking() {
             className="ml-auto p-1 hover:bg-white/50 rounded-lg transition"
           >
             <X size={14} className={callbackStatus.status === 'success' ? 'text-emerald-400' : 'text-red-400'} />
+          </button>
+        </div>
+      )}
+
+      {/* Sync result notification */}
+      {syncResult && (
+        <div className="rounded-xl p-4 flex items-center gap-3 bg-blue-50 border border-blue-200">
+          <CheckCircle2 size={20} className="text-blue-500 shrink-0" />
+          <div className="flex-1">
+            <div className="text-sm font-medium text-blue-800">Sincronizzazione completata</div>
+            <div className="text-xs text-blue-600 mt-0.5">
+              {syncResult.synced || 0} transazioni sincronizzate · {syncResult.imported || 0} nuovi movimenti importati
+            </div>
+          </div>
+          <button
+            onClick={() => setSyncResult(null)}
+            className="p-1 hover:bg-blue-100 rounded-lg transition"
+          >
+            <X size={14} className="text-blue-400" />
           </button>
         </div>
       )}

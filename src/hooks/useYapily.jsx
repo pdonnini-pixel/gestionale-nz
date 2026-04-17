@@ -169,6 +169,22 @@ export function useYapily() {
     }
   }, [callFunction])
 
+  // ────────── FULL SYNC (Yapily → cash_movements) ──────────
+
+  const fullSync = useCallback(async (accountId, from) => {
+    setLoading(true)
+    setError(null)
+    try {
+      const res = await callFunction('yapily-sync', 'POST', { accountId, from })
+      return res.data // { synced, imported, skipped, total }
+    } catch (err) {
+      setError(err.message)
+      return null
+    } finally {
+      setLoading(false)
+    }
+  }, [callFunction])
+
   // ────────── CONSENTS (local DB) ──────────
 
   const fetchConsents = useCallback(async () => {
@@ -202,5 +218,7 @@ export function useYapily() {
     // Balances
     fetchBalances,
     refreshBalances,
+    // Full sync (Yapily → cash_movements)
+    fullSync,
   }
 }
