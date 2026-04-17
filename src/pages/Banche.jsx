@@ -2177,7 +2177,7 @@ export default function Banche() {
         supabase.from('bank_accounts').select('*').eq('company_id', COMPANY_ID).eq('is_active', true),
         supabase.from('loans').select('*').eq('company_id', COMPANY_ID),
         supabase.from('bank_transactions').select('*').order('transaction_date', { ascending: false }).limit(200),
-        supabase.from('payable_actions').select('*').in('action_type', ['pagamento', 'pagamento_parziale']).order('created_at', { ascending: false }).limit(100),
+        supabase.from('payable_actions').select('*').in('action_type', ['pagamento', 'pagamento_parziale']).order('performed_at', { ascending: false }).limit(100),
       ])
 
       if (accountsRes.data) setAccounts(accountsRes.data)

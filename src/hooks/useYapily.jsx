@@ -9,29 +9,47 @@ export function useYapily() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
 
-  // Helper per chiamare Edge Functions autenticate
+  // Helper per chiamare Edge Functions autenticate (con auto-refresh token)
   const callFunction = useCallback(async (fnName, method = 'GET', body = null, params = null) => {
-    const { data: { session } } = await supabase.auth.getSession()
+    const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhmdmZ4c3ZxcG5wdmliZ2VxcHFwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUxNDkwNDcsImV4cCI6MjA5MDcyNTA0N30.ohYziAXiOWS0TKU9HHuhUAbf5Geh10xbLGEoftOMJZA'
+    const baseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://xfvfxsvqpnpvibgeqpqp.supabase.co'
+
+    const buildUrl = () => {
+      let url = `${baseUrl}/functions/v1/${fnName}`
+      if (params) {
+        const qs = new URLSearchParams(params).toString()
+        if (qs) url += `?${qs}`
+      }
+      return url
+    }
+
+    const doFetch = async (accessToken) => {
+      return fetch(buildUrl(), {
+        method,
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+          'apikey': anonKey,
+        },
+        body: body ? JSON.stringify(body) : undefined,
+      })
+    }
+
+    // Prima prova con il token corrente
+    let { data: { session } } = await supabase.auth.getSession()
     if (!session) throw new Error('Non autenticato')
 
-    const baseUrl = import.meta.env.VITE_SUPABASE_URL
-    let url = `${baseUrl}/functions/v1/${fnName}`
-    if (params) {
-      const qs = new URLSearchParams(params).toString()
-      if (qs) url += `?${qs}`
-    }
+    let res = await doFetch(session.access_token)
 
-    const headers = {
-      'Authorization': `Bearer ${session.access_token}`,
-      'Content-Type': 'application/json',
-      'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
+    // Se 401, il token potrebbe essere scaduto — forza refresh e riprova
+    if (res.status === 401) {
+      console.warn('[useYapily] Token scaduto, refresh in corso...')
+      const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession()
+      if (refreshError || !refreshData.session) {
+        throw new Error('Sessione scaduta, effettua nuovamente il login')
+      }
+      res = await doFetch(refreshData.session.access_token)
     }
-
-    const res = await fetch(url, {
-      method,
-      headers,
-      body: body ? JSON.stringify(body) : undefined,
-    })
 
     const json = await res.json()
     if (!res.ok) throw new Error(json.error || `Errore ${res.status}`)
