@@ -31,6 +31,11 @@ const DATE_WITHIN_30 = 15;
 const DATE_WITHIN_60 = 10;
 const DATE_WITHIN_90 = 5;
 
+// AI scoring bonus (max 15 punti)
+const AI_HISTORY_EXACT_MATCH = 15;   // stesso counterpart → stesso supplier già confermato
+const AI_HISTORY_PARTIAL = 8;        // pattern simile confermato in passato
+const AI_CATEGORY_MATCH = 5;         // AI category collegata al supplier
+
 // Patterns that indicate incoming POS payments — skip for payable matching
 const POS_PATTERNS = [
   /ACCREDITO POS/i,
@@ -126,6 +131,9 @@ export async function runAutoReconciliation(companyId, bankAccountId = null, opt
       (rejectedPairs || []).map(r => `${r.cash_movement_id}::${r.payable_id}`)
     );
 
+    // ── AI Enhancement: Load historical reconciliation patterns ──
+    const aiPatterns = await loadReconciliationPatterns(companyId);
+
     // ── Filter out POS incoming movements and bank/card fees ──
     const outflowMovements = (movements || []).filter(m =>
       !isPOSMovement(m.description) && !isBankFeeMovement(m.description)
@@ -208,7 +216,38 @@ export async function runAutoReconciliation(companyId, bankAccountId = null, opt
           else if (daysDiff <= 90) dateScore = DATE_WITHIN_90;
         }
 
-        const totalScore = amountScore + nameScore + dateScore;
+        // ── Score: AI History (learned patterns from past reconciliations) ──
+        let aiScore = 0;
+        let aiMatchType = null;
+        const supplierId = payable.supplier_id || supplier?.id;
+
+        if (supplierId && movement.counterpart) {
+          const counterpartKey = normalizeName(movement.counterpart);
+          if (aiPatterns.counterpartToSupplier[counterpartKey] === supplierId) {
+            aiScore = AI_HISTORY_EXACT_MATCH;
+            aiMatchType = 'history_exact';
+          } else {
+            // Partial match: check if any known counterpart pattern partially matches
+            for (const [knownCP, knownSuppId] of Object.entries(aiPatterns.counterpartToSupplier)) {
+              if (knownSuppId === supplierId && (counterpartKey.includes(knownCP) || knownCP.includes(counterpartKey))) {
+                aiScore = AI_HISTORY_PARTIAL;
+                aiMatchType = 'history_partial';
+                break;
+              }
+            }
+          }
+        }
+
+        // AI category bonus: movement's AI category matches a category linked to this supplier
+        if (aiScore === 0 && movement.ai_category_id && supplierId) {
+          const supplierCategories = aiPatterns.supplierCategories[supplierId];
+          if (supplierCategories && supplierCategories.includes(movement.ai_category_id)) {
+            aiScore = AI_CATEGORY_MATCH;
+            aiMatchType = 'category_match';
+          }
+        }
+
+        const totalScore = amountScore + nameScore + dateScore + aiScore;
 
         candidates.push({
           payable,
@@ -218,6 +257,8 @@ export async function runAutoReconciliation(companyId, bankAccountId = null, opt
             amountLabel,
             nameScore,
             dateScore,
+            aiScore,
+            aiMatchType,
             amountDiff: Math.round(amountDiff * 100) / 100,
             pctDiff: Math.round(pctDiff * 10) / 10,
             bankSupplierName: bankSupplierName || null,
@@ -729,6 +770,67 @@ async function writeReconciliation(movementId, payableId, companyId, matchType, 
   if (logError) {
     console.warn('Errore log riconciliazione (non bloccante):', logError.message);
   }
+}
+
+// ─── AI PATTERN LEARNING ─────────────────────────────────────────
+
+/**
+ * Carica i pattern storici dalle riconciliazioni confermate.
+ * Costruisce una mappa counterpart → supplier_id basata sulle conferme passate.
+ * Questo permette di "imparare" dagli abbinamenti fatti dall'operatore.
+ *
+ * @param {string} companyId
+ * @returns {{ counterpartToSupplier: Object, supplierCategories: Object }}
+ */
+async function loadReconciliationPatterns(companyId) {
+  const counterpartToSupplier = {};
+  const supplierCategories = {};
+
+  try {
+    // Fetch confirmed reconciliations (movements linked to payables via reconciliation_log)
+    const { data: confirmed } = await supabase
+      .from('reconciliation_log')
+      .select(`
+        cash_movement_id,
+        payable_id,
+        match_type,
+        cash_movements(counterpart, ai_category_id),
+        payables(supplier_id)
+      `)
+      .eq('company_id', companyId)
+      .in('match_type', ['auto_exact', 'manual', 'auto_fuzzy'])
+      .not('cash_movement_id', 'is', null)
+      .not('payable_id', 'is', null)
+      .limit(500);
+
+    for (const entry of (confirmed || [])) {
+      const counterpart = entry.cash_movements?.counterpart;
+      const supplierId = entry.payables?.supplier_id;
+      const aiCategoryId = entry.cash_movements?.ai_category_id;
+
+      if (counterpart && supplierId) {
+        const key = normalizeName(counterpart);
+        if (key.length >= 3) {
+          // Count occurrences — only keep if seen at least once
+          counterpartToSupplier[key] = supplierId;
+        }
+      }
+
+      // Build supplier → category map
+      if (supplierId && aiCategoryId) {
+        if (!supplierCategories[supplierId]) {
+          supplierCategories[supplierId] = [];
+        }
+        if (!supplierCategories[supplierId].includes(aiCategoryId)) {
+          supplierCategories[supplierId].push(aiCategoryId);
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('AI pattern loading error (non bloccante):', e.message);
+  }
+
+  return { counterpartToSupplier, supplierCategories };
 }
 
 // ─── HELPERS: Supplier name extraction ─────────────────────────

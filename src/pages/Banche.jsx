@@ -6,13 +6,14 @@ import {
   Plus, Edit2, Trash2, Check, X, AlertCircle, Download,
   ArrowLeftRight, Upload, Clock, ListOrdered, Link2, RefreshCw,
   Unlink, History, CheckCircle2, Eye, EyeOff, ArrowUpRight, ArrowDownLeft,
-  Filter, CircleDot, Globe
+  Filter, CircleDot, Globe, Sparkles
 } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, PieChart, Pie, CartesianGrid } from 'recharts'
 import { supabase } from '../lib/supabase'
 import { GlassTooltip, AXIS_STYLE, GRID_STYLE } from '../components/ChartTheme'
 import { useAuth } from '../hooks/useAuth'
 import OpenBanking from '../components/OpenBanking'
+import AICategorization from '../components/AICategorization'
 
 /* ───── reconciliation engine ───── */
 import { runAutoReconciliation, applyReconciliation, undoReconciliation, getReconciliationLog } from '../lib/reconciliationEngine'
@@ -2323,6 +2324,7 @@ export default function Banche() {
                 { key: 'panoramica', label: 'Panoramica', icon: Landmark },
                 { key: 'open-banking', label: 'Open Banking', icon: Globe },
                 { key: 'movimenti', label: 'Movimenti', icon: ListOrdered },
+                { key: 'categorizzazione', label: 'AI Categorie', icon: Sparkles },
                 { key: 'riconciliazione', label: 'Riconciliazione', icon: ArrowLeftRight },
               ].map(t => (
                 <button key={t.key} onClick={() => setActiveTab(t.key)}
@@ -2408,6 +2410,11 @@ export default function Banche() {
             <SezioneMovimenti transactions={transactions} accounts={accounts} suppliers={[]} search={search} />
           )}
         </>
+      )}
+
+      {/* Tab: AI Categorizzazione */}
+      {activeTab === 'categorizzazione' && (
+        <AICategorization companyId={COMPANY_ID} />
       )}
 
       {/* Tab: Riconciliazione */}

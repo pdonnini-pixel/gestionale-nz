@@ -6,7 +6,8 @@ import {
   TrendingUp, TrendingDown, DollarSign, Store, Wallet, Users,
   ArrowUpRight, ArrowRight, Landmark, Building2, HandCoins,
   BarChart3, GitCompare, Receipt, FileText, Percent,
-  AlertTriangle, CheckCircle2, Target, Loader, Info
+  AlertTriangle, CheckCircle2, Target, Loader, Info,
+  Brain, Sparkles, Eye, Shield
 } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
@@ -128,6 +129,9 @@ export default function Dashboard() {
   // Cash flow trends (weekly)
   const [cashFlowWeekly, setCashFlowWeekly] = useState([])
   const [cashFlowTotals, setCashFlowTotals] = useState({ entrate: 0, uscite: 0 })
+
+  // AI Insights
+  const [aiInsights, setAiInsights] = useState(null)
 
   // Company info
   const [visura, setVisura] = useState({
@@ -448,6 +452,48 @@ export default function Dashboard() {
     fetchData()
   }, [COMPANY_ID, dashYear])
 
+  // Fetch AI insights (separate to not slow down main load)
+  useEffect(() => {
+    if (!COMPANY_ID) return
+    const fetchAI = async () => {
+      try {
+        const [movRes, anomRes, reconRes, payRes] = await Promise.all([
+          supabase.from('cash_movements').select('id, cost_category_id, ai_category_id, ai_confidence, ai_method, amount, type', { count: 'exact' }).eq('company_id', COMPANY_ID),
+          supabase.from('ai_anomaly_log').select('id, anomaly_type', { count: 'exact' }).eq('company_id', COMPANY_ID).eq('resolved', false),
+          supabase.from('reconciliation_log').select('id, match_type', { count: 'exact' }).eq('company_id', COMPANY_ID),
+          supabase.from('payables').select('id, status, due_date', { count: 'exact' }).eq('company_id', COMPANY_ID).in('status', ['da_pagare', 'in_scadenza', 'scaduto']),
+        ])
+        const movs = movRes.data || []
+        const categorized = movs.filter(m => m.cost_category_id).length
+        const aiPending = movs.filter(m => m.ai_category_id && !m.cost_category_id).length
+        const uncategorized = movs.filter(m => !m.cost_category_id && !m.ai_category_id).length
+        const avgConfidence = movs.filter(m => m.ai_confidence).reduce((s, m) => s + Number(m.ai_confidence), 0) / (movs.filter(m => m.ai_confidence).length || 1)
+
+        const reconTotal = reconRes.count || 0
+        const anomalies = anomRes.count || 0
+
+        const overdue = (payRes.data || []).filter(p => p.status === 'scaduto').length
+        const dueThisWeek = (payRes.data || []).filter(p => {
+          if (!p.due_date) return false
+          const due = new Date(p.due_date)
+          const now = new Date()
+          const diffDays = Math.round((due - now) / (1000 * 60 * 60 * 24))
+          return diffDays >= 0 && diffDays <= 7
+        }).length
+
+        setAiInsights({
+          totalMov: movs.length, categorized, aiPending, uncategorized,
+          categorizationPct: movs.length > 0 ? Math.round((categorized / movs.length) * 100) : 0,
+          avgConfidence: Math.round(avgConfidence * 100),
+          anomalies, reconTotal, overdue, dueThisWeek,
+        })
+      } catch (e) {
+        console.warn('AI insights fetch error:', e)
+      }
+    }
+    fetchAI()
+  }, [COMPANY_ID])
+
   // Derived calculations
   const YEAR = dashYear
   const deltaRicaviPct = ricaviPrevYear > 0 ? ((ricavi - ricaviPrevYear) / ricaviPrevYear * 100) : 0
@@ -643,6 +689,70 @@ export default function Dashboard() {
           </div>
         )}
       </div>
+
+      {/* ─── AI INSIGHTS ─── */}
+      {aiInsights && (
+        <div className="rounded-2xl p-5 shadow-lg" style={{ background: 'linear-gradient(135deg, #f0f4ff 0%, #faf5ff 50%, #f0fdfa 100%)', border: '1px solid rgba(99,102,241,0.12)' }}>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
+              <Sparkles size={16} className="text-indigo-500" /> AI Insights
+            </h2>
+            <Link to="/banche" className="text-xs text-indigo-500 font-medium hover:text-indigo-700 flex items-center gap-1" onClick={() => {}}>
+              AI Categorie <ArrowRight size={12} />
+            </Link>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
+            <div className="bg-white/80 rounded-xl p-3 border border-white/60">
+              <div className="flex items-center gap-1.5 mb-1">
+                <Brain size={13} className="text-blue-500" />
+                <span className="text-[10px] text-slate-400 uppercase tracking-wider">Categorizzati</span>
+              </div>
+              <div className="text-lg font-bold text-slate-900">{aiInsights.categorizationPct}%</div>
+              <div className="text-[10px] text-slate-400">{aiInsights.categorized}/{aiInsights.totalMov} movimenti</div>
+            </div>
+            <div className="bg-white/80 rounded-xl p-3 border border-white/60">
+              <div className="flex items-center gap-1.5 mb-1">
+                <Eye size={13} className="text-amber-500" />
+                <span className="text-[10px] text-slate-400 uppercase tracking-wider">Da verificare</span>
+              </div>
+              <div className="text-lg font-bold text-amber-600">{aiInsights.aiPending}</div>
+              <div className="text-[10px] text-slate-400">suggerimenti AI</div>
+            </div>
+            <div className="bg-white/80 rounded-xl p-3 border border-white/60">
+              <div className="flex items-center gap-1.5 mb-1">
+                <Target size={13} className="text-emerald-500" />
+                <span className="text-[10px] text-slate-400 uppercase tracking-wider">Confidenza</span>
+              </div>
+              <div className="text-lg font-bold text-emerald-600">{aiInsights.avgConfidence}%</div>
+              <div className="text-[10px] text-slate-400">media AI</div>
+            </div>
+            <div className="bg-white/80 rounded-xl p-3 border border-white/60">
+              <div className="flex items-center gap-1.5 mb-1">
+                <AlertTriangle size={13} className="text-purple-500" />
+                <span className="text-[10px] text-slate-400 uppercase tracking-wider">Anomalie</span>
+              </div>
+              <div className={`text-lg font-bold ${aiInsights.anomalies > 0 ? 'text-purple-600' : 'text-slate-400'}`}>{aiInsights.anomalies}</div>
+              <div className="text-[10px] text-slate-400">da investigare</div>
+            </div>
+            <div className="bg-white/80 rounded-xl p-3 border border-white/60">
+              <div className="flex items-center gap-1.5 mb-1">
+                <Receipt size={13} className="text-red-500" />
+                <span className="text-[10px] text-slate-400 uppercase tracking-wider">Scadute</span>
+              </div>
+              <div className={`text-lg font-bold ${aiInsights.overdue > 0 ? 'text-red-500' : 'text-slate-400'}`}>{aiInsights.overdue}</div>
+              <div className="text-[10px] text-slate-400">fatture non pagate</div>
+            </div>
+            <div className="bg-white/80 rounded-xl p-3 border border-white/60">
+              <div className="flex items-center gap-1.5 mb-1">
+                <Shield size={13} className="text-blue-500" />
+                <span className="text-[10px] text-slate-400 uppercase tracking-wider">Riconciliazioni</span>
+              </div>
+              <div className="text-lg font-bold text-blue-600">{aiInsights.reconTotal}</div>
+              <div className="text-[10px] text-slate-400">totale storico</div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ─── GRAFICI + OUTLET RANKING ─── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
