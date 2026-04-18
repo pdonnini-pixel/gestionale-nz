@@ -2136,7 +2136,7 @@ export default function Banche() {
   const [editingAccount, setEditingAccount] = useState(null)
   const [loanModalOpen, setLoanModalOpen] = useState(false)
   const [editingLoan, setEditingLoan] = useState(null)
-  const [activeTab, setActiveTab] = useState('panoramica') // panoramica, movimenti, riconciliazione
+  const [activeTab, setActiveTab] = useState('conti') // conti, movimenti, riconciliazione
 
   useEffect(() => {
     if (!COMPANY_ID) return;
@@ -2318,13 +2318,11 @@ export default function Banche() {
       <div className="sticky top-0 z-40 bg-white/95 backdrop-blur-sm border-b border-slate-200/60 px-6 py-3">
         <div className="max-w-[1400px] mx-auto">
           <div className="flex items-center justify-between flex-wrap gap-3">
-            <h1 className="text-lg font-semibold text-slate-800">Banche & Tesoreria</h1>
+            <h1 className="text-lg font-semibold text-slate-800">Tesoreria</h1>
             <div className="flex gap-0.5 bg-slate-100/80 rounded-lg p-0.5">
               {[
-                { key: 'panoramica', label: 'Panoramica', icon: Landmark },
-                { key: 'open-banking', label: 'Open Banking', icon: Globe },
+                { key: 'conti', label: 'Conti & Saldi', icon: Landmark },
                 { key: 'movimenti', label: 'Movimenti', icon: ListOrdered },
-                { key: 'categorizzazione', label: 'AI Categorie', icon: Sparkles },
                 { key: 'riconciliazione', label: 'Riconciliazione', icon: ArrowLeftRight },
               ].map(t => (
                 <button key={t.key} onClick={() => setActiveTab(t.key)}
@@ -2374,11 +2372,6 @@ export default function Banche() {
 
       <div className="p-6 space-y-6 max-w-[1400px] mx-auto">
 
-      {/* Tab: Open Banking */}
-      {activeTab === 'open-banking' && (
-        <OpenBanking />
-      )}
-
       {/* Tab: Movimenti */}
       {activeTab === 'movimenti' && (
         <>
@@ -2412,18 +2405,16 @@ export default function Banche() {
         </>
       )}
 
-      {/* Tab: AI Categorizzazione */}
-      {activeTab === 'categorizzazione' && (
-        <AICategorization companyId={COMPANY_ID} />
-      )}
-
       {/* Tab: Riconciliazione */}
       {activeTab === 'riconciliazione' && (
         <SezioneRiconciliazione companyId={COMPANY_ID} accounts={accounts} />
       )}
 
-      {/* Tab: Panoramica */}
-      {activeTab === 'panoramica' && <>
+      {/* Tab: Conti & Saldi */}
+      {activeTab === 'conti' && <>
+
+      {/* Open Banking integrato */}
+      <OpenBanking />
 
       {/* Composizione + Riepilogo */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -2478,7 +2469,7 @@ export default function Banche() {
       />
 
       </>}
-      {/* end panoramica tab */}
+      {/* end conti tab */}
 
       </div>
       {/* end scrollable content */}

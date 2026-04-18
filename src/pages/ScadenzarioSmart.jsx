@@ -7,6 +7,7 @@ import {
   ChevronRight, Landmark, Building2, Search, RefreshCw
 } from 'lucide-react';
 import CostiRicorrenti from '../components/CostiRicorrenti';
+import ExportMenu from '../components/ExportMenu';
 import {
   BarChart, Bar, PieChart, Pie, Cell, AreaChart, Area,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
@@ -107,6 +108,8 @@ const ScadenzarioSmart = () => {
   const [section, setSection] = useState('scadenze'); // 'situazione' | 'scadenze' | 'ricorrenti' | 'regole'
   const [loading, setLoading] = useState(true);
   const [payables, setPayables] = useState([]);
+  const [fiscalDeadlines, setFiscalDeadlines] = useState([]);
+  const [sourceFilter, setSourceFilter] = useState('tutte'); // 'tutte' | 'fornitori' | 'fiscali'
   const [suppliers, setSuppliers] = useState([]);
   const [bankAccounts, setBankAccounts] = useState([]);
   const [cashPosition, setCashPosition] = useState(0);
@@ -306,6 +309,17 @@ const ScadenzarioSmart = () => {
       setSuppliers(suppliersData || []);
       setBankAccounts(accountsData || []);
 
+      // Load fiscal deadlines for unified view
+      try {
+        const { data: fiscalData } = await supabase
+          .from('fiscal_deadlines')
+          .select('*')
+          .eq('company_id', COMPANY_ID)
+          .neq('status', 'cancelled')
+          .order('due_date', { ascending: true });
+        setFiscalDeadlines(fiscalData || []);
+      } catch (e) { console.warn('fiscal_deadlines not available:', e.message); }
+
       const totalBalance = (accountsData || []).reduce((sum, acc) => sum + (acc.current_balance || 0), 0);
       setCashPosition(totalBalance);
 
@@ -373,15 +387,55 @@ const ScadenzarioSmart = () => {
   };
 
   // Filter payables
+  // Convert fiscal deadlines to payable-like objects for unified view
+  const fiscalAsPayables = useMemo(() => {
+    return fiscalDeadlines.map(fd => ({
+      id: `fiscal_${fd.id}`,
+      _isFiscal: true,
+      invoice_number: fd.title || fd.deadline_type,
+      invoice_date: fd.created_at,
+      due_date: fd.due_date,
+      original_due_date: fd.due_date,
+      gross_amount: fd.amount || 0,
+      amount_paid: fd.status === 'paid' ? (fd.amount || 0) : 0,
+      amount_remaining: fd.status === 'paid' ? 0 : (fd.amount || 0),
+      status: fd.status === 'paid' ? 'pagato' : fd.status === 'overdue' ? 'scaduto' : fd.status === 'upcoming' ? 'in_scadenza' : 'da_pagare',
+      payment_method: fd.payment_method || 'f24',
+      outlet_id: null,
+      outlet_name: '',
+      cost_center: 'fiscale',
+      notes: fd.notes || '',
+      days_to_due: fd.due_date ? Math.round((new Date(fd.due_date) - new Date()) / (1000 * 60 * 60 * 24)) : null,
+      urgency: null,
+      priority: null,
+      supplier_id: null,
+      supplier_iban: '',
+      supplier_vat: '',
+      suppliers: { name: `📋 ${fd.deadline_type?.toUpperCase() || 'Fiscale'}`, ragione_sociale: fd.title || fd.deadline_type, category: 'fiscale' },
+      last_action_type: null,
+      last_action_note: null,
+      last_action_date: null,
+      cash_movement_id: null,
+      cost_category_id: null,
+      verified: false,
+    }));
+  }, [fiscalDeadlines]);
+
   const filteredPayables = useMemo(() => {
-    return payables.filter((p) => {
+    // Combine sources based on filter
+    let source = [];
+    if (sourceFilter === 'fornitori') source = payables;
+    else if (sourceFilter === 'fiscali') source = fiscalAsPayables;
+    else source = [...payables, ...fiscalAsPayables];
+
+    return source.filter((p) => {
       const matchOutlet = !selectedOutlet || p.outlet_id === selectedOutlet;
       const isNotaCredito = (p.gross_amount || 0) < 0;
       const matchStatus = !selectedStatus
         || (selectedStatus === 'nota_credito' && isNotaCredito)
         || (selectedStatus === 'da_saldare' && !isNotaCredito && p.status !== 'pagato')
         || (selectedStatus !== 'nota_credito' && selectedStatus !== 'da_saldare' && p.status === selectedStatus);
-      const matchSearch = !searchTerm || p.invoice_number.includes(searchTerm) || (p.suppliers?.ragione_sociale || suppliers?.name || '').toLowerCase().includes(searchTerm.toLowerCase());
+      const matchSearch = !searchTerm || (p.invoice_number || '').toLowerCase().includes(searchTerm.toLowerCase()) || (p.suppliers?.ragione_sociale || p.suppliers?.name || '').toLowerCase().includes(searchTerm.toLowerCase());
       const dueDate = new Date(p.due_date);
       const matchDate = dueDate >= new Date(dateRange.start) && dueDate <= new Date(dateRange.end);
 
@@ -392,7 +446,7 @@ const ScadenzarioSmart = () => {
 
       return matchOutlet && matchStatus && matchSearch && matchDate && matchMethodGroup;
     });
-  }, [payables, selectedOutlet, selectedStatus, searchTerm, dateRange, selectedMethodGroup]);
+  }, [payables, fiscalAsPayables, sourceFilter, selectedOutlet, selectedStatus, searchTerm, dateRange, selectedMethodGroup]);
 
   // KPIs
   const kpis = useMemo(() => {
@@ -784,13 +838,46 @@ const ScadenzarioSmart = () => {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {/* Source filter: Tutte / Fornitori / Fiscali */}
+            <div className="flex gap-0.5 bg-slate-100 rounded-lg p-0.5 mr-2">
+              {[
+                { key: 'tutte', label: 'Tutte' },
+                { key: 'fornitori', label: 'Fornitori' },
+                { key: 'fiscali', label: 'Fiscali' },
+              ].map(t => (
+                <button key={t.key} onClick={() => setSourceFilter(t.key)}
+                  className={`px-2.5 py-1 text-xs font-medium rounded-md transition ${
+                    sourceFilter === t.key ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'
+                  }`}>
+                  {t.label}
+                </button>
+              ))}
+            </div>
+            <ExportMenu
+              data={filteredPayables.map(p => ({
+                fornitore: p.suppliers?.name || '—',
+                fattura: p.invoice_number,
+                scadenza: p.due_date,
+                importo: p.gross_amount,
+                residuo: p.amount_remaining,
+                stato: statusConfig[p.status]?.label || p.status,
+                metodo: paymentMethodLabels[p.payment_method] || p.payment_method,
+              }))}
+              columns={[
+                { key: 'fornitore', label: 'Fornitore' },
+                { key: 'fattura', label: 'Fattura' },
+                { key: 'scadenza', label: 'Scadenza', format: 'date' },
+                { key: 'importo', label: 'Importo', format: 'euro' },
+                { key: 'residuo', label: 'Residuo', format: 'euro' },
+                { key: 'stato', label: 'Stato' },
+                { key: 'metodo', label: 'Pagamento' },
+              ]}
+              filename="scadenzario"
+              title="Scadenzario"
+            />
             <button onClick={() => setModals({ ...modals, invoice: { open: true, data: null } })}
               className="flex items-center gap-1.5 px-3 py-2 text-xs rounded-lg bg-slate-800 text-white hover:bg-slate-700 transition font-medium">
               <Plus size={13} /> Aggiungi scadenza
-            </button>
-            <button onClick={() => setShowEmailConfig(true)}
-              className="flex items-center gap-1.5 px-3 py-2 text-xs rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition font-medium">
-              <Download size={13} /> Scarica
             </button>
           </div>
         </div>

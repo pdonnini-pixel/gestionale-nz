@@ -25,6 +25,7 @@ import {
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
 import { GlassTooltip, AXIS_STYLE, GRID_STYLE } from '../components/ChartTheme';
+import ExportMenu from '../components/ExportMenu';
 
 const MONTHS = ['Gen', 'Feb', 'Mar', 'Apr', 'Mag', 'Giu', 'Lug', 'Ago', 'Set', 'Ott', 'Nov', 'Dic'];
 
@@ -392,13 +393,37 @@ export default function CashflowProspettico() {
             ))}
           </div>
 
-          <button
-            onClick={handleExportCSV}
-            className="ml-auto px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition flex items-center gap-2"
-          >
-            <Download className="w-4 h-4" />
-            Esporta CSV
-          </button>
+          <div className="ml-auto">
+            <ExportMenu
+              data={monthlyData.map((m, idx) => {
+                const a = actualMonthlyData[idx];
+                return {
+                  mese: m.monthName,
+                  tipo: m.tipo || 'Previsione',
+                  entrate_reali: a?.hasData ? Math.round(a.entrate) : '',
+                  uscite_reali: a?.hasData ? Math.round(a.uscite) : '',
+                  netto_reale: a?.hasData ? Math.round(a.netto) : '',
+                  tot_entrate: m.tot_entrate,
+                  tot_uscite: m.tot_uscite,
+                  flusso_netto: m.flusso_netto,
+                  saldo_progressivo: m.saldo_progressivo,
+                };
+              })}
+              columns={[
+                { key: 'mese', label: 'Mese' },
+                { key: 'tipo', label: 'Tipo' },
+                { key: 'entrate_reali', label: 'Entrate Reali', format: 'euro' },
+                { key: 'uscite_reali', label: 'Uscite Reali', format: 'euro' },
+                { key: 'netto_reale', label: 'Netto Reale', format: 'euro' },
+                { key: 'tot_entrate', label: 'Tot Entrate', format: 'euro' },
+                { key: 'tot_uscite', label: 'Tot Uscite', format: 'euro' },
+                { key: 'flusso_netto', label: 'Flusso Netto', format: 'euro' },
+                { key: 'saldo_progressivo', label: 'Saldo Progressivo', format: 'euro' },
+              ]}
+              filename={`cashflow_prospettico_${year}`}
+              title={`Cashflow Prospettico ${year}`}
+            />
+          </div>
         </div>
       </div>
 

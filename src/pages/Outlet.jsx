@@ -1309,10 +1309,271 @@ function ContractAlerts({ outlet }) {
   )
 }
 
-// ====== DETTAGLIO OUTLET ======
+// ====== CORRISPETTIVI TAB ======
+function CorrispettiviTab({ outletId, companyId }) {
+  const [daily, setDaily] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [period, setPeriod] = useState('30') // 7, 30, 90
+
+  useEffect(() => {
+    loadDaily()
+  }, [outletId, period])
+
+  async function loadDaily() {
+    setLoading(true)
+    try {
+      const daysAgo = new Date()
+      daysAgo.setDate(daysAgo.getDate() - parseInt(period))
+      const fromDate = daysAgo.toISOString().split('T')[0]
+
+      const { data } = await supabase
+        .from('daily_revenue')
+        .select('date, total_revenue, transactions_count, average_ticket')
+        .eq('outlet_id', outletId)
+        .eq('company_id', companyId)
+        .gte('date', fromDate)
+        .order('date', { ascending: true })
+
+      setDaily(data || [])
+    } catch (e) {
+      console.error('Corrispettivi load error:', e)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const totalRev = daily.reduce((s, d) => s + (d.total_revenue || 0), 0)
+  const avgDaily = daily.length > 0 ? totalRev / daily.length : 0
+  const totalTx = daily.reduce((s, d) => s + (d.transactions_count || 0), 0)
+  const avgTicket = totalTx > 0 ? totalRev / totalTx : 0
+  const bestDay = daily.reduce((best, d) => (d.total_revenue || 0) > best.value ? { date: d.date, value: d.total_revenue } : best, { date: '', value: 0 })
+
+  const chartData = daily.map(d => ({
+    ...d,
+    label: new Date(d.date).toLocaleDateString('it-IT', { day: '2-digit', month: 'short' }),
+    weekday: new Date(d.date).toLocaleDateString('it-IT', { weekday: 'short' }),
+  }))
+
+  return (
+    <div className="space-y-4">
+      {/* Period selector */}
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-semibold text-slate-900">Corrispettivi giornalieri</h3>
+        <div className="flex gap-0.5 bg-slate-100 rounded-lg p-0.5">
+          {[
+            { key: '7', label: '7 gg' },
+            { key: '30', label: '30 gg' },
+            { key: '90', label: '90 gg' },
+          ].map(t => (
+            <button key={t.key} onClick={() => setPeriod(t.key)}
+              className={`px-3 py-1 text-xs font-medium rounded-md transition ${
+                period === t.key ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'
+              }`}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* KPI corrispettivi */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="bg-white rounded-xl border border-slate-200 p-4">
+          <div className="text-xs text-slate-400">Totale periodo</div>
+          <div className="text-xl font-bold text-slate-900">{fmt(totalRev)} €</div>
+        </div>
+        <div className="bg-white rounded-xl border border-slate-200 p-4">
+          <div className="text-xs text-slate-400">Media giornaliera</div>
+          <div className="text-xl font-bold text-blue-600">{fmt(avgDaily)} €</div>
+        </div>
+        <div className="bg-white rounded-xl border border-slate-200 p-4">
+          <div className="text-xs text-slate-400">Scontrino medio</div>
+          <div className="text-xl font-bold text-emerald-600">{fmt(avgTicket, 2)} €</div>
+          <div className="text-[11px] text-slate-400">{fmt(totalTx)} transazioni</div>
+        </div>
+        <div className="bg-white rounded-xl border border-slate-200 p-4">
+          <div className="text-xs text-slate-400">Giorno migliore</div>
+          <div className="text-xl font-bold text-amber-600">{fmt(bestDay.value)} €</div>
+          <div className="text-[11px] text-slate-400">{bestDay.date ? new Date(bestDay.date).toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'short' }) : '—'}</div>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="flex items-center justify-center py-12">
+          <RefreshCw size={20} className="animate-spin text-slate-400" />
+        </div>
+      ) : daily.length === 0 ? (
+        <div className="bg-slate-50 rounded-xl p-8 text-center">
+          <Calendar size={32} className="mx-auto text-slate-300 mb-3" />
+          <p className="text-sm text-slate-500 mb-2">Nessun corrispettivo registrato</p>
+          <p className="text-xs text-slate-400">Importa i dati POS da <a href="/import-hub" className="text-blue-500 hover:underline">ImportHub</a></p>
+        </div>
+      ) : (
+        <>
+          {/* Chart */}
+          <div className="bg-white rounded-xl border border-slate-200 p-4">
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={chartData} margin={{ top: 5, right: 5, left: 5, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="grad-corr" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#6366f1" stopOpacity={1} />
+                    <stop offset="100%" stopColor="#6366f1" stopOpacity={0.4} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid {...GRID_STYLE} />
+                <XAxis dataKey="label" {...AXIS_STYLE} interval={period === '7' ? 0 : 'preserveStartEnd'} />
+                <YAxis {...AXIS_STYLE} tickFormatter={v => `${(v/1000).toFixed(0)}k`} />
+                <Tooltip content={<GlassTooltip formatter={v => `${fmt(v)} €`} suffix="" />} />
+                <Bar dataKey="total_revenue" name="Incasso" fill="url(#grad-corr)" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+
+          {/* Daily table */}
+          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50">
+                  <tr className="text-[11px] text-slate-500 uppercase tracking-wider">
+                    <th className="py-2 px-4 text-left font-medium">Data</th>
+                    <th className="py-2 px-4 text-left font-medium">Giorno</th>
+                    <th className="py-2 px-4 text-right font-medium">Incasso</th>
+                    <th className="py-2 px-4 text-right font-medium">Scontrini</th>
+                    <th className="py-2 px-4 text-right font-medium">Ticket medio</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[...daily].reverse().map(d => (
+                    <tr key={d.date} className="border-t border-slate-50 hover:bg-slate-50/50">
+                      <td className="py-2 px-4 font-medium text-slate-900">{new Date(d.date).toLocaleDateString('it-IT')}</td>
+                      <td className="py-2 px-4 text-slate-500">{new Date(d.date).toLocaleDateString('it-IT', { weekday: 'long' })}</td>
+                      <td className="py-2 px-4 text-right font-semibold text-slate-900">{fmt(d.total_revenue)} €</td>
+                      <td className="py-2 px-4 text-right text-slate-600">{d.transactions_count || '—'}</td>
+                      <td className="py-2 px-4 text-right text-blue-600">{d.transactions_count ? fmt((d.total_revenue || 0) / d.transactions_count, 2) + ' €' : '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+// ====== STAFF TAB ======
+function StaffTab({ outletId, companyId }) {
+  const [staff, setStaff] = useState([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    loadStaff()
+  }, [outletId])
+
+  async function loadStaff() {
+    setLoading(true)
+    try {
+      const { data } = await supabase
+        .from('employees')
+        .select('id, first_name, last_name, role, contract_type, annual_gross_salary, monthly_net_salary, hire_date, is_active')
+        .eq('outlet_id', outletId)
+        .eq('company_id', companyId)
+        .order('last_name')
+
+      setStaff(data || [])
+    } catch (e) {
+      console.error('Staff load error:', e)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const totalCost = staff.reduce((s, e) => s + (e.annual_gross_salary || 0), 0)
+  const activeCount = staff.filter(e => e.is_active).length
+
+  if (loading) return <div className="flex items-center justify-center py-12"><RefreshCw size={20} className="animate-spin text-slate-400" /></div>
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+        <div className="bg-white rounded-xl border border-slate-200 p-4">
+          <div className="text-xs text-slate-400">Dipendenti attivi</div>
+          <div className="text-xl font-bold text-slate-900">{activeCount}</div>
+        </div>
+        <div className="bg-white rounded-xl border border-slate-200 p-4">
+          <div className="text-xs text-slate-400">Costo annuo lordo</div>
+          <div className="text-xl font-bold text-amber-600">{fmt(totalCost)} €</div>
+        </div>
+        <div className="bg-white rounded-xl border border-slate-200 p-4">
+          <div className="text-xs text-slate-400">Costo medio/dip.</div>
+          <div className="text-xl font-bold text-blue-600">{activeCount > 0 ? fmt(totalCost / activeCount) : '—'} €</div>
+        </div>
+      </div>
+
+      {staff.length === 0 ? (
+        <div className="bg-slate-50 rounded-xl p-8 text-center">
+          <Users size={32} className="mx-auto text-slate-300 mb-3" />
+          <p className="text-sm text-slate-500">Nessun dipendente assegnato a questo outlet</p>
+          <p className="text-xs text-slate-400 mt-1">Assegna dipendenti dalla pagina <a href="/dipendenti" className="text-blue-500 hover:underline">Dipendenti</a></p>
+        </div>
+      ) : (
+        <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50">
+              <tr className="text-[11px] text-slate-500 uppercase tracking-wider">
+                <th className="py-2 px-4 text-left font-medium">Nome</th>
+                <th className="py-2 px-4 text-left font-medium">Ruolo</th>
+                <th className="py-2 px-4 text-left font-medium">Contratto</th>
+                <th className="py-2 px-4 text-right font-medium">RAL</th>
+                <th className="py-2 px-4 text-center font-medium">Stato</th>
+              </tr>
+            </thead>
+            <tbody>
+              {staff.map(e => (
+                <tr key={e.id} className="border-t border-slate-50 hover:bg-slate-50/50">
+                  <td className="py-2 px-4 font-medium text-slate-900">{e.first_name} {e.last_name}</td>
+                  <td className="py-2 px-4 text-slate-600">{e.role || '—'}</td>
+                  <td className="py-2 px-4 text-slate-500 text-xs">{e.contract_type || '—'}</td>
+                  <td className="py-2 px-4 text-right font-medium text-slate-900">{fmt(e.annual_gross_salary)} €</td>
+                  <td className="py-2 px-4 text-center">
+                    <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${e.is_active ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
+                      {e.is_active ? 'Attivo' : 'Cessato'}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ====== DETTAGLIO OUTLET — HUB CON TAB ======
 function OutletDetail({ outlet, revenue, onBack, onEdit, onDelete }) {
+  const { profile } = useAuth()
   const currentYear = new Date().getFullYear()
   const yearData = revenue[outlet.id] || {}
+  const [detailTab, setDetailTab] = useState('overview')
+
+  // Corrispettivi sparkline (last 7 days for overview)
+  const [recentDaily, setRecentDaily] = useState([])
+  useEffect(() => {
+    async function loadRecent() {
+      const daysAgo = new Date()
+      daysAgo.setDate(daysAgo.getDate() - 7)
+      const { data } = await supabase
+        .from('daily_revenue')
+        .select('date, total_revenue')
+        .eq('outlet_id', outlet.id)
+        .eq('company_id', outlet.company_id)
+        .gte('date', daysAgo.toISOString().split('T')[0])
+        .order('date', { ascending: true })
+      setRecentDaily(data || [])
+    }
+    loadRecent()
+  }, [outlet.id])
 
   const chartData = MONTHS.map((name, i) => ({
     month: name,
@@ -1330,183 +1591,184 @@ function OutletDetail({ outlet, revenue, onBack, onEdit, onDelete }) {
   const condoAnnual = (outlet.condo_marketing_monthly || 0) * 12
   const occupancyCost = rentAnnual + condoAnnual
   const occupancyRatio = ytd > 0 ? (occupancyCost / ytd * 100) : 0
+  const yesterdayRev = recentDaily.length > 0 ? recentDaily[recentDaily.length - 1]?.total_revenue || 0 : null
+
+  const DETAIL_TABS = [
+    { key: 'overview', label: 'Overview', icon: Store },
+    { key: 'corrispettivi', label: 'Corrispettivi', icon: DollarSign },
+    { key: 'budget', label: 'Budget', icon: Target },
+    { key: 'staff', label: 'Staff', icon: Users },
+    { key: 'documenti', label: 'Documenti', icon: FileText },
+  ]
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Back + header */}
-      <div className="flex items-center gap-4">
-        <button
-          onClick={onBack}
-          className="p-2 rounded-lg hover:bg-slate-100 transition text-slate-600"
-        >
+      <div className="flex items-center gap-3 sm:gap-4 flex-wrap">
+        <button onClick={onBack} className="p-2 rounded-lg hover:bg-slate-100 transition text-slate-600">
           <ArrowLeft size={20} />
         </button>
-        <div className="flex-1">
+        <div className="flex-1 min-w-0">
           <div className="flex items-center gap-3">
-            <h2 className="text-2xl font-bold text-slate-900">{outlet.name}</h2>
+            <h2 className="text-xl sm:text-2xl font-bold text-slate-900 truncate">{outlet.name}</h2>
             <StatusBadge isActive={outlet.is_active} />
           </div>
-          <p className="text-sm text-slate-500">
-            {outlet.mall_name} — Cod. {outlet.code}
+          <p className="text-xs sm:text-sm text-slate-500">
+            {outlet.mall_name} — {outlet.code}
+            {yesterdayRev != null && yesterdayRev > 0 && (
+              <span className="text-emerald-600 font-medium ml-2">· Ieri: {fmt(yesterdayRev)} €</span>
+            )}
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => onEdit(outlet)}
-            className="flex items-center gap-1.5 px-3 py-2 text-sm rounded-lg border border-slate-200 hover:bg-slate-50 transition text-slate-700"
-          >
-            <FileText size={15} />
-            Modifica
+        <div className="hidden sm:flex items-center gap-2">
+          <button onClick={() => onEdit(outlet)} className="flex items-center gap-1.5 px-3 py-2 text-sm rounded-lg border border-slate-200 hover:bg-slate-50 transition text-slate-700">
+            <FileText size={15} /> Modifica
           </button>
-          <button
-            onClick={() => onDelete(outlet)}
-            className="flex items-center gap-1.5 px-3 py-2 text-sm rounded-lg border border-red-200 hover:bg-red-50 transition text-red-600"
-          >
-            <Trash2 size={15} />
-            Elimina
+          <button onClick={() => onDelete(outlet)} className="flex items-center gap-1.5 px-3 py-2 text-sm rounded-lg border border-red-200 hover:bg-red-50 transition text-red-600">
+            <Trash2 size={15} /> Elimina
           </button>
         </div>
       </div>
 
-      {/* KPI */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="rounded-2xl p-5 shadow-lg" style={{ background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)', border: '1px solid rgba(99,102,241,0.08)' }}>
-          <div className="p-2.5 rounded-lg bg-blue-50 text-blue-600 inline-flex mb-3">
-            <DollarSign size={20} />
-          </div>
-          <div className="text-2xl font-bold text-slate-900">{fmt(ytd)} €</div>
-          <div className="text-sm text-slate-500">Fatturato YTD {currentYear - 1}</div>
-        </div>
-        <div className="rounded-2xl p-5 shadow-lg" style={{ background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)', border: '1px solid rgba(99,102,241,0.08)' }}>
-          <div className="p-2.5 rounded-lg bg-emerald-50 text-emerald-600 inline-flex mb-3">
-            <TrendingUp size={20} />
-          </div>
-          <div className="text-2xl font-bold text-slate-900">{fmt(avgMonth)} €</div>
-          <div className="text-sm text-slate-500">Media mensile</div>
-        </div>
-        <div className="rounded-2xl p-5 shadow-lg" style={{ background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)', border: '1px solid rgba(99,102,241,0.08)' }}>
-          <div className="p-2.5 rounded-lg bg-amber-50 text-amber-600 inline-flex mb-3">
-            <Target size={20} />
-          </div>
-          <div className="text-2xl font-bold text-slate-900">
-            {bestMonth.month > 0 ? MONTHS[bestMonth.month - 1] : '—'}
-          </div>
-          <div className="text-sm text-slate-500">
-            Mese migliore ({fmt(bestMonth.value)} €)
-          </div>
-        </div>
-        <div className="rounded-2xl p-5 shadow-lg" style={{ background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)', border: '1px solid rgba(99,102,241,0.08)' }}>
-          <div className="p-2.5 rounded-lg bg-purple-50 text-purple-600 inline-flex mb-3">
-            <Store size={20} />
-          </div>
-          <div className="text-2xl font-bold text-slate-900">{occupancyRatio.toFixed(1)}%</div>
-          <div className="text-sm text-slate-500">Incidenza locazione</div>
-          <div className="text-xs text-slate-400 mt-1">{fmt(occupancyCost)} €/anno</div>
-        </div>
+      {/* Tab bar */}
+      <div className="flex gap-0.5 bg-slate-100 rounded-lg p-0.5 overflow-x-auto">
+        {DETAIL_TABS.map(t => (
+          <button key={t.key} onClick={() => setDetailTab(t.key)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition whitespace-nowrap ${
+              detailTab === t.key ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+            }`}>
+            <t.icon size={13} /> {t.label}
+          </button>
+        ))}
       </div>
 
-      {/* Alert Scadenze Contratti */}
-      <ContractAlerts outlet={outlet} />
+      {/* ─── Tab: Overview ─── */}
+      {detailTab === 'overview' && (
+        <div className="space-y-4">
+          {/* KPI */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <div className="bg-white rounded-xl border border-slate-200 p-4">
+              <div className="p-2 rounded-lg bg-blue-50 text-blue-600 inline-flex mb-2"><DollarSign size={18} /></div>
+              <div className="text-xl font-bold text-slate-900">{fmt(ytd)} €</div>
+              <div className="text-xs text-slate-500">Fatturato YTD {currentYear - 1}</div>
+            </div>
+            <div className="bg-white rounded-xl border border-slate-200 p-4">
+              <div className="p-2 rounded-lg bg-emerald-50 text-emerald-600 inline-flex mb-2"><TrendingUp size={18} /></div>
+              <div className="text-xl font-bold text-slate-900">{fmt(avgMonth)} €</div>
+              <div className="text-xs text-slate-500">Media mensile</div>
+            </div>
+            <div className="bg-white rounded-xl border border-slate-200 p-4">
+              <div className="p-2 rounded-lg bg-amber-50 text-amber-600 inline-flex mb-2"><Target size={18} /></div>
+              <div className="text-xl font-bold text-slate-900">{bestMonth.month > 0 ? MONTHS[bestMonth.month - 1] : '—'}</div>
+              <div className="text-xs text-slate-500">Mese migliore ({fmt(bestMonth.value)} €)</div>
+            </div>
+            <div className="bg-white rounded-xl border border-slate-200 p-4">
+              <div className="p-2 rounded-lg bg-purple-50 text-purple-600 inline-flex mb-2"><Store size={18} /></div>
+              <div className="text-xl font-bold text-slate-900">{occupancyRatio.toFixed(1)}%</div>
+              <div className="text-xs text-slate-500">Incidenza locazione ({fmt(occupancyCost)} €/a)</div>
+            </div>
+          </div>
 
-      {/* Revenue Chart */}
-      <div className="rounded-2xl p-5 shadow-lg" style={{ background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)', border: '1px solid rgba(99,102,241,0.08)' }}>
-        <h3 className="text-sm font-semibold text-slate-900 mb-4">
-          Fatturato mensile — {currentYear - 1}
-        </h3>
-        <ResponsiveContainer width="100%" height={300}>
-          <BarChart data={chartData}>
-            <defs>
-              <linearGradient id="grad-ricavi-outlet" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#0ea5e9" stopOpacity={1} />
-                <stop offset="100%" stopColor="#0ea5e9" stopOpacity={0.5} />
-              </linearGradient>
-            </defs>
-            <CartesianGrid {...GRID_STYLE} />
-            <XAxis dataKey="month" {...AXIS_STYLE} />
-            <YAxis {...AXIS_STYLE} tickFormatter={v => `${(v/1000).toFixed(0)}k`} />
-            <Tooltip content={<GlassTooltip formatter={v => `${fmt(v)} €`} suffix="" />} cursor={{ fill: 'rgba(99,102,241,0.04)', radius: 8 }} />
-            <Bar dataKey="ricavi" fill="url(#grad-ricavi-outlet)" radius={[8, 8, 0, 0]} animationDuration={800} />
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
-
-      {/* Extracted Contract Data */}
-      <ExtractedContractData outlet={outlet} />
-
-      {/* Anagrafica */}
-      <div className="rounded-2xl p-5 shadow-lg" style={{ background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)', border: '1px solid rgba(99,102,241,0.08)' }}>
-        <h3 className="text-sm font-semibold text-slate-900 mb-4">Anagrafica outlet</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-3 text-sm">
-          <div className="flex justify-between py-2 border-b border-slate-50">
-            <span className="text-slate-500">Centro commerciale</span>
-            <span className="font-medium text-slate-900">{outlet.mall_name || '—'}</span>
-          </div>
-          <div className="flex justify-between py-2 border-b border-slate-50">
-            <span className="text-slate-500">Tipo</span>
-            <span className="font-medium text-slate-900">{outlet.outlet_type || '—'}</span>
-          </div>
-          <div className="flex justify-between py-2 border-b border-slate-50">
-            <span className="text-slate-500">Data apertura</span>
-            <span className="font-medium text-slate-900">
-              {outlet.opening_date ? new Date(outlet.opening_date).toLocaleDateString('it-IT') : '—'}
-            </span>
-          </div>
-          <div className="flex justify-between py-2 border-b border-slate-50">
-            <span className="text-slate-500">Superficie (mq)</span>
-            <span className="font-medium text-slate-900">{outlet.sqm || '—'}</span>
-          </div>
-          <div className="flex justify-between py-2 border-b border-slate-50">
-            <span className="text-slate-500">Canone mensile</span>
-            <span className="font-medium text-slate-900">{fmt(outlet.rent_monthly, 2)} €</span>
-          </div>
-          <div className="flex justify-between py-2 border-b border-slate-50">
-            <span className="text-slate-500">Spese cond. + marketing</span>
-            <span className="font-medium text-slate-900">{fmt(outlet.condo_marketing_monthly, 2)} €</span>
-          </div>
-          <div className="flex justify-between py-2 border-b border-slate-50">
-            <span className="text-slate-500">Target fatturato minimo</span>
-            <span className="font-medium text-slate-900">
-              {outlet.min_revenue_target ? `${fmt(outlet.min_revenue_target)} €` : '—'}
-            </span>
-          </div>
-          <div className="flex justify-between py-2 border-b border-slate-50">
-            <span className="text-slate-500">Periodo target</span>
-            <span className="font-medium text-slate-900">{outlet.min_revenue_period || '—'}</span>
-          </div>
-          <div className="flex justify-between py-2 border-b border-slate-50">
-            <span className="text-slate-500">Target margine</span>
-            <span className="font-medium text-slate-900">{outlet.target_margin_pct || 60}%</span>
-          </div>
-          <div className="flex justify-between py-2 border-b border-slate-50">
-            <span className="text-slate-500">Target COGS</span>
-            <span className="font-medium text-slate-900">{outlet.target_cogs_pct || 40}%</span>
-          </div>
-          {outlet.brand && (
-            <div className="flex justify-between py-2 border-b border-slate-50">
-              <span className="text-slate-500">Insegna / Brand</span>
-              <span className="font-medium text-slate-900">{outlet.brand}</span>
+          {/* Corrispettivi sparkline — last 7 days */}
+          {recentDaily.length > 0 && (
+            <div className="bg-white rounded-xl border border-slate-200 p-4">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-sm font-semibold text-slate-900">Incassi ultimi 7 giorni</h3>
+                <button onClick={() => setDetailTab('corrispettivi')} className="text-xs text-blue-500 font-medium flex items-center gap-1 hover:text-blue-700">
+                  Dettaglio <ChevronRight size={12} />
+                </button>
+              </div>
+              <ResponsiveContainer width="100%" height={100}>
+                <BarChart data={recentDaily.map(d => ({ ...d, label: new Date(d.date).toLocaleDateString('it-IT', { weekday: 'short', day: '2-digit' }) }))}>
+                  <XAxis dataKey="label" {...AXIS_STYLE} />
+                  <YAxis hide />
+                  <Tooltip formatter={v => [`${fmt(v)} €`, 'Incasso']} />
+                  <Bar dataKey="total_revenue" fill="#6366f1" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
             </div>
           )}
-          {outlet.sell_sqm && (
-            <div className="flex justify-between py-2 border-b border-slate-50">
-              <span className="text-slate-500">Superficie vendita (mq)</span>
-              <span className="font-medium text-slate-900">{outlet.sell_sqm}</span>
+
+          {/* Contract alerts */}
+          <ContractAlerts outlet={outlet} />
+
+          {/* Revenue Chart */}
+          <div className="bg-white rounded-xl border border-slate-200 p-4">
+            <h3 className="text-sm font-semibold text-slate-900 mb-3">Fatturato mensile — {currentYear - 1}</h3>
+            <ResponsiveContainer width="100%" height={250}>
+              <BarChart data={chartData}>
+                <defs>
+                  <linearGradient id="grad-ricavi-outlet" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#0ea5e9" stopOpacity={1} />
+                    <stop offset="100%" stopColor="#0ea5e9" stopOpacity={0.5} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid {...GRID_STYLE} />
+                <XAxis dataKey="month" {...AXIS_STYLE} />
+                <YAxis {...AXIS_STYLE} tickFormatter={v => `${(v/1000).toFixed(0)}k`} />
+                <Tooltip content={<GlassTooltip formatter={v => `${fmt(v)} €`} suffix="" />} />
+                <Bar dataKey="ricavi" fill="url(#grad-ricavi-outlet)" radius={[6, 6, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+
+          {/* Anagrafica compatta */}
+          <div className="bg-white rounded-xl border border-slate-200 p-4">
+            <h3 className="text-sm font-semibold text-slate-900 mb-3">Anagrafica</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2 text-sm">
+              <div className="flex justify-between py-1.5 border-b border-slate-50"><span className="text-slate-500">Centro commerciale</span><span className="font-medium">{outlet.mall_name || '—'}</span></div>
+              <div className="flex justify-between py-1.5 border-b border-slate-50"><span className="text-slate-500">Tipo</span><span className="font-medium">{outlet.outlet_type || '—'}</span></div>
+              <div className="flex justify-between py-1.5 border-b border-slate-50"><span className="text-slate-500">Apertura</span><span className="font-medium">{outlet.opening_date ? new Date(outlet.opening_date).toLocaleDateString('it-IT') : '—'}</span></div>
+              <div className="flex justify-between py-1.5 border-b border-slate-50"><span className="text-slate-500">Superficie</span><span className="font-medium">{outlet.sqm || '—'} mq</span></div>
+              <div className="flex justify-between py-1.5 border-b border-slate-50"><span className="text-slate-500">Canone mensile</span><span className="font-medium">{fmt(outlet.rent_monthly, 2)} €</span></div>
+              <div className="flex justify-between py-1.5 border-b border-slate-50"><span className="text-slate-500">Spese cond.</span><span className="font-medium">{fmt(outlet.condo_marketing_monthly, 2)} €</span></div>
             </div>
-          )}
-          {outlet.concedente && (
-            <div className="flex justify-between py-2 border-b border-slate-50">
-              <span className="text-slate-500">Concedente</span>
-              <span className="font-medium text-slate-900">{outlet.concedente}</span>
-            </div>
-          )}
+          </div>
+
+          {/* Extracted Contract Data */}
+          <ExtractedContractData outlet={outlet} />
         </div>
-      </div>
+      )}
 
-      {/* Document Archive */}
-      <DocumentArchive outletId={outlet.id} companyId={outlet.company_id} />
+      {/* ─── Tab: Corrispettivi ─── */}
+      {detailTab === 'corrispettivi' && (
+        <CorrispettiviTab outletId={outlet.id} companyId={outlet.company_id} />
+      )}
 
-      {/* Allegati */}
-      <OutletAllegati outletId={outlet.id} companyId={outlet.company_id} />
+      {/* ─── Tab: Budget ─── */}
+      {detailTab === 'budget' && (
+        <div className="bg-white rounded-xl border border-slate-200 p-6">
+          <h3 className="text-sm font-semibold text-slate-900 mb-3">Budget vs Consuntivo</h3>
+          <p className="text-sm text-slate-500">
+            Vai alla pagina <a href="/budget" className="text-blue-500 hover:underline">Budget & Controllo</a> per il dettaglio budget vs actual di questo outlet.
+          </p>
+          {/* Revenue chart as proxy */}
+          <div className="mt-4">
+            <ResponsiveContainer width="100%" height={250}>
+              <BarChart data={chartData}>
+                <CartesianGrid {...GRID_STYLE} />
+                <XAxis dataKey="month" {...AXIS_STYLE} />
+                <YAxis {...AXIS_STYLE} tickFormatter={v => `${(v/1000).toFixed(0)}k`} />
+                <Tooltip content={<GlassTooltip formatter={v => `${fmt(v)} €`} suffix="" />} />
+                <Bar dataKey="ricavi" name="Consuntivo" fill="#6366f1" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
+
+      {/* ─── Tab: Staff ─── */}
+      {detailTab === 'staff' && (
+        <StaffTab outletId={outlet.id} companyId={outlet.company_id} />
+      )}
+
+      {/* ─── Tab: Documenti ─── */}
+      {detailTab === 'documenti' && (
+        <div className="space-y-4">
+          <DocumentArchive outletId={outlet.id} companyId={outlet.company_id} />
+          <OutletAllegati outletId={outlet.id} companyId={outlet.company_id} />
+        </div>
+      )}
     </div>
   )
 }

@@ -32,7 +32,11 @@ export default function NotificationBell() {
   const [loading, setLoading] = useState(false)
   const panelRef = useRef(null)
 
-  const unreadCount = notifications.filter(n => !n.read && !n.dismissed).length
+  const unread = notifications.filter(n => !n.read && !n.dismissed)
+  const unreadCount = unread.length
+  const hasCritical = unread.some(n => n.severity === 'critical')
+  const hasWarning = unread.some(n => n.severity === 'warning')
+  const badgeColor = hasCritical ? 'bg-red-500' : hasWarning ? 'bg-amber-500' : 'bg-blue-500'
 
   // Load notifications
   useEffect(() => {
@@ -111,7 +115,7 @@ export default function NotificationBell() {
       >
         <Bell size={20} />
         {unreadCount > 0 && (
-          <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] flex items-center justify-center bg-red-500 text-white text-[10px] font-bold rounded-full px-1 animate-pulse">
+          <span className={`absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] flex items-center justify-center ${badgeColor} text-white text-[10px] font-bold rounded-full px-1 ${hasCritical ? 'animate-pulse' : ''}`}>
             {unreadCount > 99 ? '99+' : unreadCount}
           </span>
         )}

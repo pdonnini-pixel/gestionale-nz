@@ -31,6 +31,7 @@ import {
   Legend,
   ResponsiveContainer,
 } from 'recharts';
+import ExportMenu from '../components/ExportMenu';
 import { supabase } from '../lib/supabase';
 import { GlassTooltip, AXIS_STYLE, GRID_STYLE } from '../components/ChartTheme';
 import { useAuth } from '../hooks/useAuth';
@@ -1116,36 +1117,45 @@ export default function Dipendenti() {
             {batchImporting ? 'Importazione...' : 'Import batch CSV'}
             <input ref={batchFileRef} type="file" accept=".csv,.txt,.xlsx" onChange={handleBatchImport} className="hidden" disabled={batchImporting} />
           </label>
-          <button onClick={() => {
-            const year = viewMode === 'consuntivo' ? 2025 : 2026;
-            const yearCosts = costs.filter(c => c.year === year);
-            const rows = [['Cognome', 'Nome', 'Qualifica', 'Contratto', 'Outlet', 'Allocazione%', 'Mese', 'Retribuzione', 'Contributi', 'INAIL', 'TFR', 'Totale']];
-            employees.forEach(emp => {
-              const empCosts = yearCosts.filter(c => c.employee_id === emp.id);
-              const empAllocs = allocations.filter(a => a.employee_id === emp.id);
-              const outletName = empAllocs.length > 0
-                ? costCenters.find(cc => cc.id === empAllocs[0].cost_center_id)?.label || '-'
-                : '-';
-              const allocPct = empAllocs.length > 0 ? empAllocs[0].allocation_pct : 100;
-              if (empCosts.length === 0) {
-                rows.push([emp.cognome, emp.nome, emp.qualifica || '', emp.contratto || '', outletName, allocPct, '-', 0, 0, 0, 0, 0]);
-              } else {
-                empCosts.forEach(c => {
-                  const tot = (c.retribuzione || 0) + (c.contributi || 0) + (c.inail || 0) + (c.tfr || 0);
-                  rows.push([emp.cognome, emp.nome, emp.qualifica || '', emp.contratto || '', outletName, allocPct, c.month,
-                    c.retribuzione || 0, c.contributi || 0, c.inail || 0, c.tfr || 0, tot]);
-                });
-              }
-            });
-            const csv = rows.map(r => r.map(v => typeof v === 'string' && v.includes(',') ? `"${v}"` : v).join(';')).join('\n');
-            const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a'); a.href = url; a.download = `dipendenti_${year}.csv`; a.click();
-            URL.revokeObjectURL(url);
-          }} className="flex items-center gap-2 px-4 py-2 bg-slate-200 text-slate-900 rounded-lg hover:bg-slate-300 transition font-medium">
-            <Download className="w-4 h-4" />
-            Esporta CSV
-          </button>
+          <ExportMenu
+            data={(() => {
+              const year = viewMode === 'consuntivo' ? 2025 : 2026;
+              const yearCosts = costs.filter(c => c.year === year);
+              const rows = [];
+              employees.forEach(emp => {
+                const empCosts = yearCosts.filter(c => c.employee_id === emp.id);
+                const empAllocs = allocations.filter(a => a.employee_id === emp.id);
+                const outletName = empAllocs.length > 0
+                  ? costCenters.find(cc => cc.id === empAllocs[0].cost_center_id)?.label || '-' : '-';
+                const allocPct = empAllocs.length > 0 ? empAllocs[0].allocation_pct : 100;
+                if (empCosts.length === 0) {
+                  rows.push({ cognome: emp.cognome, nome: emp.nome, qualifica: emp.qualifica || '', contratto: emp.contratto || '', outlet: outletName, allocazione: allocPct, mese: '-', retribuzione: 0, contributi: 0, inail: 0, tfr: 0, totale: 0 });
+                } else {
+                  empCosts.forEach(c => {
+                    const tot = (c.retribuzione || 0) + (c.contributi || 0) + (c.inail || 0) + (c.tfr || 0);
+                    rows.push({ cognome: emp.cognome, nome: emp.nome, qualifica: emp.qualifica || '', contratto: emp.contratto || '', outlet: outletName, allocazione: allocPct, mese: c.month, retribuzione: c.retribuzione || 0, contributi: c.contributi || 0, inail: c.inail || 0, tfr: c.tfr || 0, totale: tot });
+                  });
+                }
+              });
+              return rows;
+            })()}
+            columns={[
+              { key: 'cognome', label: 'Cognome' },
+              { key: 'nome', label: 'Nome' },
+              { key: 'qualifica', label: 'Qualifica' },
+              { key: 'contratto', label: 'Contratto' },
+              { key: 'outlet', label: 'Outlet' },
+              { key: 'allocazione', label: 'Allocazione %' },
+              { key: 'mese', label: 'Mese' },
+              { key: 'retribuzione', label: 'Retribuzione', format: 'euro' },
+              { key: 'contributi', label: 'Contributi', format: 'euro' },
+              { key: 'inail', label: 'INAIL', format: 'euro' },
+              { key: 'tfr', label: 'TFR', format: 'euro' },
+              { key: 'totale', label: 'Totale', format: 'euro' },
+            ]}
+            filename={`dipendenti_${viewMode === 'consuntivo' ? 2025 : 2026}`}
+            title="Dipendenti — Costi del Personale"
+          />
         </div>
 
         {/* ===== MODAL: EMPLOYEE FORM ===== */}

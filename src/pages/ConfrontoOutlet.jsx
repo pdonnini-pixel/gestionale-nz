@@ -1,6 +1,8 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
+import ExportMenu from '../components/ExportMenu'
 import {
   Store, TrendingUp, Users, DollarSign, RefreshCw, ChevronDown, ChevronUp,
   ArrowUpRight, ArrowDownRight, BarChart3, Target, Percent, Building2, AlertCircle,
@@ -40,7 +42,7 @@ function KpiBadge({ label, value, sub, color = 'blue' }) {
 /* ═══════════════════════════════════════
    CARD OUTLET — Singola colonna confronto
    ═══════════════════════════════════════ */
-function OutletCard({ name, outletData, calculatedMetrics, ranking }) {
+function OutletCard({ name, outletData, calculatedMetrics, ranking, onNavigate }) {
   const [open, setOpen] = useState(false)
 
   if (!calculatedMetrics) {
@@ -79,7 +81,9 @@ function OutletCard({ name, outletData, calculatedMetrics, ranking }) {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Store size={18} style={{ color: outletData.color || '#6366f1' }} />
-            <div className="font-bold text-slate-900 text-sm">{name.split(' ')[0]}</div>
+            <button onClick={onNavigate} className="font-bold text-slate-900 text-sm hover:text-indigo-600 transition cursor-pointer text-left">
+              {name.split(' ')[0]}
+            </button>
           </div>
           <div className="flex items-center gap-1.5">
             {ranking && (
@@ -284,6 +288,7 @@ const PERIOD_OPTIONS = [
 
 export default function ConfrontoOutlet() {
   const { profile } = useAuth()
+  const navigate = useNavigate()
   const COMPANY_ID = profile?.company_id
   const [outlets, setOutlets] = useState([])
   const [budgetData, setBudgetData] = useState([])
@@ -625,13 +630,36 @@ export default function ConfrontoOutlet() {
             </button>
           ))}
         </div>
-        <button
-          onClick={exportExcel}
-          className="flex items-center gap-1.5 px-3 py-2 text-sm rounded-lg border border-slate-200 hover:bg-slate-50 transition text-slate-700 ml-auto"
-        >
-          <Download size={15} />
-          Export Excel
-        </button>
+        <div className="ml-auto">
+          <ExportMenu
+            data={outletMetrics.filter(o => o.calculatedMetrics).map(o => {
+              const m = o.calculatedMetrics;
+              return {
+                outlet: o.name, ricavi: m.ricavi, margine: m.margine,
+                margine_pct: m.marginePct, dipendenti: m.personaleCount,
+                per_dipendente: m.ricavoPerDip, costo_personale: m.costoPersonale,
+                affitto: m.affitto, servizi: m.servizi, merci: m.merci,
+                breakeven: m.breakeven, quota_sede: m.quotaSede,
+              };
+            })}
+            columns={[
+              { key: 'outlet', label: 'Outlet' },
+              { key: 'ricavi', label: 'Ricavi', format: 'euro' },
+              { key: 'margine', label: 'Margine', format: 'euro' },
+              { key: 'margine_pct', label: 'Margine %', format: 'percent' },
+              { key: 'dipendenti', label: 'Dipendenti' },
+              { key: 'per_dipendente', label: '€/Dipendente', format: 'euro' },
+              { key: 'costo_personale', label: 'Costo Personale', format: 'euro' },
+              { key: 'affitto', label: 'Affitto', format: 'euro' },
+              { key: 'servizi', label: 'Servizi', format: 'euro' },
+              { key: 'merci', label: 'Merci', format: 'euro' },
+              { key: 'breakeven', label: 'Breakeven', format: 'euro' },
+              { key: 'quota_sede', label: 'Quota Sede', format: 'euro' },
+            ]}
+            filename="confronto_outlet"
+            title="Confronto Outlet"
+          />
+        </div>
       </div>
 
       {/* KPI aggregati */}
@@ -737,6 +765,7 @@ export default function ConfrontoOutlet() {
               outletData={o.outletData}
               calculatedMetrics={o.calculatedMetrics}
               ranking={rankings[o.name]}
+              onNavigate={() => navigate(`/outlet?id=${o.outletData.id}`)}
             />
           ))}
         </div>

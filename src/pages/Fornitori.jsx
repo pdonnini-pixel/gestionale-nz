@@ -10,6 +10,7 @@ import {
   Tooltip, ResponsiveContainer, Legend
 } from 'recharts';
 import { GlassTooltip, AXIS_STYLE, GRID_STYLE } from '../components/ChartTheme';
+import ExportMenu from '../components/ExportMenu';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
 
@@ -402,9 +403,24 @@ export default function Fornitori() {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <button onClick={exportCSV} className="px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-600 hover:bg-slate-50 flex items-center gap-2">
-            <Download size={16} /> Esporta
-          </button>
+          <ExportMenu
+            data={filteredSuppliers}
+            columns={[
+              { key: 'ragione_sociale', label: 'Ragione Sociale' },
+              { key: 'partita_iva', label: 'P.IVA' },
+              { key: 'codice_fiscale', label: 'Cod. Fiscale' },
+              { key: 'codice_sdi', label: 'SDI' },
+              { key: 'pec', label: 'PEC' },
+              { key: 'email', label: 'Email' },
+              { key: 'telefono', label: 'Telefono' },
+              { key: 'iban', label: 'IBAN' },
+              { key: 'category', label: 'Categoria' },
+              { key: 'payment_terms', label: 'Termini Pag.' },
+              { key: 'payment_method', label: 'Metodo Pag.' },
+            ]}
+            filename={`Fornitori_${new Date().toISOString().slice(0, 10)}`}
+            title="Anagrafica Fornitori"
+          />
           <button onClick={openNew} className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 flex items-center gap-2 shadow-sm">
             <Plus size={16} /> Nuovo Fornitore
           </button>

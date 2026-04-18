@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './hooks/useAuth'
 import { CompanyProvider } from './hooks/useCompany'
+import { PeriodProvider } from './hooks/usePeriod'
 import { lazy, Suspense } from 'react'
 import Layout from './components/Layout'
 import Login from './pages/Login'
@@ -29,6 +30,7 @@ const ArchivioDocumenti = lazy(() => import('./pages/ArchivioDocumenti'))
 const Onboarding = lazy(() => import('./pages/Onboarding'))
 const Fatturazione = lazy(() => import('./pages/Fatturazione'))
 const ScadenzeFiscali = lazy(() => import('./pages/ScadenzeFiscali'))
+const AICategoriePage = lazy(() => import('./pages/AICategoriePage'))
 
 // Spinner per lazy loading
 function PageLoader() {
@@ -87,6 +89,7 @@ function AppRoutes() {
           <Route path="fatturazione" element={<Fatturazione />} />
           <Route path="scadenze-fiscali" element={<ScadenzeFiscali />} />
           <Route path="archivio" element={<ArchivioDocumenti />} />
+          <Route path="ai-categorie" element={<AICategoriePage />} />
           <Route path="impostazioni" element={<Impostazioni />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
@@ -99,9 +102,11 @@ export default function App() {
   return (
     <AuthProvider>
       <CompanyProvider>
-        <BrowserRouter>
-          <AppRoutes />
-        </BrowserRouter>
+        <PeriodProvider>
+          <BrowserRouter>
+            <AppRoutes />
+          </BrowserRouter>
+        </PeriodProvider>
       </CompanyProvider>
     </AuthProvider>
   )

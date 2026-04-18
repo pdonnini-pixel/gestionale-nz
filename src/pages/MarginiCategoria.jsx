@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
+import ExportMenu from '../components/ExportMenu'
 import {
   BarChart, Bar, PieChart, Pie, Cell, LineChart, Line, Area, AreaChart,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
@@ -304,9 +305,20 @@ export default function MarginiCategoria() {
               </button>
             ))}
           </div>
-          <button onClick={handleExport} className="flex items-center gap-2 px-3 py-2 text-xs font-medium text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition">
-            <Download size={14} /> CSV
-          </button>
+          <ExportMenu
+            data={outletData}
+            columns={[
+              { key: 'name', label: 'Outlet' },
+              { key: 'revenue', label: 'Ricavi', format: 'euro' },
+              { key: 'costs', label: 'Costi', format: 'euro' },
+              { key: 'margin', label: 'Margine', format: 'euro' },
+              { key: 'marginPct', label: 'Margine %', format: 'percent' },
+              { key: 'budget', label: 'Budget', format: 'euro' },
+              { key: 'transactions', label: 'Transazioni' },
+            ]}
+            filename="margini_categoria"
+            title="Margini per Categoria"
+          />
         </div>
       </div>
 
