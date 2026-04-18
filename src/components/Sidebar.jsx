@@ -6,7 +6,7 @@ import {
   Settings, LogOut, ChevronLeft, ChevronRight, ChevronDown, ChevronUp,
   Landmark, Upload, BarChart3, GitCompare, Calculator,
   Package, CreditCard, Wallet, ShoppingBag, UserCheck, Map, PieChart, CalendarClock, ClipboardList, DatabaseZap, Archive,
-  Building, ChevronsUpDown
+  Building, ChevronsUpDown, FileCode
 } from 'lucide-react'
 import { useState, useRef, useEffect } from 'react'
 
@@ -22,6 +22,7 @@ const mainItems = {
     { to: '/cash-flow', icon: Wallet, label: 'Cashflow Prospettico' },
     { to: '/fornitori', icon: Building2, label: 'Fornitori' },
     { to: '/banche', icon: Landmark, label: 'Banche' },
+    { to: '/fatturazione', icon: FileCode, label: 'Fatturazione' },
     { to: '/dipendenti', icon: Users, label: 'Dipendenti' },
     { to: '/import-hub', icon: DatabaseZap, label: 'Import Hub' },
     { to: '/archivio', icon: Archive, label: 'Archivio Documenti' },
@@ -47,6 +48,7 @@ const mainItems = {
     { to: '/cash-flow', icon: Wallet, label: 'Cashflow Prospettico' },
     { to: '/fornitori', icon: Building2, label: 'Fornitori' },
     { to: '/banche', icon: Landmark, label: 'Banche' },
+    { to: '/fatturazione', icon: FileCode, label: 'Fatturazione' },
     { to: '/import-hub', icon: DatabaseZap, label: 'Import Hub' },
     { to: '/archivio', icon: Archive, label: 'Archivio Documenti' },
   ],
@@ -60,6 +62,7 @@ const mainItems = {
     { to: '/scadenzario', icon: Receipt, label: 'Scadenzario' },
     { to: '/fornitori', icon: Building2, label: 'Fornitori' },
     { to: '/banche', icon: Landmark, label: 'Banche' },
+    { to: '/fatturazione', icon: FileCode, label: 'Fatturazione' },
     { to: '/import-hub', icon: DatabaseZap, label: 'Import Hub' },
     { to: '/archivio', icon: Archive, label: 'Archivio Documenti' },
   ],

@@ -24,6 +24,7 @@ import ImportHub from './pages/ImportHub'
 import Fornitori from './pages/Fornitori'
 import ArchivioDocumenti from './pages/ArchivioDocumenti'
 import Onboarding from './pages/Onboarding'
+import Fatturazione from './pages/Fatturazione'
 
 function ProtectedRoute({ children }) {
   const { session, loading } = useAuth()
@@ -79,6 +80,7 @@ function AppRoutes() {
         <Route path="store-manager" element={<StoreManager />} />
         <Route path="import-hub" element={<ImportHub />} />
         <Route path="fornitori" element={<Fornitori />} />
+        <Route path="fatturazione" element={<Fatturazione />} />
         <Route path="archivio" element={<ArchivioDocumenti />} />
         <Route path="impostazioni" element={<Impostazioni />} />
       </Route>
