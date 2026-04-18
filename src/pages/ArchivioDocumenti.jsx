@@ -2,7 +2,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import {
   FileText, Search, Download, Eye, RefreshCw,
   X, Clock, FileWarning, CheckCircle,
-  AlertCircle, Database, FolderOpen, Archive, Store, Users, Receipt
+  AlertCircle, Database, FolderOpen, Archive, Store, Users, Receipt,
+  ShieldCheck, CalendarClock, AlertTriangle, Lock, Unlock, BarChart3
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
@@ -30,6 +31,7 @@ export default function ArchivioDocumenti() {
   const { profile } = useAuth();
   const COMPANY_ID = profile?.company_id;
 
+  const [activeTab, setActiveTab] = useState('archivio'); // archivio | conservazione
   const [allDocs, setAllDocs] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -41,6 +43,12 @@ export default function ArchivioDocumenti() {
   const [previewUrl, setPreviewUrl] = useState(null);
   const [downloading, setDownloading] = useState(null);
   const [toast, setToast] = useState(null);
+
+  // Conservazione sostitutiva state
+  const [retentionDocs, setRetentionDocs] = useState([]);
+  const [retentionLoading, setRetentionLoading] = useState(false);
+  const [retentionFilter, setRetentionFilter] = useState('all'); // all | active | expiring | expired
+  const [retentionSearch, setRetentionSearch] = useState('');
 
   const showToast = (msg, type = 'success') => {
     setToast({ msg, type });
@@ -86,6 +94,93 @@ export default function ArchivioDocumenti() {
 
     setAllDocs(results);
     setLoading(false);
+  }
+
+  // ─── LOAD RETENTION DATA ───────────────────────────────────────
+  useEffect(() => {
+    if (!COMPANY_ID || activeTab !== 'conservazione') return;
+    loadRetention();
+  }, [COMPANY_ID, activeTab]);
+
+  async function loadRetention() {
+    setRetentionLoading(true);
+    const results = [];
+
+    try {
+      const { data } = await supabase
+        .from('electronic_invoices')
+        .select('id, company_id, invoice_number, invoice_date, supplier_name, customer_name, total_amount, direction, sdi_status, retention_start, retention_end, retention_status, storage_path, xml_file_path, created_at')
+        .eq('company_id', COMPANY_ID)
+        .not('retention_start', 'is', null)
+        .order('retention_end', { ascending: true })
+        .limit(1000);
+      (data || []).forEach(d => results.push({ ...d, _source: 'invoice' }));
+    } catch (e) { console.warn('retention invoices:', e.message); }
+
+    try {
+      const { data } = await supabase
+        .from('documents')
+        .select('id, company_id, title, category, file_name, file_path, storage_bucket, retention_start, retention_end, retention_status, created_at')
+        .eq('company_id', COMPANY_ID)
+        .not('retention_start', 'is', null)
+        .order('retention_end', { ascending: true })
+        .limit(1000);
+      (data || []).forEach(d => results.push({ ...d, _source: 'document' }));
+    } catch (e) { console.warn('retention documents:', e.message); }
+
+    setRetentionDocs(results);
+    setRetentionLoading(false);
+  }
+
+  // ─── RETENTION HELPERS ────────────────────────────────────────
+  const today = new Date();
+  const sixMonthsFromNow = new Date(today.getTime() + 180 * 86400000);
+
+  function getRetentionStatus(doc) {
+    if (!doc.retention_end) return 'unknown';
+    const end = new Date(doc.retention_end);
+    if (end < today) return 'expired';
+    if (end < sixMonthsFromNow) return 'expiring';
+    return 'active';
+  }
+
+  function daysUntilExpiry(doc) {
+    if (!doc.retention_end) return null;
+    return Math.ceil((new Date(doc.retention_end) - today) / 86400000);
+  }
+
+  const retentionStats = useMemo(() => {
+    const active = retentionDocs.filter(d => getRetentionStatus(d) === 'active').length;
+    const expiring = retentionDocs.filter(d => getRetentionStatus(d) === 'expiring').length;
+    const expired = retentionDocs.filter(d => getRetentionStatus(d) === 'expired').length;
+    const invoices = retentionDocs.filter(d => d._source === 'invoice').length;
+    const documents = retentionDocs.filter(d => d._source === 'document').length;
+    const oldestEnd = retentionDocs.length > 0 ? retentionDocs[0]?.retention_end : null;
+    return { total: retentionDocs.length, active, expiring, expired, invoices, documents, oldestEnd };
+  }, [retentionDocs]);
+
+  const filteredRetention = useMemo(() => {
+    let docs = [...retentionDocs];
+    if (retentionFilter !== 'all') docs = docs.filter(d => getRetentionStatus(d) === retentionFilter);
+    if (retentionSearch.trim()) {
+      const q = retentionSearch.toLowerCase();
+      docs = docs.filter(d =>
+        (d.invoice_number || '').toLowerCase().includes(q) ||
+        (d.supplier_name || '').toLowerCase().includes(q) ||
+        (d.customer_name || '').toLowerCase().includes(q) ||
+        (d.title || '').toLowerCase().includes(q) ||
+        (d.file_name || '').toLowerCase().includes(q)
+      );
+    }
+    return docs;
+  }, [retentionDocs, retentionFilter, retentionSearch]);
+
+  async function updateRetentionStatus(docId, source, newStatus) {
+    const table = source === 'invoice' ? 'electronic_invoices' : 'documents';
+    const { error } = await supabase.from(table).update({ retention_status: newStatus }).eq('id', docId);
+    if (error) { showToast('Errore aggiornamento: ' + error.message, 'error'); return; }
+    showToast('Stato conservazione aggiornato');
+    loadRetention();
   }
 
   // ─── BUCKET RESOLVER ──────────────────────────────────────────
@@ -236,14 +331,263 @@ export default function ArchivioDocumenti() {
           </div>
           <div>
             <h1 className="text-2xl font-bold text-slate-900">Archivio Documenti</h1>
-            <p className="text-sm text-slate-500">{stats.total} documenti totali</p>
+            <p className="text-sm text-slate-500">{activeTab === 'conservazione' ? 'Conservazione sostitutiva — 10 anni' : `${stats.total} documenti totali`}</p>
           </div>
         </div>
-        <button onClick={loadAll} disabled={loading} className="px-4 py-2 bg-white border border-slate-200 rounded-xl text-sm font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2 shadow-sm disabled:opacity-50">
-          <RefreshCw size={15} className={loading ? 'animate-spin' : ''} /> Aggiorna
+        <button onClick={activeTab === 'conservazione' ? loadRetention : loadAll} disabled={loading || retentionLoading} className="px-4 py-2 bg-white border border-slate-200 rounded-xl text-sm font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2 shadow-sm disabled:opacity-50">
+          <RefreshCw size={15} className={(loading || retentionLoading) ? 'animate-spin' : ''} /> Aggiorna
         </button>
       </div>
 
+      {/* TABS */}
+      <div className="flex gap-1 bg-white rounded-xl border border-slate-200 p-1 shadow-sm">
+        {[
+          { key: 'archivio', label: 'Archivio', icon: FolderOpen },
+          { key: 'conservazione', label: 'Conservazione Sostitutiva', icon: ShieldCheck },
+        ].map(tab => {
+          const Icon = tab.icon;
+          const active = activeTab === tab.key;
+          return (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition flex-1 justify-center ${
+                active ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'
+              }`}
+            >
+              <Icon size={16} />
+              {tab.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* ═══════════ CONSERVAZIONE SOSTITUTIVA TAB ═══════════ */}
+      {activeTab === 'conservazione' && (
+        <>
+          {/* KPI Conservazione */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
+            <div className="bg-white rounded-xl border border-slate-200 p-3 shadow-sm">
+              <div className="flex items-center gap-2 mb-1">
+                <ShieldCheck size={14} className="text-blue-500" />
+                <span className="text-xs font-semibold text-slate-500 uppercase">Totale</span>
+              </div>
+              <div className="text-xl font-bold text-slate-900">{retentionStats.total}</div>
+            </div>
+            <div className="bg-white rounded-xl border border-emerald-200 p-3 shadow-sm">
+              <div className="flex items-center gap-2 mb-1">
+                <Lock size={14} className="text-emerald-500" />
+                <span className="text-xs font-semibold text-emerald-600 uppercase">In conservazione</span>
+              </div>
+              <div className="text-xl font-bold text-emerald-700">{retentionStats.active}</div>
+            </div>
+            <div className="bg-white rounded-xl border border-amber-200 p-3 shadow-sm">
+              <div className="flex items-center gap-2 mb-1">
+                <AlertTriangle size={14} className="text-amber-500" />
+                <span className="text-xs font-semibold text-amber-600 uppercase">In scadenza</span>
+              </div>
+              <div className="text-xl font-bold text-amber-700">{retentionStats.expiring}</div>
+              <div className="text-[10px] text-amber-500">prossimi 6 mesi</div>
+            </div>
+            <div className="bg-white rounded-xl border border-red-200 p-3 shadow-sm">
+              <div className="flex items-center gap-2 mb-1">
+                <Unlock size={14} className="text-red-500" />
+                <span className="text-xs font-semibold text-red-600 uppercase">Scaduti</span>
+              </div>
+              <div className="text-xl font-bold text-red-700">{retentionStats.expired}</div>
+            </div>
+            <div className="bg-white rounded-xl border border-slate-200 p-3 shadow-sm">
+              <div className="flex items-center gap-2 mb-1">
+                <Receipt size={14} className="text-violet-500" />
+                <span className="text-xs font-semibold text-slate-500 uppercase">Fatture</span>
+              </div>
+              <div className="text-xl font-bold text-slate-900">{retentionStats.invoices}</div>
+            </div>
+            <div className="bg-white rounded-xl border border-slate-200 p-3 shadow-sm">
+              <div className="flex items-center gap-2 mb-1">
+                <FileText size={14} className="text-slate-400" />
+                <span className="text-xs font-semibold text-slate-500 uppercase">Documenti</span>
+              </div>
+              <div className="text-xl font-bold text-slate-900">{retentionStats.documents}</div>
+            </div>
+          </div>
+
+          {/* Info banner */}
+          <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-start gap-3">
+            <ShieldCheck size={20} className="text-blue-600 shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-semibold text-blue-900">Conservazione sostitutiva a norma</p>
+              <p className="text-xs text-blue-700 mt-1">
+                I documenti fiscali (fatture elettroniche, corrispettivi, registri IVA) devono essere conservati per 10 anni dalla data di emissione,
+                secondo l'art. 2220 del Codice Civile e il D.M. 17/06/2014. Qui puoi monitorare lo stato di conservazione di tutti i documenti.
+              </p>
+            </div>
+          </div>
+
+          {/* Filters */}
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="relative flex-1 min-w-[220px]">
+                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Cerca per numero fattura, fornitore, cliente..."
+                  value={retentionSearch}
+                  onChange={(e) => setRetentionSearch(e.target.value)}
+                  className="w-full pl-9 pr-8 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+                {retentionSearch && (
+                  <button onClick={() => setRetentionSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
+              <div className="flex gap-1 bg-slate-100 rounded-lg p-0.5">
+                {[
+                  { key: 'all', label: 'Tutti' },
+                  { key: 'active', label: 'Attivi' },
+                  { key: 'expiring', label: 'In scadenza' },
+                  { key: 'expired', label: 'Scaduti' },
+                ].map(f => (
+                  <button
+                    key={f.key}
+                    onClick={() => setRetentionFilter(f.key)}
+                    className={`px-3 py-1.5 rounded-md text-xs font-semibold transition ${
+                      retentionFilter === f.key ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                    }`}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+              <span className="text-xs text-slate-400 ml-auto">{filteredRetention.length} risultati</span>
+            </div>
+          </div>
+
+          {/* Retention loading */}
+          {retentionLoading && (
+            <div className="text-center py-12">
+              <RefreshCw className="w-8 h-8 animate-spin text-blue-600 mx-auto mb-3" />
+              <p className="text-sm text-slate-500">Caricamento dati conservazione...</p>
+            </div>
+          )}
+
+          {/* Retention table */}
+          {!retentionLoading && (
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+              {filteredRetention.length === 0 ? (
+                <div className="text-center py-16">
+                  <ShieldCheck className="w-12 h-12 text-slate-300 mx-auto mb-4" />
+                  <p className="text-slate-500 font-medium">Nessun documento in conservazione</p>
+                  <p className="text-xs text-slate-400 mt-1">I documenti con periodo di conservazione appariranno qui</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead className="bg-slate-50 border-b border-slate-200">
+                      <tr>
+                        <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Documento</th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Tipo</th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Data doc.</th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Importo</th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Inizio cons.</th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Fine cons.</th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Stato</th>
+                        <th className="px-4 py-3 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Azioni</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {filteredRetention.map((doc) => {
+                        const status = getRetentionStatus(doc);
+                        const days = daysUntilExpiry(doc);
+                        const isInvoice = doc._source === 'invoice';
+                        const docLabel = isInvoice
+                          ? (doc.invoice_number || 'Fattura s/n')
+                          : (doc.title || doc.file_name || 'Documento');
+                        const subLabel = isInvoice
+                          ? (doc.direction === 'inbound' ? doc.supplier_name : doc.customer_name) || ''
+                          : (doc.category || '');
+
+                        return (
+                          <tr key={doc._source + '-' + doc.id} className="hover:bg-slate-50/60 transition group">
+                            <td className="px-4 py-3">
+                              <div className="flex items-center gap-3">
+                                <div className={`p-2 rounded-lg shrink-0 ${isInvoice ? 'bg-violet-50' : 'bg-slate-50'}`}>
+                                  {isInvoice ? <Receipt size={16} className="text-violet-500" /> : <FileText size={16} className="text-slate-500" />}
+                                </div>
+                                <div className="min-w-0">
+                                  <div className="text-sm font-medium text-slate-800 truncate max-w-xs">{docLabel}</div>
+                                  {subLabel && <div className="text-xs text-slate-400 truncate">{subLabel}</div>}
+                                </div>
+                              </div>
+                            </td>
+                            <td className="px-4 py-3">
+                              <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${isInvoice ? 'bg-violet-50 text-violet-700' : 'bg-slate-100 text-slate-600'}`}>
+                                {isInvoice ? (doc.direction === 'inbound' ? 'Fatt. passiva' : 'Fatt. attiva') : 'Documento'}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-sm text-slate-600 whitespace-nowrap">
+                              {formatDate(doc.invoice_date || doc.created_at)}
+                            </td>
+                            <td className="px-4 py-3 text-sm font-medium text-slate-800 whitespace-nowrap">
+                              {doc.total_amount ? `€ ${Number(doc.total_amount).toLocaleString('it-IT', { minimumFractionDigits: 2 })}` : '-'}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-slate-600 whitespace-nowrap">{formatDate(doc.retention_start)}</td>
+                            <td className="px-4 py-3 text-sm text-slate-600 whitespace-nowrap">{formatDate(doc.retention_end)}</td>
+                            <td className="px-4 py-3">
+                              {status === 'active' && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                  <Lock size={10} /> Conservato
+                                  {days !== null && <span className="text-emerald-500 ml-1">({Math.floor(days / 365)}a)</span>}
+                                </span>
+                              )}
+                              {status === 'expiring' && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200">
+                                  <AlertTriangle size={10} /> Scade tra {days}gg
+                                </span>
+                              )}
+                              {status === 'expired' && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-red-50 text-red-700 border border-red-200">
+                                  <Unlock size={10} /> Scaduto
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-4 py-3 text-right">
+                              <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition">
+                                {status === 'expired' && doc.retention_status !== 'extended' && (
+                                  <button
+                                    onClick={() => updateRetentionStatus(doc.id, doc._source, 'extended')}
+                                    className="px-2 py-1 rounded-lg text-xs font-medium bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200"
+                                    title="Estendi conservazione di 5 anni"
+                                  >
+                                    Estendi
+                                  </button>
+                                )}
+                                {status === 'expired' && (
+                                  <button
+                                    onClick={() => updateRetentionStatus(doc.id, doc._source, 'dismissed')}
+                                    className="px-2 py-1 rounded-lg text-xs font-medium bg-slate-50 text-slate-600 hover:bg-slate-100 border border-slate-200"
+                                    title="Archivia (cessata conservazione)"
+                                  >
+                                    Archivia
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+        </>
+      )}
+
+      {/* ═══════════ ARCHIVIO TAB (original content) ═══════════ */}
+      {activeTab === 'archivio' && (<>
       {/* KPI CARDS */}
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
         <div className="bg-white rounded-xl border border-slate-200 p-3 shadow-sm">
@@ -396,6 +740,8 @@ export default function ArchivioDocumenti() {
           )}
         </div>
       )}
+
+      </>)}
 
       {/* PREVIEW MODAL */}
       {previewDoc && (
