@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../hooks/useAuth'
+import PageHelp from '../components/PageHelp'
 import { usePeriod } from '../hooks/usePeriod'
 import { supabase } from '../lib/supabase'
 import { Link } from 'react-router-dom'
@@ -243,15 +244,26 @@ export default function Dashboard() {
               colore: OUTLET_COLORS[i % OUTLET_COLORS.length],
             })))
           } else {
-            // Fallback: aggregate daily_revenue per outlet for the year
+            // Fallback 2: aggregate daily_revenue per outlet for the year
             const yearStart = `${YEAR}-01-01`
             const yearEnd = `${YEAR}-12-31`
-            const { data: drAgg } = await supabase
-              .from('daily_revenue')
-              .select('outlet_id, gross_revenue, outlets(name)')
-              .eq('company_id', COMPANY_ID)
-              .gte('date', yearStart)
-              .lte('date', yearEnd)
+
+            // Fetch daily_revenue without FK join (may fail), and outlets separately
+            const [{ data: drAgg }, { data: outletsList }] = await Promise.all([
+              supabase
+                .from('daily_revenue')
+                .select('outlet_id, gross_revenue')
+                .eq('company_id', COMPANY_ID)
+                .gte('date', yearStart)
+                .lte('date', yearEnd),
+              supabase
+                .from('outlets')
+                .select('id, name')
+                .eq('company_id', COMPANY_ID)
+            ])
+
+            const outletNameMap = {}
+            ;(outletsList || []).forEach(o => { outletNameMap[o.id] = o.name })
 
             if (drAgg && drAgg.length > 0) {
               // Group by outlet_id and sum gross_revenue
@@ -259,7 +271,7 @@ export default function Dashboard() {
               drAgg.forEach(r => {
                 const oid = r.outlet_id
                 if (!outletMap[oid]) {
-                  outletMap[oid] = { name: r.outlets?.name || '?', ricavi: 0 }
+                  outletMap[oid] = { name: outletNameMap[oid] || '?', ricavi: 0 }
                 }
                 outletMap[oid].ricavi += parseFloat(r.gross_revenue) || 0
               })
@@ -271,8 +283,65 @@ export default function Dashboard() {
                 colore: OUTLET_COLORS[i % OUTLET_COLORS.length],
               })))
             }
+
+            // Fallback 3: use budget_entries revenue data per cost_center
+            if (!drAgg || drAgg.length === 0) {
+              const { data: budgetData } = await supabase
+                .from('budget_entries')
+                .select('cost_center, budget_amount')
+                .eq('company_id', COMPANY_ID)
+                .eq('year', YEAR)
+                .in('account_code', ['510107', '51010101', '510108', 'RIC001', 'RIC002', 'RIC003'])
+
+              if (budgetData && budgetData.length > 0) {
+                const bMap = {}
+                budgetData.forEach(r => {
+                  const cc = r.cost_center
+                  if (!bMap[cc]) bMap[cc] = { name: cc.charAt(0).toUpperCase() + cc.slice(1), ricavi: 0 }
+                  bMap[cc].ricavi += parseFloat(r.budget_amount) || 0
+                })
+                const sorted = Object.values(bMap).sort((a, b) => b.ricavi - a.ricavi)
+                if (sorted.length > 0) {
+                  setOutletsData(sorted.map((o, i) => ({
+                    name: o.name,
+                    ricavi: o.ricavi,
+                    dip: 0,
+                    colore: OUTLET_COLORS[i % OUTLET_COLORS.length],
+                  })))
+                }
+              }
+
+              // Fallback 3b: try with RIC% pattern and actual_amount for previous or current year
+              if (!budgetData || budgetData.length === 0) {
+                const { data: budgetRic } = await supabase
+                  .from('budget_entries')
+                  .select('cost_center, actual_amount, budget_amount')
+                  .eq('company_id', COMPANY_ID)
+                  .eq('year', YEAR)
+
+                if (budgetRic && budgetRic.length > 0) {
+                  const bMap = {}
+                  budgetRic.forEach(r => {
+                    const cc = r.cost_center
+                    if (!cc) return
+                    const amt = parseFloat(r.actual_amount) || parseFloat(r.budget_amount) || 0
+                    if (!bMap[cc]) bMap[cc] = { name: cc.charAt(0).toUpperCase() + cc.slice(1), ricavi: 0 }
+                    bMap[cc].ricavi += amt
+                  })
+                  const sorted = Object.values(bMap).sort((a, b) => b.ricavi - a.ricavi)
+                  if (sorted.length > 0) {
+                    setOutletsData(sorted.map((o, i) => ({
+                      name: o.name,
+                      ricavi: o.ricavi,
+                      dip: 0,
+                      colore: OUTLET_COLORS[i % OUTLET_COLORS.length],
+                    })))
+                  }
+                }
+              }
+            }
           }
-        } catch (e) {}
+        } catch (e) { console.warn('Outlet ranking fallback error:', e) }
 
         // 4. Cash position
         try {
@@ -730,6 +799,7 @@ export default function Dashboard() {
           </>
         )}
       </div>
+      <PageHelp page="dashboard" />
     </div>
   )
 }

@@ -23,6 +23,7 @@ const OpenToBuy = lazy(() => import('./pages/OpenToBuy'))
 const Produttivita = lazy(() => import('./pages/Produttivita'))
 const ScenarioPlanning = lazy(() => import('./pages/ScenarioPlanning'))
 const MarginiCategoria = lazy(() => import('./pages/MarginiCategoria'))
+const MarginiOutlet = lazy(() => import('./pages/MarginiOutlet'))
 const StoreManager = lazy(() => import('./pages/StoreManager'))
 const ImportHub = lazy(() => import('./pages/ImportHub'))
 const Fornitori = lazy(() => import('./pages/Fornitori'))
@@ -82,7 +83,8 @@ function AppRoutes() {
           <Route path="open-to-buy" element={<OpenToBuy />} />
           <Route path="produttivita" element={<Produttivita />} />
           <Route path="scenario" element={<ScenarioPlanning />} />
-          <Route path="margini" element={<MarginiCategoria />} />
+          <Route path="margini" element={<MarginiOutlet />} />
+          <Route path="margini-categoria" element={<MarginiCategoria />} />
           <Route path="store-manager" element={<StoreManager />} />
           <Route path="import-hub" element={<ImportHub />} />
           <Route path="fornitori" element={<Fornitori />} />

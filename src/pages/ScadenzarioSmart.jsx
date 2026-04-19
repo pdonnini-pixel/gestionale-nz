@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import PageHelp from '../components/PageHelp';
 import {
   Calendar, TrendingUp, TrendingDown, Filter, AlertCircle, Clock,
   DollarSign, BarChart3, Eye, EyeOff, ChevronDown, CheckCircle2,
@@ -903,7 +904,7 @@ const ScadenzarioSmart = () => {
               <div className="space-y-2">
                 {displayPayables.filter(p => p.status !== 'pagato' && p.status !== 'annullato').slice(0, 3).map(p => (
                   <div key={p.id} className="flex items-center justify-between text-sm">
-                    <span className="text-slate-600 truncate max-w-[200px]">{p.suppliers?.ragione_sociale || p.suppliers?.name || '—'}</span>
+                    <span className="text-slate-600 truncate max-w-[200px]" title={p.suppliers?.ragione_sociale || p.suppliers?.name || '—'}>{p.suppliers?.ragione_sociale || p.suppliers?.name || '—'}</span>
                     <span className="font-medium text-slate-800">{fmt(p.amount_remaining || p.gross_amount)} €</span>
                   </div>
                 ))}
@@ -1272,7 +1273,7 @@ const ScadenzarioSmart = () => {
             <div className="bg-white rounded-xl border border-slate-200/80 overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="w-full">
-                  <thead>
+                  <thead className="sticky top-0 bg-white z-10">
                     <tr className="border-b border-slate-100 text-[11px] text-slate-400 uppercase tracking-wider">
                       <th className="py-2.5 px-3 text-center w-10">
                         <button onClick={toggleSelectAll} className="text-slate-300 hover:text-slate-600">
@@ -1318,10 +1319,10 @@ const ScadenzarioSmart = () => {
                               );
                               setSupplierDetail(sup || { ragione_sociale: p.suppliers?.ragione_sociale || p.suppliers?.name || 'N/A' });
                             }} className="text-left">
-                              <div className="text-[13px] text-slate-800 hover:text-blue-600 font-medium truncate max-w-[220px]">
+                              <div className="text-[13px] text-slate-800 hover:text-blue-600 font-medium truncate max-w-[220px]" title={p.suppliers?.ragione_sociale || p.suppliers?.name || 'N/A'}>
                                 {p.suppliers?.ragione_sociale || p.suppliers?.name || 'N/A'}
                               </div>
-                              <div className="text-[10px] text-slate-400 mt-0.5 truncate max-w-[220px]">
+                              <div className="text-[10px] text-slate-400 mt-0.5 truncate max-w-[220px]" title={`Fattura • ${p.invoice_number || '—'}`}>
                                 Fattura • {p.invoice_number || '—'}
                               </div>
                             </button>
@@ -1388,7 +1389,7 @@ const ScadenzarioSmart = () => {
                                     <button key={c.id} onClick={() => handleSetCategory(p.id, c.id)}
                                       className={`w-full text-left px-3 py-1.5 text-xs hover:bg-slate-50 flex items-center gap-2 ${p.cost_category_id === c.id ? 'font-bold bg-slate-50' : ''}`}>
                                       <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: c.color }} />
-                                      <span className="truncate">{c.name}</span>
+                                      <span className="truncate" title={c.name}>{c.name}</span>
                                     </button>
                                   ))}
                                 </div>
@@ -1501,7 +1502,7 @@ const ScadenzarioSmart = () => {
                   </div>
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">
-                      <thead className="bg-slate-50 border-b border-slate-100">
+                      <thead className="sticky top-0 bg-slate-50 border-b border-slate-100 z-10">
                         <tr>
                           <th className="py-2 px-3 text-center w-10"></th>
                           <th className="py-2 px-4 text-left text-xs font-medium text-slate-600">Fattura</th>
@@ -1570,7 +1571,7 @@ const ScadenzarioSmart = () => {
                   </div>
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">
-                      <thead className="bg-slate-50 border-b border-slate-100">
+                      <thead className="sticky top-0 bg-slate-50 border-b border-slate-100 z-10">
                         <tr>
                           <th className="py-2 px-3 text-center w-10"></th>
                           <th className="py-2 px-4 text-left text-xs font-medium text-slate-600">Fornitore</th>
@@ -1868,7 +1869,7 @@ const ScadenzarioSmart = () => {
                       <div key={pIdx} className="px-4 py-2.5 bg-white hover:bg-slate-50/50">
                         <div className="flex items-center justify-between">
                           <div className="flex-1 min-w-0">
-                            <div className="text-sm font-medium text-slate-800 truncate">{p.fornitore}</div>
+                            <div className="text-sm font-medium text-slate-800 truncate" title={p.fornitore}>{p.fornitore}</div>
                             <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                               <span className="text-xs text-slate-500">Fatt. {p.fattura}</span>
                               {p.metodo && <span className="text-xs text-slate-400">• {p.metodo}</span>}
@@ -1932,6 +1933,7 @@ const ScadenzarioSmart = () => {
           </div>
         </Modal>
       )}
+      <PageHelp page="scadenzario" />
     </div>
   );
 };

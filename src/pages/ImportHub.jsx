@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import PageHelp from '../components/PageHelp';
 import {
   Upload,
   Database,
@@ -1429,6 +1430,7 @@ export default function ImportHub() {
           </div>
         </div>
       )}
+      <PageHelp page="import-hub" />
     </div>
   );
 }

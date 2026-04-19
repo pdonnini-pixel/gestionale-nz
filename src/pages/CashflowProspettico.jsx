@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import PageHelp from '../components/PageHelp';
 import {
   ComposedChart,
   Bar,
@@ -100,6 +101,7 @@ export default function CashflowProspettico() {
   const [rawRecurringCosts, setRawRecurringCosts] = useState([]);
   const [rawLoans, setRawLoans] = useState([]);
   const [rawBudgetConfronto, setRawBudgetConfronto] = useState([]);
+  const [rawBudgetRevenue, setRawBudgetRevenue] = useState([]);
 
   // Actual monthly data from cash_movements
   const [actualMonthlyData, setActualMonthlyData] = useState([]);
@@ -159,7 +161,8 @@ export default function CashflowProspettico() {
         { data: loansData },
         { data: outletsData },
         { data: payablesScadenze },
-        { data: dailyRevenueData }
+        { data: dailyRevenueData },
+        { data: budgetRevenueData }
       ] = await Promise.all([
         supabase
           .from('recurring_costs')
@@ -196,7 +199,14 @@ export default function CashflowProspettico() {
           .select('id, date, outlet_id, gross_revenue, net_revenue')
           .eq('company_id', COMPANY_ID)
           .gte('date', `${year}-01-01`)
-          .lte('date', `${year}-12-31`)
+          .lte('date', `${year}-12-31`),
+        // Budget entries for revenue accounts (account_code starts with '5')
+        supabase
+          .from('budget_entries')
+          .select('cost_center, account_code, budget_amount, month')
+          .eq('company_id', COMPANY_ID)
+          .eq('year', year)
+          .like('account_code', '5%')
       ]);
 
       // Store raw data for drill-down
@@ -206,6 +216,7 @@ export default function CashflowProspettico() {
       setRawRecurringCosts(recurringCosts || []);
       setRawLoans(loansData || []);
       setRawBudgetConfronto(budgetConfrontoData || []);
+      setRawBudgetRevenue(budgetRevenueData || []);
 
       // Filter by outlet if not 'all'
       let filteredOutlet = selectedOutlet === 'all' ? null : selectedOutlet;
@@ -241,13 +252,27 @@ export default function CashflowProspettico() {
         rate_finanziamenti: 0
       }));
 
-      // 3.1 Add budget revenues
+      // 3.1 Add budget revenues from budget_confronto
+      let hasConfrontoRevenue = false;
       if (budgetConfrontoData) {
         budgetConfrontoData.forEach(entry => {
           if (entry.entry_type === 'rev_monthly') {
+            hasConfrontoRevenue = true;
             const month = entry.month - 1; // 1-12 to 0-11
             if (!filteredOutlet || entry.cost_center === filteredOutlet) {
               monthData[month].entrate_budget += entry.amount || 0;
+            }
+          }
+        });
+      }
+
+      // 3.1b Fallback: use budget_entries revenue accounts (code starts with '5')
+      if (!hasConfrontoRevenue && budgetRevenueData && budgetRevenueData.length > 0) {
+        budgetRevenueData.forEach(entry => {
+          const month = (entry.month || 1) - 1; // 1-12 to 0-11
+          if (month >= 0 && month < 12) {
+            if (!filteredOutlet || entry.cost_center === filteredOutlet) {
+              monthData[month].entrate_budget += parseFloat(entry.budget_amount) || 0;
             }
           }
         });
@@ -496,14 +521,27 @@ export default function CashflowProspettico() {
 
     // Build budget-based daily revenue estimate (monthly budget / days in month)
     const monthlyBudgetRevenue = Array(12).fill(0);
+    let hasConfrontoRev = false;
     (rawBudgetConfronto || []).forEach(entry => {
       if (entry.entry_type === 'rev_monthly') {
+        hasConfrontoRev = true;
         const month = (entry.month || 1) - 1;
         if (!filteredOutlet || entry.cost_center === filteredOutlet) {
           monthlyBudgetRevenue[month] += entry.amount || 0;
         }
       }
     });
+    // Fallback: use budget_entries revenue accounts (code starts with '5')
+    if (!hasConfrontoRev && rawBudgetRevenue && rawBudgetRevenue.length > 0) {
+      rawBudgetRevenue.forEach(entry => {
+        const month = (entry.month || 1) - 1;
+        if (month >= 0 && month < 12) {
+          if (!filteredOutlet || entry.cost_center === filteredOutlet) {
+            monthlyBudgetRevenue[month] += parseFloat(entry.budget_amount) || 0;
+          }
+        }
+      });
+    }
 
     const today = new Date();
     const startDate = new Date(today);
@@ -564,12 +602,12 @@ export default function CashflowProspettico() {
     }
 
     return days;
-  }, [viewMode, rawDailyRevenue, rawPayables, rawOutlets, rawRecurringCosts, rawLoans, rawBudgetConfronto, initialBalance, selectedOutlet, scenario]);
+  }, [viewMode, rawDailyRevenue, rawPayables, rawOutlets, rawRecurringCosts, rawLoans, rawBudgetConfronto, rawBudgetRevenue, initialBalance, selectedOutlet, scenario]);
 
   // ===== WEEKLY VIEW COMPUTATION =====
   const weeklyData = useMemo(() => {
     if (viewMode !== 'settimanale') return [];
-    if (dailyData.length === 0) return []; // We reuse daily logic but extend to 13 weeks
+    // Note: weeklyData computes independently from raw data, NOT from dailyData
 
     const filteredOutlet = selectedOutlet === 'all' ? null : selectedOutlet;
     const multiplier = scenario === 'ottimistico' ? 1.1 : scenario === 'pessimistico' ? 0.9 : 1;
@@ -630,14 +668,27 @@ export default function CashflowProspettico() {
     });
 
     const monthlyBudgetRevenue = Array(12).fill(0);
+    let hasConfrontoRevW = false;
     (rawBudgetConfronto || []).forEach(entry => {
       if (entry.entry_type === 'rev_monthly') {
+        hasConfrontoRevW = true;
         const month = (entry.month || 1) - 1;
         if (!filteredOutlet || entry.cost_center === filteredOutlet) {
           monthlyBudgetRevenue[month] += entry.amount || 0;
         }
       }
     });
+    // Fallback: use budget_entries revenue accounts (code starts with '5')
+    if (!hasConfrontoRevW && rawBudgetRevenue && rawBudgetRevenue.length > 0) {
+      rawBudgetRevenue.forEach(entry => {
+        const month = (entry.month || 1) - 1;
+        if (month >= 0 && month < 12) {
+          if (!filteredOutlet || entry.cost_center === filteredOutlet) {
+            monthlyBudgetRevenue[month] += parseFloat(entry.budget_amount) || 0;
+          }
+        }
+      });
+    }
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -712,7 +763,7 @@ export default function CashflowProspettico() {
     }
 
     return weeks;
-  }, [viewMode, rawDailyRevenue, rawPayables, rawOutlets, rawRecurringCosts, rawLoans, rawBudgetConfronto, initialBalance, selectedOutlet, scenario]);
+  }, [viewMode, rawDailyRevenue, rawPayables, rawOutlets, rawRecurringCosts, rawLoans, rawBudgetConfronto, rawBudgetRevenue, initialBalance, selectedOutlet, scenario]);
 
   // Force daily computation for weekly view by making dailyData not depend on viewMode for weekly
   // Actually, weeklyData computes independently. Let's fix the dependency:
@@ -724,6 +775,25 @@ export default function CashflowProspettico() {
     if (viewMode === 'settimanale') return weeklyData;
     return monthlyData;
   }, [viewMode, dailyData, weeklyData, monthlyData]);
+
+  // ===== RECALCULATE KPIs FROM ACTIVE DATA =====
+  useEffect(() => {
+    if (!activeData || activeData.length === 0) return;
+
+    let totIn = 0, totOut = 0, negative = false;
+    activeData.forEach(row => {
+      // Monthly view uses tot_entrate/tot_uscite, daily/weekly uses entrate/uscite
+      totIn += row.tot_entrate || row.entrate || 0;
+      totOut += row.tot_uscite || row.uscite || 0;
+      if ((row.saldo_progressivo || 0) < 0) negative = true;
+    });
+
+    setTotalInflows(totIn);
+    setTotalOutflows(totOut);
+    const lastRow = activeData[activeData.length - 1];
+    setFinalBalance(lastRow?.saldo_progressivo || (initialBalance + totIn - totOut));
+    setHasNegativeMonth(negative);
+  }, [activeData, viewMode]);
 
   // ===== NEGATIVE ALERT COMPUTATION =====
   useEffect(() => {
@@ -1433,6 +1503,7 @@ function DrillDownPanel({ items, column, onClose }) {
           )}
         </div>
       )}
+      <PageHelp page="cashflow" />
     </div>
   );
 }

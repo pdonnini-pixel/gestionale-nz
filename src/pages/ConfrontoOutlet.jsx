@@ -354,10 +354,11 @@ export default function ConfrontoOutlet() {
 
   // Quota sede: calcola costi sede e ripartisci equamente tra outlet attivi
   const quotaSedePerOutlet = useMemo(() => {
-    const sedeEntries = budgetData.filter(b =>
-      (b.cost_center === 'SEDE' || b.cost_center === 'sede_magazzino' || b.cost_center === 'all') &&
-      (selectedMonths ? selectedMonths.includes(b.month) : true)
-    )
+    const sedeEntries = budgetData.filter(b => {
+      const cc = (b.cost_center || '').toLowerCase()
+      return (cc === 'sede' || cc === 'sede_magazzino' || cc === 'all') &&
+        (selectedMonths ? selectedMonths.includes(b.month) : true)
+    })
     const amountField = viewMode === 'actual' ? 'actual_amount' : 'budget_amount'
     const totalSede = sedeEntries.reduce((s, b) => s + Math.abs(b[amountField] || 0), 0)
     const activeOutlets = outlets.filter(o => o.code !== 'SEDE' && o.code !== 'sede_magazzino').length
@@ -371,12 +372,33 @@ export default function ConfrontoOutlet() {
     const amtBudget = 'budget_amount'
     const amtActual = 'actual_amount'
 
+    // Build a lookup: for each cost_center code in budget_entries, match to an outlet
+    // cost_centers.code may differ from budget_entries.cost_center (case, naming)
+    // We match case-insensitively and also try the outlet label (first word, lowercase)
+    const outletCodeToBudgetCC = {}
+    const allBudgetCCs = [...new Set(budgetData.map(b => b.cost_center))]
+
     return outlets
       .filter(o => o.code !== 'SEDE' && o.code !== 'sede_magazzino') // escludi sede dalla comparazione
       .map(outlet => {
+      // Match budget_entries cost_center to this outlet flexibly:
+      // Try exact match, then case-insensitive match on code, then on label first word
+      const outletCode = (outlet.code || '').toLowerCase()
+      const outletLabel = (outlet.label || '').split(' ')[0].toLowerCase()
+      const outletName = (outlet.name || '').toLowerCase()
+
+      const matchingCC = allBudgetCCs.find(cc => {
+        const ccLower = (cc || '').toLowerCase()
+        return ccLower === outletCode || ccLower === outletLabel || ccLower === outletName
+      }) || outlet.code // fallback to exact code
+
       // Filtra per periodo
       const outletBudget = budgetData
-        .filter(b => b.cost_center === outlet.code)
+        .filter(b => {
+          const ccLower = (b.cost_center || '').toLowerCase()
+          const matchCode = matchingCC ? ccLower === matchingCC.toLowerCase() : ccLower === outletCode
+          return matchCode
+        })
         .filter(b => selectedMonths ? selectedMonths.includes(b.month) : true)
 
       if (!outletBudget.length) {
@@ -385,24 +407,27 @@ export default function ConfrontoOutlet() {
 
       // Calcola sia budget che actual per confronto
       function calcMetrics(field) {
+        // Revenue: account_code starts with '5', or macro_group contains 'Ricavi'
         const ricavi = outletBudget
-          .filter(b => b.macro_group?.includes('Ricavi'))
+          .filter(b => b.account_code?.startsWith('5') || b.macro_group?.includes('Ricavi'))
           .reduce((sum, b) => sum + (b[field] || 0), 0)
 
+        // Costo personale: account_code starts with '6' (personale), or name matches
         const costoPersonale = outletBudget
-          .filter(b => b.account_code?.startsWith('6') || (b.macro_group?.includes('Costi') && b.account_name?.toLowerCase().match(/personal|dipendent|retrib|stipend/)))
+          .filter(b => b.account_code?.startsWith('6') || b.account_name?.toLowerCase().match(/personal|dipendent|retrib|stipend/))
           .reduce((sum, b) => sum + Math.abs(b[field] || 0), 0)
 
         const affitto = outletBudget
-          .filter(b => b.account_name?.toLowerCase().includes('affitto') || b.account_name?.toLowerCase().includes('godimento'))
+          .filter(b => b.account_name?.toLowerCase().match(/affitto|godimento|locazion/))
           .reduce((sum, b) => sum + Math.abs(b[field] || 0), 0)
 
         const servizi = outletBudget
           .filter(b => (b.account_name?.toLowerCase().includes('servizi') || b.account_name?.toLowerCase().includes('manut')))
           .reduce((sum, b) => sum + Math.abs(b[field] || 0), 0)
 
+        // Merci: account_code starts with '7', or macro_group contains Acquisti/Merci
         const merci = outletBudget
-          .filter(b => b.macro_group?.includes('Acquisti') || b.macro_group?.includes('Merci'))
+          .filter(b => b.account_code?.startsWith('7') || b.macro_group?.includes('Acquisti') || b.macro_group?.includes('Merci'))
           .reduce((sum, b) => sum + Math.abs(b[field] || 0), 0)
 
         return { ricavi, costoPersonale, affitto, servizi, merci }

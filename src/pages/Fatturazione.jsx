@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import PageHelp from '../components/PageHelp'
 import { supabase } from '../lib/supabase'
 import { useYapily } from '../hooks/useYapily'
 import {
@@ -238,7 +239,7 @@ function FatturePassive() {
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead>
+            <thead className="sticky top-0 bg-slate-50 z-10">
               <tr className="bg-slate-50 border-b border-slate-200">
                 <th className="text-left px-4 py-3 font-medium text-slate-600">Data</th>
                 <th className="text-left px-4 py-3 font-medium text-slate-600">Numero</th>
@@ -571,7 +572,7 @@ function FattureAttive() {
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead>
+            <thead className="sticky top-0 bg-slate-50 z-10">
               <tr className="bg-slate-50 border-b border-slate-200">
                 <th className="text-left px-4 py-3 font-medium text-slate-600">Data</th>
                 <th className="text-left px-4 py-3 font-medium text-slate-600">Numero</th>
@@ -737,20 +738,19 @@ function FattureAttive() {
 // ═══════════════════════════════════════════════════════════════════════
 
 function Corrispettivi() {
-  const [entries, setEntries] = useState([])
+  const [dailyRevenue, setDailyRevenue] = useState([])
   const [outlets, setOutlets] = useState([])
   const [loading, setLoading] = useState(true)
   const [selectedOutlet, setSelectedOutlet] = useState('ALL')
-  const [sendingDate, setSendingDate] = useState(null)
 
   const loadData = useCallback(async () => {
     setLoading(true)
     try {
-      const [{ data: corr }, { data: outs }] = await Promise.all([
-        supabase.from('corrispettivi_log').select('*, outlets(name)').order('date', { ascending: false }).limit(300),
+      const [{ data: revenue }, { data: outs }] = await Promise.all([
+        supabase.from('daily_revenue').select('*, outlets(name)').order('date', { ascending: false }).limit(500),
         supabase.from('outlets').select('id, name').order('name'),
       ])
-      setEntries(corr || [])
+      setDailyRevenue(revenue || [])
       setOutlets(outs || [])
     } catch (err) {
       console.error('Errore caricamento corrispettivi:', err)
@@ -761,41 +761,50 @@ function Corrispettivi() {
 
   useEffect(() => { loadData() }, [loadData])
 
-  // Invio corrispettivo per outlet + data
-  const handleSend = async (outletId, date) => {
-    setSendingDate(`${outletId}-${date}`)
-    try {
-      const result = await callEdgeFunction('corrispettivi-send', 'POST', { outletId, date })
-      if (result.data?.results?.[0]?.status === 'NO_DATA') {
-        alert(`Nessun dato ricavi per ${date}. Importa prima i dati POS.`)
-      } else {
-        alert(`Corrispettivo inviato (${result.data?.environment || 'TEST'})`)
-        loadData()
-      }
-    } catch (err) {
-      alert('Errore invio: ' + err.message)
-    } finally {
-      setSendingDate(null)
-    }
-  }
+  const filtered = dailyRevenue.filter(e => selectedOutlet === 'ALL' || e.outlet_id === selectedOutlet)
 
-  const filtered = entries.filter(e => selectedOutlet === 'ALL' || e.outlet_id === selectedOutlet)
+  // Aggregate by month + outlet
+  const monthlyData = filtered.reduce((acc, row) => {
+    const d = new Date(row.date)
+    const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+    const outletName = row.outlets?.name || 'Sconosciuto'
+    const key = `${monthKey}|${outletName}`
+    if (!acc[key]) {
+      acc[key] = { month: monthKey, outlet: outletName, grossRevenue: 0, netRevenue: 0, transactions: 0, days: 0, totalTicket: 0 }
+    }
+    acc[key].grossRevenue += Number(row.gross_revenue || 0)
+    acc[key].netRevenue += Number(row.net_revenue || 0)
+    acc[key].transactions += Number(row.transactions_count || 0)
+    acc[key].days += 1
+    acc[key].totalTicket += Number(row.avg_ticket || 0)
+    return acc
+  }, {})
+
+  const monthlyRows = Object.values(monthlyData).sort((a, b) => b.month.localeCompare(a.month) || a.outlet.localeCompare(b.outlet))
 
   const stats = {
-    total: entries.length,
-    sent: entries.filter(e => e.submission_status === 'SENT' || e.submission_status === 'ACCEPTED').length,
-    pending: entries.filter(e => e.submission_status === 'PENDING').length,
-    totalAmount: entries.reduce((s, e) => s + Number(e.total_amount || 0), 0),
+    total: dailyRevenue.length,
+    totalGross: dailyRevenue.reduce((s, e) => s + Number(e.gross_revenue || 0), 0),
+    totalTransactions: dailyRevenue.reduce((s, e) => s + Number(e.transactions_count || 0), 0),
+    avgTicket: dailyRevenue.length > 0
+      ? dailyRevenue.reduce((s, e) => s + Number(e.avg_ticket || 0), 0) / dailyRevenue.length
+      : 0,
+  }
+
+  const fmtMonth = (m) => {
+    const [y, mo] = m.split('-')
+    const monthNames = ['Gen','Feb','Mar','Apr','Mag','Giu','Lug','Ago','Set','Ott','Nov','Dic']
+    return `${monthNames[parseInt(mo) - 1]} ${y}`
   }
 
   return (
     <div className="space-y-4">
       {/* KPI */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <KpiCard icon={Store} label="Corrispettivi" value={stats.total} color="blue" />
-        <KpiCard icon={Euro} label="Totale" value={`€ ${fmt(stats.totalAmount)}`} color="green" />
-        <KpiCard icon={Send} label="Inviati" value={stats.sent} color="green" />
-        <KpiCard icon={Clock} label="Da inviare" value={stats.pending} color="amber" />
+        <KpiCard icon={Store} label="Giorni registrati" value={stats.total} sub={`${new Set(dailyRevenue.map(r => r.outlet_id)).size} outlet`} color="blue" />
+        <KpiCard icon={Euro} label="Incasso lordo totale" value={`${fmt(stats.totalGross)}`} color="green" />
+        <KpiCard icon={Hash} label="Transazioni totali" value={stats.totalTransactions.toLocaleString('it-IT')} color="amber" />
+        <KpiCard icon={BarChart3} label="Scontrino medio" value={`${fmt(stats.avgTicket)}`} color="slate" />
       </div>
 
       {/* Toolbar */}
@@ -812,58 +821,52 @@ function Corrispettivi() {
           <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
         </button>
         <div className="flex-1" />
-        <div className="text-xs text-slate-400">I corrispettivi vengono generati automaticamente dai dati POS importati</div>
+        <div className="text-xs text-slate-400">Dati da daily_revenue (incassi POS giornalieri per outlet)</div>
       </div>
 
-      {/* Tabella */}
+      {/* Tabella riepilogo mensile */}
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead>
+            <thead className="sticky top-0 bg-slate-50 z-10">
               <tr className="bg-slate-50 border-b border-slate-200">
-                <th className="text-left px-4 py-3 font-medium text-slate-600">Data</th>
+                <th className="text-left px-4 py-3 font-medium text-slate-600">Mese</th>
                 <th className="text-left px-4 py-3 font-medium text-slate-600">Outlet</th>
-                <th className="text-left px-4 py-3 font-medium text-slate-600">Dispositivo</th>
-                <th className="text-right px-4 py-3 font-medium text-slate-600">Importo</th>
-                <th className="text-center px-4 py-3 font-medium text-slate-600">Stato</th>
-                <th className="text-center px-4 py-3 font-medium text-slate-600">Azioni</th>
+                <th className="text-right px-4 py-3 font-medium text-slate-600">Incasso Lordo</th>
+                <th className="text-right px-4 py-3 font-medium text-slate-600">Transazioni</th>
+                <th className="text-right px-4 py-3 font-medium text-slate-600">Scontrino Medio</th>
+                <th className="text-right px-4 py-3 font-medium text-slate-600">Giorni</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr><td colSpan={6} className="text-center py-12 text-slate-400"><Loader2 size={24} className="animate-spin mx-auto mb-2" />Caricamento...</td></tr>
-              ) : filtered.length === 0 ? (
+              ) : monthlyRows.length === 0 ? (
                 <tr><td colSpan={6} className="text-center py-12 text-slate-400">
                   <BarChart3 size={32} className="mx-auto mb-2 text-slate-300" />
-                  Nessun corrispettivo. Importa i dati POS per generarli.
+                  Nessun corrispettivo. Importa i dati POS per visualizzarli.
                 </td></tr>
-              ) : filtered.map(entry => (
-                <tr key={entry.id} className="border-b border-slate-100 hover:bg-slate-50/50 transition">
-                  <td className="px-4 py-3 text-slate-600">{fmtDate(entry.date)}</td>
-                  <td className="px-4 py-3 font-medium text-slate-800">{entry.outlets?.name || '—'}</td>
-                  <td className="px-4 py-3 text-slate-600 font-mono text-xs">{entry.device_serial || '—'}</td>
-                  <td className="px-4 py-3 text-right font-semibold text-slate-900">{fmt(entry.total_amount)}</td>
-                  <td className="px-4 py-3 text-center"><StatusBadge status={entry.submission_status || 'PENDING'} configMap={CORR_STATUS_CONFIG} /></td>
-                  <td className="px-4 py-3 text-center">
-                    {(entry.submission_status === 'PENDING' || entry.submission_status === 'ERROR') && (
-                      <button
-                        onClick={() => handleSend(entry.outlet_id, entry.date)}
-                        disabled={sendingDate === `${entry.outlet_id}-${entry.date}`}
-                        className="p-1.5 text-slate-400 hover:text-green-600 rounded transition disabled:opacity-50"
-                        title="Invia a AdE"
-                      >
-                        {sendingDate === `${entry.outlet_id}-${entry.date}` ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
-                      </button>
-                    )}
-                    {entry.ade_receipt_id && (
-                      <span className="text-xs text-slate-400 font-mono">{entry.ade_receipt_id.substring(0, 15)}</span>
-                    )}
-                  </td>
-                </tr>
-              ))}
+              ) : monthlyRows.map((row, i) => {
+                const avgTicket = row.transactions > 0 ? row.grossRevenue / row.transactions : (row.days > 0 ? row.totalTicket / row.days : 0)
+                return (
+                  <tr key={`${row.month}-${row.outlet}`} className="border-b border-slate-100 hover:bg-slate-50/50 transition">
+                    <td className="px-4 py-3 font-medium text-slate-800">{fmtMonth(row.month)}</td>
+                    <td className="px-4 py-3 text-slate-700">{row.outlet}</td>
+                    <td className="px-4 py-3 text-right font-semibold text-slate-900">{fmt(row.grossRevenue)}</td>
+                    <td className="px-4 py-3 text-right text-slate-700">{row.transactions.toLocaleString('it-IT')}</td>
+                    <td className="px-4 py-3 text-right text-slate-600">{fmt(avgTicket)}</td>
+                    <td className="px-4 py-3 text-right text-slate-500">{row.days}</td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>
+        {!loading && monthlyRows.length > 0 && (
+          <div className="px-4 py-2 bg-slate-50 text-xs text-slate-500 border-t border-slate-200">
+            {monthlyRows.length} righe mensili da {filtered.length} record giornalieri
+          </div>
+        )}
       </div>
     </div>
   )
@@ -904,7 +907,7 @@ export default function Fatturazione() {
           <h1 className="text-2xl font-bold text-slate-900">Fatturazione Elettronica</h1>
           <p className="text-sm text-slate-500 mt-1">
             Gestione fatture SDI, emissione e corrispettivi telematici
-            {sdiStats?.config && (
+            {sdiStats?.config && (sdiStats.config.environment === 'PRODUCTION' || import.meta.env.DEV) && (
               <span className={`ml-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
                 sdiStats.config.environment === 'PRODUCTION' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'
               }`}>
@@ -943,6 +946,7 @@ export default function Fatturazione() {
       {activeTab === 'passive' && <FatturePassive />}
       {activeTab === 'active' && <FattureAttive />}
       {activeTab === 'corrispettivi' && <Corrispettivi />}
+      <PageHelp page="fatturazione" />
     </div>
   )
 }

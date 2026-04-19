@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import PageHelp from '../components/PageHelp';
 import {
   Building2, Search, Plus, Edit3, Trash2, FileText, Phone, Mail, MapPin,
   CreditCard, Clock, AlertTriangle, CheckCircle, ChevronDown, ChevronUp,
@@ -485,7 +486,7 @@ export default function Fornitori() {
           <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
             {/* Table */}
             <table className="w-full text-sm">
-              <thead className="bg-slate-50 border-b border-slate-200">
+              <thead className="sticky top-0 bg-slate-50 border-b border-slate-200 z-10">
                 <tr>
                   <th className="px-3 py-2.5 text-left text-xs font-semibold text-slate-600 cursor-pointer" onClick={() => toggleSort('ragione_sociale')}>
                     <span className="flex items-center gap-1">Fornitore <ArrowUpDown size={11} /></span>
@@ -541,8 +542,8 @@ export default function Fornitori() {
                           <div className="flex items-center gap-2">
                             <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${s.is_active !== false ? 'bg-emerald-400' : 'bg-slate-300'}`} />
                             <div className="min-w-0">
-                              <div className="font-medium text-slate-800 truncate">{name}</div>
-                              <div className="text-xs text-slate-400 truncate">
+                              <div className="font-medium text-slate-800 truncate" title={name}>{name}</div>
+                              <div className="text-xs text-slate-400 truncate" title={[s.citta, s.provincia ? `(${s.provincia})` : ''].filter(Boolean).join(' ') || (s.email || s.pec || '')}>
                                 {[s.citta, s.provincia ? `(${s.provincia})` : ''].filter(Boolean).join(' ') || (s.email || s.pec || '')}
                               </div>
                             </div>
@@ -706,7 +707,7 @@ export default function Fornitori() {
                                             <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
                                               pay.status === 'pagato' ? 'bg-emerald-400' : pay.status === 'scaduto' ? 'bg-red-400' : 'bg-amber-400'
                                             }`} />
-                                            <span className="font-medium text-slate-700 truncate">{pay.invoice_number}</span>
+                                            <span className="font-medium text-slate-700 truncate" title={pay.invoice_number}>{pay.invoice_number}</span>
                                             <span className="text-slate-400">{pay.due_date ? new Date(pay.due_date).toLocaleDateString('it-IT') : ''}</span>
                                           </div>
                                           <span className="font-semibold text-slate-700 shrink-0 ml-2">€ {(parseFloat(pay.gross_amount) || 0).toLocaleString('it-IT', { minimumFractionDigits: 2 })}</span>
@@ -803,7 +804,7 @@ export default function Fornitori() {
                 <h3 className="text-sm font-semibold text-slate-700 mb-4">Analisi aging fornitori</h3>
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
-                    <thead>
+                    <thead className="sticky top-0 bg-white z-10">
                       <tr className="border-b border-slate-200">
                         <th className="text-left py-2 px-3 text-xs font-semibold text-slate-500 uppercase">Fornitore</th>
                         <th className="text-right py-2 px-3 text-xs font-semibold text-slate-500 uppercase">Totale</th>
@@ -979,6 +980,7 @@ export default function Fornitori() {
           {toast.msg}
         </div>
       )}
+      <PageHelp page="fornitori" />
     </div>
   );
 }

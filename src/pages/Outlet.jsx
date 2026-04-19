@@ -1,4 +1,5 @@
 import { useState, useEffect, lazy, Suspense } from 'react'
+import PageHelp from '../components/PageHelp'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import {
@@ -1813,36 +1814,53 @@ export default function Outlet() {
       }
 
       // Carica ricavi da budget_entries (ricavi consuntivo per outlet)
-      const { data: budgetData, error: budgetErr } = await supabase
-        .from('budget_entries')
-        .select('cost_center, month, actual_amount, account_code')
-        .eq('company_id', profile?.company_id)
-        .eq('year', currentYear - 1)
-        .like('account_code', 'RIC%')
+      // Mappa bidirezionale: codice outlet (BRB) ↔ codice cost_center (barberino)
+      const COST_CENTER_MAP = {
+        'barberino': 'BRB', 'brugnato': 'BRG', 'franciacorta': 'FRC',
+        'palmanova': 'PLM', 'torino': 'TRN', 'valdichiana': 'VDC',
+        'valmontone': 'VLM', 'sede_magazzino': 'SEDE',
+      }
 
-      if (!budgetErr && budgetData) {
-        // Mappa bidirezionale: codice outlet (BRB) ↔ codice cost_center (barberino)
-        const COST_CENTER_MAP = {
-          'barberino': 'BRB', 'brugnato': 'BRG', 'franciacorta': 'FRC',
-          'palmanova': 'PLM', 'torino': 'TRN', 'valdichiana': 'VDC',
-          'valmontone': 'VLM', 'sede_magazzino': 'SEDE',
+      // Also map outlet name (lowercase) → outlet id
+      const codeToId = {}
+      const nameToId = {}
+      ;(outData || []).forEach(o => {
+        codeToId[o.code] = o.id
+        nameToId[(o.name || '').toLowerCase()] = o.id
+      })
+
+      // Try current year first, then previous year
+      let budgetData = null
+      for (const yr of [currentYear, currentYear - 1]) {
+        const { data, error: budgetErr } = await supabase
+          .from('budget_entries')
+          .select('cost_center, month, actual_amount, budget_amount, account_code')
+          .eq('company_id', profile?.company_id)
+          .eq('year', yr)
+
+        if (!budgetErr && data && data.length > 0) {
+          budgetData = data
+          break
         }
+      }
 
-        // Mappa code outlet → id outlet (sia codice diretto che mappato)
-        const codeToId = {}
-        ;(outData || []).forEach(o => { codeToId[o.code] = o.id })
-
+      if (budgetData && budgetData.length > 0) {
         const grouped = {}
         budgetData.forEach(r => {
-          // Prova match diretto, altrimenti usa la mappa
+          // Prova match diretto con code, poi con mappa, poi con nome outlet
           let outletId = codeToId[r.cost_center]
           if (!outletId) {
             const mappedCode = COST_CENTER_MAP[r.cost_center]
             if (mappedCode) outletId = codeToId[mappedCode]
           }
+          if (!outletId) {
+            outletId = nameToId[(r.cost_center || '').toLowerCase()]
+          }
           if (!outletId) return
+          const amount = parseFloat(r.actual_amount) || parseFloat(r.budget_amount) || 0
+          if (amount === 0) return
           if (!grouped[outletId]) grouped[outletId] = {}
-          grouped[outletId][r.month] = (grouped[outletId][r.month] || 0) + (r.actual_amount || 0)
+          grouped[outletId][r.month] = (grouped[outletId][r.month] || 0) + amount
         })
         setRevenue(grouped)
       }
@@ -2123,6 +2141,7 @@ export default function Outlet() {
           </div>
         </div>
       )}
+      <PageHelp page="outlet" />
     </div>
   )
 }

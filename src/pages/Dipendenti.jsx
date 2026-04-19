@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, lazy, Suspense } from 'react';
+import PageHelp from '../components/PageHelp';
 import {
   ChevronDown,
   ChevronUp,
@@ -1375,6 +1376,7 @@ export default function Dipendenti() {
           </div>
         )}
       </div>
+      <PageHelp page="dipendenti" />
     </div>
   );
 }

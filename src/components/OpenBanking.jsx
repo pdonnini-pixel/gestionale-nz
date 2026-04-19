@@ -38,29 +38,37 @@ function ModalSelezionaBanca({ isOpen, onClose, onSelect }) {
   const { fetchInstitutions, loading } = useYapily()
   const [institutions, setInstitutions] = useState([])
   const [search, setSearch] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
   const [loaded, setLoaded] = useState(false)
 
   useEffect(() => {
     if (isOpen && !loaded) {
-      fetchInstitutions().then(data => {
-        setInstitutions(data)
+      fetchInstitutions('IT').then(data => {
+        setInstitutions(data || [])
         setLoaded(true)
       })
     }
   }, [isOpen, loaded, fetchInstitutions])
 
+  // Debounce search input (300ms)
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(search), 300)
+    return () => clearTimeout(timer)
+  }, [search])
+
   // Reset when closed
   useEffect(() => {
     if (!isOpen) {
       setSearch('')
+      setDebouncedSearch('')
     }
   }, [isOpen])
 
   if (!isOpen) return null
 
   const filtered = institutions.filter(i =>
-    (i.name || '').toLowerCase().includes(search.toLowerCase()) ||
-    (i.fullName || '').toLowerCase().includes(search.toLowerCase())
+    (i.name || '').toLowerCase().includes(debouncedSearch.toLowerCase()) ||
+    (i.fullName || '').toLowerCase().includes(debouncedSearch.toLowerCase())
   )
 
   return (

@@ -445,7 +445,7 @@ export default function AICategorization({ companyId }) {
                     : a.anomaly_type === 'overdue_payable' ? 'Scadenza non pagata'
                     : a.anomaly_type}
                   </div>
-                  <div className="text-xs text-slate-500 truncate">{a.description}</div>
+                  <div className="text-xs text-slate-500 truncate" title={a.description}>{a.description}</div>
                   <div className="text-[10px] text-slate-400 mt-0.5">{fmtDate(a.detected_at)}</div>
                 </div>
                 {a.amount && (
@@ -510,7 +510,7 @@ export default function AICategorization({ companyId }) {
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead>
+              <thead className="sticky top-0 bg-white z-10">
                 <tr className="border-b border-slate-100 text-[11px] text-slate-400 uppercase tracking-wider">
                   <th className="py-2.5 px-4 text-left font-medium">Data</th>
                   <th className="py-2.5 px-4 text-left font-medium">Descrizione</th>

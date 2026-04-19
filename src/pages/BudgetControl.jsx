@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react'
 import { useAuth } from '../hooks/useAuth'
+import PageHelp from '../components/PageHelp'
 import {
   Calculator, ChevronDown, ChevronUp,
   Store, Building2, Save, Trash2,
@@ -1310,6 +1311,7 @@ function ConfrontoPanel({ outletCode, outletLabel, prevEdits, consEdits, onConsE
           </div>
         )}
       </div>
+      <PageHelp page="budget" />
     </div>
   )
 }

@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
+import PageHelp from '../components/PageHelp'
 import {
   Landmark, Building2, Wallet, CreditCard, TrendingUp,
   Search, ChevronDown, ChevronUp, Banknote, Store,
@@ -1081,7 +1082,7 @@ function SezioneMovimenti({ transactions, accounts, suppliers, search }) {
                       {t.transaction_date ? new Date(t.transaction_date).toLocaleDateString('it-IT') : '—'}
                     </td>
                     <td className="py-2 px-4 text-xs text-slate-500">{getAccountName(t.bank_account_id)}</td>
-                    <td className="py-2 px-4 text-slate-900 max-w-64 truncate">{t.description || '—'}</td>
+                    <td className="py-2 px-4 text-slate-900 max-w-64 truncate" title={t.description || '—'}>{t.description || '—'}</td>
                     <td className="py-2 px-4 text-slate-500 text-xs">{t.counterpart || '—'}</td>
                     <td className="py-2 px-4 text-right text-red-600 font-medium">
                       {t.amount < 0 ? fmt(Math.abs(t.amount)) : ''}
@@ -1907,7 +1908,7 @@ function SezioneRiconciliazione({ companyId, accounts }) {
 
                                   {/* Supplier */}
                                   <div className="flex-1 min-w-0">
-                                    <div className="text-sm font-medium text-slate-800 truncate">{supplierName}</div>
+                                    <div className="text-sm font-medium text-slate-800 truncate" title={supplierName}>{supplierName}</div>
                                     <div className="text-xs text-slate-500 flex items-center gap-2">
                                       <span>Fatt. {cPayable?.invoice_number || '—'}</span>
                                       <span>·</span>
@@ -2564,6 +2565,7 @@ export default function Banche() {
         }}
         onSave={handleSaveLoan}
       />
+      <PageHelp page="tesoreria" />
     </div>
   )
 }

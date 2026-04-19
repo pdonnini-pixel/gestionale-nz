@@ -1,531 +1,396 @@
-import { useState, useMemo } from 'react';
-import { TrendingUp, AlertCircle, BarChart3, Target } from 'lucide-react';
-import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { useState, useEffect, useMemo } from 'react';
+import { TrendingUp, AlertCircle, Target, Loader2, ToggleLeft, ToggleRight } from 'lucide-react';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { GlassTooltip, AXIS_STYLE, GRID_STYLE } from '../components/ChartTheme';
+import { supabase } from '../lib/supabase';
+import { useAuth } from '../hooks/useAuth';
 
 function fmt(n, dec = 0) {
   return new Intl.NumberFormat('it-IT', { minimumFractionDigits: dec, maximumFractionDigits: dec }).format(n);
 }
 
-const REFERENCE_DATA = {
-  avgRent: 55000,
-  avgPersonnel: 88000,
-  avgServices: 35000,
-  merciIncidence: 0.54,
-  sedeBaseCosts: 354684,
-  currentOutlets: 7,
-  companyRevenue2025: 2324000,
-  companyProfit2025: 14441,
-};
-
-const SCENARIOS = {
-  Conservative: {
-    nome: 'Outlet Conservativo',
-    localita: 'Torino',
-    dipendenti: 4,
-    affitto: 50000,
-    capex: 45000,
-    ricaviAnno1: 350000,
-    crescitaAnno2: 0.12,
-    crescitaAnno3: 0.10,
-    costoPersonale: 18000,
-    merciIncidence: 0.54,
-  },
-  Moderate: {
-    nome: 'Outlet Standard',
-    localita: 'Milano',
-    dipendenti: 5,
-    affitto: 55000,
-    capex: 60000,
-    ricaviAnno1: 480000,
-    crescitaAnno2: 0.18,
-    crescitaAnno3: 0.15,
-    costoPersonale: 18000,
-    merciIncidence: 0.54,
-  },
-  Aggressive: {
-    nome: 'Outlet Premium',
-    localita: 'Roma',
-    dipendenti: 6,
-    affitto: 65000,
-    capex: 80000,
-    ricaviAnno1: 620000,
-    crescitaAnno2: 0.25,
-    crescitaAnno3: 0.20,
-    costoPersonale: 19000,
-    merciIncidence: 0.53,
-  },
-};
-
 export default function ScenarioPlanning() {
-  const [inputs, setInputs] = useState({
-    nome: 'Nuovo Outlet',
-    localita: 'Città',
-    dipendenti: 4,
-    affitto: 55000,
-    capex: 60000,
-    ricaviAnno1: 480000,
-    crescitaAnno2: 0.18,
-    crescitaAnno3: 0.15,
-    costoPersonale: 18000,
-    merciIncidence: 0.54,
-  });
+  const { profile } = useAuth();
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [year, setYear] = useState(2026);
+  const [rawEntries, setRawEntries] = useState([]);
 
-  const handleInputChange = (field, value) => {
-    setInputs(prev => ({ ...prev, [field]: value }));
-  };
+  // Scenario sliders
+  const [varRicavi, setVarRicavi] = useState(0);       // -30 to +30 %
+  const [varPersonale, setVarPersonale] = useState(0);  // -30 to +30 %
+  const [nuovoOutlet, setNuovoOutlet] = useState(false);
 
-  const applyScenario = (scenario) => {
-    setInputs(SCENARIOS[scenario]);
-  };
+  // Fetch budget_entries
+  useEffect(() => {
+    async function fetchData() {
+      setLoading(true);
+      setError(null);
+      try {
+        const companyId = profile?.company_id;
+        let query = supabase
+          .from('budget_entries')
+          .select('cost_center, account_code, budget_amount')
+          .eq('year', year);
 
-  const calculations = useMemo(() => {
-    const { dipendenti, affitto, capex, ricaviAnno1, crescitaAnno2, crescitaAnno3, costoPersonale, merciIncidence } = inputs;
+        if (companyId) query = query.eq('company_id', companyId);
 
-    // Annual fixed costs
-    const costiPersonale = dipendenti * costoPersonale;
-    const costiServizi = (affitto / REFERENCE_DATA.avgRent) * REFERENCE_DATA.avgServices;
-    const newSedeTotal = REFERENCE_DATA.sedeBaseCosts;
-    const newOutletCount = REFERENCE_DATA.currentOutlets + 1;
-    const quotaSede = newSedeTotal / newOutletCount;
-
-    const costiAnnuali = costiPersonale + affitto + costiServizi + quotaSede;
-
-    // 3-year projection
-    const years = [
-      {
-        anno: 1,
-        ricavi: ricaviAnno1,
-        merci: ricaviAnno1 * merciIncidence,
-        personale: costiPersonale,
-        affitto: affitto,
-        servizi: costiServizi,
-        quotaSede: quotaSede,
-      },
-      {
-        anno: 2,
-        ricavi: ricaviAnno1 * (1 + crescitaAnno2),
-        merci: ricaviAnno1 * (1 + crescitaAnno2) * merciIncidence,
-        personale: costiPersonale,
-        affitto: affitto,
-        servizi: costiServizi,
-        quotaSede: quotaSede,
-      },
-      {
-        anno: 3,
-        ricavi: ricaviAnno1 * (1 + crescitaAnno2) * (1 + crescitaAnno3),
-        merci: ricaviAnno1 * (1 + crescitaAnno2) * (1 + crescitaAnno3) * merciIncidence,
-        personale: costiPersonale,
-        affitto: affitto,
-        servizi: costiServizi,
-        quotaSede: quotaSede,
-      },
-    ];
-
-    years.forEach(year => {
-      year.costiTotali = year.merci + year.personale + year.affitto + year.servizi + year.quotaSede;
-      year.margine = year.ricavi - year.costiTotali;
-    });
-
-    // Breakeven revenue
-    const breakeven = costiAnnuali / (1 - merciIncidence);
-
-    // Payback period (months)
-    let paybackMonths = null;
-    let cumulativeProfit = 0;
-    for (let m = 0; m < 36; m++) {
-      const anno = Math.floor(m / 12) + 1;
-      const yearData = years[anno - 1];
-      const monthlyProfit = yearData.margine / 12;
-      cumulativeProfit += monthlyProfit;
-      if (cumulativeProfit > capex && paybackMonths === null) {
-        paybackMonths = m + 1;
+        const { data, error: fetchError } = await query;
+        if (fetchError) throw fetchError;
+        setRawEntries(data || []);
+      } catch (err) {
+        console.error('[ScenarioPlanning] fetch error:', err);
+        setError(err.message);
+      } finally {
+        setLoading(false);
       }
     }
+    fetchData();
+  }, [year, profile?.company_id]);
 
-    // Cumulative cash flow for chart (36 months)
-    const cashFlowData = [];
-    cumulativeProfit = -capex;
-    for (let m = 0; m < 36; m++) {
-      const anno = Math.floor(m / 12) + 1;
-      const yearData = years[anno - 1];
-      const monthlyProfit = yearData.margine / 12;
-      cumulativeProfit += monthlyProfit;
-      cashFlowData.push({
-        mese: m + 1,
-        cumulative: cumulativeProfit,
-        monthly: monthlyProfit,
-      });
-    }
+  // Compute baseline totals
+  const baseline = useMemo(() => {
+    let ricaviTotali = 0;
+    let costiPersonale = 0;
+    let costiTotali = 0;
+    let outletCount = new Set();
 
-    // ROI
-    const totalProfit3Yr = years.reduce((sum, y) => sum + y.margine, 0);
-    const roi = (totalProfit3Yr / capex) * 100;
+    rawEntries.forEach(row => {
+      const code = (row.account_code || '').toString();
+      const amount = parseFloat(row.budget_amount) || 0;
+      if (row.cost_center) outletCount.add(row.cost_center);
 
-    // Company impact
-    const oldSedeQuota = REFERENCE_DATA.sedeBaseCosts / REFERENCE_DATA.currentOutlets;
-    const sedaSaving = (oldSedeQuota - quotaSede) * REFERENCE_DATA.currentOutlets;
-    const newCompanyRevenue = REFERENCE_DATA.companyRevenue2025 + ricaviAnno1;
-    const newCompanyMargin = REFERENCE_DATA.companyProfit2025 + years[0].margine + sedaSaving;
+      if (code.startsWith('5')) {
+        ricaviTotali += amount;
+      }
+      if (code.startsWith('63')) {
+        costiPersonale += amount;
+      }
+      if (code.startsWith('6') || code.startsWith('7')) {
+        costiTotali += amount;
+      }
+    });
 
-    // Comparison data
-    const newOutletRevenuePerEmployee = ricaviAnno1 / dipendenti;
-    const avgOutletRevenue = REFERENCE_DATA.companyRevenue2025 / REFERENCE_DATA.currentOutlets;
-    const avgRevenuePerEmployee = avgOutletRevenue / 5; // avg 5 employees
-
-    const comparisonData = [
-      {
-        nome: 'Nuovo Outlet',
-        ricaviPerDip: newOutletRevenuePerEmployee,
-        marginePercent: ((years[0].margine / ricaviAnno1) * 100),
-      },
-      {
-        nome: 'Media Outlet',
-        ricaviPerDip: avgRevenuePerEmployee,
-        marginePercent: ((REFERENCE_DATA.companyProfit2025 / REFERENCE_DATA.companyRevenue2025) * 100),
-      },
-    ];
+    const numOutlet = outletCount.size || 1;
+    const avgRicaviOutlet = ricaviTotali / numOutlet;
+    const avgCostiOutlet = costiTotali / numOutlet;
+    const avgPersonaleOutlet = costiPersonale / numOutlet;
 
     return {
-      costiAnnuali,
-      breakeven,
-      paybackMonths,
-      roi,
-      years,
-      cashFlowData,
-      oldSedeQuota,
-      newSedeQuota: quotaSede,
-      sedaSaving,
-      newCompanyRevenue,
-      newCompanyMargin,
-      comparisonData,
-      totalProfit3Yr,
+      ricaviTotali,
+      costiPersonale,
+      costiTotali,
+      numOutlet,
+      avgRicaviOutlet,
+      avgCostiOutlet,
+      avgPersonaleOutlet,
+      utile: ricaviTotali - costiTotali,
     };
-  }, [inputs]);
+  }, [rawEntries]);
+
+  // Compute scenario
+  const scenario = useMemo(() => {
+    const ricaviAdj = baseline.ricaviTotali * (1 + varRicavi / 100);
+    const personaleAdj = baseline.costiPersonale * (1 + varPersonale / 100);
+    // Non-staff costs stay the same
+    const altriCosti = baseline.costiTotali - baseline.costiPersonale;
+    let costiAdj = personaleAdj + altriCosti;
+    let ricaviTot = ricaviAdj;
+
+    // Nuovo outlet: add average outlet revenue and costs
+    if (nuovoOutlet) {
+      ricaviTot += baseline.avgRicaviOutlet;
+      costiAdj += baseline.avgCostiOutlet;
+    }
+
+    const utileSimulato = ricaviTot - costiAdj;
+    const deltaUtile = utileSimulato - baseline.utile;
+    const deltaPercent = baseline.utile !== 0 ? (deltaUtile / Math.abs(baseline.utile)) * 100 : 0;
+
+    return {
+      ricavi: ricaviTot,
+      costi: costiAdj,
+      utile: utileSimulato,
+      deltaUtile,
+      deltaPercent,
+    };
+  }, [baseline, varRicavi, varPersonale, nuovoOutlet]);
+
+  // Chart data: Base vs Scenario
+  const chartData = useMemo(() => [
+    {
+      nome: 'Base',
+      Ricavi: Math.round(baseline.ricaviTotali),
+      Costi: Math.round(baseline.costiTotali),
+      Utile: Math.round(baseline.utile),
+    },
+    {
+      nome: 'Scenario',
+      Ricavi: Math.round(scenario.ricavi),
+      Costi: Math.round(scenario.costi),
+      Utile: Math.round(scenario.utile),
+    },
+  ], [baseline, scenario]);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-24">
+        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+        <span className="ml-3 text-slate-600">Caricamento dati scenario...</span>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex items-center justify-center py-24">
+        <div className="bg-red-50 border border-red-200 rounded-xl p-6 max-w-md text-center">
+          <AlertCircle className="w-8 h-8 text-red-500 mx-auto mb-3" />
+          <p className="text-red-800 font-medium">Errore nel caricamento</p>
+          <p className="text-red-600 text-sm mt-1">{error}</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-8">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-4xl font-bold text-gray-900 flex items-center gap-3">
-            <Target className="w-10 h-10 text-blue-600" />
-            Scenario Planning - Apertura Nuovo Outlet
-          </h1>
-          <p className="text-gray-600 mt-2">Simula l'apertura di un nuovo outlet e analizza l'impatto sulla rete</p>
-        </div>
-
-        {/* Preset Scenarios */}
-        <div className="mb-6 flex gap-3">
-          {Object.keys(SCENARIOS).map(scenario => (
-            <button
-              key={scenario}
-              onClick={() => applyScenario(scenario)}
-              className="px-4 py-2 rounded-lg bg-white border-2 border-gray-200 hover:border-blue-500 hover:bg-blue-50 font-medium text-gray-700 transition"
+        <div className="flex items-center justify-between mb-8">
+          <div>
+            <h1 className="text-4xl font-bold text-slate-900 flex items-center gap-3">
+              <Target className="w-10 h-10 text-blue-600" />
+              Scenario Planning
+            </h1>
+            <p className="text-slate-600 mt-2">Simula variazioni di ricavi, costi e apertura nuovo outlet - Anno {year}</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <label className="text-sm font-medium text-slate-700">Anno:</label>
+            <select
+              value={year}
+              onChange={(e) => setYear(parseInt(e.target.value))}
+              className="px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
             >
-              📊 {scenario}
-            </button>
-          ))}
+              {[2024, 2025, 2026, 2027].map(y => (
+                <option key={y} value={y}>{y}</option>
+              ))}
+            </select>
+          </div>
         </div>
 
-        {/* Main Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          {/* LEFT: Input Panel */}
-          <div className="space-y-4">
-            <div className="bg-white rounded-xl shadow p-6">
-              <h2 className="text-xl font-bold text-gray-900 mb-6">Parametri Scenario</h2>
-
-              {/* Outlet Info */}
-              <div className="space-y-4 pb-4 border-b">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Nome Outlet</label>
-                  <input
-                    type="text"
-                    value={inputs.nome}
-                    onChange={e => handleInputChange('nome', e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Località</label>
-                  <input
-                    type="text"
-                    value={inputs.localita}
-                    onChange={e => handleInputChange('localita', e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-              </div>
-
-              {/* Staffing */}
-              <div className="space-y-4 py-4 border-b">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Numero Dipendenti: {inputs.dipendenti}
-                  </label>
-                  <input
-                    type="range"
-                    min="3"
-                    max="8"
-                    value={inputs.dipendenti}
-                    onChange={e => handleInputChange('dipendenti', parseInt(e.target.value))}
-                    className="w-full"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Costo Personale per Dipendente (€/anno)</label>
-                  <input
-                    type="number"
-                    value={inputs.costoPersonale}
-                    onChange={e => handleInputChange('costoPersonale', parseFloat(e.target.value))}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
+        {baseline.ricaviTotali === 0 ? (
+          <div className="bg-white rounded-xl border border-slate-200 p-12 text-center">
+            <AlertCircle className="w-12 h-12 text-slate-400 mx-auto mb-4" />
+            <p className="text-slate-600 text-lg">Nessun dato budget trovato per l'anno {year}</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            {/* LEFT: Baseline Info */}
+            <div className="space-y-6">
+              <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
+                <h2 className="text-lg font-semibold text-slate-900 mb-4">Baseline {year}</h2>
+                <div className="space-y-3">
+                  <div className="flex justify-between">
+                    <span className="text-slate-600">Outlet attivi</span>
+                    <span className="font-semibold text-slate-900">{baseline.numOutlet}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-600">Ricavi Totali</span>
+                    <span className="font-semibold text-green-700">{fmt(baseline.ricaviTotali)} &euro;</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-600">Costi Totali</span>
+                    <span className="font-semibold text-red-700">{fmt(baseline.costiTotali)} &euro;</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-600">di cui Personale</span>
+                    <span className="font-semibold text-slate-700">{fmt(baseline.costiPersonale)} &euro;</span>
+                  </div>
+                  <div className="border-t border-slate-200 pt-3 flex justify-between">
+                    <span className="text-slate-900 font-semibold">Utile Base</span>
+                    <span className={`font-bold ${baseline.utile >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                      {fmt(baseline.utile)} &euro;
+                    </span>
+                  </div>
                 </div>
               </div>
 
-              {/* Costs */}
-              <div className="space-y-4 py-4 border-b">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Affitto Annuale (€)</label>
-                  <input
-                    type="number"
-                    value={inputs.affitto}
-                    onChange={e => handleInputChange('affitto', parseFloat(e.target.value))}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Capex Allestimento Iniziale (€)</label>
-                  <input
-                    type="number"
-                    value={inputs.capex}
-                    onChange={e => handleInputChange('capex', parseFloat(e.target.value))}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-              </div>
+              {/* Sliders */}
+              <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
+                <h2 className="text-lg font-semibold text-slate-900 mb-6">Parametri Scenario</h2>
 
-              {/* Revenue */}
-              <div className="space-y-4 py-4 border-b">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Ricavi Anno 1 (€)</label>
-                  <input
-                    type="number"
-                    value={inputs.ricaviAnno1}
-                    onChange={e => handleInputChange('ricaviAnno1', parseFloat(e.target.value))}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Crescita Anno 2: {fmt(inputs.crescitaAnno2 * 100)}%</label>
+                {/* Revenue slider */}
+                <div className="mb-6">
+                  <div className="flex justify-between mb-2">
+                    <label className="text-sm font-medium text-slate-700">Variazione Ricavi</label>
+                    <span className={`text-sm font-bold ${varRicavi > 0 ? 'text-green-600' : varRicavi < 0 ? 'text-red-600' : 'text-slate-600'}`}>
+                      {varRicavi > 0 ? '+' : ''}{varRicavi}%
+                    </span>
+                  </div>
                   <input
                     type="range"
-                    min="0"
-                    max="0.5"
-                    step="0.01"
-                    value={inputs.crescitaAnno2}
-                    onChange={e => handleInputChange('crescitaAnno2', parseFloat(e.target.value))}
-                    className="w-full"
+                    min="-30"
+                    max="30"
+                    step="5"
+                    value={varRicavi}
+                    onChange={(e) => setVarRicavi(parseInt(e.target.value))}
+                    className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
                   />
+                  <div className="flex justify-between text-xs text-slate-400 mt-1">
+                    <span>-30%</span>
+                    <span>0%</span>
+                    <span>+30%</span>
+                  </div>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Crescita Anno 3: {fmt(inputs.crescitaAnno3 * 100)}%</label>
-                  <input
-                    type="range"
-                    min="0"
-                    max="0.5"
-                    step="0.01"
-                    value={inputs.crescitaAnno3}
-                    onChange={e => handleInputChange('crescitaAnno3', parseFloat(e.target.value))}
-                    className="w-full"
-                  />
-                </div>
-              </div>
 
-              {/* COGS */}
-              <div className="space-y-4 pt-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Incidenza Merci: {fmt(inputs.merciIncidence * 100)}%</label>
+                {/* Staff cost slider */}
+                <div className="mb-6">
+                  <div className="flex justify-between mb-2">
+                    <label className="text-sm font-medium text-slate-700">Variazione Costi Personale</label>
+                    <span className={`text-sm font-bold ${varPersonale > 0 ? 'text-red-600' : varPersonale < 0 ? 'text-green-600' : 'text-slate-600'}`}>
+                      {varPersonale > 0 ? '+' : ''}{varPersonale}%
+                    </span>
+                  </div>
                   <input
                     type="range"
-                    min="0.40"
-                    max="0.65"
-                    step="0.01"
-                    value={inputs.merciIncidence}
-                    onChange={e => handleInputChange('merciIncidence', parseFloat(e.target.value))}
-                    className="w-full"
+                    min="-30"
+                    max="30"
+                    step="5"
+                    value={varPersonale}
+                    onChange={(e) => setVarPersonale(parseInt(e.target.value))}
+                    className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
                   />
+                  <div className="flex justify-between text-xs text-slate-400 mt-1">
+                    <span>-30%</span>
+                    <span>0%</span>
+                    <span>+30%</span>
+                  </div>
                 </div>
+
+                {/* New outlet toggle */}
+                <div className="flex items-center justify-between py-3 border-t border-slate-200">
+                  <div>
+                    <label className="text-sm font-medium text-slate-700">Nuovo Outlet</label>
+                    <p className="text-xs text-slate-500 mt-0.5">Aggiunge ricavi/costi medi di un outlet</p>
+                  </div>
+                  <button
+                    onClick={() => setNuovoOutlet(!nuovoOutlet)}
+                    className="flex items-center gap-2"
+                  >
+                    {nuovoOutlet ? (
+                      <ToggleRight className="w-10 h-10 text-blue-600" />
+                    ) : (
+                      <ToggleLeft className="w-10 h-10 text-slate-400" />
+                    )}
+                  </button>
+                </div>
+
+                {/* Reset */}
+                <button
+                  onClick={() => { setVarRicavi(0); setVarPersonale(0); setNuovoOutlet(false); }}
+                  className="w-full mt-4 px-4 py-2 text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
+                >
+                  Resetta Scenario
+                </button>
               </div>
             </div>
-          </div>
 
-          {/* RIGHT: Results Panel */}
-          <div className="space-y-4">
-            {/* KPI Cards */}
-            <div className="grid grid-cols-2 gap-4">
-              <div className="bg-white rounded-xl shadow p-4">
-                <p className="text-xs font-semibold text-gray-500 uppercase mb-1">Breakeven Revenue</p>
-                <p className="text-2xl font-bold text-gray-900">{fmt(calculations.breakeven, 0)}€</p>
-                {calculations.breakeven > inputs.ricaviAnno1 && (
-                  <p className="text-xs text-red-600 mt-2 flex items-center gap-1">
-                    <AlertCircle className="w-3 h-3" /> Sopra ricavi anno 1
+            {/* CENTER + RIGHT: Results */}
+            <div className="lg:col-span-2 space-y-6">
+              {/* Results Cards */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+                  <p className="text-xs font-semibold text-slate-500 uppercase mb-1">Ricavi Simulati</p>
+                  <p className="text-xl font-bold text-slate-900">{fmt(scenario.ricavi)} &euro;</p>
+                  {varRicavi !== 0 || nuovoOutlet ? (
+                    <p className={`text-xs mt-1 ${scenario.ricavi > baseline.ricaviTotali ? 'text-green-600' : 'text-red-600'}`}>
+                      {scenario.ricavi > baseline.ricaviTotali ? '+' : ''}{fmt(scenario.ricavi - baseline.ricaviTotali)} vs base
+                    </p>
+                  ) : null}
+                </div>
+                <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+                  <p className="text-xs font-semibold text-slate-500 uppercase mb-1">Costi Simulati</p>
+                  <p className="text-xl font-bold text-slate-900">{fmt(scenario.costi)} &euro;</p>
+                  {varPersonale !== 0 || nuovoOutlet ? (
+                    <p className={`text-xs mt-1 ${scenario.costi < baseline.costiTotali ? 'text-green-600' : 'text-red-600'}`}>
+                      {scenario.costi > baseline.costiTotali ? '+' : ''}{fmt(scenario.costi - baseline.costiTotali)} vs base
+                    </p>
+                  ) : null}
+                </div>
+                <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+                  <p className="text-xs font-semibold text-slate-500 uppercase mb-1">Utile Simulato</p>
+                  <p className={`text-xl font-bold ${scenario.utile >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                    {fmt(scenario.utile)} &euro;
                   </p>
-                )}
+                </div>
+                <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+                  <p className="text-xs font-semibold text-slate-500 uppercase mb-1">Delta vs Base</p>
+                  <p className={`text-xl font-bold ${scenario.deltaUtile >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                    {scenario.deltaUtile >= 0 ? '+' : ''}{fmt(scenario.deltaUtile)} &euro;
+                  </p>
+                  <p className={`text-xs mt-1 ${scenario.deltaPercent >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    {scenario.deltaPercent >= 0 ? '+' : ''}{scenario.deltaPercent.toFixed(1)}%
+                  </p>
+                </div>
               </div>
-              <div className="bg-white rounded-xl shadow p-4">
-                <p className="text-xs font-semibold text-gray-500 uppercase mb-1">Payback Period</p>
-                <p className="text-2xl font-bold text-gray-900">{calculations.paybackMonths ? fmt(calculations.paybackMonths) + ' mesi' : '> 36 mesi'}</p>
+
+              {/* Bar Chart: Base vs Scenario */}
+              <div className="rounded-2xl p-6 shadow-lg" style={{ background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)', border: '1px solid rgba(99,102,241,0.08)' }}>
+                <h2 className="text-lg font-semibold text-slate-900 mb-4">Confronto Base vs Scenario</h2>
+                <ResponsiveContainer width="100%" height={400}>
+                  <BarChart data={chartData} barGap={8}>
+                    <defs>
+                      <linearGradient id="grad-ricavi-sc" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#10b981" stopOpacity={1} />
+                        <stop offset="100%" stopColor="#10b981" stopOpacity={0.5} />
+                      </linearGradient>
+                      <linearGradient id="grad-costi-sc" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#ef4444" stopOpacity={1} />
+                        <stop offset="100%" stopColor="#ef4444" stopOpacity={0.5} />
+                      </linearGradient>
+                      <linearGradient id="grad-utile-sc" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#3b82f6" stopOpacity={1} />
+                        <stop offset="100%" stopColor="#3b82f6" stopOpacity={0.5} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid {...GRID_STYLE} />
+                    <XAxis dataKey="nome" {...AXIS_STYLE} />
+                    <YAxis {...AXIS_STYLE} tickFormatter={(v) => `${Math.round(v / 1000)}k`} />
+                    <Tooltip content={<GlassTooltip formatter={(value) => fmt(value) + ' \u20ac'} />} cursor={{ fill: 'rgba(99,102,241,0.04)', radius: 8 }} />
+                    <Legend />
+                    <Bar dataKey="Ricavi" fill="url(#grad-ricavi-sc)" radius={[8, 8, 0, 0]} animationDuration={800} />
+                    <Bar dataKey="Costi" fill="url(#grad-costi-sc)" radius={[8, 8, 0, 0]} animationDuration={800} />
+                    <Bar dataKey="Utile" fill="url(#grad-utile-sc)" radius={[8, 8, 0, 0]} animationDuration={800} />
+                  </BarChart>
+                </ResponsiveContainer>
               </div>
-              <div className="bg-white rounded-xl shadow p-4">
-                <p className="text-xs font-semibold text-gray-500 uppercase mb-1">ROI 3 anni</p>
-                <p className="text-2xl font-bold text-gray-900">{fmt(calculations.roi, 1)}%</p>
-              </div>
-              <div className="bg-white rounded-xl shadow p-4">
-                <p className="text-xs font-semibold text-gray-500 uppercase mb-1">Margine Anno 1</p>
-                <p className="text-2xl font-bold text-gray-900">{fmt(calculations.years[0].margine, 0)}€</p>
-                <p className="text-xs text-gray-600 mt-1">{fmt((calculations.years[0].margine / inputs.ricaviAnno1) * 100, 1)}% di ROS</p>
-              </div>
+
+              {/* Impact summary */}
+              {(varRicavi !== 0 || varPersonale !== 0 || nuovoOutlet) && (
+                <div className={`rounded-xl p-5 border ${scenario.deltaUtile >= 0 ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+                  <h3 className={`font-semibold mb-2 ${scenario.deltaUtile >= 0 ? 'text-green-900' : 'text-red-900'}`}>
+                    Riepilogo Impatto Scenario
+                  </h3>
+                  <ul className={`text-sm space-y-1 ${scenario.deltaUtile >= 0 ? 'text-green-800' : 'text-red-800'}`}>
+                    {varRicavi !== 0 && (
+                      <li>Variazione ricavi del {varRicavi > 0 ? '+' : ''}{varRicavi}%: {fmt(baseline.ricaviTotali * varRicavi / 100)} &euro;</li>
+                    )}
+                    {varPersonale !== 0 && (
+                      <li>Variazione costi personale del {varPersonale > 0 ? '+' : ''}{varPersonale}%: {fmt(baseline.costiPersonale * varPersonale / 100)} &euro;</li>
+                    )}
+                    {nuovoOutlet && (
+                      <li>Nuovo outlet: +{fmt(baseline.avgRicaviOutlet)} &euro; ricavi, +{fmt(baseline.avgCostiOutlet)} &euro; costi</li>
+                    )}
+                    <li className="font-semibold pt-1 border-t border-current/20">
+                      Effetto netto sull'utile: {scenario.deltaUtile >= 0 ? '+' : ''}{fmt(scenario.deltaUtile)} &euro; ({scenario.deltaPercent >= 0 ? '+' : ''}{scenario.deltaPercent.toFixed(1)}%)
+                    </li>
+                  </ul>
+                </div>
+              )}
             </div>
-
-            {/* Warning Alert */}
-            {calculations.breakeven > inputs.ricaviAnno1 && (
-              <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex gap-3">
-                <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
-                <div>
-                  <p className="font-semibold text-red-900">Attenzione: Breakeven non raggiungibile</p>
-                  <p className="text-sm text-red-800">I ricavi stimati (€{fmt(inputs.ricaviAnno1, 0)}) non coprono il breakeven (€{fmt(calculations.breakeven, 0)})</p>
-                </div>
-              </div>
-            )}
-
-            {/* Impact Card */}
-            <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
-              <p className="text-xs font-semibold text-blue-700 uppercase mb-2">Impatto sulla Rete</p>
-              <p className="text-sm text-blue-900">
-                Con questo outlet, la quota sede scende da <span className="font-bold">{fmt(calculations.oldSedeQuota, 0)}€</span> a <span className="font-bold">{fmt(calculations.newSedeQuota, 0)}€</span> per outlet,
-                generando un risparmio di <span className="font-bold text-green-600">{fmt(calculations.sedaSaving, 0)}€</span> sull'intera rete.
-              </p>
-              <div className="grid grid-cols-3 gap-3 mt-4 text-center">
-                <div className="bg-white rounded-lg p-2">
-                  <p className="text-xs text-gray-600">Ricavi Totali</p>
-                  <p className="text-sm font-bold text-gray-900">{fmt(calculations.newCompanyRevenue, 0)}€</p>
-                </div>
-                <div className="bg-white rounded-lg p-2">
-                  <p className="text-xs text-gray-600">Margine Anno 1</p>
-                  <p className="text-sm font-bold text-gray-900">{fmt(calculations.newCompanyMargin, 0)}€</p>
-                </div>
-                <div className="bg-white rounded-lg p-2">
-                  <p className="text-xs text-gray-600">Outlet Totali</p>
-                  <p className="text-sm font-bold text-gray-900">8</p>
-                </div>
-              </div>
-            </div>
           </div>
-        </div>
-
-        {/* P&L Table */}
-        <div className="mt-8 bg-white rounded-xl shadow overflow-hidden">
-          <div className="p-6 border-b">
-            <h3 className="text-lg font-bold text-gray-900">Proiezione P&L - 3 Anni</h3>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50 border-b">
-                <tr>
-                  <th className="px-6 py-3 text-left font-semibold text-gray-700">Voce</th>
-                  <th className="px-6 py-3 text-right font-semibold text-gray-700">Anno 1</th>
-                  <th className="px-6 py-3 text-right font-semibold text-gray-700">Anno 2</th>
-                  <th className="px-6 py-3 text-right font-semibold text-gray-700">Anno 3</th>
-                </tr>
-              </thead>
-              <tbody>
-                {[
-                  { label: 'Ricavi', key: 'ricavi', bold: true },
-                  { label: 'Merci (COGS)', key: 'merci', indent: true },
-                  { label: 'Personale', key: 'personale', indent: true },
-                  { label: 'Affitto', key: 'affitto', indent: true },
-                  { label: 'Servizi', key: 'servizi', indent: true },
-                  { label: 'Quota Sede', key: 'quotaSede', indent: true },
-                  { label: 'Margine Lordo', key: 'margine', bold: true, highlight: true },
-                ].map((row, idx) => (
-                  <tr key={idx} className={row.highlight ? 'bg-green-50 border-t border-b' : idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                    <td className={`px-6 py-3 ${row.bold ? 'font-bold text-gray-900' : 'text-gray-600'} ${row.indent ? 'pl-12' : ''}`}>
-                      {row.label}
-                    </td>
-                    {[0, 1, 2].map(year => (
-                      <td key={year} className={`px-6 py-3 text-right ${row.bold ? 'font-bold text-gray-900' : 'text-gray-700'}`}>
-                        {fmt(calculations.years[year][row.key], 0)}€
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        {/* Charts */}
-        <div className="mt-8 grid grid-cols-1 lg:grid-cols-2 gap-8">
-          {/* Cumulative Cash Flow */}
-          <div className="rounded-2xl shadow-lg p-6" style={{ background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)', border: '1px solid rgba(99,102,241,0.08)' }}>
-            <h3 className="text-lg font-bold text-gray-900 mb-4">Flusso di Cassa Cumulativo - 36 Mesi</h3>
-            <ResponsiveContainer width="100%" height={300}>
-              <AreaChart data={calculations.cashFlowData}>
-                <defs>
-                  <linearGradient id="colorCumulative" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#3b82f6" stopOpacity={0.3} />
-                    <stop offset="100%" stopColor="#3b82f6" stopOpacity={0.02} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid {...GRID_STYLE} />
-                <XAxis dataKey="mese" label={{ value: 'Mesi', position: 'insideBottomRight', offset: -5 }} {...AXIS_STYLE} />
-                <YAxis label={{ value: '€', angle: -90, position: 'insideLeft' }} {...AXIS_STYLE} />
-                <Tooltip content={<GlassTooltip formatter={value => fmt(value, 0) + '€'} />} cursor={{ fill: 'rgba(99,102,241,0.04)', radius: 8 }} />
-                <Area
-                  type="monotone"
-                  dataKey="cumulative"
-                  stroke="#3b82f6"
-                  strokeWidth={2.5}
-                  fillOpacity={1}
-                  fill="url(#colorCumulative)"
-                />
-              </AreaChart>
-            </ResponsiveContainer>
-            {calculations.paybackMonths && (
-              <p className="text-sm text-gray-600 mt-4">
-                <span className="font-semibold">Breakeven nel mese {calculations.paybackMonths}</span> ({Math.floor(calculations.paybackMonths / 12)} anno{Math.floor(calculations.paybackMonths / 12) > 1 ? 'i' : ''})
-              </p>
-            )}
-          </div>
-
-          {/* Comparison */}
-          <div className="rounded-2xl shadow-lg p-6" style={{ background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)', border: '1px solid rgba(99,102,241,0.08)' }}>
-            <h3 className="text-lg font-bold text-gray-900 mb-4">Confronto con Media Rete</h3>
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={calculations.comparisonData}>
-                <defs>
-                  <linearGradient id="grad-ricavi-per-dip" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#3b82f6" stopOpacity={1} />
-                    <stop offset="100%" stopColor="#3b82f6" stopOpacity={0.5} />
-                  </linearGradient>
-                  <linearGradient id="grad-margine-percent" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#10b981" stopOpacity={1} />
-                    <stop offset="100%" stopColor="#10b981" stopOpacity={0.5} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid {...GRID_STYLE} />
-                <XAxis dataKey="nome" {...AXIS_STYLE} />
-                <YAxis yAxisId="left" label={{ value: 'Ricavi/Dip (€)', angle: -90, position: 'insideLeft' }} {...AXIS_STYLE} />
-                <YAxis yAxisId="right" orientation="right" label={{ value: 'Margine %', angle: 90, position: 'insideRight' }} {...AXIS_STYLE} />
-                <Tooltip content={<GlassTooltip formatter={value => fmt(value, 1)} />} cursor={{ fill: 'rgba(99,102,241,0.04)', radius: 8 }} />
-                <Legend />
-                <Bar yAxisId="left" dataKey="ricaviPerDip" fill="url(#grad-ricavi-per-dip)" name="Ricavi per Dipendente" radius={[8, 8, 0, 0]} animationDuration={800} />
-                <Bar yAxisId="right" dataKey="marginePercent" fill="url(#grad-margine-percent)" name="Margine %" radius={[8, 8, 0, 0]} animationDuration={800} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
+        )}
       </div>
     </div>
   );

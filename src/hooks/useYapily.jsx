@@ -58,11 +58,12 @@ export function useYapily() {
 
   // ────────── INSTITUTIONS ──────────
 
-  const fetchInstitutions = useCallback(async () => {
+  const fetchInstitutions = useCallback(async (country = 'IT') => {
     setLoading(true)
     setError(null)
     try {
-      const res = await callFunction('yapily-institutions')
+      const params = country ? { country } : null
+      const res = await callFunction('yapily-institutions', 'GET', null, params)
       return res.data || []
     } catch (err) {
       setError(err.message)

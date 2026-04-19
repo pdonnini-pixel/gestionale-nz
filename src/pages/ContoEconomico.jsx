@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, Suspense } from 'react'
+import PageHelp from '../components/PageHelp'
 import {
   TrendingUp, TrendingDown, DollarSign, PieChart, BarChart3, Upload,
   ArrowUpRight, ArrowDownRight, ChevronDown, ChevronUp, AlertCircle,
@@ -2058,6 +2059,7 @@ export default function ContoEconomico() {
           <span className="ml-2 text-slate-600">Caricamento dati...</span>
         </div>
       )}
+      <PageHelp page="conto-economico" />
     </div>
   )
 }
@@ -2171,7 +2173,7 @@ function TreeNode({ node, depth = 0, prevByCode, showYoY, isCost }) {
           <span className={`tabular-nums text-right w-24 ${
             isMacroRow ? 'text-xs font-bold text-slate-900' : 'text-[11px] text-slate-600'
           } ${isNegative ? 'text-red-600' : ''}`}>
-            {fmtAmount(node.amount)} \u20AC
+            {fmtAmount(node.amount)} {'\u20AC'}
           </span>
           {showYoY && prevByCode && (
             <>
