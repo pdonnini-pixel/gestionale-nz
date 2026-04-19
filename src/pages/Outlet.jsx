@@ -1328,7 +1328,7 @@ function CorrispettiviTab({ outletId, companyId }) {
 
       const { data } = await supabase
         .from('daily_revenue')
-        .select('date, total_revenue, transactions_count, average_ticket')
+        .select('date, gross_revenue, transactions_count, avg_ticket')
         .eq('outlet_id', outletId)
         .eq('company_id', companyId)
         .gte('date', fromDate)
@@ -1342,11 +1342,11 @@ function CorrispettiviTab({ outletId, companyId }) {
     }
   }
 
-  const totalRev = daily.reduce((s, d) => s + (d.total_revenue || 0), 0)
+  const totalRev = daily.reduce((s, d) => s + (d.gross_revenue || 0), 0)
   const avgDaily = daily.length > 0 ? totalRev / daily.length : 0
   const totalTx = daily.reduce((s, d) => s + (d.transactions_count || 0), 0)
   const avgTicket = totalTx > 0 ? totalRev / totalTx : 0
-  const bestDay = daily.reduce((best, d) => (d.total_revenue || 0) > best.value ? { date: d.date, value: d.total_revenue } : best, { date: '', value: 0 })
+  const bestDay = daily.reduce((best, d) => (d.gross_revenue || 0) > best.value ? { date: d.date, value: d.gross_revenue } : best, { date: '', value: 0 })
 
   const chartData = daily.map(d => ({
     ...d,
@@ -1423,7 +1423,7 @@ function CorrispettiviTab({ outletId, companyId }) {
                 <XAxis dataKey="label" {...AXIS_STYLE} interval={period === '7' ? 0 : 'preserveStartEnd'} />
                 <YAxis {...AXIS_STYLE} tickFormatter={v => `${(v/1000).toFixed(0)}k`} />
                 <Tooltip content={<GlassTooltip formatter={v => `${fmt(v)} €`} suffix="" />} />
-                <Bar dataKey="total_revenue" name="Incasso" fill="url(#grad-corr)" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="gross_revenue" name="Incasso" fill="url(#grad-corr)" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -1446,9 +1446,9 @@ function CorrispettiviTab({ outletId, companyId }) {
                     <tr key={d.date} className="border-t border-slate-50 hover:bg-slate-50/50">
                       <td className="py-2 px-4 font-medium text-slate-900">{new Date(d.date).toLocaleDateString('it-IT')}</td>
                       <td className="py-2 px-4 text-slate-500">{new Date(d.date).toLocaleDateString('it-IT', { weekday: 'long' })}</td>
-                      <td className="py-2 px-4 text-right font-semibold text-slate-900">{fmt(d.total_revenue)} €</td>
+                      <td className="py-2 px-4 text-right font-semibold text-slate-900">{fmt(d.gross_revenue)} €</td>
                       <td className="py-2 px-4 text-right text-slate-600">{d.transactions_count || '—'}</td>
-                      <td className="py-2 px-4 text-right text-blue-600">{d.transactions_count ? fmt((d.total_revenue || 0) / d.transactions_count, 2) + ' €' : '—'}</td>
+                      <td className="py-2 px-4 text-right text-blue-600">{d.transactions_count ? fmt((d.gross_revenue || 0) / d.transactions_count, 2) + ' €' : '—'}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -1565,7 +1565,7 @@ function OutletDetail({ outlet, revenue, onBack, onEdit, onDelete }) {
       daysAgo.setDate(daysAgo.getDate() - 7)
       const { data } = await supabase
         .from('daily_revenue')
-        .select('date, total_revenue')
+        .select('date, gross_revenue')
         .eq('outlet_id', outlet.id)
         .eq('company_id', outlet.company_id)
         .gte('date', daysAgo.toISOString().split('T')[0])
@@ -1591,7 +1591,7 @@ function OutletDetail({ outlet, revenue, onBack, onEdit, onDelete }) {
   const condoAnnual = (outlet.condo_marketing_monthly || 0) * 12
   const occupancyCost = rentAnnual + condoAnnual
   const occupancyRatio = ytd > 0 ? (occupancyCost / ytd * 100) : 0
-  const yesterdayRev = recentDaily.length > 0 ? recentDaily[recentDaily.length - 1]?.total_revenue || 0 : null
+  const yesterdayRev = recentDaily.length > 0 ? recentDaily[recentDaily.length - 1]?.gross_revenue || 0 : null
 
   const DETAIL_TABS = [
     { key: 'overview', label: 'Overview', icon: Store },
@@ -1683,7 +1683,7 @@ function OutletDetail({ outlet, revenue, onBack, onEdit, onDelete }) {
                   <XAxis dataKey="label" {...AXIS_STYLE} />
                   <YAxis hide />
                   <Tooltip formatter={v => [`${fmt(v)} €`, 'Incasso']} />
-                  <Bar dataKey="total_revenue" fill="#6366f1" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="gross_revenue" fill="#6366f1" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>

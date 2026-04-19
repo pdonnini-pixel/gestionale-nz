@@ -8,7 +8,7 @@ import {
   Unlink, History, CheckCircle2, Eye, EyeOff, ArrowUpRight, ArrowDownLeft,
   Filter, CircleDot, Globe, Sparkles
 } from 'lucide-react'
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, PieChart, Pie, CartesianGrid } from 'recharts'
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, PieChart, Pie, CartesianGrid, Legend } from 'recharts'
 import { supabase } from '../lib/supabase'
 import { GlassTooltip, AXIS_STYLE, GRID_STYLE } from '../components/ChartTheme'
 import { useAuth } from '../hooks/useAuth'
@@ -693,48 +693,116 @@ function SezioneFinanziamenti({ loans, onAddEdit, onDelete }) {
    Sezione: Composizione liquidità (Pie)
    ──────────────────────────────────────── */
 function SezioneComposizione({ accounts, totalLiquidity }) {
+  const [view, setView] = useState('conto') // 'tipo' or 'conto'
+
   const contiCorr = accounts.filter(c => c.account_type === 'conto_corrente').reduce((s, c) => s + c.current_balance, 0)
   const depositi = accounts.filter(c => c.account_type === 'deposito').reduce((s, c) => s + c.current_balance, 0)
   const casse = accounts.filter(c => c.account_type === 'cassa').reduce((s, c) => s + c.current_balance, 0)
 
-  const pieData = [
+  const pieDataTipo = [
     { name: 'C/C', value: contiCorr, color: '#3b82f6' },
     { name: 'Depositi', value: depositi, color: '#8b5cf6' },
     { name: 'Casse', value: casse, color: '#10b981' },
   ]
 
+  const ACCOUNT_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ef4444', '#06b6d4', '#ec4899', '#84cc16', '#f97316', '#6366f1']
+  const pieDataConto = accounts
+    .filter(a => a.current_balance !== 0)
+    .sort((a, b) => Math.abs(b.current_balance) - Math.abs(a.current_balance))
+    .map((a, i) => ({
+      name: a.account_name || a.bank_name || 'Conto',
+      value: Math.abs(a.current_balance),
+      realValue: a.current_balance,
+      color: ACCOUNT_COLORS[i % ACCOUNT_COLORS.length],
+      type: a.account_type === 'cassa' ? 'Cassa' : a.account_type === 'deposito' ? 'Deposito' : 'C/C',
+    }))
+
+  const pieData = view === 'tipo' ? pieDataTipo : pieDataConto
+
+  // Attivita vs Passivita breakdown
+  const attivita = accounts.filter(a => a.current_balance > 0).reduce((s, a) => s + a.current_balance, 0)
+  const passivita = Math.abs(accounts.filter(a => a.current_balance < 0).reduce((s, a) => s + a.current_balance, 0))
+  const barTotal = attivita + passivita
+
   return (
     <div className="bg-white rounded-xl border border-slate-200/80 p-5">
-      <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-4">Composizione liquidità</h3>
-      <div className="flex items-center gap-6">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Composizione Liquidità</h3>
+        <div className="flex gap-0.5 bg-slate-100/80 rounded-md p-0.5">
+          <button onClick={() => setView('conto')}
+            className={`px-2 py-1 rounded text-[10px] font-medium transition ${view === 'conto' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>
+            Per Conto
+          </button>
+          <button onClick={() => setView('tipo')}
+            className={`px-2 py-1 rounded text-[10px] font-medium transition ${view === 'tipo' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>
+            Per Tipo
+          </button>
+        </div>
+      </div>
+
+      {/* Totale liquidita in evidenza */}
+      <div className="text-center mb-4">
+        <div className="text-xs text-slate-400 uppercase tracking-wide">Totale Liquidità</div>
+        <div className={`text-2xl font-bold ${totalLiquidity >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>{fmt(totalLiquidity)} €</div>
+        <div className="text-[10px] text-slate-400 mt-0.5">{accounts.length} conti attivi</div>
+      </div>
+
+      {/* Donut chart */}
+      <div className="flex items-center gap-4">
         <ResponsiveContainer width={180} height={180}>
           <PieChart>
             <defs>
               {pieData.map((d, i) => (
-                <linearGradient key={i} id={`pie-grad-compo-${i}`} x1="0" y1="0" x2="0" y2="1">
+                <linearGradient key={i} id={`pie-grad-compo-${view}-${i}`} x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor={d.color} stopOpacity={1} />
                   <stop offset="100%" stopColor={d.color} stopOpacity={0.6} />
                 </linearGradient>
               ))}
             </defs>
-            <Pie data={pieData} dataKey="value" cx="50%" cy="50%" innerRadius={50} outerRadius={80} paddingAngle={3} strokeWidth={0}>
-              {pieData.map((d, i) => <Cell key={i} fill={`url(#pie-grad-compo-${i})`} stroke="white" strokeWidth={2} />)}
+            <Pie data={pieData} dataKey="value" cx="50%" cy="50%" innerRadius={50} outerRadius={80} paddingAngle={2} strokeWidth={0}>
+              {pieData.map((d, i) => <Cell key={i} fill={`url(#pie-grad-compo-${view}-${i})`} stroke="white" strokeWidth={2} />)}
             </Pie>
-            <Tooltip content={<GlassTooltip formatter={v => `${fmt(v)} €`} suffix="" />} />
+            <Tooltip content={<GlassTooltip formatter={(v, name, props) => {
+              const entry = props?.payload
+              const real = entry?.realValue != null ? entry.realValue : v
+              return `${fmt(real)} €`
+            }} suffix="" />} />
           </PieChart>
         </ResponsiveContainer>
-        <div className="space-y-3">
+        <div className="space-y-2 flex-1 min-w-0 max-h-[180px] overflow-y-auto pr-1">
           {pieData.filter(d => d.value > 0).map(d => (
             <div key={d.name} className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-full" style={{ backgroundColor: d.color }} />
-              <div>
-                <div className="text-sm font-medium text-slate-700">{d.name}</div>
-                <div className="text-xs text-slate-400">{fmt(d.value)} € ({totalLiquidity > 0 ? ((d.value / totalLiquidity) * 100).toFixed(1) : 0}%)</div>
+              <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: d.color }} />
+              <div className="min-w-0 flex-1">
+                <div className="text-xs font-medium text-slate-700 truncate" title={d.name}>{d.name}</div>
+                <div className="text-[10px] text-slate-400">
+                  {fmt(d.realValue != null ? d.realValue : d.value)} €
+                  {totalLiquidity !== 0 && <span className="ml-1">({((d.value / Math.abs(totalLiquidity)) * 100).toFixed(1)}%)</span>}
+                  {view === 'conto' && d.type && <span className="ml-1 text-slate-300">· {d.type}</span>}
+                </div>
               </div>
             </div>
           ))}
         </div>
       </div>
+
+      {/* Barra attivita vs passivita */}
+      {passivita > 0 && (
+        <div className="mt-4 pt-3 border-t border-slate-100">
+          <div className="flex justify-between text-[10px] text-slate-400 mb-1.5">
+            <span>Saldi positivi: <span className="font-medium text-emerald-600">{fmt(attivita)} €</span></span>
+            <span>Saldi negativi: <span className="font-medium text-red-500">{fmt(passivita)} €</span></span>
+          </div>
+          <div className="h-2.5 bg-slate-100 rounded-full overflow-hidden flex">
+            {barTotal > 0 && (
+              <>
+                <div className="bg-emerald-400 rounded-l-full transition-all" style={{ width: `${(attivita / barTotal) * 100}%` }} />
+                <div className="bg-red-400 rounded-r-full transition-all" style={{ width: `${(passivita / barTotal) * 100}%` }} />
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

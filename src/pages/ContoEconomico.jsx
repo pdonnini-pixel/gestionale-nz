@@ -319,9 +319,15 @@ export default function ContoEconomico() {
   const [bilancioSaving, setBilancioSaving] = useState(false)
   const [bilancioSaved, setBilancioSaved] = useState(false)
 
+  // Feature: Previous year bilancio tree for YoY comparison
+  const [prevBilancioData, setPrevBilancioData] = useState(null)
+
   // Feature 6: Trend multi-anno
   const [trendData, setTrendData] = useState([])
   const [showTrend, setShowTrend] = useState(false)
+
+  // Feature: YoY comparison toggle
+  const [showYoY, setShowYoY] = useState(true)
 
   // Feature: Cash-basis (Cassa) view
   const [viewMode, setViewMode] = useState('competenza') // 'competenza' | 'cassa'
@@ -450,6 +456,87 @@ export default function ContoEconomico() {
     }
   }
 
+  // ═══ Load PREVIOUS year bilancio tree from Supabase for YoY comparison ═══
+  const loadPrevBilancioFromSupabase = async () => {
+    try {
+      const prevYear = year - 1
+      const sections = ['sp_attivita', 'sp_passivita', 'ce_costi', 'ce_ricavi']
+      const { data } = await supabase
+        .from('balance_sheet_data')
+        .select('*')
+        .eq('company_id', COMPANY_ID)
+        .eq('year', prevYear)
+        .eq('period_type', periodType)
+        .in('section', sections)
+        .order('sort_order')
+
+      if (!data || data.length === 0) {
+        setPrevBilancioData(null)
+        return
+      }
+
+      const junkPattern = /Azienda:|Cod\.\s*Fiscale|Partita\s*IVA|^VIA\s|PERIODO\s*DAL|Totali\s*fino|Considera\s*anche|^Pag\./i
+      const cleanData = data.filter(row => !junkPattern.test(row.account_name || ''))
+
+      // Build a lookup map: account_code -> amount (for matching with current year)
+      const prevByCode = {}
+      cleanData.forEach(row => {
+        prevByCode[row.account_code] = row.amount || 0
+      })
+
+      // Also build section-based structures for tree matching
+      const bySection = { sp_attivita: [], sp_passivita: [], ce_costi: [], ce_ricavi: [] }
+      cleanData.forEach(row => {
+        if (bySection[row.section]) {
+          bySection[row.section].push({
+            code: row.account_code || '',
+            description: row.account_name || '',
+            amount: row.amount || 0,
+            level: getCodeLevel(row.account_code),
+            isMacro: (row.account_code || '').replace(/\s/g, '').length <= 2,
+          })
+        }
+      })
+
+      const spAttMacros = bySection.sp_attivita.filter(r => r.isMacro)
+      const spPasMacros = bySection.sp_passivita.filter(r => r.isMacro)
+      const ceCostiMacros = bySection.ce_costi.filter(r => r.isMacro)
+      const ceRicaviMacros = bySection.ce_ricavi.filter(r => r.isMacro)
+
+      const totAttivita = spAttMacros.reduce((s, r) => s + r.amount, 0)
+      const totPassivita = spPasMacros.reduce((s, r) => s + r.amount, 0)
+      const totCosti = ceCostiMacros.reduce((s, r) => s + r.amount, 0)
+      const totRicavi = ceRicaviMacros.reduce((s, r) => s + r.amount, 0)
+
+      // Get risultato
+      const { data: ceData } = await supabase
+        .from('balance_sheet_data')
+        .select('amount')
+        .eq('company_id', COMPANY_ID)
+        .eq('year', prevYear)
+        .eq('period_type', periodType)
+        .eq('section', 'conto_economico')
+        .eq('account_code', 'utile_netto')
+        .maybeSingle()
+
+      const risultato = ceData?.amount || 0
+
+      setPrevBilancioData({
+        byCode: prevByCode,
+        year: prevYear,
+        contoEconomico: {
+          totals: { costi: totCosti, ricavi: totRicavi, risultato },
+        },
+        patrimoniale: {
+          totals: { attivita: totAttivita, passivita: totPassivita, risultato },
+        },
+      })
+    } catch (err) {
+      console.error('Error loading prev bilancio:', err)
+      setPrevBilancioData(null)
+    }
+  }
+
   // Helper to determine level from account code length
   function getCodeLevel(code) {
     if (!code) return 0
@@ -469,6 +556,7 @@ export default function ContoEconomico() {
     loadNotaIntegrativa()
     loadAvailableYears()
     loadBilancioFromSupabase()
+    loadPrevBilancioFromSupabase()
   }, [year, periodType, COMPANY_ID])
 
   // Feature 6: Load trend on toggle
@@ -1128,6 +1216,13 @@ export default function ContoEconomico() {
             </button>
           </div>
           <button
+            onClick={() => setShowYoY(!showYoY)}
+            className={`px-3 py-2 rounded-lg text-sm font-medium transition flex items-center gap-1 ${
+              showYoY ? 'bg-amber-100 text-amber-700 border border-amber-300' : 'bg-slate-100 text-slate-700 border border-slate-300'
+            }`}>
+            <BarChart3 size={14} /> Confronto YoY
+          </button>
+          <button
             onClick={() => setShowTrend(!showTrend)}
             className={`px-3 py-2 rounded-lg text-sm font-medium transition flex items-center gap-1 ${
               showTrend ? 'bg-indigo-100 text-indigo-700 border border-indigo-300' : 'bg-slate-100 text-slate-700 border border-slate-300'
@@ -1504,6 +1599,100 @@ export default function ContoEconomico() {
       </Section>
       )}
 
+      {/* ═══ YoY COMPARISON TABLE — Confronto Anno su Anno ═══ */}
+      {viewMode === 'competenza' && showYoY && !loading && (
+        <Section title={`Confronto Anno su Anno — ${year} vs ${year - 1}`} icon={BarChart3} defaultOpen={true}
+          badge={prevBilancioData ? `${year - 1} disponibile` : `Nessun dato ${year - 1}`}>
+          <div className="p-5">
+            {/* CE Summary YoY Table */}
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b-2 border-slate-200 text-xs text-slate-500 uppercase tracking-wider">
+                    <th className="py-2 px-4 text-left">Voce</th>
+                    <th className="py-2 px-3 text-right">{year}</th>
+                    <th className="py-2 px-3 text-right text-slate-400">% Ricavi</th>
+                    <th className="py-2 px-3 text-right">{year - 1}</th>
+                    <th className="py-2 px-3 text-right text-slate-400">% Ricavi</th>
+                    <th className="py-2 px-3 text-right">{'\u0394'} %</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {CE_FIELDS.filter(f => !f.computed || ['totale_personale', 'totale_costi_produzione', 'differenza_ab', 'utile_netto'].includes(f.key)).map(field => {
+                    const curr = ce25[field.key]
+                    const prev = cePrev[field.key]
+                    const delta = variation(curr, prev)
+                    const isBold = field.computed
+                    const isSummaryRow = ['differenza_ab', 'utile_netto'].includes(field.key)
+                    const isCostLine = !['ricavi_vendite', 'altri_ricavi', 'differenza_ab', 'utile_netto', 'variazione_rimanenze'].includes(field.key)
+
+                    // For costs: negative delta is good (costs went down). For revenues/profit: positive delta is good
+                    const isPositiveImprovement = isCostLine
+                      ? (delta != null && delta < 0)
+                      : (delta != null && delta > 0)
+
+                    if (curr == null && prev == null) return null
+
+                    return (
+                      <tr key={field.key}
+                        className={`${isBold ? 'font-semibold' : ''} ${isSummaryRow ? 'border-t-2 border-slate-300 bg-slate-50' : 'border-b border-slate-50'}`}>
+                        <td className={`py-1.5 px-4 text-sm ${isBold ? 'text-slate-900' : 'text-slate-700'} ${!isBold && !isSummaryRow ? 'pl-8' : ''}`}>
+                          {field.label}
+                        </td>
+                        <td className="py-1.5 px-3 text-sm text-right tabular-nums text-slate-800 font-medium">
+                          {curr != null ? `${fmt(curr)} \u20AC` : '\u2014'}
+                        </td>
+                        <td className="py-1.5 px-3 text-[11px] text-right text-slate-400 tabular-nums">
+                          {ricavi25 && curr != null ? pct(curr, ricavi25) : ''}
+                        </td>
+                        <td className="py-1.5 px-3 text-sm text-right tabular-nums text-slate-500">
+                          {prev != null ? `${fmt(prev)} \u20AC` : '\u2014'}
+                        </td>
+                        <td className="py-1.5 px-3 text-[11px] text-right text-slate-400 tabular-nums">
+                          {ricaviPrev && prev != null ? pct(prev, ricaviPrev) : ''}
+                        </td>
+                        <td className="py-1.5 px-3 text-right">
+                          {delta != null ? (
+                            <span className={`inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-xs font-semibold ${
+                              isPositiveImprovement
+                                ? 'bg-emerald-100 text-emerald-700'
+                                : 'bg-red-100 text-red-700'
+                            }`}>
+                              {delta >= 0 ? '+' : ''}{delta.toFixed(1)}%
+                            </span>
+                          ) : '\u2014'}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Legend */}
+            <div className="flex items-center gap-4 mt-3 text-[11px] text-slate-400">
+              <span className="flex items-center gap-1">
+                <span className="inline-block w-3 h-3 rounded-full bg-emerald-100 border border-emerald-300" />
+                Miglioramento (ricavi su / costi giu)
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="inline-block w-3 h-3 rounded-full bg-red-100 border border-red-300" />
+                Peggioramento (ricavi giu / costi su)
+              </span>
+            </div>
+
+            {!prevBilancioData && (
+              <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-2">
+                <AlertTriangle size={15} className="text-amber-600 mt-0.5 shrink-0" />
+                <p className="text-xs text-amber-700">
+                  Nessun dato disponibile per {year - 1}. Importa il bilancio dell'anno precedente per un confronto completo.
+                </p>
+              </div>
+            )}
+          </div>
+        </Section>
+      )}
+
       {/* ═══ BILANCIO TREE VIEW — after Indici ═══ */}
       {viewMode === 'competenza' && showBilancioTree && bilancioData && (
         <Section title="Bilancio — Dettaglio completo" icon={FileText} defaultOpen={true}
@@ -1538,7 +1727,7 @@ export default function ContoEconomico() {
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 <div>
                   <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Attività</div>
-                  <BilancioTree rows={bilancioData.patrimoniale?.attivitaTree || []} />
+                  <BilancioTree rows={bilancioData.patrimoniale?.attivitaTree || []} prevByCode={showYoY ? prevBilancioData?.byCode : null} showYoY={showYoY} isCost={false} currentYear={year} />
                   {bilancioData.patrimoniale?.totals?.attivita != null && (
                     <div className="mt-2 pt-2 border-t-2 border-slate-300 flex justify-between px-2">
                       <span className="text-sm font-bold text-slate-900">TOTALE</span>
@@ -1548,7 +1737,7 @@ export default function ContoEconomico() {
                 </div>
                 <div>
                   <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Passività</div>
-                  <BilancioTree rows={bilancioData.patrimoniale?.passivitaTree || []} />
+                  <BilancioTree rows={bilancioData.patrimoniale?.passivitaTree || []} prevByCode={showYoY ? prevBilancioData?.byCode : null} showYoY={showYoY} isCost={false} currentYear={year} />
                   {bilancioData.patrimoniale?.totals?.passivita != null && (
                     <div className="mt-2 pt-2 border-t-2 border-slate-300 flex justify-between px-2">
                       <span className="text-sm font-bold text-slate-900">TOTALE</span>
@@ -1574,30 +1763,64 @@ export default function ContoEconomico() {
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 <div>
                   <div className="text-xs font-semibold text-red-500 uppercase tracking-wider mb-2">Componenti Negative</div>
-                  <BilancioTree rows={bilancioData.contoEconomico?.costiTree || []} />
+                  <BilancioTree rows={bilancioData.contoEconomico?.costiTree || []} prevByCode={showYoY ? prevBilancioData?.byCode : null} showYoY={showYoY} isCost={true} currentYear={year} />
                   {bilancioData.contoEconomico?.totals?.costi != null && (
-                    <div className="mt-2 pt-2 border-t-2 border-slate-300 flex justify-between px-2">
+                    <div className="mt-2 pt-2 border-t-2 border-slate-300 flex items-center justify-between px-2">
                       <span className="text-sm font-bold text-slate-900">TOTALE COSTI</span>
-                      <span className="text-sm font-bold text-red-600">{fmt(bilancioData.contoEconomico.totals.costi)} €</span>
+                      <div className="flex items-center gap-3">
+                        <span className="text-sm font-bold text-red-600">{fmt(bilancioData.contoEconomico.totals.costi)} €</span>
+                        {showYoY && prevBilancioData?.contoEconomico?.totals?.costi != null && (() => {
+                          const d = variation(bilancioData.contoEconomico.totals.costi, prevBilancioData.contoEconomico.totals.costi)
+                          return d != null ? (
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold ${d <= 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
+                              {d >= 0 ? '+' : ''}{d.toFixed(1)}% vs {year - 1}
+                            </span>
+                          ) : null
+                        })()}
+                      </div>
                     </div>
                   )}
                 </div>
                 <div>
                   <div className="text-xs font-semibold text-emerald-500 uppercase tracking-wider mb-2">Componenti Positive</div>
-                  <BilancioTree rows={bilancioData.contoEconomico?.ricaviTree || []} />
+                  <BilancioTree rows={bilancioData.contoEconomico?.ricaviTree || []} prevByCode={showYoY ? prevBilancioData?.byCode : null} showYoY={showYoY} isCost={false} currentYear={year} />
                   {bilancioData.contoEconomico?.totals?.ricavi != null && (
-                    <div className="mt-2 pt-2 border-t-2 border-slate-300 flex justify-between px-2">
+                    <div className="mt-2 pt-2 border-t-2 border-slate-300 flex items-center justify-between px-2">
                       <span className="text-sm font-bold text-slate-900">TOTALE RICAVI</span>
-                      <span className="text-sm font-bold text-emerald-600">{fmt(bilancioData.contoEconomico.totals.ricavi)} €</span>
+                      <div className="flex items-center gap-3">
+                        <span className="text-sm font-bold text-emerald-600">{fmt(bilancioData.contoEconomico.totals.ricavi)} €</span>
+                        {showYoY && prevBilancioData?.contoEconomico?.totals?.ricavi != null && (() => {
+                          const d = variation(bilancioData.contoEconomico.totals.ricavi, prevBilancioData.contoEconomico.totals.ricavi)
+                          return d != null ? (
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold ${d >= 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
+                              {d >= 0 ? '+' : ''}{d.toFixed(1)}% vs {year - 1}
+                            </span>
+                          ) : null
+                        })()}
+                      </div>
                     </div>
                   )}
                 </div>
               </div>
               {bilancioData.contoEconomico?.totals?.risultato != null && (
-                <div className={`mt-3 p-3 rounded-lg text-center font-bold text-sm ${
+                <div className={`mt-3 p-3 rounded-lg font-bold text-sm flex items-center justify-center gap-3 ${
                   bilancioData.contoEconomico.totals.risultato >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'
                 }`}>
-                  {bilancioData.contoEconomico.totals.risultato >= 0 ? 'Utile' : 'Perdita'}: {fmt(Math.abs(bilancioData.contoEconomico.totals.risultato))} €
+                  <span>{bilancioData.contoEconomico.totals.risultato >= 0 ? 'Utile' : 'Perdita'}: {fmt(Math.abs(bilancioData.contoEconomico.totals.risultato))} €</span>
+                  {showYoY && prevBilancioData?.contoEconomico?.totals?.risultato != null && (() => {
+                    const d = variation(bilancioData.contoEconomico.totals.risultato, prevBilancioData.contoEconomico.totals.risultato)
+                    return (
+                      <span className="text-xs font-normal">
+                        (Anno prec.: {fmt(Math.abs(prevBilancioData.contoEconomico.totals.risultato))} €
+                        {d != null && (
+                          <span className={`ml-1 inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${d >= 0 ? 'bg-emerald-200 text-emerald-800' : 'bg-red-200 text-red-800'}`}>
+                            {d >= 0 ? '+' : ''}{d.toFixed(1)}%
+                          </span>
+                        )}
+                        )
+                      </span>
+                    )
+                  })()}
                 </div>
               )}
             </div>
@@ -1888,23 +2111,35 @@ function IndiceCard({ label, value, status, formula, detail, benchmark }) {
 }
 
 // ═══ BILANCIO TREE COMPONENT ═══
-function BilancioTree({ rows }) {
+function BilancioTree({ rows, prevByCode, showYoY, isCost, currentYear }) {
   if (!rows || rows.length === 0) return <p className="text-xs text-slate-400 italic">Nessun dato</p>
   return (
     <div className="space-y-0.5">
-      {rows.map((node, i) => <TreeNode key={`${node.code}-${i}`} node={node} />)}
+      {showYoY && prevByCode && (
+        <div className="flex items-center justify-end gap-1 px-2 pb-1 text-[10px] text-slate-400 uppercase tracking-wider">
+          <span className="w-24 text-right">{currentYear}</span>
+          <span className="w-24 text-right">Anno Prec.</span>
+          <span className="w-16 text-right">{'\u0394'} %</span>
+        </div>
+      )}
+      {rows.map((node, i) => <TreeNode key={`${node.code}-${i}`} node={node} prevByCode={prevByCode} showYoY={showYoY} isCost={isCost} />)}
     </div>
   )
 }
 
-function TreeNode({ node, depth = 0 }) {
+function TreeNode({ node, depth = 0, prevByCode, showYoY, isCost }) {
   const [open, setOpen] = useState(node.level === 0) // macro level open by default
   const hasChildren = node.children && node.children.length > 0
   const isMacroRow = node.level === 0
   const isNegative = node.amount < 0
 
+  const prevAmount = prevByCode ? prevByCode[node.code] : null
+  const delta = prevAmount != null && prevAmount !== 0 ? variation(node.amount, prevAmount) : null
+  // For costs: negative delta = improvement. For revenues: positive delta = improvement
+  const isPositiveImprovement = isCost ? (delta != null && delta < 0) : (delta != null && delta > 0)
+
   const fmtAmount = (n) => {
-    if (n == null) return '—'
+    if (n == null) return '\u2014'
     const formatted = new Intl.NumberFormat('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Math.abs(n))
     return n < 0 ? `-${formatted}` : formatted
   }
@@ -1920,7 +2155,7 @@ function TreeNode({ node, depth = 0 }) {
       >
         <div className="flex items-center gap-1.5 min-w-0 flex-1">
           {hasChildren ? (
-            <span className="text-slate-400 w-4 shrink-0 text-center text-xs">{open ? '▾' : '▸'}</span>
+            <span className="text-slate-400 w-4 shrink-0 text-center text-xs">{open ? '\u25BE' : '\u25B8'}</span>
           ) : (
             <span className="w-4 shrink-0" />
           )}
@@ -1932,16 +2167,38 @@ function TreeNode({ node, depth = 0 }) {
             {node.description}
           </span>
         </div>
-        <span className={`tabular-nums text-right shrink-0 ml-2 ${
-          isMacroRow ? 'text-xs font-bold text-slate-900' : 'text-[11px] text-slate-600'
-        } ${isNegative ? 'text-red-600' : ''}`}>
-          {fmtAmount(node.amount)} €
-        </span>
+        <div className="flex items-center gap-1 shrink-0 ml-2">
+          <span className={`tabular-nums text-right w-24 ${
+            isMacroRow ? 'text-xs font-bold text-slate-900' : 'text-[11px] text-slate-600'
+          } ${isNegative ? 'text-red-600' : ''}`}>
+            {fmtAmount(node.amount)} \u20AC
+          </span>
+          {showYoY && prevByCode && (
+            <>
+              <span className={`tabular-nums text-right w-24 ${
+                isMacroRow ? 'text-[11px] font-medium text-slate-500' : 'text-[10px] text-slate-400'
+              }`}>
+                {prevAmount != null ? `${fmtAmount(prevAmount)} \u20AC` : '\u2014'}
+              </span>
+              <span className="w-16 text-right">
+                {delta != null ? (
+                  <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full font-semibold ${
+                    isMacroRow ? 'text-[10px]' : 'text-[9px]'
+                  } ${isPositiveImprovement ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
+                    {delta >= 0 ? '+' : ''}{delta.toFixed(1)}%
+                  </span>
+                ) : (
+                  <span className="text-[10px] text-slate-300">{prevAmount == null ? '\u2014' : ''}</span>
+                )}
+              </span>
+            </>
+          )}
+        </div>
       </div>
       {open && hasChildren && (
         <div>
           {node.children.map((child, i) => (
-            <TreeNode key={`${child.code}-${i}`} node={child} depth={depth + 1} />
+            <TreeNode key={`${child.code}-${i}`} node={child} depth={depth + 1} prevByCode={prevByCode} showYoY={showYoY} isCost={isCost} />
           ))}
         </div>
       )}

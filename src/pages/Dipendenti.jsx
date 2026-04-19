@@ -116,12 +116,34 @@ export default function Dipendenti() {
   const [docPdfData, setDocPdfData] = useState(null);
   const [batchImporting, setBatchImporting] = useState(false);
   const batchFileRef = useRef(null);
+  const [bilancioCostoPersonale, setBilancioCostoPersonale] = useState(null);
 
   // ========== LOAD DATA FROM SUPABASE ==========
 
   useEffect(() => {
     if (!COMPANY_ID) return;
     loadAllData();
+  }, [COMPANY_ID]);
+
+  // Load bilancio costo personale from balance_sheet_data
+  useEffect(() => {
+    if (!COMPANY_ID) return;
+    async function loadBilancio() {
+      const currentYear = new Date().getFullYear();
+      const { data } = await supabase
+        .from('balance_sheet_data')
+        .select('amount')
+        .eq('company_id', COMPANY_ID)
+        .eq('account_code', 'totale_personale')
+        .eq('section', 'conto_economico')
+        .eq('period_type', 'annuale')
+        .eq('year', currentYear)
+        .maybeSingle();
+      if (data?.amount) {
+        setBilancioCostoPersonale(data.amount);
+      }
+    }
+    loadBilancio();
   }, [COMPANY_ID]);
 
   const loadAllData = async () => {
@@ -1045,6 +1067,24 @@ export default function Dipendenti() {
             </div>
           )}
         </div>
+
+        {/* Bilancio costo personale banner */}
+        {employees.length === 0 && bilancioCostoPersonale > 0 && (
+          <div className="mb-8 rounded-lg border border-blue-200 bg-blue-50 p-5 flex items-start gap-4">
+            <AlertCircle className="w-6 h-6 text-blue-600 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-semibold text-blue-900 mb-1">
+                Dal bilancio importato risultano {formatCurrency(bilancioCostoPersonale)} di costo personale.
+              </p>
+              <p className="text-sm text-blue-700">
+                Importa i cedolini per vedere il dettaglio per dipendente.{' '}
+                <a href="/import-hub" className="font-medium underline hover:text-blue-900">
+                  Vai a Import Hub &rarr;
+                </a>
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Period Selector */}
         <div className="flex gap-4 mb-8 flex-wrap">

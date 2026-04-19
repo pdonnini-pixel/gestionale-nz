@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   ComposedChart,
   Bar,
@@ -20,7 +20,10 @@ import {
   Calendar,
   Loader,
   CheckCircle,
-  Clock
+  Clock,
+  ChevronDown,
+  ChevronRight,
+  X
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
@@ -28,6 +31,7 @@ import { GlassTooltip, AXIS_STYLE, GRID_STYLE } from '../components/ChartTheme';
 import ExportMenu from '../components/ExportMenu';
 
 const MONTHS = ['Gen', 'Feb', 'Mar', 'Apr', 'Mag', 'Giu', 'Lug', 'Ago', 'Set', 'Ott', 'Nov', 'Dic'];
+const DAYS_SHORT = ['Dom', 'Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab'];
 
 const formatCurrency = (value) => {
   if (value === null || value === undefined) return '€ 0';
@@ -35,6 +39,16 @@ const formatCurrency = (value) => {
     minimumFractionDigits: 0,
     maximumFractionDigits: 0
   }).format(value) + ' €';
+};
+
+const formatDate = (date) => {
+  const d = new Date(date);
+  return `${d.getDate().toString().padStart(2, '0')}/${(d.getMonth() + 1).toString().padStart(2, '0')}`;
+};
+
+const formatDateFull = (date) => {
+  const d = new Date(date);
+  return `${d.getDate().toString().padStart(2, '0')}/${(d.getMonth() + 1).toString().padStart(2, '0')}/${d.getFullYear()}`;
 };
 
 const parseMonth = (dateString) => {
@@ -47,6 +61,20 @@ const getMonthName = (month) => {
   return MONTHS[month] || 'N/A';
 };
 
+// Helper: get ISO date string YYYY-MM-DD
+const toISODate = (date) => {
+  const d = new Date(date);
+  return `${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, '0')}-${d.getDate().toString().padStart(2, '0')}`;
+};
+
+// Helper: get Monday of the week containing the given date
+const getWeekStart = (date) => {
+  const d = new Date(date);
+  const day = d.getDay();
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1); // Monday
+  return new Date(d.setDate(diff));
+};
+
 export default function CashflowProspettico() {
   const { profile } = useAuth();
   const COMPANY_ID = profile?.company_id;
@@ -55,6 +83,7 @@ export default function CashflowProspettico() {
   const [year, setYear] = useState(2026);
   const [selectedOutlet, setSelectedOutlet] = useState('all');
   const [scenario, setScenario] = useState('base'); // 'base', 'ottimistico', 'pessimistico'
+  const [viewMode, setViewMode] = useState('mensile'); // 'giornaliero' | 'settimanale' | 'mensile'
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -64,6 +93,14 @@ export default function CashflowProspettico() {
   const [monthlyData, setMonthlyData] = useState([]);
   const [hasNegativeMonth, setHasNegativeMonth] = useState(false);
 
+  // Raw data for daily/weekly views
+  const [rawPayables, setRawPayables] = useState([]);
+  const [rawDailyRevenue, setRawDailyRevenue] = useState([]);
+  const [rawOutlets, setRawOutlets] = useState([]);
+  const [rawRecurringCosts, setRawRecurringCosts] = useState([]);
+  const [rawLoans, setRawLoans] = useState([]);
+  const [rawBudgetConfronto, setRawBudgetConfronto] = useState([]);
+
   // Actual monthly data from cash_movements
   const [actualMonthlyData, setActualMonthlyData] = useState([]);
 
@@ -72,11 +109,24 @@ export default function CashflowProspettico() {
   const [totalOutflows, setTotalOutflows] = useState(0);
   const [finalBalance, setFinalBalance] = useState(0);
 
+  // Drill-down state
+  const [expandedRow, setExpandedRow] = useState(null); // index of expanded row
+  const [expandedColumn, setExpandedColumn] = useState(null); // 'entrate' | 'uscite'
+
+  // Negative balance alert
+  const [negativeAlert, setNegativeAlert] = useState(null);
+
   // Fetch all data
   useEffect(() => {
     if (!COMPANY_ID) return;
     fetchAllData();
   }, [COMPANY_ID, year, selectedOutlet, scenario]);
+
+  // Reset expanded row when view mode changes
+  useEffect(() => {
+    setExpandedRow(null);
+    setExpandedColumn(null);
+  }, [viewMode]);
 
   const fetchAllData = async () => {
     try {
@@ -106,7 +156,10 @@ export default function CashflowProspettico() {
         { data: recurringCosts },
         { data: payablesData },
         { data: budgetConfrontoData },
-        { data: loansData }
+        { data: loansData },
+        { data: outletsData },
+        { data: payablesScadenze },
+        { data: dailyRevenueData }
       ] = await Promise.all([
         supabase
           .from('recurring_costs')
@@ -126,11 +179,54 @@ export default function CashflowProspettico() {
           .from('loans')
           .select('*')
           .eq('company_id', COMPANY_ID)
-          .eq('is_active', true)
+          .eq('is_active', true),
+        supabase
+          .from('outlets')
+          .select('id, code, name, rent_monthly')
+          .eq('company_id', COMPANY_ID)
+          .eq('is_active', true),
+        supabase
+          .from('payables')
+          .select('id, due_date, gross_amount, amount_paid, outlet_id, status, supplier_id, invoice_number')
+          .eq('company_id', COMPANY_ID)
+          .in('status', ['da_pagare', 'in_scadenza', 'scaduto']),
+        // Daily revenue for daily/weekly views
+        supabase
+          .from('daily_revenue')
+          .select('id, date, outlet_id, gross_revenue, net_revenue')
+          .eq('company_id', COMPANY_ID)
+          .gte('date', `${year}-01-01`)
+          .lte('date', `${year}-12-31`)
       ]);
+
+      // Store raw data for drill-down
+      setRawPayables(payablesScadenze || []);
+      setRawDailyRevenue(dailyRevenueData || []);
+      setRawOutlets(outletsData || []);
+      setRawRecurringCosts(recurringCosts || []);
+      setRawLoans(loansData || []);
+      setRawBudgetConfronto(budgetConfrontoData || []);
 
       // Filter by outlet if not 'all'
       let filteredOutlet = selectedOutlet === 'all' ? null : selectedOutlet;
+
+      // B4: Calculate total monthly rent from active outlets
+      let totalMonthlyRent = 0;
+      if (outletsData) {
+        outletsData.forEach(outlet => {
+          if (!filteredOutlet || outlet.code === filteredOutlet) {
+            totalMonthlyRent += parseFloat(outlet.rent_monthly) || 0;
+          }
+        });
+      }
+
+      // B1: Build a map of outlet_id -> outlet.code for payables filtering
+      const outletIdToCode = {};
+      if (outletsData) {
+        outletsData.forEach(outlet => {
+          outletIdToCode[outlet.id] = outlet.code;
+        });
+      }
 
       // Process monthly data
       const monthData = Array.from({ length: 12 }, (_, i) => ({
@@ -140,6 +236,8 @@ export default function CashflowProspettico() {
         entrate_budget: 0,
         uscite_sdi: 0,
         uscite_ricorrenti: 0,
+        uscite_scadenze: 0,
+        uscite_canoni: totalMonthlyRent,
         rate_finanziamenti: 0
       }));
 
@@ -164,6 +262,24 @@ export default function CashflowProspettico() {
               const outstandingAmount = (payable.amount_total || 0) - (payable.amount_paid || 0);
               monthData[month].uscite_sdi += outstandingAmount;
             }
+          }
+        });
+      }
+
+      // 3.2b Add payables scadenze (B1: uscite previste from payables table)
+      if (payablesScadenze) {
+        payablesScadenze.forEach(payable => {
+          const dueDate = payable.due_date;
+          if (!dueDate) return;
+          const payableDate = new Date(dueDate);
+          // Only include payables for the selected year
+          if (payableDate.getFullYear() !== year) return;
+          const month = payableDate.getMonth();
+          // Filter by outlet if selected
+          if (filteredOutlet && outletIdToCode[payable.outlet_id] !== filteredOutlet) return;
+          const outstanding = (parseFloat(payable.gross_amount) || 0) - (parseFloat(payable.amount_paid) || 0);
+          if (outstanding > 0) {
+            monthData[month].uscite_scadenze += outstanding;
           }
         });
       }
@@ -220,7 +336,7 @@ export default function CashflowProspettico() {
         month.entrate_budget = Math.round(month.entrate_budget * multiplier);
 
         month.tot_entrate = month.entrate_sdi + month.entrate_budget;
-        month.tot_uscite = month.uscite_sdi + month.uscite_ricorrenti + month.rate_finanziamenti;
+        month.tot_uscite = month.uscite_sdi + month.uscite_ricorrenti + month.uscite_scadenze + month.uscite_canoni + month.rate_finanziamenti;
         month.flusso_netto = month.tot_entrate - month.tot_uscite;
 
         cumulativeBalance += month.flusso_netto;
@@ -303,14 +419,469 @@ export default function CashflowProspettico() {
     }
   };
 
+  // ===== DAILY VIEW COMPUTATION =====
+  const dailyData = useMemo(() => {
+    if (viewMode !== 'giornaliero') return [];
+
+    const filteredOutlet = selectedOutlet === 'all' ? null : selectedOutlet;
+    const multiplier = scenario === 'ottimistico' ? 1.1 : scenario === 'pessimistico' ? 0.9 : 1;
+
+    const outletIdToCode = {};
+    const outletIdToName = {};
+    rawOutlets.forEach(o => {
+      outletIdToCode[o.id] = o.code;
+      outletIdToName[o.id] = o.name || o.code;
+    });
+
+    // Total daily rent (monthly rent / 30)
+    let totalDailyRent = 0;
+    rawOutlets.forEach(outlet => {
+      if (!filteredOutlet || outlet.code === filteredOutlet) {
+        totalDailyRent += (parseFloat(outlet.rent_monthly) || 0) / 30;
+      }
+    });
+
+    // Daily recurring costs (monthly costs prorated to daily)
+    let dailyRecurring = 0;
+    (rawRecurringCosts || []).forEach(cost => {
+      if (!filteredOutlet || cost.cost_center === filteredOutlet) {
+        if (cost.frequency === 'monthly') {
+          dailyRecurring += (cost.amount || 0) / 30;
+        } else if (cost.frequency === 'quarterly') {
+          dailyRecurring += (cost.amount || 0) / 90;
+        } else if (cost.frequency === 'annual') {
+          dailyRecurring += (cost.amount || 0) / 365;
+        } else if (cost.frequency === 'semiannual') {
+          dailyRecurring += (cost.amount || 0) / 180;
+        } else if (cost.frequency === 'bimonthly') {
+          dailyRecurring += (cost.amount || 0) / 60;
+        }
+      }
+    });
+
+    // Daily loan payment
+    let dailyLoan = 0;
+    (rawLoans || []).forEach(loan => {
+      dailyLoan += (loan.monthly_payment || 0) / 30;
+    });
+
+    // Build revenue by date
+    const revenueByDate = {};
+    (rawDailyRevenue || []).forEach(rev => {
+      const dateKey = rev.date;
+      if (!revenueByDate[dateKey]) revenueByDate[dateKey] = [];
+      if (!filteredOutlet || outletIdToCode[rev.outlet_id] === filteredOutlet) {
+        revenueByDate[dateKey].push({
+          outlet_name: outletIdToName[rev.outlet_id] || 'N/A',
+          gross_revenue: parseFloat(rev.gross_revenue) || 0
+        });
+      }
+    });
+
+    // Build payables by date
+    const payablesByDate = {};
+    (rawPayables || []).forEach(p => {
+      if (!p.due_date) return;
+      if (filteredOutlet && outletIdToCode[p.outlet_id] !== filteredOutlet) return;
+      const outstanding = (parseFloat(p.gross_amount) || 0) - (parseFloat(p.amount_paid) || 0);
+      if (outstanding <= 0) return;
+      const dateKey = p.due_date;
+      if (!payablesByDate[dateKey]) payablesByDate[dateKey] = [];
+      payablesByDate[dateKey].push({
+        invoice_number: p.invoice_number || '-',
+        supplier_id: p.supplier_id,
+        gross_amount: outstanding
+      });
+    });
+
+    // Build budget-based daily revenue estimate (monthly budget / days in month)
+    const monthlyBudgetRevenue = Array(12).fill(0);
+    (rawBudgetConfronto || []).forEach(entry => {
+      if (entry.entry_type === 'rev_monthly') {
+        const month = (entry.month || 1) - 1;
+        if (!filteredOutlet || entry.cost_center === filteredOutlet) {
+          monthlyBudgetRevenue[month] += entry.amount || 0;
+        }
+      }
+    });
+
+    const today = new Date();
+    const startDate = new Date(today);
+    startDate.setHours(0, 0, 0, 0);
+    const days = [];
+    let cumBalance = initialBalance;
+
+    for (let i = 0; i < 30; i++) {
+      const date = new Date(startDate);
+      date.setDate(startDate.getDate() + i);
+      const dateKey = toISODate(date);
+      const month = date.getMonth();
+      const daysInMonth = new Date(date.getFullYear(), month + 1, 0).getDate();
+
+      // Entrate: daily_revenue records + prorated budget
+      const revenueItems = revenueByDate[dateKey] || [];
+      const revenueTotal = revenueItems.reduce((sum, r) => sum + r.gross_revenue, 0);
+      const budgetDaily = monthlyBudgetRevenue[month] / daysInMonth;
+      const entrateRaw = revenueTotal > 0 ? revenueTotal : budgetDaily;
+      const entrate = Math.round(entrateRaw * multiplier);
+
+      // Uscite: payables due + prorated rent + prorated recurring + prorated loans
+      const payableItems = payablesByDate[dateKey] || [];
+      const payablesTotal = payableItems.reduce((sum, p) => sum + p.gross_amount, 0);
+      const uscite = Math.round(payablesTotal + totalDailyRent + dailyRecurring + dailyLoan);
+
+      const flusso = entrate - uscite;
+      cumBalance += flusso;
+
+      // Build rent detail items for drill-down
+      const rentItems = rawOutlets
+        .filter(o => !filteredOutlet || o.code === filteredOutlet)
+        .map(o => ({
+          label: o.name || o.code,
+          amount: Math.round((parseFloat(o.rent_monthly) || 0) / 30)
+        }))
+        .filter(item => item.amount > 0);
+
+      days.push({
+        label: `${DAYS_SHORT[date.getDay()]} ${formatDate(date)}`,
+        dateKey,
+        dateFull: formatDateFull(date),
+        entrate,
+        uscite,
+        flusso_netto: flusso,
+        saldo_progressivo: cumBalance,
+        // Drill-down data
+        entrateItems: revenueItems.length > 0
+          ? revenueItems.map(r => ({ label: r.outlet_name, amount: Math.round(r.gross_revenue * multiplier) }))
+          : [{ label: 'Stima da budget', amount: Math.round(budgetDaily * multiplier) }],
+        usciteItems: [
+          ...payableItems.map(p => ({ label: `Fatt. ${p.invoice_number}`, amount: Math.round(p.gross_amount) })),
+          ...rentItems,
+          ...(dailyRecurring > 0 ? [{ label: 'Costi ricorrenti (pro-rata)', amount: Math.round(dailyRecurring) }] : []),
+          ...(dailyLoan > 0 ? [{ label: 'Rate finanziamenti (pro-rata)', amount: Math.round(dailyLoan) }] : [])
+        ]
+      });
+    }
+
+    return days;
+  }, [viewMode, rawDailyRevenue, rawPayables, rawOutlets, rawRecurringCosts, rawLoans, rawBudgetConfronto, initialBalance, selectedOutlet, scenario]);
+
+  // ===== WEEKLY VIEW COMPUTATION =====
+  const weeklyData = useMemo(() => {
+    if (viewMode !== 'settimanale') return [];
+    if (dailyData.length === 0) return []; // We reuse daily logic but extend to 13 weeks
+
+    const filteredOutlet = selectedOutlet === 'all' ? null : selectedOutlet;
+    const multiplier = scenario === 'ottimistico' ? 1.1 : scenario === 'pessimistico' ? 0.9 : 1;
+
+    const outletIdToCode = {};
+    const outletIdToName = {};
+    rawOutlets.forEach(o => {
+      outletIdToCode[o.id] = o.code;
+      outletIdToName[o.id] = o.name || o.code;
+    });
+
+    let totalDailyRent = 0;
+    rawOutlets.forEach(outlet => {
+      if (!filteredOutlet || outlet.code === filteredOutlet) {
+        totalDailyRent += (parseFloat(outlet.rent_monthly) || 0) / 30;
+      }
+    });
+
+    let dailyRecurring = 0;
+    (rawRecurringCosts || []).forEach(cost => {
+      if (!filteredOutlet || cost.cost_center === filteredOutlet) {
+        if (cost.frequency === 'monthly') dailyRecurring += (cost.amount || 0) / 30;
+        else if (cost.frequency === 'quarterly') dailyRecurring += (cost.amount || 0) / 90;
+        else if (cost.frequency === 'annual') dailyRecurring += (cost.amount || 0) / 365;
+        else if (cost.frequency === 'semiannual') dailyRecurring += (cost.amount || 0) / 180;
+        else if (cost.frequency === 'bimonthly') dailyRecurring += (cost.amount || 0) / 60;
+      }
+    });
+
+    let dailyLoan = 0;
+    (rawLoans || []).forEach(loan => {
+      dailyLoan += (loan.monthly_payment || 0) / 30;
+    });
+
+    const revenueByDate = {};
+    (rawDailyRevenue || []).forEach(rev => {
+      if (!filteredOutlet || outletIdToCode[rev.outlet_id] === filteredOutlet) {
+        if (!revenueByDate[rev.date]) revenueByDate[rev.date] = [];
+        revenueByDate[rev.date].push({
+          outlet_name: outletIdToName[rev.outlet_id] || 'N/A',
+          gross_revenue: parseFloat(rev.gross_revenue) || 0
+        });
+      }
+    });
+
+    const payablesByDate = {};
+    (rawPayables || []).forEach(p => {
+      if (!p.due_date) return;
+      if (filteredOutlet && outletIdToCode[p.outlet_id] !== filteredOutlet) return;
+      const outstanding = (parseFloat(p.gross_amount) || 0) - (parseFloat(p.amount_paid) || 0);
+      if (outstanding <= 0) return;
+      if (!payablesByDate[p.due_date]) payablesByDate[p.due_date] = [];
+      payablesByDate[p.due_date].push({
+        invoice_number: p.invoice_number || '-',
+        supplier_id: p.supplier_id,
+        gross_amount: outstanding
+      });
+    });
+
+    const monthlyBudgetRevenue = Array(12).fill(0);
+    (rawBudgetConfronto || []).forEach(entry => {
+      if (entry.entry_type === 'rev_monthly') {
+        const month = (entry.month || 1) - 1;
+        if (!filteredOutlet || entry.cost_center === filteredOutlet) {
+          monthlyBudgetRevenue[month] += entry.amount || 0;
+        }
+      }
+    });
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    // Start from Monday of current week
+    const weekStart = getWeekStart(today);
+
+    const weeks = [];
+    let cumBalance = initialBalance;
+
+    for (let w = 0; w < 13; w++) {
+      const wStart = new Date(weekStart);
+      wStart.setDate(weekStart.getDate() + w * 7);
+      const wEnd = new Date(wStart);
+      wEnd.setDate(wStart.getDate() + 6);
+
+      let weekEntrate = 0;
+      let weekUscite = 0;
+      const weekEntrateItems = [];
+      const weekUsciteItems = [];
+
+      for (let d = 0; d < 7; d++) {
+        const date = new Date(wStart);
+        date.setDate(wStart.getDate() + d);
+        const dateKey = toISODate(date);
+        const month = date.getMonth();
+        const daysInMonth = new Date(date.getFullYear(), month + 1, 0).getDate();
+
+        const revenueItems = revenueByDate[dateKey] || [];
+        const revenueTotal = revenueItems.reduce((sum, r) => sum + r.gross_revenue, 0);
+        const budgetDaily = monthlyBudgetRevenue[month] / daysInMonth;
+        const dayEntrate = Math.round((revenueTotal > 0 ? revenueTotal : budgetDaily) * multiplier);
+        weekEntrate += dayEntrate;
+
+        revenueItems.forEach(r => {
+          weekEntrateItems.push({ label: `${formatDate(date)} - ${r.outlet_name}`, amount: Math.round(r.gross_revenue * multiplier) });
+        });
+        if (revenueItems.length === 0 && budgetDaily > 0) {
+          weekEntrateItems.push({ label: `${formatDate(date)} - Stima budget`, amount: Math.round(budgetDaily * multiplier) });
+        }
+
+        const payableItems = payablesByDate[dateKey] || [];
+        const payablesTotal = payableItems.reduce((sum, p) => sum + p.gross_amount, 0);
+        const dayUscite = Math.round(payablesTotal + totalDailyRent + dailyRecurring + dailyLoan);
+        weekUscite += dayUscite;
+
+        payableItems.forEach(p => {
+          weekUsciteItems.push({ label: `${formatDate(date)} - Fatt. ${p.invoice_number}`, amount: Math.round(p.gross_amount) });
+        });
+      }
+
+      // Add weekly rent/recurring/loan totals
+      const weeklyRent = Math.round(totalDailyRent * 7);
+      const weeklyRecurring = Math.round(dailyRecurring * 7);
+      const weeklyLoan = Math.round(dailyLoan * 7);
+      if (weeklyRent > 0) weekUsciteItems.push({ label: 'Canoni affitto (settimana)', amount: weeklyRent });
+      if (weeklyRecurring > 0) weekUsciteItems.push({ label: 'Costi ricorrenti (settimana)', amount: weeklyRecurring });
+      if (weeklyLoan > 0) weekUsciteItems.push({ label: 'Rate finanziamenti (settimana)', amount: weeklyLoan });
+
+      const flusso = weekEntrate - weekUscite;
+      cumBalance += flusso;
+
+      weeks.push({
+        label: `${formatDate(wStart)} - ${formatDate(wEnd)}`,
+        dateKey: toISODate(wStart),
+        entrate: weekEntrate,
+        uscite: weekUscite,
+        flusso_netto: flusso,
+        saldo_progressivo: cumBalance,
+        entrateItems: weekEntrateItems,
+        usciteItems: weekUsciteItems
+      });
+    }
+
+    return weeks;
+  }, [viewMode, rawDailyRevenue, rawPayables, rawOutlets, rawRecurringCosts, rawLoans, rawBudgetConfronto, initialBalance, selectedOutlet, scenario]);
+
+  // Force daily computation for weekly view by making dailyData not depend on viewMode for weekly
+  // Actually, weeklyData computes independently. Let's fix the dependency:
+  // weeklyData already computes from raw data, not from dailyData. Good.
+
+  // ===== ACTIVE DATA based on viewMode =====
+  const activeData = useMemo(() => {
+    if (viewMode === 'giornaliero') return dailyData;
+    if (viewMode === 'settimanale') return weeklyData;
+    return monthlyData;
+  }, [viewMode, dailyData, weeklyData, monthlyData]);
+
+  // ===== NEGATIVE ALERT COMPUTATION =====
+  useEffect(() => {
+    let alertInfo = null;
+
+    if (viewMode === 'mensile') {
+      for (const m of monthlyData) {
+        if (m.saldo_progressivo < 0) {
+          alertInfo = {
+            period: `${m.monthName} ${year}`,
+            uscite: m.tot_uscite,
+            saldo: m.saldo_progressivo
+          };
+          break;
+        }
+      }
+    } else if (viewMode === 'giornaliero') {
+      for (const d of dailyData) {
+        if (d.saldo_progressivo < 0) {
+          alertInfo = {
+            period: d.dateFull || d.label,
+            uscite: d.uscite,
+            saldo: d.saldo_progressivo
+          };
+          break;
+        }
+      }
+    } else if (viewMode === 'settimanale') {
+      for (const w of weeklyData) {
+        if (w.saldo_progressivo < 0) {
+          alertInfo = {
+            period: `Settimana ${w.label}`,
+            uscite: w.uscite,
+            saldo: w.saldo_progressivo
+          };
+          break;
+        }
+      }
+    }
+
+    setNegativeAlert(alertInfo);
+  }, [viewMode, monthlyData, dailyData, weeklyData, year]);
+
+  // ===== DRILL-DOWN DETAIL FOR MONTHLY VIEW =====
+  const getMonthlyDrillDown = (monthIdx, column) => {
+    const filteredOutlet = selectedOutlet === 'all' ? null : selectedOutlet;
+    const outletIdToCode = {};
+    const outletIdToName = {};
+    rawOutlets.forEach(o => {
+      outletIdToCode[o.id] = o.code;
+      outletIdToName[o.id] = o.name || o.code;
+    });
+
+    if (column === 'entrate') {
+      const items = [];
+      // Daily revenue records for this month
+      (rawDailyRevenue || []).forEach(rev => {
+        const d = new Date(rev.date);
+        if (d.getMonth() === monthIdx && d.getFullYear() === year) {
+          if (!filteredOutlet || outletIdToCode[rev.outlet_id] === filteredOutlet) {
+            items.push({
+              label: `${formatDateFull(rev.date)} - ${outletIdToName[rev.outlet_id] || 'N/A'}`,
+              amount: Math.round(parseFloat(rev.gross_revenue) || 0)
+            });
+          }
+        }
+      });
+      // Budget entries
+      (rawBudgetConfronto || []).forEach(entry => {
+        if (entry.entry_type === 'rev_monthly' && (entry.month - 1) === monthIdx) {
+          if (!filteredOutlet || entry.cost_center === filteredOutlet) {
+            items.push({
+              label: `Budget - ${entry.cost_center || 'Generale'}`,
+              amount: Math.round(entry.amount || 0)
+            });
+          }
+        }
+      });
+      return items;
+    } else {
+      const items = [];
+      // Payables due this month
+      (rawPayables || []).forEach(p => {
+        if (!p.due_date) return;
+        const d = new Date(p.due_date);
+        if (d.getMonth() !== monthIdx || d.getFullYear() !== year) return;
+        if (filteredOutlet && outletIdToCode[p.outlet_id] !== filteredOutlet) return;
+        const outstanding = (parseFloat(p.gross_amount) || 0) - (parseFloat(p.amount_paid) || 0);
+        if (outstanding > 0) {
+          items.push({
+            label: `Fatt. ${p.invoice_number || '-'} (scad. ${formatDateFull(p.due_date)})`,
+            amount: Math.round(outstanding)
+          });
+        }
+      });
+      // Rent
+      rawOutlets.forEach(o => {
+        if (!filteredOutlet || o.code === filteredOutlet) {
+          const rent = parseFloat(o.rent_monthly) || 0;
+          if (rent > 0) {
+            items.push({ label: `Canone - ${o.name || o.code}`, amount: Math.round(rent) });
+          }
+        }
+      });
+      // Recurring costs
+      (rawRecurringCosts || []).forEach(cost => {
+        if (!filteredOutlet || cost.cost_center === filteredOutlet) {
+          // Check if this cost applies to this month
+          const startMonth = (cost.month_start || 1) - 1;
+          let applies = false;
+          if (cost.frequency === 'monthly') applies = true;
+          else if (cost.frequency === 'bimonthly') applies = (monthIdx - startMonth) % 2 === 0 && monthIdx >= startMonth;
+          else if (cost.frequency === 'quarterly') applies = (monthIdx - startMonth) % 3 === 0 && monthIdx >= startMonth;
+          else if (cost.frequency === 'semiannual') applies = (monthIdx - startMonth) % 6 === 0 && monthIdx >= startMonth;
+          else if (cost.frequency === 'annual') applies = monthIdx === startMonth;
+          if (applies) {
+            items.push({ label: `${cost.description || cost.category || 'Costo ricorrente'}`, amount: Math.round(cost.amount || 0) });
+          }
+        }
+      });
+      // Loan payments
+      (rawLoans || []).forEach(loan => {
+        if (loan.monthly_payment > 0) {
+          items.push({ label: `Rata - ${loan.description || 'Finanziamento'}`, amount: Math.round(loan.monthly_payment) });
+        }
+      });
+      return items;
+    }
+  };
+
+  const handleDrillDown = (rowIdx, column) => {
+    if (expandedRow === rowIdx && expandedColumn === column) {
+      setExpandedRow(null);
+      setExpandedColumn(null);
+    } else {
+      setExpandedRow(rowIdx);
+      setExpandedColumn(column);
+    }
+  };
+
+  const getDrillDownItems = (rowIdx, column) => {
+    if (viewMode === 'mensile') {
+      return getMonthlyDrillDown(rowIdx, column);
+    }
+    // For daily/weekly, items are pre-computed
+    const row = activeData[rowIdx];
+    if (!row) return [];
+    return column === 'entrate' ? (row.entrateItems || []) : (row.usciteItems || []);
+  };
+
   const handleExportCSV = () => {
     let csv = 'Cashflow Prospettico - ' + year + '\n';
-    csv += 'Mese,Tipo,Entrate Reali,Uscite Reali,Netto Reale,Entrate SDI,Entrate Budget,Tot Entrate,Uscite SDI,Costi Ricorrenti,Rate Finanziamenti,Tot Uscite,Flusso Netto,Saldo Progressivo\n';
+    csv += 'Mese,Tipo,Entrate Reali,Uscite Reali,Netto Reale,Entrate SDI,Entrate Budget,Tot Entrate,Uscite SDI,Costi Ricorrenti,Scadenze Fornitori,Canoni Affitto,Rate Finanziamenti,Tot Uscite,Flusso Netto,Saldo Progressivo\n';
 
     monthlyData.forEach((month, idx) => {
       const actual = actualMonthlyData[idx];
       const hasActual = actual && actual.hasData;
-      csv += `${month.monthName},${month.tipo || 'Previsione'},${hasActual ? Math.round(actual.entrate) : ''},${hasActual ? Math.round(actual.uscite) : ''},${hasActual ? Math.round(actual.netto) : ''},${month.entrate_sdi},${month.entrate_budget},${month.tot_entrate},${month.uscite_sdi},${month.uscite_ricorrenti},${month.rate_finanziamenti},${month.tot_uscite},${month.flusso_netto},${month.saldo_progressivo}\n`;
+      csv += `${month.monthName},${month.tipo || 'Previsione'},${hasActual ? Math.round(actual.entrate) : ''},${hasActual ? Math.round(actual.uscite) : ''},${hasActual ? Math.round(actual.netto) : ''},${month.entrate_sdi},${month.entrate_budget},${month.tot_entrate},${month.uscite_sdi},${month.uscite_ricorrenti},${month.uscite_scadenze},${month.uscite_canoni},${month.rate_finanziamenti},${month.tot_uscite},${month.flusso_netto},${month.saldo_progressivo}\n`;
     });
 
     navigator.clipboard.writeText(csv).then(() => {
@@ -339,8 +910,59 @@ export default function CashflowProspettico() {
     );
   }
 
+  // Determine chart data based on view mode
+  const chartData = viewMode === 'mensile'
+    ? monthlyData.map((m, idx) => {
+        const actual = actualMonthlyData[idx];
+        const hasActual = actual && actual.hasData;
+        return {
+          ...m,
+          entrate_reali: hasActual ? Math.round(actual.entrate) : null,
+          uscite_reali: hasActual ? Math.round(actual.uscite) : null,
+          netto_reale: hasActual ? Math.round(actual.netto) : null,
+        };
+      })
+    : viewMode === 'giornaliero'
+      ? dailyData.map(d => ({
+          monthName: d.label,
+          tot_entrate: d.entrate,
+          tot_uscite: d.uscite,
+          saldo_progressivo: d.saldo_progressivo,
+          flusso_netto: d.flusso_netto
+        }))
+      : weeklyData.map(w => ({
+          monthName: w.label,
+          tot_entrate: w.entrate,
+          tot_uscite: w.uscite,
+          saldo_progressivo: w.saldo_progressivo,
+          flusso_netto: w.flusso_netto
+        }));
+
+  const chartTitle = viewMode === 'giornaliero'
+    ? 'Andamento Cashflow 30 Giorni'
+    : viewMode === 'settimanale'
+      ? 'Andamento Cashflow 13 Settimane'
+      : 'Andamento Cashflow 12 Mesi';
+
   return (
     <div className="p-8 bg-slate-50 min-h-screen">
+      {/* Negative Balance Alert */}
+      {negativeAlert && (
+        <div className="mb-6 bg-red-600 text-white rounded-xl p-4 shadow-lg sticky top-4 z-10">
+          <div className="flex items-center gap-3">
+            <AlertTriangle className="w-6 h-6 flex-shrink-0" />
+            <div>
+              <p className="font-bold text-lg">
+                Attenzione: il saldo diventera negativo il {negativeAlert.period}
+              </p>
+              <p className="text-red-100 mt-1">
+                Uscite previste: {formatCurrency(negativeAlert.uscite)} — Saldo atteso: {formatCurrency(negativeAlert.saldo)}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="mb-8">
         <div className="flex items-center gap-3 mb-6">
@@ -348,20 +970,46 @@ export default function CashflowProspettico() {
           <h1 className="text-3xl font-bold text-slate-900">Cashflow Prospettico</h1>
         </div>
 
+        {/* View Mode Selector */}
+        <div className="flex gap-1 mb-4 bg-slate-200 rounded-lg p-1 w-fit">
+          {[
+            { value: 'giornaliero', label: 'Giornaliero', sub: '30 giorni' },
+            { value: 'settimanale', label: 'Settimanale', sub: '3 mesi' },
+            { value: 'mensile', label: 'Mensile', sub: '12 mesi' }
+          ].map(mode => (
+            <button
+              key={mode.value}
+              onClick={() => setViewMode(mode.value)}
+              className={`px-4 py-2 rounded-md font-medium transition text-sm ${
+                viewMode === mode.value
+                  ? 'bg-white text-indigo-700 shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              {mode.label}
+              <span className={`ml-1 text-xs ${viewMode === mode.value ? 'text-indigo-400' : 'text-slate-400'}`}>
+                ({mode.sub})
+              </span>
+            </button>
+          ))}
+        </div>
+
         {/* Controls */}
         <div className="flex flex-wrap gap-4 items-center">
-          <div className="flex items-center gap-2">
-            <Calendar className="w-5 h-5 text-slate-500" />
-            <select
-              value={year}
-              onChange={(e) => setYear(parseInt(e.target.value))}
-              className="px-3 py-2 border border-slate-300 rounded-lg text-slate-900 bg-white hover:border-slate-400"
-            >
-              {[2024, 2025, 2026, 2027, 2028].map(y => (
-                <option key={y} value={y}>{y}</option>
-              ))}
-            </select>
-          </div>
+          {viewMode === 'mensile' && (
+            <div className="flex items-center gap-2">
+              <Calendar className="w-5 h-5 text-slate-500" />
+              <select
+                value={year}
+                onChange={(e) => setYear(parseInt(e.target.value))}
+                className="px-3 py-2 border border-slate-300 rounded-lg text-slate-900 bg-white hover:border-slate-400"
+              >
+                {[2024, 2025, 2026, 2027, 2028].map(y => (
+                  <option key={y} value={y}>{y}</option>
+                ))}
+              </select>
+            </div>
+          )}
 
           <div className="flex items-center gap-2">
             <Filter className="w-5 h-5 text-slate-500" />
@@ -404,6 +1052,8 @@ export default function CashflowProspettico() {
                   uscite_reali: a?.hasData ? Math.round(a.uscite) : '',
                   netto_reale: a?.hasData ? Math.round(a.netto) : '',
                   tot_entrate: m.tot_entrate,
+                  uscite_scadenze: m.uscite_scadenze,
+                  uscite_canoni: m.uscite_canoni,
                   tot_uscite: m.tot_uscite,
                   flusso_netto: m.flusso_netto,
                   saldo_progressivo: m.saldo_progressivo,
@@ -416,6 +1066,8 @@ export default function CashflowProspettico() {
                 { key: 'uscite_reali', label: 'Uscite Reali', format: 'euro' },
                 { key: 'netto_reale', label: 'Netto Reale', format: 'euro' },
                 { key: 'tot_entrate', label: 'Tot Entrate', format: 'euro' },
+                { key: 'uscite_scadenze', label: 'Scadenze Fornitori', format: 'euro' },
+                { key: 'uscite_canoni', label: 'Canoni Affitto', format: 'euro' },
                 { key: 'tot_uscite', label: 'Tot Uscite', format: 'euro' },
                 { key: 'flusso_netto', label: 'Flusso Netto', format: 'euro' },
                 { key: 'saldo_progressivo', label: 'Saldo Progressivo', format: 'euro' },
@@ -478,40 +1130,43 @@ export default function CashflowProspettico() {
 
       {/* Chart */}
       <div className="bg-white rounded-xl shadow-sm p-6 mb-8 border border-slate-200">
-        <h2 className="text-lg font-bold text-slate-900 mb-2">Andamento Cashflow 12 Mesi</h2>
-        <div className="flex items-center gap-4 mb-4 text-xs text-slate-500">
-          <span className="flex items-center gap-1"><CheckCircle size={14} className="text-emerald-700" /> Consuntivo (barre piene)</span>
-          <span className="flex items-center gap-1"><Clock size={14} className="text-emerald-400" /> Previsione (barre sfumate)</span>
-        </div>
+        <h2 className="text-lg font-bold text-slate-900 mb-2">{chartTitle}</h2>
+        {viewMode === 'mensile' && (
+          <div className="flex items-center gap-4 mb-4 text-xs text-slate-500">
+            <span className="flex items-center gap-1"><CheckCircle size={14} className="text-emerald-700" /> Consuntivo (barre piene)</span>
+            <span className="flex items-center gap-1"><Clock size={14} className="text-emerald-400" /> Previsione (barre sfumate)</span>
+          </div>
+        )}
         <ResponsiveContainer width="100%" height={400}>
-          <ComposedChart data={monthlyData.map((m, idx) => {
-            const actual = actualMonthlyData[idx];
-            const hasActual = actual && actual.hasData;
-            return {
-              ...m,
-              entrate_reali: hasActual ? Math.round(actual.entrate) : null,
-              uscite_reali: hasActual ? Math.round(actual.uscite) : null,
-              netto_reale: hasActual ? Math.round(actual.netto) : null,
-            };
-          })}>
+          <ComposedChart data={chartData}>
             <CartesianGrid {...GRID_STYLE} />
-            <XAxis dataKey="monthName" {...AXIS_STYLE} />
+            <XAxis
+              dataKey="monthName"
+              {...AXIS_STYLE}
+              angle={viewMode !== 'mensile' ? -45 : 0}
+              textAnchor={viewMode !== 'mensile' ? 'end' : 'middle'}
+              height={viewMode !== 'mensile' ? 60 : 30}
+              interval={viewMode === 'giornaliero' ? 2 : 0}
+              tick={{ fontSize: viewMode !== 'mensile' ? 10 : 12 }}
+            />
             <YAxis {...AXIS_STYLE} />
             <Tooltip content={<GlassTooltip />} />
             <Legend />
-            {/* Actual bars (solid, darker) */}
-            <Bar dataKey="entrate_reali" fill="#059669" name="Entrate Reali" radius={[8, 8, 0, 0]} />
-            <Bar dataKey="uscite_reali" fill="#dc2626" name="Uscite Reali" radius={[8, 8, 0, 0]} />
-            {/* Projected bars (lighter) */}
-            <Bar dataKey="tot_entrate" fill="#10b981" name="Entrate Previste" radius={[8, 8, 0, 0]} opacity={0.5} />
-            <Bar dataKey="tot_uscite" fill="#ef4444" name="Uscite Previste" radius={[8, 8, 0, 0]} opacity={0.5} />
+            {viewMode === 'mensile' && (
+              <>
+                <Bar dataKey="entrate_reali" fill="#059669" name="Entrate Reali" radius={[8, 8, 0, 0]} />
+                <Bar dataKey="uscite_reali" fill="#dc2626" name="Uscite Reali" radius={[8, 8, 0, 0]} />
+              </>
+            )}
+            <Bar dataKey="tot_entrate" fill="#10b981" name="Entrate Previste" radius={[8, 8, 0, 0]} opacity={viewMode === 'mensile' ? 0.5 : 0.8} />
+            <Bar dataKey="tot_uscite" fill="#ef4444" name="Uscite Previste" radius={[8, 8, 0, 0]} opacity={viewMode === 'mensile' ? 0.5 : 0.8} />
             <Line
               type="monotone"
               dataKey="saldo_progressivo"
               stroke="#3b82f6"
               strokeWidth={3}
               name="Saldo Cumulativo"
-              dot={{ fill: '#3b82f6', r: 4 }}
+              dot={{ fill: '#3b82f6', r: viewMode === 'giornaliero' ? 2 : 4 }}
               activeDot={{ r: 6 }}
             />
           </ComposedChart>
@@ -524,79 +1179,182 @@ export default function CashflowProspettico() {
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-slate-50 border-b border-slate-200">
-                <th className="px-4 py-3 text-left font-semibold text-slate-900">Mese</th>
-                <th className="px-4 py-3 text-center font-semibold text-slate-900">Tipo</th>
-                <th className="px-4 py-3 text-right font-semibold text-emerald-800">Entrate Reali</th>
-                <th className="px-4 py-3 text-right font-semibold text-red-800">Uscite Reali</th>
-                <th className="px-4 py-3 text-right font-semibold text-slate-900">Tot Entrate (prev.)</th>
-                <th className="px-4 py-3 text-right font-semibold text-slate-900">Tot Uscite (prev.)</th>
+                <th className="px-4 py-3 text-left font-semibold text-slate-900">
+                  {viewMode === 'giornaliero' ? 'Giorno' : viewMode === 'settimanale' ? 'Settimana' : 'Mese'}
+                </th>
+                {viewMode === 'mensile' && (
+                  <>
+                    <th className="px-4 py-3 text-center font-semibold text-slate-900">Tipo</th>
+                    <th className="px-4 py-3 text-right font-semibold text-emerald-800">Entrate Reali</th>
+                    <th className="px-4 py-3 text-right font-semibold text-red-800">Uscite Reali</th>
+                  </>
+                )}
+                <th className="px-4 py-3 text-right font-semibold text-slate-900">
+                  {viewMode === 'mensile' ? 'Tot Entrate (prev.)' : 'Entrate'}
+                </th>
+                <th className="px-4 py-3 text-right font-semibold text-slate-900">
+                  {viewMode === 'mensile' ? 'Tot Uscite (prev.)' : 'Uscite'}
+                </th>
                 <th className="px-4 py-3 text-right font-semibold text-slate-900">Flusso Netto</th>
                 <th className="px-4 py-3 text-right font-semibold text-slate-900">Saldo Progressivo</th>
               </tr>
             </thead>
             <tbody>
-              {monthlyData.map((month, idx) => {
-                const actual = actualMonthlyData[idx];
-                const hasActual = actual && actual.hasData;
-                const isConsuntivo = month.tipo === 'Consuntivo';
-                const isInCorso = month.tipo === 'In corso';
+              {viewMode === 'mensile' ? (
+                // Monthly view (original)
+                monthlyData.map((month, idx) => {
+                  const actual = actualMonthlyData[idx];
+                  const hasActual = actual && actual.hasData;
+                  const isConsuntivo = month.tipo === 'Consuntivo';
+                  const isInCorso = month.tipo === 'In corso';
+                  const isExpanded = expandedRow === idx;
 
-                return (
-                  <tr
-                    key={idx}
-                    className={`border-b border-slate-200 hover:bg-slate-50 transition ${
-                      month.saldo_progressivo < 0 ? 'bg-red-50' : ''
-                    } ${isConsuntivo ? 'bg-emerald-50/30' : ''}`}
-                  >
-                    <td className="px-4 py-3 font-semibold text-slate-900">{month.monthName}</td>
-                    <td className="px-4 py-3 text-center">
-                      {isConsuntivo && (
-                        <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-emerald-100 text-emerald-700 text-xs font-medium">
-                          <CheckCircle size={12} /> Consuntivo
-                        </span>
+                  return (
+                    <React.Fragment key={idx}>
+                      <tr
+                        className={`border-b border-slate-200 hover:bg-slate-50 transition ${
+                          month.saldo_progressivo < 0 ? 'bg-red-50' : ''
+                        } ${isConsuntivo ? 'bg-emerald-50/30' : ''}`}
+                      >
+                        <td className="px-4 py-3 font-semibold text-slate-900">{month.monthName}</td>
+                        <td className="px-4 py-3 text-center">
+                          {isConsuntivo && (
+                            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-emerald-100 text-emerald-700 text-xs font-medium">
+                              <CheckCircle size={12} /> Consuntivo
+                            </span>
+                          )}
+                          {isInCorso && (
+                            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-amber-100 text-amber-700 text-xs font-medium">
+                              <Clock size={12} /> In corso
+                            </span>
+                          )}
+                          {month.tipo === 'Previsione' && (
+                            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-blue-100 text-blue-700 text-xs font-medium">
+                              <Clock size={12} /> Previsione
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-right text-emerald-700 font-medium">
+                          {hasActual ? formatCurrency(Math.round(actual.entrate)) : '-'}
+                        </td>
+                        <td className="px-4 py-3 text-right text-red-700 font-medium">
+                          {hasActual ? formatCurrency(Math.round(actual.uscite)) : '-'}
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <button
+                            onClick={() => handleDrillDown(idx, 'entrate')}
+                            className="font-semibold text-green-600 hover:underline cursor-pointer inline-flex items-center gap-1"
+                          >
+                            {formatCurrency(month.tot_entrate)}
+                            {isExpanded && expandedColumn === 'entrate'
+                              ? <ChevronDown size={14} />
+                              : <ChevronRight size={14} className="opacity-40" />}
+                          </button>
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <button
+                            onClick={() => handleDrillDown(idx, 'uscite')}
+                            className="font-semibold text-red-600 hover:underline cursor-pointer inline-flex items-center gap-1"
+                          >
+                            {formatCurrency(month.tot_uscite)}
+                            {isExpanded && expandedColumn === 'uscite'
+                              ? <ChevronDown size={14} />
+                              : <ChevronRight size={14} className="opacity-40" />}
+                          </button>
+                        </td>
+                        <td className={`px-4 py-3 text-right font-semibold ${
+                          (hasActual ? actual.netto : month.flusso_netto) >= 0 ? 'text-green-600' : 'text-red-600'
+                        }`}>
+                          {hasActual
+                            ? formatCurrency(Math.round(actual.netto))
+                            : formatCurrency(month.flusso_netto)
+                          }
+                          {hasActual && (
+                            <span className="text-xs text-slate-400 ml-1">(reale)</span>
+                          )}
+                        </td>
+                        <td className={`px-4 py-3 text-right font-bold ${
+                          month.saldo_progressivo >= 0 ? 'text-green-600' : 'text-red-600'
+                        }`}>
+                          {formatCurrency(month.saldo_progressivo)}
+                        </td>
+                      </tr>
+                      {/* Drill-down detail row */}
+                      {isExpanded && (
+                        <tr className="bg-slate-50">
+                          <td colSpan={8} className="px-6 py-4">
+                            <DrillDownPanel
+                              items={getDrillDownItems(idx, expandedColumn)}
+                              column={expandedColumn}
+                              onClose={() => { setExpandedRow(null); setExpandedColumn(null); }}
+                            />
+                          </td>
+                        </tr>
                       )}
-                      {isInCorso && (
-                        <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-amber-100 text-amber-700 text-xs font-medium">
-                          <Clock size={12} /> In corso
-                        </span>
+                    </React.Fragment>
+                  );
+                })
+              ) : (
+                // Daily / Weekly view
+                activeData.map((row, idx) => {
+                  const isExpanded = expandedRow === idx;
+                  return (
+                    <React.Fragment key={idx}>
+                      <tr
+                        className={`border-b border-slate-200 hover:bg-slate-50 transition ${
+                          row.saldo_progressivo < 0 ? 'bg-red-50' : ''
+                        }`}
+                      >
+                        <td className="px-4 py-3 font-semibold text-slate-900 whitespace-nowrap">{row.label}</td>
+                        <td className="px-4 py-3 text-right">
+                          <button
+                            onClick={() => handleDrillDown(idx, 'entrate')}
+                            className="font-semibold text-green-600 hover:underline cursor-pointer inline-flex items-center gap-1"
+                          >
+                            {formatCurrency(row.entrate)}
+                            {isExpanded && expandedColumn === 'entrate'
+                              ? <ChevronDown size={14} />
+                              : <ChevronRight size={14} className="opacity-40" />}
+                          </button>
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <button
+                            onClick={() => handleDrillDown(idx, 'uscite')}
+                            className="font-semibold text-red-600 hover:underline cursor-pointer inline-flex items-center gap-1"
+                          >
+                            {formatCurrency(row.uscite)}
+                            {isExpanded && expandedColumn === 'uscite'
+                              ? <ChevronDown size={14} />
+                              : <ChevronRight size={14} className="opacity-40" />}
+                          </button>
+                        </td>
+                        <td className={`px-4 py-3 text-right font-semibold ${
+                          row.flusso_netto >= 0 ? 'text-green-600' : 'text-red-600'
+                        }`}>
+                          {formatCurrency(row.flusso_netto)}
+                        </td>
+                        <td className={`px-4 py-3 text-right font-bold ${
+                          row.saldo_progressivo >= 0 ? 'text-green-600' : 'text-red-600'
+                        }`}>
+                          {formatCurrency(row.saldo_progressivo)}
+                        </td>
+                      </tr>
+                      {/* Drill-down detail row */}
+                      {isExpanded && (
+                        <tr className="bg-slate-50">
+                          <td colSpan={5} className="px-6 py-4">
+                            <DrillDownPanel
+                              items={getDrillDownItems(idx, expandedColumn)}
+                              column={expandedColumn}
+                              onClose={() => { setExpandedRow(null); setExpandedColumn(null); }}
+                            />
+                          </td>
+                        </tr>
                       )}
-                      {month.tipo === 'Previsione' && (
-                        <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-blue-100 text-blue-700 text-xs font-medium">
-                          <Clock size={12} /> Previsione
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-right text-emerald-700 font-medium">
-                      {hasActual ? formatCurrency(Math.round(actual.entrate)) : '-'}
-                    </td>
-                    <td className="px-4 py-3 text-right text-red-700 font-medium">
-                      {hasActual ? formatCurrency(Math.round(actual.uscite)) : '-'}
-                    </td>
-                    <td className="px-4 py-3 text-right font-semibold text-green-600">
-                      {formatCurrency(month.tot_entrate)}
-                    </td>
-                    <td className="px-4 py-3 text-right font-semibold text-red-600">
-                      {formatCurrency(month.tot_uscite)}
-                    </td>
-                    <td className={`px-4 py-3 text-right font-semibold ${
-                      (hasActual ? actual.netto : month.flusso_netto) >= 0 ? 'text-green-600' : 'text-red-600'
-                    }`}>
-                      {hasActual
-                        ? formatCurrency(Math.round(actual.netto))
-                        : formatCurrency(month.flusso_netto)
-                      }
-                      {hasActual && (
-                        <span className="text-xs text-slate-400 ml-1">(reale)</span>
-                      )}
-                    </td>
-                    <td className={`px-4 py-3 text-right font-bold ${
-                      month.saldo_progressivo >= 0 ? 'text-green-600' : 'text-red-600'
-                    }`}>
-                      {formatCurrency(month.saldo_progressivo)}
-                    </td>
-                  </tr>
-                );
-              })}
+                    </React.Fragment>
+                  );
+                })
+              )}
             </tbody>
           </table>
         </div>
@@ -631,6 +1389,50 @@ export default function CashflowProspettico() {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ===== DRILL-DOWN PANEL COMPONENT =====
+function DrillDownPanel({ items, column, onClose }) {
+  const isEntrate = column === 'entrate';
+  const total = items.reduce((sum, item) => sum + (item.amount || 0), 0);
+
+  return (
+    <div className={`rounded-lg border p-4 ${isEntrate ? 'border-green-200 bg-green-50/50' : 'border-red-200 bg-red-50/50'}`}>
+      <div className="flex items-center justify-between mb-3">
+        <h4 className={`font-semibold text-sm ${isEntrate ? 'text-green-800' : 'text-red-800'}`}>
+          {isEntrate ? 'Dettaglio Entrate' : 'Dettaglio Uscite'}
+        </h4>
+        <button
+          onClick={onClose}
+          className="text-slate-400 hover:text-slate-600 transition"
+        >
+          <X size={16} />
+        </button>
+      </div>
+      {items.length === 0 ? (
+        <p className="text-slate-500 text-xs italic">Nessun dettaglio disponibile per questo periodo.</p>
+      ) : (
+        <div className="space-y-1 max-h-48 overflow-y-auto">
+          {items.map((item, i) => (
+            <div key={i} className="flex items-center justify-between text-xs py-1 border-b border-slate-100 last:border-0">
+              <span className="text-slate-700 truncate mr-4">{item.label}</span>
+              <span className={`font-medium whitespace-nowrap ${isEntrate ? 'text-green-700' : 'text-red-700'}`}>
+                {formatCurrency(item.amount)}
+              </span>
+            </div>
+          ))}
+          {items.length > 1 && (
+            <div className="flex items-center justify-between text-xs py-2 border-t-2 border-slate-300 font-bold mt-1">
+              <span className="text-slate-900">Totale</span>
+              <span className={isEntrate ? 'text-green-800' : 'text-red-800'}>
+                {formatCurrency(total)}
+              </span>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

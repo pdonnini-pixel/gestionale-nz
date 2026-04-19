@@ -226,7 +226,7 @@ export default function Dashboard() {
         }
         setRicaviPrevYear(prevRicavi)
 
-        // 3. Outlet ranking
+        // 3. Outlet ranking — try view first, fallback to daily_revenue aggregation
         try {
           const { data: outletsRaw } = await supabase
             .from('v_outlet_ranking')
@@ -235,12 +235,43 @@ export default function Dashboard() {
             .eq('year', YEAR)
             .order('rank_revenue', { ascending: true })
 
-          setOutletsData((outletsRaw || []).map((o, i) => ({
-            name: o.outlet_name,
-            ricavi: o.ytd_revenue || 0,
-            dip: o.staff_count || 0,
-            colore: OUTLET_COLORS[i % OUTLET_COLORS.length],
-          })))
+          if (outletsRaw && outletsRaw.length > 0) {
+            setOutletsData(outletsRaw.map((o, i) => ({
+              name: o.outlet_name,
+              ricavi: o.ytd_revenue || 0,
+              dip: o.staff_count || 0,
+              colore: OUTLET_COLORS[i % OUTLET_COLORS.length],
+            })))
+          } else {
+            // Fallback: aggregate daily_revenue per outlet for the year
+            const yearStart = `${YEAR}-01-01`
+            const yearEnd = `${YEAR}-12-31`
+            const { data: drAgg } = await supabase
+              .from('daily_revenue')
+              .select('outlet_id, gross_revenue, outlets(name)')
+              .eq('company_id', COMPANY_ID)
+              .gte('date', yearStart)
+              .lte('date', yearEnd)
+
+            if (drAgg && drAgg.length > 0) {
+              // Group by outlet_id and sum gross_revenue
+              const outletMap = {}
+              drAgg.forEach(r => {
+                const oid = r.outlet_id
+                if (!outletMap[oid]) {
+                  outletMap[oid] = { name: r.outlets?.name || '?', ricavi: 0 }
+                }
+                outletMap[oid].ricavi += parseFloat(r.gross_revenue) || 0
+              })
+              const sorted = Object.values(outletMap).sort((a, b) => b.ricavi - a.ricavi)
+              setOutletsData(sorted.map((o, i) => ({
+                name: o.name,
+                ricavi: o.ricavi,
+                dip: 0,
+                colore: OUTLET_COLORS[i % OUTLET_COLORS.length],
+              })))
+            }
+          }
         } catch (e) {}
 
         // 4. Cash position
@@ -330,21 +361,25 @@ export default function Dashboard() {
           setUncategorizedMov(count || 0)
         } catch (e) {}
 
-        // 9. Daily revenue (yesterday per outlet) for ranking
+        // 9. Daily revenue (most recent record per outlet) for ranking
         try {
-          const yesterday = new Date()
-          yesterday.setDate(yesterday.getDate() - 1)
-          const yestStr = yesterday.toISOString().split('T')[0]
-
           const { data: drData } = await supabase
             .from('daily_revenue')
-            .select('outlet_id, total_revenue, date, outlets(name)')
+            .select('outlet_id, gross_revenue, date, outlets(name)')
             .eq('company_id', COMPANY_ID)
-            .eq('date', yestStr)
+            .order('date', { ascending: false })
 
-          setDailyRevenue((drData || []).map(r => ({
+          // Keep only the most recent record per outlet
+          const latestByOutlet = {}
+          ;(drData || []).forEach(r => {
+            if (!latestByOutlet[r.outlet_id]) {
+              latestByOutlet[r.outlet_id] = r
+            }
+          })
+
+          setDailyRevenue(Object.values(latestByOutlet).map(r => ({
             outlet: r.outlets?.name || '?',
-            revenue: r.total_revenue || 0,
+            revenue: parseFloat(r.gross_revenue) || 0,
             date: r.date,
           })))
         } catch (e) {}
@@ -610,7 +645,7 @@ export default function Dashboard() {
                     <th className="py-2 px-4 text-left font-medium">Outlet</th>
                     <th className="py-2 px-4 text-right font-medium">Ricavi {year}</th>
                     <th className="py-2 px-4 text-right font-medium">% Tot</th>
-                    <th className="py-2 px-4 text-right font-medium">Ieri</th>
+                    <th className="py-2 px-4 text-right font-medium">Ultimo</th>
                     <th className="py-2 px-4 text-right font-medium">Staff</th>
                     <th className="py-2 px-4 text-right font-medium">€/Dip</th>
                     <th className="py-2 px-4 w-10"></th>
@@ -683,7 +718,7 @@ export default function Dashboard() {
                     </div>
                     {dailyRev && (
                       <div className="text-right shrink-0">
-                        <div className="text-xs text-slate-400">Ieri</div>
+                        <div className="text-xs text-slate-400">Ultimo</div>
                         <div className="text-sm font-semibold text-emerald-600">{fmt(dailyRev.revenue)} €</div>
                       </div>
                     )}

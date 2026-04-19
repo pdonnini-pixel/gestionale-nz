@@ -126,7 +126,7 @@ function FatturePassive() {
     try {
       const { data, error } = await supabase
         .from('electronic_invoices')
-        .select('*, suppliers(name)')
+        .select('*')
         .order('invoice_date', { ascending: false })
         .limit(500)
       if (error) throw error
@@ -257,7 +257,7 @@ function FatturePassive() {
               ) : filtered.length === 0 ? (
                 <tr><td colSpan={9} className="text-center py-12 text-slate-400">Nessuna fattura trovata</td></tr>
               ) : filtered.map(inv => (
-                <tr key={inv.id} className="border-b border-slate-100 hover:bg-slate-50/50 transition">
+                <tr key={inv.id} onClick={() => { setSelectedInvoice(inv); setShowXml(false) }} className="border-b border-slate-100 hover:bg-slate-50/50 transition cursor-pointer">
                   <td className="px-4 py-3 text-slate-600">{fmtDate(inv.invoice_date)}</td>
                   <td className="px-4 py-3 font-medium text-slate-900">{inv.invoice_number || '—'}</td>
                   <td className="px-4 py-3">
@@ -273,7 +273,7 @@ function FatturePassive() {
                   </td>
                   <td className="px-4 py-3 text-center">
                     <button
-                      onClick={() => { setSelectedInvoice(inv); setShowXml(false) }}
+                      onClick={(e) => { e.stopPropagation(); setSelectedInvoice(inv); setShowXml(false) }}
                       className="p-1.5 text-slate-400 hover:text-blue-600 rounded transition"
                       title="Dettaglio"
                     >
@@ -288,42 +288,130 @@ function FatturePassive() {
         {!loading && <div className="px-4 py-2 bg-slate-50 text-xs text-slate-500 border-t border-slate-200">{filtered.length} fatture visualizzate su {invoices.length} totali</div>}
       </div>
 
-      {/* Modal dettaglio */}
+      {/* Slide-over dettaglio fattura */}
       {selectedInvoice && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setSelectedInvoice(null)}>
-          <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between p-4 border-b border-slate-200">
-              <h3 className="font-semibold text-lg text-slate-900">Fattura {selectedInvoice.invoice_number}</h3>
-              <button onClick={() => setSelectedInvoice(null)} className="p-1 text-slate-400 hover:text-slate-700 rounded"><X size={20} /></button>
-            </div>
-            <div className="p-4 space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div><span className="text-xs text-slate-500">Fornitore</span><div className="font-medium">{selectedInvoice.supplier_name}</div></div>
-                <div><span className="text-xs text-slate-500">P.IVA</span><div className="font-medium">{selectedInvoice.supplier_vat || '—'}</div></div>
-                <div><span className="text-xs text-slate-500">Data</span><div className="font-medium">{fmtDate(selectedInvoice.invoice_date)}</div></div>
-                <div><span className="text-xs text-slate-500">Tipo documento</span><div className="font-medium">{selectedInvoice.tipo_documento || 'TD01'}</div></div>
-                <div><span className="text-xs text-slate-500">Imponibile</span><div className="font-medium">{fmt(selectedInvoice.net_amount)}</div></div>
-                <div><span className="text-xs text-slate-500">IVA</span><div className="font-medium">{fmt(selectedInvoice.vat_amount)}</div></div>
-                <div><span className="text-xs text-slate-500">Totale</span><div className="font-semibold text-lg">{fmt(selectedInvoice.gross_amount)}</div></div>
-                <div><span className="text-xs text-slate-500">Stato SDI</span><div><StatusBadge status={selectedInvoice.sdi_status || 'RECEIVED'} /></div></div>
-                {selectedInvoice.sdi_id && <div><span className="text-xs text-slate-500">ID SDI</span><div className="font-mono text-sm">{selectedInvoice.sdi_id}</div></div>}
-                {selectedInvoice.due_date && <div><span className="text-xs text-slate-500">Scadenza</span><div className="font-medium">{fmtDate(selectedInvoice.due_date)}</div></div>}
-                {selectedInvoice.payment_method && <div><span className="text-xs text-slate-500">Pagamento</span><div className="font-medium">{selectedInvoice.payment_method}</div></div>}
+        <>
+          <div className="fixed inset-0 bg-black/30 z-40 transition-opacity" onClick={() => setSelectedInvoice(null)} />
+          <div className="fixed inset-y-0 right-0 z-50 w-full max-w-lg bg-white shadow-2xl border-l border-slate-200 flex flex-col animate-in slide-in-from-right">
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 bg-slate-50/50">
+              <div>
+                <h3 className="font-semibold text-lg text-slate-900">Fattura {selectedInvoice.invoice_number || '—'}</h3>
+                <div className="flex items-center gap-2 mt-0.5">
+                  <StatusBadge status={selectedInvoice.sdi_status || 'RECEIVED'} />
+                  {selectedInvoice.tipo_documento && (
+                    <span className="text-xs text-slate-400 font-medium">{selectedInvoice.tipo_documento}</span>
+                  )}
+                </div>
               </div>
-              {selectedInvoice.description && (
-                <div><span className="text-xs text-slate-500">Descrizione</span><div className="text-sm text-slate-700 mt-1">{selectedInvoice.description}</div></div>
+              <button onClick={() => setSelectedInvoice(null)} className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition"><X size={20} /></button>
+            </div>
+
+            {/* Content */}
+            <div className="flex-1 overflow-y-auto p-5 space-y-5">
+              {/* Fornitore */}
+              <div className="bg-slate-50 rounded-lg p-4 space-y-2">
+                <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Fornitore</h4>
+                <div className="text-base font-semibold text-slate-900">{selectedInvoice.supplier_name || '—'}</div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <span className="text-xs text-slate-500">P.IVA</span>
+                    <div className="text-sm font-medium text-slate-800 font-mono">{selectedInvoice.supplier_vat || '—'}</div>
+                  </div>
+                  <div>
+                    <span className="text-xs text-slate-500">Codice Fiscale</span>
+                    <div className="text-sm font-medium text-slate-800 font-mono">{selectedInvoice.supplier_fiscal_code || '—'}</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Importi */}
+              <div className="space-y-2">
+                <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Importi</h4>
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="bg-white border border-slate-200 rounded-lg p-3 text-center">
+                    <span className="text-xs text-slate-500 block">Imponibile</span>
+                    <div className="text-sm font-semibold text-slate-800 mt-0.5">{fmt(selectedInvoice.net_amount)}</div>
+                  </div>
+                  <div className="bg-white border border-slate-200 rounded-lg p-3 text-center">
+                    <span className="text-xs text-slate-500 block">IVA</span>
+                    <div className="text-sm font-semibold text-slate-800 mt-0.5">{fmt(selectedInvoice.vat_amount)}</div>
+                  </div>
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-center">
+                    <span className="text-xs text-blue-600 block">Totale</span>
+                    <div className="text-lg font-bold text-blue-700 mt-0.5">{fmt(selectedInvoice.gross_amount)}</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Dettagli documento */}
+              <div className="space-y-2">
+                <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Dettagli documento</h4>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <span className="text-xs text-slate-500">Data fattura</span>
+                    <div className="text-sm font-medium text-slate-800">{fmtDate(selectedInvoice.invoice_date)}</div>
+                  </div>
+                  <div>
+                    <span className="text-xs text-slate-500">Tipo documento</span>
+                    <div className="text-sm font-medium text-slate-800">{selectedInvoice.tipo_documento || '—'}</div>
+                  </div>
+                  <div>
+                    <span className="text-xs text-slate-500">Stato SDI</span>
+                    <div className="mt-0.5"><StatusBadge status={selectedInvoice.sdi_status || 'RECEIVED'} /></div>
+                  </div>
+                  <div>
+                    <span className="text-xs text-slate-500">ID SDI</span>
+                    <div className="text-sm font-medium text-slate-800 font-mono">{selectedInvoice.sdi_id || '—'}</div>
+                  </div>
+                  <div>
+                    <span className="text-xs text-slate-500">Scadenza</span>
+                    <div className="text-sm font-medium text-slate-800">{fmtDate(selectedInvoice.due_date)}</div>
+                  </div>
+                  <div>
+                    <span className="text-xs text-slate-500">Codice destinatario</span>
+                    <div className="text-sm font-medium text-slate-800 font-mono">{selectedInvoice.codice_destinatario || '—'}</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Pagamento */}
+              <div className="space-y-2">
+                <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Pagamento</h4>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <span className="text-xs text-slate-500">Metodo</span>
+                    <div className="text-sm font-medium text-slate-800">{selectedInvoice.payment_method || '—'}</div>
+                  </div>
+                  <div>
+                    <span className="text-xs text-slate-500">Termini</span>
+                    <div className="text-sm font-medium text-slate-800">{selectedInvoice.payment_terms || '—'}</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Note */}
+              {(selectedInvoice.description || selectedInvoice.notes) && (
+                <div className="space-y-2">
+                  <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Note</h4>
+                  <div className="text-sm text-slate-700 bg-slate-50 rounded-lg p-3">
+                    {selectedInvoice.description || selectedInvoice.notes}
+                  </div>
+                </div>
               )}
+
+              {/* XML FatturaPA */}
               {selectedInvoice.xml_content && (
-                <div>
+                <div className="space-y-2">
                   <button
                     onClick={() => setShowXml(!showXml)}
-                    className="flex items-center gap-2 text-sm text-blue-600 hover:text-blue-700"
+                    className="flex items-center gap-2 text-sm font-medium text-blue-600 hover:text-blue-700 transition"
                   >
                     <FileCode size={14} />
                     {showXml ? 'Nascondi XML' : 'Mostra XML FatturaPA'}
                   </button>
                   {showXml && (
-                    <pre className="mt-2 p-3 bg-slate-50 rounded-lg text-xs overflow-x-auto max-h-60 border border-slate-200 font-mono">
+                    <pre className="p-3 bg-slate-900 text-green-400 rounded-lg text-xs overflow-x-auto max-h-72 border border-slate-700 font-mono leading-relaxed">
                       {selectedInvoice.xml_content}
                     </pre>
                   )}
@@ -331,7 +419,7 @@ function FatturePassive() {
               )}
             </div>
           </div>
-        </div>
+        </>
       )}
     </div>
   )

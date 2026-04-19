@@ -4,7 +4,8 @@ import {
   DollarSign, BarChart3, Eye, EyeOff, ChevronDown, CheckCircle2,
   AlertTriangle, Clock3, Plus, Edit2, Trash2, Save, X, Download,
   CheckSquare, Square, Settings, Send, Ban, Wallet, Repeat,
-  ChevronRight, Landmark, Building2, Search, RefreshCw
+  ChevronRight, ChevronLeft, Landmark, Building2, Search, RefreshCw,
+  List, CalendarDays
 } from 'lucide-react';
 import CostiRicorrenti from '../components/CostiRicorrenti';
 import ExportMenu from '../components/ExportMenu';
@@ -115,6 +116,9 @@ const ScadenzarioSmart = () => {
   const [cashPosition, setCashPosition] = useState(0);
 
   const [viewMode, setViewMode] = useState('timeline');
+  const [scadViewMode, setScadViewMode] = useState('lista'); // 'lista' | 'calendario'
+  const [calendarMonth, setCalendarMonth] = useState(new Date());
+  const [selectedCalendarDay, setSelectedCalendarDay] = useState(null);
   const [selectedOutlet, setSelectedOutlet] = useState('');
   const [selectedStatus, setSelectedStatus] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
@@ -1086,17 +1090,185 @@ const ScadenzarioSmart = () => {
             </button>
           </div>
 
-          {/* Result count + total — Sibill style */}
+          {/* Result count + total + view toggle — Sibill style */}
           <div className="flex items-center justify-between">
             <span className="text-sm text-slate-500">{displayPayables.length} risultati</span>
-            <div className="flex items-center gap-1.5">
-              <TrendingDown size={14} className="text-slate-400" />
-              <span className="text-sm font-bold text-slate-700">{fmt(displayPayables.reduce((s, p) => s + (p.amount_remaining || 0), 0))} €</span>
+            <div className="flex items-center gap-3">
+              {/* Lista / Calendario toggle */}
+              <div className="flex gap-0.5 bg-slate-100 rounded-lg p-0.5">
+                <button onClick={() => setScadViewMode('lista')}
+                  className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md transition ${
+                    scadViewMode === 'lista' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                  }`}>
+                  <List size={13} /> Lista
+                </button>
+                <button onClick={() => setScadViewMode('calendario')}
+                  className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md transition ${
+                    scadViewMode === 'calendario' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                  }`}>
+                  <CalendarDays size={13} /> Calendario
+                </button>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <TrendingDown size={14} className="text-slate-400" />
+                <span className="text-sm font-bold text-slate-700">{fmt(displayPayables.reduce((s, p) => s + (p.amount_remaining || 0), 0))} €</span>
+              </div>
             </div>
           </div>
 
+          {/* ===== CALENDARIO VIEW ===== */}
+          {scadViewMode === 'calendario' && (() => {
+            const year = calendarMonth.getFullYear();
+            const month = calendarMonth.getMonth();
+            const firstDay = new Date(year, month, 1);
+            const lastDay = new Date(year, month + 1, 0);
+            // Monday=0 ... Sunday=6 (ISO week)
+            const startDow = (firstDay.getDay() + 6) % 7;
+            const daysInMonth = lastDay.getDate();
+
+            // Build a map: day number -> array of payables
+            const dayMap = {};
+            displayPayables.forEach(p => {
+              if (!p.due_date) return;
+              const d = new Date(p.due_date);
+              if (d.getFullYear() === year && d.getMonth() === month) {
+                const day = d.getDate();
+                if (!dayMap[day]) dayMap[day] = [];
+                dayMap[day].push(p);
+              }
+            });
+
+            // Determine dot color for a payable
+            const dotColor = (p) => {
+              if (p.status === 'scaduto') return 'bg-red-500';
+              if (p.status === 'in_scadenza') return 'bg-amber-500';
+              if (p.status === 'pagato') return 'bg-emerald-500';
+              return 'bg-blue-500'; // da_pagare, parziale, etc.
+            };
+
+            // Build grid cells: leading blanks + days
+            const cells = [];
+            for (let i = 0; i < startDow; i++) cells.push(null);
+            for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+
+            const todayDate = new Date();
+            const isToday = (day) => day && todayDate.getFullYear() === year && todayDate.getMonth() === month && todayDate.getDate() === day;
+
+            const monthLabel = calendarMonth.toLocaleDateString('it-IT', { month: 'long', year: 'numeric' });
+
+            // Payables for selected day
+            const selectedDayPayables = selectedCalendarDay && dayMap[selectedCalendarDay] ? dayMap[selectedCalendarDay] : [];
+
+            return (
+              <div className="space-y-4">
+                {/* Month navigation */}
+                <div className="flex items-center justify-between">
+                  <button onClick={() => setCalendarMonth(new Date(year, month - 1, 1))}
+                    className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 transition">
+                    <ChevronLeft size={18} />
+                  </button>
+                  <h3 className="text-sm font-semibold text-slate-800 capitalize">{monthLabel}</h3>
+                  <button onClick={() => setCalendarMonth(new Date(year, month + 1, 1))}
+                    className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 transition">
+                    <ChevronRight size={18} />
+                  </button>
+                </div>
+
+                {/* Calendar grid */}
+                <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                  {/* Day-of-week header */}
+                  <div className="grid grid-cols-7 border-b border-slate-100">
+                    {['Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab', 'Dom'].map(d => (
+                      <div key={d} className="py-2 text-center text-[11px] font-semibold text-slate-400 uppercase tracking-wide">{d}</div>
+                    ))}
+                  </div>
+                  {/* Day cells */}
+                  <div className="grid grid-cols-7">
+                    {cells.map((day, idx) => {
+                      const items = day ? (dayMap[day] || []) : [];
+                      const isSelected = day && selectedCalendarDay === day;
+                      return (
+                        <button key={idx}
+                          disabled={!day}
+                          onClick={() => day && setSelectedCalendarDay(isSelected ? null : day)}
+                          className={`relative min-h-[64px] p-1.5 border-b border-r border-slate-50 text-left transition
+                            ${!day ? 'bg-slate-50/30' : 'hover:bg-blue-50/40 cursor-pointer'}
+                            ${isSelected ? 'bg-blue-50 ring-1 ring-blue-300 ring-inset' : ''}
+                          `}>
+                          {day && (
+                            <>
+                              <span className={`text-xs font-medium ${
+                                isToday(day) ? 'bg-blue-600 text-white w-5 h-5 rounded-full inline-flex items-center justify-center' : 'text-slate-600'
+                              }`}>
+                                {day}
+                              </span>
+                              {items.length > 0 && (
+                                <div className="flex flex-wrap gap-0.5 mt-1">
+                                  {items.slice(0, 4).map((p, i) => (
+                                    <span key={i} className={`w-2 h-2 rounded-full ${dotColor(p)}`} title={`${p.suppliers?.name || ''} - ${fmt(p.amount_remaining)} EUR`} />
+                                  ))}
+                                  {items.length > 4 && (
+                                    <span className="text-[9px] text-slate-400 leading-none">+{items.length - 4}</span>
+                                  )}
+                                </div>
+                              )}
+                            </>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Legend */}
+                <div className="flex items-center gap-4 text-xs text-slate-500">
+                  <div className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-red-500" /> Scaduto</div>
+                  <div className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-amber-500" /> In scadenza</div>
+                  <div className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500" /> Pagato</div>
+                  <div className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-blue-500" /> Da pagare</div>
+                </div>
+
+                {/* Selected day detail */}
+                {selectedCalendarDay && (
+                  <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                    <div className="px-4 py-3 bg-slate-50 border-b border-slate-200">
+                      <h4 className="text-sm font-semibold text-slate-700">
+                        Scadenze del {selectedCalendarDay} {calendarMonth.toLocaleDateString('it-IT', { month: 'long', year: 'numeric' })}
+                        <span className="ml-2 text-xs font-normal text-slate-400">({selectedDayPayables.length} scadenz{selectedDayPayables.length === 1 ? 'a' : 'e'})</span>
+                      </h4>
+                    </div>
+                    {selectedDayPayables.length === 0 ? (
+                      <div className="p-6 text-center text-sm text-slate-400">Nessuna scadenza in questo giorno</div>
+                    ) : (
+                      <div className="divide-y divide-slate-50">
+                        {selectedDayPayables.map(p => (
+                          <div key={p.id} className="px-4 py-3 flex items-center justify-between hover:bg-slate-50/50">
+                            <div className="flex items-center gap-3">
+                              <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${dotColor(p)}`} />
+                              <div>
+                                <div className="text-sm font-medium text-slate-800">{p.suppliers?.ragione_sociale || p.suppliers?.name || '—'}</div>
+                                <div className="text-xs text-slate-400">Fatt. {p.invoice_number || '—'} {p.payment_method ? `- ${paymentMethodLabels[p.payment_method] || p.payment_method}` : ''}</div>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <span className={`text-sm font-semibold ${p.status === 'pagato' ? 'text-slate-400' : p.status === 'scaduto' ? 'text-red-600' : 'text-slate-800'}`}>
+                                {fmt(p.amount_remaining || p.gross_amount)} EUR
+                              </span>
+                              <StatusPill status={p.status} />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
+          {/* ===== LISTA VIEWS ===== */}
           {/* Timeline View — Sibill style */}
-          {viewMode === 'timeline' && (
+          {scadViewMode === 'lista' && viewMode === 'timeline' && (
             <div className="bg-white rounded-xl border border-slate-200/80 overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="w-full">
@@ -1303,7 +1475,7 @@ const ScadenzarioSmart = () => {
           )}
 
           {/* Per Fornitore View */}
-          {viewMode === 'fornitore' && (
+          {scadViewMode === 'lista' && viewMode === 'fornitore' && (
             <div className="space-y-3">
               {groupedBySupplier.map(([name, group]) => (
                 <div key={name} className="bg-white rounded-xl border border-slate-200 overflow-hidden">
@@ -1372,7 +1544,7 @@ const ScadenzarioSmart = () => {
           )}
 
           {/* Per Mese View */}
-          {viewMode === 'mese' && (
+          {scadViewMode === 'lista' && viewMode === 'mese' && (
             <div className="space-y-3">
               {groupedByMonth.map(([key, group]) => (
                 <div key={key} className="bg-white rounded-xl border border-slate-200 overflow-hidden">
@@ -1441,7 +1613,7 @@ const ScadenzarioSmart = () => {
           )}
 
           {/* Charts View */}
-          {viewMode === 'charts' && (
+          {scadViewMode === 'lista' && viewMode === 'charts' && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               <div className="bg-white rounded-xl border border-slate-200 p-4">
                 <h3 className="font-medium text-slate-900 mb-1 text-sm">Proiezione Scadenze</h3>
