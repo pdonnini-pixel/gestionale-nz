@@ -40,11 +40,25 @@ function ModalSelezionaBanca({ isOpen, onClose, onSelect }) {
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [loaded, setLoaded] = useState(false)
+  const [debugInfo, setDebugInfo] = useState(null)
+  const [fetchError, setFetchError] = useState(null)
 
   useEffect(() => {
     if (isOpen && !loaded) {
-      fetchInstitutions('IT').then(data => {
-        setInstitutions(data || [])
+      setFetchError(null)
+      fetchInstitutions('IT').then(result => {
+        // result is { data, _debug } from updated hook
+        if (result && typeof result === 'object' && 'data' in result) {
+          setInstitutions(result.data || [])
+          setDebugInfo(result._debug || null)
+        } else if (Array.isArray(result)) {
+          setInstitutions(result)
+        } else {
+          setInstitutions([])
+        }
+        setLoaded(true)
+      }).catch(err => {
+        setFetchError(err.message)
         setLoaded(true)
       })
     }
@@ -105,9 +119,41 @@ function ModalSelezionaBanca({ isOpen, onClose, onSelect }) {
               <Loader2 size={24} className="animate-spin text-blue-500" />
               <span className="ml-2 text-sm text-slate-500">Caricamento banche...</span>
             </div>
+          ) : fetchError ? (
+            <div className="text-center py-8 px-4">
+              <AlertCircle size={28} className="text-red-400 mx-auto mb-2" />
+              <div className="text-sm font-medium text-red-700 mb-1">Errore di connessione</div>
+              <div className="text-xs text-red-500">{fetchError}</div>
+            </div>
+          ) : loaded && institutions.length === 0 && !search ? (
+            <div className="text-center py-6 px-4">
+              <AlertCircle size={28} className="text-amber-400 mx-auto mb-3" />
+              <div className="text-sm font-medium text-slate-700 mb-2">Applicazione Yapily da configurare</div>
+              <div className="text-xs text-slate-500 leading-relaxed mb-4">
+                L'API Yapily risponde correttamente ma non restituisce banche.
+                Questo significa che l'applicazione deve essere attivata sulla console Yapily.
+              </div>
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-left">
+                <div className="text-xs font-semibold text-amber-800 mb-2">Cosa fare:</div>
+                <ol className="text-xs text-amber-700 space-y-1.5 list-decimal list-inside">
+                  <li>Accedi a <span className="font-mono bg-amber-100 px-1 rounded">console.yapily.com</span></li>
+                  <li>Vai su Applications e seleziona l'app "Gestionale NZ"</li>
+                  <li>Verifica che lo status sia <strong>Active</strong> (non Sandbox/Draft)</li>
+                  <li>Controlla che le Institution siano abilitate per il paese IT</li>
+                  <li>Torna qui e riprova</li>
+                </ol>
+              </div>
+              <button
+                onClick={() => { setLoaded(false); setDebugInfo(null) }}
+                className="mt-4 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-600 border border-blue-200 rounded-lg hover:bg-blue-50 transition"
+              >
+                <RefreshCw size={12} />
+                Riprova
+              </button>
+            </div>
           ) : filtered.length === 0 ? (
             <div className="text-center py-12 text-sm text-slate-400">
-              {search ? 'Nessuna banca trovata' : 'Nessuna banca disponibile'}
+              Nessuna banca trovata per "{search}"
             </div>
           ) : (
             <div className="space-y-0.5">

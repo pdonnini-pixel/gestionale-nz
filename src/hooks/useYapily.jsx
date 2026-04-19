@@ -64,10 +64,11 @@ export function useYapily() {
     try {
       const params = country ? { country } : null
       const res = await callFunction('yapily-institutions', 'GET', null, params)
-      return res.data || []
+      // Return full response with _debug info for diagnostics
+      return { data: res.data || [], _debug: res._debug || null }
     } catch (err) {
       setError(err.message)
-      return []
+      return { data: [], _debug: null }
     } finally {
       setLoading(false)
     }
