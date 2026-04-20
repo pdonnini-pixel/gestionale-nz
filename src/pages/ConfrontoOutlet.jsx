@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
+import { usePeriod } from '../hooks/usePeriod'
 import ExportMenu from '../components/ExportMenu'
 import {
   Store, TrendingUp, Users, DollarSign, RefreshCw, ChevronDown, ChevronUp,
@@ -290,15 +291,22 @@ export default function ConfrontoOutlet() {
   const { profile } = useAuth()
   const navigate = useNavigate()
   const COMPANY_ID = profile?.company_id
+  const { year, quarter } = usePeriod()
   const [outlets, setOutlets] = useState([])
   const [budgetData, setBudgetData] = useState([])
   const [employeeCosts, setEmployeeCosts] = useState([])
   const [balanceData, setBalanceData] = useState([])
   const [loading, setLoading] = useState(true)
-  const [year, setYear] = useState(new Date().getFullYear())
-  const [period, setPeriod] = useState('annual')
   const [viewMode, setViewMode] = useState('budget') // 'budget', 'actual', 'variance'
   const [hasData, setHasData] = useState(false)
+
+  // Mappa quarter globale al period locale per filtrare per mesi
+  const period = useMemo(() => {
+    if (quarter === 'year' || quarter === 'ytd') return 'annual'
+    if (quarter.startsWith('q')) return quarter // q1-q4 match directly
+    if (quarter.startsWith('m')) return 'm' + parseInt(quarter.slice(1)) // m01→m1, m12→m12
+    return 'annual'
+  }, [quarter])
 
   const selectedMonths = PERIOD_OPTIONS.find(p => p.value === period)?.months || null // null = annuale
 
@@ -345,7 +353,7 @@ export default function ConfrontoOutlet() {
       }
     }
     loadData()
-  }, [year, COMPANY_ID])
+  }, [year, quarter, COMPANY_ID])
 
   // Helper: somma un campo da righe filtrate
   function sumField(rows, field) {
@@ -618,24 +626,9 @@ export default function ConfrontoOutlet() {
 
       {/* Filtri: anno, periodo, vista, export */}
       <div className="flex flex-wrap gap-3 items-center">
-        <select
-          value={year}
-          onChange={(e) => setYear(parseInt(e.target.value))}
-          className="px-3 py-2 border border-slate-200 rounded-lg bg-white text-sm text-slate-700 hover:border-slate-300 transition"
-        >
-          {[2024, 2025, 2026, 2027].map(y => (
-            <option key={y} value={y}>{y}</option>
-          ))}
-        </select>
-        <select
-          value={period}
-          onChange={e => setPeriod(e.target.value)}
-          className="px-3 py-2 border border-slate-200 rounded-lg bg-white text-sm text-slate-700 hover:border-slate-300 transition"
-        >
-          {PERIOD_OPTIONS.map(p => (
-            <option key={p.value} value={p.value}>{p.label}</option>
-          ))}
-        </select>
+        <span className="px-3 py-2 border border-slate-200 rounded-lg text-sm font-semibold bg-slate-50">
+          {year} — {PERIOD_OPTIONS.find(p => p.value === period)?.label || 'Annuale'}
+        </span>
         <div className="flex rounded-lg border border-slate-200 overflow-hidden">
           {[
             { value: 'budget', label: 'Preventivo' },

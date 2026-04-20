@@ -14,6 +14,7 @@ import {
 } from 'recharts'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
+import { usePeriod } from '../hooks/usePeriod'
 import { GlassTooltip, AXIS_STYLE, GRID_STYLE } from '../components/ChartTheme'
 
 import PdfViewer from '../components/PdfViewer'
@@ -290,7 +291,7 @@ function analyzeStrengthsWeaknesses(ce, ricavi) {
 export default function ContoEconomico() {
   const { profile } = useAuth()
   const COMPANY_ID = profile?.company_id
-  const [year, setYear] = useState(2025)
+  const { year, quarter, getDateRange } = usePeriod()
   const [periodType, setPeriodType] = useState('annuale')
   const [periodData, setPeriodData] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -558,7 +559,7 @@ export default function ContoEconomico() {
     loadAvailableYears()
     loadBilancioFromSupabase()
     loadPrevBilancioFromSupabase()
-  }, [year, periodType, COMPANY_ID])
+  }, [year, quarter, periodType, COMPANY_ID])
 
   // Feature 6: Load trend on toggle
   useEffect(() => {
@@ -724,12 +725,13 @@ export default function ContoEconomico() {
     if (!COMPANY_ID) return
     setCashLoading(true)
     try {
+      const range = getDateRange()
       const { data, error } = await supabase
         .from('cash_movements')
         .select('id, date, type, amount, cost_category_id, description')
         .eq('company_id', COMPANY_ID)
-        .gte('date', `${year}-01-01`)
-        .lte('date', `${year}-12-31`)
+        .gte('date', range.from)
+        .lte('date', range.to)
         .order('date')
 
       if (error) throw error
@@ -800,12 +802,12 @@ export default function ContoEconomico() {
     } finally {
       setCashLoading(false)
     }
-  }, [COMPANY_ID, year])
+  }, [COMPANY_ID, year, quarter, getDateRange])
 
-  // Load cash data when switching to cassa view or year changes
+  // Load cash data when switching to cassa view or period changes
   useEffect(() => {
     if (viewMode === 'cassa') loadCashData()
-  }, [viewMode, year, loadCashData])
+  }, [viewMode, year, quarter, loadCashData])
 
   // Feature 4: PDF parsing with pdfjs-dist
   const handleFileUpload = async (e) => {
@@ -1190,10 +1192,6 @@ export default function ContoEconomico() {
         {/* Controls */}
         <div className="flex gap-3 flex-wrap justify-end">
           <div className="flex gap-2">
-            <select value={year} onChange={(e) => setYear(parseInt(e.target.value))}
-              className="px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white">
-              {availableYears.map(a => <option key={a} value={a}>{a}</option>)}
-            </select>
             <select value={periodType} onChange={(e) => setPeriodType(e.target.value)}
               className="px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white">
               {periodi.map(p => <option key={p} value={p}>{p}</option>)}

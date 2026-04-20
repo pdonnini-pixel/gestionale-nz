@@ -28,6 +28,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
+import { usePeriod } from '../hooks/usePeriod';
 import { GlassTooltip, AXIS_STYLE, GRID_STYLE } from '../components/ChartTheme';
 import ExportMenu from '../components/ExportMenu';
 
@@ -79,9 +80,9 @@ const getWeekStart = (date) => {
 export default function CashflowProspettico() {
   const { profile } = useAuth();
   const COMPANY_ID = profile?.company_id;
+  const { year, quarter, getDateRange } = usePeriod();
 
   // State
-  const [year, setYear] = useState(2026);
   const [selectedOutlet, setSelectedOutlet] = useState('all');
   const [scenario, setScenario] = useState('base'); // 'base', 'ottimistico', 'pessimistico'
   const [viewMode, setViewMode] = useState('mensile'); // 'giornaliero' | 'settimanale' | 'mensile'
@@ -122,7 +123,7 @@ export default function CashflowProspettico() {
   useEffect(() => {
     if (!COMPANY_ID) return;
     fetchAllData();
-  }, [COMPANY_ID, year, selectedOutlet, scenario]);
+  }, [COMPANY_ID, year, quarter, selectedOutlet, scenario]);
 
   // Reset expanded row when view mode changes
   useEffect(() => {
@@ -198,8 +199,8 @@ export default function CashflowProspettico() {
           .from('daily_revenue')
           .select('id, date, outlet_id, gross_revenue, net_revenue')
           .eq('company_id', COMPANY_ID)
-          .gte('date', `${year}-01-01`)
-          .lte('date', `${year}-12-31`),
+          .gte('date', getDateRange().from)
+          .lte('date', getDateRange().to),
         // Budget entries for revenue accounts (account_code starts with '5')
         supabase
           .from('budget_entries')
@@ -1069,15 +1070,7 @@ export default function CashflowProspettico() {
           {viewMode === 'mensile' && (
             <div className="flex items-center gap-2">
               <Calendar className="w-5 h-5 text-slate-500" />
-              <select
-                value={year}
-                onChange={(e) => setYear(parseInt(e.target.value))}
-                className="px-3 py-2 border border-slate-300 rounded-lg text-slate-900 bg-white hover:border-slate-400"
-              >
-                {[2024, 2025, 2026, 2027, 2028].map(y => (
-                  <option key={y} value={y}>{y}</option>
-                ))}
-              </select>
+              <span className="px-3 py-2 border border-slate-200 rounded-lg text-sm font-semibold bg-slate-50">{year}</span>
             </div>
           )}
 

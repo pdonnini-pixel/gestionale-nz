@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react'
 import { useAuth } from '../hooks/useAuth'
+import { usePeriod } from '../hooks/usePeriod'
 import PageHelp from '../components/PageHelp'
 import {
   Calculator, ChevronDown, ChevronUp,
@@ -206,9 +207,9 @@ function Kpi({ icon: Icon, label, value, sub, color = 'indigo', alert }) {
 export default function BudgetControl() {
   const { profile } = useAuth()
   const CID = profile?.company_id
+  const { year, quarter, getDateRange } = usePeriod()
 
   const [tab, setTab] = useState('bp')
-  const [year, setYear] = useState(2026)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState(null)
@@ -243,12 +244,13 @@ export default function BudgetControl() {
   const loadCashMovements = async () => {
     if (!CID) return
     try {
+      const range = getDateRange()
       const { data, error } = await supabase
         .from('cash_movements')
         .select('id, date, type, amount')
         .eq('company_id', CID)
-        .gte('date', `${year}-01-01`)
-        .lte('date', `${year}-12-31`)
+        .gte('date', range.from)
+        .lte('date', range.to)
         .order('date')
 
       if (error) throw error
@@ -285,7 +287,7 @@ export default function BudgetControl() {
   }
 
   // ─── LOAD ──────────────────────────────────────────────────
-  useEffect(() => { if (CID) loadAll() }, [CID])
+  useEffect(() => { if (CID) loadAll() }, [CID, year, quarter])
 
   const loadAll = async () => {
     setLoading(true)
@@ -558,9 +560,7 @@ export default function BudgetControl() {
           </h1>
           <p className="text-slate-500 mt-1 text-sm">Business Plan preventivo/consuntivo per outlet</p>
         </div>
-        <select value={year} onChange={e => setYear(+e.target.value)} className="px-3 py-2 border border-slate-200 rounded-lg text-sm font-semibold w-fit">
-          <option value={2025}>2025</option><option value={2026}>2026</option><option value={2027}>2027</option>
-        </select>
+        <span className="px-3 py-2 border border-slate-200 rounded-lg text-sm font-semibold bg-slate-50">{year}</span>
       </div>
 
       {/* TABS */}
