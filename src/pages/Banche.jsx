@@ -2206,6 +2206,9 @@ export default function Banche() {
   const [loanModalOpen, setLoanModalOpen] = useState(false)
   const [editingLoan, setEditingLoan] = useState(null)
   const [activeTab, setActiveTab] = useState('conti') // conti, movimenti, riconciliazione
+  const [syncAllLoading, setSyncAllLoading] = useState(false)
+  const [syncAllResult, setSyncAllResult] = useState(null)
+  const [bankTxKpi, setBankTxKpi] = useState({ entrate: 0, uscite: 0, saldoNetto: 0 })
 
   useEffect(() => {
     if (!COMPANY_ID) return;
@@ -2261,6 +2264,59 @@ export default function Banche() {
       console.error('Error loading data:', error)
     } finally {
       setLoading(false)
+    }
+  }
+
+  // Load KPI from bank_transactions (entrate/uscite ultimo mese)
+  useEffect(() => {
+    if (!COMPANY_ID) return
+    const loadKpi = async () => {
+      const now = new Date()
+      const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10)
+      const { data } = await supabase
+        .from('bank_transactions')
+        .select('amount, transaction_type')
+        .eq('company_id', COMPANY_ID)
+        .gte('transaction_date', firstOfMonth)
+      if (data) {
+        const entrate = data.filter(t => t.transaction_type === 'CREDIT').reduce((s, t) => s + Math.abs(t.amount || 0), 0)
+        const uscite = data.filter(t => t.transaction_type === 'DEBIT').reduce((s, t) => s + Math.abs(t.amount || 0), 0)
+        setBankTxKpi({ entrate, uscite, saldoNetto: entrate - uscite })
+      }
+    }
+    loadKpi()
+  }, [COMPANY_ID, syncAllResult])
+
+  // Sync Tutti handler — calls yapily-sync-all
+  const handleSyncAll = async () => {
+    setSyncAllLoading(true)
+    setSyncAllResult(null)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) return
+      const baseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://xfvfxsvqpnpvibgeqpqp.supabase.co'
+      const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhmdmZ4c3ZxcG5wdmliZ2VxcHFwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUxNDkwNDcsImV4cCI6MjA5MDcyNTA0N30.ohYziAXiOWS0TKU9HHuhUAbf5Geh10xbLGEoftOMJZA'
+      const res = await fetch(`${baseUrl}/functions/v1/yapily-sync-all`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+          'apikey': anonKey,
+        },
+      })
+      const result = await res.json()
+      if (res.ok) {
+        setSyncAllResult(result)
+        await loadData()
+      } else {
+        console.error('[Banche] Sync all error:', result)
+        setSyncAllResult({ error: result.error || 'Errore sync' })
+      }
+    } catch (err) {
+      console.error('[Banche] Sync all error:', err)
+      setSyncAllResult({ error: err.message })
+    } finally {
+      setSyncAllLoading(false)
     }
   }
 
@@ -2383,11 +2439,47 @@ export default function Banche() {
 
   return (
     <div className="min-h-screen bg-slate-50/50">
+      {/* Sync All Result Toast */}
+      {syncAllResult && (
+        <div className={`fixed top-4 right-4 z-50 rounded-xl p-4 shadow-lg flex items-center gap-3 max-w-md ${
+          syncAllResult.error ? 'bg-red-50 border border-red-200' : 'bg-emerald-50 border border-emerald-200'
+        }`}>
+          {syncAllResult.error ? (
+            <>
+              <AlertCircle size={18} className="text-red-500 shrink-0" />
+              <div className="flex-1 text-sm text-red-700">{syncAllResult.error}</div>
+            </>
+          ) : (
+            <>
+              <CheckCircle2 size={18} className="text-emerald-500 shrink-0" />
+              <div className="flex-1 text-sm text-emerald-700">
+                Sincronizzati {syncAllResult.newTransactions || 0} movimenti da {syncAllResult.accounts || 0} conti
+              </div>
+            </>
+          )}
+          <button onClick={() => setSyncAllResult(null)} className="p-1 hover:bg-white/50 rounded-lg transition">
+            <X size={14} className={syncAllResult.error ? 'text-red-400' : 'text-emerald-400'} />
+          </button>
+        </div>
+      )}
+
       {/* Sticky header — stile leggero Sibill */}
       <div className="sticky top-0 z-40 bg-white/95 backdrop-blur-sm border-b border-slate-200/60 px-6 py-3">
         <div className="max-w-[1400px] mx-auto">
           <div className="flex items-center justify-between flex-wrap gap-3">
             <h1 className="text-lg font-semibold text-slate-800">Tesoreria</h1>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleSyncAll}
+                disabled={syncAllLoading}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-600 border border-blue-200 rounded-lg hover:bg-blue-50 disabled:opacity-50 transition"
+              >
+                <RefreshCw size={13} className={syncAllLoading ? 'animate-spin' : ''} />
+                {syncAllLoading ? 'Sincronizzando...' : 'Sync Tutti'}
+              </button>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 mt-2">
             <div className="flex gap-0.5 bg-slate-100/80 rounded-lg p-0.5">
               {[
                 { key: 'conti', label: 'Conti & Saldi', icon: Landmark },
@@ -2405,7 +2497,7 @@ export default function Banche() {
           </div>
 
           {/* KPI barra orizzontale leggera — stile Sibill */}
-          <div className="flex items-center gap-6 mt-3 text-sm">
+          <div className="flex items-center gap-6 mt-3 text-sm flex-wrap">
             <div className="flex items-center gap-1.5">
               <Landmark size={13} className="text-blue-500" />
               <span className="text-slate-400 text-xs">Banche</span>
@@ -2425,15 +2517,21 @@ export default function Banche() {
             </div>
             <div className="text-slate-200">|</div>
             <div className="flex items-center gap-1.5">
-              <HandCoins size={13} className="text-amber-500" />
-              <span className="text-slate-400 text-xs">Debiti</span>
-              <span className="font-semibold text-amber-600">{fmt(totalDebiti)} €</span>
+              <ArrowDownLeft size={13} className="text-emerald-500" />
+              <span className="text-slate-400 text-xs">Entrate mese</span>
+              <span className="font-semibold text-emerald-600">{fmt(bankTxKpi.entrate)} €</span>
             </div>
             <div className="text-slate-200">|</div>
             <div className="flex items-center gap-1.5">
-              <PiggyBank size={13} className={posizioneNetta >= 0 ? 'text-emerald-500' : 'text-red-500'} />
-              <span className="text-slate-400 text-xs">Netta</span>
-              <span className={`font-bold ${posizioneNetta >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>{fmt(posizioneNetta)} €</span>
+              <ArrowUpRight size={13} className="text-red-500" />
+              <span className="text-slate-400 text-xs">Uscite mese</span>
+              <span className="font-semibold text-red-500">{fmt(bankTxKpi.uscite)} €</span>
+            </div>
+            <div className="text-slate-200">|</div>
+            <div className="flex items-center gap-1.5">
+              <PiggyBank size={13} className={bankTxKpi.saldoNetto >= 0 ? 'text-emerald-500' : 'text-red-500'} />
+              <span className="text-slate-400 text-xs">Netto mese</span>
+              <span className={`font-bold ${bankTxKpi.saldoNetto >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>{fmt(bankTxKpi.saldoNetto)} €</span>
             </div>
           </div>
         </div>

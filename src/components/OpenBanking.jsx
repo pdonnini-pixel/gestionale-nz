@@ -6,6 +6,7 @@ import {
   CreditCard, Globe, Shield, ChevronDown, ChevronUp, X
 } from 'lucide-react'
 import { useYapily } from '../hooks/useYapily'
+import AccountDetail from './AccountDetail'
 
 function fmt(n, dec = 2) {
   if (n == null) return '—'
@@ -236,13 +237,13 @@ function ModalSelezionaBanca({ isOpen, onClose, onSelect }) {
 /* ═══════════════════════════════════════════
    Card: Conto Collegato
    ═══════════════════════════════════════════ */
-function AccountCard({ account, onSync, syncing }) {
+function AccountCard({ account, onSync, syncing, onClick }) {
   const consentStatus = account.yapily_consents?.status || 'AUTHORIZED'
   const cfg = statusConfig[consentStatus] || statusConfig.AUTHORIZED
   const StatusIcon = cfg.icon
 
   return (
-    <div className="bg-white rounded-xl border border-slate-200 p-4 hover:shadow-md transition group">
+    <div className="bg-white rounded-xl border border-slate-200 p-4 hover:shadow-md transition group cursor-pointer" onClick={() => onClick?.(account)}>
       <div className="flex items-start justify-between">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center">
@@ -277,7 +278,7 @@ function AccountCard({ account, onSync, syncing }) {
         </div>
         <div className="flex items-center gap-1.5">
           <button
-            onClick={() => onSync(account.id)}
+            onClick={(e) => { e.stopPropagation(); onSync(account.id) }}
             disabled={syncing}
             className="p-2 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-blue-600 transition disabled:opacity-50"
             title="Sincronizza movimenti"
@@ -321,6 +322,7 @@ export default function OpenBanking() {
   const [syncResult, setSyncResult] = useState(null) // { synced, imported, skipped }
   const [callbackStatus, setCallbackStatus] = useState(null) // from URL params
   const [showConsents, setShowConsents] = useState(false)
+  const [selectedAccount, setSelectedAccount] = useState(null) // for detail drawer
 
   // Load data
   const loadData = useCallback(async () => {
@@ -566,6 +568,7 @@ export default function OpenBanking() {
                 account={acc}
                 onSync={handleSync}
                 syncing={syncingAccount === acc.id || syncingAccount === 'all'}
+                onClick={(account) => setSelectedAccount(account)}
               />
             ))}
           </div>
@@ -635,6 +638,21 @@ export default function OpenBanking() {
         isOpen={showBankModal}
         onClose={() => setShowBankModal(false)}
         onSelect={handleSelectBank}
+      />
+
+      {/* Account detail drawer */}
+      <AccountDetail
+        isOpen={!!selectedAccount}
+        onClose={() => setSelectedAccount(null)}
+        account={selectedAccount}
+        onSync={async (accountId) => {
+          await handleSync(accountId)
+          // Refresh account data after sync
+          const accs = await yapily.fetchAccounts()
+          setAccounts(accs)
+          const updated = accs.find(a => a.id === accountId)
+          if (updated) setSelectedAccount(updated)
+        }}
       />
     </div>
   )
