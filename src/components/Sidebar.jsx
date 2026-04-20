@@ -143,24 +143,14 @@ export default function Sidebar({ mobileOpen, setMobileOpen, badges = {} }) {
     return findSectionKeyForPath(location.pathname, sections)
   }, [location.pathname, sections])
 
-  // Expanded sections state: only the active section is expanded by default
+  // Expanded sections state: inizializzato con cruscotto + sezione attiva
+  // Le sezioni si aprono/chiudono SOLO con click manuale sulla freccia
   const [expandedSections, setExpandedSections] = useState(() => {
     const initial = new Set()
-    // Always expand cruscotto since it's a single item
     initial.add('cruscotto')
+    if (activeSectionKey) initial.add(activeSectionKey)
     return initial
   })
-
-  // Auto-expand section containing current route
-  useEffect(() => {
-    if (activeSectionKey) {
-      setExpandedSections(prev => {
-        const next = new Set(prev)
-        next.add(activeSectionKey)
-        return next
-      })
-    }
-  }, [activeSectionKey])
 
   // Close dropdown on outside click
   useEffect(() => {
