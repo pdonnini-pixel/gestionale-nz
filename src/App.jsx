@@ -32,6 +32,7 @@ const Onboarding = lazy(() => import('./pages/Onboarding'))
 const Fatturazione = lazy(() => import('./pages/Fatturazione'))
 const ScadenzeFiscali = lazy(() => import('./pages/ScadenzeFiscali'))
 const AICategoriePage = lazy(() => import('./pages/AICategoriePage'))
+const BankingCallback = lazy(() => import('./pages/BankingCallback'))
 
 // Spinner per lazy loading
 function PageLoader() {
@@ -68,6 +69,7 @@ function AppRoutes() {
       <Routes>
         <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
         <Route path="/onboarding" element={<ProtectedRoute><Onboarding /></ProtectedRoute>} />
+        <Route path="/banking/callback" element={<ProtectedRoute><BankingCallback /></ProtectedRoute>} />
         <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
           <Route index element={<Dashboard />} />
           <Route path="outlet" element={<Outlet />} />

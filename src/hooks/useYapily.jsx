@@ -81,10 +81,13 @@ export function useYapily() {
     setLoading(true)
     setError(null)
     try {
+      // callbackUrl è l'URL dove Yapily reindirizza dopo l'autorizzazione
+      const callbackUrl = `${window.location.origin}/banking/callback`
       const res = await callFunction('yapily-auth', 'POST', {
         institutionId,
         institutionName,
         consentType,
+        callbackUrl,
       })
       return res.data // { consentId, authorisationUrl, consentToken }
     } catch (err) {

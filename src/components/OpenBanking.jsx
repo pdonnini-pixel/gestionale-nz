@@ -358,9 +358,13 @@ export default function OpenBanking() {
       if (result?.authorisationUrl) {
         // Redirect to bank for authorization
         window.location.href = result.authorisationUrl
+      } else {
+        console.error('Consent creato ma authorisationUrl mancante:', result)
+        alert('Errore: la banca non ha restituito un URL di autorizzazione. Riprova.')
       }
     } catch (err) {
       console.error('Consent creation failed:', err)
+      alert('Errore collegamento banca: ' + (err.message || 'Riprova più tardi'))
     } finally {
       setConnecting(false)
     }
