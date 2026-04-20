@@ -29,7 +29,7 @@ const allSections = [
     label: 'Finanza',
     items: [
       { to: '/banche', icon: Landmark, label: 'Tesoreria', roles: ['super_advisor', 'ceo', 'cfo', 'contabile'] },
-      { to: '/cashflow', icon: TrendingUp, label: 'Cashflow', roles: ['super_advisor', 'ceo', 'cfo'] },
+      { to: '/cash-flow', icon: TrendingUp, label: 'Cashflow', roles: ['super_advisor', 'ceo', 'cfo'] },
       { to: '/conto-economico', icon: BarChart3, label: 'Conto Economico', roles: ['super_advisor', 'ceo', 'cfo'] },
     ]
   },
@@ -83,7 +83,6 @@ const allSections = [
 export const BREADCRUMB_MAP = {
   '/': { section: 'Cruscotto', page: 'Dashboard' },
   '/banche': { section: 'Finanza', page: 'Tesoreria' },
-  '/cashflow': { section: 'Finanza', page: 'Cashflow' },
   '/cash-flow': { section: 'Finanza', page: 'Cashflow' },
   '/conto-economico': { section: 'Finanza', page: 'Conto Economico' },
   '/outlet': { section: 'Outlet & Performance', page: 'Outlet' },
@@ -143,12 +142,15 @@ export default function Sidebar({ mobileOpen, setMobileOpen, badges = {} }) {
     return findSectionKeyForPath(location.pathname, sections)
   }, [location.pathname, sections])
 
-  // Expanded sections state: inizializzato con cruscotto + sezione attiva
+  // Expanded sections state: persistito in localStorage
   // Le sezioni si aprono/chiudono SOLO con click manuale sulla freccia
   const [expandedSections, setExpandedSections] = useState(() => {
-    const initial = new Set()
-    initial.add('cruscotto')
-    if (activeSectionKey) initial.add(activeSectionKey)
+    try {
+      const saved = localStorage.getItem('nz_sidebar_expanded')
+      if (saved) return new Set(JSON.parse(saved))
+    } catch {}
+    // Default: tutte le sezioni aperte
+    const initial = new Set(allSections.map(s => s.key))
     return initial
   })
 
@@ -180,6 +182,7 @@ export default function Sidebar({ mobileOpen, setMobileOpen, badges = {} }) {
       } else {
         next.add(key)
       }
+      try { localStorage.setItem('nz_sidebar_expanded', JSON.stringify([...next])) } catch {}
       return next
     })
   }
