@@ -2,13 +2,11 @@ import { NavLink, useLocation } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { useCompany } from '../hooks/useCompany'
 import {
-  LayoutDashboard, Store, Receipt, Building2, Users, FileText,
-  Settings, LogOut, ChevronDown, ChevronRight,
-  Landmark, BarChart3, GitCompare, Calculator,
-  Package, CreditCard, Wallet, ShoppingBag, UserCheck, Map, PieChart,
-  CalendarClock, ClipboardList, DatabaseZap, Archive,
-  Building, ChevronsUpDown, FileCode, Brain, Sparkles, AlertTriangle,
-  Menu, X, Home, TrendingUp, FileStack, Bot, Wrench
+  LayoutDashboard, Store, FileText, Users, Settings, LogOut,
+  ChevronDown, ChevronRight, Landmark, BarChart3, GitCompare, Target,
+  CalendarClock, UserCheck, PieChart, Sparkles, Activity, Sliders,
+  Upload, FolderArchive, TrendingUp, ChevronsUpDown, Building,
+  Menu, X, ChevronsLeft, ChevronsRight
 } from 'lucide-react'
 import { useState, useRef, useEffect, useMemo, createContext, useContext } from 'react'
 
@@ -18,14 +16,10 @@ export function useSidebar() { return useContext(SidebarContext) }
 export { SidebarContext }
 
 // ─── NAVIGATION STRUCTURE (grouped by area) ────────────────────
-// Ogni sezione ha: key, label, icon, items[]
-// items filtrate per ruolo a runtime
-
 const allSections = [
   {
     key: 'cruscotto',
     label: 'Cruscotto',
-    icon: Home,
     items: [
       { to: '/', icon: LayoutDashboard, label: 'Dashboard', roles: ['super_advisor', 'ceo', 'cfo', 'coo', 'contabile'] },
     ]
@@ -33,59 +27,53 @@ const allSections = [
   {
     key: 'finanza',
     label: 'Finanza',
-    icon: TrendingUp,
     items: [
       { to: '/banche', icon: Landmark, label: 'Tesoreria', roles: ['super_advisor', 'ceo', 'cfo', 'contabile'] },
-      { to: '/cash-flow', icon: Wallet, label: 'Cashflow', roles: ['super_advisor', 'ceo', 'cfo'] },
+      { to: '/cashflow', icon: TrendingUp, label: 'Cashflow', roles: ['super_advisor', 'ceo', 'cfo'] },
       { to: '/conto-economico', icon: BarChart3, label: 'Conto Economico', roles: ['super_advisor', 'ceo', 'cfo'] },
     ]
   },
   {
     key: 'outlet',
     label: 'Outlet & Performance',
-    icon: Store,
     items: [
       { to: '/outlet', icon: Store, label: 'Outlet', roles: ['super_advisor', 'ceo', 'coo'] },
       { to: '/confronto-outlet', icon: GitCompare, label: 'Confronto Outlet', roles: ['super_advisor', 'ceo', 'cfo'] },
-      { to: '/budget', icon: Calculator, label: 'Budget', roles: ['super_advisor', 'ceo', 'cfo'] },
+      { to: '/budget', icon: Target, label: 'Budget & Controllo', roles: ['super_advisor', 'ceo', 'cfo'] },
     ]
   },
   {
     key: 'ciclo_passivo',
     label: 'Ciclo Passivo',
-    icon: FileStack,
     items: [
-      { to: '/fornitori', icon: Building2, label: 'Fornitori', roles: ['super_advisor', 'cfo', 'contabile'] },
-      { to: '/fatturazione', icon: FileCode, label: 'Fatturazione', roles: ['super_advisor', 'cfo', 'contabile'] },
-      { to: '/scadenzario', icon: Receipt, label: 'Scadenzario', roles: ['super_advisor', 'ceo', 'cfo', 'contabile'] },
+      { to: '/fornitori', icon: Users, label: 'Fornitori', roles: ['super_advisor', 'cfo', 'contabile'] },
+      { to: '/fatturazione', icon: FileText, label: 'Fatturazione', roles: ['super_advisor', 'cfo', 'contabile'] },
+      { to: '/scadenzario', icon: CalendarClock, label: 'Scadenzario', badgeKey: 'scadenzario', roles: ['super_advisor', 'ceo', 'cfo', 'contabile'] },
     ]
   },
   {
     key: 'risorse',
     label: 'Risorse',
-    icon: Users,
     items: [
-      { to: '/dipendenti', icon: Users, label: 'Dipendenti', roles: ['super_advisor', 'coo'] },
+      { to: '/dipendenti', icon: UserCheck, label: 'Dipendenti', roles: ['super_advisor', 'coo'] },
     ]
   },
   {
     key: 'ai_analytics',
     label: 'AI & Analytics',
-    icon: Bot,
     items: [
-      { to: '/ai-categorie', icon: Sparkles, label: 'Categorizzazione AI', roles: ['super_advisor', 'cfo'] },
+      { to: '/ai-categorie', icon: Sparkles, label: 'AI Categorie', roles: ['super_advisor', 'cfo'] },
       { to: '/margini', icon: PieChart, label: 'Margini Outlet', roles: ['super_advisor', 'ceo', 'cfo'] },
-      { to: '/produttivita', icon: UserCheck, label: 'Produttività', roles: ['super_advisor', 'ceo', 'coo'] },
-      { to: '/scenario', icon: Map, label: 'Scenario Planning', roles: ['super_advisor', 'ceo'] },
+      { to: '/produttivita', icon: Activity, label: 'Produttivita', roles: ['super_advisor', 'ceo', 'coo'] },
+      { to: '/scenario', icon: Sliders, label: 'Scenario Planning', roles: ['super_advisor', 'ceo'] },
     ]
   },
   {
     key: 'sistema',
     label: 'Sistema',
-    icon: Wrench,
     items: [
-      { to: '/import-hub', icon: DatabaseZap, label: 'Import Hub', roles: ['super_advisor', 'cfo', 'contabile'] },
-      { to: '/archivio', icon: Archive, label: 'Archivio Documenti', roles: ['super_advisor', 'cfo', 'contabile'] },
+      { to: '/import-hub', icon: Upload, label: 'Import Hub', roles: ['super_advisor', 'cfo', 'contabile'] },
+      { to: '/archivio', icon: FolderArchive, label: 'Archivio Documenti', roles: ['super_advisor', 'cfo', 'contabile'] },
       { to: '/impostazioni', icon: Settings, label: 'Impostazioni', roles: ['super_advisor'] },
     ]
   },
@@ -95,30 +83,41 @@ const allSections = [
 export const BREADCRUMB_MAP = {
   '/': { section: 'Cruscotto', page: 'Dashboard' },
   '/banche': { section: 'Finanza', page: 'Tesoreria' },
+  '/cashflow': { section: 'Finanza', page: 'Cashflow' },
   '/cash-flow': { section: 'Finanza', page: 'Cashflow' },
   '/conto-economico': { section: 'Finanza', page: 'Conto Economico' },
   '/outlet': { section: 'Outlet & Performance', page: 'Outlet' },
   '/confronto-outlet': { section: 'Outlet & Performance', page: 'Confronto Outlet' },
-  '/budget': { section: 'Outlet & Performance', page: 'Budget' },
+  '/budget': { section: 'Outlet & Performance', page: 'Budget & Controllo' },
   '/fornitori': { section: 'Ciclo Passivo', page: 'Fornitori' },
   '/fatturazione': { section: 'Ciclo Passivo', page: 'Fatturazione' },
   '/scadenzario': { section: 'Ciclo Passivo', page: 'Scadenzario' },
   '/scadenze-fiscali': { section: 'Ciclo Passivo', page: 'Scadenze Fiscali' },
   '/dipendenti': { section: 'Risorse', page: 'Dipendenti' },
-  '/ai-categorie': { section: 'AI & Analytics', page: 'Categorizzazione AI' },
+  '/ai-categorie': { section: 'AI & Analytics', page: 'AI Categorie' },
   '/margini': { section: 'AI & Analytics', page: 'Margini Outlet' },
-  '/produttivita': { section: 'AI & Analytics', page: 'Produttività' },
+  '/produttivita': { section: 'AI & Analytics', page: 'Produttivita' },
   '/scenario': { section: 'AI & Analytics', page: 'Scenario Planning' },
   '/import-hub': { section: 'Sistema', page: 'Import Hub' },
   '/archivio': { section: 'Sistema', page: 'Archivio Documenti' },
   '/impostazioni': { section: 'Sistema', page: 'Impostazioni' },
 }
 
-export default function Sidebar({ mobileOpen, setMobileOpen }) {
+// ─── HELPER: find which section key contains a given path ──────
+function findSectionKeyForPath(path, sections) {
+  for (const section of sections) {
+    if (section.items.some(item => item.to === path || (item.to !== '/' && path.startsWith(item.to)))) {
+      return section.key
+    }
+  }
+  return null
+}
+
+export default function Sidebar({ mobileOpen, setMobileOpen, badges = {} }) {
   const { profile, signOut } = useAuth()
   const { company, companies, switchCompany } = useCompany()
   const [companyDropdownOpen, setCompanyDropdownOpen] = useState(false)
-  const [openSections, setOpenSections] = useState({ cruscotto: true, finanza: true, outlet: true, ciclo_passivo: true, risorse: true, ai_analytics: false, sistema: false })
+  const [collapsed, setCollapsed] = useState(false)
   const dropdownRef = useRef(null)
   const location = useLocation()
   const role = profile?.role || 'ceo'
@@ -139,16 +138,29 @@ export default function Sidebar({ mobileOpen, setMobileOpen }) {
       .filter(section => section.items.length > 0)
   }, [role])
 
-  // Auto-open section containing current route
+  // Determine which section contains the active route
+  const activeSectionKey = useMemo(() => {
+    return findSectionKeyForPath(location.pathname, sections)
+  }, [location.pathname, sections])
+
+  // Expanded sections state: only the active section is expanded by default
+  const [expandedSections, setExpandedSections] = useState(() => {
+    const initial = new Set()
+    // Always expand cruscotto since it's a single item
+    initial.add('cruscotto')
+    return initial
+  })
+
+  // Auto-expand section containing current route
   useEffect(() => {
-    const path = location.pathname
-    for (const section of sections) {
-      if (section.items.some(item => item.to === path || (item.to !== '/' && path.startsWith(item.to)))) {
-        setOpenSections(prev => ({ ...prev, [section.key]: true }))
-        break
-      }
+    if (activeSectionKey) {
+      setExpandedSections(prev => {
+        const next = new Set(prev)
+        next.add(activeSectionKey)
+        return next
+      })
     }
-  }, [location.pathname])
+  }, [activeSectionKey])
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -171,28 +183,114 @@ export default function Sidebar({ mobileOpen, setMobileOpen }) {
     : '...'
 
   const toggleSection = (key) => {
-    setOpenSections(prev => ({ ...prev, [key]: !prev[key] }))
+    setExpandedSections(prev => {
+      const next = new Set(prev)
+      if (next.has(key)) {
+        next.delete(key)
+      } else {
+        next.add(key)
+      }
+      return next
+    })
   }
 
-  const renderNavItem = (item) => (
-    <NavLink
-      key={item.to}
-      to={item.to}
-      end={item.to === '/'}
-      className={({ isActive }) =>
-        `flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition ${
-          isActive
-            ? 'bg-blue-600 text-white shadow-sm'
-            : 'text-slate-300 hover:bg-slate-800 hover:text-white'
-        }`
-      }
-    >
-      <item.icon size={18} />
-      <span className="truncate">{item.label}</span>
-    </NavLink>
+  const renderNavItem = (item, isCollapsedMode = false) => {
+    const badge = item.badgeKey ? badges[item.badgeKey] : null
+
+    if (isCollapsedMode) {
+      return (
+        <NavLink
+          key={item.to}
+          to={item.to}
+          end={item.to === '/'}
+          title={item.label}
+          className={({ isActive }) =>
+            `flex items-center justify-center w-10 h-10 rounded-lg transition ${
+              isActive
+                ? 'bg-blue-600 text-white shadow-sm'
+                : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+            }`
+          }
+        >
+          <div className="relative">
+            <item.icon size={18} />
+            {badge != null && badge > 0 && (
+              <span className="absolute -top-1.5 -right-2.5 min-w-[16px] h-4 px-1 flex items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white leading-none">
+                {badge > 99 ? '99+' : badge}
+              </span>
+            )}
+          </div>
+        </NavLink>
+      )
+    }
+
+    return (
+      <NavLink
+        key={item.to}
+        to={item.to}
+        end={item.to === '/'}
+        className={({ isActive }) =>
+          `flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition ${
+            isActive
+              ? 'bg-blue-600 text-white shadow-sm'
+              : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+          }`
+        }
+      >
+        <item.icon size={18} className="shrink-0" />
+        <span className="truncate flex-1">{item.label}</span>
+        {badge != null && badge > 0 && (
+          <span className="min-w-[20px] h-5 px-1.5 flex items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white leading-none shrink-0">
+            {badge > 99 ? '99+' : badge}
+          </span>
+        )}
+      </NavLink>
+    )
+  }
+
+  // ─── COLLAPSED SIDEBAR (icon-only mode) ──────────────────────
+  const collapsedContent = (
+    <>
+      {/* Header — Company abbrev */}
+      <div className="p-2 border-b border-slate-700/50 shrink-0 flex flex-col items-center gap-2">
+        <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-xs font-bold shrink-0">
+          {companyAbbrev}
+        </div>
+      </div>
+
+      {/* Navigation — Icons only, no section headers */}
+      <nav className="flex-1 py-3 px-1.5 overflow-y-auto flex flex-col items-center gap-1">
+        {sections.map(section => (
+          <div key={section.key} className="flex flex-col items-center gap-1">
+            {section.items.map(item => renderNavItem(item, true))}
+            {/* Tiny separator between sections */}
+            <div className="w-5 h-px bg-slate-700/50 my-1" />
+          </div>
+        ))}
+      </nav>
+
+      {/* Expand button */}
+      <div className="p-2 border-t border-slate-700/50 shrink-0 flex flex-col items-center gap-2">
+        <button
+          onClick={signOut}
+          title="Esci"
+          className="p-2 rounded-lg text-slate-400 hover:bg-slate-800 hover:text-white transition"
+        >
+          <LogOut size={18} />
+        </button>
+        <button
+          onClick={() => setCollapsed(false)}
+          title="Espandi sidebar"
+          className="p-2 rounded-lg text-slate-400 hover:bg-slate-800 hover:text-white transition"
+        >
+          <ChevronsRight size={18} />
+        </button>
+      </div>
+    </>
   )
 
-  const sidebarContent = (
+  // ─── EXPANDED SIDEBAR ────────────────────────────────────────
+  const expandedContent = (
     <>
       {/* Header — Company Selector */}
       <div className="p-3 border-b border-slate-700/50 shrink-0">
@@ -245,33 +343,39 @@ export default function Sidebar({ mobileOpen, setMobileOpen }) {
         </div>
       </div>
 
-      {/* Navigation — Grouped Sections */}
+      {/* Navigation — Grouped Sections with collapse/expand */}
       <nav className="flex-1 py-3 px-2 overflow-y-auto space-y-0.5">
         {sections.map(section => {
-          const SectionIcon = section.icon
-          const isOpen = openSections[section.key] !== false
-          // Single-item sections (Cruscotto) render inline
-          if (section.items.length === 1 && section.key === 'cruscotto') {
-            return renderNavItem(section.items[0])
-          }
+          const isOpen = expandedSections.has(section.key)
+          const hasActiveItem = activeSectionKey === section.key
 
           return (
             <div key={section.key}>
               <button
                 onClick={() => toggleSection(section.key)}
-                className="flex items-center justify-between w-full px-3 py-2 mt-1.5 rounded-lg text-xs font-semibold uppercase tracking-wider text-slate-500 hover:text-slate-300 hover:bg-slate-800/50 transition"
+                className={`flex items-center justify-between w-full px-3 py-2 mt-1.5 rounded-lg text-xs font-semibold uppercase tracking-wider transition ${
+                  hasActiveItem
+                    ? 'text-slate-300 hover:text-white'
+                    : 'text-slate-500 hover:text-slate-300'
+                } hover:bg-slate-800/50`}
               >
-                <div className="flex items-center gap-2">
-                  <SectionIcon size={13} />
-                  <span>{section.label}</span>
-                </div>
-                {isOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                <span>{section.label}</span>
+                {isOpen
+                  ? <ChevronDown size={13} className="shrink-0" />
+                  : <ChevronRight size={13} className="shrink-0" />
+                }
               </button>
-              {isOpen && (
+              <div
+                className="overflow-hidden transition-all duration-200 ease-in-out"
+                style={{
+                  maxHeight: isOpen ? `${section.items.length * 44 + 4}px` : '0px',
+                  opacity: isOpen ? 1 : 0,
+                }}
+              >
                 <div className="space-y-0.5 mt-0.5 ml-1">
                   {section.items.map(item => renderNavItem(item))}
                 </div>
-              )}
+              </div>
             </div>
           )
         })}
@@ -283,13 +387,23 @@ export default function Sidebar({ mobileOpen, setMobileOpen }) {
           <div className="text-sm font-medium">{profile?.first_name} {profile?.last_name}</div>
           <div className="text-xs text-slate-400">{roleLabels[profile?.role]}</div>
         </div>
-        <button
-          onClick={signOut}
-          className="flex items-center gap-2 w-full px-3 py-2 rounded-lg text-sm text-slate-400 hover:bg-slate-800 hover:text-white transition"
-        >
-          <LogOut size={18} />
-          <span>Esci</span>
-        </button>
+        <div className="flex items-center justify-between">
+          <button
+            onClick={signOut}
+            className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-slate-400 hover:bg-slate-800 hover:text-white transition"
+          >
+            <LogOut size={18} />
+            <span>Esci</span>
+          </button>
+          {/* Collapse button — desktop only */}
+          <button
+            onClick={() => setCollapsed(true)}
+            title="Comprimi sidebar"
+            className="hidden md:flex p-2 rounded-lg text-slate-400 hover:bg-slate-800 hover:text-white transition"
+          >
+            <ChevronsLeft size={16} />
+          </button>
+        </div>
       </div>
     </>
   )
@@ -297,8 +411,12 @@ export default function Sidebar({ mobileOpen, setMobileOpen }) {
   return (
     <>
       {/* Desktop sidebar */}
-      <aside className="hidden md:flex w-60 h-screen bg-slate-900 text-white flex-col shrink-0">
-        {sidebarContent}
+      <aside
+        className={`hidden md:flex h-screen bg-slate-900 text-white flex-col shrink-0 transition-all duration-200 ${
+          collapsed ? 'w-16' : 'w-60'
+        }`}
+      >
+        {collapsed ? collapsedContent : expandedContent}
       </aside>
 
       {/* Mobile overlay */}
@@ -306,7 +424,7 @@ export default function Sidebar({ mobileOpen, setMobileOpen }) {
         <div className="fixed inset-0 z-50 md:hidden">
           <div className="absolute inset-0 bg-black/50" onClick={() => setMobileOpen(false)} />
           <aside className="absolute left-0 top-0 bottom-0 w-72 bg-slate-900 text-white flex flex-col shadow-2xl">
-            {sidebarContent}
+            {expandedContent}
           </aside>
         </div>
       )}

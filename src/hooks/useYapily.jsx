@@ -58,11 +58,12 @@ export function useYapily() {
 
   // ────────── INSTITUTIONS ──────────
 
-  const fetchInstitutions = useCallback(async (country = 'IT') => {
+  const fetchInstitutions = useCallback(async (country = 'IT', sandbox = false) => {
     setLoading(true)
     setError(null)
     try {
-      const params = country ? { country } : null
+      const params = { country }
+      if (sandbox) params.sandbox = 'true'
       const res = await callFunction('yapily-institutions', 'GET', null, params)
       // Return full response with _debug info for diagnostics
       return { data: res.data || [], _debug: res._debug || null }

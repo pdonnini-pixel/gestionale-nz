@@ -14,6 +14,9 @@ const PAGE_HELP = {
   dipendenti: "Costi del personale dal bilancio importato. Per il dettaglio per persona, importa i cedolini dall'Import Hub.",
   'categorizzazione-ai': "L'AI analizza i movimenti bancari e suggerisce categorie. Conferma se corretti, Correggi per cambiare. Più confermi, più il sistema impara.",
   'import-hub': "Centro importazione dati. Carica: estratti conto (CSV/Excel), fatture (XML SDI), bilanci (PDF/Excel), cedolini (PDF), dati POS (CSV), corrispettivi (CSV/XML AdE). Ogni file alimenta automaticamente le altre pagine.",
+  'margini-outlet': "Confronta i margini di ogni outlet: heatmap mensile, alert per margini critici (<5%), e dettaglio ricavi/costi per ogni punto vendita. Clicca su un outlet nella tabella per espandere il breakdown per conto.",
+  'produttivita': "Analisi della produttivita del personale per outlet. KPI principali: fatturato medio per dipendente, ranking outlet, trend mensile. Puoi simulare spostamenti di personale tra outlet.",
+  'scenario-planning': "Simula scenari what-if: varia ricavi e costi personale con i cursori, attiva l'ipotesi nuovo outlet con costi stimati. Vedi in tempo reale l'impatto su margine, cash e break-even.",
 };
 
 export default function PageHelp({ page }) {

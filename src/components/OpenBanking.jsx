@@ -42,11 +42,12 @@ function ModalSelezionaBanca({ isOpen, onClose, onSelect }) {
   const [loaded, setLoaded] = useState(false)
   const [debugInfo, setDebugInfo] = useState(null)
   const [fetchError, setFetchError] = useState(null)
+  const [sandboxMode, setSandboxMode] = useState(true)
 
   useEffect(() => {
     if (isOpen && !loaded) {
       setFetchError(null)
-      fetchInstitutions('IT').then(result => {
+      fetchInstitutions('IT', sandboxMode).then(result => {
         // result is { data, _debug } from updated hook
         if (result && typeof result === 'object' && 'data' in result) {
           setInstitutions(result.data || [])
@@ -62,7 +63,7 @@ function ModalSelezionaBanca({ isOpen, onClose, onSelect }) {
         setLoaded(true)
       })
     }
-  }, [isOpen, loaded, fetchInstitutions])
+  }, [isOpen, loaded, sandboxMode, fetchInstitutions])
 
   // Debounce search input (300ms)
   useEffect(() => {
@@ -99,6 +100,38 @@ function ModalSelezionaBanca({ isOpen, onClose, onSelect }) {
               <X size={18} className="text-slate-400" />
             </button>
           </div>
+          {/* Sandbox / Produzione toggle */}
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-xs text-slate-500">Ambiente:</span>
+            <button
+              onClick={() => { setSandboxMode(true); if (!sandboxMode) setLoaded(false) }}
+              className={`px-2.5 py-1 text-xs font-medium rounded-full transition ${
+                sandboxMode
+                  ? 'bg-amber-100 text-amber-700 border border-amber-300'
+                  : 'bg-slate-100 text-slate-400 border border-slate-200 hover:bg-slate-200'
+              }`}
+            >
+              Sandbox
+            </button>
+            <button
+              onClick={() => { setSandboxMode(false); if (sandboxMode) setLoaded(false) }}
+              className={`px-2.5 py-1 text-xs font-medium rounded-full transition ${
+                !sandboxMode
+                  ? 'bg-emerald-100 text-emerald-700 border border-emerald-300'
+                  : 'bg-slate-100 text-slate-400 border border-slate-200 hover:bg-slate-200'
+              }`}
+            >
+              Produzione
+            </button>
+          </div>
+
+          {sandboxMode && (
+            <div className="mb-3 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg flex items-center gap-2">
+              <AlertCircle size={14} className="text-amber-500 shrink-0" />
+              <span className="text-xs text-amber-700">Ambiente di test — Le banche sandbox usano dati fittizi</span>
+            </div>
+          )}
+
           <div className="relative">
             <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" />
             <input

@@ -1,14 +1,36 @@
 import { useState, useEffect, useMemo } from 'react'
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell, LabelList,
 } from 'recharts'
-import { TrendingUp, Loader2, AlertCircle } from 'lucide-react'
+import { TrendingUp, Loader2, AlertCircle, ChevronDown, ChevronUp, AlertTriangle } from 'lucide-react'
 import { GlassTooltip, AXIS_STYLE, GRID_STYLE, OUTLET_COLORS } from '../components/ChartTheme'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
+import PageHelp from '../components/PageHelp'
 
 const fmt = (n) => n == null ? '\u2014' : new Intl.NumberFormat('it-IT', { maximumFractionDigits: 0 }).format(n)
 const fmtPct = (n) => n == null ? '\u2014' : `${n.toFixed(1)}%`
+
+const MONTHS = ['Gen', 'Feb', 'Mar', 'Apr', 'Mag', 'Giu', 'Lug', 'Ago', 'Set', 'Ott', 'Nov', 'Dic']
+
+// Heatmap color: green (high margin) -> yellow -> red (low/negative margin)
+function heatmapColor(pct) {
+  if (pct == null) return '#f1f5f9' // no data
+  if (pct >= 15) return '#22c55e'
+  if (pct >= 10) return '#86efac'
+  if (pct >= 5) return '#fde047'
+  if (pct >= 0) return '#fbbf24'
+  if (pct >= -5) return '#f87171'
+  return '#dc2626'
+}
+
+function heatmapText(pct) {
+  if (pct == null) return 'text-slate-400'
+  if (pct >= 10) return 'text-white'
+  if (pct >= 5) return 'text-slate-900'
+  if (pct >= 0) return 'text-slate-900'
+  return 'text-white'
+}
 
 export default function MarginiOutlet() {
   const { profile } = useAuth()
@@ -16,8 +38,9 @@ export default function MarginiOutlet() {
   const [error, setError] = useState(null)
   const [year, setYear] = useState(2026)
   const [rawData, setRawData] = useState([])
+  const [expandedOutlet, setExpandedOutlet] = useState(null)
 
-  // Fetch budget_entries for all outlets, selected year
+  // Fetch budget_entries for all outlets, selected year (including month for heatmap)
   useEffect(() => {
     async function fetchData() {
       setLoading(true)
@@ -26,7 +49,7 @@ export default function MarginiOutlet() {
         const companyId = profile?.company_id
         let query = supabase
           .from('budget_entries')
-          .select('cost_center, account_code, budget_amount')
+          .select('cost_center, account_code, budget_amount, month')
           .eq('year', year)
 
         if (companyId) {
@@ -47,11 +70,10 @@ export default function MarginiOutlet() {
     fetchData()
   }, [year, profile?.company_id])
 
-  // Compute margins per outlet
+  // Compute margins per outlet (aggregated)
   const outletMargins = useMemo(() => {
     if (!rawData.length) return []
 
-    // Group by cost_center (outlet)
     const byOutlet = {}
     rawData.forEach(row => {
       const outlet = row.cost_center || 'Sconosciuto'
@@ -60,12 +82,9 @@ export default function MarginiOutlet() {
       const code = (row.account_code || '').toString()
       const amount = parseFloat(row.budget_amount) || 0
 
-      // Revenue accounts: codes starting with '5'
       if (code.startsWith('5')) {
         byOutlet[outlet].ricavi += amount
-      }
-      // Cost accounts: codes starting with '6' or '7'
-      else if (code.startsWith('6') || code.startsWith('7')) {
+      } else if (code.startsWith('6') || code.startsWith('7')) {
         byOutlet[outlet].costi += amount
       }
     })
@@ -85,28 +104,99 @@ export default function MarginiOutlet() {
       .sort((a, b) => b.marginePercent - a.marginePercent)
   }, [rawData])
 
-  // Chart data
+  // Heatmap data: months (columns) x outlets (rows) with margin %
+  const heatmapData = useMemo(() => {
+    if (!rawData.length) return {}
+
+    const byOutletMonth = {}
+    rawData.forEach(row => {
+      const outlet = row.cost_center || 'Sconosciuto'
+      const month = parseInt(row.month) || 0
+      if (month < 1 || month > 12) return
+
+      const key = `${outlet}__${month}`
+      if (!byOutletMonth[key]) byOutletMonth[key] = { ricavi: 0, costi: 0 }
+
+      const code = (row.account_code || '').toString()
+      const amount = parseFloat(row.budget_amount) || 0
+
+      if (code.startsWith('5')) {
+        byOutletMonth[key].ricavi += amount
+      } else if (code.startsWith('6') || code.startsWith('7')) {
+        byOutletMonth[key].costi += amount
+      }
+    })
+
+    // Build map: outlet -> month -> marginPercent
+    const result = {}
+    Object.entries(byOutletMonth).forEach(([key, vals]) => {
+      const [outlet, monthStr] = key.split('__')
+      const month = parseInt(monthStr)
+      if (!result[outlet]) result[outlet] = {}
+      const margine = vals.ricavi - vals.costi
+      result[outlet][month] = vals.ricavi > 0 ? (margine / vals.ricavi) * 100 : (margine < 0 ? -100 : 0)
+    })
+
+    return result
+  }, [rawData])
+
+  // Drill-down: breakdown by account for the expanded outlet
+  const drilldownData = useMemo(() => {
+    if (!expandedOutlet || !rawData.length) return { ricaviAccounts: [], costiAccounts: [] }
+
+    const ricaviMap = {}
+    const costiMap = {}
+
+    rawData.forEach(row => {
+      const outlet = row.cost_center || 'Sconosciuto'
+      if (outlet !== expandedOutlet) return
+
+      const code = (row.account_code || '').toString()
+      const amount = parseFloat(row.budget_amount) || 0
+
+      if (code.startsWith('5')) {
+        const key = code.substring(0, 4) || code
+        if (!ricaviMap[key]) ricaviMap[key] = { code: key, amount: 0 }
+        ricaviMap[key].amount += amount
+      } else if (code.startsWith('6') || code.startsWith('7')) {
+        const key = code.substring(0, 4) || code
+        if (!costiMap[key]) costiMap[key] = { code: key, amount: 0 }
+        costiMap[key].amount += amount
+      }
+    })
+
+    return {
+      ricaviAccounts: Object.values(ricaviMap).sort((a, b) => b.amount - a.amount),
+      costiAccounts: Object.values(costiMap).sort((a, b) => b.amount - a.amount),
+    }
+  }, [expandedOutlet, rawData])
+
+  // Chart data with percentage labels
   const chartData = useMemo(() => {
     return outletMargins.map(o => ({
       nome: o.nome,
       Ricavi: Math.round(o.ricavi),
       Costi: Math.round(o.costi),
       Margine: Math.round(o.margine),
+      marginePct: o.marginePercent,
     }))
   }, [outletMargins])
 
-  // Color helper for margin %
-  const marginColor = (pct) => {
-    if (pct > 10) return 'text-green-700 bg-green-50'
-    if (pct >= 0) return 'text-amber-700 bg-amber-50'
-    return 'text-red-700 bg-red-50'
-  }
+  // Outlets with critically low margin
+  const criticalOutlets = useMemo(() => {
+    return outletMargins.filter(o => o.marginePercent < 5)
+  }, [outletMargins])
 
   const marginBadge = (pct) => {
     if (pct > 10) return 'bg-green-100 text-green-800'
     if (pct >= 0) return 'bg-amber-100 text-amber-800'
     return 'bg-red-100 text-red-800'
   }
+
+  // Sorted outlet names for heatmap rows
+  const outletNames = useMemo(() => {
+    return outletMargins.map(o => o.nome)
+  }, [outletMargins])
 
   if (loading) {
     return (
@@ -155,6 +245,23 @@ export default function MarginiOutlet() {
           </div>
         </div>
 
+        {/* Alert Banner: critical margins */}
+        {criticalOutlets.length > 0 && (
+          <div className="bg-red-50 border border-red-300 rounded-xl p-4 mb-6 flex items-start gap-3">
+            <AlertTriangle className="w-6 h-6 text-red-600 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-red-900 font-semibold">Attenzione: margini critici rilevati</p>
+              <p className="text-red-700 text-sm mt-1">
+                {criticalOutlets.length === 1
+                  ? `L'outlet "${criticalOutlets[0].nome}" ha un margine del ${fmtPct(criticalOutlets[0].marginePercent)} (sotto la soglia del 5%).`
+                  : `${criticalOutlets.length} outlet hanno margine inferiore al 5%: ${criticalOutlets.map(o => `${o.nome} (${fmtPct(o.marginePercent)})`).join(', ')}.`
+                }
+                {' '}Verifica la struttura dei costi di questi punti vendita.
+              </p>
+            </div>
+          </div>
+        )}
+
         {outletMargins.length === 0 ? (
           <div className="bg-white rounded-xl border border-slate-200 p-12 text-center">
             <AlertCircle className="w-12 h-12 text-slate-400 mx-auto mb-4" />
@@ -185,7 +292,7 @@ export default function MarginiOutlet() {
               </div>
             </div>
 
-            {/* Bar Chart - Outlet Comparison */}
+            {/* Bar Chart - Outlet Comparison with percentage labels */}
             <div className="rounded-2xl p-6 shadow-lg mb-8" style={{ background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)', border: '1px solid rgba(99,102,241,0.08)' }}>
               <h2 className="text-lg font-semibold text-slate-900 mb-4">Confronto Ricavi vs Costi per Outlet</h2>
               <ResponsiveContainer width="100%" height={400}>
@@ -211,14 +318,81 @@ export default function MarginiOutlet() {
                   <Legend />
                   <Bar dataKey="Ricavi" fill="url(#grad-ricavi-mo)" radius={[8, 8, 0, 0]} animationDuration={800} />
                   <Bar dataKey="Costi" fill="url(#grad-costi-mo)" radius={[8, 8, 0, 0]} animationDuration={800} />
-                  <Bar dataKey="Margine" fill="url(#grad-margine-mo)" radius={[8, 8, 0, 0]} animationDuration={800} />
+                  <Bar dataKey="Margine" fill="url(#grad-margine-mo)" radius={[8, 8, 0, 0]} animationDuration={800}>
+                    <LabelList
+                      dataKey="marginePct"
+                      position="top"
+                      formatter={(v) => `${v.toFixed(1)}%`}
+                      style={{ fontSize: 11, fontWeight: 600, fill: '#334155' }}
+                    />
+                  </Bar>
                 </BarChart>
               </ResponsiveContainer>
             </div>
 
-            {/* Table */}
+            {/* Heatmap Grid: months x outlets */}
+            {Object.keys(heatmapData).length > 0 && (
+              <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm mb-8">
+                <h2 className="text-lg font-semibold text-slate-900 mb-4">Heatmap Margini Mensili</h2>
+                <p className="text-sm text-slate-500 mb-4">Colore per margine %: verde = alto, giallo = medio, rosso = basso/negativo</p>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr>
+                        <th className="px-3 py-2 text-left text-slate-700 font-semibold bg-slate-50 sticky left-0 z-10">Outlet</th>
+                        {MONTHS.map((m, idx) => (
+                          <th key={idx} className="px-2 py-2 text-center text-slate-700 font-semibold bg-slate-50 min-w-[56px]">{m}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {outletNames.map((outlet) => (
+                        <tr key={outlet} className="border-b border-slate-100">
+                          <td className="px-3 py-2 text-slate-900 font-medium bg-white sticky left-0 z-10">{outlet}</td>
+                          {MONTHS.map((_, idx) => {
+                            const monthNum = idx + 1
+                            const pct = heatmapData[outlet]?.[monthNum] ?? null
+                            return (
+                              <td key={idx} className="px-1 py-1 text-center">
+                                <div
+                                  className={`rounded-md px-1 py-2 text-xs font-semibold ${heatmapText(pct)}`}
+                                  style={{ backgroundColor: heatmapColor(pct) }}
+                                  title={pct != null ? `${outlet} - ${MONTHS[idx]}: ${pct.toFixed(1)}%` : 'Nessun dato'}
+                                >
+                                  {pct != null ? `${pct.toFixed(0)}%` : '\u2014'}
+                                </div>
+                              </td>
+                            )
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {/* Legend */}
+                <div className="flex items-center gap-3 mt-4 text-xs text-slate-600">
+                  <span>Legenda:</span>
+                  {[
+                    { label: '> 15%', color: '#22c55e' },
+                    { label: '10-15%', color: '#86efac' },
+                    { label: '5-10%', color: '#fde047' },
+                    { label: '0-5%', color: '#fbbf24' },
+                    { label: '-5-0%', color: '#f87171' },
+                    { label: '< -5%', color: '#dc2626' },
+                  ].map(item => (
+                    <span key={item.label} className="flex items-center gap-1">
+                      <span className="inline-block w-4 h-3 rounded-sm" style={{ backgroundColor: item.color }} />
+                      {item.label}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Table with drill-down */}
             <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
               <h2 className="text-lg font-semibold text-slate-900 mb-4">Dettaglio Margini per Outlet</h2>
+              <p className="text-sm text-slate-500 mb-4">Clicca su un outlet per espandere il breakdown dei conti</p>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
@@ -231,19 +405,71 @@ export default function MarginiOutlet() {
                     </tr>
                   </thead>
                   <tbody>
-                    {outletMargins.map((o, idx) => (
-                      <tr key={o.nome} className={`border-b border-slate-100 ${idx === 0 ? 'bg-green-50' : idx === outletMargins.length - 1 ? 'bg-red-50' : ''}`}>
-                        <td className="px-4 py-3 text-slate-900 font-medium">{o.nome}</td>
-                        <td className="px-4 py-3 text-right text-slate-700">{fmt(o.ricavi)} &euro;</td>
-                        <td className="px-4 py-3 text-right text-slate-700">{fmt(o.costi)} &euro;</td>
-                        <td className="px-4 py-3 text-right font-semibold text-slate-900">{fmt(o.margine)} &euro;</td>
-                        <td className="px-4 py-3 text-right">
-                          <span className={`inline-block px-2 py-1 rounded-full text-xs font-semibold ${marginBadge(o.marginePercent)}`}>
-                            {fmtPct(o.marginePercent)}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
+                    {outletMargins.map((o, idx) => {
+                      const isExpanded = expandedOutlet === o.nome
+                      return (
+                        <tr key={o.nome} className="contents">
+                          <tr
+                            className={`border-b border-slate-100 cursor-pointer hover:bg-slate-50 transition-colors ${idx === 0 ? 'bg-green-50' : idx === outletMargins.length - 1 ? 'bg-red-50' : ''}`}
+                            onClick={() => setExpandedOutlet(isExpanded ? null : o.nome)}
+                          >
+                            <td className="px-4 py-3 text-slate-900 font-medium flex items-center gap-2">
+                              {isExpanded ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
+                              {o.nome}
+                            </td>
+                            <td className="px-4 py-3 text-right text-slate-700">{fmt(o.ricavi)} &euro;</td>
+                            <td className="px-4 py-3 text-right text-slate-700">{fmt(o.costi)} &euro;</td>
+                            <td className="px-4 py-3 text-right font-semibold text-slate-900">{fmt(o.margine)} &euro;</td>
+                            <td className="px-4 py-3 text-right">
+                              <span className={`inline-block px-2 py-1 rounded-full text-xs font-semibold ${marginBadge(o.marginePercent)}`}>
+                                {fmtPct(o.marginePercent)}
+                              </span>
+                            </td>
+                          </tr>
+                          {/* Drill-down expanded row */}
+                          {isExpanded && (
+                            <tr className="border-b border-slate-200">
+                              <td colSpan={5} className="px-6 py-4 bg-slate-50">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                  {/* Revenue accounts */}
+                                  <div>
+                                    <h4 className="text-sm font-semibold text-green-800 mb-2">Conti Ricavi</h4>
+                                    {drilldownData.ricaviAccounts.length === 0 ? (
+                                      <p className="text-xs text-slate-500">Nessun conto ricavi trovato</p>
+                                    ) : (
+                                      <div className="space-y-1">
+                                        {drilldownData.ricaviAccounts.map(acc => (
+                                          <div key={acc.code} className="flex justify-between text-xs">
+                                            <span className="text-slate-700">Conto {acc.code}</span>
+                                            <span className="font-medium text-green-700">{fmt(acc.amount)} &euro;</span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                  {/* Cost accounts */}
+                                  <div>
+                                    <h4 className="text-sm font-semibold text-red-800 mb-2">Conti Costi</h4>
+                                    {drilldownData.costiAccounts.length === 0 ? (
+                                      <p className="text-xs text-slate-500">Nessun conto costi trovato</p>
+                                    ) : (
+                                      <div className="space-y-1">
+                                        {drilldownData.costiAccounts.map(acc => (
+                                          <div key={acc.code} className="flex justify-between text-xs">
+                                            <span className="text-slate-700">Conto {acc.code}</span>
+                                            <span className="font-medium text-red-700">{fmt(acc.amount)} &euro;</span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </tr>
+                      )
+                    })}
                   </tbody>
                   <tfoot>
                     <tr className="border-t-2 border-slate-300 bg-slate-50 font-bold">
@@ -273,6 +499,7 @@ export default function MarginiOutlet() {
           </>
         )}
       </div>
+      <PageHelp page="margini-outlet" />
     </div>
   )
 }

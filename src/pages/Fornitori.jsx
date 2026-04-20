@@ -535,7 +535,7 @@ export default function Fornitori() {
                     <React.Fragment key={s.id}>
                       {/* Main row */}
                       <tr
-                        className={`hover:bg-slate-50/50 cursor-pointer transition ${isExpanded ? 'bg-indigo-50/30' : ''}`}
+                        className={`hover:bg-blue-50/50 cursor-pointer transition-colors ${isExpanded ? 'bg-indigo-50/30' : ''}`}
                         onClick={() => setExpandedId(isExpanded ? null : s.id)}
                       >
                         <td className="px-3 py-2.5">
@@ -823,8 +823,8 @@ export default function Fornitori() {
                         .filter(s => s.grossTotal > 0)
                         .sort((a, b) => b.grossTotal - a.grossTotal)
                         .slice(0, 15)
-                        .map(s => (
-                          <tr key={s.id} className="hover:bg-slate-50">
+                        .map((s, idx) => (
+                          <tr key={s.id} className={`hover:bg-blue-50/50 transition-colors ${idx % 2 === 1 ? 'bg-slate-50/50' : ''}`}>
                             <td className="py-2 px-3 font-medium text-slate-700">{s.displayName}</td>
                             <td className="py-2 px-3 text-right font-semibold">€ {s.grossTotal.toLocaleString('it-IT', { minimumFractionDigits: 0 })}</td>
                             <td className="py-2 px-3 text-right text-emerald-600">€ {s.paid.toLocaleString('it-IT', { minimumFractionDigits: 0 })}</td>

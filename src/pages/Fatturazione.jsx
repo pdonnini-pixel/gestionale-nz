@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import PageHelp from '../components/PageHelp'
+import StatusBadge from '../components/ui/StatusBadge'
 import { supabase } from '../lib/supabase'
 import { useYapily } from '../hooks/useYapily'
 import {
@@ -34,7 +35,7 @@ const CORR_STATUS_CONFIG = {
   ERROR: { label: 'Errore', color: 'bg-red-100 text-red-700' },
 }
 
-function StatusBadge({ status, configMap = SDI_STATUS_CONFIG }) {
+function SdiStatusBadge({ status, configMap = SDI_STATUS_CONFIG }) {
   const cfg = configMap[status] || configMap.PENDING
   const Icon = cfg.icon || Clock
   return (
@@ -257,8 +258,8 @@ function FatturePassive() {
                 <tr><td colSpan={9} className="text-center py-12 text-slate-400"><Loader2 size={24} className="animate-spin mx-auto mb-2" />Caricamento fatture...</td></tr>
               ) : filtered.length === 0 ? (
                 <tr><td colSpan={9} className="text-center py-12 text-slate-400">Nessuna fattura trovata</td></tr>
-              ) : filtered.map(inv => (
-                <tr key={inv.id} onClick={() => { setSelectedInvoice(inv); setShowXml(false) }} className="border-b border-slate-100 hover:bg-slate-50/50 transition cursor-pointer">
+              ) : filtered.map((inv, idx) => (
+                <tr key={inv.id} onClick={() => { setSelectedInvoice(inv); setShowXml(false) }} className={`border-b border-slate-100 hover:bg-blue-50/50 transition-colors cursor-pointer ${idx % 2 === 1 ? 'bg-slate-50/50' : ''}`}>
                   <td className="px-4 py-3 text-slate-600">{fmtDate(inv.invoice_date)}</td>
                   <td className="px-4 py-3 font-medium text-slate-900">{inv.invoice_number || '—'}</td>
                   <td className="px-4 py-3">
@@ -436,6 +437,8 @@ function FattureAttive() {
   const [showForm, setShowForm] = useState(false)
   const [sending, setSending] = useState(null) // invoiceId in corso di invio
   const [searchTerm, setSearchTerm] = useState('')
+  const [selectedInvoice, setSelectedInvoice] = useState(null)
+  const [showXml, setShowXml] = useState(false)
 
   const loadInvoices = useCallback(async () => {
     setLoading(true)
@@ -591,8 +594,8 @@ function FattureAttive() {
                   <FileText size={32} className="mx-auto mb-2 text-slate-300" />
                   Nessuna fattura attiva. Crea la prima!
                 </td></tr>
-              ) : filtered.map(inv => (
-                <tr key={inv.id} className="border-b border-slate-100 hover:bg-slate-50/50 transition">
+              ) : filtered.map((inv, idx) => (
+                <tr key={inv.id} onClick={() => { setSelectedInvoice(inv); setShowXml(false) }} className={`border-b border-slate-100 hover:bg-blue-50/50 transition-colors cursor-pointer ${idx % 2 === 1 ? 'bg-slate-50/50' : ''}`}>
                   <td className="px-4 py-3 text-slate-600">{fmtDate(inv.invoice_date)}</td>
                   <td className="px-4 py-3 font-medium text-slate-900">{inv.invoice_number}</td>
                   <td className="px-4 py-3">
@@ -605,13 +608,13 @@ function FattureAttive() {
                   <td className="px-4 py-3 text-center">
                     <div className="flex items-center justify-center gap-1">
                       {inv.sdi_status === 'DRAFT' && !inv.xml_content && (
-                        <button onClick={() => handleGenerateXml(inv.id)} className="p-1.5 text-slate-400 hover:text-blue-600 rounded transition" title="Genera XML">
+                        <button onClick={(e) => { e.stopPropagation(); handleGenerateXml(inv.id) }} className="p-1.5 text-slate-400 hover:text-blue-600 rounded transition" title="Genera XML">
                           <FileCode size={16} />
                         </button>
                       )}
                       {(inv.sdi_status === 'DRAFT' || inv.sdi_status === 'ERROR') && inv.xml_content && (
                         <button
-                          onClick={() => handleSend(inv.id)}
+                          onClick={(e) => { e.stopPropagation(); handleSend(inv.id) }}
                           disabled={sending === inv.id}
                           className="p-1.5 text-slate-400 hover:text-green-600 rounded transition disabled:opacity-50"
                           title="Invia a SDI"
@@ -728,6 +731,165 @@ function FattureAttive() {
             </form>
           </div>
         </div>
+      )}
+
+      {/* Slide-over dettaglio fattura attiva */}
+      {selectedInvoice && (
+        <>
+          <div className="fixed inset-0 bg-black/30 z-40 transition-opacity" onClick={() => setSelectedInvoice(null)} />
+          <div className="fixed inset-y-0 right-0 z-50 w-full max-w-lg bg-white shadow-2xl border-l border-slate-200 flex flex-col">
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 bg-slate-50/50">
+              <div>
+                <h3 className="font-semibold text-lg text-slate-900">Fattura {selectedInvoice.invoice_number}</h3>
+                <div className="flex items-center gap-2 mt-0.5">
+                  <StatusBadge status={selectedInvoice.sdi_status || 'DRAFT'} />
+                  <span className="text-xs text-slate-400 font-medium">{selectedInvoice.tipo_documento}</span>
+                </div>
+              </div>
+              <button onClick={() => setSelectedInvoice(null)} className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition"><X size={20} /></button>
+            </div>
+
+            {/* Content */}
+            <div className="flex-1 overflow-y-auto p-5 space-y-5">
+              {/* Cliente */}
+              <div className="bg-slate-50 rounded-lg p-4 space-y-2">
+                <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Cliente</h4>
+                <div className="text-base font-semibold text-slate-900">{selectedInvoice.client_name}</div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <span className="text-xs text-slate-500">P.IVA</span>
+                    <div className="text-sm font-medium text-slate-800 font-mono">{selectedInvoice.client_vat || '—'}</div>
+                  </div>
+                  <div>
+                    <span className="text-xs text-slate-500">Codice Fiscale</span>
+                    <div className="text-sm font-medium text-slate-800 font-mono">{selectedInvoice.client_fiscal_code || '—'}</div>
+                  </div>
+                  <div>
+                    <span className="text-xs text-slate-500">Codice SDI</span>
+                    <div className="text-sm font-medium text-slate-800 font-mono">{selectedInvoice.codice_destinatario || '—'}</div>
+                  </div>
+                  <div>
+                    <span className="text-xs text-slate-500">PEC</span>
+                    <div className="text-sm font-medium text-slate-800">{selectedInvoice.pec_destinatario || '—'}</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Importi */}
+              <div className="space-y-2">
+                <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Importi</h4>
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="bg-white border border-slate-200 rounded-lg p-3 text-center">
+                    <span className="text-xs text-slate-500 block">Imponibile</span>
+                    <div className="text-sm font-semibold text-slate-800 mt-0.5">{fmt(selectedInvoice.taxable_amount)}</div>
+                  </div>
+                  <div className="bg-white border border-slate-200 rounded-lg p-3 text-center">
+                    <span className="text-xs text-slate-500 block">IVA {selectedInvoice.vat_rate}%</span>
+                    <div className="text-sm font-semibold text-slate-800 mt-0.5">{fmt(selectedInvoice.vat_amount)}</div>
+                  </div>
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-center">
+                    <span className="text-xs text-blue-600 block">Totale</span>
+                    <div className="text-lg font-bold text-blue-700 mt-0.5">{fmt(selectedInvoice.total_amount)}</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Dettagli */}
+              <div className="space-y-2">
+                <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Dettagli</h4>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <span className="text-xs text-slate-500">Data fattura</span>
+                    <div className="text-sm font-medium text-slate-800">{fmtDate(selectedInvoice.invoice_date)}</div>
+                  </div>
+                  <div>
+                    <span className="text-xs text-slate-500">Scadenza</span>
+                    <div className="text-sm font-medium text-slate-800">{fmtDate(selectedInvoice.due_date)}</div>
+                  </div>
+                  <div>
+                    <span className="text-xs text-slate-500">Metodo pagamento</span>
+                    <div className="text-sm font-medium text-slate-800">{selectedInvoice.payment_method || '—'}</div>
+                  </div>
+                  <div>
+                    <span className="text-xs text-slate-500">ID SDI</span>
+                    <div className="text-sm font-medium text-slate-800 font-mono">{selectedInvoice.sdi_id || '—'}</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Timeline notifiche SDI */}
+              {selectedInvoice.sdi_notifications && Array.isArray(selectedInvoice.sdi_notifications) && selectedInvoice.sdi_notifications.length > 0 && (
+                <div className="space-y-2">
+                  <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Timeline SDI</h4>
+                  <div className="relative pl-4 border-l-2 border-slate-200 space-y-3">
+                    {selectedInvoice.sdi_notifications.map((notif, i) => {
+                      const NOTIF_COLORS = {
+                        RC: 'bg-green-500', NS: 'bg-red-500', MC: 'bg-amber-500',
+                        AT: 'bg-amber-500', NE: 'bg-blue-500', DT: 'bg-green-500',
+                      }
+                      const NOTIF_LABELS = {
+                        RC: 'Ricevuta di consegna', NS: 'Notifica di scarto', MC: 'Mancata consegna',
+                        AT: 'Attestazione trasmissione', NE: 'Esito committente', DT: 'Decorrenza termini',
+                      }
+                      return (
+                        <div key={i} className="relative">
+                          <div className={`absolute -left-[21px] top-1 w-3 h-3 rounded-full ${NOTIF_COLORS[notif.type] || 'bg-slate-400'} border-2 border-white`} />
+                          <div className="text-sm font-medium text-slate-800">{NOTIF_LABELS[notif.type] || notif.type}</div>
+                          <div className="text-xs text-slate-400">{notif.timestamp ? new Date(notif.timestamp).toLocaleString('it-IT') : '—'}</div>
+                          {notif.message && <div className="text-xs text-slate-500 mt-0.5">{notif.message}</div>}
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Azioni */}
+              <div className="space-y-2">
+                <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Azioni</h4>
+                <div className="flex flex-wrap gap-2">
+                  {selectedInvoice.sdi_status === 'DRAFT' && !selectedInvoice.xml_content && (
+                    <button onClick={() => { handleGenerateXml(selectedInvoice.id); setSelectedInvoice(null) }}
+                      className="flex items-center gap-2 px-3 py-2 text-sm bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition">
+                      <FileCode size={14} /> Genera XML
+                    </button>
+                  )}
+                  {(selectedInvoice.sdi_status === 'DRAFT' || selectedInvoice.sdi_status === 'ERROR') && selectedInvoice.xml_content && (
+                    <button onClick={() => { handleSend(selectedInvoice.id); setSelectedInvoice(null) }}
+                      className="flex items-center gap-2 px-3 py-2 text-sm bg-green-50 text-green-600 rounded-lg hover:bg-green-100 transition">
+                      <Send size={14} /> Invia a SDI
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* XML */}
+              {selectedInvoice.xml_content && (
+                <div className="space-y-2">
+                  <button onClick={() => setShowXml(!showXml)}
+                    className="flex items-center gap-2 text-sm font-medium text-blue-600 hover:text-blue-700 transition">
+                    <FileCode size={14} />
+                    {showXml ? 'Nascondi XML' : 'Mostra XML FatturaPA'}
+                  </button>
+                  {showXml && (
+                    <pre className="p-3 bg-slate-900 text-green-400 rounded-lg text-xs overflow-x-auto max-h-72 border border-slate-700 font-mono leading-relaxed">
+                      {selectedInvoice.xml_content}
+                    </pre>
+                  )}
+                </div>
+              )}
+
+              {/* Note */}
+              {selectedInvoice.notes && (
+                <div className="space-y-2">
+                  <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Note</h4>
+                  <div className="text-sm text-slate-700 bg-slate-50 rounded-lg p-3">{selectedInvoice.notes}</div>
+                </div>
+              )}
+            </div>
+          </div>
+        </>
       )}
     </div>
   )
@@ -849,7 +1011,7 @@ function Corrispettivi() {
               ) : monthlyRows.map((row, i) => {
                 const avgTicket = row.transactions > 0 ? row.grossRevenue / row.transactions : (row.days > 0 ? row.totalTicket / row.days : 0)
                 return (
-                  <tr key={`${row.month}-${row.outlet}`} className="border-b border-slate-100 hover:bg-slate-50/50 transition">
+                  <tr key={`${row.month}-${row.outlet}`} className={`border-b border-slate-100 hover:bg-blue-50/50 transition-colors ${i % 2 === 1 ? 'bg-slate-50/50' : ''}`}>
                     <td className="px-4 py-3 font-medium text-slate-800">{fmtMonth(row.month)}</td>
                     <td className="px-4 py-3 text-slate-700">{row.outlet}</td>
                     <td className="px-4 py-3 text-right font-semibold text-slate-900">{fmt(row.grossRevenue)}</td>

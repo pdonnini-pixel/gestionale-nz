@@ -2,16 +2,16 @@ import { useState, useEffect, useCallback } from 'react'
 import {
   Settings, Users, Tag, Building2, Shield, Plus, Trash2, Pencil, Save, X,
   ChevronDown, ChevronUp, Check, AlertCircle, Search, Copy, Eye, EyeOff, Loader,
-  CornerDownRight, Lock, ShieldCheck,
+  CornerDownRight, Lock, ShieldCheck, FileText, RefreshCw, Zap, Send,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 
 // Role-based permissions
 const ROLE_PERMISSIONS = {
-  super_advisor: ['company', 'users', 'costs', 'centri'],
-  ceo: ['company', 'users', 'costs', 'centri'],
-  cfo: ['company', 'costs', 'centri'],
+  super_advisor: ['company', 'users', 'costs', 'centri', 'sdi'],
+  ceo: ['company', 'users', 'costs', 'centri', 'sdi'],
+  cfo: ['company', 'costs', 'centri', 'sdi'],
   coo: ['company', 'costs', 'centri'],
   contabile: ['costs', 'centri'],
   store_manager: [],
@@ -1268,6 +1268,280 @@ function CentriDiCostoSection({ showToast, companyId: COMPANY_ID }) {
 }
 
 // ==========================================
+// SEZIONE SDI (Fatturazione Elettronica)
+// ==========================================
+function SdiSection({ showToast, companyId: COMPANY_ID }) {
+  const [config, setConfig] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [testing, setTesting] = useState(false)
+  const [testResult, setTestResult] = useState(null)
+
+  useEffect(() => { loadConfig() }, [])
+
+  const loadConfig = async () => {
+    try {
+      setLoading(true)
+      const { data, error } = await supabase
+        .from('sdi_config')
+        .select('*')
+        .eq('company_id', COMPANY_ID)
+        .single()
+      if (error && error.code !== 'PGRST116') throw error
+      setConfig(data)
+    } catch (err) {
+      showToast?.('Errore caricamento config SDI', 'error')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleToggleEnvironment = async () => {
+    if (!config) return
+    const newEnv = config.environment === 'TEST' ? 'PRODUCTION' : 'TEST'
+    setSaving(true)
+    try {
+      const { error } = await supabase
+        .from('sdi_config')
+        .update({ environment: newEnv, updated_at: new Date().toISOString() })
+        .eq('id', config.id)
+      if (error) throw error
+      setConfig({ ...config, environment: newEnv })
+      showToast?.(`Ambiente SDI impostato su ${newEnv === 'PRODUCTION' ? 'Produzione' : 'Test'}`)
+    } catch (err) {
+      showToast?.('Errore aggiornamento: ' + err.message, 'error')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleUpdateField = async (field, value) => {
+    if (!config) return
+    setSaving(true)
+    try {
+      const { error } = await supabase
+        .from('sdi_config')
+        .update({ [field]: value, updated_at: new Date().toISOString() })
+        .eq('id', config.id)
+      if (error) throw error
+      setConfig({ ...config, [field]: value })
+      showToast?.('Configurazione aggiornata')
+    } catch (err) {
+      showToast?.('Errore: ' + err.message, 'error')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleTestConnection = async () => {
+    setTesting(true)
+    setTestResult(null)
+    try {
+      const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhmdmZ4c3ZxcG5wdmliZ2VxcHFwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUxNDkwNDcsImV4cCI6MjA5MDcyNTA0N30.ohYziAXiOWS0TKU9HHuhUAbf5Geh10xbLGEoftOMJZA'
+      const baseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://xfvfxsvqpnpvibgeqpqp.supabase.co'
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) throw new Error('Non autenticato')
+      const res = await fetch(`${baseUrl}/functions/v1/sdi-status-check`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+          'apikey': anonKey,
+        },
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error || 'Errore test')
+      setTestResult({ success: true, data: json.data })
+      showToast?.('Connessione SDI verificata')
+    } catch (err) {
+      setTestResult({ success: false, error: err.message })
+      showToast?.('Test fallito: ' + err.message, 'error')
+    } finally {
+      setTesting(false)
+    }
+  }
+
+  if (loading) {
+    return <div className="p-6 text-center text-slate-400"><Loader size={20} className="animate-spin mx-auto" /></div>
+  }
+
+  if (!config) {
+    return (
+      <div className="p-6 text-center text-slate-500">
+        <FileText size={32} className="mx-auto mb-2 text-slate-300" />
+        <p className="text-sm">Nessuna configurazione SDI trovata.</p>
+        <p className="text-xs text-slate-400 mt-1">Contatta l'amministratore per configurare l'accreditamento SDI.</p>
+      </div>
+    )
+  }
+
+  const STATUS_COLORS = {
+    COMPLETED: 'bg-green-100 text-green-700',
+    ACTIVE: 'bg-green-100 text-green-700',
+    TESTING: 'bg-amber-100 text-amber-700',
+    PENDING: 'bg-slate-100 text-slate-600',
+    SUSPENDED: 'bg-red-100 text-red-700',
+  }
+
+  return (
+    <div className="p-5 space-y-6">
+      {/* Stato accreditamento */}
+      <div className="flex items-start justify-between">
+        <div>
+          <h3 className="text-sm font-semibold text-slate-800">Stato Accreditamento</h3>
+          <div className="flex items-center gap-2 mt-1">
+            <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium ${STATUS_COLORS[config.accreditation_status] || STATUS_COLORS.PENDING}`}>
+              <ShieldCheck size={12} />
+              {config.accreditation_status === 'COMPLETED' ? 'Accreditato' :
+               config.accreditation_status === 'ACTIVE' ? 'Attivo' :
+               config.accreditation_status === 'TESTING' ? 'In test' :
+               config.accreditation_status === 'SUSPENDED' ? 'Sospeso' : 'In attesa'}
+            </span>
+            <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium ${
+              config.environment === 'PRODUCTION' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'
+            }`}>
+              {config.environment === 'PRODUCTION' ? 'Produzione' : 'Test'}
+            </span>
+          </div>
+        </div>
+        <button
+          onClick={handleTestConnection}
+          disabled={testing}
+          className="flex items-center gap-2 px-3 py-2 text-sm bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition disabled:opacity-50"
+        >
+          {testing ? <Loader size={14} className="animate-spin" /> : <Zap size={14} />}
+          Test connessione
+        </button>
+      </div>
+
+      {/* Risultato test */}
+      {testResult && (
+        <div className={`p-3 rounded-lg text-sm ${testResult.success ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
+          {testResult.success ? (
+            <div className="flex items-center gap-2">
+              <Check size={14} />
+              <span>Connessione SDI funzionante — {testResult.data?.config?.environment || 'TEST'}</span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <AlertCircle size={14} />
+              <span>{testResult.error}</span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Configurazione */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <label className="block text-xs font-medium text-slate-500 mb-1">Codice Fiscale Trasmittente</label>
+          <div className="px-3 py-2 bg-slate-50 rounded-lg text-sm font-mono text-slate-800 border border-slate-200">
+            {config.codice_fiscale_trasmittente || '—'}
+          </div>
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-slate-500 mb-1">Canale di trasmissione</label>
+          <div className="px-3 py-2 bg-slate-50 rounded-lg text-sm text-slate-800 border border-slate-200">
+            {config.channel_type || 'WEBSERVICE'}
+          </div>
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-slate-500 mb-1">Codice SDI (7 caratteri)</label>
+          <input
+            type="text"
+            maxLength={7}
+            value={config.codice_sdi || ''}
+            onChange={e => setConfig({ ...config, codice_sdi: e.target.value })}
+            onBlur={e => e.target.value !== (config.codice_sdi || '') && handleUpdateField('codice_sdi', e.target.value || null)}
+            className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg font-mono"
+            placeholder="0000000"
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-slate-500 mb-1">PEC ricezione</label>
+          <input
+            type="email"
+            value={config.pec_ricezione || ''}
+            onChange={e => setConfig({ ...config, pec_ricezione: e.target.value })}
+            onBlur={e => handleUpdateField('pec_ricezione', e.target.value || null)}
+            className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg"
+            placeholder="fatturazione@pec.azienda.it"
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-slate-500 mb-1">Progressivo invio</label>
+          <div className="px-3 py-2 bg-slate-50 rounded-lg text-sm font-mono text-slate-800 border border-slate-200">
+            {config.progressivo_invio ?? 0}
+          </div>
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-slate-500 mb-1">Endpoint SDI</label>
+          <div className="px-3 py-2 bg-slate-50 rounded-lg text-xs font-mono text-slate-600 border border-slate-200 truncate" title={config.endpoint_url}>
+            {config.endpoint_url || '—'}
+          </div>
+        </div>
+      </div>
+
+      {/* Toggle ambiente */}
+      <div className="border-t border-slate-100 pt-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h4 className="text-sm font-medium text-slate-700">Ambiente</h4>
+            <p className="text-xs text-slate-400 mt-0.5">
+              {config.environment === 'TEST'
+                ? 'In test le fatture vengono inviate all\'ambiente di validazione AdE.'
+                : 'In produzione le fatture vengono inviate al Sistema di Interscambio reale.'}
+            </p>
+          </div>
+          <button
+            onClick={handleToggleEnvironment}
+            disabled={saving}
+            className={`relative inline-flex h-8 w-[120px] items-center rounded-full transition-colors ${
+              config.environment === 'PRODUCTION' ? 'bg-green-500' : 'bg-amber-400'
+            }`}
+          >
+            <span className={`inline-block h-6 w-[56px] transform rounded-full bg-white shadow-sm transition-transform text-xs font-medium flex items-center justify-center ${
+              config.environment === 'PRODUCTION' ? 'translate-x-[60px]' : 'translate-x-1'
+            }`}>
+              {config.environment === 'PRODUCTION' ? 'PROD' : 'TEST'}
+            </span>
+          </button>
+        </div>
+      </div>
+
+      {/* Certificati */}
+      <div className="border-t border-slate-100 pt-4">
+        <h4 className="text-sm font-medium text-slate-700 mb-2">Certificati SSL</h4>
+        <div className="grid grid-cols-2 gap-3">
+          {[
+            { label: 'Client Certificate', name: config.ssl_cert_secret_name },
+            { label: 'Client Key', name: config.ssl_key_secret_name },
+          ].map(cert => (
+            <div key={cert.label} className="flex items-center gap-2 px-3 py-2 bg-slate-50 rounded-lg border border-slate-200">
+              <ShieldCheck size={14} className={cert.name ? 'text-green-500' : 'text-slate-300'} />
+              <div>
+                <div className="text-xs font-medium text-slate-700">{cert.label}</div>
+                <div className="text-xs text-slate-400">{cert.name ? `Vault: ${cert.name}` : 'Non configurato'}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+        <p className="text-xs text-slate-400 mt-2">
+          I certificati sono conservati in modo sicuro nel Vault di Supabase e non sono mai esposti al frontend.
+        </p>
+      </div>
+
+      {/* Info */}
+      <div className="bg-blue-50 border border-blue-100 rounded-lg p-3 text-xs text-blue-700">
+        <strong>Intermediario:</strong> EPPI S.R.L. (CF {config.codice_fiscale_trasmittente}) —
+        Endpoint ricezione e notifiche registrati su Agenzia delle Entrate.
+        In ambiente test le fatture vengono validate ma non trasmesse ai destinatari.
+      </div>
+    </div>
+  )
+}
+
+// ==========================================
 // PAGINA PRINCIPALE
 // ==========================================
 export default function Impostazioni() {
@@ -1287,6 +1561,7 @@ export default function Impostazioni() {
     { id: 'users', icon: Users, title: 'Utenti', subtitle: 'Gestione utenti, ruoli e accessi per outlet', component: UserSection },
     { id: 'costs', icon: Tag, title: 'Voci di costo', subtitle: 'Catalogo costi con assegnazione a centri di costo e gerarchia conti/sottoconti', component: CostSection },
     { id: 'centri', icon: Shield, title: 'Centri di costo', subtitle: 'Outlet, sede, magazzino — entità di allocazione', component: CentriDiCostoSection },
+    { id: 'sdi', icon: FileText, title: 'Fatturazione SDI', subtitle: 'Accreditamento, certificati e configurazione Sistema di Interscambio', component: SdiSection },
   ]
 
   const [openSection, setOpenSection] = useState('company')

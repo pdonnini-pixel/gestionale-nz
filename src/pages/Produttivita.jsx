@@ -1,15 +1,20 @@
 import { useState, useEffect, useMemo } from 'react';
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ComposedChart
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ComposedChart,
+  LineChart, Line,
 } from 'recharts';
-import { TrendingUp, Users, Euro, Target, AlertCircle, CheckCircle, Loader2 } from 'lucide-react';
-import { GlassTooltip, AXIS_STYLE, GRID_STYLE } from '../components/ChartTheme';
+import { TrendingUp, Users, Euro, Target, AlertCircle, CheckCircle, Loader2, Award } from 'lucide-react';
+import { GlassTooltip, AXIS_STYLE, GRID_STYLE, PALETTE } from '../components/ChartTheme';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
+import PageHelp from '../components/PageHelp';
 
 function fmt(n, dec = 0) {
   return new Intl.NumberFormat('it-IT', { minimumFractionDigits: dec, maximumFractionDigits: dec }).format(n);
 }
+
+const MONTHS = ['Gen', 'Feb', 'Mar', 'Apr', 'Mag', 'Giu', 'Lug', 'Ago', 'Set', 'Ott', 'Nov', 'Dic'];
+const MEDAL = ['', '\u{1F947}', '\u{1F948}', '\u{1F949}'];
 
 export default function Produttivita() {
   const { profile } = useAuth();
@@ -18,10 +23,11 @@ export default function Produttivita() {
   const [year, setYear] = useState(2026);
   const [rawEntries, setRawEntries] = useState([]);
   const [employees, setEmployees] = useState([]);
+  const [allocations, setAllocations] = useState([]);
   const [simulazioneAttiva, setSimulazioneAttiva] = useState(false);
   const [moved, setMoved] = useState({ from: null, to: null, count: 1 });
 
-  // Fetch budget_entries + employees
+  // Fetch budget_entries + employees + allocations
   useEffect(() => {
     async function fetchData() {
       setLoading(true);
@@ -29,20 +35,26 @@ export default function Produttivita() {
       try {
         const companyId = profile?.company_id;
 
-        // Fetch budget entries
+        // Fetch budget entries (with month for trend)
         let budgetQuery = supabase
           .from('budget_entries')
-          .select('cost_center, account_code, budget_amount')
+          .select('cost_center, account_code, budget_amount, month')
           .eq('year', year);
         if (companyId) budgetQuery = budgetQuery.eq('company_id', companyId);
 
-        // Fetch employees (try dipendenti or employees table)
+        // Fetch employees
         let empQuery = supabase
           .from('employees')
           .select('id, outlet_name, cost_center');
         if (companyId) empQuery = empQuery.eq('company_id', companyId);
 
-        const [budgetRes, empRes] = await Promise.all([budgetQuery, empQuery]);
+        // Fetch employee_outlet_allocations for per-outlet headcount
+        let allocQuery = supabase
+          .from('employee_outlet_allocations')
+          .select('employee_id, outlet_id, cost_center, allocation_percentage');
+        if (companyId) allocQuery = allocQuery.eq('company_id', companyId);
+
+        const [budgetRes, empRes, allocRes] = await Promise.all([budgetQuery, empQuery, allocQuery]);
 
         if (budgetRes.error) throw budgetRes.error;
         setRawEntries(budgetRes.data || []);
@@ -50,6 +62,11 @@ export default function Produttivita() {
         // Employees may not exist as a table - graceful fallback
         if (!empRes.error && empRes.data) {
           setEmployees(empRes.data);
+        }
+
+        // Allocations may not exist
+        if (!allocRes.error && allocRes.data) {
+          setAllocations(allocRes.data);
         }
       } catch (err) {
         console.error('[Produttivita] fetch error:', err);
@@ -60,6 +77,29 @@ export default function Produttivita() {
     }
     fetchData();
   }, [year, profile?.company_id]);
+
+  // Compute employee count per outlet from allocations (FTE-weighted) or employees table
+  const empCountByOutlet = useMemo(() => {
+    const counts = {};
+
+    // Prefer allocations (FTE-weighted)
+    if (allocations.length > 0) {
+      allocations.forEach(a => {
+        const outlet = a.cost_center || 'Sconosciuto';
+        const pct = parseFloat(a.allocation_percentage) || 100;
+        counts[outlet] = (counts[outlet] || 0) + (pct / 100);
+      });
+    } else if (employees.length > 0) {
+      // Fallback to employee table
+      employees.forEach(emp => {
+        const outlet = emp.cost_center || emp.outlet_name || 'Sconosciuto';
+        counts[outlet] = (counts[outlet] || 0) + 1;
+      });
+    }
+    // If no employee data at all, returns empty - will use fallback of 4
+
+    return counts;
+  }, [allocations, employees]);
 
   // Compute per-outlet productivity metrics from budget_entries
   const outletBaseData = useMemo(() => {
@@ -73,28 +113,17 @@ export default function Produttivita() {
       const code = (row.account_code || '').toString();
       const amount = parseFloat(row.budget_amount) || 0;
 
-      // Revenue: account_code starting with '5'
       if (code.startsWith('5')) {
         byOutlet[outlet].ricavi += amount;
       }
-      // Staff costs: account_code in 630xxx range
-      else if (code.startsWith('63')) {
+      if (code.startsWith('63')) {
         byOutlet[outlet].costo_personale += amount;
       }
-      // All costs: starting with '6' or '7'
       if (code.startsWith('6') || code.startsWith('7')) {
         byOutlet[outlet].costi_totali += amount;
       }
     });
 
-    // Count employees per outlet
-    const empCount = {};
-    employees.forEach(emp => {
-      const outlet = emp.cost_center || emp.outlet_name;
-      if (outlet) empCount[outlet] = (empCount[outlet] || 0) + 1;
-    });
-
-    // Assign a default color palette
     const colors = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#ef4444'];
 
     return Object.entries(byOutlet)
@@ -103,11 +132,51 @@ export default function Produttivita() {
         ricavi: vals.ricavi,
         costo_personale: vals.costo_personale,
         costi_totali: vals.costi_totali,
-        dipendenti: empCount[nome] || null,
+        dipendenti: empCountByOutlet[nome] || null,
         colore: colors[idx % colors.length],
       }))
       .sort((a, b) => b.ricavi - a.ricavi);
-  }, [rawEntries, employees]);
+  }, [rawEntries, empCountByOutlet]);
+
+  // Monthly trend data for fatturato/dipendente per outlet
+  const monthlyTrendData = useMemo(() => {
+    if (!rawEntries.length) return [];
+
+    // Group revenue by outlet and month
+    const byOutletMonth = {};
+    const outletSet = new Set();
+    rawEntries.forEach(row => {
+      const outlet = row.cost_center || 'Sconosciuto';
+      const month = parseInt(row.month) || 0;
+      if (month < 1 || month > 12) return;
+
+      const code = (row.account_code || '').toString();
+      const amount = parseFloat(row.budget_amount) || 0;
+
+      if (code.startsWith('5')) {
+        const key = `${outlet}__${month}`;
+        byOutletMonth[key] = (byOutletMonth[key] || 0) + amount;
+        outletSet.add(outlet);
+      }
+    });
+
+    // Build array of { month, outlet1: fatturato/dip, outlet2: ... }
+    const months = [];
+    for (let m = 1; m <= 12; m++) {
+      const row = { mese: MONTHS[m - 1] };
+      let hasData = false;
+      outletSet.forEach(outlet => {
+        const rev = byOutletMonth[`${outlet}__${m}`] || 0;
+        const dip = empCountByOutlet[outlet] || 4; // fallback
+        if (rev > 0) {
+          row[outlet] = Math.round(rev / dip);
+          hasData = true;
+        }
+      });
+      if (hasData) months.push(row);
+    }
+    return months;
+  }, [rawEntries, empCountByOutlet]);
 
   // Calcolo metriche per ogni outlet (with simulation support)
   const metriche = useMemo(() => {
@@ -186,7 +255,18 @@ export default function Produttivita() {
     const worst = metriche.reduce((a, b) => a.ricavo_per_ora < b.ricavo_per_ora ? a : b);
     const avg_ricavo_ora = metriche.reduce((sum, m) => sum + m.ricavo_per_ora, 0) / metriche.length;
     const avg_roi = metriche.reduce((sum, m) => sum + m.roi, 0) / metriche.length;
-    return { best_produttivita: best, worst_produttivita: worst, avg_ricavo_ora, avg_roi };
+    const totRicavi = metriche.reduce((sum, m) => sum + m.ricavi, 0);
+    const totDipendenti = metriche.reduce((sum, m) => sum + m.dipendenti, 0);
+    const fatturato_medio_dip = totDipendenti > 0 ? totRicavi / totDipendenti : 0;
+    return { best_produttivita: best, worst_produttivita: worst, avg_ricavo_ora, avg_roi, fatturato_medio_dip, totRicavi, totDipendenti };
+  }, [metriche]);
+
+  // Ranked table data: per outlet with rank/medal
+  const rankedMetriche = useMemo(() => {
+    return metriche
+      .slice()
+      .sort((a, b) => b.ricavo_per_dip - a.ricavo_per_dip)
+      .map((m, idx) => ({ ...m, rank: idx + 1 }));
   }, [metriche]);
 
   // Chart: incidenza personale per outlet
@@ -208,6 +288,11 @@ export default function Produttivita() {
     'Ricavo/ora': parseFloat(m.ricavo_per_ora.toFixed(2)),
     'Costo/ora': parseFloat(m.costo_per_ora.toFixed(2)),
   }));
+
+  // Outlet names for line chart
+  const outletNamesForTrend = useMemo(() => {
+    return metriche.map(m => m.nome);
+  }, [metriche]);
 
   // Raccomandazioni
   const raccomandazioni = useMemo(() => {
@@ -266,6 +351,7 @@ export default function Produttivita() {
             <p className="text-slate-600 text-lg">Nessun dato budget trovato per l'anno {year}</p>
           </div>
         </div>
+        <PageHelp page="produttivita" />
       </div>
     );
   }
@@ -293,7 +379,25 @@ export default function Produttivita() {
           </div>
         </div>
 
-        {/* KPI Cards */}
+        {/* Prominent KPI Card: Fatturato Medio per Dipendente */}
+        {kpi && (
+          <div className="bg-gradient-to-r from-blue-600 to-indigo-600 rounded-2xl p-6 mb-8 shadow-lg text-white">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-blue-100 text-sm font-medium mb-1">Fatturato Medio per Dipendente</p>
+                <p className="text-4xl font-bold">{fmt(kpi.fatturato_medio_dip, 0)} &euro;</p>
+                <p className="text-blue-200 text-sm mt-2">
+                  {fmt(kpi.totRicavi, 0)} &euro; ricavi totali / {fmt(kpi.totDipendenti, 1)} dipendenti (FTE)
+                </p>
+              </div>
+              <div className="bg-white/20 rounded-xl p-4">
+                <Users className="w-10 h-10 text-white" />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* KPI Cards Row */}
         {kpi && (
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
             <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
@@ -331,6 +435,87 @@ export default function Produttivita() {
               <div className="text-2xl font-bold text-slate-900">{fmt(kpi.avg_roi, 2)}</div>
               <div className="text-xs text-slate-500 mt-2">Rapporto ricavi/costo</div>
             </div>
+          </div>
+        )}
+
+        {/* Ranking Table: per outlet with medals */}
+        <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm mb-8">
+          <h2 className="text-lg font-semibold text-slate-900 mb-4 flex items-center gap-2">
+            <Award className="w-5 h-5 text-amber-500" />
+            Classifica Produttivita per Outlet
+          </h2>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-200 bg-slate-50">
+                  <th className="px-4 py-3 text-center text-slate-700 font-semibold w-16">Rank</th>
+                  <th className="px-4 py-3 text-left text-slate-700 font-semibold">Outlet</th>
+                  <th className="px-4 py-3 text-right text-slate-700 font-semibold">Fatturato</th>
+                  <th className="px-4 py-3 text-right text-slate-700 font-semibold">N. Dipendenti</th>
+                  <th className="px-4 py-3 text-right text-slate-700 font-semibold">Fatturato/Dipendente</th>
+                  <th className="px-4 py-3 text-right text-slate-700 font-semibold">Incidenza %</th>
+                  <th className="px-4 py-3 text-right text-slate-700 font-semibold">ROI</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rankedMetriche.map((m) => {
+                  const medal = m.rank <= 3 ? MEDAL[m.rank] : '';
+                  const rowBg = m.rank === 1 ? 'bg-amber-50' : m.rank === 2 ? 'bg-slate-50' : m.rank === 3 ? 'bg-orange-50' : '';
+                  return (
+                    <tr key={m.nome} className={`border-b border-slate-100 ${rowBg}`}>
+                      <td className="px-4 py-3 text-center text-lg">
+                        {medal || <span className="text-slate-400 text-sm">{m.rank}</span>}
+                      </td>
+                      <td className="px-4 py-3 text-slate-900 font-medium">{m.nome}</td>
+                      <td className="px-4 py-3 text-right text-slate-700">{fmt(m.ricavi, 0)} &euro;</td>
+                      <td className="px-4 py-3 text-right text-slate-700">
+                        {fmt(m.dipendenti, m.has_employee_data ? 1 : 0)}
+                        {!m.has_employee_data && <span className="text-xs text-slate-400 ml-1">(stima)</span>}
+                      </td>
+                      <td className="px-4 py-3 text-right font-semibold text-slate-900">{fmt(m.ricavo_per_dip, 0)} &euro;</td>
+                      <td className="px-4 py-3 text-right">
+                        <span className={`inline-block px-2 py-1 rounded-full text-xs font-semibold ${
+                          m.incidenza_personale < 20 ? 'bg-green-100 text-green-800' :
+                          m.incidenza_personale < 35 ? 'bg-amber-100 text-amber-800' :
+                          'bg-red-100 text-red-800'
+                        }`}>
+                          {m.incidenza_personale.toFixed(1)}%
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-right font-semibold text-slate-900">{fmt(m.roi, 2)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Monthly Trend LineChart: fatturato/dipendente per outlet */}
+        {monthlyTrendData.length > 0 && (
+          <div className="rounded-2xl p-6 shadow-lg mb-8" style={{ background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)', border: '1px solid rgba(99,102,241,0.08)' }}>
+            <h2 className="text-lg font-semibold text-slate-900 mb-4">Trend Mensile Fatturato/Dipendente</h2>
+            <ResponsiveContainer width="100%" height={350}>
+              <LineChart data={monthlyTrendData}>
+                <CartesianGrid {...GRID_STYLE} />
+                <XAxis dataKey="mese" {...AXIS_STYLE} />
+                <YAxis {...AXIS_STYLE} tickFormatter={(v) => `${Math.round(v / 1000)}k`} />
+                <Tooltip content={<GlassTooltip formatter={(value) => fmt(value, 0) + ' \u20ac'} />} />
+                <Legend />
+                {outletNamesForTrend.map((name, idx) => (
+                  <Line
+                    key={name}
+                    type="monotone"
+                    dataKey={name}
+                    stroke={PALETTE[idx % PALETTE.length]}
+                    strokeWidth={2}
+                    dot={{ r: 3 }}
+                    connectNulls
+                    animationDuration={800}
+                  />
+                ))}
+              </LineChart>
+            </ResponsiveContainer>
           </div>
         )}
 
@@ -389,7 +574,7 @@ export default function Produttivita() {
           </div>
         </div>
 
-        {/* Table */}
+        {/* Full Metrics Table */}
         <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm mb-8">
           <h2 className="text-lg font-semibold text-slate-900 mb-4">Confronto Metriche Completo</h2>
           <div className="overflow-x-auto">
@@ -541,6 +726,7 @@ export default function Produttivita() {
           </div>
         </div>
       </div>
+      <PageHelp page="produttivita" />
     </div>
   );
 }

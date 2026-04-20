@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import CostiRicorrenti from '../components/CostiRicorrenti';
 import ExportMenu from '../components/ExportMenu';
+import StatusBadge from '../components/ui/StatusBadge';
 import {
   BarChart, Bar, PieChart, Pie, Cell, AreaChart, Area,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
@@ -80,10 +81,9 @@ const paymentGroups = [
 
 const RIBA_DAYS = { riba_30: 30, riba_60: 60, riba_90: 90, riba_120: 120 };
 
-// Status pill component
+// Status pill component — delegates to shared StatusBadge
 function StatusPill({ status }) {
-  const cfg = statusConfig[status] || { label: status, bg: 'bg-gray-100 text-gray-600' }
-  return <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-medium ${cfg.bg}`}>{cfg.label}</span>
+  return <StatusBadge status={status} size="sm" />
 }
 
 // Modal component
@@ -1291,9 +1291,9 @@ const ScadenzarioSmart = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {displayPayables.map((p) => (
+                    {displayPayables.map((p, idx) => (
                       <React.Fragment key={p.id}>
-                        <tr className="border-b border-slate-50 hover:bg-blue-50/30 transition group">
+                        <tr className={`border-b border-slate-50 hover:bg-blue-50/50 transition-colors group ${idx % 2 === 1 ? 'even:bg-slate-50/50' : ''}`}>
                           <td className="py-2.5 px-3 text-center">
                             {p.status !== 'pagato' && (p.gross_amount || 0) >= 0 && (
                               <button onClick={() => toggleSelect(p.id, p)}>
@@ -1512,8 +1512,8 @@ const ScadenzarioSmart = () => {
                         </tr>
                       </thead>
                       <tbody>
-                        {group.items.map(p => (
-                          <tr key={p.id} className="border-b border-slate-50">
+                        {group.items.map((p, idx) => (
+                          <tr key={p.id} className={`border-b border-slate-50 hover:bg-blue-50/50 transition-colors ${idx % 2 === 1 ? 'bg-slate-50/50' : ''}`}>
                             <td className="py-2 px-3 text-center">
                               {p.status !== 'pagato' && (p.gross_amount || 0) >= 0 && (
                                 <button onClick={() => toggleSelect(p.id, p)}>
@@ -1581,8 +1581,8 @@ const ScadenzarioSmart = () => {
                         </tr>
                       </thead>
                       <tbody>
-                        {group.items.map(p => (
-                          <tr key={p.id} className="border-b border-slate-50">
+                        {group.items.map((p, idx) => (
+                          <tr key={p.id} className={`border-b border-slate-50 hover:bg-blue-50/50 transition-colors ${idx % 2 === 1 ? 'bg-slate-50/50' : ''}`}>
                             <td className="py-2 px-3 text-center">
                               {p.status !== 'pagato' && (p.gross_amount || 0) >= 0 && (
                                 <button onClick={() => toggleSelect(p.id, p)}>
