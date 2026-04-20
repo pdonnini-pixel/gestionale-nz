@@ -901,19 +901,23 @@ function FattureAttive() {
 
 function Corrispettivi() {
   const [dailyRevenue, setDailyRevenue] = useState([])
+  const [corrispettiviLog, setCorrispettiviLog] = useState([])
   const [outlets, setOutlets] = useState([])
   const [loading, setLoading] = useState(true)
   const [selectedOutlet, setSelectedOutlet] = useState('ALL')
+  const [viewSource, setViewSource] = useState('pos') // 'pos' | 'ade'
 
   const loadData = useCallback(async () => {
     setLoading(true)
     try {
-      const [{ data: revenue }, { data: outs }] = await Promise.all([
+      const [{ data: revenue }, { data: outs }, { data: corrLog }] = await Promise.all([
         supabase.from('daily_revenue').select('*, outlets(name)').order('date', { ascending: false }).limit(500),
         supabase.from('outlets').select('id, name').order('name'),
+        supabase.from('corrispettivi_log').select('*, outlets(name)').order('date', { ascending: false }).limit(500),
       ])
       setDailyRevenue(revenue || [])
       setOutlets(outs || [])
+      setCorrispettiviLog(corrLog || [])
     } catch (err) {
       console.error('Errore caricamento corrispettivi:', err)
     } finally {
@@ -971,6 +975,14 @@ function Corrispettivi() {
 
       {/* Toolbar */}
       <div className="flex flex-wrap items-center gap-3">
+        <div className="flex gap-0.5 bg-slate-100 rounded-lg p-0.5">
+          <button onClick={() => setViewSource('pos')} className={`px-3 py-1.5 rounded-md text-xs font-medium transition ${viewSource === 'pos' ? 'bg-white shadow-sm text-blue-700' : 'text-slate-500'}`}>
+            POS ({dailyRevenue.length})
+          </button>
+          <button onClick={() => setViewSource('ade')} className={`px-3 py-1.5 rounded-md text-xs font-medium transition ${viewSource === 'ade' ? 'bg-white shadow-sm text-green-700' : 'text-slate-500'}`}>
+            Cassetto Fiscale ({corrispettiviLog.length})
+          </button>
+        </div>
         <select
           value={selectedOutlet}
           onChange={(e) => setSelectedOutlet(e.target.value)}
@@ -982,12 +994,70 @@ function Corrispettivi() {
         <button onClick={loadData} className="p-2 text-slate-500 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition">
           <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
         </button>
-        <div className="flex-1" />
-        <div className="text-xs text-slate-400">Dati da daily_revenue (incassi POS giornalieri per outlet)</div>
       </div>
 
-      {/* Tabella riepilogo mensile */}
-      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+      {/* Vista AdE: corrispettivi_log */}
+      {viewSource === 'ade' && (
+        <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-slate-50 border-b border-slate-200">
+                  <th className="text-left px-4 py-3 font-medium text-slate-600">Data</th>
+                  <th className="text-left px-4 py-3 font-medium text-slate-600">Outlet/Dispositivo</th>
+                  <th className="text-right px-4 py-3 font-medium text-slate-600">Totale</th>
+                  <th className="text-left px-4 py-3 font-medium text-slate-600">Dettaglio IVA</th>
+                  <th className="text-center px-4 py-3 font-medium text-slate-600">Stato AdE</th>
+                </tr>
+              </thead>
+              <tbody>
+                {loading ? (
+                  <tr><td colSpan={5} className="text-center py-12 text-slate-400"><Loader2 size={24} className="animate-spin mx-auto mb-2" />Caricamento...</td></tr>
+                ) : corrispettiviLog.length === 0 ? (
+                  <tr><td colSpan={5} className="text-center py-12 text-slate-400">
+                    <Inbox size={32} className="mx-auto mb-2 text-slate-300" />
+                    <p>Nessun corrispettivo dal cassetto fiscale.</p>
+                    <p className="text-xs mt-1">Clicca "Sincronizza SDI" per scaricare i corrispettivi da Agenzia delle Entrate.</p>
+                  </td></tr>
+                ) : corrispettiviLog
+                    .filter(c => selectedOutlet === 'ALL' || c.outlet_id === selectedOutlet)
+                    .map((corr) => (
+                  <tr key={corr.id} className="border-b border-slate-100 hover:bg-blue-50/50 transition-colors">
+                    <td className="px-4 py-3 font-medium text-slate-800">{fmtDate(corr.date)}</td>
+                    <td className="px-4 py-3 text-slate-700">
+                      {corr.outlets?.name || 'N/A'}
+                      {corr.device_serial && <span className="text-xs text-slate-400 ml-1">({corr.device_serial})</span>}
+                    </td>
+                    <td className="px-4 py-3 text-right font-semibold text-slate-900">{fmt(corr.total_amount)}</td>
+                    <td className="px-4 py-3 text-slate-600 text-xs">
+                      {corr.vat_breakdown ? (
+                        typeof corr.vat_breakdown === 'object'
+                          ? Object.entries(corr.vat_breakdown).map(([k, v]) => `${k}: ${fmt(v)}`).join(', ')
+                          : String(corr.vat_breakdown)
+                      ) : '—'}
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <SdiStatusBadge status={corr.submission_status || 'PENDING'} configMap={{
+                        SUBMITTED: { label: 'Inviato', color: 'bg-green-100 text-green-700', icon: CheckCircle },
+                        PENDING: { label: 'In attesa', color: 'bg-amber-100 text-amber-700', icon: Clock },
+                        ERROR: { label: 'Errore', color: 'bg-red-100 text-red-700', icon: XCircle },
+                      }} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {!loading && corrispettiviLog.length > 0 && (
+            <div className="px-4 py-2 bg-slate-50 text-xs text-slate-500 border-t border-slate-200">
+              {corrispettiviLog.length} corrispettivi dal cassetto fiscale AdE
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Vista POS: tabella riepilogo mensile */}
+      {viewSource === 'pos' && <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="sticky top-0 bg-slate-50 z-10">
@@ -1029,7 +1099,7 @@ function Corrispettivi() {
             {monthlyRows.length} righe mensili da {filtered.length} record giornalieri
           </div>
         )}
-      </div>
+      </div>}
     </div>
   )
 }
@@ -1041,19 +1111,44 @@ function Corrispettivi() {
 export default function Fatturazione() {
   const [activeTab, setActiveTab] = useState('passive')
   const [sdiStats, setSdiStats] = useState(null)
+  const [syncing, setSyncing] = useState(false)
+  const [syncResult, setSyncResult] = useState(null)
+  const [syncKey, setSyncKey] = useState(0) // increment to force child refresh
 
   // Carica statistiche SDI globali
-  useEffect(() => {
-    async function loadStats() {
-      try {
-        const result = await callEdgeFunction('sdi-status-check', 'GET')
-        setSdiStats(result.data)
-      } catch (err) {
-        console.error('Errore caricamento statistiche SDI:', err)
-      }
+  const loadStats = useCallback(async () => {
+    try {
+      const result = await callEdgeFunction('sdi-status-check', 'GET')
+      setSdiStats(result.data)
+    } catch (err) {
+      console.error('Errore caricamento statistiche SDI:', err)
     }
-    loadStats()
   }, [])
+
+  useEffect(() => { loadStats() }, [loadStats])
+
+  // Sincronizza fatture + corrispettivi dal cassetto fiscale AdE
+  const handleSyncSdi = async () => {
+    setSyncing(true)
+    setSyncResult(null)
+    try {
+      const result = await callEdgeFunction('sdi-sync', 'POST', {
+        type: 'all',
+        dateFrom: new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+        dateTo: new Date().toISOString().split('T')[0],
+      })
+      setSyncResult(result)
+      // Refresh tabs data
+      setSyncKey(prev => prev + 1)
+      loadStats()
+    } catch (err) {
+      setSyncResult({ error: err.message })
+    } finally {
+      setSyncing(false)
+      // Auto-hide result after 8 seconds
+      setTimeout(() => setSyncResult(null), 8000)
+    }
+  }
 
   const tabs = [
     { id: 'passive', label: 'Fatture Passive', icon: Inbox, count: sdiStats?.passive?.total },
@@ -1069,7 +1164,7 @@ export default function Fatturazione() {
           <h1 className="text-2xl font-bold text-slate-900">Fatturazione Elettronica</h1>
           <p className="text-sm text-slate-500 mt-1">
             Gestione fatture SDI, emissione e corrispettivi telematici
-            {sdiStats?.config && (sdiStats.config.environment === 'PRODUCTION' || import.meta.env.DEV) && (
+            {sdiStats?.config && (
               <span className={`ml-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
                 sdiStats.config.environment === 'PRODUCTION' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'
               }`}>
@@ -1079,7 +1174,59 @@ export default function Fatturazione() {
             )}
           </p>
         </div>
+        <button
+          onClick={handleSyncSdi}
+          disabled={syncing}
+          className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+        >
+          {syncing ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
+          {syncing ? 'Sincronizzazione...' : 'Sincronizza SDI'}
+        </button>
       </div>
+
+      {/* Sync result toast */}
+      {syncResult && (
+        <div className={`rounded-xl border p-4 flex items-start gap-3 ${
+          syncResult.error
+            ? 'bg-red-50 border-red-200 text-red-800'
+            : (syncResult.errors?.length > 0)
+              ? 'bg-amber-50 border-amber-200 text-amber-800'
+              : 'bg-green-50 border-green-200 text-green-800'
+        }`}>
+          {syncResult.error ? (
+            <>
+              <XCircle size={18} className="shrink-0 mt-0.5" />
+              <div>
+                <p className="font-medium">Errore sincronizzazione</p>
+                <p className="text-sm mt-0.5">{syncResult.error}</p>
+              </div>
+            </>
+          ) : (
+            <>
+              <CheckCircle size={18} className="shrink-0 mt-0.5" />
+              <div>
+                <p className="font-medium">Sincronizzazione completata</p>
+                <p className="text-sm mt-0.5">
+                  {syncResult.fattureSincronizzate || 0} fatture e {syncResult.corrispettiviSincronizzati || 0} corrispettivi
+                  sincronizzati dal cassetto fiscale ({syncResult.environment})
+                </p>
+                {syncResult.errors?.map((err, i) => (
+                  <p key={i} className="text-xs mt-1 text-amber-600">{err}</p>
+                ))}
+                {!syncResult.mtlsSupported && (
+                  <p className="text-xs mt-2 text-amber-700 bg-amber-100 rounded-lg p-2">
+                    <strong>Nota:</strong> mTLS non disponibile in Deno Deploy. Per scaricare fatture reali dal cassetto fiscale
+                    serve un proxy con certificati SSL montati, oppure usare l'import manuale XML.
+                  </p>
+                )}
+              </div>
+            </>
+          )}
+          <button onClick={() => setSyncResult(null)} className="ml-auto shrink-0">
+            <X size={14} />
+          </button>
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="border-b border-slate-200">
@@ -1105,9 +1252,9 @@ export default function Fatturazione() {
       </div>
 
       {/* Tab content */}
-      {activeTab === 'passive' && <FatturePassive />}
-      {activeTab === 'active' && <FattureAttive />}
-      {activeTab === 'corrispettivi' && <Corrispettivi />}
+      {activeTab === 'passive' && <FatturePassive key={`p-${syncKey}`} />}
+      {activeTab === 'active' && <FattureAttive key={`a-${syncKey}`} />}
+      {activeTab === 'corrispettivi' && <Corrispettivi key={`c-${syncKey}`} />}
       <PageHelp page="fatturazione" />
     </div>
   )
