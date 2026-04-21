@@ -33,6 +33,7 @@ const Fatturazione = lazy(() => import('./pages/Fatturazione'))
 const ScadenzeFiscali = lazy(() => import('./pages/ScadenzeFiscali'))
 const AICategoriePage = lazy(() => import('./pages/AICategoriePage'))
 const BankingCallback = lazy(() => import('./pages/BankingCallback'))
+const AllocazioneFornitori = lazy(() => import('./pages/AllocazioneFornitori'))
 
 // Spinner per lazy loading
 function PageLoader() {
@@ -90,6 +91,7 @@ function AppRoutes() {
           <Route path="store-manager" element={<StoreManager />} />
           <Route path="import-hub" element={<ImportHub />} />
           <Route path="fornitori" element={<Fornitori />} />
+          <Route path="allocazione-fornitori" element={<AllocazioneFornitori />} />
           <Route path="fatturazione" element={<Fatturazione />} />
           <Route path="scadenze-fiscali" element={<ScadenzeFiscali />} />
           <Route path="archivio" element={<ArchivioDocumenti />} />
