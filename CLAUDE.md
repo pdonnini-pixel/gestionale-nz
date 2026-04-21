@@ -276,6 +276,68 @@ nel piano parallelo. Consulta `AZIONI_PATRIZIO_Parallele.md` per sapere cosa ha 
 
 ---
 
+## REGOLE CRITICHE — Modifiche Dati Aprile 2025
+
+> **LEGGERE PRIMA DI QUALSIASI OPERAZIONE SU budget_entries O balance_sheet_data**
+
+### Ricavi: account_code = '510100' (MAI 'RIC001')
+
+Il frontend `ConfrontoOutlet` filtra i ricavi con `account_code.startsWith("5")`.
+Tutti i ricavi DEVONO usare:
+- `account_code = '510100'`
+- `account_name = 'Ricavi vendite'`
+
+Se crei nuovi dati ricavi o fai seed, usa SEMPRE `510100`. Il vecchio codice `RIC001` era un errore e causa ricavi = 0 nel frontend.
+
+### Voci Gap Bilancio (NON TOCCARE)
+
+In `budget_entries` esistono 84 righe (7 voci x 12 mesi) con `cost_center = 'spese_non_divise'` che rappresentano costi presenti nel bilancio ma assenti dai centri di costo operativi. Queste voci sono ESSENZIALI per far quadrare il risultato con il bilancio (-201.555 EUR).
+
+Account codes da preservare:
+| Codice | Descrizione | Totale annuo | macro_group |
+|--------|-------------|-------------|-------------|
+| CAT_69 | Ammortamenti immob. immateriali | 75.196,64 | generali_amministrative |
+| CAT_71 | Ammortamenti immob. materiali | 17.811,03 | generali_amministrative |
+| ADJ_83 | Oneri finanziari non allocati | 20.009,94 | finanziarie |
+| ADJ_63 | Servizi non allocati | 4.956,15 | generali_amministrative |
+| ADJ_65 | Locazioni non allocate | 3.022,29 | locazione |
+| ADJ_61 | Costi produzione non allocati | 1.276,73 | costo_venduto |
+| ADJ_77 | Oneri diversi non allocati | 116,53 | oneri_diversi |
+
+**Mai eliminare queste righe.** Mai fare `DELETE FROM budget_entries` senza WHERE specifico.
+
+### Migrazione di riferimento
+
+Vedi `supabase/migrations/20250421_budget_entries_fix_and_bilancio_gap.sql` per la documentazione completa di tutte le modifiche e le query di verifica.
+
+### Numeri di controllo (anno 2025)
+
+| Metrica | Valore atteso |
+|---------|---------------|
+| Righe budget_entries | ~804 |
+| Ricavi totali (actual_amount, 510100) | ~2.324.500 EUR |
+| Costi totali (actual_amount) | ~2.526.055 EUR |
+| Risultato netto | ~-201.555 EUR |
+| Bilancio ufficiale (balance_sheet_data) | -201.555,38 EUR |
+
+Se dopo una migrazione questi numeri non tornano, qualcosa e' andato storto. Verifica con le query in fondo al file di migrazione.
+
+---
+
+## Framework Allocazione Costi (da implementare)
+
+Il sistema di allocazione fornitori prevede 4 modalita':
+
+1. **DIRETTO** — Costo assegnato a un singolo outlet
+2. **SPLIT %** — Ripartito per percentuale su N outlet (somma = 100%)
+3. **SPLIT VALORE** — Importi specifici per outlet (somma <= totale fattura)
+4. **QUOTE UGUALI** — Diviso equamente per tutti gli outlet attivi (dinamico: se cambiano gli outlet, cambia la quota)
+
+Tabelle da creare: `supplier_allocation_rules`, `supplier_allocation_details`
+Vedi specifica completa in: `GestionaleNZ_Specifica_Roadmap_v1.docx`
+
+---
+
 ## Principio Guida
 
 > **Costruisci come se dovessi gestire 1.000 aziende con 10.000 outlet, ma testa con i 7 outlet reali di Patrizio.**
