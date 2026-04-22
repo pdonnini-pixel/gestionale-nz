@@ -375,17 +375,18 @@ export default function AllocazioneFornitori() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="p-6 space-y-6 max-w-[1600px] mx-auto">
       {/* ── HEADER ── */}
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-          <Settings2 className="w-7 h-7 text-indigo-600" />
-          Divisione Fornitori
-        </h1>
-        <p className="mt-1 text-sm text-gray-500">
-          Definisci come i costi di ogni fornitore vengono ripartiti tra gli outlet.
-          La regola attiva determina la suddivisione automatica nelle analisi.
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-3">
+            <div className="p-2.5 bg-indigo-50 rounded-xl"><Settings2 size={22} className="text-indigo-600" /></div>
+            Divisione Fornitori
+          </h1>
+          <p className="text-sm text-slate-500 mt-1">
+            Definisci come i costi di ogni fornitore vengono ripartiti tra gli outlet
+          </p>
+        </div>
       </div>
 
       {/* ── STATISTICS BAR ── */}
@@ -599,15 +600,14 @@ export default function AllocazioneFornitori() {
 function StatCard({ icon: Icon, label, value, color }) {
   const bgMap    = { indigo: 'bg-indigo-50', emerald: 'bg-emerald-50', amber: 'bg-amber-50', purple: 'bg-purple-50' }
   const iconMap  = { indigo: 'text-indigo-600', emerald: 'text-emerald-600', amber: 'text-amber-600', purple: 'text-purple-600' }
-  const valMap   = { indigo: 'text-indigo-700', emerald: 'text-emerald-700', amber: 'text-amber-700', purple: 'text-purple-700' }
 
   return (
-    <div className={`${bgMap[color] || 'bg-gray-50'} rounded-xl p-4`}>
-      <div className="flex items-center gap-2 mb-1">
-        <Icon className={`w-4 h-4 ${iconMap[color] || 'text-gray-500'}`} />
-        <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">{label}</span>
+    <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+      <div className={`p-2.5 rounded-lg ${bgMap[color] || 'bg-slate-50'} inline-flex mb-3`}>
+        <Icon size={20} className={iconMap[color] || 'text-slate-500'} />
       </div>
-      <div className={`text-2xl font-bold ${valMap[color] || 'text-gray-700'}`}>{value}</div>
+      <div className="text-2xl font-bold text-slate-900">{value}</div>
+      <div className="text-xs text-slate-500 mt-1">{label}</div>
     </div>
   )
 }

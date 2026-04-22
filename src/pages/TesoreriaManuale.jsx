@@ -77,6 +77,11 @@ function classNames(...classes) {
   return classes.filter(Boolean).join(' ')
 }
 
+// Helper: nome fornitore da payable (fallback: JOIN suppliers → supplier_name diretto)
+function getSupplierName(p) {
+  return p.suppliers?.ragione_sociale || p.suppliers?.name || p.supplier_name || '—'
+}
+
 function statusBadge(status) {
   const map = {
     // Italian DB status values (actual)
@@ -269,6 +274,7 @@ function parseExcelFile(arrayBuffer) {
 
   const headerRow = rawData[headerIdx]
   const headers = headerRow.map(h => String(h || '').trim())
+  console.log('[parseExcelFile] headerIdx:', headerIdx, 'headers:', headers, 'rawData rows:', rawData.length)
   const rows = rawData.slice(headerIdx + 1)
     .filter(r => Array.isArray(r) && r.some(c => c != null && String(c).trim() !== ''))
     .map(r => r.map(c => {
@@ -282,38 +288,61 @@ function parseExcelFile(arrayBuffer) {
 // Auto-detect column mappings (intelligente per banche italiane)
 function autoMapColumns(headers) {
   const map = { date: -1, description: -1, amount: -1, dare: -1, avere: -1, balance: -1 }
-  const dateWords = ['data', 'date', 'data contabile', 'data operazione', 'data mov', 'data registrazione']
-  const descWords = ['descri', 'causale', 'dettaglio', 'operazione', 'movimento', 'motivo', 'beneficiario']
-  const amountWords = ['importo', 'amount', 'movimento', 'totale']
-  const dareWords = ['dare', 'debit', 'addebito', 'uscite', 'pagamenti']
-  const avereWords = ['avere', 'credit', 'accredito', 'entrate', 'incassi']
-  const balanceWords = ['saldo', 'balance', 'saldo contabile', 'saldo disponibile']
 
+  // Pattern flessibili — match parziale su molte varianti banche italiane
+  const datePatterns = ['data', 'date', 'dt', 'val', 'valuta', 'contab', 'operaz', 'registr', 'compet']
+  const descPatterns = ['descri', 'causale', 'dettagl', 'operaz', 'movimen', 'motivo', 'beneficiari', 'tipo', 'riferim', 'note', 'testo', 'concetto']
+  const amountPatterns = ['importo', 'amount', 'totale', 'controvalore', 'eur', '€']
+  const darePatterns = ['dare', 'debit', 'addebit', 'uscit', 'pagament', 'prelevam']
+  const averePatterns = ['avere', 'credit', 'accredit', 'entrat', 'incass', 'versament']
+  const balancePatterns = ['saldo', 'balance', 'disponi', 'contabile']
+
+  // Prima passata: match esatti e parziali sui nomi
   headers.forEach((h, i) => {
-    const low = h.toLowerCase().trim()
-    // Data — prendi la prima che matcha (preferenza "data contabile" o "data operazione")
-    if (map.date === -1 && dateWords.some(w => low.includes(w) || low === w)) map.date = i
-    // Descrizione
-    if (map.description === -1 && descWords.some(w => low.includes(w))) map.description = i
-    // Importo singolo
-    if (map.amount === -1 && amountWords.some(w => low === w || (low.includes(w) && !low.includes('dare') && !low.includes('avere')))) map.amount = i
-    // Dare/Avere
-    if (dareWords.some(w => low.includes(w) || low === w)) map.dare = i
-    if (avereWords.some(w => low.includes(w) || low === w)) map.avere = i
-    // Saldo
-    if (balanceWords.some(w => low.includes(w) || low === w)) map.balance = i
+    const low = h.toLowerCase().trim().replace(/[.\s_-]+/g, ' ')
+    // Data — preferenza: "data contabile" > "data operazione" > "data" > "dt"
+    if (map.date === -1 && datePatterns.some(w => low.includes(w))) {
+      // Evita "data valuta" se c'e' gia' una "data contabile" o "data operazione"
+      map.date = i
+    }
+    // Descrizione (ma NON se e' "data descrizione" o simile)
+    if (map.description === -1 && descPatterns.some(w => low.includes(w)) && !low.includes('data')) map.description = i
+    // Dare
+    if (map.dare === -1 && darePatterns.some(w => low.includes(w))) map.dare = i
+    // Avere
+    if (map.avere === -1 && averePatterns.some(w => low.includes(w))) map.avere = i
+    // Importo singolo (solo se non e' dare/avere)
+    if (map.amount === -1 && amountPatterns.some(w => low.includes(w)) && !darePatterns.some(w => low.includes(w)) && !averePatterns.some(w => low.includes(w))) map.amount = i
+    // Saldo (solo se contiene specificamente "saldo" o "balance")
+    if (map.balance === -1 && (low.includes('saldo') || low.includes('balance'))) map.balance = i
   })
 
-  // Se non abbiamo trovato una colonna "importo" ma abbiamo dare/avere, va bene cosi'
-  // Se non abbiamo trovato ne' importo ne' dare/avere, cerca colonne numeriche
+  // Seconda passata: se non abbiamo trovato la descrizione, cerca la colonna di testo piu' larga
+  if (map.description === -1) {
+    // Prendi colonna non ancora assegnata che sembra testuale
+    const assigned = new Set([map.date, map.amount, map.dare, map.avere, map.balance].filter(x => x >= 0))
+    headers.forEach((h, i) => {
+      if (!assigned.has(i) && map.description === -1) {
+        const low = h.toLowerCase()
+        // Se contiene parole generiche che indicano testo
+        if (low.includes('descri') || low.includes('tipo') || low.includes('causale') || low.includes('operazione')) {
+          map.description = i
+        }
+      }
+    })
+  }
+
+  // Se non abbiamo trovato ne' importo ne' dare/avere, cerca colonne con nomi generici numerici
   if (map.amount === -1 && map.dare === -1 && map.avere === -1) {
     headers.forEach((h, i) => {
       const low = h.toLowerCase()
-      if (low.includes('eur') || low.includes('€') || low.includes('import')) {
+      if (low.includes('import') || low.includes('eur') || low.includes('€') || low.includes('movim')) {
         if (map.amount === -1) map.amount = i
       }
     })
   }
+
+  console.log('[autoMapColumns] headers:', headers, 'mapping:', map)
   return map
 }
 
@@ -658,7 +687,7 @@ function TabPanoramica({ accounts, transactions, payables, onNavigate }) {
                       {days === 0 ? 'Oggi' : days === 1 ? 'Domani' : `${days}gg`}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium text-slate-900 truncate">{p.supplier_name || 'N/D'}</div>
+                      <div className="text-sm font-medium text-slate-900 truncate">{getSupplierName(p)}</div>
                       <div className="text-xs text-slate-400">{p.invoice_number || ''} - Scadenza {fmtDate(p.due_date)}</div>
                     </div>
                     <div className="text-sm font-semibold text-slate-900 whitespace-nowrap">{fmt(remaining)} &euro;</div>
@@ -1652,7 +1681,7 @@ function TabPagamenti({ payables, accounts, companyId, onRefresh, preSelectId })
     }
     if (search) {
       const q = search.toLowerCase()
-      items = items.filter(p => (p.supplier_name || '').toLowerCase().includes(q) || (p.invoice_number || '').toLowerCase().includes(q))
+      items = items.filter(p => getSupplierName(p).toLowerCase().includes(q) || (p.invoice_number || '').toLowerCase().includes(q))
     }
     items.sort((a, b) => {
       let va = a[sortField] || '', vb = b[sortField] || ''
@@ -1707,7 +1736,7 @@ function TabPagamenti({ payables, accounts, companyId, onRefresh, preSelectId })
         batch_id: batch.id,
         company_id: companyId,
         payable_id: p.id,
-        beneficiary_name: p.supplier_name || '',
+        beneficiary_name: getSupplierName(p),
         beneficiary_iban: p.iban || '',
         amount: p.amount_remaining != null ? Number(p.amount_remaining) : (Number(p.gross_amount || 0) - Number(p.amount_paid || 0)),
         currency: 'EUR',
@@ -1785,7 +1814,7 @@ function TabPagamenti({ payables, accounts, companyId, onRefresh, preSelectId })
                           <input type="checkbox" checked={!!selected[p.id]} onChange={() => toggleSelect(p.id)} className="rounded border-slate-300" />
                         </td>
                         <td className="px-4 py-3">
-                          <div className="font-medium text-slate-900 truncate max-w-[180px]">{p.supplier_name || 'N/D'}</div>
+                          <div className="font-medium text-slate-900 truncate max-w-[180px]">{getSupplierName(p)}</div>
                         </td>
                         <td className="px-4 py-3 text-slate-600 text-xs">{p.invoice_number || '\u2014'}</td>
                         <td className="px-4 py-3">
@@ -1830,7 +1859,7 @@ function TabPagamenti({ payables, accounts, companyId, onRefresh, preSelectId })
                   return (
                     <div key={p.id} className="flex items-center justify-between py-2 px-3 bg-blue-50 rounded-lg">
                       <div className="min-w-0 flex-1">
-                        <div className="text-sm font-medium text-slate-800 truncate">{p.supplier_name}</div>
+                        <div className="text-sm font-medium text-slate-800 truncate">{getSupplierName(p)}</div>
                         <div className="text-xs text-slate-400">{p.invoice_number || ''}</div>
                       </div>
                       <div className="text-sm font-semibold text-slate-900 whitespace-nowrap ml-2">{fmt(remaining)} &euro;</div>
@@ -2151,7 +2180,7 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
         else if (percentDiff <= 0.05) score += 25
 
         // Name match score (max 30)
-        const supplierLow = (p.supplier_name || '').toLowerCase()
+        const supplierLow = getSupplierName(p).toLowerCase()
         if (supplierLow && (mvDesc.includes(supplierLow) || mvCounterpart.includes(supplierLow))) {
           score += 30
         } else if (supplierLow) {
@@ -2354,7 +2383,7 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
                         <div className="flex items-start justify-between mb-2">
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2">
-                              <span className="text-sm font-medium text-slate-900">{p.supplier_name || 'N/D'}</span>
+                              <span className="text-sm font-medium text-slate-900">{getSupplierName(p)}</span>
                               <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${confidenceColor(match.score)}`}>
                                 {match.score}%
                               </span>
@@ -2394,7 +2423,7 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
                   <option value="">-- Seleziona --</option>
                   {unpaidPayables.map(p => (
                     <option key={p.id} value={p.id}>
-                      {p.supplier_name} - {p.invoice_number || 'N/D'} - {fmt((p.amount || 0) - (p.paid_amount || 0))} EUR
+                      {getSupplierName(p)} - {p.invoice_number || 'N/D'} - {fmt((p.amount || 0) - (p.paid_amount || 0))} EUR
                     </option>
                   ))}
                 </select>
@@ -2453,7 +2482,7 @@ export default function TesoreriaManuale() {
         const [acctRes, txRes, payRes, batchRes, itemsRes] = await Promise.all([
           supabase.from('bank_accounts').select('*').eq('company_id', companyId).order('bank_name'),
           supabase.from('bank_transactions').select('*').eq('company_id', companyId).order('transaction_date', { ascending: false }).limit(2000),
-          supabase.from('payables').select('*').eq('company_id', companyId).order('due_date'),
+          supabase.from('payables').select('*, suppliers(id, name, ragione_sociale, iban)').eq('company_id', companyId).order('due_date'),
           supabase.from('payment_batches').select('*').eq('company_id', companyId).order('created_at', { ascending: false }),
           supabase.from('payment_batch_items').select('*').eq('company_id', companyId).order('priority'),
         ])
