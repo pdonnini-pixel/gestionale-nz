@@ -109,53 +109,87 @@ function GlassTooltipContent({ active, payload, label }) {
 }
 
 // CSV Parser utilities
+// ═══ IMPORT XLSX LIBRARY (SheetJS) ═══
+import * as XLSX from 'xlsx'
+
 function detectSeparator(text) {
   const firstLines = text.split('\n').slice(0, 5).join('\n')
   const counts = { ';': 0, ',': 0, '\t': 0 }
   for (const ch of firstLines) {
     if (ch in counts) counts[ch]++
   }
-  return Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0]
+  // Nella banche italiane il ; e' piu' comune — se parita' preferisci ;
+  const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1])
+  return sorted[0][1] > 0 ? sorted[0][0] : ';'
 }
 
 function detectDateFormat(val) {
   if (!val) return 'unknown'
-  const trimmed = val.trim()
+  const trimmed = String(val).trim()
   if (/^\d{2}\/\d{2}\/\d{4}$/.test(trimmed)) return 'dd/mm/yyyy'
   if (/^\d{2}-\d{2}-\d{4}$/.test(trimmed)) return 'dd-mm-yyyy'
   if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return 'yyyy-mm-dd'
   if (/^\d{2}\.\d{2}\.\d{4}$/.test(trimmed)) return 'dd.mm.yyyy'
+  if (/^\d{2}\/\d{2}\/\d{2}$/.test(trimmed)) return 'dd/mm/yy'
+  // Excel serial number (es. 45735)
+  if (/^\d{5}$/.test(trimmed)) return 'excel_serial'
   return 'unknown'
 }
 
 function parseCSVDate(val, format) {
   if (!val) return null
-  const trimmed = val.trim()
+  const trimmed = String(val).trim()
+  // Excel serial number
+  if (format === 'excel_serial' || /^\d{5}$/.test(trimmed)) {
+    const serial = parseInt(trimmed)
+    if (serial > 0) {
+      // Excel epoch: 1900-01-01 con il bug del 29/02/1900
+      const d = new Date((serial - 25569) * 86400 * 1000)
+      return d.toISOString().split('T')[0]
+    }
+  }
+  // JS Date object (from XLSX)
+  if (val instanceof Date) {
+    return val.toISOString().split('T')[0]
+  }
   let day, month, year
   if (format === 'dd/mm/yyyy' || format === 'dd-mm-yyyy' || format === 'dd.mm.yyyy') {
     const parts = trimmed.split(/[\/\-.]/)
     day = parts[0]; month = parts[1]; year = parts[2]
+  } else if (format === 'dd/mm/yy') {
+    const parts = trimmed.split('/')
+    day = parts[0]; month = parts[1]
+    year = parseInt(parts[2]) > 50 ? '19' + parts[2] : '20' + parts[2]
   } else if (format === 'yyyy-mm-dd') {
     const parts = trimmed.split('-')
     year = parts[0]; month = parts[1]; day = parts[2]
   } else {
+    // Prova a parsare comunque
+    const d = new Date(trimmed)
+    if (!isNaN(d.getTime())) return d.toISOString().split('T')[0]
     return trimmed
   }
-  return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`
+  if (!year || !month || !day) return trimmed
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
 }
 
 function parseCSVNumber(val) {
-  if (!val || typeof val !== 'string') return 0
-  const cleaned = val.trim().replace(/[^\d,.\-]/g, '')
-  // Italian format: 1.234,56
+  if (val == null) return 0
+  // Se e' gia' un numero (da XLSX)
+  if (typeof val === 'number') return val
+  const str = String(val).trim()
+  if (!str) return 0
+  const cleaned = str.replace(/[^\d,.\-+]/g, '')
+  if (!cleaned || cleaned === '-') return 0
+  // Italian format: 1.234,56 (punto migliaia, virgola decimale)
   if (cleaned.includes(',') && cleaned.indexOf(',') > cleaned.lastIndexOf('.')) {
     return parseFloat(cleaned.replace(/\./g, '').replace(',', '.')) || 0
   }
-  // English format: 1,234.56
+  // English format: 1,234.56 (virgola migliaia, punto decimale)
   if (cleaned.includes('.') && cleaned.indexOf('.') > cleaned.lastIndexOf(',')) {
     return parseFloat(cleaned.replace(/,/g, '')) || 0
   }
-  // Comma as decimal, no dots
+  // Solo virgola come decimale (es. "1234,56")
   if (cleaned.includes(',') && !cleaned.includes('.')) {
     return parseFloat(cleaned.replace(',', '.')) || 0
   }
@@ -164,10 +198,22 @@ function parseCSVNumber(val) {
 
 function parseCSV(text) {
   const separator = detectSeparator(text)
-  const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0)
+  // Rimuovi BOM UTF-8
+  const cleanText = text.replace(/^\uFEFF/, '')
+  const lines = cleanText.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0)
   if (lines.length < 2) return { headers: [], rows: [], separator }
-  const headers = lines[0].split(separator).map(h => h.replace(/^"|"$/g, '').trim())
-  const rows = lines.slice(1).map(line => {
+
+  // Trova la riga header: salta righe vuote o che iniziano con numeri (possono essere intestazione banca)
+  let headerIdx = 0
+  for (let i = 0; i < Math.min(lines.length, 10); i++) {
+    const cells = lines[i].split(separator).map(c => c.replace(/^"|"$/g, '').trim())
+    // Header ha tipicamente testo non numerico in almeno 2 celle
+    const textCells = cells.filter(c => c && !/^\d+[.,]?\d*$/.test(c))
+    if (textCells.length >= 2) { headerIdx = i; break }
+  }
+
+  const headers = lines[headerIdx].split(separator).map(h => h.replace(/^"|"$/g, '').trim())
+  const rows = lines.slice(headerIdx + 1).map(line => {
     const cells = []
     let current = ''
     let inQuotes = false
@@ -180,7 +226,80 @@ function parseCSV(text) {
     cells.push(current.trim())
     return cells
   }).filter(r => r.some(c => c.length > 0))
-  return { headers, rows, separator }
+  return { headers, rows, separator, skippedRows: headerIdx }
+}
+
+// Parser per file Excel (XLSX/XLS) via SheetJS
+function parseExcelFile(arrayBuffer) {
+  const wb = XLSX.read(arrayBuffer, { type: 'array', cellDates: true })
+  const sheetName = wb.SheetNames[0]
+  const ws = wb.Sheets[sheetName]
+
+  // Converti in array of arrays preservando date e numeri
+  const rawData = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: false, dateNF: 'dd/mm/yyyy' })
+  if (rawData.length < 2) return { headers: [], rows: [], separator: 'xlsx', sheetNames: wb.SheetNames }
+
+  // Trova la riga header (salta righe vuote o intestazioni banca)
+  let headerIdx = 0
+  for (let i = 0; i < Math.min(rawData.length, 15); i++) {
+    const row = rawData[i]
+    if (!Array.isArray(row)) continue
+    const nonEmpty = row.filter(c => c != null && String(c).trim() !== '')
+    // Header ha almeno 3 celle non vuote con testo
+    if (nonEmpty.length >= 3) {
+      const textCells = nonEmpty.filter(c => typeof c === 'string' && !/^\d+[.,]?\d*$/.test(c.trim()))
+      if (textCells.length >= 2) { headerIdx = i; break }
+    }
+  }
+
+  const headerRow = rawData[headerIdx]
+  const headers = headerRow.map(h => String(h || '').trim())
+  const rows = rawData.slice(headerIdx + 1)
+    .filter(r => Array.isArray(r) && r.some(c => c != null && String(c).trim() !== ''))
+    .map(r => r.map(c => {
+      if (c instanceof Date) return c.toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric' })
+      return String(c ?? '').trim()
+    }))
+
+  return { headers, rows, separator: 'xlsx', sheetNames: wb.SheetNames, skippedRows: headerIdx }
+}
+
+// Auto-detect column mappings (intelligente per banche italiane)
+function autoMapColumns(headers) {
+  const map = { date: -1, description: -1, amount: -1, dare: -1, avere: -1, balance: -1 }
+  const dateWords = ['data', 'date', 'data contabile', 'data operazione', 'data mov', 'data registrazione']
+  const descWords = ['descri', 'causale', 'dettaglio', 'operazione', 'movimento', 'motivo', 'beneficiario']
+  const amountWords = ['importo', 'amount', 'movimento', 'totale']
+  const dareWords = ['dare', 'debit', 'addebito', 'uscite', 'pagamenti']
+  const avereWords = ['avere', 'credit', 'accredito', 'entrate', 'incassi']
+  const balanceWords = ['saldo', 'balance', 'saldo contabile', 'saldo disponibile']
+
+  headers.forEach((h, i) => {
+    const low = h.toLowerCase().trim()
+    // Data — prendi la prima che matcha (preferenza "data contabile" o "data operazione")
+    if (map.date === -1 && dateWords.some(w => low.includes(w) || low === w)) map.date = i
+    // Descrizione
+    if (map.description === -1 && descWords.some(w => low.includes(w))) map.description = i
+    // Importo singolo
+    if (map.amount === -1 && amountWords.some(w => low === w || (low.includes(w) && !low.includes('dare') && !low.includes('avere')))) map.amount = i
+    // Dare/Avere
+    if (dareWords.some(w => low.includes(w) || low === w)) map.dare = i
+    if (avereWords.some(w => low.includes(w) || low === w)) map.avere = i
+    // Saldo
+    if (balanceWords.some(w => low.includes(w) || low === w)) map.balance = i
+  })
+
+  // Se non abbiamo trovato una colonna "importo" ma abbiamo dare/avere, va bene cosi'
+  // Se non abbiamo trovato ne' importo ne' dare/avere, cerca colonne numeriche
+  if (map.amount === -1 && map.dare === -1 && map.avere === -1) {
+    headers.forEach((h, i) => {
+      const low = h.toLowerCase()
+      if (low.includes('eur') || low.includes('€') || low.includes('import')) {
+        if (map.amount === -1) map.amount = i
+      }
+    })
+  }
+  return map
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -762,52 +881,88 @@ function UploadStatementModal({ isOpen, onClose, account, companyId, onImported 
 
   useEffect(() => {
     if (!isOpen) {
-      setFile(null); setParsed(null); setStep('upload'); setImportResult(null)
+      setFile(null); setParsed(null); setStep('upload'); setImportResult(null); setParseError(null); setFileType('csv')
       setColumnMap({ date: -1, description: -1, amount: -1, dare: -1, avere: -1, balance: -1 })
     }
   }, [isOpen])
+
+  const [fileType, setFileType] = useState('csv')
+  const [parseError, setParseError] = useState(null)
 
   const handleFile = (e) => {
     const f = e.target.files?.[0]
     if (!f) return
     setFile(f)
-    const reader = new FileReader()
-    reader.onload = (ev) => {
-      const text = ev.target.result
-      const result = parseCSV(text)
-      setParsed(result)
-      // Auto-detect column mappings
-      const map = { date: -1, description: -1, amount: -1, dare: -1, avere: -1, balance: -1 }
-      result.headers.forEach((h, i) => {
-        const low = h.toLowerCase()
-        if (low.includes('data') || low === 'date' || low.includes('valuta')) {
-          if (map.date === -1) map.date = i
-        }
-        if (low.includes('descri') || low.includes('causale') || low.includes('dettaglio')) {
-          if (map.description === -1) map.description = i
-        }
-        if (low === 'importo' || low === 'amount' || low === 'movimento') {
-          if (map.amount === -1) map.amount = i
-        }
-        if (low.includes('dare') || low.includes('debit') || low === 'addebito') {
-          map.dare = i
-        }
-        if (low.includes('avere') || low.includes('credit') || low === 'accredito') {
-          map.avere = i
-        }
-        if (low.includes('saldo') || low.includes('balance')) {
-          map.balance = i
-        }
-      })
-      setColumnMap(map)
-      // Auto-detect date format from first data row
-      if (result.rows.length > 0 && map.date >= 0) {
-        const detected = detectDateFormat(result.rows[0][map.date])
-        if (detected !== 'unknown') setDateFormat(detected)
-      }
-      setStep('map')
+    setParseError(null)
+
+    const ext = f.name.split('.').pop().toLowerCase()
+    setFileType(ext === 'xlsx' || ext === 'xls' ? 'xlsx' : ext === 'pdf' ? 'pdf' : 'csv')
+
+    if (ext === 'pdf') {
+      // PDF: mostriamo un messaggio — il parsing PDF richiede estrazione manuale
+      setParsed(null)
+      setStep('pdf_info')
+      return
     }
-    reader.readAsText(f, 'UTF-8')
+
+    if (ext === 'xlsx' || ext === 'xls') {
+      // Excel: leggi come ArrayBuffer e usa SheetJS
+      const reader = new FileReader()
+      reader.onload = (ev) => {
+        try {
+          const result = parseExcelFile(ev.target.result)
+          setParsed(result)
+          const map = autoMapColumns(result.headers)
+          setColumnMap(map)
+          if (result.rows.length > 0 && map.date >= 0) {
+            const detected = detectDateFormat(result.rows[0][map.date])
+            if (detected !== 'unknown') setDateFormat(detected)
+          }
+          setStep('map')
+        } catch (err) {
+          console.error('Excel parse error:', err)
+          setParseError(`Errore lettura Excel: ${err.message}`)
+        }
+      }
+      reader.readAsArrayBuffer(f)
+    } else {
+      // CSV/TXT: leggi come testo (prova UTF-8, poi Latin1)
+      const reader = new FileReader()
+      reader.onload = (ev) => {
+        try {
+          let text = ev.target.result
+          // Se contiene caratteri corrotti, riprova con Latin1
+          if (text.includes('\ufffd')) {
+            const reader2 = new FileReader()
+            reader2.onload = (ev2) => {
+              processCSVText(ev2.target.result)
+            }
+            reader2.readAsText(f, 'ISO-8859-1')
+            return
+          }
+          processCSVText(text)
+        } catch (err) {
+          setParseError(`Errore lettura CSV: ${err.message}`)
+        }
+      }
+      reader.readAsText(f, 'UTF-8')
+    }
+  }
+
+  const processCSVText = (text) => {
+    const result = parseCSV(text)
+    if (result.headers.length === 0) {
+      setParseError('File vuoto o formato non riconosciuto. Verifica che sia un CSV valido.')
+      return
+    }
+    setParsed(result)
+    const map = autoMapColumns(result.headers)
+    setColumnMap(map)
+    if (result.rows.length > 0 && map.date >= 0) {
+      const detected = detectDateFormat(result.rows[0][map.date])
+      if (detected !== 'unknown') setDateFormat(detected)
+    }
+    setStep('map')
   }
 
   const handlePreview = () => {
@@ -841,7 +996,7 @@ function UploadStatementModal({ isOpen, onClose, account, companyId, onImported 
         company_id: companyId,
         bank_account_id: account.id,
         filename: file.name,
-        file_type: 'csv',
+        file_type: fileType === 'xlsx' ? 'xlsx' : 'csv',
         transaction_count: parsed.rows.length,
         status: 'processing',
       }).select().single()
@@ -919,12 +1074,63 @@ function UploadStatementModal({ isOpen, onClose, account, companyId, onImported 
           <div
             className="border-2 border-dashed border-slate-300 rounded-xl p-10 text-center hover:border-blue-400 transition cursor-pointer"
             onClick={() => fileRef.current?.click()}
+            onDragOver={e => { e.preventDefault(); e.currentTarget.classList.add('border-blue-400', 'bg-blue-50') }}
+            onDragLeave={e => { e.currentTarget.classList.remove('border-blue-400', 'bg-blue-50') }}
+            onDrop={e => {
+              e.preventDefault()
+              e.currentTarget.classList.remove('border-blue-400', 'bg-blue-50')
+              if (e.dataTransfer.files?.[0]) {
+                const dt = new DataTransfer()
+                dt.items.add(e.dataTransfer.files[0])
+                fileRef.current.files = dt.files
+                handleFile({ target: { files: dt.files } })
+              }
+            }}
           >
             <Upload size={32} className="text-slate-400 mx-auto mb-3" />
-            <p className="text-sm font-medium text-slate-700">Trascina o seleziona un file CSV</p>
-            <p className="text-xs text-slate-400 mt-1">Formato supportato: CSV (separatore ; o , o tab)</p>
+            <p className="text-sm font-medium text-slate-700">Trascina o seleziona un file</p>
+            <p className="text-xs text-slate-400 mt-1">Formati supportati: CSV, Excel (.xlsx/.xls), PDF</p>
+            <div className="flex gap-2 justify-center mt-3">
+              <span className="px-2 py-1 bg-emerald-50 text-emerald-600 rounded text-xs font-medium">CSV</span>
+              <span className="px-2 py-1 bg-blue-50 text-blue-600 rounded text-xs font-medium">XLSX</span>
+              <span className="px-2 py-1 bg-blue-50 text-blue-600 rounded text-xs font-medium">XLS</span>
+              <span className="px-2 py-1 bg-red-50 text-red-600 rounded text-xs font-medium">PDF</span>
+            </div>
           </div>
-          <input ref={fileRef} type="file" accept=".csv,.txt" className="hidden" onChange={handleFile} />
+          <input ref={fileRef} type="file" accept=".csv,.txt,.xlsx,.xls,.pdf" className="hidden" onChange={handleFile} />
+          {parseError && (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700 flex items-start gap-2">
+              <AlertCircle size={16} className="shrink-0 mt-0.5" />
+              {parseError}
+            </div>
+          )}
+        </div>
+      )}
+
+      {step === 'pdf_info' && (
+        <div className="space-y-4">
+          <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-800">
+            <div className="flex items-start gap-2">
+              <AlertTriangle size={18} className="shrink-0 mt-0.5" />
+              <div>
+                <p className="font-medium mb-1">Estratto conto PDF: {file?.name}</p>
+                <p>I PDF bancari hanno formati molto diversi tra banche. Per ottenere i migliori risultati:</p>
+                <ol className="list-decimal ml-5 mt-2 space-y-1">
+                  <li>Apri il PDF dell'estratto conto</li>
+                  <li>Dalla tua banca online, scarica la versione <strong>CSV o Excel</strong> (quasi tutte le banche lo offrono)</li>
+                  <li>Importa il CSV/Excel qui</li>
+                </ol>
+                <p className="mt-2 text-xs text-amber-600">
+                  In alternativa, puoi copiare i movimenti dal PDF in un foglio Excel e importare quello.
+                </p>
+              </div>
+            </div>
+          </div>
+          <div className="flex gap-3 pt-2">
+            <button onClick={() => { setStep('upload'); setFile(null) }} className="flex-1 px-4 py-2.5 border border-slate-200 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50">
+              Torna indietro
+            </button>
+          </div>
         </div>
       )}
 
