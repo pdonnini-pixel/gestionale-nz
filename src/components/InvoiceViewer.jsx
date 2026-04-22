@@ -132,16 +132,24 @@ function parseFatturaPA(xmlString) {
     esigibilita: getTextContent(r, 'EsigibilitaIVA'),
   }))
 
-  // Pagamento
-  const datiPagamento = body?.getElementsByTagName('DatiPagamento')[0]
-  const dettaglioPag = getAllElements(datiPagamento, 'DettaglioPagamento').map(d => ({
-    modalita: getTextContent(d, 'ModalitaPagamento'),
-    modalitaLabel: MODALITA_PAGAMENTO[getTextContent(d, 'ModalitaPagamento')] || getTextContent(d, 'ModalitaPagamento'),
-    scadenza: getTextContent(d, 'DataScadenzaPagamento'),
-    importo: getTextContent(d, 'ImportoPagamento'),
-    iban: getTextContent(d, 'IBAN'),
-    istituto: getTextContent(d, 'IstitutoFinanziario'),
-  }))
+  // Pagamento — legge TUTTI i blocchi DatiPagamento (non solo il primo!)
+  const datiPagamentoNodes = getAllElements(body, 'DatiPagamento')
+  const dettaglioPag = []
+  for (const dp of datiPagamentoNodes) {
+    const condizioni = getTextContent(dp, 'CondizioniPagamento')
+    const dettagliNodes = getAllElements(dp, 'DettaglioPagamento')
+    for (const d of dettagliNodes) {
+      dettaglioPag.push({
+        condizioni,
+        modalita: getTextContent(d, 'ModalitaPagamento'),
+        modalitaLabel: MODALITA_PAGAMENTO[getTextContent(d, 'ModalitaPagamento')] || getTextContent(d, 'ModalitaPagamento'),
+        scadenza: getTextContent(d, 'DataScadenzaPagamento'),
+        importo: getTextContent(d, 'ImportoPagamento'),
+        iban: getTextContent(d, 'IBAN'),
+        istituto: getTextContent(d, 'IstitutoFinanziario'),
+      })
+    }
+  }
 
   return { fornitore, cliente, documento, linee, riepilogo, pagamento: dettaglioPag }
 }
@@ -265,30 +273,31 @@ function FatturaRendered({ data }) {
       {pagamento.length > 0 && (
         <div>
           <div className="text-xs text-slate-500 uppercase font-semibold mb-2">Dati pagamento</div>
-          <div className="space-y-2">
-            {pagamento.map((p, i) => (
-              <div key={i} className="bg-slate-50 rounded-lg p-3 grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-                <div>
-                  <span className="text-slate-500">Modalità:</span>
-                  <div className="font-medium">{p.modalitaLabel}</div>
-                </div>
-                <div>
-                  <span className="text-slate-500">Scadenza:</span>
-                  <div className="font-medium">{fmtDate(p.scadenza)}</div>
-                </div>
-                <div>
-                  <span className="text-slate-500">Importo:</span>
-                  <div className="font-medium">{fmtNum(p.importo)} EUR</div>
-                </div>
-                {p.iban && (
-                  <div>
-                    <span className="text-slate-500">IBAN:</span>
-                    <div className="font-medium font-mono text-[11px]">{p.iban}</div>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
+          {pagamento.length > 1 && (
+            <p className="text-xs text-slate-500 mb-2">Pagamento in {pagamento.length} rate</p>
+          )}
+          <table className="w-full text-xs border-collapse">
+            <thead>
+              <tr className="bg-slate-100">
+                {pagamento.length > 1 && <th className="text-left p-2 font-semibold">Rata</th>}
+                <th className="text-left p-2 font-semibold">Modalità</th>
+                <th className="text-left p-2 font-semibold">Scadenza</th>
+                <th className="text-right p-2 font-semibold">Importo</th>
+                <th className="text-left p-2 font-semibold">IBAN</th>
+              </tr>
+            </thead>
+            <tbody>
+              {pagamento.map((p, i) => (
+                <tr key={i} className="border-b border-slate-100">
+                  {pagamento.length > 1 && <td className="p-2 text-slate-600">{i + 1}/{pagamento.length}</td>}
+                  <td className="p-2 font-medium">{p.modalitaLabel}</td>
+                  <td className="p-2 font-medium">{fmtDate(p.scadenza)}</td>
+                  <td className="p-2 text-right font-medium">{fmtNum(p.importo)} EUR</td>
+                  <td className="p-2 font-mono text-[11px]">{p.iban || '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
 
@@ -316,19 +325,124 @@ export default function InvoiceViewer({ xmlContent, onClose }) {
   }, [xmlContent])
 
   const handlePrint = () => {
+    if (!parsed) return
     const printWindow = window.open('', '_blank')
     if (!printWindow) return
-    const container = document.getElementById('invoice-render-area')
-    if (!container) return
-    printWindow.document.write(`
-      <html><head><title>Fattura ${parsed?.documento?.numero || ''}</title>
-      <style>body{font-family:system-ui,sans-serif;padding:40px;font-size:12px;color:#333}
-      table{width:100%;border-collapse:collapse}th,td{padding:6px 8px;text-align:left;border-bottom:1px solid #eee}
-      th{background:#f5f5f5;font-weight:600}.text-right{text-align:right}
-      </style></head><body>${container.innerHTML}</body></html>
-    `)
+
+    const { fornitore, cliente, documento, linee, riepilogo, pagamento } = parsed
+    const totaleImponibile = riepilogo.reduce((s, r) => s + parseFloat(r.imponibile || 0), 0)
+    const totaleImposta = riepilogo.reduce((s, r) => s + parseFloat(r.imposta || 0), 0)
+
+    const righeHTML = linee.map(l => `
+      <tr>
+        <td style="text-align:center">${l.numero || ''}</td>
+        <td>${l.descrizione || ''}</td>
+        <td style="text-align:center">${l.quantita || '—'}</td>
+        <td style="text-align:right">${fmtNum(l.prezzoUnitario)}</td>
+        <td style="text-align:right">${fmtNum(l.prezzoTotale)}</td>
+        <td style="text-align:center">${fmtNum(l.aliquotaIva)}%</td>
+      </tr>
+    `).join('')
+
+    const riepilogoHTML = riepilogo.map(r => `
+      <tr>
+        <td>${fmtNum(r.aliquota)}%</td>
+        <td>${r.natura || '—'}</td>
+        <td style="text-align:right">${fmtNum(r.imponibile)}</td>
+        <td style="text-align:right">${fmtNum(r.imposta)}</td>
+      </tr>
+    `).join('')
+
+    const pagamentiHTML = pagamento.map((p, idx) => `
+      <tr>
+        ${pagamento.length > 1 ? `<td>${idx + 1}/${pagamento.length}</td>` : ''}
+        <td>${p.modalitaLabel}</td>
+        <td>${fmtDate(p.scadenza)}</td>
+        <td style="text-align:right;font-weight:bold">${fmtNum(p.importo)} EUR</td>
+        <td style="font-family:monospace;font-size:8pt">${p.iban || '—'}</td>
+      </tr>
+    `).join('')
+
+    printWindow.document.write(`<!DOCTYPE html><html><head>
+      <title>Fattura ${documento.numero}</title>
+      <style>
+        @page { size: A4; margin: 15mm 20mm; }
+        body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 10pt; color: #333; line-height: 1.4; }
+        .title { text-align: center; margin: 20px 0; }
+        .title h1 { font-size: 16pt; color: #1e40af; margin: 0; }
+        .title .subtitle { font-size: 11pt; color: #555; }
+        .parties { display: flex; gap: 30px; margin-bottom: 20px; }
+        .party { flex: 1; padding: 12px; border: 1px solid #ddd; border-radius: 4px; }
+        .party-label { font-size: 8pt; text-transform: uppercase; color: #888; letter-spacing: 1px; margin-bottom: 6px; }
+        .party-name { font-weight: bold; font-size: 11pt; }
+        table { width: 100%; border-collapse: collapse; margin: 15px 0; }
+        th { background-color: #f0f4ff; padding: 8px 6px; text-align: left; font-size: 8pt; text-transform: uppercase; color: #555; border-bottom: 2px solid #2563eb; }
+        td { padding: 6px; border-bottom: 1px solid #eee; font-size: 9pt; }
+        .section-title { font-size: 10pt; font-weight: bold; color: #1e40af; margin-top: 20px; margin-bottom: 8px; padding-bottom: 4px; border-bottom: 1px solid #ddd; }
+        .totale-box { float: right; background: #1e40af; color: white; padding: 12px 24px; border-radius: 6px; text-align: center; margin-top: 15px; }
+        .totale-box .label { font-size: 8pt; text-transform: uppercase; opacity: 0.8; }
+        .totale-box .amount { font-size: 16pt; font-weight: bold; }
+        .clearfix::after { content: ""; display: table; clear: both; }
+        .footer { margin-top: 30px; padding-top: 10px; border-top: 1px solid #ddd; font-size: 8pt; color: #999; text-align: center; }
+      </style>
+    </head><body>
+      <div class="title">
+        <h1>${documento.tipoLabel || 'FATTURA'}</h1>
+        <div class="subtitle">N. ${documento.numero}</div>
+        <div class="subtitle">Data: ${fmtDate(documento.data)}</div>
+      </div>
+      <div class="parties">
+        <div class="party">
+          <div class="party-label">Cedente / Prestatore</div>
+          <div class="party-name">${fornitore.denominazione}</div>
+          ${fornitore.partitaIva ? `<div style="font-size:9pt">P.IVA: ${fornitore.partitaIva}</div>` : ''}
+          ${fornitore.codiceFiscale ? `<div style="font-size:9pt">CF: ${fornitore.codiceFiscale}</div>` : ''}
+          ${fornitore.indirizzo ? `<div style="font-size:8pt;color:#666">${fornitore.indirizzo}, ${fornitore.cap} ${fornitore.comune} ${fornitore.provincia ? `(${fornitore.provincia})` : ''}</div>` : ''}
+        </div>
+        <div class="party">
+          <div class="party-label">Cessionario / Committente</div>
+          <div class="party-name">${cliente.denominazione}</div>
+          ${cliente.partitaIva ? `<div style="font-size:9pt">P.IVA: ${cliente.partitaIva}</div>` : ''}
+          ${cliente.indirizzo ? `<div style="font-size:8pt;color:#666">${cliente.indirizzo}, ${cliente.cap} ${cliente.comune} ${cliente.provincia ? `(${cliente.provincia})` : ''}</div>` : ''}
+        </div>
+      </div>
+      <div class="section-title">DETTAGLIO BENI/SERVIZI</div>
+      <table>
+        <thead><tr>
+          <th style="text-align:center">#</th><th>Descrizione</th><th style="text-align:center">Qtà</th>
+          <th style="text-align:right">Prezzo un.</th><th style="text-align:right">Totale</th><th style="text-align:center">IVA %</th>
+        </tr></thead>
+        <tbody>${righeHTML}</tbody>
+      </table>
+      <div class="section-title">RIEPILOGO IVA</div>
+      <table>
+        <thead><tr><th>Aliquota</th><th>Natura</th><th style="text-align:right">Imponibile</th><th style="text-align:right">Imposta</th></tr></thead>
+        <tbody>${riepilogoHTML}
+          <tr style="border-top:2px solid #333"><td colspan="2" style="font-weight:bold">Totale</td>
+          <td style="text-align:right;font-weight:bold">${fmtNum(totaleImponibile)}</td>
+          <td style="text-align:right;font-weight:bold">${fmtNum(totaleImposta)}</td></tr>
+        </tbody>
+      </table>
+      <div class="clearfix">
+        <div class="totale-box">
+          <div class="label">TOTALE DOCUMENTO</div>
+          <div class="amount">${fmtNum(documento.importoTotale)} ${documento.divisa}</div>
+        </div>
+      </div>
+      <div style="clear:both"></div>
+      <div class="section-title">DATI PAGAMENTO</div>
+      ${pagamento.length > 1 ? `<p style="font-size:9pt;color:#666;margin-bottom:8px">Pagamento in ${pagamento.length} rate</p>` : ''}
+      <table>
+        <thead><tr>
+          ${pagamento.length > 1 ? '<th>Rata</th>' : ''}
+          <th>Modalità</th><th>Scadenza</th><th style="text-align:right">Importo</th><th>IBAN</th>
+        </tr></thead>
+        <tbody>${pagamentiHTML}</tbody>
+      </table>
+      <div class="footer">Documento generato dal gestionale New Zago</div>
+      <script>window.onload = function() { window.print(); };</script>
+    </body></html>`)
     printWindow.document.close()
-    printWindow.print()
   }
 
   const handleDownloadXml = () => {

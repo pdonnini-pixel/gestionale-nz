@@ -367,6 +367,7 @@ const ScadenzarioSmart = () => {
   }, []);
 
   // Handler: update category con propagazione a tutte le fatture dello stesso fornitore
+  // Gestisce sia payables con supplier_id che senza (match per supplier_name/supplier_vat)
   const handleSetCategory = async (payableId, categoryId) => {
     const payable = payables.find(p => p.id === payableId);
     if (!payable) return;
@@ -378,29 +379,90 @@ const ScadenzarioSmart = () => {
       .eq('id', payableId);
     if (err1) { console.error('Errore aggiornamento payable:', err1); return; }
 
-    // 2. Salva come default del fornitore (se ha supplier_id)
+    let propagatedCount = 0;
+    const supplierName = payable.suppliers?.ragione_sociale || payable.suppliers?.name || '';
+    const supplierVat = payable.supplier_vat || '';
+
     if (payable.supplier_id) {
-      const { error: err2 } = await supabase
+      // 2a. Ha supplier_id — aggiorna direttamente il fornitore
+      await supabase
         .from('suppliers')
         .update({ default_cost_category_id: categoryId })
         .eq('id', payable.supplier_id);
-      if (err2) console.error('Errore aggiornamento supplier:', err2);
 
-      // 3. Propaga a tutte le fatture dello stesso fornitore senza categoria
-      const { error: err3, count } = await supabase
+      // 3a. Propaga a tutte le fatture dello stesso supplier_id senza categoria
+      const { count } = await supabase
         .from('payables')
         .update({ cost_category_id: categoryId })
         .eq('supplier_id', payable.supplier_id)
         .is('cost_category_id', null);
-      if (!err3 && count > 0) {
-        console.log(`Categoria propagata a ${count} fatture del fornitore`);
+      propagatedCount = count || 0;
+    } else if (supplierVat) {
+      // 2b. Senza supplier_id ma con P.IVA — trova il fornitore per P.IVA
+      const { data: matchedSupplier } = await supabase
+        .from('suppliers')
+        .select('id')
+        .eq('company_id', COMPANY_ID)
+        .or(`vat_number.eq.${supplierVat},partita_iva.eq.${supplierVat}`)
+        .limit(1)
+        .maybeSingle();
+
+      if (matchedSupplier) {
+        await supabase
+          .from('suppliers')
+          .update({ default_cost_category_id: categoryId })
+          .eq('id', matchedSupplier.id);
       }
+
+      // 3b. Propaga a tutte le payables con stessa P.IVA senza categoria
+      const { count } = await supabase
+        .from('payables')
+        .update({ cost_category_id: categoryId })
+        .eq('supplier_vat', supplierVat)
+        .eq('company_id', COMPANY_ID)
+        .is('cost_category_id', null);
+      propagatedCount = count || 0;
+    } else if (supplierName) {
+      // 2c. Senza supplier_id e senza P.IVA — match per nome
+      const { data: matchedSupplier } = await supabase
+        .from('suppliers')
+        .select('id')
+        .eq('company_id', COMPANY_ID)
+        .or(`name.eq.${supplierName},ragione_sociale.eq.${supplierName}`)
+        .limit(1)
+        .maybeSingle();
+
+      if (matchedSupplier) {
+        await supabase
+          .from('suppliers')
+          .update({ default_cost_category_id: categoryId })
+          .eq('id', matchedSupplier.id);
+      }
+
+      // 3c. Propaga a tutte le payables con stesso nome senza categoria
+      const { count } = await supabase
+        .from('payables')
+        .update({ cost_category_id: categoryId })
+        .eq('supplier_name', supplierName)
+        .eq('company_id', COMPANY_ID)
+        .is('cost_category_id', null);
+      propagatedCount = count || 0;
     }
 
-    // Aggiorna UI locale — tutte le fatture dello stesso fornitore senza categoria
+    // Aggiorna UI locale — match per supplier_id, supplier_vat, o supplier_name
     setPayables(prev => prev.map(p => {
       if (p.id === payableId) return { ...p, cost_category_id: categoryId };
-      if (payable.supplier_id && p.supplier_id === payable.supplier_id && !p.cost_category_id) {
+      if (p.cost_category_id) return p; // già categorizzata, non sovrascrivere
+      // Match per supplier_id
+      if (payable.supplier_id && p.supplier_id === payable.supplier_id) {
+        return { ...p, cost_category_id: categoryId };
+      }
+      // Match per P.IVA
+      if (supplierVat && p.supplier_vat === supplierVat) {
+        return { ...p, cost_category_id: categoryId };
+      }
+      // Match per nome fornitore
+      if (supplierName && (p.suppliers?.name === supplierName || p.suppliers?.ragione_sociale === supplierName)) {
         return { ...p, cost_category_id: categoryId };
       }
       return p;
@@ -409,10 +471,9 @@ const ScadenzarioSmart = () => {
     setCategoryDropdownId(null);
     setCategorySearch('');
 
-    // Toast feedback
     const catName = categories.find(c => c.id === categoryId)?.name || 'categoria';
-    const supplierName = payable.suppliers?.ragione_sociale || payable.suppliers?.name || 'fornitore';
-    alert(`Categoria "${catName}" applicata al fornitore ${supplierName} e a tutte le sue fatture non categorizzate`);
+    const displayName = supplierName || 'fornitore';
+    alert(`Categoria "${catName}" applicata a ${displayName}${propagatedCount > 0 ? ` e propagata a ${propagatedCount} fatture` : ''}`);
   };
 
   // Handler: update status inline
