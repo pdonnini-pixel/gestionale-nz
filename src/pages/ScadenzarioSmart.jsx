@@ -347,6 +347,18 @@ const ScadenzarioSmart = () => {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
+  // Auto-allineamento categorie al caricamento (D4)
+  useEffect(() => {
+    if (!COMPANY_ID) return;
+    (async () => {
+      const { data, error } = await supabase.rpc('align_payable_categories', { p_company_id: COMPANY_ID });
+      if (!error && data > 0) {
+        console.log(`[Scadenzario] Allineate ${data} categorie fornitore`);
+        fetchData(); // ricarica dati con le categorie aggiornate
+      }
+    })();
+  }, [COMPANY_ID]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Close dropdowns on outside click
   useEffect(() => {
     const handler = () => { setCategoryDropdownId(null); setStatusDropdownId(null); };
@@ -354,29 +366,53 @@ const ScadenzarioSmart = () => {
     return () => document.removeEventListener('click', handler);
   }, []);
 
-  // Handler: toggle verified (green lever / orange lever)
-  const handleToggleVerified = async (payable) => {
-    const newVal = !payable.verified;
-    const { error } = await supabase
-      .from('payables')
-      .update({ verified: newVal, verified_at: newVal ? new Date().toISOString() : null })
-      .eq('id', payable.id);
-    if (!error) {
-      setPayables(prev => prev.map(p => p.id === payable.id ? { ...p, verified: newVal } : p));
-    }
-  };
-
-  // Handler: update category
+  // Handler: update category con propagazione a tutte le fatture dello stesso fornitore
   const handleSetCategory = async (payableId, categoryId) => {
-    const { error } = await supabase
+    const payable = payables.find(p => p.id === payableId);
+    if (!payable) return;
+
+    // 1. Aggiorna la fattura specifica
+    const { error: err1 } = await supabase
       .from('payables')
       .update({ cost_category_id: categoryId })
       .eq('id', payableId);
-    if (!error) {
-      setPayables(prev => prev.map(p => p.id === payableId ? { ...p, cost_category_id: categoryId } : p));
+    if (err1) { console.error('Errore aggiornamento payable:', err1); return; }
+
+    // 2. Salva come default del fornitore (se ha supplier_id)
+    if (payable.supplier_id) {
+      const { error: err2 } = await supabase
+        .from('suppliers')
+        .update({ default_cost_category_id: categoryId })
+        .eq('id', payable.supplier_id);
+      if (err2) console.error('Errore aggiornamento supplier:', err2);
+
+      // 3. Propaga a tutte le fatture dello stesso fornitore senza categoria
+      const { error: err3, count } = await supabase
+        .from('payables')
+        .update({ cost_category_id: categoryId })
+        .eq('supplier_id', payable.supplier_id)
+        .is('cost_category_id', null);
+      if (!err3 && count > 0) {
+        console.log(`Categoria propagata a ${count} fatture del fornitore`);
+      }
     }
+
+    // Aggiorna UI locale — tutte le fatture dello stesso fornitore senza categoria
+    setPayables(prev => prev.map(p => {
+      if (p.id === payableId) return { ...p, cost_category_id: categoryId };
+      if (payable.supplier_id && p.supplier_id === payable.supplier_id && !p.cost_category_id) {
+        return { ...p, cost_category_id: categoryId };
+      }
+      return p;
+    }));
+
     setCategoryDropdownId(null);
     setCategorySearch('');
+
+    // Toast feedback
+    const catName = categories.find(c => c.id === categoryId)?.name || 'categoria';
+    const supplierName = payable.suppliers?.ragione_sociale || payable.suppliers?.name || 'fornitore';
+    alert(`Categoria "${catName}" applicata al fornitore ${supplierName} e a tutte le sue fatture non categorizzate`);
   };
 
   // Handler: update status inline
@@ -1288,8 +1324,7 @@ const ScadenzarioSmart = () => {
                       <th className="py-2.5 px-3 text-center font-medium">Stato</th>
                       <th className="py-2.5 px-3 text-center font-medium">Conto</th>
                       <th className="py-2.5 px-3 text-center font-medium">Categoria</th>
-                      <th className="py-2.5 px-3 text-center font-medium">Verificato</th>
-                      <th className="py-2.5 px-3 text-right font-medium w-10"></th>
+                      <th className="py-2.5 px-3 text-right font-medium w-20">Azioni</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1398,20 +1433,18 @@ const ScadenzarioSmart = () => {
                               </div>
                             )}
                           </td>
-                          {/* VERIFICATO — toggle leva verde/arancio Sibill */}
-                          <td className="py-2.5 px-3 text-center">
-                            <button onClick={() => handleToggleVerified(p)}
-                              className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-                                p.verified ? 'bg-emerald-500' : 'bg-orange-400'
-                              }`}>
-                              <span className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow transform transition-transform ${
-                                p.verified ? 'translate-x-4.5' : 'translate-x-0.5'
-                              }`} style={{ transform: p.verified ? 'translateX(16px)' : 'translateX(2px)' }} />
-                            </button>
-                          </td>
-                          {/* AZIONI — hover reveal */}
+                          {/* AZIONI — Paga + Vedi fattura + Edit + Delete */}
                           <td className="py-2.5 px-3 text-right">
-                            <div className="flex justify-end gap-0.5 opacity-0 group-hover:opacity-100 transition">
+                            <div className="flex justify-end gap-0.5">
+                              {/* Paga — naviga a Banche con fattura pre-selezionata */}
+                              {p.status !== 'pagato' && (
+                                <button onClick={() => window.location.href = `/banche?tab=pagamenti&select=${p.id}`}
+                                  className="p-1 rounded text-slate-400 hover:text-green-600 hover:bg-green-50"
+                                  title="Paga questa fattura">
+                                  <Wallet size={13} />
+                                </button>
+                              )}
+                              {/* Vedi fattura XML */}
                               {p.invoice_number && (
                                 <button onClick={async () => {
                                   const { data } = await supabase.from('electronic_invoices')
@@ -1428,15 +1461,17 @@ const ScadenzarioSmart = () => {
                                 }}
                                   className="p-1 rounded text-slate-400 hover:text-indigo-600 hover:bg-indigo-50"
                                   title="Visualizza fattura XML">
-                                  <Eye size={12} />
+                                  <Eye size={13} />
                                 </button>
                               )}
                               <button onClick={() => setModals({ ...modals, editSchedule: { open: true, schedule: p } })}
-                                className="p-1 rounded text-slate-400 hover:text-blue-600 hover:bg-blue-50">
+                                className="p-1 rounded text-slate-400 hover:text-blue-600 hover:bg-blue-50"
+                                title="Modifica">
                                 <Edit2 size={12} />
                               </button>
                               <button onClick={() => setModals({ ...modals, deleteConfirm: { open: true, scheduleId: p.id, invoiceNumber: p.invoice_number } })}
-                                className="p-1 rounded text-slate-400 hover:text-red-600 hover:bg-red-50">
+                                className="p-1 rounded text-slate-400 hover:text-red-600 hover:bg-red-50"
+                                title="Elimina">
                                 <Trash2 size={12} />
                               </button>
                             </div>
