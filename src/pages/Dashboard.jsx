@@ -324,6 +324,8 @@ export default function Dashboard() {
                   budgetRic.forEach(r => {
                     const cc = r.cost_center
                     if (!cc) return
+                    // Escludi rettifiche bilancio e spese non divise dalla vista outlet
+                    if (cc === 'rettifica_bilancio' || cc === 'spese_non_divise') return
                     const amt = parseFloat(r.actual_amount) || parseFloat(r.budget_amount) || 0
                     if (!bMap[cc]) bMap[cc] = { name: cc.charAt(0).toUpperCase() + cc.slice(1), ricavi: 0 }
                     bMap[cc].ricavi += amt

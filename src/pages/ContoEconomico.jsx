@@ -332,9 +332,13 @@ export default function ContoEconomico() {
   const [showYoY, setShowYoY] = useState(true)
 
   // Feature: Cash-basis (Cassa) view
-  const [viewMode, setViewMode] = useState('competenza') // 'competenza' | 'cassa'
+  const [viewMode, setViewMode] = useState('competenza') // 'competenza' | 'cassa' | 'riconciliazione'
   const [cashData, setCashData] = useState(null) // { monthly: [...], byCategory: [...], totals: {} }
   const [cashLoading, setCashLoading] = useState(false)
+
+  // Riconciliazione Bilancio data
+  const [riconData, setRiconData] = useState(null)
+  const [riconLoading, setRiconLoading] = useState(false)
 
   // NEW: Manual save functionality
   const [dirtyFields, setDirtyFields] = useState({})
@@ -809,6 +813,96 @@ export default function ContoEconomico() {
     if (viewMode === 'cassa') loadCashData()
   }, [viewMode, year, quarter, loadCashData])
 
+  // ═══ Riconciliazione Bilancio — carica dati da budget_entries ═══
+  const loadRiconciliazione = useCallback(async () => {
+    if (!COMPANY_ID) return
+    setRiconLoading(true)
+    try {
+      const { data, error } = await supabase
+        .from('budget_entries')
+        .select('account_code, account_name, budget_amount, actual_amount, cost_center, macro_group')
+        .eq('company_id', COMPANY_ID)
+        .eq('year', year)
+
+      if (error) throw error
+      if (!data || data.length === 0) {
+        setRiconData(null)
+        return
+      }
+
+      // Helper: prende actual_amount se disponibile, altrimenti budget_amount
+      const getAmount = (e) => parseFloat(e.actual_amount) || parseFloat(e.budget_amount) || 0
+
+      // Ricavi: account_code inizia con '5', esclusa rettifica
+      const ricavi = data
+        .filter(e => e.account_code?.startsWith('5') && e.cost_center !== 'rettifica_bilancio')
+        .reduce((sum, e) => sum + getAmount(e), 0)
+
+      // Costi outlet: non inizia con '5', non spese_non_divise, non rettifica
+      const costiOutlet = data
+        .filter(e => !e.account_code?.startsWith('5') && e.cost_center !== 'spese_non_divise' && e.cost_center !== 'rettifica_bilancio')
+        .reduce((sum, e) => sum + getAmount(e), 0)
+
+      // Spese non divise: cost_center = 'spese_non_divise', esclusi ricavi
+      const speseNonDivise = data
+        .filter(e => e.cost_center === 'spese_non_divise' && !e.account_code?.startsWith('5'))
+        .reduce((sum, e) => sum + getAmount(e), 0)
+
+      // Rettifiche: cost_center = 'rettifica_bilancio' (usano budget_amount)
+      const rettificheEntries = data.filter(e => e.cost_center === 'rettifica_bilancio')
+      const rettificheTotale = rettificheEntries.reduce((sum, e) => sum + (parseFloat(e.budget_amount) || 0), 0)
+
+      // Raggruppa rettifiche per tipo (account_code)
+      const rettificheByType = {}
+      rettificheEntries.forEach(e => {
+        const key = e.account_code
+        if (!rettificheByType[key]) {
+          rettificheByType[key] = { code: key, name: e.account_name, total: 0 }
+        }
+        rettificheByType[key].total += parseFloat(e.budget_amount) || 0
+      })
+
+      const risultatoGestionale = ricavi - costiOutlet - speseNonDivise
+      const risultatoConRettifica = risultatoGestionale + Math.abs(rettificheTotale)
+
+      // Dati bilancio civilistico (valori fissi dal bilancio ufficiale 2025)
+      const bilancioUfficiale = year === 2025 ? {
+        ebit: 47549.41,
+        proventiFinanziari: 86.94,
+        oneriFinanziari: -29662.74,
+        utileNetto: 17973.61,
+        available: true,
+      } : { ebit: null, proventiFinanziari: null, oneriFinanziari: null, utileNetto: null, available: false }
+
+      const deltaClassificazione = bilancioUfficiale.available
+        ? risultatoConRettifica - bilancioUfficiale.ebit
+        : null
+
+      setRiconData({
+        ricavi,
+        costiOutlet,
+        speseNonDivise,
+        risultatoGestionale,
+        rettifiche: Object.values(rettificheByType),
+        rettificheTotale,
+        risultatoConRettifica,
+        bilancioUfficiale,
+        deltaClassificazione,
+        countEntries: data.length,
+        countRettifiche: rettificheEntries.length,
+      })
+    } catch (err) {
+      console.error('Error loading riconciliazione data:', err)
+      setRiconData(null)
+    } finally {
+      setRiconLoading(false)
+    }
+  }, [COMPANY_ID, year])
+
+  useEffect(() => {
+    if (viewMode === 'riconciliazione') loadRiconciliazione()
+  }, [viewMode, year, loadRiconciliazione])
+
   // Feature 4: PDF parsing with pdfjs-dist
   const handleFileUpload = async (e) => {
     const file = e.target.files?.[0]
@@ -1213,6 +1307,13 @@ export default function ContoEconomico() {
               }`}>
               <Banknote size={13} /> Cassa
             </button>
+            <button
+              onClick={() => setViewMode('riconciliazione')}
+              className={`px-3 py-1.5 rounded-md text-sm font-medium transition flex items-center gap-1 ${
+                viewMode === 'riconciliazione' ? 'bg-white text-purple-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+              }`}>
+              <Calculator size={13} /> Riconciliazione
+            </button>
           </div>
           <button
             onClick={() => setShowYoY(!showYoY)}
@@ -1545,6 +1646,189 @@ export default function ContoEconomico() {
                   </div>
                 </Section>
               )}
+            </>
+          )}
+        </div>
+      )}
+
+      {/* ═══ RICONCILIAZIONE BILANCIO ═══ */}
+      {viewMode === 'riconciliazione' && (
+        <div className="space-y-4">
+          {riconLoading && (
+            <div className="bg-white rounded-xl border border-slate-200 p-12 flex items-center justify-center">
+              <Loader2 className="animate-spin text-purple-500" size={24} />
+              <span className="ml-2 text-sm text-slate-500">Caricamento dati riconciliazione...</span>
+            </div>
+          )}
+
+          {!riconLoading && !riconData && (
+            <div className="bg-white rounded-xl border border-slate-200 p-8 text-center text-slate-500">
+              <Calculator size={32} className="mx-auto mb-2 text-slate-300" />
+              <p className="text-sm">Nessun dato budget disponibile per l'anno {year}.</p>
+              <p className="text-xs text-slate-400 mt-1">Inserire i dati del Conto Economico per visualizzare la riconciliazione.</p>
+            </div>
+          )}
+
+          {!riconLoading && riconData && (
+            <>
+              {/* Box 1: Risultato Gestionale */}
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                <div className="px-5 py-4 border-b border-slate-100 flex items-center gap-2">
+                  <Store size={18} className="text-blue-500" />
+                  <span className="text-sm font-semibold text-slate-900">Risultato Gestionale (per outlet)</span>
+                </div>
+                <div className="p-5 space-y-3">
+                  <div className="flex justify-between items-center py-2">
+                    <span className="text-sm text-slate-600">Ricavi totali (tutti gli outlet)</span>
+                    <span className="text-sm font-semibold text-emerald-600 tabular-nums">+ {fmt(riconData.ricavi)} €</span>
+                  </div>
+                  <div className="flex justify-between items-center py-2">
+                    <span className="text-sm text-slate-600">Costi totali (tutti gli outlet)</span>
+                    <span className="text-sm font-semibold text-red-600 tabular-nums">- {fmt(Math.abs(riconData.costiOutlet))} €</span>
+                  </div>
+                  <div className="flex justify-between items-center py-2">
+                    <span className="text-sm text-slate-600">Spese non divise</span>
+                    <span className="text-sm font-semibold text-red-600 tabular-nums">- {fmt(Math.abs(riconData.speseNonDivise))} €</span>
+                  </div>
+                  <div className="border-t border-slate-200 pt-3 flex justify-between items-center">
+                    <span className="text-sm font-bold text-slate-900">RISULTATO GESTIONALE</span>
+                    <span className={`text-lg font-bold tabular-nums ${riconData.risultatoGestionale >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                      {riconData.risultatoGestionale >= 0 ? '+' : ''}{fmt(riconData.risultatoGestionale)} €
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Freccia */}
+              <div className="flex justify-center">
+                <div className="w-8 h-8 rounded-full bg-purple-100 flex items-center justify-center">
+                  <ArrowDownRight size={16} className="text-purple-600 rotate-45" />
+                </div>
+              </div>
+
+              {/* Box 2: Rettifiche di Riconciliazione */}
+              <div className="bg-white rounded-xl border-2 border-purple-200 shadow-sm overflow-hidden">
+                <div className="px-5 py-4 border-b border-purple-100 bg-purple-50 flex items-center gap-2">
+                  <Calculator size={18} className="text-purple-600" />
+                  <span className="text-sm font-semibold text-purple-900">Rettifiche di Riconciliazione</span>
+                </div>
+                <div className="p-5 space-y-3">
+                  {riconData.rettifiche.length > 0 ? (
+                    <>
+                      {riconData.rettifiche.map((r, i) => (
+                        <div key={i} className="flex justify-between items-start py-2 px-3 bg-purple-50 rounded-lg">
+                          <div>
+                            <span className="text-sm font-medium text-purple-900">{r.code} — {r.name}</span>
+                            {r.code === 'B11_RIM' && (
+                              <p className="text-xs text-purple-600 mt-0.5">
+                                Merci acquistate ma non vendute, rimaste in magazzino
+                              </p>
+                            )}
+                          </div>
+                          <span className="text-sm font-bold text-emerald-600 tabular-nums whitespace-nowrap ml-4">
+                            + {fmt(Math.abs(r.total))} €
+                          </span>
+                        </div>
+                      ))}
+                      <div className="border-t border-purple-200 pt-3 flex justify-between items-center">
+                        <span className="text-sm font-bold text-purple-900">TOTALE RETTIFICHE</span>
+                        <span className="text-lg font-bold text-emerald-600 tabular-nums">
+                          + {fmt(Math.abs(riconData.rettificheTotale))} €
+                        </span>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="text-center py-4 text-sm text-slate-400">
+                      Nessuna rettifica di riconciliazione presente per {year}.
+                    </div>
+                  )}
+                  <p className="text-[11px] text-purple-400 italic">
+                    In futuro qui possono essere aggiunte altre rettifiche di riconciliazione
+                  </p>
+                </div>
+              </div>
+
+              {/* Freccia */}
+              <div className="flex justify-center">
+                <div className="w-8 h-8 rounded-full bg-purple-100 flex items-center justify-center">
+                  <ArrowDownRight size={16} className="text-purple-600 rotate-45" />
+                </div>
+              </div>
+
+              {/* Box 3: Risultato Bilancio Civilistico */}
+              <div className="bg-white rounded-xl border-2 border-emerald-200 shadow-sm overflow-hidden">
+                <div className="px-5 py-4 border-b border-emerald-100 bg-emerald-50 flex items-center gap-2">
+                  <FileText size={18} className="text-emerald-600" />
+                  <span className="text-sm font-semibold text-emerald-900">Risultato Bilancio Civilistico</span>
+                </div>
+                <div className="p-5 space-y-3">
+                  <div className="flex justify-between items-center py-2">
+                    <span className="text-sm text-slate-600">Risultato gestionale</span>
+                    <span className={`text-sm font-semibold tabular-nums ${riconData.risultatoGestionale >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                      {riconData.risultatoGestionale >= 0 ? '+' : ''}{fmt(riconData.risultatoGestionale)} €
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center py-2">
+                    <span className="text-sm text-slate-600">+ Rettifiche riconciliazione</span>
+                    <span className="text-sm font-semibold text-emerald-600 tabular-nums">
+                      + {fmt(Math.abs(riconData.rettificheTotale))} €
+                    </span>
+                  </div>
+                  <div className="border-t border-slate-200 pt-3 flex justify-between items-center">
+                    <span className="text-sm font-bold text-slate-900">EBIT (Risultato Operativo)</span>
+                    <span className={`text-base font-bold tabular-nums ${riconData.risultatoConRettifica >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                      {riconData.risultatoConRettifica >= 0 ? '+' : ''}{fmt(riconData.risultatoConRettifica)} €
+                    </span>
+                  </div>
+
+                  {riconData.bilancioUfficiale.available && (
+                    <>
+                      {riconData.deltaClassificazione != null && Math.abs(riconData.deltaClassificazione) > 1 && (
+                        <div className="flex justify-between items-center py-2 px-3 bg-amber-50 rounded-lg">
+                          <div>
+                            <span className="text-xs font-medium text-amber-800">Delta di classificazione</span>
+                            <p className="text-[10px] text-amber-600">Differenza fisiologica tra allocazione gestionale e civilistica</p>
+                          </div>
+                          <span className="text-xs font-semibold text-amber-700 tabular-nums">
+                            {riconData.deltaClassificazione >= 0 ? '+' : ''}{fmt(riconData.deltaClassificazione)} €
+                          </span>
+                        </div>
+                      )}
+                      <div className="flex justify-between items-center py-2 text-slate-500">
+                        <span className="text-sm">EBIT bilancio ufficiale</span>
+                        <span className="text-sm font-semibold tabular-nums">+ {fmt(riconData.bilancioUfficiale.ebit)} €</span>
+                      </div>
+                      <div className="flex justify-between items-center py-2 text-slate-500">
+                        <span className="text-sm">+ Proventi finanziari</span>
+                        <span className="text-sm tabular-nums">+ {fmt(riconData.bilancioUfficiale.proventiFinanziari)} €</span>
+                      </div>
+                      <div className="flex justify-between items-center py-2 text-slate-500">
+                        <span className="text-sm">- Oneri finanziari</span>
+                        <span className="text-sm text-red-600 tabular-nums">{fmt(riconData.bilancioUfficiale.oneriFinanziari)} €</span>
+                      </div>
+                      <div className="border-t-2 border-emerald-300 pt-4 flex justify-between items-center">
+                        <span className="text-base font-bold text-emerald-900">UTILE NETTO</span>
+                        <span className={`text-xl font-bold tabular-nums ${riconData.bilancioUfficiale.utileNetto >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                          {riconData.bilancioUfficiale.utileNetto >= 0 ? '+' : ''}{fmt(riconData.bilancioUfficiale.utileNetto)} €
+                        </span>
+                      </div>
+                    </>
+                  )}
+
+                  {!riconData.bilancioUfficiale.available && (
+                    <div className="py-3 px-3 bg-slate-50 rounded-lg text-center">
+                      <p className="text-xs text-slate-400">Bilancio civilistico ufficiale non ancora disponibile per {year}.</p>
+                      <p className="text-[10px] text-slate-300 mt-1">L'EBIT calcolato sopra è la somma gestionale + rettifiche.</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Footer note */}
+              <div className="text-center text-xs text-slate-400 py-2">
+                Dati dal bilancio ufficiale {companyInfo?.denominazione || 'New Zago S.R.L.'} {year}
+                {riconData.rettifiche.some(r => r.code === 'B11_RIM') && ' — Variazione rimanenze: voce B.11 CE civilistico'}
+              </div>
             </>
           )}
         </div>

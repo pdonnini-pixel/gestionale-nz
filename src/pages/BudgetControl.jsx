@@ -310,9 +310,9 @@ export default function BudgetControl() {
       })
       setCeRawCosti(co); setCeRawRicavi(ri)
 
-      // Reconstruct bpEdits from saved budget_entries
+      // Reconstruct bpEdits from saved budget_entries (escludi rettifiche bilancio)
       const edits = {}
-      ;(buR.data || []).forEach(e => {
+      ;(buR.data || []).filter(e => e.cost_center !== 'rettifica_bilancio').forEach(e => {
         const cc = e.cost_center || 'all'
         if (!edits[cc]) edits[cc] = {}
         edits[cc][e.account_code] = (edits[cc][e.account_code] || 0) + (parseFloat(e.budget_amount) || 0)
