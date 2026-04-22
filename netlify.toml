@@ -5,6 +5,16 @@
 [build.environment]
   NODE_VERSION = "20"
 
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
+
+# Netlify Functions — passthrough (prima dei redirect SPA)
+[[redirects]]
+  from = "/.netlify/functions/*"
+  to = "/.netlify/functions/:splat"
+  status = 200
+
 # Redirect tutte le route a index.html (SPA)
 [[redirects]]
   from = "/*"

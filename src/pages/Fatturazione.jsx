@@ -1128,15 +1128,33 @@ export default function Fatturazione() {
   useEffect(() => { loadStats() }, [loadStats])
 
   // Sincronizza fatture + corrispettivi dal cassetto fiscale AdE
+  // Usa Netlify Function (Node.js) per supporto mTLS con certificati client
   const handleSyncSdi = async () => {
     setSyncing(true)
     setSyncResult(null)
     try {
-      const result = await callEdgeFunction('sdi-sync', 'POST', {
-        type: 'all',
-        dateFrom: new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-        dateTo: new Date().toISOString().split('T')[0],
+      let { data: { session } } = await supabase.auth.getSession()
+      if (!session) {
+        const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession()
+        if (refreshError || !refreshData.session) throw new Error('Sessione scaduta')
+        session = refreshData.session
+      }
+
+      const res = await fetch('/.netlify/functions/sdi-sync', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          dateFrom: new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+          dateTo: new Date().toISOString().split('T')[0],
+        }),
       })
+
+      const result = await res.json()
+      if (!res.ok) throw new Error(result.error || `Errore ${res.status}`)
+
       setSyncResult(result)
       // Refresh tabs data
       setSyncKey(prev => prev + 1)
@@ -1207,18 +1225,13 @@ export default function Fatturazione() {
               <div>
                 <p className="font-medium">Sincronizzazione completata</p>
                 <p className="text-sm mt-0.5">
-                  {syncResult.fattureSincronizzate || 0} fatture e {syncResult.corrispettiviSincronizzati || 0} corrispettivi
-                  sincronizzati dal cassetto fiscale ({syncResult.environment})
+                  {syncResult.fatture ?? syncResult.fattureSincronizzate ?? 0} fatture e {syncResult.corrispettivi ?? syncResult.corrispettiviSincronizzati ?? 0} corrispettivi
+                  sincronizzati dal cassetto fiscale
+                  {syncResult.durationMs && <span className="text-xs ml-1">({Math.round(syncResult.durationMs / 1000)}s)</span>}
                 </p>
                 {syncResult.errors?.map((err, i) => (
                   <p key={i} className="text-xs mt-1 text-amber-600">{err}</p>
                 ))}
-                {!syncResult.mtlsSupported && (
-                  <p className="text-xs mt-2 text-amber-700 bg-amber-100 rounded-lg p-2">
-                    <strong>Nota:</strong> mTLS non disponibile in Deno Deploy. Per scaricare fatture reali dal cassetto fiscale
-                    serve un proxy con certificati SSL montati, oppure usare l'import manuale XML.
-                  </p>
-                )}
               </div>
             </>
           )}

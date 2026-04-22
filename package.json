@@ -9,7 +9,9 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@netlify/functions": "^5.2.0",
     "@supabase/supabase-js": "^2.101.1",
+    "fast-xml-parser": "^5.7.1",
     "lucide-react": "^1.7.0",
     "mammoth": "^1.12.0",
     "netlify-cli": "^24.9.0",
