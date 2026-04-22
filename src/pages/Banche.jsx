@@ -2467,7 +2467,7 @@ export default function Banche() {
       <div className="sticky top-0 z-40 bg-white/95 backdrop-blur-sm border-b border-slate-200/60 px-6 py-3">
         <div className="max-w-[1400px] mx-auto">
           <div className="flex items-center justify-between flex-wrap gap-3">
-            <h1 className="text-lg font-semibold text-slate-800">Tesoreria</h1>
+            <h1 className="text-lg font-semibold text-slate-800">Banche</h1>
             <div className="flex items-center gap-2">
               <button
                 onClick={handleSyncAll}

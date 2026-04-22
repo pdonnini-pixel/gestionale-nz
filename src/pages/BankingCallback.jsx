@@ -148,7 +148,7 @@ export default function BankingCallback() {
 
           {status === 'success' && (
             <p className="text-sm text-slate-500 mt-2">
-              I tuoi conti bancari sono ora visibili nella sezione Tesoreria.
+              I tuoi conti bancari sono ora visibili nella sezione Banche.
               <br />
               <span className="text-xs text-slate-400">Reindirizzamento automatico tra 3 secondi...</span>
             </p>
@@ -169,7 +169,7 @@ export default function BankingCallback() {
                 onClick={() => navigate('/banche', { replace: true })}
                 className="px-4 py-2 text-sm text-slate-600 hover:text-slate-800 border border-slate-200 rounded-lg hover:bg-slate-50 transition"
               >
-                Torna a Tesoreria
+                Torna a Banche
               </button>
               <button
                 onClick={() => navigate('/banche', { replace: true })}
@@ -185,7 +185,7 @@ export default function BankingCallback() {
               className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition flex items-center gap-2"
             >
               <Building2 size={14} />
-              Vai a Tesoreria
+              Vai a Banche
             </button>
           )}
         </div>

@@ -28,7 +28,7 @@ const allSections = [
     key: 'finanza',
     label: 'Finanza',
     items: [
-      { to: '/banche', icon: Landmark, label: 'Tesoreria', roles: ['super_advisor', 'ceo', 'cfo', 'contabile'] },
+      { to: '/banche', icon: Landmark, label: 'Banche', roles: ['super_advisor', 'ceo', 'cfo', 'contabile'] },
       { to: '/cash-flow', icon: TrendingUp, label: 'Cashflow', roles: ['super_advisor', 'ceo', 'cfo'] },
       { to: '/conto-economico', icon: BarChart3, label: 'Conto Economico', roles: ['super_advisor', 'ceo', 'cfo'] },
     ]
@@ -83,7 +83,7 @@ const allSections = [
 // ─── BREADCRUMB MAP (exported for use in Layout) ───────────────
 export const BREADCRUMB_MAP = {
   '/': { section: 'Cruscotto', page: 'Dashboard' },
-  '/banche': { section: 'Finanza', page: 'Tesoreria' },
+  '/banche': { section: 'Finanza', page: 'Banche' },
   '/cash-flow': { section: 'Finanza', page: 'Cashflow' },
   '/conto-economico': { section: 'Finanza', page: 'Conto Economico' },
   '/outlet': { section: 'Outlet & Performance', page: 'Outlet' },

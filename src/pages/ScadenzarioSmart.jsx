@@ -948,7 +948,7 @@ const ScadenzarioSmart = () => {
           </div>
           {/* KPI tesoreria */}
           <div className="bg-slate-50 border border-slate-200 rounded-xl p-5">
-            <h3 className="text-sm font-semibold text-slate-700 mb-3">Riepilogo tesoreria</h3>
+            <h3 className="text-sm font-semibold text-slate-700 mb-3">Riepilogo banche</h3>
             <div className="grid grid-cols-5 gap-4 text-center">
               <div>
                 <span className="text-[10px] text-slate-400 uppercase block">Saldo oggi</span>

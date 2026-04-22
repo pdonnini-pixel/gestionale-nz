@@ -243,17 +243,28 @@ function parseExcelFile(arrayBuffer) {
   const rawData = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: false, dateNF: 'dd/mm/yyyy' })
   if (rawData.length < 2) return { headers: [], rows: [], separator: 'xlsx', sheetNames: wb.SheetNames }
 
-  // Trova la riga header (salta righe vuote o intestazioni banca)
+  // Trova la riga header (salta righe vuote, titoli banca, righe saldo)
+  // Blacklist: frasi che appaiono in righe informative, NON header
+  const headerBlacklist = ['saldo contabile', 'saldo iniziale', 'saldo finale', 'saldo disponibile',
+    'estratto conto', 'periodo dal', 'data stampa', 'filiale', 'intestatario', 'codice iban',
+    'numero conto', 'divisa', 'coordinate', 'c/c n', 'rapporto n']
   let headerIdx = 0
-  for (let i = 0; i < Math.min(rawData.length, 15); i++) {
+  for (let i = 0; i < Math.min(rawData.length, 20); i++) {
     const row = rawData[i]
     if (!Array.isArray(row)) continue
     const nonEmpty = row.filter(c => c != null && String(c).trim() !== '')
-    // Header ha almeno 3 celle non vuote con testo
-    if (nonEmpty.length >= 3) {
-      const textCells = nonEmpty.filter(c => typeof c === 'string' && !/^\d+[.,]?\d*$/.test(c.trim()))
-      if (textCells.length >= 2) { headerIdx = i; break }
-    }
+    if (nonEmpty.length < 3) continue
+    // Salta righe con frasi blacklisted (sono righe informative, non header)
+    const rowText = nonEmpty.map(c => String(c).toLowerCase()).join(' ')
+    if (headerBlacklist.some(bl => rowText.includes(bl))) continue
+    // Header: celle corte (< 30 char), prevalentemente testo, no ":" nei valori
+    const textCells = nonEmpty.filter(c => {
+      const s = String(c).trim()
+      return s.length > 0 && s.length < 35 && !/^\d{1,2}[./-]\d{1,2}[./-]\d{2,4}$/.test(s) && !/^[\d.,]+$/.test(s)
+    })
+    // Almeno 2 celle testuali corte e la maggior parte delle celle non-vuote sono corte
+    const avgLen = nonEmpty.reduce((sum, c) => sum + String(c).length, 0) / nonEmpty.length
+    if (textCells.length >= 2 && avgLen < 25) { headerIdx = i; break }
   }
 
   const headerRow = rawData[headerIdx]
@@ -1327,7 +1338,7 @@ function TabContiBancari({ accounts, companyId, onRefresh }) {
       </div>
 
       {activeAccounts.length === 0 ? (
-        <EmptyState icon={Building2} title="Nessun conto bancario" description="Aggiungi il primo conto bancario per iniziare a gestire la tesoreria."
+        <EmptyState icon={Building2} title="Nessun conto bancario" description="Aggiungi il primo conto bancario per iniziare."
           action={<button onClick={() => setShowAdd(true)} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700">Aggiungi conto</button>} />
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
@@ -2471,7 +2482,7 @@ export default function TesoreriaManuale() {
       <div className="p-6 flex items-center justify-center h-96">
         <div className="flex flex-col items-center gap-3">
           <RefreshCw size={32} className="text-blue-500 animate-spin" />
-          <span className="text-sm text-slate-500">Caricamento tesoreria...</span>
+          <span className="text-sm text-slate-500">Caricamento banche...</span>
         </div>
       </div>
     )
@@ -2484,7 +2495,7 @@ export default function TesoreriaManuale() {
         <div>
           <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-3">
             <div className="p-2.5 bg-blue-50 rounded-xl"><Landmark size={22} className="text-blue-600" /></div>
-            Tesoreria
+            Banche
           </h1>
           <p className="text-sm text-slate-500 mt-1">Gestione conti bancari, estratti conto e riconciliazione</p>
         </div>

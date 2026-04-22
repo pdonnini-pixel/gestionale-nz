@@ -503,7 +503,7 @@ export default function Dashboard() {
       title: `PFN negativa: ${fmtCompact(pfn)} €`,
       description: 'Posizione Finanziaria Netta: debiti > liquidità',
       link: '/banche',
-      linkLabel: 'Tesoreria',
+      linkLabel: 'Banche',
     })
   }
   if (utile < 0) {
@@ -625,7 +625,7 @@ export default function Dashboard() {
               <Wallet size={15} className="text-emerald-500" /> Cashflow ultimi 30 giorni
             </h2>
             <Link to="/banche" className="text-xs text-blue-500 font-medium hover:text-blue-700 flex items-center gap-1">
-              Tesoreria <ChevronRight size={12} />
+              Banche <ChevronRight size={12} />
             </Link>
           </div>
 
