@@ -2244,7 +2244,7 @@ export default function TesoreriaManuale() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-96">
+      <div className="p-6 flex items-center justify-center h-96">
         <div className="flex flex-col items-center gap-3">
           <RefreshCw size={32} className="text-blue-500 animate-spin" />
           <span className="text-sm text-slate-500">Caricamento tesoreria...</span>
@@ -2254,14 +2254,17 @@ export default function TesoreriaManuale() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="p-6 space-y-6 max-w-[1600px] mx-auto">
       {/* Page header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Tesoreria</h1>
-          <p className="text-sm text-slate-500 mt-0.5">Gestione conti, movimenti, pagamenti e riconciliazione</p>
+          <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-3">
+            <div className="p-2.5 bg-blue-50 rounded-xl"><Landmark size={22} className="text-blue-600" /></div>
+            Tesoreria
+          </h1>
+          <p className="text-sm text-slate-500 mt-1">Gestione conti, movimenti, pagamenti e riconciliazione</p>
         </div>
-        <button onClick={refresh} className="flex items-center gap-2 px-4 py-2 border border-slate-200 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-50 transition">
+        <button onClick={refresh} className="flex items-center gap-2 px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-50 transition shadow-sm">
           <RefreshCw size={14} /> Aggiorna
         </button>
       </div>
