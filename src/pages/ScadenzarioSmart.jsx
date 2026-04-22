@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import PageHelp from '../components/PageHelp';
 import {
   Calendar, TrendingUp, TrendingDown, Filter, AlertCircle, Clock,
@@ -6,7 +7,7 @@ import {
   AlertTriangle, Clock3, Plus, Edit2, Trash2, Save, X, Download,
   CheckSquare, Square, Settings, Send, Ban, Wallet, Repeat,
   ChevronRight, ChevronLeft, Landmark, Building2, Search, RefreshCw,
-  List, CalendarDays
+  List, CalendarDays, CreditCard
 } from 'lucide-react';
 import CostiRicorrenti from '../components/CostiRicorrenti';
 import ExportMenu from '../components/ExportMenu';
@@ -105,6 +106,7 @@ function Modal({ open, onClose, title, children, wide }) {
 // Main component
 const ScadenzarioSmart = () => {
   const { profile } = useAuth();
+  const navigate = useNavigate();
   const COMPANY_ID = profile?.company_id;
 
   const [section, setSection] = useState('scadenze'); // 'situazione' | 'scadenze' | 'ricorrenti' | 'regole'
@@ -1410,6 +1412,13 @@ const ScadenzarioSmart = () => {
                           {/* AZIONI — hover reveal */}
                           <td className="py-2.5 px-3 text-right">
                             <div className="flex justify-end gap-0.5 opacity-0 group-hover:opacity-100 transition">
+                              {p.status !== 'pagato' && (p.gross_amount || 0) >= 0 && (
+                                <button onClick={() => navigate(`/banche?tab=pagamenti&select=${p.id}`)}
+                                  className="p-1 rounded text-slate-400 hover:text-emerald-600 hover:bg-emerald-50"
+                                  title="Paga in Tesoreria">
+                                  <CreditCard size={12} />
+                                </button>
+                              )}
                               <button onClick={() => setModals({ ...modals, editSchedule: { open: true, schedule: p } })}
                                 className="p-1 rounded text-slate-400 hover:text-blue-600 hover:bg-blue-50">
                                 <Edit2 size={12} />

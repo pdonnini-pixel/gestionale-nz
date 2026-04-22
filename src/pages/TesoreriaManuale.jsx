@@ -14,6 +14,7 @@ import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer,
   CartesianGrid, BarChart, Bar, Cell, Legend
 } from 'recharts'
+import { useLocation } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 
@@ -80,15 +81,20 @@ function classNames(...classes) {
 
 function statusBadge(status) {
   const map = {
-    unpaid: { bg: 'bg-red-100 text-red-700', label: 'Non pagata' },
-    partial: { bg: 'bg-amber-100 text-amber-700', label: 'Parziale' },
-    paid: { bg: 'bg-emerald-100 text-emerald-700', label: 'Pagata' },
-    overdue: { bg: 'bg-red-100 text-red-800 font-semibold', label: 'Scaduta' },
+    // Italian DB status values (actual)
+    da_pagare: { bg: 'bg-amber-100 text-amber-700', label: 'Da pagare' },
+    scaduto: { bg: 'bg-red-100 text-red-800 font-semibold', label: 'Scaduta' },
+    in_scadenza: { bg: 'bg-yellow-100 text-yellow-700', label: 'In scadenza' },
+    pagato: { bg: 'bg-emerald-100 text-emerald-700', label: 'Pagata' },
+    parziale: { bg: 'bg-amber-100 text-amber-700', label: 'Parziale' },
+    sospeso: { bg: 'bg-slate-100 text-slate-600', label: 'Sospesa' },
+    // English status values (payment_batches / payment_batch_items)
     draft: { bg: 'bg-slate-100 text-slate-600', label: 'Bozza' },
     pending: { bg: 'bg-amber-100 text-amber-700', label: 'In attesa' },
     sent: { bg: 'bg-blue-100 text-blue-700', label: 'Inviata' },
     executed: { bg: 'bg-emerald-100 text-emerald-700', label: 'Eseguita' },
     cancelled: { bg: 'bg-slate-100 text-slate-500', label: 'Annullata' },
+    paid: { bg: 'bg-emerald-100 text-emerald-700', label: 'Pagata' },
   }
   const s = map[status] || { bg: 'bg-slate-100 text-slate-600', label: status || '\u2014' }
   return <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${s.bg}`}>{s.label}</span>
@@ -464,13 +470,13 @@ function TabPanoramica({ accounts, transactions, payables, onNavigate }) {
   const outflows = useMemo(() => last30.filter(t => t.amount < 0).reduce((s, t) => s + Math.abs(t.amount), 0), [last30])
 
   const overduePayables = useMemo(() =>
-    payables.filter(p => p.status === 'overdue' || (p.status === 'unpaid' && daysUntil(p.due_date) < 0)),
+    payables.filter(p => p.status === 'scaduto' || (p.status === 'da_pagare' && daysUntil(p.due_date) < 0)),
     [payables]
   )
 
   const upcomingPayables = useMemo(() =>
     payables
-      .filter(p => (p.status === 'unpaid' || p.status === 'partial') && daysUntil(p.due_date) >= 0 && daysUntil(p.due_date) <= 30)
+      .filter(p => (p.status === 'da_pagare' || p.status === 'in_scadenza' || p.status === 'parziale') && daysUntil(p.due_date) >= 0 && daysUntil(p.due_date) <= 30)
       .sort((a, b) => new Date(a.due_date) - new Date(b.due_date)),
     [payables]
   )
@@ -545,7 +551,7 @@ function TabPanoramica({ accounts, transactions, payables, onNavigate }) {
           icon={AlertCircle}
           title="Scadute"
           value={`${overduePayables.length}`}
-          subtitle={overduePayables.length > 0 ? `${fmt(overduePayables.reduce((s, p) => s + (p.amount - (p.paid_amount || 0)), 0))} \u20AC` : 'Tutto in regola'}
+          subtitle={overduePayables.length > 0 ? `${fmt(overduePayables.reduce((s, p) => s + (p.amount_remaining != null ? Number(p.amount_remaining) : (Number(p.gross_amount || 0) - Number(p.amount_paid || 0))), 0))} \u20AC` : 'Tutto in regola'}
           color={overduePayables.length > 0 ? 'red' : 'green'}
           onClick={() => onNavigate('pagamenti')}
         />
@@ -1607,10 +1613,13 @@ function TabMovimenti({ transactions, accounts }) {
 // ═══ TAB 4: PAGAMENTI ═══
 // ═══════════════════════════════════════════════════════════════════
 
-function TabPagamenti({ payables, accounts, companyId, onRefresh }) {
+function TabPagamenti({ payables, accounts, companyId, onRefresh, preSelectId }) {
   const [search, setSearch] = useState('')
-  const [filterStatus, setFilterStatus] = useState('unpaid')
-  const [selected, setSelected] = useState({}) // { payable_id: true }
+  const [filterStatus, setFilterStatus] = useState('da_pagare')
+  const [selected, setSelected] = useState(() => {
+    if (preSelectId) return { [preSelectId]: true }
+    return {}
+  })
   const [batchAccount, setBatchAccount] = useState('')
   const [batchNotes, setBatchNotes] = useState('')
   const [creating, setCreating] = useState(false)
@@ -1628,8 +1637,8 @@ function TabPagamenti({ payables, accounts, companyId, onRefresh }) {
   const filteredPayables = useMemo(() => {
     let items = [...payables]
     if (filterStatus !== 'all') {
-      if (filterStatus === 'unpaid') items = items.filter(p => p.status === 'unpaid' || p.status === 'partial')
-      else if (filterStatus === 'overdue') items = items.filter(p => p.status === 'overdue' || (p.status === 'unpaid' && daysUntil(p.due_date) < 0))
+      if (filterStatus === 'da_pagare') items = items.filter(p => p.status === 'da_pagare' || p.status === 'in_scadenza' || p.status === 'parziale')
+      else if (filterStatus === 'scaduto') items = items.filter(p => p.status === 'scaduto')
       else items = items.filter(p => p.status === filterStatus)
     }
     if (search) {
@@ -1638,7 +1647,7 @@ function TabPagamenti({ payables, accounts, companyId, onRefresh }) {
     }
     items.sort((a, b) => {
       let va = a[sortField] || '', vb = b[sortField] || ''
-      if (sortField === 'amount') { va = a.amount || 0; vb = b.amount || 0 }
+      if (sortField === 'amount') { va = Number(a.gross_amount || 0); vb = Number(b.gross_amount || 0) }
       if (va < vb) return sortDir === 'asc' ? -1 : 1
       if (va > vb) return sortDir === 'asc' ? 1 : -1
       return 0
@@ -1647,7 +1656,7 @@ function TabPagamenti({ payables, accounts, companyId, onRefresh }) {
   }, [payables, filterStatus, search, sortField, sortDir])
 
   const selectedItems = useMemo(() => filteredPayables.filter(p => selected[p.id]), [filteredPayables, selected])
-  const selectedTotal = useMemo(() => selectedItems.reduce((s, p) => s + ((p.amount || 0) - (p.paid_amount || 0)), 0), [selectedItems])
+  const selectedTotal = useMemo(() => selectedItems.reduce((s, p) => s + (p.amount_remaining != null ? Number(p.amount_remaining) : (Number(p.gross_amount || 0) - Number(p.amount_paid || 0))), 0), [selectedItems])
 
   const selectedAccount = accounts.find(a => a.id === batchAccount)
   const projectedBalance = (selectedAccount?.current_balance || 0) - selectedTotal
@@ -1690,8 +1699,8 @@ function TabPagamenti({ payables, accounts, companyId, onRefresh }) {
         company_id: companyId,
         payable_id: p.id,
         beneficiary_name: p.supplier_name || '',
-        beneficiary_iban: p.supplier_iban || '',
-        amount: (p.amount || 0) - (p.paid_amount || 0),
+        beneficiary_iban: p.iban || '',
+        amount: p.amount_remaining != null ? Number(p.amount_remaining) : (Number(p.gross_amount || 0) - Number(p.amount_paid || 0)),
         currency: 'EUR',
         payment_reason: `Pag. fatt. ${p.invoice_number || ''}`.trim(),
         invoice_number: p.invoice_number || '',
@@ -1729,9 +1738,9 @@ function TabPagamenti({ payables, accounts, companyId, onRefresh }) {
             <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)}
               className="px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
               <option value="all">Tutte</option>
-              <option value="unpaid">Da pagare</option>
-              <option value="overdue">Scadute</option>
-              <option value="partial">Parziali</option>
+              <option value="da_pagare">Da pagare</option>
+              <option value="scaduto">Scadute</option>
+              <option value="pagato">Pagate</option>
             </select>
           </div>
           <div className="text-xs text-slate-500">{filteredPayables.length} fatture {selectedItems.length > 0 && `\u2022 ${selectedItems.length} selezionate`}</div>
@@ -1758,7 +1767,7 @@ function TabPagamenti({ payables, accounts, companyId, onRefresh }) {
                 </thead>
                 <tbody className="divide-y divide-slate-50">
                   {filteredPayables.map(p => {
-                    const remaining = (p.amount || 0) - (p.paid_amount || 0)
+                    const remaining = p.amount_remaining != null ? Number(p.amount_remaining) : (Number(p.gross_amount || 0) - Number(p.amount_paid || 0))
                     const days = daysUntil(p.due_date)
                     const isOverdue = days !== null && days < 0
                     return (
@@ -1781,7 +1790,7 @@ function TabPagamenti({ payables, accounts, companyId, onRefresh }) {
                           )}
                         </td>
                         <td className="px-4 py-3 text-right font-semibold text-slate-900 whitespace-nowrap">{fmt(remaining)} &euro;</td>
-                        <td className="px-4 py-3 text-center">{statusBadge(isOverdue ? 'overdue' : p.status)}</td>
+                        <td className="px-4 py-3 text-center">{statusBadge(isOverdue ? 'scaduto' : p.status)}</td>
                       </tr>
                     )
                   })}
@@ -1808,7 +1817,7 @@ function TabPagamenti({ payables, accounts, companyId, onRefresh }) {
             <div className="space-y-4">
               <div className="space-y-2 max-h-[300px] overflow-y-auto">
                 {selectedItems.map(p => {
-                  const remaining = (p.amount || 0) - (p.paid_amount || 0)
+                  const remaining = p.amount_remaining != null ? Number(p.amount_remaining) : (Number(p.gross_amount || 0) - Number(p.amount_paid || 0))
                   return (
                     <div key={p.id} className="flex items-center justify-between py-2 px-3 bg-blue-50 rounded-lg">
                       <div className="min-w-0 flex-1">
@@ -1923,8 +1932,9 @@ function TabDistinte({ batches, batchItems, accounts, companyId, onRefresh }) {
       for (const item of items) {
         if (item.payable_id) {
           await supabase.from('payables').update({
-            status: 'paid',
-            paid_amount: supabase.rpc ? undefined : item.amount,
+            status: 'pagato',
+            payment_date: now.split('T')[0],
+            payment_bank_account_id: confirmExec.bank_account_id,
           }).eq('id', item.payable_id).eq('company_id', companyId)
         }
       }
@@ -2103,7 +2113,7 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
 
   // Unpaid payables for matching
   const unpaidPayables = useMemo(() =>
-    payables.filter(p => p.status === 'unpaid' || p.status === 'partial' || p.status === 'overdue'),
+    payables.filter(p => p.status === 'da_pagare' || p.status === 'in_scadenza' || p.status === 'scaduto' || p.status === 'parziale'),
     [payables]
   )
 
@@ -2118,7 +2128,7 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
 
     return unpaidPayables
       .map(p => {
-        const remaining = (p.amount || 0) - (p.paid_amount || 0)
+        const remaining = p.amount_remaining != null ? Number(p.amount_remaining) : (Number(p.gross_amount || 0) - Number(p.amount_paid || 0))
         const diff = Math.abs(remaining - mvAmount)
         const percentDiff = remaining > 0 ? diff / remaining : 1
 
@@ -2173,11 +2183,15 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
       if (txErr) throw txErr
 
       // Update payable
-      const newPaid = (payable.paid_amount || 0) + Math.abs(movement.amount)
-      const newStatus = newPaid >= (payable.amount || 0) ? 'paid' : 'partial'
+      const newPaid = Number(payable.amount_paid || 0) + Math.abs(movement.amount)
+      const totalDue = Number(payable.gross_amount || 0)
+      const newRemaining = Math.max(0, totalDue - newPaid)
+      const newStatus = newPaid >= totalDue ? 'pagato' : 'parziale'
       const { error: payErr } = await supabase.from('payables').update({
-        paid_amount: newPaid,
+        amount_paid: newPaid,
+        amount_remaining: newRemaining,
         status: newStatus,
+        cash_movement_id: movement.id,
       }).eq('id', payable.id).eq('company_id', companyId)
       if (payErr) throw payErr
 
@@ -2400,9 +2414,15 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
 
 export default function TesoreriaManuale() {
   const { session } = useAuth()
+  const location = useLocation()
   const companyId = session?.user?.app_metadata?.company_id || '00000000-0000-0000-0000-000000000001'
 
-  const [activeTab, setActiveTab] = useState('panoramica')
+  // Read tab and pre-select from URL params (e.g. /banche?tab=pagamenti&select=UUID)
+  const urlParams = new URLSearchParams(location.search)
+  const urlTab = urlParams.get('tab')
+  const urlSelect = urlParams.get('select')
+
+  const [activeTab, setActiveTab] = useState(urlTab || 'panoramica')
   const [loading, setLoading] = useState(true)
   const [refreshKey, setRefreshKey] = useState(0)
 
@@ -2492,7 +2512,7 @@ export default function TesoreriaManuale() {
               if (draftCount > 0) badge = draftCount
             }
             if (tab.key === 'pagamenti') {
-              const overdueCount = payables.filter(p => p.status === 'overdue' || (p.status === 'unpaid' && daysUntil(p.due_date) < 0)).length
+              const overdueCount = payables.filter(p => p.status === 'scaduto' || (p.status === 'da_pagare' && daysUntil(p.due_date) < 0)).length
               if (overdueCount > 0) badge = overdueCount
             }
 
@@ -2531,7 +2551,7 @@ export default function TesoreriaManuale() {
         <TabMovimenti transactions={transactions} accounts={accounts} />
       )}
       {activeTab === 'pagamenti' && (
-        <TabPagamenti payables={payables} accounts={accounts} companyId={companyId} onRefresh={refresh} />
+        <TabPagamenti payables={payables} accounts={accounts} companyId={companyId} onRefresh={refresh} preSelectId={urlSelect} />
       )}
       {activeTab === 'distinte' && (
         <TabDistinte batches={batches} batchItems={batchItems} accounts={accounts} companyId={companyId} onRefresh={refresh} />
