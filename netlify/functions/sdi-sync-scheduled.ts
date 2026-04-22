@@ -1,13 +1,11 @@
-/**
- * Netlify Scheduled Function — SDI Sync (automatica ogni 6 ore)
- *
- * Sincronizza fatture passive e corrispettivi dall'Agenzia delle Entrate
- * via mTLS. Eseguita automaticamente tramite cron Netlify.
- *
- * Schedule: ogni 6 ore (0 */6 * * *)
- *
- * NOTA: Questa e' una Netlify Serverless Function (Node.js) con schedule().
- */
+// Netlify Scheduled Function — SDI Sync (automatica ogni 6 ore)
+//
+// Sincronizza fatture passive e corrispettivi dall'Agenzia delle Entrate
+// via mTLS. Eseguita automaticamente tramite cron Netlify.
+//
+// Schedule: ogni 6 ore (cron: 0 every-6h)
+//
+// NOTA: Questa e' una Netlify Serverless Function (Node.js) con schedule().
 
 import { schedule } from "@netlify/functions";
 import { createClient } from "@supabase/supabase-js";
