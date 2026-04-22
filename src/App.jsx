@@ -9,7 +9,7 @@ import Dashboard from './pages/Dashboard'
 
 // Lazy-loaded pages — code splitting per ridurre il bundle iniziale
 const Scadenzario = lazy(() => import('./pages/ScadenzarioSmart'))
-const Banche = lazy(() => import('./pages/Banche'))
+const Banche = lazy(() => import('./pages/TesoreriaManuale'))
 const Outlet = lazy(() => import('./pages/Outlet'))
 const Dipendenti = lazy(() => import('./pages/Dipendenti'))
 const Impostazioni = lazy(() => import('./pages/Impostazioni'))
