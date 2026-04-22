@@ -28,8 +28,6 @@ const TABS = [
   { key: 'panoramica', label: 'Panoramica', icon: BarChart3 },
   { key: 'conti', label: 'Conti Bancari', icon: Building2 },
   { key: 'movimenti', label: 'Movimenti', icon: ArrowUpRight },
-  { key: 'pagamenti', label: 'Pagamenti', icon: Send },
-  { key: 'distinte', label: 'Distinte', icon: Layers },
   { key: 'riconciliazione', label: 'Riconciliazione', icon: Link2 },
 ]
 
@@ -548,12 +546,12 @@ function TabPanoramica({ accounts, transactions, payables, onNavigate }) {
           onClick={() => onNavigate('movimenti')}
         />
         <KpiCard
-          icon={AlertCircle}
-          title="Scadute"
-          value={`${overduePayables.length}`}
-          subtitle={overduePayables.length > 0 ? `${fmt(overduePayables.reduce((s, p) => s + (p.amount_remaining != null ? Number(p.amount_remaining) : (Number(p.gross_amount || 0) - Number(p.amount_paid || 0))), 0))} \u20AC` : 'Tutto in regola'}
-          color={overduePayables.length > 0 ? 'red' : 'green'}
-          onClick={() => onNavigate('pagamenti')}
+          icon={Link2}
+          title="Da riconciliare"
+          value={`${transactions.filter(t => !t.is_reconciled && t.amount < 0).length}`}
+          subtitle={transactions.filter(t => !t.is_reconciled && t.amount < 0).length > 0 ? 'Movimenti in attesa' : 'Tutto riconciliato'}
+          color={transactions.filter(t => !t.is_reconciled && t.amount < 0).length > 0 ? 'amber' : 'green'}
+          onClick={() => onNavigate('riconciliazione')}
         />
       </div>
 
@@ -2488,7 +2486,7 @@ export default function TesoreriaManuale() {
             <div className="p-2.5 bg-blue-50 rounded-xl"><Landmark size={22} className="text-blue-600" /></div>
             Tesoreria
           </h1>
-          <p className="text-sm text-slate-500 mt-1">Gestione conti, movimenti, pagamenti e riconciliazione</p>
+          <p className="text-sm text-slate-500 mt-1">Gestione conti bancari, estratti conto e riconciliazione</p>
         </div>
         <button onClick={refresh} className="flex items-center gap-2 px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-50 transition shadow-sm">
           <RefreshCw size={14} /> Aggiorna
@@ -2506,14 +2504,6 @@ export default function TesoreriaManuale() {
             if (tab.key === 'riconciliazione') {
               const unrecCount = transactions.filter(t => !t.is_reconciled && t.amount < 0).length
               if (unrecCount > 0) badge = unrecCount
-            }
-            if (tab.key === 'distinte') {
-              const draftCount = batches.filter(b => b.status === 'draft').length
-              if (draftCount > 0) badge = draftCount
-            }
-            if (tab.key === 'pagamenti') {
-              const overdueCount = payables.filter(p => p.status === 'scaduto' || (p.status === 'da_pagare' && daysUntil(p.due_date) < 0)).length
-              if (overdueCount > 0) badge = overdueCount
             }
 
             return (
@@ -2549,12 +2539,6 @@ export default function TesoreriaManuale() {
       )}
       {activeTab === 'movimenti' && (
         <TabMovimenti transactions={transactions} accounts={accounts} />
-      )}
-      {activeTab === 'pagamenti' && (
-        <TabPagamenti payables={payables} accounts={accounts} companyId={companyId} onRefresh={refresh} preSelectId={urlSelect} />
-      )}
-      {activeTab === 'distinte' && (
-        <TabDistinte batches={batches} batchItems={batchItems} accounts={accounts} companyId={companyId} onRefresh={refresh} />
       )}
       {activeTab === 'riconciliazione' && (
         <TabRiconciliazione transactions={transactions} payables={payables} accounts={accounts} companyId={companyId} onRefresh={refresh} />
