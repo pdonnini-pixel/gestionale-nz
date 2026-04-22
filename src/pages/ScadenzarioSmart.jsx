@@ -11,6 +11,7 @@ import {
 import CostiRicorrenti from '../components/CostiRicorrenti';
 import ExportMenu from '../components/ExportMenu';
 import StatusBadge from '../components/ui/StatusBadge';
+import InvoiceViewer from '../components/InvoiceViewer';
 import {
   BarChart, Bar, PieChart, Pie, Cell, AreaChart, Area,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
@@ -132,6 +133,7 @@ const ScadenzarioSmart = () => {
   const [confirmResult, setConfirmResult] = useState(null);
   const [selectedMethodGroup, setSelectedMethodGroup] = useState(null);
   const [supplierDetail, setSupplierDetail] = useState(null);
+  const [viewingXml, setViewingXml] = useState(null);
   const [categories, setCategories] = useState([]);
   const [categoryDropdownId, setCategoryDropdownId] = useState(null);
   const [categorySearch, setCategorySearch] = useState('');
@@ -1410,6 +1412,25 @@ const ScadenzarioSmart = () => {
                           {/* AZIONI — hover reveal */}
                           <td className="py-2.5 px-3 text-right">
                             <div className="flex justify-end gap-0.5 opacity-0 group-hover:opacity-100 transition">
+                              {p.invoice_number && (
+                                <button onClick={async () => {
+                                  const { data } = await supabase.from('electronic_invoices')
+                                    .select('xml_content')
+                                    .eq('invoice_number', p.invoice_number)
+                                    .not('xml_content', 'is', null)
+                                    .limit(1)
+                                    .maybeSingle()
+                                  if (data?.xml_content) {
+                                    setViewingXml(data.xml_content)
+                                  } else {
+                                    alert('XML fattura non disponibile per questa scadenza')
+                                  }
+                                }}
+                                  className="p-1 rounded text-slate-400 hover:text-indigo-600 hover:bg-indigo-50"
+                                  title="Visualizza fattura XML">
+                                  <Eye size={12} />
+                                </button>
+                              )}
                               <button onClick={() => setModals({ ...modals, editSchedule: { open: true, schedule: p } })}
                                 className="p-1 rounded text-slate-400 hover:text-blue-600 hover:bg-blue-50">
                                 <Edit2 size={12} />
@@ -1934,6 +1955,11 @@ const ScadenzarioSmart = () => {
         </Modal>
       )}
       <PageHelp page="scadenzario" />
+
+      {/* InvoiceViewer modal */}
+      {viewingXml && (
+        <InvoiceViewer xmlContent={viewingXml} onClose={() => setViewingXml(null)} />
+      )}
     </div>
   );
 };

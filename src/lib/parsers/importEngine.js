@@ -357,7 +357,7 @@ async function processInvoiceXML(text, context, batchId, onProgress) {
   onProgress(40, `Parsate ${invoices.length} fatture, trasformazione...`);
 
   const { invoiceRecords, supplierRecord, payableRecords } = transformInvoiceToRecords(
-    invoices, supplier, { ...context, import_batch_id: batchId }
+    invoices, supplier, { ...context, import_batch_id: batchId, raw_xml: text }
   );
 
   onProgress(55, 'Verifica/creazione fornitore...');

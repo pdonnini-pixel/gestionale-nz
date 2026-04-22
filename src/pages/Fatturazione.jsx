@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import PageHelp from '../components/PageHelp'
+import InvoiceViewer from '../components/InvoiceViewer'
 import StatusBadge from '../components/ui/StatusBadge'
 import { supabase } from '../lib/supabase'
 import { useYapily } from '../hooks/useYapily'
@@ -120,6 +121,7 @@ function FatturePassive() {
   const [statusFilter, setStatusFilter] = useState('ALL')
   const [selectedInvoice, setSelectedInvoice] = useState(null)
   const [showXml, setShowXml] = useState(false)
+  const [viewingXml, setViewingXml] = useState(null) // XML content for InvoiceViewer
   const [uploading, setUploading] = useState(false)
   const [stats, setStats] = useState(null)
 
@@ -177,6 +179,51 @@ function FatturePassive() {
     }
   }
 
+  // Carica XML multipli per associare xml_content alle fatture esistenti
+  const [xmlUpdateProgress, setXmlUpdateProgress] = useState(null)
+  const handleBulkXmlUpdate = async (e) => {
+    const files = e.target.files
+    if (!files || files.length === 0) return
+    setXmlUpdateProgress({ total: files.length, done: 0, matched: 0, errors: 0 })
+    let done = 0, matched = 0, errors = 0
+
+    for (const file of files) {
+      try {
+        const xmlText = await file.text()
+        if (!xmlText.includes('FatturaElettronica')) { done++; errors++; continue }
+
+        // Estrai numero fattura e P.IVA dal XML per match
+        const parser = new DOMParser()
+        const doc = parser.parseFromString(xmlText, 'text/xml')
+        const root = doc.documentElement
+        // Cerca numero fattura
+        const numero = root.querySelector('FatturaElettronicaBody DatiGenerali DatiGeneraliDocumento Numero')?.textContent?.trim()
+        // Cerca P.IVA cedente
+        const piva = root.querySelector('FatturaElettronicaHeader CedentePrestatore DatiAnagrafici IdFiscaleIVA IdCodice')?.textContent?.trim()
+
+        if (numero) {
+          // Match per invoice_number (e opzionalmente supplier_vat)
+          let query = supabase.from('electronic_invoices')
+            .update({ xml_content: xmlText })
+            .eq('invoice_number', numero)
+            .is('xml_content', null)
+          if (piva) query = query.eq('supplier_vat', piva)
+          const { data, error } = await query.select('id')
+          if (!error && data && data.length > 0) matched += data.length
+        }
+      } catch (err) {
+        console.error('Errore XML update:', file.name, err)
+        errors++
+      }
+      done++
+      setXmlUpdateProgress({ total: files.length, done, matched, errors })
+    }
+
+    setXmlUpdateProgress(prev => ({ ...prev, finished: true }))
+    loadInvoices()
+    e.target.value = ''
+  }
+
   const filtered = invoices.filter(inv => {
     if (statusFilter !== 'ALL' && (inv.sdi_status || 'RECEIVED') !== statusFilter) return false
     if (searchTerm) {
@@ -231,10 +278,36 @@ function FatturePassive() {
           {uploading ? 'Importazione...' : 'Importa XML'}
           <input type="file" accept=".xml" onChange={handleXmlUpload} className="hidden" disabled={uploading} />
         </label>
+        <label className="flex items-center gap-2 px-3 py-2 bg-amber-50 text-amber-700 text-sm rounded-lg hover:bg-amber-100 cursor-pointer transition border border-amber-200"
+          title="Carica gli XML originali per associarli alle fatture già importate (match per numero fattura)">
+          <FileCode size={16} />
+          Associa XML
+          <input type="file" accept=".xml" multiple onChange={handleBulkXmlUpdate} className="hidden" />
+        </label>
         <button onClick={loadInvoices} className="p-2 text-slate-500 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition">
           <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
         </button>
       </div>
+
+      {/* Progresso aggiornamento XML */}
+      {xmlUpdateProgress && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm">
+          <div className="flex items-center justify-between">
+            <span className="text-amber-800">
+              {xmlUpdateProgress.finished
+                ? `Completato: ${xmlUpdateProgress.matched} fatture aggiornate su ${xmlUpdateProgress.total} file`
+                : `Elaborazione ${xmlUpdateProgress.done}/${xmlUpdateProgress.total} file... (${xmlUpdateProgress.matched} match)`
+              }
+              {xmlUpdateProgress.errors > 0 && ` — ${xmlUpdateProgress.errors} errori`}
+            </span>
+            {xmlUpdateProgress.finished && (
+              <button onClick={() => setXmlUpdateProgress(null)} className="text-amber-600 hover:text-amber-800">
+                <X size={14} />
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Tabella */}
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
@@ -402,15 +475,22 @@ function FatturePassive() {
                 </div>
               )}
 
-              {/* XML FatturaPA */}
+              {/* Visualizza fattura formattata */}
               {selectedInvoice.xml_content && (
                 <div className="space-y-2">
                   <button
-                    onClick={() => setShowXml(!showXml)}
-                    className="flex items-center gap-2 text-sm font-medium text-blue-600 hover:text-blue-700 transition"
+                    onClick={() => setViewingXml(selectedInvoice.xml_content)}
+                    className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition"
                   >
-                    <FileCode size={14} />
-                    {showXml ? 'Nascondi XML' : 'Mostra XML FatturaPA'}
+                    <Eye size={14} />
+                    Visualizza fattura formattata
+                  </button>
+                  <button
+                    onClick={() => setShowXml(!showXml)}
+                    className="flex items-center gap-2 text-xs text-slate-500 hover:text-slate-700 transition"
+                  >
+                    <FileCode size={12} />
+                    {showXml ? 'Nascondi XML grezzo' : 'Mostra XML grezzo'}
                   </button>
                   {showXml && (
                     <pre className="p-3 bg-slate-900 text-green-400 rounded-lg text-xs overflow-x-auto max-h-72 border border-slate-700 font-mono leading-relaxed">
@@ -422,6 +502,11 @@ function FatturePassive() {
             </div>
           </div>
         </>
+      )}
+
+      {/* InvoiceViewer modal */}
+      {viewingXml && (
+        <InvoiceViewer xmlContent={viewingXml} onClose={() => setViewingXml(null)} />
       )}
     </div>
   )
@@ -439,6 +524,7 @@ function FattureAttive() {
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedInvoice, setSelectedInvoice] = useState(null)
   const [showXml, setShowXml] = useState(false)
+  const [viewingXml, setViewingXml] = useState(null)
 
   const loadInvoices = useCallback(async () => {
     setLoading(true)
@@ -867,10 +953,17 @@ function FattureAttive() {
               {/* XML */}
               {selectedInvoice.xml_content && (
                 <div className="space-y-2">
+                  <button
+                    onClick={() => setViewingXml(selectedInvoice.xml_content)}
+                    className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition"
+                  >
+                    <Eye size={14} />
+                    Visualizza fattura formattata
+                  </button>
                   <button onClick={() => setShowXml(!showXml)}
-                    className="flex items-center gap-2 text-sm font-medium text-blue-600 hover:text-blue-700 transition">
-                    <FileCode size={14} />
-                    {showXml ? 'Nascondi XML' : 'Mostra XML FatturaPA'}
+                    className="flex items-center gap-2 text-xs text-slate-500 hover:text-slate-700 transition">
+                    <FileCode size={12} />
+                    {showXml ? 'Nascondi XML grezzo' : 'Mostra XML grezzo'}
                   </button>
                   {showXml && (
                     <pre className="p-3 bg-slate-900 text-green-400 rounded-lg text-xs overflow-x-auto max-h-72 border border-slate-700 font-mono leading-relaxed">
@@ -890,6 +983,11 @@ function FattureAttive() {
             </div>
           </div>
         </>
+      )}
+
+      {/* InvoiceViewer modal */}
+      {viewingXml && (
+        <InvoiceViewer xmlContent={viewingXml} onClose={() => setViewingXml(null)} />
       )}
     </div>
   )

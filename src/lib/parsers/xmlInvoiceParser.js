@@ -309,7 +309,7 @@ export const MODALITA_TO_DB_ENUM = {
  * @returns {{ invoiceRecords: Object[], supplierRecord: Object|null, payableRecords: Object[] }}
  */
 export function transformInvoiceToRecords(invoices, supplier, context) {
-  const { company_id, import_batch_id } = context;
+  const { company_id, import_batch_id, raw_xml } = context;
 
   // Extract IBAN from first payment detail that has one
   const firstIban = invoices
@@ -350,6 +350,8 @@ export function transformInvoiceToRecords(invoices, supplier, context) {
     description: inv.causale || inv.line_items.map(l => l.descrizione).filter(Boolean).join('; '),
     source: 'xml_sdi',
     is_reconciled: false,
+    // Salva l'XML originale per visualizzazione formattata
+    xml_content: raw_xml || null,
   }));
 
   // Metodi che implicano pagamento già avvenuto (al momento dell'acquisto)
