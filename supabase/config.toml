@@ -1,0 +1,9 @@
+[project]
+id = "xfvfxsvqpnpvibgeqpqp"
+
+# SDI webhooks — verify_jwt MUST be false (called by AdE, not by frontend)
+[functions.sdi-receive]
+verify_jwt = false
+
+[functions.sdi-notifications]
+verify_jwt = false
