@@ -572,7 +572,7 @@ export default function Dashboard() {
           icon={Percent} title={dataSource === 'fatture' ? 'Costi fatture' : 'Margine netto'} helpTerm="margine"
           color={dataSource === 'fatture' ? 'amber' : utile >= 0 ? 'green' : 'red'}
           value={dataSource === 'fatture' ? `${fmtCompact(totalCosti)} €` : `${marginePct.toFixed(1)}%`}
-          subtitle={dataSource === 'fatture' ? `${YEAR} — da fatture passive` : `Utile: ${fmtCompact(utile)} €`}
+          subtitle={dataSource === 'fatture' ? `${year} — da fatture passive` : `Utile: ${fmtCompact(utile)} €`}
           link={dataSource === 'fatture' ? '/fatturazione' : '/conto-economico'}
           alert={dataSource !== 'fatture' && utile < 0}
         />
@@ -703,7 +703,7 @@ export default function Dashboard() {
               <Info size={16} className="text-amber-500 shrink-0" />
               <p className="text-xs text-slate-600">
                 {dataSource === 'fatture'
-                  ? <>Le fatture {YEAR} non sono associate agli outlet. <Link to="/allocazione-fornitori" className="text-blue-500 hover:underline">Assegna i fornitori agli outlet</Link> per vedere il ranking.</>
+                  ? <>Le fatture {year} non sono associate agli outlet. <Link to="/allocazione-fornitori" className="text-blue-500 hover:underline">Assegna i fornitori agli outlet</Link> per vedere il ranking.</>
                   : <>Nessun dato outlet. <Link to="/import-hub" className="text-blue-500 hover:underline">Importa dati</Link> per vedere il ranking.</>
                 }
               </p>
