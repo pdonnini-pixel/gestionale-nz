@@ -6,7 +6,7 @@ import {
   AlertTriangle, Clock3, Plus, Edit2, Trash2, Save, X, Download,
   CheckSquare, Square, Settings, Send, Ban, Wallet, Repeat,
   ChevronRight, ChevronLeft, Landmark, Building2, Search, RefreshCw,
-  List, CalendarDays
+  List, CalendarDays, Receipt
 } from 'lucide-react';
 import CostiRicorrenti from '../components/CostiRicorrenti';
 import ExportMenu from '../components/ExportMenu';
@@ -119,6 +119,13 @@ const ScadenzarioSmart = () => {
   const [payables, setPayables] = useState([]);
   const [fiscalDeadlines, setFiscalDeadlines] = useState([]);
   const [sourceFilter, setSourceFilter] = useState('tutte'); // 'tutte' | 'fornitori' | 'fiscali'
+
+  // Tab Incassi: i VERI incassi sono i movimenti in entrata dagli estratti
+  // conto (bank_transactions.amount > 0), NON le payables pagate. La tabella
+  // payables mostrava '0,00 €' di totale perche' i payables pagati sono
+  // spese saldate, non incassi.
+  const [bankIncomes, setBankIncomes] = useState([]);
+  const [bankIncomesLoading, setBankIncomesLoading] = useState(false);
   const [suppliers, setSuppliers] = useState([]);
   const [bankAccounts, setBankAccounts] = useState([]);
   const [cashPosition, setCashPosition] = useState(0);
@@ -352,6 +359,29 @@ const ScadenzarioSmart = () => {
   }, [COMPANY_ID]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
+
+  // Carica incassi reali (bank_transactions amount > 0) lazy quando il tab
+  // Incassi viene aperto per la prima volta.
+  async function loadBankIncomes() {
+    if (bankIncomes.length > 0 || !COMPANY_ID) return;
+    setBankIncomesLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('bank_transactions')
+        .select('id, transaction_date, description, amount, bank_account_id, bank_accounts(bank_name, account_name)')
+        .eq('company_id', COMPANY_ID)
+        .gt('amount', 0)
+        .order('transaction_date', { ascending: false })
+        .limit(2000);
+      if (error) throw error;
+      setBankIncomes(data || []);
+    } catch (err) {
+      console.warn('load bank incomes:', err.message);
+      setBankIncomes([]);
+    } finally {
+      setBankIncomesLoading(false);
+    }
+  }
 
   // Pre-filtra per fornitore se arrivi da Scheda Contabile con ?supplier=ID
   useEffect(() => {
@@ -1120,7 +1150,7 @@ const ScadenzarioSmart = () => {
                 { key: 'saldate', label: 'Incassi' },
                 { key: 'da_saldare', label: 'Tutte le scadenze' },
               ].map(t => (
-                <button key={t.key} onClick={() => setSibillTab(t.key)}
+                <button key={t.key} onClick={() => { setSibillTab(t.key); if (t.key === 'saldate') loadBankIncomes(); }}
                   className={`px-3 py-1.5 text-sm font-medium transition border-b-2 ${
                     sibillTab === t.key
                       ? 'border-slate-800 text-slate-800'
@@ -1392,8 +1422,93 @@ const ScadenzarioSmart = () => {
           })()}
 
           {/* ===== LISTA VIEWS ===== */}
-          {/* Timeline View — Sibill style */}
-          {scadViewMode === 'lista' && viewMode === 'timeline' && (
+          {/* Tab Incassi: mostra movimenti in entrata dagli EC (NON payables
+              pagate). Sorgente: bank_transactions con amount > 0.
+              Categorizzazione automatica della descrizione. */}
+          {scadViewMode === 'lista' && viewMode === 'timeline' && sibillTab === 'saldate' && (
+            <div className="bg-white rounded-xl border border-slate-200/80 overflow-hidden">
+              {bankIncomesLoading ? (
+                <div className="p-10 text-center text-sm text-slate-500">
+                  <RefreshCw size={20} className="animate-spin mx-auto mb-2 text-emerald-600" /> Caricamento incassi dagli estratti conto...
+                </div>
+              ) : bankIncomes.length === 0 ? (
+                <div className="p-12 text-center">
+                  <Receipt size={28} className="text-slate-300 mx-auto mb-2" />
+                  <p className="text-sm text-slate-500 font-medium">Nessun incasso trovato</p>
+                  <p className="text-xs text-slate-400 mt-1">
+                    Gli incassi sono movimenti in entrata (importo positivo) dagli estratti conto bancari.
+                    Importa un EC da Import Hub per popolare questa sezione.
+                  </p>
+                </div>
+              ) : (() => {
+                // Filtro testo + data applicato agli incassi reali
+                const q = (searchTerm || '').toLowerCase();
+                const from = dateRange.start ? new Date(dateRange.start) : null;
+                const to = dateRange.end ? new Date(dateRange.end) : null;
+                const filteredIncomes = bankIncomes.filter(i => {
+                  if (q && !(i.description || '').toLowerCase().includes(q) && !String(i.amount).includes(q)) return false;
+                  const d = i.transaction_date ? new Date(i.transaction_date) : null;
+                  if (from && d && d < from) return false;
+                  if (to && d && d > to) return false;
+                  return true;
+                });
+                const totale = filteredIncomes.reduce((s, i) => s + (parseFloat(i.amount) || 0), 0);
+                const categorize = (desc) => {
+                  const d = (desc || '').toLowerCase();
+                  if (d.includes('p.o.s.') || /\bpos\b/.test(d)) return { tipo: 'POS', cls: 'bg-violet-50 text-violet-700' };
+                  if (d.includes('bonifico') && (d.includes('favore') || d.includes('ordinante'))) return { tipo: 'Bonifico', cls: 'bg-blue-50 text-blue-700' };
+                  if (d.includes('versamento') && d.includes('contant')) return { tipo: 'Contanti', cls: 'bg-amber-50 text-amber-700' };
+                  if (d.includes('accredito')) return { tipo: 'Accredito', cls: 'bg-emerald-50 text-emerald-700' };
+                  if (d.includes('incass')) return { tipo: 'Incasso', cls: 'bg-emerald-50 text-emerald-700' };
+                  if (d.includes('giroconto')) return { tipo: 'Giroconto', cls: 'bg-slate-100 text-slate-600' };
+                  return { tipo: 'Altro', cls: 'bg-slate-100 text-slate-600' };
+                };
+                return (
+                  <>
+                    <div className="px-4 py-2 bg-emerald-50/50 border-b border-emerald-100 flex items-center justify-between text-xs">
+                      <span className="text-emerald-800 font-medium">{filteredIncomes.length} incassi</span>
+                      <span className="text-emerald-700 font-semibold">Totale: {fmt(totale)} €</span>
+                    </div>
+                    <div className="overflow-x-auto max-h-[70vh]">
+                      <table className="w-full text-sm">
+                        <thead className="bg-slate-50 sticky top-0 z-10">
+                          <tr className="text-[11px] text-slate-500 uppercase tracking-wider border-b border-slate-200">
+                            <th className="py-2 px-3 text-left font-semibold">Data</th>
+                            <th className="py-2 px-3 text-left font-semibold">Descrizione</th>
+                            <th className="py-2 px-3 text-left font-semibold">Tipo</th>
+                            <th className="py-2 px-3 text-left font-semibold">Banca</th>
+                            <th className="py-2 px-3 text-right font-semibold">Importo</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {filteredIncomes.slice(0, 500).map(i => {
+                            const cat = categorize(i.description);
+                            return (
+                              <tr key={i.id} className="hover:bg-slate-50/60">
+                                <td className="py-2 px-3 whitespace-nowrap text-slate-600">{fmtDate(i.transaction_date)}</td>
+                                <td className="py-2 px-3 truncate max-w-md text-slate-700" title={i.description}>{i.description || '—'}</td>
+                                <td className="py-2 px-3"><span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold ${cat.cls}`}>{cat.tipo}</span></td>
+                                <td className="py-2 px-3 text-xs text-slate-500">{i.bank_accounts?.bank_name || '—'}</td>
+                                <td className="py-2 px-3 text-right font-semibold text-emerald-700 whitespace-nowrap">+{fmt(i.amount)} €</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                      {filteredIncomes.length > 500 && (
+                        <div className="px-3 py-2 bg-slate-50 text-xs text-slate-500 text-center">
+                          Mostrati i primi 500 su {filteredIncomes.length}. Usa i filtri per restringere.
+                        </div>
+                      )}
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
+          )}
+
+          {/* Timeline View — Sibill style (Pagamenti / Tutte le scadenze) */}
+          {scadViewMode === 'lista' && viewMode === 'timeline' && sibillTab !== 'saldate' && (
             <div className="bg-white rounded-xl border border-slate-200/80 overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="w-full">
