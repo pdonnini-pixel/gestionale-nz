@@ -109,6 +109,11 @@ const ScadenzarioSmart = () => {
   const { profile } = useAuth();
   const COMPANY_ID = profile?.company_id;
 
+  // Leggi parametri URL per pre-filtrare (da Scheda Contabile o Fornitori)
+  const urlParams = useMemo(() => new URLSearchParams(window.location.search), []);
+  const urlSupplier = urlParams.get('supplier');
+  const urlSearch = urlParams.get('search');
+
   const [section, setSection] = useState('scadenze'); // 'situazione' | 'scadenze' | 'ricorrenti' | 'regole'
   const [loading, setLoading] = useState(true);
   const [payables, setPayables] = useState([]);
@@ -124,7 +129,7 @@ const ScadenzarioSmart = () => {
   const [selectedCalendarDay, setSelectedCalendarDay] = useState(null);
   const [selectedOutlet, setSelectedOutlet] = useState('');
   const [selectedStatus, setSelectedStatus] = useState('');
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchTerm, setSearchTerm] = useState(urlSearch || '');
   const [isSaving, setIsSaving] = useState(false);
 
   const [selectedIds, setSelectedIds] = useState(new Set());
@@ -347,6 +352,24 @@ const ScadenzarioSmart = () => {
   }, [COMPANY_ID]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
+
+  // Pre-filtra per fornitore se arrivi da Scheda Contabile con ?supplier=ID
+  useEffect(() => {
+    if (!urlSupplier || !COMPANY_ID) return;
+    (async () => {
+      const { data: sup } = await supabase
+        .from('suppliers')
+        .select('name, ragione_sociale')
+        .eq('id', urlSupplier)
+        .single();
+      if (sup) {
+        const name = sup.name || sup.ragione_sociale;
+        setSearchTerm(name);
+        // Rimuovi il filtro data per mostrare tutte le fatture del fornitore
+        setDateRange({ start: '2020-01-01', end: '2030-12-31' });
+      }
+    })();
+  }, [urlSupplier, COMPANY_ID]);
 
   // Auto-allineamento categorie al caricamento (D4)
   useEffect(() => {

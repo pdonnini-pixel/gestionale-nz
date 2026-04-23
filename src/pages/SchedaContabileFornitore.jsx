@@ -289,11 +289,8 @@ export default function SchedaContabileFornitore() {
   };
 
   const handlePayAll = () => {
-    const ids = payables
-      .filter(p => p.status === 'scaduto' || p.status === 'in_scadenza')
-      .map(p => p.id)
-      .join(',');
-    if (ids) navigate(`/scadenzario?supplier=${supplierId}&select=${ids}`);
+    const name = supplier?.name || supplier?.ragione_sociale || '';
+    navigate(`/scadenzario?supplier=${supplierId}&search=${encodeURIComponent(name)}`);
   };
 
   const handlePrintScheda = () => {
@@ -567,7 +564,7 @@ export default function SchedaContabileFornitore() {
                             <Eye size={14} />
                           </button>
                           {f.status !== 'pagato' && f.status !== 'nota_credito' && parseFloat(f.gross_amount) > 0 && (
-                            <button onClick={() => navigate(`/scadenzario?select=${f.rate[0]?.id}`)} className="p-1 rounded hover:bg-emerald-50 text-slate-400 hover:text-emerald-600 transition" title="Paga">
+                            <button onClick={() => navigate(`/scadenzario?supplier=${supplierId}&search=${encodeURIComponent(supplier?.name || '')}`)} className="p-1 rounded hover:bg-emerald-50 text-slate-400 hover:text-emerald-600 transition" title="Paga">
                               <CreditCard size={14} />
                             </button>
                           )}
