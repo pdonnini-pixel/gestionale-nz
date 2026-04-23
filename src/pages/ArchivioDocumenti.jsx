@@ -224,6 +224,16 @@ function ArchivioTab({ companyId, showToast }) {
   const [viewerXml, setViewerXml] = useState(null);
   const [loadingXml, setLoadingXml] = useState(null);
 
+  // Collasso delle 3 sezioni principali. Fatture parte CHIUSA perche'
+  // con 199 fatture e' la sezione piu' rumorosa. Bilanci ed EC restano
+  // aperti perche' sono liste corte (1-5 elementi).
+  const [sectionOpen, setSectionOpen] = useState({
+    fatture: false,
+    bilanci: true,
+    ec: true,
+  });
+  const toggleSection = (k) => setSectionOpen(s => ({ ...s, [k]: !s[k] }));
+
   useEffect(() => {
     if (!companyId) return;
     loadAll();
@@ -513,7 +523,12 @@ function ArchivioTab({ companyId, showToast }) {
       {/* ═══════════ SEZIONE FATTURE ═══════════ */}
       <section className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="px-5 py-4 border-b border-slate-100 flex flex-wrap items-center gap-3">
-          <div className="flex items-center gap-2">
+          <button
+            onClick={() => toggleSection('fatture')}
+            className="flex items-center gap-2 hover:bg-slate-50 -mx-2 -my-1 px-2 py-1 rounded-lg transition text-left"
+            title={sectionOpen.fatture ? 'Chiudi sezione' : 'Apri sezione'}
+          >
+            {sectionOpen.fatture ? <ChevronDown size={18} className="text-slate-400" /> : <ChevronRight size={18} className="text-slate-400" />}
             <div className="p-2 bg-blue-50 rounded-lg">
               <Receipt size={18} className="text-blue-600" />
             </div>
@@ -526,9 +541,9 @@ function ArchivioTab({ companyId, showToast }) {
                 {filteredInvoices.length} fattur{filteredInvoices.length === 1 ? 'a' : 'e'} · {formatCurrency(totalInvoicesAmount)}
               </p>
             </div>
-          </div>
+          </button>
 
-          <div className="flex items-center gap-2 ml-auto">
+          <div className={`flex items-center gap-2 ml-auto ${sectionOpen.fatture ? '' : 'opacity-50 pointer-events-none'}`}>
             <div className="relative">
               <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
@@ -576,6 +591,7 @@ function ArchivioTab({ companyId, showToast }) {
           </div>
         </div>
 
+        {sectionOpen.fatture && (
         <div className="divide-y divide-slate-100">
           {groups.length === 0 && !loading && (
             <div className="text-center py-12">
@@ -661,11 +677,17 @@ function ArchivioTab({ companyId, showToast }) {
             );
           })}
         </div>
+        )}
       </section>
 
       {/* ═══════════ SEZIONE BILANCI ═══════════ */}
       <section className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="px-5 py-4 border-b border-slate-100 flex items-center gap-2">
+        <button
+          onClick={() => toggleSection('bilanci')}
+          className="w-full px-5 py-4 border-b border-slate-100 flex items-center gap-2 hover:bg-slate-50 text-left transition"
+          title={sectionOpen.bilanci ? 'Chiudi sezione' : 'Apri sezione'}
+        >
+          {sectionOpen.bilanci ? <ChevronDown size={18} className="text-slate-400" /> : <ChevronRight size={18} className="text-slate-400" />}
           <div className="p-2 bg-indigo-50 rounded-lg">
             <BarChart3 size={18} className="text-indigo-600" />
           </div>
@@ -673,7 +695,8 @@ function ArchivioTab({ companyId, showToast }) {
             <h2 className="font-semibold text-slate-900">Bilanci</h2>
             <p className="text-xs text-slate-500">{balanceSheets.length} document{balanceSheets.length === 1 ? 'o' : 'i'}</p>
           </div>
-        </div>
+        </button>
+        {sectionOpen.bilanci && (
         <div className="divide-y divide-slate-100">
           {balanceSheets.length === 0 ? (
             <div className="text-center py-10">
@@ -720,11 +743,17 @@ function ArchivioTab({ companyId, showToast }) {
             ))
           )}
         </div>
+        )}
       </section>
 
       {/* ═══════════ SEZIONE ESTRATTI CONTO ═══════════ */}
       <section className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="px-5 py-4 border-b border-slate-100 flex items-center gap-2">
+        <button
+          onClick={() => toggleSection('ec')}
+          className="w-full px-5 py-4 border-b border-slate-100 flex items-center gap-2 hover:bg-slate-50 text-left transition"
+          title={sectionOpen.ec ? 'Chiudi sezione' : 'Apri sezione'}
+        >
+          {sectionOpen.ec ? <ChevronDown size={18} className="text-slate-400" /> : <ChevronRight size={18} className="text-slate-400" />}
           <div className="p-2 bg-emerald-50 rounded-lg">
             <Database size={18} className="text-emerald-600" />
           </div>
@@ -732,7 +761,8 @@ function ArchivioTab({ companyId, showToast }) {
             <h2 className="font-semibold text-slate-900">Estratti Conto Bancari</h2>
             <p className="text-xs text-slate-500">{ecFiles.length} file</p>
           </div>
-        </div>
+        </button>
+        {sectionOpen.ec && (
         <div className="divide-y divide-slate-100">
           {ecFiles.length === 0 ? (
             <div className="text-center py-10">
@@ -780,6 +810,7 @@ function ArchivioTab({ companyId, showToast }) {
             })
           )}
         </div>
+        )}
       </section>
 
       {/* INVOICE VIEWER MODAL */}
