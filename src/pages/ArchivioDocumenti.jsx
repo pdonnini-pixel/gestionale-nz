@@ -17,6 +17,70 @@ const SOURCE_META = {
   documents: { label: 'Documenti', icon: FileText, color: 'slate' },
 };
 
+// ─── CATEGORY CONFIG ────────────────────────────────────────────
+// Classificazione per CONTENUTO del documento (non per tabella di origine).
+// L'utente vuole filtrare "Fatture XML" vs "Metadati XML" vs "Estratti conto"
+// vs "Altri documenti" — a prescindere da dove sono stati archiviati.
+const CATEGORY_META = {
+  all: { label: 'Tutti', icon: FolderOpen, color: 'blue' },
+  fatture_xml: { label: 'Fatture XML', icon: FileText, color: 'orange' },
+  metadati_xml: { label: 'Metadati XML', icon: FileText, color: 'amber' },
+  estratti_conto: { label: 'Estratti Conto', icon: Database, color: 'emerald' },
+  cedolini: { label: 'Cedolini', icon: Users, color: 'green' },
+  bilanci: { label: 'Bilanci', icon: BarChart3, color: 'indigo' },
+  corrispettivi: { label: 'Corrispettivi', icon: Receipt, color: 'purple' },
+  pos: { label: 'POS / Vendite', icon: Store, color: 'cyan' },
+  contratti: { label: 'Contratti', icon: Receipt, color: 'violet' },
+  altri: { label: 'Altri', icon: FileText, color: 'slate' },
+};
+
+/**
+ * Classifica un documento in una categoria logica.
+ * Regole per distinguere fatture XML dai loro metadati .metaDato.xml
+ * provenienti dall'Agenzia delle Entrate.
+ */
+function classifyDocument(doc) {
+  const name = (doc.file_name || doc.file_path || '').toLowerCase();
+  const ext = name.split('.').pop() || '';
+  const source = doc.source_type || '';
+
+  // Metadati XML: il nome contiene 'metadato' (es. IT...metaDato.xml)
+  // oppure inizia con 'MT_' come alcuni export AdE
+  if (ext === 'xml' && (name.includes('metadato') || name.includes('metadata') || /^mt_/.test(name))) {
+    return 'metadati_xml';
+  }
+  // Fatture XML: file XML classico + source 'invoices' OPPURE file XML con prefisso IT/SDI
+  if (ext === 'xml' || source === 'invoices') {
+    return 'fatture_xml';
+  }
+  // Estratti conto bancari: source 'bank' oppure bucket bank-statements
+  if (source === 'bank' || doc.storage_bucket === 'bank-statements') {
+    return 'estratti_conto';
+  }
+  // Cedolini / personale
+  if (source === 'payroll' || doc._table === 'employee_documents') {
+    return 'cedolini';
+  }
+  // Bilanci
+  if (source === 'balance_sheet') {
+    return 'bilanci';
+  }
+  // Corrispettivi AdE
+  if (source === 'receipts') {
+    return 'corrispettivi';
+  }
+  // POS / vendite
+  if (source === 'pos_data') {
+    return 'pos';
+  }
+  // Contratti
+  if (doc._table === 'contract_documents') {
+    return 'contratti';
+  }
+  // Tutto il resto: outlet_attachments, documents generici, general_docs
+  return 'altri';
+}
+
 const BUCKET_MAP = {
   bank: 'bank-statements',
   invoices: 'invoices',
@@ -38,6 +102,8 @@ export default function ArchivioDocumenti() {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterSource, setFilterSource] = useState('all');
   const [filterType, setFilterType] = useState('all');
+  // Nuovo filtro per CATEGORIA del documento (Fatture XML vs Metadati vs EC vs ...)
+  const [filterCategory, setFilterCategory] = useState('all');
   const [sortBy, setSortBy] = useState('date_desc');
   const [previewDoc, setPreviewDoc] = useState(null);
   const [previewUrl, setPreviewUrl] = useState(null);
@@ -243,6 +309,11 @@ export default function ArchivioDocumenti() {
   }
 
   function getSourceLabel(doc) {
+    // Se il documento e' un metadato XML lo segnalo esplicitamente
+    const cat = classifyDocument(doc);
+    if (cat === 'metadati_xml') return 'Metadati XML';
+    if (cat === 'fatture_xml' && doc._table === 'import_documents') return 'Fattura XML';
+
     if (doc._table === 'import_documents') {
       const map = { bank: 'Estratto Conto', invoices: 'Fattura', payroll: 'Cedolino', balance_sheet: 'Bilancio', pos_data: 'Dati POS', receipts: 'Corrispettivi', general_docs: 'Generico' };
       return map[doc.source_type] || doc.source_type || 'Import';
@@ -268,10 +339,18 @@ export default function ArchivioDocumenti() {
   }
 
   // ─── STATS ────────────────────────────────────────────────────
+  // bySource = conteggio per tabella di origine (retro-compatibile)
+  // byCategory = conteggio per categoria logica (calcolato sui docs FILTRATI
+  // per filterSource/search cosi i numeri si aggiornano coerentemente)
   const stats = useMemo(() => {
     const bySource = {};
-    allDocs.forEach(d => { bySource[d._table] = (bySource[d._table] || 0) + 1; });
-    return { total: allDocs.length, bySource };
+    const byCategory = {};
+    allDocs.forEach(d => {
+      bySource[d._table] = (bySource[d._table] || 0) + 1;
+      const cat = classifyDocument(d);
+      byCategory[cat] = (byCategory[cat] || 0) + 1;
+    });
+    return { total: allDocs.length, bySource, byCategory };
   }, [allDocs]);
 
   // ─── FILE TYPES FOR FILTER ────────────────────────────────────
@@ -284,6 +363,7 @@ export default function ArchivioDocumenti() {
   // ─── FILTERED + SORTED ────────────────────────────────────────
   const filteredDocs = useMemo(() => {
     let docs = [...allDocs];
+    if (filterCategory !== 'all') docs = docs.filter(d => classifyDocument(d) === filterCategory);
     if (filterSource !== 'all') docs = docs.filter(d => d._table === filterSource);
     if (filterType !== 'all') docs = docs.filter(d => getExt(d).toUpperCase() === filterType);
     if (searchQuery.trim()) {
@@ -300,7 +380,7 @@ export default function ArchivioDocumenti() {
     else if (sortBy === 'name') docs.sort((a, b) => (a.file_name || '').localeCompare(b.file_name || ''));
     else if (sortBy === 'size') docs.sort((a, b) => (b.file_size || 0) - (a.file_size || 0));
     return docs;
-  }, [allDocs, filterSource, filterType, searchQuery, sortBy]);
+  }, [allDocs, filterCategory, filterSource, filterType, searchQuery, sortBy]);
 
   // ─── FILE ICON COLOR ──────────────────────────────────────────
   function fileIconStyle(doc) {
@@ -588,23 +668,20 @@ export default function ArchivioDocumenti() {
 
       {/* ═══════════ ARCHIVIO TAB (original content) ═══════════ */}
       {activeTab === 'archivio' && (<>
-      {/* KPI CARDS */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
-        <div className="bg-white rounded-xl border border-slate-200 p-3 shadow-sm">
-          <div className="flex items-center gap-2 mb-1">
-            <FolderOpen size={14} className="text-blue-500" />
-            <span className="text-xs font-semibold text-slate-500 uppercase">Totali</span>
-          </div>
-          <div className="text-xl font-bold text-slate-900">{stats.total}</div>
-        </div>
-        {Object.entries(SOURCE_META).map(([key, meta]) => {
-          const count = stats.bySource[key] || 0;
+      {/* KPI CARDS per CATEGORIA — sostituiscono le cards per tabella di origine.
+          Click su una card applica il filtro corrispondente, re-click lo rimuove.
+          I conteggi sono calcolati su TUTTI i documenti (stats.byCategory). */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-6 gap-3">
+        {Object.entries(CATEGORY_META).map(([key, meta]) => {
+          const count = key === 'all' ? stats.total : (stats.byCategory[key] || 0);
           const Icon = meta.icon;
-          const active = filterSource === key;
+          const active = filterCategory === key;
+          // Nascondi categorie senza documenti (eccetto 'all' che e' sempre visibile)
+          if (key !== 'all' && count === 0) return null;
           return (
             <button
               key={key}
-              onClick={() => setFilterSource(active ? 'all' : key)}
+              onClick={() => setFilterCategory(key === 'all' ? 'all' : (active ? 'all' : key))}
               className={`rounded-xl border p-3 shadow-sm text-left transition ${active ? 'bg-blue-50 border-blue-300 ring-2 ring-blue-200' : 'bg-white border-slate-200 hover:border-slate-300'}`}
             >
               <div className="flex items-center gap-2 mb-1">
@@ -645,8 +722,13 @@ export default function ArchivioDocumenti() {
             <option value="name">Nome A-Z</option>
             <option value="size">Dimensione</option>
           </select>
+          {filterCategory !== 'all' && (
+            <button onClick={() => setFilterCategory('all')} className="px-3 py-1.5 bg-blue-50 text-blue-700 rounded-lg text-xs font-semibold flex items-center gap-1 border border-blue-200" title="Rimuovi filtro categoria">
+              <X size={12} /> {CATEGORY_META[filterCategory]?.label}
+            </button>
+          )}
           {filterSource !== 'all' && (
-            <button onClick={() => setFilterSource('all')} className="px-3 py-1.5 bg-blue-50 text-blue-700 rounded-lg text-xs font-semibold flex items-center gap-1 border border-blue-200">
+            <button onClick={() => setFilterSource('all')} className="px-3 py-1.5 bg-blue-50 text-blue-700 rounded-lg text-xs font-semibold flex items-center gap-1 border border-blue-200" title="Rimuovi filtro fonte">
               <X size={12} /> {SOURCE_META[filterSource]?.label}
             </button>
           )}
