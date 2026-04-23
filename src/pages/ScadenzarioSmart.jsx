@@ -126,6 +126,11 @@ const ScadenzarioSmart = () => {
   // spese saldate, non incassi.
   const [bankIncomes, setBankIncomes] = useState([]);
   const [bankIncomesLoading, setBankIncomesLoading] = useState(false);
+  // Filtri dedicati al tab Incassi: tipo (POS/Contanti/Bonifico/…) + banca.
+  // Sono indipendenti dai filtri dei Pagamenti (che non hanno senso per
+  // movimenti bancari in entrata).
+  const [incomeTypeFilter, setIncomeTypeFilter] = useState('all');
+  const [incomeBankFilter, setIncomeBankFilter] = useState('all');
   const [suppliers, setSuppliers] = useState([]);
   const [bankAccounts, setBankAccounts] = useState([]);
   const [cashPosition, setCashPosition] = useState(0);
@@ -1215,7 +1220,8 @@ const ScadenzarioSmart = () => {
             </div>
           </div>
 
-          {/* Filters — Sibill-style */}
+          {/* Filters — Sibill-style (solo Pagamenti / Tutte le scadenze) */}
+          {sibillTab !== 'saldate' && (
           <div className="flex items-center gap-2 flex-wrap">
             <div className="relative flex-1 min-w-[180px] max-w-[240px]">
               <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-300" />
@@ -1255,9 +1261,57 @@ const ScadenzarioSmart = () => {
               );
             })}
           </div>
+          )}
 
-          {/* Active filter chips — removable, Sibill style */}
-          {(searchTerm || selectedStatus || selectedMethodGroup || dateRange.start || dateRange.end) && (
+          {/* Filtri dedicati per Tab INCASSI: ricerca + tipo + banca + date.
+              Sostituiscono i filtri dei Pagamenti che non hanno senso qui. */}
+          {sibillTab === 'saldate' && (
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="relative flex-1 min-w-[180px] max-w-[240px]">
+                <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-300" />
+                <input type="text" placeholder="Cerca descrizione, importo..." value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full pl-8 pr-3 py-1.5 rounded-lg border border-slate-200 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400/40 focus:border-blue-300 bg-white placeholder:text-slate-300" />
+              </div>
+              <select value={incomeTypeFilter} onChange={e => setIncomeTypeFilter(e.target.value)}
+                className="px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs bg-white text-slate-600"
+                title="Filtra per tipo di incasso">
+                <option value="all">Tutti i tipi</option>
+                <option value="POS">POS</option>
+                <option value="Bonifico">Bonifico in entrata</option>
+                <option value="Contanti">Versamento contanti</option>
+                <option value="Accredito">Accredito</option>
+                <option value="Incasso">Incasso</option>
+                <option value="Giroconto">Giroconto</option>
+                <option value="Altro">Altro</option>
+              </select>
+              <select value={incomeBankFilter} onChange={e => setIncomeBankFilter(e.target.value)}
+                className="px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs bg-white text-slate-600"
+                title="Filtra per banca">
+                <option value="all">Tutte le banche</option>
+                {(bankAccounts || []).map(b => (
+                  <option key={b.id} value={b.id}>{b.bank_name}{b.account_name ? ` — ${b.account_name}` : ''}</option>
+                ))}
+              </select>
+              <input type="date" value={dateRange.start} onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })}
+                className="px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs bg-white text-slate-500" title="Da" />
+              <input type="date" value={dateRange.end} onChange={(e) => setDateRange({ ...dateRange, end: e.target.value })}
+                className="px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs bg-white text-slate-500" title="A" />
+              {(searchTerm || incomeTypeFilter !== 'all' || incomeBankFilter !== 'all' || dateRange.start || dateRange.end) && (
+                <button onClick={() => {
+                  setSearchTerm('');
+                  setIncomeTypeFilter('all');
+                  setIncomeBankFilter('all');
+                  setDateRange({ start: '', end: '' });
+                }} className="text-xs text-red-500 hover:text-red-600 font-medium ml-1">
+                  Rimuovi filtri
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Active filter chips — removable, Sibill style (solo NON Incassi) */}
+          {sibillTab !== 'saldate' && (searchTerm || selectedStatus || selectedMethodGroup || dateRange.start || dateRange.end) && (
             <div className="flex items-center gap-2 flex-wrap">
               {dateRange.start && (
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 text-xs text-slate-600">
@@ -1286,7 +1340,8 @@ const ScadenzarioSmart = () => {
             </div>
           )}
 
-          {/* Quick filter chips — Sibill sub-filters */}
+          {/* Quick filter chips — Sibill sub-filters (solo NON Incassi) */}
+          {sibillTab !== 'saldate' && (
           <div className="flex items-center gap-2">
             <button onClick={() => { setSelectedStatus('da_pagare'); setDateRange({ start: new Date().toISOString().split('T')[0], end: new Date(Date.now() + 30*86400000).toISOString().split('T')[0] }); }}
               className="px-3 py-1 rounded-full text-xs border border-slate-200 text-slate-500 hover:bg-slate-50 transition">
@@ -1297,10 +1352,13 @@ const ScadenzarioSmart = () => {
               Scaduto
             </button>
           </div>
+          )}
 
           {/* Result count + total + view toggle — Sibill style */}
           <div className="flex items-center justify-between">
-            <span className="text-sm text-slate-500">{displayPayables.length} risultati</span>
+            <span className="text-sm text-slate-500">
+              {sibillTab === 'saldate' ? `${bankIncomes.length} incassi` : `${displayPayables.length} risultati`}
+            </span>
             <div className="flex items-center gap-3">
               {/* Lista / Calendario toggle */}
               <div className="flex gap-0.5 bg-slate-100 rounded-lg p-0.5">
@@ -1494,18 +1552,10 @@ const ScadenzarioSmart = () => {
                   </p>
                 </div>
               ) : (() => {
-                // Filtro testo + data applicato agli incassi reali
+                // Filtri incassi: testo + tipo + banca + range date
                 const q = (searchTerm || '').toLowerCase();
                 const from = dateRange.start ? new Date(dateRange.start) : null;
                 const to = dateRange.end ? new Date(dateRange.end) : null;
-                const filteredIncomes = bankIncomes.filter(i => {
-                  if (q && !(i.description || '').toLowerCase().includes(q) && !String(i.amount).includes(q)) return false;
-                  const d = i.transaction_date ? new Date(i.transaction_date) : null;
-                  if (from && d && d < from) return false;
-                  if (to && d && d > to) return false;
-                  return true;
-                });
-                const totale = filteredIncomes.reduce((s, i) => s + (parseFloat(i.amount) || 0), 0);
                 const categorize = (desc) => {
                   const d = (desc || '').toLowerCase();
                   if (d.includes('p.o.s.') || /\bpos\b/.test(d)) return { tipo: 'POS', cls: 'bg-violet-50 text-violet-700' };
@@ -1516,6 +1566,16 @@ const ScadenzarioSmart = () => {
                   if (d.includes('giroconto')) return { tipo: 'Giroconto', cls: 'bg-slate-100 text-slate-600' };
                   return { tipo: 'Altro', cls: 'bg-slate-100 text-slate-600' };
                 };
+                const filteredIncomes = bankIncomes.filter(i => {
+                  if (q && !(i.description || '').toLowerCase().includes(q) && !String(i.amount).includes(q)) return false;
+                  if (incomeBankFilter !== 'all' && i.bank_account_id !== incomeBankFilter) return false;
+                  if (incomeTypeFilter !== 'all' && categorize(i.description).tipo !== incomeTypeFilter) return false;
+                  const d = i.transaction_date ? new Date(i.transaction_date) : null;
+                  if (from && d && d < from) return false;
+                  if (to && d && d > to) return false;
+                  return true;
+                });
+                const totale = filteredIncomes.reduce((s, i) => s + (parseFloat(i.amount) || 0), 0);
                 return (
                   <>
                     <div className="px-4 py-2 bg-emerald-50/50 border-b border-emerald-100 flex items-center justify-between text-xs">
