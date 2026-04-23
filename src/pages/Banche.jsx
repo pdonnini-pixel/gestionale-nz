@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import PageHelp from '../components/PageHelp'
 import {
   Landmark, Building2, Wallet, CreditCard, TrendingUp,
@@ -2205,7 +2206,14 @@ export default function Banche() {
   const [editingAccount, setEditingAccount] = useState(null)
   const [loanModalOpen, setLoanModalOpen] = useState(false)
   const [editingLoan, setEditingLoan] = useState(null)
-  const [activeTab, setActiveTab] = useState('conti') // conti, movimenti, riconciliazione
+  const [searchParams] = useSearchParams()
+  // Inizializza tab da URL query (?tab=riconciliazione) cosi il link dopo
+  // import EC atterra direttamente sul pannello di riconciliazione
+  const [activeTab, setActiveTab] = useState(() => {
+    const t = searchParams.get('tab')
+    if (t === 'riconciliazione' || t === 'movimenti' || t === 'conti') return t
+    return 'conti'
+  }) // conti, movimenti, riconciliazione
   const [syncAllLoading, setSyncAllLoading] = useState(false)
   const [syncAllResult, setSyncAllResult] = useState(null)
   const [bankTxKpi, setBankTxKpi] = useState({ entrate: 0, uscite: 0, saldoNetto: 0 })

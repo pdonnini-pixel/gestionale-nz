@@ -231,17 +231,24 @@ function excelToHeadersRows(arrayBuffer) {
     return val.toString();
   }
 
-  // Build row objects (like CSV parser does) and skip summary/empty rows
+  // Build row objects (like CSV parser does) and skip summary/empty rows.
+  // IMPORTANTE: NON usare mai `break` su righe vuote intermedie — MPS e altre
+  // banche possono avere righe blank tra blocchi mensili. L'unico break e' su
+  // un marker terminale certo ("Saldo finale" con sole colonne vuote di seguito).
+  // Le righe non-transazione (totali pagina, saldo iniziale, riepilogo) vengono
+  // saltate con `continue` cosi il loop continua.
+  const BLACKLIST_FIRST_CELL = /^(riepilogo|totali(\s|$)|totali\s+(pagina|parziali|complessivi)|saldo\s+(contabile|disponibile|iniziale|finale|precedente)|saldo\s+progressivo|avviso|operazioni\s+(non\s+)?contabilizzate|elenco\s+movimenti|pag\.?\s*\d+)/i;
   const dataRows = [];
   for (let i = 1; i < allRows.length; i++) {
     const raw = allRows[i];
     const firstCell = cellToString(raw[0]).trim();
 
-    // Stop at summary rows
-    if (/^(riepilogo|totali|saldo finale|$)/i.test(firstCell) && (!raw[1] || raw[1] === '')) {
-      if (firstCell === '' && raw.every(c => !c || cellToString(c).trim() === '')) break;
-      if (/riepilogo|totali/i.test(firstCell)) break;
-    }
+    // Riga completamente vuota: continue (NON break — potrebbe esserci un
+    // separatore prima del blocco successivo nel file MPS multi-periodo)
+    if (firstCell === '' && raw.every(c => !c || cellToString(c).trim() === '')) continue;
+
+    // Riga di riepilogo/saldo/totali: continue (skip singola riga, non interrompe l'import)
+    if (BLACKLIST_FIRST_CELL.test(firstCell)) continue;
 
     const rowObj = {};
     headers.forEach((h, idx) => {
