@@ -623,6 +623,20 @@ export default function Scadenzario() {
 
   useEffect(() => { loadData() }, [])
 
+  // ─── INIT FROM URL PARAMS ───────────────────────────────────────
+  // Supporta navigazione dalla Scheda Contabile del fornitore
+  // (/scadenzario?supplier=<id>&search=<nome>) con filtri pre-applicati.
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const params = new URLSearchParams(window.location.search)
+    const searchParam = params.get('search') || params.get('supplier_name')
+    const filterParam = params.get('filter')
+    const tabParam = params.get('tab')
+    if (searchParam) setSearch(decodeURIComponent(searchParam))
+    if (filterParam && ['attive', 'pagate', 'sospese', 'tutte', 'scadute'].includes(filterParam)) setFilter(filterParam)
+    if (tabParam && ['scadenze', 'fornitori', 'riconciliazione'].includes(tabParam)) setTab(tabParam)
+  }, [])
+
   async function loadData() {
     setLoading(true)
     const [payRes, bankRes, supRes] = await Promise.all([

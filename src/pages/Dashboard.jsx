@@ -573,7 +573,7 @@ export default function Dashboard() {
           color={dataSource === 'fatture' ? 'blue' : utile >= 0 ? 'green' : 'red'}
           value={dataSource === 'fatture' ? `${fmtCompact(totalCosti)} €` : `${marginePct.toFixed(1)}%`}
           subtitle={dataSource === 'fatture' ? `Totale fatture passive ${year}` : `Utile: ${fmtCompact(utile)} €`}
-          link={dataSource === 'fatture' ? '/fatturazione' : '/conto-economico'}
+          link={dataSource === 'fatture' ? `/fatturazione?year=${year}` : '/conto-economico'}
           alert={dataSource !== 'fatture' && utile < 0}
         />
         <KpiCard

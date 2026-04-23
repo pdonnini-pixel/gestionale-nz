@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import PageHelp from '../components/PageHelp'
 import InvoiceViewer from '../components/InvoiceViewer'
 import StatusBadge from '../components/ui/StatusBadge'
@@ -119,11 +119,20 @@ function FatturePassive() {
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState('ALL')
+  // Filtro ANNO: default anno corrente per coerenza con il KPI Costi della
+  // Dashboard ("Totale fatture passive {year}"). Lo stesso numero deve
+  // apparire nei due posti a parità di anno selezionato.
+  // Se l'utente arriva da Dashboard con ?year=XXXX viene inizializzato con quello.
+  const [yearFilter, setYearFilter] = useState(() => {
+    if (typeof window === 'undefined') return String(new Date().getFullYear())
+    const p = new URLSearchParams(window.location.search).get('year')
+    if (p && /^\d{4}$/.test(p)) return p
+    return String(new Date().getFullYear())
+  })
   const [selectedInvoice, setSelectedInvoice] = useState(null)
   const [showXml, setShowXml] = useState(false)
   const [viewingXml, setViewingXml] = useState(null) // XML content for InvoiceViewer
   const [uploading, setUploading] = useState(false)
-  const [stats, setStats] = useState(null)
 
   const loadInvoices = useCallback(async () => {
     setLoading(true)
@@ -135,17 +144,6 @@ function FatturePassive() {
         .limit(500)
       if (error) throw error
       setInvoices(data || [])
-
-      // Calcola stats
-      const s = { total: 0, withSdi: 0, totalAmount: 0, byStatus: {} }
-      for (const inv of (data || [])) {
-        s.total++
-        if (inv.sdi_id) s.withSdi++
-        s.totalAmount += Number(inv.gross_amount || 0)
-        const st = inv.sdi_status || 'RECEIVED'
-        s.byStatus[st] = (s.byStatus[st] || 0) + 1
-      }
-      setStats(s)
     } catch (err) {
       console.error('Errore caricamento fatture passive:', err)
     } finally {
@@ -224,8 +222,21 @@ function FatturePassive() {
     e.target.value = ''
   }
 
+  // Anni disponibili per il filtro: estratti dalle date fatture + anno corrente
+  const availableYears = useMemo(() => {
+    const years = new Set([String(new Date().getFullYear())])
+    invoices.forEach(inv => {
+      if (inv.invoice_date) years.add(String(new Date(inv.invoice_date).getFullYear()))
+    })
+    return Array.from(years).sort((a, b) => Number(b) - Number(a))
+  }, [invoices])
+
   const filtered = invoices.filter(inv => {
     if (statusFilter !== 'ALL' && (inv.sdi_status || 'RECEIVED') !== statusFilter) return false
+    if (yearFilter !== 'ALL' && inv.invoice_date) {
+      const y = String(new Date(inv.invoice_date).getFullYear())
+      if (y !== yearFilter) return false
+    }
     if (searchTerm) {
       const q = searchTerm.toLowerCase()
       return (
@@ -237,6 +248,20 @@ function FatturePassive() {
     }
     return true
   })
+
+  // Stats calcolate sul SET FILTRATO — cosi i KPI si aggiornano con il filtro anno
+  // e corrispondono al valore mostrato nella Dashboard (Costi = fatture {year}).
+  const stats = useMemo(() => {
+    const s = { total: 0, withSdi: 0, totalAmount: 0, byStatus: {} }
+    for (const inv of filtered) {
+      s.total++
+      if (inv.sdi_id) s.withSdi++
+      s.totalAmount += Number(inv.gross_amount || 0)
+      const st = inv.sdi_status || 'RECEIVED'
+      s.byStatus[st] = (s.byStatus[st] || 0) + 1
+    }
+    return s
+  }, [filtered])
 
   return (
     <div className="space-y-4">
@@ -262,6 +287,15 @@ function FatturePassive() {
             className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
           />
         </div>
+        <select
+          value={yearFilter}
+          onChange={(e) => setYearFilter(e.target.value)}
+          className="px-3 py-2 text-sm border border-slate-200 rounded-lg"
+          title="Filtra per anno (coerente con KPI Costi della Dashboard)"
+        >
+          <option value="ALL">Tutti gli anni</option>
+          {availableYears.map(y => <option key={y} value={y}>Anno {y}</option>)}
+        </select>
         <select
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}
