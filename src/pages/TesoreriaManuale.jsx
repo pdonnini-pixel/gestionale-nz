@@ -252,9 +252,10 @@ function parseExcelFile(arrayBuffer) {
   // Blacklist: frasi che appaiono in righe informative, NON header
   const headerBlacklist = ['saldo contabile', 'saldo iniziale', 'saldo finale', 'saldo disponibile',
     'estratto conto', 'periodo dal', 'data stampa', 'filiale', 'intestatario', 'codice iban',
-    'numero conto', 'divisa', 'coordinate', 'c/c n', 'rapporto n']
+    'numero conto', 'divisa', 'coordinate', 'c/c n', 'rapporto n', 'ragione sociale',
+    'operazioni non contabilizzate', 'filtri applicati', 'tipo rapporto', 'intestazione']
   let headerIdx = 0
-  for (let i = 0; i < Math.min(rawData.length, 20); i++) {
+  for (let i = 0; i < Math.min(rawData.length, 50); i++) {
     const row = rawData[i]
     if (!Array.isArray(row)) continue
     const nonEmpty = row.filter(c => c != null && String(c).trim() !== '')
@@ -275,8 +276,13 @@ function parseExcelFile(arrayBuffer) {
   const headerRow = rawData[headerIdx]
   const headers = headerRow.map(h => String(h || '').trim())
   console.log('[parseExcelFile] headerIdx:', headerIdx, 'headers:', headers, 'rawData rows:', rawData.length)
+  const dataBlacklist = ['saldo contabile iniziale', 'saldo contabile finale', 'operazioni non contabilizzate', 'totale movimenti']
   const rows = rawData.slice(headerIdx + 1)
-    .filter(r => Array.isArray(r) && r.some(c => c != null && String(c).trim() !== ''))
+    .filter(r => {
+      if (!Array.isArray(r) || !r.some(c => c != null && String(c).trim() !== '')) return false
+      const rowText = r.filter(Boolean).join(' ').toLowerCase()
+      return !dataBlacklist.some(bl => rowText.includes(bl))
+    })
     .map(r => r.map(c => {
       if (c instanceof Date) return c.toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric' })
       return String(c ?? '').trim()
