@@ -73,7 +73,10 @@ function OutletCard({ name, outletData, calculatedMetrics, ranking, onNavigate }
     ricavoPerDip, incidenzaPersonale, incidenzaAffitto, breakeven, merci, costiDiretti, costiTotali } = calculatedMetrics
 
   const isPositive = margine >= 0
-  const costoPerDip = personaleCount > 0 ? costoPersonale / personaleCount : 0
+  // null = non calcolabile (0 dipendenti). La UI mostra 'N/D'. Prima
+  // ritornava 0 ma costi/ricavi per dipendente con 0 dipendenti non
+  // hanno senso di essere '0 €' — sono indeterminati.
+  const costoPerDip = personaleCount > 0 ? costoPersonale / personaleCount : null
 
   return (
     <div className={`bg-white rounded-xl border shadow-sm overflow-hidden flex flex-col border-slate-200`}>
@@ -124,7 +127,7 @@ function OutletCard({ name, outletData, calculatedMetrics, ranking, onNavigate }
         <KpiBadge label="Margine" value={`${fmt(margine)} €`} sub={`${marginePct.toFixed(1)}%`}
           color={isPositive ? 'green' : 'red'} />
         <KpiBadge label="Dipendenti" value={personaleCount || 0}
-          sub={`${fmt(ricavoPerDip)} €/dip`} color="blue" />
+          sub={ricavoPerDip != null ? `${fmt(ricavoPerDip)} €/dip` : 'N/D'} color="blue" />
         <KpiBadge label="Costo personale" value={`${fmt(costoPersonale)} €`}
           sub={`${incidenzaPersonale.toFixed(1)}% ricavi`} color="amber" />
         <KpiBadge label="Affitto" value={`${fmt(affitto)} €`}
@@ -171,11 +174,11 @@ function OutletCard({ name, outletData, calculatedMetrics, ranking, onNavigate }
           </div>
           <div className="flex items-center justify-between text-xs text-slate-400 pt-1">
             <span>Costo medio per dipendente</span>
-            <span>{fmt(costoPerDip)} €/anno</span>
+            <span>{costoPerDip != null ? `${fmt(costoPerDip)} €/anno` : 'N/D'}</span>
           </div>
           <div className="flex items-center justify-between text-xs text-slate-400">
             <span>Ricavo per dipendente</span>
-            <span className="font-medium text-blue-600">{fmt(ricavoPerDip)} €/anno</span>
+            <span className="font-medium text-blue-600">{ricavoPerDip != null ? `${fmt(ricavoPerDip)} €/anno` : 'N/D'}</span>
           </div>
           <div className="flex items-center justify-between text-xs pt-2 border-t border-amber-200 mt-1">
             <span className="text-amber-700 font-semibold">Breakeven</span>
@@ -463,7 +466,9 @@ export default function ConfrontoOutlet() {
 
       const margine = ricavi - costiTotali
       const marginePct = ricavi > 0 ? (margine / ricavi * 100) : 0
-      const ricavoPerDip = personaleCount > 0 ? ricavi / personaleCount : 0
+      // null = non calcolabile (0 dipendenti, indeterminato). La UI mostra
+      // 'N/D'. Bug segnalato: con 0 dipendenti mostrava il totale ricavi.
+      const ricavoPerDip = personaleCount > 0 ? ricavi / personaleCount : null
       const incidenzaPersonale = ricavi > 0 ? (finalCostoPersonale / ricavi * 100) : 0
       const incidenzaAffitto = ricavi > 0 ? (affitto / ricavi * 100) : 0
 
@@ -702,9 +707,13 @@ export default function ConfrontoOutlet() {
         </div>
         <div className="rounded-2xl p-5 shadow-lg" style={{ background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)', border: '1px solid rgba(99,102,241,0.08)' }}>
           <div className="p-2.5 rounded-lg bg-purple-50 text-purple-600 inline-flex mb-3"><DollarSign size={20} /></div>
-          <div className="text-2xl font-bold text-slate-900">{fmt(totRicavi / (totDipendenti || 1))} €</div>
+          <div className="text-2xl font-bold text-slate-900">
+            {totDipendenti > 0 ? `${fmt(totRicavi / totDipendenti)} €` : 'N/D'}
+          </div>
           <div className="text-sm text-slate-500">Ricavo per dipendente</div>
-          <div className="text-xs text-slate-400">KPI produttività media</div>
+          <div className="text-xs text-slate-400">
+            {totDipendenti > 0 ? 'KPI produttività media' : 'Nessun dipendente assegnato agli outlet'}
+          </div>
         </div>
       </div>
 

@@ -31,8 +31,20 @@ function pct(v, total) {
   return `${(v / total * 100).toFixed(1)}%`
 }
 function variation(curr, prev) {
-  if (!prev || prev === 0) return null
-  return ((curr - prev) / Math.abs(prev) * 100)
+  // Ritorna null in tutti i casi in cui il delta non e' calcolabile o
+  // significativo. La UI mostra '—' quando e' null. Mai NaN/Infinity.
+  if (curr == null || prev == null) return null
+  const c = Number(curr)
+  const p = Number(prev)
+  if (!isFinite(c) || !isFinite(p)) return null
+  // Entrambi zero: nessuna variazione da mostrare
+  if (c === 0 && p === 0) return null
+  // Precedente = 0, corrente != 0 → variazione di +∞ (impossibile da
+  // rappresentare significativamente): mostriamo '—'
+  if (p === 0) return null
+  const delta = ((c - p) / Math.abs(p)) * 100
+  if (!isFinite(delta) || isNaN(delta)) return null
+  return delta
 }
 
 // ===== Italian number formatting for form inputs =====

@@ -181,13 +181,17 @@ export default function Produttivita() {
   // Calcolo metriche per ogni outlet (with simulation support)
   const metriche = useMemo(() => {
     const base = outletBaseData.map(outlet => {
-      const dip = outlet.dipendenti || 4; // fallback if no employee data
-      const ore_sett = dip * 40;
-      const ore_annuali = ore_sett * 52;
-      const ricavo_per_dip = outlet.ricavi / dip;
-      const ricavo_per_ora = outlet.ricavi / ore_annuali;
-      const costo_per_ora = outlet.costo_personale / ore_annuali;
-      const margine_per_ora = ricavo_per_ora - costo_per_ora;
+      // Se non c'e' dato reale sui dipendenti, le metriche per-dipendente
+      // sono null (mostrate come 'N/D'). Prima c'era un fallback a 4 che
+      // inventava i numeri: ricavo/4 non ha senso.
+      const hasEmployeeData = outlet.dipendenti != null && outlet.dipendenti > 0;
+      const dip = hasEmployeeData ? outlet.dipendenti : null;
+      const ore_sett = hasEmployeeData ? dip * 40 : null;
+      const ore_annuali = hasEmployeeData ? ore_sett * 52 : null;
+      const ricavo_per_dip = hasEmployeeData ? outlet.ricavi / dip : null;
+      const ricavo_per_ora = hasEmployeeData ? outlet.ricavi / ore_annuali : null;
+      const costo_per_ora = hasEmployeeData ? outlet.costo_personale / ore_annuali : null;
+      const margine_per_ora = (ricavo_per_ora != null && costo_per_ora != null) ? ricavo_per_ora - costo_per_ora : null;
       const roi = outlet.costo_personale > 0 ? outlet.ricavi / outlet.costo_personale : 0;
       const incidenza_personale = outlet.ricavi > 0 ? (outlet.costo_personale / outlet.ricavi) * 100 : 0;
 
@@ -255,9 +259,11 @@ export default function Produttivita() {
     const worst = metriche.reduce((a, b) => a.ricavo_per_ora < b.ricavo_per_ora ? a : b);
     const avg_ricavo_ora = metriche.reduce((sum, m) => sum + m.ricavo_per_ora, 0) / metriche.length;
     const avg_roi = metriche.reduce((sum, m) => sum + m.roi, 0) / metriche.length;
-    const totRicavi = metriche.reduce((sum, m) => sum + m.ricavi, 0);
-    const totDipendenti = metriche.reduce((sum, m) => sum + m.dipendenti, 0);
-    const fatturato_medio_dip = totDipendenti > 0 ? totRicavi / totDipendenti : 0;
+    const totRicavi = metriche.reduce((sum, m) => sum + (m.ricavi || 0), 0);
+    const totDipendenti = metriche.reduce((sum, m) => sum + (m.dipendenti || 0), 0);
+    // null quando non ci sono dipendenti: il template mostra 'N/D' invece
+    // di '0 €' (che sarebbe fuorviante — '0 per 0' non e' '0' ma indeterminato)
+    const fatturato_medio_dip = totDipendenti > 0 ? totRicavi / totDipendenti : null;
     return { best_produttivita: best, worst_produttivita: worst, avg_ricavo_ora, avg_roi, fatturato_medio_dip, totRicavi, totDipendenti };
   }, [metriche]);
 
@@ -265,7 +271,7 @@ export default function Produttivita() {
   const rankedMetriche = useMemo(() => {
     return metriche
       .slice()
-      .sort((a, b) => b.ricavo_per_dip - a.ricavo_per_dip)
+      .sort((a, b) => (b.ricavo_per_dip || 0) - (a.ricavo_per_dip || 0))
       .map((m, idx) => ({ ...m, rank: idx + 1 }));
   }, [metriche]);
 
@@ -385,9 +391,13 @@ export default function Produttivita() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-blue-100 text-sm font-medium mb-1">Fatturato Medio per Dipendente</p>
-                <p className="text-4xl font-bold">{fmt(kpi.fatturato_medio_dip, 0)} &euro;</p>
+                <p className="text-4xl font-bold">
+                  {kpi.fatturato_medio_dip != null ? `${fmt(kpi.fatturato_medio_dip, 0)} €` : 'N/D'}
+                </p>
                 <p className="text-blue-200 text-sm mt-2">
-                  {fmt(kpi.totRicavi, 0)} &euro; ricavi totali / {fmt(kpi.totDipendenti, 1)} dipendenti (FTE)
+                  {kpi.fatturato_medio_dip != null
+                    ? `${fmt(kpi.totRicavi, 0)} € ricavi totali / ${fmt(kpi.totDipendenti, 1)} dipendenti (FTE)`
+                    : 'Nessun dipendente disponibile per il calcolo'}
                 </p>
               </div>
               <div className="bg-white/20 rounded-xl p-4">
@@ -472,7 +482,9 @@ export default function Produttivita() {
                         {fmt(m.dipendenti, m.has_employee_data ? 1 : 0)}
                         {!m.has_employee_data && <span className="text-xs text-slate-400 ml-1">(stima)</span>}
                       </td>
-                      <td className="px-4 py-3 text-right font-semibold text-slate-900">{fmt(m.ricavo_per_dip, 0)} &euro;</td>
+                      <td className="px-4 py-3 text-right font-semibold text-slate-900">
+                        {m.ricavo_per_dip != null ? `${fmt(m.ricavo_per_dip, 0)} €` : <span className="text-slate-400 text-xs">N/D</span>}
+                      </td>
                       <td className="px-4 py-3 text-right">
                         <span className={`inline-block px-2 py-1 rounded-full text-xs font-semibold ${
                           m.incidenza_personale < 20 ? 'bg-green-100 text-green-800' :
@@ -614,7 +626,9 @@ export default function Produttivita() {
                             {m.incidenza_personale.toFixed(1)}%
                           </span>
                         </td>
-                        <td className="px-4 py-3 text-right font-semibold text-slate-900">{fmt(m.ricavo_per_ora, 2)} &euro;</td>
+                        <td className="px-4 py-3 text-right font-semibold text-slate-900">
+                          {m.ricavo_per_ora != null ? `${fmt(m.ricavo_per_ora, 2)} €` : <span className="text-slate-400 text-xs">N/D</span>}
+                        </td>
                         <td className="px-4 py-3 text-right text-slate-700">{fmt(m.costo_per_ora, 2)} &euro;</td>
                         <td className="px-4 py-3 text-right text-slate-700">{fmt(m.margine_per_ora, 2)} &euro;</td>
                         <td className="px-4 py-3 text-right font-semibold text-slate-900">{fmt(m.roi, 2)}</td>
