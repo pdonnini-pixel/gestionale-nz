@@ -1327,6 +1327,17 @@ export default function ImportHub() {
                     )}
                   </div>
                 )}
+                {/* Warning: il file dichiarava N movimenti ma ne abbiamo importati meno */}
+                {processResult.warnings && processResult.warnings.length > 0 && (
+                  <div className="mt-2 p-2 rounded-lg bg-amber-50 border border-amber-200">
+                    {processResult.warnings.map((w, i) => (
+                      <div key={i} className="text-xs text-amber-800 py-0.5 flex items-start gap-2">
+                        <AlertCircle size={14} className="text-amber-600 shrink-0 mt-0.5" />
+                        <span>{w.message}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 {processResult.details && (
                   <div className="mt-2 text-xs text-slate-600 space-y-0.5">
                     {processResult.details.fatture != null && <div>Fatture: {processResult.details.fatture} | Scadenze: {processResult.details.scadenze} | Fornitore: {processResult.details.fornitore}</div>}

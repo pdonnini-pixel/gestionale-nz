@@ -195,6 +195,28 @@ async function updateImportBatch(batchId, updates) {
  * Converte un file Excel (XLS/XLSX) in { headers, rows } come se fosse CSV.
  * Skippa righe di riepilogo finali (RIEPILOGO, Totali, vuote).
  */
+/**
+ * Estrae dal contenuto del file il totale movimenti dichiarato dalla banca
+ * (es. MPS scrive "Movimenti: 1000" in fondo). Serve a rilevare import
+ * incompleti confrontandolo con il numero di record effettivamente parsati.
+ * Ritorna null se non lo trova.
+ */
+function findDeclaredMovementCount(allRows) {
+  if (!Array.isArray(allRows)) return null;
+  for (const row of allRows) {
+    if (!row) continue;
+    const text = Array.isArray(row)
+      ? row.filter(v => v != null && v !== '').map(v => v.toString()).join(' ')
+      : String(row);
+    const m = text.match(/(?:n\.?\s*)?movimenti\s*[:\-]?\s*(\d{1,6})/i);
+    if (m) {
+      const n = parseInt(m[1], 10);
+      if (n > 0 && n < 100000) return n;
+    }
+  }
+  return null;
+}
+
 function excelToHeadersRows(arrayBuffer) {
   // Read with cellDates so date cells become JS Date objects
   const workbook = XLSX.read(arrayBuffer, { type: 'array', cellDates: true });
@@ -203,7 +225,10 @@ function excelToHeadersRows(arrayBuffer) {
 
   // Get raw data (with raw:true so dates stay as Date objects, numbers as numbers)
   const allRows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', raw: true });
-  if (allRows.length < 2) return { headers: [], rows: [] };
+  if (allRows.length < 2) return { headers: [], rows: [], declaredCount: null };
+
+  // Rileva il conteggio dichiarato dalla banca (prima di filtrare le righe!)
+  const declaredCount = findDeclaredMovementCount(allRows);
 
   const headers = allRows[0].map(h => (h || '').toString().trim());
 
@@ -237,7 +262,11 @@ function excelToHeadersRows(arrayBuffer) {
   // un marker terminale certo ("Saldo finale" con sole colonne vuote di seguito).
   // Le righe non-transazione (totali pagina, saldo iniziale, riepilogo) vengono
   // saltate con `continue` cosi il loop continua.
-  const BLACKLIST_FIRST_CELL = /^(riepilogo|totali(\s|$)|totali\s+(pagina|parziali|complessivi)|saldo\s+(contabile|disponibile|iniziale|finale|precedente)|saldo\s+progressivo|avviso|operazioni\s+(non\s+)?contabilizzate|elenco\s+movimenti|pag\.?\s*\d+)/i;
+  const BLACKLIST_FIRST_CELL = /^(riepilogo|totali(\s|$)|totali\s+(pagina|parziali|complessivi)|saldo\s+(contabile|disponibile|iniziale|finale|precedente)|saldo\s+progressivo|avviso|operazioni\s+(non\s+)?contabilizzate|elenco\s+movimenti|elenco\s+non\s+completo|per\s+visualizzare\s+gli\s+altri\s+dati|pag\.?\s*\d+|n\.?\s*movimenti|movimenti\s*:)/i;
+  // Blacklist full-text: anche se la prima cella e' la data, intercettiamo
+  // righe di riepilogo che contengono testo sentinella in qualsiasi colonna
+  // (es. MPS scrive "Elenco non completo..." come messaggio multi-colonna).
+  const BLACKLIST_FULL_ROW = /(elenco\s+non\s+completo|per\s+visualizzare\s+gli\s+altri\s+dati|saldo\s+contabile\s+(iniziale|finale|progressivo)|totali?\s+(pagina|parziali|periodo)|operazioni\s+(non\s+)?contabilizzate)/i;
   const dataRows = [];
   for (let i = 1; i < allRows.length; i++) {
     const raw = allRows[i];
@@ -250,6 +279,10 @@ function excelToHeadersRows(arrayBuffer) {
     // Riga di riepilogo/saldo/totali: continue (skip singola riga, non interrompe l'import)
     if (BLACKLIST_FIRST_CELL.test(firstCell)) continue;
 
+    // Full-row blacklist: intercetta messaggi di avviso che occupano piu' celle
+    const fullRowText = raw.map(cellToString).join(' ');
+    if (BLACKLIST_FULL_ROW.test(fullRowText)) continue;
+
     const rowObj = {};
     headers.forEach((h, idx) => {
       rowObj[h] = raw[idx] !== undefined ? cellToString(raw[idx]) : '';
@@ -257,12 +290,13 @@ function excelToHeadersRows(arrayBuffer) {
     dataRows.push(rowObj);
   }
 
-  return { headers, rows: dataRows };
+  return { headers, rows: dataRows, declaredCount };
 }
 
 async function processBankStatement(content, context, batchId, mappingOverride, onProgress, { isExcel = false, fileName = '' } = {}) {
   let headers, rows;
   let parseErrors = [];
+  let declaredCount = null; // conteggio movimenti dichiarato dalla banca nel file
 
   if (isExcel) {
     // Parse Excel file
@@ -271,6 +305,7 @@ async function processBankStatement(content, context, batchId, mappingOverride, 
       const result = excelToHeadersRows(content);
       headers = result.headers;
       rows = result.rows;
+      declaredCount = result.declaredCount;
     } catch (err) {
       return { imported: 0, errors: [{ message: `Errore lettura Excel: ${err.message}` }] };
     }
@@ -345,10 +380,24 @@ async function processBankStatement(content, context, batchId, mappingOverride, 
     }
   }
 
+  // Warning se il file dichiarava N movimenti ma ne abbiamo importati meno.
+  // Succede quando la banca esporta un elenco troncato ("elenco non completo")
+  // o quando ci sono formattazioni anomale che il parser non riconosce.
+  const warnings = [];
+  if (declaredCount && inserted > 0 && inserted < declaredCount * 0.98) {
+    warnings.push({
+      level: 'warning',
+      message: `Attenzione: il file dichiara ${declaredCount} movimenti ma ne sono stati importati solo ${inserted} (${Math.round(inserted / declaredCount * 100)}%). Verifica il file.`,
+      declaredCount,
+      importedCount: inserted,
+    });
+  }
+
   return {
     imported: inserted,
     errors: [...parseErrors.map(e => ({ message: e })), ...transformErrors, ...insertErrors],
-    details: { headers, mapping, totalParsed: rows.length },
+    warnings,
+    details: { headers, mapping, totalParsed: rows.length, declaredCount },
   };
 }
 
