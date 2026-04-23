@@ -189,7 +189,10 @@ export default function AllocazioneFornitori() {
       ...d,
       percentage: 0,
       fixed_value: 0,
-      selected: false,
+      // Quote Uguali: auto-seleziona TUTTI gli outlet. Se l'utente vuole
+      // escludere qualcuno puo' deselezionare manualmente. 'Diviso in parti
+      // uguali' senza sapere su cosa dividere non avrebbe senso.
+      selected: mode === 'QUOTE_UGUALI',
     })))
   }, [])
 
