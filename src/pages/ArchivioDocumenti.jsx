@@ -226,6 +226,10 @@ function ArchivioTab({ companyId, showToast }) {
   const [autoPrintViewer, setAutoPrintViewer] = useState(false);
   const [loadingXml, setLoadingXml] = useState(null);
 
+  // Anteprima EC: mostra i movimenti della banca in un modal sull'Archivio
+  // senza dover navigare a Banche.
+  const [ecPreview, setEcPreview] = useState(null); // { ec, rows, loading }
+
   // Collasso delle 3 sezioni principali. Fatture parte CHIUSA perche'
   // con 199 fatture e' la sezione piu' rumorosa. Bilanci ed EC restano
   // aperti perche' sono liste corte (1-5 elementi).
@@ -315,12 +319,16 @@ function ArchivioTab({ companyId, showToast }) {
   }
 
   /**
-   * Estratti conto: leggiamo dalla tabella `bank_statements` (filename,
-   * transaction_count, status). bank_statements non ha il file_path del
-   * file originale: per abilitare il download matchiamo con `bank_imports`
-   * (che ha file_path nel bucket bank-statements) su bank_account_id+nome.
+   * Estratti conto: leggiamo da `bank_statements` (metadati "operativi":
+   * filename, transaction_count, status) e da `bank_imports` (file fisico
+   * nel bucket). Le due tabelle non si matchano perfettamente perche'
+   * possono essere popolate da flussi diversi (TesoreriaManuale vs
+   * ImportHub) con formati filename leggermente diversi.
    *
-   * Dedupliciamo per bank_account_id tenendo l'import piu' recente.
+   * Matching a 3 livelli (ognuno piu' permissivo del precedente):
+   *  1. bank_account_id + filename esatto
+   *  2. filename esatto (qualsiasi conto)
+   *  3. ultimo upload del bank_account_id (fallback)
    */
   async function loadEcFiles() {
     try {
@@ -341,24 +349,27 @@ function ArchivioTab({ companyId, showToast }) {
 
       if (stmtRes.error) throw stmtRes.error;
 
-      // Index bank_imports by (bank_account_id + lowercased filename) per
-      // matching, e anche per bank_account_id per fallback
-      const importsByKey = new Map();
-      const importsByAccount = new Map();
-      for (const imp of (impRes.data || [])) {
-        const k = `${imp.bank_account_id || ''}::${(imp.file_name || '').toLowerCase()}`;
-        if (!importsByKey.has(k)) importsByKey.set(k, imp);
-        if (!importsByAccount.has(imp.bank_account_id)) {
-          importsByAccount.set(imp.bank_account_id, imp);
+      const imports = impRes.data || [];
+      // 3 indici per i diversi livelli di matching
+      const byAccountAndName = new Map(); // bank_account_id + filename
+      const byName = new Map();            // solo filename
+      const byAccount = new Map();         // solo bank_account_id (piu' recente)
+      for (const imp of imports) {
+        const fn = (imp.file_name || '').toLowerCase();
+        const keyA = `${imp.bank_account_id || ''}::${fn}`;
+        if (!byAccountAndName.has(keyA)) byAccountAndName.set(keyA, imp);
+        if (fn && !byName.has(fn)) byName.set(fn, imp);
+        if (imp.bank_account_id && !byAccount.has(imp.bank_account_id)) {
+          byAccount.set(imp.bank_account_id, imp);
         }
       }
 
-      // Arricchisci bank_statements con file_path+file_size quando possibile
       const enriched = (stmtRes.data || []).map(ec => {
-        const key = `${ec.bank_account_id || ''}::${(ec.filename || '').toLowerCase()}`;
-        const byKey = importsByKey.get(key);
-        const byAcc = importsByAccount.get(ec.bank_account_id);
-        const src = byKey || byAcc || null;
+        const fn = (ec.filename || '').toLowerCase();
+        const byFull = byAccountAndName.get(`${ec.bank_account_id || ''}::${fn}`);
+        const byFn = byName.get(fn);
+        const byAcc = byAccount.get(ec.bank_account_id);
+        const src = byFull || byFn || byAcc || null;
         return {
           ...ec,
           file_path: src?.file_path || null,
@@ -366,7 +377,7 @@ function ArchivioTab({ companyId, showToast }) {
         };
       });
 
-      // Deduplica per bank_account_id: tieni solo l'import piu' recente
+      // Deduplica per bank_account_id: tieni l'import piu' recente
       const latestByAccount = new Map();
       for (const ec of enriched) {
         const key = ec.bank_account_id || ec.id;
@@ -376,6 +387,57 @@ function ArchivioTab({ companyId, showToast }) {
     } catch (e) {
       console.warn('load ec files:', e.message);
       setEcFiles([]);
+    }
+  }
+
+  /**
+   * Apre il modal di anteprima EC con i movimenti bancari.
+   * Fetcha le prime 100 transazioni della banca ordinate per data.
+   */
+  async function openEcPreview(ec) {
+    setEcPreview({ ec, rows: [], loading: true });
+    try {
+      const { data, error } = await supabase
+        .from('bank_transactions')
+        .select('id, transaction_date, description, amount, running_balance, is_reconciled')
+        .eq('company_id', companyId)
+        .eq('bank_account_id', ec.bank_account_id)
+        .order('transaction_date', { ascending: false })
+        .limit(100);
+      if (error) throw error;
+      setEcPreview({ ec, rows: data || [], loading: false });
+    } catch (err) {
+      showToast('Errore anteprima EC: ' + err.message, 'error');
+      setEcPreview(null);
+    }
+  }
+
+  /**
+   * Download robusto del file EC originale.
+   * Fallback: se file_path non e' valido prova a cercare il file nel bucket
+   * bank-statements via storage.list finche' non trova un filename che
+   * contenga il nome dell'EC.
+   */
+  async function downloadEcFile(ec) {
+    if (ec.file_path) {
+      return downloadFile('bank-statements', ec.file_path, ec.filename);
+    }
+    // Fallback: cerca nel bucket per nome file
+    try {
+      const { data: files, error } = await supabase.storage
+        .from('bank-statements')
+        .list(`${companyId}/imports/bank`, { limit: 1000, sortBy: { column: 'created_at', order: 'desc' } });
+      if (error) throw error;
+      const target = (ec.filename || '').toLowerCase();
+      const match = (files || []).find(f => (f.name || '').toLowerCase().includes(target.replace(/\.(xls|xlsx|csv)$/i, '')));
+      if (!match) {
+        showToast('File originale non trovato nello storage', 'error');
+        return;
+      }
+      const path = `${companyId}/imports/bank/${match.name}`;
+      await downloadFile('bank-statements', path, ec.filename || match.name);
+    } catch (err) {
+      showToast('Errore ricerca file: ' + err.message, 'error');
     }
   }
 
@@ -852,30 +914,28 @@ function ArchivioTab({ companyId, showToast }) {
                     </div>
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      onClick={() => openEcPreview(ec)}
+                      className="px-2.5 py-1 bg-emerald-50 text-emerald-700 rounded-lg text-xs font-semibold hover:bg-emerald-100 border border-emerald-200 inline-flex items-center gap-1"
+                      title="Vedi i primi 100 movimenti importati"
+                    >
+                      <Eye size={12} /> Anteprima
+                    </button>
+                    <button
+                      onClick={() => downloadEcFile(ec)}
+                      className="px-2.5 py-1 bg-white text-slate-700 rounded-lg text-xs font-semibold hover:bg-slate-50 border border-slate-200 inline-flex items-center gap-1"
+                      title="Scarica il file originale (.xls/.xlsx) dal bucket bank-statements"
+                    >
+                      <Download size={12} /> Scarica
+                    </button>
                     {ec.bank_account_id && (
                       <button
                         onClick={() => navigate(`/banche?tab=movimenti&account=${ec.bank_account_id}`)}
-                        className="px-2.5 py-1 bg-emerald-50 text-emerald-700 rounded-lg text-xs font-semibold hover:bg-emerald-100 border border-emerald-200 inline-flex items-center gap-1"
-                        title="Apri movimenti di questa banca"
+                        className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg"
+                        title="Apri la pagina Movimenti della banca"
                       >
-                        <Eye size={12} /> Anteprima
+                        <ExternalLink size={14} />
                       </button>
-                    )}
-                    {ec.file_path ? (
-                      <button
-                        onClick={() => downloadFile('bank-statements', ec.file_path, ec.filename)}
-                        className="px-2.5 py-1 bg-white text-slate-700 rounded-lg text-xs font-semibold hover:bg-slate-50 border border-slate-200 inline-flex items-center gap-1"
-                        title="Scarica il file originale dell'estratto conto"
-                      >
-                        <Download size={12} /> Scarica
-                      </button>
-                    ) : (
-                      <span
-                        className="px-2.5 py-1 bg-slate-50 text-slate-400 rounded-lg text-xs font-semibold border border-slate-200 inline-flex items-center gap-1 cursor-not-allowed"
-                        title="File originale non disponibile nello storage"
-                      >
-                        <Download size={12} /> —
-                      </span>
                     )}
                   </div>
                 </div>
@@ -893,6 +953,96 @@ function ArchivioTab({ companyId, showToast }) {
           autoPrint={autoPrintViewer}
           onClose={() => { setViewerXml(null); setAutoPrintViewer(false); }}
         />
+      )}
+
+      {/* ═══════════ EC PREVIEW MODAL ═══════════ */}
+      {ecPreview && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={() => setEcPreview(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-emerald-50 rounded-lg">
+                  <Database size={18} className="text-emerald-600" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-slate-900 text-sm">{ecPreview.ec?.filename || 'Estratto Conto'}</h3>
+                  <p className="text-xs text-slate-500">
+                    {ecPreview.ec?.bank_accounts?.bank_name || 'Banca'}
+                    {ecPreview.ec?.transaction_count != null && ` · ${ecPreview.ec.transaction_count.toLocaleString('it-IT')} movimenti`}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => downloadEcFile(ecPreview.ec)}
+                  className="px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white rounded-lg hover:bg-slate-50 border border-slate-200 flex items-center gap-1"
+                >
+                  <Download size={13} /> Scarica file
+                </button>
+                <button onClick={() => setEcPreview(null)} className="p-1.5 hover:bg-slate-100 rounded-lg">
+                  <X size={18} className="text-slate-500" />
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 overflow-auto">
+              {ecPreview.loading ? (
+                <div className="text-center py-16">
+                  <RefreshCw className="w-8 h-8 animate-spin text-emerald-600 mx-auto mb-3" />
+                  <p className="text-sm text-slate-500">Caricamento movimenti...</p>
+                </div>
+              ) : ecPreview.rows.length === 0 ? (
+                <div className="text-center py-16">
+                  <FileWarning className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                  <p className="text-sm text-slate-500">Nessun movimento trovato per questa banca</p>
+                </div>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-50 border-b border-slate-200 sticky top-0">
+                    <tr>
+                      <th className="px-4 py-2 text-left text-[11px] font-semibold text-slate-600 uppercase">Data</th>
+                      <th className="px-4 py-2 text-left text-[11px] font-semibold text-slate-600 uppercase">Descrizione</th>
+                      <th className="px-4 py-2 text-right text-[11px] font-semibold text-slate-600 uppercase">Importo</th>
+                      <th className="px-4 py-2 text-right text-[11px] font-semibold text-slate-600 uppercase">Saldo</th>
+                      <th className="px-4 py-2 text-center text-[11px] font-semibold text-slate-600 uppercase">Stato</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {ecPreview.rows.map(tx => (
+                      <tr key={tx.id} className="hover:bg-slate-50">
+                        <td className="px-4 py-2 text-slate-600 whitespace-nowrap">{formatDate(tx.transaction_date)}</td>
+                        <td className="px-4 py-2 text-slate-700 truncate max-w-md" title={tx.description}>{tx.description || '—'}</td>
+                        <td className={`px-4 py-2 text-right font-medium whitespace-nowrap ${tx.amount < 0 ? 'text-red-700' : 'text-emerald-700'}`}>
+                          {tx.amount != null ? formatCurrency(tx.amount) : '—'}
+                        </td>
+                        <td className="px-4 py-2 text-right text-slate-500 whitespace-nowrap">
+                          {tx.running_balance != null ? formatCurrency(tx.running_balance) : '—'}
+                        </td>
+                        <td className="px-4 py-2 text-center">
+                          {tx.is_reconciled ? (
+                            <span className="inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700">riconciliato</span>
+                          ) : (
+                            <span className="inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-600">aperto</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+            <div className="px-5 py-2.5 border-t border-slate-100 bg-slate-50 text-xs text-slate-500 flex items-center justify-between shrink-0">
+              <span>Mostrati {ecPreview.rows.length} movimenti{(ecPreview.ec?.transaction_count || 0) > ecPreview.rows.length ? ` di ${ecPreview.ec.transaction_count}` : ''}</span>
+              {ecPreview.ec?.bank_account_id && (
+                <button
+                  onClick={() => { setEcPreview(null); navigate(`/banche?tab=movimenti&account=${ecPreview.ec.bank_account_id}`); }}
+                  className="text-emerald-700 hover:underline flex items-center gap-1"
+                >
+                  Apri tutti in Movimenti <ExternalLink size={11} />
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

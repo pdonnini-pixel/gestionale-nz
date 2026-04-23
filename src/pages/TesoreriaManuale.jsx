@@ -2192,6 +2192,8 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
   const [search, setSearch] = useState('')
   const [selectedMovement, setSelectedMovement] = useState(null)
   const [manualPayableId, setManualPayableId] = useState('')
+  // Nuovo: campo di ricerca per il combobox abbinamento manuale
+  const [manualSearch, setManualSearch] = useState('')
   const [reconciling, setReconciling] = useState(false)
 
   // Get unreconciled outgoing movements
@@ -2210,6 +2212,52 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
     payables.filter(p => p.status === 'da_pagare' || p.status === 'in_scadenza' || p.status === 'scaduto' || p.status === 'parziale'),
     [payables]
   )
+
+  /**
+   * Lista payables per il combobox 'Abbinamento manuale':
+   *  1. Filtra per testo (fornitore, numero fattura, importo)
+   *  2. Ordina per prossimita' all'importo del movimento selezionato (±5%)
+   *     quindi alfabeticamente, quindi per scadenza
+   *  3. Limita a 20 risultati per non appesantire il DOM
+   * Mostra l'importo REALE gross_amount (bug segnalato: mostrava sempre 0).
+   */
+  const manualMatchCandidates = useMemo(() => {
+    const q = manualSearch.trim().toLowerCase()
+    const mvAmt = selectedMovement ? Math.abs(selectedMovement.amount || 0) : null
+    const tolerance = mvAmt ? mvAmt * 0.05 : null
+
+    let list = unpaidPayables.slice()
+
+    if (q.length >= 2) {
+      list = list.filter(p =>
+        getSupplierName(p).toLowerCase().includes(q) ||
+        (p.invoice_number || '').toLowerCase().includes(q) ||
+        String(p.gross_amount || '').includes(q)
+      )
+    }
+
+    list.sort((a, b) => {
+      const aAmt = Math.abs(parseFloat(a.gross_amount) || 0)
+      const bAmt = Math.abs(parseFloat(b.gross_amount) || 0)
+      // Se c'e' un movimento selezionato, metti prima gli importi vicini
+      if (mvAmt != null) {
+        const aDiff = Math.abs(aAmt - mvAmt)
+        const bDiff = Math.abs(bAmt - mvAmt)
+        const aClose = aDiff <= tolerance
+        const bClose = bDiff <= tolerance
+        if (aClose && !bClose) return -1
+        if (!aClose && bClose) return 1
+        if (aClose && bClose) return aDiff - bDiff
+      }
+      // Ordine alfabetico per fornitore
+      const nameCompare = getSupplierName(a).toLowerCase().localeCompare(getSupplierName(b).toLowerCase())
+      if (nameCompare !== 0) return nameCompare
+      // Poi per scadenza
+      return new Date(a.due_date || 0) - new Date(b.due_date || 0)
+    })
+
+    return list.slice(0, 20)
+  }, [unpaidPayables, manualSearch, selectedMovement])
 
   // Auto-match function: match by amount with 5% tolerance, produce confidence score
   const findMatches = useCallback((movement) => {
@@ -2469,20 +2517,62 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
               )}
             </div>
 
-            {/* Manual match */}
+            {/* Manual match — combobox con ricerca, ordinamento alfabetico e
+                pre-ordinamento per importo vicino al movimento selezionato */}
             <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 space-y-3">
               <h3 className="text-sm font-semibold text-slate-700">Abbinamento manuale</h3>
               <div>
-                <label className="block text-xs font-medium text-slate-500 mb-1">Seleziona fattura</label>
-                <select value={manualPayableId} onChange={e => setManualPayableId(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                  <option value="">-- Seleziona --</option>
-                  {unpaidPayables.map(p => (
-                    <option key={p.id} value={p.id}>
-                      {getSupplierName(p)} - {p.invoice_number || 'N/D'} - {fmt((p.amount || 0) - (p.paid_amount || 0))} EUR
-                    </option>
-                  ))}
-                </select>
+                <label className="block text-xs font-medium text-slate-500 mb-1">
+                  Cerca fattura da abbinare
+                  {selectedMovement && (
+                    <span className="text-slate-400 font-normal ml-1">
+                      (le fatture con importo vicino a {fmt(Math.abs(selectedMovement.amount))} € sono in cima)
+                    </span>
+                  )}
+                </label>
+                <input
+                  type="text"
+                  value={manualSearch}
+                  onChange={e => setManualSearch(e.target.value)}
+                  placeholder="Fornitore, n. fattura, importo..."
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <div className="mt-2 max-h-72 overflow-y-auto border border-slate-100 rounded-lg divide-y divide-slate-100">
+                  {manualMatchCandidates.length === 0 ? (
+                    <div className="px-3 py-4 text-center text-xs text-slate-400">
+                      {unpaidPayables.length === 0 ? 'Nessuna fattura non pagata' : 'Nessun risultato — prova altri termini'}
+                    </div>
+                  ) : manualMatchCandidates.map(p => {
+                    const isSelected = manualPayableId === p.id
+                    const amt = Math.abs(parseFloat(p.gross_amount) || 0)
+                    const mvAmt = selectedMovement ? Math.abs(selectedMovement.amount) : null
+                    const isClose = mvAmt && Math.abs(amt - mvAmt) <= mvAmt * 0.05
+                    return (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => setManualPayableId(p.id)}
+                        className={`w-full text-left px-3 py-2 hover:bg-slate-50 flex items-center justify-between gap-3 ${isSelected ? 'bg-blue-50 ring-2 ring-blue-400' : ''}`}
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="text-sm font-medium text-slate-900 truncate">{getSupplierName(p)}</div>
+                          <div className="text-[11px] text-slate-500">
+                            Fatt. {p.invoice_number || '—'} · Scad. {fmtDate ? fmtDate(p.due_date) : p.due_date}
+                            {p.status && <span className="ml-2 text-slate-400">· {p.status}</span>}
+                          </div>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <div className={`text-sm font-semibold ${isClose ? 'text-emerald-700' : 'text-slate-700'}`}>
+                            {fmt(p.gross_amount)} €
+                          </div>
+                          {isClose && (
+                            <div className="text-[9px] text-emerald-600 font-semibold uppercase">match importo</div>
+                          )}
+                        </div>
+                      </button>
+                    )
+                  })}
+                </div>
               </div>
               <div className="flex gap-2">
                 <button onClick={handleManualReconcile} disabled={!manualPayableId || reconciling}
