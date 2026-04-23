@@ -78,51 +78,25 @@ export default function SchedaContabileFornitore() {
         .single();
       setSupplier(sup);
 
-      // Payables — match by supplier_id OR supplier_vat
-      let allPayables = [];
+      // Payables — SOLO da payables, NESSUN join con electronic_invoices (causa raddoppio)
+      // Match per supplier_id OPPURE (supplier_name matching quando supplier_id è null)
+      const supplierName = sup?.name || sup?.ragione_sociale || '';
 
-      // By supplier_id
-      const { data: byId } = await supabase
+      const { data: allData } = await supabase
         .from('payables')
-        .select('*, electronic_invoices:electronic_invoice_id(id, xml_content)')
-        .eq('supplier_id', supplierId)
+        .select('*')
         .eq('company_id', COMPANY_ID)
+        .or(`supplier_id.eq.${supplierId}${supplierName ? `,supplier_name.eq.${supplierName}` : ''}`)
         .order('invoice_date', { ascending: false });
-      allPayables = byId || [];
 
-      // Also match by supplier_vat if supplier has vat
-      if (sup?.vat_number || sup?.partita_iva) {
-        const vat = sup.vat_number || sup.partita_iva;
-        const { data: byVat } = await supabase
-          .from('payables')
-          .select('*, electronic_invoices:electronic_invoice_id(id, xml_content)')
-          .eq('supplier_vat', vat)
-          .eq('company_id', COMPANY_ID)
-          .is('supplier_id', null)
-          .order('invoice_date', { ascending: false });
-        if (byVat?.length > 0) {
-          const existingIds = new Set(allPayables.map(p => p.id));
-          byVat.forEach(p => { if (!existingIds.has(p.id)) allPayables.push(p); });
-        }
-      }
+      // Dedup per ID (in caso di match doppi)
+      const seen = new Set();
+      const allPayables = (allData || []).filter(p => {
+        if (seen.has(p.id)) return false;
+        seen.add(p.id);
+        return true;
+      });
 
-      // Also match by name
-      if (sup?.name || sup?.ragione_sociale) {
-        const name = sup.name || sup.ragione_sociale;
-        const { data: byName } = await supabase
-          .from('payables')
-          .select('*, electronic_invoices:electronic_invoice_id(id, xml_content)')
-          .eq('supplier_name', name)
-          .eq('company_id', COMPANY_ID)
-          .is('supplier_id', null)
-          .order('invoice_date', { ascending: false });
-        if (byName?.length > 0) {
-          const existingIds = new Set(allPayables.map(p => p.id));
-          byName.forEach(p => { if (!existingIds.has(p.id)) allPayables.push(p); });
-        }
-      }
-
-      allPayables.sort((a, b) => new Date(b.invoice_date || 0) - new Date(a.invoice_date || 0));
       setPayables(allPayables);
 
       // Categories
@@ -172,7 +146,6 @@ export default function SchedaContabileFornitore() {
           vat_amount: 0,
           gross_amount: 0,
           rate: [],
-          electronic_invoice: p.electronic_invoices,
           due_date: p.due_date,
           payment_method: p.payment_method,
         });
@@ -284,10 +257,22 @@ export default function SchedaContabileFornitore() {
     });
   };
 
-  const handleViewInvoice = (fattura) => {
-    const xml = fattura.electronic_invoice?.xml_content || fattura.rate?.[0]?.electronic_invoices?.xml_content;
-    if (xml) {
-      setViewingXml(xml);
+  const handleViewInvoice = async (fattura) => {
+    // Cerca XML su electronic_invoices per invoice_number
+    const invoiceNumber = fattura.invoice_number || fattura.rate?.[0]?.invoice_number;
+    if (!invoiceNumber) { alert('XML non disponibile per questa fattura'); return; }
+
+    const { data } = await supabase
+      .from('electronic_invoices')
+      .select('xml_content')
+      .eq('invoice_number', invoiceNumber)
+      .eq('company_id', COMPANY_ID)
+      .not('xml_content', 'is', null)
+      .limit(1)
+      .maybeSingle();
+
+    if (data?.xml_content) {
+      setViewingXml(data.xml_content);
     } else {
       alert('XML non disponibile per questa fattura');
     }

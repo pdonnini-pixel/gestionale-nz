@@ -534,12 +534,13 @@ const ScadenzarioSmart = () => {
     else source = [...payables, ...fiscalAsPayables];
 
     return source.filter((p) => {
+      // Escludi note credito dallo Scadenzario (importi negativi o status nota_credito)
+      if (p.status === 'nota_credito' || parseFloat(p.gross_amount || 0) < 0) return false;
+
       const matchOutlet = !selectedOutlet || p.outlet_id === selectedOutlet;
-      const isNotaCredito = (p.gross_amount || 0) < 0;
       const matchStatus = !selectedStatus
-        || (selectedStatus === 'nota_credito' && isNotaCredito)
-        || (selectedStatus === 'da_saldare' && !isNotaCredito && p.status !== 'pagato')
-        || (selectedStatus !== 'nota_credito' && selectedStatus !== 'da_saldare' && p.status === selectedStatus);
+        || (selectedStatus === 'da_saldare' && p.status !== 'pagato')
+        || (selectedStatus !== 'da_saldare' && p.status === selectedStatus);
       const matchSearch = !searchTerm || (p.invoice_number || '').toLowerCase().includes(searchTerm.toLowerCase()) || (p.suppliers?.ragione_sociale || p.suppliers?.name || '').toLowerCase().includes(searchTerm.toLowerCase());
       const dueDate = new Date(p.due_date);
       const matchDate = dueDate >= new Date(dateRange.start) && dueDate <= new Date(dateRange.end);
