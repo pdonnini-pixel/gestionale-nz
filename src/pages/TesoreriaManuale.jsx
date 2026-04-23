@@ -968,7 +968,9 @@ function UploadStatementModal({ isOpen, onClose, account, companyId, onImported 
             const detected = detectDateFormat(result.rows[0][map.date])
             if (detected !== 'unknown') setDateFormat(detected)
           }
-          setStep('map')
+          // Auto-skip a preview se mapping completo (date + dare/avere o amount)
+          const hasAmounts = map.amount >= 0 || map.dare >= 0 || map.avere >= 0
+          setStep(map.date >= 0 && hasAmounts ? 'preview' : 'map')
         } catch (err) {
           console.error('Excel parse error:', err)
           setParseError(`Errore lettura Excel: ${err.message}`)
@@ -1012,7 +1014,9 @@ function UploadStatementModal({ isOpen, onClose, account, companyId, onImported 
       const detected = detectDateFormat(result.rows[0][map.date])
       if (detected !== 'unknown') setDateFormat(detected)
     }
-    setStep('map')
+    // Auto-skip a preview se mapping completo
+    const hasAmounts = map.amount >= 0 || map.dare >= 0 || map.avere >= 0
+    setStep(map.date >= 0 && hasAmounts ? 'preview' : 'map')
   }
 
   const handlePreview = () => {
