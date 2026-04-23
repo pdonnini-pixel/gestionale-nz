@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   FileText, Search, Download, Eye, RefreshCw,
   X, FileWarning, CheckCircle,
   AlertCircle, Database, FolderOpen, Archive, Users, Receipt,
   ShieldCheck, AlertTriangle, Lock, Unlock, BarChart3,
-  ChevronDown, ChevronRight, Building2
+  ChevronDown, ChevronRight, Building2, ExternalLink
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
@@ -204,10 +205,13 @@ export default function ArchivioDocumenti() {
 // ═══════════════════════════════════════════════════════════════
 
 function ArchivioTab({ companyId, showToast }) {
-  const [invoices, setInvoices] = useState([]);
+  const navigate = useNavigate();
+  const [allInvoices, setAllInvoices] = useState([]); // tutte le fatture (minimal fields) — per anni disponibili e count globale
+  const [invoices, setInvoices] = useState([]);       // fatture dell'anno selezionato (dati completi)
   const [balanceSheets, setBalanceSheets] = useState([]);
   const [ecFiles, setEcFiles] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [loadingYear, setLoadingYear] = useState(false);
 
   // Anno corrente selezionato per la sezione Fatture
   const [year, setYear] = useState(new Date().getFullYear());
@@ -225,24 +229,61 @@ function ArchivioTab({ companyId, showToast }) {
     loadAll();
   }, [companyId]);
 
+  // Quando cambia anno, ricarica solo le fatture dell'anno (filtro DB-level)
+  useEffect(() => {
+    if (!companyId) return;
+    loadInvoicesForYear(year);
+  }, [companyId, year]);
+
   async function loadAll() {
     setLoading(true);
-    await Promise.all([loadInvoices(), loadBalanceSheets(), loadEcFiles()]);
+    await Promise.all([loadAllInvoicesMinimal(), loadBalanceSheets(), loadEcFiles()]);
     setLoading(false);
   }
 
-  async function loadInvoices() {
+  /**
+   * Carica TUTTE le fatture con campi minimi per alimentare il selettore anno
+   * e il count globale delle KPI card. Non viene usato per il rendering.
+   */
+  async function loadAllInvoicesMinimal() {
     try {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('electronic_invoices')
-        .select('id, invoice_number, invoice_date, supplier_name, supplier_vat, customer_name, total_amount, gross_amount, direction, sdi_status, xml_content, xml_file_path, storage_path, created_at')
+        .select('id, invoice_date')
         .eq('company_id', companyId)
-        .order('invoice_date', { ascending: false })
-        .limit(2000);
+        .order('invoice_date', { ascending: false });
+      if (error) throw error;
+      setAllInvoices(data || []);
+    } catch (e) {
+      console.warn('load all invoices:', e.message);
+      setAllInvoices([]);
+    }
+  }
+
+  /**
+   * Carica le fatture dell'anno via range DB-level su invoice_date.
+   * IMPORTANTE: electronic_invoices NON ha colonna `year`, quindi il filtro
+   * deve passare da invoice_date. Usiamo gte/lt sull'anno successivo cosi
+   * includiamo anche il 31/12 senza problemi di fuso.
+   */
+  async function loadInvoicesForYear(y) {
+    setLoadingYear(true);
+    try {
+      const { data, error } = await supabase
+        .from('electronic_invoices')
+        .select('*')
+        .eq('company_id', companyId)
+        .gte('invoice_date', `${y}-01-01`)
+        .lt('invoice_date', `${y + 1}-01-01`)
+        .order('invoice_date', { ascending: false });
+      if (error) throw error;
       setInvoices(data || []);
     } catch (e) {
-      console.warn('load invoices:', e.message);
+      console.warn('load invoices year:', e.message);
+      showToast && showToast('Errore caricamento fatture: ' + e.message, 'error');
       setInvoices([]);
+    } finally {
+      setLoadingYear(false);
     }
   }
 
@@ -262,30 +303,29 @@ function ArchivioTab({ companyId, showToast }) {
   }
 
   /**
-   * Gli estratti conto NON hanno una tabella dedicata: i file raw sono nel
-   * bucket 'bank-statements'. Li leggiamo anche dalla tabella bank_imports
-   * che ha i metadati (bank_account_id, period, ecc.) e deduplichiamo per
-   * nome file.
+   * Estratti conto: leggiamo dalla tabella `bank_statements` che contiene i
+   * metadati degli import (filename, banca, transaction_count, status).
+   * Dedupliciamo per bank_account_id tenendo l'import piu' recente: i file
+   * precedenti dello stesso conto erano ri-upload.
    */
   async function loadEcFiles() {
     try {
-      const { data: imports } = await supabase
-        .from('bank_imports')
-        .select('id, file_name, file_path, file_size, bank_account_id, uploaded_at, created_at, status, bank_accounts(bank_name, account_name)')
+      const { data, error } = await supabase
+        .from('bank_statements')
+        .select('id, filename, file_type, transaction_count, status, bank_account_id, created_at, bank_accounts(bank_name, account_name)')
         .eq('company_id', companyId)
-        .order('uploaded_at', { ascending: false })
+        .order('created_at', { ascending: false })
         .limit(200);
+      if (error) throw error;
 
-      // Deduplica per nome file tenendo l'upload piu' recente
-      const uniq = new Map();
-      for (const row of (imports || [])) {
-        const key = (row.file_name || '').toLowerCase();
-        if (!key) continue;
-        const existing = uniq.get(key);
-        const ts = new Date(row.uploaded_at || row.created_at || 0).getTime();
-        if (!existing || ts > existing._ts) uniq.set(key, { ...row, _ts: ts });
+      // Deduplica per bank_account_id: tieni solo l'import piu' recente per
+      // ogni conto (ordinato desc, il primo visto e' il piu' recente)
+      const latestByAccount = new Map();
+      for (const ec of (data || [])) {
+        const key = ec.bank_account_id || ec.id;
+        if (!latestByAccount.has(key)) latestByAccount.set(key, ec);
       }
-      setEcFiles(Array.from(uniq.values()));
+      setEcFiles(Array.from(latestByAccount.values()));
     } catch (e) {
       console.warn('load ec files:', e.message);
       setEcFiles([]);
@@ -294,31 +334,40 @@ function ArchivioTab({ companyId, showToast }) {
 
   // ─── DATI DERIVATI ─────────────────────────────────────────
 
-  // Anni presenti nelle fatture (per il selector)
+  // Anni presenti nelle fatture (per il selector). Legge da allInvoices che
+  // contiene solo id + invoice_date di TUTTE le fatture.
   const availableYears = useMemo(() => {
     const years = new Set([new Date().getFullYear()]);
-    invoices.forEach(inv => {
-      if (inv.invoice_date) years.add(new Date(inv.invoice_date).getFullYear());
+    allInvoices.forEach(inv => {
+      if (!inv.invoice_date) return;
+      // Uso substring per evitare problemi di timezone sul Date parsing
+      const y = parseInt((inv.invoice_date + '').substring(0, 4), 10);
+      if (y && !isNaN(y)) years.add(y);
     });
     return Array.from(years).sort((a, b) => b - a);
-  }, [invoices]);
+  }, [allInvoices]);
 
-  // Fatture filtrate per anno + ricerca
-  const filteredInvoices = useMemo(() => {
-    let list = invoices.filter(inv => {
-      if (!inv.invoice_date) return false;
-      return new Date(inv.invoice_date).getFullYear() === year;
+  // Conteggio fatture per ciascun anno (usato per i KPI "fatture nell'anno")
+  const invoicesPerYear = useMemo(() => {
+    const counts = {};
+    allInvoices.forEach(inv => {
+      if (!inv.invoice_date) return;
+      const y = (inv.invoice_date + '').substring(0, 4);
+      counts[y] = (counts[y] || 0) + 1;
     });
-    if (searchInvoices.trim()) {
-      const q = searchInvoices.toLowerCase();
-      list = list.filter(inv =>
-        (inv.supplier_name || '').toLowerCase().includes(q) ||
-        (inv.invoice_number || '').toLowerCase().includes(q) ||
-        (inv.supplier_vat || '').toLowerCase().includes(q)
-      );
-    }
-    return list;
-  }, [invoices, year, searchInvoices]);
+    return counts;
+  }, [allInvoices]);
+
+  // Fatture filtrate per ricerca (il filtro anno e' gia' DB-level)
+  const filteredInvoices = useMemo(() => {
+    if (!searchInvoices.trim()) return invoices;
+    const q = searchInvoices.toLowerCase();
+    return invoices.filter(inv =>
+      (inv.supplier_name || '').toLowerCase().includes(q) ||
+      (inv.invoice_number || '').toLowerCase().includes(q) ||
+      (inv.supplier_vat || '').toLowerCase().includes(q)
+    );
+  }, [invoices, searchInvoices]);
 
   // Fatture raggruppate
   const groups = useMemo(() => {
@@ -418,12 +467,18 @@ function ArchivioTab({ companyId, showToast }) {
 
   return (
     <div className="space-y-6">
-      {/* KPI CARDS */}
+      {/* KPI CARDS — conteggi dinamici sull'anno selezionato per le fatture */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <KpiCard label="Fatture" value={invoices.length} icon={Receipt} color="blue" sub={`${availableYears.length} anni`} />
+        <KpiCard
+          label={`Fatture ${year}`}
+          value={invoices.length}
+          icon={Receipt}
+          color="blue"
+          sub={`Totale: ${allInvoices.length} su ${availableYears.length} ann${availableYears.length === 1 ? 'o' : 'i'}`}
+        />
         <KpiCard label="Bilanci" value={balanceSheets.length} icon={BarChart3} color="indigo" sub="PDF archiviati" />
-        <KpiCard label="Estratti Conto" value={ecFiles.length} icon={Database} color="emerald" sub="file bancari" />
-        <KpiCard label="Totale documenti" value={invoices.length + balanceSheets.length + ecFiles.length} icon={FolderOpen} color="slate" sub="consultabili qui" />
+        <KpiCard label="Estratti Conto" value={ecFiles.length} icon={Database} color="emerald" sub={`${ecFiles.reduce((s, e) => s + (e.transaction_count || 0), 0)} movimenti totali`} />
+        <KpiCard label={`Totale ${year}`} value={invoices.length + balanceSheets.length + ecFiles.length} icon={FolderOpen} color="slate" sub="documenti consultabili" />
       </div>
 
       {loading && (
@@ -441,8 +496,13 @@ function ArchivioTab({ companyId, showToast }) {
               <Receipt size={18} className="text-blue-600" />
             </div>
             <div>
-              <h2 className="font-semibold text-slate-900">Fatture Ricevute</h2>
-              <p className="text-xs text-slate-500">{filteredInvoices.length} fatture · {formatCurrency(totalInvoicesAmount)}</p>
+              <h2 className="font-semibold text-slate-900 flex items-center gap-2">
+                Fatture Ricevute {year}
+                {loadingYear && <RefreshCw size={14} className="animate-spin text-blue-500" />}
+              </h2>
+              <p className="text-xs text-slate-500">
+                {filteredInvoices.length} fattur{filteredInvoices.length === 1 ? 'a' : 'e'} · {formatCurrency(totalInvoicesAmount)}
+              </p>
             </div>
           </div>
 
@@ -470,8 +530,16 @@ function ArchivioTab({ companyId, showToast }) {
               value={year}
               onChange={e => { setYear(Number(e.target.value)); setExpandedGroups(new Set()); }}
               className="px-3 py-1.5 border border-slate-200 rounded-lg text-sm"
+              title="Anno fatture"
             >
-              {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
+              {availableYears.map(y => {
+                const count = invoicesPerYear[String(y)] || 0;
+                return (
+                  <option key={y} value={y}>
+                    {y}{count > 0 ? ` (${count})` : ''}
+                  </option>
+                );
+              })}
             </select>
           </div>
         </div>
@@ -645,28 +713,34 @@ function ArchivioTab({ companyId, showToast }) {
               const bankLabel = ec.bank_accounts?.bank_name
                 ? `${ec.bank_accounts.bank_name}${ec.bank_accounts.account_name ? ` — ${ec.bank_accounts.account_name}` : ''}`
                 : 'Banca';
+              const statusColor = ec.status === 'completed' ? 'text-emerald-600'
+                : ec.status === 'processing' ? 'text-amber-600'
+                : 'text-slate-500';
               return (
                 <div key={ec.id} className="px-5 py-3 flex items-center gap-3 hover:bg-slate-50">
                   <div className="p-2 bg-emerald-50 rounded-lg shrink-0">
                     <FileText size={16} className="text-emerald-600" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="font-medium text-slate-800 truncate" title={ec.file_name}>
-                      {ec.file_name || 'EC senza nome'}
+                    <div className="font-medium text-slate-800 truncate" title={ec.filename}>
+                      {ec.filename || 'EC senza nome'}
                     </div>
-                    <div className="text-xs text-slate-500 flex gap-3">
-                      <span>{bankLabel}</span>
-                      <span>{formatDate(ec.uploaded_at || ec.created_at)}</span>
-                      {ec.file_size && <span>{formatSize(ec.file_size)}</span>}
-                      {ec.status && <span className="text-emerald-600">· {ec.status}</span>}
+                    <div className="text-xs text-slate-500 flex flex-wrap gap-x-3 gap-y-1">
+                      <span className="font-medium text-slate-700">{bankLabel}</span>
+                      {ec.transaction_count != null && (
+                        <span>{ec.transaction_count.toLocaleString('it-IT')} movimenti</span>
+                      )}
+                      <span>{formatDate(ec.created_at)}</span>
+                      {ec.status && <span className={statusColor}>· {ec.status}</span>}
                     </div>
                   </div>
-                  {ec.file_path && (
+                  {ec.bank_account_id && (
                     <button
-                      onClick={() => downloadFile('bank-statements', ec.file_path, ec.file_name)}
-                      className="px-2.5 py-1 bg-white text-slate-700 rounded-lg text-xs font-semibold hover:bg-slate-50 border border-slate-200 inline-flex items-center gap-1"
+                      onClick={() => navigate(`/banche?tab=movimenti&account=${ec.bank_account_id}`)}
+                      className="px-2.5 py-1 bg-emerald-50 text-emerald-700 rounded-lg text-xs font-semibold hover:bg-emerald-100 border border-emerald-200 inline-flex items-center gap-1"
+                      title="Apri movimenti di questa banca"
                     >
-                      <Download size={12} /> Scarica
+                      <ExternalLink size={12} /> Vai a Movimenti
                     </button>
                   )}
                 </div>
