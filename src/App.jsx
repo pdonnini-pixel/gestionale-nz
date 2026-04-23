@@ -34,6 +34,7 @@ const ScadenzeFiscali = lazy(() => import('./pages/ScadenzeFiscali'))
 const AICategoriePage = lazy(() => import('./pages/AICategoriePage'))
 const BankingCallback = lazy(() => import('./pages/BankingCallback'))
 const AllocazioneFornitori = lazy(() => import('./pages/AllocazioneFornitori'))
+const SchedaContabileFornitore = lazy(() => import('./pages/SchedaContabileFornitore'))
 
 // Spinner per lazy loading
 function PageLoader() {
@@ -91,6 +92,7 @@ function AppRoutes() {
           <Route path="store-manager" element={<StoreManager />} />
           <Route path="import-hub" element={<ImportHub />} />
           <Route path="fornitori" element={<Fornitori />} />
+          <Route path="fornitori/:supplierId/scheda-contabile" element={<SchedaContabileFornitore />} />
           <Route path="allocazione-fornitori" element={<AllocazioneFornitori />} />
           <Route path="fatturazione" element={<Fatturazione />} />
           <Route path="scadenze-fiscali" element={<ScadenzeFiscali />} />

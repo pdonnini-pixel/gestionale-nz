@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import PageHelp from '../components/PageHelp';
 import {
   Building2, Search, Plus, Edit3, Trash2, FileText, Phone, Mail, MapPin,
   CreditCard, Clock, AlertTriangle, CheckCircle, ChevronDown, ChevronUp,
   X, Filter, Download, TrendingUp, Calendar, ArrowUpDown, ExternalLink,
-  Loader2, Eye, BarChart3, PieChart as PieChartIcon, Banknote
+  Loader2, Eye, BarChart3, PieChart as PieChartIcon, Banknote, BookOpen
 } from 'lucide-react';
 import {
   BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid,
@@ -72,6 +73,7 @@ const CATEGORIES = [
 ];
 
 export default function Fornitori() {
+  const navigate = useNavigate();
   const { profile } = useAuth();
   const COMPANY_ID = profile?.company_id;
 
@@ -609,6 +611,9 @@ export default function Fornitori() {
                         </td>
                         <td className="px-2 py-2.5 text-center">
                           <div className="flex items-center justify-center gap-0.5">
+                            <button onClick={(e) => { e.stopPropagation(); navigate(`/fornitori/${s.id}/scheda-contabile`); }} className="p-1 rounded hover:bg-blue-50 text-slate-400 hover:text-blue-600 transition" title="Scheda contabile">
+                              <BookOpen size={14} />
+                            </button>
                             <button onClick={(e) => { e.stopPropagation(); openEdit(s); }} className="p-1 rounded hover:bg-indigo-50 text-slate-400 hover:text-indigo-600 transition" title="Modifica">
                               <Edit3 size={14} />
                             </button>
