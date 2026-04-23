@@ -404,6 +404,28 @@ function ArchivioTab({ companyId, showToast }) {
     [filteredInvoices]
   );
 
+  // Quando l'utente inizia a cercare, espande automaticamente i gruppi che
+  // contengono risultati cosi vede subito cosa ha trovato senza click extra.
+  // Se cancella la ricerca tornano tutti chiusi.
+  useEffect(() => {
+    if (!searchInvoices.trim()) {
+      setExpandedGroups(new Set());
+      return;
+    }
+    const matches = new Set(groups.map(g => g.key));
+    setExpandedGroups(matches);
+  }, [searchInvoices]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const allExpanded = groups.length > 0 && groups.every(g => expandedGroups.has(g.key));
+
+  function toggleAllGroups() {
+    if (allExpanded) {
+      setExpandedGroups(new Set());
+    } else {
+      setExpandedGroups(new Set(groups.map(g => g.key)));
+    }
+  }
+
   function toggleGroup(key) {
     setExpandedGroups(prev => {
       const next = new Set(prev);
@@ -517,6 +539,16 @@ function ArchivioTab({ companyId, showToast }) {
                 className="pl-8 pr-3 py-1.5 border border-slate-200 rounded-lg text-sm w-56"
               />
             </div>
+            {groups.length > 0 && (
+              <button
+                onClick={toggleAllGroups}
+                className="px-3 py-1.5 border border-slate-200 rounded-lg text-sm text-slate-700 hover:bg-slate-50 inline-flex items-center gap-1.5"
+                title={allExpanded ? 'Chiudi tutti i gruppi' : 'Apri tutti i gruppi'}
+              >
+                {allExpanded ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+                {allExpanded ? 'Comprimi tutti' : 'Espandi tutti'}
+              </button>
+            )}
             <select
               value={groupBy}
               onChange={e => { setGroupBy(e.target.value); setExpandedGroups(new Set()); }}
