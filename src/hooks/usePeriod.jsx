@@ -5,14 +5,9 @@ const PeriodContext = createContext(null)
 const CURRENT_YEAR = new Date().getFullYear()
 
 export function PeriodProvider({ children }) {
-  const [year, setYear] = useState(() => {
-    try { return parseInt(localStorage.getItem('nz_period_year')) || CURRENT_YEAR }
-    catch { return CURRENT_YEAR }
-  })
-  const [quarter, setQuarter] = useState(() => {
-    try { return localStorage.getItem('nz_period_quarter') || 'year' }
-    catch { return 'year' }
-  })
+  // Al refresh: SEMPRE anno corrente e vista anno intero (no localStorage)
+  const [year, setYear] = useState(CURRENT_YEAR)
+  const [quarter, setQuarter] = useState('year')
 
   const updateYear = useCallback((y) => {
     setYear(y)

@@ -562,18 +562,19 @@ export default function Dashboard() {
       {/* ─── 4 KPI PRINCIPALI ─── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         <KpiCard
-          icon={DollarSign} title="Ricavi" color="blue"
-          value={`${fmtCompact(ricavi)} €`}
-          trend={deltaRicaviPct}
-          subtitle={ricaviPrevYear > 0 ? `vs ${fmtCompact(ricaviPrevYear)} € anno prec.` : periodRange.label}
+          icon={DollarSign} title="Ricavi" color={dataSource === 'fatture' ? 'amber' : 'blue'}
+          value={ricavi > 0 ? `${fmtCompact(ricavi)} €` : 'N/D'}
+          trend={ricavi > 0 ? deltaRicaviPct : null}
+          subtitle={ricavi > 0 ? (ricaviPrevYear > 0 ? `vs ${fmtCompact(ricaviPrevYear)} € anno prec.` : periodRange.label) : 'Importa bilancio per i ricavi'}
           link="/conto-economico"
         />
         <KpiCard
-          icon={Percent} title="Margine netto" helpTerm="margine" color={utile >= 0 ? 'green' : 'red'}
-          value={`${marginePct.toFixed(1)}%`}
-          subtitle={`Utile: ${fmtCompact(utile)} €`}
-          link="/conto-economico"
-          alert={utile < 0}
+          icon={Percent} title={dataSource === 'fatture' ? 'Costi fatture' : 'Margine netto'} helpTerm="margine"
+          color={dataSource === 'fatture' ? 'amber' : utile >= 0 ? 'green' : 'red'}
+          value={dataSource === 'fatture' ? `${fmtCompact(totalCosti)} €` : `${marginePct.toFixed(1)}%`}
+          subtitle={dataSource === 'fatture' ? `${YEAR} — da fatture passive` : `Utile: ${fmtCompact(utile)} €`}
+          link={dataSource === 'fatture' ? '/fatturazione' : '/conto-economico'}
+          alert={dataSource !== 'fatture' && utile < 0}
         />
         <KpiCard
           icon={Wallet} title="Liquidità" color={liquidita >= 0 ? 'cyan' : 'red'}
@@ -696,12 +697,15 @@ export default function Dashboard() {
           </Link>
         </div>
 
-        {outletsData.length === 0 ? (
+        {outletsData.length === 0 || (outletsData.length === 1 && !outletsData[0]?.name) ? (
           <div className="p-4">
-            <div className="flex items-center gap-3 py-4 px-3 bg-slate-50 rounded-lg">
-              <Info size={16} className="text-slate-400 shrink-0" />
-              <p className="text-xs text-slate-500">
-                Nessun dato outlet. <Link to="/import-hub" className="text-blue-500 hover:underline">Importa dati</Link> per vedere il ranking.
+            <div className="flex items-center gap-3 py-4 px-3 bg-amber-50 rounded-lg">
+              <Info size={16} className="text-amber-500 shrink-0" />
+              <p className="text-xs text-slate-600">
+                {dataSource === 'fatture'
+                  ? <>Le fatture {YEAR} non sono associate agli outlet. <Link to="/allocazione-fornitori" className="text-blue-500 hover:underline">Assegna i fornitori agli outlet</Link> per vedere il ranking.</>
+                  : <>Nessun dato outlet. <Link to="/import-hub" className="text-blue-500 hover:underline">Importa dati</Link> per vedere il ranking.</>
+                }
               </p>
             </div>
           </div>

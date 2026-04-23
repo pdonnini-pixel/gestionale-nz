@@ -14,7 +14,8 @@ import {
 // ─── PERIOD SELECTOR ──────────────────────────────────────────
 function PeriodSelector() {
   const { year, quarter, setYear, setQuarter } = usePeriod()
-  const years = [2024, 2025, 2026]
+  const currentYear = new Date().getFullYear()
+  const years = [currentYear - 1, currentYear] // Solo anni con dati + anno corrente
   const quarters = [
     { value: 'year', label: 'Anno' },
     { value: 'ytd', label: 'YTD' },
