@@ -39,6 +39,7 @@ const statusColorMap = {
   deposited: 'slate',
   sospeso: 'slate',
   annullato: 'slate',
+  nota_credito: 'emerald',
 }
 
 const colorStyles = {

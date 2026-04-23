@@ -189,13 +189,17 @@ export default function SchedaContabileFornitore() {
     return [...map.values()].sort((a, b) => new Date(b.invoice_date || 0) - new Date(a.invoice_date || 0));
   }, [filteredPayables]);
 
-  // KPIs
+  // KPIs — gestione Note Credito
   const kpis = useMemo(() => {
-    const totFatturato = payables.reduce((s, p) => s + parseFloat(p.gross_amount || 0), 0);
-    const totPagato = payables.filter(p => p.status === 'pagato').reduce((s, p) => s + parseFloat(p.gross_amount || 0), 0);
-    const esposto = totFatturato - totPagato;
+    const totFatturato = payables.filter(p => parseFloat(p.gross_amount || 0) > 0)
+      .reduce((s, p) => s + parseFloat(p.gross_amount || 0), 0);
+    const totCrediti = payables.filter(p => p.status === 'nota_credito' || parseFloat(p.gross_amount || 0) < 0)
+      .reduce((s, p) => s + Math.abs(parseFloat(p.gross_amount || 0)), 0);
+    const totPagato = payables.filter(p => p.status === 'pagato')
+      .reduce((s, p) => s + parseFloat(p.gross_amount || 0), 0);
+    const esposto = totFatturato - totCrediti - totPagato;
     const scadute = payables.filter(p => p.status === 'scaduto').length;
-    return { totFatturato, totPagato, esposto, scadute, totali: payables.length };
+    return { totFatturato, totPagato, totCrediti, esposto, scadute, totali: payables.length };
   }, [payables]);
 
   // Year totals
@@ -212,34 +216,54 @@ export default function SchedaContabileFornitore() {
 
   // ─── Partitario ────────────────────────────────────────────
   const partitario = useMemo(() => {
-    // DARE: fatture (una riga per invoice_number con totale)
-    const dareMap = new Map();
+    // Raggruppare fatture per invoice_number
+    const invoiceMap = new Map();
     for (const p of filteredPayables) {
       const key = p.invoice_number || p.id;
-      if (!dareMap.has(key)) {
-        dareMap.set(key, {
-          data: p.invoice_date,
+      if (!invoiceMap.has(key)) {
+        invoiceMap.set(key, { date: p.invoice_date, amount: 0, isNotaCredito: false });
+      }
+      const entry = invoiceMap.get(key);
+      entry.amount += parseFloat(p.gross_amount || 0);
+      if (p.status === 'nota_credito' || parseFloat(p.gross_amount || 0) < 0) {
+        entry.isNotaCredito = true;
+      }
+    }
+
+    // DARE: fatture positive, AVERE: note credito
+    const movimenti = [];
+    for (const [invoiceNumber, entry] of invoiceMap) {
+      if (entry.isNotaCredito) {
+        movimenti.push({
+          data: entry.date,
+          tipo: 'avere',
+          descrizione: `Nota Credito ${invoiceNumber}`,
+          importo: Math.abs(entry.amount),
+        });
+      } else {
+        movimenti.push({
+          data: entry.date,
           tipo: 'dare',
-          descrizione: `Fatt. ${p.invoice_number || '—'}`,
-          importo: 0,
+          descrizione: `Fatt. ${invoiceNumber}`,
+          importo: entry.amount,
         });
       }
-      dareMap.get(key).importo += parseFloat(p.gross_amount || 0);
     }
-    const dare = [...dareMap.values()];
 
-    // AVERE: pagamenti diretti
-    const avere = filteredPayables
+    // AVERE: pagamenti reali (payables con status='pagato' e payment_date)
+    filteredPayables
       .filter(p => p.status === 'pagato' && p.payment_date)
-      .map(p => ({
-        data: p.payment_date,
-        tipo: 'avere',
-        descrizione: `Pagamento — Fatt. ${p.invoice_number || '—'}`,
-        importo: parseFloat(p.gross_amount || 0),
-      }));
+      .forEach(p => {
+        movimenti.push({
+          data: p.payment_date,
+          tipo: 'avere',
+          descrizione: `Pagamento — Fatt. ${p.invoice_number || '—'}`,
+          importo: parseFloat(p.gross_amount || 0),
+        });
+      });
 
-    // Merge + sort
-    const movimenti = [...dare, ...avere].sort((a, b) => new Date(a.data || 0) - new Date(b.data || 0));
+    // Sort cronologico
+    movimenti.sort((a, b) => new Date(a.data || 0) - new Date(b.data || 0));
 
     // Saldo progressivo
     let saldo = 0;
@@ -274,7 +298,7 @@ export default function SchedaContabileFornitore() {
       .filter(p => p.status === 'scaduto' || p.status === 'in_scadenza')
       .map(p => p.id)
       .join(',');
-    if (ids) navigate(`/banche?tab=pagamenti&select=${ids}`);
+    if (ids) navigate(`/scadenzario?supplier=${supplierId}&select=${ids}`);
   };
 
   const handlePrintScheda = () => {
@@ -508,7 +532,7 @@ export default function SchedaContabileFornitore() {
                 <tr><td colSpan={10} className="px-4 py-8 text-center text-slate-400">Nessuna fattura per il periodo selezionato</td></tr>
               )}
               {fattureGrouped.map((f, idx) => {
-                const hasRate = f.rate.length > 1;
+                const hasRate = f.rate.length > 1 && f.rate.some(r => r.installment_number != null);
                 const isExpanded = expandedInvoices.has(f.invoice_number);
                 const dd = daysDiff(f.due_date);
                 const dueBadge = f.status === 'pagato'
@@ -539,7 +563,7 @@ export default function SchedaContabileFornitore() {
                       </td>
                       <td className="px-3 py-2 text-right text-slate-600">{fmt(f.net_amount)}</td>
                       <td className="px-3 py-2 text-right text-slate-600">{fmt(f.vat_amount)}</td>
-                      <td className="px-3 py-2 text-right font-semibold text-slate-900">{fmt(f.gross_amount)}</td>
+                      <td className={`px-3 py-2 text-right font-semibold ${f.gross_amount < 0 ? 'text-emerald-700' : 'text-slate-900'}`}>{fmt(f.gross_amount)}</td>
                       <td className="px-3 py-2 text-center"><StatusBadge status={f.status} size="sm" /></td>
                       <td className="px-3 py-2 text-center text-xs">{dueBadge}</td>
                       <td className="px-2 py-2 text-center">
@@ -547,8 +571,8 @@ export default function SchedaContabileFornitore() {
                           <button onClick={() => handleViewInvoice(f)} className="p-1 rounded hover:bg-blue-50 text-slate-400 hover:text-blue-600 transition" title="Vedi fattura">
                             <Eye size={14} />
                           </button>
-                          {f.status !== 'pagato' && (
-                            <button onClick={() => navigate(`/banche?tab=pagamenti&select=${f.rate[0]?.id}`)} className="p-1 rounded hover:bg-emerald-50 text-slate-400 hover:text-emerald-600 transition" title="Paga">
+                          {f.status !== 'pagato' && f.status !== 'nota_credito' && parseFloat(f.gross_amount) > 0 && (
+                            <button onClick={() => navigate(`/scadenzario?select=${f.rate[0]?.id}`)} className="p-1 rounded hover:bg-emerald-50 text-slate-400 hover:text-emerald-600 transition" title="Paga">
                               <CreditCard size={14} />
                             </button>
                           )}

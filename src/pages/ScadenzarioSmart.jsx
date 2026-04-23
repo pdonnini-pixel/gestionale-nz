@@ -42,6 +42,7 @@ const statusConfig = {
   pagato: { label: 'Pagato', bg: 'bg-emerald-100 text-emerald-700' },
   annullato: { label: 'Annullato', bg: 'bg-gray-100 text-gray-500' },
   contestato: { label: 'Contestato', bg: 'bg-purple-100 text-purple-700' },
+  nota_credito: { label: 'Nota Credito', bg: 'bg-emerald-100 text-emerald-700' },
 };
 
 // Payment method labels

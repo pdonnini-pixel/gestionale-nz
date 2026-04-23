@@ -677,7 +677,7 @@ function TabPanoramica({ accounts, transactions, payables, onNavigate }) {
             ) : (
               upcomingPayables.slice(0, 8).map(p => {
                 const days = daysUntil(p.due_date)
-                const remaining = (p.amount || 0) - (p.paid_amount || 0)
+                const remaining = parseFloat(p.gross_amount || p.amount_remaining || 0)
                 return (
                   <div key={p.id} className="flex items-center gap-3 px-5 py-3 hover:bg-slate-50">
                     <div className={classNames(
