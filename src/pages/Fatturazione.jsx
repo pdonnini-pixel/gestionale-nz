@@ -265,15 +265,27 @@ function FatturePassive() {
 
   return (
     <div className="space-y-4">
-      {/* KPI */}
-      {stats && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <KpiCard icon={FileText} label="Fatture passive" value={stats.total} color="blue" />
-          <KpiCard icon={Euro} label="Totale lordo" value={`€ ${fmt(stats.totalAmount)}`} color="green" />
-          <KpiCard icon={Zap} label="Con ID SDI" value={stats.withSdi} sub={`${stats.total - stats.withSdi} senza`} color="amber" />
-          <KpiCard icon={CheckCircle} label="Accettate" value={stats.byStatus.ACCEPTED || 0} sub={`${stats.byStatus.REJECTED || 0} scartate`} color="green" />
-        </div>
-      )}
+      {/* KPI — coerenti col badge tab. Fatture totali include le NC: il
+          sub-testo separa fatture positive da note credito cosi' il numero
+          principale corrisponde al badge del tab (es. "202 = 198 fatt + 4 NC"). */}
+      {stats && (() => {
+        const notCrediti = filtered.filter(inv => (Number(inv.gross_amount) || 0) < 0).length;
+        const fattureNormali = stats.total - notCrediti;
+        return (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <KpiCard
+              icon={FileText}
+              label="Fatture passive"
+              value={stats.total}
+              sub={notCrediti > 0 ? `${fattureNormali} fatture + ${notCrediti} note credito` : undefined}
+              color="blue"
+            />
+            <KpiCard icon={Euro} label="Totale lordo" value={`€ ${fmt(stats.totalAmount)}`} color="green" />
+            <KpiCard icon={Zap} label="Con ID SDI" value={stats.withSdi} sub={`${stats.total - stats.withSdi} senza`} color="amber" />
+            <KpiCard icon={CheckCircle} label="Accettate" value={stats.byStatus.ACCEPTED || 0} sub={`${stats.byStatus.REJECTED || 0} scartate`} color="green" />
+          </div>
+        );
+      })()}
 
       {/* Toolbar */}
       <div className="flex flex-wrap items-center gap-3">
@@ -1243,11 +1255,16 @@ function Corrispettivi() {
 export default function Fatturazione() {
   const [activeTab, setActiveTab] = useState('passive')
   const [sdiStats, setSdiStats] = useState(null)
+  // Conteggio diretto da electronic_invoices — fonte unica per il badge
+  // sul tab cosi' e' SEMPRE coerente con la tabella mostrata sotto. Prima
+  // il badge usava sdiStats (edge function SDI) e il KPI 'Fatture passive'
+  // usava la query DB — differivano di 4 unita'.
+  const [invoiceCounts, setInvoiceCounts] = useState({ passive: 0, active: 0 })
   const [syncing, setSyncing] = useState(false)
   const [syncResult, setSyncResult] = useState(null)
   const [syncKey, setSyncKey] = useState(0) // increment to force child refresh
 
-  // Carica statistiche SDI globali
+  // Carica statistiche SDI globali (config + stato)
   const loadStats = useCallback(async () => {
     try {
       const result = await callEdgeFunction('sdi-status-check', 'GET')
@@ -1257,7 +1274,24 @@ export default function Fatturazione() {
     }
   }, [])
 
-  useEffect(() => { loadStats() }, [loadStats])
+  // Count diretto da electronic_invoices per badge tab coerente
+  const loadInvoiceCounts = useCallback(async () => {
+    try {
+      // Uso head:true + count:'exact' per ottenere solo il count senza dati
+      const [passiveRes, activeRes] = await Promise.all([
+        supabase.from('electronic_invoices').select('id', { count: 'exact', head: true }).eq('direction', 'inbound'),
+        supabase.from('electronic_invoices').select('id', { count: 'exact', head: true }).eq('direction', 'outbound'),
+      ])
+      setInvoiceCounts({
+        passive: passiveRes.count || 0,
+        active: activeRes.count || 0,
+      })
+    } catch (err) {
+      console.warn('loadInvoiceCounts:', err.message)
+    }
+  }, [])
+
+  useEffect(() => { loadStats(); loadInvoiceCounts() }, [loadStats, loadInvoiceCounts])
 
   // Sincronizza fatture + corrispettivi dal cassetto fiscale AdE
   // Usa Netlify Function (Node.js) per supporto mTLS con certificati client
@@ -1301,8 +1335,10 @@ export default function Fatturazione() {
   }
 
   const tabs = [
-    { id: 'passive', label: 'Fatture Passive', icon: Inbox, count: sdiStats?.passive?.total },
-    { id: 'active', label: 'Fatture Attive', icon: ArrowUpRight, count: sdiStats?.active?.total },
+    // Badge: count diretto da electronic_invoices (stessa fonte del KPI
+    // dentro la tab) cosi' i due numeri NON divergono mai.
+    { id: 'passive', label: 'Fatture Passive', icon: Inbox, count: invoiceCounts.passive || sdiStats?.passive?.total },
+    { id: 'active', label: 'Fatture Attive', icon: ArrowUpRight, count: invoiceCounts.active || sdiStats?.active?.total },
     { id: 'corrispettivi', label: 'Corrispettivi', icon: Store, count: sdiStats?.corrispettivi?.total },
   ]
 

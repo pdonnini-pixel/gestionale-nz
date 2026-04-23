@@ -110,6 +110,13 @@ export default function Fornitori() {
 
   async function loadData() {
     setLoading(true);
+    // Timeout di sicurezza: se una query supera 15 secondi forziamo l'uscita
+    // dallo stato di loading per evitare spinner infinito (bug segnalato
+    // quando l'anno selezionato nel layout non ha dati).
+    const timeoutId = setTimeout(() => {
+      console.warn('Fornitori.loadData timeout 15s — forzo uscita spinner');
+      setLoading(false);
+    }, 15000);
     try {
       const [suppRes, payRes, invRes] = await Promise.all([
         supabase.from('suppliers').select('*')
@@ -117,10 +124,16 @@ export default function Fornitori() {
           .or('is_deleted.is.null,is_deleted.eq.false')
           .order('ragione_sociale', { ascending: true }),
         supabase.from('payables').select('*')
-          .eq('company_id', COMPANY_ID),
+          .eq('company_id', COMPANY_ID)
+          .limit(5000),
         supabase.from('electronic_invoices').select('*')
-          .eq('company_id', COMPANY_ID),
+          .eq('company_id', COMPANY_ID)
+          .limit(5000),
       ]);
+
+      if (suppRes.error) console.warn('suppliers load:', suppRes.error.message);
+      if (payRes.error) console.warn('payables load:', payRes.error.message);
+      if (invRes.error) console.warn('invoices load:', invRes.error.message);
 
       setSuppliers(suppRes.data || []);
       setPayables(payRes.data || []);
@@ -128,6 +141,7 @@ export default function Fornitori() {
     } catch (err) {
       console.error('Load error:', err);
     } finally {
+      clearTimeout(timeoutId);
       setLoading(false);
     }
   }
@@ -220,18 +234,28 @@ export default function Fornitori() {
     return list;
   }, [suppliers, search, filterCategory, filterStatus, sortField, sortDir]);
 
-  // KPIs
+  // KPIs — totali coerenti fra loro:
+  // - totalFatturato: somma dei gross_amount POSITIVI (esclude le note
+  //   credito che sono negative). Prima includeva le NC creando
+  //   l'assurdo 'Da pagare > Fatturato' (il da pagare NON riduce per NC).
+  // - totalCrediti: importo assoluto delle note credito (a favore di NZ).
+  // - totalPending: somma amount_remaining di fatture non chiuse.
   const kpis = useMemo(() => {
     const active = suppliers.filter(s => s.is_active !== false).length;
     const totalPending = payables
-      .filter(p => p.status !== 'pagato' && p.status !== 'annullato' && p.status !== 'bloccato')
+      .filter(p => p.status !== 'pagato' && p.status !== 'annullato' && p.status !== 'bloccato' && p.status !== 'nota_credito')
       .reduce((s, p) => s + (parseFloat(p.amount_remaining) || 0), 0);
     const overdue = payables
       .filter(p => p.status === 'scaduto')
       .reduce((s, p) => s + (parseFloat(p.amount_remaining) || 0), 0);
-    const totalFatturato = payables.reduce((s, p) => s + (parseFloat(p.gross_amount) || 0), 0);
+    const totalFatturato = payables
+      .filter(p => p.status !== 'nota_credito' && (parseFloat(p.gross_amount) || 0) > 0)
+      .reduce((s, p) => s + (parseFloat(p.gross_amount) || 0), 0);
+    const totalCrediti = payables
+      .filter(p => p.status === 'nota_credito' || (parseFloat(p.gross_amount) || 0) < 0)
+      .reduce((s, p) => s + Math.abs(parseFloat(p.gross_amount) || 0), 0);
     const withPayables = new Set(payables.map(p => p.supplier_id).filter(Boolean)).size;
-    return { active, total: suppliers.length, totalPending, overdue, totalFatturato, withPayables };
+    return { active, total: suppliers.length, totalPending, overdue, totalFatturato, totalCrediti, withPayables };
   }, [suppliers, payables]);
 
   // Charts data
