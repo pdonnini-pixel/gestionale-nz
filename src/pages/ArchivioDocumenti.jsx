@@ -393,49 +393,55 @@ function ArchivioTab({ companyId, showToast }) {
   /**
    * Apre il modal di anteprima EC con i movimenti bancari. Legge da
    * ENTRAMBE le tabelle dei movimenti (bank_transactions da TesoreriaManuale
-   * e cash_movements da ImportHub) e unifica i campi.
+   * e cash_movements da ImportHub) con query separate in modo che se una
+   * fallisce (FK mancante) l'altra continua a funzionare.
    */
   async function openEcPreview(ec) {
     setEcPreview({ ec, rows: [], loading: true });
+    const rows = [];
     try {
-      const [bt, cm] = await Promise.all([
-        supabase
+      try {
+        const { data, error } = await supabase
           .from('bank_transactions')
           .select('id, transaction_date, description, amount, running_balance, is_reconciled')
           .eq('company_id', companyId)
           .eq('bank_account_id', ec.bank_account_id)
           .order('transaction_date', { ascending: false })
-          .limit(100),
-        supabase
+          .limit(100);
+        if (error) throw error;
+        for (const r of (data || [])) {
+          rows.push({
+            id: 'bt_' + r.id,
+            transaction_date: r.transaction_date,
+            description: r.description,
+            amount: r.amount,
+            running_balance: r.running_balance,
+            is_reconciled: r.is_reconciled,
+          });
+        }
+      } catch (e) { console.warn('bt preview:', e.message); }
+
+      try {
+        const { data, error } = await supabase
           .from('cash_movements')
           .select('id, date, description, amount, balance_after, is_reconciled')
           .eq('company_id', companyId)
           .eq('bank_account_id', ec.bank_account_id)
           .order('date', { ascending: false })
-          .limit(100),
-      ]);
+          .limit(100);
+        if (error) throw error;
+        for (const r of (data || [])) {
+          rows.push({
+            id: 'cm_' + r.id,
+            transaction_date: r.date,
+            description: r.description,
+            amount: r.amount,
+            running_balance: r.balance_after,
+            is_reconciled: r.is_reconciled,
+          });
+        }
+      } catch (e) { console.warn('cm preview:', e.message); }
 
-      const rows = [];
-      for (const r of (bt.data || [])) {
-        rows.push({
-          id: 'bt_' + r.id,
-          transaction_date: r.transaction_date,
-          description: r.description,
-          amount: r.amount,
-          running_balance: r.running_balance,
-          is_reconciled: r.is_reconciled,
-        });
-      }
-      for (const r of (cm.data || [])) {
-        rows.push({
-          id: 'cm_' + r.id,
-          transaction_date: r.date,
-          description: r.description,
-          amount: r.amount,
-          running_balance: r.balance_after,
-          is_reconciled: r.is_reconciled,
-        });
-      }
       rows.sort((a, b) => new Date(b.transaction_date || 0) - new Date(a.transaction_date || 0));
       setEcPreview({ ec, rows: rows.slice(0, 100), loading: false });
     } catch (err) {

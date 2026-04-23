@@ -361,54 +361,71 @@ const ScadenzarioSmart = () => {
   useEffect(() => { fetchData(); }, [fetchData]);
 
   // Carica incassi reali lazy quando il tab Incassi viene aperto.
-  // IMPORTANTE: le importazioni EC vanno in DUE tabelle diverse a seconda
-  // del flusso usato:
-  //   - ImportHub -> cash_movements (campo 'date', 'amount' puo' essere neg/pos)
+  // IMPORTANTE: le importazioni EC vanno in DUE tabelle diverse:
+  //   - ImportHub -> cash_movements (campo 'date')
   //   - TesoreriaManuale -> bank_transactions (campo 'transaction_date')
-  // Leggo da entrambe e normalizzo i campi in forma unica.
+  // Query separate (non Promise.all) perche' una puo' fallire per mancanza
+  // di FK: se una va in errore NON blocca l'altra. Nessun embed SQL
+  // (bank_accounts(...)) — lookup client-side sul bankAccounts gia' caricato.
   async function loadBankIncomes() {
     if (bankIncomes.length > 0 || !COMPANY_ID) return;
     setBankIncomesLoading(true);
     try {
-      const [bt, cm] = await Promise.all([
-        supabase
+      const rows = [];
+
+      try {
+        const { data, error } = await supabase
           .from('bank_transactions')
-          .select('id, transaction_date, description, amount, bank_account_id, bank_accounts(bank_name, account_name)')
+          .select('id, transaction_date, description, amount, bank_account_id')
           .eq('company_id', COMPANY_ID)
           .gt('amount', 0)
           .order('transaction_date', { ascending: false })
-          .limit(2000),
-        supabase
+          .limit(2000);
+        if (error) throw error;
+        for (const r of (data || [])) {
+          rows.push({
+            id: 'bt_' + r.id,
+            transaction_date: r.transaction_date,
+            description: r.description,
+            amount: r.amount,
+            bank_account_id: r.bank_account_id,
+          });
+        }
+      } catch (e) {
+        console.warn('bank_transactions incomes:', e.message);
+      }
+
+      try {
+        const { data, error } = await supabase
           .from('cash_movements')
-          .select('id, date, description, amount, bank_account_id, bank_accounts(bank_name, account_name)')
+          .select('id, date, description, amount, bank_account_id')
           .eq('company_id', COMPANY_ID)
           .gt('amount', 0)
           .order('date', { ascending: false })
-          .limit(2000),
-      ]);
+          .limit(2000);
+        if (error) throw error;
+        for (const r of (data || [])) {
+          rows.push({
+            id: 'cm_' + r.id,
+            transaction_date: r.date,
+            description: r.description,
+            amount: r.amount,
+            bank_account_id: r.bank_account_id,
+          });
+        }
+      } catch (e) {
+        console.warn('cash_movements incomes:', e.message);
+      }
 
-      const rows = [];
-      for (const r of (bt.data || [])) {
-        rows.push({
-          id: 'bt_' + r.id,
-          transaction_date: r.transaction_date,
-          description: r.description,
-          amount: r.amount,
-          bank_account_id: r.bank_account_id,
-          bank_accounts: r.bank_accounts,
-        });
+      // Arricchisci con bank_name dal lookup sul bankAccounts gia' caricato
+      const bankMap = new Map((bankAccounts || []).map(b => [b.id, b]));
+      for (const r of rows) {
+        const b = bankMap.get(r.bank_account_id);
+        if (b) {
+          r.bank_accounts = { bank_name: b.bank_name, account_name: b.account_name };
+        }
       }
-      for (const r of (cm.data || [])) {
-        rows.push({
-          id: 'cm_' + r.id,
-          transaction_date: r.date,
-          description: r.description,
-          amount: r.amount,
-          bank_account_id: r.bank_account_id,
-          bank_accounts: r.bank_accounts,
-        });
-      }
-      // Ordine: data desc
+
       rows.sort((a, b) => new Date(b.transaction_date || 0) - new Date(a.transaction_date || 0));
       setBankIncomes(rows);
     } catch (err) {
