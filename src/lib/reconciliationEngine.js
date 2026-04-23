@@ -7,10 +7,10 @@
  *   - Nome fornitore estratto dalla descrizione bancaria (max 30 punti)
  *   - Prossimità data scadenza (max 20 punti)
  *
- * Soglie:
- *   >= 80  → auto_exact  (riconciliazione automatica)
- *   >= 50  → auto_fuzzy  (proposta, richiede conferma)
- *   <  50  → nessun match
+ * Soglie (aggiornate Apr 2026 per eliminare rumore):
+ *   >= 95  → auto_exact  (riconciliazione automatica, batch-confermabile)
+ *   >= 85  → auto_fuzzy  (proposta, richiede conferma manuale)
+ *   <  85  → NON mostrato (prima generava proposte inutili al 25-45%)
  *
  * Ogni azione viene tracciata in reconciliation_log per audit trail.
  */
@@ -19,8 +19,13 @@ import { supabase } from './supabase';
 
 // ─── CONSTANTS ─────────────────────────────────────────────────
 
-const THRESHOLD_AUTO = 80;
-const THRESHOLD_SUGGEST = 50;
+// Soglie innalzate: sotto 85 le proposte sono rumore (segnalati abbinamenti al
+// 25-45% privi di valore). Ora:
+//  score >= 95 → auto_exact (match sicuro, confermabile in batch)
+//  score 85-94 → auto_fuzzy (proposta, richiede conferma manuale)
+//  score < 85  → NON mostrato affatto (ne' in reconciled ne' in suggested)
+const THRESHOLD_AUTO = 95;
+const THRESHOLD_SUGGEST = 85;
 
 const NAME_EXACT = 30;
 const NAME_PARTIAL = 20;
@@ -283,7 +288,9 @@ export async function runAutoReconciliation(companyId, bankAccountId = null, opt
       const bestCandidate = candidates[0] || null;
 
       if (bestCandidate && bestCandidate.score >= THRESHOLD_AUTO) {
-        // ── Auto reconciliation: only when score ≥80 (importo esatto + nome confermato) ──
+        // Auto reconciliation: solo quando score >= 95 (importo esatto + nome
+        // fornitore riconosciuto). Match sicuro, confermabile in batch senza
+        // revisione manuale.
         const matchType = 'auto_exact';
         matchedPayableIds.add(bestCandidate.payable.id);
 
@@ -313,16 +320,18 @@ export async function runAutoReconciliation(companyId, bankAccountId = null, opt
             details: bestCandidate.details,
           });
         }
-      } else if (candidates.length > 0) {
-        // ── NEW: Suggest with ALL candidates — operator picks the right one ──
-        // The first candidate is the "recommended" one, but operator sees the full list
+      } else if (bestCandidate && bestCandidate.score >= THRESHOLD_SUGGEST) {
+        // Proposta: score tra 85 e 94 — serve conferma manuale. I candidati
+        // con score < THRESHOLD_SUGGEST (sotto 85) vengono scartati: erano
+        // rumore che confondeva l'utente.
+        const filteredCandidates = candidates.filter(c => c.score >= THRESHOLD_SUGGEST);
         suggested.push({
           movement,
           payable: bestCandidate.payable,      // backward compat: best candidate
           score: bestCandidate.score,
           matchType: 'auto_fuzzy',
           details: bestCandidate.details,
-          candidates,                          // NEW: full list for operator
+          candidates: filteredCandidates,      // solo candidati >= soglia 85
         });
       } else {
         // ── No candidates at all (amount too different from every payable) ──
