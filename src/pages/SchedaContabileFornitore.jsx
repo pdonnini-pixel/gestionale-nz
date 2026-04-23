@@ -78,24 +78,34 @@ export default function SchedaContabileFornitore() {
         .single();
       setSupplier(sup);
 
-      // Payables — SOLO da payables, NESSUN join con electronic_invoices (causa raddoppio)
-      // Match per supplier_id OPPURE (supplier_name matching quando supplier_id è null)
-      const supplierName = sup?.name || sup?.ragione_sociale || '';
+      // Payables — SOLO da payables, NESSUN join con electronic_invoices
+      // Due query separate per evitare problemi con .or() e nomi con caratteri speciali
+      let allPayables = [];
+      const seen = new Set();
 
-      const { data: allData } = await supabase
+      // 1. Per supplier_id (include tutti quelli collegati al fornitore)
+      const { data: byId } = await supabase
         .from('payables')
         .select('*')
         .eq('company_id', COMPANY_ID)
-        .or(`supplier_id.eq.${supplierId}${supplierName ? `,supplier_name.eq.${supplierName}` : ''}`)
+        .eq('supplier_id', supplierId)
         .order('invoice_date', { ascending: false });
+      (byId || []).forEach(p => { if (!seen.has(p.id)) { seen.add(p.id); allPayables.push(p); } });
 
-      // Dedup per ID (in caso di match doppi)
-      const seen = new Set();
-      const allPayables = (allData || []).filter(p => {
-        if (seen.has(p.id)) return false;
-        seen.add(p.id);
-        return true;
-      });
+      // 2. Per supplier_name dove supplier_id è null (payables non collegati)
+      const supplierName = sup?.name || sup?.ragione_sociale || '';
+      if (supplierName) {
+        const { data: byName } = await supabase
+          .from('payables')
+          .select('*')
+          .eq('company_id', COMPANY_ID)
+          .eq('supplier_name', supplierName)
+          .is('supplier_id', null)
+          .order('invoice_date', { ascending: false });
+        (byName || []).forEach(p => { if (!seen.has(p.id)) { seen.add(p.id); allPayables.push(p); } });
+      }
+
+      allPayables.sort((a, b) => new Date(b.invoice_date || 0) - new Date(a.invoice_date || 0));
 
       setPayables(allPayables);
 
