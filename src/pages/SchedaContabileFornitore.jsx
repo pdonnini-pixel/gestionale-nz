@@ -220,8 +220,9 @@ export default function SchedaContabileFornitore() {
         movimenti.push({
           data: entry.date,
           tipo: 'avere',
-          descrizione: `Nota Credito ${invoiceNumber}`,
+          descrizione: `N/C ${invoiceNumber}`,
           importo: Math.abs(entry.amount),
+          isNotaCredito: true,
         });
       } else {
         movimenti.push({
@@ -297,17 +298,20 @@ export default function SchedaContabileFornitore() {
     const w = window.open('', '_blank');
     if (!w) return;
 
-    const righeHTML = fattureGrouped.map(f => `
-      <tr>
-        <td>${f.invoice_number || '—'}</td>
-        <td>${fmtDate(f.invoice_date)}</td>
-        <td>${fmtDate(f.due_date)}</td>
-        <td style="text-align:right">${fmt(f.net_amount)}</td>
-        <td style="text-align:right">${fmt(f.vat_amount)}</td>
-        <td style="text-align:right;font-weight:bold">${fmt(f.gross_amount)}</td>
-        <td>${f.status || '—'}</td>
-      </tr>
-    `).join('');
+    const righeHTML = fattureGrouped.map(f => {
+      const isNC = f.gross_amount < 0;
+      const color = isNC ? 'color:#16a34a' : '';
+      return `
+      <tr style="${isNC ? 'background:#f0fdf4' : ''}">
+        <td style="${color}">${isNC ? 'N/C ' : ''}${f.invoice_number || '—'}</td>
+        <td style="${color}">${fmtDate(f.invoice_date)}</td>
+        <td style="${color}">${isNC ? '—' : fmtDate(f.due_date)}</td>
+        <td style="text-align:right;${color}">${fmt(f.net_amount)}</td>
+        <td style="text-align:right;${color}">${fmt(f.vat_amount)}</td>
+        <td style="text-align:right;font-weight:bold;${color}">${fmt(f.gross_amount)}</td>
+        <td style="${color}">${isNC ? 'CREDITO' : f.status || '—'}</td>
+      </tr>`;
+    }).join('');
 
     const partitarioHTML = partitario.map(m => `
       <tr style="background:${m.tipo === 'avere' ? '#f0fdf4' : 'white'}">
@@ -543,20 +547,27 @@ export default function SchedaContabileFornitore() {
                           </button>
                         )}
                       </td>
-                      <td className="px-3 py-2 font-medium text-slate-800">
-                        {f.invoice_number || '—'}
+                      <td className={`px-3 py-2 font-medium ${f.gross_amount < 0 ? 'text-emerald-700' : 'text-slate-800'}`}>
+                        {f.gross_amount < 0 ? 'N/C ' : ''}{f.invoice_number || '—'}
+                        {f.gross_amount < 0 && (
+                          <span className="ml-1.5 text-[10px] px-1.5 py-0.5 bg-emerald-50 text-emerald-700 rounded-full font-medium">Nota Credito</span>
+                        )}
                         {hasRate && (
                           <span className="ml-1.5 text-[10px] px-1.5 py-0.5 bg-indigo-50 text-indigo-600 rounded-full font-medium">{f.rate.length} rate</span>
                         )}
                       </td>
-                      <td className="px-3 py-2 text-slate-600">{fmtDate(f.invoice_date)}</td>
-                      <td className={`px-3 py-2 ${dd != null && dd < 0 && f.status !== 'pagato' ? 'text-red-600 font-medium' : 'text-slate-600'}`}>
-                        {fmtDate(f.due_date)}
+                      <td className={`px-3 py-2 ${f.gross_amount < 0 ? 'text-emerald-600' : 'text-slate-600'}`}>{fmtDate(f.invoice_date)}</td>
+                      <td className={`px-3 py-2 ${f.gross_amount < 0 ? 'text-emerald-600' : dd != null && dd < 0 && f.status !== 'pagato' ? 'text-red-600 font-medium' : 'text-slate-600'}`}>
+                        {f.gross_amount < 0 ? '—' : fmtDate(f.due_date)}
                       </td>
-                      <td className="px-3 py-2 text-right text-slate-600">{fmt(f.net_amount)}</td>
-                      <td className="px-3 py-2 text-right text-slate-600">{fmt(f.vat_amount)}</td>
+                      <td className={`px-3 py-2 text-right ${f.gross_amount < 0 ? 'text-emerald-600' : 'text-slate-600'}`}>{fmt(f.net_amount)}</td>
+                      <td className={`px-3 py-2 text-right ${f.gross_amount < 0 ? 'text-emerald-600' : 'text-slate-600'}`}>{fmt(f.vat_amount)}</td>
                       <td className={`px-3 py-2 text-right font-semibold ${f.gross_amount < 0 ? 'text-emerald-700' : 'text-slate-900'}`}>{fmt(f.gross_amount)}</td>
-                      <td className="px-3 py-2 text-center"><StatusBadge status={f.status} size="sm" /></td>
+                      <td className="px-3 py-2 text-center">
+                        {f.gross_amount < 0
+                          ? <span className="inline-flex items-center px-2 py-0.5 text-[10px] font-medium rounded-full bg-emerald-100 text-emerald-700">CREDITO</span>
+                          : <StatusBadge status={f.status} size="sm" />}
+                      </td>
                       <td className="px-3 py-2 text-center text-xs">{dueBadge}</td>
                       <td className="px-2 py-2 text-center">
                         <div className="flex items-center justify-center gap-0.5">
@@ -637,9 +648,9 @@ export default function SchedaContabileFornitore() {
                 <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-400">Nessun movimento</td></tr>
               )}
               {partitario.map((m, i) => (
-                <tr key={i} className={`border-b border-slate-50 ${m.tipo === 'avere' ? 'bg-emerald-50/30' : i % 2 === 0 ? '' : 'bg-slate-25/50'}`}>
-                  <td className="px-4 py-2 text-slate-600">{fmtDate(m.data)}</td>
-                  <td className="px-4 py-2 text-slate-800">{m.descrizione}</td>
+                <tr key={i} className={`border-b border-slate-50 ${m.isNotaCredito ? 'bg-emerald-50/40' : m.tipo === 'avere' ? 'bg-emerald-50/20' : i % 2 === 0 ? '' : 'bg-slate-25/50'}`}>
+                  <td className={`px-4 py-2 ${m.isNotaCredito ? 'text-emerald-600' : 'text-slate-600'}`}>{fmtDate(m.data)}</td>
+                  <td className={`px-4 py-2 ${m.isNotaCredito ? 'text-emerald-700 font-medium' : 'text-slate-800'}`}>{m.descrizione}</td>
                   <td className="px-4 py-2 text-right text-slate-900">{m.tipo === 'dare' ? fmt(m.importo) : ''}</td>
                   <td className="px-4 py-2 text-right text-emerald-700 font-medium">{m.tipo === 'avere' ? fmt(m.importo) : ''}</td>
                   <td className={`px-4 py-2 text-right font-bold ${m.saldo > 0.01 ? 'text-red-700' : 'text-emerald-700'}`}>{fmt(m.saldo)}</td>
