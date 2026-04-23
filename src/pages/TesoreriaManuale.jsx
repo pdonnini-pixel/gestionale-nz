@@ -152,7 +152,6 @@ function parseCSVDate(val, format) {
   if (format === 'excel_serial' || /^\d{5}$/.test(trimmed)) {
     const serial = parseInt(trimmed)
     if (serial > 0) {
-      // Excel epoch: 1900-01-01 con il bug del 29/02/1900
       const d = new Date((serial - 25569) * 86400 * 1000)
       return d.toISOString().split('T')[0]
     }
@@ -161,25 +160,48 @@ function parseCSVDate(val, format) {
   if (val instanceof Date) {
     return val.toISOString().split('T')[0]
   }
-  let day, month, year
-  if (format === 'dd/mm/yyyy' || format === 'dd-mm-yyyy' || format === 'dd.mm.yyyy') {
-    const parts = trimmed.split(/[\/\-.]/)
-    day = parts[0]; month = parts[1]; year = parts[2]
-  } else if (format === 'dd/mm/yy') {
-    const parts = trimmed.split('/')
-    day = parts[0]; month = parts[1]
-    year = parseInt(parts[2]) > 50 ? '19' + parts[2] : '20' + parts[2]
-  } else if (format === 'yyyy-mm-dd') {
-    const parts = trimmed.split('-')
-    year = parts[0]; month = parts[1]; day = parts[2]
-  } else {
-    // Prova a parsare comunque
+
+  // Splitta su qualsiasi separatore (/ - .)
+  const parts = trimmed.split(/[\/\-.]/).map(p => p.trim()).filter(Boolean)
+  if (parts.length !== 3) {
     const d = new Date(trimmed)
     if (!isNaN(d.getTime())) return d.toISOString().split('T')[0]
     return trimmed
   }
+
+  let day, month, year
+  const p0 = parseInt(parts[0]), p2 = parseInt(parts[2])
+
+  // Logica intelligente: se il primo numero è > 31, è l'anno (yyyy-mm-dd)
+  // Se l'ultimo numero è > 31 o ha 4 cifre, è l'anno (dd/mm/yyyy)
+  // Se l'ultimo ha 2 cifre e <= 31, potrebbe essere dd/mm/yy
+  if (parts[0].length === 4 || p0 > 31) {
+    // yyyy-mm-dd o yyyy/mm/dd
+    year = parts[0]; month = parts[1]; day = parts[2]
+  } else if (parts[2].length === 4 || p2 > 31) {
+    // dd/mm/yyyy — formato italiano standard
+    day = parts[0]; month = parts[1]; year = parts[2]
+  } else if (parts[2].length === 2) {
+    // dd/mm/yy — anno corto
+    day = parts[0]; month = parts[1]
+    year = p2 > 50 ? '19' + parts[2] : '20' + parts[2]
+  } else {
+    // Fallback: tratta come dd/mm/yyyy (default italiano)
+    day = parts[0]; month = parts[1]; year = parts[2]
+  }
+
+  // Validazione: mese 1-12, giorno 1-31
+  const m = parseInt(month), d = parseInt(day)
+  if (m < 1 || m > 12 || d < 1 || d > 31) {
+    // Prova swappare giorno e mese
+    if (d >= 1 && d <= 12 && m >= 1 && m <= 31) {
+      const tmp = day; day = month; month = tmp
+    }
+  }
+
   if (!year || !month || !day) return trimmed
-  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+  const y = String(year).length === 2 ? (parseInt(year) > 50 ? '19' + year : '20' + year) : year
+  return `${y}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
 }
 
 function parseCSVNumber(val) {
