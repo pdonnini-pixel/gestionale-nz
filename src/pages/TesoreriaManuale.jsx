@@ -298,16 +298,21 @@ function parseExcelFile(arrayBuffer) {
   const headerRow = rawData[headerIdx]
   const headers = headerRow.map(h => String(h || '').trim())
   console.log('[parseExcelFile] headerIdx:', headerIdx, 'headers:', headers, 'rawData rows:', rawData.length)
-  const dataBlacklist = ['saldo contabile iniziale', 'saldo contabile finale', 'operazioni non contabilizzate', 'totale movimenti']
+  const dataBlacklist = ['saldo contabile iniziale', 'saldo contabile finale', 'operazioni non contabilizzate',
+    'totale movimenti', 'elenco non completo', 'per visualizzare gli altri dati', 'movimenti:',
+    'operazioni contabilizzate', 'saldo iniziale', 'saldo finale', 'saldo disponibile']
   const rows = rawData.slice(headerIdx + 1)
     .filter(r => {
-      if (!Array.isArray(r) || !r.some(c => c != null && String(c).trim() !== '')) return false
+      if (!Array.isArray(r)) return false
+      // Non fermarsi alle righe vuote — SKIP, non BREAK
+      if (!r.some(c => c != null && String(c).trim() !== '')) return false
       const rowText = r.filter(Boolean).join(' ').toLowerCase()
       return !dataBlacklist.some(bl => rowText.includes(bl))
     })
     .map(r => r.map(c => {
       if (c instanceof Date) return c.toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric' })
-      return String(c ?? '').trim()
+      // Gestione celle multilinea — normalizza newline in spazi
+      return String(c ?? '').replace(/\n/g, ' ').replace(/\s+/g, ' ').trim()
     }))
 
   return { headers, rows, separator: 'xlsx', sheetNames: wb.SheetNames, skippedRows: headerIdx }
@@ -2233,7 +2238,7 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
 
         return { payable: p, score, percentDiff, remaining }
       })
-      .filter(Boolean)
+      .filter(m => m && m.score >= 85) // Solo match >= 85% — sotto è rumore
       .sort((a, b) => b.score - a.score)
       .slice(0, 5)
   }, [unpaidPayables])
