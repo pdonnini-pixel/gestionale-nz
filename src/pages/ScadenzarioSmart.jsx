@@ -1208,7 +1208,18 @@ const ScadenzarioSmart = () => {
                 { key: 'saldate', label: 'Incassi' },
                 { key: 'da_saldare', label: 'Tutte le scadenze' },
               ].map(t => (
-                <button key={t.key} onClick={() => { setSibillTab(t.key); if (t.key === 'saldate') loadBankIncomes(); }}
+                <button key={t.key} onClick={() => {
+                  setSibillTab(t.key);
+                  if (t.key === 'saldate') {
+                    // Entrando in Incassi resetto i filtri pagamenti che non
+                    // devono influenzare la vista. Data di fine = oggi, data
+                    // di inizio vuota (la decide l'utente se vuole).
+                    loadBankIncomes();
+                    setSelectedStatus('');
+                    setSelectedMethodGroup(null);
+                    setDateRange({ start: '', end: new Date().toISOString().split('T')[0] });
+                  }
+                }}
                   className={`px-3 py-1.5 text-sm font-medium transition border-b-2 ${
                     sibillTab === t.key
                       ? 'border-slate-800 text-slate-800'
@@ -1276,14 +1287,31 @@ const ScadenzarioSmart = () => {
               <select value={incomeTypeFilter} onChange={e => setIncomeTypeFilter(e.target.value)}
                 className="px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs bg-white text-slate-600"
                 title="Filtra per tipo di incasso">
-                <option value="all">Tutti i tipi</option>
-                <option value="POS">POS</option>
-                <option value="Bonifico">Bonifico in entrata</option>
-                <option value="Contanti">Versamento contanti</option>
-                <option value="Accredito">Accredito</option>
-                <option value="Incasso">Incasso</option>
-                <option value="Giroconto">Giroconto</option>
-                <option value="Altro">Altro</option>
+                <option value="all">Tutti i tipi ({bankIncomes.length})</option>
+                {(() => {
+                  // Genera la lista dinamicamente dai dati caricati: mostro
+                  // solo i tipi presenti. Per ognuno il count dei movimenti.
+                  const categorize = (desc) => {
+                    const d = (desc || '').toLowerCase();
+                    if (d.includes('p.o.s.') || /\bpos\b/.test(d)) return 'POS';
+                    if (d.includes('bonifico') && (d.includes('favore') || d.includes('ordinante'))) return 'Bonifico';
+                    if (d.includes('versamento') && d.includes('contant')) return 'Contanti';
+                    if (d.includes('accredito')) return 'Accredito';
+                    if (d.includes('incass')) return 'Incasso';
+                    if (d.includes('giroconto')) return 'Giroconto';
+                    return 'Altro';
+                  };
+                  const counts = {};
+                  bankIncomes.forEach(i => {
+                    const t = categorize(i.description);
+                    counts[t] = (counts[t] || 0) + 1;
+                  });
+                  return Object.entries(counts)
+                    .sort((a, b) => b[1] - a[1])
+                    .map(([tipo, n]) => (
+                      <option key={tipo} value={tipo}>{tipo} ({n})</option>
+                    ));
+                })()}
               </select>
               <select value={incomeBankFilter} onChange={e => setIncomeBankFilter(e.target.value)}
                 className="px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs bg-white text-slate-600"
@@ -1354,11 +1382,13 @@ const ScadenzarioSmart = () => {
           </div>
           )}
 
-          {/* Result count + total + view toggle — Sibill style */}
+          {/* Result count + total + view toggle — Sibill style.
+              Sugli Incassi il toggle Lista/Calendario e il totale payables
+              non hanno senso, quindi riga nascosta. Il count+totale incassi
+              e' gia' mostrato dentro la tabella dedicata. */}
+          {sibillTab !== 'saldate' && (
           <div className="flex items-center justify-between">
-            <span className="text-sm text-slate-500">
-              {sibillTab === 'saldate' ? `${bankIncomes.length} incassi` : `${displayPayables.length} risultati`}
-            </span>
+            <span className="text-sm text-slate-500">{displayPayables.length} risultati</span>
             <div className="flex items-center gap-3">
               {/* Lista / Calendario toggle */}
               <div className="flex gap-0.5 bg-slate-100 rounded-lg p-0.5">
@@ -1381,6 +1411,7 @@ const ScadenzarioSmart = () => {
               </div>
             </div>
           </div>
+          )}
 
           {/* ===== CALENDARIO VIEW ===== */}
           {scadViewMode === 'calendario' && (() => {
