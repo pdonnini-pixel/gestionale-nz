@@ -621,7 +621,83 @@ export default function Scadenzario() {
   // Riconciliazione
   const [reconPayments, setReconPayments] = useState([])
 
+  // Incassi (bank_transactions con amount > 0)
+  const [incomes, setIncomes] = useState([])
+  const [incomesLoading, setIncomesLoading] = useState(false)
+  const [incomeSearch, setIncomeSearch] = useState('')
+  const [incomeBankFilter, setIncomeBankFilter] = useState('all')
+
   useEffect(() => { loadData() }, [])
+
+  // Carica incassi solo quando si apre il tab Incassi (lazy)
+  useEffect(() => {
+    if (tab !== 'incassi') return
+    if (incomes.length > 0) return
+    loadIncomes()
+  }, [tab]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function loadIncomes() {
+    setIncomesLoading(true)
+    try {
+      const { data, error } = await supabase
+        .from('bank_transactions')
+        .select('id, transaction_date, description, amount, bank_account_id, bank_accounts(bank_name, account_name)')
+        .gt('amount', 0)
+        .order('transaction_date', { ascending: false })
+        .limit(2000)
+      if (error) throw error
+      setIncomes(data || [])
+    } catch (err) {
+      console.warn('load incassi:', err.message)
+      setIncomes([])
+    } finally {
+      setIncomesLoading(false)
+    }
+  }
+
+  // Categorizzazione automatica degli incassi in base alla descrizione
+  function categorizeIncome(description) {
+    const d = (description || '').toLowerCase()
+    if (d.includes('p.o.s.') || /\bpos\b/.test(d)) return 'POS'
+    if (d.includes('bonifico') && (d.includes('favore') || d.includes('ordinante'))) return 'Bonifico in entrata'
+    if (d.includes('versamento') && d.includes('contant')) return 'Versamento contanti'
+    if (d.includes('accredito')) return 'Accredito'
+    if (d.includes('incass')) return 'Incasso'
+    if (d.includes('giroconto')) return 'Giroconto'
+    if (d.includes('stornno') || d.includes('storno')) return 'Storno'
+    return 'Altro'
+  }
+
+  const filteredIncomes = useMemo(() => {
+    let list = incomes
+    if (incomeBankFilter !== 'all') list = list.filter(i => i.bank_account_id === incomeBankFilter)
+    if (incomeSearch.trim()) {
+      const q = incomeSearch.toLowerCase()
+      list = list.filter(i =>
+        (i.description || '').toLowerCase().includes(q) ||
+        String(i.amount).includes(q)
+      )
+    }
+    return list
+  }, [incomes, incomeBankFilter, incomeSearch])
+
+  const incomesByBank = useMemo(() => {
+    const map = new Map()
+    for (const i of incomes) {
+      const key = i.bank_account_id || 'unknown'
+      const bank = i.bank_accounts?.bank_name || 'Altro'
+      if (!map.has(key)) map.set(key, { key, bank, count: 0, total: 0 })
+      const g = map.get(key)
+      g.count++
+      g.total += parseFloat(i.amount) || 0
+    }
+    return Array.from(map.values())
+  }, [incomes])
+
+  const totalIncomes = useMemo(
+    () => filteredIncomes.reduce((s, i) => s + (parseFloat(i.amount) || 0), 0),
+    [filteredIncomes]
+  )
 
   // ─── INIT FROM URL PARAMS ───────────────────────────────────────
   // Supporta navigazione dalla Scheda Contabile del fornitore
@@ -634,7 +710,7 @@ export default function Scadenzario() {
     const tabParam = params.get('tab')
     if (searchParam) setSearch(decodeURIComponent(searchParam))
     if (filterParam && ['attive', 'pagate', 'sospese', 'tutte', 'scadute'].includes(filterParam)) setFilter(filterParam)
-    if (tabParam && ['scadenze', 'fornitori', 'riconciliazione'].includes(tabParam)) setTab(tabParam)
+    if (tabParam && ['scadenze', 'fornitori', 'riconciliazione', 'incassi'].includes(tabParam)) setTab(tabParam)
   }, [])
 
   async function loadData() {
@@ -660,7 +736,9 @@ export default function Scadenzario() {
     setLoading(false)
   }
 
-  // Filtri scadenze
+  // Filtri scadenze — default 'attive' = non pagate (scaduto + in_scadenza +
+  // da_pagare + parziale), ordinate dalla scadenza piu' vecchia (piu' urgente
+  // in alto). Le note credito (status='nota_credito') sono escluse.
   const filtered = useMemo(() => {
     let list = payables
     if (filter === 'attive') list = list.filter(p => ['da_pagare', 'in_scadenza', 'scaduto', 'parziale'].includes(p.status))
@@ -674,8 +752,19 @@ export default function Scadenzario() {
         (p.outlet_name || '').toLowerCase().includes(q)
       )
     }
-    return list
+    // Ordine: scadenza piu' vecchia prima (quella piu' urgente da pagare)
+    return list.slice().sort((a, b) => {
+      const da = a.due_date ? new Date(a.due_date).getTime() : Infinity
+      const db = b.due_date ? new Date(b.due_date).getTime() : Infinity
+      return da - db
+    })
   }, [payables, filter, search])
+
+  // Totale delle scadenze filtrate — sempre visibile
+  const filteredTotal = useMemo(
+    () => filtered.reduce((s, p) => s + (parseFloat(p.gross_amount) || 0), 0),
+    [filtered]
+  )
 
   const totals = useMemo(() => {
     const active = payables.filter(p => ['da_pagare', 'in_scadenza', 'scaduto', 'parziale'].includes(p.status))
@@ -920,10 +1009,11 @@ export default function Scadenzario() {
         </div>
       </div>
 
-      {/* Top tabs: Scadenze / Fornitori / Riconciliazione */}
+      {/* Top tabs: Scadenze / Incassi / Fornitori / Riconciliazione */}
       <div className="flex gap-1 bg-slate-100 rounded-lg p-1 w-fit">
         {[
           { key: 'scadenze', label: 'Scadenze', icon: Receipt },
+          { key: 'incassi', label: 'Incassi', icon: ArrowLeftRight },
           { key: 'fornitori', label: 'Fornitori', icon: Building2 },
           { key: 'riconciliazione', label: 'Riconciliazione', icon: ArrowLeftRight },
         ].map(t => (
@@ -1122,6 +1212,109 @@ export default function Scadenzario() {
                     ))}
                   </tbody>
                 </table>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
+      {/* ===== TAB: INCASSI ===== */}
+      {/* Legge bank_transactions dove amount > 0. Mostra per banca, con
+          categorizzazione automatica (POS/Bonifico/Contanti/Altro). */}
+      {tab === 'incassi' && (
+        <>
+          {/* Summary cards per banca */}
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
+            <div className="bg-white rounded-xl border border-slate-200 p-4">
+              <div className="text-xs text-slate-500 mb-1">Totale incassi</div>
+              <div className="text-lg font-semibold text-emerald-700">{fmt(totalIncomes)} €</div>
+              <div className="text-[11px] text-slate-400">{filteredIncomes.length} movimenti</div>
+            </div>
+            {incomesByBank.map(b => (
+              <button
+                key={b.key}
+                onClick={() => setIncomeBankFilter(incomeBankFilter === b.key ? 'all' : b.key)}
+                className={`bg-white rounded-xl border p-4 text-left transition ${incomeBankFilter === b.key ? 'border-blue-300 ring-2 ring-blue-200' : 'border-slate-200 hover:border-slate-300'}`}
+              >
+                <div className="text-xs text-slate-500 mb-1">{b.bank}</div>
+                <div className="text-lg font-semibold text-slate-900">{fmt(b.total)} €</div>
+                <div className="text-[11px] text-slate-400">{b.count} movimenti</div>
+              </button>
+            ))}
+          </div>
+
+          {/* Filtri */}
+          <div className="bg-white rounded-xl border border-slate-200 p-3 flex flex-wrap items-center gap-2">
+            <div className="relative flex-1 min-w-[220px]">
+              <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Cerca descrizione, importo..."
+                value={incomeSearch}
+                onChange={e => setIncomeSearch(e.target.value)}
+                className="w-full pl-8 pr-3 py-2 border border-slate-200 rounded-lg text-sm"
+              />
+            </div>
+            {incomeBankFilter !== 'all' && (
+              <button onClick={() => setIncomeBankFilter('all')} className="px-3 py-1.5 bg-blue-50 text-blue-700 rounded-lg text-xs font-semibold border border-blue-200 flex items-center gap-1">
+                <X size={12} /> Filtro banca
+              </button>
+            )}
+          </div>
+
+          {/* Lista incassi */}
+          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+            {incomesLoading ? (
+              <div className="p-10 text-center text-sm text-slate-500">
+                <RotateCcw size={20} className="animate-spin mx-auto mb-2 text-emerald-600" /> Caricamento incassi...
+              </div>
+            ) : filteredIncomes.length === 0 ? (
+              <div className="p-10 text-center text-sm text-slate-500">
+                Nessun incasso trovato. Importa estratti conto da Import Hub &rarr; Estratti Conto.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-50 border-b border-slate-200">
+                    <tr className="text-xs text-slate-600 uppercase">
+                      <th className="py-2 px-3 text-left font-semibold">Data</th>
+                      <th className="py-2 px-3 text-left font-semibold">Descrizione</th>
+                      <th className="py-2 px-3 text-left font-semibold">Tipo</th>
+                      <th className="py-2 px-3 text-left font-semibold">Banca</th>
+                      <th className="py-2 px-3 text-right font-semibold">Importo</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {filteredIncomes.slice(0, 500).map(i => {
+                      const tipo = categorizeIncome(i.description)
+                      const tipoColor = {
+                        'POS': 'bg-violet-50 text-violet-700',
+                        'Bonifico in entrata': 'bg-blue-50 text-blue-700',
+                        'Versamento contanti': 'bg-amber-50 text-amber-700',
+                        'Accredito': 'bg-emerald-50 text-emerald-700',
+                        'Incasso': 'bg-emerald-50 text-emerald-700',
+                        'Giroconto': 'bg-slate-100 text-slate-600',
+                        'Storno': 'bg-red-50 text-red-700',
+                      }[tipo] || 'bg-slate-100 text-slate-600'
+                      return (
+                        <tr key={i.id} className="hover:bg-slate-50/60">
+                          <td className="py-2 px-3 whitespace-nowrap text-slate-600">{fmtDate(i.transaction_date)}</td>
+                          <td className="py-2 px-3 truncate max-w-md text-slate-700" title={i.description}>{i.description || '—'}</td>
+                          <td className="py-2 px-3">
+                            <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold ${tipoColor}`}>{tipo}</span>
+                          </td>
+                          <td className="py-2 px-3 text-xs text-slate-500">{i.bank_accounts?.bank_name || '—'}</td>
+                          <td className="py-2 px-3 text-right font-medium text-emerald-700 whitespace-nowrap">+{fmt(i.amount)} €</td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+                {filteredIncomes.length > 500 && (
+                  <div className="px-3 py-2 bg-slate-50 text-xs text-slate-500 text-center">
+                    Mostrati i primi 500 su {filteredIncomes.length}. Usa i filtri per restringere.
+                  </div>
+                )}
               </div>
             )}
           </div>
