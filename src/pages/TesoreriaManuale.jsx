@@ -1071,9 +1071,13 @@ function UploadStatementModal({ isOpen, onClose, account, companyId, onImported 
   const handleImport = async () => {
     if (!parsed || !account) return
     setImporting(true)
+    // Dichiariamo stmt fuori dal try cosi' nel catch possiamo aggiornare
+    // lo status a 'error' ed evitare di lasciare il record in 'processing'
+    // per sempre (bug MPS segnalato dall'utente).
+    let stmt = null
     try {
       // Create bank_statement record
-      const { data: stmt, error: stmtErr } = await supabase.from('bank_statements').insert({
+      const { data: stmtData, error: stmtErr } = await supabase.from('bank_statements').insert({
         company_id: companyId,
         bank_account_id: account.id,
         filename: file.name,
@@ -1083,6 +1087,7 @@ function UploadStatementModal({ isOpen, onClose, account, companyId, onImported 
       }).select().single()
 
       if (stmtErr) throw stmtErr
+      stmt = stmtData
 
       // Parse all rows
       const transactions = parsed.rows.map(row => {
@@ -1141,6 +1146,20 @@ function UploadStatementModal({ isOpen, onClose, account, companyId, onImported 
       onImported()
     } catch (err) {
       console.error('Import error:', err)
+      // Se il record bank_statements e' stato creato ma l'import e' fallito
+      // a meta', aggiorna lo status a 'error' cosi' non resta in 'processing'
+      // all'infinito. Uso update separato con try silenzioso per non
+      // mascherare l'errore originale.
+      if (stmt?.id) {
+        try {
+          await supabase.from('bank_statements').update({
+            status: 'error',
+            error_message: err.message?.substring(0, 500) || 'Errore import',
+          }).eq('id', stmt.id)
+        } catch (updateErr) {
+          console.warn('impossibile marcare bank_statements come error:', updateErr.message)
+        }
+      }
       setImportResult({ success: false, error: err.message })
       setStep('done')
     } finally {

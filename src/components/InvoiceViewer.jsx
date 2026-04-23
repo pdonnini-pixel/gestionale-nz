@@ -311,7 +311,10 @@ function FatturaRendered({ data }) {
 }
 
 // ─── Componente principale InvoiceViewer ─────────────────────────
-export default function InvoiceViewer({ xmlContent, onClose }) {
+// autoPrint: se true, triggera handlePrint automaticamente dopo il mount.
+// Usato quando il viewer viene aperto da un bottone "Scarica PDF" che deve
+// saltare l'anteprima e andare direttamente al dialog di stampa.
+export default function InvoiceViewer({ xmlContent, onClose, autoPrint = false }) {
   const [error, setError] = useState(null)
 
   const parsed = useMemo(() => {
@@ -323,6 +326,15 @@ export default function InvoiceViewer({ xmlContent, onClose }) {
       return null
     }
   }, [xmlContent])
+
+  // Se autoPrint e' attivo triggera la stampa una volta che il parsing e'
+  // pronto. Piccolo delay per dar tempo al modal di renderizzare se visibile.
+  useEffect(() => {
+    if (autoPrint && parsed) {
+      const t = setTimeout(() => handlePrint(), 150)
+      return () => clearTimeout(t)
+    }
+  }, [autoPrint, parsed]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handlePrint = () => {
     if (!parsed) return

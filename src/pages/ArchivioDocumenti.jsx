@@ -220,8 +220,10 @@ function ArchivioTab({ companyId, showToast }) {
   const [searchInvoices, setSearchInvoices] = useState('');
   const [expandedGroups, setExpandedGroups] = useState(new Set());
 
-  // Viewer fattura
+  // Viewer fattura. autoPrintViewer = true → il modal si apre e triggera
+  // subito la stampa/PDF senza mostrare l'anteprima (usato da "Scarica PDF")
   const [viewerXml, setViewerXml] = useState(null);
+  const [autoPrintViewer, setAutoPrintViewer] = useState(false);
   const [loadingXml, setLoadingXml] = useState(null);
 
   // Collasso delle 3 sezioni principali. Fatture parte CHIUSA perche'
@@ -313,25 +315,60 @@ function ArchivioTab({ companyId, showToast }) {
   }
 
   /**
-   * Estratti conto: leggiamo dalla tabella `bank_statements` che contiene i
-   * metadati degli import (filename, banca, transaction_count, status).
-   * Dedupliciamo per bank_account_id tenendo l'import piu' recente: i file
-   * precedenti dello stesso conto erano ri-upload.
+   * Estratti conto: leggiamo dalla tabella `bank_statements` (filename,
+   * transaction_count, status). bank_statements non ha il file_path del
+   * file originale: per abilitare il download matchiamo con `bank_imports`
+   * (che ha file_path nel bucket bank-statements) su bank_account_id+nome.
+   *
+   * Dedupliciamo per bank_account_id tenendo l'import piu' recente.
    */
   async function loadEcFiles() {
     try {
-      const { data, error } = await supabase
-        .from('bank_statements')
-        .select('id, filename, file_type, transaction_count, status, bank_account_id, created_at, bank_accounts(bank_name, account_name)')
-        .eq('company_id', companyId)
-        .order('created_at', { ascending: false })
-        .limit(200);
-      if (error) throw error;
+      const [stmtRes, impRes] = await Promise.all([
+        supabase
+          .from('bank_statements')
+          .select('id, filename, file_type, transaction_count, status, bank_account_id, created_at, bank_accounts(bank_name, account_name)')
+          .eq('company_id', companyId)
+          .order('created_at', { ascending: false })
+          .limit(200),
+        supabase
+          .from('bank_imports')
+          .select('id, file_name, file_path, file_size, bank_account_id, uploaded_at, created_at')
+          .eq('company_id', companyId)
+          .order('uploaded_at', { ascending: false })
+          .limit(200),
+      ]);
 
-      // Deduplica per bank_account_id: tieni solo l'import piu' recente per
-      // ogni conto (ordinato desc, il primo visto e' il piu' recente)
+      if (stmtRes.error) throw stmtRes.error;
+
+      // Index bank_imports by (bank_account_id + lowercased filename) per
+      // matching, e anche per bank_account_id per fallback
+      const importsByKey = new Map();
+      const importsByAccount = new Map();
+      for (const imp of (impRes.data || [])) {
+        const k = `${imp.bank_account_id || ''}::${(imp.file_name || '').toLowerCase()}`;
+        if (!importsByKey.has(k)) importsByKey.set(k, imp);
+        if (!importsByAccount.has(imp.bank_account_id)) {
+          importsByAccount.set(imp.bank_account_id, imp);
+        }
+      }
+
+      // Arricchisci bank_statements con file_path+file_size quando possibile
+      const enriched = (stmtRes.data || []).map(ec => {
+        const key = `${ec.bank_account_id || ''}::${(ec.filename || '').toLowerCase()}`;
+        const byKey = importsByKey.get(key);
+        const byAcc = importsByAccount.get(ec.bank_account_id);
+        const src = byKey || byAcc || null;
+        return {
+          ...ec,
+          file_path: src?.file_path || null,
+          file_size: src?.file_size || null,
+        };
+      });
+
+      // Deduplica per bank_account_id: tieni solo l'import piu' recente
       const latestByAccount = new Map();
-      for (const ec of (data || [])) {
+      for (const ec of enriched) {
         const key = ec.bank_account_id || ec.id;
         if (!latestByAccount.has(key)) latestByAccount.set(key, ec);
       }
@@ -446,11 +483,16 @@ function ArchivioTab({ companyId, showToast }) {
 
   // ─── OPEN VIEWER ───────────────────────────────────────────
 
-  async function openInvoiceViewer(inv) {
+  /**
+   * Apre il viewer fattura. Se autoPrint=true viene lanciata subito la
+   * stampa/PDF con layout A4 leggibile — cosi il bottone "Scarica PDF"
+   * produce un PDF tipografico (non l'XML grezzo) riutilizzando la stessa
+   * funzione handlePrint del viewer.
+   */
+  async function openInvoiceViewer(inv, { autoPrint = false } = {}) {
     setLoadingXml(inv.id);
     try {
       let xml = inv.xml_content;
-      // Se il contenuto XML non e' in DB prova dal bucket
       if (!xml && inv.xml_file_path) {
         const { data: blob } = await supabase.storage.from('invoices').download(inv.xml_file_path);
         if (blob) xml = await blob.text();
@@ -459,6 +501,7 @@ function ArchivioTab({ companyId, showToast }) {
         showToast('XML fattura non disponibile', 'error');
         return;
       }
+      setAutoPrintViewer(autoPrint);
       setViewerXml(xml);
     } catch (err) {
       showToast('Errore apertura fattura: ' + err.message, 'error');
@@ -658,14 +701,25 @@ function ArchivioTab({ companyId, showToast }) {
                               )}
                             </td>
                             <td className="px-5 py-2.5 text-right">
-                              <button
-                                onClick={() => openInvoiceViewer(inv)}
-                                disabled={loadingXml === inv.id}
-                                className="px-2.5 py-1 bg-blue-50 text-blue-700 rounded-lg text-xs font-semibold hover:bg-blue-100 border border-blue-200 inline-flex items-center gap-1 disabled:opacity-50"
-                              >
-                                {loadingXml === inv.id ? <RefreshCw size={12} className="animate-spin" /> : <Eye size={12} />}
-                                Apri
-                              </button>
+                              <div className="inline-flex items-center gap-1">
+                                <button
+                                  onClick={() => openInvoiceViewer(inv)}
+                                  disabled={loadingXml === inv.id}
+                                  className="px-2.5 py-1 bg-blue-50 text-blue-700 rounded-lg text-xs font-semibold hover:bg-blue-100 border border-blue-200 inline-flex items-center gap-1 disabled:opacity-50"
+                                  title="Apri la fattura in formato leggibile"
+                                >
+                                  {loadingXml === inv.id ? <RefreshCw size={12} className="animate-spin" /> : <Eye size={12} />}
+                                  Anteprima
+                                </button>
+                                <button
+                                  onClick={() => openInvoiceViewer(inv, { autoPrint: true })}
+                                  disabled={loadingXml === inv.id}
+                                  className="px-2.5 py-1 bg-white text-slate-700 rounded-lg text-xs font-semibold hover:bg-slate-50 border border-slate-200 inline-flex items-center gap-1 disabled:opacity-50"
+                                  title="Genera PDF leggibile e apri dialogo di stampa"
+                                >
+                                  <Download size={12} /> Scarica PDF
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         ))}
@@ -727,8 +781,9 @@ function ArchivioTab({ companyId, showToast }) {
                       <button
                         onClick={() => openPdfPreview('balance-sheets', bs.file_path)}
                         className="px-2.5 py-1 bg-indigo-50 text-indigo-700 rounded-lg text-xs font-semibold hover:bg-indigo-100 border border-indigo-200 inline-flex items-center gap-1"
+                        title="Apri il PDF in una nuova scheda"
                       >
-                        <Eye size={12} /> Apri
+                        <Eye size={12} /> Anteprima
                       </button>
                       <button
                         onClick={() => downloadFile('balance-sheets', bs.file_path, bs.file_name)}
@@ -796,15 +851,33 @@ function ArchivioTab({ companyId, showToast }) {
                       {ec.status && <span className={statusColor}>· {ec.status}</span>}
                     </div>
                   </div>
-                  {ec.bank_account_id && (
-                    <button
-                      onClick={() => navigate(`/banche?tab=movimenti&account=${ec.bank_account_id}`)}
-                      className="px-2.5 py-1 bg-emerald-50 text-emerald-700 rounded-lg text-xs font-semibold hover:bg-emerald-100 border border-emerald-200 inline-flex items-center gap-1"
-                      title="Apri movimenti di questa banca"
-                    >
-                      <ExternalLink size={12} /> Vai a Movimenti
-                    </button>
-                  )}
+                  <div className="flex items-center gap-1 shrink-0">
+                    {ec.bank_account_id && (
+                      <button
+                        onClick={() => navigate(`/banche?tab=movimenti&account=${ec.bank_account_id}`)}
+                        className="px-2.5 py-1 bg-emerald-50 text-emerald-700 rounded-lg text-xs font-semibold hover:bg-emerald-100 border border-emerald-200 inline-flex items-center gap-1"
+                        title="Apri movimenti di questa banca"
+                      >
+                        <Eye size={12} /> Anteprima
+                      </button>
+                    )}
+                    {ec.file_path ? (
+                      <button
+                        onClick={() => downloadFile('bank-statements', ec.file_path, ec.filename)}
+                        className="px-2.5 py-1 bg-white text-slate-700 rounded-lg text-xs font-semibold hover:bg-slate-50 border border-slate-200 inline-flex items-center gap-1"
+                        title="Scarica il file originale dell'estratto conto"
+                      >
+                        <Download size={12} /> Scarica
+                      </button>
+                    ) : (
+                      <span
+                        className="px-2.5 py-1 bg-slate-50 text-slate-400 rounded-lg text-xs font-semibold border border-slate-200 inline-flex items-center gap-1 cursor-not-allowed"
+                        title="File originale non disponibile nello storage"
+                      >
+                        <Download size={12} /> —
+                      </span>
+                    )}
+                  </div>
                 </div>
               );
             })
@@ -815,7 +888,11 @@ function ArchivioTab({ companyId, showToast }) {
 
       {/* INVOICE VIEWER MODAL */}
       {viewerXml && (
-        <InvoiceViewer xmlContent={viewerXml} onClose={() => setViewerXml(null)} />
+        <InvoiceViewer
+          xmlContent={viewerXml}
+          autoPrint={autoPrintViewer}
+          onClose={() => { setViewerXml(null); setAutoPrintViewer(false); }}
+        />
       )}
     </div>
   );
