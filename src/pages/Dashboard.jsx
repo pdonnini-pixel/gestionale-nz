@@ -115,7 +115,7 @@ function SparklineTooltip({ active, payload }) {
    ═══════════════════════════════════════ */
 export default function Dashboard() {
   const { profile } = useAuth()
-  const { year, getDateRange } = usePeriod()
+  const { year, quarter, getDateRange } = usePeriod()
   const COMPANY_ID = profile?.company_id
   const periodRange = getDateRange()
 
@@ -141,6 +141,7 @@ export default function Dashboard() {
   useEffect(() => {
     if (!COMPANY_ID) return
     const YEAR = year
+    const range = getDateRange()
 
     const fetchData = async () => {
       try {
@@ -192,8 +193,8 @@ export default function Dashboard() {
               .from('electronic_invoices')
               .select('gross_amount')
               .eq('company_id', COMPANY_ID)
-              .gte('invoice_date', `${YEAR}-01-01`)
-              .lte('invoice_date', `${YEAR}-12-31`)
+              .gte('invoice_date', range.from)
+              .lte('invoice_date', range.to)
 
             if (invData?.length > 0) {
               setTotalCosti(invData.reduce((s, r) => s + parseFloat(r.gross_amount || 0), 0))
@@ -464,7 +465,7 @@ export default function Dashboard() {
     }
 
     fetchData()
-  }, [COMPANY_ID, year])
+  }, [COMPANY_ID, year, quarter])
 
   // Derived
   const deltaRicaviPct = ricaviPrevYear > 0 ? ((ricavi - ricaviPrevYear) / ricaviPrevYear * 100) : 0
@@ -554,7 +555,6 @@ export default function Dashboard() {
         <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
           Cruscotto direzionale — {periodRange.label}
           {dataSource === 'bilancio' && <span className="text-blue-500 ml-2">· Dati da bilancio importato</span>}
-          {dataSource === 'fatture' && <span className="text-emerald-500 ml-2">· Dati da fatture AdE</span>}
           {lastUpdate && <span className="ml-2"><DataFreshness lastUpdate={lastUpdate} source="Dati" /></span>}
         </p>
       </div>
@@ -569,10 +569,10 @@ export default function Dashboard() {
           link="/conto-economico"
         />
         <KpiCard
-          icon={Percent} title={dataSource === 'fatture' ? 'Costi fatture' : 'Margine netto'} helpTerm="margine"
-          color={dataSource === 'fatture' ? 'amber' : utile >= 0 ? 'green' : 'red'}
+          icon={Percent} title={dataSource === 'fatture' ? 'Costi' : 'Margine netto'} helpTerm="margine"
+          color={dataSource === 'fatture' ? 'blue' : utile >= 0 ? 'green' : 'red'}
           value={dataSource === 'fatture' ? `${fmtCompact(totalCosti)} €` : `${marginePct.toFixed(1)}%`}
-          subtitle={dataSource === 'fatture' ? `${year} — da fatture passive` : `Utile: ${fmtCompact(utile)} €`}
+          subtitle={dataSource === 'fatture' ? `Totale fatture passive ${year}` : `Utile: ${fmtCompact(utile)} €`}
           link={dataSource === 'fatture' ? '/fatturazione' : '/conto-economico'}
           alert={dataSource !== 'fatture' && utile < 0}
         />
@@ -697,13 +697,13 @@ export default function Dashboard() {
           </Link>
         </div>
 
-        {outletsData.length === 0 || (outletsData.length === 1 && !outletsData[0]?.name) ? (
+        {dataSource === 'fatture' || outletsData.length === 0 || (outletsData.length === 1 && !outletsData[0]?.name) ? (
           <div className="p-4">
             <div className="flex items-center gap-3 py-4 px-3 bg-amber-50 rounded-lg">
               <Info size={16} className="text-amber-500 shrink-0" />
               <p className="text-xs text-slate-600">
                 {dataSource === 'fatture'
-                  ? <>Le fatture {year} non sono associate agli outlet. <Link to="/allocazione-fornitori" className="text-blue-500 hover:underline">Assegna i fornitori agli outlet</Link> per vedere il ranking.</>
+                  ? <>Dati per outlet non disponibili per il {year}. Importa il bilancio {year} o <Link to="/allocazione-fornitori" className="text-blue-500 hover:underline">assegna i fornitori agli outlet</Link>.</>
                   : <>Nessun dato outlet. <Link to="/import-hub" className="text-blue-500 hover:underline">Importa dati</Link> per vedere il ranking.</>
                 }
               </p>

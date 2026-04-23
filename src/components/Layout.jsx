@@ -15,7 +15,7 @@ import {
 function PeriodSelector() {
   const { year, quarter, setYear, setQuarter } = usePeriod()
   const currentYear = new Date().getFullYear()
-  const years = [currentYear - 1, currentYear] // Solo anni con dati + anno corrente
+  const years = [currentYear - 2, currentYear - 1, currentYear]
   const quarters = [
     { value: 'year', label: 'Anno' },
     { value: 'ytd', label: 'YTD' },
