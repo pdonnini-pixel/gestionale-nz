@@ -1054,14 +1054,22 @@ function Corrispettivi() {
   const loadData = useCallback(async () => {
     setLoading(true)
     try {
+      // Limit alzato a 5000 per evitare troncamento (con 7 outlet x 365 gg
+      // si arriva a 2555 all'anno). Embed outlets(name) rimosso per evitare
+      // fallimento 400 se FK non definita: lookup client-side piu' robusto.
       const [{ data: revenue }, { data: outs }, { data: corrLog }] = await Promise.all([
-        supabase.from('daily_revenue').select('*, outlets(name)').order('date', { ascending: false }).limit(500),
+        supabase.from('daily_revenue').select('*').order('date', { ascending: false }).limit(5000),
         supabase.from('outlets').select('id, name').order('name'),
-        supabase.from('corrispettivi_log').select('*, outlets(name)').order('date', { ascending: false }).limit(500),
+        supabase.from('corrispettivi_log').select('*').order('date', { ascending: false }).limit(5000),
       ])
-      setDailyRevenue(revenue || [])
+      const outletMap = new Map((outs || []).map(o => [o.id, o.name]))
+      const enrich = (rows) => (rows || []).map(r => ({
+        ...r,
+        outlets: { name: outletMap.get(r.outlet_id) || r.outlet_name || 'Sconosciuto' },
+      }))
+      setDailyRevenue(enrich(revenue))
       setOutlets(outs || [])
-      setCorrispettiviLog(corrLog || [])
+      setCorrispettiviLog(enrich(corrLog))
     } catch (err) {
       console.error('Errore caricamento corrispettivi:', err)
     } finally {

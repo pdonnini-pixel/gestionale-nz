@@ -583,15 +583,33 @@ export default function ContoEconomico() {
   }, [showTrend, periodType])
 
   const loadCompanyInfo = async () => {
+    // Carico da 2 sorgenti: company_settings (dati estesi) + companies
+    // (denominazione, partita iva, codice fiscale). Fallback esplicito su
+    // dati NEW ZAGO se nessuna tabella restituisce CF/PIVA. Evita il bug
+    // 'NEW ZAGO S.R.L. — CF' senza valore.
     try {
-      const { data } = await supabase
-        .from('company_settings')
-        .select('*')
-        .eq('company_id', COMPANY_ID)
-        .single()
-      setCompanyInfo(data)
+      const [settingsRes, companyRes] = await Promise.all([
+        supabase.from('company_settings').select('*').eq('company_id', COMPANY_ID).maybeSingle(),
+        supabase.from('companies').select('*').eq('id', COMPANY_ID).maybeSingle(),
+      ])
+      const settings = settingsRes.data || {}
+      const company = companyRes.data || {}
+      setCompanyInfo({
+        ...settings,
+        // Normalizzo i nomi campo: tutti i codici (CF o PIVA) finiscono in
+        // cf_piva. Cerco prima il CF, poi la PIVA, poi fallback NZ.
+        denominazione: settings.denominazione || company.name || company.denominazione || 'NEW ZAGO S.R.L.',
+        cf_piva: settings.cf_piva || company.fiscal_code || company.vat_number || company.codice_fiscale || company.partita_iva || '07362100484',
+        sede: settings.sede || company.city || 'FIRENZE (FI)',
+      })
     } catch (error) {
       console.error('Error loading company info:', error)
+      // Fallback finale se entrambe le query falliscono
+      setCompanyInfo({
+        denominazione: 'NEW ZAGO S.R.L.',
+        cf_piva: '07362100484',
+        sede: 'FIRENZE (FI)',
+      })
     }
   }
 
@@ -1288,7 +1306,7 @@ export default function ContoEconomico() {
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Conto Economico & Bilancio</h1>
           <p className="text-sm text-slate-500 mt-1">
-            {companyInfo?.denominazione || 'NEW ZAGO S.R.L.'} — {companyInfo?.cf_piva || 'CF'}
+            {companyInfo?.denominazione || 'NEW ZAGO S.R.L.'} — CF/P.IVA {companyInfo?.cf_piva || '07362100484'}
           </p>
           <p className="text-xs text-slate-400 mt-0.5">
             Sede: {companyInfo?.sede || 'FIRENZE (FI)'}
@@ -1334,26 +1352,29 @@ export default function ContoEconomico() {
             }`}>
             <BarChart3 size={14} /> Confronto YoY
           </button>
+          {/* Trend / Simulation Mode / Import PDF: feature non ancora
+              funzionanti, disabilitate visivamente con badge 'Coming soon'
+              finche' non vengono implementate. */}
           <button
-            onClick={() => setShowTrend(!showTrend)}
-            className={`px-3 py-2 rounded-lg text-sm font-medium transition flex items-center gap-1 ${
-              showTrend ? 'bg-indigo-100 text-indigo-700 border border-indigo-300' : 'bg-slate-100 text-slate-700 border border-slate-300'
-            }`}>
+            disabled
+            title="Funzione in arrivo — grafici multi-anno di ricavi e costi"
+            className="px-3 py-2 rounded-lg text-sm font-medium bg-slate-50 text-slate-400 border border-slate-200 flex items-center gap-1 cursor-not-allowed opacity-60">
             <LineChartIcon size={14} /> Trend
+            <span className="ml-1 text-[10px] font-semibold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded-full">Coming soon</span>
           </button>
           <button
-            onClick={() => setSimulationMode(!simulationMode)}
-            className={`px-3 py-2 rounded-lg text-sm font-medium transition ${
-              simulationMode
-                ? 'bg-purple-100 text-purple-700 border border-purple-300'
-                : 'bg-slate-100 text-slate-700 border border-slate-300'
-            }`}>
-            {simulationMode ? 'Exit Simulation' : 'Simulation Mode'}
+            disabled
+            title="Funzione in arrivo — simulazione what-if su ricavi/costi"
+            className="px-3 py-2 rounded-lg text-sm font-medium bg-slate-50 text-slate-400 border border-slate-200 flex items-center gap-1 cursor-not-allowed opacity-60">
+            Simulation Mode
+            <span className="ml-1 text-[10px] font-semibold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded-full">Coming soon</span>
           </button>
-          <label className="px-3 py-2 rounded-lg text-sm font-medium bg-blue-100 text-blue-700 border border-blue-300 flex items-center gap-1 cursor-pointer">
+          <span
+            title="Funzione in arrivo — import bilancio da PDF/Excel"
+            className="px-3 py-2 rounded-lg text-sm font-medium bg-slate-50 text-slate-400 border border-slate-200 flex items-center gap-1 cursor-not-allowed opacity-60">
             <FileUp size={14} /> Import PDF
-            <input type="file" accept=".pdf,.xlsx,.csv" onChange={handleFileUpload} className="hidden" />
-          </label>
+            <span className="ml-1 text-[10px] font-semibold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded-full">Coming soon</span>
+          </span>
           {Object.keys(dirtyFields).some(k => dirtyFields[k]) && (
             <button onClick={handleSaveManualChanges} disabled={saving}
               className="px-3 py-2 rounded-lg text-sm font-medium bg-amber-100 text-amber-700 border border-amber-300 flex items-center gap-1 hover:bg-amber-200 disabled:opacity-50">
