@@ -10,6 +10,10 @@ import { useAuth } from '../hooks/useAuth';
 import PageHelp from '../components/PageHelp';
 
 function fmt(n, dec = 0) {
+  // null/undefined/NaN → 'N/D' cosi' non compaiono 'NaN €' nella UI e la
+  // pagina non crasha su valori assenti (metriche per-dipendente senza
+  // dato dipendenti).
+  if (n == null || (typeof n === 'number' && !isFinite(n))) return 'N/D';
   return new Intl.NumberFormat('it-IT', { minimumFractionDigits: dec, maximumFractionDigits: dec }).format(n);
 }
 
@@ -252,12 +256,18 @@ export default function Produttivita() {
     return base;
   }, [outletBaseData, simulazioneAttiva, moved]);
 
-  // KPI
+  // KPI — best/worst calcolati SOLO sulle metriche con ricavo_per_ora
+  // valorizzato (altrimenti null > null = false e il reduce si rompe).
   const kpi = useMemo(() => {
     if (!metriche.length) return null;
-    const best = metriche.reduce((a, b) => a.ricavo_per_ora > b.ricavo_per_ora ? a : b);
-    const worst = metriche.reduce((a, b) => a.ricavo_per_ora < b.ricavo_per_ora ? a : b);
-    const avg_ricavo_ora = metriche.reduce((sum, m) => sum + m.ricavo_per_ora, 0) / metriche.length;
+    const valide = metriche.filter(m => m.ricavo_per_ora != null);
+    const best = valide.length > 0 ? valide.reduce((a, b) => a.ricavo_per_ora > b.ricavo_per_ora ? a : b) : metriche[0];
+    const worst = valide.length > 0 ? valide.reduce((a, b) => a.ricavo_per_ora < b.ricavo_per_ora ? a : b) : metriche[0];
+    // Media calcolata SOLO sulle metriche con dato valido (exclude null)
+    const metricheValide = metriche.filter(m => m.ricavo_per_ora != null);
+    const avg_ricavo_ora = metricheValide.length > 0
+      ? metricheValide.reduce((sum, m) => sum + m.ricavo_per_ora, 0) / metricheValide.length
+      : null;
     const avg_roi = metriche.reduce((sum, m) => sum + m.roi, 0) / metriche.length;
     const totRicavi = metriche.reduce((sum, m) => sum + (m.ricavi || 0), 0);
     const totDipendenti = metriche.reduce((sum, m) => sum + (m.dipendenti || 0), 0);
@@ -288,12 +298,16 @@ export default function Produttivita() {
       }));
   }, [metriche]);
 
-  // Chart: ricavo vs costo per ora
-  const ricavoCostoChart = metriche.map(m => ({
-    nome: m.nome,
-    'Ricavo/ora': parseFloat(m.ricavo_per_ora.toFixed(2)),
-    'Costo/ora': parseFloat(m.costo_per_ora.toFixed(2)),
-  }));
+  // Chart: ricavo vs costo per ora. Gli outlet senza dato dipendenti hanno
+  // ricavo_per_ora/costo_per_ora = null e vengono esclusi dal grafico
+  // (altrimenti il .toFixed su null generava crash della pagina).
+  const ricavoCostoChart = metriche
+    .filter(m => m.ricavo_per_ora != null && m.costo_per_ora != null)
+    .map(m => ({
+      nome: m.nome,
+      'Ricavo/ora': parseFloat(m.ricavo_per_ora.toFixed(2)),
+      'Costo/ora': parseFloat(m.costo_per_ora.toFixed(2)),
+    }));
 
   // Outlet names for line chart
   const outletNamesForTrend = useMemo(() => {
