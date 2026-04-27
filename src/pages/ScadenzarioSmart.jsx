@@ -62,7 +62,13 @@ function formatCurrency(n) {
 
 function fmt(n) {
   if (n == null) return '—'
-  return new Intl.NumberFormat('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)
+  // Cast esplicito a Number: Supabase a volte ritorna gross_amount come
+  // stringa (es. "9382.26") e Intl.NumberFormat su stringa NON applica il
+  // separatore migliaia. Bug visibile su importi 1.000-9.999 (decine di
+  // migliaia funzionavano per coincidenza dovuta a parsing parziale).
+  const num = Number(n)
+  if (isNaN(num)) return '—'
+  return new Intl.NumberFormat('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(num)
 }
 
 function fmtDate(d) {
@@ -340,9 +346,23 @@ const ScadenzarioSmart = () => {
         .eq('company_id', COMPANY_ID)
         .eq('is_active', true);
 
-      // Lookup banca per Fix 5.2: payable.payment_bank_account_id ->
-      // bank_accounts.bank_name. Lookup client-side via accountsData.
+      // Lookup banca per Fix 5.2: due livelli di matching.
+      // 1) payment_bank_account_id (set quando l'utente paga dal modale Salda)
+      // 2) cash_movement_id -> cash_movements.bank_account_id (riconciliazione
+      //    automatica: la banca e' quella su cui e' stato registrato il
+      //    movimento bancario abbinato).
       const bankNameById = new Map((accountsData || []).map(b => [b.id, b.bank_name]));
+      const movementIds = (payablesRaw || []).map(p => p.cash_movement_id).filter(Boolean);
+      const cashMovBankMap = new Map();
+      if (movementIds.length > 0) {
+        const { data: movs } = await supabase
+          .from('cash_movements')
+          .select('id, bank_account_id')
+          .in('id', movementIds);
+        (movs || []).forEach(m => {
+          if (m.bank_account_id) cashMovBankMap.set(m.id, m.bank_account_id);
+        });
+      }
 
       const enrichedPayables = (viewData || []).map(row => {
         const extra = payablesExtraMap[row.id] || {};
@@ -359,8 +379,14 @@ const ScadenzarioSmart = () => {
           payment_method: row.payment_method,
           payment_date: extra.payment_date,
           payment_bank_account_id: extra.payment_bank_account_id,
-          // Nome banca per la colonna CONTO (— se non pagata o senza banca)
-          payment_bank_name: extra.payment_bank_account_id ? bankNameById.get(extra.payment_bank_account_id) || null : null,
+          // Nome banca per la colonna CONTO. Provo prima il banca diretta,
+          // poi via cash_movement (per riconciliazioni automatiche).
+          payment_bank_name: (() => {
+            const direct = extra.payment_bank_account_id ? bankNameById.get(extra.payment_bank_account_id) : null;
+            if (direct) return direct;
+            const viaCM = extra.cash_movement_id ? cashMovBankMap.get(extra.cash_movement_id) : null;
+            return viaCM ? bankNameById.get(viaCM) || null : null;
+          })(),
           outlet_id: row.outlet_id,
           outlet_name: row.outlet_name,
           cost_center: row.cost_category_name || row.macro_group || 'altro',
@@ -1314,10 +1340,17 @@ const ScadenzarioSmart = () => {
             <select value={selectedStatus} onChange={(e) => setSelectedStatus(e.target.value)}
               className="px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs bg-white text-slate-500">
               <option value="">Tutti gli stati</option>
-              <option value="da_pagare">Da pagare</option>
+              {/* Allineato a statusConfig (badge): include in_scadenza,
+                  sospeso, rimandato, nota_credito che prima mancavano */}
               <option value="scaduto">Scaduto</option>
+              <option value="in_scadenza">In scadenza</option>
+              <option value="da_pagare">Da pagare</option>
               <option value="parziale">Parziale</option>
               <option value="pagato">Pagato</option>
+              <option value="sospeso">Sospeso</option>
+              <option value="rimandato">Rimandato</option>
+              <option value="nota_credito">Nota Credito</option>
+              <option value="annullato">Annullato</option>
             </select>
             {/* Filter count badge — Sibill */}
             {(searchTerm || selectedStatus || selectedMethodGroup || dateRange.start || dateRange.end) && (
