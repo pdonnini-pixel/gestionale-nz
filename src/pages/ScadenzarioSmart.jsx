@@ -21,6 +21,45 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
 
 // Utility functions
+/**
+ * Calcola lo stato di una payable in base alle sue date.
+ * Se il record ha gia' uno stato terminale (pagato, nota_credito, sospeso,
+ * rimandato, annullato, parziale) lo rispetta. Altrimenti deduce da due_date:
+ *   - oggi > due_date  -> 'scaduto'
+ *   - 0..15 giorni     -> 'in_scadenza'
+ *   - oltre 15 giorni  -> 'da_pagare'
+ * Risolve il bug "tutte le 221 scadenze marcate come scaduto" quando la view
+ * non ricalcola lo stato a runtime.
+ */
+function calculatePayableStatus(p) {
+  // Stati terminali / non automatici: rispetta il valore in DB
+  const TERMINAL = new Set(['pagato', 'nota_credito', 'sospeso', 'rimandato', 'annullato', 'parziale']);
+  if (p.status && TERMINAL.has(p.status)) return p.status;
+  if (p.payment_date) return 'pagato';
+  if (!p.due_date) return p.status || 'da_pagare';
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const due = new Date(p.due_date);
+  due.setHours(0, 0, 0, 0);
+  const days = Math.ceil((due.getTime() - today.getTime()) / 86400000);
+  if (days < 0) return 'scaduto';
+  if (days <= 15) return 'in_scadenza';
+  return 'da_pagare';
+}
+
+/**
+ * Formattatore importi unico per tutto lo Scadenzario.
+ * Sempre formato italiano "1.234,56" con simbolo o senza, due decimali.
+ * Usato per Fix 5.3 (formato numeri inconsistente).
+ */
+function formatCurrency(n) {
+  if (n == null || isNaN(Number(n))) return '—';
+  return new Intl.NumberFormat('it-IT', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(Number(n)) + ' €';
+}
+
 function fmt(n) {
   if (n == null) return '—'
   return new Intl.NumberFormat('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)
@@ -262,14 +301,23 @@ const ScadenzarioSmart = () => {
         .from('v_payables_operative')
         .select('*');
 
-      // Fetch extra fields from payables (cost_category_id, verified, cash_movement_id)
+      // Fetch extra fields from payables (cost_category_id, verified,
+      // cash_movement_id, payment_date, payment_bank_account_id) per:
+      //  - calcolo stato dinamico (Fix 5.1)
+      //  - colonna CONTO con nome banca (Fix 5.2)
       const { data: payablesRaw } = await supabase
         .from('payables')
-        .select('id, cash_movement_id, cost_category_id, verified')
+        .select('id, cash_movement_id, cost_category_id, verified, payment_date, payment_bank_account_id')
         .eq('company_id', COMPANY_ID);
       const payablesExtraMap = {};
       (payablesRaw || []).forEach(p => {
-        payablesExtraMap[p.id] = { cash_movement_id: p.cash_movement_id || null, cost_category_id: p.cost_category_id || null, verified: p.verified || false };
+        payablesExtraMap[p.id] = {
+          cash_movement_id: p.cash_movement_id || null,
+          cost_category_id: p.cost_category_id || null,
+          verified: p.verified || false,
+          payment_date: p.payment_date || null,
+          payment_bank_account_id: p.payment_bank_account_id || null,
+        };
       });
 
       // Fetch categories
@@ -292,39 +340,53 @@ const ScadenzarioSmart = () => {
         .eq('company_id', COMPANY_ID)
         .eq('is_active', true);
 
-      const enrichedPayables = (viewData || []).map(row => ({
-        id: row.id,
-        invoice_number: row.invoice_number || '-',
-        invoice_date: row.invoice_date,
-        due_date: row.due_date,
-        original_due_date: row.original_due_date,
-        gross_amount: row.gross_amount || 0,
-        amount_paid: row.amount_paid || 0,
-        amount_remaining: row.amount_remaining || 0,
-        status: row.status,
-        payment_method: row.payment_method,
-        outlet_id: row.outlet_id,
-        outlet_name: row.outlet_name,
-        cost_center: row.cost_category_name || row.macro_group || 'altro',
-        notes: row.suspend_reason,
-        days_to_due: row.days_to_due,
-        urgency: row.urgency,
-        priority: row.priority,
-        supplier_id: row.supplier_id,
-        supplier_iban: row.supplier_iban || '',
-        supplier_vat: row.supplier_vat || '',
-        suppliers: {
-          name: row.supplier_name,
-          ragione_sociale: row.supplier_name,
-          category: row.supplier_category || 'altro',
-        },
-        last_action_type: row.last_action_type,
-        last_action_note: row.last_action_note,
-        last_action_date: row.last_action_date,
-        cash_movement_id: payablesExtraMap[row.id]?.cash_movement_id || null,
-        cost_category_id: payablesExtraMap[row.id]?.cost_category_id || null,
-        verified: payablesExtraMap[row.id]?.verified || false,
-      }));
+      // Lookup banca per Fix 5.2: payable.payment_bank_account_id ->
+      // bank_accounts.bank_name. Lookup client-side via accountsData.
+      const bankNameById = new Map((accountsData || []).map(b => [b.id, b.bank_name]));
+
+      const enrichedPayables = (viewData || []).map(row => {
+        const extra = payablesExtraMap[row.id] || {};
+        const baseRow = {
+          id: row.id,
+          invoice_number: row.invoice_number || '-',
+          invoice_date: row.invoice_date,
+          due_date: row.due_date,
+          original_due_date: row.original_due_date,
+          gross_amount: row.gross_amount || 0,
+          amount_paid: row.amount_paid || 0,
+          amount_remaining: row.amount_remaining || 0,
+          status: row.status, // overridden sotto da calculatePayableStatus
+          payment_method: row.payment_method,
+          payment_date: extra.payment_date,
+          payment_bank_account_id: extra.payment_bank_account_id,
+          // Nome banca per la colonna CONTO (— se non pagata o senza banca)
+          payment_bank_name: extra.payment_bank_account_id ? bankNameById.get(extra.payment_bank_account_id) || null : null,
+          outlet_id: row.outlet_id,
+          outlet_name: row.outlet_name,
+          cost_center: row.cost_category_name || row.macro_group || 'altro',
+          notes: row.suspend_reason,
+          days_to_due: row.days_to_due,
+          urgency: row.urgency,
+          priority: row.priority,
+          supplier_id: row.supplier_id,
+          supplier_iban: row.supplier_iban || '',
+          supplier_vat: row.supplier_vat || '',
+          suppliers: {
+            name: row.supplier_name,
+            ragione_sociale: row.supplier_name,
+            category: row.supplier_category || 'altro',
+          },
+          last_action_type: row.last_action_type,
+          last_action_note: row.last_action_note,
+          last_action_date: row.last_action_date,
+          cash_movement_id: extra.cash_movement_id || null,
+          cost_category_id: extra.cost_category_id || null,
+          verified: extra.verified || false,
+        };
+        // Fix 5.1: ricalcolo lo stato dalla data se non e' terminale
+        baseRow.status = calculatePayableStatus(baseRow);
+        return baseRow;
+      });
 
       setPayables(enrichedPayables);
       setSuppliers(suppliersData || []);
@@ -1565,7 +1627,7 @@ const ScadenzarioSmart = () => {
                             </div>
                             <div className="flex items-center gap-3">
                               <span className={`text-sm font-semibold ${p.status === 'pagato' ? 'text-slate-400' : p.status === 'scaduto' ? 'text-red-600' : 'text-slate-800'}`}>
-                                {fmt(p.amount_remaining || p.gross_amount)} EUR
+                                {fmt(p.amount_remaining || p.gross_amount)} €
                               </span>
                               <StatusPill status={p.status} />
                             </div>
@@ -1751,11 +1813,17 @@ const ScadenzarioSmart = () => {
                               </div>
                             )}
                           </td>
-                          {/* CONTO — badge */}
+                          {/* CONTO — banca su cui è stata saldata (Fix 5.2).
+                              Prima mostrava 3 lettere del metodo pagamento o
+                              'NA' per tutti — completamente fuorviante. */}
                           <td className="py-2.5 px-3 text-center">
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 text-[10px] text-slate-500 font-medium">
-                              <Landmark size={10} /> {paymentMethodLabels[p.payment_method]?.substring(0, 3)?.toUpperCase() || 'NA'}
-                            </span>
+                            {p.payment_bank_name ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-50 text-[10px] text-emerald-700 font-medium border border-emerald-200" title={`Pagato su ${p.payment_bank_name}`}>
+                                <Landmark size={10} /> {p.payment_bank_name}
+                              </span>
+                            ) : (
+                              <span className="text-[11px] text-slate-300">—</span>
+                            )}
                           </td>
                           {/* CATEGORIA — dropdown con ricerca Sibill */}
                           <td className="py-2.5 px-3 text-center relative">
