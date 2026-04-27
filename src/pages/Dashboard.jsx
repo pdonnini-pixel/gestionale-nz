@@ -146,6 +146,15 @@ export default function Dashboard() {
     const fetchData = async () => {
       try {
         setLoading(true)
+        // Reset esplicito al cambio anno: senza questo, se la query del
+        // nuovo anno non trova dati, gli state mantengono il valore
+        // dell'anno precedente e si vede lo stesso ricavo su piu' anni.
+        setRicavi(0)
+        setRicaviPrevYear(0)
+        setUtile(0)
+        setTotalCosti(0)
+        setStaffCosts(0)
+        setDataSource(null)
 
         // 1. Financial data — try views first, then bilancio, then fatture
         let hasViewData = false
