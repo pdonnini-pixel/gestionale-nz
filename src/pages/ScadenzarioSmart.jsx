@@ -649,8 +649,17 @@ const ScadenzarioSmart = () => {
         || (selectedStatus === 'da_saldare' && p.status !== 'pagato')
         || (selectedStatus !== 'da_saldare' && p.status === selectedStatus);
       const matchSearch = !searchTerm || (p.invoice_number || '').toLowerCase().includes(searchTerm.toLowerCase()) || (p.suppliers?.ragione_sociale || p.suppliers?.name || '').toLowerCase().includes(searchTerm.toLowerCase());
-      const dueDate = new Date(p.due_date);
-      const matchDate = dueDate >= new Date(dateRange.start) && dueDate <= new Date(dateRange.end);
+      // Filtro data: applica SOLO se start/end sono valorizzati (string non
+      // vuota e date valide). Prima filtrava tutto out quando start='' perche'
+      // new Date('') = Invalid Date e i confronti restituivano false.
+      const dueDate = p.due_date ? new Date(p.due_date) : null;
+      const startD = dateRange.start ? new Date(dateRange.start) : null;
+      const endD = dateRange.end ? new Date(dateRange.end) : null;
+      let matchDate = true;
+      if (dueDate && !isNaN(dueDate.getTime())) {
+        if (startD && !isNaN(startD.getTime()) && dueDate < startD) matchDate = false;
+        if (endD && !isNaN(endD.getTime()) && dueDate > endD) matchDate = false;
+      }
 
       let matchMethodGroup = true;
       if (selectedMethodGroup) {
