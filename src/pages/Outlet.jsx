@@ -1780,6 +1780,10 @@ export default function Outlet() {
   const [loading, setLoading] = useState(true)
   const [outlets, setOutlets] = useState([])
   const [revenue, setRevenue] = useState({})
+  // Anno effettivamente usato per caricare i dati di fatturato (quello
+  // in cui sono state trovate righe in budget_entries). Serve a mostrare
+  // nel titolo l'anno CORRETTO invece dell'hardcoded 'currentYear - 1'.
+  const [revenueYear, setRevenueYear] = useState(null)
   const [selectedOutlet, setSelectedOutlet] = useState(null)
   const [search, setSearch] = useState('')
   const [showWizard, setShowWizard] = useState(false)
@@ -1831,6 +1835,7 @@ export default function Outlet() {
 
       // Try current year first, then previous year
       let budgetData = null
+      let budgetDataYear = null
       for (const yr of [currentYear, currentYear - 1]) {
         const { data, error: budgetErr } = await supabase
           .from('budget_entries')
@@ -1840,9 +1845,12 @@ export default function Outlet() {
 
         if (!budgetErr && data && data.length > 0) {
           budgetData = data
+          budgetDataYear = yr
           break
         }
       }
+      // Memorizzo l'anno effettivo per il titolo "Fatturato catena {anno}"
+      setRevenueYear(budgetDataYear)
 
       if (budgetData && budgetData.length > 0) {
         const grouped = {}
@@ -2018,7 +2026,7 @@ export default function Outlet() {
                 <div>
                   <h1 className="text-2xl font-bold text-slate-900">Outlet</h1>
                   <p className="text-sm text-slate-500">
-                    {outlets.length} punti vendita — Fatturato catena {currentYear - 1}: {fmt(totalRevenue)} €
+                    {outlets.length} punti vendita — Fatturato catena {revenueYear || currentYear}: {fmt(totalRevenue)} €
                   </p>
                 </div>
                 <div className="flex gap-2">

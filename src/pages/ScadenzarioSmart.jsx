@@ -198,15 +198,11 @@ const ScadenzarioSmart = () => {
 
   // Date range
   const getDynamicDateRange = () => {
-    const now = new Date();
-    const threeMonthsAgo = new Date(now);
-    threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
-    const sixMonthsAhead = new Date(now);
-    sixMonthsAhead.setMonth(sixMonthsAhead.getMonth() + 6);
-    return {
-      start: threeMonthsAgo.toISOString().split('T')[0],
-      end: sixMonthsAhead.toISOString().split('T')[0],
-    };
+    // Default: NESSUN filtro data, cosi' l'utente vede TUTTE le scadenze
+    // non pagate (incluse quelle scadute) dal primo accesso, come richiesto.
+    // Prima il default era -3 mesi / +6 mesi e il chip 'A partire da oggi'
+    // mostrava date passate nonostante la label lo negasse.
+    return { start: '', end: '' };
   };
 
   const [dateRange, setDateRange] = useState(getDynamicDateRange());
@@ -1341,11 +1337,22 @@ const ScadenzarioSmart = () => {
           {/* Active filter chips — removable, Sibill style (solo NON Incassi) */}
           {sibillTab !== 'saldate' && (searchTerm || selectedStatus || selectedMethodGroup || dateRange.start || dateRange.end) && (
             <div className="flex items-center gap-2 flex-wrap">
-              {dateRange.start && (
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 text-xs text-slate-600">
-                  A partire da oggi <button onClick={() => setDateRange({ ...dateRange, start: '' })} className="text-slate-400 hover:text-slate-600"><X size={11} /></button>
-                </span>
-              )}
+              {dateRange.start && (() => {
+                // Il chip mostra la VERA data di inizio del filtro, non un
+                // label fisso che ingannava l'utente (es. 'A partire da oggi'
+                // con dateRange.start=2026-01-01 includeva scadenze gia'
+                // passate). Se la data coincide con oggi, uso label "oggi".
+                const today = new Date().toISOString().split('T')[0];
+                const label = dateRange.start === today
+                  ? 'A partire da oggi'
+                  : `Da ${fmtDate(dateRange.start)}`;
+                return (
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 text-xs text-slate-600">
+                    {label}
+                    <button onClick={() => setDateRange({ ...dateRange, start: '' })} className="text-slate-400 hover:text-slate-600"><X size={11} /></button>
+                  </span>
+                );
+              })()}
               {selectedStatus && (
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 text-xs text-slate-600">
                   {statusConfig[selectedStatus]?.label || selectedStatus} <button onClick={() => setSelectedStatus('')} className="text-slate-400 hover:text-slate-600"><X size={11} /></button>

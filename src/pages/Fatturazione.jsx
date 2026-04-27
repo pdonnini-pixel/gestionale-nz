@@ -4,6 +4,7 @@ import InvoiceViewer from '../components/InvoiceViewer'
 import StatusBadge from '../components/ui/StatusBadge'
 import { supabase } from '../lib/supabase'
 import { useYapily } from '../hooks/useYapily'
+import { usePeriod } from '../hooks/usePeriod'
 import {
   FileText, Upload, Send, RefreshCw, Search, Filter, ChevronDown, ChevronUp,
   CheckCircle, XCircle, Clock, AlertTriangle, Eye, Download, Plus, X,
@@ -119,16 +120,21 @@ function FatturePassive() {
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState('ALL')
-  // Filtro ANNO: default anno corrente per coerenza con il KPI Costi della
-  // Dashboard ("Totale fatture passive {year}"). Lo stesso numero deve
-  // apparire nei due posti a parità di anno selezionato.
-  // Se l'utente arriva da Dashboard con ?year=XXXX viene inizializzato con quello.
+  // Filtro anno: si allinea al filtro globale del PeriodContext (header
+  // in alto). Quando l'utente cambia anno nell'header, qui si aggiorna
+  // automaticamente. L'utente puo' comunque sovrascriverlo localmente col
+  // select in pagina. Se arriva da Dashboard con ?year= ha la priorita'.
+  const { year: globalYear } = usePeriod()
   const [yearFilter, setYearFilter] = useState(() => {
-    if (typeof window === 'undefined') return String(new Date().getFullYear())
+    if (typeof window === 'undefined') return String(globalYear || new Date().getFullYear())
     const p = new URLSearchParams(window.location.search).get('year')
     if (p && /^\d{4}$/.test(p)) return p
-    return String(new Date().getFullYear())
+    return String(globalYear || new Date().getFullYear())
   })
+  // Sync quando il globalYear cambia (es. utente cambia selettore header)
+  useEffect(() => {
+    if (globalYear) setYearFilter(String(globalYear))
+  }, [globalYear])
   const [selectedInvoice, setSelectedInvoice] = useState(null)
   const [showXml, setShowXml] = useState(false)
   const [viewingXml, setViewingXml] = useState(null) // XML content for InvoiceViewer
