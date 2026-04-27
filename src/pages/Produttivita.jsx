@@ -7,6 +7,7 @@ import { TrendingUp, Users, Euro, Target, AlertCircle, CheckCircle, Loader2, Awa
 import { GlassTooltip, AXIS_STYLE, GRID_STYLE, PALETTE } from '../components/ChartTheme';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
+import { usePeriod } from '../hooks/usePeriod';
 import PageHelp from '../components/PageHelp';
 
 function fmt(n, dec = 0) {
@@ -22,9 +23,12 @@ const MEDAL = ['', '\u{1F947}', '\u{1F948}', '\u{1F949}'];
 
 export default function Produttivita() {
   const { profile } = useAuth();
+  // Anno sincronizzato col PeriodContext globale (selettore header).
+  const { year: globalYear } = usePeriod();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [year, setYear] = useState(2026);
+  const [year, setYear] = useState(globalYear || 2026);
+  useEffect(() => { if (globalYear) setYear(globalYear); }, [globalYear]);
   const [rawEntries, setRawEntries] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [allocations, setAllocations] = useState([]);

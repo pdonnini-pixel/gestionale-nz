@@ -12,18 +12,15 @@ import {
 } from 'lucide-react'
 
 // ─── PERIOD SELECTOR ──────────────────────────────────────────
+// Solo selettore Anno (YTD/Q1-Q4 rimossi su richiesta utente: l'app non
+// ha bisogno di filtri per quarter dall'header globale; le pagine che
+// vogliono filtrare per quarter possono offrire un selettore locale.
+// Il PeriodContext mantiene quarter='year' di default per non rompere
+// le pagine che leggono getDateRange()).
 function PeriodSelector() {
-  const { year, quarter, setYear, setQuarter } = usePeriod()
+  const { year, setYear } = usePeriod()
   const currentYear = new Date().getFullYear()
   const years = [currentYear - 2, currentYear - 1, currentYear]
-  const quarters = [
-    { value: 'year', label: 'Anno' },
-    { value: 'ytd', label: 'YTD' },
-    { value: 'q1', label: 'Q1' },
-    { value: 'q2', label: 'Q2' },
-    { value: 'q3', label: 'Q3' },
-    { value: 'q4', label: 'Q4' },
-  ]
 
   return (
     <div className="flex items-center gap-1">
@@ -48,43 +45,6 @@ function PeriodSelector() {
         className="sm:hidden px-2 py-1 text-xs font-semibold bg-slate-100 border-0 rounded-lg text-slate-700"
       >
         {years.map(y => <option key={y} value={y}>{y}</option>)}
-      </select>
-
-      <div className="w-px h-5 bg-slate-200 mx-1 hidden sm:block" />
-
-      {/* Quarter pills */}
-      <div className="hidden lg:flex items-center gap-0.5 bg-slate-100 rounded-lg p-0.5">
-        {quarters.map(q => (
-          <button
-            key={q.value}
-            onClick={() => setQuarter(q.value)}
-            className={`px-2 py-1 rounded-md text-xs font-semibold transition ${
-              quarter === q.value ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'
-            }`}
-          >
-            {q.label}
-          </button>
-        ))}
-      </div>
-      {/* Tablet/mobile: quarter dropdown */}
-      <select
-        value={quarter}
-        onChange={e => setQuarter(e.target.value)}
-        className="lg:hidden px-2 py-1 text-xs font-semibold bg-slate-100 border-0 rounded-lg text-slate-700"
-      >
-        {quarters.map(q => <option key={q.value} value={q.value}>{q.label}</option>)}
-        <option value="m01">Gennaio</option>
-        <option value="m02">Febbraio</option>
-        <option value="m03">Marzo</option>
-        <option value="m04">Aprile</option>
-        <option value="m05">Maggio</option>
-        <option value="m06">Giugno</option>
-        <option value="m07">Luglio</option>
-        <option value="m08">Agosto</option>
-        <option value="m09">Settembre</option>
-        <option value="m10">Ottobre</option>
-        <option value="m11">Novembre</option>
-        <option value="m12">Dicembre</option>
       </select>
     </div>
   )

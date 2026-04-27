@@ -6,6 +6,7 @@ import { TrendingUp, Loader2, AlertCircle, ChevronDown, ChevronUp, AlertTriangle
 import { GlassTooltip, AXIS_STYLE, GRID_STYLE, OUTLET_COLORS } from '../components/ChartTheme'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
+import { usePeriod } from '../hooks/usePeriod'
 import PageHelp from '../components/PageHelp'
 
 const fmt = (n) => n == null ? '\u2014' : new Intl.NumberFormat('it-IT', { maximumFractionDigits: 0 }).format(n)
@@ -34,9 +35,13 @@ function heatmapText(pct) {
 
 export default function MarginiOutlet() {
   const { profile } = useAuth()
+  // Anno: si inizializza dal globalYear del PeriodContext (selettore header)
+  // e si sincronizza quando cambia. L'utente puo' sovrascriverlo localmente.
+  const { year: globalYear } = usePeriod()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
-  const [year, setYear] = useState(2026)
+  const [year, setYear] = useState(globalYear || 2026)
+  useEffect(() => { if (globalYear) setYear(globalYear) }, [globalYear])
   const [rawData, setRawData] = useState([])
   const [expandedOutlet, setExpandedOutlet] = useState(null)
 

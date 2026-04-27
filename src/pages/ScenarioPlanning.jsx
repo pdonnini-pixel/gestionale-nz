@@ -4,6 +4,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsive
 import { GlassTooltip, AXIS_STYLE, GRID_STYLE } from '../components/ChartTheme';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
+import { usePeriod } from '../hooks/usePeriod';
 import PageHelp from '../components/PageHelp';
 
 function fmt(n, dec = 0) {
@@ -12,9 +13,12 @@ function fmt(n, dec = 0) {
 
 export default function ScenarioPlanning() {
   const { profile } = useAuth();
+  // Anno sincronizzato col PeriodContext globale (selettore header).
+  const { year: globalYear } = usePeriod();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [year, setYear] = useState(2026);
+  const [year, setYear] = useState(globalYear || 2026);
+  useEffect(() => { if (globalYear) setYear(globalYear); }, [globalYear]);
   const [rawEntries, setRawEntries] = useState([]);
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState(null);
