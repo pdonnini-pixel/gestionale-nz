@@ -23,16 +23,13 @@ import { useAuth } from '../hooks/useAuth';
 // Utility functions
 /**
  * Calcola lo stato di una payable in base alle sue date.
- * Se il record ha gia' uno stato terminale (pagato, nota_credito, sospeso,
- * rimandato, annullato, parziale) lo rispetta. Altrimenti deduce da due_date:
+ * Stati terminali (pagato, nota_credito, sospeso, rimandato, annullato,
+ * parziale) rispettati. Altrimenti deduce da due_date:
  *   - oggi > due_date  -> 'scaduto'
- *   - 0..15 giorni     -> 'in_scadenza'
- *   - oltre 15 giorni  -> 'da_pagare'
- * Risolve il bug "tutte le 221 scadenze marcate come scaduto" quando la view
- * non ricalcola lo stato a runtime.
+ *   - 0..30 giorni     -> 'in_scadenza' (allineato al filtro 'Prossimi 30gg')
+ *   - oltre 30 giorni  -> 'da_pagare'
  */
 function calculatePayableStatus(p) {
-  // Stati terminali / non automatici: rispetta il valore in DB
   const TERMINAL = new Set(['pagato', 'nota_credito', 'sospeso', 'rimandato', 'annullato', 'parziale']);
   if (p.status && TERMINAL.has(p.status)) return p.status;
   if (p.payment_date) return 'pagato';
@@ -43,7 +40,7 @@ function calculatePayableStatus(p) {
   due.setHours(0, 0, 0, 0);
   const days = Math.ceil((due.getTime() - today.getTime()) / 86400000);
   if (days < 0) return 'scaduto';
-  if (days <= 15) return 'in_scadenza';
+  if (days <= 30) return 'in_scadenza';
   return 'da_pagare';
 }
 
@@ -62,13 +59,32 @@ function formatCurrency(n) {
 
 function fmt(n) {
   if (n == null) return '—'
-  // Cast esplicito a Number: Supabase a volte ritorna gross_amount come
-  // stringa (es. "9382.26") e Intl.NumberFormat su stringa NON applica il
-  // separatore migliaia. Bug visibile su importi 1.000-9.999 (decine di
-  // migliaia funzionavano per coincidenza dovuta a parsing parziale).
-  const num = Number(n)
-  if (isNaN(num)) return '—'
-  return new Intl.NumberFormat('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(num)
+  // Parsing robusto. Supabase puo' ritornare gross_amount come:
+  //   - number (1234.56) -> ok
+  //   - string '1234.56' -> Number() funziona
+  //   - string '1.234,56' (formato IT) -> Number() ritorna NaN, parse a mano
+  // useGrouping: 'always' forza il separatore migliaia anche per browser
+  // che lo omettono per default su numeri 4 cifre.
+  let num
+  if (typeof n === 'number') {
+    num = n
+  } else {
+    const s = String(n).trim()
+    // Se contiene sia '.' che ',' assumo formato italiano: '.' migliaia, ',' decimali
+    if (s.includes(',') && s.includes('.')) {
+      num = parseFloat(s.replace(/\./g, '').replace(',', '.'))
+    } else if (s.includes(',') && !s.includes('.')) {
+      num = parseFloat(s.replace(',', '.'))
+    } else {
+      num = parseFloat(s)
+    }
+  }
+  if (!isFinite(num)) return '—'
+  return new Intl.NumberFormat('it-IT', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+    useGrouping: true,
+  }).format(num)
 }
 
 function fmtDate(d) {
@@ -1846,13 +1862,20 @@ const ScadenzarioSmart = () => {
                               </div>
                             )}
                           </td>
-                          {/* CONTO — banca su cui è stata saldata (Fix 5.2).
-                              Prima mostrava 3 lettere del metodo pagamento o
-                              'NA' per tutti — completamente fuorviante. */}
+                          {/* CONTO — banca su cui è stata saldata.
+                              3 stati visivi:
+                                a) banca nota -> pillola verde con nome
+                                b) pagata MA banca non tracciata -> badge ambra
+                                   'Off-system' (es. cash/altro non riconciliato)
+                                c) non pagata -> trattino */}
                           <td className="py-2.5 px-3 text-center">
                             {p.payment_bank_name ? (
                               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-50 text-[10px] text-emerald-700 font-medium border border-emerald-200" title={`Pagato su ${p.payment_bank_name}`}>
                                 <Landmark size={10} /> {p.payment_bank_name}
+                              </span>
+                            ) : p.status === 'pagato' ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-50 text-[10px] text-amber-700 font-medium border border-amber-200" title="Pagata ma senza banca tracciata in Supabase. Probabilmente saldata fuori dall'app o tramite riconciliazione legacy.">
+                                Off-system
                               </span>
                             ) : (
                               <span className="text-[11px] text-slate-300">—</span>
