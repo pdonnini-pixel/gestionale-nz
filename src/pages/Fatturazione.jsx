@@ -385,10 +385,10 @@ function FatturePassive() {
                 <tr><td colSpan={9} className="text-center py-12 text-slate-400">Nessuna fattura trovata</td></tr>
               ) : filtered.map((inv, idx) => (
                 <tr key={inv.id} onClick={() => { setSelectedInvoice(inv); setShowXml(false) }} className={`border-b border-slate-100 hover:bg-blue-50/50 transition-colors cursor-pointer ${idx % 2 === 1 ? 'bg-slate-50/50' : ''}`}>
-                  <td className="px-4 py-3 text-slate-600">{fmtDate(inv.invoice_date)}</td>
-                  <td className="px-4 py-3 font-medium text-slate-900">{inv.invoice_number || '—'}</td>
+                  <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{fmtDate(inv.invoice_date)}</td>
+                  <td className="px-4 py-3 font-medium text-slate-900 truncate max-w-[150px]" title={inv.invoice_number}>{inv.invoice_number || '—'}</td>
                   <td className="px-4 py-3">
-                    <div className="font-medium text-slate-800">{inv.supplier_name || '—'}</div>
+                    <div className="font-medium text-slate-800 truncate max-w-[280px]" title={inv.supplier_name}>{inv.supplier_name || '—'}</div>
                     {inv.supplier_vat && <div className="text-xs text-slate-400">P.IVA {inv.supplier_vat}</div>}
                   </td>
                   <td className="px-4 py-3 text-slate-600">{inv.tipo_documento || '—'}</td>

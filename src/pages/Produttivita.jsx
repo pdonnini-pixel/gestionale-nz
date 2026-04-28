@@ -369,7 +369,7 @@ export default function Produttivita() {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-8">
         <div className="max-w-7xl mx-auto">
-          <h1 className="text-4xl font-bold text-slate-900 mb-2">Analisi Produttivita</h1>
+          <h1 className="text-4xl font-bold text-slate-900 mb-2">Analisi Produttività</h1>
           <div className="bg-white rounded-xl border border-slate-200 p-12 text-center mt-8">
             <AlertCircle className="w-12 h-12 text-slate-400 mx-auto mb-4" />
             <p className="text-slate-600 text-lg">Nessun dato budget trovato per l'anno {year}</p>
@@ -386,7 +386,7 @@ export default function Produttivita() {
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
           <div>
-            <h1 className="text-4xl font-bold text-slate-900 mb-2">Analisi Produttivita</h1>
+            <h1 className="text-4xl font-bold text-slate-900 mb-2">Analisi Produttività</h1>
             <p className="text-slate-600">Analytics sulla performance dei dipendenti per outlet - Anno {year}</p>
           </div>
           <div className="flex items-center gap-2">
@@ -470,7 +470,7 @@ export default function Produttivita() {
         <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm mb-8">
           <h2 className="text-lg font-semibold text-slate-900 mb-4 flex items-center gap-2">
             <Award className="w-5 h-5 text-amber-500" />
-            Classifica Produttivita per Outlet
+            Classifica Produttività per Outlet
           </h2>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">

@@ -1670,8 +1670,8 @@ const ScadenzarioSmart = () => {
                             <div className="flex items-center gap-3">
                               <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${dotColor(p)}`} />
                               <div>
-                                <div className="text-sm font-medium text-slate-800">{p.suppliers?.ragione_sociale || p.suppliers?.name || '—'}</div>
-                                <div className="text-xs text-slate-400">Fatt. {p.invoice_number || '—'} {p.payment_method ? `- ${paymentMethodLabels[p.payment_method] || p.payment_method}` : ''}</div>
+                                <div className="text-sm font-medium text-slate-800 truncate max-w-[280px]" title={p.suppliers?.ragione_sociale || p.suppliers?.name || ''}>{p.suppliers?.ragione_sociale || p.suppliers?.name || '—'}</div>
+                                <div className="text-xs text-slate-400 truncate max-w-[280px]" title={p.invoice_number || ''}>Fatt. {p.invoice_number || '—'} {p.payment_method ? `- ${paymentMethodLabels[p.payment_method] || p.payment_method}` : ''}</div>
                               </div>
                             </div>
                             <div className="flex items-center gap-3">

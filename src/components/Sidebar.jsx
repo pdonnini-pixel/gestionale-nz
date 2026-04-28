@@ -65,7 +65,7 @@ const allSections = [
     items: [
       { to: '/ai-categorie', icon: Sparkles, label: 'AI Categorie', roles: ['super_advisor', 'cfo'] },
       { to: '/margini', icon: PieChart, label: 'Margini Outlet', roles: ['super_advisor', 'ceo', 'cfo'] },
-      { to: '/produttivita', icon: Activity, label: 'Produttivita', roles: ['super_advisor', 'ceo', 'coo'] },
+      { to: '/produttivita', icon: Activity, label: 'Produttività', roles: ['super_advisor', 'ceo', 'coo'] },
       { to: '/scenario', icon: Sliders, label: 'Scenario Planning', roles: ['super_advisor', 'ceo'] },
     ]
   },
@@ -97,7 +97,7 @@ export const BREADCRUMB_MAP = {
   '/dipendenti': { section: 'Risorse', page: 'Dipendenti' },
   '/ai-categorie': { section: 'AI & Analytics', page: 'AI Categorie' },
   '/margini': { section: 'AI & Analytics', page: 'Margini Outlet' },
-  '/produttivita': { section: 'AI & Analytics', page: 'Produttivita' },
+  '/produttivita': { section: 'AI & Analytics', page: 'Produttività' },
   '/scenario': { section: 'AI & Analytics', page: 'Scenario Planning' },
   '/import-hub': { section: 'Sistema', page: 'Import Hub' },
   '/archivio': { section: 'Sistema', page: 'Archivio Documenti' },

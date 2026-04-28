@@ -14,6 +14,38 @@ const MESI = ['Gennaio','Febbraio','Marzo','Aprile','Maggio','Giugno','Luglio','
 const MESI_SHORT = ['Gen','Feb','Mar','Apr','Mag','Giu','Lug','Ago','Set','Ott','Nov','Dic']
 const HQ_CODE = 'sede_magazzino'
 
+// Mappa override per code raw -> label leggibile.
+// Estendere qui per future label tecniche che non vogliamo mostrare.
+const COST_CENTER_LABEL_OVERRIDES = {
+  'sede_magazzino': 'Sede / Magazzino',
+  'rettifica_bilancio': 'Rettifica bilancio',
+  'spese_non_divise': 'Spese non divise',
+  'all': 'Tutti',
+}
+
+/**
+ * Trasforma il label di un cost_center in formato leggibile.
+ * - Se ha un override esplicito, usa quello
+ * - Se label e' uguale al code (es. 'sede_magazzino' duplicato), pulisce
+ * - Altrimenti: title case con sostituzione underscore -> spazio
+ */
+function prettyCenterLabel(cc) {
+  if (!cc) return '—'
+  const code = cc.code || cc
+  const override = COST_CENTER_LABEL_OVERRIDES[code]
+  if (override) return override
+  const raw = cc.label || cc.name || code
+  if (typeof raw !== 'string') return String(raw)
+  // Se la stringa contiene underscore o e' tutto minuscolo "snake_case"
+  if (/[_]/.test(raw) || raw === raw.toLowerCase()) {
+    return raw
+      .split('_')
+      .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+      .join(' ')
+  }
+  return raw
+}
+
 function ConfirmDialog({ title, message, onConfirm, onCancel, confirmLabel = 'Svuota', destructive = true }) {
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={onCancel}>
@@ -617,7 +649,7 @@ export default function BudgetControl() {
 
           {/* Outlet cards */}
           {ops.map(cc => (
-            <BPCard key={cc.code} label={cc.label} code={cc.code}
+            <BPCard key={cc.code} label={prettyCenterLabel(cc)} code={cc.code}
               costiTree={costiTree} ricaviTree={filterRicaviTree(ricaviTree, cc.code)}
               edits={bpEdits[cc.code]||{}} setEdits={ed => setBpEdits(p => ({...p,[cc.code]:ed}))}
               onClear={() => clearOutlet(cc.code)}
@@ -642,7 +674,7 @@ export default function BudgetControl() {
               <div className="flex items-center gap-3 flex-wrap">
                 <span className="text-sm text-slate-600 font-medium">Outlet:</span>
                 <select value={confOutlet} onChange={e => setConfOutlet(e.target.value)} className="px-3 py-2 border border-slate-200 rounded-lg text-sm">
-                  {outletsWithBP.map(cc => <option key={cc.code} value={cc.code}>{cc.label}</option>)}
+                  {outletsWithBP.map(cc => <option key={cc.code} value={cc.code}>{prettyCenterLabel(cc)}</option>)}
                 </select>
                 <div className="flex gap-1 bg-slate-100 rounded-lg p-0.5">
                   {[{k:'annuale',l:'Annuale'},{k:'mensile',l:'Mensile'}].map(v => (
@@ -666,7 +698,7 @@ export default function BudgetControl() {
               {confOutlet && confView === 'annuale' && (
                 <ConfrontoPanel
                   outletCode={confOutlet}
-                  outletLabel={costCenters.find(c => c.code === confOutlet)?.label || confOutlet}
+                  outletLabel={prettyCenterLabel(costCenters.find(c => c.code === confOutlet)) || prettyCenterLabel({ code: confOutlet })}
                   prevEdits={bpEdits[confOutlet] || {}}
                   consEdits={consEdits[confOutlet] || {}}
                   onConsEdit={(code, val) => setConsEdits(prev => ({...prev, [confOutlet]: {...(prev[confOutlet]||{}), [code]: val}}))}
@@ -682,7 +714,7 @@ export default function BudgetControl() {
               {confOutlet && confView === 'mensile' && (
                 <ConfrontoMensile
                   outletCode={confOutlet}
-                  outletLabel={costCenters.find(c => c.code === confOutlet)?.label || confOutlet}
+                  outletLabel={prettyCenterLabel(costCenters.find(c => c.code === confOutlet)) || prettyCenterLabel({ code: confOutlet })}
                   costiTree={costiTree}
                   ricaviTree={filterRicaviTree(ricaviTree, confOutlet)}
                   prevMonthly={prevMonthly[confOutlet] || {}}

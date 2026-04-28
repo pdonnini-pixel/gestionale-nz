@@ -226,7 +226,7 @@ export default function OutletValutazione() {
         <div className="flex items-center justify-between mb-4">
           <div>
             <h2 className="text-base font-bold text-slate-900">Simulazioni salvate</h2>
-            <p className="text-xs text-slate-500 mt-0.5">{simulations.length} simulazioni — clicca per modificare</p>
+            <p className="text-xs text-slate-500 mt-0.5">{simulations.length} {simulations.length === 1 ? 'simulazione' : 'simulazioni'} — clicca per modificare</p>
           </div>
           <button onClick={newSimulation} className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 flex items-center gap-2">
             <Plus size={16} /> Nuova simulazione
