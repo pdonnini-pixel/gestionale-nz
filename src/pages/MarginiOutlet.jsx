@@ -7,6 +7,8 @@ import { GlassTooltip, AXIS_STYLE, GRID_STYLE, OUTLET_COLORS } from '../componen
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { usePeriod } from '../hooks/usePeriod'
+import { useTableSort } from '../hooks/useTableSort'
+import SortableTh from '../components/ui/SortableTh'
 import PageHelp from '../components/PageHelp'
 
 const fmt = (n) => n == null ? '\u2014' : new Intl.NumberFormat('it-IT', { maximumFractionDigits: 0 }).format(n)
@@ -108,6 +110,13 @@ export default function MarginiOutlet() {
       })
       .sort((a, b) => b.marginePercent - a.marginePercent)
   }, [rawData])
+
+  // Sort tabella margini per outlet
+  const { sorted: sortedMargins, sortBy: moSortBy, onSort: moOnSort, reset: moResetSort } = useTableSort(
+    outletMargins,
+    [{ key: 'marginePercent', dir: 'desc' }],
+    { persistKey: 'margini_outlet', resetOn: [year] }
+  )
 
   // Heatmap data: months (columns) x outlets (rows) with margin %
   const heatmapData = useMemo(() => {
@@ -398,24 +407,30 @@ export default function MarginiOutlet() {
             <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
               <h2 className="text-lg font-semibold text-slate-900 mb-4">Dettaglio Margini per Outlet</h2>
               <p className="text-sm text-slate-500 mb-4">Clicca su un outlet per espandere il breakdown dei conti</p>
+              {moSortBy.length > 0 && !(moSortBy.length === 1 && moSortBy[0].key === 'marginePercent' && moSortBy[0].dir === 'desc') && (
+                <div className="px-3 py-1.5 mb-2 bg-blue-50/50 rounded text-xs text-blue-700 flex items-center gap-2">
+                  <span>Ordinamento personalizzato attivo</span>
+                  <button onClick={moResetSort} className="ml-auto text-blue-600 hover:text-blue-800 font-medium">Reset</button>
+                </div>
+              )}
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-slate-200 bg-slate-50">
-                      <th className="px-4 py-3 text-left text-slate-700 font-semibold">Outlet</th>
-                      <th className="px-4 py-3 text-right text-slate-700 font-semibold">Ricavi</th>
-                      <th className="px-4 py-3 text-right text-slate-700 font-semibold">Costi</th>
-                      <th className="px-4 py-3 text-right text-slate-700 font-semibold">Margine</th>
-                      <th className="px-4 py-3 text-right text-slate-700 font-semibold">Margine %</th>
+                      <SortableTh sortKey="nome" sortBy={moSortBy} onSort={moOnSort}>Outlet</SortableTh>
+                      <SortableTh sortKey="ricavi" sortBy={moSortBy} onSort={moOnSort} align="right">Ricavi</SortableTh>
+                      <SortableTh sortKey="costi" sortBy={moSortBy} onSort={moOnSort} align="right">Costi</SortableTh>
+                      <SortableTh sortKey="margine" sortBy={moSortBy} onSort={moOnSort} align="right">Margine</SortableTh>
+                      <SortableTh sortKey="marginePercent" sortBy={moSortBy} onSort={moOnSort} align="right">Margine %</SortableTh>
                     </tr>
                   </thead>
                   <tbody>
-                    {outletMargins.map((o, idx) => {
+                    {sortedMargins.map((o, idx) => {
                       const isExpanded = expandedOutlet === o.nome
                       return (
                         <tr key={o.nome} className="contents">
                           <tr
-                            className={`border-b border-slate-100 cursor-pointer hover:bg-slate-50 transition-colors ${idx === 0 ? 'bg-green-50' : idx === outletMargins.length - 1 ? 'bg-red-50' : ''}`}
+                            className={`border-b border-slate-100 cursor-pointer hover:bg-slate-50 transition-colors ${idx === 0 ? 'bg-green-50' : idx === sortedMargins.length - 1 ? 'bg-red-50' : ''}`}
                             onClick={() => setExpandedOutlet(isExpanded ? null : o.nome)}
                           >
                             <td className="px-4 py-3 text-slate-900 font-medium flex items-center gap-2">
