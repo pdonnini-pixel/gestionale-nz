@@ -11,7 +11,9 @@ import {
 import CostiRicorrenti from '../components/CostiRicorrenti';
 import ExportMenu from '../components/ExportMenu';
 import StatusBadge from '../components/ui/StatusBadge';
+import SortableTh from '../components/ui/SortableTh';
 import InvoiceViewer from '../components/InvoiceViewer';
+import { useTableSort } from '../hooks/useTableSort';
 import {
   BarChart, Bar, PieChart, Pie, Cell, AreaChart, Area,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
@@ -1080,6 +1082,15 @@ const ScadenzarioSmart = () => {
     return list;
   }, [filteredPayables, sibillTab]);
 
+  // Ordinamento tabella scadenze (modello standard SortableTh + useTableSort).
+  // Default: scadenza piu' vecchia in cima. Persistente tra refresh per
+  // questa pagina. Reset automatico al cambio sibillTab.
+  const { sorted: sortedDisplayPayables, sortBy: sortByPayables, onSort: onSortPayables, reset: resetPayablesSort } = useTableSort(
+    displayPayables,
+    [{ key: 'due_date', dir: 'asc' }],
+    { persistKey: 'scadenzario_payables', resetOn: [sibillTab] }
+  );
+
   // Aging analysis
   const agingAnalysis = useMemo(() => {
     const buckets = { '0-30': 0, '31-60': 0, '61-90': 0, '90+': 0 };
@@ -1782,25 +1793,33 @@ const ScadenzarioSmart = () => {
           {scadViewMode === 'lista' && viewMode === 'timeline' && sibillTab !== 'saldate' && (
             <div className="bg-white rounded-xl border border-slate-200/80 overflow-hidden">
               <div className="overflow-x-auto">
+                {/* Bottone reset ordinamento (visibile solo se sort attivo
+                    oltre al default) */}
+                {sortByPayables.length > 0 && !(sortByPayables.length === 1 && sortByPayables[0].key === 'due_date' && sortByPayables[0].dir === 'asc') && (
+                  <div className="px-3 py-1.5 bg-blue-50/50 border-b border-blue-100 text-xs text-blue-700 flex items-center gap-2">
+                    <span>Ordinamento personalizzato attivo ({sortByPayables.length} colonn{sortByPayables.length === 1 ? 'a' : 'e'})</span>
+                    <button onClick={resetPayablesSort} className="ml-auto text-blue-600 hover:text-blue-800 font-medium">Reset</button>
+                  </div>
+                )}
                 <table className="w-full">
                   <thead className="sticky top-0 bg-white z-10">
-                    <tr className="border-b border-slate-100 text-[11px] text-slate-400 uppercase tracking-wider">
+                    <tr className="border-b border-slate-100">
                       <th className="py-2.5 px-3 text-center w-10">
                         <button onClick={toggleSelectAll} className="text-slate-300 hover:text-slate-600">
                           {selectedIds.size > 0 ? <CheckSquare size={15} /> : <Square size={15} />}
                         </button>
                       </th>
-                      <th className="py-2.5 px-3 text-left font-medium">Pagamenti</th>
-                      <th className="py-2.5 px-3 text-left font-medium">Descrizione</th>
-                      <th className="py-2.5 px-3 text-right font-medium">Importo</th>
-                      <th className="py-2.5 px-3 text-center font-medium">Stato</th>
-                      <th className="py-2.5 px-3 text-center font-medium">Conto</th>
-                      <th className="py-2.5 px-3 text-center font-medium">Categoria</th>
-                      <th className="py-2.5 px-3 text-right font-medium w-20">Azioni</th>
+                      <SortableTh sortKey="due_date" sortBy={sortByPayables} onSort={onSortPayables}>Pagamenti</SortableTh>
+                      <SortableTh sortKey="suppliers.ragione_sociale" sortBy={sortByPayables} onSort={onSortPayables}>Descrizione</SortableTh>
+                      <SortableTh sortKey="amount_remaining" sortBy={sortByPayables} onSort={onSortPayables} align="right">Importo</SortableTh>
+                      <SortableTh sortKey="status" sortBy={sortByPayables} onSort={onSortPayables} align="center">Stato</SortableTh>
+                      <SortableTh sortKey="payment_bank_name" sortBy={sortByPayables} onSort={onSortPayables} align="center">Conto</SortableTh>
+                      <SortableTh sortKey="cost_center" sortBy={sortByPayables} onSort={onSortPayables} align="center">Categoria</SortableTh>
+                      <th className="py-2.5 px-3 text-right font-medium w-20 text-[11px] uppercase tracking-wider text-slate-500">Azioni</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {displayPayables.map((p, idx) => (
+                    {sortedDisplayPayables.map((p, idx) => (
                       <React.Fragment key={p.id}>
                         <tr className={`border-b border-slate-50 hover:bg-blue-50/50 transition-colors group ${idx % 2 === 1 ? 'even:bg-slate-50/50' : ''}`}>
                           <td className="py-2.5 px-3 text-center">
