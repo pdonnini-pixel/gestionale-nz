@@ -119,6 +119,32 @@ export default function Dipendenti() {
   const batchFileRef = useRef(null);
   const [bilancioCostoPersonale, setBilancioCostoPersonale] = useState(null);
 
+  // Toast inline (sostituisce alert() di sistema)
+  const [toast, setToast] = useState(null); // { type: 'error'|'success'|'info', msg: string }
+  const showToast = (msg, type = 'info') => {
+    setToast({ type, msg });
+    setTimeout(() => setToast(null), 4500);
+  };
+
+  // Mappa i nomi dei campi del form ai nomi reali delle colonne in DB.
+  // Lo schema employees ha sia colonne italiane (cognome/nome/contratto_tipo/...)
+  // sia colonne inglesi (last_name/first_name/contract_type/...). Il form
+  // continua a usare nomi italiani, ma alcune chiavi non matchano la DB.
+  const mapFormToDb = (formData) => {
+    const out = { ...formData };
+    // 'contratto' nel form -> 'contratto_tipo' in DB
+    if ('contratto' in out) {
+      out.contratto_tipo = out.contratto;
+      delete out.contratto;
+    }
+    // 'qualifica' nel form -> 'role_description' in DB (non esiste 'qualifica')
+    if ('qualifica' in out) {
+      out.role_description = out.qualifica;
+      delete out.qualifica;
+    }
+    return out;
+  };
+
   // ========== LOAD DATA FROM SUPABASE ==========
 
   useEffect(() => {
@@ -350,10 +376,10 @@ export default function Dipendenti() {
   const handleSaveEmployee = async (formData) => {
     // Validazioni
     if (!formData.nome?.trim() || !formData.cognome?.trim()) {
-      alert('Nome e cognome sono obbligatori'); return;
+      showToast('Nome e cognome sono obbligatori', 'error'); return;
     }
     if (formData.codice_fiscale && formData.codice_fiscale.length > 0 && formData.codice_fiscale.length !== 16) {
-      alert('Il codice fiscale deve avere 16 caratteri'); return;
+      showToast('Il codice fiscale deve avere 16 caratteri', 'error'); return;
     }
     // Duplicate check
     if (!editingEmployee) {
@@ -366,24 +392,28 @@ export default function Dipendenti() {
       }
     }
     try {
+      // Mappa i campi del form ai nomi colonna effettivi del DB
+      const dbPayload = mapFormToDb(formData);
       if (editingEmployee) {
         const { error } = await supabase
           .from('employees')
-          .update(formData)
+          .update(dbPayload)
           .eq('id', editingEmployee.id);
         if (error) throw error;
+        showToast('Dipendente aggiornato', 'success');
       } else {
         const { error } = await supabase
           .from('employees')
-          .insert([{ ...formData, company_id: COMPANY_ID, is_active: true }]);
+          .insert([{ ...dbPayload, company_id: COMPANY_ID, is_active: true }]);
         if (error) throw error;
+        showToast('Dipendente creato', 'success');
       }
       await loadAllData();
       setShowEmployeeForm(false);
       setEditingEmployee(null);
     } catch (err) {
       console.error('Errore nel salvataggio dipendente:', err);
-      alert('Errore nel salvataggio: ' + err.message);
+      showToast('Errore nel salvataggio: ' + err.message, 'error');
     }
   };
 
@@ -1056,6 +1086,29 @@ export default function Dipendenti() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-8">
+      {/* Toast inline (sostituisce alert() di sistema) */}
+      {toast && (
+        <div
+          className={`fixed top-4 right-4 z-[100] max-w-md px-4 py-3 rounded-lg shadow-lg border text-sm flex items-start gap-2 animate-in slide-in-from-top-2 ${
+            toast.type === 'error'
+              ? 'bg-red-50 border-red-200 text-red-800'
+              : toast.type === 'success'
+              ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+              : 'bg-blue-50 border-blue-200 text-blue-800'
+          }`}
+          role="alert"
+        >
+          <AlertCircle size={16} className="shrink-0 mt-0.5" />
+          <span className="flex-1">{toast.msg}</span>
+          <button
+            onClick={() => setToast(null)}
+            className="text-current opacity-60 hover:opacity-100 shrink-0"
+            aria-label="Chiudi"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="mb-8">
@@ -1395,16 +1448,19 @@ function EmployeeFormInner({ initial, onSave, onCancel }) {
 
   useEffect(() => {
     if (initial) {
+      // Mapping inverso DB -> form: in DB le colonne reali sono
+      // contratto_tipo / role_description, ma il form ragiona in
+      // contratto / qualifica. Fallback alle vecchie chiavi se presenti.
       setForm({
-        nome: initial.nome || '',
-        cognome: initial.cognome || '',
-        codice_fiscale: initial.codice_fiscale || '',
-        data_assunzione: initial.data_assunzione || '',
-        data_cessazione: initial.data_cessazione || '',
-        qualifica: initial.qualifica || '',
-        livello: initial.livello || '',
-        contratto: initial.contratto || 'indeterminato',
-        note: initial.note || '',
+        nome: initial.nome || initial.first_name || '',
+        cognome: initial.cognome || initial.last_name || '',
+        codice_fiscale: initial.codice_fiscale || initial.fiscal_code || '',
+        data_assunzione: initial.data_assunzione || initial.hire_date || '',
+        data_cessazione: initial.data_cessazione || initial.termination_date || '',
+        qualifica: initial.qualifica || initial.role_description || '',
+        livello: initial.livello || initial.level || '',
+        contratto: initial.contratto || initial.contratto_tipo || initial.contract_type || 'indeterminato',
+        note: initial.note || initial.notes || '',
       });
     }
   }, [initial]);
