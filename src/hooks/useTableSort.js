@@ -91,8 +91,17 @@ export function useTableSort(rows, defaultSort = [], options = {}) {
         if (aNull) return 1   // null sempre in fondo
         if (bNull) return -1
         let cmp = 0
-        if (typeof av === 'number' && typeof bv === 'number') {
-          cmp = av - bv
+        // Provo prima il confronto numerico: Supabase puo' ritornare i
+        // gross_amount come stringhe, quindi typeof potrebbe essere 'string'
+        // ma il valore e' un numero. Number(av) ritorna NaN per stringhe non
+        // numeriche → in quel caso ricado sul confronto string locale.
+        const an = typeof av === 'number' ? av : Number(av)
+        const bn = typeof bv === 'number' ? bv : Number(bv)
+        const isNumericPair = !isNaN(an) && !isNaN(bn)
+          && (typeof av === 'number' || /^-?\d+([.,]\d+)?$/.test(String(av).trim()))
+          && (typeof bv === 'number' || /^-?\d+([.,]\d+)?$/.test(String(bv).trim()))
+        if (isNumericPair) {
+          cmp = an - bn
         } else if (av instanceof Date || bv instanceof Date) {
           cmp = new Date(av).getTime() - new Date(bv).getTime()
         } else if (

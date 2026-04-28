@@ -1811,7 +1811,7 @@ const ScadenzarioSmart = () => {
                       </th>
                       <SortableTh sortKey="due_date" sortBy={sortByPayables} onSort={onSortPayables}>Pagamenti</SortableTh>
                       <SortableTh sortKey="suppliers.ragione_sociale" sortBy={sortByPayables} onSort={onSortPayables}>Descrizione</SortableTh>
-                      <SortableTh sortKey="amount_remaining" sortBy={sortByPayables} onSort={onSortPayables} align="right">Importo</SortableTh>
+                      <SortableTh sortKey="gross_amount" sortBy={sortByPayables} onSort={onSortPayables} align="right">Importo</SortableTh>
                       <SortableTh sortKey="status" sortBy={sortByPayables} onSort={onSortPayables} align="center">Stato</SortableTh>
                       <SortableTh sortKey="payment_bank_name" sortBy={sortByPayables} onSort={onSortPayables} align="center">Conto</SortableTh>
                       <SortableTh sortKey="cost_center" sortBy={sortByPayables} onSort={onSortPayables} align="center">Categoria</SortableTh>
