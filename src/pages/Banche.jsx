@@ -19,6 +19,8 @@ import AICategorization from '../components/AICategorization'
 
 /* ───── reconciliation engine ───── */
 import { runAutoReconciliation, applyReconciliation, undoReconciliation, getReconciliationLog } from '../lib/reconciliationEngine'
+import { useTableSort } from '../hooks/useTableSort'
+import SortableTh from '../components/ui/SortableTh'
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ef4444', '#06b6d4', '#ec4899']
 
 /* ───── helpers ───── */
@@ -832,6 +834,13 @@ function SezioneMovimentiReali({ movements, setMovements, accounts, search, load
     return list
   }, [movements, search, subTab])
 
+  // Sort movimenti — modello standard
+  const { sorted: sortedFiltered, sortBy: mvSortBy, onSort: mvOnSort, reset: mvResetSort } = useTableSort(
+    filtered,
+    [{ key: 'date', dir: 'desc' }],
+    { persistKey: 'banche_movimenti', resetOn: [subTab] }
+  )
+
   // KPI calcolati sui movimenti caricati (non solo quelli filtrati per sub-tab)
   const kpi = useMemo(() => {
     const all = movements || []
@@ -940,21 +949,27 @@ function SezioneMovimentiReali({ movements, setMovements, accounts, search, load
           </div>
         ) : (
           <>
+            {mvSortBy.length > 0 && !(mvSortBy.length === 1 && mvSortBy[0].key === 'date' && mvSortBy[0].dir === 'desc') && (
+              <div className="px-3 py-1.5 bg-blue-50/50 border-b border-blue-100 text-xs text-blue-700 flex items-center gap-2">
+                <span>Ordinamento personalizzato attivo</span>
+                <button onClick={mvResetSort} className="ml-auto text-blue-600 hover:text-blue-800 font-medium">Reset</button>
+              </div>
+            )}
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-slate-100 text-[11px] text-slate-400 uppercase tracking-wider">
-                    <th className="py-2.5 px-4 text-left font-medium">Data</th>
-                    <th className="py-2.5 px-4 text-left font-medium">Descrizione</th>
-                    <th className="py-2.5 px-4 text-left font-medium">Controparte</th>
-                    <th className="py-2.5 px-4 text-right font-medium">Importo</th>
-                    <th className="py-2.5 px-4 text-right font-medium">Saldo</th>
-                    <th className="py-2.5 px-4 text-center font-medium w-20">Verificato</th>
-                    <th className="py-2.5 px-4 text-center font-medium w-16">Riconc.</th>
+                  <tr className="border-b border-slate-100">
+                    <SortableTh sortKey="date" sortBy={mvSortBy} onSort={mvOnSort}>Data</SortableTh>
+                    <SortableTh sortKey="description" sortBy={mvSortBy} onSort={mvOnSort}>Descrizione</SortableTh>
+                    <SortableTh sortKey="counterpart" sortBy={mvSortBy} onSort={mvOnSort}>Controparte</SortableTh>
+                    <SortableTh sortKey="amount" sortBy={mvSortBy} onSort={mvOnSort} align="right">Importo</SortableTh>
+                    <SortableTh sortKey="balance_after" sortBy={mvSortBy} onSort={mvOnSort} align="right">Saldo</SortableTh>
+                    <SortableTh sortKey="verified" sortBy={mvSortBy} onSort={mvOnSort} align="center">Verificato</SortableTh>
+                    <SortableTh sortKey="is_reconciled" sortBy={mvSortBy} onSort={mvOnSort} align="center">Riconc.</SortableTh>
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map(m => {
+                  {sortedFiltered.map(m => {
                     const isEntrata = m.type === 'entrata'
                     return (
                       <tr key={m.id} className="border-b border-slate-50 hover:bg-blue-50/30 transition group">

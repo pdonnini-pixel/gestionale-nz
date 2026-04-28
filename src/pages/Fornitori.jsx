@@ -15,6 +15,8 @@ import { GlassTooltip, AXIS_STYLE, GRID_STYLE } from '../components/ChartTheme';
 import ExportMenu from '../components/ExportMenu';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
+import { useTableSort } from '../hooks/useTableSort';
+import SortableTh from '../components/ui/SortableTh';
 
 const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316'];
 
@@ -224,15 +226,18 @@ export default function Fornitori() {
     if (filterStatus === 'attivi') list = list.filter(s => s.is_active !== false);
     if (filterStatus === 'inattivi') list = list.filter(s => s.is_active === false);
 
-    // Sort
-    list.sort((a, b) => {
-      const aVal = (a[sortField] || '').toString().toLowerCase();
-      const bVal = (b[sortField] || '').toString().toLowerCase();
-      return sortDir === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
-    });
-
+    // Sort: gestito da useTableSort (vedi sotto). Mantengo lo state
+    // sortField/sortDir solo per backward-compat con l'export e le legacy
+    // chiamate; il vero ordinamento e' applicato sulla 'sorted' del hook.
     return list;
-  }, [suppliers, search, filterCategory, filterStatus, sortField, sortDir]);
+  }, [suppliers, search, filterCategory, filterStatus]);
+
+  // Sort tabella fornitori — modello standard SortableTh
+  const { sorted: sortedSuppliers, sortBy: suSortBy, onSort: suOnSort, reset: suResetSort } = useTableSort(
+    filteredSuppliers,
+    [{ key: 'ragione_sociale', dir: 'asc' }],
+    { persistKey: 'fornitori_anagrafica' }
+  );
 
   // KPIs — totali coerenti fra loro:
   // - totalFatturato: somma dei gross_amount POSITIVI (esclude le note
@@ -510,28 +515,30 @@ export default function Fornitori() {
 
           {/* SUPPLIER LIST */}
           <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
+            {suSortBy.length > 0 && !(suSortBy.length === 1 && suSortBy[0].key === 'ragione_sociale' && suSortBy[0].dir === 'asc') && (
+              <div className="px-3 py-1.5 bg-blue-50/50 border-b border-blue-100 text-xs text-blue-700 flex items-center gap-2">
+                <span>Ordinamento personalizzato attivo</span>
+                <button onClick={suResetSort} className="ml-auto text-blue-600 hover:text-blue-800 font-medium">Reset</button>
+              </div>
+            )}
             {/* Table */}
             <table className="w-full text-sm">
               <thead className="sticky top-0 bg-slate-50 border-b border-slate-200 z-10">
                 <tr>
-                  <th className="px-3 py-2.5 text-left text-xs font-semibold text-slate-600 cursor-pointer" onClick={() => toggleSort('ragione_sociale')}>
-                    <span className="flex items-center gap-1">Fornitore <ArrowUpDown size={11} /></span>
-                  </th>
-                  <th className="px-3 py-2.5 text-left text-xs font-semibold text-slate-600">P.IVA</th>
-                  <th className="px-3 py-2.5 text-center text-xs font-semibold text-slate-600 cursor-pointer" onClick={() => toggleSort('category')}>
-                    <span className="flex items-center gap-1 justify-center">Cat. <ArrowUpDown size={11} /></span>
-                  </th>
-                  <th className="px-3 py-2.5 text-center text-xs font-semibold text-slate-600">Metodo</th>
-                  <th className="px-3 py-2.5 text-right text-xs font-semibold text-slate-600">Fatturato</th>
-                  <th className="px-3 py-2.5 text-right text-xs font-semibold text-slate-600">Da pagare</th>
-                  <th className="px-3 py-2.5 text-center text-xs font-semibold text-slate-600">Banca</th>
-                  <th className="px-3 py-2.5 text-center text-xs font-semibold text-slate-600 w-20">Azioni</th>
+                  <SortableTh sortKey="ragione_sociale" sortBy={suSortBy} onSort={suOnSort}>Fornitore</SortableTh>
+                  <SortableTh sortKey="partita_iva" sortBy={suSortBy} onSort={suOnSort}>P.IVA</SortableTh>
+                  <SortableTh sortKey="category" sortBy={suSortBy} onSort={suOnSort} align="center">Cat.</SortableTh>
+                  <SortableTh sortKey="payment_method" sortBy={suSortBy} onSort={suOnSort} align="center">Metodo</SortableTh>
+                  <th className="px-3 py-2.5 text-right text-[11px] uppercase tracking-wider font-semibold text-slate-500">Fatturato</th>
+                  <th className="px-3 py-2.5 text-right text-[11px] uppercase tracking-wider font-semibold text-slate-500">Da pagare</th>
+                  <th className="px-3 py-2.5 text-center text-[11px] uppercase tracking-wider font-semibold text-slate-500">Banca</th>
+                  <th className="px-3 py-2.5 text-center text-[11px] uppercase tracking-wider font-semibold text-slate-500 w-20">Azioni</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
 
             {/* Table rows */}
-            {filteredSuppliers.length === 0 ? (
+            {sortedSuppliers.length === 0 ? (
               <tr>
                 <td colSpan={8} className="p-12 text-center">
                   <Building2 className="mx-auto text-slate-300 mb-3" size={48} />
@@ -550,7 +557,7 @@ export default function Fornitori() {
               </tr>
             ) : (
               <>
-                {filteredSuppliers.map(s => {
+                {sortedSuppliers.map(s => {
                   const name = getName(s);
                   const vat = getVat(s);
                   const stats = supplierStats[s.id] || { grossTotal: 0, overdue: 0, pending: 0, paid: 0, count: 0, lastDate: null, methods: new Set(), paidCount: 0, reconciledCount: 0 };

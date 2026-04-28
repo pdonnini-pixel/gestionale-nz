@@ -5,6 +5,8 @@ import StatusBadge from '../components/ui/StatusBadge'
 import { supabase } from '../lib/supabase'
 import { useYapily } from '../hooks/useYapily'
 import { usePeriod } from '../hooks/usePeriod'
+import { useTableSort } from '../hooks/useTableSort'
+import SortableTh from '../components/ui/SortableTh'
 import {
   FileText, Upload, Send, RefreshCw, Search, Filter, ChevronDown, ChevronUp,
   CheckCircle, XCircle, Clock, AlertTriangle, Eye, Download, Plus, X,
@@ -269,6 +271,14 @@ function FatturePassive() {
     return s
   }, [filtered])
 
+  // Sort tabella fatture passive: default invoice_date desc (le piu' recenti
+  // in cima), persistente per refresh, reset al cambio anno.
+  const { sorted: sortedFiltered, sortBy: ftSortBy, onSort: ftOnSort, reset: ftResetSort } = useTableSort(
+    filtered,
+    [{ key: 'invoice_date', dir: 'desc' }],
+    { persistKey: 'fatture_passive', resetOn: [yearFilter] }
+  );
+
   return (
     <div className="space-y-4">
       {/* KPI — coerenti col badge tab. Fatture totali include le NC: il
@@ -363,27 +373,33 @@ function FatturePassive() {
 
       {/* Tabella */}
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+        {ftSortBy.length > 0 && !(ftSortBy.length === 1 && ftSortBy[0].key === 'invoice_date' && ftSortBy[0].dir === 'desc') && (
+          <div className="px-3 py-1.5 bg-blue-50/50 border-b border-blue-100 text-xs text-blue-700 flex items-center gap-2">
+            <span>Ordinamento personalizzato attivo</span>
+            <button onClick={ftResetSort} className="ml-auto text-blue-600 hover:text-blue-800 font-medium">Reset</button>
+          </div>
+        )}
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="sticky top-0 bg-slate-50 z-10">
               <tr className="bg-slate-50 border-b border-slate-200">
-                <th className="text-left px-4 py-3 font-medium text-slate-600">Data</th>
-                <th className="text-left px-4 py-3 font-medium text-slate-600">Numero</th>
-                <th className="text-left px-4 py-3 font-medium text-slate-600">Fornitore</th>
-                <th className="text-left px-4 py-3 font-medium text-slate-600">Tipo</th>
-                <th className="text-right px-4 py-3 font-medium text-slate-600">Imponibile</th>
-                <th className="text-right px-4 py-3 font-medium text-slate-600">IVA</th>
-                <th className="text-right px-4 py-3 font-medium text-slate-600">Totale</th>
-                <th className="text-center px-4 py-3 font-medium text-slate-600">Stato SDI</th>
-                <th className="text-center px-4 py-3 font-medium text-slate-600">Azioni</th>
+                <SortableTh sortKey="invoice_date" sortBy={ftSortBy} onSort={ftOnSort}>Data</SortableTh>
+                <SortableTh sortKey="invoice_number" sortBy={ftSortBy} onSort={ftOnSort}>Numero</SortableTh>
+                <SortableTh sortKey="supplier_name" sortBy={ftSortBy} onSort={ftOnSort}>Fornitore</SortableTh>
+                <SortableTh sortKey="tipo_documento" sortBy={ftSortBy} onSort={ftOnSort}>Tipo</SortableTh>
+                <SortableTh sortKey="net_amount" sortBy={ftSortBy} onSort={ftOnSort} align="right">Imponibile</SortableTh>
+                <SortableTh sortKey="vat_amount" sortBy={ftSortBy} onSort={ftOnSort} align="right">IVA</SortableTh>
+                <SortableTh sortKey="gross_amount" sortBy={ftSortBy} onSort={ftOnSort} align="right">Totale</SortableTh>
+                <SortableTh sortKey="sdi_status" sortBy={ftSortBy} onSort={ftOnSort} align="center">Stato SDI</SortableTh>
+                <th className="text-center px-4 py-3 font-medium text-slate-600 text-[11px] uppercase tracking-wider">Azioni</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr><td colSpan={9} className="text-center py-12 text-slate-400"><Loader2 size={24} className="animate-spin mx-auto mb-2" />Caricamento fatture...</td></tr>
-              ) : filtered.length === 0 ? (
+              ) : sortedFiltered.length === 0 ? (
                 <tr><td colSpan={9} className="text-center py-12 text-slate-400">Nessuna fattura trovata</td></tr>
-              ) : filtered.map((inv, idx) => (
+              ) : sortedFiltered.map((inv, idx) => (
                 <tr key={inv.id} onClick={() => { setSelectedInvoice(inv); setShowXml(false) }} className={`border-b border-slate-100 hover:bg-blue-50/50 transition-colors cursor-pointer ${idx % 2 === 1 ? 'bg-slate-50/50' : ''}`}>
                   <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{fmtDate(inv.invoice_date)}</td>
                   <td className="px-4 py-3 font-medium text-slate-900 truncate max-w-[150px]" title={inv.invoice_number}>{inv.invoice_number || '—'}</td>
@@ -675,6 +691,13 @@ function FattureAttive() {
     totalAmount: invoices.reduce((s, i) => s + Number(i.total_amount || 0), 0),
   }
 
+  // Sort tabella fatture attive: default invoice_date desc.
+  const { sorted: sortedFiltered, sortBy: faSortBy, onSort: faOnSort, reset: faResetSort } = useTableSort(
+    filtered,
+    [{ key: 'invoice_date', dir: 'desc' }],
+    { persistKey: 'fatture_attive' }
+  );
+
   return (
     <div className="space-y-4">
       {/* KPI */}
@@ -711,28 +734,34 @@ function FattureAttive() {
 
       {/* Tabella */}
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+        {faSortBy.length > 0 && !(faSortBy.length === 1 && faSortBy[0].key === 'invoice_date' && faSortBy[0].dir === 'desc') && (
+          <div className="px-3 py-1.5 bg-blue-50/50 border-b border-blue-100 text-xs text-blue-700 flex items-center gap-2">
+            <span>Ordinamento personalizzato attivo</span>
+            <button onClick={faResetSort} className="ml-auto text-blue-600 hover:text-blue-800 font-medium">Reset</button>
+          </div>
+        )}
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="sticky top-0 bg-slate-50 z-10">
               <tr className="bg-slate-50 border-b border-slate-200">
-                <th className="text-left px-4 py-3 font-medium text-slate-600">Data</th>
-                <th className="text-left px-4 py-3 font-medium text-slate-600">Numero</th>
-                <th className="text-left px-4 py-3 font-medium text-slate-600">Cliente</th>
-                <th className="text-left px-4 py-3 font-medium text-slate-600">Tipo</th>
-                <th className="text-right px-4 py-3 font-medium text-slate-600">Totale</th>
-                <th className="text-center px-4 py-3 font-medium text-slate-600">Stato SDI</th>
-                <th className="text-center px-4 py-3 font-medium text-slate-600">Azioni</th>
+                <SortableTh sortKey="invoice_date" sortBy={faSortBy} onSort={faOnSort}>Data</SortableTh>
+                <SortableTh sortKey="invoice_number" sortBy={faSortBy} onSort={faOnSort}>Numero</SortableTh>
+                <SortableTh sortKey="client_name" sortBy={faSortBy} onSort={faOnSort}>Cliente</SortableTh>
+                <SortableTh sortKey="tipo_documento" sortBy={faSortBy} onSort={faOnSort}>Tipo</SortableTh>
+                <SortableTh sortKey="total_amount" sortBy={faSortBy} onSort={faOnSort} align="right">Totale</SortableTh>
+                <SortableTh sortKey="sdi_status" sortBy={faSortBy} onSort={faOnSort} align="center">Stato SDI</SortableTh>
+                <th className="text-center px-4 py-3 font-medium text-slate-600 text-[11px] uppercase tracking-wider">Azioni</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr><td colSpan={7} className="text-center py-12 text-slate-400"><Loader2 size={24} className="animate-spin mx-auto mb-2" />Caricamento...</td></tr>
-              ) : filtered.length === 0 ? (
+              ) : sortedFiltered.length === 0 ? (
                 <tr><td colSpan={7} className="text-center py-12 text-slate-400">
                   <FileText size={32} className="mx-auto mb-2 text-slate-300" />
                   Nessuna fattura attiva. Crea la prima!
                 </td></tr>
-              ) : filtered.map((inv, idx) => (
+              ) : sortedFiltered.map((inv, idx) => (
                 <tr key={inv.id} onClick={() => { setSelectedInvoice(inv); setShowXml(false) }} className={`border-b border-slate-100 hover:bg-blue-50/50 transition-colors cursor-pointer ${idx % 2 === 1 ? 'bg-slate-50/50' : ''}`}>
                   <td className="px-4 py-3 text-slate-600">{fmtDate(inv.invoice_date)}</td>
                   <td className="px-4 py-3 font-medium text-slate-900">{inv.invoice_number}</td>
