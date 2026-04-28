@@ -34,7 +34,44 @@ function fmt(n, decimals = 0) {
   }).format(n)
 }
 
-function StatusBadge({ isActive }) {
+// Calcola lo status outlet dinamicamente da opening_date / closing_date.
+// Fallback su is_active solo se le date non sono disponibili.
+function getOutletStatus(outlet) {
+  if (!outlet) return 'attivo'
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+
+  const opening = outlet.opening_date ? new Date(outlet.opening_date) : null
+  const closing = outlet.closing_date ? new Date(outlet.closing_date) : null
+
+  // Outlet chiuso (data di chiusura nel passato)
+  if (closing && closing < today) return 'chiuso'
+  // Outlet programmato (data apertura futura)
+  if (opening && opening > today) return 'programmato'
+  // Senza data apertura: usa flag is_active
+  if (!opening) return outlet.is_active === false ? 'chiuso' : 'attivo'
+  // Outlet aperto e non chiuso
+  return 'attivo'
+}
+
+const OUTLET_STATUS_STYLE = {
+  attivo: { label: 'Attivo', cls: 'bg-emerald-50 text-emerald-700' },
+  programmato: { label: 'Programmato', cls: 'bg-blue-50 text-blue-700' },
+  chiuso: { label: 'Chiuso', cls: 'bg-slate-100 text-slate-500' },
+}
+
+function StatusBadge({ isActive, outlet }) {
+  // Se viene passato l'outlet completo, usa il calcolo dinamico
+  if (outlet && (outlet.opening_date !== undefined || outlet.closing_date !== undefined)) {
+    const status = getOutletStatus(outlet)
+    const cfg = OUTLET_STATUS_STYLE[status] || OUTLET_STATUS_STYLE.attivo
+    return (
+      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${cfg.cls}`}>
+        {cfg.label}
+      </span>
+    )
+  }
+  // Fallback: comportamento originale (per usi su Dipendenti, ecc.)
   return (
     <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
       isActive ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'
@@ -72,7 +109,7 @@ function OutletGrid({ outlets, revenue, onSelect }) {
                   <div className="text-xs text-slate-400">{outlet.code}</div>
                 </div>
               </div>
-              <StatusBadge isActive={outlet.is_active} />
+              <StatusBadge outlet={outlet} isActive={outlet.is_active} />
             </div>
 
             <div className="space-y-2 text-sm">
@@ -1612,7 +1649,7 @@ function OutletDetail({ outlet, revenue, onBack, onEdit, onDelete }) {
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-3">
             <h2 className="text-xl sm:text-2xl font-bold text-slate-900 truncate">{outlet.name}</h2>
-            <StatusBadge isActive={outlet.is_active} />
+            <StatusBadge outlet={outlet} isActive={outlet.is_active} />
           </div>
           <p className="text-xs sm:text-sm text-slate-500">
             {outlet.mall_name} — {outlet.code}

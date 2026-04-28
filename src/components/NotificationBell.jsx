@@ -94,6 +94,19 @@ export default function NotificationBell() {
     }
   }
 
+  // Sanitizza messaggio rimuovendo righe con importo non disponibile (es. "Importo: € N/D")
+  // Difesa in profondità: se a monte qualcuno crea una notifica con importo mancante,
+  // la riga viene nascosta invece di mostrare "EUR N/D" all'utente.
+  function sanitizeMessage(msg) {
+    if (!msg) return ''
+    return String(msg)
+      // rimuove "Importo: € N/D" / "Importo: EUR N/D" e varianti, con o senza trattino/separatore
+      .replace(/[\.\s—\-•]*\s*Importo[:\s]*(?:€|EUR)\s*N\/?D\s*[\.\s]*/gi, '')
+      // rimuove eventuali doppi spazi rimasti
+      .replace(/\s{2,}/g, ' ')
+      .trim()
+  }
+
   function timeAgo(dateStr) {
     const diff = Date.now() - new Date(dateStr).getTime()
     const mins = Math.floor(diff / 60000)
@@ -179,7 +192,9 @@ export default function NotificationBell() {
                           <X size={12} />
                         </button>
                       </div>
-                      <p className="text-xs text-slate-500 mt-0.5 line-clamp-2">{n.message}</p>
+                      {sanitizeMessage(n.message) && (
+                        <p className="text-xs text-slate-500 mt-0.5 line-clamp-2">{sanitizeMessage(n.message)}</p>
+                      )}
                       <div className="flex items-center gap-3 mt-1.5">
                         <span className="text-[10px] text-slate-400">{timeAgo(n.created_at)}</span>
                         <span className={`text-[10px] font-medium text-${meta.color}-600 bg-${meta.color}-50 px-1.5 py-0.5 rounded-full`}>
