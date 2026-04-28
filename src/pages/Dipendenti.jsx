@@ -161,6 +161,15 @@ export default function Dipendenti() {
       if (out[k] === '') out[k] = null;
     });
 
+    // Default cessazione per contratto indeterminato: data sentinella
+    // a 99 anni (9999-12-31 e' supportato da Postgres date type) cosi'
+    // non compare in nessuna scadenza imminente. Per contratti a termine
+    // la data resta quella dell'utente (gia' validata come obbligatoria).
+    if (out.contratto_tipo === 'indeterminato' && !out.data_cessazione) {
+      out.data_cessazione = '9999-12-31';
+      out.termination_date = '9999-12-31';
+    }
+
     return out;
   };
 
@@ -393,9 +402,19 @@ export default function Dipendenti() {
   // ========== EMPLOYEE FORM HANDLERS ==========
 
   const handleSaveEmployee = async (formData) => {
-    // Validazioni
+    // Validazioni — campi obbligatori
     if (!formData.nome?.trim() || !formData.cognome?.trim()) {
       showToast('Nome e cognome sono obbligatori', 'error'); return;
+    }
+    if (!formData.data_assunzione) {
+      showToast('La data di assunzione è obbligatoria', 'error'); return;
+    }
+    if (!formData.contratto) {
+      showToast('Il tipo di contratto è obbligatorio', 'error'); return;
+    }
+    // Per contratti diversi da indeterminato, la data di cessazione e' obbligatoria
+    if (formData.contratto !== 'indeterminato' && !formData.data_cessazione) {
+      showToast(`Per contratto "${formData.contratto}" la data di cessazione è obbligatoria`, 'error'); return;
     }
     if (formData.codice_fiscale && formData.codice_fiscale.length > 0 && formData.codice_fiscale.length !== 16) {
       showToast('Il codice fiscale deve avere 16 caratteri', 'error'); return;
@@ -425,7 +444,10 @@ export default function Dipendenti() {
           .from('employees')
           .insert([{ ...dbPayload, company_id: COMPANY_ID, is_active: true }]);
         if (error) throw error;
-        showToast('Dipendente creato', 'success');
+        showToast(
+          'Dipendente creato. Per vederlo nei consuntivi assegnagli un outlet (icona allocazione %).',
+          'success'
+        );
       }
       await loadAllData();
       setShowEmployeeForm(false);
@@ -710,7 +732,12 @@ export default function Dipendenti() {
         <div className="rounded-lg shadow-lg p-6 border-l-4 border-blue-600" style={{ background: "linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)" }}>
           <p className="text-sm font-medium text-slate-600 mb-1">Totale Dipendenti</p>
           <p className="text-3xl font-bold text-slate-900">{totalEmployees2025}</p>
-          <p className="text-xs text-slate-500 mt-2">Consuntivo 2025</p>
+          <p className="text-xs text-slate-500 mt-2">
+            Allocati su outlet · Anagrafica: <span className="font-semibold text-slate-700">{employees.length}</span>
+            {employees.length > totalEmployees2025 && (
+              <span className="text-amber-600 ml-1">({employees.length - totalEmployees2025} senza outlet)</span>
+            )}
+          </p>
         </div>
 
         <div className="rounded-lg shadow-lg p-6 border-l-4 border-emerald-600" style={{ background: "linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)" }}>
@@ -873,7 +900,12 @@ export default function Dipendenti() {
         <div className="rounded-lg shadow-lg p-6 border-l-4 border-blue-600" style={{ background: "linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)" }}>
           <p className="text-sm font-medium text-slate-600 mb-1">Dipendenti 2026</p>
           <p className="text-3xl font-bold text-slate-900">{totalEmployees2026}</p>
-          <p className="text-xs text-slate-500 mt-2">Organico stabile</p>
+          <p className="text-xs text-slate-500 mt-2">
+            Allocati su outlet · Anagrafica: <span className="font-semibold text-slate-700">{employees.length}</span>
+            {employees.length > totalEmployees2026 && (
+              <span className="text-amber-600 ml-1">({employees.length - totalEmployees2026} senza outlet)</span>
+            )}
+          </p>
         </div>
 
         <div className="rounded-lg shadow-lg p-6 border-l-4 border-emerald-600" style={{ background: "linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)" }}>
@@ -1512,14 +1544,25 @@ function EmployeeFormInner({ initial, onSave, onCancel }) {
       </div>
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className="block text-xs font-medium text-slate-600 mb-1">Data assunzione</label>
-          <input type="date" value={form.data_assunzione} onChange={e => setForm({ ...form, data_assunzione: e.target.value })}
+          <label className="block text-xs font-medium text-slate-600 mb-1">Data assunzione *</label>
+          <input type="date" required value={form.data_assunzione} onChange={e => setForm({ ...form, data_assunzione: e.target.value })}
             className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" />
         </div>
         <div>
-          <label className="block text-xs font-medium text-slate-600 mb-1">Data cessazione</label>
-          <input type="date" value={form.data_cessazione} onChange={e => setForm({ ...form, data_cessazione: e.target.value })}
-            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" />
+          <label className="block text-xs font-medium text-slate-600 mb-1">
+            Data cessazione
+            {form.contratto !== 'indeterminato' && form.contratto && <span className="text-red-500"> *</span>}
+          </label>
+          <input
+            type="date"
+            value={form.data_cessazione}
+            onChange={e => setForm({ ...form, data_cessazione: e.target.value })}
+            required={form.contratto && form.contratto !== 'indeterminato'}
+            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
+          />
+          {form.contratto === 'indeterminato' && (
+            <p className="text-[10px] text-slate-400 mt-1">Lasciare vuoto per contratto a tempo indeterminato</p>
+          )}
         </div>
       </div>
       <div className="grid grid-cols-3 gap-3">
@@ -1534,8 +1577,8 @@ function EmployeeFormInner({ initial, onSave, onCancel }) {
             className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" placeholder="4°" />
         </div>
         <div>
-          <label className="block text-xs font-medium text-slate-600 mb-1">Contratto</label>
-          <select value={form.contratto} onChange={e => setForm({ ...form, contratto: e.target.value })}
+          <label className="block text-xs font-medium text-slate-600 mb-1">Contratto *</label>
+          <select required value={form.contratto} onChange={e => setForm({ ...form, contratto: e.target.value })}
             className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
             <option value="indeterminato">Indeterminato</option>
             <option value="determinato">Determinato</option>
