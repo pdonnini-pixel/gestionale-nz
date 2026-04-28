@@ -127,21 +127,40 @@ export default function Dipendenti() {
   };
 
   // Mappa i nomi dei campi del form ai nomi reali delle colonne in DB.
-  // Lo schema employees ha sia colonne italiane (cognome/nome/contratto_tipo/...)
-  // sia colonne inglesi (last_name/first_name/contract_type/...). Il form
-  // continua a usare nomi italiani, ma alcune chiavi non matchano la DB.
+  // Lo schema employees ha colonne MISTE italiano + inglese. Le colonne
+  // inglesi (first_name, last_name) sono NOT NULL, quelle italiane
+  // (nome, cognome) sono nullable. Per garantire compatibilita' con
+  // entrambe le viste, popoliamo SEMPRE entrambe le coppie.
   const mapFormToDb = (formData) => {
     const out = { ...formData };
+
+    // Coppie italiane <-> inglesi: popola entrambe per soddisfare
+    // i NOT NULL su lato inglese e mantenere la lettura lato italiano.
+    if ('nome' in out)            out.first_name = out.nome;
+    if ('cognome' in out)         out.last_name = out.cognome;
+    if ('codice_fiscale' in out)  out.fiscal_code = out.codice_fiscale || null;
+    if ('data_assunzione' in out) out.hire_date = out.data_assunzione || null;
+    if ('data_cessazione' in out) out.termination_date = out.data_cessazione || null;
+    if ('livello' in out)         out.level = out.livello || null;
+    if ('note' in out)            out.notes = out.note || null;
+
     // 'contratto' nel form -> 'contratto_tipo' in DB
     if ('contratto' in out) {
       out.contratto_tipo = out.contratto;
       delete out.contratto;
     }
-    // 'qualifica' nel form -> 'role_description' in DB (non esiste 'qualifica')
+    // 'qualifica' nel form -> 'role_description' in DB
     if ('qualifica' in out) {
       out.role_description = out.qualifica;
       delete out.qualifica;
     }
+
+    // Normalizza stringhe vuote a null sui campi date (Postgres
+    // rifiuta '' su tipo date) e su tutti i nullable.
+    ['hire_date', 'termination_date', 'data_assunzione', 'data_cessazione'].forEach(k => {
+      if (out[k] === '') out[k] = null;
+    });
+
     return out;
   };
 
