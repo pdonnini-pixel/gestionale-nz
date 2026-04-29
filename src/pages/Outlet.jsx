@@ -17,6 +17,7 @@ import {
   ResponsiveContainer, LineChart, Line, Legend
 } from 'recharts'
 import { GlassTooltip, AXIS_STYLE, GRID_STYLE } from '../components/ChartTheme'
+import { formatOutletName } from '../lib/formatters'
 
 const MONTHS = ['Gen','Feb','Mar','Apr','Mag','Giu','Lug','Ago','Set','Ott','Nov','Dic']
 const DOCUMENT_CATEGORIES = [
@@ -104,7 +105,7 @@ function OutletGrid({ outlets, revenue, onSelect }) {
                 </div>
                 <div>
                   <div className="font-semibold text-slate-900 group-hover:text-blue-600 transition">
-                    {outlet.name}
+                    {formatOutletName(outlet.name)}
                   </div>
                   <div className="text-xs text-slate-400">{outlet.code}</div>
                 </div>
@@ -142,7 +143,8 @@ function OutletGrid({ outlets, revenue, onSelect }) {
             {outlet.min_revenue_target && (
               <div className="mt-2 text-xs text-slate-400">
                 <Target size={12} className="inline mr-1" />
-                Target: {fmt(outlet.min_revenue_target)} € / {outlet.min_revenue_period || '—'}
+                Target: {fmt(outlet.min_revenue_target)} €
+                {outlet.min_revenue_period && ` / ${outlet.min_revenue_period}`}
               </div>
             )}
           </div>
@@ -1648,7 +1650,7 @@ function OutletDetail({ outlet, revenue, onBack, onEdit, onDelete }) {
         </button>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-3">
-            <h2 className="text-xl sm:text-2xl font-bold text-slate-900 truncate">{outlet.name}</h2>
+            <h2 className="text-xl sm:text-2xl font-bold text-slate-900 truncate">{formatOutletName(outlet.name)}</h2>
             <StatusBadge outlet={outlet} isActive={outlet.is_active} />
           </div>
           <p className="text-xs sm:text-sm text-slate-500">
@@ -2165,7 +2167,7 @@ export default function Outlet() {
               </div>
             </div>
             <p className="text-sm text-slate-700 mb-6">
-              Sei sicuro di voler eliminare <strong>{showDeleteConfirm.name}</strong> ({showDeleteConfirm.code})?
+              Sei sicuro di voler eliminare <strong>{formatOutletName(showDeleteConfirm.name)}</strong> ({showDeleteConfirm.code})?
               Verranno eliminati anche tutti gli allegati collegati.
             </p>
             <div className="flex justify-end gap-3">

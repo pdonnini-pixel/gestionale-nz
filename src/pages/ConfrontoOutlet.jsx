@@ -14,6 +14,7 @@ import {
   RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar,
 } from 'recharts'
 import { GlassTooltip, ChartGradients, AXIS_STYLE, GRID_STYLE, BAR_RADIUS, ModernLegend, fmtEuro, fmtK } from '../components/ChartTheme'
+import { formatOutletName, shortOutletName } from '../lib/formatters'
 
 function fmt(n, dec = 0) {
   if (n == null) return '—'
@@ -53,13 +54,13 @@ function OutletCard({ name, outletData, calculatedMetrics, ranking, onNavigate }
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Store size={18} style={{ color: '#9ca3af' }} />
-              <div className="font-bold text-slate-900 text-sm">{name.split(' ')[0]}</div>
+              <div className="font-bold text-slate-900 text-sm">{shortOutletName(name)}</div>
             </div>
             <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-slate-100 text-slate-500 border border-dashed border-slate-300">
               Nessun dato
             </span>
           </div>
-          <div className="text-xs text-slate-400 mt-0.5">{name}</div>
+          <div className="text-xs text-slate-400 mt-0.5">{formatOutletName(name)}</div>
         </div>
         <div className="px-4 py-6 text-center">
           <AlertCircle size={24} className="text-slate-300 mx-auto mb-2" />
@@ -70,7 +71,8 @@ function OutletCard({ name, outletData, calculatedMetrics, ranking, onNavigate }
   }
 
   const { ricavi, margine, marginePct, costoPersonale, affitto, servizi, personaleCount,
-    ricavoPerDip, incidenzaPersonale, incidenzaAffitto, breakeven, merci, costiDiretti, costiTotali } = calculatedMetrics
+    ricavoPerDip, incidenzaPersonale, incidenzaAffitto, breakeven, merci, costiDiretti, costiTotali,
+    isVariance } = calculatedMetrics
 
   const isPositive = margine >= 0
   // null = non calcolabile (0 dipendenti). La UI mostra 'N/D'. Prima
@@ -86,7 +88,7 @@ function OutletCard({ name, outletData, calculatedMetrics, ranking, onNavigate }
           <div className="flex items-center gap-2">
             <Store size={18} style={{ color: outletData.color || '#6366f1' }} />
             <button onClick={onNavigate} className="font-bold text-slate-900 text-sm hover:text-indigo-600 transition cursor-pointer text-left">
-              {name.split(' ')[0]}
+              {shortOutletName(name)}
             </button>
           </div>
           <div className="flex items-center gap-1.5">
@@ -102,14 +104,17 @@ function OutletCard({ name, outletData, calculatedMetrics, ranking, onNavigate }
             )}
           </div>
         </div>
-        <div className="text-xs text-slate-400 mt-0.5">{name}</div>
+        <div className="text-xs text-slate-400 mt-0.5">{formatOutletName(name)}</div>
       </div>
 
       {/* Ricavi - Hero KPI + varianza */}
       <div className="px-4 pt-4 pb-2">
-        <div className="text-xs text-slate-400">Ricavi</div>
-        <div className="text-2xl font-bold text-slate-900">{fmt(ricavi)} €</div>
-        {calculatedMetrics.variance && calculatedMetrics.budgetRicavi > 0 && (
+        <div className="text-xs text-slate-400">{isVariance ? 'Δ Ricavi (Cons. − Prev.)' : 'Ricavi'}</div>
+        <div className={`text-2xl font-bold ${isVariance ? (ricavi >= 0 ? 'text-emerald-600' : 'text-red-600') : 'text-slate-900'}`}>
+          {isVariance && ricavi > 0 ? '+' : ''}{fmt(ricavi)} €
+        </div>
+        {/* Banner "vs budget" nascosto in modalità Scostamento: sarebbe duplicato del valore stesso */}
+        {!isVariance && calculatedMetrics.variance && calculatedMetrics.budgetRicavi > 0 && (
           <div className={`text-xs font-medium ${calculatedMetrics.variance.ricavi >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
             {calculatedMetrics.variance.ricavi >= 0 ? '+' : ''}{fmt(calculatedMetrics.variance.ricavi)} € ({calculatedMetrics.variance.ricaviPct >= 0 ? '+' : ''}{calculatedMetrics.variance.ricaviPct.toFixed(1)}%) vs budget
           </div>
@@ -180,15 +185,20 @@ function OutletCard({ name, outletData, calculatedMetrics, ranking, onNavigate }
             <span>Ricavo per dipendente</span>
             <span className="font-medium text-blue-600">{ricavoPerDip != null ? `${fmt(ricavoPerDip)} €/anno` : 'N/D'}</span>
           </div>
-          <div className="flex items-center justify-between text-xs pt-2 border-t border-amber-200 mt-1">
-            <span className="text-amber-700 font-semibold">Breakeven</span>
-            <span className="font-bold text-amber-600">{fmt(breakeven)} €/anno — {fmt(breakeven / 12)} €/mese</span>
-          </div>
-          {ricavi > 0 && (
-            <div className={`flex items-center justify-between text-xs ${ricavi >= breakeven ? 'text-emerald-600' : 'text-red-600'}`}>
-              <span>{ricavi >= breakeven ? 'Sopra breakeven' : 'Sotto breakeven'}</span>
-              <span className="font-medium">{ricavi >= breakeven ? '+' : ''}{fmt(ricavi - breakeven)} € ({((ricavi - breakeven) / (breakeven || 1) * 100).toFixed(1)}%)</span>
-            </div>
+          {/* Breakeven non significativo sui delta → nascosto in modalità Scostamento */}
+          {!isVariance && (
+            <>
+              <div className="flex items-center justify-between text-xs pt-2 border-t border-amber-200 mt-1">
+                <span className="text-amber-700 font-semibold">Breakeven</span>
+                <span className="font-bold text-amber-600">{fmt(breakeven)} €/anno — {fmt(breakeven / 12)} €/mese</span>
+              </div>
+              {ricavi > 0 && (
+                <div className={`flex items-center justify-between text-xs ${ricavi >= breakeven ? 'text-emerald-600' : 'text-red-600'}`}>
+                  <span>{ricavi >= breakeven ? 'Sopra breakeven' : 'Sotto breakeven'}</span>
+                  <span className="font-medium">{ricavi >= breakeven ? '+' : ''}{fmt(ricavi - breakeven)} € ({((ricavi - breakeven) / (breakeven || 1) * 100).toFixed(1)}%)</span>
+                </div>
+              )}
+            </>
           )}
         </div>
       )}
@@ -206,17 +216,23 @@ function TabellaBenchmark({ outletMetrics }) {
     (b.calculatedMetrics?.ricavi || 0) - (a.calculatedMetrics?.ricavi || 0)
   )
 
+  const isVariance = rows[0]?.calculatedMetrics?.isVariance || false
+
+  // In variance le metriche di costo sono "delta": un delta positivo significa
+  // costo aumentato (peggio), un delta negativo significa costo diminuito (meglio).
+  // Per i ricavi/margini è il contrario: positivo è meglio.
   const metrics = [
-    { label: 'Ricavi', key: 'ricavi', fn: r => r.calculatedMetrics?.ricavi || 0, best: 'max' },
-    { label: 'Margine €', key: 'margine', fn: r => r.calculatedMetrics?.margine || 0, best: 'max' },
-    { label: 'Margine %', key: 'marginePct', fn: r => r.calculatedMetrics?.marginePct || 0, best: 'max', pct: true },
+    { label: isVariance ? 'Δ Ricavi' : 'Ricavi', key: 'ricavi', fn: r => r.calculatedMetrics?.ricavi || 0, best: 'max' },
+    { label: isVariance ? 'Δ Margine €' : 'Margine €', key: 'margine', fn: r => r.calculatedMetrics?.margine || 0, best: 'max' },
+    { label: isVariance ? 'Δ Margine %' : 'Margine %', key: 'marginePct', fn: r => r.calculatedMetrics?.marginePct || 0, best: 'max', pct: true },
     { label: 'Dipendenti', key: 'ndip', fn: r => r.calculatedMetrics?.personaleCount || 0, best: null },
-    { label: '€/Dipendente', key: 'ricPerDip', fn: r => r.calculatedMetrics?.ricavoPerDip || 0, best: 'max' },
-    { label: 'Costo personale', key: 'costoPers', fn: r => r.calculatedMetrics?.costoPersonale || 0, best: 'min' },
-    { label: 'Affitto', key: 'affitto', fn: r => r.calculatedMetrics?.affitto || 0, best: 'min' },
-    { label: 'Inc. personale %', key: 'incPers', fn: r => r.calculatedMetrics?.incidenzaPersonale || 0, best: 'min', pct: true },
-    { label: 'Inc. affitto %', key: 'incAff', fn: r => r.calculatedMetrics?.incidenzaAffitto || 0, best: 'min', pct: true },
-    { label: 'Breakeven', key: 'breakeven', fn: r => r.calculatedMetrics?.breakeven || 0, best: 'min' },
+    { label: isVariance ? 'Δ €/Dipendente' : '€/Dipendente', key: 'ricPerDip', fn: r => r.calculatedMetrics?.ricavoPerDip || 0, best: 'max' },
+    { label: isVariance ? 'Δ Costo personale' : 'Costo personale', key: 'costoPers', fn: r => r.calculatedMetrics?.costoPersonale || 0, best: 'min' },
+    { label: isVariance ? 'Δ Affitto' : 'Affitto', key: 'affitto', fn: r => r.calculatedMetrics?.affitto || 0, best: 'min' },
+    { label: isVariance ? 'Δ Inc. personale %' : 'Inc. personale %', key: 'incPers', fn: r => r.calculatedMetrics?.incidenzaPersonale || 0, best: 'min', pct: true },
+    { label: isVariance ? 'Δ Inc. affitto %' : 'Inc. affitto %', key: 'incAff', fn: r => r.calculatedMetrics?.incidenzaAffitto || 0, best: 'min', pct: true },
+    // Breakeven sui delta non è significativo: rimosso in modalità Scostamento
+    ...(isVariance ? [] : [{ label: 'Breakeven', key: 'breakeven', fn: r => r.calculatedMetrics?.breakeven || 0, best: 'min' }]),
   ]
 
   return (
@@ -233,7 +249,7 @@ function TabellaBenchmark({ outletMetrics }) {
               {rows.map(r => (
                 <th key={r.name} className="py-2.5 px-4 text-right font-medium whitespace-nowrap">
                   <span className="inline-block w-2 h-2 rounded-full mr-1" style={{ backgroundColor: r.outletData?.color || '#6366f1' }} />
-                  {r.name.split(' ')[0]}
+                  {shortOutletName(r.name)}
                 </th>
               ))}
             </tr>
@@ -250,8 +266,12 @@ function TabellaBenchmark({ outletMetrics }) {
                     const isBest = bestVal !== null && Math.abs(val - bestVal) < 0.01
                     return (
                       <td key={r.name} className={`py-2.5 px-4 text-sm text-right font-medium ${
-                        isBest ? 'text-emerald-600 font-bold' : 'text-slate-600'
+                        isBest ? 'text-emerald-600 font-bold' :
+                        isVariance && m.key !== 'ndip' && val < 0 ? 'text-red-600' :
+                        isVariance && m.key !== 'ndip' && val > 0 ? 'text-emerald-600' :
+                        'text-slate-600'
                       }`}>
+                        {isVariance && m.key !== 'ndip' && val > 0 ? '+' : ''}
                         {m.pct ? `${val.toFixed(1)}%` : fmt(val)}
                         {!m.pct && m.key !== 'ndip' && ' €'}
                       </td>
@@ -447,8 +467,22 @@ export default function ConfrontoOutlet() {
       const budget = calcMetrics(amtBudget)
       const actual = calcMetrics(amtActual)
 
-      // Scegli i dati in base a viewMode
-      const data = viewMode === 'actual' ? actual : budget
+      // Scegli i dati in base a viewMode.
+      // viewMode === 'variance' → mostra lo SCOSTAMENTO consuntivo - preventivo
+      // (delta per ogni voce). Senza questo ramo, il tab Scostamento ricadeva
+      // su `budget` mostrando dati identici a Preventivo (bug 8.2).
+      const isVariance = viewMode === 'variance'
+      const data = viewMode === 'actual'
+        ? actual
+        : isVariance
+          ? {
+              ricavi: actual.ricavi - budget.ricavi,
+              costoPersonale: actual.costoPersonale - budget.costoPersonale,
+              affitto: actual.affitto - budget.affitto,
+              servizi: actual.servizi - budget.servizi,
+              merci: actual.merci - budget.merci,
+            }
+          : budget
 
       // Dipendenti dalla view (filtro per mesi se necessario)
       const empRows = employeeCosts
@@ -457,30 +491,61 @@ export default function ConfrontoOutlet() {
       const personaleCount = new Set(empRows.map(e => e.employee_id)).size
       const costoPersonaleFromDb = empRows.reduce((sum, e) => sum + (e.totale_allocato || 0), 0)
 
-      const finalCostoPersonale = costoPersonaleFromDb || data.costoPersonale
+      // In variance non sostituiamo con il dato DB (che è solo actual):
+      // il delta sul costo personale deve restare actual-budget.
+      const finalCostoPersonale = isVariance
+        ? data.costoPersonale
+        : (costoPersonaleFromDb || data.costoPersonale)
       const { ricavi, affitto, servizi, merci } = data
 
       const costiDiretti = merci + finalCostoPersonale + affitto + servizi
-      const quotaSede = quotaSedePerOutlet
+      const quotaSede = isVariance ? 0 : quotaSedePerOutlet
       const costiTotali = costiDiretti + quotaSede
 
       const margine = ricavi - costiTotali
-      const marginePct = ricavi > 0 ? (margine / ricavi * 100) : 0
+      // In variance le percentuali sono "delta in punti percentuali"
+      // (incidenza_actual - incidenza_budget); altrimenti calcolo classico.
+      let marginePct, incidenzaPersonale, incidenzaAffitto
+      if (isVariance) {
+        const aPersonale = costoPersonaleFromDb || actual.costoPersonale
+        const aMargine = actual.ricavi - actual.merci - aPersonale - actual.affitto - actual.servizi - quotaSedePerOutlet
+        const bMargine = budget.ricavi - budget.merci - budget.costoPersonale - budget.affitto - budget.servizi - quotaSedePerOutlet
+        const aMargPct = actual.ricavi > 0 ? (aMargine / actual.ricavi * 100) : 0
+        const bMargPct = budget.ricavi > 0 ? (bMargine / budget.ricavi * 100) : 0
+        const aIncP = actual.ricavi > 0 ? (aPersonale / actual.ricavi * 100) : 0
+        const bIncP = budget.ricavi > 0 ? (budget.costoPersonale / budget.ricavi * 100) : 0
+        const aIncA = actual.ricavi > 0 ? (actual.affitto / actual.ricavi * 100) : 0
+        const bIncA = budget.ricavi > 0 ? (budget.affitto / budget.ricavi * 100) : 0
+        marginePct = aMargPct - bMargPct
+        incidenzaPersonale = aIncP - bIncP
+        incidenzaAffitto = aIncA - bIncA
+      } else {
+        marginePct = ricavi > 0 ? (margine / ricavi * 100) : 0
+        incidenzaPersonale = ricavi > 0 ? (finalCostoPersonale / ricavi * 100) : 0
+        incidenzaAffitto = ricavi > 0 ? (affitto / ricavi * 100) : 0
+      }
       // null = non calcolabile (0 dipendenti, indeterminato). La UI mostra
       // 'N/D'. Bug segnalato: con 0 dipendenti mostrava il totale ricavi.
       const ricavoPerDip = personaleCount > 0 ? ricavi / personaleCount : null
-      const incidenzaPersonale = ricavi > 0 ? (finalCostoPersonale / ricavi * 100) : 0
-      const incidenzaAffitto = ricavi > 0 ? (affitto / ricavi * 100) : 0
 
       const costiFissi = finalCostoPersonale + affitto + servizi + quotaSede
-      const incidenzaMerci = ricavi > 0 ? (merci / ricavi) : 0.5
-      const breakeven = incidenzaMerci < 1 ? costiFissi / (1 - incidenzaMerci) : 0
+      // In variance il breakeven calcolato sui delta è privo di significato
+      // (denominatore può essere negativo o piccolissimo). Lo mettiamo a 0,
+      // la card lo nasconderà in modalità scostamento.
+      let breakeven
+      if (isVariance) {
+        breakeven = 0
+      } else {
+        const incidenzaMerci = ricavi > 0 ? (merci / ricavi) : 0.5
+        breakeven = incidenzaMerci < 1 ? costiFissi / (1 - incidenzaMerci) : 0
+      }
 
-      // Varianza budget vs actual
+      // Varianza budget vs actual (banner sempre visibile sulla card,
+      // indipendente dal viewMode → uso quotaSedePerOutlet originale)
       const variance = {
         ricavi: actual.ricavi - budget.ricavi,
-        margine: (actual.ricavi - actual.merci - (costoPersonaleFromDb || actual.costoPersonale) - actual.affitto - actual.servizi - quotaSede)
-                - (budget.ricavi - budget.merci - (costoPersonaleFromDb || budget.costoPersonale) - budget.affitto - budget.servizi - quotaSede),
+        margine: (actual.ricavi - actual.merci - (costoPersonaleFromDb || actual.costoPersonale) - actual.affitto - actual.servizi - quotaSedePerOutlet)
+                - (budget.ricavi - budget.merci - (costoPersonaleFromDb || budget.costoPersonale) - budget.affitto - budget.servizi - quotaSedePerOutlet),
         ricaviPct: budget.ricavi > 0 ? ((actual.ricavi - budget.ricavi) / budget.ricavi * 100) : 0,
       }
 
@@ -503,6 +568,7 @@ export default function ConfrontoOutlet() {
           variance, approvalPct,
           budgetRicavi: budget.ricavi,
           actualRicavi: actual.ricavi,
+          isVariance, // 8.2: per la UI distinguere modalità Scostamento
         },
       }
     })
@@ -524,7 +590,7 @@ export default function ConfrontoOutlet() {
     return outletMetrics
       .filter(o => o.calculatedMetrics?.ricavi)
       .map(o => ({
-        name: o.name.split(' ')[0],
+        name: shortOutletName(o.name),
         ricavi: o.calculatedMetrics.ricavi,
         color: o.outletData.color || '#6366f1',
       }))
@@ -534,7 +600,7 @@ export default function ConfrontoOutlet() {
     return outletMetrics
       .filter(o => o.calculatedMetrics)
       .map(o => ({
-        name: o.name.split(' ')[0],
+        name: shortOutletName(o.name),
         margine: o.calculatedMetrics.margine,
         marginePct: o.calculatedMetrics.marginePct,
         color: o.outletData.color || '#6366f1',
@@ -559,7 +625,7 @@ export default function ConfrontoOutlet() {
     rows.forEach(o => {
       const m = o.calculatedMetrics
       csvRows.push([
-        `"${o.name}"`,
+        `"${formatOutletName(o.name)}"`,
         m.ricavi.toFixed(2), m.margine.toFixed(2), m.marginePct.toFixed(1),
         m.personaleCount, m.ricavoPerDip.toFixed(2),
         m.costoPersonale.toFixed(2), m.affitto.toFixed(2),
@@ -574,7 +640,7 @@ export default function ConfrontoOutlet() {
       csvRows.push('--- SCOSTAMENTO BUDGET vs CONSUNTIVO ---')
       rows.forEach(o => {
         const v = o.calculatedMetrics.variance
-        csvRows.push([`"${o.name}"`, `Ricavi: ${v.ricavi.toFixed(2)}`, `(${v.ricaviPct.toFixed(1)}%)`].join(';'))
+        csvRows.push([`"${formatOutletName(o.name)}"`, `Ricavi: ${v.ricavi.toFixed(2)}`, `(${v.ricaviPct.toFixed(1)}%)`].join(';'))
       })
     }
     const blob = new Blob(['\uFEFF' + csvRows.join('\n')], { type: 'text/csv;charset=utf-8' })
@@ -658,7 +724,7 @@ export default function ConfrontoOutlet() {
             data={outletMetrics.filter(o => o.calculatedMetrics).map(o => {
               const m = o.calculatedMetrics;
               return {
-                outlet: o.name, ricavi: m.ricavi, margine: m.margine,
+                outlet: formatOutletName(o.name), ricavi: m.ricavi, margine: m.margine,
                 margine_pct: m.marginePct, dipendenti: m.personaleCount,
                 per_dipendente: m.ricavoPerDip, costo_personale: m.costoPersonale,
                 affitto: m.affitto, servizi: m.servizi, merci: m.merci,

@@ -10,6 +10,7 @@ import { usePeriod } from '../hooks/usePeriod'
 import { useTableSort } from '../hooks/useTableSort'
 import SortableTh from '../components/ui/SortableTh'
 import PageHelp from '../components/PageHelp'
+import { formatOutletName } from '../lib/formatters'
 
 const fmt = (n) => n == null ? '\u2014' : new Intl.NumberFormat('it-IT', { maximumFractionDigits: 0 }).format(n)
 const fmtPct = (n) => n == null ? '\u2014' : `${n.toFixed(1)}%`
@@ -188,7 +189,7 @@ export default function MarginiOutlet() {
   // Chart data with percentage labels
   const chartData = useMemo(() => {
     return outletMargins.map(o => ({
-      nome: o.nome,
+      nome: formatOutletName(o.nome),
       Ricavi: Math.round(o.ricavi),
       Costi: Math.round(o.costi),
       Margine: Math.round(o.margine),
@@ -267,8 +268,8 @@ export default function MarginiOutlet() {
               <p className="text-red-900 font-semibold">Attenzione: margini critici rilevati</p>
               <p className="text-red-700 text-sm mt-1">
                 {criticalOutlets.length === 1
-                  ? `L'outlet "${criticalOutlets[0].nome}" ha un margine del ${fmtPct(criticalOutlets[0].marginePercent)} (sotto la soglia del 5%).`
-                  : `${criticalOutlets.length} outlet hanno margine inferiore al 5%: ${criticalOutlets.map(o => `${o.nome} (${fmtPct(o.marginePercent)})`).join(', ')}.`
+                  ? `L'outlet "${formatOutletName(criticalOutlets[0].nome)}" ha un margine del ${fmtPct(criticalOutlets[0].marginePercent)} (sotto la soglia del 5%).`
+                  : `${criticalOutlets.length} outlet hanno margine inferiore al 5%: ${criticalOutlets.map(o => `${formatOutletName(o.nome)} (${fmtPct(o.marginePercent)})`).join(', ')}.`
                 }
                 {' '}Verifica la struttura dei costi di questi punti vendita.
               </p>
@@ -362,7 +363,7 @@ export default function MarginiOutlet() {
                     <tbody>
                       {outletNames.map((outlet) => (
                         <tr key={outlet} className="border-b border-slate-100">
-                          <td className="px-3 py-2 text-slate-900 font-medium bg-white sticky left-0 z-10">{outlet}</td>
+                          <td className="px-3 py-2 text-slate-900 font-medium bg-white sticky left-0 z-10">{formatOutletName(outlet)}</td>
                           {MONTHS.map((_, idx) => {
                             const monthNum = idx + 1
                             const pct = heatmapData[outlet]?.[monthNum] ?? null
@@ -371,7 +372,7 @@ export default function MarginiOutlet() {
                                 <div
                                   className={`rounded-md px-1 py-2 text-xs font-semibold ${heatmapText(pct)}`}
                                   style={{ backgroundColor: heatmapColor(pct) }}
-                                  title={pct != null ? `${outlet} - ${MONTHS[idx]}: ${pct.toFixed(1)}%` : 'Nessun dato'}
+                                  title={pct != null ? `${formatOutletName(outlet)} - ${MONTHS[idx]}: ${pct.toFixed(1)}%` : 'Nessun dato'}
                                 >
                                   {pct != null ? `${pct.toFixed(0)}%` : '\u2014'}
                                 </div>
@@ -435,7 +436,7 @@ export default function MarginiOutlet() {
                           >
                             <td className="px-4 py-3 text-slate-900 font-medium flex items-center gap-2">
                               {isExpanded ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
-                              {o.nome}
+                              {formatOutletName(o.nome)}
                             </td>
                             <td className="px-4 py-3 text-right text-slate-700">{fmt(o.ricavi)} &euro;</td>
                             <td className="px-4 py-3 text-right text-slate-700">{fmt(o.costi)} &euro;</td>

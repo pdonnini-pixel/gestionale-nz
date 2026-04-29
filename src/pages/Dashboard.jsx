@@ -15,6 +15,7 @@ import {
 } from 'recharts'
 import FinancialTooltip from '../components/FinancialTooltip'
 import DataFreshness from '../components/DataFreshness'
+import { formatOutletName } from '../lib/formatters'
 
 /* ═══════════════════════════════════════
    HELPERS
@@ -752,7 +753,7 @@ export default function Dashboard() {
                         <td className="py-2.5 px-4">
                           <div className="flex items-center gap-2">
                             <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: o.colore }} />
-                            <span className="font-medium text-slate-900">{o.name}</span>
+                            <span className="font-medium text-slate-900">{formatOutletName(o.name)}</span>
                           </div>
                           {/* Mini bar */}
                           <div className="mt-1 h-1 bg-slate-100 rounded-full overflow-hidden w-32">
@@ -797,7 +798,7 @@ export default function Dashboard() {
                     </span>
                     <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: o.colore }} />
                     <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium text-slate-900 truncate">{o.name}</div>
+                      <div className="text-sm font-medium text-slate-900 truncate">{formatOutletName(o.name)}</div>
                       <div className="text-xs text-slate-400">{fmt(o.ricavi)} €</div>
                     </div>
                     {dailyRev && (
