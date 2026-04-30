@@ -729,7 +729,7 @@ export default function Dipendenti() {
     <div>
       {/* KPI Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-        <div className="rounded-lg shadow-lg p-6 border-l-4 border-blue-600" style={{ background: "linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)" }}>
+        <div className="rounded-lg shadow-lg p-6" style={{ background: "linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)" }}>
           <p className="text-sm font-medium text-slate-600 mb-1">Totale Dipendenti</p>
           <p className="text-3xl font-bold text-slate-900">{totalEmployees2025}</p>
           <p className="text-xs text-slate-500 mt-2">
@@ -740,13 +740,13 @@ export default function Dipendenti() {
           </p>
         </div>
 
-        <div className="rounded-lg shadow-lg p-6 border-l-4 border-emerald-600" style={{ background: "linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)" }}>
+        <div className="rounded-lg shadow-lg p-6" style={{ background: "linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)" }}>
           <p className="text-sm font-medium text-slate-600 mb-1">Costo Totale</p>
           <p className="text-2xl font-bold text-slate-900">{formatCurrency(totalCosto2025)}</p>
           <p className="text-xs text-slate-500 mt-2">Retrib. + Contrib. + INAIL</p>
         </div>
 
-        <div className="rounded-lg shadow-lg p-6 border-l-4 border-sky-600" style={{ background: "linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)" }}>
+        <div className="rounded-lg shadow-lg p-6" style={{ background: "linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)" }}>
           <p className="text-sm font-medium text-slate-600 mb-1">Costo Medio</p>
           <p className="text-2xl font-bold text-slate-900">
             {formatCurrency(totalEmployees2025 > 0 ? totalCosto2025 / totalEmployees2025 : 0)}
@@ -897,7 +897,7 @@ export default function Dipendenti() {
     <div>
       {/* KPI Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-        <div className="rounded-lg shadow-lg p-6 border-l-4 border-blue-600" style={{ background: "linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)" }}>
+        <div className="rounded-lg shadow-lg p-6" style={{ background: "linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)" }}>
           <p className="text-sm font-medium text-slate-600 mb-1">Dipendenti 2026</p>
           <p className="text-3xl font-bold text-slate-900">{totalEmployees2026}</p>
           <p className="text-xs text-slate-500 mt-2">
@@ -908,13 +908,13 @@ export default function Dipendenti() {
           </p>
         </div>
 
-        <div className="rounded-lg shadow-lg p-6 border-l-4 border-emerald-600" style={{ background: "linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)" }}>
+        <div className="rounded-lg shadow-lg p-6" style={{ background: "linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)" }}>
           <p className="text-sm font-medium text-slate-600 mb-1">Costo Stimato 2026</p>
           <p className="text-2xl font-bold text-slate-900">{formatCurrency(totalCosto2026)}</p>
           <p className="text-xs text-slate-500 mt-2">Totale organico</p>
         </div>
 
-        <div className={`rounded-lg shadow-lg p-6 border-l-4 ${deltaCosto >= 0 ? "border-rose-600" : "border-green-600"}`} style={{ background: "linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)" }}>
+        <div className="rounded-lg shadow-lg p-6" style={{ background: "linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)" }}>
           <p className="text-sm font-medium text-slate-600 mb-1">Delta vs 2025</p>
           <p className={`text-2xl font-bold ${deltaCosto >= 0 ? 'text-rose-600' : 'text-green-600'}`}>
             {formatCurrency(deltaCosto)}
@@ -922,7 +922,7 @@ export default function Dipendenti() {
           <p className="text-xs text-slate-500 mt-2">{deltaPercent}%</p>
         </div>
 
-        <div className="rounded-lg shadow-lg p-6 border-l-4 border-sky-600" style={{ background: "linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)" }}>
+        <div className="rounded-lg shadow-lg p-6" style={{ background: "linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)" }}>
           <p className="text-sm font-medium text-slate-600 mb-1">Costo Medio</p>
           <p className="text-2xl font-bold text-slate-900">
             {formatCurrency(totalEmployees2026 > 0 ? totalCosto2026 / totalEmployees2026 : 0)}
@@ -1218,31 +1218,35 @@ export default function Dipendenti() {
           </div>
         </div>
 
-        {/* View Toggle */}
-        <div className="flex gap-4 mb-8">
-          <button
-            onClick={() => setViewMode('consuntivo')}
-            className={`px-6 py-3 rounded-lg font-medium transition ${
-              viewMode === 'consuntivo'
-                ? 'bg-blue-600 text-white'
-                : 'bg-white text-slate-900 border border-slate-300 hover:bg-slate-50'
-            }`}
-          >
-            Consuntivo 2025
-          </button>
-          <button
-            onClick={() => setViewMode('organico')}
-            className={`px-6 py-3 rounded-lg font-medium transition ${
-              viewMode === 'organico'
-                ? 'bg-emerald-600 text-white'
-                : 'bg-white text-slate-900 border border-slate-300 hover:bg-slate-50'
-            }`}
-          >
-            Organico 2026
-          </button>
+        {/* View Toggle — Fix 10.2: stesso stile delle tab Conto Economico
+            (pattern "blu attivo / grigio inattivo" su sfondo slate-100), niente
+            piu' colori diversi per tab (blue vs emerald) */}
+        <div className="flex items-center gap-3 mb-8">
+          <div className="flex gap-0.5 bg-slate-100 rounded-lg p-0.5">
+            <button
+              onClick={() => setViewMode('consuntivo')}
+              className={`px-5 py-2 rounded-md text-sm font-medium transition ${
+                viewMode === 'consuntivo'
+                  ? 'bg-white text-blue-700 shadow-sm'
+                  : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              Consuntivo 2025
+            </button>
+            <button
+              onClick={() => setViewMode('organico')}
+              className={`px-5 py-2 rounded-md text-sm font-medium transition ${
+                viewMode === 'organico'
+                  ? 'bg-white text-blue-700 shadow-sm'
+                  : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              Organico 2026
+            </button>
+          </div>
           <button
             onClick={() => setShowEmployeeForm(true)}
-            className="flex items-center gap-2 px-6 py-3 rounded-lg font-medium bg-white text-slate-900 border border-slate-300 hover:bg-slate-50 transition ml-auto"
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-white text-slate-700 border border-slate-300 hover:bg-slate-50 transition ml-auto"
           >
             <Plus className="w-4 h-4" />
             Nuovo dipendente

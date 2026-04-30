@@ -1321,7 +1321,9 @@ export default function ContoEconomico() {
               {periodi.map(p => <option key={p} value={p}>{p}</option>)}
             </select>
           </div>
-          {/* Competenza / Cassa toggle */}
+          {/* Competenza / Cassa / Riconciliazione — Fix 10.1: stile uniforme
+              "blu attivo / grigio inattivo" (era 3 colori diversi: blue, emerald,
+              purple, generando inconsistenza visiva tra le tab) */}
           <div className="flex gap-0.5 bg-slate-100 rounded-lg p-0.5">
             <button
               onClick={() => setViewMode('competenza')}
@@ -1333,14 +1335,14 @@ export default function ContoEconomico() {
             <button
               onClick={() => setViewMode('cassa')}
               className={`px-3 py-1.5 rounded-md text-sm font-medium transition flex items-center gap-1 ${
-                viewMode === 'cassa' ? 'bg-white text-emerald-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                viewMode === 'cassa' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'
               }`}>
               <Banknote size={13} /> Cassa
             </button>
             <button
               onClick={() => setViewMode('riconciliazione')}
               className={`px-3 py-1.5 rounded-md text-sm font-medium transition flex items-center gap-1 ${
-                viewMode === 'riconciliazione' ? 'bg-white text-purple-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                viewMode === 'riconciliazione' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'
               }`}>
               <Calculator size={13} /> Riconciliazione
             </button>

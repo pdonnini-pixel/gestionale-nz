@@ -858,7 +858,9 @@ export default function ImportHub() {
           <div className="space-y-8">
             {/* KPIs */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-              <div className="bg-white rounded-lg shadow p-6 border-l-4 border-green-500">
+              {/* KPIs — Fix 10.3: rimosso border-l-4 colorato laterale,
+                  il colore semantico resta sull'icona a destra */}
+              <div className="bg-white rounded-lg shadow p-6">
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-gray-500 text-sm font-medium">Record Validi</p>
@@ -869,7 +871,7 @@ export default function ImportHub() {
                 <p className="text-xs text-gray-500 mt-4">Ultima verifica: {qualityMetrics.ultimaVerifica}</p>
               </div>
 
-              <div className="bg-white rounded-lg shadow p-6 border-l-4 border-red-500">
+              <div className="bg-white rounded-lg shadow p-6">
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-gray-500 text-sm font-medium">Duplicati Trovati</p>
@@ -880,7 +882,7 @@ export default function ImportHub() {
                 <p className="text-xs text-gray-500 mt-4">Ultimi 30 giorni</p>
               </div>
 
-              <div className="bg-white rounded-lg shadow p-6 border-l-4 border-yellow-500">
+              <div className="bg-white rounded-lg shadow p-6">
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-gray-500 text-sm font-medium">Errori Mapping</p>
@@ -891,7 +893,7 @@ export default function ImportHub() {
                 <p className="text-xs text-gray-500 mt-4">Da risolvere</p>
               </div>
 
-              <div className="bg-white rounded-lg shadow p-6 border-l-4 border-blue-500">
+              <div className="bg-white rounded-lg shadow p-6">
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-gray-500 text-sm font-medium">Fonti Attive</p>
