@@ -17,8 +17,8 @@ export default function Profilo() {
   const { session, profile, refreshProfile } = useAuth()
 
   // ─── Toast inline ────────────────────────────────────────────
-  const [toast, setToast] = useState(null) // { type: 'success'|'error', msg: string }
-  function showToast(type, msg) {
+  const [toast, setToast] = useState<{ type: 'success' | 'error'; msg: string } | null>(null)
+  function showToast(type: 'success' | 'error', msg: string) {
     setToast({ type, msg })
     setTimeout(() => setToast(null), 4500)
   }
@@ -37,7 +37,7 @@ export default function Profilo() {
     firstName !== (profile?.first_name || '') ||
     lastName !== (profile?.last_name || '')
 
-  async function handleSavePersonal(e) {
+  async function handleSavePersonal(e: React.FormEvent) {
     e.preventDefault()
     if (!profile?.id) return
     if (!firstName.trim() || !lastName.trim()) {
@@ -69,7 +69,7 @@ export default function Profilo() {
   const [showConfirm, setShowConfirm] = useState(false)
   const [savingPassword, setSavingPassword] = useState(false)
 
-  async function handleChangePassword(e) {
+  async function handleChangePassword(e: React.FormEvent) {
     e.preventDefault()
     if (newPassword.length < 8) {
       showToast('error', 'La password deve essere di almeno 8 caratteri')

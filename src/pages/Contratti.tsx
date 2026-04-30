@@ -7,7 +7,7 @@ import {
   Upload, Eye, Paperclip, XCircle, FileUp, Edit2
 } from 'lucide-react'
 
-function fmt(n, decimals = 0) {
+function fmt(n: number | null | undefined, decimals = 0) {
   if (n == null) return '—'
   return new Intl.NumberFormat('it-IT', {
     minimumFractionDigits: decimals,
@@ -22,7 +22,7 @@ const STATUS_CONFIG = {
   disdettato: { label: 'Disdettato', color: 'bg-slate-100 text-slate-600' },
 }
 
-function StatusBadge({ status }) {
+function StatusBadge({ status }: { status: string }) {
   const config = STATUS_CONFIG[status] || STATUS_CONFIG.attivo
   return (
     <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${config.color}`}>
@@ -31,7 +31,7 @@ function StatusBadge({ status }) {
   )
 }
 
-function KpiCard({ title, value, subtitle, icon: Icon, color = 'blue' }) {
+function KpiCard({ title, value, subtitle, icon: Icon, color = 'blue' }: { title: string; value: string | number; subtitle?: string; icon: React.ElementType; color?: string }) {
   const colorMap = {
     blue: 'bg-blue-50 text-blue-600',
     green: 'bg-emerald-50 text-emerald-600',
@@ -51,7 +51,8 @@ function KpiCard({ title, value, subtitle, icon: Icon, color = 'blue' }) {
 }
 
 // ====== MODAL NUOVO CONTRATTO ======
-function ModalNuovoContratto({ outlets, onClose, onSave, editingContract = null, profile }) {
+// TODO: tighten type
+function ModalNuovoContratto({ outlets, onClose, onSave, editingContract = null, profile }: { outlets: any[]; onClose: () => void; onSave: () => void; editingContract?: any; profile: any }) {
   const [form, setForm] = useState(editingContract ? {
     name: editingContract.name,
     counterpart: editingContract.counterpart,
@@ -72,10 +73,11 @@ function ModalNuovoContratto({ outlets, onClose, onSave, editingContract = null,
     auto_renew: false, notes: ''
   })
   const [saving, setSaving] = useState(false)
-  const [error, setError] = useState(null)
-  const [attachments, setAttachments] = useState([])
+  const [error, setError] = useState<string | null>(null)
+  // TODO: tighten type
+  const [attachments, setAttachments] = useState<any[]>([])
 
-  async function uploadAttachments(contractId) {
+  async function uploadAttachments(contractId: string) {
     if (attachments.length === 0) return
 
     try {
@@ -167,7 +169,8 @@ function ModalNuovoContratto({ outlets, onClose, onSave, editingContract = null,
     }
   }
 
-  const set = (k, v) => setForm(prev => ({ ...prev, [k]: v }))
+  // TODO: tighten type
+  const set = (k: string, v: any) => setForm(prev => ({ ...prev, [k]: v }))
   const isEditing = !!editingContract
 
   return (
@@ -286,11 +289,12 @@ function ModalNuovoContratto({ outlets, onClose, onSave, editingContract = null,
 }
 
 // ====== PDF UPLOADER (Supabase Storage) ======
-function PdfUploader({ contractId, files, loading: filesLoading, onUploadDone, onRemoveDone, onPreview }) {
+// TODO: tighten type
+function PdfUploader({ contractId, files, loading: filesLoading, onUploadDone, onRemoveDone, onPreview }: { contractId: string; files: any[]; loading: boolean; onUploadDone: () => void; onRemoveDone: () => void; onPreview: (f: any) => void }) {
   const [dragActive, setDragActive] = useState(false)
   const [uploading, setUploading] = useState(false)
 
-  async function handleFiles(fileList) {
+  async function handleFiles(fileList: FileList) {
     const pdfs = Array.from(fileList).filter(f =>
       f.type === 'application/pdf' || f.name.endsWith('.pdf')
     )
@@ -323,7 +327,8 @@ function PdfUploader({ contractId, files, loading: filesLoading, onUploadDone, o
     }
   }
 
-  async function handleRemove(doc) {
+  // TODO: tighten type
+  async function handleRemove(doc: any) {
     if (doc.file_path) {
       await supabase.storage.from('contract-documents').remove([doc.file_path])
     }
@@ -395,8 +400,9 @@ function PdfUploader({ contractId, files, loading: filesLoading, onUploadDone, o
 }
 
 // ====== PDF PREVIEW MODAL (Supabase signed URL) ======
-function PdfPreviewModal({ file, onClose }) {
-  const [pdfUrl, setPdfUrl] = useState(null)
+// TODO: tighten type
+function PdfPreviewModal({ file, onClose }: { file: any; onClose: () => void }) {
+  const [pdfUrl, setPdfUrl] = useState<string | null>(null)
   const [loadingUrl, setLoadingUrl] = useState(false)
 
   useEffect(() => {
@@ -445,16 +451,20 @@ function PdfPreviewModal({ file, onClose }) {
 export default function Contratti() {
   const { profile } = useAuth()
   const [loading, setLoading] = useState(true)
-  const [contracts, setContracts] = useState([])
-  const [outlets, setOutlets] = useState([])
+  // TODO: tighten type — Supabase rows
+  const [contracts, setContracts] = useState<any[]>([])
+  const [outlets, setOutlets] = useState<any[]>([])
   const [search, setSearch] = useState('')
   const [filterStatus, setFilterStatus] = useState('')
   const [showModal, setShowModal] = useState(false)
-  const [editingContract, setEditingContract] = useState(null)
-  const [expandedId, setExpandedId] = useState(null)
-  const [contractDocs, setContractDocs] = useState({}) // { contractId: [doc, ...] }
+  // TODO: tighten type
+  const [editingContract, setEditingContract] = useState<any>(null)
+  const [expandedId, setExpandedId] = useState<string | null>(null)
+  // TODO: tighten type
+  const [contractDocs, setContractDocs] = useState<Record<string, any[]>>({})
   const [docsLoading, setDocsLoading] = useState(false)
-  const [previewFile, setPreviewFile] = useState(null)
+  // TODO: tighten type
+  const [previewFile, setPreviewFile] = useState<any>(null)
   const canWrite = profile?.role === 'super_advisor'
 
   useEffect(() => { loadData() }, [])
@@ -496,13 +506,13 @@ export default function Contratti() {
     .filter(c => c.status === 'attivo' || c.status === 'in_scadenza')
     .reduce((s, c) => s + (c.monthly_amount || 0), 0)
 
-  function daysUntil(dateStr) {
+  function daysUntil(dateStr: string | null) {
     if (!dateStr) return null
     const diff = Math.ceil((new Date(dateStr) - new Date()) / (1000 * 60 * 60 * 24))
     return diff
   }
 
-  async function loadContractDocs(contractId) {
+  async function loadContractDocs(contractId: string) {
     setDocsLoading(true)
     const { data } = await supabase
       .from('contract_documents')
@@ -513,7 +523,7 @@ export default function Contratti() {
     setDocsLoading(false)
   }
 
-  function handleExpand(contractId) {
+  function handleExpand(contractId: string) {
     if (expandedId === contractId) {
       setExpandedId(null)
     } else {

@@ -91,37 +91,42 @@ export default function Dipendenti() {
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
 
   // Data state
-  const [employees, setEmployees] = useState([]);
-  const [allocations, setAllocations] = useState([]);
-  const [costs, setCosts] = useState([]);
-  const [costCenters, setCostCenters] = useState([]);
-  const [lastUpdateTime, setLastUpdateTime] = useState(null);
+  // TODO: tighten type — Supabase rows
+  const [employees, setEmployees] = useState<any[]>([]);
+  const [allocations, setAllocations] = useState<any[]>([]);
+  const [costs, setCosts] = useState<any[]>([]);
+  const [costCenters, setCostCenters] = useState<any[]>([]);
+  const [lastUpdateTime, setLastUpdateTime] = useState<string | null>(null);
 
   // UI state
-  const [expandedOutlets, setExpandedOutlets] = useState({});
-  const [expandedEmployees, setExpandedEmployees] = useState({});
+  const [expandedOutlets, setExpandedOutlets] = useState<Record<string, boolean>>({});
+  const [expandedEmployees, setExpandedEmployees] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
   const [showEmployeeForm, setShowEmployeeForm] = useState(false);
-  const [editingEmployee, setEditingEmployee] = useState(null);
+  // TODO: tighten type
+  const [editingEmployee, setEditingEmployee] = useState<any>(null);
   const [showCostForm, setShowCostForm] = useState(false);
-  const [editingCost, setEditingCost] = useState(null);
-  const [showDocumentUpload, setShowDocumentUpload] = useState(false);
-  const [uploadingEmployee, setUploadingEmployee] = useState(null);
+  // TODO: tighten type
+  const [editingCost, setEditingCost] = useState<any>(null);
+  const [showDocumentUpload, setShowDocumentUpload] = useState<string | false>(false);
+  const [uploadingEmployee, setUploadingEmployee] = useState<string | null>(null);
 
   // New features state
-  const [showAllocEditor, setShowAllocEditor] = useState(null); // employee id
-  const [allocEdits, setAllocEdits] = useState([]);
+  const [showAllocEditor, setShowAllocEditor] = useState<string | null>(null);
+  // TODO: tighten type
+  const [allocEdits, setAllocEdits] = useState<any[]>([]);
   const [allocErrors, setAllocErrors] = useState('');
-  const [employeeDocs, setEmployeeDocs] = useState([]);
-  const [showDocViewer, setShowDocViewer] = useState(null); // doc object
-  const [docPdfData, setDocPdfData] = useState(null);
+  const [employeeDocs, setEmployeeDocs] = useState<any[]>([]);
+  // TODO: tighten type
+  const [showDocViewer, setShowDocViewer] = useState<any>(null);
+  const [docPdfData, setDocPdfData] = useState<ArrayBuffer | null>(null);
   const [batchImporting, setBatchImporting] = useState(false);
-  const batchFileRef = useRef(null);
-  const [bilancioCostoPersonale, setBilancioCostoPersonale] = useState(null);
+  const batchFileRef = useRef<HTMLInputElement>(null);
+  const [bilancioCostoPersonale, setBilancioCostoPersonale] = useState<number | null>(null);
 
   // Toast inline (sostituisce alert() di sistema)
-  const [toast, setToast] = useState(null); // { type: 'error'|'success'|'info', msg: string }
-  const showToast = (msg, type = 'info') => {
+  const [toast, setToast] = useState<{ type: string; msg: string } | null>(null);
+  const showToast = (msg: string, type = 'info') => {
     setToast({ type, msg });
     setTimeout(() => setToast(null), 4500);
   };
@@ -131,7 +136,8 @@ export default function Dipendenti() {
   // inglesi (first_name, last_name) sono NOT NULL, quelle italiane
   // (nome, cognome) sono nullable. Per garantire compatibilita' con
   // entrambe le viste, popoliamo SEMPRE entrambe le coppie.
-  const mapFormToDb = (formData) => {
+  // TODO: tighten type
+  const mapFormToDb = (formData: any) => {
     const out = { ...formData };
 
     // Coppie italiane <-> inglesi: popola entrambe per soddisfare
@@ -272,7 +278,7 @@ export default function Dipendenti() {
 
   // ========== HELPER FUNCTIONS ==========
 
-  const formatCurrency = (value) =>
+  const formatCurrency = (value: number) =>
     new Intl.NumberFormat('it-IT', {
       style: 'currency',
       currency: 'EUR',
@@ -280,18 +286,18 @@ export default function Dipendenti() {
       maximumFractionDigits: 2,
     }).format(value || 0);
 
-  const getEmployeeAllocations = (employeeId) => {
+  const getEmployeeAllocations = (employeeId: string) => {
     return allocations.filter(a => a.employee_id === employeeId);
   };
 
-  const getEmployeeCosts = (employeeId, year, month) => {
+  const getEmployeeCosts = (employeeId: string, year: number, month: number) => {
     return costs.find(
       c => c.employee_id === employeeId && c.year === year && c.month === month
     );
   };
 
-  const getEmployeesGroupedByOutlet = (year, month) => {
-    const grouped = {};
+  const getEmployeesGroupedByOutlet = (year: number, month: number) => {
+    const grouped: Record<string, any[]> = {};
     OUTLETS_ORDER.forEach(outlet => {
       grouped[outlet] = [];
     });
@@ -317,9 +323,9 @@ export default function Dipendenti() {
     return grouped;
   };
 
-  const calculateOutletTotals = (year, month) => {
+  const calculateOutletTotals = (year: number, month: number) => {
     const grouped = getEmployeesGroupedByOutlet(year, month);
-    const totals = {};
+    const totals: Record<string, { count: number; totale: number }> = {};
 
     OUTLETS_ORDER.forEach(outlet => {
       const emps = grouped[outlet];
@@ -401,7 +407,8 @@ export default function Dipendenti() {
 
   // ========== EMPLOYEE FORM HANDLERS ==========
 
-  const handleSaveEmployee = async (formData) => {
+  // TODO: tighten type
+  const handleSaveEmployee = async (formData: any) => {
     // Validazioni — campi obbligatori
     if (!formData.nome?.trim() || !formData.cognome?.trim()) {
       showToast('Nome e cognome sono obbligatori', 'error'); return;
@@ -458,7 +465,7 @@ export default function Dipendenti() {
     }
   };
 
-  const handleDeleteEmployee = async (empId) => {
+  const handleDeleteEmployee = async (empId: string) => {
     try {
       const { error } = await supabase
         .from('employees')
@@ -473,7 +480,8 @@ export default function Dipendenti() {
 
   // ========== COST FORM HANDLERS ==========
 
-  const handleSaveCost = async (costData) => {
+  // TODO: tighten type
+  const handleSaveCost = async (costData: any) => {
     try {
       if (editingCost) {
         const { error } = await supabase
@@ -495,7 +503,7 @@ export default function Dipendenti() {
     }
   };
 
-  const handleDeleteCost = async (costId) => {
+  const handleDeleteCost = async (costId: string) => {
     try {
       const { error } = await supabase
         .from('employee_costs')
@@ -510,7 +518,7 @@ export default function Dipendenti() {
 
   // ========== FILE UPLOAD HANDLER ==========
 
-  const handleFileUpload = async (file, employeeId, docType) => {
+  const handleFileUpload = async (file: File, employeeId: string, docType: string) => {
     try {
       setUploadingEmployee(employeeId);
 
@@ -553,7 +561,7 @@ export default function Dipendenti() {
 
   // ========== ALLOCATION EDITOR ==========
 
-  const openAllocEditor = (empId) => {
+  const openAllocEditor = (empId: string) => {
     const empAllocs = allocations.filter(a => a.employee_id === empId);
     setAllocEdits(empAllocs.length > 0
       ? empAllocs.map(a => ({ ...a }))
@@ -598,7 +606,7 @@ export default function Dipendenti() {
 
   // ========== BATCH IMPORT FROM EXCEL/CSV ==========
 
-  const handleBatchImport = async (e) => {
+  const handleBatchImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setBatchImporting(true);
@@ -612,11 +620,11 @@ export default function Dipendenti() {
         const cols = lines[i].split(';').map(c => c.trim().replace(/^"|"$/g, ''));
         if (cols.length < 3) continue;
 
-        const getValue = (key) => {
+        const getValue = (key: string) => {
           const idx = header.indexOf(key);
           return idx >= 0 ? cols[idx] : '';
         };
-        const getNum = (key) => {
+        const getNum = (key: string) => {
           const v = getValue(key);
           return parseFloat(v?.replace('.', '').replace(',', '.')) || 0;
         };
@@ -689,7 +697,8 @@ export default function Dipendenti() {
 
   // ========== PDF CEDOLINO VIEWER ==========
 
-  const handleViewDoc = async (doc) => {
+  // TODO: tighten type
+  const handleViewDoc = async (doc: any) => {
     try {
       const { data, error } = await supabase.storage
         .from('employee-documents')
@@ -703,20 +712,20 @@ export default function Dipendenti() {
     }
   };
 
-  const getEmployeeDocs = (empId) => {
+  const getEmployeeDocs = (empId: string) => {
     return employeeDocs.filter(d => d.employee_id === empId);
   };
 
   // ========== TOGGLE HANDLERS ==========
 
-  const toggleOutlet = (outlet) => {
+  const toggleOutlet = (outlet: string) => {
     setExpandedOutlets(prev => ({
       ...prev,
       [outlet]: !prev[outlet],
     }));
   };
 
-  const toggleEmployee = (key) => {
+  const toggleEmployee = (key: string) => {
     setExpandedEmployees(prev => ({
       ...prev,
       [key]: !prev[key],
@@ -1501,7 +1510,8 @@ export default function Dipendenti() {
 // FORM COMPONENTS (rendered inline as modals)
 // ============================================================================
 
-function EmployeeFormInner({ initial, onSave, onCancel }) {
+// TODO: tighten type
+function EmployeeFormInner({ initial, onSave, onCancel }: { initial: any; onSave: (data: any) => Promise<void>; onCancel: () => void }) {
   const [form, setForm] = useState({
     nome: '', cognome: '', codice_fiscale: '',
     data_assunzione: '', data_cessazione: '', qualifica: '', livello: '',
@@ -1528,7 +1538,7 @@ function EmployeeFormInner({ initial, onSave, onCancel }) {
     }
   }, [initial]);
 
-  async function handleSubmit(e) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
     await onSave(form);
@@ -1615,7 +1625,8 @@ function EmployeeFormInner({ initial, onSave, onCancel }) {
   );
 }
 
-function CostFormInner({ initial, employees, selectedYear, selectedMonth, onSave, onCancel }) {
+// TODO: tighten type
+function CostFormInner({ initial, employees, selectedYear, selectedMonth, onSave, onCancel }: { initial: any; employees: any[]; selectedYear: number; selectedMonth: number; onSave: (data: any) => Promise<void>; onCancel: () => void }) {
   const [form, setForm] = useState({
     employee_id: '', year: selectedYear, month: selectedMonth,
     retribuzione: 0, contributi: 0, inail: 0, tfr: 0, totale_costo: 0,
@@ -1644,7 +1655,7 @@ function CostFormInner({ initial, employees, selectedYear, selectedMonth, onSave
     setForm(f => ({ ...f, totale_costo: total }));
   }, [form.retribuzione, form.contributi, form.inail, form.tfr]);
 
-  async function handleSubmit(e) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
     await onSave(form);

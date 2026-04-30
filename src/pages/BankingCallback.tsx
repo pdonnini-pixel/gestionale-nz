@@ -12,9 +12,9 @@ import { CheckCircle2, XCircle, Loader2, Building2 } from 'lucide-react'
  * oppure con errore: /banking/callback?error=access_denied&error-source=...
  */
 export default function BankingCallback() {
-  const [status, setStatus] = useState('processing') // processing | syncing | success | error
+  const [status, setStatus] = useState<'processing' | 'syncing' | 'success' | 'error'>('processing')
   const [message, setMessage] = useState('Collegamento banca in corso...')
-  const [error, setError] = useState(null)
+  const [error, setError] = useState<string | null>(null)
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const yapily = useYapily()

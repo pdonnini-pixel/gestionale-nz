@@ -41,7 +41,7 @@ export default function Onboarding() {
   const navigate = useNavigate()
   const [step, setStep] = useState(1)
   const [saving, setSaving] = useState(false)
-  const [error, setError] = useState(null)
+  const [error, setError] = useState<string | null>(null)
 
   // Form state
   const [company, setCompany] = useState({
@@ -168,9 +168,9 @@ export default function Onboarding() {
       // Successo — redirect alla dashboard (con reload per aggiornare il contesto)
       window.location.href = '/'
 
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Errore onboarding:', err)
-      setError(err.message || 'Errore durante la configurazione. Riprova.')
+      setError((err as Error).message || 'Errore durante la configurazione. Riprova.')
     } finally {
       setSaving(false)
     }
@@ -274,8 +274,18 @@ export default function Onboarding() {
 // ========================
 // STEP 1: AZIENDA
 // ========================
-function StepCompany({ company, setCompany }) {
-  const up = (field, val) => setCompany(p => ({ ...p, [field]: val }))
+interface CompanyForm {
+  name: string; vat_number: string; fiscal_code: string; legal_address: string; pec: string; sdi_code: string; phone: string
+}
+interface OutletForm {
+  name: string; code: string; address: string; city: string; province: string; cap: string; phone: string; email: string
+}
+interface ConfigForm {
+  createDefaultCategories: boolean; createDefaultCostCenter: boolean; currency: string; fiscalYearStart: string
+}
+
+function StepCompany({ company, setCompany }: { company: CompanyForm; setCompany: React.Dispatch<React.SetStateAction<CompanyForm>> }) {
+  const up = (field: string, val: string) => setCompany(p => ({ ...p, [field]: val }))
 
   return (
     <div className="space-y-5">
@@ -372,8 +382,8 @@ function StepCompany({ company, setCompany }) {
 // ========================
 // STEP 2: OUTLET
 // ========================
-function StepOutlet({ outlet, setOutlet }) {
-  const up = (field, val) => setOutlet(p => ({ ...p, [field]: val }))
+function StepOutlet({ outlet, setOutlet }: { outlet: OutletForm; setOutlet: React.Dispatch<React.SetStateAction<OutletForm>> }) {
+  const up = (field: string, val: string) => setOutlet(p => ({ ...p, [field]: val }))
 
   return (
     <div className="space-y-5">
@@ -466,7 +476,7 @@ function StepOutlet({ outlet, setOutlet }) {
 // ========================
 // STEP 3: CONFIG
 // ========================
-function StepConfig({ config, setConfig, company, outlet }) {
+function StepConfig({ config, setConfig, company, outlet }: { config: ConfigForm; setConfig: React.Dispatch<React.SetStateAction<ConfigForm>>; company: CompanyForm; outlet: OutletForm }) {
   return (
     <div className="space-y-6">
       <div>

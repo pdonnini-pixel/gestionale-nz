@@ -27,7 +27,7 @@ const DOCUMENT_CATEGORIES = [
   { value: 'comunicazione', label: 'Comunicazione' }
 ]
 
-function fmt(n, decimals = 0) {
+function fmt(n: number | null | undefined, decimals = 0) {
   if (n == null) return '—'
   return new Intl.NumberFormat('it-IT', {
     minimumFractionDigits: decimals,
@@ -37,7 +37,8 @@ function fmt(n, decimals = 0) {
 
 // Calcola lo status outlet dinamicamente da opening_date / closing_date.
 // Fallback su is_active solo se le date non sono disponibili.
-function getOutletStatus(outlet) {
+// TODO: tighten type
+function getOutletStatus(outlet: any) {
   if (!outlet) return 'attivo'
   const today = new Date()
   today.setHours(0, 0, 0, 0)
@@ -61,11 +62,12 @@ const OUTLET_STATUS_STYLE = {
   chiuso: { label: 'Chiuso', cls: 'bg-slate-100 text-slate-500' },
 }
 
-function StatusBadge({ isActive, outlet }) {
+// TODO: tighten type
+function StatusBadge({ isActive, outlet }: { isActive?: boolean; outlet?: any }) {
   // Se viene passato l'outlet completo, usa il calcolo dinamico
   if (outlet && (outlet.opening_date !== undefined || outlet.closing_date !== undefined)) {
     const status = getOutletStatus(outlet)
-    const cfg = OUTLET_STATUS_STYLE[status] || OUTLET_STATUS_STYLE.attivo
+    const cfg = OUTLET_STATUS_STYLE[status as keyof typeof OUTLET_STATUS_STYLE] || OUTLET_STATUS_STYLE.attivo
     return (
       <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${cfg.cls}`}>
         {cfg.label}
@@ -83,12 +85,13 @@ function StatusBadge({ isActive, outlet }) {
 }
 
 // ====== GRIGLIA OUTLET ======
-function OutletGrid({ outlets, revenue, onSelect }) {
+// TODO: tighten type
+function OutletGrid({ outlets, revenue, onSelect }: { outlets: any[]; revenue: Record<string, any>; onSelect: (outlet: any) => void }) {
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
       {outlets.map(outlet => {
         const outletRev = revenue[outlet.id] || {}
-        const ytd = Object.values(outletRev).reduce((s, v) => s + v, 0)
+        const ytd = Object.values(outletRev).reduce((s: number, v: any) => s + v, 0)
         const months = Object.keys(outletRev).length
 
         return (
@@ -155,7 +158,7 @@ function OutletGrid({ outlets, revenue, onSelect }) {
 }
 
 // ====== MODAL CONFERMA ELIMINAZIONE ======
-function DeleteConfirmModal({ title, message, onConfirm, onCancel, loading: delLoading }) {
+function DeleteConfirmModal({ title, message, onConfirm, onCancel, loading: delLoading }: { title: string; message: string; onConfirm: () => void; onCancel: () => void; loading: boolean }) {
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={onCancel}>
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6" onClick={e => e.stopPropagation()}>
@@ -190,7 +193,7 @@ function DeleteConfirmModal({ title, message, onConfirm, onCancel, loading: delL
 }
 
 // ====== DOCUMENT ARCHIVE ======
-function DocumentArchive({ outletId, companyId }) {
+function DocumentArchive({ outletId, companyId }: { outletId: string; companyId: string }) {
   const { profile } = useAuth()
   const [documents, setDocuments] = useState([])
   const [loading, setLoading] = useState(true)
@@ -754,7 +757,8 @@ function DocumentArchive({ outletId, companyId }) {
 }
 
 // ====== EXTRACTED CONTRACT DATA ======
-function ExtractedContractData({ outlet }) {
+// TODO: tighten type
+function ExtractedContractData({ outlet }: { outlet: any }) {
   const hasContractData = outlet.contract_start || outlet.rent_annual || outlet.deposit_guarantee
     || outlet.contract_duration_months || outlet.contract_end
 
@@ -891,7 +895,7 @@ function ExtractedContractData({ outlet }) {
 }
 
 // ====== ALLEGATI OUTLET ======
-function OutletAllegati({ outletId, companyId }) {
+function OutletAllegati({ outletId, companyId }: { outletId: string; companyId: string }) {
   const [attachments, setAttachments] = useState([])
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(null)
@@ -1251,7 +1255,8 @@ function OutletAllegati({ outletId, companyId }) {
 }
 
 // ====== ALERT SCADENZE CONTRATTI ======
-function ContractAlerts({ outlet }) {
+// TODO: tighten type
+function ContractAlerts({ outlet }: { outlet: any }) {
   const alerts = []
   const today = new Date()
 
@@ -1350,7 +1355,7 @@ function ContractAlerts({ outlet }) {
 }
 
 // ====== CORRISPETTIVI TAB ======
-function CorrispettiviTab({ outletId, companyId }) {
+function CorrispettiviTab({ outletId, companyId }: { outletId: string; companyId: string }) {
   const [daily, setDaily] = useState([])
   const [loading, setLoading] = useState(true)
   const [period, setPeriod] = useState('30') // 7, 30, 90
@@ -1502,7 +1507,7 @@ function CorrispettiviTab({ outletId, companyId }) {
 }
 
 // ====== STAFF TAB ======
-function StaffTab({ outletId, companyId }) {
+function StaffTab({ outletId, companyId }: { outletId: string; companyId: string }) {
   const [staff, setStaff] = useState([])
   const [loading, setLoading] = useState(true)
 
@@ -1591,7 +1596,8 @@ function StaffTab({ outletId, companyId }) {
 }
 
 // ====== DETTAGLIO OUTLET — HUB CON TAB ======
-function OutletDetail({ outlet, revenue, onBack, onEdit, onDelete }) {
+// TODO: tighten type
+function OutletDetail({ outlet, revenue, onBack, onEdit, onDelete }: { outlet: any; revenue: Record<string, any>; onBack: () => void; onEdit: (o: any) => void; onDelete: (id: string) => void }) {
   const { profile } = useAuth()
   const currentYear = new Date().getFullYear()
   const yearData = revenue[outlet.id] || {}
@@ -1817,22 +1823,25 @@ function OutletDetail({ outlet, revenue, onBack, onEdit, onDelete }) {
 export default function Outlet() {
   const { profile } = useAuth()
   const [loading, setLoading] = useState(true)
-  const [outlets, setOutlets] = useState([])
-  const [revenue, setRevenue] = useState({})
+  // TODO: tighten type — Supabase rows
+  const [outlets, setOutlets] = useState<any[]>([])
+  const [revenue, setRevenue] = useState<Record<string, any>>({})
   // Anno effettivamente usato per caricare i dati di fatturato (quello
   // in cui sono state trovate righe in budget_entries). Serve a mostrare
   // nel titolo l'anno CORRETTO invece dell'hardcoded 'currentYear - 1'.
-  const [revenueYear, setRevenueYear] = useState(null)
-  const [selectedOutlet, setSelectedOutlet] = useState(null)
+  const [revenueYear, setRevenueYear] = useState<number | null>(null)
+  // TODO: tighten type
+  const [selectedOutlet, setSelectedOutlet] = useState<any>(null)
   const [search, setSearch] = useState('')
   const [showWizard, setShowWizard] = useState(false)
   const [showContractUploader, setShowContractUploader] = useState(false)
-  const [wizardInitialData, setWizardInitialData] = useState(null)
-  const [wizardAllegati, setWizardAllegati] = useState(null)
-  const [wizardContractFile, setWizardContractFile] = useState(null)
-  const [wizardUploadedFiles, setWizardUploadedFiles] = useState(null)
-  const [editOutlet, setEditOutlet] = useState(null)
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(null)
+  // TODO: tighten type
+  const [wizardInitialData, setWizardInitialData] = useState<any>(null)
+  const [wizardAllegati, setWizardAllegati] = useState<any>(null)
+  const [wizardContractFile, setWizardContractFile] = useState<any>(null)
+  const [wizardUploadedFiles, setWizardUploadedFiles] = useState<any>(null)
+  const [editOutlet, setEditOutlet] = useState<any>(null)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null)
   const [deleting, setDeleting] = useState(false)
   const [tab, setTab] = useState('operativi')
   const canWrite = profile?.role === 'super_advisor'

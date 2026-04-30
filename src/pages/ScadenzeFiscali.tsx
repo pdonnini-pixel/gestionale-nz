@@ -9,12 +9,12 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 
 /* ───── helpers ───── */
-function fmt(n) {
+function fmt(n: number | null | undefined) {
   if (n == null) return '—'
   return new Intl.NumberFormat('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)
 }
-const fmtDate = (d) => d ? new Date(d).toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '—'
-const daysUntil = (d) => {
+const fmtDate = (d: string | null | undefined) => d ? new Date(d).toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '—'
+const daysUntil = (d: string | null | undefined) => {
   if (!d) return null
   return Math.round((new Date(d) - new Date()) / (1000 * 60 * 60 * 24))
 }
@@ -53,7 +53,8 @@ const STATUS_CONFIG = {
 }
 
 /* ───── Form modal ───── */
-function ModalDeadline({ isOpen, isEdit, deadline, onClose, onSave, saving }) {
+// TODO: tighten type
+function ModalDeadline({ isOpen, isEdit, deadline, onClose, onSave, saving }: { isOpen: boolean; isEdit: boolean; deadline: any; onClose: () => void; onSave: (form: any) => void; saving: boolean }) {
   const [form, setForm] = useState({
     deadline_type: 'f24', title: '', description: '', amount: '',
     due_date: '', f24_code: '', tax_period: '', payment_method: 'f24',
@@ -208,13 +209,15 @@ export default function ScadenzeFiscali() {
   const { profile } = useAuth()
   const COMPANY_ID = profile?.company_id
 
-  const [deadlines, setDeadlines] = useState([])
+  // TODO: tighten type — Supabase rows
+  const [deadlines, setDeadlines] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
-  const [filterStatus, setFilterStatus] = useState('active') // active, paid, all
+  const [filterStatus, setFilterStatus] = useState('active')
   const [filterType, setFilterType] = useState('all')
   const [modalOpen, setModalOpen] = useState(false)
-  const [editingDeadline, setEditingDeadline] = useState(null)
+  // TODO: tighten type
+  const [editingDeadline, setEditingDeadline] = useState<any>(null)
   const [saving, setSaving] = useState(false)
 
   const loadData = useCallback(async () => {
@@ -272,7 +275,8 @@ export default function ScadenzeFiscali() {
   }, [deadlines])
 
   // Save handler
-  const handleSave = async (form) => {
+  // TODO: tighten type
+  const handleSave = async (form: any) => {
     setSaving(true)
     try {
       const record = {
@@ -312,7 +316,8 @@ export default function ScadenzeFiscali() {
   }
 
   // Quick mark as paid
-  const markPaid = async (dl) => {
+  // TODO: tighten type
+  const markPaid = async (dl: any) => {
     try {
       await supabase.from('fiscal_deadlines').update({
         status: 'paid',
@@ -326,7 +331,7 @@ export default function ScadenzeFiscali() {
   }
 
   // Delete
-  const handleDelete = async (id) => {
+  const handleDelete = async (id: string) => {
     if (!confirm('Eliminare questa scadenza?')) return
     try {
       await supabase.from('fiscal_deadlines').delete().eq('id', id)

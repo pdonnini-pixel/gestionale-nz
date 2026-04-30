@@ -19,7 +19,7 @@ const ROLE_PERMISSIONS = {
 }
 
 // Toast helper (shared via props)
-function ToastBar({ toast }) {
+function ToastBar({ toast }: { toast: { type: string; msg: string } | null }) {
   if (!toast) return null
   return (
     <div className={`fixed bottom-6 right-6 z-50 px-5 py-3 rounded-xl shadow-lg text-sm font-medium flex items-center gap-2 transition-all ${
@@ -59,17 +59,17 @@ const MACRO_GROUPS = [
 // ========================
 // HELPER FUNCTIONS
 // ========================
-function fmt(n) {
+function fmt(n: number | null | undefined | string) {
   if (n == null || n === '') return '—'
   return new Intl.NumberFormat('it-IT', { maximumFractionDigits: 0 }).format(n)
 }
 
-function getCentroLabel(id, costCenters) {
-  const c = costCenters?.find(x => x.code === id)
+function getCentroLabel(id: string, costCenters: any[]) {
+  const c = costCenters?.find((x: any) => x.code === id)
   return c ? c.label : id
 }
 
-function getCentroColor(id) {
+function getCentroColor(id: string) {
   const colors = {
     'all': 'bg-slate-600',
     'sede_magazzino': 'bg-amber-600',
@@ -87,13 +87,21 @@ function getCentroColor(id) {
 // ==========================================
 // SEZIONE AZIENDA
 // ==========================================
-function CompanySection({ showToast, companyId: COMPANY_ID }) {
-  const [company, setCompany] = useState(null)
+interface SectionProps {
+  showToast: (msg: string, type?: string) => void
+  companyId: string | undefined
+}
+
+function CompanySection({ showToast, companyId: COMPANY_ID }: SectionProps) {
+  // TODO: tighten type — Supabase row
+  const [company, setCompany] = useState<any>(null)
   const [loading, setLoading] = useState(true)
-  const [editing, setEditing] = useState(null)
-  const [formData, setFormData] = useState({})
+  const [editing, setEditing] = useState<string | null>(null)
+  // TODO: tighten type
+  const [formData, setFormData] = useState<any>({})
   const [editingSoci, setEditingSoci] = useState(false)
-  const [sociForm, setSociForm] = useState([])
+  // TODO: tighten type
+  const [sociForm, setSociForm] = useState<any[]>([])
   const [savingSoci, setSavingSoci] = useState(false)
 
   useEffect(() => {
@@ -154,10 +162,10 @@ function CompanySection({ showToast, companyId: COMPANY_ID }) {
   const addSocio = () => {
     setSociForm(prev => [...prev, { nome: '', ruolo: '', quota: '' }])
   }
-  const removeSocio = (idx) => {
+  const removeSocio = (idx: number) => {
     setSociForm(prev => prev.filter((_, i) => i !== idx))
   }
-  const updateSocio = (idx, field, value) => {
+  const updateSocio = (idx: number, field: string, value: string) => {
     setSociForm(prev => prev.map((s, i) => i === idx ? { ...s, [field]: value } : s))
   }
   const saveSoci = async () => {
@@ -309,15 +317,16 @@ function CompanySection({ showToast, companyId: COMPANY_ID }) {
 // ==========================================
 // SEZIONE UTENTI (CRUD)
 // ==========================================
-function UserSection({ showToast, companyId: COMPANY_ID }) {
-  const [users, setUsers] = useState([])
+function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
+  // TODO: tighten type — Supabase rows
+  const [users, setUsers] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  const [costCenters, setCostCenters] = useState([])
-  const [editingId, setEditingId] = useState(null)
+  const [costCenters, setCostCenters] = useState<any[]>([])
+  const [editingId, setEditingId] = useState<string | null>(null)
   const [showForm, setShowForm] = useState(false)
   const [search, setSearch] = useState('')
-  const [form, setForm] = useState({ nome: '', cognome: '', email: '', ruolo: 'operatrice', is_active: true, outlet_access: ['all'] })
-  const [confirmDelete, setConfirmDelete] = useState(null)
+  const [form, setForm] = useState({ nome: '', cognome: '', email: '', ruolo: 'operatrice', is_active: true, outlet_access: ['all'] as string[] })
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
@@ -404,7 +413,8 @@ function UserSection({ showToast, companyId: COMPANY_ID }) {
     }
   }
 
-  const handleEdit = (u) => {
+  // TODO: tighten type
+  const handleEdit = (u: any) => {
     setForm({
       nome: u.nome,
       cognome: u.cognome,
@@ -417,7 +427,7 @@ function UserSection({ showToast, companyId: COMPANY_ID }) {
     setShowForm(true)
   }
 
-  const handleDelete = async (id) => {
+  const handleDelete = async (id: string) => {
     try {
       const { error } = await supabase
         .from('app_users')
@@ -433,7 +443,7 @@ function UserSection({ showToast, companyId: COMPANY_ID }) {
     }
   }
 
-  const toggleOutlet = (outletCode) => {
+  const toggleOutlet = (outletCode: string) => {
     setForm(prev => {
       if (outletCode === 'all') return { ...prev, outlet_access: ['all'] }
       let newOutlets = prev.outlet_access.filter(o => o !== 'all')
@@ -452,12 +462,12 @@ function UserSection({ showToast, companyId: COMPANY_ID }) {
     return !q || u.nome.toLowerCase().includes(q) || u.cognome.toLowerCase().includes(q) || u.email.toLowerCase().includes(q)
   })
 
-  const getRoleStyle = (ruolo) => {
+  const getRoleStyle = (ruolo: string) => {
     const r = ROLE_OPTIONS.find(o => o.value === ruolo)
     return r ? r.color : 'bg-slate-100 text-slate-700'
   }
 
-  const getRoleLabel = (ruolo) => {
+  const getRoleLabel = (ruolo: string) => {
     const r = ROLE_OPTIONS.find(o => o.value === ruolo)
     return r ? r.label : ruolo
   }
@@ -620,16 +630,17 @@ function UserSection({ showToast, companyId: COMPANY_ID }) {
 // ==========================================
 // SEZIONE COSTI (CRUD)
 // ==========================================
-function CostSection({ showToast, companyId: COMPANY_ID }) {
-  const [costs, setCosts] = useState([])
-  const [costCenters, setCostCenters] = useState([])
+function CostSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
+  // TODO: tighten type — Supabase rows
+  const [costs, setCosts] = useState<any[]>([])
+  const [costCenters, setCostCenters] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  const [editingId, setEditingId] = useState(null)
+  const [editingId, setEditingId] = useState<string | null>(null)
   const [showForm, setShowForm] = useState(false)
-  const [expandedGroup, setExpandedGroup] = useState(null)
+  const [expandedGroup, setExpandedGroup] = useState<string | null>(null)
   const [filterCentro, setFilterCentro] = useState('all')
   const [search, setSearch] = useState('')
-  const [confirmDelete, setConfirmDelete] = useState(null)
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
   const emptyForm = { code: '', name: '', macro_group: MACRO_GROUPS[0], is_fixed: false, is_recurring: true, default_centers: ['all'], annual_amount: '', note: '', parent_id: '' }
@@ -733,7 +744,8 @@ function CostSection({ showToast, companyId: COMPANY_ID }) {
     }
   }
 
-  const handleEdit = (c) => {
+  // TODO: tighten type
+  const handleEdit = (c: any) => {
     setForm({
       code: c.code,
       name: c.name,
@@ -749,7 +761,7 @@ function CostSection({ showToast, companyId: COMPANY_ID }) {
     setShowForm(true)
   }
 
-  const handleDelete = async (id) => {
+  const handleDelete = async (id: string) => {
     try {
       const { error } = await supabase
         .from('chart_of_accounts')
@@ -768,7 +780,7 @@ function CostSection({ showToast, companyId: COMPANY_ID }) {
   // Get parent options for hierarchy
   const parentOptions = costs.filter(c => !c.parent_id) // only root items can be parents
 
-  const toggleCentroCost = (centroCode) => {
+  const toggleCentroCost = (centroCode: string) => {
     setForm(prev => {
       if (centroCode === 'all') return { ...prev, default_centers: ['all'] }
       let newCentri = prev.default_centers.filter(o => o !== 'all')
@@ -1034,13 +1046,14 @@ function CostSection({ showToast, companyId: COMPANY_ID }) {
 // ==========================================
 // SEZIONE CENTRI DI COSTO
 // ==========================================
-function CentriDiCostoSection({ showToast, companyId: COMPANY_ID }) {
-  const [centers, setCenters] = useState([])
+function CentriDiCostoSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
+  // TODO: tighten type — Supabase rows
+  const [centers, setCenters] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
-  const [editingId, setEditingId] = useState(null)
+  const [editingId, setEditingId] = useState<string | null>(null)
   const [form, setForm] = useState({ code: '', label: '', color: 'bg-blue-600', sort_order: 0 })
-  const [confirmDelete, setConfirmDelete] = useState(null)
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
   const colorOptions = [
@@ -1115,7 +1128,8 @@ function CentriDiCostoSection({ showToast, companyId: COMPANY_ID }) {
     }
   }
 
-  const handleEdit = (c) => {
+  // TODO: tighten type
+  const handleEdit = (c: any) => {
     setForm({
       code: c.code,
       label: c.label,
@@ -1126,7 +1140,7 @@ function CentriDiCostoSection({ showToast, companyId: COMPANY_ID }) {
     setShowForm(true)
   }
 
-  const handleDelete = async (id) => {
+  const handleDelete = async (id: string) => {
     try {
       const { error } = await supabase
         .from('cost_centers')
@@ -1270,12 +1284,13 @@ function CentriDiCostoSection({ showToast, companyId: COMPANY_ID }) {
 // ==========================================
 // SEZIONE SDI (Fatturazione Elettronica)
 // ==========================================
-function SdiSection({ showToast, companyId: COMPANY_ID }) {
-  const [config, setConfig] = useState(null)
+function SdiSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
+  // TODO: tighten type — Supabase row
+  const [config, setConfig] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState(false)
-  const [testResult, setTestResult] = useState(null)
+  const [testResult, setTestResult] = useState<{ success: boolean; data?: any; error?: string } | null>(null)
 
   useEffect(() => { loadConfig() }, [])
 
@@ -1315,7 +1330,7 @@ function SdiSection({ showToast, companyId: COMPANY_ID }) {
     }
   }
 
-  const handleUpdateField = async (field, value) => {
+  const handleUpdateField = async (field: string, value: string | null) => {
     if (!config) return
     setSaving(true)
     try {
@@ -1548,10 +1563,10 @@ export default function Impostazioni() {
   const { profile } = useAuth()
   const COMPANY_ID = profile?.company_id
   const userRole = profile?.role || 'super_advisor'
-  const allowedSections = ROLE_PERMISSIONS[userRole] || []
-  const [toast, setToast] = useState(null)
+  const allowedSections = ROLE_PERMISSIONS[userRole as keyof typeof ROLE_PERMISSIONS] || []
+  const [toast, setToast] = useState<{ msg: string; type: string } | null>(null)
 
-  const showToast = (msg, type = 'success') => {
+  const showToast = (msg: string, type = 'success') => {
     setToast({ msg, type })
     setTimeout(() => setToast(null), 3000)
   }
@@ -1564,7 +1579,7 @@ export default function Impostazioni() {
     { id: 'sdi', icon: FileText, title: 'Fatturazione SDI', subtitle: 'Accreditamento, certificati e configurazione Sistema di Interscambio', component: SdiSection },
   ]
 
-  const [openSection, setOpenSection] = useState('company')
+  const [openSection, setOpenSection] = useState<string | null>('company')
 
   return (
     <div className="p-6 space-y-6 max-w-[1400px] mx-auto">

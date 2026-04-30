@@ -80,28 +80,29 @@ export default function Fornitori() {
   const COMPANY_ID = profile?.company_id;
 
   // Data state
-  const [suppliers, setSuppliers] = useState([]);
-  const [payables, setPayables] = useState([]);
-  const [invoices, setInvoices] = useState([]);
+  // TODO: tighten type — Supabase rows
+  const [suppliers, setSuppliers] = useState<any[]>([]);
+  const [payables, setPayables] = useState<any[]>([]);
+  const [invoices, setInvoices] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   // UI state
   const [search, setSearch] = useState('');
   const [filterCategory, setFilterCategory] = useState('all');
-  const [filterStatus, setFilterStatus] = useState('all'); // all, attivi, inattivi
+  const [filterStatus, setFilterStatus] = useState('all');
   const [sortField, setSortField] = useState('ragione_sociale');
-  const [sortDir, setSortDir] = useState('asc');
-  const [expandedId, setExpandedId] = useState(null);
-  const [activeTab, setActiveTab] = useState('anagrafica'); // anagrafica, analytics
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState('anagrafica');
 
   // Modal state
   const [showModal, setShowModal] = useState(false);
-  const [editingId, setEditingId] = useState(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState({ ...EMPTY_FORM });
   const [saving, setSaving] = useState(false);
 
-  const [toast, setToast] = useState(null);
-  const showToast = (msg, type = 'success') => { setToast({ msg, type }); setTimeout(() => setToast(null), 3000); };
+  const [toast, setToast] = useState<{ msg: string; type: string } | null>(null);
+  const showToast = (msg: string, type = 'success') => { setToast({ msg, type }); setTimeout(() => setToast(null), 3000); };
 
   // ─── DATA LOADING ─────────────────────────────────────────────
 
@@ -295,7 +296,8 @@ export default function Fornitori() {
     setShowModal(true);
   }
 
-  function openEdit(supplier) {
+  // TODO: tighten type
+  function openEdit(supplier: any) {
     setEditingId(supplier.id);
     setForm({
       ragione_sociale: supplier.ragione_sociale || supplier.name || '',
@@ -374,7 +376,7 @@ export default function Fornitori() {
     }
   }
 
-  async function handleDelete(id) {
+  async function handleDelete(id: string) {
     if (!window.confirm('Disattivare questo fornitore?')) return;
     try {
       await supabase.from('suppliers').update({ is_deleted: true, is_active: false }).eq('id', id);
@@ -385,7 +387,7 @@ export default function Fornitori() {
     }
   }
 
-  function toggleSort(field) {
+  function toggleSort(field: string) {
     if (sortField === field) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
     else { setSortField(field); setSortDir('asc'); }
   }
@@ -408,8 +410,9 @@ export default function Fornitori() {
   }
 
   // ─── HELPER: get supplier display name ────────────────────────
-  const getName = (s) => s.ragione_sociale || s.name || 'N/D';
-  const getVat = (s) => s.partita_iva || s.vat_number || '';
+  // TODO: tighten type
+  const getName = (s: any) => s.ragione_sociale || s.name || 'N/D';
+  const getVat = (s: any) => s.partita_iva || s.vat_number || '';
 
   // ─── RENDER ───────────────────────────────────────────────────
 
@@ -1044,8 +1047,8 @@ export default function Fornitori() {
 
 // ─── SUB-COMPONENTS ─────────────────────────────────────────────
 
-function KpiCard({ icon: Icon, label, value, sub, color }) {
-  const colorMap = {
+function KpiCard({ icon: Icon, label, value, sub, color }: { icon: React.ElementType; label: string; value: string | number; sub?: string; color: string }) {
+  const colorMap: Record<string, string> = {
     indigo: 'bg-indigo-50 text-indigo-600', blue: 'bg-blue-50 text-blue-600',
     green: 'bg-emerald-50 text-emerald-600', red: 'bg-red-50 text-red-600',
     amber: 'bg-amber-50 text-amber-600', purple: 'bg-purple-50 text-purple-600',
@@ -1066,7 +1069,7 @@ function KpiCard({ icon: Icon, label, value, sub, color }) {
   );
 }
 
-function Detail({ label, value, mono }) {
+function Detail({ label, value, mono }: { label: string; value?: string | number | null; mono?: boolean }) {
   return (
     <div className="flex">
       <span className="text-slate-400 w-28 shrink-0 text-xs">{label}</span>

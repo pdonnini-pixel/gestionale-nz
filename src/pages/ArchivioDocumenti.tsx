@@ -42,15 +42,16 @@ export default function ArchivioDocumenti() {
   const COMPANY_ID = profile?.company_id;
 
   const [activeTab, setActiveTab] = useState('archivio'); // archivio | conservazione
-  const [toast, setToast] = useState(null);
+  const [toast, setToast] = useState<{ msg: string; type: string } | null>(null);
 
-  const showToast = (msg, type = 'success') => {
+  const showToast = (msg: string, type = 'success') => {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 3000);
   };
 
   // ── Conservazione state (invariato rispetto alla versione precedente) ──
-  const [retentionDocs, setRetentionDocs] = useState([]);
+  // TODO: tighten type — Supabase rows
+  const [retentionDocs, setRetentionDocs] = useState<any[]>([]);
   const [retentionLoading, setRetentionLoading] = useState(false);
   const [retentionFilter, setRetentionFilter] = useState('all');
   const [retentionSearch, setRetentionSearch] = useState('');
@@ -89,14 +90,16 @@ export default function ArchivioDocumenti() {
 
   const today = new Date();
   const sixMonthsFromNow = new Date(today.getTime() + 180 * 86400000);
-  function getRetentionStatus(doc) {
+  // TODO: tighten type
+  function getRetentionStatus(doc: any) {
     if (!doc.retention_end) return 'unknown';
     const end = new Date(doc.retention_end);
     if (end < today) return 'expired';
     if (end < sixMonthsFromNow) return 'expiring';
     return 'active';
   }
-  function daysUntilExpiry(doc) {
+  // TODO: tighten type
+  function daysUntilExpiry(doc: any) {
     if (!doc.retention_end) return null;
     return Math.ceil((new Date(doc.retention_end) - today) / 86400000);
   }
@@ -124,7 +127,7 @@ export default function ArchivioDocumenti() {
     return docs;
   }, [retentionDocs, retentionFilter, retentionSearch]);
 
-  async function updateRetentionStatus(docId, source, newStatus) {
+  async function updateRetentionStatus(docId: string, source: string, newStatus: string) {
     const table = source === 'invoice' ? 'electronic_invoices' : 'documents';
     const { error } = await supabase.from(table).update({ retention_status: newStatus }).eq('id', docId);
     if (error) { showToast('Errore aggiornamento: ' + error.message, 'error'); return; }
@@ -204,12 +207,13 @@ export default function ArchivioDocumenti() {
 // TAB ARCHIVIO — 3 SEZIONI (Fatture, Bilanci, Estratti Conto)
 // ═══════════════════════════════════════════════════════════════
 
-function ArchivioTab({ companyId, showToast }) {
+function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; showToast: (msg: string, type?: string) => void }) {
   const navigate = useNavigate();
-  const [allInvoices, setAllInvoices] = useState([]); // tutte le fatture (minimal fields) — per anni disponibili e count globale
-  const [invoices, setInvoices] = useState([]);       // fatture dell'anno selezionato (dati completi)
-  const [balanceSheets, setBalanceSheets] = useState([]);
-  const [ecFiles, setEcFiles] = useState([]);
+  // TODO: tighten type — Supabase rows
+  const [allInvoices, setAllInvoices] = useState<any[]>([]);
+  const [invoices, setInvoices] = useState<any[]>([]);
+  const [balanceSheets, setBalanceSheets] = useState<any[]>([]);
+  const [ecFiles, setEcFiles] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadingYear, setLoadingYear] = useState(false);
 
@@ -222,13 +226,12 @@ function ArchivioTab({ companyId, showToast }) {
 
   // Viewer fattura. autoPrintViewer = true → il modal si apre e triggera
   // subito la stampa/PDF senza mostrare l'anteprima (usato da "Scarica PDF")
-  const [viewerXml, setViewerXml] = useState(null);
+  const [viewerXml, setViewerXml] = useState<string | null>(null);
   const [autoPrintViewer, setAutoPrintViewer] = useState(false);
-  const [loadingXml, setLoadingXml] = useState(null);
+  const [loadingXml, setLoadingXml] = useState<string | null>(null);
 
-  // Anteprima EC: mostra i movimenti della banca in un modal sull'Archivio
-  // senza dover navigare a Banche.
-  const [ecPreview, setEcPreview] = useState(null); // { ec, rows, loading }
+  // TODO: tighten type
+  const [ecPreview, setEcPreview] = useState<any>(null);
 
   // Collasso delle 3 sezioni principali. Fatture parte CHIUSA perche'
   // con 199 fatture e' la sezione piu' rumorosa. Bilanci ed EC restano
@@ -238,7 +241,7 @@ function ArchivioTab({ companyId, showToast }) {
     bilanci: true,
     ec: true,
   });
-  const toggleSection = (k) => setSectionOpen(s => ({ ...s, [k]: !s[k] }));
+  const toggleSection = (k: string) => setSectionOpen(s => ({ ...s, [k]: !s[k as keyof typeof s] }));
 
   useEffect(() => {
     if (!companyId) return;
@@ -396,7 +399,8 @@ function ArchivioTab({ companyId, showToast }) {
    * e cash_movements da ImportHub) con query separate in modo che se una
    * fallisce (FK mancante) l'altra continua a funzionare.
    */
-  async function openEcPreview(ec) {
+  // TODO: tighten type
+  async function openEcPreview(ec: any) {
     setEcPreview({ ec, rows: [], loading: true });
     const rows = [];
     try {
@@ -456,7 +460,8 @@ function ArchivioTab({ companyId, showToast }) {
    * bank-statements via storage.list finche' non trova un filename che
    * contenga il nome dell'EC.
    */
-  async function downloadEcFile(ec) {
+  // TODO: tighten type
+  async function downloadEcFile(ec: any) {
     if (ec.file_path) {
       return downloadFile('bank-statements', ec.file_path, ec.filename);
     }
@@ -573,7 +578,7 @@ function ArchivioTab({ companyId, showToast }) {
     }
   }
 
-  function toggleGroup(key) {
+  function toggleGroup(key: string) {
     setExpandedGroups(prev => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key); else next.add(key);
@@ -589,7 +594,8 @@ function ArchivioTab({ companyId, showToast }) {
    * produce un PDF tipografico (non l'XML grezzo) riutilizzando la stessa
    * funzione handlePrint del viewer.
    */
-  async function openInvoiceViewer(inv, { autoPrint = false } = {}) {
+  // TODO: tighten type
+  async function openInvoiceViewer(inv: any, { autoPrint = false } = {}) {
     setLoadingXml(inv.id);
     try {
       let xml = inv.xml_content;
@@ -610,7 +616,7 @@ function ArchivioTab({ companyId, showToast }) {
     }
   }
 
-  async function downloadFile(bucket, path, fileName) {
+  async function downloadFile(bucket: string, path: string, fileName?: string) {
     try {
       const { data: blob, error } = await supabase.storage.from(bucket).download(path);
       if (error) throw error;
@@ -628,7 +634,7 @@ function ArchivioTab({ companyId, showToast }) {
     }
   }
 
-  async function openPdfPreview(bucket, path) {
+  async function openPdfPreview(bucket: string, path: string) {
     try {
       const { data, error } = await supabase.storage.from(bucket).createSignedUrl(path, 3600);
       if (error) throw error;
@@ -1089,8 +1095,8 @@ function ArchivioTab({ companyId, showToast }) {
 // ═══════════════════════════════════════════════════════════════
 // KPI Card
 // ═══════════════════════════════════════════════════════════════
-function KpiCard({ label, value, icon: Icon, color, sub }) {
-  const colorMap = {
+function KpiCard({ label, value, icon: Icon, color, sub }: { label: string; value: string | number; icon: React.ElementType; color: string; sub?: string }) {
+  const colorMap: Record<string, string> = {
     blue: 'bg-blue-50 text-blue-600 border-blue-200',
     indigo: 'bg-indigo-50 text-indigo-600 border-indigo-200',
     emerald: 'bg-emerald-50 text-emerald-600 border-emerald-200',
@@ -1112,7 +1118,8 @@ function KpiCard({ label, value, icon: Icon, color, sub }) {
 // TAB CONSERVAZIONE SOSTITUTIVA (invariato)
 // ═══════════════════════════════════════════════════════════════
 
-function ConservazioneTab({ docs, stats, loading, filter, setFilter, search, setSearch, getRetentionStatus, daysUntilExpiry, updateStatus }) {
+// TODO: tighten type
+function ConservazioneTab({ docs, stats, loading, filter, setFilter, search, setSearch, getRetentionStatus, daysUntilExpiry, updateStatus }: { docs: any[]; stats: any; loading: boolean; filter: string; setFilter: (v: string) => void; search: string; setSearch: (v: string) => void; getRetentionStatus: (d: any) => string; daysUntilExpiry: (d: any) => number | null; updateStatus: (id: string, source: string, status: string) => void }) {
   return (
     <>
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
