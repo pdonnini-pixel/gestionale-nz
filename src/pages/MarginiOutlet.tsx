@@ -12,13 +12,13 @@ import SortableTh from '../components/ui/SortableTh'
 import PageHelp from '../components/PageHelp'
 import { formatOutletName } from '../lib/formatters'
 
-const fmt = (n) => n == null ? '\u2014' : new Intl.NumberFormat('it-IT', { maximumFractionDigits: 0 }).format(n)
-const fmtPct = (n) => n == null ? '\u2014' : `${n.toFixed(1)}%`
+const fmt = (n: number | null | undefined): string => n == null ? '\u2014' : new Intl.NumberFormat('it-IT', { maximumFractionDigits: 0 }).format(n)
+const fmtPct = (n: number | null | undefined): string => n == null ? '\u2014' : `${n.toFixed(1)}%`
 
 const MONTHS = ['Gen', 'Feb', 'Mar', 'Apr', 'Mag', 'Giu', 'Lug', 'Ago', 'Set', 'Ott', 'Nov', 'Dic']
 
 // Heatmap color: green (high margin) -> yellow -> red (low/negative margin)
-function heatmapColor(pct) {
+function heatmapColor(pct: number | null): string {
   if (pct == null) return '#f1f5f9' // no data
   if (pct >= 15) return '#22c55e'
   if (pct >= 10) return '#86efac'
@@ -28,7 +28,7 @@ function heatmapColor(pct) {
   return '#dc2626'
 }
 
-function heatmapText(pct) {
+function heatmapText(pct: number | null): string {
   if (pct == null) return 'text-slate-400'
   if (pct >= 10) return 'text-white'
   if (pct >= 5) return 'text-slate-900'
@@ -42,11 +42,12 @@ export default function MarginiOutlet() {
   // e si sincronizza quando cambia. L'utente puo' sovrascriverlo localmente.
   const { year: globalYear } = usePeriod()
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
+  const [error, setError] = useState<string | null>(null)
   const [year, setYear] = useState(globalYear || 2026)
   useEffect(() => { if (globalYear) setYear(globalYear) }, [globalYear])
-  const [rawData, setRawData] = useState([])
-  const [expandedOutlet, setExpandedOutlet] = useState(null)
+  // TODO: tighten type — Supabase data
+  const [rawData, setRawData] = useState<any[]>([])
+  const [expandedOutlet, setExpandedOutlet] = useState<string | null>(null)
 
   // Fetch budget_entries for all outlets, selected year (including month for heatmap)
   useEffect(() => {
@@ -68,9 +69,9 @@ export default function MarginiOutlet() {
 
         if (fetchError) throw fetchError
         setRawData(data || [])
-      } catch (err) {
+      } catch (err: unknown) {
         console.error('[MarginiOutlet] fetch error:', err)
-        setError(err.message)
+        setError((err as Error).message)
       } finally {
         setLoading(false)
       }
@@ -202,7 +203,7 @@ export default function MarginiOutlet() {
     return outletMargins.filter(o => o.marginePercent < 5)
   }, [outletMargins])
 
-  const marginBadge = (pct) => {
+  const marginBadge = (pct: number): string => {
     if (pct > 10) return 'bg-green-100 text-green-800'
     if (pct >= 0) return 'bg-amber-100 text-amber-800'
     return 'bg-red-100 text-red-800'

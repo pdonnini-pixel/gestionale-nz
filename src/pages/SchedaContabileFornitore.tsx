@@ -11,31 +11,31 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
 
 // ─── Utility ───────────────────────────────────────────────────
-function fmt(n) {
+function fmt(n: number | null | undefined): string {
   if (n == null) return '—';
   return new Intl.NumberFormat('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
 }
 
-function fmtEUR(n) {
+function fmtEUR(n: number | null | undefined): string {
   if (n == null) return '—';
   return new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' }).format(n);
 }
 
-function fmtDate(d) {
+function fmtDate(d: string | null | undefined): string {
   if (!d) return '—';
   return new Date(d).toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
-function daysDiff(dateStr) {
+function daysDiff(dateStr: string | null | undefined): number | null {
   if (!dateStr) return null;
   const d = new Date(dateStr);
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   d.setHours(0, 0, 0, 0);
-  return Math.round((d - today) / (1000 * 60 * 60 * 24));
+  return Math.round((d.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
 }
 
-function worstStatus(statuses) {
+function worstStatus(statuses: string[]): string {
   if (statuses.includes('scaduto')) return 'scaduto';
   if (statuses.includes('in_scadenza')) return 'in_scadenza';
   if (statuses.includes('da_pagare')) return 'da_pagare';
@@ -57,13 +57,14 @@ export default function SchedaContabileFornitore() {
   const { profile } = useAuth();
   const COMPANY_ID = profile?.company_id;
 
-  const [supplier, setSupplier] = useState(null);
-  const [payables, setPayables] = useState([]);
+  // TODO: tighten type — Supabase data
+  const [supplier, setSupplier] = useState<any>(null);
+  const [payables, setPayables] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedYear, setSelectedYear] = useState('latest');
-  const [expandedInvoices, setExpandedInvoices] = useState(new Set());
-  const [viewingXml, setViewingXml] = useState(null);
-  const [categories, setCategories] = useState([]);
+  const [selectedYear, setSelectedYear] = useState<number | 'latest' | 'all'>('latest');
+  const [expandedInvoices, setExpandedInvoices] = useState<Set<string>>(new Set());
+  const [viewingXml, setViewingXml] = useState<string | null>(null);
+  const [categories, setCategories] = useState<any[]>([]);
 
   // ─── Fetch data ────────────────────────────────────────────
   const fetchData = useCallback(async () => {
@@ -116,7 +117,7 @@ export default function SchedaContabileFornitore() {
         .eq('company_id', COMPANY_ID);
       setCategories(cats || []);
 
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Errore caricamento scheda contabile:', err);
     } finally {
       setLoading(false);
@@ -263,7 +264,7 @@ export default function SchedaContabileFornitore() {
   }, [filteredPayables]);
 
   // ─── Actions ───────────────────────────────────────────────
-  const toggleExpand = (invoiceNumber) => {
+  const toggleExpand = (invoiceNumber: string) => {
     setExpandedInvoices(prev => {
       const next = new Set(prev);
       if (next.has(invoiceNumber)) next.delete(invoiceNumber);
@@ -272,7 +273,8 @@ export default function SchedaContabileFornitore() {
     });
   };
 
-  const handleViewInvoice = async (fattura) => {
+  // TODO: tighten type
+  const handleViewInvoice = async (fattura: any) => {
     // Cerca XML su electronic_invoices per invoice_number
     const invoiceNumber = fattura.invoice_number || fattura.rate?.[0]?.invoice_number;
     if (!invoiceNumber) { alert('XML non disponibile per questa fattura'); return; }

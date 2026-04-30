@@ -8,7 +8,7 @@ import {
 
 /* ───────── helpers ───────── */
 
-function fmt(n, dec = 2) {
+function fmt(n: number | null | undefined, dec = 2): string {
   if (n == null) return '—'
   return new Intl.NumberFormat('it-IT', {
     minimumFractionDigits: dec,
@@ -37,20 +37,21 @@ export default function AllocazioneFornitori() {
   const { profile } = useAuth()
   const COMPANY_ID = profile?.company_id
 
+  // TODO: tighten type — Supabase data
   /* ── state ── */
-  const [suppliers, setSuppliers]     = useState([])
-  const [outlets, setOutlets]         = useState([])
-  const [rules, setRules]             = useState([])   // active rules with details
+  const [suppliers, setSuppliers]     = useState<any[]>([])
+  const [outlets, setOutlets]         = useState<any[]>([])
+  const [rules, setRules]             = useState<any[]>([])   // active rules with details
   const [loading, setLoading]         = useState(true)
   const [search, setSearch]           = useState('')
-  const [selectedSupplier, setSelectedSupplier] = useState(null) // opens modal
+  const [selectedSupplier, setSelectedSupplier] = useState<any>(null) // opens modal
   const [saving, setSaving]           = useState(false)
-  const [error, setError]             = useState(null)
+  const [error, setError]             = useState<string | null>(null)
 
   /* modal editor state */
-  const [editMode, setEditMode]       = useState(null)           // 'DIRETTO' | 'SPLIT_PCT' | ...
-  const [editDetails, setEditDetails] = useState([])             // [{outlet_id, percentage, fixed_value, selected}]
-  const [existingRule, setExistingRule] = useState(null)          // rule record if editing
+  const [editMode, setEditMode]       = useState<string | null>(null)           // 'DIRETTO' | 'SPLIT_PCT' | ...
+  const [editDetails, setEditDetails] = useState<any[]>([])             // [{outlet_id, percentage, fixed_value, selected}]
+  const [existingRule, setExistingRule] = useState<any>(null)          // rule record if editing
 
   /* ── data loading ── */
 
@@ -104,9 +105,9 @@ export default function AllocazioneFornitori() {
       setSuppliers(supRes.data || [])
       setOutlets(outRes.data || [])
       setRules(rulesWithDetails)
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('[AllocazioneFornitori] load error:', err)
-      setError(err.message)
+      setError((err as Error).message)
     } finally {
       setLoading(false)
     }
@@ -183,7 +184,7 @@ export default function AllocazioneFornitori() {
 
   /* ── mode change resets details ── */
 
-  const changeMode = useCallback((mode) => {
+  const changeMode = useCallback((mode: string) => {
     setEditMode(mode)
     setEditDetails(prev => prev.map(d => ({
       ...d,
@@ -198,7 +199,8 @@ export default function AllocazioneFornitori() {
 
   /* ── detail updaters ── */
 
-  const setDetailField = useCallback((outletId, field, value) => {
+  // TODO: tighten type
+  const setDetailField = useCallback((outletId: string, field: string, value: any) => {
     setEditDetails(prev => prev.map(d =>
       d.outlet_id === outletId ? { ...d, [field]: value } : d
     ))
@@ -319,9 +321,9 @@ export default function AllocazioneFornitori() {
       // 4. Refresh and close
       await loadData()
       closeEditor()
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('[AllocazioneFornitori] save error:', err)
-      setError(err.message)
+      setError((err as Error).message)
     } finally {
       setSaving(false)
     }
@@ -344,9 +346,9 @@ export default function AllocazioneFornitori() {
 
       await loadData()
       closeEditor()
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('[AllocazioneFornitori] delete error:', err)
-      setError(err.message)
+      setError((err as Error).message)
     } finally {
       setSaving(false)
     }
@@ -354,8 +356,8 @@ export default function AllocazioneFornitori() {
 
   /* ── outlet name helper ── */
 
-  const outletName = useCallback((id) => {
-    const o = outlets.find(o => o.id === id)
+  const outletName = useCallback((id: string) => {
+    const o = outlets.find((o: any) => o.id === id)
     return o ? `${o.code} — ${o.name}` : id
   }, [outlets])
 
@@ -600,9 +602,9 @@ export default function AllocazioneFornitori() {
 
 /* ── Stat Card ── */
 
-function StatCard({ icon: Icon, label, value, color }) {
-  const bgMap    = { indigo: 'bg-indigo-50', emerald: 'bg-emerald-50', amber: 'bg-amber-50', purple: 'bg-purple-50' }
-  const iconMap  = { indigo: 'text-indigo-600', emerald: 'text-emerald-600', amber: 'text-amber-600', purple: 'text-purple-600' }
+function StatCard({ icon: Icon, label, value, color }: { icon: React.ComponentType<{ size?: number; className?: string }>; label: string; value: string | number; color: string }) {
+  const bgMap: Record<string, string>    = { indigo: 'bg-indigo-50', emerald: 'bg-emerald-50', amber: 'bg-amber-50', purple: 'bg-purple-50' }
+  const iconMap: Record<string, string>  = { indigo: 'text-indigo-600', emerald: 'text-emerald-600', amber: 'text-amber-600', purple: 'text-purple-600' }
 
   return (
     <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
@@ -617,7 +619,8 @@ function StatCard({ icon: Icon, label, value, color }) {
 
 /* ── Supplier Section ── */
 
-function SupplierSection({ title, suppliers, ruleBySupplier, outlets, onSelect, outletName, emptyColor }) {
+// TODO: tighten type
+function SupplierSection({ title, suppliers, ruleBySupplier, outlets, onSelect, outletName, emptyColor }: { title: string; suppliers: any[]; ruleBySupplier: Record<string, any>; outlets: any[]; onSelect: (s: any) => void; outletName: (id: string) => string; emptyColor?: boolean }) {
   if (suppliers.length === 0) return null
 
   return (
@@ -672,7 +675,8 @@ function SupplierSection({ title, suppliers, ruleBySupplier, outlets, onSelect, 
 
 /* ── Rule Summary (tiny inline) ── */
 
-function RuleSummary({ rule, outletName }) {
+// TODO: tighten type
+function RuleSummary({ rule, outletName }: { rule: any; outletName: (id: string) => string }) {
   if (!rule?.details || rule.details.length === 0) return null
 
   if (rule.allocation_mode === 'DIRETTO') {
@@ -695,10 +699,11 @@ function RuleSummary({ rule, outletName }) {
 /* ────── MODE FORMS ────── */
 
 /* DIRETTO */
-function DirettoForm({ outlets, editDetails, setDetailField, outletName }) {
+// TODO: tighten type
+function DirettoForm({ outlets, editDetails, setDetailField, outletName }: { outlets: any[]; editDetails: any[]; setDetailField: (outletId: string, field: string, value: any) => void; outletName: (id: string) => string }) {
   const selectedId = editDetails.find(d => d.selected)?.outlet_id || null
 
-  const handleSelect = (outletId) => {
+  const handleSelect = (outletId: string) => {
     // Deselect all, then select this one
     editDetails.forEach(d => {
       setDetailField(d.outlet_id, 'selected', d.outlet_id === outletId)
@@ -736,7 +741,8 @@ function DirettoForm({ outlets, editDetails, setDetailField, outletName }) {
 }
 
 /* SPLIT_PCT */
-function SplitPctForm({ outlets, editDetails, setDetailField, outletName, pctTotal }) {
+// TODO: tighten type
+function SplitPctForm({ outlets, editDetails, setDetailField, outletName, pctTotal }: { outlets: any[]; editDetails: any[]; setDetailField: (outletId: string, field: string, value: any) => void; outletName: (id: string) => string; pctTotal: number }) {
   const isValid = Math.abs(pctTotal - 100) <= 0.01
 
   return (
@@ -778,7 +784,8 @@ function SplitPctForm({ outlets, editDetails, setDetailField, outletName, pctTot
 }
 
 /* SPLIT_VALORE */
-function SplitValoreForm({ outlets, editDetails, setDetailField, outletName, valTotal }) {
+// TODO: tighten type
+function SplitValoreForm({ outlets, editDetails, setDetailField, outletName, valTotal }: { outlets: any[]; editDetails: any[]; setDetailField: (outletId: string, field: string, value: any) => void; outletName: (id: string) => string; valTotal: number }) {
   return (
     <div>
       <label className="block text-sm font-medium text-gray-700 mb-2">Importo fisso per outlet (EUR)</label>
@@ -815,7 +822,8 @@ function SplitValoreForm({ outlets, editDetails, setDetailField, outletName, val
 }
 
 /* QUOTE_UGUALI */
-function QuoteUgualiForm({ outlets, editDetails, setDetailField, outletName, selCount, equalShare }) {
+// TODO: tighten type
+function QuoteUgualiForm({ outlets, editDetails, setDetailField, outletName, selCount, equalShare }: { outlets: any[]; editDetails: any[]; setDetailField: (outletId: string, field: string, value: any) => void; outletName: (id: string) => string; selCount: number; equalShare: number }) {
   return (
     <div>
       <label className="block text-sm font-medium text-gray-700 mb-2">Seleziona gli outlet (divisione uguale)</label>

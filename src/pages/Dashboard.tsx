@@ -22,12 +22,12 @@ import { formatOutletName } from '../lib/formatters'
    ═══════════════════════════════════════ */
 const OUTLET_COLORS = ['#6366f1', '#f43f5e', '#06b6d4', '#10b981', '#8b5cf6', '#f97316', '#0ea5e9']
 
-function fmt(n, dec = 0) {
+function fmt(n: number | null | undefined, dec = 0): string {
   if (n == null) return '—'
   return new Intl.NumberFormat('it-IT', { minimumFractionDigits: dec, maximumFractionDigits: dec }).format(n)
 }
 
-function fmtCompact(n) {
+function fmtCompact(n: number | null | undefined): string {
   if (n == null) return '—'
   const abs = Math.abs(n)
   if (abs >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
@@ -38,8 +38,20 @@ function fmtCompact(n) {
 /* ═══════════════════════════════════════
    KPI CARD — cliccabile con drill-down
    ═══════════════════════════════════════ */
-function KpiCard({ title, value, subtitle, icon: Icon, color = 'blue', trend, link, alert, helpTerm }) {
-  const colorMap = {
+interface KpiCardProps {
+  title: string
+  value: string | number
+  subtitle?: string | React.ReactNode
+  icon: React.ComponentType<{ size?: number }>
+  color?: string
+  trend?: number | null
+  link?: string
+  alert?: boolean
+  helpTerm?: string
+}
+
+function KpiCard({ title, value, subtitle, icon: Icon, color = 'blue', trend, link, alert, helpTerm }: KpiCardProps) {
+  const colorMap: Record<string, { bg: string; text: string; ring: string }> = {
     blue:   { bg: 'bg-blue-50',    text: 'text-blue-600',    ring: 'ring-blue-100' },
     green:  { bg: 'bg-emerald-50', text: 'text-emerald-600', ring: 'ring-emerald-100' },
     amber:  { bg: 'bg-amber-50',   text: 'text-amber-600',   ring: 'ring-amber-100' },
@@ -77,7 +89,16 @@ function KpiCard({ title, value, subtitle, icon: Icon, color = 'blue', trend, li
 /* ═══════════════════════════════════════
    ALERT ITEM — azionabile con link
    ═══════════════════════════════════════ */
-function AlertItem({ icon: Icon, color, title, description, link, linkLabel }) {
+interface AlertItemProps {
+  icon: React.ComponentType<{ size?: number; className?: string }>
+  color: string
+  title: string
+  description?: string
+  link?: string
+  linkLabel?: string
+}
+
+function AlertItem({ icon: Icon, color, title, description, link, linkLabel }: AlertItemProps) {
   return (
     <div className={`flex items-start gap-3 p-3 rounded-lg border ${color}`}>
       <Icon size={16} className="mt-0.5 shrink-0" />
@@ -97,7 +118,8 @@ function AlertItem({ icon: Icon, color, title, description, link, linkLabel }) {
 /* ═══════════════════════════════════════
    COMPACT SPARKLINE TOOLTIP
    ═══════════════════════════════════════ */
-function SparklineTooltip({ active, payload }) {
+// TODO: tighten type — recharts tooltip payload
+function SparklineTooltip({ active, payload }: { active?: boolean; payload?: any[] }) {
   if (!active || !payload?.[0]) return null
   const d = payload[0].payload
   return (
@@ -129,15 +151,17 @@ export default function Dashboard() {
   const [liquidita, setLiquidita] = useState(0)
   const [debtiFin, setDebtiFin] = useState(0)
   const [staffCosts, setStaffCosts] = useState(0)
-  const [outletsData, setOutletsData] = useState([])
-  const [cashFlowDaily, setCashFlowDaily] = useState([])
+  // TODO: tighten type — Supabase data
+  const [outletsData, setOutletsData] = useState<any[]>([])
+  const [cashFlowDaily, setCashFlowDaily] = useState<any[]>([])
   const [cashFlowTotals, setCashFlowTotals] = useState({ entrate: 0, uscite: 0 })
   const [scaduteCount, setScaduteCount] = useState(0)
   const [prossimeCount, setProssimeCount] = useState(0)
   const [uncategorizedMov, setUncategorizedMov] = useState(0)
-  const [dataSource, setDataSource] = useState('')
-  const [dailyRevenue, setDailyRevenue] = useState([])
-  const [lastUpdate, setLastUpdate] = useState(null)
+  const [dataSource, setDataSource] = useState<string | null>('')
+  // TODO: tighten type — Supabase data
+  const [dailyRevenue, setDailyRevenue] = useState<any[]>([])
+  const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
 
   useEffect(() => {
     if (!COMPANY_ID) return
@@ -174,7 +198,7 @@ export default function Dashboard() {
             hasViewData = true
             setDataSource('views')
           }
-        } catch (e) { console.warn('v_executive_dashboard:', e.message) }
+        } catch (e: unknown) { console.warn('v_executive_dashboard:', (e as Error).message) }
 
         if (!hasViewData) {
           const { data: bsData } = await supabase
@@ -186,8 +210,8 @@ export default function Dashboard() {
             .eq('section', 'conto_economico')
 
           if (bsData?.length > 0) {
-            const bs = {}
-            bsData.forEach(r => { bs[r.account_code] = r.amount })
+            const bs: Record<string, number> = {}
+            bsData.forEach((r: any) => { bs[r.account_code] = r.amount })
             setRicavi(bs.ricavi_vendite || 0)
             setUtile(bs.utile_netto || 0)
             setTotalCosti(bs.totale_costi_produzione || 0)
@@ -468,7 +492,7 @@ export default function Dashboard() {
 
         setLastUpdate(new Date())
         setLoading(false)
-      } catch (err) {
+      } catch (err: unknown) {
         console.error('Dashboard fetch error:', err)
         setLoading(false)
       }
@@ -496,7 +520,7 @@ export default function Dashboard() {
   }
 
   // Build alerts
-  const alerts = []
+  const alerts: AlertItemProps[] = []
   if (scaduteCount > 0) {
     alerts.push({
       icon: AlertTriangle,

@@ -18,11 +18,11 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 
 // ═══ HELPERS ═══
-const fmt = (n) => n == null ? '—' : new Intl.NumberFormat('it-IT', { maximumFractionDigits: 0 }).format(n)
-const fmtPct = (n) => n == null ? '—' : `${n.toFixed(1)}%`
+const fmt = (n: number | null | undefined): string => n == null ? '—' : new Intl.NumberFormat('it-IT', { maximumFractionDigits: 0 }).format(n)
+const fmtPct = (n: number | null | undefined): string => n == null ? '—' : `${n.toFixed(1)}%`
 const MONTHS_IT = ['Gen', 'Feb', 'Mar', 'Apr', 'Mag', 'Giu', 'Lug', 'Ago', 'Set', 'Ott', 'Nov', 'Dic']
 
-function getMonthLabel(dateStr) {
+function getMonthLabel(dateStr: string) {
   const d = new Date(dateStr)
   return `${MONTHS_IT[d.getMonth()]} ${d.getFullYear().toString().slice(2)}`
 }
@@ -31,18 +31,18 @@ function getMonthLabel(dateStr) {
 export default function MarginiCategoria() {
   const { profile } = useAuth()
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
-  const [tab, setTab] = useState('outlet') // outlet | costi | trend
-  const [period, setPeriod] = useState('ytd') // ytd | last12 | custom
+  const [error, setError] = useState<string | null>(null)
+  const [tab, setTab] = useState<'outlet' | 'costi' | 'trend'>('outlet')
+  const [period, setPeriod] = useState<'ytd' | 'last12' | 'custom'>('ytd')
   const [year, setYear] = useState(new Date().getFullYear())
 
-  // Raw data
-  const [outlets, setOutlets] = useState([])
-  const [revenue, setRevenue] = useState([])
-  const [costs, setCosts] = useState([])       // from payables
-  const [bankCosts, setBankCosts] = useState([]) // from cash_movements (uscite)
-  const [costCategories, setCostCategories] = useState([])
-  const [budgets, setBudgets] = useState([])   // outlet_cost_template
+  // Raw data — TODO: tighten type — Supabase data
+  const [outlets, setOutlets] = useState<any[]>([])
+  const [revenue, setRevenue] = useState<any[]>([])
+  const [costs, setCosts] = useState<any[]>([])       // from payables
+  const [bankCosts, setBankCosts] = useState<any[]>([]) // from cash_movements (uscite)
+  const [costCategories, setCostCategories] = useState<any[]>([])
+  const [budgets, setBudgets] = useState<any[]>([])   // outlet_cost_template
 
   // ── Date range ──
   const dateRange = useMemo(() => {
@@ -79,9 +79,9 @@ export default function MarginiCategoria() {
       setBankCosts(bankRes.data || [])
       setCostCategories(catRes.data || [])
       setBudgets(budgetRes.data || [])
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Fetch error:', err)
-      setError(err.message)
+      setError((err as Error).message)
     } finally {
       setLoading(false)
     }
@@ -372,20 +372,21 @@ export default function MarginiCategoria() {
 }
 
 // ═══ OUTLET TAB ═══
-function OutletTab({ outletData, totals }) {
+// TODO: tighten type
+function OutletTab({ outletData, totals }: { outletData: any[]; totals: any }) {
   const [sortKey, setSortKey] = useState('revenue')
-  const [sortDir, setSortDir] = useState('desc')
+  const [sortDir, setSortDir] = useState<'desc' | 'asc'>('desc')
 
   const sorted = useMemo(() => {
     return [...outletData].sort((a, b) => sortDir === 'desc' ? b[sortKey] - a[sortKey] : a[sortKey] - b[sortKey])
   }, [outletData, sortKey, sortDir])
 
-  const toggleSort = (key) => {
+  const toggleSort = (key: string) => {
     if (sortKey === key) setSortDir(d => d === 'desc' ? 'asc' : 'desc')
     else { setSortKey(key); setSortDir('desc') }
   }
 
-  const SortHeader = ({ k, label }) => (
+  const SortHeader = ({ k, label }: { k: string; label: string }) => (
     <th onClick={() => toggleSort(k)}
       className="py-3 px-3 text-xs font-semibold text-slate-500 text-right cursor-pointer hover:text-slate-700 select-none whitespace-nowrap">
       {label} {sortKey === k && (sortDir === 'desc' ? '↓' : '↑')}
@@ -503,7 +504,8 @@ function OutletTab({ outletData, totals }) {
 }
 
 // ═══ COSTI TAB ═══
-function CostiTab({ costBreakdown, totalCosts }) {
+// TODO: tighten type
+function CostiTab({ costBreakdown, totalCosts }: { costBreakdown: any[]; totalCosts: number }) {
   const pieData = costBreakdown.map((g, i) => ({
     name: g.name, value: g.total, fill: PALETTE[i % PALETTE.length],
   }))
@@ -582,7 +584,8 @@ function CostiTab({ costBreakdown, totalCosts }) {
 }
 
 // ═══ TREND TAB ═══
-function TrendTab({ data }) {
+// TODO: tighten type
+function TrendTab({ data }: { data: any[] }) {
   return (
     <div className="space-y-6">
       {/* Revenue vs Costs trend */}
@@ -638,7 +641,7 @@ function TrendTab({ data }) {
 }
 
 // ═══ HELPERS ═══
-function groupLabel(macro) {
+function groupLabel(macro: string | null): string {
   const labels = {
     locazione: 'Locazione & Affitti',
     personale: 'Personale',
@@ -649,8 +652,8 @@ function groupLabel(macro) {
   return labels[macro] || macro || 'Altro'
 }
 
-function Kpi({ icon: Icon, label, value, sub, color }) {
-  const colors = {
+function Kpi({ icon: Icon, label, value, sub, color }: { icon: React.ComponentType<{ size?: number }>; label: string; value: string | number; sub?: string; color: string }) {
+  const colors: Record<string, string> = {
     blue: 'bg-blue-50 text-blue-600', green: 'bg-emerald-50 text-emerald-600',
     amber: 'bg-amber-50 text-amber-600', red: 'bg-red-50 text-red-600',
     indigo: 'bg-indigo-50 text-indigo-600', purple: 'bg-purple-50 text-purple-600',

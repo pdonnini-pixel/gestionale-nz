@@ -10,7 +10,7 @@ import { useAuth } from '../hooks/useAuth';
 import { usePeriod } from '../hooks/usePeriod';
 import PageHelp from '../components/PageHelp';
 
-function fmt(n, dec = 0) {
+function fmt(n: number | null | undefined, dec = 0): string {
   // null/undefined/NaN → 'N/D' cosi' non compaiono 'NaN €' nella UI e la
   // pagina non crasha su valori assenti (metriche per-dipendente senza
   // dato dipendenti).
@@ -26,14 +26,15 @@ export default function Produttivita() {
   // Anno sincronizzato col PeriodContext globale (selettore header).
   const { year: globalYear } = usePeriod();
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState<string | null>(null);
   const [year, setYear] = useState(globalYear || 2026);
   useEffect(() => { if (globalYear) setYear(globalYear); }, [globalYear]);
-  const [rawEntries, setRawEntries] = useState([]);
-  const [employees, setEmployees] = useState([]);
-  const [allocations, setAllocations] = useState([]);
+  // TODO: tighten type — Supabase data
+  const [rawEntries, setRawEntries] = useState<any[]>([]);
+  const [employees, setEmployees] = useState<any[]>([]);
+  const [allocations, setAllocations] = useState<any[]>([]);
   const [simulazioneAttiva, setSimulazioneAttiva] = useState(false);
-  const [moved, setMoved] = useState({ from: null, to: null, count: 1 });
+  const [moved, setMoved] = useState<{ from: string | null; to: string | null; count: number }>({ from: null, to: null, count: 1 });
 
   // Fetch budget_entries + employees + allocations
   useEffect(() => {
@@ -76,9 +77,9 @@ export default function Produttivita() {
         if (!allocRes.error && allocRes.data) {
           setAllocations(allocRes.data);
         }
-      } catch (err) {
+      } catch (err: unknown) {
         console.error('[Produttivita] fetch error:', err);
-        setError(err.message);
+        setError((err as Error).message);
       } finally {
         setLoading(false);
       }

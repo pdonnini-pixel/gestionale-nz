@@ -3,7 +3,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsive
 import { Info, TrendingUp, Package, Percent } from 'lucide-react';
 import { GlassTooltip, AXIS_STYLE, GRID_STYLE } from '../components/ChartTheme';
 
-function fmt(n, dec = 0) {
+function fmt(n: number, dec = 0): string {
   return new Intl.NumberFormat('it-IT', { minimumFractionDigits: dec, maximumFractionDigits: dec }).format(n);
 }
 
@@ -115,10 +115,10 @@ const initialData = {
 const outlets = ['Valdichiana', 'Barberino', 'Franciacorta', 'Palmanova', 'Brugnato', 'Valmontone', 'Torino'];
 
 export default function OpenToBuy() {
-  const [season, setSeason] = useState('SS26');
+  const [season, setSeason] = useState<'SS26' | 'FW26'>('SS26');
   const [data, setData] = useState(initialData);
 
-  const handleInputChange = (outlet, field, value) => {
+  const handleInputChange = (outlet: string, field: string, value: string) => {
     setData((prev) => ({
       ...prev,
       [season]: {
@@ -131,7 +131,7 @@ export default function OpenToBuy() {
     }));
   };
 
-  const calculateOTB = (outlet) => {
+  const calculateOTB = (outlet: string): number => {
     const d = data[season][outlet];
     // OTB = Planned Sales + Planned Markdowns + Planned End Inventory - Beginning Inventory
     // In cost: Planned Sales = vendite_previste / (1 + ricarico_target/100)

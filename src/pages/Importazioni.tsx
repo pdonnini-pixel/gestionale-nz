@@ -6,7 +6,7 @@ import {
   Clock, ChevronDown, ChevronUp, Download, Trash2, Eye
 } from 'lucide-react'
 
-function fmt(n) {
+function fmt(n: number | null | undefined): string {
   if (n == null) return '—'
   return new Intl.NumberFormat('it-IT').format(n)
 }
@@ -27,8 +27,8 @@ const STATUS_CONFIG = {
   error: { label: 'Errore', color: 'bg-red-50 text-red-600', icon: AlertCircle },
 }
 
-function StatusBadge({ status }) {
-  const config = STATUS_CONFIG[status] || STATUS_CONFIG.pending
+function StatusBadge({ status }: { status: string }) {
+  const config = STATUS_CONFIG[status as keyof typeof STATUS_CONFIG] || STATUS_CONFIG.pending
   const Icon = config.icon
   return (
     <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium ${config.color}`}>
@@ -39,12 +39,13 @@ function StatusBadge({ status }) {
 }
 
 // ====== UPLOAD AREA ======
-function UploadArea({ onUpload, uploading }) {
-  const fileRef = useRef(null)
+function UploadArea({ onUpload, uploading }: { onUpload: (file: File, source: string, outletId: string) => void; uploading: boolean }) {
+  const fileRef = useRef<HTMLInputElement>(null)
   const [dragOver, setDragOver] = useState(false)
   const [selectedSource, setSelectedSource] = useState('csv_banca')
   const [selectedOutlet, setSelectedOutlet] = useState('')
-  const [outlets, setOutlets] = useState([])
+  // TODO: tighten type — Supabase data
+  const [outlets, setOutlets] = useState<any[]>([])
 
   useEffect(() => {
     supabase.from('outlets').select('id, name, code')
@@ -53,15 +54,15 @@ function UploadArea({ onUpload, uploading }) {
       .then(({ data }) => { if (data) setOutlets(data) })
   }, [])
 
-  function handleDrop(e) {
+  function handleDrop(e: React.DragEvent<HTMLDivElement>) {
     e.preventDefault()
     setDragOver(false)
     const file = e.dataTransfer.files[0]
     if (file) onUpload(file, selectedSource, selectedOutlet)
   }
 
-  function handleFileSelect(e) {
-    const file = e.target.files[0]
+  function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
     if (file) onUpload(file, selectedSource, selectedOutlet)
   }
 
@@ -139,8 +140,9 @@ function UploadArea({ onUpload, uploading }) {
 }
 
 // ====== STORICO IMPORTAZIONI ======
-function ImportHistory({ batches, onRefresh }) {
-  const [expandedId, setExpandedId] = useState(null)
+// TODO: tighten type — Supabase data
+function ImportHistory({ batches, onRefresh }: { batches: any[]; onRefresh: () => void }) {
+  const [expandedId, setExpandedId] = useState<string | null>(null)
 
   return (
     <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
@@ -242,8 +244,9 @@ export default function Importazioni() {
   const { profile } = useAuth()
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
-  const [batches, setBatches] = useState([])
-  const [message, setMessage] = useState(null)
+  // TODO: tighten type — Supabase data
+  const [batches, setBatches] = useState<any[]>([])
+  const [message, setMessage] = useState<{ type: string; text: string } | null>(null)
 
   useEffect(() => { loadBatches() }, [])
 
@@ -259,7 +262,7 @@ export default function Importazioni() {
     setLoading(false)
   }
 
-  async function handleUpload(file, source, outletId) {
+  async function handleUpload(file: File, source: string, outletId: string) {
     setUploading(true)
     setMessage(null)
 
@@ -305,10 +308,10 @@ export default function Importazioni() {
       })
 
       loadBatches()
-    } catch (err) {
+    } catch (err: unknown) {
       setMessage({
         type: 'error',
-        text: `Errore nel caricamento: ${err.message}`
+        text: `Errore nel caricamento: ${(err as Error).message}`
       })
     }
 

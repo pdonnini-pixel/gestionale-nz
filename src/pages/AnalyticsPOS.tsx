@@ -7,7 +7,7 @@ import { TrendingUp, TrendingDown, ShoppingCart, DollarSign, Package, Eye } from
 import { GlassTooltip, AXIS_STYLE, GRID_STYLE } from '../components/ChartTheme';
 
 // Formato numero italiano
-function fmt(n, dec = 0) {
+function fmt(n: number, dec = 0): string {
   return new Intl.NumberFormat('it-IT', {
     minimumFractionDigits: dec,
     maximumFractionDigits: dec
@@ -186,8 +186,8 @@ function getPerformers(posData) {
 }
 
 export default function AnalyticsPOS() {
-  const [selectedOutlet, setSelectedOutlet] = useState(null);
-  const [viewMode, setViewMode] = useState('annual'); // annual or month
+  const [selectedOutlet, setSelectedOutlet] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<'annual' | 'month'>('annual');
 
   const posData = useMemo(() => generatePOSData(), []);
   const chartData = useMemo(() => buildChartData(posData), [posData]);

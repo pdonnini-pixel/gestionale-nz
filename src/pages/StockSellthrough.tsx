@@ -3,7 +3,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsive
 import { TrendingUp, AlertTriangle, Package, Calendar, DollarSign, ChevronDown, ChevronUp } from 'lucide-react'
 import { GlassTooltip, AXIS_STYLE, GRID_STYLE } from '../components/ChartTheme'
 
-function fmt(n, dec = 0) {
+function fmt(n: number, dec = 0): string {
   return new Intl.NumberFormat('it-IT', { minimumFractionDigits: dec, maximumFractionDigits: dec }).format(n)
 }
 
@@ -382,13 +382,13 @@ const outletsData = {
   },
 }
 
-function getAgingStatus(days) {
+function getAgingStatus(days: number) {
   if (days > 90) return { label: 'Critico', color: 'bg-red-100 text-red-800', badge: 'bg-red-500' }
   if (days >= 60) return { label: 'Attenzione', color: 'bg-amber-100 text-amber-800', badge: 'bg-amber-500' }
   return { label: 'OK', color: 'bg-green-100 text-green-800', badge: 'bg-green-500' }
 }
 
-function getAgingBucket(days) {
+function getAgingBucket(days: number): string {
   if (days <= 30) return '0-30 gg'
   if (days <= 60) return '31-60 gg'
   if (days <= 90) return '61-90 gg'
@@ -396,9 +396,9 @@ function getAgingBucket(days) {
 }
 
 export default function StockSellthrough() {
-  const [selectedOutlet, setSelectedOutlet] = useState(null)
-  const [selectedCategory, setSelectedCategory] = useState(null)
-  const [expandedOutlet, setExpandedOutlet] = useState(null)
+  const [selectedOutlet, setSelectedOutlet] = useState<string | null>(null)
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
+  const [expandedOutlet, setExpandedOutlet] = useState<string | null>(null)
 
   // Calculate metrics
   const metrics = useMemo(() => {

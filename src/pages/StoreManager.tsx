@@ -41,7 +41,7 @@ const StoreManager = () => {
   ];
 
   const [selectedOutlet, setSelectedOutlet] = useState('vdc');
-  const [checklist, setChecklist] = useState([
+  const [checklist, setChecklist] = useState<{ id: number; label: string; completed: boolean }[]>([
     { id: 1, label: 'Riordino magazzino', completed: false },
     { id: 2, label: 'Verifica esposizione', completed: true },
     { id: 3, label: 'Chiusura cassa', completed: false },
@@ -123,7 +123,7 @@ const StoreManager = () => {
     icon: 'cloud',
   };
 
-  const toggleChecklist = (id) => {
+  const toggleChecklist = (id: number) => {
     setChecklist((prev) =>
       prev.map((item) =>
         item.id === id ? { ...item, completed: !item.completed } : item
