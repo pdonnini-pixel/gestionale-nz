@@ -51,8 +51,15 @@ export function AuthProvider({ children }) {
     setProfile(null)
   }
 
+  // Ricarica il profilo dal DB (chiamare dopo update di first_name/last_name
+  // dalla pagina /profilo per riflettere subito i nuovi dati nel topbar)
+  async function refreshProfile() {
+    if (!session?.user?.id) return
+    await fetchProfile(session.user.id)
+  }
+
   return (
-    <AuthContext.Provider value={{ session, profile, loading, signIn, signOut }}>
+    <AuthContext.Provider value={{ session, profile, loading, signIn, signOut, refreshProfile }}>
       {children}
     </AuthContext.Provider>
   )

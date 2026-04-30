@@ -172,7 +172,7 @@ function ProfileMenu() {
           <button
             type="button"
             role="menuitem"
-            onClick={() => go('/impostazioni')}
+            onClick={() => go('/profilo')}
             className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 transition"
           >
             <UserCircle size={16} className="text-slate-400" />
@@ -185,7 +185,7 @@ function ProfileMenu() {
             className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 transition"
           >
             <Settings size={16} className="text-slate-400" />
-            Impostazioni
+            Impostazioni azienda
           </button>
           <div className="border-t border-slate-100 my-1" />
           <button
