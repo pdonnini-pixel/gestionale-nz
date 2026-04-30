@@ -127,16 +127,27 @@ function OutletCard({ name, outletData, calculatedMetrics, ranking, onNavigate }
         )}
       </div>
 
-      {/* KPI Grid */}
+      {/* KPI Grid — in variance i delta sono colorati per significato:
+          ricavi/margini: positivo=verde (meglio); costi: positivo=rosso (peggio).
+          Il prefisso '+' viene aggiunto ai delta positivi per leggibilità. */}
       <div className="px-4 py-3 grid grid-cols-2 gap-2">
-        <KpiBadge label="Margine" value={`${fmt(margine)} €`} sub={`${marginePct.toFixed(1)}%`}
-          color={isPositive ? 'green' : 'red'} />
+        <KpiBadge
+          label={isVariance ? 'Δ Margine' : 'Margine'}
+          value={`${isVariance && margine > 0 ? '+' : ''}${fmt(margine)} €`}
+          sub={`${isVariance && marginePct > 0 ? '+' : ''}${marginePct.toFixed(1)}${isVariance ? ' p.p.' : '%'}`}
+          color={margine >= 0 ? 'green' : 'red'} />
         <KpiBadge label="Dipendenti" value={personaleCount || 0}
-          sub={ricavoPerDip != null ? `${fmt(ricavoPerDip)} €/dip` : 'N/D'} color="blue" />
-        <KpiBadge label="Costo personale" value={`${fmt(costoPersonale)} €`}
-          sub={`${incidenzaPersonale.toFixed(1)}% ricavi`} color="amber" />
-        <KpiBadge label="Affitto" value={`${fmt(affitto)} €`}
-          sub={`${incidenzaAffitto.toFixed(1)}% ricavi`} color="purple" />
+          sub={ricavoPerDip != null ? `${isVariance && ricavoPerDip > 0 ? '+' : ''}${fmt(ricavoPerDip)} €/dip` : 'N/D'} color="blue" />
+        <KpiBadge
+          label={isVariance ? 'Δ Costo personale' : 'Costo personale'}
+          value={`${isVariance && costoPersonale > 0 ? '+' : ''}${fmt(costoPersonale)} €`}
+          sub={`${isVariance && incidenzaPersonale > 0 ? '+' : ''}${incidenzaPersonale.toFixed(1)}${isVariance ? ' p.p.' : '% ricavi'}`}
+          color={isVariance ? (costoPersonale > 0 ? 'red' : costoPersonale < 0 ? 'green' : 'amber') : 'amber'} />
+        <KpiBadge
+          label={isVariance ? 'Δ Affitto' : 'Affitto'}
+          value={`${isVariance && affitto > 0 ? '+' : ''}${fmt(affitto)} €`}
+          sub={`${isVariance && incidenzaAffitto > 0 ? '+' : ''}${incidenzaAffitto.toFixed(1)}${isVariance ? ' p.p.' : '% ricavi'}`}
+          color={isVariance ? (affitto > 0 ? 'red' : affitto < 0 ? 'green' : 'purple') : 'purple'} />
       </div>
 
       {/* Dettaglio costi espandibile */}
@@ -267,8 +278,17 @@ function TabellaBenchmark({ outletMetrics }) {
                     return (
                       <td key={r.name} className={`py-2.5 px-4 text-sm text-right font-medium ${
                         isBest ? 'text-emerald-600 font-bold' :
-                        isVariance && m.key !== 'ndip' && val < 0 ? 'text-red-600' :
-                        isVariance && m.key !== 'ndip' && val > 0 ? 'text-emerald-600' :
+                        // In variance: il colore segue il SIGNIFICATO del delta,
+                        // non il segno aritmetico. Per ricavi/margini (best='max')
+                        // val>0 e' meglio (verde), val<0 e' peggio (rosso).
+                        // Per i costi (best='min') e' invertito: val>0 (costo
+                        // aumentato) e' peggio, val<0 (costo diminuito) e' meglio.
+                        isVariance && m.key !== 'ndip' && val !== 0 && (
+                          (m.best === 'max' && val > 0) || (m.best === 'min' && val < 0)
+                        ) ? 'text-emerald-600' :
+                        isVariance && m.key !== 'ndip' && val !== 0 && (
+                          (m.best === 'max' && val < 0) || (m.best === 'min' && val > 0)
+                        ) ? 'text-red-600' :
                         'text-slate-600'
                       }`}>
                         {isVariance && m.key !== 'ndip' && val > 0 ? '+' : ''}

@@ -141,16 +141,17 @@ function ProfileMenu() {
   return (
     <div className="relative hidden sm:block" ref={ref}>
       <button
-        onClick={() => setOpen(o => !o)}
-        className="flex items-center gap-2 pl-2 border-l border-slate-200 ml-1 py-1 pr-2 rounded-r-lg hover:bg-slate-50 transition"
+        type="button"
+        onClick={(e) => { e.stopPropagation(); setOpen(o => !o) }}
+        className="flex items-center gap-2 pl-2 border-l border-slate-200 ml-1 py-1 pr-2 rounded-r-lg hover:bg-slate-50 transition cursor-pointer"
         title={fullName || 'Profilo'}
         aria-haspopup="menu"
         aria-expanded={open}
       >
-        <div className="w-7 h-7 rounded-full bg-blue-100 flex items-center justify-center text-xs font-bold text-blue-700">
+        <div className="w-7 h-7 rounded-full bg-blue-100 flex items-center justify-center text-xs font-bold text-blue-700 pointer-events-none">
           {initials || <User size={14} />}
         </div>
-        <span className="text-sm text-slate-600 font-medium hidden lg:inline">
+        <span className="text-sm text-slate-600 font-medium hidden lg:inline pointer-events-none">
           {profile?.first_name}
         </span>
       </button>
@@ -158,7 +159,7 @@ function ProfileMenu() {
       {open && (
         <div
           role="menu"
-          className="absolute right-0 top-full mt-1 w-56 bg-white rounded-xl shadow-lg border border-slate-200 py-1 z-50"
+          className="absolute right-0 top-full mt-1 w-56 bg-white rounded-xl shadow-lg border border-slate-200 py-1 z-[60]"
         >
           <div className="px-3 py-2 border-b border-slate-100">
             <div className="text-sm font-semibold text-slate-900 truncate">
@@ -169,6 +170,7 @@ function ProfileMenu() {
             )}
           </div>
           <button
+            type="button"
             role="menuitem"
             onClick={() => go('/impostazioni')}
             className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 transition"
@@ -177,6 +179,7 @@ function ProfileMenu() {
             Profilo
           </button>
           <button
+            type="button"
             role="menuitem"
             onClick={() => go('/impostazioni')}
             className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 transition"
@@ -186,6 +189,7 @@ function ProfileMenu() {
           </button>
           <div className="border-t border-slate-100 my-1" />
           <button
+            type="button"
             role="menuitem"
             onClick={handleSignOut}
             className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 transition"
