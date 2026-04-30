@@ -393,7 +393,7 @@ export default function AICategorization({ companyId }) {
         <button
           onClick={runAnomalies}
           disabled={anomalyRunning}
-          className="inline-flex items-center gap-2 px-3 py-2 border border-purple-200 text-purple-700 text-sm font-medium rounded-lg hover:bg-purple-50 disabled:opacity-50 transition"
+          className="inline-flex items-center gap-2 px-3 py-2 border border-slate-300 text-slate-700 text-sm font-medium rounded-lg hover:bg-slate-50 disabled:opacity-50 transition"
         >
           {anomalyRunning ? <RefreshCw size={14} className="animate-spin" /> : <AlertTriangle size={14} />}
           Rileva anomalie

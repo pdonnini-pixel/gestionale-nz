@@ -340,7 +340,7 @@ function FatturePassive() {
           {uploading ? 'Importazione...' : 'Importa XML'}
           <input type="file" accept=".xml" onChange={handleXmlUpload} className="hidden" disabled={uploading} />
         </label>
-        <label className="flex items-center gap-2 px-3 py-2 bg-amber-50 text-amber-700 text-sm rounded-lg hover:bg-amber-100 cursor-pointer transition border border-amber-200"
+        <label className="flex items-center gap-2 px-3 py-2 bg-white text-slate-700 text-sm rounded-lg hover:bg-slate-50 cursor-pointer transition border border-slate-300"
           title="Carica gli XML originali per associarli alle fatture già importate (match per numero fattura)">
           <FileCode size={16} />
           Associa XML
@@ -1018,13 +1018,13 @@ function FattureAttive() {
                 <div className="flex flex-wrap gap-2">
                   {selectedInvoice.sdi_status === 'DRAFT' && !selectedInvoice.xml_content && (
                     <button onClick={() => { handleGenerateXml(selectedInvoice.id); setSelectedInvoice(null) }}
-                      className="flex items-center gap-2 px-3 py-2 text-sm bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition">
+                      className="flex items-center gap-2 px-3 py-2 text-sm bg-white border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 transition">
                       <FileCode size={14} /> Genera XML
                     </button>
                   )}
                   {(selectedInvoice.sdi_status === 'DRAFT' || selectedInvoice.sdi_status === 'ERROR') && selectedInvoice.xml_content && (
                     <button onClick={() => { handleSend(selectedInvoice.id); setSelectedInvoice(null) }}
-                      className="flex items-center gap-2 px-3 py-2 text-sm bg-green-50 text-green-600 rounded-lg hover:bg-green-100 transition">
+                      className="flex items-center gap-2 px-3 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">
                       <Send size={14} /> Invia a SDI
                     </button>
                   )}
