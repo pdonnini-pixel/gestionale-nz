@@ -97,8 +97,17 @@
 - `src/components/Sidebar.tsx`
 - `src/pages/Profilo.tsx`
 
-## Bug pre-esistenti trovati
-Nessun bug di logica trovato durante la conversione.
+## Bug pre-esistenti trovati durante smoke test (post-migrazione)
+
+### BUG-001 — Fatturazione: query su colonna inesistente
+- **File**: `src/pages/Fatturazione.tsx`, righe 1328-1329
+- **Errore**: `HEAD .../electronic_invoices?select=id&direction=eq.inbound → 400 Bad Request` (idem per `outbound`)
+- **Causa**: il codice chiama `supabase.from('electronic_invoices').eq('direction', 'inbound')` ma la colonna `direction` non esiste nella tabella `electronic_invoices` (verificato sui tipi DB rigenerati). Le colonne reali rilevanti sono `source` (enum `import_source`) e `tipo_documento`.
+- **Stato**: bug pre-esistente nel codice originale `.jsx`, NON introdotto dalla migrazione TS. Probabilmente sempre fallito silenziosamente perché nessuno aveva mai aperto la console su Fatturazione.
+- **Impatto utente**: i conteggi inbound/outbound mostrati in pagina sono probabilmente errati o a zero.
+- **Fix**: task separato post-merge — investigare se la query doveva usare `source` con valori dell'enum, o se è una funzionalità mai completata.
+
+Tutte le altre pagine smoke-testate (Dashboard, Banche, Scadenzario, ImportHub, BudgetControl, ConfrontoOutlet, ContoEconomico) hanno console pulita.
 
 ## Stranezze trovate da investigare
 - `ScadenzarioSmart.tsx` (componente) è quasi vuoto — sembra uno stub
