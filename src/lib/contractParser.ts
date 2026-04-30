@@ -4,7 +4,7 @@
  */
 
 // Helper: trova il primo match numerico dopo un pattern
-function findAmount(text, pattern, flags = 'i') {
+function findAmount(text: string, pattern: string, flags = 'i'): number | null {
   const regex = new RegExp(pattern + '[^€\\d]*(?:Euro|€|EUR)?\\s*([\\d.,]+)', flags)
   const match = text.match(regex)
   if (match) {
@@ -14,9 +14,9 @@ function findAmount(text, pattern, flags = 'i') {
 }
 
 // Helper: trova una data nel testo
-function findDate(text, pattern) {
+function findDate(text: string, pattern: string): string | null {
   // Pattern: "12 marzo 2026" o "12/03/2026" o "2026-03-12"
-  const mesi = {
+  const mesi: Record<string, string> = {
     'gennaio': '01', 'febbraio': '02', 'marzo': '03', 'aprile': '04',
     'maggio': '05', 'giugno': '06', 'luglio': '07', 'agosto': '08',
     'settembre': '09', 'ottobre': '10', 'novembre': '11', 'dicembre': '12'
@@ -48,9 +48,9 @@ function findDate(text, pattern) {
 }
 
 // Estrae gli allegati menzionati nel contratto
-function findAllegati(text) {
-  const allegati = []
-  const seen = new Set()
+function findAllegati(text: string): Array<{ code: string; description: string }> {
+  const allegati: Array<{ code: string; description: string }> = []
+  const seen = new Set<string>()
 
   // Pattern: allegato "A", allegato A, Allegato "B"
   const matches = text.matchAll(/[Aa]llegato\s*"?([A-Z])"?\s*(?:[-(]([^)"\n]{5,80}))?/g)
@@ -81,8 +81,9 @@ function findAllegati(text) {
 /**
  * Analizza il testo di un contratto e restituisce dati strutturati
  */
-export function parseContract(text) {
-  const result = {
+// TODO: tighten type — create dedicated interface for contract result
+export function parseContract(text: string): Record<string, unknown> {
+  const result: Record<string, unknown> = {
     // Anagrafica
     name: null,
     brand: null,
@@ -112,9 +113,9 @@ export function parseContract(text) {
     deposit_guarantee: null,
     advance_payment: null,
     // Allegati
-    allegati: [],
+    allegati: [] as Array<{ code: string; description: string }>,
     // Confidence
-    confidence: {},
+    confidence: {} as Record<string, number>,
   }
 
   if (!text || text.length < 100) return result
@@ -127,7 +128,7 @@ export function parseContract(text) {
     .replace(/ ?\n ?/g, '\n')         // pulisci spazi attorno a newline
 
   // Helper per parsing importi euro in vari formati
-  function parseEuro(str) {
+  function parseEuro(str: string | null | undefined): number | null {
     if (!str) return null
     return parseFloat(str.replace(/\./g, '').replace(',', '.'))
   }
@@ -233,9 +234,9 @@ export function parseContract(text) {
   }
 
   // === DATE ===
-  const mesi = { 'gennaio': '01', 'febbraio': '02', 'marzo': '03', 'aprile': '04', 'maggio': '05', 'giugno': '06', 'luglio': '07', 'agosto': '08', 'settembre': '09', 'ottobre': '10', 'novembre': '11', 'dicembre': '12' }
+  const mesi: Record<string, string> = { 'gennaio': '01', 'febbraio': '02', 'marzo': '03', 'aprile': '04', 'maggio': '05', 'giugno': '06', 'luglio': '07', 'agosto': '08', 'settembre': '09', 'ottobre': '10', 'novembre': '11', 'dicembre': '12' }
 
-  function findDateFlex(text, ...keywords) {
+  function findDateFlex(text: string, ...keywords: string[]): string | null {
     for (const kw of keywords) {
       const d = findDate(text, kw)
       if (d) return d
@@ -381,9 +382,9 @@ export function parseContract(text) {
     total++
     if (val !== null && val !== '') found++
   }
-  result.confidence.extracted = found
-  result.confidence.total = total
-  result.confidence.pct = Math.round((found / total) * 100)
+  (result.confidence as Record<string, number>).extracted = found;
+  (result.confidence as Record<string, number>).total = total;
+  (result.confidence as Record<string, number>).pct = Math.round((found / total) * 100)
 
   return result
 }
@@ -392,7 +393,7 @@ export function parseContract(text) {
  * Estrae testo da un file .doc (vecchio formato) lato client
  * Approccio best-effort: estrae stringhe leggibili dal binario
  */
-export async function extractTextFromDoc(file) {
+export async function extractTextFromDoc(file: File): Promise<string> {
   const buffer = await file.arrayBuffer()
   const bytes = new Uint8Array(buffer)
 
@@ -418,7 +419,7 @@ export async function extractTextFromDoc(file) {
 /**
  * Estrae testo da un file .docx usando mammoth
  */
-export async function extractTextFromDocx(file) {
+export async function extractTextFromDocx(file: File): Promise<string> {
   const mammoth = await import('mammoth')
   const buffer = await file.arrayBuffer()
   const result = await mammoth.extractRawText({ arrayBuffer: buffer })
@@ -429,7 +430,7 @@ export async function extractTextFromDocx(file) {
  * Estrae testo da un file .pdf usando pdfjs-dist
  * Ricostruisce righe e paragrafi usando le coordinate Y degli elementi
  */
-export async function extractTextFromPdf(file) {
+export async function extractTextFromPdf(file: File): Promise<string> {
   const pdfjsLib = await import('pdfjs-dist')
 
   // Worker: usa il bundled worker da pdfjs-dist

@@ -6,7 +6,7 @@
  */
 
 // ── Numero italiano → Number ──
-function parseItalianNumber(str) {
+function parseItalianNumber(str: string | null | undefined): number {
   if (!str || typeof str !== 'string') return 0
   const clean = str.replace(/\s/g, '').replace(/\./g, '').replace(',', '.')
   const n = parseFloat(clean)
@@ -14,7 +14,7 @@ function parseItalianNumber(str) {
 }
 
 // ── Determina il livello gerarchico dal codice ──
-function getLevel(code) {
+function getLevel(code: string | null | undefined): number {
   if (!code) return 0
   const len = code.replace(/\s/g, '').length
   if (len <= 2) return 0       // macro (es: 61, 63, 05)
@@ -24,7 +24,7 @@ function getLevel(code) {
 }
 
 // ── Determina se un codice è un "totale macro" (2 cifre) ──
-function isMacro(code) {
+function isMacro(code: string | null | undefined): boolean {
   return code && code.replace(/\s/g, '').length <= 2
 }
 
@@ -33,7 +33,8 @@ function isMacro(code) {
  * @param {ArrayBuffer|Uint8Array} pdfData - Dati binari del PDF
  * @returns {Object} { patrimoniale: { attivita, passivita, totals }, contoEconomico: { costi, ricavi, totals }, meta }
  */
-export async function parseBilancio(pdfData) {
+// TODO: tighten type — define full return type for bilancio result
+export async function parseBilancio(pdfData: ArrayBuffer | Uint8Array): Promise<Record<string, unknown>> {
   const pdfjsLib = await import('pdfjs-dist')
 
   // Worker setup
@@ -53,7 +54,7 @@ export async function parseBilancio(pdfData) {
     contoEconomico: { costi: [], ricavi: [], totals: {} },
   }
 
-  let currentSection = null // 'patrimoniale' | 'conto_economico'
+  let currentSection: string | null = null // 'patrimoniale' | 'conto_economico'
 
   for (let pn = 1; pn <= pdf.numPages; pn++) {
     const page = await pdf.getPage(pn)
@@ -68,7 +69,7 @@ export async function parseBilancio(pdfData) {
       .filter(i => i.text.length > 0)
 
     // Group by Y (rows) with snap
-    const rows = {}
+    const rows: Record<number, Array<{ text: string; x: number; y: number }>> = {}
     items.forEach(i => {
       const ry = Math.round(i.y / 4) * 4
       if (!rows[ry]) rows[ry] = []
@@ -174,7 +175,17 @@ export async function parseBilancio(pdfData) {
 /**
  * Parsa una riga di celle (codice + descrizione + importo)
  */
-function parseRowCells(cells) {
+// TODO: tighten type
+interface BilancioRow {
+  code: string;
+  description: string;
+  amount: number;
+  level: number;
+  isMacro: boolean;
+  isItalic: boolean;
+}
+
+function parseRowCells(cells: Array<{ text: string; x: number }> | null): BilancioRow | null {
   if (!cells || cells.length === 0) return null
 
   const texts = cells.sort((a, b) => a.x - b.x).map(c => c.text)
@@ -236,11 +247,11 @@ function parseRowCells(cells) {
  * Trasforma una lista piatta in un albero gerarchico
  * basato sulla lunghezza del codice conto
  */
-function buildTree(rows) {
+function buildTree(rows: BilancioRow[] | null): Array<BilancioRow & { children: unknown[] }> {
   if (!rows || rows.length === 0) return []
 
-  const tree = []
-  const stack = [] // stack of { node, level }
+  const tree: Array<BilancioRow & { children: unknown[] }> = []
+  const stack: Array<{ node: BilancioRow & { children: unknown[] }; level: number }> = [] // stack of { node, level }
 
   for (const row of rows) {
     const node = { ...row, children: [] }
@@ -265,8 +276,9 @@ function buildTree(rows) {
 /**
  * Converte i dati parsed in record per balance_sheet_data di Supabase
  */
-export function toSupabaseRecords(parsed, companyId, year, periodType = 'annuale') {
-  const records = []
+// TODO: tighten type — align with DB schema
+export function toSupabaseRecords(parsed: Record<string, unknown>, companyId: string, year: number, periodType = 'annuale'): Record<string, unknown>[] {
+  const records: Record<string, unknown>[] = []
 
   // Stato Patrimoniale — Attività
   parsed.patrimoniale.attivita.forEach((row, i) => {
@@ -350,11 +362,13 @@ export function toSupabaseRecords(parsed, companyId, year, periodType = 'annuale
   }
 
   // Also add legacy CE_FIELDS mapping for backward compatibility
-  const ceMacro = {}
-  parsed.contoEconomico.costi.forEach(row => {
+  const ceMacro: Record<string, number> = {}
+  // TODO: tighten type — parsed uses known structure from parseBilancio
+  const pCE = (parsed as { contoEconomico: { costi: BilancioRow[]; totals: Record<string, number> } }).contoEconomico;
+  pCE.costi.forEach((row: BilancioRow) => {
     if (row.isMacro) ceMacro[row.code] = row.amount
   })
-  const ceMap = {
+  const ceMap: Record<string, number> = {
     materie_prime: ceMacro['61'] || 0,
     servizi: ceMacro['63'] || 0,
     godimento_beni_terzi: ceMacro['65'] || 0,
@@ -365,8 +379,8 @@ export function toSupabaseRecords(parsed, companyId, year, periodType = 'annuale
     oneri_finanziari: ceMacro['83'] || 0,
   }
   // Sub-fields from sub-accounts
-  const ceSub = {}
-  parsed.contoEconomico.costi.forEach(row => {
+  const ceSub: Record<string, number> = {}
+  pCE.costi.forEach((row: BilancioRow) => {
     if (row.level === 1) ceSub[row.code] = row.amount
   })
   ceMap.salari_stipendi = ceSub['6701'] || 0

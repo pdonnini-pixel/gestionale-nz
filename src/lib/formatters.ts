@@ -20,7 +20,7 @@
  * centralizzato, l'UI mostra "BRUNICO" in una pagina e "Brunico" in un'altra,
  * creando l'impressione che siano outlet diversi.
  */
-export function formatOutletName(name) {
+export function formatOutletName(name: string | null | undefined): string {
   if (name == null) return '—'
   if (typeof name !== 'string') return '—'
   const trimmed = name.trim()
@@ -39,7 +39,7 @@ export function formatOutletName(name) {
  * shortOutletName — versione compatta per header card / chart label.
  * Restituisce la prima parola normalizzata (es. "Brunico Outlet" → "Brunico").
  */
-export function shortOutletName(name) {
+export function shortOutletName(name: string | null | undefined): string {
   const formatted = formatOutletName(name)
   if (formatted === '—') return '—'
   return formatted.split(' ')[0]

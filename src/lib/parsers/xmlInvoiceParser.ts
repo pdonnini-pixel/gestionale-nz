@@ -9,8 +9,9 @@
  * @param {string} xmlText - contenuto XML raw
  * @returns {{ invoices: Object[], supplier: Object, errors: string[] }}
  */
-export function parseFatturaPA(xmlText) {
-  const errors = [];
+// TODO: tighten type — define full invoice/supplier interfaces
+export function parseFatturaPA(xmlText: string): { invoices: Record<string, unknown>[]; supplier: Record<string, unknown> | null; errors: string[] } {
+  const errors: string[] = [];
 
   // Parse XML
   const parser = new DOMParser();
@@ -36,28 +37,28 @@ export function parseFatturaPA(xmlText) {
       return { invoices: [], supplier, errors };
     }
 
-    const invoices = [];
+    const invoices: Record<string, unknown>[] = [];
     for (const body of bodies) {
       try {
         const invoice = extractInvoice(body, supplier);
         invoices.push(invoice);
-      } catch (err) {
-        errors.push(`Errore parsing body fattura: ${err.message}`);
+      } catch (err: unknown) {
+        errors.push(`Errore parsing body fattura: ${(err as Error).message}`);
       }
     }
 
     return { invoices, supplier, errors };
-  } catch (err) {
-    errors.push(`Errore generico: ${err.message}`);
+  } catch (err: unknown) {
+    errors.push(`Errore generico: ${(err as Error).message}`);
     return { invoices: [], supplier: null, errors };
   }
 }
 
 // ─── HELPER: trova elementi ignorando namespace ─────────────────
 
-function findElements(parent, localName) {
+function findElements(parent: Element, localName: string): Element[] {
   // Try without namespace first
-  let elements = parent.getElementsByTagName(localName);
+  let elements: HTMLCollectionOf<Element> | Element[] = parent.getElementsByTagName(localName);
   if (elements.length === 0) {
     // Try with common prefixes
     for (const prefix of ['p', 'ns2', 'ns3']) {
@@ -75,15 +76,15 @@ function findElements(parent, localName) {
   return Array.from(elements);
 }
 
-function getText(parent, localName) {
+function getText(parent: Element, localName: string): string | null {
   const elements = findElements(parent, localName);
   if (elements.length === 0) return null;
   // Return the text of the first element that's a direct or near descendant
   return elements[0]?.textContent?.trim() || null;
 }
 
-function getNestedText(parent, path) {
-  let current = parent;
+function getNestedText(parent: Element, path: string): string | null {
+  let current: Element = parent;
   const parts = path.split('/');
   for (const part of parts.slice(0, -1)) {
     const found = findElements(current, part);
@@ -95,7 +96,7 @@ function getNestedText(parent, path) {
 
 // ─── EXTRACT SUPPLIER ───────────────────────────────────────────
 
-function extractSupplier(root) {
+function extractSupplier(root: Element): Record<string, unknown> | null {
   const header = findElements(root, 'FatturaElettronicaHeader')[0];
   if (!header) return null;
 
@@ -126,7 +127,7 @@ function extractSupplier(root) {
 
 // ─── EXTRACT SINGLE INVOICE ─────────────────────────────────────
 
-function extractInvoice(body, supplier) {
+function extractInvoice(body: Element, supplier: Record<string, unknown> | null): Record<string, unknown> {
   // DatiGenerali → DatiGeneraliDocumento
   const datiGen = findElements(body, 'DatiGeneraliDocumento')[0];
 
@@ -139,7 +140,7 @@ function extractInvoice(body, supplier) {
 
   // Ritenuta d'acconto
   const ritenuta = findElements(datiGen, 'DatiRitenuta')[0];
-  let ritenutaAcconto = null;
+  let ritenutaAcconto: Record<string, unknown> | null = null;
   if (ritenuta) {
     ritenutaAcconto = {
       tipo: getText(ritenuta, 'TipoRitenuta'),
@@ -308,7 +309,8 @@ export const MODALITA_TO_DB_ENUM = {
  * @param {Object} context - { company_id, import_batch_id }
  * @returns {{ invoiceRecords: Object[], supplierRecord: Object|null, payableRecords: Object[] }}
  */
-export function transformInvoiceToRecords(invoices, supplier, context) {
+// TODO: tighten type
+export function transformInvoiceToRecords(invoices: Record<string, unknown>[], supplier: Record<string, unknown> | null, context: Record<string, unknown>): { invoiceRecords: Record<string, unknown>[]; supplierRecord: Record<string, unknown> | null; payableRecords: Record<string, unknown>[] } {
   const { company_id, import_batch_id, raw_xml } = context;
 
   // Extract IBAN from first payment detail that has one
@@ -360,8 +362,8 @@ export function transformInvoiceToRecords(invoices, supplier, context) {
   ]);
 
   // Create payable records from payment details
-  const payableRecords = [];
-  invoices.forEach(inv => {
+  const payableRecords: Record<string, unknown>[] = [];
+  invoices.forEach((inv: Record<string, unknown>) => {
     if (inv.payment_details.length > 0) {
       inv.payment_details.forEach((pd, idx) => {
         const dbEnum = MODALITA_TO_DB_ENUM[pd.modalita] || 'altro';

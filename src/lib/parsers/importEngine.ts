@@ -31,6 +31,25 @@ const BATCH_SIZE = 100; // max rows per insert
  * @param {function} params.onProgress - callback(percent, message)
  * @returns {{ success: boolean, imported: number, errors: Object[], batchId: string }}
  */
+// TODO: tighten type — define dedicated interfaces for import params/result
+interface ImportParams {
+  file?: File | null;
+  storagePath?: string | null;
+  bucket?: string;
+  sourceType: string;
+  context: Record<string, unknown>;
+  mappingOverride?: Record<string, string> | null;
+  onProgress?: (percent: number, message: string) => void;
+}
+
+interface ImportResult {
+  success: boolean;
+  imported: number;
+  errors: Record<string, unknown>[];
+  batchId: string | null;
+  details?: Record<string, unknown> | null;
+}
+
 export async function processImport({
   file,
   storagePath,
@@ -39,7 +58,7 @@ export async function processImport({
   context,
   mappingOverride = null,
   onProgress = () => {},
-}) {
+}: ImportParams): Promise<ImportResult> {
   const startTime = Date.now();
 
   try {
@@ -67,7 +86,7 @@ export async function processImport({
     onProgress(20, 'Parsing in corso...');
 
     // 3. Route to appropriate processor
-    let result;
+    let result: { imported: number; errors: Record<string, unknown>[]; details?: Record<string, unknown> | null; warnings?: Record<string, unknown>[] };
     switch (sourceType) {
       case 'bank':
         result = await processBankStatement(content, context, batchId, mappingOverride, onProgress, { isExcel, fileName });
@@ -112,12 +131,12 @@ export async function processImport({
       batchId,
       details: result.details || null,
     };
-  } catch (err) {
+  } catch (err: unknown) {
     console.error('Import engine error:', err);
     return {
       success: false,
       imported: 0,
-      errors: [{ message: `Errore imprevisto: ${err.message}` }],
+      errors: [{ message: `Errore imprevisto: ${(err as Error).message}` }],
       batchId: null,
     };
   }
@@ -125,11 +144,11 @@ export async function processImport({
 
 // ─── FILE READING ───────────────────────────────────────────────
 
-async function readFileContent(file, storagePath, bucket, { asBinary = false } = {}) {
+async function readFileContent(file: File | null | undefined, storagePath: string | null | undefined, bucket: string | null | undefined, { asBinary = false } = {}): Promise<string | ArrayBuffer> {
   if (file) {
-    return new Promise((resolve, reject) => {
+    return new Promise<string | ArrayBuffer>((resolve, reject) => {
       const reader = new FileReader();
-      reader.onload = (e) => resolve(e.target.result);
+      reader.onload = (e) => resolve(e.target!.result as string | ArrayBuffer);
       reader.onerror = () => reject(new Error('Errore lettura file'));
       if (asBinary) {
         reader.readAsArrayBuffer(file);
@@ -153,9 +172,9 @@ async function readFileContent(file, storagePath, bucket, { asBinary = false } =
 
 // ─── BATCH MANAGEMENT ───────────────────────────────────────────
 
-async function createImportBatch(companyId, sourceType, fileName) {
+async function createImportBatch(companyId: string, sourceType: string, fileName: string | undefined): Promise<string> {
   // Values MUST match the import_source enum in PostgreSQL
-  const sourceMap = {
+  const sourceMap: Record<string, string> = {
     bank: 'csv_banca',
     invoices: 'xml_sdi',
     pos_data: 'csv_pos',
@@ -180,7 +199,7 @@ async function createImportBatch(companyId, sourceType, fileName) {
   return data.id;
 }
 
-async function updateImportBatch(batchId, updates) {
+async function updateImportBatch(batchId: string, updates: Record<string, unknown>): Promise<void> {
   const { error } = await supabase
     .from('import_batches')
     .update(updates)
@@ -201,7 +220,7 @@ async function updateImportBatch(batchId, updates) {
  * incompleti confrontandolo con il numero di record effettivamente parsati.
  * Ritorna null se non lo trova.
  */
-function findDeclaredMovementCount(allRows) {
+function findDeclaredMovementCount(allRows: unknown[]): number | null {
   if (!Array.isArray(allRows)) return null;
   for (const row of allRows) {
     if (!row) continue;
@@ -217,7 +236,7 @@ function findDeclaredMovementCount(allRows) {
   return null;
 }
 
-function excelToHeadersRows(arrayBuffer) {
+function excelToHeadersRows(arrayBuffer: ArrayBuffer | string): { headers: string[]; rows: Record<string, string>[]; declaredCount: number | null } {
   // Read with cellDates so date cells become JS Date objects
   const workbook = XLSX.read(arrayBuffer, { type: 'array', cellDates: true });
   const sheetName = workbook.SheetNames[0];
@@ -238,7 +257,7 @@ function excelToHeadersRows(arrayBuffer) {
    * Numbers → Italian format with comma decimal (e.g. 153.45 → "153,45")
    *           so that parseItalianNumber (which expects comma-decimal) works correctly
    */
-  function cellToString(val) {
+  function cellToString(val: unknown): string {
     if (val === null || val === undefined || val === '') return '';
     if (val instanceof Date && !isNaN(val.getTime())) {
       const dd = String(val.getDate()).padStart(2, '0');
@@ -267,7 +286,7 @@ function excelToHeadersRows(arrayBuffer) {
   // righe di riepilogo che contengono testo sentinella in qualsiasi colonna
   // (es. MPS scrive "Elenco non completo..." come messaggio multi-colonna).
   const BLACKLIST_FULL_ROW = /(elenco\s+non\s+completo|per\s+visualizzare\s+gli\s+altri\s+dati|saldo\s+contabile\s+(iniziale|finale|progressivo)|totali?\s+(pagina|parziali|periodo)|operazioni\s+(non\s+)?contabilizzate)/i;
-  const dataRows = [];
+  const dataRows: Record<string, string>[] = [];
   for (let i = 1; i < allRows.length; i++) {
     const raw = allRows[i];
     const firstCell = cellToString(raw[0]).trim();
@@ -283,8 +302,8 @@ function excelToHeadersRows(arrayBuffer) {
     const fullRowText = raw.map(cellToString).join(' ');
     if (BLACKLIST_FULL_ROW.test(fullRowText)) continue;
 
-    const rowObj = {};
-    headers.forEach((h, idx) => {
+    const rowObj: Record<string, string> = {};
+    headers.forEach((h: string, idx: number) => {
       rowObj[h] = raw[idx] !== undefined ? cellToString(raw[idx]) : '';
     });
     dataRows.push(rowObj);
@@ -293,10 +312,10 @@ function excelToHeadersRows(arrayBuffer) {
   return { headers, rows: dataRows, declaredCount };
 }
 
-async function processBankStatement(content, context, batchId, mappingOverride, onProgress, { isExcel = false, fileName = '' } = {}) {
-  let headers, rows;
-  let parseErrors = [];
-  let declaredCount = null; // conteggio movimenti dichiarato dalla banca nel file
+async function processBankStatement(content: string | ArrayBuffer, context: Record<string, unknown>, batchId: string, mappingOverride: Record<string, string> | null, onProgress: (percent: number, message: string) => void, { isExcel = false, fileName = '' } = {}): Promise<{ imported: number; errors: Record<string, unknown>[]; details?: Record<string, unknown> | null; warnings?: Record<string, unknown>[] }> {
+  let headers: string[], rows: Record<string, string>[];
+  let parseErrors: string[] = [];
+  let declaredCount: number | null = null; // conteggio movimenti dichiarato dalla banca nel file
 
   if (isExcel) {
     // Parse Excel file
@@ -306,8 +325,8 @@ async function processBankStatement(content, context, batchId, mappingOverride, 
       headers = result.headers;
       rows = result.rows;
       declaredCount = result.declaredCount;
-    } catch (err) {
-      return { imported: 0, errors: [{ message: `Errore lettura Excel: ${err.message}` }] };
+    } catch (err: unknown) {
+      return { imported: 0, errors: [{ message: `Errore lettura Excel: ${(err as Error).message}` }] };
     }
   } else {
     // Parse CSV
@@ -328,7 +347,7 @@ async function processBankStatement(content, context, batchId, mappingOverride, 
   onProgress(30, `Parsate ${rows.length} righe, mapping colonne...`);
 
   // Determine column mapping
-  let mapping;
+  let mapping: Record<string, string>;
   if (mappingOverride) {
     mapping = mappingOverride;
   } else {
@@ -383,7 +402,7 @@ async function processBankStatement(content, context, batchId, mappingOverride, 
   // Warning se il file dichiarava N movimenti ma ne abbiamo importati meno.
   // Succede quando la banca esporta un elenco troncato ("elenco non completo")
   // o quando ci sono formattazioni anomale che il parser non riconosce.
-  const warnings = [];
+  const warnings: Record<string, unknown>[] = [];
   if (declaredCount && inserted > 0 && inserted < declaredCount * 0.98) {
     warnings.push({
       level: 'warning',
@@ -403,7 +422,7 @@ async function processBankStatement(content, context, batchId, mappingOverride, 
 
 // ─── INVOICE XML PROCESSOR ──────────────────────────────────────
 
-async function processInvoiceXML(text, context, batchId, onProgress) {
+async function processInvoiceXML(text: string | ArrayBuffer, context: Record<string, unknown>, batchId: string, onProgress: (percent: number, message: string) => void): Promise<{ imported: number; errors: Record<string, unknown>[]; details?: Record<string, unknown> }> {
   const { invoices, supplier, errors: parseErrors } = parseFatturaPA(text);
 
   if (invoices.length === 0) {
@@ -450,7 +469,7 @@ async function processInvoiceXML(text, context, batchId, onProgress) {
 
 // ─── POS CSV PROCESSOR ──────────────────────────────────────────
 
-async function processPOSCSV(text, context, batchId, mappingOverride, onProgress) {
+async function processPOSCSV(text: string | ArrayBuffer, context: Record<string, unknown>, batchId: string, mappingOverride: Record<string, string> | null, onProgress: (percent: number, message: string) => void): Promise<{ imported: number; errors: Record<string, unknown>[]; details?: Record<string, unknown> }> {
   const { headers, rows, errors: parseErrors } = parseCSV(text, {
     delimiter: context.csvOptions?.delimiter,
     skipRows: context.csvOptions?.skipRows || 0,
@@ -488,7 +507,7 @@ async function processPOSCSV(text, context, batchId, mappingOverride, onProgress
 
 // ─── BALANCE SHEET PDF PROCESSOR ────────────────────────────────
 
-async function processBalanceSheetPDF(pdfData, context, batchId, onProgress) {
+async function processBalanceSheetPDF(pdfData: string | ArrayBuffer, context: Record<string, unknown>, batchId: string, onProgress: (percent: number, message: string) => void): Promise<{ imported: number; errors: Record<string, unknown>[]; details?: Record<string, unknown> }> {
   try {
     onProgress(25, 'Parsing PDF bilancio...');
 
@@ -534,14 +553,14 @@ async function processBalanceSheetPDF(pdfData, context, batchId, onProgress) {
         risultato: parsed.contoEconomico.totals?.risultato,
       },
     };
-  } catch (err) {
-    return { imported: 0, errors: [{ message: `Errore parsing bilancio: ${err.message}` }] };
+  } catch (err: unknown) {
+    return { imported: 0, errors: [{ message: `Errore parsing bilancio: ${(err as Error).message}` }] };
   }
 }
 
 // ─── RECEIPTS (CORRISPETTIVI) CSV PROCESSOR ────────────────────
 
-async function processReceiptsCSV(text, context, batchId, mappingOverride, onProgress) {
+async function processReceiptsCSV(text: string | ArrayBuffer, context: Record<string, unknown>, batchId: string, mappingOverride: Record<string, string> | null, onProgress: (percent: number, message: string) => void): Promise<{ imported: number; errors: Record<string, unknown>[]; details?: Record<string, unknown> }> {
   const { headers, rows, errors: parseErrors } = parseCSV(text, {
     delimiter: context.csvOptions?.delimiter,
     skipRows: context.csvOptions?.skipRows || 0,
@@ -607,7 +626,7 @@ async function processReceiptsCSV(text, context, batchId, mappingOverride, onPro
 
 // ─── PAYROLL CSV/XLSX PROCESSOR ────────────────────────────────
 
-async function processPayrollCSV(content, context, batchId, mappingOverride, onProgress) {
+async function processPayrollCSV(content: string | ArrayBuffer, context: Record<string, unknown>, batchId: string, mappingOverride: Record<string, string> | null, onProgress: (percent: number, message: string) => void): Promise<{ imported: number; errors: Record<string, unknown>[]; details?: Record<string, unknown> }> {
   // If PDF, we can't parse payroll PDFs yet — need structured CSV
   if (content instanceof ArrayBuffer) {
     return {
@@ -815,9 +834,9 @@ async function processPayrollCSV(content, context, batchId, mappingOverride, onP
 
 // ─── HELPERS ────────────────────────────────────────────────────
 
-function autoReceiptsMapping(headers) {
+function autoReceiptsMapping(headers: string[]): Record<string, string> {
   const normalized = headers.map(h => h.toLowerCase().trim());
-  const mapping = {};
+  const mapping: Record<string, string> = {};
 
   const dateKw = ['data', 'date', 'giorno', 'data_corrispettivo'];
   const grossKw = ['incasso', 'lordo', 'gross', 'totale', 'importo', 'corrispettivo'];
@@ -844,9 +863,9 @@ function autoReceiptsMapping(headers) {
   return mapping;
 }
 
-function autoPayrollMapping(headers) {
+function autoPayrollMapping(headers: string[]): Record<string, string> {
   const normalized = headers.map(h => h.toLowerCase().trim());
-  const mapping = {};
+  const mapping: Record<string, string> = {};
 
   const cognomeKw = ['cognome', 'surname', 'last_name', 'dipendente'];
   const nomeKw = ['nome', 'name', 'first_name'];
@@ -876,9 +895,9 @@ function autoPayrollMapping(headers) {
   return mapping;
 }
 
-function autoPOSMapping(headers) {
+function autoPOSMapping(headers: string[]): Record<string, string> {
   const normalized = headers.map(h => h.toLowerCase().trim());
-  const mapping = {};
+  const mapping: Record<string, string> = {};
 
   const dateKeywords = ['data', 'date', 'giorno'];
   const grossKeywords = ['incasso', 'lordo', 'gross', 'totale vendite', 'fatturato'];
@@ -904,7 +923,7 @@ function autoPOSMapping(headers) {
   return mapping;
 }
 
-async function upsertSupplier(supplierRecord) {
+async function upsertSupplier(supplierRecord: Record<string, unknown>): Promise<string | null> {
   try {
     const piva = supplierRecord.partita_iva;
     if (!piva) return null;
@@ -939,8 +958,8 @@ async function upsertSupplier(supplierRecord) {
       return null;
     }
     return created.id;
-  } catch (err) {
-    console.warn('Supplier upsert error:', err.message);
+  } catch (err: unknown) {
+    console.warn('Supplier upsert error:', (err as Error).message);
     return null;
   }
 }
@@ -948,9 +967,9 @@ async function upsertSupplier(supplierRecord) {
 /**
  * Inserisce record in batch di BATCH_SIZE
  */
-async function batchInsert(tableName, records, onProgress, progressStart, progressEnd) {
+async function batchInsert(tableName: string, records: Record<string, unknown>[], onProgress: (percent: number, message: string) => void, progressStart: number, progressEnd: number): Promise<{ inserted: number; insertErrors: Record<string, unknown>[] }> {
   let inserted = 0;
-  const insertErrors = [];
+  const insertErrors: Record<string, unknown>[] = [];
   const totalBatches = Math.ceil(records.length / BATCH_SIZE);
 
   for (let i = 0; i < records.length; i += BATCH_SIZE) {
@@ -985,7 +1004,8 @@ async function batchInsert(tableName, records, onProgress, progressStart, progre
  * Modalità anteprima: parsa il file e ritorna i primi N record senza inserire
  * Utile per mostrare all'utente cosa verrà importato e per configurare il mapping
  */
-export async function previewImport({ file, sourceType, context, maxRows = 10 }) {
+// TODO: tighten type
+export async function previewImport({ file, sourceType, context, maxRows = 10 }: { file?: File | null; sourceType: string; context: Record<string, unknown>; maxRows?: number }): Promise<Record<string, unknown>> {
   try {
     const fileName = file?.name || '';
     const isPDF = fileName.toLowerCase().endsWith('.pdf');
@@ -1012,7 +1032,7 @@ export async function previewImport({ file, sourceType, context, maxRows = 10 })
         rows = csvResult.rows;
       }
 
-      let mapping, confidence;
+      let mapping: Record<string, string>, confidence: number;
       if (sourceType === 'bank') {
         const detected = autoDetectBankMapping(headers);
         mapping = detected.mapping;
@@ -1075,7 +1095,7 @@ export async function previewImport({ file, sourceType, context, maxRows = 10 })
     }
 
     return { success: false, errors: [{ message: 'Tipo non supportato per anteprima' }] };
-  } catch (err) {
-    return { success: false, errors: [{ message: err.message }] };
+  } catch (err: unknown) {
+    return { success: false, errors: [{ message: (err as Error).message }] };
   }
 }

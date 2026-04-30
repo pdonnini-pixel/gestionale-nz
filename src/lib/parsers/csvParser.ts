@@ -16,7 +16,7 @@
  * @param {boolean} options.hasHeader - prima riga è header (default true)
  * @returns {{ headers: string[], rows: Object[], rawRows: string[][], errors: string[] }}
  */
-export function parseCSV(text, options = {}) {
+export function parseCSV(text: string, options: { delimiter?: string; decimalSeparator?: string; thousandSeparator?: string; skipRows?: number; dateFormat?: string; hasHeader?: boolean } = {}): { headers: string[]; rows: Record<string, string>[]; rawRows: string[][]; errors: string[] } {
   const {
     delimiter: forcedDelimiter,
     decimalSeparator = ',',
@@ -48,7 +48,7 @@ export function parseCSV(text, options = {}) {
   const rawRows = dataLines.map(line => parseCSVLine(line, delimiter));
 
   // Extract headers
-  let headers = [];
+  let headers: string[] = [];
   let dataStartIdx = 0;
 
   if (hasHeader) {
@@ -59,12 +59,12 @@ export function parseCSV(text, options = {}) {
   }
 
   // Parse data rows into objects
-  const rows = [];
+  const rows: Record<string, string>[] = [];
   for (let i = dataStartIdx; i < rawRows.length; i++) {
     const cells = rawRows[i];
     if (cells.length === 0 || (cells.length === 1 && cells[0].trim() === '')) continue;
 
-    const obj = {};
+    const obj: Record<string, string> = {};
     for (let j = 0; j < headers.length; j++) {
       const raw = (cells[j] || '').trim();
       obj[headers[j]] = raw;
@@ -78,7 +78,7 @@ export function parseCSV(text, options = {}) {
 /**
  * Auto-rileva il delimiter analizzando la prima riga
  */
-function detectDelimiter(line) {
+function detectDelimiter(line: string): string {
   const candidates = [';', ',', '\t', '|'];
   let best = ';';
   let bestCount = 0;
@@ -102,8 +102,8 @@ function detectDelimiter(line) {
 /**
  * Splitta il testo in righe rispettando i campi tra virgolette
  */
-function splitCSVLines(text) {
-  const lines = [];
+function splitCSVLines(text: string): string[] {
+  const lines: string[] = [];
   let current = '';
   let inQuotes = false;
 
@@ -126,8 +126,8 @@ function splitCSVLines(text) {
 /**
  * Parsa una singola riga CSV in array di celle
  */
-function parseCSVLine(line, delimiter) {
-  const cells = [];
+function parseCSVLine(line: string, delimiter: string): string[] {
+  const cells: string[] = [];
   let current = '';
   let inQuotes = false;
 
@@ -157,7 +157,7 @@ function parseCSVLine(line, delimiter) {
  * Converte stringa in numero con formato italiano
  * "1.234,56" → 1234.56 | "-€ 1.234,56" → -1234.56
  */
-export function parseItalianNumber(str, decimalSep = ',', thousandSep = '.') {
+export function parseItalianNumber(str: string | null | undefined, decimalSep = ',', thousandSep = '.'): number | null {
   if (!str || typeof str !== 'string') return null;
   // Rimuovi simboli valuta e spazi
   let cleaned = str.replace(/[€$£\s]/g, '').trim();
@@ -179,11 +179,11 @@ export function parseItalianNumber(str, decimalSep = ',', thousandSep = '.') {
 /**
  * Parsa una data da stringa in vari formati italiani → 'YYYY-MM-DD'
  */
-export function parseDate(str, format = 'DD/MM/YYYY') {
+export function parseDate(str: string | null | undefined, format = 'DD/MM/YYYY'): string | null {
   if (!str || typeof str !== 'string') return null;
   const cleaned = str.trim();
 
-  let day, month, year;
+  let day: number | undefined, month: number | undefined, year: number | undefined;
 
   // Try ISO format first (YYYY-MM-DD) — SheetJS sometimes outputs this
   const isoMatch = cleaned.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
@@ -317,15 +317,15 @@ export const BANK_CSV_PRESETS = {
  * @param {string[]} csvHeaders - headers del CSV caricato
  * @returns {{ presetName: string, mapping: Object, confidence: number }}
  */
-export function autoDetectBankMapping(csvHeaders) {
+export function autoDetectBankMapping(csvHeaders: string[]): { presetName: string; presetLabel: string; mapping: Record<string, string>; confidence: number; unmapped: string[] } {
   const normalizedHeaders = csvHeaders.map(h => h.trim().toLowerCase());
   let bestPreset = 'generic';
   let bestScore = 0;
-  let bestMapping = {};
+  let bestMapping: Record<string, string> = {};
 
   for (const [presetId, preset] of Object.entries(BANK_CSV_PRESETS)) {
     let score = 0;
-    const mapping = {};
+    const mapping: Record<string, string> = {};
 
     for (const [targetField, possibleNames] of Object.entries(preset.mapping)) {
       for (const name of possibleNames) {
@@ -367,7 +367,7 @@ export function autoDetectBankMapping(csvHeaders) {
  * @param {Object} context - { company_id, bank_account_id, import_batch_id, dateFormat, decimalSep, thousandSep }
  * @returns {{ records: Object[], errors: { row: number, message: string }[] }}
  */
-export function transformBankRows(rows, columnMapping, context) {
+export function transformBankRows(rows: Record<string, string>[], columnMapping: Record<string, string>, context: Record<string, unknown>): { records: Record<string, unknown>[]; errors: { row: number; message: string }[] } {
   const {
     company_id,
     bank_account_id,
@@ -377,8 +377,8 @@ export function transformBankRows(rows, columnMapping, context) {
     thousandSep = '.',
   } = context;
 
-  const records = [];
-  const errors = [];
+  const records: Record<string, unknown>[] = [];
+  const errors: { row: number; message: string }[] = [];
 
   // Detect dual-column (Dare/Avere) mode
   const hasDualAmount = !!(columnMapping.dare || columnMapping.avere);
@@ -395,7 +395,7 @@ export function transformBankRows(rows, columnMapping, context) {
         return;
       }
 
-      let amount = null;
+      let amount: number | null = null;
 
       if (hasDualAmount) {
         // Dare/Avere mode (e.g. MPS): Dare = uscite (negative), Avere = entrate (positive)
@@ -459,8 +459,8 @@ export function transformBankRows(rows, columnMapping, context) {
       }
 
       records.push(record);
-    } catch (err) {
-      errors.push({ row: idx + 1, message: err.message });
+    } catch (err: unknown) {
+      errors.push({ row: idx + 1, message: (err as Error).message });
     }
   });
 
@@ -470,20 +470,20 @@ export function transformBankRows(rows, columnMapping, context) {
 /**
  * Trasforma righe CSV POS in record per daily_revenue
  */
-export function transformPOSRows(rows, columnMapping, context) {
+export function transformPOSRows(rows: Record<string, string>[], columnMapping: Record<string, string>, context: Record<string, unknown>): { records: Record<string, unknown>[]; errors: { row: number; message: string }[] } {
   const { company_id, outlet_id, import_batch_id, dateFormat = 'DD/MM/YYYY', decimalSep = ',', thousandSep = '.' } = context;
-  const records = [];
-  const errors = [];
+  const records: Record<string, unknown>[] = [];
+  const errors: { row: number; message: string }[] = [];
 
   rows.forEach((row, idx) => {
     try {
-      const date = parseDate(row[columnMapping.date], dateFormat);
+      const date = parseDate(row[columnMapping.date], dateFormat as string);
       if (!date) { errors.push({ row: idx + 1, message: `Data non valida` }); return; }
 
       const gross = parseItalianNumber(row[columnMapping.gross_revenue], decimalSep, thousandSep);
       if (gross === null) { errors.push({ row: idx + 1, message: `Incasso lordo non valido` }); return; }
 
-      const record = {
+      const record: Record<string, unknown> = {
         company_id, outlet_id, import_batch_id, date,
         gross_revenue: gross,
         source: 'csv_pos',
@@ -512,8 +512,8 @@ export function transformPOSRows(rows, columnMapping, context) {
       }
 
       records.push(record);
-    } catch (err) {
-      errors.push({ row: idx + 1, message: err.message });
+    } catch (err: unknown) {
+      errors.push({ row: idx + 1, message: (err as Error).message });
     }
   });
 
