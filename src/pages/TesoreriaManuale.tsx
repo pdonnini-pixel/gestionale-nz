@@ -47,7 +47,7 @@ function fmt(n, dec = 2) {
   }).format(n)
 }
 
-function fmtDate(d) {
+function fmtDate(d: string | null | undefined): string {
   if (!d) return '\u2014'
   const dt = new Date(d)
   if (isNaN(dt.getTime())) return '\u2014'
@@ -946,14 +946,14 @@ function UpdateBalanceModal({ isOpen, onClose, account, onSave }) {
 }
 
 function UploadStatementModal({ isOpen, onClose, account, companyId, onImported }) {
-  const [file, setFile] = useState(null)
-  const [parsed, setParsed] = useState(null)
+  const [file, setFile] = useState<any>(null)
+  const [parsed, setParsed] = useState<any>(null)
   const [columnMap, setColumnMap] = useState({ date: -1, description: -1, amount: -1, dare: -1, avere: -1, balance: -1 })
   const [dateFormat, setDateFormat] = useState('dd/mm/yyyy')
-  const [preview, setPreview] = useState([])
+  const [preview, setPreview] = useState<any[]>([])
   const [importing, setImporting] = useState(false)
   const [step, setStep] = useState('upload') // upload | map | preview | done
-  const [importResult, setImportResult] = useState(null)
+  const [importResult, setImportResult] = useState<any>(null)
   const fileRef = useRef(null)
 
   useEffect(() => {
@@ -964,7 +964,7 @@ function UploadStatementModal({ isOpen, onClose, account, companyId, onImported 
   }, [isOpen])
 
   const [fileType, setFileType] = useState('csv')
-  const [parseError, setParseError] = useState(null)
+  const [parseError, setParseError] = useState<any>(null)
 
   const handleFile = (e) => {
     const f = e.target.files?.[0]
@@ -998,9 +998,9 @@ function UploadStatementModal({ isOpen, onClose, account, companyId, onImported 
           // Auto-skip a preview se mapping completo (date + dare/avere o amount)
           const hasAmounts = map.amount >= 0 || map.dare >= 0 || map.avere >= 0
           setStep(map.date >= 0 && hasAmounts ? 'preview' : 'map')
-        } catch (err) {
+        } catch (err: unknown) {
           console.error('Excel parse error:', err)
-          setParseError(`Errore lettura Excel: ${err.message}`)
+          setParseError(`Errore lettura Excel: ${(err as Error).message}`)
         }
       }
       reader.readAsArrayBuffer(f)
@@ -1020,8 +1020,8 @@ function UploadStatementModal({ isOpen, onClose, account, companyId, onImported 
             return
           }
           processCSVText(text)
-        } catch (err) {
-          setParseError(`Errore lettura CSV: ${err.message}`)
+        } catch (err: unknown) {
+          setParseError(`Errore lettura CSV: ${(err as Error).message}`)
         }
       }
       reader.readAsText(f, 'UTF-8')
@@ -1144,7 +1144,7 @@ function UploadStatementModal({ isOpen, onClose, account, companyId, onImported 
       setImportResult({ success: true, count: inserted })
       setStep('done')
       onImported()
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Import error:', err)
       // Se il record bank_statements e' stato creato ma l'import e' fallito
       // a meta', aggiorna lo status a 'error' cosi' non resta in 'processing'
@@ -1154,13 +1154,13 @@ function UploadStatementModal({ isOpen, onClose, account, companyId, onImported 
         try {
           await supabase.from('bank_statements').update({
             status: 'error',
-            error_message: err.message?.substring(0, 500) || 'Errore import',
+            error_message: (err as Error).message?.substring(0, 500) || 'Errore import',
           }).eq('id', stmt.id)
         } catch (updateErr) {
           console.warn('impossibile marcare bank_statements come error:', updateErr.message)
         }
       }
-      setImportResult({ success: false, error: err.message })
+      setImportResult({ success: false, error: (err as Error).message })
       setStep('done')
     } finally {
       setImporting(false)
@@ -1360,11 +1360,11 @@ function UploadStatementModal({ isOpen, onClose, account, companyId, onImported 
 
 function TabContiBancari({ accounts, companyId, onRefresh }) {
   const [showAdd, setShowAdd] = useState(false)
-  const [editAccount, setEditAccount] = useState(null)
-  const [balanceAccount, setBalanceAccount] = useState(null)
-  const [uploadAccount, setUploadAccount] = useState(null)
-  const [showIban, setShowIban] = useState({})
-  const [deleteConfirm, setDeleteConfirm] = useState(null)
+  const [editAccount, setEditAccount] = useState<any>(null)
+  const [balanceAccount, setBalanceAccount] = useState<any>(null)
+  const [uploadAccount, setUploadAccount] = useState<any>(null)
+  const [showIban, setShowIban] = useState<Record<string, any>>({})
+  const [deleteConfirm, setDeleteConfirm] = useState<any>(null)
 
   const handleSaveAccount = async (form) => {
     if (editAccount) {
@@ -1810,9 +1810,9 @@ function TabPagamenti({ payables, accounts, companyId, onRefresh, preSelectId })
       setSelected({})
       setBatchNotes('')
       onRefresh()
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Create batch error:', err)
-      alert(`Errore: ${err.message}`)
+      alert(`Errore: ${(err as Error).message}`)
     } finally {
       setCreating(false)
     }
@@ -1996,9 +1996,9 @@ function TabPagamenti({ payables, accounts, companyId, onRefresh, preSelectId })
 // ═══════════════════════════════════════════════════════════════════
 
 function TabDistinte({ batches, batchItems, accounts, companyId, onRefresh }) {
-  const [expandedBatch, setExpandedBatch] = useState(null)
-  const [confirmExec, setConfirmExec] = useState(null)
-  const [confirmCancel, setConfirmCancel] = useState(null)
+  const [expandedBatch, setExpandedBatch] = useState<any>(null)
+  const [confirmExec, setConfirmExec] = useState<any>(null)
+  const [confirmCancel, setConfirmCancel] = useState<any>(null)
   const [executing, setExecuting] = useState(false)
 
   const handleExecute = async () => {
@@ -2044,9 +2044,9 @@ function TabDistinte({ batches, batchItems, accounts, companyId, onRefresh }) {
 
       setConfirmExec(null)
       onRefresh()
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Execute batch error:', err)
-      alert(`Errore: ${err.message}`)
+      alert(`Errore: ${(err as Error).message}`)
     } finally {
       setExecuting(false)
     }
@@ -2066,7 +2066,7 @@ function TabDistinte({ batches, batchItems, accounts, companyId, onRefresh }) {
 
       setConfirmCancel(null)
       onRefresh()
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Cancel batch error:', err)
     }
   }
@@ -2190,7 +2190,7 @@ function TabDistinte({ batches, batchItems, accounts, companyId, onRefresh }) {
 function TabRiconciliazione({ transactions, payables, accounts, companyId, onRefresh }) {
   const [filterAccount, setFilterAccount] = useState('all')
   const [search, setSearch] = useState('')
-  const [selectedMovement, setSelectedMovement] = useState(null)
+  const [selectedMovement, setSelectedMovement] = useState<any>(null)
   const [manualPayableId, setManualPayableId] = useState('')
   // Nuovo: campo di ricerca per il combobox abbinamento manuale
   const [manualSearch, setManualSearch] = useState('')
@@ -2339,9 +2339,9 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
 
       setSelectedMovement(null)
       onRefresh()
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Reconcile error:', err)
-      alert(`Errore: ${err.message}`)
+      alert(`Errore: ${(err as Error).message}`)
     } finally {
       setReconciling(false)
     }
@@ -2364,7 +2364,7 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
       }).eq('id', movement.id).eq('company_id', companyId)
       setSelectedMovement(null)
       onRefresh()
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Mark ignored error:', err)
     }
   }
@@ -2611,11 +2611,11 @@ export default function TesoreriaManuale() {
   const [refreshKey, setRefreshKey] = useState(0)
 
   // Data state
-  const [accounts, setAccounts] = useState([])
-  const [transactions, setTransactions] = useState([])
-  const [payables, setPayables] = useState([])
-  const [batches, setBatches] = useState([])
-  const [batchItems, setBatchItems] = useState([])
+  const [accounts, setAccounts] = useState<any[]>([])
+  const [transactions, setTransactions] = useState<any[]>([])
+  const [payables, setPayables] = useState<any[]>([])
+  const [batches, setBatches] = useState<any[]>([])
+  const [batchItems, setBatchItems] = useState<any[]>([])
 
   const refresh = useCallback(() => setRefreshKey(k => k + 1), [])
 
@@ -2640,7 +2640,7 @@ export default function TesoreriaManuale() {
           setBatches(batchRes.data || [])
           setBatchItems(itemsRes.data || [])
         }
-      } catch (err) {
+      } catch (err: unknown) {
         console.error('TesoreriaManuale load error:', err)
       } finally {
         if (!cancelled) setLoading(false)

@@ -21,16 +21,16 @@ import PdfViewer from '../components/PdfViewer'
 import { parseBilancio, toSupabaseRecords } from '../lib/parsers/bilancioParser'
 
 // ===== HELPERS =====
-function fmt(n, decimals = 0) {
+function fmt(n: number | null | undefined, decimals = 0): string {
   if (n == null) return '—'
   const rounded = Math.round(n * 100) / 100
   return new Intl.NumberFormat('it-IT', { minimumFractionDigits: decimals, maximumFractionDigits: decimals }).format(rounded)
 }
-function pct(v, total) {
+function pct(v: number, total: number | null | undefined): string {
   if (!total || total === 0) return '—'
   return `${(v / total * 100).toFixed(1)}%`
 }
-function variation(curr, prev) {
+function variation(curr: number | null | undefined, prev: number | null | undefined): number | null {
   // Ritorna null in tutti i casi in cui il delta non e' calcolabile o
   // significativo. La UI mostra '—' quando e' null. Mai NaN/Infinity.
   if (curr == null || prev == null) return null
@@ -48,13 +48,13 @@ function variation(curr, prev) {
 }
 
 // ===== Italian number formatting for form inputs =====
-function fmtInput(n) {
+function fmtInput(n: number | string | null | undefined): string {
   if (n == null || n === '') return ''
   const num = typeof n === 'string' ? parseFloat(n) : n
   if (isNaN(num)) return ''
   return new Intl.NumberFormat('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(num)
 }
-function parseInputNumber(str) {
+function parseInputNumber(str: string | null | undefined): number | string {
   if (!str || typeof str !== 'string') return ''
   // Remove thousand separators (dots), replace comma with dot for decimal
   const cleaned = str.replace(/\./g, '').replace(',', '.')
@@ -119,7 +119,7 @@ const PDF_PATTERNS = [
   { pattern: /differenza\s*(?:tra\s*)?(?:valore\s*e\s*costi|A[\s-]*B)[^\d]*?([\d.,]+)/i, field: 'differenza_ab' },
 ]
 
-function parseItalianNumber(str) {
+function parseItalianNumber(str: string | null | undefined): number {
   if (!str) return 0
   // Italian: 1.234.567,89 → 1234567.89
   const cleaned = str.replace(/\./g, '').replace(',', '.')
@@ -127,7 +127,8 @@ function parseItalianNumber(str) {
 }
 
 // ===== UI COMPONENTS =====
-function Kpi({ label, value, sub, icon: Icon, color = 'blue', trend }) {
+// TODO: tighten type
+function Kpi({ label, value, sub, icon: Icon, color = 'blue', trend }: any) {
   const colors = {
     blue: 'bg-blue-50 text-blue-600', green: 'bg-emerald-50 text-emerald-600',
     amber: 'bg-amber-50 text-amber-600', red: 'bg-red-50 text-red-600',
@@ -151,7 +152,8 @@ function Kpi({ label, value, sub, icon: Icon, color = 'blue', trend }) {
   )
 }
 
-function Section({ title, icon: Icon, children, defaultOpen = true, badge }) {
+// TODO: tighten type
+function Section({ title, icon: Icon, children, defaultOpen = true, badge }: any) {
   const [open, setOpen] = useState(defaultOpen)
   return (
     <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
@@ -169,7 +171,8 @@ function Section({ title, icon: Icon, children, defaultOpen = true, badge }) {
   )
 }
 
-function CeRow({ label, v2025, v2024, total2025, total2024, bold, indent, highlight, sub, border, editable, onChange, simMode, onEditChange, fieldKey, isDirty }) {
+// TODO: tighten type
+function CeRow({ label, v2025, v2024, total2025, total2024, bold, indent, highlight, sub, border, editable, onChange, simMode, onEditChange, fieldKey, isDirty }: any) {
   const var25vs24 = variation(v2025, v2024)
   const value = v2025 != null ? v2025 : ''
   return (
@@ -218,7 +221,8 @@ const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'
 const TREND_COLORS = { ricavi: '#3b82f6', ebitda: '#10b981', personale: '#f59e0b', utile: '#8b5cf6' }
 
 // ===== ANALYSIS ENGINE =====
-function analyzeStrengthsWeaknesses(ce, ricavi) {
+// TODO: tighten type
+function analyzeStrengthsWeaknesses(ce: any, ricavi: number) {
   if (!ricavi || ricavi === 0) return { strengths: [], weaknesses: [], recommendations: [] }
 
   const strengths = []
@@ -305,19 +309,19 @@ export default function ContoEconomico() {
   const COMPANY_ID = profile?.company_id
   const { year, quarter, getDateRange } = usePeriod()
   const [periodType, setPeriodType] = useState('annuale')
-  const [periodData, setPeriodData] = useState(null)
+  const [periodData, setPeriodData] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [simulationMode, setSimulationMode] = useState(false)
-  const [simData, setSimData] = useState(null)
+  const [simData, setSimData] = useState<any>(null)
   const [uploadingFile, setUploadingFile] = useState(false)
-  const [companyInfo, setCompanyInfo] = useState(null)
-  const [imports, setImports] = useState([])
+  const [companyInfo, setCompanyInfo] = useState<any>(null)
+  const [imports, setImports] = useState<any[]>([])
   const [showImportForm, setShowImportForm] = useState(false)
-  const [formData, setFormData] = useState({})
-  const [formErrors, setFormErrors] = useState({})
+  const [formData, setFormData] = useState<Record<string, any>>({})
+  const [formErrors, setFormErrors] = useState<Record<string, any>>({})
 
   // Feature 2: Approval workflow
-  const [showApproveConfirm, setShowApproveConfirm] = useState(null)
+  const [showApproveConfirm, setShowApproveConfirm] = useState<any>(null)
 
   // Feature 3: Nota integrativa
   const [notaIntegrativa, setNotaIntegrativa] = useState('')
@@ -326,18 +330,18 @@ export default function ContoEconomico() {
 
   // Feature 4: PDF parsing
   const [pdfParsing, setPdfParsing] = useState(false)
-  const [parsedFields, setParsedFields] = useState(null)
-  const [pdfPreview, setPdfPreview] = useState(null)
-  const [bilancioData, setBilancioData] = useState(null) // full parsed bilancio tree
+  const [parsedFields, setParsedFields] = useState<any>(null)
+  const [pdfPreview, setPdfPreview] = useState<any>(null)
+  const [bilancioData, setBilancioData] = useState<any>(null) // full parsed bilancio tree
   const [showBilancioTree, setShowBilancioTree] = useState(false)
   const [bilancioSaving, setBilancioSaving] = useState(false)
   const [bilancioSaved, setBilancioSaved] = useState(false)
 
   // Feature: Previous year bilancio tree for YoY comparison
-  const [prevBilancioData, setPrevBilancioData] = useState(null)
+  const [prevBilancioData, setPrevBilancioData] = useState<any>(null)
 
   // Feature 6: Trend multi-anno
-  const [trendData, setTrendData] = useState([])
+  const [trendData, setTrendData] = useState<any[]>([])
   const [showTrend, setShowTrend] = useState(false)
 
   // Feature: YoY comparison toggle
@@ -345,17 +349,17 @@ export default function ContoEconomico() {
 
   // Feature: Cash-basis (Cassa) view
   const [viewMode, setViewMode] = useState('competenza') // 'competenza' | 'cassa' | 'riconciliazione'
-  const [cashData, setCashData] = useState(null) // { monthly: [...], byCategory: [...], totals: {} }
+  const [cashData, setCashData] = useState<any>(null) // { monthly: [...], byCategory: [...], totals: {} }
   const [cashLoading, setCashLoading] = useState(false)
 
   // Riconciliazione Bilancio data
-  const [riconData, setRiconData] = useState(null)
+  const [riconData, setRiconData] = useState<any>(null)
   const [riconLoading, setRiconLoading] = useState(false)
 
   // NEW: Manual save functionality
-  const [dirtyFields, setDirtyFields] = useState({})
+  const [dirtyFields, setDirtyFields] = useState<Record<string, any>>({})
   const [saving, setSaving] = useState(false)
-  const [saveMessage, setSaveMessage] = useState(null)
+  const [saveMessage, setSaveMessage] = useState<any>(null)
   const [availableYears, setAvailableYears] = useState([2023, 2024, 2025, 2026])
 
   // ═══ Load bilancio tree from Supabase (persists across page reloads) ═══
@@ -469,7 +473,7 @@ export default function ContoEconomico() {
       setBilancioData(reconstructed)
       setShowBilancioTree(true)
       setBilancioSaved(true) // already saved since we loaded from DB
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Error loading bilancio tree:', err)
     }
   }
@@ -549,14 +553,14 @@ export default function ContoEconomico() {
           totals: { attivita: totAttivita, passivita: totPassivita, risultato },
         },
       })
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Error loading prev bilancio:', err)
       setPrevBilancioData(null)
     }
   }
 
   // Helper to determine level from account code length
-  function getCodeLevel(code) {
+  function getCodeLevel(code: string | null | undefined): number {
     if (!code) return 0
     const len = code.replace(/\s/g, '').length
     if (len <= 2) return 0
@@ -830,7 +834,7 @@ export default function ContoEconomico() {
         count: data.length,
         hasCategorized: categorizedCount > data.length * 0.1, // at least 10% categorized
       })
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Error loading cash data:', err)
       setCashData(null)
     } finally {
@@ -921,7 +925,7 @@ export default function ContoEconomico() {
         countEntries: data.length,
         countRettifiche: rettificheEntries.length,
       })
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Error loading riconciliazione data:', err)
       setRiconData(null)
     } finally {
@@ -1249,7 +1253,7 @@ export default function ContoEconomico() {
   }
 
   // Load previous year for comparison
-  const [prevYearData, setPrevYearData] = useState(null)
+  const [prevYearData, setPrevYearData] = useState<any>(null)
   useEffect(() => {
     const loadPrev = async () => {
       try {

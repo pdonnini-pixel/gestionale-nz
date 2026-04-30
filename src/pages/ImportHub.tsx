@@ -121,37 +121,37 @@ export default function ImportHub() {
   // ─── POST-IMPORT EC MATCH MODAL STATE ─────────────────────────
   // Dopo un import EC mostra il riepilogo dei match automatici
   // calcolati tra cash_movements (uscite) e payables (da_pagare)
-  const [matchModal, setMatchModal] = useState(null); // { reconciled, suggested, unmatched, stats, bankAccountId }
+  const [matchModal, setMatchModal] = useState<any>(null); // { reconciled, suggested, unmatched, stats, bankAccountId }
   const [computingMatches, setComputingMatches] = useState(false);
   const [applyingMatches, setApplyingMatches] = useState(false);
 
   const [activeTab, setActiveTab] = useState('sources');
-  const [selectedSource, setSelectedSource] = useState(null);
+  const [selectedSource, setSelectedSource] = useState<any>(null);
   const [dragActive, setDragActive] = useState(false);
-  const [uploadedFiles, setUploadedFiles] = useState([]);
+  const [uploadedFiles, setUploadedFiles] = useState<any[]>([]);
   const [filesLoading, setFilesLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
-  const [previewFile, setPreviewFile] = useState(null);
-  const [previewUrl, setPreviewUrl] = useState(null);
-  const [importHistory, setImportHistory] = useState([]);
-  const [bankAccounts, setBankAccounts] = useState([]);
-  const [selectedBankAccount, setSelectedBankAccount] = useState(null);
+  const [previewFile, setPreviewFile] = useState<any>(null);
+  const [previewUrl, setPreviewUrl] = useState<any>(null);
+  const [importHistory, setImportHistory] = useState<any[]>([]);
+  const [bankAccounts, setBankAccounts] = useState<any[]>([]);
+  const [selectedBankAccount, setSelectedBankAccount] = useState<any>(null);
   const [selectedDocCategory, setSelectedDocCategory] = useState('contratto');
   const [selectedMonthYear, setSelectedMonthYear] = useState('');
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [selectedOutlet, setSelectedOutlet] = useState('');
   const [batchSelected, setBatchSelected] = useState(new Set());
-  const [validationErrors, setValidationErrors] = useState({});
-  const [outlets, setOutlets] = useState([]);
-  const [toast, setToast] = useState(null);
+  const [validationErrors, setValidationErrors] = useState<Record<string, any>>({});
+  const [outlets, setOutlets] = useState<any[]>([]);
+  const [toast, setToast] = useState<any>(null);
 
   // ─── PROCESSING STATE ───────────────────────────────────────
   const [processing, setProcessing] = useState(false);
   const [processProgress, setProcessProgress] = useState(0);
   const [processMessage, setProcessMessage] = useState('');
-  const [processResult, setProcessResult] = useState(null);
-  const [previewData, setPreviewData] = useState(null);
+  const [processResult, setProcessResult] = useState<any>(null);
+  const [previewData, setPreviewData] = useState<any>(null);
   const pendingFileRef = useRef(null); // holds the raw File for re-processing
 
   const months = ['Gen', 'Feb', 'Mar', 'Apr', 'Mag', 'Giu', 'Lug', 'Ago', 'Set', 'Ott', 'Nov', 'Dic'];
@@ -229,7 +229,7 @@ export default function ImportHub() {
           .limit(200);
         setImportHistory(data || []);
       }
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Load error:', err);
       showToast('Errore caricamento dati', 'error');
     } finally {
@@ -248,7 +248,7 @@ export default function ImportHub() {
           .from(bucket)
           .createSignedUrl(doc.file_path, 3600);
         if (data?.signedUrl) setPreviewUrl(data.signedUrl);
-      } catch (err) {
+      } catch (err: unknown) {
         console.error('Preview error:', err);
       }
     }
@@ -424,7 +424,7 @@ export default function ImportHub() {
       }
       await loadImportDocs();
       setBatchSelected(new Set());
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Upload error:', err);
       showToast('Errore durante il caricamento', 'error');
     } finally {
@@ -450,7 +450,7 @@ export default function ImportHub() {
       showToast('File eliminato');
       await loadImportDocs();
       setBatchSelected(prev => { const n = new Set(prev); n.delete(fileId); return n; });
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Delete error:', err);
       showToast('Errore durante l\'eliminazione', 'error');
     }
@@ -473,7 +473,7 @@ export default function ImportHub() {
       showToast(`${filesToDelete.length} file eliminati`);
       setBatchSelected(new Set());
       await loadImportDocs();
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Batch delete error:', err);
       showToast('Errore eliminazione batch', 'error');
     }
@@ -521,9 +521,9 @@ export default function ImportHub() {
       });
 
       setPreviewData({ ...result, fileRecord });
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Preview error:', err);
-      showToast('Errore anteprima: ' + err.message, 'error');
+      showToast('Errore anteprima: ' + (err as Error).message, 'error');
     }
   }
 
@@ -592,10 +592,10 @@ export default function ImportHub() {
       } else {
         showToast(`Errori durante l'elaborazione`, 'error');
       }
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Process error:', err);
-      setProcessResult({ success: false, imported: 0, errors: [{ message: err.message }] });
-      showToast('Errore elaborazione: ' + err.message, 'error');
+      setProcessResult({ success: false, imported: 0, errors: [{ message: (err as Error).message }] });
+      showToast('Errore elaborazione: ' + (err as Error).message, 'error');
     } finally {
       setProcessing(false);
       pendingFileRef.current = null;
@@ -642,9 +642,9 @@ export default function ImportHub() {
         stats: res.stats || {},
         errors: res.errors || [],
       });
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Errore calcolo match post-import:', err);
-      showToast('Errore nel calcolo match: ' + err.message, 'error');
+      showToast('Errore nel calcolo match: ' + (err as Error).message, 'error');
     } finally {
       setComputingMatches(false);
     }
@@ -679,9 +679,9 @@ export default function ImportHub() {
       } else {
         showToast(`Confermati ${ok} su ${matchModal.reconciled.length}. ${errs.length} errori.`, 'error');
       }
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Errore applicazione match:', err);
-      showToast('Errore applicazione match: ' + err.message, 'error');
+      showToast('Errore applicazione match: ' + (err as Error).message, 'error');
     } finally {
       setApplyingMatches(false);
       setMatchModal(null);

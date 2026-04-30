@@ -29,7 +29,8 @@ function fmt(n, dec = 2) {
   return new Intl.NumberFormat('it-IT', { minimumFractionDigits: dec, maximumFractionDigits: dec }).format(n)
 }
 
-function KpiCard({ title, value, subtitle, icon: Icon, color = 'blue' }) {
+// TODO: tighten type
+function KpiCard({ title, value, subtitle, icon: Icon, color = 'blue' }: any) {
   const colorMap = {
     blue: 'bg-blue-50 text-blue-600',
     green: 'bg-emerald-50 text-emerald-600',
@@ -325,7 +326,7 @@ function ModalLoan({ isOpen, isEdit, loan, onClose, onSave }) {
    Sezione: Conti Bancari
    ──────────────────────────────────────── */
 function SezioneBanche({ accounts, totalBanks, search, onAddEdit, onDelete, loading }) {
-  const [expanded, setExpanded] = useState(null)
+  const [expanded, setExpanded] = useState<any>(null)
 
   const filtered = accounts.filter(c =>
     !search ||
@@ -816,7 +817,7 @@ function SezioneComposizione({ accounts, totalLiquidity }) {
    ──────────────────────────────────────── */
 function SezioneMovimentiReali({ movements, setMovements, accounts, search, loading, onLoadMore, hasMore, selectedAccountId, onSelectAccount }) {
   const [subTab, setSubTab] = useState('tutti') // tutti, entrate, uscite, da_verificare
-  const [togglingId, setTogglingId] = useState(null)
+  const [togglingId, setTogglingId] = useState<any>(null)
 
   const filtered = useMemo(() => {
     let list = movements || []
@@ -1132,7 +1133,7 @@ function SezioneImport({ accounts, onImportComplete }) {
   const [selectedAccount, setSelectedAccount] = useState('')
   const [format, setFormat] = useState('standard')
   const [importing, setImporting] = useState(false)
-  const [importResult, setImportResult] = useState(null)
+  const [importResult, setImportResult] = useState<any>(null)
   const fileRef = useRef(null)
 
   const formats = [
@@ -1203,9 +1204,9 @@ function SezioneImport({ accounts, onImportComplete }) {
 
       setImportResult({ imported, errors, total: dataLines.length })
       onImportComplete()
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Import error:', err)
-      setImportResult({ imported: 0, errors: 1, total: 0, error: err.message })
+      setImportResult({ imported: 0, errors: 1, total: 0, error: (err as Error).message })
     } finally {
       setImporting(false)
       if (fileRef.current) fileRef.current.value = ''
@@ -1266,23 +1267,23 @@ function SezioneImport({ accounts, onImportComplete }) {
    ──────────────────────────────────────── */
 function SezioneRiconciliazione({ companyId, accounts }) {
   const [reconData, setReconData] = useState({ reconciled: [], suggested: [], unmatched: [] })
-  const [reconLog, setReconLog] = useState([])
+  const [reconLog, setReconLog] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState(null)
+  const [error, setError] = useState<any>(null)
   const [stats, setStats] = useState({ reconciled: 0, suggested: 0, unmatched: 0 })
   const [openSection, setOpenSection] = useState('suggested') // reconciled | suggested | unmatched
   const [logOpen, setLogOpen] = useState(false)
   const [filterAccountId, setFilterAccountId] = useState('')
   const [filterDateFrom, setFilterDateFrom] = useState('')
   const [filterDateTo, setFilterDateTo] = useState('')
-  const [actionLoading, setActionLoading] = useState(null) // id of item being acted upon
-  const [manualSearchOpen, setManualSearchOpen] = useState(null) // movementId for manual search
+  const [actionLoading, setActionLoading] = useState<any>(null) // id of item being acted upon
+  const [manualSearchOpen, setManualSearchOpen] = useState<any>(null) // movementId for manual search
   const [manualSearchQuery, setManualSearchQuery] = useState('')
-  const [unpaidPayables, setUnpaidPayables] = useState([])
+  const [unpaidPayables, setUnpaidPayables] = useState<any[]>([])
   const [payablesLoading, setPayablesLoading] = useState(false)
   const [initialLoaded, setInitialLoaded] = useState(false)
   const [hasRunThisSession, setHasRunThisSession] = useState(false)
-  const [expandedMovement, setExpandedMovement] = useState(null) // movementId expanded to show candidates
+  const [expandedMovement, setExpandedMovement] = useState<any>(null) // movementId expanded to show candidates
   // Pagination
   const PAGE_SIZE = 20
   const [reconciledPage, setReconciledPage] = useState(1)
@@ -1331,7 +1332,7 @@ function SezioneRiconciliazione({ companyId, accounts }) {
           setStats(prev => ({ ...prev, reconciled: reconciledItems.length }))
         }
         setInitialLoaded(true)
-      } catch (err) {
+      } catch (err: unknown) {
         console.error('Error loading persisted reconciliation state:', err)
         setInitialLoaded(true)
       }
@@ -1371,9 +1372,9 @@ function SezioneRiconciliazione({ companyId, accounts }) {
       setReconciledPage(1)
       setSuggestedPage(1)
       setUnmatchedPage(1)
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Reconciliation error:', err)
-      setError(err.message || 'Errore durante la riconciliazione')
+      setError((err as Error).message || 'Errore durante la riconciliazione')
     } finally {
       setLoading(false)
     }
@@ -1388,7 +1389,7 @@ function SezioneRiconciliazione({ companyId, accounts }) {
       const result = await getReconciliationLog(companyId, filters)
       setReconLog(result?.data || [])
       setLogPage(1)
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Log load error:', err)
       setReconLog([])
     }
@@ -1418,8 +1419,8 @@ function SezioneRiconciliazione({ companyId, accounts }) {
       })
       setExpandedMovement(null)
       setStats(prev => ({ ...prev, suggested: prev.suggested - 1, reconciled: prev.reconciled + 1 }))
-    } catch (err) {
-      alert('Errore: ' + (err.message || 'Impossibile confermare'))
+    } catch (err: unknown) {
+      alert('Errore: ' + ((err as Error).message || 'Impossibile confermare'))
     } finally {
       setActionLoading(null)
     }
@@ -1465,8 +1466,8 @@ function SezioneRiconciliazione({ companyId, accounts }) {
         }
       })
       setStats(prev => ({ ...prev, suggested: prev.suggested - 1, unmatched: prev.unmatched + 1 }))
-    } catch (err) {
-      alert('Errore: ' + (err.message || 'Impossibile rifiutare'))
+    } catch (err: unknown) {
+      alert('Errore: ' + ((err as Error).message || 'Impossibile rifiutare'))
     } finally {
       setActionLoading(null)
     }
@@ -1501,8 +1502,8 @@ function SezioneRiconciliazione({ companyId, accounts }) {
         }
       })
       setStats(prev => ({ ...prev, reconciled: prev.reconciled - 1, suggested: prev.suggested + 1 }))
-    } catch (err) {
-      alert('Errore: ' + (err.message || 'Impossibile scollegare'))
+    } catch (err: unknown) {
+      alert('Errore: ' + ((err as Error).message || 'Impossibile scollegare'))
     } finally {
       setActionLoading(null)
     }
@@ -1524,8 +1525,8 @@ function SezioneRiconciliazione({ companyId, accounts }) {
       setStats(prev => ({ ...prev, unmatched: prev.unmatched - 1, reconciled: prev.reconciled + 1 }))
       setManualSearchOpen(null)
       setManualSearchQuery('')
-    } catch (err) {
-      alert('Errore: ' + (err.message || 'Impossibile collegare'))
+    } catch (err: unknown) {
+      alert('Errore: ' + ((err as Error).message || 'Impossibile collegare'))
     } finally {
       setActionLoading(null)
     }
@@ -1543,7 +1544,7 @@ function SezioneRiconciliazione({ companyId, accounts }) {
         .order('due_date', { ascending: false })
         .limit(200)
       setUnpaidPayables(data || [])
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Error loading payables:', err)
     } finally {
       setPayablesLoading(false)
@@ -2206,21 +2207,21 @@ export default function Banche() {
   const { profile } = useAuth();
   const COMPANY_ID = profile?.company_id;
 
-  const [accounts, setAccounts] = useState([])
-  const [loans, setLoans] = useState([])
-  const [transactions, setTransactions] = useState([])
-  const [cashMovements, setCashMovements] = useState([])
+  const [accounts, setAccounts] = useState<any[]>([])
+  const [loans, setLoans] = useState<any[]>([])
+  const [transactions, setTransactions] = useState<any[]>([])
+  const [cashMovements, setCashMovements] = useState<any[]>([])
   const [cashMovementsLoading, setCashMovementsLoading] = useState(false)
   const [cashMovementsHasMore, setCashMovementsHasMore] = useState(true)
   const [cashMovementsLimit, setCashMovementsLimit] = useState(50)
-  const [cashMovementsAccountFilter, setCashMovementsAccountFilter] = useState(null)
-  const [payableActions, setPayableActions] = useState([])
+  const [cashMovementsAccountFilter, setCashMovementsAccountFilter] = useState<any>(null)
+  const [payableActions, setPayableActions] = useState<any[]>([])
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
   const [modalOpen, setModalOpen] = useState(false)
-  const [editingAccount, setEditingAccount] = useState(null)
+  const [editingAccount, setEditingAccount] = useState<any>(null)
   const [loanModalOpen, setLoanModalOpen] = useState(false)
-  const [editingLoan, setEditingLoan] = useState(null)
+  const [editingLoan, setEditingLoan] = useState<any>(null)
   const [searchParams] = useSearchParams()
   // Inizializza tab da URL query (?tab=riconciliazione) cosi il link dopo
   // import EC atterra direttamente sul pannello di riconciliazione
@@ -2230,7 +2231,7 @@ export default function Banche() {
     return 'conti'
   }) // conti, movimenti, riconciliazione
   const [syncAllLoading, setSyncAllLoading] = useState(false)
-  const [syncAllResult, setSyncAllResult] = useState(null)
+  const [syncAllResult, setSyncAllResult] = useState<any>(null)
   const [bankTxKpi, setBankTxKpi] = useState({ entrate: 0, uscite: 0, saldoNetto: 0 })
 
   useEffect(() => {
@@ -2335,9 +2336,9 @@ export default function Banche() {
         console.error('[Banche] Sync all error:', result)
         setSyncAllResult({ error: result.error || 'Errore sync' })
       }
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('[Banche] Sync all error:', err)
-      setSyncAllResult({ error: err.message })
+      setSyncAllResult({ error: (err as Error).message })
     } finally {
       setSyncAllLoading(false)
     }

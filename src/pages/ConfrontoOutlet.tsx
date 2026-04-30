@@ -16,7 +16,7 @@ import {
 import { GlassTooltip, ChartGradients, AXIS_STYLE, GRID_STYLE, BAR_RADIUS, ModernLegend, fmtEuro, fmtK } from '../components/ChartTheme'
 import { formatOutletName, shortOutletName } from '../lib/formatters'
 
-function fmt(n, dec = 0) {
+function fmt(n: number | null | undefined, dec = 0): string {
   if (n == null) return '—'
   return new Intl.NumberFormat('it-IT', { minimumFractionDigits: dec, maximumFractionDigits: dec }).format(n)
 }
@@ -24,7 +24,7 @@ function fmt(n, dec = 0) {
 /* ═══════════════════════════════════════
    KPI Badge small
    ═══════════════════════════════════════ */
-function KpiBadge({ label, value, sub, color = 'blue' }) {
+function KpiBadge({ label, value, sub, color = 'blue' }: { label: string; value: string | number; sub?: string; color?: string }) {
   const colors = {
     blue: 'bg-blue-50 text-blue-600 border-blue-100',
     green: 'bg-emerald-50 text-emerald-600 border-emerald-100',
@@ -44,7 +44,8 @@ function KpiBadge({ label, value, sub, color = 'blue' }) {
 /* ═══════════════════════════════════════
    CARD OUTLET — Singola colonna confronto
    ═══════════════════════════════════════ */
-function OutletCard({ name, outletData, calculatedMetrics, ranking, onNavigate }) {
+// TODO: tighten type
+function OutletCard({ name, outletData, calculatedMetrics, ranking, onNavigate }: any) {
   const [open, setOpen] = useState(false)
 
   if (!calculatedMetrics) {
@@ -220,7 +221,8 @@ function OutletCard({ name, outletData, calculatedMetrics, ranking, onNavigate }
 /* ═══════════════════════════════════════
    TABELLA BENCHMARK COMPARATIVA
    ═══════════════════════════════════════ */
-function TabellaBenchmark({ outletMetrics }) {
+// TODO: tighten type
+function TabellaBenchmark({ outletMetrics }: any) {
   if (!outletMetrics || outletMetrics.length === 0) return null
 
   const rows = outletMetrics.filter(o => o.calculatedMetrics).sort((a, b) =>
@@ -335,10 +337,10 @@ export default function ConfrontoOutlet() {
   const navigate = useNavigate()
   const COMPANY_ID = profile?.company_id
   const { year, quarter } = usePeriod()
-  const [outlets, setOutlets] = useState([])
-  const [budgetData, setBudgetData] = useState([])
-  const [employeeCosts, setEmployeeCosts] = useState([])
-  const [balanceData, setBalanceData] = useState([])
+  const [outlets, setOutlets] = useState<any[]>([])
+  const [budgetData, setBudgetData] = useState<any[]>([])
+  const [employeeCosts, setEmployeeCosts] = useState<any[]>([])
+  const [balanceData, setBalanceData] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [viewMode, setViewMode] = useState('budget') // 'budget', 'actual', 'variance'
   const [hasData, setHasData] = useState(false)
@@ -389,7 +391,7 @@ export default function ConfrontoOutlet() {
         setBalanceData(bsData || [])
         setEmployeeCosts(empCosts || [])
         setHasData((budgetEntries?.length || 0) > 0 || (bsData?.length || 0) > 0)
-      } catch (err) {
+      } catch (err: unknown) {
         console.error('Error loading data:', err)
       } finally {
         setLoading(false)
@@ -637,7 +639,7 @@ export default function ConfrontoOutlet() {
     : 0
 
   // Export Excel (CSV come fallback leggero)
-  function exportExcel() {
+  function exportExcel(): void {
     const rows = outletMetrics.filter(o => o.calculatedMetrics)
     if (!rows.length) return
     const header = ['Outlet','Ricavi','Margine','Margine %','Dipendenti','€/Dipendente','Costo personale','Affitto','Servizi','Merci','Breakeven','Quota sede','Approvazione %']

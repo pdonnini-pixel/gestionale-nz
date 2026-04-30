@@ -7,7 +7,7 @@ import { useAuth } from '../hooks/useAuth';
 import { usePeriod } from '../hooks/usePeriod';
 import PageHelp from '../components/PageHelp';
 
-function fmt(n, dec = 0) {
+function fmt(n: number, dec = 0) {
   return new Intl.NumberFormat('it-IT', { minimumFractionDigits: dec, maximumFractionDigits: dec }).format(n);
 }
 
@@ -16,12 +16,13 @@ export default function ScenarioPlanning() {
   // Anno sincronizzato col PeriodContext globale (selettore header).
   const { year: globalYear } = usePeriod();
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState<string | null>(null);
   const [year, setYear] = useState(globalYear || 2026);
   useEffect(() => { if (globalYear) setYear(globalYear); }, [globalYear]);
-  const [rawEntries, setRawEntries] = useState([]);
+  // TODO: tighten type
+  const [rawEntries, setRawEntries] = useState<any[]>([]);
   const [saving, setSaving] = useState(false);
-  const [saveMessage, setSaveMessage] = useState(null);
+  const [saveMessage, setSaveMessage] = useState<{ type: string; text: string } | null>(null);
 
   // Scenario sliders
   const [varRicavi, setVarRicavi] = useState(0);           // -30 to +50 %
@@ -46,9 +47,9 @@ export default function ScenarioPlanning() {
         const { data, error: fetchError } = await query;
         if (fetchError) throw fetchError;
         setRawEntries(data || []);
-      } catch (err) {
+      } catch (err: unknown) {
         console.error('[ScenarioPlanning] fetch error:', err);
-        setError(err.message);
+        setError((err as Error).message);
       } finally {
         setLoading(false);
       }
@@ -199,9 +200,9 @@ export default function ScenarioPlanning() {
       } else {
         setSaveMessage({ type: 'success', text: 'Scenario salvato con successo!' });
       }
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('[ScenarioPlanning] save error:', err);
-      setSaveMessage({ type: 'error', text: `Errore nel salvataggio: ${err.message}` });
+      setSaveMessage({ type: 'error', text: `Errore nel salvataggio: ${(err as Error).message}` });
     } finally {
       setSaving(false);
       setTimeout(() => setSaveMessage(null), 5000);

@@ -29,7 +29,8 @@ const COST_CENTER_LABEL_OVERRIDES = {
  * - Se label e' uguale al code (es. 'sede_magazzino' duplicato), pulisce
  * - Altrimenti: title case con sostituzione underscore -> spazio
  */
-function prettyCenterLabel(cc) {
+// TODO: tighten type
+function prettyCenterLabel(cc: any): string {
   if (!cc) return '—'
   const code = cc.code || cc
   const override = COST_CENTER_LABEL_OVERRIDES[code]
@@ -303,32 +304,32 @@ export default function BudgetControl() {
   const [tab, setTab] = useState('bp')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [toast, setToast] = useState(null)
+  const [toast, setToast] = useState<any>(null)
   const show = (msg, t = 'success') => { setToast({ msg, t }); setTimeout(() => setToast(null), 3000) }
 
   // Data
-  const [costCenters, setCostCenters] = useState([])
-  const [ceRawCosti, setCeRawCosti] = useState([])
-  const [ceRawRicavi, setCeRawRicavi] = useState([])
-  const [budgetEntries, setBudgetEntries] = useState([])
+  const [costCenters, setCostCenters] = useState<any[]>([])
+  const [ceRawCosti, setCeRawCosti] = useState<any[]>([])
+  const [ceRawRicavi, setCeRawRicavi] = useState<any[]>([])
+  const [budgetEntries, setBudgetEntries] = useState<any[]>([])
 
   // Cash-basis data from cash_movements
   const [cashTotals, setCashTotals] = useState({ entrate: 0, uscite: 0, netto: 0, count: 0 })
-  const [cashByMonth, setCashByMonth] = useState({}) // { month: { entrate, uscite } }
+  const [cashByMonth, setCashByMonth] = useState<Record<string, any>>({}) // { month: { entrate, uscite } }
   const [cashLoaded, setCashLoaded] = useState(false)
 
   // BP edits: { outletCode: { accountCode: amount } }
-  const [bpEdits, setBpEdits] = useState({})
+  const [bpEdits, setBpEdits] = useState<Record<string, any>>({})
 
   // Confronto state
   const [confOutlet, setConfOutlet] = useState('')
   const [confView, setConfView] = useState('annuale') // 'annuale' | 'mensile'
-  const [consEdits, setConsEdits] = useState({}) // consuntivo edits per outlet
-  const [rettEdits, setRettEdits] = useState({}) // rettifiche per outlet: { outletCode: { accountCode: amount } }
+  const [consEdits, setConsEdits] = useState<Record<string, any>>({}) // consuntivo edits per outlet
+  const [rettEdits, setRettEdits] = useState<Record<string, any>>({}) // rettifiche per outlet: { outletCode: { accountCode: amount } }
   // Monthly edits: { outletCode: { accountCode: [12 values] } }
-  const [prevMonthly, setPrevMonthly] = useState({})  // preventivo costi mensile
-  const [revMonthly, setRevMonthly] = useState({})    // ricavi previsti mensile
-  const [consMonthly, setConsMonthly] = useState({})   // consuntivo mensile
+  const [prevMonthly, setPrevMonthly] = useState<Record<string, any>>({})  // preventivo costi mensile
+  const [revMonthly, setRevMonthly] = useState<Record<string, any>>({})    // ricavi previsti mensile
+  const [consMonthly, setConsMonthly] = useState<Record<string, any>>({})   // consuntivo mensile
 
 
   // ─── LOAD CASH MOVEMENTS ─────────────────────────────────
@@ -371,7 +372,7 @@ export default function BudgetControl() {
       setCashTotals({ entrate: totalEntrate, uscite: totalUscite, netto: totalEntrate - totalUscite, count: data.length })
       setCashByMonth(byMonth)
       setCashLoaded(true)
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Error loading cash movements:', err)
       setCashLoaded(true)
     }
@@ -447,7 +448,7 @@ export default function BudgetControl() {
 
       // Load cash movements for cassa column
       await loadCashMovements()
-    } catch (err) { console.error(err) } finally { setLoading(false) }
+    } catch (err: unknown) { console.error(err) } finally { setLoading(false) }
   }
 
   // ─── TREES ─────────────────────────────────────────────────
@@ -568,7 +569,7 @@ export default function BudgetControl() {
   // I ricavi vengono dal bilancio filtrato per outlet (read-only, auto-salvati con saveBP)
 
   // ─── CONFIRM DIALOG STATE ────────────────────────────────
-  const [confirmAction, setConfirmAction] = useState(null)
+  const [confirmAction, setConfirmAction] = useState<any>(null)
   // confirmAction = { title, message, action: () => void }
 
   const clearOutlet = (code) => {

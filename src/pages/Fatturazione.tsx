@@ -16,8 +16,8 @@ import {
 
 // ─── Helpers ────────────────────────────────────────────────────────────
 
-const fmt = (n) => n != null ? Number(n).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'
-const fmtDate = (d) => d ? new Date(d).toLocaleDateString('it-IT') : '—'
+const fmt = (n: number | null | undefined): string => n != null ? Number(n).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'
+const fmtDate = (d: string | null | undefined): string => d ? new Date(d).toLocaleDateString('it-IT') : '—'
 
 const SDI_STATUS_CONFIG = {
   DRAFT: { label: 'Bozza', color: 'bg-slate-100 text-slate-700', icon: FileText },
@@ -39,7 +39,8 @@ const CORR_STATUS_CONFIG = {
   ERROR: { label: 'Errore', color: 'bg-red-100 text-red-700' },
 }
 
-function SdiStatusBadge({ status, configMap = SDI_STATUS_CONFIG }) {
+// TODO: tighten type
+function SdiStatusBadge({ status, configMap = SDI_STATUS_CONFIG }: any) {
   const cfg = configMap[status] || configMap.PENDING
   const Icon = cfg.icon || Clock
   return (
@@ -118,7 +119,7 @@ async function callEdgeFunction(fnName, method = 'GET', body = null, params = nu
 // ═══════════════════════════════════════════════════════════════════════
 
 function FatturePassive() {
-  const [invoices, setInvoices] = useState([])
+  const [invoices, setInvoices] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState('ALL')
@@ -137,9 +138,9 @@ function FatturePassive() {
   useEffect(() => {
     if (globalYear) setYearFilter(String(globalYear))
   }, [globalYear])
-  const [selectedInvoice, setSelectedInvoice] = useState(null)
+  const [selectedInvoice, setSelectedInvoice] = useState<any>(null)
   const [showXml, setShowXml] = useState(false)
-  const [viewingXml, setViewingXml] = useState(null) // XML content for InvoiceViewer
+  const [viewingXml, setViewingXml] = useState<any>(null) // XML content for InvoiceViewer
   const [uploading, setUploading] = useState(false)
 
   const loadInvoices = useCallback(async () => {
@@ -152,7 +153,7 @@ function FatturePassive() {
         .limit(500)
       if (error) throw error
       setInvoices(data || [])
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Errore caricamento fatture passive:', err)
     } finally {
       setLoading(false)
@@ -177,8 +178,8 @@ function FatturePassive() {
         alert(`Fattura ${result.data.action === 'created' ? 'importata' : 'aggiornata'}: ${result.data.invoice.invoice_number}`)
         loadInvoices()
       }
-    } catch (err) {
-      alert('Errore upload: ' + err.message)
+    } catch (err: unknown) {
+      alert('Errore upload: ' + (err as Error).message)
     } finally {
       setUploading(false)
       e.target.value = ''
@@ -186,7 +187,7 @@ function FatturePassive() {
   }
 
   // Carica XML multipli per associare xml_content alle fatture esistenti
-  const [xmlUpdateProgress, setXmlUpdateProgress] = useState(null)
+  const [xmlUpdateProgress, setXmlUpdateProgress] = useState<any>(null)
   const handleBulkXmlUpdate = async (e) => {
     const files = e.target.files
     if (!files || files.length === 0) return
@@ -217,7 +218,7 @@ function FatturePassive() {
           const { data, error } = await query.select('id')
           if (!error && data && data.length > 0) matched += data.length
         }
-      } catch (err) {
+      } catch (err: unknown) {
         console.error('Errore XML update:', file.name, err)
         errors++
       }
@@ -585,14 +586,14 @@ function FatturePassive() {
 // ═══════════════════════════════════════════════════════════════════════
 
 function FattureAttive() {
-  const [invoices, setInvoices] = useState([])
+  const [invoices, setInvoices] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
-  const [sending, setSending] = useState(null) // invoiceId in corso di invio
+  const [sending, setSending] = useState<any>(null) // invoiceId in corso di invio
   const [searchTerm, setSearchTerm] = useState('')
-  const [selectedInvoice, setSelectedInvoice] = useState(null)
+  const [selectedInvoice, setSelectedInvoice] = useState<any>(null)
   const [showXml, setShowXml] = useState(false)
-  const [viewingXml, setViewingXml] = useState(null)
+  const [viewingXml, setViewingXml] = useState<any>(null)
 
   const loadInvoices = useCallback(async () => {
     setLoading(true)
@@ -604,7 +605,7 @@ function FattureAttive() {
         .limit(500)
       if (error) throw error
       setInvoices(data || [])
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Errore caricamento fatture attive:', err)
     } finally {
       setLoading(false)
@@ -619,8 +620,8 @@ function FattureAttive() {
       await callEdgeFunction('sdi-generate-xml', 'POST', { invoiceId })
       alert('XML generato con successo')
       loadInvoices()
-    } catch (err) {
-      alert('Errore generazione XML: ' + err.message)
+    } catch (err: unknown) {
+      alert('Errore generazione XML: ' + (err as Error).message)
     }
   }
 
@@ -631,8 +632,8 @@ function FattureAttive() {
       const result = await callEdgeFunction('sdi-send', 'POST', { invoiceId })
       alert(`Fattura inviata! SDI ID: ${result.data.sdiId} (${result.data.environment})`)
       loadInvoices()
-    } catch (err) {
-      alert('Errore invio SDI: ' + err.message)
+    } catch (err: unknown) {
+      alert('Errore invio SDI: ' + (err as Error).message)
     } finally {
       setSending(null)
     }
@@ -673,8 +674,8 @@ function FattureAttive() {
       setShowForm(false)
       setForm({ invoice_number: '', invoice_date: new Date().toISOString().split('T')[0], tipo_documento: 'TD01', client_name: '', client_vat: '', client_fiscal_code: '', codice_destinatario: '', total_amount: '', taxable_amount: '', vat_amount: '', vat_rate: '22.00', payment_method: 'MP05', due_date: '', description: '' })
       loadInvoices()
-    } catch (err) {
-      alert('Errore creazione fattura: ' + err.message)
+    } catch (err: unknown) {
+      alert('Errore creazione fattura: ' + (err as Error).message)
     }
   }
 
@@ -1079,9 +1080,9 @@ function FattureAttive() {
 // ═══════════════════════════════════════════════════════════════════════
 
 function Corrispettivi() {
-  const [dailyRevenue, setDailyRevenue] = useState([])
-  const [corrispettiviLog, setCorrispettiviLog] = useState([])
-  const [outlets, setOutlets] = useState([])
+  const [dailyRevenue, setDailyRevenue] = useState<any[]>([])
+  const [corrispettiviLog, setCorrispettiviLog] = useState<any[]>([])
+  const [outlets, setOutlets] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedOutlet, setSelectedOutlet] = useState('ALL')
   const [viewSource, setViewSource] = useState('pos') // 'pos' | 'ade'
@@ -1105,7 +1106,7 @@ function Corrispettivi() {
       setDailyRevenue(enrich(revenue))
       setOutlets(outs || [])
       setCorrispettiviLog(enrich(corrLog))
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Errore caricamento corrispettivi:', err)
     } finally {
       setLoading(false)
@@ -1297,14 +1298,14 @@ function Corrispettivi() {
 
 export default function Fatturazione() {
   const [activeTab, setActiveTab] = useState('passive')
-  const [sdiStats, setSdiStats] = useState(null)
+  const [sdiStats, setSdiStats] = useState<any>(null)
   // Conteggio diretto da electronic_invoices — fonte unica per il badge
   // sul tab cosi' e' SEMPRE coerente con la tabella mostrata sotto. Prima
   // il badge usava sdiStats (edge function SDI) e il KPI 'Fatture passive'
   // usava la query DB — differivano di 4 unita'.
   const [invoiceCounts, setInvoiceCounts] = useState({ passive: 0, active: 0 })
   const [syncing, setSyncing] = useState(false)
-  const [syncResult, setSyncResult] = useState(null)
+  const [syncResult, setSyncResult] = useState<any>(null)
   const [syncKey, setSyncKey] = useState(0) // increment to force child refresh
 
   // Carica statistiche SDI globali (config + stato)
@@ -1312,7 +1313,7 @@ export default function Fatturazione() {
     try {
       const result = await callEdgeFunction('sdi-status-check', 'GET')
       setSdiStats(result.data)
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Errore caricamento statistiche SDI:', err)
     }
   }, [])
@@ -1329,8 +1330,8 @@ export default function Fatturazione() {
         passive: passiveRes.count || 0,
         active: activeRes.count || 0,
       })
-    } catch (err) {
-      console.warn('loadInvoiceCounts:', err.message)
+    } catch (err: unknown) {
+      console.warn('loadInvoiceCounts:', (err as Error).message)
     }
   }, [])
 
@@ -1368,8 +1369,8 @@ export default function Fatturazione() {
       // Refresh tabs data
       setSyncKey(prev => prev + 1)
       loadStats()
-    } catch (err) {
-      setSyncResult({ error: err.message })
+    } catch (err: unknown) {
+      setSyncResult({ error: (err as Error).message })
     } finally {
       setSyncing(false)
       // Auto-hide result after 8 seconds

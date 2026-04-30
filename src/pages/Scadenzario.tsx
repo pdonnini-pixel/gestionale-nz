@@ -8,12 +8,12 @@ import {
 } from 'lucide-react'
 
 // --- Utilità ---
-function fmt(n) {
+function fmt(n: number | null | undefined): string {
   if (n == null) return '—'
   return new Intl.NumberFormat('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)
 }
 
-function fmtDate(d) {
+function fmtDate(d: string | null | undefined): string {
   if (!d) return '—'
   return new Date(d).toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric' })
 }
@@ -64,13 +64,14 @@ const paymentGroups = [
 const RIBA_DAYS = { riba_30: 30, riba_60: 60, riba_90: 90, riba_120: 120 }
 
 // --- Componente Pill ---
-function StatusPill({ status }) {
+function StatusPill({ status }: { status: string }) {
   const cfg = statusConfig[status] || { label: status, bg: 'bg-gray-100 text-gray-600' }
   return <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-medium ${cfg.bg}`}>{cfg.label}</span>
 }
 
 // --- Modal Base ---
-function Modal({ open, onClose, title, children, wide }) {
+// TODO: tighten type
+function Modal({ open, onClose, title, children, wide }: any) {
   if (!open) return null
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={onClose}>
@@ -86,7 +87,8 @@ function Modal({ open, onClose, title, children, wide }) {
 }
 
 // --- Modal SALDA (con logica RIBA) ---
-function ModalSalda({ open, onClose, payable, bankAccounts, onConfirm }) {
+// TODO: tighten type
+function ModalSalda({ open, onClose, payable, bankAccounts, onConfirm }: any) {
   const [bankId, setBankId] = useState('')
   const [method, setMethod] = useState(payable?.payment_method || 'bonifico_ordinario')
   const [amount, setAmount] = useState('')
@@ -229,7 +231,8 @@ function ModalSalda({ open, onClose, payable, bankAccounts, onConfirm }) {
 }
 
 // --- Modal SOSPENDI ---
-function ModalSospendi({ open, onClose, payable, onConfirm }) {
+// TODO: tighten type
+function ModalSospendi({ open, onClose, payable, onConfirm }: any) {
   const [reason, setReason] = useState('')
   const [note, setNote] = useState('')
   const [saving, setSaving] = useState(false)
@@ -277,7 +280,8 @@ function ModalSospendi({ open, onClose, payable, onConfirm }) {
 }
 
 // --- Modal RIMANDA ---
-function ModalRimanda({ open, onClose, payable, onConfirm }) {
+// TODO: tighten type
+function ModalRimanda({ open, onClose, payable, onConfirm }: any) {
   const [newDate, setNewDate] = useState('')
   const [note, setNote] = useState('')
   const [saving, setSaving] = useState(false)
@@ -326,7 +330,8 @@ function ModalRimanda({ open, onClose, payable, onConfirm }) {
 }
 
 // --- Modal RATEIZZA (Rate multiple) ---
-function ModalRateizza({ open, onClose, payable, onConfirm }) {
+// TODO: tighten type
+function ModalRateizza({ open, onClose, payable, onConfirm }: any) {
   const [numRate, setNumRate] = useState(2)
   const [frequency, setFrequency] = useState(30) // days between installments
   const [saving, setSaving] = useState(false)
@@ -424,7 +429,8 @@ function ModalRateizza({ open, onClose, payable, onConfirm }) {
 }
 
 // --- Modal FORNITORE (edit/create) ---
-function ModalFornitore({ open, onClose, supplier, onSave }) {
+// TODO: tighten type
+function ModalFornitore({ open, onClose, supplier, onSave }: any) {
   const [form, setForm] = useState({
     ragione_sociale: '', partita_iva: '', codice_fiscale: '',
     iban: '', email: '', telefono: '', indirizzo: '', note: ''
@@ -519,7 +525,7 @@ function ModalFornitore({ open, onClose, supplier, onSave }) {
 }
 
 // --- XML FatturaPA Parser ---
-function parseFatturaPA(xmlText) {
+function parseFatturaPA(xmlText: string) {
   const parser = new DOMParser()
   const doc = parser.parseFromString(xmlText, 'text/xml')
 
@@ -578,7 +584,7 @@ function parseFatturaPA(xmlText) {
         payments,
       })
     }
-  } catch (err) {
+  } catch (err: unknown) {
     console.error('Error parsing FatturaPA XML:', err)
   }
 
@@ -599,30 +605,30 @@ const FATTURAPA_METHODS = {
 
 // --- Pagina principale ---
 export default function Scadenzario() {
-  const [payables, setPayables] = useState([])
-  const [bankAccounts, setBankAccounts] = useState([])
-  const [suppliers, setSuppliers] = useState([])
+  const [payables, setPayables] = useState<any[]>([])
+  const [bankAccounts, setBankAccounts] = useState<any[]>([])
+  const [suppliers, setSuppliers] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState('attive')
   const [search, setSearch] = useState('')
-  const [selected, setSelected] = useState(null)
-  const [modal, setModal] = useState(null) // 'salda', 'sospendi', 'rimanda', 'rateizza', 'fornitore', 'importXml'
+  const [selected, setSelected] = useState<any>(null)
+  const [modal, setModal] = useState<any>(null) // 'salda', 'sospendi', 'rimanda', 'rateizza', 'fornitore', 'importXml'
   const [tab, setTab] = useState('scadenze') // 'scadenze', 'fornitori', 'riconciliazione'
 
   // Fornitore edit state
-  const [editSupplier, setEditSupplier] = useState(null)
-  const [deleteConfirm, setDeleteConfirm] = useState(null)
+  const [editSupplier, setEditSupplier] = useState<any>(null)
+  const [deleteConfirm, setDeleteConfirm] = useState<any>(null)
 
   // XML import state
-  const [xmlParsed, setXmlParsed] = useState(null)
+  const [xmlParsed, setXmlParsed] = useState<any>(null)
   const [xmlImporting, setXmlImporting] = useState(false)
   const xmlInputRef = useRef(null)
 
   // Riconciliazione
-  const [reconPayments, setReconPayments] = useState([])
+  const [reconPayments, setReconPayments] = useState<any[]>([])
 
   // Incassi (bank_transactions con amount > 0)
-  const [incomes, setIncomes] = useState([])
+  const [incomes, setIncomes] = useState<any[]>([])
   const [incomesLoading, setIncomesLoading] = useState(false)
   const [incomeSearch, setIncomeSearch] = useState('')
   const [incomeBankFilter, setIncomeBankFilter] = useState('all')
@@ -647,8 +653,8 @@ export default function Scadenzario() {
         .limit(2000)
       if (error) throw error
       setIncomes(data || [])
-    } catch (err) {
-      console.warn('load incassi:', err.message)
+    } catch (err: unknown) {
+      console.warn('load incassi:', (err as Error).message)
       setIncomes([])
     } finally {
       setIncomesLoading(false)
@@ -877,7 +883,7 @@ export default function Scadenzario() {
       }
 
       setModal(null); setSelected(null); loadData()
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Error creating installments:', err)
       alert('Errore nella creazione delle rate')
     }
@@ -892,7 +898,7 @@ export default function Scadenzario() {
         await supabase.from('suppliers').insert(form)
       }
       setModal(null); setEditSupplier(null); loadData()
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Error saving supplier:', err)
       alert('Errore nel salvataggio del fornitore')
     }
@@ -902,7 +908,7 @@ export default function Scadenzario() {
     try {
       await supabase.from('suppliers').update({ is_deleted: true }).eq('id', id)
       setDeleteConfirm(null); loadData()
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Error deleting supplier:', err)
     }
   }
@@ -920,7 +926,7 @@ export default function Scadenzario() {
       }
       setXmlParsed(parsed)
       setModal('importXml')
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Error reading XML:', err)
       alert('Errore nella lettura del file XML')
     }
@@ -965,7 +971,7 @@ export default function Scadenzario() {
       }
 
       setXmlParsed(null); setModal(null); loadData()
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Error importing XML:', err)
       alert('Errore nell\'importazione')
     } finally {

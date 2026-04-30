@@ -35,7 +35,7 @@ import ExportMenu from '../components/ExportMenu';
 const MONTHS = ['Gen', 'Feb', 'Mar', 'Apr', 'Mag', 'Giu', 'Lug', 'Ago', 'Set', 'Ott', 'Nov', 'Dic'];
 const DAYS_SHORT = ['Dom', 'Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab'];
 
-const formatCurrency = (value) => {
+const formatCurrency = (value: number | null | undefined): string => {
   if (value === null || value === undefined) return '€ 0';
   return new Intl.NumberFormat('it-IT', {
     minimumFractionDigits: 0,
@@ -43,34 +43,34 @@ const formatCurrency = (value) => {
   }).format(value) + ' €';
 };
 
-const formatDate = (date) => {
+const formatDate = (date: string | Date): string => {
   const d = new Date(date);
   return `${d.getDate().toString().padStart(2, '0')}/${(d.getMonth() + 1).toString().padStart(2, '0')}`;
 };
 
-const formatDateFull = (date) => {
+const formatDateFull = (date: string | Date): string => {
   const d = new Date(date);
   return `${d.getDate().toString().padStart(2, '0')}/${(d.getMonth() + 1).toString().padStart(2, '0')}/${d.getFullYear()}`;
 };
 
-const parseMonth = (dateString) => {
+const parseMonth = (dateString: string | null | undefined): number | null => {
   if (!dateString) return null;
   const date = new Date(dateString);
   return date.getMonth(); // 0-11
 };
 
-const getMonthName = (month) => {
+const getMonthName = (month: number): string => {
   return MONTHS[month] || 'N/A';
 };
 
 // Helper: get ISO date string YYYY-MM-DD
-const toISODate = (date) => {
+const toISODate = (date: Date | string): string => {
   const d = new Date(date);
   return `${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, '0')}-${d.getDate().toString().padStart(2, '0')}`;
 };
 
 // Helper: get Monday of the week containing the given date
-const getWeekStart = (date) => {
+const getWeekStart = (date: Date): Date => {
   const d = new Date(date);
   const day = d.getDay();
   const diff = d.getDate() - day + (day === 0 ? -6 : 1); // Monday
@@ -87,25 +87,28 @@ export default function CashflowProspettico() {
   const [scenario, setScenario] = useState('base'); // 'base', 'ottimistico', 'pessimistico'
   const [viewMode, setViewMode] = useState('mensile'); // 'giornaliero' | 'settimanale' | 'mensile'
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState<string | null>(null);
 
   // Data state
   const [initialBalance, setInitialBalance] = useState(0);
-  const [costCenters, setCostCenters] = useState([]);
-  const [monthlyData, setMonthlyData] = useState([]);
+  // TODO: tighten type
+  const [costCenters, setCostCenters] = useState<any[]>([]);
+  const [monthlyData, setMonthlyData] = useState<any[]>([]);
   const [hasNegativeMonth, setHasNegativeMonth] = useState(false);
 
   // Raw data for daily/weekly views
-  const [rawPayables, setRawPayables] = useState([]);
-  const [rawDailyRevenue, setRawDailyRevenue] = useState([]);
-  const [rawOutlets, setRawOutlets] = useState([]);
-  const [rawRecurringCosts, setRawRecurringCosts] = useState([]);
-  const [rawLoans, setRawLoans] = useState([]);
-  const [rawBudgetConfronto, setRawBudgetConfronto] = useState([]);
-  const [rawBudgetRevenue, setRawBudgetRevenue] = useState([]);
+  // TODO: tighten type
+  const [rawPayables, setRawPayables] = useState<any[]>([]);
+  const [rawDailyRevenue, setRawDailyRevenue] = useState<any[]>([]);
+  const [rawOutlets, setRawOutlets] = useState<any[]>([]);
+  const [rawRecurringCosts, setRawRecurringCosts] = useState<any[]>([]);
+  const [rawLoans, setRawLoans] = useState<any[]>([]);
+  const [rawBudgetConfronto, setRawBudgetConfronto] = useState<any[]>([]);
+  const [rawBudgetRevenue, setRawBudgetRevenue] = useState<any[]>([]);
 
   // Actual monthly data from cash_movements
-  const [actualMonthlyData, setActualMonthlyData] = useState([]);
+  // TODO: tighten type
+  const [actualMonthlyData, setActualMonthlyData] = useState<any[]>([]);
 
   // Summary KPIs
   const [totalInflows, setTotalInflows] = useState(0);
@@ -113,11 +116,11 @@ export default function CashflowProspettico() {
   const [finalBalance, setFinalBalance] = useState(0);
 
   // Drill-down state
-  const [expandedRow, setExpandedRow] = useState(null); // index of expanded row
-  const [expandedColumn, setExpandedColumn] = useState(null); // 'entrate' | 'uscite'
+  const [expandedRow, setExpandedRow] = useState<number | null>(null); // index of expanded row
+  const [expandedColumn, setExpandedColumn] = useState<'entrate' | 'uscite' | null>(null); // 'entrate' | 'uscite'
 
   // Negative balance alert
-  const [negativeAlert, setNegativeAlert] = useState(null);
+  const [negativeAlert, setNegativeAlert] = useState<{ period: string; uscite: number; saldo: number } | null>(null);
 
   // Fetch all data
   useEffect(() => {
@@ -437,9 +440,9 @@ export default function CashflowProspettico() {
       setFinalBalance(cumulativeBalance);
       setHasNegativeMonth(foundNegative);
 
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Error fetching cashflow data:', err);
-      setError(err.message || 'Errore nel caricamento dei dati');
+      setError((err as Error).message || 'Errore nel caricamento dei dati');
     } finally {
       setLoading(false);
     }
@@ -839,7 +842,7 @@ export default function CashflowProspettico() {
   }, [viewMode, monthlyData, dailyData, weeklyData, year]);
 
   // ===== DRILL-DOWN DETAIL FOR MONTHLY VIEW =====
-  const getMonthlyDrillDown = (monthIdx, column) => {
+  const getMonthlyDrillDown = (monthIdx: number, column: string) => {
     const filteredOutlet = selectedOutlet === 'all' ? null : selectedOutlet;
     const outletIdToCode = {};
     const outletIdToName = {};
@@ -925,7 +928,7 @@ export default function CashflowProspettico() {
     }
   };
 
-  const handleDrillDown = (rowIdx, column) => {
+  const handleDrillDown = (rowIdx: number, column: 'entrate' | 'uscite') => {
     if (expandedRow === rowIdx && expandedColumn === column) {
       setExpandedRow(null);
       setExpandedColumn(null);
@@ -935,7 +938,7 @@ export default function CashflowProspettico() {
     }
   };
 
-  const getDrillDownItems = (rowIdx, column) => {
+  const getDrillDownItems = (rowIdx: number, column: string) => {
     if (viewMode === 'mensile') {
       return getMonthlyDrillDown(rowIdx, column);
     }
@@ -1457,7 +1460,7 @@ export default function CashflowProspettico() {
 }
 
 // ===== DRILL-DOWN PANEL COMPONENT =====
-function DrillDownPanel({ items, column, onClose }) {
+function DrillDownPanel({ items, column, onClose }: { items: { label: string; amount: number }[]; column: string; onClose: () => void }) {
   const isEntrate = column === 'entrate';
   const total = items.reduce((sum, item) => sum + (item.amount || 0), 0);
 

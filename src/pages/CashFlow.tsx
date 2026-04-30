@@ -9,7 +9,7 @@ import { useAuth } from '../hooks/useAuth';
 import { supabase } from '../lib/supabase';
 
 // Formatting utility
-function fmt(n, dec = 0) {
+function fmt(n: number, dec = 0) {
   return new Intl.NumberFormat('it-IT', {
     minimumFractionDigits: dec,
     maximumFractionDigits: dec
@@ -28,17 +28,19 @@ export default function CashFlow() {
 
   const [scenario, setScenario] = useState('base'); // 'base', 'pessimistic', 'optimistic'
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState<string | null>(null);
 
   // State for fetched data
   const [initialBalance, setInitialBalance] = useState(0);
   const [annualSales, setAnnualSales] = useState(2324000); // Default fallback
-  const [fixedCosts, setFixedCosts] = useState({});
+  // TODO: tighten type
+  const [fixedCosts, setFixedCosts] = useState<Record<string, number>>({});
   const [loanPayment, setLoanPayment] = useState(0);
-  const [seasonalFactors, setSeasonalFactors] = useState(DEFAULT_SEASONAL_FACTORS);
+  const [seasonalFactors, setSeasonalFactors] = useState<Record<number, number>>(DEFAULT_SEASONAL_FACTORS);
 
   // State for actual (consuntivo) weekly data from cash_movements
-  const [actualWeeklyData, setActualWeeklyData] = useState([]);
+  // TODO: tighten type
+  const [actualWeeklyData, setActualWeeklyData] = useState<any[]>([]);
 
   // Fetch data from Supabase
   useEffect(() => {
@@ -200,9 +202,9 @@ export default function CashFlow() {
         }
 
         setLoading(false);
-      } catch (err) {
+      } catch (err: unknown) {
         console.error('Error fetching CashFlow data:', err);
-        setError(err.message);
+        setError((err as Error).message);
         setLoading(false);
       }
     };

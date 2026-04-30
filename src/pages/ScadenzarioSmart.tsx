@@ -31,7 +31,8 @@ import { useAuth } from '../hooks/useAuth';
  *   - 0..30 giorni     -> 'in_scadenza' (allineato al filtro 'Prossimi 30gg')
  *   - oltre 30 giorni  -> 'da_pagare'
  */
-function calculatePayableStatus(p) {
+// TODO: tighten type
+function calculatePayableStatus(p: any): string {
   const TERMINAL = new Set(['pagato', 'nota_credito', 'sospeso', 'rimandato', 'annullato', 'parziale']);
   if (p.status && TERMINAL.has(p.status)) return p.status;
   if (p.payment_date) return 'pagato';
@@ -51,7 +52,7 @@ function calculatePayableStatus(p) {
  * Sempre formato italiano "1.234,56" con simbolo o senza, due decimali.
  * Usato per Fix 5.3 (formato numeri inconsistente).
  */
-function formatCurrency(n) {
+function formatCurrency(n: number | null | undefined): string {
   if (n == null || isNaN(Number(n))) return '—';
   return new Intl.NumberFormat('it-IT', {
     minimumFractionDigits: 2,
@@ -59,7 +60,7 @@ function formatCurrency(n) {
   }).format(Number(n)) + ' €';
 }
 
-function fmt(n) {
+function fmt(n: number | null | undefined): string {
   if (n == null) return '—'
   // Parsing robusto. Supabase puo' ritornare gross_amount come:
   //   - number (1234.56) -> ok
@@ -89,7 +90,7 @@ function fmt(n) {
   }).format(num)
 }
 
-function fmtDate(d) {
+function fmtDate(d: string | null | undefined): string {
   if (!d) return '—'
   return new Date(d).toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric' })
 }
@@ -147,12 +148,13 @@ const paymentGroups = [
 const RIBA_DAYS = { riba_30: 30, riba_60: 60, riba_90: 90, riba_120: 120 };
 
 // Status pill component — delegates to shared StatusBadge
-function StatusPill({ status }) {
+function StatusPill({ status }: { status: string }) {
   return <StatusBadge status={status} size="sm" />
 }
 
 // Modal component
-function Modal({ open, onClose, title, children, wide }) {
+// TODO: tighten type
+function Modal({ open, onClose, title, children, wide }: any) {
   if (!open) return null
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={onClose}>
@@ -179,46 +181,46 @@ const ScadenzarioSmart = () => {
 
   const [section, setSection] = useState('scadenze'); // 'situazione' | 'scadenze' | 'ricorrenti' | 'regole'
   const [loading, setLoading] = useState(true);
-  const [payables, setPayables] = useState([]);
-  const [fiscalDeadlines, setFiscalDeadlines] = useState([]);
+  const [payables, setPayables] = useState<any[]>([]);
+  const [fiscalDeadlines, setFiscalDeadlines] = useState<any[]>([]);
   const [sourceFilter, setSourceFilter] = useState('tutte'); // 'tutte' | 'fornitori' | 'fiscali'
 
   // Tab Incassi: i VERI incassi sono i movimenti in entrata dagli estratti
   // conto (bank_transactions.amount > 0), NON le payables pagate. La tabella
   // payables mostrava '0,00 €' di totale perche' i payables pagati sono
   // spese saldate, non incassi.
-  const [bankIncomes, setBankIncomes] = useState([]);
+  const [bankIncomes, setBankIncomes] = useState<any[]>([]);
   const [bankIncomesLoading, setBankIncomesLoading] = useState(false);
   // Filtri dedicati al tab Incassi: tipo (POS/Contanti/Bonifico/…) + banca.
   // Sono indipendenti dai filtri dei Pagamenti (che non hanno senso per
   // movimenti bancari in entrata).
   const [incomeTypeFilter, setIncomeTypeFilter] = useState('all');
   const [incomeBankFilter, setIncomeBankFilter] = useState('all');
-  const [suppliers, setSuppliers] = useState([]);
-  const [bankAccounts, setBankAccounts] = useState([]);
+  const [suppliers, setSuppliers] = useState<any[]>([]);
+  const [bankAccounts, setBankAccounts] = useState<any[]>([]);
   const [cashPosition, setCashPosition] = useState(0);
 
   const [viewMode, setViewMode] = useState('timeline');
   const [scadViewMode, setScadViewMode] = useState('lista'); // 'lista' | 'calendario'
   const [calendarMonth, setCalendarMonth] = useState(new Date());
-  const [selectedCalendarDay, setSelectedCalendarDay] = useState(null);
+  const [selectedCalendarDay, setSelectedCalendarDay] = useState<any>(null);
   const [selectedOutlet, setSelectedOutlet] = useState('');
   const [selectedStatus, setSelectedStatus] = useState('');
   const [searchTerm, setSearchTerm] = useState(urlSearch || '');
   const [isSaving, setIsSaving] = useState(false);
 
   const [selectedIds, setSelectedIds] = useState(new Set());
-  const [paymentPlan, setPaymentPlan] = useState({});
+  const [paymentPlan, setPaymentPlan] = useState<Record<string, any>>({});
   const [emailRecipients, setEmailRecipients] = useState('');
   const [showEmailConfig, setShowEmailConfig] = useState(false);
-  const [confirmResult, setConfirmResult] = useState(null);
-  const [selectedMethodGroup, setSelectedMethodGroup] = useState(null);
-  const [supplierDetail, setSupplierDetail] = useState(null);
-  const [viewingXml, setViewingXml] = useState(null);
-  const [categories, setCategories] = useState([]);
-  const [categoryDropdownId, setCategoryDropdownId] = useState(null);
+  const [confirmResult, setConfirmResult] = useState<any>(null);
+  const [selectedMethodGroup, setSelectedMethodGroup] = useState<any>(null);
+  const [supplierDetail, setSupplierDetail] = useState<any>(null);
+  const [viewingXml, setViewingXml] = useState<any>(null);
+  const [categories, setCategories] = useState<any[]>([]);
+  const [categoryDropdownId, setCategoryDropdownId] = useState<any>(null);
   const [categorySearch, setCategorySearch] = useState('');
-  const [statusDropdownId, setStatusDropdownId] = useState(null);
+  const [statusDropdownId, setStatusDropdownId] = useState<any>(null);
 
   // Selection helpers
   const toggleSelect = (id, payable) => {
@@ -535,8 +537,8 @@ const ScadenzarioSmart = () => {
 
       rows.sort((a, b) => new Date(b.transaction_date || 0) - new Date(a.transaction_date || 0));
       setBankIncomes(rows);
-    } catch (err) {
-      console.warn('load bank incomes:', err.message);
+    } catch (err: unknown) {
+      console.warn('load bank incomes:', (err as Error).message);
       setBankIncomes([]);
     } finally {
       setBankIncomesLoading(false);
