@@ -1,5 +1,5 @@
-import { Outlet, useLocation, NavLink } from 'react-router-dom'
-import { useState } from 'react'
+import { Outlet, useLocation, NavLink, useNavigate } from 'react-router-dom'
+import { useState, useEffect, useRef } from 'react'
 import Sidebar, { BREADCRUMB_MAP } from './Sidebar'
 import NotificationBell from './NotificationBell'
 import HelpPanel from './HelpPanel'
@@ -8,7 +8,8 @@ import { useAuth } from '../hooks/useAuth'
 import { usePeriod } from '../hooks/usePeriod'
 import {
   Menu, Search, ChevronRight,
-  LayoutDashboard, Store, Receipt, User
+  LayoutDashboard, Store, Receipt, User,
+  UserCircle, Settings, LogOut
 } from 'lucide-react'
 
 // ─── PERIOD SELECTOR ──────────────────────────────────────────
@@ -97,11 +98,125 @@ function BottomNav() {
   )
 }
 
+// ─── PROFILE MENU ─────────────────────────────────────────────
+// Fix 9.2: l'avatar+nome utente non era cliccabile (era un <div>).
+// Ora apre un dropdown con: Profilo, Impostazioni, Esci.
+function ProfileMenu() {
+  const { profile, signOut } = useAuth()
+  const navigate = useNavigate()
+  const [open, setOpen] = useState(false)
+  const ref = useRef(null)
+
+  // Click-outside per chiudere il menu
+  useEffect(() => {
+    if (!open) return
+    function onClick(e) {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false)
+    }
+    function onEsc(e) {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', onClick)
+    document.addEventListener('keydown', onEsc)
+    return () => {
+      document.removeEventListener('mousedown', onClick)
+      document.removeEventListener('keydown', onEsc)
+    }
+  }, [open])
+
+  const initials = (profile?.first_name?.[0] || '') + (profile?.last_name?.[0] || '')
+  const fullName = [profile?.first_name, profile?.last_name].filter(Boolean).join(' ')
+
+  async function handleSignOut() {
+    setOpen(false)
+    await signOut()
+    navigate('/login', { replace: true })
+  }
+
+  function go(path) {
+    setOpen(false)
+    navigate(path)
+  }
+
+  return (
+    <div className="relative hidden sm:block" ref={ref}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="flex items-center gap-2 pl-2 border-l border-slate-200 ml-1 py-1 pr-2 rounded-r-lg hover:bg-slate-50 transition"
+        title={fullName || 'Profilo'}
+        aria-haspopup="menu"
+        aria-expanded={open}
+      >
+        <div className="w-7 h-7 rounded-full bg-blue-100 flex items-center justify-center text-xs font-bold text-blue-700">
+          {initials || <User size={14} />}
+        </div>
+        <span className="text-sm text-slate-600 font-medium hidden lg:inline">
+          {profile?.first_name}
+        </span>
+      </button>
+
+      {open && (
+        <div
+          role="menu"
+          className="absolute right-0 top-full mt-1 w-56 bg-white rounded-xl shadow-lg border border-slate-200 py-1 z-50"
+        >
+          <div className="px-3 py-2 border-b border-slate-100">
+            <div className="text-sm font-semibold text-slate-900 truncate">
+              {fullName || 'Utente'}
+            </div>
+            {profile?.email && (
+              <div className="text-xs text-slate-500 truncate">{profile.email}</div>
+            )}
+          </div>
+          <button
+            role="menuitem"
+            onClick={() => go('/impostazioni')}
+            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 transition"
+          >
+            <UserCircle size={16} className="text-slate-400" />
+            Profilo
+          </button>
+          <button
+            role="menuitem"
+            onClick={() => go('/impostazioni')}
+            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 transition"
+          >
+            <Settings size={16} className="text-slate-400" />
+            Impostazioni
+          </button>
+          <div className="border-t border-slate-100 my-1" />
+          <button
+            role="menuitem"
+            onClick={handleSignOut}
+            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 transition"
+          >
+            <LogOut size={16} />
+            Esci
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── LAYOUT ───────────────────────────────────────────────────
 export default function Layout() {
-  const { profile } = useAuth()
   const [mobileOpen, setMobileOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
+
+  // Fix 9.3: shortcut Cmd+K (Mac) / Ctrl+K (Win) per aprire la ricerca
+  // globale. Centralizzato qui in modo che lo stesso stato controlli sia
+  // il pulsante search del topbar che lo shortcut da tastiera.
+  useEffect(() => {
+    function onKeyDown(e) {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault()
+        setSearchOpen(prev => !prev)
+      }
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [])
 
   return (
     <div className="flex h-screen overflow-hidden">
@@ -134,14 +249,7 @@ export default function Layout() {
               <Search size={18} />
             </button>
             <NotificationBell />
-            <div className="hidden sm:flex items-center gap-2 pl-2 border-l border-slate-200 ml-1">
-              <div className="w-7 h-7 rounded-full bg-blue-100 flex items-center justify-center text-xs font-bold text-blue-700">
-                {(profile?.first_name?.[0] || '') + (profile?.last_name?.[0] || '')}
-              </div>
-              <span className="text-sm text-slate-600 font-medium hidden lg:inline">
-                {profile?.first_name}
-              </span>
-            </div>
+            <ProfileMenu />
           </div>
         </header>
 
@@ -157,8 +265,8 @@ export default function Layout() {
         <HelpPanel />
       </div>
 
-      {/* Global search overlay — always mounted, internally manages open state via Cmd+K */}
-      <GlobalSearch />
+      {/* Global search overlay — controlled da Layout, apribile via Cmd+K o pulsante topbar */}
+      <GlobalSearch open={searchOpen} onClose={() => setSearchOpen(false)} />
     </div>
   )
 }

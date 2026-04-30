@@ -12,11 +12,23 @@ const SEARCH_CATEGORIES = [
   { key: 'employees', label: 'Dipendenti', icon: Users, color: 'sky' },
 ]
 
-export default function GlobalSearch() {
+// Fix 9.3: GlobalSearch ora accetta `open`/`onClose` come prop per poter
+// essere aperto sia da Cmd+K che dal pulsante search del topbar. Se le
+// prop non sono fornite, mantiene retro-compatibilità con stato interno.
+export default function GlobalSearch({ open: openProp, onClose }) {
   const { profile } = useAuth()
   const navigate = useNavigate()
   const COMPANY_ID = profile?.company_id
-  const [open, setOpen] = useState(false)
+  const [internalOpen, setInternalOpen] = useState(false)
+  const open = openProp !== undefined ? openProp : internalOpen
+  const setOpen = (v) => {
+    if (openProp !== undefined) {
+      // Modalità controllata: chiudo via callback
+      if (!v && onClose) onClose()
+    } else {
+      setInternalOpen(typeof v === 'function' ? v(internalOpen) : v)
+    }
+  }
   const [query, setQuery] = useState('')
   const [results, setResults] = useState({})
   const [loading, setLoading] = useState(false)
@@ -24,18 +36,19 @@ export default function GlobalSearch() {
   const inputRef = useRef(null)
   const debounceRef = useRef(null)
 
-  // Cmd+K shortcut
+  // Cmd+K shortcut — solo se non controllato dall'esterno
   useEffect(() => {
+    if (openProp !== undefined) return
     function onKeyDown(e) {
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
         e.preventDefault()
-        setOpen(prev => !prev)
+        setInternalOpen(prev => !prev)
       }
-      if (e.key === 'Escape') setOpen(false)
+      if (e.key === 'Escape') setInternalOpen(false)
     }
     document.addEventListener('keydown', onKeyDown)
     return () => document.removeEventListener('keydown', onKeyDown)
-  }, [])
+  }, [openProp])
 
   // Focus input when opened
   useEffect(() => {
@@ -64,16 +77,24 @@ export default function GlobalSearch() {
     const res = {}
 
     try {
+      // Fix 9.3: query suppliers usava 'business_name' che non esiste → la
+      // tabella ha 'ragione_sociale' (campo IT) con fallback 'name' (campo
+      // legacy), 'partita_iva' (con fallback 'vat_number').
       const [outlets, suppliers, invoices, movements, employees] = await Promise.all([
         supabase.from('outlets').select('id, name, city').eq('company_id', COMPANY_ID).ilike('name', qLower).limit(5),
-        supabase.from('suppliers').select('id, business_name, vat_number').eq('company_id', COMPANY_ID).ilike('business_name', qLower).limit(5),
+        supabase.from('suppliers').select('id, ragione_sociale, name, partita_iva, vat_number').eq('company_id', COMPANY_ID).or(`ragione_sociale.ilike.${qLower},name.ilike.${qLower}`).limit(5),
         supabase.from('electronic_invoices').select('id, invoice_number, supplier_name, total_amount').eq('company_id', COMPANY_ID).or(`invoice_number.ilike.${qLower},supplier_name.ilike.${qLower}`).limit(5),
         supabase.from('cash_movements').select('id, description, counterpart, amount, date').eq('company_id', COMPANY_ID).or(`description.ilike.${qLower},counterpart.ilike.${qLower}`).limit(5),
         supabase.from('user_profiles').select('id, first_name, last_name, role').eq('company_id', COMPANY_ID).or(`first_name.ilike.${qLower},last_name.ilike.${qLower}`).limit(5),
       ])
 
       if (outlets.data?.length) res.outlets = outlets.data.map(o => ({ id: o.id, title: o.name, subtitle: o.city, url: '/outlet' }))
-      if (suppliers.data?.length) res.suppliers = suppliers.data.map(s => ({ id: s.id, title: s.business_name, subtitle: s.vat_number, url: '/fornitori' }))
+      if (suppliers.data?.length) res.suppliers = suppliers.data.map(s => ({
+        id: s.id,
+        title: s.ragione_sociale || s.name || '—',
+        subtitle: s.partita_iva || s.vat_number || '',
+        url: `/fornitori/${s.id}/scheda-contabile`,
+      }))
       if (invoices.data?.length) res.invoices = invoices.data.map(i => ({ id: i.id, title: `${i.invoice_number || 'Fattura'}`, subtitle: `${i.supplier_name || ''} — €${Number(i.total_amount || 0).toLocaleString('it-IT')}`, url: '/fatturazione' }))
       if (movements.data?.length) res.movements = movements.data.map(m => ({ id: m.id, title: m.counterpart || m.description?.slice(0, 50), subtitle: `€${Number(m.amount || 0).toLocaleString('it-IT')} — ${m.date}`, url: '/banche' }))
       if (employees.data?.length) res.employees = employees.data.map(e => ({ id: e.id, title: `${e.first_name} ${e.last_name}`, subtitle: e.role, url: '/dipendenti' }))

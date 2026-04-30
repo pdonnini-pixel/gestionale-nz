@@ -173,26 +173,30 @@ export default function SchedaContabileFornitore() {
   }, [filteredPayables]);
 
   // KPIs — gestione Note Credito
+  // Fix 9.1: il "Pagato" ora esclude le note di credito (status='nota_credito'
+  // o gross_amount<=0) che prima venivano sommate qui e producevano totali
+  // negativi (caso GGZ SRL).
   const kpis = useMemo(() => {
+    const isNotaCredito = (p) => p.status === 'nota_credito' || parseFloat(p.gross_amount || 0) < 0;
     const totFatturato = payables.filter(p => parseFloat(p.gross_amount || 0) > 0)
       .reduce((s, p) => s + parseFloat(p.gross_amount || 0), 0);
-    const totCrediti = payables.filter(p => p.status === 'nota_credito' || parseFloat(p.gross_amount || 0) < 0)
+    const totCrediti = payables.filter(isNotaCredito)
       .reduce((s, p) => s + Math.abs(parseFloat(p.gross_amount || 0)), 0);
-    const totPagato = payables.filter(p => p.status === 'pagato')
+    const totPagato = payables.filter(p => p.status === 'pagato' && !isNotaCredito(p))
       .reduce((s, p) => s + parseFloat(p.gross_amount || 0), 0);
     const esposto = totFatturato - totCrediti - totPagato;
     const scadute = payables.filter(p => p.status === 'scaduto').length;
     return { totFatturato, totPagato, totCrediti, esposto, scadute, totali: payables.length };
   }, [payables]);
 
-  // Year totals
+  // Year totals — stesso filtro: una nota credito 'pagata' non va in tot.pagato
   const yearTotals = useMemo(() => {
     const tot = { net: 0, vat: 0, gross: 0, pagato: 0, count: fattureGrouped.length };
     fattureGrouped.forEach(f => {
       tot.net += f.net_amount;
       tot.vat += f.vat_amount;
       tot.gross += f.gross_amount;
-      if (f.status === 'pagato') tot.pagato += f.gross_amount;
+      if (f.status === 'pagato' && f.gross_amount > 0) tot.pagato += f.gross_amount;
     });
     return tot;
   }, [fattureGrouped]);
@@ -347,6 +351,7 @@ export default function SchedaContabileFornitore() {
       <div class="kpi">
         <div class="kpi-card"><div class="kpi-label">Fatturato</div><div class="kpi-value">${fmtEUR(kpis.totFatturato)}</div></div>
         <div class="kpi-card"><div class="kpi-label">Pagato</div><div class="kpi-value" style="color:#16a34a">${fmtEUR(kpis.totPagato)}</div></div>
+        ${kpis.totCrediti > 0 ? `<div class="kpi-card"><div class="kpi-label">Note credito</div><div class="kpi-value" style="color:#7c3aed">${fmtEUR(kpis.totCrediti)}</div></div>` : ''}
         <div class="kpi-card"><div class="kpi-label">Esposto</div><div class="kpi-value" style="color:#dc2626">${fmtEUR(kpis.esposto)}</div></div>
         <div class="kpi-card"><div class="kpi-label">Scadute</div><div class="kpi-value" style="color:#d97706">${kpis.scadute}/${kpis.totali}</div></div>
       </div>
@@ -464,7 +469,7 @@ export default function SchedaContabileFornitore() {
         </div>
 
         {/* KPI Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
+        <div className={`grid grid-cols-2 md:grid-cols-4 ${kpis.totCrediti > 0 ? 'lg:grid-cols-5' : ''} gap-4 mt-6`}>
           <div className="rounded-xl bg-blue-50 p-4 text-center">
             <div className="text-xs text-blue-600 uppercase font-semibold">Totale fatturato</div>
             <div className="text-lg font-bold text-blue-900 mt-1">{fmtEUR(kpis.totFatturato)}</div>
@@ -473,6 +478,13 @@ export default function SchedaContabileFornitore() {
             <div className="text-xs text-emerald-600 uppercase font-semibold">Totale pagato</div>
             <div className="text-lg font-bold text-emerald-900 mt-1">{fmtEUR(kpis.totPagato)}</div>
           </div>
+          {/* Fix 9.1: Note credito mostrate come KPI separato (non sommate al pagato) */}
+          {kpis.totCrediti > 0 && (
+            <div className="rounded-xl bg-violet-50 p-4 text-center">
+              <div className="text-xs text-violet-600 uppercase font-semibold">Note credito</div>
+              <div className="text-lg font-bold text-violet-900 mt-1">{fmtEUR(kpis.totCrediti)}</div>
+            </div>
+          )}
           <div className={`rounded-xl p-4 text-center ${kpis.esposto > 0 ? 'bg-red-50' : 'bg-slate-50'}`}>
             <div className={`text-xs uppercase font-semibold ${kpis.esposto > 0 ? 'text-red-600' : 'text-slate-500'}`}>Esposto</div>
             <div className={`text-lg font-bold mt-1 ${kpis.esposto > 0 ? 'text-red-900' : 'text-slate-700'}`}>{fmtEUR(kpis.esposto)}</div>
