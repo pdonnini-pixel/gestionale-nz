@@ -46,6 +46,57 @@ function prettyCenterLabel(cc) {
   return raw
 }
 
+// Fix 13.3: voci di bilancio (account_name) lunghe e tecniche → mappa di
+// abbreviazioni leggibili. Il nome completo originale resta sempre
+// disponibile come tooltip (title=node.description sulle <span>).
+// Estendere qui ogni volta che incontriamo un nuovo account_name lungo.
+const ACCOUNT_NAME_ABBREVIATIONS = {
+  'Variazione rimanenze materie prime sussidiarie e di consumo': 'Var. rimanenze MP',
+  'Variazione rimanenze materie prime, sussidiarie e di consumo': 'Var. rimanenze MP',
+  'Variazione rimanenze prodotti finiti': 'Var. rimanenze PF',
+  'Variazione rimanenze semilavorati': 'Var. rimanenze SL',
+  'Variazione lavori in corso su ordinazione': 'Var. lavori in corso',
+  'Variazione delle rimanenze di prodotti in corso di lavorazione, semilavorati e finiti': 'Var. riman. prodotti',
+  'Materie prime, sussidiarie, di consumo e merci': 'Materie prime / merci',
+  'Materie prime sussidiarie di consumo e merci': 'Materie prime / merci',
+  'Acquisti materie prime, sussidiarie, di consumo e merci': 'Acquisti MP / merci',
+  'Costi per servizi': 'Servizi',
+  'Costi per godimento beni di terzi': 'Godimento beni terzi',
+  'Godimento beni di terzi': 'Godimento beni terzi',
+  'Salari e stipendi': 'Salari e stipendi',
+  'Trattamento di fine rapporto': 'TFR',
+  'Trattamento di quiescenza e simili': 'Quiescenza',
+  'Altri costi del personale': 'Altri costi pers.',
+  'Ammortamenti delle immobilizzazioni immateriali': 'Amm. immat.',
+  'Ammortamenti delle immobilizzazioni materiali': 'Amm. mat.',
+  'Altre svalutazioni delle immobilizzazioni': 'Svalutaz. immob.',
+  'Svalutazione dei crediti compresi nell\'attivo circolante': 'Svalut. crediti',
+  'Variazioni delle rimanenze di materie prime, sussidiarie, di consumo e merci': 'Var. rimanenze MP / merci',
+  'Accantonamenti per rischi': 'Accant. rischi',
+  'Altri accantonamenti': 'Altri accant.',
+  'Oneri diversi di gestione': 'Oneri diversi gest.',
+  'Proventi e oneri finanziari': 'Proventi/oneri finanz.',
+  'Rettifiche di valore di attivita\' finanziarie': 'Rett. attiv. finanz.',
+  'Imposte sul reddito dell\'esercizio, correnti, differite e anticipate': 'Imposte esercizio',
+}
+
+/**
+ * Restituisce un nome compatto per la voce di bilancio se troppo lunga
+ * (>30 caratteri). Altrimenti torna il nome originale invariato.
+ * Il chiamante DEVE usare title={originale} per il tooltip.
+ */
+function prettifyAccountName(name) {
+  if (!name || typeof name !== 'string') return name || ''
+  const direct = ACCOUNT_NAME_ABBREVIATIONS[name.trim()]
+  if (direct) return direct
+  // Match case-insensitive sul testo
+  const lower = name.trim().toLowerCase()
+  for (const [k, v] of Object.entries(ACCOUNT_NAME_ABBREVIATIONS)) {
+    if (k.toLowerCase() === lower) return v
+  }
+  return name
+}
+
 function ConfirmDialog({ title, message, onConfirm, onCancel, confirmLabel = 'Svuota', destructive = true }) {
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={onCancel}>
@@ -160,8 +211,11 @@ function TreeNodeEdit({ node, depth = 0, edits, onEdit }) {
         <span className="w-4 shrink-0 text-center text-[10px] text-slate-400">{hasKids ? (open ? '▾' : '▸') : ''}</span>
         <span className={`font-mono text-slate-400 shrink-0 ml-0.5 ${isMacro ? 'text-[11px] font-bold' : 'text-[10px]'}`}
           style={{ width: node.code?.length > 4 ? '50px' : '26px' }}>{node.code}</span>
-        <span className={`truncate ml-1 flex-1 ${isMacro ? 'text-[11px] font-bold text-slate-900' : 'text-[11px] text-slate-600'}`}>
-          {node.description}
+        <span
+          className={`truncate ml-1 flex-1 ${isMacro ? 'text-[11px] font-bold text-slate-900' : 'text-[11px] text-slate-600'}`}
+          title={node.description}
+        >
+          {prettifyAccountName(node.description)}
         </span>
         {isLeaf ? (
           <input type="text" inputMode="numeric"
@@ -203,7 +257,12 @@ function TreeNodeView({ node, depth = 0 }) {
         <span className="text-slate-400 w-4 shrink-0 text-center text-[10px]">{hasKids ? (open ? '▾' : '▸') : ''}</span>
         <span className={`font-mono text-slate-400 shrink-0 ${isMacro ? 'text-[11px] font-bold' : 'text-[10px]'}`}
           style={{ width: node.code?.length > 4 ? '50px' : '26px' }}>{node.code}</span>
-        <span className={`truncate ml-1 ${isMacro ? 'text-[11px] font-bold text-slate-900' : 'text-[11px] text-slate-600'}`}>{node.description}</span>
+        <span
+          className={`truncate ml-1 ${isMacro ? 'text-[11px] font-bold text-slate-900' : 'text-[11px] text-slate-600'}`}
+          title={node.description}
+        >
+          {prettifyAccountName(node.description)}
+        </span>
         <span className={`tabular-nums text-right shrink-0 ml-auto ${isMacro ? 'text-[11px] font-bold text-slate-900' : 'text-[10px] text-slate-600'} ${node.amount < 0 ? 'text-red-600' : ''}`}>
           {fmt(node.amount)} €
         </span>
@@ -934,7 +993,12 @@ function MonthlyTreeNode({ node, depth = 0, edits, onEdit, mese, monthly, onCopy
         <span className="w-4 shrink-0 text-center text-[10px] text-slate-400">{hasKids ? (open ? '▾' : '▸') : ''}</span>
         <span className={`font-mono text-slate-400 shrink-0 ml-0.5 ${isMacro ? 'text-[11px] font-bold' : 'text-[10px]'}`}
           style={{ width: node.code?.length > 4 ? '50px' : '26px' }}>{node.code}</span>
-        <span className={`truncate ml-1 flex-1 ${isMacro ? 'text-[11px] font-bold text-slate-900' : 'text-[11px] text-slate-600'}`}>{node.description}</span>
+        <span
+          className={`truncate ml-1 flex-1 ${isMacro ? 'text-[11px] font-bold text-slate-900' : 'text-[11px] text-slate-600'}`}
+          title={node.description}
+        >
+          {prettifyAccountName(node.description)}
+        </span>
         {/* Copy button */}
         {hasValueToCopy && (
           <div className="relative shrink-0 ml-1">

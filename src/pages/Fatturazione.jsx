@@ -384,7 +384,7 @@ function FatturePassive() {
             <thead className="sticky top-0 bg-slate-50 z-10">
               <tr className="bg-slate-50 border-b border-slate-200">
                 <SortableTh sortKey="invoice_date" sortBy={ftSortBy} onSort={ftOnSort}>Data</SortableTh>
-                <SortableTh sortKey="invoice_number" sortBy={ftSortBy} onSort={ftOnSort}>Numero</SortableTh>
+                <SortableTh sortKey="invoice_number" sortBy={ftSortBy} onSort={ftOnSort} className="min-w-[150px]">Numero</SortableTh>
                 <SortableTh sortKey="supplier_name" sortBy={ftSortBy} onSort={ftOnSort}>Fornitore</SortableTh>
                 <SortableTh sortKey="tipo_documento" sortBy={ftSortBy} onSort={ftOnSort}>Tipo</SortableTh>
                 <SortableTh sortKey="net_amount" sortBy={ftSortBy} onSort={ftOnSort} align="right">Imponibile</SortableTh>
@@ -402,7 +402,7 @@ function FatturePassive() {
               ) : sortedFiltered.map((inv, idx) => (
                 <tr key={inv.id} onClick={() => { setSelectedInvoice(inv); setShowXml(false) }} className={`border-b border-slate-100 hover:bg-blue-50/50 transition-colors cursor-pointer ${idx % 2 === 1 ? 'bg-slate-50/50' : ''}`}>
                   <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{fmtDate(inv.invoice_date)}</td>
-                  <td className="px-4 py-3 font-medium text-slate-900 truncate max-w-[150px]" title={inv.invoice_number}>{inv.invoice_number || '—'}</td>
+                  <td className="px-4 py-3 font-medium text-slate-900 truncate min-w-[150px] max-w-[200px]" title={inv.invoice_number}>{inv.invoice_number || '—'}</td>
                   <td className="px-4 py-3">
                     <div className="font-medium text-slate-800 truncate max-w-[280px]" title={inv.supplier_name}>{inv.supplier_name || '—'}</div>
                     {inv.supplier_vat && <div className="text-xs text-slate-400">P.IVA {inv.supplier_vat}</div>}

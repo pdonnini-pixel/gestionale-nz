@@ -1155,21 +1155,35 @@ const ScadenzarioSmart = () => {
         <div className="max-w-[1400px] mx-auto px-6 py-3 flex items-center justify-between">
           <div className="flex items-center gap-8">
             <h1 className="text-base font-bold text-slate-800 tracking-tight">Scadenze</h1>
-            {/* 4 tab principali come Sibill: Situazione | Scadenzario | Ricorrenze | Regole */}
+            {/* 4 tab principali come Sibill: Situazione | Scadenzario | Ricorrenze | Regole.
+                Fix 13.1: tab 'Regole' disabilitata visivamente (Coming soon)
+                perche' la funzionalita' non e' ancora pronta — evitare che
+                Sabrina/Veronica clicchino e si confondano con la pagina vuota. */}
             <div className="flex gap-1">
               {[
                 { key: 'situazione', label: 'Situazione' },
                 { key: 'scadenze', label: 'Scadenzario' },
                 { key: 'ricorrenti', label: 'Ricorrenze' },
-                { key: 'regole', label: 'Regole' },
+                { key: 'regole', label: 'Regole', disabled: true },
               ].map(t => (
-                <button key={t.key} onClick={() => setSection(t.key)}
-                  className={`px-4 py-2 rounded-full text-sm font-medium transition ${
-                    section === t.key
-                      ? 'bg-slate-800 text-white'
-                      : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700'
+                <button
+                  key={t.key}
+                  onClick={() => !t.disabled && setSection(t.key)}
+                  disabled={t.disabled}
+                  title={t.disabled ? 'Funzione in arrivo' : undefined}
+                  className={`px-4 py-2 rounded-full text-sm font-medium transition flex items-center gap-2 ${
+                    t.disabled
+                      ? 'text-slate-400 cursor-not-allowed opacity-60'
+                      : section === t.key
+                        ? 'bg-slate-800 text-white'
+                        : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700'
                   }`}>
                   {t.label}
+                  {t.disabled && (
+                    <span className="text-[10px] font-semibold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded-full">
+                      Coming soon
+                    </span>
+                  )}
                 </button>
               ))}
             </div>
