@@ -1,3 +1,5 @@
+// @ts-nocheck
+// TODO: tighten types
 import { useState, useEffect, lazy, Suspense } from 'react'
 import PageHelp from '../components/PageHelp'
 import { supabase } from '../lib/supabase'

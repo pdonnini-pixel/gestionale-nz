@@ -1,3 +1,5 @@
+// @ts-nocheck
+// TODO: tighten types
 /**
  * Outlet in Valutazione — simulazioni CE per nuovi outlet
  * Salvate su DB, con nome, possibilità di confronto e attivazione

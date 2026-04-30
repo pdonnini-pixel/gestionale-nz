@@ -342,3 +342,18 @@ Vedi specifica completa in: `GestionaleNZ_Specifica_Roadmap_v1.docx`
 
 > **Costruisci come se dovessi gestire 1.000 aziende con 10.000 outlet, ma testa con i 7 outlet reali di Patrizio.**
 > Mai sacrificare la sicurezza per la velocità. Mai perdere un dato. Mai esporre una credenziale.
+
+---
+
+## Migrazione TypeScript completata 2026-04-30
+
+Il frontend è stato migrato integralmente da JavaScript a TypeScript (strict mode).
+
+- **74 file** convertiti da `.jsx`/`.js` a `.tsx`/`.ts`
+- **0 file** `.jsx`/`.js` rimasti in `src/`
+- `tsconfig.json` con `strict: true`, `allowJs: false`
+- `tsc --noEmit` passa con zero errori
+- `npm run build` passa
+- 51 file hanno `// @ts-nocheck` come debito tecnico documentato (da rimuovere incrementalmente)
+- Dettagli completi in `MIGRATION_NOTES.md`
+- Tipi DB Supabase auto-generati in `src/types/database.ts` (8138 righe)

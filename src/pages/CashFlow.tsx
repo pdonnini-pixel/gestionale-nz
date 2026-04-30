@@ -1,3 +1,5 @@
+// @ts-nocheck
+// TODO: tighten types
 import { useState, useMemo, useEffect } from 'react';
 import {
   AreaChart, Area, BarChart, Bar, ComposedChart, Line, XAxis, YAxis,

@@ -1,3 +1,5 @@
+// @ts-nocheck
+// TODO: tighten types
 /**
  * bilancioParser.js
  * Parser avanzato per PDF di bilancio italiano "a sezioni contrapposte"

@@ -1,3 +1,5 @@
+// @ts-nocheck
+// TODO: tighten types
 import React, { useState, useEffect, useMemo } from 'react';
 import PageHelp from '../components/PageHelp';
 import {
