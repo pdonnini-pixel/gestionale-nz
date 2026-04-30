@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import React, { useState, useRef } from 'react'
 import { parseContract, extractTextFromDoc, extractTextFromDocx, extractTextFromPdf } from '../lib/contractParser'
 import {
   Upload, FileText, Check, AlertCircle, RefreshCw,
@@ -10,7 +10,43 @@ function fmt(n) {
   return new Intl.NumberFormat('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)
 }
 
-function ConfidenceBadge({ pct }) {
+// TODO: tighten type
+interface ParsedContract {
+  name?: string
+  brand?: string
+  sqm?: number
+  sell_sqm?: number
+  unit_code?: string
+  mall_name?: string
+  concedente?: string
+  city?: string
+  province?: string
+  address?: string
+  delivery_date?: string
+  opening_date?: string
+  contract_duration_months?: number
+  contract_min_months?: number
+  rent_free_days?: number
+  rent_annual?: number
+  rent_per_sqm?: number
+  variable_rent_pct?: number
+  rent_year2_annual?: number
+  rent_year3_annual?: number
+  deposit_guarantee?: number
+  advance_payment?: number
+  exit_clause_month?: number
+  exit_revenue_threshold?: number
+  outlet_type?: string
+  confidence: { pct: number }
+  allegati?: AllegatoEntry[]
+}
+
+interface AllegatoEntry {
+  code: string
+  description?: string
+}
+
+function ConfidenceBadge({ pct }: { pct: number }) {
   const color = pct >= 70 ? 'bg-emerald-50 text-emerald-700' :
                 pct >= 40 ? 'bg-amber-50 text-amber-700' :
                 'bg-red-50 text-red-700'
@@ -22,7 +58,7 @@ function ConfidenceBadge({ pct }) {
   )
 }
 
-function DataPreview({ data }) {
+function DataPreview({ data }: { data: ParsedContract }) {
   const sections = [
     { title: 'Anagrafica', items: [
       ['Nome outlet', data.name],
@@ -82,7 +118,7 @@ function DataPreview({ data }) {
   )
 }
 
-function AllegatiChecklist({ allegati, uploadedFiles, onFileUpload }) {
+function AllegatiChecklist({ allegati, uploadedFiles, onFileUpload }: { allegati?: AllegatoEntry[]; uploadedFiles: Record<string, File>; onFileUpload?: (code: string, file: File) => void }) {
   if (!allegati || allegati.length === 0) return null
 
   const defaultLabels = {
@@ -161,20 +197,25 @@ function AllegatiChecklist({ allegati, uploadedFiles, onFileUpload }) {
   )
 }
 
-export default function ContractUploader({ onDataExtracted, onCancel }) {
-  const fileRef = useRef(null)
+interface ContractUploaderProps {
+  onDataExtracted: (data: Record<string, string>, allegati?: AllegatoEntry[], fileName?: string | null, uploadedFiles?: Record<string, File>) => void
+  onCancel: () => void
+}
+
+export default function ContractUploader({ onDataExtracted, onCancel }: ContractUploaderProps) {
+  const fileRef = useRef<HTMLInputElement>(null)
   const [dragOver, setDragOver] = useState(false)
   const [analyzing, setAnalyzing] = useState(false)
-  const [result, setResult] = useState(null)
-  const [fileName, setFileName] = useState(null)
-  const [error, setError] = useState(null)
+  const [result, setResult] = useState<ParsedContract | null>(null)
+  const [fileName, setFileName] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
   const [uploadedFiles, setUploadedFiles] = useState({}) // { code: File }
 
-  function handleAllegatoUpload(code, file) {
+  function handleAllegatoUpload(code: string, file: File) {
     setUploadedFiles(prev => ({ ...prev, [code]: file }))
   }
 
-  async function handleFile(file) {
+  async function handleFile(file: File | undefined) {
     if (!file) return
 
     const ext = file.name.split('.').pop().toLowerCase()
@@ -217,14 +258,14 @@ export default function ContractUploader({ onDataExtracted, onCancel }) {
       }
 
       setResult(parsed)
-    } catch (err) {
-      setError(`Errore nell'analisi: ${err.message}`)
+    } catch (err: unknown) {
+      setError(`Errore nell'analisi: ${(err as Error).message}`)
     }
 
     setAnalyzing(false)
   }
 
-  function handleDrop(e) {
+  function handleDrop(e: React.DragEvent) {
     e.preventDefault()
     setDragOver(false)
     handleFile(e.dataTransfer.files[0])

@@ -1,3 +1,5 @@
+import React from 'react'
+
 const pulse = 'bg-slate-200 animate-pulse rounded'
 
 function CardSkeleton() {
@@ -44,14 +46,19 @@ function KpiSkeleton() {
   )
 }
 
-const variants = {
+const variants: Record<string, React.FC> = {
   card: CardSkeleton,
   'table-row': TableRowSkeleton,
   chart: ChartSkeleton,
   kpi: KpiSkeleton,
 }
 
-export default function LoadingSkeleton({ variant = 'card', count = 1 }) {
+interface LoadingSkeletonProps {
+  variant?: string
+  count?: number
+}
+
+export default function LoadingSkeleton({ variant = 'card', count = 1 }: LoadingSkeletonProps) {
   const Component = variants[variant] || variants.card
 
   return (

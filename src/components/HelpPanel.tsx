@@ -1,14 +1,28 @@
-import { useState, useEffect } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useLocation } from 'react-router-dom'
 import {
   HelpCircle, X, ChevronRight, ExternalLink,
   LayoutDashboard, Store, Receipt, Landmark, Users, FileText,
   Calculator, BarChart3, GitCompare, Wallet, Building2,
-  CalendarClock, DatabaseZap, Archive, FileCode, Settings
+  CalendarClock, DatabaseZap, Archive, FileCode, Settings,
+  LucideIcon
 } from 'lucide-react'
 
+interface FaqItem {
+  q: string
+  a: string
+}
+
+interface HelpContent {
+  title: string
+  icon: LucideIcon
+  description: string
+  tips: string[]
+  faq: FaqItem[]
+}
+
 // Guida contestuale per ogni pagina
-const HELP_CONTENT = {
+const HELP_CONTENT: Record<string, HelpContent> = {
   '/': {
     title: 'Dashboard',
     icon: LayoutDashboard,
@@ -202,7 +216,7 @@ const HELP_CONTENT = {
 export default function HelpPanel() {
   const location = useLocation()
   const [open, setOpen] = useState(false)
-  const [expandedFaq, setExpandedFaq] = useState(null)
+  const [expandedFaq, setExpandedFaq] = useState<number | null>(null)
 
   // Normalize path
   const path = '/' + location.pathname.split('/').filter(Boolean).join('/')

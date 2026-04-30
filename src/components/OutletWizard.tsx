@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import React, { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import {
   X, ChevronRight, ChevronLeft, Check, AlertCircle,
@@ -21,7 +21,21 @@ function fmt(n) {
   return new Intl.NumberFormat('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)
 }
 
-function StepIndicator({ currentStep, steps }) {
+// TODO: tighten type
+type OutletForm = Record<string, any>
+
+interface StepDef {
+  id: string
+  label: string
+  icon: React.ComponentType<{ size?: number }>
+}
+
+interface AllegatoEntry {
+  code: string
+  description?: string
+}
+
+function StepIndicator({ currentStep, steps }: { currentStep: number; steps: StepDef[] }) {
   return (
     <div className="flex items-center gap-1 px-5 py-4 border-b border-slate-100 overflow-x-auto">
       {steps.map((step, i) => {
@@ -48,7 +62,7 @@ function StepIndicator({ currentStep, steps }) {
   )
 }
 
-function Field({ label, required, children, hint }) {
+function Field({ label, required, children, hint }: { label: string; required?: boolean; children: React.ReactNode; hint?: string }) {
   return (
     <div>
       <label className="block text-xs font-medium text-slate-500 mb-1">
@@ -60,7 +74,7 @@ function Field({ label, required, children, hint }) {
   )
 }
 
-function Input({ value, onChange, type = 'text', placeholder, ...props }) {
+function Input({ value, onChange, type = 'text', placeholder, ...props }: { value: string | number | undefined; onChange: (v: string) => void; type?: string; placeholder?: string; [key: string]: unknown }) {
   return (
     <input
       type={type} value={value || ''} onChange={e => onChange(e.target.value)}
@@ -71,7 +85,7 @@ function Input({ value, onChange, type = 'text', placeholder, ...props }) {
   )
 }
 
-function Select({ value, onChange, children }) {
+function Select({ value, onChange, children }: { value: string | undefined; onChange: (v: string) => void; children: React.ReactNode }) {
   return (
     <select value={value || ''} onChange={e => onChange(e.target.value)}
       className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
@@ -81,7 +95,7 @@ function Select({ value, onChange, children }) {
 }
 
 // ====== STEP 1: ANAGRAFICA ======
-function StepAnagrafica({ form, set }) {
+function StepAnagrafica({ form, set }: { form: OutletForm; set: (k: string, v: unknown) => void }) {
   return (
     <div className="space-y-4">
       <h3 className="text-base font-semibold text-slate-900">Anagrafica punto vendita</h3>
@@ -121,7 +135,7 @@ function StepAnagrafica({ form, set }) {
 }
 
 // ====== STEP 2: UBICAZIONE ======
-function StepLocation({ form, set }) {
+function StepLocation({ form, set }: { form: OutletForm; set: (k: string, v: unknown) => void }) {
   return (
     <div className="space-y-4">
       <h3 className="text-base font-semibold text-slate-900">Ubicazione e centro commerciale</h3>
@@ -150,7 +164,7 @@ function StepLocation({ form, set }) {
 }
 
 // ====== STEP 3: CONTRATTO ======
-function StepContratto({ form, set }) {
+function StepContratto({ form, set }: { form: OutletForm; set: (k: string, v: unknown) => void }) {
   return (
     <div className="space-y-4">
       <h3 className="text-base font-semibold text-slate-900">Date e durata contratto</h3>
@@ -197,7 +211,7 @@ function StepContratto({ form, set }) {
 }
 
 // ====== STEP 4: CANONE E COSTI ======
-function StepCanone({ form, set }) {
+function StepCanone({ form, set }: { form: OutletForm; set: (k: string, v: unknown) => void }) {
   const monthlyCalc = form.rent_annual ? (form.rent_annual / 12).toFixed(2) : ''
 
   return (
@@ -255,7 +269,7 @@ function StepCanone({ form, set }) {
 }
 
 // ====== STEP 5: GARANZIE E TARGET ======
-function StepGaranzie({ form, set }) {
+function StepGaranzie({ form, set }: { form: OutletForm; set: (k: string, v: unknown) => void }) {
   return (
     <div className="space-y-4">
       <h3 className="text-base font-semibold text-slate-900">Garanzie, depositi e target</h3>
@@ -303,7 +317,7 @@ function StepGaranzie({ form, set }) {
 }
 
 // ====== STEP 6: RIEPILOGO ======
-function StepRiepilogo({ form }) {
+function StepRiepilogo({ form }: { form: OutletForm }) {
   const sections = [
     { title: 'Anagrafica', items: [
       ['Nome', form.name], ['Codice', form.code], ['Brand', form.brand],
@@ -363,7 +377,7 @@ function StepRiepilogo({ form }) {
 }
 
 // ====== STEP 7: ALLEGATI (solo se da contratto) ======
-function StepAllegati({ allegati, contractFileName, uploadedFiles, onFileUpload }) {
+function StepAllegati({ allegati, contractFileName, uploadedFiles, onFileUpload }: { allegati: AllegatoEntry[]; contractFileName?: string; uploadedFiles: Record<string, File>; onFileUpload?: (code: string, file: File) => void }) {
   const defaultLabels = {
     'A': 'Planimetria Outlet',
     'B': 'Condizioni Generali',
@@ -451,7 +465,17 @@ function StepAllegati({ allegati, contractFileName, uploadedFiles, onFileUpload 
 }
 
 // ====== WIZARD PRINCIPALE ======
-export default function OutletWizard({ onClose, onSaved, initialData, allegati, contractFileName, uploadedFiles: initialUploadedFiles, editId }) {
+interface OutletWizardProps {
+  onClose: () => void
+  onSaved: () => void
+  initialData?: OutletForm | null
+  allegati?: AllegatoEntry[] | null
+  contractFileName?: string
+  uploadedFiles?: Record<string, File>
+  editId?: string | null
+}
+
+export default function OutletWizard({ onClose, onSaved, initialData, allegati, contractFileName, uploadedFiles: initialUploadedFiles, editId }: OutletWizardProps) {
   const hasAllegati = allegati && allegati.length > 0
   const STEPS = hasAllegati ? [...BASE_STEPS.slice(0, 5), ALLEGATI_STEP, BASE_STEPS[5]] : BASE_STEPS
   const riepilogoIndex = hasAllegati ? 6 : 5
@@ -473,7 +497,7 @@ export default function OutletWizard({ onClose, onSaved, initialData, allegati, 
 
   const [step, setStep] = useState(0)
   const [saving, setSaving] = useState(false)
-  const [error, setError] = useState(null)
+  const [error, setError] = useState<string | null>(null)
   const [form, setForm] = useState(initialData ? { ...defaultForm, ...initialData } : defaultForm)
   const [wizardUploadedFiles, setWizardUploadedFiles] = useState(initialUploadedFiles || {})
 

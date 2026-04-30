@@ -1,10 +1,53 @@
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import React, { useState, useEffect, useMemo, useCallback } from 'react'
 import {
   Brain, Sparkles, CheckCircle2, AlertTriangle, Tag, ChevronDown, ChevronUp,
   RefreshCw, Search, Filter, Check, X, Eye, Zap, BarChart3, Clock,
   TrendingUp, AlertCircle, Copy, ArrowRight
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+
+// TODO: tighten type
+interface CashMovement {
+  id: string
+  date: string
+  description?: string
+  counterpart?: string
+  amount: number
+  type: string
+  cost_category_id?: string
+  ai_category_id?: string
+  ai_confidence?: number
+  ai_method?: string
+  ai_categorized_at?: string
+  verified?: boolean
+  bank_account_id?: string
+}
+
+interface Category {
+  id: string
+  name: string
+}
+
+// TODO: tighten type
+interface AnomalyEntry {
+  id: string
+  anomaly_type: string
+  description: string
+  detected_at: string
+  resolved: boolean
+  resolved_at?: string
+  amount?: number
+  company_id: string
+}
+
+interface AIStats {
+  total: number
+  categorized: number
+  aiPending: number
+  confirmed: number
+  uncategorized: number
+  anomalies: number
+}
 
 /* ───── helpers ───── */
 function fmt(n, dec = 2) {
@@ -13,7 +56,7 @@ function fmt(n, dec = 2) {
 }
 const fmtDate = (d) => d ? new Date(d).toLocaleDateString('it-IT') : '—'
 
-async function callEdgeFunction(fnName, method = 'GET', body = null, params = null) {
+async function callEdgeFunction(fnName: string, method = 'GET', body: Record<string, unknown> | null = null, params: Record<string, string> | null = null) {
   const baseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://xfvfxsvqpnpvibgeqpqp.supabase.co'
   let url = `${baseUrl}/functions/v1/${fnName}`
   if (params) {
@@ -53,7 +96,7 @@ async function callEdgeFunction(fnName, method = 'GET', body = null, params = nu
 }
 
 /* ───── confidence badge ───── */
-function ConfidenceBadge({ confidence }) {
+function ConfidenceBadge({ confidence }: { confidence?: number | null }) {
   if (confidence == null) return null
   const pct = Math.round(confidence * 100)
   const color = pct >= 85 ? 'bg-emerald-100 text-emerald-700'
@@ -67,7 +110,7 @@ function ConfidenceBadge({ confidence }) {
 }
 
 /* ───── method badge ───── */
-function MethodBadge({ method }) {
+function MethodBadge({ method }: { method?: string }) {
   const config = {
     learned_rule: { label: 'Regola appresa', color: 'bg-blue-50 text-blue-600', icon: Brain },
     keyword: { label: 'Keyword', color: 'bg-purple-50 text-purple-600', icon: Tag },
@@ -86,22 +129,26 @@ function MethodBadge({ method }) {
 /* ═══════════════════════════════════════
    MAIN COMPONENT
    ═══════════════════════════════════════ */
-export default function AICategorization({ companyId }) {
+interface AICategorizationProps {
+  companyId: string
+}
+
+export default function AICategorization({ companyId }: AICategorizationProps) {
   // Data
-  const [movements, setMovements] = useState([])
-  const [categories, setCategories] = useState([])
-  const [anomalies, setAnomalies] = useState([])
-  const [stats, setStats] = useState(null)
+  const [movements, setMovements] = useState<CashMovement[]>([])
+  const [categories, setCategories] = useState<Category[]>([])
+  const [anomalies, setAnomalies] = useState<AnomalyEntry[]>([])
+  const [stats, setStats] = useState<AIStats | null>(null)
   const [loading, setLoading] = useState(true)
 
   // UI state
   const [filter, setFilter] = useState('da_verificare') // da_verificare, categorizzati, tutti, non_categorizzati
   const [search, setSearch] = useState('')
   const [batchRunning, setBatchRunning] = useState(false)
-  const [batchResult, setBatchResult] = useState(null)
+  const [batchResult, setBatchResult] = useState<Record<string, unknown> | null>(null)
   const [anomalyRunning, setAnomalyRunning] = useState(false)
-  const [confirmingId, setConfirmingId] = useState(null)
-  const [editingId, setEditingId] = useState(null)
+  const [confirmingId, setConfirmingId] = useState<string | null>(null)
+  const [editingId, setEditingId] = useState<string | null>(null)
   const [editCategory, setEditCategory] = useState('')
   const [showAnomalies, setShowAnomalies] = useState(false)
 
@@ -175,7 +222,7 @@ export default function AICategorization({ companyId }) {
   }, [movements, filter, search])
 
   // Get category name
-  const getCategoryName = (id) => {
+  const getCategoryName = (id: string | undefined): string | null => {
     if (!id) return null
     const cat = categories.find(c => c.id === id)
     return cat?.name || '?'
@@ -197,7 +244,7 @@ export default function AICategorization({ companyId }) {
   }
 
   // ─── Confirm AI suggestion ───
-  const confirmCategory = async (movementId, categoryId) => {
+  const confirmCategory = async (movementId: string, categoryId: string) => {
     setConfirmingId(movementId)
     try {
       await callEdgeFunction('ai-categorize', 'POST', {
@@ -221,7 +268,7 @@ export default function AICategorization({ companyId }) {
   }
 
   // ─── Correct category ───
-  const correctCategory = async (movementId, newCategoryId) => {
+  const correctCategory = async (movementId: string, newCategoryId: string) => {
     setConfirmingId(movementId)
     try {
       await callEdgeFunction('ai-categorize', 'POST', {
@@ -260,7 +307,7 @@ export default function AICategorization({ companyId }) {
   }
 
   // ─── Resolve anomaly ───
-  const resolveAnomaly = async (anomalyId) => {
+  const resolveAnomaly = async (anomalyId: string) => {
     try {
       await supabase
         .from('ai_anomaly_log')

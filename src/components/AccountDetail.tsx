@@ -1,5 +1,38 @@
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import React, { useState, useEffect, useMemo, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
+
+// TODO: tighten type
+interface BankTransaction {
+  id: string
+  transaction_date: string
+  description?: string
+  amount: number
+  transaction_type: string
+  running_balance?: number
+  is_reconciled: boolean
+  reconciled_invoice_id?: string
+  company_id: string
+  account_id: string
+}
+
+// TODO: tighten type
+interface AccountData {
+  id: string
+  account_name?: string
+  iban?: string
+  balance?: number
+  currency?: string
+  institution_id?: string
+  last_synced_at?: string
+  balance_updated_at?: string
+}
+
+interface AccountDetailProps {
+  isOpen: boolean
+  onClose: () => void
+  account: AccountData | null
+  onSync?: (accountId: string) => Promise<void>
+}
 import {
   ComposedChart, Bar, Line, XAxis, YAxis, Tooltip,
   ResponsiveContainer, CartesianGrid
@@ -39,8 +72,19 @@ function timeAgo(dateStr) {
 }
 
 /* ═══════ Reconciliation Modal ═══════ */
-function ReconciliationModal({ isOpen, onClose, transaction, onReconcile }) {
-  const [invoices, setInvoices] = useState([])
+// TODO: tighten type
+interface MatchingInvoice {
+  id: string
+  invoice_number?: string
+  supplier_name?: string
+  supplier_vat?: string
+  gross_amount: number
+  invoice_date: string
+  sdi_status?: string
+}
+
+function ReconciliationModal({ isOpen, onClose, transaction, onReconcile }: { isOpen: boolean; onClose: () => void; transaction: BankTransaction | null; onReconcile: (txId: string, invoice: MatchingInvoice) => void }) {
+  const [invoices, setInvoices] = useState<MatchingInvoice[]>([])
   const [loadingInvoices, setLoadingInvoices] = useState(false)
   const [searchInvoice, setSearchInvoice] = useState('')
   const [reconciling, setReconciling] = useState(false)
@@ -86,7 +130,7 @@ function ReconciliationModal({ isOpen, onClose, transaction, onReconcile }) {
     }
   }
 
-  const handleReconcile = async (invoice) => {
+  const handleReconcile = async (invoice: MatchingInvoice) => {
     setReconciling(true)
     try {
       const { error } = await supabase
@@ -209,13 +253,13 @@ function ReconciliationModal({ isOpen, onClose, transaction, onReconcile }) {
   )
 }
 
-export default function AccountDetail({ isOpen, onClose, account, onSync }) {
-  const [transactions, setTransactions] = useState([])
+export default function AccountDetail({ isOpen, onClose, account, onSync }: AccountDetailProps) {
+  const [transactions, setTransactions] = useState<BankTransaction[]>([])
   const [loading, setLoading] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [hasMore, setHasMore] = useState(true)
   const [page, setPage] = useState(0)
-  const [reconcileTransaction, setReconcileTransaction] = useState(null)
+  const [reconcileTransaction, setReconcileTransaction] = useState<BankTransaction | null>(null)
 
   // Filters
   const [searchText, setSearchText] = useState('')

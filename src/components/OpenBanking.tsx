@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import {
   Landmark, Building2, Search, Plus, RefreshCw, Link2, Unlink,
   ChevronRight, Clock, CheckCircle2, AlertCircle, XCircle,
@@ -35,14 +35,58 @@ const statusConfig = {
 /* ═══════════════════════════════════════════
    Modal: Seleziona Banca per collegamento
    ═══════════════════════════════════════════ */
-function ModalSelezionaBanca({ isOpen, onClose, onSelect }) {
+// TODO: tighten type
+interface BankInstitution {
+  id: string
+  name: string
+  fullName?: string
+  media?: Array<{ source: string }>
+}
+
+// TODO: tighten type
+interface BankAccount {
+  id: string
+  account_name?: string
+  iban?: string
+  yapily_account_id?: string
+  balance?: number
+  balance_updated_at?: string
+  last_synced_at?: string
+  institution_id?: string
+  currency?: string
+  yapily_consents?: { status: string }
+}
+
+// TODO: tighten type
+interface BankConsent {
+  id: string
+  status: string
+  institution_name: string
+  consent_type: string
+  created_at: string
+  expires_at?: string
+}
+
+interface SyncResult {
+  synced: number
+  imported: number
+  skipped?: number
+}
+
+interface CallbackStatus {
+  status: string
+  error: string | null
+  institution: string | null
+}
+
+function ModalSelezionaBanca({ isOpen, onClose, onSelect }: { isOpen: boolean; onClose: () => void; onSelect: (inst: BankInstitution) => void }) {
   const { fetchInstitutions, loading } = useYapily()
-  const [institutions, setInstitutions] = useState([])
+  const [institutions, setInstitutions] = useState<BankInstitution[]>([])
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [loaded, setLoaded] = useState(false)
-  const [debugInfo, setDebugInfo] = useState(null)
-  const [fetchError, setFetchError] = useState(null)
+  const [debugInfo, setDebugInfo] = useState<unknown>(null)
+  const [fetchError, setFetchError] = useState<string | null>(null)
   const [sandboxMode, setSandboxMode] = useState(true)
 
   useEffect(() => {
@@ -237,7 +281,7 @@ function ModalSelezionaBanca({ isOpen, onClose, onSelect }) {
 /* ═══════════════════════════════════════════
    Card: Conto Collegato
    ═══════════════════════════════════════════ */
-function AccountCard({ account, onSync, syncing, onClick }) {
+function AccountCard({ account, onSync, syncing, onClick }: { account: BankAccount; onSync: (id: string) => void; syncing: boolean; onClick?: (account: BankAccount) => void }) {
   const consentStatus = account.yapily_consents?.status || 'AUTHORIZED'
   const cfg = statusConfig[consentStatus] || statusConfig.AUTHORIZED
   const StatusIcon = cfg.icon
@@ -314,15 +358,15 @@ function AccountCard({ account, onSync, syncing, onClick }) {
    ═══════════════════════════════════════════ */
 export default function OpenBanking() {
   const yapily = useYapily()
-  const [accounts, setAccounts] = useState([])
-  const [consents, setConsents] = useState([])
+  const [accounts, setAccounts] = useState<BankAccount[]>([])
+  const [consents, setConsents] = useState<BankConsent[]>([])
   const [showBankModal, setShowBankModal] = useState(false)
   const [connecting, setConnecting] = useState(false)
-  const [syncingAccount, setSyncingAccount] = useState(null)
-  const [syncResult, setSyncResult] = useState(null) // { synced, imported, skipped }
-  const [callbackStatus, setCallbackStatus] = useState(null) // from URL params
+  const [syncingAccount, setSyncingAccount] = useState<string | null>(null)
+  const [syncResult, setSyncResult] = useState<SyncResult | null>(null)
+  const [callbackStatus, setCallbackStatus] = useState<CallbackStatus | null>(null)
   const [showConsents, setShowConsents] = useState(false)
-  const [selectedAccount, setSelectedAccount] = useState(null) // for detail drawer
+  const [selectedAccount, setSelectedAccount] = useState<BankAccount | null>(null)
 
   // Load data
   const loadData = useCallback(async () => {

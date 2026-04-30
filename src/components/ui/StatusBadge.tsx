@@ -1,4 +1,6 @@
-const statusColorMap = {
+import React from 'react'
+
+const statusColorMap: Record<string, string> = {
   // Green - emerald
   pagato: 'emerald',
   completato: 'emerald',
@@ -42,7 +44,7 @@ const statusColorMap = {
   nota_credito: 'emerald',
 }
 
-const colorStyles = {
+const colorStyles: Record<string, { bg: string; text: string; dot: string; border: string }> = {
   emerald: {
     bg: 'bg-emerald-50',
     text: 'text-emerald-700',
@@ -87,7 +89,7 @@ const colorStyles = {
   },
 }
 
-const sizeStyles = {
+const sizeStyles: Record<string, { wrapper: string; dot: string }> = {
   sm: {
     wrapper: 'px-2 py-0.5 text-xs gap-1',
     dot: 'w-1.5 h-1.5',
@@ -98,7 +100,12 @@ const sizeStyles = {
   },
 }
 
-export default function StatusBadge({ status = '', size = 'md' }) {
+interface StatusBadgeProps {
+  status?: string
+  size?: 'sm' | 'md'
+}
+
+export default function StatusBadge({ status = '', size = 'md' }: StatusBadgeProps) {
   const normalizedStatus = status.toLowerCase().trim()
   const colorKey = statusColorMap[normalizedStatus] || 'slate'
   const colors = colorStyles[colorKey]

@@ -1,4 +1,5 @@
-import { TrendingUp, TrendingDown, Minus } from 'lucide-react'
+import React from 'react'
+import { TrendingUp, TrendingDown, Minus, LucideIcon } from 'lucide-react'
 
 const colorSchemes = {
   primary: {
@@ -29,6 +30,19 @@ const trendConfig = {
   flat: { Icon: Minus, color: 'text-slate-500' },
 }
 
+type ColorScheme = keyof typeof colorSchemes
+type TrendDirection = keyof typeof trendConfig
+
+interface KpiCardProps {
+  title: string
+  value: string | number
+  trend?: TrendDirection
+  trendValue?: string
+  icon?: LucideIcon
+  onClick?: () => void
+  colorScheme?: ColorScheme
+}
+
 export default function KpiCard({
   title,
   value,
@@ -37,7 +51,7 @@ export default function KpiCard({
   icon: IconComponent,
   onClick,
   colorScheme = 'primary',
-}) {
+}: KpiCardProps) {
   const scheme = colorSchemes[colorScheme] || colorSchemes.primary
   const trendInfo = trendConfig[trend] || trendConfig.flat
   const TrendIcon = trendInfo.Icon
@@ -55,10 +69,10 @@ export default function KpiCard({
       tabIndex={isClickable ? 0 : undefined}
       onKeyDown={
         isClickable
-          ? (e) => {
+          ? (e: React.KeyboardEvent) => {
               if (e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault()
-                onClick()
+                onClick!()
               }
             }
           : undefined

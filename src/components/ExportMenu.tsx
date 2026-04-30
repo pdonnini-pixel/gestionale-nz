@@ -1,38 +1,42 @@
-import { useState, useRef, useEffect } from 'react'
-import { Download, FileText, Table, FileSpreadsheet, X } from 'lucide-react'
+import React, { useState, useRef, useEffect } from 'react'
+import { Download, FileText, Table, FileSpreadsheet } from 'lucide-react'
 
-/**
- * ExportMenu — reusable dropdown for exporting table data
- *
- * Props:
- * - data: array of objects to export
- * - columns: array of { key, label, format? } defining which columns to export
- * - filename: base filename (without extension)
- * - title?: optional title for PDF header
- */
-export default function ExportMenu({ data, columns, filename = 'export', title }) {
+interface ExportColumn {
+  key: string
+  label: string
+  format?: 'euro' | 'date' | 'percent'
+}
+
+interface ExportMenuProps {
+  data: Record<string, unknown>[] // TODO: tighten type
+  columns: ExportColumn[]
+  filename?: string
+  title?: string
+}
+
+export default function ExportMenu({ data, columns, filename = 'export', title }: ExportMenuProps) {
   const [open, setOpen] = useState(false)
-  const [exporting, setExporting] = useState(null)
-  const ref = useRef(null)
+  const [exporting, setExporting] = useState<string | null>(null)
+  const ref = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    function onClick(e) {
-      if (ref.current && !ref.current.contains(e.target)) setOpen(false)
+    function onClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
     }
     document.addEventListener('mousedown', onClick)
     return () => document.removeEventListener('mousedown', onClick)
   }, [])
 
-  function formatValue(row, col) {
+  function formatValue(row: Record<string, unknown>, col: ExportColumn): string {
     const val = row[col.key]
     if (val == null) return ''
-    if (col.format === 'euro') return `€ ${Number(val).toLocaleString('it-IT', { minimumFractionDigits: 2 })}`
-    if (col.format === 'date') return val ? new Date(val).toLocaleDateString('it-IT') : ''
+    if (col.format === 'euro') return `\u20AC ${Number(val).toLocaleString('it-IT', { minimumFractionDigits: 2 })}`
+    if (col.format === 'date') return val ? new Date(val as string).toLocaleDateString('it-IT') : ''
     if (col.format === 'percent') return `${Number(val).toFixed(1)}%`
     return String(val)
   }
 
-  function rawValue(row, col) {
+  function rawValue(row: Record<string, unknown>, col: ExportColumn): unknown {
     const val = row[col.key]
     if (val == null) return ''
     return val
@@ -58,7 +62,7 @@ export default function ExportMenu({ data, columns, filename = 'export', title }
     }
   }
 
-  // Excel (XLSX via simple HTML table → xlsx)
+  // Excel (XLSX via simple HTML table)
   function exportExcel() {
     setExporting('xlsx')
     try {
@@ -82,7 +86,7 @@ export default function ExportMenu({ data, columns, filename = 'export', title }
     }
   }
 
-  // PDF (simple HTML → print)
+  // PDF (simple HTML print)
   function exportPDF() {
     setExporting('pdf')
     try {
@@ -103,7 +107,7 @@ export default function ExportMenu({ data, columns, filename = 'export', title }
       </style></head><body>`
 
       if (title) html += `<h1>${title}</h1>`
-      html += `<div class="subtitle">Esportato il ${new Date().toLocaleDateString('it-IT')} — ${data.length} righe</div>`
+      html += `<div class="subtitle">Esportato il ${new Date().toLocaleDateString('it-IT')} \u2014 ${data.length} righe</div>`
       html += `<table><thead><tr>${columns.map(c => `<th>${c.label}</th>`).join('')}</tr></thead><tbody>`
       data.forEach(row => {
         html += '<tr>'
@@ -125,7 +129,7 @@ export default function ExportMenu({ data, columns, filename = 'export', title }
     }
   }
 
-  function downloadBlob(blob, name) {
+  function downloadBlob(blob: Blob, name: string) {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url

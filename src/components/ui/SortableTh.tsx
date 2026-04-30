@@ -12,7 +12,22 @@
  *   - se sort multiplo: indice numerico accanto all'icona (1, 2, ...)
  */
 
+import React from 'react'
 import { ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
+
+interface SortEntry {
+  key: string
+  dir: 'asc' | 'desc'
+}
+
+interface SortableThProps {
+  sortKey: string
+  children: React.ReactNode
+  sortBy?: SortEntry[]
+  onSort?: (key: string, shiftKey: boolean) => void
+  align?: 'left' | 'center' | 'right'
+  className?: string
+}
 
 export function SortableTh({
   sortKey,
@@ -21,7 +36,7 @@ export function SortableTh({
   onSort,
   align = 'left',
   className = '',
-}) {
+}: SortableThProps) {
   const idx = sortBy.findIndex(s => s.key === sortKey)
   const active = idx >= 0
   const dir = active ? sortBy[idx].dir : null

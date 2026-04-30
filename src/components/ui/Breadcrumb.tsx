@@ -1,7 +1,17 @@
+import React from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ChevronRight, Home } from 'lucide-react'
 
-export default function Breadcrumb({ items = [] }) {
+interface BreadcrumbItem {
+  label: string
+  path?: string
+}
+
+interface BreadcrumbProps {
+  items?: BreadcrumbItem[]
+}
+
+export default function Breadcrumb({ items = [] }: BreadcrumbProps) {
   const navigate = useNavigate()
 
   if (items.length === 0) return null
@@ -25,7 +35,7 @@ export default function Breadcrumb({ items = [] }) {
               </span>
             ) : (
               <button
-                onClick={() => navigate(item.path)}
+                onClick={() => navigate(item.path!)}
                 className="text-slate-400 hover:text-slate-600 transition-colors truncate max-w-[200px] flex items-center"
               >
                 {isFirst && <Home className="w-3.5 h-3.5 mr-1 flex-shrink-0" />}

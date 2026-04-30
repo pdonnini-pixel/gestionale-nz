@@ -1,7 +1,9 @@
 /**
- * ChartTheme.jsx — Modern 2026 chart styling for Recharts
+ * ChartTheme.tsx — Modern 2026 chart styling for Recharts
  * Gradient fills, glassmorphism tooltips, rounded bars, vibrant palette
  */
+
+import React from 'react'
 
 // ═══════════════════════════════════════
 // PALETTE 2026 — Vibrant gradients
@@ -19,7 +21,7 @@ export const PALETTE = [
   '#3b82f6', // blue
 ]
 
-export const OUTLET_COLORS = {
+export const OUTLET_COLORS: Record<string, { main: string; light: string }> = {
   Valdichiana:  { main: '#6366f1', light: '#a5b4fc' },
   Barberino:    { main: '#06b6d4', light: '#67e8f9' },
   Palmanova:    { main: '#10b981', light: '#6ee7b7' },
@@ -33,7 +35,23 @@ export const OUTLET_COLORS = {
 // ═══════════════════════════════════════
 // GLASSMORPHISM TOOLTIP
 // ═══════════════════════════════════════
-export function GlassTooltip({ active, payload, label, formatter, suffix = '€' }) {
+interface TooltipPayloadEntry {
+  value: number
+  name?: string
+  dataKey?: string
+  color?: string
+  fill?: string
+}
+
+interface GlassTooltipProps {
+  active?: boolean
+  payload?: TooltipPayloadEntry[]
+  label?: string
+  formatter?: (value: number) => string
+  suffix?: string
+}
+
+export function GlassTooltip({ active, payload, label, formatter, suffix = '\u20AC' }: GlassTooltipProps) {
   if (!active || !payload?.length) return null
   return (
     <div style={{
@@ -70,7 +88,11 @@ export function GlassTooltip({ active, payload, label, formatter, suffix = '€'
 // ═══════════════════════════════════════
 // GRADIENT DEFINITIONS (SVG defs)
 // ═══════════════════════════════════════
-export function ChartGradients({ ids }) {
+interface ChartGradientsProps {
+  ids?: (string | number)[]
+}
+
+export function ChartGradients({ ids }: ChartGradientsProps) {
   const gradients = ids || PALETTE.map((_, i) => i)
   return (
     <defs>
@@ -119,13 +141,22 @@ export const GRID_STYLE = {
 // ═══════════════════════════════════════
 // MODERN BAR RADIUS
 // ═══════════════════════════════════════
-export const BAR_RADIUS = [6, 6, 0, 0]
-export const BAR_RADIUS_FULL = [8, 8, 8, 8]
+export const BAR_RADIUS: [number, number, number, number] = [6, 6, 0, 0]
+export const BAR_RADIUS_FULL: [number, number, number, number] = [8, 8, 8, 8]
 
 // ═══════════════════════════════════════
 // MODERN LEGEND
 // ═══════════════════════════════════════
-export function ModernLegend({ payload }) {
+interface LegendPayloadEntry {
+  color: string
+  value: string
+}
+
+interface ModernLegendProps {
+  payload?: LegendPayloadEntry[]
+}
+
+export function ModernLegend({ payload }: ModernLegendProps) {
   if (!payload?.length) return null
   return (
     <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '12px 20px', paddingTop: 8 }}>
@@ -146,7 +177,17 @@ export function ModernLegend({ payload }) {
 // ═══════════════════════════════════════
 // MODERN PIE LABEL
 // ═══════════════════════════════════════
-export function ModernPieLabel({ cx, cy, midAngle, innerRadius, outerRadius, percent, name }) {
+interface ModernPieLabelProps {
+  cx: number
+  cy: number
+  midAngle: number
+  innerRadius: number
+  outerRadius: number
+  percent: number
+  name: string
+}
+
+export function ModernPieLabel({ cx, cy, midAngle, innerRadius, outerRadius, percent, name }: ModernPieLabelProps) {
   if (percent < 0.04) return null
   const RADIAN = Math.PI / 180
   const radius = outerRadius + 20
@@ -162,20 +203,26 @@ export function ModernPieLabel({ cx, cy, midAngle, innerRadius, outerRadius, per
 // ═══════════════════════════════════════
 // FORMAT HELPERS
 // ═══════════════════════════════════════
-export function fmtK(n) {
+export function fmtK(n: number): string {
   if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`
   if (n >= 1000) return `${(n / 1000).toFixed(0)}k`
   return new Intl.NumberFormat('it-IT').format(n)
 }
 
-export function fmtEuro(n) {
-  return new Intl.NumberFormat('it-IT', { maximumFractionDigits: 0 }).format(n) + ' €'
+export function fmtEuro(n: number): string {
+  return new Intl.NumberFormat('it-IT', { maximumFractionDigits: 0 }).format(n) + ' \u20AC'
 }
 
 // ═══════════════════════════════════════
 // DONUT CENTER LABEL (for modern pie)
 // ═══════════════════════════════════════
-export function DonutCenter({ viewBox, value, label }) {
+interface DonutCenterProps {
+  viewBox: { cx: number; cy: number }
+  value: string
+  label: string
+}
+
+export function DonutCenter({ viewBox, value, label }: DonutCenterProps) {
   const { cx, cy } = viewBox
   return (
     <g>

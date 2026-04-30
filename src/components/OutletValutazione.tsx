@@ -2,7 +2,7 @@
  * Outlet in Valutazione — simulazioni CE per nuovi outlet
  * Salvate su DB, con nome, possibilità di confronto e attivazione
  */
-import { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import {
@@ -15,7 +15,30 @@ import {
 
 // ─── TREE COMPONENTS ──────────────────────────────────────
 
-function TreeNodeEdit({ node, depth = 0, edits, onEdit }) {
+// TODO: tighten type
+interface TreeNode {
+  code: string
+  description: string
+  amount: number
+  level: number
+  children?: TreeNode[]
+  isMacro?: boolean
+}
+
+// TODO: tighten type
+interface Simulation {
+  id: string
+  name: string
+  status: string
+  cost_edits: Record<string, number>
+  rev_edits: Record<string, number>
+  created_at: string
+  created_by?: string
+  company_id: string
+  updated_at: string
+}
+
+function TreeNodeEdit({ node, depth = 0, edits, onEdit }: { node: TreeNode; depth?: number; edits: Record<string, number>; onEdit: (code: string, value: number) => void }) {
   const [open, setOpen] = useState(false)
   const hasKids = node.children?.length > 0
   const isMacro = node.level === 0
@@ -49,7 +72,7 @@ function TreeNodeEdit({ node, depth = 0, edits, onEdit }) {
   )
 }
 
-function TreeNodeView({ node, depth = 0 }) {
+function TreeNodeView({ node, depth = 0 }: { node: TreeNode; depth?: number }) {
   const [open, setOpen] = useState(false)
   const hasKids = node.children?.length > 0
   const isMacro = node.level === 0
@@ -72,7 +95,7 @@ function TreeNodeView({ node, depth = 0 }) {
 
 // ─── STATUS BADGE ─────────────────────────────────────────
 
-function SimBadge({ status }) {
+function SimBadge({ status }: { status: string }) {
   const map = {
     bozza: { bg: 'bg-amber-50 text-amber-700', label: 'Bozza' },
     approvato: { bg: 'bg-emerald-50 text-emerald-700', label: 'Approvato' },
@@ -94,13 +117,13 @@ export default function OutletValutazione() {
   const [loading, setLoading] = useState(true)
 
   // Simulations
-  const [simulations, setSimulations] = useState([])
-  const [activeSimId, setActiveSimId] = useState(null)
+  const [simulations, setSimulations] = useState<Simulation[]>([])
+  const [activeSimId, setActiveSimId] = useState<string | null>(null)
   const [simName, setSimName] = useState('')
   const [costEdits, setCostEdits] = useState({})
   const [revEdits, setRevEdits] = useState({})
   const [saving, setSaving] = useState(false)
-  const [toast, setToast] = useState(null)
+  const [toast, setToast] = useState<{ msg: string; t: string } | null>(null)
 
   const show = (msg, t = 'ok') => { setToast({ msg, t }); setTimeout(() => setToast(null), 3000) }
 

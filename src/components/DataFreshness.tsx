@@ -1,13 +1,12 @@
-import { Clock, CheckCircle2, AlertTriangle } from 'lucide-react'
+import React from 'react'
+import { Clock, CheckCircle2, AlertTriangle, LucideIcon } from 'lucide-react'
 
-/**
- * DataFreshness — shows how fresh the displayed data is
- *
- * Props:
- * - lastUpdate: Date or ISO string of last data update
- * - source?: label for the data source (e.g., "Banca", "SDI", "POS")
- */
-export default function DataFreshness({ lastUpdate, source }) {
+interface DataFreshnessProps {
+  lastUpdate: Date | string | null | undefined
+  source?: string
+}
+
+export default function DataFreshness({ lastUpdate, source }: DataFreshnessProps) {
   if (!lastUpdate) return null
 
   const date = lastUpdate instanceof Date ? lastUpdate : new Date(lastUpdate)
@@ -15,7 +14,7 @@ export default function DataFreshness({ lastUpdate, source }) {
   const diffHours = diffMs / (1000 * 60 * 60)
   const diffDays = diffHours / 24
 
-  let color, Icon, label
+  let color: string, Icon: LucideIcon, label: string
   if (diffHours < 1) {
     color = 'text-emerald-500'
     Icon = CheckCircle2

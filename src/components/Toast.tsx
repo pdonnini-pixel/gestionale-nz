@@ -2,17 +2,42 @@ import React, { createContext, useContext, useState, useCallback } from 'react'
 import { CheckCircle, XCircle, AlertTriangle, Info, X } from 'lucide-react'
 
 // ═══════════════════════════════════════
+// Types
+// ═══════════════════════════════════════
+type ToastType = 'success' | 'error' | 'warning' | 'info'
+
+interface ToastData {
+  id: number
+  type: ToastType
+  message: string
+}
+
+interface ToastOptions {
+  type?: ToastType
+  message: string
+  duration?: number
+}
+
+interface ToastContextValue {
+  toast: (options: ToastOptions) => () => void
+}
+
+// ═══════════════════════════════════════
 // Toast Context
 // ═══════════════════════════════════════
-const ToastContext = createContext(null)
+const ToastContext = createContext<ToastContextValue | null>(null)
 
 // ═══════════════════════════════════════
 // Toast Provider Component
 // ═══════════════════════════════════════
-export function ToastProvider({ children }) {
-  const [toasts, setToasts] = useState([])
+interface ToastProviderProps {
+  children: React.ReactNode
+}
 
-  const toast = useCallback(({ type = 'info', message, duration = 4000 }) => {
+export function ToastProvider({ children }: ToastProviderProps) {
+  const [toasts, setToasts] = useState<ToastData[]>([])
+
+  const toast = useCallback(({ type = 'info', message, duration = 4000 }: ToastOptions) => {
     const id = Date.now()
 
     setToasts(prev => {
@@ -44,7 +69,7 @@ export function ToastProvider({ children }) {
 // ═══════════════════════════════════════
 // Toast Hook
 // ═══════════════════════════════════════
-export function useToast() {
+export function useToast(): ToastContextValue {
   const context = useContext(ToastContext)
   if (!context) {
     throw new Error('useToast must be used within ToastProvider')
@@ -55,7 +80,12 @@ export function useToast() {
 // ═══════════════════════════════════════
 // Toast Container (stacked, top-right)
 // ═══════════════════════════════════════
-function ToastContainer({ toasts, onRemove }) {
+interface ToastContainerProps {
+  toasts: ToastData[]
+  onRemove: (id: number) => void
+}
+
+function ToastContainer({ toasts, onRemove }: ToastContainerProps) {
   return (
     <div className="fixed top-6 right-6 z-50 flex flex-col gap-3 pointer-events-none">
       {toasts.map((toast) => (
@@ -72,7 +102,12 @@ function ToastContainer({ toasts, onRemove }) {
 // ═══════════════════════════════════════
 // Individual Toast Item with glassmorphism
 // ═══════════════════════════════════════
-function ToastItem({ toast, onRemove }) {
+interface ToastItemProps {
+  toast: ToastData
+  onRemove: () => void
+}
+
+function ToastItem({ toast, onRemove }: ToastItemProps) {
   const [isExiting, setIsExiting] = useState(false)
 
   const handleDismiss = () => {

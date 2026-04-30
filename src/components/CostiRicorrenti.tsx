@@ -81,17 +81,53 @@ const getMonthsArray = () => {
   return months;
 };
 
+// TODO: tighten type
+interface RecurringCost {
+  id: string
+  company_id: string
+  cost_center: string
+  cost_category_id: string
+  description: string
+  amount: number
+  frequency: string
+  day_of_month: number
+  payment_method: string
+  supplier_name?: string
+  notes?: string
+  start_date: string
+  end_date?: string
+  is_active: boolean
+  created_at: string
+}
+
+// TODO: tighten type
+interface CostCategory {
+  id: string
+  name: string
+  macro_group: string
+  sort_order?: number
+}
+
+// TODO: tighten type
+interface CostCenter {
+  id: string
+  code: string
+  label: string
+  color?: string
+  sort_order?: number
+}
+
 function CostiRicorrenti() {
   const { profile } = useAuth();
   const COMPANY_ID = profile?.company_id;
 
   // State
-  const [recurringCosts, setRecurringCosts] = useState([]);
-  const [costCategories, setCostCategories] = useState([]);
-  const [costCenters, setCostCenters] = useState([]);
+  const [recurringCosts, setRecurringCosts] = useState<RecurringCost[]>([]);
+  const [costCategories, setCostCategories] = useState<CostCategory[]>([]);
+  const [costCenters, setCostCenters] = useState<CostCenter[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [success, setSuccess] = useState(null);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
 
   // Filter state
   const [filterOutlet, setFilterOutlet] = useState('');
@@ -101,8 +137,8 @@ function CostiRicorrenti() {
 
   // Modal state
   const [showModal, setShowModal] = useState(false);
-  const [editingId, setEditingId] = useState(null);
-  const [deleteConfirmId, setDeleteConfirmId] = useState(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   // Form state
   const [formData, setFormData] = useState({

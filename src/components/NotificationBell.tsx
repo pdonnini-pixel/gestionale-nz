@@ -1,13 +1,20 @@
-import { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Bell, X, Check, CheckCheck, ExternalLink,
-  AlertTriangle, AlertCircle, Info, Receipt, Landmark, Shield, Settings
+  AlertTriangle, AlertCircle, Info, Receipt, Landmark, Shield, Settings,
+  LucideIcon
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 
-const CATEGORY_META = {
+interface CategoryMeta {
+  icon: LucideIcon
+  color: string
+  label: string
+}
+
+const CATEGORY_META: Record<string, CategoryMeta> = {
   scadenza_fiscale: { icon: AlertTriangle, color: 'amber', label: 'Scadenza fiscale' },
   scadenza_fornitore: { icon: AlertCircle, color: 'red', label: 'Scadenza fornitore' },
   anomalia: { icon: Shield, color: 'purple', label: 'Anomalia' },
@@ -17,10 +24,25 @@ const CATEGORY_META = {
   info: { icon: Info, color: 'sky', label: 'Informazione' },
 }
 
-const SEVERITY_STYLES = {
+const SEVERITY_STYLES: Record<string, string> = {
   critical: 'border-l-red-500 bg-red-50/40',
   warning: 'border-l-amber-500 bg-amber-50/30',
   info: 'border-l-blue-500 bg-white',
+}
+
+// TODO: tighten type — notification from Supabase
+interface Notification {
+  id: string
+  title: string
+  message: string
+  category: string
+  severity: string
+  read: boolean
+  dismissed: boolean
+  action_url?: string
+  action_label?: string
+  created_at: string
+  company_id: string
 }
 
 export default function NotificationBell() {
@@ -28,9 +50,9 @@ export default function NotificationBell() {
   const navigate = useNavigate()
   const COMPANY_ID = profile?.company_id
   const [open, setOpen] = useState(false)
-  const [notifications, setNotifications] = useState([])
+  const [notifications, setNotifications] = useState<Notification[]>([])
   const [loading, setLoading] = useState(false)
-  const panelRef = useRef(null)
+  const panelRef = useRef<HTMLDivElement>(null)
 
   const unread = notifications.filter(n => !n.read && !n.dismissed)
   const unreadCount = unread.length
@@ -49,8 +71,8 @@ export default function NotificationBell() {
 
   // Close on outside click
   useEffect(() => {
-    function handleClick(e) {
-      if (panelRef.current && !panelRef.current.contains(e.target)) {
+    function handleClick(e: MouseEvent) {
+      if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
         setOpen(false)
       }
     }
@@ -66,10 +88,10 @@ export default function NotificationBell() {
       .eq('dismissed', false)
       .order('created_at', { ascending: false })
       .limit(50)
-    setNotifications(data || [])
+    setNotifications((data as Notification[]) || [])
   }
 
-  async function markRead(id) {
+  async function markRead(id: string) {
     await supabase.from('notifications').update({ read: true, read_at: new Date().toISOString() }).eq('id', id)
     setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n))
   }
@@ -81,12 +103,12 @@ export default function NotificationBell() {
     setNotifications(prev => prev.map(n => ({ ...n, read: true })))
   }
 
-  async function dismiss(id) {
+  async function dismiss(id: string) {
     await supabase.from('notifications').update({ dismissed: true }).eq('id', id)
     setNotifications(prev => prev.filter(n => n.id !== id))
   }
 
-  function handleAction(n) {
+  function handleAction(n: Notification) {
     if (!n.read) markRead(n.id)
     if (n.action_url) {
       navigate(n.action_url)
@@ -94,20 +116,16 @@ export default function NotificationBell() {
     }
   }
 
-  // Sanitizza messaggio rimuovendo righe con importo non disponibile (es. "Importo: € N/D")
-  // Difesa in profondità: se a monte qualcuno crea una notifica con importo mancante,
-  // la riga viene nascosta invece di mostrare "EUR N/D" all'utente.
-  function sanitizeMessage(msg) {
+  // Sanitizza messaggio rimuovendo righe con importo non disponibile
+  function sanitizeMessage(msg: string): string {
     if (!msg) return ''
     return String(msg)
-      // rimuove "Importo: € N/D" / "Importo: EUR N/D" e varianti, con o senza trattino/separatore
-      .replace(/[\.\s—\-•]*\s*Importo[:\s]*(?:€|EUR)\s*N\/?D\s*[\.\s]*/gi, '')
-      // rimuove eventuali doppi spazi rimasti
+      .replace(/[\.\s\u2014\-\u2022]*\s*Importo[:\s]*(?:\u20AC|EUR)\s*N\/?D\s*[\.\s]*/gi, '')
       .replace(/\s{2,}/g, ' ')
       .trim()
   }
 
-  function timeAgo(dateStr) {
+  function timeAgo(dateStr: string): string {
     const diff = Date.now() - new Date(dateStr).getTime()
     const mins = Math.floor(diff / 60000)
     if (mins < 1) return 'ora'

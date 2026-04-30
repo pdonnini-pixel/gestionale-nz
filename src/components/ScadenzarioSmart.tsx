@@ -5,6 +5,6 @@ import { GlassTooltip, AXIS_STYLE, GRID_STYLE } from '../components/ChartTheme';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
 
-// ... ScadenzarioSmart component with full implementation ...
+// ScadenzarioSmart component — implementation in separate file
 
 export default ScadenzarioSmart;

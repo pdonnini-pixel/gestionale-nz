@@ -1,3 +1,4 @@
+import React from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { useCompany } from '../hooks/useCompany'
@@ -6,17 +7,37 @@ import {
   ChevronDown, ChevronRight, Landmark, BarChart3, GitCompare, Target,
   CalendarClock, UserCheck, PieChart, Sparkles, Activity, Sliders,
   Upload, FolderArchive, TrendingUp, ChevronsUpDown, Building,
-  Menu, X, ChevronsLeft, ChevronsRight, Split
+  Menu, X, ChevronsLeft, ChevronsRight, Split,
+  LucideIcon
 } from 'lucide-react'
 import { useState, useRef, useEffect, useMemo, createContext, useContext } from 'react'
 
 // ─── MOBILE CONTEXT ────────────────────────────────────────────
-const SidebarContext = createContext({ mobileOpen: false, setMobileOpen: () => {} })
+interface SidebarContextValue {
+  mobileOpen: boolean
+  setMobileOpen: (v: boolean) => void
+}
+
+const SidebarContext = createContext<SidebarContextValue>({ mobileOpen: false, setMobileOpen: () => {} })
 export function useSidebar() { return useContext(SidebarContext) }
 export { SidebarContext }
 
 // ─── NAVIGATION STRUCTURE (grouped by area) ────────────────────
-const allSections = [
+interface NavItem {
+  to: string
+  icon: LucideIcon
+  label: string
+  roles: string[]
+  badgeKey?: string
+}
+
+interface NavSection {
+  key: string
+  label: string
+  items: NavItem[]
+}
+
+const allSections: NavSection[] = [
   {
     key: 'cruscotto',
     label: 'Cruscotto',
@@ -81,7 +102,7 @@ const allSections = [
 ]
 
 // ─── BREADCRUMB MAP (exported for use in Layout) ───────────────
-export const BREADCRUMB_MAP = {
+export const BREADCRUMB_MAP: Record<string, { section: string; page: string }> = {
   '/': { section: 'Cruscotto', page: 'Dashboard' },
   '/banche': { section: 'Finanza', page: 'Banche' },
   '/cash-flow': { section: 'Finanza', page: 'Cashflow' },
@@ -105,7 +126,7 @@ export const BREADCRUMB_MAP = {
 }
 
 // ─── HELPER: find which section key contains a given path ──────
-function findSectionKeyForPath(path, sections) {
+function findSectionKeyForPath(path: string, sections: NavSection[]): string | null {
   for (const section of sections) {
     if (section.items.some(item => item.to === path || (item.to !== '/' && path.startsWith(item.to)))) {
       return section.key
@@ -114,16 +135,22 @@ function findSectionKeyForPath(path, sections) {
   return null
 }
 
-export default function Sidebar({ mobileOpen, setMobileOpen, badges = {} }) {
+interface SidebarProps {
+  mobileOpen: boolean
+  setMobileOpen: (v: boolean) => void
+  badges?: Record<string, number>
+}
+
+export default function Sidebar({ mobileOpen, setMobileOpen, badges = {} }: SidebarProps) {
   const { profile, signOut } = useAuth()
   const { company, companies, switchCompany } = useCompany()
   const [companyDropdownOpen, setCompanyDropdownOpen] = useState(false)
   const [collapsed, setCollapsed] = useState(false)
-  const dropdownRef = useRef(null)
+  const dropdownRef = useRef<HTMLDivElement>(null)
   const location = useLocation()
   const role = profile?.role || 'ceo'
 
-  const roleLabels = {
+  const roleLabels: Record<string, string> = {
     super_advisor: 'Super Advisor',
     ceo: 'CEO', cfo: 'CFO', coo: 'COO',
     contabile: 'Contabile'
@@ -144,22 +171,20 @@ export default function Sidebar({ mobileOpen, setMobileOpen, badges = {} }) {
     return findSectionKeyForPath(location.pathname, sections)
   }, [location.pathname, sections])
 
-  // Expanded sections state: persistito in localStorage
-  // Le sezioni si aprono/chiudono SOLO con click manuale sulla freccia
-  const [expandedSections, setExpandedSections] = useState(() => {
+  // Expanded sections state
+  const [expandedSections, setExpandedSections] = useState<Set<string>>(() => {
     try {
       const saved = localStorage.getItem('nz_sidebar_expanded')
-      if (saved) return new Set(JSON.parse(saved))
-    } catch {}
-    // Default: tutte le sezioni aperte
+      if (saved) return new Set(JSON.parse(saved) as string[])
+    } catch { /* ignore */ }
     const initial = new Set(allSections.map(s => s.key))
     return initial
   })
 
   // Close dropdown on outside click
   useEffect(() => {
-    function handleClickOutside(e) {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+    function handleClickOutside(e: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
         setCompanyDropdownOpen(false)
       }
     }
@@ -173,10 +198,10 @@ export default function Sidebar({ mobileOpen, setMobileOpen, badges = {} }) {
   }, [location.pathname])
 
   const companyAbbrev = company?.name
-    ? company.name.split(/\s+/).map(w => w[0]).join('').toUpperCase().slice(0, 3)
+    ? company.name.split(/\s+/).map((w: string) => w[0]).join('').toUpperCase().slice(0, 3)
     : '...'
 
-  const toggleSection = (key) => {
+  const toggleSection = (key: string) => {
     setExpandedSections(prev => {
       const next = new Set(prev)
       if (next.has(key)) {
@@ -184,12 +209,12 @@ export default function Sidebar({ mobileOpen, setMobileOpen, badges = {} }) {
       } else {
         next.add(key)
       }
-      try { localStorage.setItem('nz_sidebar_expanded', JSON.stringify([...next])) } catch {}
+      try { localStorage.setItem('nz_sidebar_expanded', JSON.stringify([...next])) } catch { /* ignore */ }
       return next
     })
   }
 
-  const renderNavItem = (item, isCollapsedMode = false) => {
+  const renderNavItem = (item: NavItem, isCollapsedMode = false) => {
     const badge = item.badgeKey ? badges[item.badgeKey] : null
 
     if (isCollapsedMode) {
@@ -246,25 +271,19 @@ export default function Sidebar({ mobileOpen, setMobileOpen, badges = {} }) {
   // ─── COLLAPSED SIDEBAR (icon-only mode) ──────────────────────
   const collapsedContent = (
     <>
-      {/* Header — Company abbrev */}
       <div className="p-2 border-b border-slate-700/50 shrink-0 flex flex-col items-center gap-2">
         <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-xs font-bold shrink-0">
           {companyAbbrev}
         </div>
       </div>
-
-      {/* Navigation — Icons only, no section headers */}
       <nav className="flex-1 py-3 px-1.5 overflow-y-auto flex flex-col items-center gap-1">
         {sections.map(section => (
           <div key={section.key} className="flex flex-col items-center gap-1">
             {section.items.map(item => renderNavItem(item, true))}
-            {/* Tiny separator between sections */}
             <div className="w-5 h-px bg-slate-700/50 my-1" />
           </div>
         ))}
       </nav>
-
-      {/* Expand button */}
       <div className="p-2 border-t border-slate-700/50 shrink-0 flex flex-col items-center gap-2">
         <button
           onClick={signOut}
@@ -287,7 +306,6 @@ export default function Sidebar({ mobileOpen, setMobileOpen, badges = {} }) {
   // ─── EXPANDED SIDEBAR ────────────────────────────────────────
   const expandedContent = (
     <>
-      {/* Header — Company Selector */}
       <div className="p-3 border-b border-slate-700/50 shrink-0">
         <div className="flex items-center justify-between">
           <div className="relative flex-1 mr-2" ref={dropdownRef}>
@@ -313,7 +331,7 @@ export default function Sidebar({ mobileOpen, setMobileOpen, badges = {} }) {
 
             {companyDropdownOpen && companies.length > 1 && (
               <div className="absolute left-0 right-0 mt-1 bg-slate-800 border border-slate-600 rounded-lg shadow-xl z-50 py-1 max-h-60 overflow-y-auto">
-                {companies.map(c => (
+                {companies.map((c: { id: string; name: string }) => (
                   <button
                     key={c.id}
                     onClick={() => { switchCompany(c.id); setCompanyDropdownOpen(false) }}
@@ -328,7 +346,6 @@ export default function Sidebar({ mobileOpen, setMobileOpen, badges = {} }) {
               </div>
             )}
           </div>
-          {/* Close button on mobile */}
           <button
             onClick={() => setMobileOpen(false)}
             className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition shrink-0 md:hidden"
@@ -338,7 +355,6 @@ export default function Sidebar({ mobileOpen, setMobileOpen, badges = {} }) {
         </div>
       </div>
 
-      {/* Navigation — Grouped Sections with collapse/expand */}
       <nav className="flex-1 py-3 px-2 overflow-y-auto space-y-0.5">
         {sections.map(section => {
           const isOpen = expandedSections.has(section.key)
@@ -376,11 +392,10 @@ export default function Sidebar({ mobileOpen, setMobileOpen, badges = {} }) {
         })}
       </nav>
 
-      {/* User footer */}
       <div className="p-3 border-t border-slate-700/50 shrink-0">
         <div className="mb-2 px-2">
           <div className="text-sm font-medium">{profile?.first_name} {profile?.last_name}</div>
-          <div className="text-xs text-slate-400">{roleLabels[profile?.role]}</div>
+          <div className="text-xs text-slate-400">{roleLabels[profile?.role as string]}</div>
         </div>
         <div className="flex items-center justify-between">
           <button
@@ -390,7 +405,6 @@ export default function Sidebar({ mobileOpen, setMobileOpen, badges = {} }) {
             <LogOut size={18} />
             <span>Esci</span>
           </button>
-          {/* Collapse button — desktop only */}
           <button
             onClick={() => setCollapsed(true)}
             title="Comprimi sidebar"
@@ -405,7 +419,6 @@ export default function Sidebar({ mobileOpen, setMobileOpen, badges = {} }) {
 
   return (
     <>
-      {/* Desktop sidebar */}
       <aside
         className={`hidden md:flex h-screen bg-slate-900 text-white flex-col shrink-0 transition-all duration-200 ${
           collapsed ? 'w-16' : 'w-60'
@@ -414,7 +427,6 @@ export default function Sidebar({ mobileOpen, setMobileOpen, badges = {} }) {
         {collapsed ? collapsedContent : expandedContent}
       </aside>
 
-      {/* Mobile overlay */}
       {mobileOpen && (
         <div className="fixed inset-0 z-50 md:hidden">
           <div className="absolute inset-0 bg-black/50" onClick={() => setMobileOpen(false)} />

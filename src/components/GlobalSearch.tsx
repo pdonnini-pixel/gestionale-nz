@@ -1,10 +1,25 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Search, X, Store, Building2, Receipt, Landmark, Users, FileText, ArrowRight } from 'lucide-react'
+import { Search, X, Store, Building2, Receipt, Landmark, Users, FileText, ArrowRight, LucideIcon } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 
-const SEARCH_CATEGORIES = [
+interface SearchCategory {
+  key: string
+  label: string
+  icon: LucideIcon
+  color: string
+}
+
+interface SearchResult {
+  id: string
+  title: string
+  subtitle?: string
+  url: string
+  category?: string
+}
+
+const SEARCH_CATEGORIES: SearchCategory[] = [
   { key: 'outlets', label: 'Outlet', icon: Store, color: 'blue' },
   { key: 'suppliers', label: 'Fornitori', icon: Building2, color: 'purple' },
   { key: 'invoices', label: 'Fatture', icon: Receipt, color: 'emerald' },
@@ -15,13 +30,18 @@ const SEARCH_CATEGORIES = [
 // Fix 9.3: GlobalSearch ora accetta `open`/`onClose` come prop per poter
 // essere aperto sia da Cmd+K che dal pulsante search del topbar. Se le
 // prop non sono fornite, mantiene retro-compatibilità con stato interno.
-export default function GlobalSearch({ open: openProp, onClose }) {
+interface GlobalSearchProps {
+  open?: boolean
+  onClose?: () => void
+}
+
+export default function GlobalSearch({ open: openProp, onClose }: GlobalSearchProps) {
   const { profile } = useAuth()
   const navigate = useNavigate()
   const COMPANY_ID = profile?.company_id
   const [internalOpen, setInternalOpen] = useState(false)
   const open = openProp !== undefined ? openProp : internalOpen
-  const setOpen = (v) => {
+  const setOpen = (v: boolean | ((prev: boolean) => boolean)) => {
     if (openProp !== undefined) {
       // Modalità controllata: chiudo via callback
       if (!v && onClose) onClose()
@@ -30,11 +50,11 @@ export default function GlobalSearch({ open: openProp, onClose }) {
     }
   }
   const [query, setQuery] = useState('')
-  const [results, setResults] = useState({})
+  const [results, setResults] = useState<Record<string, SearchResult[]>>({})
   const [loading, setLoading] = useState(false)
   const [selectedIdx, setSelectedIdx] = useState(0)
-  const inputRef = useRef(null)
-  const debounceRef = useRef(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Cmd+K shortcut — solo se non controllato dall'esterno
   useEffect(() => {
@@ -71,10 +91,10 @@ export default function GlobalSearch({ open: openProp, onClose }) {
     return () => clearTimeout(debounceRef.current)
   }, [query, COMPANY_ID])
 
-  async function doSearch(q) {
+  async function doSearch(q: string) {
     setLoading(true)
     const qLower = `%${q}%`
-    const res = {}
+    const res: Record<string, SearchResult[]> = {}
 
     try {
       // Fix 9.3: query suppliers usava 'business_name' che non esiste → la
@@ -98,8 +118,8 @@ export default function GlobalSearch({ open: openProp, onClose }) {
       if (invoices.data?.length) res.invoices = invoices.data.map(i => ({ id: i.id, title: `${i.invoice_number || 'Fattura'}`, subtitle: `${i.supplier_name || ''} — €${Number(i.total_amount || 0).toLocaleString('it-IT')}`, url: '/fatturazione' }))
       if (movements.data?.length) res.movements = movements.data.map(m => ({ id: m.id, title: m.counterpart || m.description?.slice(0, 50), subtitle: `€${Number(m.amount || 0).toLocaleString('it-IT')} — ${m.date}`, url: '/banche' }))
       if (employees.data?.length) res.employees = employees.data.map(e => ({ id: e.id, title: `${e.first_name} ${e.last_name}`, subtitle: e.role, url: '/dipendenti' }))
-    } catch (e) {
-      console.warn('Search error:', e)
+    } catch (err: unknown) {
+      console.warn('Search error:', err)
     }
 
     setResults(res)
@@ -112,12 +132,12 @@ export default function GlobalSearch({ open: openProp, onClose }) {
     items.map(item => ({ ...item, category: cat }))
   )
 
-  function handleSelect(item) {
+  function handleSelect(item: SearchResult) {
     navigate(item.url)
     setOpen(false)
   }
 
-  function handleKeyDown(e) {
+  function handleKeyDown(e: React.KeyboardEvent) {
     if (e.key === 'ArrowDown') { e.preventDefault(); setSelectedIdx(i => Math.min(i + 1, flatResults.length - 1)) }
     if (e.key === 'ArrowUp') { e.preventDefault(); setSelectedIdx(i => Math.max(i - 1, 0)) }
     if (e.key === 'Enter' && flatResults[selectedIdx]) { handleSelect(flatResults[selectedIdx]) }

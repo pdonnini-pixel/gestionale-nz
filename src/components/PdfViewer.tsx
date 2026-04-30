@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { ChevronLeft, ChevronRight, ZoomIn, ZoomOut, FileText } from 'lucide-react'
 
 import * as pdfjsLib from 'pdfjs-dist'
@@ -13,16 +13,24 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
  * Accetta `pdfData` (ArrayBuffer/Uint8Array) oppure `url` come fallback.
  * Preferire pdfData per evitare problemi CORS con Supabase signed URLs.
  */
-export default function PdfViewer({ pdfData, url, className = '' }) {
-  const [pdf, setPdf] = useState(null)
+interface PdfViewerProps {
+  pdfData?: ArrayBuffer | Uint8Array | null
+  url?: string
+  className?: string
+}
+
+export default function PdfViewer({ pdfData, url, className = '' }: PdfViewerProps) {
+  // TODO: tighten type — pdfjs PDFDocumentProxy
+  const [pdf, setPdf] = useState<any>(null)
   const [currentPage, setCurrentPage] = useState(1)
   const [totalPages, setTotalPages] = useState(0)
   const [scale, setScale] = useState(1.2)
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
-  const canvasRef = useRef(null)
-  const renderTaskRef = useRef(null)
-  const containerRef = useRef(null)
+  const [error, setError] = useState<string | null>(null)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  // TODO: tighten type — pdfjs RenderTask
+  const renderTaskRef = useRef<any>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
 
   // Carica il PDF da dati binari o URL
   useEffect(() => {

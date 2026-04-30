@@ -1,7 +1,12 @@
-import { useState, useRef, useEffect } from 'react'
+import React, { useState, useRef, useEffect } from 'react'
 import { HelpCircle } from 'lucide-react'
 
-const GLOSSARY = {
+interface GlossaryEntry {
+  term: string
+  def: string
+}
+
+const GLOSSARY: Record<string, GlossaryEntry> = {
   pfn: { term: 'PFN', def: 'Posizione Finanziaria Netta — differenza tra liquidità attiva e debiti finanziari. Se negativa, l\'azienda ha più debiti che cassa.' },
   ebitda: { term: 'EBITDA', def: 'Utile prima di interessi, tasse, ammortamenti e svalutazioni. Indica la redditività operativa pura dell\'azienda.' },
   margine: { term: 'Margine', def: 'Differenza tra ricavi e costi. Il margine lordo esclude costi fissi, il margine netto li include tutti.' },
@@ -20,27 +25,27 @@ const GLOSSARY = {
   open_banking: { term: 'Open Banking', def: 'Sistema regolamentato (PSD2) che permette di accedere ai dati bancari tramite API, con il consenso del titolare del conto.' },
 }
 
-/**
- * FinancialTooltip — inline help for financial terms
- *
- * Usage: <FinancialTooltip term="pfn" /> next to any financial term label
- * Or:    <FinancialTooltip term="pfn">PFN</FinancialTooltip> to wrap text
- */
-export default function FinancialTooltip({ term, children, size = 13 }) {
+interface FinancialTooltipProps {
+  term: string
+  children?: React.ReactNode
+  size?: number
+}
+
+export default function FinancialTooltip({ term, children, size = 13 }: FinancialTooltipProps) {
   const [show, setShow] = useState(false)
-  const ref = useRef(null)
+  const ref = useRef<HTMLSpanElement>(null)
   const entry = GLOSSARY[term]
 
   useEffect(() => {
     if (!show) return
-    function close(e) {
-      if (ref.current && !ref.current.contains(e.target)) setShow(false)
+    function close(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setShow(false)
     }
     document.addEventListener('mousedown', close)
     return () => document.removeEventListener('mousedown', close)
   }, [show])
 
-  if (!entry) return children || null
+  if (!entry) return <>{children}</> || null
 
   return (
     <span className="relative inline-flex items-center gap-1" ref={ref}>

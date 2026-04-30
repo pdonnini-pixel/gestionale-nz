@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { X, Printer, Download, FileText, AlertCircle } from 'lucide-react'
 
 // ─── FatturaPA XML → HTML (parser manuale) ───────────────────────
@@ -38,19 +38,29 @@ function fmtDate(val) {
   return val
 }
 
-function getTextContent(parent, tagName) {
+// TODO: tighten type
+interface FatturaData {
+  fornitore: Record<string, string>
+  cliente: Record<string, string>
+  documento: Record<string, string>
+  linee: Array<Record<string, string>>
+  riepilogo: Array<Record<string, string>>
+  pagamento: Array<Record<string, string>>
+}
+
+function getTextContent(parent: Element | null, tagName: string): string {
   if (!parent) return ''
   const el = parent.getElementsByTagName(tagName)[0]
   return el ? el.textContent.trim() : ''
 }
 
-function getAllElements(parent, tagName) {
+function getAllElements(parent: Element | null, tagName: string): Element[] {
   if (!parent) return []
   return Array.from(parent.getElementsByTagName(tagName))
 }
 
 // ─── Parse FatturaPA XML → struttura dati ────────────────────────
-function parseFatturaPA(xmlString) {
+function parseFatturaPA(xmlString: string): FatturaData {
   const parser = new DOMParser()
   const doc = parser.parseFromString(xmlString, 'text/xml')
 
@@ -155,7 +165,7 @@ function parseFatturaPA(xmlString) {
 }
 
 // ─── Render fattura come HTML ────────────────────────────────────
-function FatturaRendered({ data }) {
+function FatturaRendered({ data }: { data: FatturaData }) {
   const { fornitore, cliente, documento, linee, riepilogo, pagamento } = data
 
   const totaleImponibile = riepilogo.reduce((s, r) => s + parseFloat(r.imponibile || 0), 0)
@@ -314,15 +324,21 @@ function FatturaRendered({ data }) {
 // autoPrint: se true, triggera handlePrint automaticamente dopo il mount.
 // Usato quando il viewer viene aperto da un bottone "Scarica PDF" che deve
 // saltare l'anteprima e andare direttamente al dialog di stampa.
-export default function InvoiceViewer({ xmlContent, onClose, autoPrint = false }) {
-  const [error, setError] = useState(null)
+interface InvoiceViewerProps {
+  xmlContent: string | null
+  onClose: () => void
+  autoPrint?: boolean
+}
+
+export default function InvoiceViewer({ xmlContent, onClose, autoPrint = false }: InvoiceViewerProps) {
+  const [error, setError] = useState<string | null>(null)
 
   const parsed = useMemo(() => {
     if (!xmlContent) return null
     try {
       return parseFatturaPA(xmlContent)
-    } catch (err) {
-      setError(err.message)
+    } catch (err: unknown) {
+      setError((err as Error).message)
       return null
     }
   }, [xmlContent])

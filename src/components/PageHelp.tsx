@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { HelpCircle, X } from 'lucide-react';
 
-const PAGE_HELP = {
+const PAGE_HELP: Record<string, string> = {
   dashboard: "Questa è la tua panoramica finanziaria. I numeri vengono dal bilancio importato e dai movimenti bancari. Gli alert in rosso richiedono la tua attenzione: fatture scadute, liquidità negativa, scadenze imminenti.",
   tesoreria: "Qui vedi tutti i tuoi conti bancari e la liquidità. Il saldo viene dall'estratto conto importato (CSV/Excel dalla banca). Per collegare la banca automaticamente via PSD2, clicca 'Collega banca'. La riconciliazione confronta movimenti bancari con fatture.",
   cashflow: "Mostra quanto denaro entrerà e uscirà nei prossimi mesi. Le uscite previste vengono dalle fatture da pagare. Se il saldo diventa negativo (alert rosso), potresti non avere abbastanza liquidità per le spese.",
@@ -19,7 +19,11 @@ const PAGE_HELP = {
   'scenario-planning': "Simula scenari what-if: varia ricavi e costi personale con i cursori, attiva l'ipotesi nuovo outlet con costi stimati. Vedi in tempo reale l'impatto su margine, cash e break-even.",
 };
 
-export default function PageHelp({ page }) {
+interface PageHelpProps {
+  page: string
+}
+
+export default function PageHelp({ page }: PageHelpProps) {
   const [open, setOpen] = useState(false);
   const text = PAGE_HELP[page];
   if (!text) return null;

@@ -1,17 +1,16 @@
+import React from 'react'
 import { useNavigate } from 'react-router-dom'
-import { FolderOpen } from 'lucide-react'
+import { FolderOpen, LucideIcon } from 'lucide-react'
 
-/**
- * EmptyState — unified empty state for all pages
- *
- * Props:
- * - icon?: Lucide icon component (default FolderOpen)
- * - title: main message
- * - description?: subtitle text
- * - actionLabel?: button text
- * - actionTo?: route to navigate to
- * - onAction?: callback (overrides actionTo)
- */
+interface EmptyStateProps {
+  icon?: LucideIcon
+  title?: string
+  description?: string
+  actionLabel?: string
+  actionTo?: string
+  onAction?: () => void
+}
+
 export default function EmptyState({
   icon: Icon = FolderOpen,
   title = 'Nessun dato disponibile',
@@ -19,7 +18,7 @@ export default function EmptyState({
   actionLabel,
   actionTo,
   onAction,
-}) {
+}: EmptyStateProps) {
   const navigate = useNavigate()
 
   return (
@@ -31,7 +30,7 @@ export default function EmptyState({
       {description && <p className="text-sm text-slate-400 max-w-sm mb-4">{description}</p>}
       {(actionLabel && (actionTo || onAction)) && (
         <button
-          onClick={() => onAction ? onAction() : navigate(actionTo)}
+          onClick={() => onAction ? onAction() : navigate(actionTo!)}
           className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition"
         >
           {actionLabel}

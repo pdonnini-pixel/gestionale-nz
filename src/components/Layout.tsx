@@ -1,3 +1,4 @@
+import React from 'react'
 import { Outlet, useLocation, NavLink, useNavigate } from 'react-router-dom'
 import { useState, useEffect, useRef } from 'react'
 import Sidebar, { BREADCRUMB_MAP } from './Sidebar'
@@ -13,11 +14,6 @@ import {
 } from 'lucide-react'
 
 // ─── PERIOD SELECTOR ──────────────────────────────────────────
-// Solo selettore Anno (YTD/Q1-Q4 rimossi su richiesta utente: l'app non
-// ha bisogno di filtri per quarter dall'header globale; le pagine che
-// vogliono filtrare per quarter possono offrire un selettore locale.
-// Il PeriodContext mantiene quarter='year' di default per non rompere
-// le pagine che leggono getDateRange()).
 function PeriodSelector() {
   const { year, setYear } = usePeriod()
   const currentYear = new Date().getFullYear()
@@ -42,7 +38,7 @@ function PeriodSelector() {
       {/* Mobile: year dropdown */}
       <select
         value={year}
-        onChange={e => setYear(Number(e.target.value))}
+        onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setYear(Number(e.target.value))}
         className="sm:hidden px-2 py-1 text-xs font-semibold bg-slate-100 border-0 rounded-lg text-slate-700"
       >
         {years.map(y => <option key={y} value={y}>{y}</option>)}
@@ -99,21 +95,18 @@ function BottomNav() {
 }
 
 // ─── PROFILE MENU ─────────────────────────────────────────────
-// Fix 9.2: l'avatar+nome utente non era cliccabile (era un <div>).
-// Ora apre un dropdown con: Profilo, Impostazioni, Esci.
 function ProfileMenu() {
   const { profile, signOut } = useAuth()
   const navigate = useNavigate()
   const [open, setOpen] = useState(false)
-  const ref = useRef(null)
+  const ref = useRef<HTMLDivElement>(null)
 
-  // Click-outside per chiudere il menu
   useEffect(() => {
     if (!open) return
-    function onClick(e) {
-      if (ref.current && !ref.current.contains(e.target)) setOpen(false)
+    function onClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
     }
-    function onEsc(e) {
+    function onEsc(e: KeyboardEvent) {
       if (e.key === 'Escape') setOpen(false)
     }
     document.addEventListener('mousedown', onClick)
@@ -133,7 +126,7 @@ function ProfileMenu() {
     navigate('/login', { replace: true })
   }
 
-  function go(path) {
+  function go(path: string) {
     setOpen(false)
     navigate(path)
   }
@@ -208,11 +201,8 @@ export default function Layout() {
   const [mobileOpen, setMobileOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
 
-  // Fix 9.3: shortcut Cmd+K (Mac) / Ctrl+K (Win) per aprire la ricerca
-  // globale. Centralizzato qui in modo che lo stesso stato controlli sia
-  // il pulsante search del topbar che lo shortcut da tastiera.
   useEffect(() => {
-    function onKeyDown(e) {
+    function onKeyDown(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault()
         setSearchOpen(prev => !prev)
@@ -248,7 +238,7 @@ export default function Layout() {
             <button
               onClick={() => setSearchOpen(true)}
               className="p-2 rounded-lg hover:bg-slate-100 text-slate-500 hover:text-slate-700 transition"
-              title="Cerca (⌘K)"
+              title="Cerca (\u2318K)"
             >
               <Search size={18} />
             </button>
@@ -269,7 +259,7 @@ export default function Layout() {
         <HelpPanel />
       </div>
 
-      {/* Global search overlay — controlled da Layout, apribile via Cmd+K o pulsante topbar */}
+      {/* Global search overlay */}
       <GlobalSearch open={searchOpen} onClose={() => setSearchOpen(false)} />
     </div>
   )
