@@ -2,7 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './hooks/useAuth'
 import { CompanyProvider } from './hooks/useCompany'
 import { PeriodProvider } from './hooks/usePeriod'
-import { lazy, Suspense } from 'react'
+import { lazy, Suspense, type ReactNode } from 'react'
 import Layout from './components/Layout'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
@@ -46,7 +46,7 @@ function PageLoader() {
   )
 }
 
-function ProtectedRoute({ children }) {
+function ProtectedRoute({ children }: { children: ReactNode }) {
   const { session, loading } = useAuth()
 
   if (loading) {
@@ -57,13 +57,13 @@ function ProtectedRoute({ children }) {
     )
   }
 
-  return session ? children : <Navigate to="/login" replace />
+  return session ? <>{children}</> : <Navigate to="/login" replace />
 }
 
-function PublicRoute({ children }) {
+function PublicRoute({ children }: { children: ReactNode }) {
   const { session, loading } = useAuth()
   if (loading) return null
-  return session ? <Navigate to="/" replace /> : children
+  return session ? <Navigate to="/" replace /> : <>{children}</>
 }
 
 function AppRoutes() {

@@ -1,16 +1,21 @@
 import { useState, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 
-/**
- * Hook per interagire con le Edge Functions Yapily.
- * Gestisce: lista banche, consent flow, sync conti/transazioni/saldi, pagamenti.
- */
+// TODO: tighten type — API response shapes from Yapily Edge Functions
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type ApiResponse = any
+
 export function useYapily() {
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState(null)
+  const [error, setError] = useState<string | null>(null)
 
   // Helper per chiamare Edge Functions autenticate (con auto-refresh token)
-  const callFunction = useCallback(async (fnName, method = 'GET', body = null, params = null) => {
+  const callFunction = useCallback(async (
+    fnName: string,
+    method: string = 'GET',
+    body: Record<string, unknown> | null = null,
+    params: Record<string, string> | null = null
+  ): Promise<ApiResponse> => {
     const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhmdmZ4c3ZxcG5wdmliZ2VxcHFwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUxNDkwNDcsImV4cCI6MjA5MDcyNTA0N30.ohYziAXiOWS0TKU9HHuhUAbf5Geh10xbLGEoftOMJZA'
     const baseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://xfvfxsvqpnpvibgeqpqp.supabase.co'
 
@@ -23,7 +28,7 @@ export function useYapily() {
       return url
     }
 
-    const doFetch = async (accessToken) => {
+    const doFetch = async (accessToken: string) => {
       return fetch(buildUrl(), {
         method,
         headers: {
@@ -36,7 +41,7 @@ export function useYapily() {
     }
 
     // Prima prova con il token corrente
-    let { data: { session } } = await supabase.auth.getSession()
+    const { data: { session } } = await supabase.auth.getSession()
     if (!session) throw new Error('Non autenticato')
 
     let res = await doFetch(session.access_token)
@@ -62,13 +67,12 @@ export function useYapily() {
     setLoading(true)
     setError(null)
     try {
-      const params = { country }
+      const params: Record<string, string> = { country }
       if (sandbox) params.sandbox = 'true'
       const res = await callFunction('yapily-institutions', 'GET', null, params)
-      // Return full response with _debug info for diagnostics
       return { data: res.data || [], _debug: res._debug || null }
-    } catch (err) {
-      setError(err.message)
+    } catch (err: unknown) {
+      setError((err as Error).message)
       return { data: [], _debug: null }
     } finally {
       setLoading(false)
@@ -77,11 +81,10 @@ export function useYapily() {
 
   // ────────── CONSENT FLOW ──────────
 
-  const createConsent = useCallback(async (institutionId, institutionName, consentType = 'AIS') => {
+  const createConsent = useCallback(async (institutionId: string, institutionName: string, consentType = 'AIS') => {
     setLoading(true)
     setError(null)
     try {
-      // callbackUrl è l'URL dove Yapily reindirizza dopo l'autorizzazione
       const callbackUrl = `${window.location.origin}/banking/callback`
       const res = await callFunction('yapily-auth', 'POST', {
         institutionId,
@@ -89,9 +92,9 @@ export function useYapily() {
         consentType,
         callbackUrl,
       })
-      return res.data // { consentId, authorisationUrl, consentToken }
-    } catch (err) {
-      setError(err.message)
+      return res.data
+    } catch (err: unknown) {
+      setError((err as Error).message)
       return null
     } finally {
       setLoading(false)
@@ -106,22 +109,22 @@ export function useYapily() {
     try {
       const res = await callFunction('yapily-accounts')
       return res.data || []
-    } catch (err) {
-      setError(err.message)
+    } catch (err: unknown) {
+      setError((err as Error).message)
       return []
     } finally {
       setLoading(false)
     }
   }, [callFunction])
 
-  const syncAccounts = useCallback(async (consentId) => {
+  const syncAccounts = useCallback(async (consentId: string) => {
     setLoading(true)
     setError(null)
     try {
       const res = await callFunction('yapily-accounts', 'POST', { consentId })
       return res.data || []
-    } catch (err) {
-      setError(err.message)
+    } catch (err: unknown) {
+      setError((err as Error).message)
       return []
     } finally {
       setLoading(false)
@@ -130,33 +133,33 @@ export function useYapily() {
 
   // ────────── TRANSACTIONS ──────────
 
-  const fetchTransactions = useCallback(async (accountId, from, to, limit = 100) => {
+  const fetchTransactions = useCallback(async (accountId: string, from: string, to: string, limit = 100) => {
     setLoading(true)
     setError(null)
     try {
-      const params = {}
+      const params: Record<string, string> = {}
       if (accountId) params.accountId = accountId
       if (from) params.from = from
       if (to) params.to = to
       if (limit) params.limit = String(limit)
       const res = await callFunction('yapily-transactions', 'GET', null, params)
       return res.data || []
-    } catch (err) {
-      setError(err.message)
+    } catch (err: unknown) {
+      setError((err as Error).message)
       return []
     } finally {
       setLoading(false)
     }
   }, [callFunction])
 
-  const syncTransactions = useCallback(async (accountId, from) => {
+  const syncTransactions = useCallback(async (accountId: string, from: string) => {
     setLoading(true)
     setError(null)
     try {
       const res = await callFunction('yapily-transactions', 'POST', { accountId, from })
-      return res.data // { synced, total }
-    } catch (err) {
-      setError(err.message)
+      return res.data
+    } catch (err: unknown) {
+      setError((err as Error).message)
       return null
     } finally {
       setLoading(false)
@@ -171,22 +174,22 @@ export function useYapily() {
     try {
       const res = await callFunction('yapily-balances')
       return res.data || []
-    } catch (err) {
-      setError(err.message)
+    } catch (err: unknown) {
+      setError((err as Error).message)
       return []
     } finally {
       setLoading(false)
     }
   }, [callFunction])
 
-  const refreshBalances = useCallback(async (accountId) => {
+  const refreshBalances = useCallback(async (accountId: string) => {
     setLoading(true)
     setError(null)
     try {
       const res = await callFunction('yapily-balances', 'POST', { accountId })
-      return res.data // { updated, total }
-    } catch (err) {
-      setError(err.message)
+      return res.data
+    } catch (err: unknown) {
+      setError((err as Error).message)
       return null
     } finally {
       setLoading(false)
@@ -195,14 +198,14 @@ export function useYapily() {
 
   // ────────── FULL SYNC (Yapily → cash_movements) ──────────
 
-  const fullSync = useCallback(async (accountId, from) => {
+  const fullSync = useCallback(async (accountId: string, from: string) => {
     setLoading(true)
     setError(null)
     try {
       const res = await callFunction('yapily-sync', 'POST', { accountId, from })
-      return res.data // { synced, imported, skipped, total }
-    } catch (err) {
-      setError(err.message)
+      return res.data
+    } catch (err: unknown) {
+      setError((err as Error).message)
       return null
     } finally {
       setLoading(false)
@@ -228,21 +231,15 @@ export function useYapily() {
     loading,
     error,
     setError,
-    // Institutions
     fetchInstitutions,
-    // Consent
     createConsent,
     fetchConsents,
-    // Accounts
     fetchAccounts,
     syncAccounts,
-    // Transactions
     fetchTransactions,
     syncTransactions,
-    // Balances
     fetchBalances,
     refreshBalances,
-    // Full sync (Yapily → cash_movements)
     fullSync,
   }
 }

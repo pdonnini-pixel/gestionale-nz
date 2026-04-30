@@ -1,50 +1,37 @@
-/**
- * useTableSort — hook condiviso per l'ordinamento delle tabelle.
- *
- * UX standard:
- *   - Click colonna: cicla NONE → ASC → DESC → NONE
- *   - Shift+Click: aggiunge ordinamento secondario (ordine multiplo)
- *   - reset() rimuove tutti gli ordinamenti
- *
- * Caratteristiche:
- *   - Path nested supportati (key='suppliers.ragione_sociale')
- *   - Type-aware: number / Date / string (localeCompare con numeric:true,
- *     così "Fattura 2" precede "Fattura 10")
- *   - null/undefined SEMPRE in fondo a prescindere dalla direzione
- *
- * Persistenza opzionale:
- *   - persistKey: chiave localStorage; se valorizzata salva il sortBy
- *     fra refresh.
- *
- * Reset automatico:
- *   - resetOn: array di dipendenze. Quando cambia uno qualsiasi (es. l'anno
- *     selezionato nel filtro globale), torna al defaultSort e cancella
- *     l'eventuale storage.
- */
-
 import { useState, useMemo, useEffect, useRef } from 'react'
 
-function getValue(obj, path) {
+interface SortEntry {
+  key: string
+  dir: 'asc' | 'desc'
+}
+
+interface UseTableSortOptions {
+  persistKey?: string | null
+  resetOn?: unknown[] | unknown | null
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function getValue(obj: any, path: string): any {
   if (!obj) return undefined
   if (!path) return undefined
   if (!path.includes('.')) return obj[path]
-  return path.split('.').reduce((o, k) => (o == null ? o : o[k]), obj)
+  return path.split('.').reduce((o: unknown, k: string) => (o == null ? o : (o as Record<string, unknown>)[k]), obj)
 }
 
-function loadFromStorage(key, fallback) {
+function loadFromStorage(key: string | null, fallback: SortEntry[]): SortEntry[] {
   if (!key || typeof window === 'undefined') return fallback
   try {
     const raw = window.localStorage.getItem(`tablesort:${key}`)
     if (!raw) return fallback
     const parsed = JSON.parse(raw)
     if (Array.isArray(parsed)) return parsed
-  } catch (e) {
+  } catch {
     // ignore parse errors
   }
   return fallback
 }
 
-function saveToStorage(key, value) {
+function saveToStorage(key: string | null, value: SortEntry[]) {
   if (!key || typeof window === 'undefined') return
   try {
     if (!value || value.length === 0) {
@@ -52,18 +39,17 @@ function saveToStorage(key, value) {
     } else {
       window.localStorage.setItem(`tablesort:${key}`, JSON.stringify(value))
     }
-  } catch (e) {
+  } catch {
     // ignore quota errors
   }
 }
 
-export function useTableSort(rows, defaultSort = [], options = {}) {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function useTableSort<T = any>(rows: T[], defaultSort: SortEntry[] = [], options: UseTableSortOptions = {}) {
   const { persistKey = null, resetOn = null } = options
 
-  const [sortBy, setSortBy] = useState(() => loadFromStorage(persistKey, defaultSort))
+  const [sortBy, setSortBy] = useState<SortEntry[]>(() => loadFromStorage(persistKey, defaultSort))
 
-  // Reset automatico quando cambiano le dipendenze in resetOn (es. cambio anno).
-  // Skip al primo mount per non sovrascrivere il valore caricato da storage.
   const firstRun = useRef(true)
   useEffect(() => {
     if (firstRun.current) { firstRun.current = false; return }
@@ -74,7 +60,6 @@ export function useTableSort(rows, defaultSort = [], options = {}) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, Array.isArray(resetOn) ? resetOn : [resetOn])
 
-  // Persisti ad ogni cambio
   useEffect(() => {
     if (persistKey) saveToStorage(persistKey, sortBy)
   }, [sortBy, persistKey])
@@ -88,13 +73,9 @@ export function useTableSort(rows, defaultSort = [], options = {}) {
         const aNull = av == null || av === ''
         const bNull = bv == null || bv === ''
         if (aNull && bNull) continue
-        if (aNull) return 1   // null sempre in fondo
+        if (aNull) return 1
         if (bNull) return -1
         let cmp = 0
-        // Provo prima il confronto numerico: Supabase puo' ritornare i
-        // gross_amount come stringhe, quindi typeof potrebbe essere 'string'
-        // ma il valore e' un numero. Number(av) ritorna NaN per stringhe non
-        // numeriche → in quel caso ricado sul confronto string locale.
         const an = typeof av === 'number' ? av : Number(av)
         const bn = typeof bv === 'number' ? bv : Number(bv)
         const isNumericPair = !isNaN(an) && !isNaN(bn)
@@ -103,12 +84,11 @@ export function useTableSort(rows, defaultSort = [], options = {}) {
         if (isNumericPair) {
           cmp = an - bn
         } else if (av instanceof Date || bv instanceof Date) {
-          cmp = new Date(av).getTime() - new Date(bv).getTime()
+          cmp = new Date(av as string | number | Date).getTime() - new Date(bv as string | number | Date).getTime()
         } else if (
           typeof av === 'string' && /^\d{4}-\d{2}-\d{2}/.test(av) &&
           typeof bv === 'string' && /^\d{4}-\d{2}-\d{2}/.test(bv)
         ) {
-          // ISO date string: confronto stringa OK (lessicografico = cronologico)
           cmp = av < bv ? -1 : av > bv ? 1 : 0
         } else {
           cmp = String(av).localeCompare(String(bv), 'it', { numeric: true, sensitivity: 'base' })
@@ -119,13 +99,12 @@ export function useTableSort(rows, defaultSort = [], options = {}) {
     })
   }, [rows, sortBy])
 
-  const onSort = (key, multi = false) => {
+  const onSort = (key: string, multi = false) => {
     setSortBy(prev => {
       const existing = prev.find(s => s.key === key)
       const others = multi ? prev.filter(s => s.key !== key) : []
-      if (!existing) return [...others, { key, dir: 'asc' }]
-      if (existing.dir === 'asc') return [...others, { key, dir: 'desc' }]
-      // dir === 'desc' → cycle off (rimuovi)
+      if (!existing) return [...others, { key, dir: 'asc' as const }]
+      if (existing.dir === 'asc') return [...others, { key, dir: 'desc' as const }]
       return others
     })
   }

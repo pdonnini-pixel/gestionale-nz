@@ -1,13 +1,28 @@
-import { useState, useEffect, createContext, useContext } from 'react'
+import { useState, useEffect, createContext, useContext, type ReactNode } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from './useAuth'
 
-const CompanyContext = createContext(null)
+interface Company {
+  id: string
+  name: string
+  vat_number: string | null
+  pec: string | null
+  sdi_code: string | null
+}
 
-export function CompanyProvider({ children }) {
+interface CompanyContextValue {
+  company: Company | null
+  companies: Company[]
+  loading: boolean
+  switchCompany: (companyId: string) => Promise<void>
+}
+
+const CompanyContext = createContext<CompanyContextValue | null>(null)
+
+export function CompanyProvider({ children }: { children: ReactNode }) {
   const { profile } = useAuth()
-  const [company, setCompany] = useState(null)
-  const [companies, setCompanies] = useState([])
+  const [company, setCompany] = useState<Company | null>(null)
+  const [companies, setCompanies] = useState<Company[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -30,14 +45,14 @@ export function CompanyProvider({ children }) {
     if (!error && data) {
       setCompanies(data)
       // Seleziona l'azienda del profilo utente come default
-      const current = data.find(c => c.id === profile.company_id) || data[0]
+      const current = data.find(c => c.id === profile!.company_id) || data[0]
       setCompany(current)
     }
     setLoading(false)
   }
 
   // Switch azienda — aggiorna il profilo utente (solo super_advisor)
-  async function switchCompany(companyId) {
+  async function switchCompany(companyId: string) {
     const target = companies.find(c => c.id === companyId)
     if (!target) return
 
@@ -45,7 +60,7 @@ export function CompanyProvider({ children }) {
     const { error } = await supabase
       .from('user_profiles')
       .update({ company_id: companyId })
-      .eq('id', profile.id)
+      .eq('id', profile!.id)
 
     if (!error) {
       setCompany(target)

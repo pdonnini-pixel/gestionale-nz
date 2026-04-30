@@ -1,26 +1,40 @@
-import { createContext, useContext, useState, useCallback } from 'react'
+import { createContext, useContext, useState, useCallback, type ReactNode } from 'react'
 
-const PeriodContext = createContext(null)
+interface DateRange {
+  from: string
+  to: string
+  label: string
+}
+
+interface PeriodContextValue {
+  year: number
+  quarter: string
+  setYear: (y: number) => void
+  setQuarter: (q: string) => void
+  getDateRange: () => DateRange
+}
+
+const PeriodContext = createContext<PeriodContextValue | null>(null)
 
 const CURRENT_YEAR = new Date().getFullYear()
 
-export function PeriodProvider({ children }) {
+export function PeriodProvider({ children }: { children: ReactNode }) {
   // Al refresh: SEMPRE anno corrente e vista anno intero (no localStorage)
   const [year, setYear] = useState(CURRENT_YEAR)
   const [quarter, setQuarter] = useState('year')
 
-  const updateYear = useCallback((y) => {
+  const updateYear = useCallback((y: number) => {
     setYear(y)
-    try { localStorage.setItem('nz_period_year', String(y)) } catch {}
+    try { localStorage.setItem('nz_period_year', String(y)) } catch { /* ignore */ }
   }, [])
 
-  const updateQuarter = useCallback((q) => {
+  const updateQuarter = useCallback((q: string) => {
     setQuarter(q)
-    try { localStorage.setItem('nz_period_quarter', q) } catch {}
+    try { localStorage.setItem('nz_period_quarter', q) } catch { /* ignore */ }
   }, [])
 
   // Compute date range based on year + quarter
-  const getDateRange = useCallback(() => {
+  const getDateRange = useCallback((): DateRange => {
     const y = year
     if (quarter === 'year') return { from: `${y}-01-01`, to: `${y}-12-31`, label: `Anno ${y}` }
     if (quarter === 'ytd') {
