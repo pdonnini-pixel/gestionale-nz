@@ -385,11 +385,11 @@ function FatturePassive() {
               <tr className="bg-slate-50 border-b border-slate-200">
                 <SortableTh sortKey="invoice_date" sortBy={ftSortBy} onSort={ftOnSort}>Data</SortableTh>
                 <SortableTh sortKey="invoice_number" sortBy={ftSortBy} onSort={ftOnSort} className="min-w-[150px]">Numero</SortableTh>
-                <SortableTh sortKey="supplier_name" sortBy={ftSortBy} onSort={ftOnSort}>Fornitore</SortableTh>
+                <SortableTh sortKey="supplier_name" sortBy={ftSortBy} onSort={ftOnSort} className="min-w-[200px]">Fornitore</SortableTh>
                 <SortableTh sortKey="tipo_documento" sortBy={ftSortBy} onSort={ftOnSort}>Tipo</SortableTh>
-                <SortableTh sortKey="net_amount" sortBy={ftSortBy} onSort={ftOnSort} align="right">Imponibile</SortableTh>
-                <SortableTh sortKey="vat_amount" sortBy={ftSortBy} onSort={ftOnSort} align="right">IVA</SortableTh>
-                <SortableTh sortKey="gross_amount" sortBy={ftSortBy} onSort={ftOnSort} align="right">Totale</SortableTh>
+                <SortableTh sortKey="net_amount" sortBy={ftSortBy} onSort={ftOnSort} align="right" className="min-w-[100px]">Imponibile</SortableTh>
+                <SortableTh sortKey="vat_amount" sortBy={ftSortBy} onSort={ftOnSort} align="right" className="min-w-[100px]">IVA</SortableTh>
+                <SortableTh sortKey="gross_amount" sortBy={ftSortBy} onSort={ftOnSort} align="right" className="min-w-[100px]">Totale</SortableTh>
                 <SortableTh sortKey="sdi_status" sortBy={ftSortBy} onSort={ftOnSort} align="center">Stato SDI</SortableTh>
                 <th className="text-center px-4 py-3 font-medium text-slate-600 text-[11px] uppercase tracking-wider">Azioni</th>
               </tr>
@@ -403,14 +403,14 @@ function FatturePassive() {
                 <tr key={inv.id} onClick={() => { setSelectedInvoice(inv); setShowXml(false) }} className={`border-b border-slate-100 hover:bg-blue-50/50 transition-colors cursor-pointer ${idx % 2 === 1 ? 'bg-slate-50/50' : ''}`}>
                   <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{fmtDate(inv.invoice_date)}</td>
                   <td className="px-4 py-3 font-medium text-slate-900 truncate min-w-[150px] max-w-[200px]" title={inv.invoice_number}>{inv.invoice_number || '—'}</td>
-                  <td className="px-4 py-3">
+                  <td className="px-4 py-3 min-w-[200px]">
                     <div className="font-medium text-slate-800 truncate max-w-[280px]" title={inv.supplier_name}>{inv.supplier_name || '—'}</div>
                     {inv.supplier_vat && <div className="text-xs text-slate-400">P.IVA {inv.supplier_vat}</div>}
                   </td>
                   <td className="px-4 py-3 text-slate-600">{inv.tipo_documento || '—'}</td>
-                  <td className="px-4 py-3 text-right text-slate-700">{fmt(inv.net_amount)}</td>
-                  <td className="px-4 py-3 text-right text-slate-500">{fmt(inv.vat_amount)}</td>
-                  <td className="px-4 py-3 text-right font-semibold text-slate-900">{fmt(inv.gross_amount)}</td>
+                  <td className="px-4 py-3 text-right text-slate-700 min-w-[100px] whitespace-nowrap">{fmt(inv.net_amount)}</td>
+                  <td className="px-4 py-3 text-right text-slate-500 min-w-[100px] whitespace-nowrap">{fmt(inv.vat_amount)}</td>
+                  <td className="px-4 py-3 text-right font-semibold text-slate-900 min-w-[100px] whitespace-nowrap">{fmt(inv.gross_amount)}</td>
                   <td className="px-4 py-3 text-center">
                     <StatusBadge status={inv.sdi_status || 'RECEIVED'} />
                   </td>

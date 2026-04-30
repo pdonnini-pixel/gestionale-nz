@@ -863,12 +863,12 @@ export default function Fornitori() {
                   <table className="w-full text-sm">
                     <thead className="sticky top-0 bg-white z-10">
                       <tr className="border-b border-slate-200">
-                        <th className="text-left py-2 px-3 text-xs font-semibold text-slate-500 uppercase">Fornitore</th>
-                        <th className="text-right py-2 px-3 text-xs font-semibold text-slate-500 uppercase">Totale</th>
-                        <th className="text-right py-2 px-3 text-xs font-semibold text-emerald-600 uppercase">Pagato</th>
-                        <th className="text-right py-2 px-3 text-xs font-semibold text-amber-600 uppercase">In scadenza</th>
-                        <th className="text-right py-2 px-3 text-xs font-semibold text-red-600 uppercase">Scaduto</th>
-                        <th className="text-right py-2 px-3 text-xs font-semibold text-slate-500 uppercase">N. Fatture</th>
+                        <th className="text-left py-2 px-3 text-xs font-semibold text-slate-500 uppercase min-w-[200px]">Fornitore</th>
+                        <th className="text-right py-2 px-3 text-xs font-semibold text-slate-500 uppercase min-w-[100px] whitespace-nowrap">Totale</th>
+                        <th className="text-right py-2 px-3 text-xs font-semibold text-emerald-600 uppercase min-w-[100px] whitespace-nowrap">Pagato</th>
+                        <th className="text-right py-2 px-3 text-xs font-semibold text-amber-600 uppercase min-w-[100px] whitespace-nowrap">In scadenza</th>
+                        <th className="text-right py-2 px-3 text-xs font-semibold text-red-600 uppercase min-w-[100px] whitespace-nowrap">Scaduto</th>
+                        <th className="text-right py-2 px-3 text-xs font-semibold text-slate-500 uppercase whitespace-nowrap">N. Fatture</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -882,10 +882,10 @@ export default function Fornitori() {
                         .slice(0, 15)
                         .map((s, idx) => (
                           <tr key={s.id} className={`hover:bg-blue-50/50 transition-colors ${idx % 2 === 1 ? 'bg-slate-50/50' : ''}`}>
-                            <td className="py-2 px-3 font-medium text-slate-700">{s.displayName}</td>
-                            <td className="py-2 px-3 text-right font-semibold">€ {s.grossTotal.toLocaleString('it-IT', { minimumFractionDigits: 0 })}</td>
-                            <td className="py-2 px-3 text-right text-emerald-600">€ {s.paid.toLocaleString('it-IT', { minimumFractionDigits: 0 })}</td>
-                            <td className="py-2 px-3 text-right text-amber-600">€ {s.pending.toLocaleString('it-IT', { minimumFractionDigits: 0 })}</td>
+                            <td className="py-2 px-3 font-medium text-slate-700 min-w-[200px]">{s.displayName}</td>
+                            <td className="py-2 px-3 text-right font-semibold min-w-[100px] whitespace-nowrap">€ {s.grossTotal.toLocaleString('it-IT', { minimumFractionDigits: 0 })}</td>
+                            <td className="py-2 px-3 text-right text-emerald-600 min-w-[100px] whitespace-nowrap">€ {s.paid.toLocaleString('it-IT', { minimumFractionDigits: 0 })}</td>
+                            <td className="py-2 px-3 text-right text-amber-600 min-w-[100px] whitespace-nowrap">€ {s.pending.toLocaleString('it-IT', { minimumFractionDigits: 0 })}</td>
                             <td className="py-2 px-3 text-right text-red-600 font-semibold">{s.overdue > 0 ? `€ ${s.overdue.toLocaleString('it-IT', { minimumFractionDigits: 0 })}` : '—'}</td>
                             <td className="py-2 px-3 text-right text-slate-500">{s.count}</td>
                           </tr>

@@ -338,7 +338,7 @@ export default function Produttivita() {
     recs.push({
       outlet: kpi.best_produttivita.nome,
       tipo: 'mantenere',
-      impact: 'Outlet con migliore produttivita per ora: mantenere struttura attuale'
+      impact: 'Outlet con migliore produttività per ora: mantenere struttura attuale'
     });
 
     return recs.slice(0, 4);
@@ -348,7 +348,7 @@ export default function Produttivita() {
     return (
       <div className="flex items-center justify-center py-24">
         <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
-        <span className="ml-3 text-slate-600">Caricamento dati produttivita...</span>
+        <span className="ml-3 text-slate-600">Caricamento dati produttività...</span>
       </div>
     );
   }
