@@ -2459,7 +2459,11 @@ function TreeNode({ node, depth = 0, prevByCode, showYoY, isCost }) {
 
   const fmtAmount = (n) => {
     if (n == null) return '\u2014'
-    const formatted = new Intl.NumberFormat('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Math.abs(n))
+    const abs = Math.abs(n)
+    const formatted = new Intl.NumberFormat('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(abs)
+    // Fix 12.3: evita "-0,00" quando il valore arrotondato e' zero ma il
+    // numero originale era leggermente negativo (-0.001 \u2192 -0,00)
+    if (formatted === '0,00' || abs < 0.005) return '0,00'
     return n < 0 ? `-${formatted}` : formatted
   }
 

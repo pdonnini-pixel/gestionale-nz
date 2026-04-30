@@ -5,7 +5,7 @@ import {
   Building2, Search, Plus, Edit3, Trash2, FileText, Phone, Mail, MapPin,
   CreditCard, Clock, AlertTriangle, CheckCircle, ChevronDown, ChevronUp,
   X, Filter, Download, TrendingUp, Calendar, ArrowUpDown, ExternalLink,
-  Loader2, Eye, BarChart3, PieChart as PieChartIcon, Banknote, BookOpen
+  Loader2, Eye, BarChart3, PieChart as PieChartIcon, Banknote, BookOpen, Tag
 } from 'lucide-react';
 import {
   BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid,
@@ -809,7 +809,28 @@ export default function Fornitori() {
               {/* Spend by Category */}
               <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
                 <h3 className="text-sm font-semibold text-slate-700 mb-4">Spesa per categoria</h3>
-                {spendByCategory.length > 0 ? (
+                {/* Fix 12.1: empty state quando l'unica categoria e' "Non
+                    categorizzato" (grafico con una sola fetta = inutile).
+                    Suggeriamo all'utente di categorizzare i fornitori. */}
+                {spendByCategory.length === 1 && spendByCategory[0].name === 'Non categorizzato' ? (
+                  <div className="text-center py-12 px-4">
+                    <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-slate-100 flex items-center justify-center">
+                      <Tag size={20} className="text-slate-400" />
+                    </div>
+                    <p className="text-sm font-medium text-slate-700 mb-1">
+                      Nessun fornitore categorizzato
+                    </p>
+                    <p className="text-xs text-slate-500 mb-4 max-w-xs mx-auto">
+                      Assegna una categoria ai fornitori per vedere come si distribuisce la spesa.
+                    </p>
+                    <a
+                      href="/ai-categorie"
+                      className="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+                    >
+                      Categorizza fornitori
+                    </a>
+                  </div>
+                ) : spendByCategory.length > 0 ? (
                   <ResponsiveContainer width="100%" height={300}>
                     <PieChart>
                       <Pie

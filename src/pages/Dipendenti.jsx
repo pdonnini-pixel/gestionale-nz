@@ -771,7 +771,11 @@ export default function Dipendenti() {
             </defs>
             <CartesianGrid {...GRID_STYLE} />
             <XAxis dataKey="name" angle={-45} textAnchor="end" height={80} {...AXIS_STYLE} />
-            <YAxis {...AXIS_STYLE} />
+            <YAxis
+              {...AXIS_STYLE}
+              tickFormatter={(v) => v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v}
+              label={{ value: 'Costo (EUR)', angle: -90, position: 'insideLeft', style: { fontSize: 11, fill: '#64748b' } }}
+            />
             <Tooltip content={<GlassTooltip />} cursor={{ fill: 'rgba(99,102,241,0.04)', radius: 8 }} />
             <Bar dataKey="costo" fill="url(#grad-costo-2025)" radius={[8, 8, 0, 0]} animationDuration={800} />
           </BarChart>
@@ -951,7 +955,11 @@ export default function Dipendenti() {
             </defs>
             <CartesianGrid {...GRID_STYLE} />
             <XAxis dataKey="outlet" angle={-45} textAnchor="end" height={100} {...AXIS_STYLE} />
-            <YAxis {...AXIS_STYLE} />
+            <YAxis
+              {...AXIS_STYLE}
+              tickFormatter={(v) => v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v}
+              label={{ value: 'Costo (EUR)', angle: -90, position: 'insideLeft', style: { fontSize: 11, fill: '#64748b' } }}
+            />
             <Tooltip content={<GlassTooltip />} cursor={{ fill: 'rgba(99,102,241,0.04)', radius: 8 }} />
             <Legend />
             <Bar dataKey="2025" fill="url(#grad-2025)" radius={[8, 8, 0, 0]} animationDuration={800} />
