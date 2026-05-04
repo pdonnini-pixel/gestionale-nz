@@ -122,3 +122,30 @@ Tutte le altre pagine smoke-testate (Dashboard, Banche, Scadenzario, ImportHub, 
 3. **Tipizzare le risposte Supabase** — creare utility types che derivano dai tipi DB generati
 4. **Spezzare BudgetControl** — 2400 righe è troppo per un singolo componente
 5. **Eliminare gli import `React` non necessari** — con `react-jsx` transform non serve
+
+## Riconciliazione Bilancio — verifica branch `feature-riconciliazione-bilancio` (2026-05-04)
+
+**Contesto**: il prompt `PROMPT_RICONCILIAZIONE_BILANCIO.md` chiedeva di riapplicare ai file `.tsx`
+le modifiche del commit orfano `1195613a00ee1a11feb94bb39658bb2802899410` (22/04/2026 — "riconciliazione
+bilancio + esclusione rettifica da viste outlet"), partendo dall'ipotesi che la migrazione TS le
+avesse perse.
+
+**Scoperta**: la migrazione TS (commit `d6e73d9`) ha **già preservato** tutte e 3 le modifiche logiche
+del commit orfano nei file `.tsx` su `main`:
+
+- `src/pages/Dashboard.tsx:364-365` — exclusion `cost_center === 'rettifica_bilancio' || cost_center === 'spese_non_divise'`
+- `src/pages/BudgetControl.tsx:409` — filter `e.cost_center !== 'rettifica_bilancio'` su bp_edits reload
+- `src/pages/ContoEconomico.tsx:1696-1876` — vista Riconciliazione Bilancio completa (3 box: Risultato Gestionale, Rettifiche, Risultato Civilistico) + state `riconData`/`riconLoading` + `loadRiconciliazione()` + bottone tab
+
+**Azione applicata su questo branch**: tightening dei tipi TypeScript in `ContoEconomico.tsx`:
+- aggiunte interfacce `RiconRettifica`, `RiconBilancioUfficiale`, `RiconData`
+- `riconData` ora tipizzato come `RiconData | null` (era `any`)
+- `viewMode` ora tipizzato come `'competenza' | 'cassa' | 'riconciliazione'` (era `string` implicito)
+- `rettificheByType` accumulator ora tipizzato come `Record<string, RiconRettifica>`
+
+**`@ts-nocheck` non rimosso** sui 3 file: ContoEconomico.tsx (2540+ righe), BudgetControl.tsx (1417 righe),
+Dashboard.tsx (847 righe) richiederebbero molto più di 30 minuti per file per tipizzare correttamente
+shape Supabase, refs DOM, props ricorrenti — secondo la regola del prompt si lascia per task separato.
+
+**Verifica**: `npm run typecheck` e `npm run build` passano. Smoke test interattivo demandato a
+Patrizio (richiede browser).
