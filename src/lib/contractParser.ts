@@ -1,19 +1,7 @@
-// @ts-nocheck
-// TODO: tighten types
 /**
  * Parser contratti outlet italiani
  * Estrae dati strutturati da testo di contratti di affitto ramo d'azienda
  */
-
-// Helper: trova il primo match numerico dopo un pattern
-function findAmount(text: string, pattern: string, flags = 'i'): number | null {
-  const regex = new RegExp(pattern + '[^€\\d]*(?:Euro|€|EUR)?\\s*([\\d.,]+)', flags)
-  const match = text.match(regex)
-  if (match) {
-    return parseFloat(match[1].replace(/\./g, '').replace(',', '.'))
-  }
-  return null
-}
 
 // Helper: trova una data nel testo
 function findDate(text: string, pattern: string): string | null {
@@ -83,7 +71,6 @@ function findAllegati(text: string): Array<{ code: string; description: string }
 /**
  * Analizza il testo di un contratto e restituisce dati strutturati
  */
-// TODO: tighten type — create dedicated interface for contract result
 export function parseContract(text: string): Record<string, unknown> {
   const result: Record<string, unknown> = {
     // Anagrafica
@@ -179,15 +166,16 @@ export function parseContract(text: string): Record<string, unknown> {
   for (const re of cityPatterns) {
     const m = t.match(re)
     if (m && !result.city) {
-      result.city = m[1].trim()
+      const cityName = m[1].trim()
+      result.city = cityName
       result.province = m[2]
       // Estrai nome outlet dalla città
-      if (!result.name) result.name = result.city.toUpperCase()
+      if (!result.name) result.name = cityName.toUpperCase()
     }
   }
 
   // Indirizzo: via/corso/piazza dopo la città
-  if (result.city) {
+  if (typeof result.city === 'string' && result.city) {
     const addrRe = new RegExp(result.city + '[^]*?(?:,\\s*)?([Vv]ia|[Cc]orso|[Pp]iazza|[Ll]argo|[Vv]iale|[Ss]trada)\\s+([^,\\n]{3,60})', 'i')
     const addrM = t.match(addrRe)
     if (addrM) result.address = (addrM[1] + ' ' + addrM[2]).trim()
@@ -323,7 +311,7 @@ export function parseContract(text: string): Record<string, unknown> {
 
   // Calcola €/mq se abbiamo canone e mq
   if (!result.rent_per_sqm && result.rent_annual && result.sqm) {
-    result.rent_per_sqm = Math.round(result.rent_annual / result.sqm)
+    result.rent_per_sqm = Math.round((result.rent_annual as number) / (result.sqm as number))
   }
 
   // % variabile
@@ -370,7 +358,8 @@ export function parseContract(text: string): Record<string, unknown> {
   // Soglia per recesso
   const sogliaMatch = t.match(/inferiore\s+ad?\s+[Ee]uro\s+([\d.,]+)[\s\S]{0,40}?(?:annui\s+)?per\s+metro\s+quadrato/i)
   if (sogliaMatch && result.sqm) {
-    result.exit_revenue_threshold = parseEuro(sogliaMatch[1]) * result.sqm
+    const eur = parseEuro(sogliaMatch[1])
+    if (eur != null) result.exit_revenue_threshold = eur * (result.sqm as number)
   }
 
   // === ALLEGATI ===
@@ -453,10 +442,11 @@ export async function extractTextFromPdf(file: File): Promise<string> {
 
     // Ricostruisci il testo rispettando le coordinate Y (righe) e X (spazi)
     // Ogni item ha: str, transform[4]=x, transform[5]=y, height
-    const items = content.items
+    type PdfItem = { text: string; x: number; y: number; height: number }
+    const items: PdfItem[] = (content.items as Array<{ str?: string; transform: number[]; height?: number }>)
       .filter(it => it.str !== undefined)
       .map(it => ({
-        text: it.str,
+        text: it.str ?? '',
         x: it.transform[4],
         y: Math.round(it.transform[5] * 10) / 10, // arrotonda per raggruppare
         height: it.height || 10,
@@ -465,9 +455,9 @@ export async function extractTextFromPdf(file: File): Promise<string> {
     // Ordina per Y decrescente (alto→basso) poi X crescente (sinistra→destra)
     items.sort((a, b) => b.y - a.y || a.x - b.x)
 
-    const lines = []
-    let currentLine = []
-    let lastY = null
+    const lines: string[] = []
+    let currentLine: PdfItem[] = []
+    let lastY: number | null = null
     const lineThreshold = 3 // pixel di tolleranza per stessa riga
 
     for (const item of items) {
