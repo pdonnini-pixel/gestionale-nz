@@ -27,18 +27,19 @@ interface Category {
   name: string
 }
 
-// Schema legacy: il codice usa nomi colonna 'resolved'/'detected_at'/'amount'
-// che non esistono nello schema attuale (DB ha is_resolved/created_at).
-// Lasciato com'è per non cambiare comportamento — bug schema da fixare a parte.
+// BUG-003 fix (PROMPT_TS_STRICT_COMPLETION Fase 2): allineato a schema reale
+// di ai_anomaly_log (is_resolved/created_at, non resolved/detected_at).
+// `amount` non esiste come colonna: l'importo (se presente) sta in `details` (Json).
 interface AnomalyEntry {
   id: string
   anomaly_type: string
-  description: string
-  detected_at: string
-  resolved: boolean
-  resolved_at?: string
-  amount?: number
+  description: string | null
+  created_at: string | null
+  is_resolved: boolean | null
+  resolved_at?: string | null
+  details?: Record<string, unknown> | null
   company_id: string
+  severity?: string | null
 }
 
 interface AIStats {
@@ -159,11 +160,8 @@ export default function AICategorization({ companyId }: AICategorizationProps) {
     if (!companyId) return
     setLoading(true)
     try {
-      // NOTE: la tabella ai_anomaly_log nello schema attuale ha colonne
-      // is_resolved/created_at, ma questo codice usa resolved/detected_at
-      // (legacy). Il cast `as any` mantiene comportamento runtime invariato
-      // — fix dello schema in task separato.
-      const sb = supabase as unknown as { from: (t: string) => any } // eslint-disable-line @typescript-eslint/no-explicit-any
+      // BUG-003 fix (PROMPT_TS_STRICT_COMPLETION Fase 2): allineato a schema
+      // reale di ai_anomaly_log (is_resolved + created_at).
       const [movRes, catRes, anomRes] = await Promise.all([
         supabase
           .from('cash_movements')
@@ -176,16 +174,17 @@ export default function AICategorization({ companyId }: AICategorizationProps) {
           .select('id, name')
           .eq('company_id', companyId)
           .order('name'),
-        sb.from('ai_anomaly_log')
+        supabase
+          .from('ai_anomaly_log')
           .select('*')
           .eq('company_id', companyId)
-          .eq('resolved', false)
-          .order('detected_at', { ascending: false })
+          .eq('is_resolved', false)
+          .order('created_at', { ascending: false })
           .limit(50),
       ])
       if (movRes.data) setMovements(movRes.data as unknown as CashMovement[])
       if (catRes.data) setCategories(catRes.data)
-      if (anomRes.data) setAnomalies(anomRes.data as AnomalyEntry[])
+      if (anomRes.data) setAnomalies(anomRes.data as unknown as AnomalyEntry[])
 
       // Compute stats
       const all = movRes.data || []
@@ -315,9 +314,9 @@ export default function AICategorization({ companyId }: AICategorizationProps) {
   // ─── Resolve anomaly ───
   const resolveAnomaly = async (anomalyId: string) => {
     try {
-      const sb = supabase as unknown as { from: (t: string) => any } // eslint-disable-line @typescript-eslint/no-explicit-any
-      await sb.from('ai_anomaly_log')
-        .update({ resolved: true, resolved_at: new Date().toISOString() })
+      // BUG-003 fix: is_resolved (non resolved) sullo schema reale.
+      await supabase.from('ai_anomaly_log')
+        .update({ is_resolved: true, resolved_at: new Date().toISOString() })
         .eq('id', anomalyId)
       setAnomalies(prev => prev.filter(a => a.id !== anomalyId))
     } catch (e) {
@@ -498,12 +497,17 @@ export default function AICategorization({ companyId }: AICategorizationProps) {
                     : a.anomaly_type === 'overdue_payable' ? 'Scadenza non pagata'
                     : a.anomaly_type}
                   </div>
-                  <div className="text-xs text-slate-500 truncate" title={a.description}>{a.description}</div>
-                  <div className="text-[10px] text-slate-400 mt-0.5">{fmtDate(a.detected_at)}</div>
+                  <div className="text-xs text-slate-500 truncate" title={a.description ?? ''}>{a.description}</div>
+                  <div className="text-[10px] text-slate-400 mt-0.5">{fmtDate(a.created_at)}</div>
                 </div>
-                {a.amount && (
-                  <div className="text-sm font-medium text-slate-700">{fmt(a.amount)} €</div>
-                )}
+                {/* BUG-003: amount non è colonna, è dentro details (Json). */}
+                {(() => {
+                  const amt = (a.details && typeof a.details === 'object' && 'amount' in a.details)
+                    ? Number((a.details as { amount?: unknown }).amount) : null
+                  return amt && !isNaN(amt) ? (
+                    <div className="text-sm font-medium text-slate-700">{fmt(amt)} €</div>
+                  ) : null
+                })()}
                 <button
                   onClick={() => resolveAnomaly(a.id)}
                   className="px-2.5 py-1 text-xs font-medium text-slate-500 border border-slate-200 rounded-lg hover:bg-slate-100 transition"
