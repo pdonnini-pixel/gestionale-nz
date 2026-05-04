@@ -1,4 +1,3 @@
-// @ts-nocheck — TODO tighten: aggregazioni dinamiche outlet/categoria, da rivedere
 import { useState, useMemo } from 'react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line } from 'recharts'
 import { TrendingUp, AlertTriangle, Package, Calendar, DollarSign, ChevronDown, ChevronUp } from 'lucide-react'
@@ -9,7 +8,7 @@ function fmt(n: number, dec = 0): string {
 }
 
 // Hardcoded data for all outlets
-const outletsData = {
+const outletsData: Record<string, OutletData> = {
   'Valdichiana Village': {
     color: '#3b82f6',
     categories: {
@@ -389,11 +388,41 @@ function getAgingStatus(days: number) {
   return { label: 'OK', color: 'bg-green-100 text-green-800', badge: 'bg-green-500' }
 }
 
-function getAgingBucket(days: number): string {
+type AgingBucket = '0-30 gg' | '31-60 gg' | '61-90 gg' | '90+ gg'
+
+function getAgingBucket(days: number): AgingBucket {
   if (days <= 30) return '0-30 gg'
   if (days <= 60) return '31-60 gg'
   if (days <= 90) return '61-90 gg'
   return '90+ gg'
+}
+
+interface CategoryData {
+  pezzi_acquistati: number
+  pezzi_venduti: number
+  pezzi_stock: number
+  prezzo_medio_acquisto: number
+  prezzo_medio_vendita: number
+  giorni_medi_giacenza: number
+}
+
+interface OutletData {
+  color: string
+  categories: Record<string, CategoryData>
+}
+
+interface OutletMetric {
+  sellthrough: number
+  stockValue: number
+  avgGiacenza: number
+}
+
+interface AlertEntry {
+  type: string
+  outlet: string
+  category: string
+  value: number | string
+  severity: 'red' | 'amber'
 }
 
 export default function StockSellthrough() {
@@ -409,8 +438,8 @@ export default function StockSellthrough() {
     let alertCount = 0
     let totalGiacenzaDays = 0
     let itemCount = 0
-    const outletMetrics = {}
-    const agingBuckets = { '0-30 gg': 0, '31-60 gg': 0, '61-90 gg': 0, '90+ gg': 0 }
+    const outletMetrics: Record<string, OutletMetric> = {}
+    const agingBuckets: Record<AgingBucket, number> = { '0-30 gg': 0, '31-60 gg': 0, '61-90 gg': 0, '90+ gg': 0 }
 
     Object.entries(outletsData).forEach(([outletName, outletData]) => {
       let outletStockValue = 0
@@ -463,8 +492,8 @@ export default function StockSellthrough() {
   }, [])
 
   // Filter alerts
-  const alerts = useMemo(() => {
-    const alertList = []
+  const alerts = useMemo<AlertEntry[]>(() => {
+    const alertList: AlertEntry[] = []
     Object.entries(outletsData).forEach(([outletName, outletData]) => {
       Object.entries(outletData.categories).forEach(([catName, catData]) => {
         const sellthrough = (catData.pezzi_venduti / catData.pezzi_acquistati) * 100
