@@ -1,5 +1,3 @@
-// @ts-nocheck
-// TODO: tighten types
 import { useState } from 'react'
 import { useAuth } from '../hooks/useAuth'
 import { LogIn, Eye, EyeOff, AlertCircle } from 'lucide-react'
@@ -17,7 +15,7 @@ export default function Login() {
     setError(null)
     setLoading(true)
     const { error } = await signIn(email, password)
-    if (error) setError(error.message)
+    if (error) setError((error as { message: string }).message)
     setLoading(false)
   }
 

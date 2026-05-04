@@ -182,7 +182,7 @@ export function useYapily() {
     }
   }, [callFunction])
 
-  const refreshBalances = useCallback(async (accountId: string) => {
+  const refreshBalances = useCallback(async (accountId?: string) => {
     setLoading(true)
     setError(null)
     try {
