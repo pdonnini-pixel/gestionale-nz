@@ -376,7 +376,7 @@ export function autoDetectBankMapping(csvHeaders: string[]): { presetName: strin
  * @param {Object} context - { company_id, bank_account_id, import_batch_id, dateFormat, decimalSep, thousandSep }
  * @returns {{ records: Object[], errors: { row: number, message: string }[] }}
  */
-interface TransformBankContext {
+export interface TransformBankContext {
   company_id: string
   bank_account_id?: string | null
   import_batch_id?: string | null
@@ -488,7 +488,7 @@ export function transformBankRows(rows: Record<string, string>[], columnMapping:
 /**
  * Trasforma righe CSV POS in record per daily_revenue
  */
-interface TransformPOSContext {
+export interface TransformPOSContext {
   company_id: string
   outlet_id?: string | null
   import_batch_id?: string | null
