@@ -103,26 +103,14 @@ export default function GlobalSearch({ open: openProp, onClose }: GlobalSearchPr
       // Fix 9.3: query suppliers usava 'business_name' che non esiste → la
       // tabella ha 'ragione_sociale' (campo IT) con fallback 'name' (campo
       // legacy), 'partita_iva' (con fallback 'vat_number').
-      // NOTE: la query electronic_invoices include 'total_amount' che non esiste
-      // nello schema attuale (BUG-001 in MIGRATION_NOTES). Il cast bypassa il
-      // typing per preservare il comportamento runtime invariato (la query
-      // fallisce e cade nel catch); il fix della query è task separato.
-      const invoicesQuery = (supabase.from('electronic_invoices') as unknown as {
-        select: (s: string) => {
-          eq: (k: string, v: string) => {
-            or: (q: string) => { limit: (n: number) => Promise<{ data: Array<{ id: string; invoice_number: string | null; supplier_name: string | null; total_amount: number | null }> | null }> }
-          }
-        }
-      })
-        .select('id, invoice_number, supplier_name, total_amount')
-        .eq('company_id', COMPANY_ID)
-        .or(`invoice_number.ilike.${qLower},supplier_name.ilike.${qLower}`)
-        .limit(5)
-
+      // BUG-001 fix (PROMPT_TS_STRICT_COMPLETION Fase 2): la colonna
+      // electronic_invoices.total_amount non esiste nello schema. Lo schema
+      // espone gross_amount (importo totale fattura, IVA inclusa) — usiamo
+      // quello.
       const [outlets, suppliers, invoices, movements, employees] = await Promise.all([
         supabase.from('outlets').select('id, name, city').eq('company_id', COMPANY_ID).ilike('name', qLower).limit(5),
         supabase.from('suppliers').select('id, ragione_sociale, name, partita_iva, vat_number').eq('company_id', COMPANY_ID).or(`ragione_sociale.ilike.${qLower},name.ilike.${qLower}`).limit(5),
-        invoicesQuery,
+        supabase.from('electronic_invoices').select('id, invoice_number, supplier_name, gross_amount').eq('company_id', COMPANY_ID).or(`invoice_number.ilike.${qLower},supplier_name.ilike.${qLower}`).limit(5),
         supabase.from('cash_movements').select('id, description, counterpart, amount, date').eq('company_id', COMPANY_ID).or(`description.ilike.${qLower},counterpart.ilike.${qLower}`).limit(5),
         supabase.from('user_profiles').select('id, first_name, last_name, role').eq('company_id', COMPANY_ID).or(`first_name.ilike.${qLower},last_name.ilike.${qLower}`).limit(5),
       ])
@@ -134,7 +122,7 @@ export default function GlobalSearch({ open: openProp, onClose }: GlobalSearchPr
         subtitle: s.partita_iva || s.vat_number || '',
         url: `/fornitori/${s.id}/scheda-contabile`,
       }))
-      if (invoices.data?.length) res.invoices = invoices.data.map(i => ({ id: i.id, title: `${i.invoice_number || 'Fattura'}`, subtitle: `${i.supplier_name || ''} — €${Number(i.total_amount || 0).toLocaleString('it-IT')}`, url: '/fatturazione' }))
+      if (invoices.data?.length) res.invoices = invoices.data.map(i => ({ id: i.id, title: `${i.invoice_number || 'Fattura'}`, subtitle: `${i.supplier_name || ''} — €${Number(i.gross_amount || 0).toLocaleString('it-IT')}`, url: '/fatturazione' }))
       if (movements.data?.length) res.movements = movements.data.map(m => ({ id: m.id, title: m.counterpart || m.description?.slice(0, 50) || '—', subtitle: `€${Number(m.amount || 0).toLocaleString('it-IT')} — ${m.date}`, url: '/banche' }))
       if (employees.data?.length) res.employees = employees.data.map(e => ({ id: e.id, title: `${e.first_name ?? ''} ${e.last_name ?? ''}`.trim(), subtitle: e.role, url: '/dipendenti' }))
     } catch (err: unknown) {
