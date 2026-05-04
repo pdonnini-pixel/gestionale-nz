@@ -1,4 +1,3 @@
-// @ts-nocheck — TODO tighten: indexing dinamico per outlet-key, da rivedere
 import { useState, useEffect, useMemo } from 'react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell, LabelList,
@@ -81,10 +80,12 @@ export default function MarginiOutlet() {
   }, [year, profile?.company_id])
 
   // Compute margins per outlet (aggregated)
-  const outletMargins = useMemo(() => {
+  interface OutletAgg { ricavi: number; costi: number }
+  interface OutletMargin { nome: string; ricavi: number; costi: number; margine: number; marginePercent: number }
+  const outletMargins = useMemo<OutletMargin[]>(() => {
     if (!rawData.length) return []
 
-    const byOutlet = {}
+    const byOutlet: Record<string, OutletAgg> = {}
     rawData.forEach(row => {
       const outlet = row.cost_center || 'Sconosciuto'
       if (!byOutlet[outlet]) byOutlet[outlet] = { ricavi: 0, costi: 0 }
@@ -122,10 +123,10 @@ export default function MarginiOutlet() {
   )
 
   // Heatmap data: months (columns) x outlets (rows) with margin %
-  const heatmapData = useMemo(() => {
+  const heatmapData = useMemo<Record<string, Record<number, number>>>(() => {
     if (!rawData.length) return {}
 
-    const byOutletMonth = {}
+    const byOutletMonth: Record<string, OutletAgg> = {}
     rawData.forEach(row => {
       const outlet = row.cost_center || 'Sconosciuto'
       const month = parseInt(row.month) || 0
@@ -145,7 +146,7 @@ export default function MarginiOutlet() {
     })
 
     // Build map: outlet -> month -> marginPercent
-    const result = {}
+    const result: Record<string, Record<number, number>> = {}
     Object.entries(byOutletMonth).forEach(([key, vals]) => {
       const [outlet, monthStr] = key.split('__')
       const month = parseInt(monthStr)
@@ -158,11 +159,12 @@ export default function MarginiOutlet() {
   }, [rawData])
 
   // Drill-down: breakdown by account for the expanded outlet
+  interface AccountAgg { code: string; amount: number }
   const drilldownData = useMemo(() => {
-    if (!expandedOutlet || !rawData.length) return { ricaviAccounts: [], costiAccounts: [] }
+    if (!expandedOutlet || !rawData.length) return { ricaviAccounts: [] as AccountAgg[], costiAccounts: [] as AccountAgg[] }
 
-    const ricaviMap = {}
-    const costiMap = {}
+    const ricaviMap: Record<string, AccountAgg> = {}
+    const costiMap: Record<string, AccountAgg> = {}
 
     rawData.forEach(row => {
       const outlet = row.cost_center || 'Sconosciuto'
@@ -339,7 +341,7 @@ export default function MarginiOutlet() {
                     <LabelList
                       dataKey="marginePct"
                       position="top"
-                      formatter={(v) => `${v.toFixed(1)}%`}
+                      formatter={(v) => `${Number(v ?? 0).toFixed(1)}%`}
                       style={{ fontSize: 11, fontWeight: 600, fill: '#334155' }}
                     />
                   </Bar>
