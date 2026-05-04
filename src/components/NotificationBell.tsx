@@ -1,6 +1,4 @@
-// @ts-nocheck
-// TODO: tighten types
-import React, { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Bell, X, Check, CheckCheck, ExternalLink,
@@ -83,6 +81,7 @@ export default function NotificationBell() {
   }, [open])
 
   async function loadNotifications() {
+    if (!COMPANY_ID) return
     const { data } = await supabase
       .from('notifications')
       .select('*')
