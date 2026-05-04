@@ -1,32 +1,28 @@
-// @ts-nocheck
-// TODO: tighten types
-import React, { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 
-// TODO: tighten type
 interface BankTransaction {
   id: string
-  transaction_date: string
-  description?: string
+  transaction_date: string | null
+  description?: string | null
   amount: number
-  transaction_type: string
-  running_balance?: number
-  is_reconciled: boolean
-  reconciled_invoice_id?: string
+  transaction_type: string | null
+  running_balance?: number | null
+  is_reconciled: boolean | null
+  reconciled_invoice_id?: string | null
   company_id: string
-  account_id: string
+  account_id: string | null
 }
 
-// TODO: tighten type
 interface AccountData {
   id: string
-  account_name?: string
-  iban?: string
-  balance?: number
-  currency?: string
-  institution_id?: string
-  last_synced_at?: string
-  balance_updated_at?: string
+  account_name?: string | null
+  iban?: string | null
+  balance?: number | null
+  currency?: string | null
+  institution_id?: string | null
+  last_synced_at?: string | null
+  balance_updated_at?: string | null
 }
 
 interface AccountDetailProps {
@@ -46,7 +42,7 @@ import {
 
 const PAGE_SIZE = 50
 
-function fmt(n, dec = 2) {
+function fmt(n: number | null | undefined, dec = 2): string {
   if (n == null) return '—'
   return new Intl.NumberFormat('it-IT', {
     minimumFractionDigits: dec,
@@ -54,16 +50,16 @@ function fmt(n, dec = 2) {
   }).format(n)
 }
 
-function formatDate(d) {
+function formatDate(d: string | null | undefined): string {
   if (!d) return '—'
   return new Date(d).toLocaleDateString('it-IT')
 }
 
-function timeAgo(dateStr) {
+function timeAgo(dateStr: string | null | undefined): string {
   if (!dateStr) return 'Mai sincronizzato'
   const now = new Date()
   const date = new Date(dateStr)
-  const diffMs = now - date
+  const diffMs = now.getTime() - date.getTime()
   const diffMin = Math.floor(diffMs / 60000)
   if (diffMin < 1) return 'Adesso'
   if (diffMin < 60) return `${diffMin}min fa`
@@ -74,15 +70,14 @@ function timeAgo(dateStr) {
 }
 
 /* ═══════ Reconciliation Modal ═══════ */
-// TODO: tighten type
 interface MatchingInvoice {
   id: string
-  invoice_number?: string
-  supplier_name?: string
-  supplier_vat?: string
-  gross_amount: number
-  invoice_date: string
-  sdi_status?: string
+  invoice_number?: string | null
+  supplier_name?: string | null
+  supplier_vat?: string | null
+  gross_amount: number | null
+  invoice_date: string | null
+  sdi_status?: string | null
 }
 
 function ReconciliationModal({ isOpen, onClose, transaction, onReconcile }: { isOpen: boolean; onClose: () => void; transaction: BankTransaction | null; onReconcile: (txId: string, invoice: MatchingInvoice) => void }) {
@@ -107,6 +102,7 @@ function ReconciliationModal({ isOpen, onClose, transaction, onReconcile }: { is
       const maxAmt = txAmount + tolerance
 
       // Find invoices within ±5% amount and ±30 days
+      if (!transaction.transaction_date) return
       const txDate = new Date(transaction.transaction_date)
       const dateMin = new Date(txDate)
       dateMin.setDate(dateMin.getDate() - 30)
@@ -124,7 +120,7 @@ function ReconciliationModal({ isOpen, onClose, transaction, onReconcile }: { is
         .order('invoice_date', { ascending: false })
         .limit(20)
 
-      setInvoices(data || [])
+      setInvoices((data || []) as MatchingInvoice[])
     } catch (err) {
       console.error('[ReconciliationModal] Error:', err)
     } finally {
@@ -133,6 +129,7 @@ function ReconciliationModal({ isOpen, onClose, transaction, onReconcile }: { is
   }
 
   const handleReconcile = async (invoice: MatchingInvoice) => {
+    if (!transaction) return
     setReconciling(true)
     try {
       const { error } = await supabase
@@ -166,8 +163,8 @@ function ReconciliationModal({ isOpen, onClose, transaction, onReconcile }: { is
   const txAmount = Math.abs(transaction.amount || 0)
   const bestMatch = filtered.length > 0
     ? filtered.reduce((best, inv) => {
-        const diff = Math.abs(inv.gross_amount - txAmount)
-        const bestDiff = Math.abs(best.gross_amount - txAmount)
+        const diff = Math.abs((inv.gross_amount ?? 0) - txAmount)
+        const bestDiff = Math.abs((best.gross_amount ?? 0) - txAmount)
         return diff < bestDiff ? inv : best
       })
     : null
@@ -318,9 +315,9 @@ export default function AccountDetail({ isOpen, onClose, account, onSync }: Acco
       }
 
       if (reset) {
-        setTransactions(data || [])
+        setTransactions((data || []) as BankTransaction[])
       } else {
-        setTransactions(prev => [...prev, ...(data || [])])
+        setTransactions(prev => [...prev, ...((data || []) as BankTransaction[])])
       }
       setHasMore((data || []).length === PAGE_SIZE)
       setPage(pageNum)
@@ -354,7 +351,8 @@ export default function AccountDetail({ isOpen, onClose, account, onSync }: Acco
   }
 
   // Compute chart data: last 30 days aggregated
-  const chartData = useMemo(() => {
+  type ChartDay = { date: string; entrate: number; uscite: number; saldo: number }
+  const chartData = useMemo<ChartDay[]>(() => {
     if (!transactions.length) return []
 
     const now = new Date()
@@ -362,7 +360,7 @@ export default function AccountDetail({ isOpen, onClose, account, onSync }: Acco
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
 
     // Initialize all 30 days
-    const dayMap = {}
+    const dayMap: Record<string, ChartDay> = {}
     for (let i = 0; i < 30; i++) {
       const d = new Date(thirtyDaysAgo)
       d.setDate(d.getDate() + i)
@@ -372,25 +370,27 @@ export default function AccountDetail({ isOpen, onClose, account, onSync }: Acco
 
     // Aggregate transactions into days
     const relevantTxns = transactions.filter(t => {
+      if (!t.transaction_date) return false
       const txDate = new Date(t.transaction_date)
       return txDate >= thirtyDaysAgo && txDate <= now
     })
 
     relevantTxns.forEach(t => {
-      const key = t.transaction_date?.slice(0, 10)
-      if (dayMap[key]) {
+      const key = t.transaction_date?.slice(0, 10) ?? ''
+      const day = dayMap[key]
+      if (day) {
         const amount = Math.abs(t.amount || 0)
         if (t.transaction_type === 'CREDIT') {
-          dayMap[key].entrate += amount
+          day.entrate += amount
         } else {
-          dayMap[key].uscite += amount
+          day.uscite += amount
         }
       }
     })
 
     // Compute running balance (start from current balance and work backwards)
     const days = Object.values(dayMap).sort((a, b) => a.date.localeCompare(b.date))
-    let runningBalance = account?.balance || 0
+    const runningBalance = account?.balance || 0
 
     // Calculate total net from today back to the chart start to find starting balance
     const totalNet = relevantTxns.reduce((sum, t) => {
@@ -539,10 +539,12 @@ export default function AccountDetail({ isOpen, onClose, account, onSync }: Acco
                         boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'
                       }}
                       formatter={(value, name) => {
-                        const labels = { entrate: 'Entrate', uscite: 'Uscite', saldo: 'Saldo' }
-                        return [`${fmt(value)} €`, labels[name] || name]
+                        const labels: Record<string, string> = { entrate: 'Entrate', uscite: 'Uscite', saldo: 'Saldo' }
+                        const num = typeof value === 'number' ? value : Number(value)
+                        const key = String(name)
+                        return [`${fmt(num)} €`, labels[key] || key]
                       }}
-                      labelFormatter={(label) => formatDate(label)}
+                      labelFormatter={(label) => formatDate(String(label))}
                     />
                     <Bar
                       yAxisId="bars"
