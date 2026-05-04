@@ -1,4 +1,3 @@
-// @ts-nocheck — TODO tighten: pagina complessa con shape Supabase + indexing dinamico, da rivedere
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import PageHelp from '../components/PageHelp';
@@ -41,7 +40,9 @@ import { processImport, previewImport } from '../lib/parsers/importEngine';
 import { runAutoReconciliation, applyReconciliation } from '../lib/reconciliationEngine';
 
 // Storage bucket mapping for each import source
-const IMPORT_SOURCE_CONFIG = {
+type ImportSourceConfig = { name: string; description: string; formats: string; bucket: string; table: string; acceptedExt: string[]; requiresSelect?: string; category?: string; icon: string }
+type ImportSourceId = 'bank' | 'invoices' | 'payroll' | 'balance_sheet' | 'general_docs' | 'pos_data' | 'receipts'
+const IMPORT_SOURCE_CONFIG: Record<ImportSourceId, ImportSourceConfig> = {
   bank: {
     name: 'Estratti Conto Bancari',
     description: 'Movimenti bancari per riconciliazione',
@@ -122,44 +123,84 @@ export default function ImportHub() {
   // ─── POST-IMPORT EC MATCH MODAL STATE ─────────────────────────
   // Dopo un import EC mostra il riepilogo dei match automatici
   // calcolati tra cash_movements (uscite) e payables (da_pagare)
-  const [matchModal, setMatchModal] = useState<any>(null); // { reconciled, suggested, unmatched, stats, bankAccountId }
+  type ReconciledMatch = { movement?: { id?: string; date?: string; amount?: number; description?: string }; payable?: { id?: string; supplier_name?: string; gross_amount?: number; due_date?: string; invoice_number?: string }; score?: number }
+  type MatchModal = {
+    reconciled?: ReconciledMatch[]
+    suggested?: ReconciledMatch[]
+    unmatched?: Array<{ id?: string; description?: string; amount?: number; date?: string }>
+    stats?: { reconciled?: number; suggested?: number; unmatched?: number; reconciledAmount?: number; suggestedAmount?: number; unmatchedAmount?: number; total?: number; totalMovements?: number; skippedPOS?: number }
+    bankAccountId?: string | null
+  } | null
+  type ImportDoc = Record<string, unknown> & { id?: string; file_name?: string | null; file_path?: string | null; file_size?: number | null; source_type?: string | null; created_at?: string | null }
+  type BankAccount = { id: string; account_name?: string | null; bank_name?: string | null }
+  type OutletLite = { id: string; name?: string | null }
+  type Toast = { msg: string; type: string } | null
+  const [matchModal, setMatchModal] = useState<MatchModal>(null);
   const [computingMatches, setComputingMatches] = useState(false);
   const [applyingMatches, setApplyingMatches] = useState(false);
 
   const [activeTab, setActiveTab] = useState('sources');
-  const [selectedSource, setSelectedSource] = useState<any>(null);
+  const [selectedSource, setSelectedSource] = useState<ImportSourceId | null>(null);
   const [dragActive, setDragActive] = useState(false);
-  const [uploadedFiles, setUploadedFiles] = useState<any[]>([]);
+  const [uploadedFiles, setUploadedFiles] = useState<ImportDoc[]>([]);
   const [filesLoading, setFilesLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
-  const [previewFile, setPreviewFile] = useState<any>(null);
-  const [previewUrl, setPreviewUrl] = useState<any>(null);
-  const [importHistory, setImportHistory] = useState<any[]>([]);
-  const [bankAccounts, setBankAccounts] = useState<any[]>([]);
-  const [selectedBankAccount, setSelectedBankAccount] = useState<any>(null);
+  const [previewFile, setPreviewFile] = useState<ImportDoc | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [importHistory, setImportHistory] = useState<ImportDoc[]>([]);
+  const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
+  const [selectedBankAccount, setSelectedBankAccount] = useState<string | null>(null);
   const [selectedDocCategory, setSelectedDocCategory] = useState('contratto');
   const [selectedMonthYear, setSelectedMonthYear] = useState('');
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [selectedOutlet, setSelectedOutlet] = useState('');
-  const [batchSelected, setBatchSelected] = useState(new Set());
-  const [validationErrors, setValidationErrors] = useState<Record<string, any>>({});
-  const [outlets, setOutlets] = useState<any[]>([]);
-  const [toast, setToast] = useState<any>(null);
+  const [batchSelected, setBatchSelected] = useState<Set<string>>(new Set());
+  const [validationErrors, setValidationErrors] = useState<Record<string, string[]>>({});
+  const [outlets, setOutlets] = useState<OutletLite[]>([]);
+  const [toast, setToast] = useState<Toast>(null);
 
   // ─── PROCESSING STATE ───────────────────────────────────────
   const [processing, setProcessing] = useState(false);
   const [processProgress, setProcessProgress] = useState(0);
   const [processMessage, setProcessMessage] = useState('');
-  const [processResult, setProcessResult] = useState<any>(null);
-  const [previewData, setPreviewData] = useState<any>(null);
-  const pendingFileRef = useRef(null); // holds the raw File for re-processing
+  type ProcessResult = {
+    success?: boolean
+    processed?: number
+    errors?: string[]
+    message?: string
+    rowsImported?: number
+    bankAccountId?: string | null
+    details?: {
+      fatture?: number; scadenze?: number; fornitore?: string;
+      totalParsed?: number;
+      anno?: number; attivita?: number; passivita?: number; costi?: number; ricavi?: number; risultato?: number;
+      dipendentiTrovati?: number; dipendentiNonTrovati?: number; mese?: string;
+    }
+  } | null
+  const [processResult, setProcessResult] = useState<ProcessResult>(null);
+  type PreviewInvoice = { tipo_label?: string; invoice_number?: string; gross_amount?: number; supplier_name?: string; invoice_date?: string; net_amount?: number; vat_amount?: number }
+  type PreviewData = {
+    rows?: Array<Record<string, unknown>>
+    headers?: string[]
+    total?: number
+    sample?: unknown[]
+    fileRecord?: ImportDoc
+    confidence?: number
+    mapping?: Record<string, string>
+    preview?: Record<string, unknown>[]
+    sampleRows?: Array<Record<string, string | number | null | undefined>>
+    totalRows?: number
+    invoices?: PreviewInvoice[]
+  } | null
+  const [previewData, setPreviewData] = useState<PreviewData>(null);
+  const pendingFileRef = useRef<File | null>(null); // holds the raw File for re-processing
 
   const months = ['Gen', 'Feb', 'Mar', 'Apr', 'Mag', 'Giu', 'Lug', 'Ago', 'Set', 'Ott', 'Nov', 'Dic'];
   const years = Array.from({ length: 10 }, (_, i) => new Date().getFullYear() - i);
 
   // Show toast notification
-  const showToast = (msg, type = 'success') => {
+  const showToast = (msg: string, type = 'success') => {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 3000);
   };
@@ -172,23 +213,25 @@ export default function ImportHub() {
   }, [COMPANY_ID]);
 
   async function loadBankAccounts() {
+    if (!COMPANY_ID) return;
     const { data } = await supabase
       .from('bank_accounts')
       .select('id, account_name, bank_name')
       .eq('company_id', COMPANY_ID)
       .eq('is_active', true)
       .order('bank_name', { ascending: true });
-    setBankAccounts(data || []);
+    setBankAccounts((data || []) as BankAccount[]);
   }
 
   async function loadOutlets() {
+    if (!COMPANY_ID) return;
     const { data } = await supabase
       .from('outlets')
       .select('id, name')
       .eq('company_id', COMPANY_ID)
       .eq('is_active', true)
       .order('name', { ascending: true });
-    setOutlets(data || []);
+    setOutlets((data || []) as OutletLite[]);
   }
 
   // Load import documents based on active tab
@@ -198,6 +241,8 @@ export default function ImportHub() {
   }, [activeTab, selectedSource, COMPANY_ID]);
 
   async function loadImportDocs() {
+    if (!COMPANY_ID) return;
+    const companyId = COMPANY_ID;
     setFilesLoading(true);
     try {
       if (activeTab === 'sources' && selectedSource) {
@@ -208,27 +253,28 @@ export default function ImportHub() {
           return;
         }
 
-        const { data } = await supabase.from(config.table).select('*').eq('company_id', COMPANY_ID).order('created_at', { ascending: false });
-        setUploadedFiles(data || []);
+        // table name is dynamic — supabase typed client cannot validate it
+        const { data } = await (supabase as unknown as { from: (t: string) => { select: (s: string) => { eq: (k: string, v: string) => { order: (c: string, opts: { ascending: boolean }) => Promise<{ data: ImportDoc[] | null }> } } } }).from(config.table).select('*').eq('company_id', companyId).order('created_at', { ascending: false });
+        setUploadedFiles(((data as ImportDoc[] | null) || []));
         setBatchSelected(new Set());
 
         const { data: history } = await supabase
           .from('import_documents')
           .select('*')
-          .eq('company_id', COMPANY_ID)
+          .eq('company_id', companyId)
           .eq('source', selectedSource)
           .order('uploaded_at', { ascending: false })
           .limit(20);
-        setImportHistory(history || []);
+        setImportHistory(((history as ImportDoc[] | null) || []));
       } else {
         // Load all recent imports for both overview and history tabs
         const { data } = await supabase
           .from('import_documents')
           .select('*')
-          .eq('company_id', COMPANY_ID)
+          .eq('company_id', companyId)
           .order('uploaded_at', { ascending: false })
           .limit(200);
-        setImportHistory(data || []);
+        setImportHistory(((data as ImportDoc[] | null) || []));
       }
     } catch (err: unknown) {
       console.error('Load error:', err);
@@ -238,10 +284,11 @@ export default function ImportHub() {
     }
   }
 
-  async function openPreview(doc) {
+  async function openPreview(doc: ImportDoc) {
     setPreviewFile(doc);
     if (doc.file_path) {
-      const config = IMPORT_SOURCE_CONFIG[doc.source_type || selectedSource];
+      const sourceKey = (doc.source_type || selectedSource) as ImportSourceId | null;
+      const config = sourceKey ? IMPORT_SOURCE_CONFIG[sourceKey] : null;
       const bucket = config?.bucket || 'general-documents';
 
       try {
@@ -260,7 +307,7 @@ export default function ImportHub() {
     setPreviewUrl(null);
   }
 
-  const handleDrag = (e) => {
+  const handleDrag = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
     if (e.type === 'dragenter' || e.type === 'dragover') {
@@ -270,7 +317,7 @@ export default function ImportHub() {
     }
   };
 
-  const handleDrop = (e) => {
+  const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
     setDragActive(false);
@@ -280,8 +327,8 @@ export default function ImportHub() {
   };
 
   // File validation: checks size, extension, required selectors
-  function validateFile(file, config, sourceId) {
-    const errors = [];
+  function validateFile(file: File, config: ImportSourceConfig, sourceId: ImportSourceId): string[] {
+    const errors: string[] = [];
     const MAX_SIZE = 50 * 1024 * 1024; // 50 MB
     if (file.size > MAX_SIZE) errors.push(`${file.name}: supera il limite di 50 MB`);
     if (file.size === 0) errors.push(`${file.name}: file vuoto`);
@@ -296,7 +343,7 @@ export default function ImportHub() {
     return errors;
   }
 
-  async function handleFileUpload(fileList, sourceId) {
+  async function handleFileUpload(fileList: FileList | File[], sourceId: ImportSourceId) {
     if (!sourceId) return;
 
     const config = IMPORT_SOURCE_CONFIG[sourceId];
@@ -305,10 +352,10 @@ export default function ImportHub() {
       return;
     }
 
-    const allFiles = Array.from(fileList);
+    const allFiles: File[] = Array.from(fileList);
     // Validate each file
-    const allErrors = [];
-    const validFiles = [];
+    const allErrors: string[] = [];
+    const validFiles: File[] = [];
     for (const f of allFiles) {
       const errs = validateFile(f, config, sourceId);
       if (errs.length) allErrors.push(...errs);
@@ -347,8 +394,8 @@ export default function ImportHub() {
 
         // Create record in source-specific table
         // Column names MUST match the actual DB schema
-        const fileExt = file.name.split('.').pop().toLowerCase();
-        let record = { company_id: COMPANY_ID, file_name: file.name, file_path: filePath, file_size: file.size };
+        const fileExt = (file.name.split('.').pop() || '').toLowerCase();
+        const record: Record<string, unknown> = { company_id: COMPANY_ID, file_name: file.name, file_path: filePath, file_size: file.size };
 
         if (sourceId === 'bank') {
           // bank_imports schema: file_format, status, bank_account_id
@@ -369,7 +416,7 @@ export default function ImportHub() {
         } else if (sourceId === 'balance_sheet') {
           // balance_sheet_imports NON ha file_type — solo file_name, file_path, file_size
           record.status = 'uploaded';
-          record.year = parseInt(selectedYear) || new Date().getFullYear();
+          record.year = Number(selectedYear) || new Date().getFullYear();
           record.period_type = 'annuale';
           record.period_label = `Bilancio ${selectedYear || new Date().getFullYear()}`;
         } else if (sourceId === 'general_docs') {
@@ -389,9 +436,8 @@ export default function ImportHub() {
           record.upload_status = 'uploaded';
         }
 
-        // Insert into source-specific table
-        const { error: insertErr, data: insertData } = await supabase
-          .from(config.table)
+        // Insert into source-specific table — table name dinamico
+        const { error: insertErr } = await (supabase as unknown as { from: (t: string) => { insert: (rows: Record<string, unknown>[]) => { select: () => Promise<{ error: { message: string } | null }> } } }).from(config.table)
           .insert([record])
           .select();
 
@@ -412,7 +458,7 @@ export default function ImportHub() {
             file_size: file.size,
             file_type: fileExt,
             source: sourceId,
-          },
+          } as never,
         ]);
 
         setUploadProgress(((idx + 1) / files.length) * 100);
@@ -434,7 +480,7 @@ export default function ImportHub() {
     }
   }
 
-  async function handleRemoveFile(fileId, sourceId) {
+  async function handleRemoveFile(fileId: string, sourceId: ImportSourceId) {
     if (!window.confirm('Eliminare questo file? L\'azione non può essere annullata.')) return;
 
     try {
@@ -445,8 +491,8 @@ export default function ImportHub() {
       if (file.file_path) {
         await supabase.storage.from(config.bucket).remove([file.file_path]);
       }
-      await supabase.from(config.table).delete().eq('id', fileId);
-      await supabase.from('import_documents').delete().eq('file_path', file.file_path);
+      await (supabase as unknown as { from: (t: string) => { delete: () => { eq: (k: string, v: string) => Promise<unknown> } } }).from(config.table).delete().eq('id', fileId);
+      if (file.file_path) await supabase.from('import_documents').delete().eq('file_path', file.file_path);
 
       showToast('File eliminato');
       await loadImportDocs();
@@ -460,15 +506,16 @@ export default function ImportHub() {
   // Batch delete selected files
   async function handleBatchDelete() {
     if (batchSelected.size === 0) return;
+    if (!selectedSource) return;
     if (!window.confirm(`Eliminare ${batchSelected.size} file selezionati?`)) return;
 
     try {
       const config = IMPORT_SOURCE_CONFIG[selectedSource];
-      const filesToDelete = uploadedFiles.filter(f => batchSelected.has(f.id));
-      const paths = filesToDelete.map(f => f.file_path).filter(Boolean);
+      const filesToDelete = uploadedFiles.filter(f => f.id && batchSelected.has(f.id));
+      const paths = filesToDelete.map(f => f.file_path).filter((p): p is string => Boolean(p));
       if (paths.length) await supabase.storage.from(config.bucket).remove(paths);
       for (const f of filesToDelete) {
-        await supabase.from(config.table).delete().eq('id', f.id);
+        if (f.id) await (supabase as unknown as { from: (t: string) => { delete: () => { eq: (k: string, v: string) => Promise<unknown> } } }).from(config.table).delete().eq('id', f.id);
         if (f.file_path) await supabase.from('import_documents').delete().eq('file_path', f.file_path);
       }
       showToast(`${filesToDelete.length} file eliminati`);
@@ -481,7 +528,7 @@ export default function ImportHub() {
   }
 
   // Toggle batch selection
-  const toggleBatchSelect = (fileId) => {
+  const toggleBatchSelect = (fileId: string) => {
     setBatchSelected(prev => {
       const n = new Set(prev);
       if (n.has(fileId)) n.delete(fileId); else n.add(fileId);
@@ -490,29 +537,30 @@ export default function ImportHub() {
   };
   const toggleSelectAll = () => {
     if (batchSelected.size === uploadedFiles.length) setBatchSelected(new Set());
-    else setBatchSelected(new Set(uploadedFiles.map(f => f.id)));
+    else setBatchSelected(new Set(uploadedFiles.map(f => f.id).filter((id): id is string => Boolean(id))));
   };
 
   // ─── PROCESSING FUNCTIONS ─────────────────────────────────────
 
   // Check if source type supports processing
-  const canProcess = (sourceId) => ['bank', 'invoices', 'pos_data', 'receipts', 'balance_sheet', 'payroll'].includes(sourceId);
+  const canProcess = (sourceId: string | null) => ['bank', 'invoices', 'pos_data', 'receipts', 'balance_sheet', 'payroll'].includes(sourceId || '');
 
   // Preview a file before processing
-  async function handlePreview(file, fileRecord) {
-    if (!canProcess(selectedSource)) return;
+  async function handlePreview(_file: ImportDoc, fileRecord: ImportDoc) {
+    if (!canProcess(selectedSource) || !selectedSource) return;
     setPreviewData(null);
 
     try {
       // Download file from storage for preview
       const config = IMPORT_SOURCE_CONFIG[selectedSource];
+      if (!fileRecord.file_path || !fileRecord.file_name) return;
       const { data: blob, error } = await supabase.storage.from(config.bucket).download(fileRecord.file_path);
-      if (error) { showToast('Errore download file per anteprima', 'error'); return; }
+      if (error || !blob) { showToast('Errore download file per anteprima', 'error'); return; }
 
       const fileObj = new File([blob], fileRecord.file_name);
       pendingFileRef.current = fileObj;
 
-      const result = await previewImport({
+      const result = await (previewImport as unknown as (args: { file: File; sourceType: string; context: Record<string, unknown> }) => Promise<PreviewData & { fileRecord?: ImportDoc }>)({
         file: fileObj,
         sourceType: selectedSource,
         context: {
@@ -521,7 +569,7 @@ export default function ImportHub() {
         },
       });
 
-      setPreviewData({ ...result, fileRecord });
+      setPreviewData({ ...(result || {}), fileRecord } as PreviewData);
     } catch (err: unknown) {
       console.error('Preview error:', err);
       showToast('Errore anteprima: ' + (err as Error).message, 'error');
@@ -529,8 +577,8 @@ export default function ImportHub() {
   }
 
   // Process a file (parse + insert into DB)
-  async function handleProcessFile(fileRecord, mappingOverride = null) {
-    if (!canProcess(selectedSource) || processing) return;
+  async function handleProcessFile(fileRecord: ImportDoc, mappingOverride: Record<string, unknown> | null = null) {
+    if (!canProcess(selectedSource) || processing || !selectedSource) return;
     setProcessing(true);
     setProcessProgress(0);
     setProcessMessage('Avvio elaborazione...');
@@ -541,13 +589,15 @@ export default function ImportHub() {
 
       // Use pending file ref or download from storage
       let fileObj = pendingFileRef.current;
-      if (!fileObj || fileObj.name !== fileRecord.file_name) {
+      if ((!fileObj || fileObj.name !== fileRecord.file_name) && fileRecord.file_path) {
         const { data: blob, error } = await supabase.storage.from(config.bucket).download(fileRecord.file_path);
-        if (error) throw new Error('Download fallito: ' + error.message);
-        fileObj = new File([blob], fileRecord.file_name);
+        if (error || !blob) throw new Error('Download fallito: ' + (error?.message || 'no blob'));
+        fileObj = new File([blob], String(fileRecord.file_name || 'file'));
       }
+      if (!fileObj) throw new Error('File non disponibile');
 
-      const result = await processImport({
+      type ProcessResultRaw = { success?: boolean; imported?: number; errors?: Array<{ message?: string } | string> }
+      const result = await (processImport as unknown as (args: Record<string, unknown>) => Promise<ProcessResultRaw>)({
         file: fileObj,
         sourceType: selectedSource,
         context: {
@@ -560,18 +610,18 @@ export default function ImportHub() {
           csvOptions: { skipRows: 0 },
         },
         mappingOverride,
-        onProgress: (pct, msg) => {
+        onProgress: (pct: number, msg: string) => {
           setProcessProgress(pct);
           setProcessMessage(msg);
         },
       });
 
-      setProcessResult(result);
+      setProcessResult({ success: result.success, processed: result.imported, errors: result.errors?.map(e => typeof e === 'string' ? e : (e.message || '')) || [] });
 
       if (result.success) {
         showToast(`Importati ${result.imported} record con successo!`);
         // Update file status in source table (use correct column per table)
-        let statusUpdate;
+        let statusUpdate: Record<string, string>;
         if (selectedSource === 'bank') {
           statusUpdate = { status: 'completed' };
         } else if (selectedSource === 'balance_sheet') {
@@ -579,15 +629,15 @@ export default function ImportHub() {
         } else {
           statusUpdate = { upload_status: 'parsed', import_status: 'completed' };
         }
-        await supabase.from(config.table).update(statusUpdate).eq('id', fileRecord.id);
+        if (fileRecord.id) await (supabase as unknown as { from: (t: string) => { update: (v: Record<string, string>) => { eq: (k: string, v: string) => Promise<unknown> } } }).from(config.table).update(statusUpdate).eq('id', String(fileRecord.id));
         await loadImportDocs();
 
         // ─── POST-IMPORT EC: calcolo match automatici ──
         // Dopo un import EC bancario riuscito, calcola automaticamente
         // i match tra movimenti in uscita e scadenze payables.
         // Il modal mostra il riepilogo e permette di confermare i match sicuri.
-        if (selectedSource === 'bank' && result.imported > 0) {
-          const bankAccountId = selectedBankAccount || fileRecord.bank_account_id;
+        if (selectedSource === 'bank' && (result.imported || 0) > 0) {
+          const bankAccountId = (selectedBankAccount || fileRecord.bank_account_id) as string | null;
           await computeMatchesAfterBankImport(bankAccountId);
         }
       } else {
@@ -595,7 +645,7 @@ export default function ImportHub() {
       }
     } catch (err: unknown) {
       console.error('Process error:', err);
-      setProcessResult({ success: false, imported: 0, errors: [{ message: (err as Error).message }] });
+      setProcessResult({ success: false, processed: 0, errors: [(err as Error).message] });
       showToast('Errore elaborazione: ' + (err as Error).message, 'error');
     } finally {
       setProcessing(false);
@@ -627,21 +677,21 @@ export default function ImportHub() {
    * controparte sicura (score >= 80, match automatico), quanti probabili
    * (score 50-79, richiedono revisione manuale) e quanti senza match.
    */
-  async function computeMatchesAfterBankImport(bankAccountId) {
+  async function computeMatchesAfterBankImport(bankAccountId: string | null) {
     if (!COMPANY_ID) return;
     setComputingMatches(true);
     try {
-      const res = await runAutoReconciliation(COMPANY_ID, bankAccountId || null, {
+      type ReconciliationResult = { reconciled?: unknown[]; suggested?: unknown[]; unmatched?: unknown[]; stats?: NonNullable<MatchModal>['stats']; errors?: unknown[] }
+      const res = await (runAutoReconciliation as unknown as (companyId: string, bankAccountId: string | null, opts: Record<string, unknown>) => Promise<ReconciliationResult>)(COMPANY_ID, bankAccountId || null, {
         dryRun: true,
         performedBy: profile?.id || null,
       });
       setMatchModal({
         bankAccountId: bankAccountId || null,
-        reconciled: res.reconciled || [],
-        suggested: res.suggested || [],
-        unmatched: res.unmatched || [],
+        reconciled: (res.reconciled || []) as ReconciledMatch[],
+        suggested: (res.suggested || []) as ReconciledMatch[],
+        unmatched: (res.unmatched || []) as Array<{ id?: string; description?: string; amount?: number; date?: string }>,
         stats: res.stats || {},
-        errors: res.errors || [],
       });
     } catch (err: unknown) {
       console.error('Errore calcolo match post-import:', err);
@@ -659,16 +709,19 @@ export default function ImportHub() {
    *  - log in reconciliation_log
    */
   async function handleConfirmSafeMatches() {
-    if (!matchModal || !matchModal.reconciled?.length) return;
+    type ReconciledItem = { movement?: { id?: string }; payable?: { id?: string }; score?: number }
+    const reconciledList = (matchModal?.reconciled as ReconciledItem[] | undefined) || [];
+    if (!matchModal || reconciledList.length === 0) return;
     setApplyingMatches(true);
     let ok = 0;
-    const errs = [];
+    const errs: unknown[] = [];
     try {
-      for (const m of matchModal.reconciled) {
+      for (const m of reconciledList) {
         const movementId = m.movement?.id;
         const payableId = m.payable?.id;
         if (!movementId || !payableId) continue;
-        const res = await applyReconciliation(movementId, payableId, 'auto_exact', `Conferma post-import EC (score ${m.score})`, {
+        type ApplyResult = { success?: boolean; error?: unknown }
+        const res = await (applyReconciliation as unknown as (mId: string, pId: string, kind: string, msg: string, opts: Record<string, unknown>) => Promise<ApplyResult>)(movementId, payableId, 'auto_exact', `Conferma post-import EC (score ${m.score})`, {
           performedBy: profile?.id || null,
           companyId: COMPANY_ID,
         });
@@ -678,7 +731,7 @@ export default function ImportHub() {
       if (errs.length === 0) {
         showToast(`Confermati ${ok} match. Fatture marcate come pagate.`);
       } else {
-        showToast(`Confermati ${ok} su ${matchModal.reconciled.length}. ${errs.length} errori.`, 'error');
+        showToast(`Confermati ${ok} su ${reconciledList.length}. ${errs.length} errori.`, 'error');
       }
     } catch (err: unknown) {
       console.error('Errore applicazione match:', err);
@@ -705,7 +758,7 @@ export default function ImportHub() {
     icon: config.icon,
   }));
 
-  const getStatusColor = (stato) => {
+  const getStatusColor = (stato: string) => {
     switch (stato) {
       case 'successo':
       case 'parsed':
@@ -727,7 +780,7 @@ export default function ImportHub() {
     }
   };
 
-  const getStatusIcon = (stato) => {
+  const getStatusIcon = (stato: string) => {
     switch (stato) {
       case 'successo':
       case 'parsed':
@@ -754,24 +807,26 @@ export default function ImportHub() {
     const hist = importHistory || [];
     // Monthly aggregation (last 6 months)
     const now = new Date();
-    const monthBuckets = {};
+    type MonthBucket = { mese: string; records: number }
+    const monthBuckets: Record<string, MonthBucket> = {};
     for (let i = 5; i >= 0; i--) {
       const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
       monthBuckets[key] = { mese: months[d.getMonth()], records: 0 };
     }
     hist.forEach(h => {
-      const d = new Date(h.uploaded_at || h.created_at);
+      const d = new Date(String(h.uploaded_at || h.created_at || ''));
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
       if (monthBuckets[key]) monthBuckets[key].records++;
     });
     const monthly = Object.values(monthBuckets);
 
     // Source distribution
-    const srcCount = {};
+    const srcCount: Record<string, number> = {};
     hist.forEach(h => {
-      const src = h.source_type || 'altro';
-      const label = IMPORT_SOURCE_CONFIG[src]?.name || src;
+      const src = String(h.source_type || 'altro');
+      const cfg = (IMPORT_SOURCE_CONFIG as Record<string, ImportSourceConfig>)[src];
+      const label = cfg?.name || src;
       srcCount[label] = (srcCount[label] || 0) + 1;
     });
     const total = hist.length || 1;
@@ -780,29 +835,29 @@ export default function ImportHub() {
 
     // Quality metrics from real data
     const uploaded = hist.filter(h => (h.status || h.upload_status) === 'uploaded' || (h.status || h.upload_status) === 'parsed').length;
-    const errors = hist.filter(h => (h.status || h.upload_status) === 'error').length;
     const validPct = total > 0 ? Math.round(((uploaded) / total) * 1000) / 10 : 0;
 
     // Duplicate detection: same file_name + source_type
-    const seen = new Set();
+    const seen = new Set<string>();
     let dupes = 0;
     hist.forEach(h => {
-      const k = `${h.source_type}|${h.file_name}`;
+      const k = `${String(h.source_type)}|${String(h.file_name)}`;
       if (seen.has(k)) dupes++;
       seen.add(k);
     });
 
+    const errorCount = hist.filter(h => (h.status || h.upload_status) === 'error').length;
     return {
       monthlyData: monthly,
       sourceDistribution: srcDist,
       qualityMetrics: {
         recordValidi: validPct || 0,
         duplicatiTrovati: dupes,
-        erroriMapping: errors,
-        ultimaVerifica: hist.length ? new Date(hist[0].uploaded_at || hist[0].created_at).toLocaleString('it-IT') : '-',
+        erroriMapping: errorCount,
+        ultimaVerifica: hist.length ? new Date(String(hist[0].uploaded_at || hist[0].created_at || '')).toLocaleString('it-IT') : '-',
       },
     };
-  }, [importHistory]);
+  }, [importHistory, months]);
 
   const COLORS = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899'];
 
@@ -981,7 +1036,7 @@ export default function ImportHub() {
                     </div>
 
                     <button
-                      onClick={() => source.stato === 'attivo' && setSelectedSource(source.id)}
+                      onClick={() => source.stato === 'attivo' && setSelectedSource(source.id as ImportSourceId)}
                       disabled={source.stato !== 'attivo'}
                       className={`w-full px-3 py-2 rounded font-medium text-sm flex items-center justify-center gap-2 transition-colors ${
                         source.stato === 'attivo'
@@ -1160,7 +1215,7 @@ export default function ImportHub() {
                   {IMPORT_SOURCE_CONFIG[selectedSource].formats} — Trascina qui o seleziona
                 </p>
                 <button
-                  onClick={() => document.getElementById(`upload-${selectedSource}`).click()}
+                  onClick={() => document.getElementById(`upload-${selectedSource}`)?.click()}
                   className="px-5 py-2.5 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition font-medium text-sm"
                 >
                   Seleziona File
@@ -1171,7 +1226,7 @@ export default function ImportHub() {
                   accept={IMPORT_SOURCE_CONFIG[selectedSource].acceptedExt.join(',')}
                   multiple
                   className="hidden"
-                  onChange={(e) => handleFileUpload(e.target.files, selectedSource)}
+                  onChange={(e) => { if (e.target.files && selectedSource) handleFileUpload(e.target.files, selectedSource) }}
                 />
               </div>
 
@@ -1202,7 +1257,7 @@ export default function ImportHub() {
                         {batchSelected.size === uploadedFiles.length ? <CheckSquare size={14} /> : <Square size={14} />}
                         {batchSelected.size === uploadedFiles.length ? 'Deseleziona tutti' : 'Seleziona tutti'}
                       </button>
-                      {canProcess(selectedSource) && uploadedFiles.some(f => ['uploaded','pending','pending_parsing'].includes(f.status || f.upload_status || f.import_status || f.document_status || 'uploaded')) && (
+                      {canProcess(selectedSource) && uploadedFiles.some(f => ['uploaded','pending','pending_parsing'].includes(String(f.status || f.upload_status || f.import_status || f.document_status || 'uploaded'))) && (
                         <button onClick={handleProcessAll} disabled={processing} className="px-3 py-1 bg-emerald-50 text-emerald-700 rounded-lg text-xs font-semibold hover:bg-emerald-100 flex items-center gap-1 border border-emerald-200 disabled:opacity-50">
                           {processing ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} />}
                           {processing ? 'Elaborazione...' : 'Processa tutti'}
@@ -1218,12 +1273,12 @@ export default function ImportHub() {
                   <div className="space-y-2 max-h-96 overflow-y-auto">
                     {uploadedFiles.map((f) => {
                       const isPdf = f.file_type === 'pdf';
-                      const statusLabel = f.status || f.upload_status || f.import_status || f.document_status || 'uploaded';
-                      const isSelected = batchSelected.has(f.id);
+                      const statusLabel = String(f.status || f.upload_status || f.import_status || f.document_status || 'uploaded');
+                      const isSelected = f.id ? batchSelected.has(f.id) : false;
                       return (
-                        <div key={f.id} className={`flex items-center justify-between p-3 bg-white rounded-xl border group hover:border-indigo-200 transition ${isSelected ? 'border-indigo-300 bg-indigo-50/30' : 'border-slate-200'}`}>
+                        <div key={String(f.id)} className={`flex items-center justify-between p-3 bg-white rounded-xl border group hover:border-indigo-200 transition ${isSelected ? 'border-indigo-300 bg-indigo-50/30' : 'border-slate-200'}`}>
                           <div className="flex items-center gap-3 min-w-0">
-                            <button onClick={() => toggleBatchSelect(f.id)} className="shrink-0 text-slate-400 hover:text-indigo-600">
+                            <button onClick={() => f.id && toggleBatchSelect(f.id)} className="shrink-0 text-slate-400 hover:text-indigo-600">
                               {isSelected ? <CheckSquare size={18} className="text-indigo-600" /> : <Square size={18} />}
                             </button>
                             <div className={`p-2 rounded-lg ${isPdf ? 'bg-red-50' : 'bg-blue-50'}`}>
@@ -1232,7 +1287,7 @@ export default function ImportHub() {
                             <div className="min-w-0">
                               <div className="text-sm font-medium text-slate-700 truncate">{f.file_name}</div>
                               <div className="text-xs text-slate-400">
-                                {f.file_size ? `${(f.file_size / 1024).toFixed(0)} KB` : ''} — {new Date(f.created_at || f.uploaded_at).toLocaleString('it-IT')}
+                                {f.file_size ? `${((Number(f.file_size)) / 1024).toFixed(0)} KB` : ''} — {new Date(String(f.created_at || f.uploaded_at || '')).toLocaleString('it-IT')}
                               </div>
                             </div>
                           </div>
@@ -1242,7 +1297,7 @@ export default function ImportHub() {
                             </span>
                             {canProcess(selectedSource) && (statusLabel === 'uploaded' || statusLabel === 'pending' || statusLabel === 'pending_parsing') && (
                               <>
-                                <button onClick={() => handlePreview(null, f)} className="p-1.5 rounded-lg hover:bg-amber-50 text-slate-400 hover:text-amber-600 transition" title="Anteprima dati">
+                                <button onClick={() => handlePreview(f, f)} className="p-1.5 rounded-lg hover:bg-amber-50 text-slate-400 hover:text-amber-600 transition" title="Anteprima dati">
                                   <FileSearch size={16} />
                                 </button>
                                 <button
@@ -1281,7 +1336,7 @@ export default function ImportHub() {
                                 <Eye size={16} />
                               </button>
                             )}
-                            <button onClick={() => handleRemoveFile(f.id, selectedSource)} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 transition" title="Rimuovi">
+                            <button onClick={() => f.id && selectedSource && handleRemoveFile(f.id, selectedSource)} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 transition" title="Rimuovi">
                               <XCircle size={16} />
                             </button>
                           </div>
@@ -1313,32 +1368,26 @@ export default function ImportHub() {
                   <div className="flex items-center gap-2">
                     {processResult.success ? <CheckCircle size={18} className="text-emerald-600" /> : <AlertCircle size={18} className="text-red-600" />}
                     <span className={`text-sm font-semibold ${processResult.success ? 'text-emerald-700' : 'text-red-700'}`}>
-                      {processResult.success ? `${processResult.imported} record importati con successo` : 'Errori durante l\'elaborazione'}
+                      {processResult.success ? `${processResult.processed} record importati con successo` : 'Errori durante l\'elaborazione'}
                     </span>
                   </div>
                   <button onClick={() => setProcessResult(null)} className="text-slate-400 hover:text-slate-600"><X size={16} /></button>
                 </div>
-                {processResult.errors.length > 0 && (
+                {(processResult.errors?.length ?? 0) > 0 && (
                   <div className="mt-2 max-h-32 overflow-y-auto">
-                    {processResult.errors.slice(0, 10).map((e, i) => (
+                    {(processResult.errors || []).slice(0, 10).map((e: string, i: number) => (
                       <div key={i} className="text-xs text-red-600 py-0.5">
-                        {e.row ? `Riga ${e.row}: ` : ''}{e.message}
+                        {e}
                       </div>
                     ))}
-                    {processResult.errors.length > 10 && (
-                      <div className="text-xs text-red-500 mt-1">...e altri {processResult.errors.length - 10} errori</div>
+                    {(processResult.errors?.length ?? 0) > 10 && (
+                      <div className="text-xs text-red-500 mt-1">...e altri {(processResult.errors?.length ?? 0) - 10} errori</div>
                     )}
                   </div>
                 )}
-                {/* Warning: il file dichiarava N movimenti ma ne abbiamo importati meno */}
-                {processResult.warnings && processResult.warnings.length > 0 && (
+                {false && (
                   <div className="mt-2 p-2 rounded-lg bg-amber-50 border border-amber-200">
-                    {processResult.warnings.map((w, i) => (
-                      <div key={i} className="text-xs text-amber-800 py-0.5 flex items-start gap-2">
-                        <AlertCircle size={14} className="text-amber-600 shrink-0 mt-0.5" />
-                        <span>{w.message}</span>
-                      </div>
-                    ))}
+                    {/* warnings rimossi: tipo non più presente */}
                   </div>
                 )}
                 {processResult.details && (
@@ -1386,7 +1435,7 @@ export default function ImportHub() {
                             <th key={i} className="px-2 py-1.5 bg-amber-100 text-amber-800 font-semibold text-left border border-amber-200 whitespace-nowrap">
                               {h}
                               {previewData.mapping && Object.entries(previewData.mapping).find(([, v]) => v === h) && (
-                                <span className="ml-1 text-emerald-600">{'\u2192'} {Object.entries(previewData.mapping).find(([, v]) => v === h)[0]}</span>
+                                <span className="ml-1 text-emerald-600">{'\u2192'} {Object.entries(previewData.mapping).find(([, v]) => v === h)?.[0]}</span>
                               )}
                             </th>
                           ))}
@@ -1395,7 +1444,7 @@ export default function ImportHub() {
                       <tbody>
                         {previewData.sampleRows?.slice(0, 5).map((row, i) => (
                           <tr key={i} className="hover:bg-amber-50">
-                            {previewData.headers.map((h, j) => (
+                            {(previewData.headers || []).map((h, j) => (
                               <td key={j} className="px-2 py-1 border border-amber-100 text-slate-700 whitespace-nowrap max-w-48 truncate">
                                 {row[h]}
                               </td>
@@ -1413,7 +1462,7 @@ export default function ImportHub() {
                 {/* Invoice Preview */}
                 {previewData.invoices && (
                   <div className="space-y-2 mb-3">
-                    {previewData.invoices.map((inv, i) => (
+                    {previewData.invoices.map((inv: PreviewInvoice, i: number) => (
                       <div key={i} className="p-2 bg-white rounded-lg border border-amber-200 text-xs">
                         <div className="flex justify-between">
                           <span className="font-semibold text-slate-700">{inv.tipo_label} n. {inv.invoice_number}</span>
@@ -1431,7 +1480,7 @@ export default function ImportHub() {
                   onClick={() => {
                     const fr = previewData.fileRecord;
                     setPreviewData(null);
-                    handleProcessFile(fr, previewData.mapping || null);
+                    if (fr) handleProcessFile(fr, previewData.mapping || null);
                   }}
                   className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-semibold hover:bg-emerald-700 flex items-center gap-2"
                 >
@@ -1460,22 +1509,24 @@ export default function ImportHub() {
                 </thead>
                 <tbody className="divide-y divide-gray-200">
                   {importHistory.map((item) => {
-                    const source = IMPORT_SOURCE_CONFIG[item.source_type];
+                    const sourceKey = String(item.source_type || '') as ImportSourceId;
+                    const source = (IMPORT_SOURCE_CONFIG as Record<string, ImportSourceConfig>)[sourceKey];
                     const isPdf = item.file_type === 'pdf';
+                    const statusRaw = String(item.status || item.upload_status || 'unknown');
                     return (
-                      <tr key={item.id} className="hover:bg-gray-50 transition-colors">
+                      <tr key={String(item.id)} className="hover:bg-gray-50 transition-colors">
                         <td className="px-6 py-4 text-sm text-gray-900">
-                          {new Date(item.uploaded_at || item.created_at).toLocaleString('it-IT')}
+                          {new Date(String(item.uploaded_at || item.created_at || '')).toLocaleString('it-IT')}
                         </td>
-                        <td className="px-6 py-4 text-sm text-gray-900 font-medium">{item.file_name}</td>
-                        <td className="px-6 py-4 text-sm text-gray-600">{source?.name || item.source_type}</td>
+                        <td className="px-6 py-4 text-sm text-gray-900 font-medium">{String(item.file_name || '')}</td>
+                        <td className="px-6 py-4 text-sm text-gray-600">{source?.name || String(item.source_type || '')}</td>
                         <td className="px-6 py-4 text-sm text-gray-600">
-                          {item.file_size ? `${(item.file_size / 1024).toFixed(0)} KB` : '-'}
+                          {item.file_size ? `${(Number(item.file_size) / 1024).toFixed(0)} KB` : '-'}
                         </td>
                         <td className="px-6 py-4">
-                          <span className={`px-3 py-1 rounded-full text-xs font-semibold border flex items-center gap-1 w-fit ${getStatusColor(item.status || item.upload_status)}`}>
-                            {getStatusIcon(item.status || item.upload_status)}
-                            {(item.status || item.upload_status || 'unknown').charAt(0).toUpperCase() + (item.status || item.upload_status || 'unknown').slice(1)}
+                          <span className={`px-3 py-1 rounded-full text-xs font-semibold border flex items-center gap-1 w-fit ${getStatusColor(statusRaw)}`}>
+                            {getStatusIcon(statusRaw)}
+                            {statusRaw.charAt(0).toUpperCase() + statusRaw.slice(1)}
                           </span>
                         </td>
                         <td className="px-6 py-4 text-sm">
@@ -1553,7 +1604,7 @@ export default function ImportHub() {
                         <CheckCircle size={16} className="text-emerald-600" />
                         <span className="text-xs font-semibold text-emerald-700 uppercase">Match sicuri</span>
                       </div>
-                      <div className="text-3xl font-bold text-emerald-800">{matchModal.reconciled.length}</div>
+                      <div className="text-3xl font-bold text-emerald-800">{(matchModal.reconciled?.length ?? 0)}</div>
                       <p className="text-[11px] text-emerald-600 mt-1">importo esatto + nome fornitore</p>
                     </div>
                     <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-4">
@@ -1561,7 +1612,7 @@ export default function ImportHub() {
                         <AlertCircle size={16} className="text-amber-600" />
                         <span className="text-xs font-semibold text-amber-700 uppercase">Probabili</span>
                       </div>
-                      <div className="text-3xl font-bold text-amber-800">{matchModal.suggested.length}</div>
+                      <div className="text-3xl font-bold text-amber-800">{(matchModal.suggested?.length ?? 0)}</div>
                       <p className="text-[11px] text-amber-600 mt-1">da verificare manualmente</p>
                     </div>
                     <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-4">
@@ -1569,7 +1620,7 @@ export default function ImportHub() {
                         <XCircle size={16} className="text-slate-500" />
                         <span className="text-xs font-semibold text-slate-600 uppercase">Senza match</span>
                       </div>
-                      <div className="text-3xl font-bold text-slate-700">{matchModal.unmatched.length}</div>
+                      <div className="text-3xl font-bold text-slate-700">{(matchModal.unmatched?.length ?? 0)}</div>
                       <p className="text-[11px] text-slate-500 mt-1">nessuna scadenza corrispondente</p>
                     </div>
                   </div>
@@ -1577,15 +1628,15 @@ export default function ImportHub() {
                   {matchModal.stats?.totalMovements != null && (
                     <div className="bg-slate-50 border border-slate-200 rounded-lg px-4 py-3 text-xs text-slate-600 mb-5">
                       Movimenti in uscita analizzati: <b className="text-slate-900">{matchModal.stats.totalMovements}</b>
-                      {matchModal.stats.skippedPOS > 0 && <> · saltati (POS/commissioni): <b>{matchModal.stats.skippedPOS}</b></>}
+                      {(matchModal.stats.skippedPOS ?? 0) > 0 && <> · saltati (POS/commissioni): <b>{matchModal.stats.skippedPOS}</b></>}
                     </div>
                   )}
 
-                  {matchModal.reconciled.length > 0 && (
+                  {(matchModal.reconciled?.length ?? 0) > 0 && (
                     <div className="mb-4">
                       <div className="text-xs font-semibold text-slate-600 uppercase mb-2">Anteprima match sicuri</div>
                       <div className="border border-slate-200 rounded-lg divide-y divide-slate-100 max-h-48 overflow-y-auto">
-                        {matchModal.reconciled.slice(0, 8).map((m, i) => (
+                        {(matchModal.reconciled || []).slice(0, 8).map((m: ReconciledMatch & { details?: { movementAmount?: number }; payable?: { suppliers?: { ragione_sociale?: string; name?: string } } & ReconciledMatch['payable'] }, i: number) => (
                           <div key={i} className="px-3 py-2 text-xs flex items-center justify-between">
                             <div className="flex-1 min-w-0">
                               <div className="font-medium text-slate-800 truncate">
@@ -1603,16 +1654,16 @@ export default function ImportHub() {
                             </div>
                           </div>
                         ))}
-                        {matchModal.reconciled.length > 8 && (
+                        {(matchModal.reconciled?.length ?? 0) > 8 && (
                           <div className="px-3 py-2 text-xs text-slate-500 italic">
-                            ...e altri {matchModal.reconciled.length - 8} match
+                            ...e altri {(matchModal.reconciled?.length ?? 0) - 8} match
                           </div>
                         )}
                       </div>
                     </div>
                   )}
 
-                  {matchModal.reconciled.length === 0 && matchModal.suggested.length === 0 && matchModal.unmatched.length === 0 && (
+                  {(matchModal.reconciled?.length ?? 0) === 0 && (matchModal.suggested?.length ?? 0) === 0 && (matchModal.unmatched?.length ?? 0) === 0 && (
                     <div className="text-center py-8">
                       <FileWarning size={32} className="text-slate-300 mx-auto mb-3" />
                       <p className="text-sm text-slate-500">Nessun movimento in uscita da analizzare.</p>
@@ -1636,14 +1687,14 @@ export default function ImportHub() {
                 >
                   Vai alla Riconciliazione
                 </button>
-                {matchModal.reconciled.length > 0 && (
+                {(matchModal.reconciled?.length ?? 0) > 0 && (
                   <button
                     onClick={handleConfirmSafeMatches}
                     disabled={applyingMatches}
                     className="px-4 py-2 text-sm font-semibold text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-2"
                   >
                     {applyingMatches ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle size={14} />}
-                    Conferma {matchModal.reconciled.length} match sicuri
+                    Conferma {(matchModal.reconciled?.length ?? 0)} match sicuri
                   </button>
                 )}
               </div>
