@@ -1,5 +1,3 @@
-// @ts-nocheck
-// TODO: tighten types
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
@@ -17,7 +15,7 @@ function fmt(n: number | null | undefined, decimals = 0) {
   }).format(n)
 }
 
-const STATUS_CONFIG = {
+const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
   attivo: { label: 'Attivo', color: 'bg-emerald-50 text-emerald-700' },
   in_scadenza: { label: 'In scadenza', color: 'bg-amber-50 text-amber-700' },
   scaduto: { label: 'Scaduto', color: 'bg-red-50 text-red-700' },
@@ -34,7 +32,7 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 function KpiCard({ title, value, subtitle, icon: Icon, color = 'blue' }: { title: string; value: string | number; subtitle?: string; icon: React.ElementType; color?: string }) {
-  const colorMap = {
+  const colorMap: Record<string, string> = {
     blue: 'bg-blue-50 text-blue-600',
     green: 'bg-emerald-50 text-emerald-600',
     amber: 'bg-amber-50 text-amber-600',
@@ -134,16 +132,22 @@ function ModalNuovoContratto({ outlets, onClose, onSave, editingContract = null,
         notes: form.notes || null,
       }
 
-      let contractId = editingContract?.id
-      let err = null
+      let contractId: string | undefined = editingContract?.id
+      let err: { message: string } | null = null
+
+      // Cast supabase per accettare shape contracts flessibile (legacy fields).
+      const sb = supabase as unknown as { from: (t: string) => {
+        update: (r: Record<string, unknown>) => { eq: (k: string, v: string) => Promise<{ error: { message: string } | null }> };
+        insert: (r: Record<string, unknown>) => { select: () => Promise<{ data: { id: string }[] | null; error: { message: string } | null }> };
+      } }
 
       if (editingContract) {
         // Edit mode
-        const result = await supabase.from('contracts').update(contractData).eq('id', editingContract.id)
+        const result = await sb.from('contracts').update(contractData).eq('id', editingContract.id)
         err = result.error
       } else {
         // Create mode
-        const result = await supabase.from('contracts').insert({
+        const result = await sb.from('contracts').insert({
           company_id: profile?.company_id,
           ...contractData
         }).select()
@@ -165,8 +169,8 @@ function ModalNuovoContratto({ outlets, onClose, onSave, editingContract = null,
       }
 
       onSave()
-    } catch (err) {
-      setError(err.message || 'Errore durante il salvataggio')
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Errore durante il salvataggio')
       setSaving(false)
     }
   }
@@ -252,10 +256,12 @@ function ModalNuovoContratto({ outlets, onClose, onSave, editingContract = null,
           <div>
             <label className="block text-xs font-medium text-slate-500 mb-1">Allega PDF contratto</label>
             <div className="border-2 border-dashed border-slate-200 rounded-lg p-3 text-center cursor-pointer hover:border-indigo-300 hover:bg-slate-50 transition"
-              onClick={() => document.getElementById('modal-pdf-input').click()}>
+              onClick={() => document.getElementById('modal-pdf-input')?.click()}>
               <input id="modal-pdf-input" type="file" accept=".pdf" multiple className="hidden"
                 onChange={e => {
-                  const files = Array.from(e.target.files).filter(f => f.type === 'application/pdf')
+                  const list = e.target.files
+                  if (!list) return
+                  const files = Array.from(list).filter(f => f.type === 'application/pdf')
                   setAttachments(prev => [...prev, ...files.map(f => ({ name: f.name, size: f.size }))])
                 }} />
               <FileUp size={18} className="mx-auto mb-1 text-slate-300" />
@@ -382,7 +388,7 @@ function PdfUploader({ contractId, files, loading: filesLoading, onUploadDone, o
         className={`relative border-2 border-dashed rounded-xl p-4 text-center transition-all cursor-pointer ${
           dragActive ? 'border-indigo-400 bg-indigo-50' : 'border-slate-200 hover:border-indigo-300 hover:bg-slate-50'
         }`}
-        onClick={() => document.getElementById(`pdf-input-${contractId}`).click()}
+        onClick={() => document.getElementById(`pdf-input-${contractId}`)?.click()}
       >
         <input
           id={`pdf-input-${contractId}`}
@@ -390,7 +396,7 @@ function PdfUploader({ contractId, files, loading: filesLoading, onUploadDone, o
           accept=".pdf"
           multiple
           className="hidden"
-          onChange={e => { handleFiles(e.target.files); e.target.value = '' }}
+          onChange={e => { if (e.target.files) handleFiles(e.target.files); e.target.value = '' }}
         />
         <FileUp size={20} className={`mx-auto mb-1.5 ${dragActive ? 'text-indigo-500' : 'text-slate-300'}`} />
         <p className="text-xs text-slate-500">
@@ -510,7 +516,7 @@ export default function Contratti() {
 
   function daysUntil(dateStr: string | null) {
     if (!dateStr) return null
-    const diff = Math.ceil((new Date(dateStr) - new Date()) / (1000 * 60 * 60 * 24))
+    const diff = Math.ceil((new Date(dateStr).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))
     return diff
   }
 
