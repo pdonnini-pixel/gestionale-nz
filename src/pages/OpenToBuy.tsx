@@ -1,4 +1,3 @@
-// @ts-nocheck — TODO tighten: pattern dinamici outlet-key e indexing complesso, da rivedere
 import { useState, useMemo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ComposedChart } from 'recharts';
 import { Info, TrendingUp, Package, Percent } from 'lucide-react';
@@ -8,7 +7,20 @@ function fmt(n: number, dec = 0): string {
   return new Intl.NumberFormat('it-IT', { minimumFractionDigits: dec, maximumFractionDigits: dec }).format(n);
 }
 
-const initialData = {
+type Season = 'SS26' | 'FW26'
+
+interface OutletPlan {
+  vendite_previste: number
+  ricarico_target: number
+  scorta_iniziale: number
+  scorta_finale_target: number
+  markdown_previsto: number
+}
+
+type SeasonData = Record<string, OutletPlan>
+type SeasonDataset = Record<Season, SeasonData>
+
+const initialData: SeasonDataset = {
   SS26: {
     Valdichiana: {
       vendite_previste: 185000,
@@ -181,7 +193,7 @@ export default function OpenToBuy() {
 
         {/* Season Selector */}
         <div className="flex gap-3 mb-8">
-          {['SS26', 'FW26'].map((s) => (
+          {(['SS26', 'FW26'] as const).map((s) => (
             <button
               key={s}
               onClick={() => setSeason(s)}
