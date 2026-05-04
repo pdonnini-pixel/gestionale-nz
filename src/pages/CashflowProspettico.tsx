@@ -149,14 +149,15 @@ export default function CashflowProspettico() {
       if (ccError) throw ccError;
       setCostCenters(costCenterData || []);
 
-      // 2. Get initial bank balance
+      // 2. Get initial bank balance (somma di tutti i conti bancari)
+      // BUG-004 fix: v_cash_position restituisce 1 riga per banca, .single() falliva con 406
+      // quando ci sono più conti. Sommiamo i current_balance in JS, come fa Dashboard.tsx
       const { data: balanceData, error: balError } = await supabase
         .from('v_cash_position')
         .select('current_balance')
-        .eq('company_id', companyId)
-        .single();
+        .eq('company_id', companyId);
 
-      const balance = balanceData?.current_balance || 0;
+      const balance = (balanceData || []).reduce((s, b) => s + (b.current_balance || 0), 0);
       setInitialBalance(balance);
 
       // 3. Fetch all required data
