@@ -22,6 +22,35 @@ import { GlassTooltip, AXIS_STYLE, GRID_STYLE } from '../components/ChartTheme'
 import PdfViewer from '../components/PdfViewer'
 import { parseBilancio, toSupabaseRecords } from '../lib/parsers/bilancioParser'
 
+// ===== TYPES =====
+interface RiconRettifica {
+  code: string
+  name: string
+  total: number
+}
+
+interface RiconBilancioUfficiale {
+  ebit: number | null
+  proventiFinanziari: number | null
+  oneriFinanziari: number | null
+  utileNetto: number | null
+  available: boolean
+}
+
+interface RiconData {
+  ricavi: number
+  costiOutlet: number
+  speseNonDivise: number
+  risultatoGestionale: number
+  rettifiche: RiconRettifica[]
+  rettificheTotale: number
+  risultatoConRettifica: number
+  bilancioUfficiale: RiconBilancioUfficiale
+  deltaClassificazione: number | null
+  countEntries: number
+  countRettifiche: number
+}
+
 // ===== HELPERS =====
 function fmt(n: number | null | undefined, decimals = 0): string {
   if (n == null) return '—'
@@ -350,12 +379,12 @@ export default function ContoEconomico() {
   const [showYoY, setShowYoY] = useState(true)
 
   // Feature: Cash-basis (Cassa) view
-  const [viewMode, setViewMode] = useState('competenza') // 'competenza' | 'cassa' | 'riconciliazione'
+  const [viewMode, setViewMode] = useState<'competenza' | 'cassa' | 'riconciliazione'>('competenza')
   const [cashData, setCashData] = useState<any>(null) // { monthly: [...], byCategory: [...], totals: {} }
   const [cashLoading, setCashLoading] = useState(false)
 
   // Riconciliazione Bilancio data
-  const [riconData, setRiconData] = useState<any>(null)
+  const [riconData, setRiconData] = useState<RiconData | null>(null)
   const [riconLoading, setRiconLoading] = useState(false)
 
   // NEW: Manual save functionality
@@ -889,7 +918,7 @@ export default function ContoEconomico() {
       const rettificheTotale = rettificheEntries.reduce((sum, e) => sum + (parseFloat(e.budget_amount) || 0), 0)
 
       // Raggruppa rettifiche per tipo (account_code)
-      const rettificheByType = {}
+      const rettificheByType: Record<string, RiconRettifica> = {}
       rettificheEntries.forEach(e => {
         const key = e.account_code
         if (!rettificheByType[key]) {
