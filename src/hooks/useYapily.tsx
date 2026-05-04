@@ -198,7 +198,7 @@ export function useYapily() {
 
   // ────────── FULL SYNC (Yapily → cash_movements) ──────────
 
-  const fullSync = useCallback(async (accountId: string, from: string) => {
+  const fullSync = useCallback(async (accountId: string, from?: string) => {
     setLoading(true)
     setError(null)
     try {
