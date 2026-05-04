@@ -1,5 +1,4 @@
-// @ts-nocheck
-// TODO: tighten types
+// @ts-nocheck — TODO tighten: indexing dinamico + Recharts payload, da rivedere
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'

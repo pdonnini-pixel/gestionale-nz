@@ -1,18 +1,76 @@
-// @ts-nocheck
-// TODO: tighten types
 /**
  * Parser XML FatturaPA (SDI) — usa DOMParser nativo del browser
  * Supporta formato FatturaPA 1.2 (tracciato XML fatturazione elettronica italiana)
  * Estrae: cedente/prestatore, dati fattura, righe dettaglio, totali IVA
  */
 
-/**
- * Parsa un file XML FatturaPA e ritorna i dati strutturati
- * @param {string} xmlText - contenuto XML raw
- * @returns {{ invoices: Object[], supplier: Object, errors: string[] }}
- */
-// TODO: tighten type — define full invoice/supplier interfaces
-export function parseFatturaPA(xmlText: string): { invoices: Record<string, unknown>[]; supplier: Record<string, unknown> | null; errors: string[] } {
+export interface FatturaSupplier {
+  ragione_sociale: string
+  partita_iva: string | null
+  codice_fiscale: string | null
+  paese: string | null
+  sede: {
+    indirizzo: string | null
+    cap: string | null
+    comune: string | null
+    provincia: string | null
+    nazione: string
+  }
+  regime_fiscale: string | null
+}
+
+export interface FatturaLineItem {
+  numero_linea: number
+  descrizione: string | null
+  quantita: number
+  unita_misura: string | null
+  prezzo_unitario: number
+  prezzo_totale: number
+  aliquota_iva: number
+}
+
+export interface FatturaVatSummary {
+  aliquota: number
+  imponibile: number
+  imposta: number
+  esigibilita: string | null
+}
+
+export interface FatturaPaymentDetail {
+  modalita: string | null
+  data_scadenza: string | null
+  importo: number
+  iban: string | null
+  bic: string | null
+}
+
+export interface FatturaRitenuta {
+  tipo: string | null
+  importo: number
+  aliquota: number
+  causale_pagamento: string | null
+}
+
+export interface FatturaInvoice {
+  tipo_documento: string | null
+  tipo_label: string
+  invoice_number: string | null
+  invoice_date: string | null
+  divisa: string
+  supplier_name: string | null | undefined
+  supplier_vat: string | null | undefined
+  net_amount: number
+  vat_amount: number
+  gross_amount: number
+  causale: string | null
+  line_items: FatturaLineItem[]
+  vat_summary: FatturaVatSummary[]
+  payment_details: FatturaPaymentDetail[]
+  ritenuta_acconto: FatturaRitenuta | null
+  _raw: { tipo_documento: string | null; numero: string | null; data: string | null; importo_totale: number }
+}
+
+export function parseFatturaPA(xmlText: string): { invoices: FatturaInvoice[]; supplier: FatturaSupplier | null; errors: string[] } {
   const errors: string[] = [];
 
   // Parse XML
@@ -22,7 +80,7 @@ export function parseFatturaPA(xmlText: string): { invoices: Record<string, unkn
   // Check for parse errors
   const parseError = doc.querySelector('parsererror');
   if (parseError) {
-    return { invoices: [], supplier: null, errors: ['XML non valido: ' + parseError.textContent.substring(0, 200)] };
+    return { invoices: [], supplier: null, errors: ['XML non valido: ' + (parseError.textContent ?? '').substring(0, 200)] };
   }
 
   // FatturaPA can have namespace prefixes — handle both prefixed and unprefixed
@@ -39,7 +97,7 @@ export function parseFatturaPA(xmlText: string): { invoices: Record<string, unkn
       return { invoices: [], supplier, errors };
     }
 
-    const invoices: Record<string, unknown>[] = [];
+    const invoices: FatturaInvoice[] = [];
     for (const body of bodies) {
       try {
         const invoice = extractInvoice(body, supplier);
@@ -98,7 +156,7 @@ function getNestedText(parent: Element, path: string): string | null {
 
 // ─── EXTRACT SUPPLIER ───────────────────────────────────────────
 
-function extractSupplier(root: Element): Record<string, unknown> | null {
+function extractSupplier(root: Element): FatturaSupplier | null {
   const header = findElements(root, 'FatturaElettronicaHeader')[0];
   if (!header) return null;
 
@@ -129,7 +187,7 @@ function extractSupplier(root: Element): Record<string, unknown> | null {
 
 // ─── EXTRACT SINGLE INVOICE ─────────────────────────────────────
 
-function extractInvoice(body: Element, supplier: Record<string, unknown> | null): Record<string, unknown> {
+function extractInvoice(body: Element, supplier: FatturaSupplier | null): FatturaInvoice {
   // DatiGenerali → DatiGeneraliDocumento
   const datiGen = findElements(body, 'DatiGeneraliDocumento')[0];
 
@@ -142,7 +200,7 @@ function extractInvoice(body: Element, supplier: Record<string, unknown> | null)
 
   // Ritenuta d'acconto
   const ritenuta = findElements(datiGen, 'DatiRitenuta')[0];
-  let ritenutaAcconto: Record<string, unknown> | null = null;
+  let ritenutaAcconto: FatturaRitenuta | null = null;
   if (ritenuta) {
     ritenutaAcconto = {
       tipo: getText(ritenuta, 'TipoRitenuta'),
@@ -191,7 +249,7 @@ function extractInvoice(body: Element, supplier: Record<string, unknown> | null)
   return {
     // Identificativi
     tipo_documento: tipoDoc,
-    tipo_label: TIPO_DOCUMENTO_MAP[tipoDoc] || tipoDoc,
+    tipo_label: (tipoDoc && TIPO_DOCUMENTO_MAP[tipoDoc]) || tipoDoc || '',
     invoice_number: numero,
     invoice_date: data,
     divisa,
@@ -224,7 +282,7 @@ function extractInvoice(body: Element, supplier: Record<string, unknown> | null)
 
 // ─── TIPO DOCUMENTO MAP ─────────────────────────────────────────
 
-const TIPO_DOCUMENTO_MAP = {
+const TIPO_DOCUMENTO_MAP: Record<string, string> = {
   'TD01': 'Fattura',
   'TD02': 'Acconto/Anticipo su fattura',
   'TD03': 'Acconto/Anticipo su parcella',
@@ -248,7 +306,7 @@ const TIPO_DOCUMENTO_MAP = {
 // ─── MODALITA PAGAMENTO MAP ─────────────────────────────────────
 
 // Label leggibili per UI
-export const MODALITA_PAGAMENTO_MAP = {
+export const MODALITA_PAGAMENTO_MAP: Record<string, string> = {
   'MP01': 'Contanti',
   'MP02': 'Assegno',
   'MP03': 'Assegno circolare',
@@ -277,7 +335,7 @@ export const MODALITA_PAGAMENTO_MAP = {
 // Mapping da codice SDI → valore enum DB v2 (payment_method)
 // L'enum nel DB è dettagliato: bonifico_ordinario, riba_30, sdd_core, ecc.
 // Per RIBA il default è riba_30 (la scadenza specifica va dedotta dal CondizioniPagamento)
-export const MODALITA_TO_DB_ENUM = {
+export const MODALITA_TO_DB_ENUM: Record<string, string> = {
   'MP01': 'contanti',
   'MP02': 'assegno',
   'MP03': 'assegno',           // assegno circolare
@@ -311,8 +369,11 @@ export const MODALITA_TO_DB_ENUM = {
  * @param {Object} context - { company_id, import_batch_id }
  * @returns {{ invoiceRecords: Object[], supplierRecord: Object|null, payableRecords: Object[] }}
  */
-// TODO: tighten type
-export function transformInvoiceToRecords(invoices: Record<string, unknown>[], supplier: Record<string, unknown> | null, context: Record<string, unknown>): { invoiceRecords: Record<string, unknown>[]; supplierRecord: Record<string, unknown> | null; payableRecords: Record<string, unknown>[] } {
+export function transformInvoiceToRecords(
+  invoices: FatturaInvoice[],
+  supplier: FatturaSupplier | null,
+  context: { company_id: string; import_batch_id?: string | null; raw_xml?: string | null }
+): { invoiceRecords: Record<string, unknown>[]; supplierRecord: Record<string, unknown> | null; payableRecords: Record<string, unknown>[] } {
   const { company_id, import_batch_id, raw_xml } = context;
 
   // Extract IBAN from first payment detail that has one
@@ -365,11 +426,12 @@ export function transformInvoiceToRecords(invoices: Record<string, unknown>[], s
 
   // Create payable records from payment details
   const payableRecords: Record<string, unknown>[] = [];
-  invoices.forEach((inv: Record<string, unknown>) => {
+  invoices.forEach((inv) => {
     if (inv.payment_details.length > 0) {
       inv.payment_details.forEach((pd, idx) => {
-        const dbEnum = MODALITA_TO_DB_ENUM[pd.modalita] || 'altro';
-        const label = MODALITA_PAGAMENTO_MAP[pd.modalita] || pd.modalita;
+        const modKey = pd.modalita ?? '';
+        const dbEnum = MODALITA_TO_DB_ENUM[modKey] || 'altro';
+        const label = MODALITA_PAGAMENTO_MAP[modKey] || modKey;
         const grossAmt = pd.importo || inv.gross_amount;
         const isAlreadyPaid = ALREADY_PAID_METHODS.has(dbEnum);
         payableRecords.push({

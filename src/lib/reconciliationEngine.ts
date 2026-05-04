@@ -1,5 +1,3 @@
-// @ts-nocheck
-// TODO: tighten types
 /**
  * Reconciliation Engine — Motore di riconciliazione automatica
  *
@@ -78,7 +76,6 @@ const BANK_FEE_PATTERNS = [
  * @param {string|null} options.performedBy - UUID utente che lancia la riconciliazione
  * @returns {{ reconciled: Array, suggested: Array, unmatched: Array, errors: Array, stats: Object }}
  */
-// TODO: tighten type — align with DB schema
 interface ReconciliationOptions {
   dryRun?: boolean;
   dateFrom?: string | null;
@@ -86,7 +83,6 @@ interface ReconciliationOptions {
   performedBy?: string | null;
 }
 
-// TODO: tighten type
 interface ReconciliationResult {
   reconciled: Record<string, unknown>[];
   suggested: Record<string, unknown>[];
@@ -94,6 +90,29 @@ interface ReconciliationResult {
   errors: Record<string, unknown>[];
   stats: Record<string, unknown>;
 }
+
+type CashMovementRow = {
+  id: string;
+  amount: number;
+  date: string | null;
+  description: string | null;
+  counterpart: string | null;
+  ai_category_id?: string | null;
+  bank_account_id?: string | null;
+  [key: string]: unknown;
+};
+
+type SupplierLite = { id: string; ragione_sociale: string | null; name: string | null; partita_iva: string | null };
+
+type PayableRow = {
+  id: string;
+  supplier_id: string | null;
+  amount_remaining: number | null;
+  gross_amount: number | null;
+  due_date: string | null;
+  suppliers?: SupplierLite | null;
+  [key: string]: unknown;
+};
 
 export async function runAutoReconciliation(companyId: string, bankAccountId: string | null = null, options: ReconciliationOptions = {}): Promise<ReconciliationResult> {
   const { dryRun = false, dateFrom = null, dateTo = null, performedBy = null } = options;
@@ -140,8 +159,8 @@ export async function runAutoReconciliation(companyId: string, bankAccountId: st
       .select('id, ragione_sociale, name, partita_iva')
       .eq('company_id', companyId);
 
-    const supplierMap: Record<string, Record<string, unknown>> = {};
-    for (const s of (suppliers || [])) {
+    const supplierMap: Record<string, SupplierLite> = {};
+    for (const s of (suppliers || []) as SupplierLite[]) {
       supplierMap[s.id] = s;
     }
 
@@ -159,12 +178,18 @@ export async function runAutoReconciliation(companyId: string, bankAccountId: st
     const aiPatterns = await loadReconciliationPatterns(companyId);
 
     // ── Filter out POS incoming movements and bank/card fees ──
-    const outflowMovements = (movements || []).filter(m =>
+    const outflowMovements = ((movements || []) as CashMovementRow[]).filter(m =>
       !isPOSMovement(m.description) && !isBankFeeMovement(m.description)
     );
 
     // Track which payables have been auto-matched (1-to-1, only for score >= 80)
     const matchedPayableIds = new Set<string>();
+
+    type Candidate = {
+      payable: PayableRow;
+      score: number;
+      details: Record<string, unknown>;
+    };
 
     // ── Run matching for each movement ──
     // NEW PARADIGM: collect ALL candidates per movement, let operator choose
@@ -173,17 +198,17 @@ export async function runAutoReconciliation(companyId: string, bankAccountId: st
       const bankSupplierName = extractSupplierName(movement.description || '');
       const movementDate = movement.date ? new Date(movement.date) : null;
 
-      const candidates = [];
+      const candidates: Candidate[] = [];
 
-      for (const payable of (payables || [])) {
+      for (const payable of ((payables || []) as PayableRow[])) {
         if (matchedPayableIds.has(payable.id)) continue;
         // Skip pairs explicitly rejected by operator
         if (rejectedSet.has(`${movement.id}::${payable.id}`)) continue;
 
-        const supplier = payable.suppliers || supplierMap[payable.supplier_id] || {};
-        const payableAmount = payable.amount_remaining != null && payable.amount_remaining > 0
+        const supplier: Partial<SupplierLite> = payable.suppliers || (payable.supplier_id ? supplierMap[payable.supplier_id] : null) || {};
+        const payableAmount = (payable.amount_remaining != null && payable.amount_remaining > 0
           ? payable.amount_remaining
-          : payable.gross_amount;
+          : payable.gross_amount) ?? 0;
 
         // ── Score: Amount ──
         const amountDiff = Math.abs(absAmount - payableAmount);
@@ -407,7 +432,7 @@ export async function applyReconciliation(movementId: string, payableId: string,
         .select('company_id')
         .eq('id', movementId)
         .single();
-      resolvedCompanyId = mov?.company_id;
+      resolvedCompanyId = mov?.company_id ?? null;
     }
 
     // ── Fetch current payable status before changing ──
@@ -446,24 +471,26 @@ export async function applyReconciliation(movementId: string, payableId: string,
     if (movError) throw new Error(`Errore aggiornamento movimento: ${movError.message}`);
 
     // ── Log to reconciliation_log ──
-    const { error: logError } = await supabase
-      .from('reconciliation_log')
-      .insert({
-        company_id: resolvedCompanyId,
-        cash_movement_id: movementId,
-        payable_id: payableId,
-        match_type: matchType,
-        confidence: matchType === 'manual' ? 100 : null,
-        match_details: { source: 'manual_apply' },
-        performed_by: performedBy,
-        performed_at: now,
-        notes: notes || `Riconciliazione ${matchType}`,
-        previous_payable_status: previousStatus,
-        new_payable_status: 'pagato',
-      });
+    if (resolvedCompanyId) {
+      const { error: logError } = await supabase
+        .from('reconciliation_log')
+        .insert({
+          company_id: resolvedCompanyId,
+          cash_movement_id: movementId,
+          payable_id: payableId,
+          match_type: matchType,
+          confidence: matchType === 'manual' ? 100 : null,
+          match_details: { source: 'manual_apply' },
+          performed_by: performedBy,
+          performed_at: now,
+          notes: notes || `Riconciliazione ${matchType}`,
+          previous_payable_status: previousStatus,
+          new_payable_status: 'pagato',
+        });
 
-    if (logError) {
-      console.warn('Errore log riconciliazione (non bloccante):', logError.message);
+      if (logError) {
+        console.warn('Errore log riconciliazione (non bloccante):', logError.message);
+      }
     }
 
     return { success: true };
@@ -498,7 +525,7 @@ export async function undoReconciliation(movementId: string, payableId: string, 
         .select('company_id')
         .eq('id', movementId)
         .single();
-      resolvedCompanyId = mov?.company_id;
+      resolvedCompanyId = mov?.company_id ?? null;
     }
 
     // ── Fetch payable to restore original status ──
@@ -539,24 +566,26 @@ export async function undoReconciliation(movementId: string, payableId: string, 
     if (movError) throw new Error(`Errore reset movimento: ${movError.message}`);
 
     // ── Log unlink action ──
-    const { error: logError } = await supabase
-      .from('reconciliation_log')
-      .insert({
-        company_id: resolvedCompanyId,
-        cash_movement_id: movementId,
-        payable_id: payableId,
-        match_type: 'unlinked',
-        confidence: 0,
-        match_details: { source: 'undo' },
-        performed_by: performedBy,
-        performed_at: now,
-        notes: notes || 'Riconciliazione annullata',
-        previous_payable_status: currentStatus,
-        new_payable_status: restoredStatus,
-      });
+    if (resolvedCompanyId) {
+      const { error: logError } = await supabase
+        .from('reconciliation_log')
+        .insert({
+          company_id: resolvedCompanyId,
+          cash_movement_id: movementId,
+          payable_id: payableId,
+          match_type: 'unlinked',
+          confidence: 0,
+          match_details: { source: 'undo' },
+          performed_by: performedBy,
+          performed_at: now,
+          notes: notes || 'Riconciliazione annullata',
+          previous_payable_status: currentStatus,
+          new_payable_status: restoredStatus,
+        });
 
-    if (logError) {
-      console.warn('Errore log annullamento (non bloccante):', logError.message);
+      if (logError) {
+        console.warn('Errore log annullamento (non bloccante):', logError.message);
+      }
     }
 
     return { success: true };
@@ -665,7 +694,8 @@ export async function applyBatchReconciliation(movementId: string, payableIds: s
 
     // Validate: sum of payables should roughly match movement amount
     const totalPayables = (payables || []).reduce((sum, p) => {
-      const amt = p.amount_remaining > 0 ? p.amount_remaining : p.gross_amount;
+      const remaining = p.amount_remaining ?? 0
+      const amt = remaining > 0 ? remaining : (p.gross_amount ?? 0);
       return sum + amt;
     }, 0);
     const absMovement = Math.abs(movement.amount);
@@ -787,7 +817,7 @@ async function writeReconciliation(movementId: string, payableId: string, compan
       payable_id: payableId,
       match_type: matchType,
       confidence: score,
-      match_details: details,
+      match_details: details as Record<string, string | number | boolean | null>,
       performed_by: performedBy,
       performed_at: now,
       notes: `Riconciliazione automatica (score: ${score})`,

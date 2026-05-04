@@ -1,15 +1,13 @@
-// @ts-nocheck
-// TODO: tighten types
-import React, { useState, useRef } from 'react'
+import { useState, useRef } from 'react'
 import { parseContract, extractTextFromDoc, extractTextFromDocx, extractTextFromPdf } from '../lib/contractParser'
 import {
   Upload, FileText, Check, AlertCircle, RefreshCw,
   X, Sparkles, ArrowRight
 } from 'lucide-react'
 
-function fmt(n) {
+function fmt(n: number | string | null | undefined): string {
   if (n == null || n === '') return '—'
-  return new Intl.NumberFormat('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)
+  return new Intl.NumberFormat('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(n))
 }
 
 // TODO: tighten type
@@ -61,7 +59,8 @@ function ConfidenceBadge({ pct }: { pct: number }) {
 }
 
 function DataPreview({ data }: { data: ParsedContract }) {
-  const sections = [
+  type PreviewItem = [label: string, value: string | number | null | undefined]
+  const sections: Array<{ title: string; items: PreviewItem[] }> = [
     { title: 'Anagrafica', items: [
       ['Nome outlet', data.name],
       ['Brand/Insegna', data.brand],
@@ -123,7 +122,7 @@ function DataPreview({ data }: { data: ParsedContract }) {
 function AllegatiChecklist({ allegati, uploadedFiles, onFileUpload }: { allegati?: AllegatoEntry[]; uploadedFiles: Record<string, File>; onFileUpload?: (code: string, file: File) => void }) {
   if (!allegati || allegati.length === 0) return null
 
-  const defaultLabels = {
+  const defaultLabels: Record<string, string> = {
     'A': 'Planimetria Outlet',
     'B': 'Condizioni Generali',
     'C': 'Planimetria Porzione Immobiliare',
@@ -170,8 +169,9 @@ function AllegatiChecklist({ allegati, uploadedFiles, onFileUpload }: { allegati
                 className="hidden"
                 accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.xls,.xlsx"
                 onChange={e => {
-                  if (e.target.files[0] && onFileUpload) {
-                    onFileUpload(a.code, e.target.files[0])
+                  const f = e.target.files?.[0]
+                  if (f && onFileUpload) {
+                    onFileUpload(a.code, f)
                   }
                 }}
               />
@@ -200,7 +200,7 @@ function AllegatiChecklist({ allegati, uploadedFiles, onFileUpload }: { allegati
 }
 
 interface ContractUploaderProps {
-  onDataExtracted: (data: Record<string, string>, allegati?: AllegatoEntry[], fileName?: string | null, uploadedFiles?: Record<string, File>) => void
+  onDataExtracted: (data: Record<string, string | boolean>, allegati?: AllegatoEntry[], fileName?: string | null, uploadedFiles?: Record<string, File>) => void
   onCancel: () => void
 }
 
@@ -211,7 +211,7 @@ export default function ContractUploader({ onDataExtracted, onCancel }: Contract
   const [result, setResult] = useState<ParsedContract | null>(null)
   const [fileName, setFileName] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [uploadedFiles, setUploadedFiles] = useState({}) // { code: File }
+  const [uploadedFiles, setUploadedFiles] = useState<Record<string, File>>({}) // { code: File }
 
   function handleAllegatoUpload(code: string, file: File) {
     setUploadedFiles(prev => ({ ...prev, [code]: file }))
@@ -220,7 +220,7 @@ export default function ContractUploader({ onDataExtracted, onCancel }: Contract
   async function handleFile(file: File | undefined) {
     if (!file) return
 
-    const ext = file.name.split('.').pop().toLowerCase()
+    const ext = (file.name.split('.').pop() ?? '').toLowerCase()
     if (!['doc', 'docx', 'pdf', 'txt'].includes(ext)) {
       setError('Formato non supportato. Usa .doc, .docx o .pdf')
       return
@@ -252,10 +252,10 @@ export default function ContractUploader({ onDataExtracted, onCancel }: Contract
         return
       }
 
-      const parsed = parseContract(text)
+      const parsed = parseContract(text) as unknown as ParsedContract
 
       // Se nessun dato estratto, avvisa comunque con il testo grezzo
-      if (parsed.confidence.pct === 0) {
+      if (parsed.confidence?.pct === 0) {
         console.warn('[ContractUploader] Nessun dato estratto. Il testo potrebbe non essere un contratto outlet.')
       }
 
@@ -270,7 +270,7 @@ export default function ContractUploader({ onDataExtracted, onCancel }: Contract
   function handleDrop(e: React.DragEvent) {
     e.preventDefault()
     setDragOver(false)
-    handleFile(e.dataTransfer.files[0])
+    handleFile(e.dataTransfer.files?.[0])
   }
 
   function handleProceed() {
@@ -363,7 +363,7 @@ export default function ContractUploader({ onDataExtracted, onCancel }: Contract
                 'border-slate-200 hover:border-blue-300 hover:bg-slate-50'
               }`}
             >
-              <input ref={fileRef} type="file" accept=".doc,.docx,.pdf,.txt" onChange={e => handleFile(e.target.files[0])} className="hidden" />
+              <input ref={fileRef} type="file" accept=".doc,.docx,.pdf,.txt" onChange={e => handleFile(e.target.files?.[0])} className="hidden" />
               {analyzing ? (
                 <div className="flex flex-col items-center gap-3">
                   <RefreshCw size={36} className="text-blue-500 animate-spin" />

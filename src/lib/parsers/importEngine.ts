@@ -1,5 +1,3 @@
-// @ts-nocheck
-// TODO: tighten types
 /**
  * Import Engine — orchestra il flusso completo:
  * 1. Legge il file da Supabase Storage (o dall'upload diretto)
@@ -34,12 +32,32 @@ const BATCH_SIZE = 100; // max rows per insert
  * @returns {{ success: boolean, imported: number, errors: Object[], batchId: string }}
  */
 // TODO: tighten type — define dedicated interfaces for import params/result
+interface CsvOptions {
+  delimiter?: string;
+  skipRows?: number;
+  dateFormat?: string;
+  decimalSep?: string;
+  thousandSep?: string;
+}
+
+interface ImportContext {
+  company_id: string;
+  bank_account_id?: string | null;
+  outlet_id?: string | null;
+  year?: number;
+  period_type?: string;
+  csvOptions?: CsvOptions;
+  decimalSep?: string;
+  thousandSep?: string;
+  dateFormat?: string;
+}
+
 interface ImportParams {
   file?: File | null;
   storagePath?: string | null;
   bucket?: string;
   sourceType: string;
-  context: Record<string, unknown>;
+  context: ImportContext;
   mappingOverride?: Record<string, string> | null;
   onProgress?: (percent: number, message: string) => void;
 }
@@ -51,6 +69,13 @@ interface ImportResult {
   batchId: string | null;
   details?: Record<string, unknown> | null;
 }
+
+type ProcessorResult = {
+  imported: number;
+  errors: Record<string, unknown>[];
+  details?: Record<string, unknown> | null;
+  warnings?: Record<string, unknown>[];
+};
 
 export async function processImport({
   file,
@@ -76,19 +101,19 @@ export async function processImport({
     if (!needsBinary && (!content || (typeof content === 'string' && content.trim().length === 0))) {
       return { success: false, imported: 0, errors: [{ message: 'File vuoto o non leggibile' }], batchId: null };
     }
-    if (needsBinary && (!content || content.byteLength === 0)) {
+    if (needsBinary && (!content || (content as ArrayBuffer).byteLength === 0)) {
       return { success: false, imported: 0, errors: [{ message: 'File vuoto o non leggibile' }], batchId: null };
     }
 
     onProgress(15, 'Creazione batch di import...');
 
     // 2. Create import_batch record
-    const batchId = await createImportBatch(context.company_id, sourceType, file?.name || storagePath);
+    const batchId = await createImportBatch(context.company_id, sourceType, file?.name || storagePath || undefined);
 
     onProgress(20, 'Parsing in corso...');
 
     // 3. Route to appropriate processor
-    let result: { imported: number; errors: Record<string, unknown>[]; details?: Record<string, unknown> | null; warnings?: Record<string, unknown>[] };
+    let result: ProcessorResult;
     switch (sourceType) {
       case 'bank':
         result = await processBankStatement(content, context, batchId, mappingOverride, onProgress, { isExcel, fileName });
@@ -174,9 +199,11 @@ async function readFileContent(file: File | null | undefined, storagePath: strin
 
 // ─── BATCH MANAGEMENT ───────────────────────────────────────────
 
+type ImportSourceEnum = 'csv_banca' | 'csv_ade' | 'csv_pos' | 'api_pos' | 'api_ade' | 'manuale' | 'csv_fatture' | 'xml_sdi' | 'pdf_bilancio' | 'csv_cedolini' | 'api_yapily';
+
 async function createImportBatch(companyId: string, sourceType: string, fileName: string | undefined): Promise<string> {
   // Values MUST match the import_source enum in PostgreSQL
-  const sourceMap: Record<string, string> = {
+  const sourceMap: Record<string, ImportSourceEnum> = {
     bank: 'csv_banca',
     invoices: 'xml_sdi',
     pos_data: 'csv_pos',
@@ -202,8 +229,8 @@ async function createImportBatch(companyId: string, sourceType: string, fileName
 }
 
 async function updateImportBatch(batchId: string, updates: Record<string, unknown>): Promise<void> {
-  const { error } = await supabase
-    .from('import_batches')
+  const { error } = await (supabase
+    .from('import_batches') as unknown as { update: (u: Record<string, unknown>) => { eq: (k: string, v: string) => Promise<{ error: { message: string } | null }> } })
     .update(updates)
     .eq('id', batchId);
 
@@ -251,7 +278,7 @@ function excelToHeadersRows(arrayBuffer: ArrayBuffer | string): { headers: strin
   // Rileva il conteggio dichiarato dalla banca (prima di filtrare le righe!)
   const declaredCount = findDeclaredMovementCount(allRows);
 
-  const headers = allRows[0].map(h => (h || '').toString().trim());
+  const headers = (allRows[0] as unknown[]).map((h: unknown) => (h || '').toString().trim());
 
   /**
    * Format a cell value to string.
@@ -290,12 +317,12 @@ function excelToHeadersRows(arrayBuffer: ArrayBuffer | string): { headers: strin
   const BLACKLIST_FULL_ROW = /(elenco\s+non\s+completo|per\s+visualizzare\s+gli\s+altri\s+dati|saldo\s+contabile\s+(iniziale|finale|progressivo)|totali?\s+(pagina|parziali|periodo)|operazioni\s+(non\s+)?contabilizzate)/i;
   const dataRows: Record<string, string>[] = [];
   for (let i = 1; i < allRows.length; i++) {
-    const raw = allRows[i];
+    const raw = allRows[i] as unknown[];
     const firstCell = cellToString(raw[0]).trim();
 
     // Riga completamente vuota: continue (NON break — potrebbe esserci un
     // separatore prima del blocco successivo nel file MPS multi-periodo)
-    if (firstCell === '' && raw.every(c => !c || cellToString(c).trim() === '')) continue;
+    if (firstCell === '' && raw.every((c: unknown) => !c || cellToString(c).trim() === '')) continue;
 
     // Riga di riepilogo/saldo/totali: continue (skip singola riga, non interrompe l'import)
     if (BLACKLIST_FIRST_CELL.test(firstCell)) continue;
@@ -314,7 +341,7 @@ function excelToHeadersRows(arrayBuffer: ArrayBuffer | string): { headers: strin
   return { headers, rows: dataRows, declaredCount };
 }
 
-async function processBankStatement(content: string | ArrayBuffer, context: Record<string, unknown>, batchId: string, mappingOverride: Record<string, string> | null, onProgress: (percent: number, message: string) => void, { isExcel = false, fileName = '' } = {}): Promise<{ imported: number; errors: Record<string, unknown>[]; details?: Record<string, unknown> | null; warnings?: Record<string, unknown>[] }> {
+async function processBankStatement(content: string | ArrayBuffer, context: ImportContext, batchId: string, mappingOverride: Record<string, string> | null, onProgress: (percent: number, message: string) => void, { isExcel = false }: { isExcel?: boolean; fileName?: string } = {}): Promise<ProcessorResult> {
   let headers: string[], rows: Record<string, string>[];
   let parseErrors: string[] = [];
   let declaredCount: number | null = null; // conteggio movimenti dichiarato dalla banca nel file
@@ -332,7 +359,7 @@ async function processBankStatement(content: string | ArrayBuffer, context: Reco
     }
   } else {
     // Parse CSV
-    const csvResult = parseCSV(content, {
+    const csvResult = parseCSV(typeof content === 'string' ? content : '', {
       delimiter: context.csvOptions?.delimiter,
       skipRows: context.csvOptions?.skipRows || 0,
       dateFormat: context.csvOptions?.dateFormat || 'DD/MM/YYYY',
@@ -368,7 +395,11 @@ async function processBankStatement(content: string | ArrayBuffer, context: Reco
 
   // Transform rows
   const { records, errors: transformErrors } = transformBankRows(rows, mapping, {
-    ...context,
+    company_id: context.company_id,
+    bank_account_id: context.bank_account_id,
+    dateFormat: context.dateFormat,
+    decimalSep: context.decimalSep,
+    thousandSep: context.thousandSep,
     import_batch_id: batchId,
   });
 
@@ -383,21 +414,23 @@ async function processBankStatement(content: string | ArrayBuffer, context: Reco
 
   // Update bank account balance with last known balance_after
   if (inserted > 0 && context.bank_account_id) {
+    const bankAccountId = context.bank_account_id;
     const lastRecord = records.filter(r => r.balance_after != null).pop();
     if (lastRecord) {
+      const balanceAfter = (lastRecord.balance_after as number) ?? null;
       await supabase.from('bank_accounts').update({
-        current_balance: lastRecord.balance_after,
+        current_balance: balanceAfter,
         last_update: new Date().toISOString(),
-      }).eq('id', context.bank_account_id);
+      }).eq('id', bankAccountId);
     } else {
       // Calculate balance from movements sum if no balance_after column
-      const { data: bankData } = await supabase.from('bank_accounts').select('current_balance').eq('id', context.bank_account_id).single();
-      const movementSum = records.reduce((sum, r) => sum + r.amount, 0);
+      const { data: bankData } = await supabase.from('bank_accounts').select('current_balance').eq('id', bankAccountId).single();
+      const movementSum = records.reduce((sum, r) => sum + ((r.amount as number) ?? 0), 0);
       const newBalance = (bankData?.current_balance || 0) + movementSum;
       await supabase.from('bank_accounts').update({
         current_balance: newBalance,
         last_update: new Date().toISOString(),
-      }).eq('id', context.bank_account_id);
+      }).eq('id', bankAccountId);
     }
   }
 
@@ -424,8 +457,9 @@ async function processBankStatement(content: string | ArrayBuffer, context: Reco
 
 // ─── INVOICE XML PROCESSOR ──────────────────────────────────────
 
-async function processInvoiceXML(text: string | ArrayBuffer, context: Record<string, unknown>, batchId: string, onProgress: (percent: number, message: string) => void): Promise<{ imported: number; errors: Record<string, unknown>[]; details?: Record<string, unknown> }> {
-  const { invoices, supplier, errors: parseErrors } = parseFatturaPA(text);
+async function processInvoiceXML(text: string | ArrayBuffer, context: ImportContext, batchId: string, onProgress: (percent: number, message: string) => void): Promise<ProcessorResult> {
+  const xmlText = typeof text === 'string' ? text : new TextDecoder().decode(text);
+  const { invoices, supplier, errors: parseErrors } = parseFatturaPA(xmlText);
 
   if (invoices.length === 0) {
     return { imported: 0, errors: parseErrors.map(e => ({ message: e })) };
@@ -434,7 +468,7 @@ async function processInvoiceXML(text: string | ArrayBuffer, context: Record<str
   onProgress(40, `Parsate ${invoices.length} fatture, trasformazione...`);
 
   const { invoiceRecords, supplierRecord, payableRecords } = transformInvoiceToRecords(
-    invoices, supplier, { ...context, import_batch_id: batchId, raw_xml: text }
+    invoices, supplier, { company_id: context.company_id, import_batch_id: batchId, raw_xml: xmlText }
   );
 
   onProgress(55, 'Verifica/creazione fornitore...');
@@ -471,8 +505,9 @@ async function processInvoiceXML(text: string | ArrayBuffer, context: Record<str
 
 // ─── POS CSV PROCESSOR ──────────────────────────────────────────
 
-async function processPOSCSV(text: string | ArrayBuffer, context: Record<string, unknown>, batchId: string, mappingOverride: Record<string, string> | null, onProgress: (percent: number, message: string) => void): Promise<{ imported: number; errors: Record<string, unknown>[]; details?: Record<string, unknown> }> {
-  const { headers, rows, errors: parseErrors } = parseCSV(text, {
+async function processPOSCSV(text: string | ArrayBuffer, context: ImportContext, batchId: string, mappingOverride: Record<string, string> | null, onProgress: (percent: number, message: string) => void): Promise<ProcessorResult> {
+  const csvText = typeof text === 'string' ? text : '';
+  const { headers, rows, errors: parseErrors } = parseCSV(csvText, {
     delimiter: context.csvOptions?.delimiter,
     skipRows: context.csvOptions?.skipRows || 0,
     dateFormat: context.csvOptions?.dateFormat || 'DD/MM/YYYY',
@@ -488,7 +523,11 @@ async function processPOSCSV(text: string | ArrayBuffer, context: Record<string,
   const mapping = mappingOverride || autoPOSMapping(headers);
 
   const { records, errors: transformErrors } = transformPOSRows(rows, mapping, {
-    ...context,
+    company_id: context.company_id,
+    outlet_id: context.outlet_id,
+    dateFormat: context.dateFormat,
+    decimalSep: context.decimalSep,
+    thousandSep: context.thousandSep,
     import_batch_id: batchId,
   });
 
@@ -509,10 +548,15 @@ async function processPOSCSV(text: string | ArrayBuffer, context: Record<string,
 
 // ─── BALANCE SHEET PDF PROCESSOR ────────────────────────────────
 
-async function processBalanceSheetPDF(pdfData: string | ArrayBuffer, context: Record<string, unknown>, batchId: string, onProgress: (percent: number, message: string) => void): Promise<{ imported: number; errors: Record<string, unknown>[]; details?: Record<string, unknown> }> {
+async function processBalanceSheetPDF(pdfData: string | ArrayBuffer, context: ImportContext & { fiscal_year?: number }, batchId: string, onProgress: (percent: number, message: string) => void): Promise<ProcessorResult> {
+  // batchId currently unused but kept for future audit tracking
+  void batchId;
   try {
     onProgress(25, 'Parsing PDF bilancio...');
 
+    if (typeof pdfData === 'string') {
+      return { imported: 0, errors: [{ message: 'PDF richiede dati binari (ArrayBuffer)' }] };
+    }
     const parsed = await parseBilancio(pdfData);
 
     if (!parsed || (!parsed.patrimoniale.attivita.length && !parsed.contoEconomico.costi.length)) {
@@ -562,8 +606,9 @@ async function processBalanceSheetPDF(pdfData: string | ArrayBuffer, context: Re
 
 // ─── RECEIPTS (CORRISPETTIVI) CSV PROCESSOR ────────────────────
 
-async function processReceiptsCSV(text: string | ArrayBuffer, context: Record<string, unknown>, batchId: string, mappingOverride: Record<string, string> | null, onProgress: (percent: number, message: string) => void): Promise<{ imported: number; errors: Record<string, unknown>[]; details?: Record<string, unknown> }> {
-  const { headers, rows, errors: parseErrors } = parseCSV(text, {
+async function processReceiptsCSV(text: string | ArrayBuffer, context: ImportContext, batchId: string, mappingOverride: Record<string, string> | null, onProgress: (percent: number, message: string) => void): Promise<ProcessorResult> {
+  const csvText = typeof text === 'string' ? text : '';
+  const { headers, rows, errors: parseErrors } = parseCSV(csvText, {
     delimiter: context.csvOptions?.delimiter,
     skipRows: context.csvOptions?.skipRows || 0,
     dateFormat: context.csvOptions?.dateFormat || 'DD/MM/YYYY',
@@ -579,15 +624,15 @@ async function processReceiptsCSV(text: string | ArrayBuffer, context: Record<st
 
   onProgress(40, 'Trasformazione dati...');
 
-  const records = [];
-  const errors = [];
+  const records: Record<string, unknown>[] = [];
+  const errors: Record<string, unknown>[] = [];
 
   rows.forEach((row, idx) => {
     try {
       const date = row[mapping.date];
-      const gross = parseItalianNumber(row[mapping.gross] || '0');
-      const net = mapping.net ? parseItalianNumber(row[mapping.net] || '0') : gross;
-      const vat = mapping.vat ? parseItalianNumber(row[mapping.vat] || '0') : (gross - net);
+      const gross = parseItalianNumber(row[mapping.gross] || '0') ?? 0;
+      const net = mapping.net ? (parseItalianNumber(row[mapping.net] || '0') ?? 0) : gross;
+      const vat = mapping.vat ? (parseItalianNumber(row[mapping.vat] || '0') ?? 0) : (gross - net);
       const txCount = mapping.transactions ? parseInt(row[mapping.transactions] || '0', 10) : 1;
 
       if (!date || gross === 0) return; // skip empty rows
@@ -606,8 +651,8 @@ async function processReceiptsCSV(text: string | ArrayBuffer, context: Record<st
         card_amount: mapping.card ? parseItalianNumber(row[mapping.card] || '0') : null,
         avg_ticket: txCount > 0 ? Math.round((gross / txCount) * 100) / 100 : 0,
       });
-    } catch (err) {
-      errors.push({ message: `Riga ${idx + 1}: ${err.message}` });
+    } catch (err: unknown) {
+      errors.push({ message: `Riga ${idx + 1}: ${(err as Error).message}` });
     }
   });
 
@@ -628,7 +673,7 @@ async function processReceiptsCSV(text: string | ArrayBuffer, context: Record<st
 
 // ─── PAYROLL CSV/XLSX PROCESSOR ────────────────────────────────
 
-async function processPayrollCSV(content: string | ArrayBuffer, context: Record<string, unknown>, batchId: string, mappingOverride: Record<string, string> | null, onProgress: (percent: number, message: string) => void): Promise<{ imported: number; errors: Record<string, unknown>[]; details?: Record<string, unknown> }> {
+async function processPayrollCSV(content: string | ArrayBuffer, context: ImportContext & { month?: number }, batchId: string, mappingOverride: Record<string, string> | null, onProgress: (percent: number, message: string) => void): Promise<ProcessorResult> {
   // If PDF, we can't parse payroll PDFs yet — need structured CSV
   if (content instanceof ArrayBuffer) {
     return {
@@ -652,8 +697,9 @@ async function processPayrollCSV(content: string | ArrayBuffer, context: Record<
 
   onProgress(40, 'Trasformazione dati...');
 
-  const records = [];
-  const errors = [];
+  type PayrollRow = { company_id: string; import_batch_id: string; cognome: string; nome: string; month: number; year: number; retribuzione: number; contributi: number; inail: number; tfr: number; altri_costi: number; netto_in_busta: number; totale_costo: number; source: string };
+  const records: PayrollRow[] = [];
+  const errors: Record<string, unknown>[] = [];
   const month = context.month || new Date().getMonth() + 1;
   const year = context.year || new Date().getFullYear();
 
@@ -663,12 +709,12 @@ async function processPayrollCSV(content: string | ArrayBuffer, context: Record<
       const nome = (row[mapping.nome] || '').trim();
       if (!cognome && !nome) return;
 
-      const retribuzione = parseItalianNumber(row[mapping.retribuzione] || '0');
-      const contributi = parseItalianNumber(row[mapping.contributi] || '0');
-      const inail = parseItalianNumber(row[mapping.inail] || '0');
-      const tfr = parseItalianNumber(row[mapping.tfr] || '0');
-      const altriCosti = parseItalianNumber(row[mapping.altri_costi] || '0');
-      const nettoInBusta = mapping.netto ? parseItalianNumber(row[mapping.netto] || '0') : 0;
+      const retribuzione = parseItalianNumber(row[mapping.retribuzione] || '0') ?? 0;
+      const contributi = parseItalianNumber(row[mapping.contributi] || '0') ?? 0;
+      const inail = parseItalianNumber(row[mapping.inail] || '0') ?? 0;
+      const tfr = parseItalianNumber(row[mapping.tfr] || '0') ?? 0;
+      const altriCosti = parseItalianNumber(row[mapping.altri_costi] || '0') ?? 0;
+      const nettoInBusta = mapping.netto ? (parseItalianNumber(row[mapping.netto] || '0') ?? 0) : 0;
 
       records.push({
         company_id: context.company_id,
@@ -686,8 +732,8 @@ async function processPayrollCSV(content: string | ArrayBuffer, context: Record<
         totale_costo: retribuzione + contributi + inail + tfr + altriCosti,
         source: 'import',
       });
-    } catch (err) {
-      errors.push({ message: `Riga ${idx + 1}: ${err.message}` });
+    } catch (err: unknown) {
+      errors.push({ message: `Riga ${idx + 1}: ${(err as Error).message}` });
     }
   });
 
@@ -706,25 +752,29 @@ async function processPayrollCSV(content: string | ArrayBuffer, context: Record<
 
   // Load outlet allocations for all active employees (for cost splitting)
   const empIds = (employees || []).map(e => e.id);
-  let allocations = [];
+  type AllocRow = { employee_id: string | null; outlet_id: string | null; allocation_pct: number | null };
+  let allocations: AllocRow[] = [];
   if (empIds.length > 0) {
     const { data: allocData } = await supabase
       .from('employee_outlet_allocations')
       .select('employee_id, outlet_id, allocation_pct')
       .in('employee_id', empIds);
-    allocations = allocData || [];
+    allocations = (allocData || []) as unknown as AllocRow[];
   }
 
   // Build allocation map: employee_id -> [{ outlet_id, pct }]
-  const allocMap = {};
+  type AllocEntry = { outlet_id: string | null; pct: number };
+  const allocMap: Record<string, AllocEntry[]> = {};
   for (const a of allocations) {
+    if (!a.employee_id) continue;
     if (!allocMap[a.employee_id]) allocMap[a.employee_id] = [];
-    allocMap[a.employee_id].push({ outlet_id: a.outlet_id, pct: parseFloat(a.allocation_pct || 100) });
+    allocMap[a.employee_id].push({ outlet_id: a.outlet_id, pct: a.allocation_pct ?? 100 });
   }
 
-  const costRecords = [];
-  const unmatchedEmployees = [];
-  const multiOutletDetails = [];
+  type CostRecord = { employee_id: string; company_id: string; outlet_id: string | null; year: number; month: number; retribuzione: number; contributi: number; inail: number; tfr: number; altri_costi: number; allocation_pct: number; source: string };
+  const costRecords: CostRecord[] = [];
+  const unmatchedEmployees: string[] = [];
+  const multiOutletDetails: string[] = [];
 
   for (const rec of records) {
     const emp = (employees || []).find(e =>
@@ -928,35 +978,40 @@ function autoPOSMapping(headers: string[]): Record<string, string> {
 async function upsertSupplier(supplierRecord: Record<string, unknown>): Promise<string | null> {
   try {
     const piva = supplierRecord.partita_iva;
-    if (!piva) return null;
+    if (!piva || typeof piva !== 'string') return null;
+    const companyId = supplierRecord.company_id;
+    if (!companyId || typeof companyId !== 'string') return null;
 
     // Check if supplier exists by P.IVA (could be in vat_number OR partita_iva column)
     const { data: existing } = await supabase
       .from('suppliers')
       .select('id, iban')
-      .eq('company_id', supplierRecord.company_id)
+      .eq('company_id', companyId)
       .or(`partita_iva.eq.${piva},vat_number.eq.${piva}`)
       .maybeSingle();
 
     if (existing) {
       // Update IBAN if we have one from XML and supplier doesn't have it yet
-      if (supplierRecord.iban && !existing.iban) {
+      const iban = supplierRecord.iban;
+      if (iban && typeof iban === 'string' && !existing.iban) {
         await supabase.from('suppliers')
-          .update({ iban: supplierRecord.iban })
+          .update({ iban })
           .eq('id', existing.id);
       }
       return existing.id;
     }
 
-    // Create new supplier
-    const { data: created, error } = await supabase
+    // Create new supplier — cast bypasses strict shape (record has extra
+    // legacy fields per schema flessibile)
+    const sb = supabase as unknown as { from: (t: 'suppliers') => { insert: (r: Record<string, unknown>) => { select: (s: string) => { single: () => Promise<{ data: { id: string } | null; error: { message: string } | null }> } } } };
+    const { data: created, error } = await sb
       .from('suppliers')
       .insert(supplierRecord)
       .select('id')
       .single();
 
-    if (error) {
-      console.warn('Supplier upsert warning:', error.message);
+    if (error || !created) {
+      if (error) console.warn('Supplier upsert warning:', error.message);
       return null;
     }
     return created.id;
@@ -974,6 +1029,9 @@ async function batchInsert(tableName: string, records: Record<string, unknown>[]
   const insertErrors: Record<string, unknown>[] = [];
   const totalBatches = Math.ceil(records.length / BATCH_SIZE);
 
+  // Cast tableName/batch fuori dal sistema di tipi typed Supabase: tableName è dinamico
+  const sb = supabase as unknown as { from: (t: string) => { insert: (b: Record<string, unknown>[]) => { select: (s: string) => Promise<{ data: { id: string }[] | null; error: { message: string; details?: string } | null }> } } };
+
   for (let i = 0; i < records.length; i += BATCH_SIZE) {
     const batch = records.slice(i, i + BATCH_SIZE);
     const batchNum = Math.floor(i / BATCH_SIZE) + 1;
@@ -981,7 +1039,7 @@ async function batchInsert(tableName: string, records: Record<string, unknown>[]
     const progress = progressStart + ((batchNum / totalBatches) * (progressEnd - progressStart));
     onProgress(Math.round(progress), `Batch ${batchNum}/${totalBatches}...`);
 
-    const { data, error } = await supabase
+    const { data, error } = await sb
       .from(tableName)
       .insert(batch)
       .select('id');
@@ -1006,8 +1064,7 @@ async function batchInsert(tableName: string, records: Record<string, unknown>[]
  * Modalità anteprima: parsa il file e ritorna i primi N record senza inserire
  * Utile per mostrare all'utente cosa verrà importato e per configurare il mapping
  */
-// TODO: tighten type
-export async function previewImport({ file, sourceType, context, maxRows = 10 }: { file?: File | null; sourceType: string; context: Record<string, unknown>; maxRows?: number }): Promise<Record<string, unknown>> {
+export async function previewImport({ file, sourceType, context, maxRows = 10 }: { file?: File | null; sourceType: string; context: { csvOptions?: CsvOptions }; maxRows?: number }): Promise<Record<string, unknown>> {
   try {
     const fileName = file?.name || '';
     const isPDF = fileName.toLowerCase().endsWith('.pdf');
@@ -1017,7 +1074,8 @@ export async function previewImport({ file, sourceType, context, maxRows = 10 }:
     const isExcel = ext === 'xls' || ext === 'xlsx' || ext === 'xlsm';
 
     if (['bank', 'pos_data', 'receipts', 'payroll'].includes(sourceType) && !isPDF) {
-      let headers, rows;
+      let headers: string[] = [];
+      let rows: Record<string, string>[] = [];
 
       if (isExcel) {
         const arrayBuf = await readFileContent(file, null, null, { asBinary: true });
@@ -1026,7 +1084,8 @@ export async function previewImport({ file, sourceType, context, maxRows = 10 }:
         rows = result.rows;
       } else {
         const text = await readFileContent(file, null, null);
-        const csvResult = parseCSV(text, {
+        const csvText = typeof text === 'string' ? text : '';
+        const csvResult = parseCSV(csvText, {
           skipRows: context.csvOptions?.skipRows || 0,
           delimiter: sourceType === 'payroll' ? ';' : undefined,
         });
@@ -1064,7 +1123,8 @@ export async function previewImport({ file, sourceType, context, maxRows = 10 }:
     // XML invoices
     if (sourceType === 'invoices') {
       const text = await readFileContent(file, null, null);
-      const { invoices, supplier, errors } = parseFatturaPA(text);
+      const xmlText = typeof text === 'string' ? text : new TextDecoder().decode(text);
+      const { invoices, supplier, errors } = parseFatturaPA(xmlText);
       return {
         success: invoices.length > 0,
         invoices: invoices.slice(0, maxRows),
@@ -1078,6 +1138,9 @@ export async function previewImport({ file, sourceType, context, maxRows = 10 }:
     // PDF balance sheet
     if (sourceType === 'balance_sheet' && isPDF) {
       const pdfData = await readFileContent(file, null, null, { asBinary: true });
+      if (typeof pdfData === 'string') {
+        return { success: false, sourceType, error: 'PDF richiede dati binari' };
+      }
       const parsed = await parseBilancio(pdfData);
       return {
         success: true,

@@ -1,5 +1,4 @@
-// @ts-nocheck
-// TODO: tighten types
+// @ts-nocheck — TODO tighten: indexing dinamico + Recharts payload, da rivedere
 import { useState, useEffect, useMemo } from 'react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ComposedChart,

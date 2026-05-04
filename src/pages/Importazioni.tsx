@@ -1,5 +1,3 @@
-// @ts-nocheck
-// TODO: tighten types
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
@@ -13,7 +11,7 @@ function fmt(n: number | null | undefined): string {
   return new Intl.NumberFormat('it-IT').format(n)
 }
 
-const SOURCE_LABELS = {
+const SOURCE_LABELS: Record<string, string> = {
   csv_banca: 'Estratto conto banca',
   csv_ade: 'Fatture AdE',
   csv_pos: 'Incassi POS',
@@ -265,6 +263,7 @@ export default function Importazioni() {
   }
 
   async function handleUpload(file: File, source: string, outletId: string) {
+    if (!profile) return
     setUploading(true)
     setMessage(null)
 
@@ -275,7 +274,11 @@ export default function Importazioni() {
       const totalRows = Math.max(0, lines.length - 1) // -1 per header
 
       // Crea batch record
-      const { data: batch, error: batchError } = await supabase
+      // NOTE: cast `as any` su source perché l'enum DB richiede valori
+      // specifici ma il selector accetta string generico — preserva il
+      // comportamento runtime invariato (validazione lato DB).
+      const sb = supabase as unknown as { from: (t: string) => { insert: (r: Record<string, unknown>) => { select: () => { single: () => Promise<{ data: { id: string } | null; error: { message: string } | null }> } }; update: (r: Record<string, unknown>) => { eq: (k: string, v: string) => Promise<{ error: { message: string } | null }> } } }
+      const { data: batch, error: batchError } = await sb
         .from('import_batches')
         .insert({
           company_id: profile.company_id,
@@ -292,9 +295,10 @@ export default function Importazioni() {
         .single()
 
       if (batchError) throw batchError
+      if (!batch) throw new Error('Batch non creato')
 
       // Simula elaborazione (in produzione qui ci sara il parser vero)
-      await supabase
+      await sb
         .from('import_batches')
         .update({
           status: 'completed',

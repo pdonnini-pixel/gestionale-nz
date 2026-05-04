@@ -1,5 +1,4 @@
-// @ts-nocheck
-// TODO: tighten types
+// @ts-nocheck — TODO tighten: pagina complessa con shape Supabase + indexing dinamico, da rivedere
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import {

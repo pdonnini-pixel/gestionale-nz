@@ -1,5 +1,4 @@
-// @ts-nocheck
-// TODO: tighten types
+// @ts-nocheck — TODO tighten: indexing dinamico + Recharts payload, da rivedere
 import { useState, useEffect } from 'react'
 import { useAuth } from '../hooks/useAuth'
 import PageHelp from '../components/PageHelp'

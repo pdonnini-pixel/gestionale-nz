@@ -1,5 +1,3 @@
-// @ts-nocheck
-// TODO: tighten types
 /**
  * bilancioParser.js
  * Parser avanzato per PDF di bilancio italiano "a sezioni contrapposte"
@@ -27,7 +25,7 @@ function getLevel(code: string | null | undefined): number {
 
 // ── Determina se un codice è un "totale macro" (2 cifre) ──
 function isMacro(code: string | null | undefined): boolean {
-  return code && code.replace(/\s/g, '').length <= 2
+  return !!code && code.replace(/\s/g, '').length <= 2
 }
 
 /**
@@ -35,8 +33,37 @@ function isMacro(code: string | null | undefined): boolean {
  * @param {ArrayBuffer|Uint8Array} pdfData - Dati binari del PDF
  * @returns {Object} { patrimoniale: { attivita, passivita, totals }, contoEconomico: { costi, ricavi, totals }, meta }
  */
-// TODO: tighten type — define full return type for bilancio result
-export async function parseBilancio(pdfData: ArrayBuffer | Uint8Array): Promise<Record<string, unknown>> {
+interface BilancioTotals {
+  attivita?: number
+  passivita?: number
+  costi?: number
+  ricavi?: number
+  risultato?: number
+}
+
+interface BilancioPatrimoniale {
+  attivita: BilancioRow[]
+  passivita: BilancioRow[]
+  totals: BilancioTotals
+  attivitaTree?: Array<BilancioRow & { children: unknown[] }>
+  passivitaTree?: Array<BilancioRow & { children: unknown[] }>
+}
+
+interface BilancioContoEconomico {
+  costi: BilancioRow[]
+  ricavi: BilancioRow[]
+  totals: BilancioTotals
+  costiTree?: Array<BilancioRow & { children: unknown[] }>
+  ricaviTree?: Array<BilancioRow & { children: unknown[] }>
+}
+
+export interface BilancioParsed {
+  meta: { pages: number; company: string; period: string; date: string }
+  patrimoniale: BilancioPatrimoniale
+  contoEconomico: BilancioContoEconomico
+}
+
+export async function parseBilancio(pdfData: ArrayBuffer | Uint8Array): Promise<BilancioParsed> {
   const pdfjsLib = await import('pdfjs-dist')
 
   // Worker setup
@@ -50,7 +77,7 @@ export async function parseBilancio(pdfData: ArrayBuffer | Uint8Array): Promise<
   const source = pdfData instanceof ArrayBuffer ? new Uint8Array(pdfData) : pdfData
   const pdf = await pdfjsLib.getDocument({ data: source }).promise
 
-  const result = {
+  const result: BilancioParsed = {
     meta: { pages: pdf.numPages, company: '', period: '', date: '' },
     patrimoniale: { attivita: [], passivita: [], totals: {} },
     contoEconomico: { costi: [], ricavi: [], totals: {} },
@@ -62,9 +89,9 @@ export async function parseBilancio(pdfData: ArrayBuffer | Uint8Array): Promise<
     const page = await pdf.getPage(pn)
     const content = await page.getTextContent()
 
-    const items = content.items
+    const items = (content.items as Array<{ str: string; transform: number[] }>)
       .map(i => ({
-        text: i.str.trim(),
+        text: (i.str ?? '').trim(),
         x: Math.round(i.transform[4]),
         y: Math.round(i.transform[5]),
       }))
@@ -79,10 +106,10 @@ export async function parseBilancio(pdfData: ArrayBuffer | Uint8Array): Promise<
     })
 
     // Process rows top to bottom
-    const sortedYs = Object.keys(rows).sort((a, b) => b - a)
+    const sortedYs = Object.keys(rows).sort((a, b) => Number(b) - Number(a))
 
     for (const y of sortedYs) {
-      const cells = rows[y].sort((a, b) => a.x - b.x)
+      const cells = rows[Number(y)].sort((a, b) => a.x - b.x)
       const fullLine = cells.map(c => c.text).join(' ')
 
       // Detect meta info
@@ -108,7 +135,6 @@ export async function parseBilancio(pdfData: ArrayBuffer | Uint8Array): Promise<
 
       // Detect TOTALE / Perdita / Utile
       if (/^TOTALE\b/i.test(fullLine)) {
-        const amounts = fullLine.match(/([\d.,]+)/g) || []
         if (currentSection === 'patrimoniale') {
           // Left side total (attivita), right side (passivita)
           const leftCells = cells.filter(c => c.x < 290)
@@ -177,7 +203,6 @@ export async function parseBilancio(pdfData: ArrayBuffer | Uint8Array): Promise<
 /**
  * Parsa una riga di celle (codice + descrizione + importo)
  */
-// TODO: tighten type
 interface BilancioRow {
   code: string;
   description: string;
@@ -278,8 +303,7 @@ function buildTree(rows: BilancioRow[] | null): Array<BilancioRow & { children: 
 /**
  * Converte i dati parsed in record per balance_sheet_data di Supabase
  */
-// TODO: tighten type — align with DB schema
-export function toSupabaseRecords(parsed: Record<string, unknown>, companyId: string, year: number, periodType = 'annuale'): Record<string, unknown>[] {
+export function toSupabaseRecords(parsed: BilancioParsed, companyId: string, year: number, periodType = 'annuale'): Record<string, unknown>[] {
   const records: Record<string, unknown>[] = []
 
   // Stato Patrimoniale — Attività
@@ -365,8 +389,7 @@ export function toSupabaseRecords(parsed: Record<string, unknown>, companyId: st
 
   // Also add legacy CE_FIELDS mapping for backward compatibility
   const ceMacro: Record<string, number> = {}
-  // TODO: tighten type — parsed uses known structure from parseBilancio
-  const pCE = (parsed as { contoEconomico: { costi: BilancioRow[]; totals: Record<string, number> } }).contoEconomico;
+  const pCE = parsed.contoEconomico
   pCE.costi.forEach((row: BilancioRow) => {
     if (row.isMacro) ceMacro[row.code] = row.amount
   })

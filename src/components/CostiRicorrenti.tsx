@@ -1,14 +1,12 @@
-// @ts-nocheck
-// TODO: tighten types
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import {
-  Plus, Edit2, Trash2, Save, X, RefreshCw, Search, Filter,
-  CalendarClock, Repeat, AlertCircle, CheckCircle2, Loader
+  Plus, Edit2, Trash2, Save, X, Search, Filter,
+  CalendarClock, AlertCircle, CheckCircle2, Loader
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
 
-const paymentMethodLabels = {
+const paymentMethodLabels: Record<string, string> = {
   bonifico_ordinario: 'Bonifico ordinario',
   bonifico_urgente: 'Bonifico urgente',
   bonifico_sepa: 'Bonifico SEPA',
@@ -32,7 +30,7 @@ const paymentMethodLabels = {
   altro: 'Altro',
 };
 
-const frequencyLabels = {
+const frequencyLabels: Record<string, string> = {
   monthly: 'Mensile',
   bimonthly: 'Bimestrale',
   quarterly: 'Trimestrale',
@@ -40,7 +38,7 @@ const frequencyLabels = {
   annual: 'Annuale',
 };
 
-const frequencyToMonthlyDivisor = {
+const frequencyToMonthlyDivisor: Record<string, number> = {
   monthly: 1,
   bimonthly: 2,
   quarterly: 3,
@@ -48,7 +46,7 @@ const frequencyToMonthlyDivisor = {
   annual: 12,
 };
 
-const macroGroupLabels = {
+const macroGroupLabels: Record<string, string> = {
   costo_venduto: 'Costo del venduto',
   locazione: 'Locazione',
   personale: 'Personale',
@@ -57,7 +55,7 @@ const macroGroupLabels = {
   oneri_diversi: 'Oneri diversi',
 };
 
-const formatCurrency = (value) => {
+const formatCurrency = (value: number | null | undefined): string => {
   if (!value && value !== 0) return '€ 0,00';
   return new Intl.NumberFormat('it-IT', {
     minimumFractionDigits: 2,
@@ -65,12 +63,7 @@ const formatCurrency = (value) => {
   }).format(value) + ' €';
 };
 
-const getCurrentMonthYear = () => {
-  const now = new Date();
-  return { year: now.getFullYear(), month: now.getMonth() + 1 };
-};
-
-const getMonthsArray = () => {
+const getMonthsArray = (): { month: number; label: string }[] => {
   const months = [];
   for (let i = 1; i <= 12; i++) {
     months.push({
@@ -83,7 +76,6 @@ const getMonthsArray = () => {
   return months;
 };
 
-// TODO: tighten type
 interface RecurringCost {
   id: string
   company_id: string
@@ -94,29 +86,42 @@ interface RecurringCost {
   frequency: string
   day_of_month: number
   payment_method: string
-  supplier_name?: string
-  notes?: string
+  supplier_name?: string | null
+  notes?: string | null
   start_date: string
-  end_date?: string
+  end_date?: string | null
   is_active: boolean
-  created_at: string
+  created_at?: string | null
 }
 
-// TODO: tighten type
 interface CostCategory {
   id: string
   name: string
   macro_group: string
-  sort_order?: number
+  sort_order?: number | null
 }
 
-// TODO: tighten type
 interface CostCenter {
   id: string
   code: string
   label: string
-  color?: string
-  sort_order?: number
+  color?: string | null
+  sort_order?: number | null
+}
+
+interface FormState {
+  cost_center: string
+  cost_category_id: string
+  description: string
+  amount: string
+  frequency: string
+  day_of_month: number | string
+  payment_method: string
+  supplier_name: string
+  notes: string
+  start_date: string
+  end_date: string
+  is_active: boolean
 }
 
 function CostiRicorrenti() {
@@ -143,7 +148,7 @@ function CostiRicorrenti() {
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   // Form state
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<FormState>({
     cost_center: '',
     cost_category_id: '',
     description: '',
@@ -166,6 +171,7 @@ function CostiRicorrenti() {
   }, [COMPANY_ID]);
 
   const loadData = async () => {
+    if (!COMPANY_ID) return;
     try {
       setLoading(true);
       setError(null);
@@ -192,9 +198,9 @@ function CostiRicorrenti() {
       if (categoriesRes.error) throw categoriesRes.error;
       if (centersRes.error) throw centersRes.error;
 
-      setRecurringCosts(costsRes.data || []);
-      setCostCategories(categoriesRes.data || []);
-      setCostCenters(centersRes.data || []);
+      setRecurringCosts((costsRes.data || []) as RecurringCost[]);
+      setCostCategories((categoriesRes.data || []) as CostCategory[]);
+      setCostCenters((centersRes.data || []) as CostCenter[]);
     } catch (err) {
       console.error('Error loading data:', err);
       setError('Errore nel caricamento dei dati');
@@ -237,10 +243,11 @@ function CostiRicorrenti() {
   const calculateSummaries = () => {
     const activeCosts = filteredCosts.filter((c) => c.is_active);
     let totalMonthly = 0;
-    let byMacroGroup = {};
+    const byMacroGroup: Record<string, number> = {};
 
     activeCosts.forEach((cost) => {
-      const monthlyAmount = cost.amount / frequencyToMonthlyDivisor[cost.frequency];
+      const divisor = frequencyToMonthlyDivisor[cost.frequency] ?? 1;
+      const monthlyAmount = cost.amount / divisor;
       totalMonthly += monthlyAmount;
 
       const category = costCategories.find((c) => c.id === cost.cost_category_id);
@@ -283,13 +290,13 @@ function CostiRicorrenti() {
     setShowModal(true);
   };
 
-  const openEditModal = (cost) => {
+  const openEditModal = (cost: RecurringCost) => {
     setEditingId(cost.id);
     setFormData({
       cost_center: cost.cost_center,
       cost_category_id: cost.cost_category_id,
       description: cost.description,
-      amount: cost.amount,
+      amount: String(cost.amount),
       frequency: cost.frequency,
       day_of_month: cost.day_of_month,
       payment_method: cost.payment_method,
@@ -307,13 +314,14 @@ function CostiRicorrenti() {
     setEditingId(null);
   };
 
-  const handleFormChange = (field, value) => {
+  const handleFormChange = <K extends keyof FormState>(field: K, value: FormState[K]) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
   };
 
   const saveRecurringCost = async () => {
     try {
       setError(null);
+      if (!COMPANY_ID) return;
 
       if (!formData.cost_center || !formData.cost_category_id || !formData.description || !formData.amount) {
         setError('Completa tutti i campi obbligatori');
@@ -327,7 +335,7 @@ function CostiRicorrenti() {
         description: formData.description,
         amount: parseFloat(formData.amount),
         frequency: formData.frequency,
-        day_of_month: parseInt(formData.day_of_month),
+        day_of_month: parseInt(String(formData.day_of_month)),
         payment_method: formData.payment_method,
         supplier_name: formData.supplier_name || null,
         notes: formData.notes || null,
@@ -363,7 +371,7 @@ function CostiRicorrenti() {
     }
   };
 
-  const deleteRecurringCost = async (id) => {
+  const deleteRecurringCost = async (id: string) => {
     try {
       setError(null);
       const { error } = await supabase.from('recurring_costs').delete().eq('id', id);
@@ -378,7 +386,7 @@ function CostiRicorrenti() {
     }
   };
 
-  const toggleActive = async (cost) => {
+  const toggleActive = async (cost: RecurringCost) => {
     try {
       setError(null);
       const { error } = await supabase
@@ -395,9 +403,10 @@ function CostiRicorrenti() {
   };
 
   // 12-month projection
-  const getMonthProjection = () => {
+  type Projection = Record<number, { total: number; costs: string[] }>
+  const getMonthProjection = (): { months: { month: number; label: string }[]; projection: Projection } => {
     const months = getMonthsArray();
-    const projection = {};
+    const projection: Projection = {};
 
     months.forEach((m) => {
       projection[m.month] = {
@@ -412,7 +421,6 @@ function CostiRicorrenti() {
         const startDate = new Date(cost.start_date);
         const endDate = cost.end_date ? new Date(cost.end_date) : new Date('2099-12-31');
         const startMonth = startDate.getMonth() + 1;
-        const startYear = startDate.getFullYear();
 
         months.forEach((m) => {
           const checkDate = new Date(2026, m.month - 1, cost.day_of_month || 1);
@@ -436,7 +444,8 @@ function CostiRicorrenti() {
             }
 
             if (included) {
-              projection[m.month].total += cost.amount / frequencyToMonthlyDivisor[cost.frequency];
+              const divisor = frequencyToMonthlyDivisor[cost.frequency] ?? 1;
+              projection[m.month].total += cost.amount / divisor;
               projection[m.month].costs.push(cost.description);
             }
           }
@@ -513,7 +522,7 @@ function CostiRicorrenti() {
               .slice(0, 2)
               .map(([group, amount]) => (
                 <p key={group} className="text-xs text-slate-600">
-                  {macroGroupLabels[group]}: {formatCurrency(amount)}
+                  {macroGroupLabels[group]}: {formatCurrency(amount as number)}
                 </p>
               ))}
           </div>
@@ -610,7 +619,7 @@ function CostiRicorrenti() {
             <tbody>
               {filteredCosts.length === 0 ? (
                 <tr>
-                  <td colSpan="9" className="px-4 py-8 text-center text-slate-500">
+                  <td colSpan={9} className="px-4 py-8 text-center text-slate-500">
                     Nessun costo ricorrente trovato
                   </td>
                 </tr>
@@ -912,7 +921,7 @@ function CostiRicorrenti() {
                     value={formData.notes}
                     onChange={(e) => handleFormChange('notes', e.target.value)}
                     placeholder="Note aggiuntive..."
-                    rows="2"
+                    rows={2}
                     className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                   />
                 </div>

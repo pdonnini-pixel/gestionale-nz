@@ -1,32 +1,31 @@
-// @ts-nocheck
-// TODO: tighten types
-import React, { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import {
-  Landmark, Building2, Search, Plus, RefreshCw, Link2, Unlink,
+  Landmark, Building2, Search, Plus, RefreshCw, Link2,
   ChevronRight, Clock, CheckCircle2, AlertCircle, XCircle,
-  ArrowDownLeft, ArrowUpRight, Wallet, ExternalLink, Loader2, Download,
+  Loader2,
   CreditCard, Globe, Shield, ChevronDown, ChevronUp, X
 } from 'lucide-react'
 import { useYapily } from '../hooks/useYapily'
 import AccountDetail from './AccountDetail'
 
-function fmt(n, dec = 2) {
+function fmt(n: number | null | undefined, dec = 2): string {
   if (n == null) return '—'
   return new Intl.NumberFormat('it-IT', { minimumFractionDigits: dec, maximumFractionDigits: dec }).format(n)
 }
 
-function timeAgo(dateStr) {
+function timeAgo(dateStr: string | null | undefined): string {
   if (!dateStr) return 'Mai'
   const d = new Date(dateStr)
   const now = new Date()
-  const diff = Math.floor((now - d) / 1000)
+  const diff = Math.floor((now.getTime() - d.getTime()) / 1000)
   if (diff < 60) return 'Ora'
   if (diff < 3600) return `${Math.floor(diff / 60)} min fa`
   if (diff < 86400) return `${Math.floor(diff / 3600)}h fa`
   return `${Math.floor(diff / 86400)}g fa`
 }
 
-const statusConfig = {
+type StatusKey = 'AUTHORIZED' | 'PENDING' | 'EXPIRED' | 'REVOKED' | 'REJECTED'
+const statusConfig: Record<StatusKey, { label: string; color: string; icon: typeof CheckCircle2 }> = {
   AUTHORIZED: { label: 'Attivo', color: 'text-emerald-600 bg-emerald-50', icon: CheckCircle2 },
   PENDING: { label: 'In attesa', color: 'text-amber-600 bg-amber-50', icon: Clock },
   EXPIRED: { label: 'Scaduto', color: 'text-slate-500 bg-slate-100', icon: AlertCircle },
@@ -59,14 +58,13 @@ interface BankAccount {
   yapily_consents?: { status: string }
 }
 
-// TODO: tighten type
 interface BankConsent {
   id: string
-  status: string
+  status: string | null
   institution_name: string
   consent_type: string
-  created_at: string
-  expires_at?: string
+  created_at: string | null
+  expires_at?: string | null
 }
 
 interface SyncResult {
@@ -250,7 +248,12 @@ function ModalSelezionaBanca({ isOpen, onClose, onSelect }: { isOpen: boolean; o
                         src={inst.media[0].source}
                         alt={inst.name}
                         className="w-8 h-8 object-contain"
-                        onError={e => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex' }}
+                        onError={e => {
+                          const img = e.currentTarget
+                          img.style.display = 'none'
+                          const next = img.nextSibling as HTMLElement | null
+                          if (next) next.style.display = 'flex'
+                        }}
                       />
                     ) : null}
                     <div className={`items-center justify-center ${inst.media?.[0]?.source ? 'hidden' : 'flex'}`}>
@@ -284,7 +287,7 @@ function ModalSelezionaBanca({ isOpen, onClose, onSelect }: { isOpen: boolean; o
    Card: Conto Collegato
    ═══════════════════════════════════════════ */
 function AccountCard({ account, onSync, syncing, onClick }: { account: BankAccount; onSync: (id: string) => void; syncing: boolean; onClick?: (account: BankAccount) => void }) {
-  const consentStatus = account.yapily_consents?.status || 'AUTHORIZED'
+  const consentStatus = (account.yapily_consents?.status || 'AUTHORIZED') as StatusKey
   const cfg = statusConfig[consentStatus] || statusConfig.AUTHORIZED
   const StatusIcon = cfg.icon
 
@@ -313,7 +316,7 @@ function AccountCard({ account, onSync, syncing, onClick }: { account: BankAccou
       <div className="mt-4 flex items-end justify-between">
         <div>
           <div className="text-xs text-slate-400">Saldo</div>
-          <div className={`text-xl font-bold ${account.balance >= 0 ? 'text-slate-900' : 'text-red-600'}`}>
+          <div className={`text-xl font-bold ${(account.balance ?? 0) >= 0 ? 'text-slate-900' : 'text-red-600'}`}>
             {account.balance != null ? `${fmt(account.balance)} €` : '—'}
           </div>
           {account.balance_updated_at && (
@@ -398,11 +401,11 @@ export default function OpenBanking() {
   }, [])
 
   // Handle bank selection → create consent → redirect
-  const handleSelectBank = async (institution) => {
+  const handleSelectBank = async (institution: BankInstitution) => {
     setShowBankModal(false)
     setConnecting(true)
     try {
-      const result = await yapily.createConsent(institution.id, institution.name, 'AIS')
+      const result = await yapily.createConsent(institution.id, institution.name, 'AIS') as { authorisationUrl?: string } | null
       if (result?.authorisationUrl) {
         // Redirect to bank for authorization
         window.location.href = result.authorisationUrl
@@ -412,14 +415,15 @@ export default function OpenBanking() {
       }
     } catch (err) {
       console.error('Consent creation failed:', err)
-      alert('Errore collegamento banca: ' + (err.message || 'Riprova più tardi'))
+      const msg = err instanceof Error ? err.message : 'Riprova più tardi'
+      alert('Errore collegamento banca: ' + msg)
     } finally {
       setConnecting(false)
     }
   }
 
   // Full sync: Yapily API → yapily_transactions → cash_movements
-  const handleSync = async (accountId) => {
+  const handleSync = async (accountId: string) => {
     setSyncingAccount(accountId)
     setSyncResult(null)
     try {
@@ -639,7 +643,7 @@ export default function OpenBanking() {
             <div className="px-4 pb-4">
               <div className="divide-y divide-slate-100">
                 {consents.map(consent => {
-                  const cfg = statusConfig[consent.status] || statusConfig.PENDING
+                  const cfg = statusConfig[consent.status as StatusKey] || statusConfig.PENDING
                   const StatusIcon = cfg.icon
                   return (
                     <div key={consent.id} className="flex items-center justify-between py-2.5">
@@ -650,7 +654,8 @@ export default function OpenBanking() {
                         <div>
                           <div className="text-sm font-medium text-slate-700">{consent.institution_name}</div>
                           <div className="text-xs text-slate-400">
-                            {consent.consent_type} · Creato {new Date(consent.created_at).toLocaleDateString('it-IT')}
+                            {consent.consent_type}
+                            {consent.created_at && ` · Creato ${new Date(consent.created_at).toLocaleDateString('it-IT')}`}
                             {consent.expires_at && ` · Scade ${new Date(consent.expires_at).toLocaleDateString('it-IT')}`}
                           </div>
                         </div>
@@ -691,12 +696,12 @@ export default function OpenBanking() {
         isOpen={!!selectedAccount}
         onClose={() => setSelectedAccount(null)}
         account={selectedAccount}
-        onSync={async (accountId) => {
+        onSync={async (accountId: string) => {
           await handleSync(accountId)
           // Refresh account data after sync
-          const accs = await yapily.fetchAccounts()
+          const accs = await yapily.fetchAccounts() as BankAccount[]
           setAccounts(accs)
-          const updated = accs.find(a => a.id === accountId)
+          const updated = accs.find((a: BankAccount) => a.id === accountId)
           if (updated) setSelectedAccount(updated)
         }}
       />

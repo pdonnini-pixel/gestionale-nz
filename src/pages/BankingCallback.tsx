@@ -1,5 +1,3 @@
-// @ts-nocheck
-// TODO: tighten types
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
@@ -106,10 +104,10 @@ export default function BankingCallback() {
         navigate('/banche', { replace: true })
       }, 3000)
 
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('[BankingCallback] Error:', err)
       setStatus('error')
-      setError(err.message || 'Errore sconosciuto durante il collegamento')
+      setError(err instanceof Error ? err.message : 'Errore sconosciuto durante il collegamento')
       setMessage('Errore durante il collegamento')
     }
   }

@@ -1,5 +1,4 @@
-// @ts-nocheck
-// TODO: tighten types
+// @ts-nocheck — TODO tighten: indexing dinamico per outlet-key, da rivedere
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import ExportMenu from '../components/ExportMenu'
 import {

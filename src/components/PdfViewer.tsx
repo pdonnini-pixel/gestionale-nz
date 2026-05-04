@@ -1,6 +1,4 @@
-// @ts-nocheck
-// TODO: tighten types
-import React, { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { ChevronLeft, ChevronRight, ZoomIn, ZoomOut, FileText } from 'lucide-react'
 
 import * as pdfjsLib from 'pdfjs-dist'
@@ -46,16 +44,18 @@ export default function PdfViewer({ pdfData, url, className = '' }: PdfViewerPro
 
     const loadPdf = async () => {
       try {
-        let source
+        let source: { data: Uint8Array }
         if (pdfData) {
           // Dati già scaricati — usa direttamente
           source = { data: pdfData instanceof ArrayBuffer ? new Uint8Array(pdfData) : pdfData }
-        } else {
+        } else if (url) {
           // Fallback: prova fetch diretto
           const response = await fetch(url)
           if (!response.ok) throw new Error(`HTTP ${response.status}`)
           const ab = await response.arrayBuffer()
           source = { data: new Uint8Array(ab) }
+        } else {
+          return
         }
 
         if (cancelled) return
@@ -71,7 +71,8 @@ export default function PdfViewer({ pdfData, url, className = '' }: PdfViewerPro
       } catch (err) {
         if (!cancelled) {
           console.error('PDF load error:', err)
-          setError(err.message || 'Errore caricamento PDF')
+          const msg = err instanceof Error ? err.message : 'Errore caricamento PDF'
+          setError(msg)
         }
       } finally {
         if (!cancelled) setLoading(false)
@@ -96,6 +97,7 @@ export default function PdfViewer({ pdfData, url, className = '' }: PdfViewerPro
       const viewport = page.getViewport({ scale })
       const canvas = canvasRef.current
       const context = canvas.getContext('2d')
+      if (!context) return
 
       const dpr = window.devicePixelRatio || 1
       canvas.width = viewport.width * dpr
@@ -112,7 +114,8 @@ export default function PdfViewer({ pdfData, url, className = '' }: PdfViewerPro
 
       await renderTask.promise
     } catch (err) {
-      if (err?.name !== 'RenderingCancelledException') {
+      const name = err instanceof Error ? err.name : ''
+      if (name !== 'RenderingCancelledException') {
         console.error('Render error:', err)
       }
     }

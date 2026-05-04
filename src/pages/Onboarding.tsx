@@ -1,5 +1,3 @@
-// @ts-nocheck
-// TODO: tighten types
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
@@ -69,13 +67,22 @@ export default function Onboarding() {
   // ========================
   const handleSubmit = async () => {
     if (!canSubmit || saving) return
+    if (!profile) return
 
     try {
       setSaving(true)
       setError(null)
 
+      // Cast supabase to bypass strict insert column shape (legacy fields).
+      const sb = supabase as unknown as { from: (t: string) => {
+        insert: (r: Record<string, unknown>[] | Record<string, unknown>) => {
+          select: () => { single: () => Promise<{ data: { id: string } | null; error: { message: string } | null }> };
+        } & Promise<{ error: { message: string } | null }>;
+        update: (r: Record<string, unknown>) => { eq: (k: string, v: string) => Promise<{ error: { message: string } | null }> };
+      } }
+
       // 1. Crea azienda
-      const { data: newCompany, error: companyError } = await supabase
+      const { data: newCompany, error: companyError } = await sb
         .from('companies')
         .insert([{
           name: company.name.trim(),
@@ -90,10 +97,11 @@ export default function Onboarding() {
         .single()
 
       if (companyError) throw companyError
+      if (!newCompany) throw new Error('Azienda non creata')
       const companyId = newCompany.id
 
       // 2. Aggiorna profilo utente con la nuova azienda
-      const { error: profileError } = await supabase
+      const { error: profileError } = await sb
         .from('user_profiles')
         .update({ company_id: companyId })
         .eq('id', profile.id)
@@ -101,7 +109,7 @@ export default function Onboarding() {
       if (profileError) throw profileError
 
       // 3. Crea primo outlet
-      const { error: outletError } = await supabase
+      const { error: outletError } = await sb
         .from('outlets')
         .insert([{
           company_id: companyId,
@@ -139,7 +147,7 @@ export default function Onboarding() {
         const categories = DEFAULT_COST_CATEGORIES.map(c => ({
           ...c, company_id: companyId
         }))
-        const { error: catError } = await supabase
+        const { error: catError } = await sb
           .from('cost_categories')
           .insert(categories)
 

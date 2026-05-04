@@ -1,5 +1,3 @@
-// @ts-nocheck
-// TODO: tighten types
 /**
  * CSV Parser — zero dipendenze, supporto formato italiano
  * Gestisce: separatori ; e , | decimali con virgola | encoding UTF-8/Latin-1
@@ -28,7 +26,7 @@ export function parseCSV(text: string, options: { delimiter?: string; decimalSep
     hasHeader = true,
   } = options;
 
-  const errors = [];
+  const errors: string[] = [];
 
   // Normalize line endings
   const normalized = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
@@ -237,7 +235,16 @@ export function parseDate(str: string | null | undefined, format = 'DD/MM/YYYY')
  * Preset di mapping per le banche italiane più comuni
  * Mappa i nomi colonne del CSV → campi cash_movements
  */
-export const BANK_CSV_PRESETS = {
+interface BankPreset {
+  name: string
+  mapping: Record<string, string[]>
+  skipRows: number
+  delimiter: string | null
+  dateFormat: string
+  dualAmount?: boolean
+}
+
+export const BANK_CSV_PRESETS: Record<string, BankPreset> = {
   intesa_sanpaolo: {
     name: 'Intesa Sanpaolo',
     mapping: {
@@ -369,7 +376,16 @@ export function autoDetectBankMapping(csvHeaders: string[]): { presetName: strin
  * @param {Object} context - { company_id, bank_account_id, import_batch_id, dateFormat, decimalSep, thousandSep }
  * @returns {{ records: Object[], errors: { row: number, message: string }[] }}
  */
-export function transformBankRows(rows: Record<string, string>[], columnMapping: Record<string, string>, context: Record<string, unknown>): { records: Record<string, unknown>[]; errors: { row: number; message: string }[] } {
+export interface TransformBankContext {
+  company_id: string
+  bank_account_id?: string | null
+  import_batch_id?: string | null
+  dateFormat?: string
+  decimalSep?: string
+  thousandSep?: string
+}
+
+export function transformBankRows(rows: Record<string, string>[], columnMapping: Record<string, string>, context: TransformBankContext): { records: Record<string, unknown>[]; errors: { row: number; message: string }[] } {
   const {
     company_id,
     bank_account_id,
@@ -433,7 +449,7 @@ export function transformBankRows(rows: Record<string, string>[], columnMapping:
         return;
       }
 
-      const record = {
+      const record: Record<string, unknown> = {
         company_id,
         bank_account_id,
         import_batch_id,
@@ -472,14 +488,23 @@ export function transformBankRows(rows: Record<string, string>[], columnMapping:
 /**
  * Trasforma righe CSV POS in record per daily_revenue
  */
-export function transformPOSRows(rows: Record<string, string>[], columnMapping: Record<string, string>, context: Record<string, unknown>): { records: Record<string, unknown>[]; errors: { row: number; message: string }[] } {
+export interface TransformPOSContext {
+  company_id: string
+  outlet_id?: string | null
+  import_batch_id?: string | null
+  dateFormat?: string
+  decimalSep?: string
+  thousandSep?: string
+}
+
+export function transformPOSRows(rows: Record<string, string>[], columnMapping: Record<string, string>, context: TransformPOSContext): { records: Record<string, unknown>[]; errors: { row: number; message: string }[] } {
   const { company_id, outlet_id, import_batch_id, dateFormat = 'DD/MM/YYYY', decimalSep = ',', thousandSep = '.' } = context;
   const records: Record<string, unknown>[] = [];
   const errors: { row: number; message: string }[] = [];
 
   rows.forEach((row, idx) => {
     try {
-      const date = parseDate(row[columnMapping.date], dateFormat as string);
+      const date = parseDate(row[columnMapping.date], dateFormat);
       if (!date) { errors.push({ row: idx + 1, message: `Data non valida` }); return; }
 
       const gross = parseItalianNumber(row[columnMapping.gross_revenue], decimalSep, thousandSep);
@@ -509,8 +534,10 @@ export function transformPOSRows(rows: Record<string, string>[], columnMapping: 
       }
 
       // Auto-compute avg_ticket
-      if (record.gross_revenue && record.transactions_count) {
-        record.avg_ticket = Math.round((record.gross_revenue / record.transactions_count) * 100) / 100;
+      const grossRev = record.gross_revenue as number | undefined;
+      const txCount = record.transactions_count as number | undefined;
+      if (grossRev && txCount) {
+        record.avg_ticket = Math.round((grossRev / txCount) * 100) / 100;
       }
 
       records.push(record);

@@ -182,7 +182,7 @@ export function useYapily() {
     }
   }, [callFunction])
 
-  const refreshBalances = useCallback(async (accountId: string) => {
+  const refreshBalances = useCallback(async (accountId?: string) => {
     setLoading(true)
     setError(null)
     try {
@@ -198,7 +198,7 @@ export function useYapily() {
 
   // ────────── FULL SYNC (Yapily → cash_movements) ──────────
 
-  const fullSync = useCallback(async (accountId: string, from: string) => {
+  const fullSync = useCallback(async (accountId: string, from?: string) => {
     setLoading(true)
     setError(null)
     try {

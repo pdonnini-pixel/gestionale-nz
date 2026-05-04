@@ -1,5 +1,4 @@
-// @ts-nocheck
-// TODO: tighten types
+// @ts-nocheck — TODO tighten: aggregazioni dinamiche outlet/categoria, da rivedere
 import { useState, useMemo } from 'react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line } from 'recharts'
 import { TrendingUp, AlertTriangle, Package, Calendar, DollarSign, ChevronDown, ChevronUp } from 'lucide-react'
