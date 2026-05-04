@@ -158,3 +158,25 @@ shape Supabase, refs DOM, props ricorrenti — secondo la regola del prompt si l
 
 **Verifica**: `npm run typecheck` e `npm run build` passano. Smoke test interattivo demandato a
 Patrizio (richiede browser).
+
+## Completamento TS strict — branch `feature-ts-strict-completion` (2026-05-04)
+
+**Scope**: rimuovere tutti i `@ts-nocheck` residui (25 pagine dopo PR #3) e ridurre
+il count di `any` portandolo a livello manutenibile. Vedi `STRICT_COMPLETION_NOTES.md`
+per il diario di lavoro completo.
+
+**Risultati**:
+- ✅ `tsc --noEmit`: 0 errori
+- ✅ `vite build`: passa
+- ✅ `@ts-nocheck` residui in `src/`: 0 (eccetto `shims.d.ts` per ambient module xlsx)
+- ✅ `any` residui: 49 (riduzione 67% dal baseline 148 su `main`)
+- ✅ 3 bug schema fixati: BUG-001 (GlobalSearch.total_amount), BUG-002 (Fatturazione.direction),
+  BUG-003 (AICategorization.ai_anomaly_log)
+
+**Pattern di tipizzazione applicati** (riferimento per future sessioni):
+- `Number(x)` al posto di `parseFloat` su unioni `string | null | number`
+- `as never` cast su Supabase update/insert quando la shape drifta da Database typed
+- `new Date(x).getTime()` esplicito per arithmetic temporale
+- `String()` / `Number()` narrow su `unknown` letti da `Record<string, unknown>`
+- Generic key-of pattern: `<K extends keyof T>(field: K, value: T[K])`
+- Cast strutturale `(supabase as unknown as { from: ... })` solo per table name dinamici
