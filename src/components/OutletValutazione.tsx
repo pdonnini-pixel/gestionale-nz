@@ -1,33 +1,27 @@
-// @ts-nocheck
-// TODO: tighten types
 /**
  * Outlet in Valutazione — simulazioni CE per nuovi outlet
  * Salvate su DB, con nome, possibilità di confronto e attivazione
  */
-import React, { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import {
-  getCodeLevel, buildTree, sumMacros, applyEditsZero, applyEdits, flattenLeaves, fmt, fmtC
+  getCodeLevel, buildTree, sumMacros, applyEditsZero, applyEdits, fmt, fmtC,
+  CETreeNode,
 } from '../lib/ceHelpers'
 import {
-  Rocket, Plus, Save, Trash2, Copy, ChevronDown, ChevronUp, CheckCircle2,
-  AlertTriangle, Edit3, Eye, Archive, Star
+  Rocket, Plus, Save, Trash2, CheckCircle2,
+  AlertTriangle, Archive, Star
 } from 'lucide-react'
 
 // ─── TREE COMPONENTS ──────────────────────────────────────
 
-// TODO: tighten type
-interface TreeNode {
-  code: string
-  description: string
-  amount: number
-  level: number
-  children?: TreeNode[]
+interface TreeNode extends CETreeNode {
+  description?: string
   isMacro?: boolean
+  children: TreeNode[]
 }
 
-// TODO: tighten type
 interface Simulation {
   id: string
   name: string
@@ -40,13 +34,16 @@ interface Simulation {
   updated_at: string
 }
 
-function TreeNodeEdit({ node, depth = 0, edits, onEdit }: { node: TreeNode; depth?: number; edits: Record<string, number>; onEdit: (code: string, value: number) => void }) {
+type ToastType = 'ok' | 'error'
+
+function TreeNodeEdit({ node, depth = 0, edits, onEdit }: { node: CETreeNode; depth?: number; edits: Record<string, number>; onEdit: (code: string, value: number) => void }) {
   const [open, setOpen] = useState(false)
-  const hasKids = node.children?.length > 0
+  const hasKids = (node.children?.length ?? 0) > 0
   const isMacro = node.level === 0
   const isLeaf = !hasKids
   const val = edits[node.code] != null ? edits[node.code] : (node.amount || 0)
   const isEdited = edits[node.code] != null
+  const description = (node as { description?: string }).description ?? ''
 
   return (
     <div>
@@ -54,8 +51,8 @@ function TreeNodeEdit({ node, depth = 0, edits, onEdit }: { node: TreeNode; dept
         style={{ paddingLeft: `${4 + depth * 16}px` }} onClick={() => hasKids && setOpen(!open)}>
         <span className="w-4 shrink-0 text-center text-[10px] text-slate-400">{hasKids ? (open ? '▾' : '▸') : ''}</span>
         <span className={`font-mono text-slate-400 shrink-0 ml-0.5 ${isMacro ? 'text-[11px] font-bold' : 'text-[10px]'}`}
-          style={{ width: node.code?.length > 4 ? '50px' : '26px' }}>{node.code}</span>
-        <span className={`truncate ml-1 flex-1 ${isMacro ? 'text-[11px] font-bold text-slate-900' : 'text-[11px] text-slate-600'}`}>{node.description}</span>
+          style={{ width: node.code && node.code.length > 4 ? '50px' : '26px' }}>{node.code}</span>
+        <span className={`truncate ml-1 flex-1 ${isMacro ? 'text-[11px] font-bold text-slate-900' : 'text-[11px] text-slate-600'}`}>{description}</span>
         {isLeaf ? (
           <input type="text" inputMode="numeric"
             value={isEdited ? val : (val || '')}
@@ -74,31 +71,10 @@ function TreeNodeEdit({ node, depth = 0, edits, onEdit }: { node: TreeNode; dept
   )
 }
 
-function TreeNodeView({ node, depth = 0 }: { node: TreeNode; depth?: number }) {
-  const [open, setOpen] = useState(false)
-  const hasKids = node.children?.length > 0
-  const isMacro = node.level === 0
-  return (
-    <div>
-      <div className={`flex items-center py-1 px-1 rounded transition ${hasKids ? 'cursor-pointer hover:bg-slate-50' : ''} ${isMacro ? 'bg-slate-50/80 mt-1' : ''}`}
-        style={{ paddingLeft: `${4 + depth * 16}px` }} onClick={() => hasKids && setOpen(!open)}>
-        <span className="w-4 shrink-0 text-center text-[10px] text-slate-400">{hasKids ? (open ? '▾' : '▸') : ''}</span>
-        <span className={`font-mono text-slate-400 shrink-0 ml-0.5 ${isMacro ? 'text-[11px] font-bold' : 'text-[10px]'}`}
-          style={{ width: node.code?.length > 4 ? '50px' : '26px' }}>{node.code}</span>
-        <span className={`truncate ml-1 flex-1 ${isMacro ? 'text-[11px] font-bold text-slate-900' : 'text-[11px] text-slate-600'}`}>{node.description}</span>
-        <span className={`tabular-nums text-right shrink-0 ml-1 text-[11px] ${isMacro ? 'font-bold text-slate-900 w-28' : 'text-slate-500 w-24'}`}>{fmt(node.amount)} €</span>
-      </div>
-      {open && hasKids && node.children.map((c, i) => (
-        <TreeNodeView key={`${c.code}-${i}`} node={c} depth={depth + 1} />
-      ))}
-    </div>
-  )
-}
-
 // ─── STATUS BADGE ─────────────────────────────────────────
 
 function SimBadge({ status }: { status: string }) {
-  const map = {
+  const map: Record<string, { bg: string; label: string }> = {
     bozza: { bg: 'bg-amber-50 text-amber-700', label: 'Bozza' },
     approvato: { bg: 'bg-emerald-50 text-emerald-700', label: 'Approvato' },
     archiviato: { bg: 'bg-slate-100 text-slate-500', label: 'Archiviato' },
@@ -114,25 +90,27 @@ export default function OutletValutazione() {
   const CID = profile?.company_id
 
   // CE data
-  const [ceRawCosti, setCeRawCosti] = useState([])
-  const [ceRawRicavi, setCeRawRicavi] = useState([])
+  type CeRow = { code: string; description: string; amount: number; level: number; isMacro: boolean }
+  const [ceRawCosti, setCeRawCosti] = useState<CeRow[]>([])
+  const [ceRawRicavi, setCeRawRicavi] = useState<CeRow[]>([])
   const [loading, setLoading] = useState(true)
 
   // Simulations
   const [simulations, setSimulations] = useState<Simulation[]>([])
   const [activeSimId, setActiveSimId] = useState<string | null>(null)
   const [simName, setSimName] = useState('')
-  const [costEdits, setCostEdits] = useState({})
-  const [revEdits, setRevEdits] = useState({})
+  const [costEdits, setCostEdits] = useState<Record<string, number>>({})
+  const [revEdits, setRevEdits] = useState<Record<string, number>>({})
   const [saving, setSaving] = useState(false)
-  const [toast, setToast] = useState<{ msg: string; t: string } | null>(null)
+  const [toast, setToast] = useState<{ msg: string; t: ToastType } | null>(null)
 
-  const show = (msg, t = 'ok') => { setToast({ msg, t }); setTimeout(() => setToast(null), 3000) }
+  const show = (msg: string, t: ToastType = 'ok') => { setToast({ msg, t }); setTimeout(() => setToast(null), 3000) }
 
   // Load CE tree + simulations
   useEffect(() => { if (CID) loadAll() }, [CID])
 
   async function loadAll() {
+    if (!CID) return
     setLoading(true)
     try {
       const [bsR, simR] = await Promise.all([
@@ -143,14 +121,16 @@ export default function OutletValutazione() {
       // Parse CE
       const junk = /Azienda:|Cod\.\s*Fiscale|Partita\s*IVA|^VIA\s|PERIODO\s*DAL|Totali\s*fino|^Pag\.|Considera anche|movimenti provvisori/i
       const clean = (bsR.data || []).filter(r => (r.account_code && r.account_code.trim()) && !junk.test(r.account_name || ''))
-      const co = [], ri = []
+      const co: CeRow[] = []
+      const ri: CeRow[] = []
       clean.forEach(r => {
-        const row = { code: r.account_code || '', description: r.account_name || '', amount: r.amount || 0, level: getCodeLevel(r.account_code), isMacro: (r.account_code || '').replace(/\s/g, '').length <= 2 }
-        r.section === 'ce_costi' ? co.push(row) : ri.push(row)
+        const row: CeRow = { code: r.account_code || '', description: r.account_name || '', amount: r.amount || 0, level: getCodeLevel(r.account_code), isMacro: (r.account_code || '').replace(/\s/g, '').length <= 2 }
+        if (r.section === 'ce_costi') co.push(row)
+        else ri.push(row)
       })
       setCeRawCosti(co)
       setCeRawRicavi(ri)
-      setSimulations(simR.data || [])
+      setSimulations((simR.data ?? []) as unknown as Simulation[])
     } catch (err) { console.error(err) } finally { setLoading(false) }
   }
 
@@ -166,7 +146,7 @@ export default function OutletValutazione() {
     setRevEdits({})
   }
 
-  function editSimulation(sim) {
+  function editSimulation(sim: Simulation) {
     setActiveSimId(sim.id)
     setSimName(sim.name)
     setCostEdits(sim.cost_edits || {})
@@ -175,9 +155,17 @@ export default function OutletValutazione() {
 
   async function saveSimulation() {
     if (!simName.trim()) { show('Inserisci un nome', 'error'); return }
+    if (!CID) return
     setSaving(true)
     try {
-      const payload = {
+      const payload: {
+        company_id: string
+        name: string
+        cost_edits: Record<string, number>
+        rev_edits: Record<string, number>
+        updated_at: string
+        created_by?: string
+      } = {
         company_id: CID,
         name: simName.trim(),
         cost_edits: costEdits,
@@ -191,16 +179,19 @@ export default function OutletValutazione() {
         if (error) throw error
         setActiveSimId(data.id)
         show(`Simulazione "${simName}" salvata ✓`)
-      } else {
+      } else if (activeSimId) {
         const { error } = await supabase.from('outlet_simulations').update(payload).eq('id', activeSimId)
         if (error) throw error
         show(`Simulazione "${simName}" aggiornata ✓`)
       }
       loadAll()
-    } catch (e) { show(e.message, 'error') } finally { setSaving(false) }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Errore'
+      show(msg, 'error')
+    } finally { setSaving(false) }
   }
 
-  async function deleteSimulation(id) {
+  async function deleteSimulation(id: string) {
     if (!confirm('Eliminare questa simulazione?')) return
     const { error } = await supabase.from('outlet_simulations').delete().eq('id', id)
     if (error) { show(error.message, 'error'); return }
@@ -209,7 +200,7 @@ export default function OutletValutazione() {
     loadAll()
   }
 
-  async function setStatus(id, status) {
+  async function setStatus(id: string, status: string) {
     const { error } = await supabase.from('outlet_simulations').update({ status }).eq('id', id)
     if (error) { show(error.message, 'error'); return }
     show(`Stato aggiornato: ${status}`)
@@ -222,7 +213,7 @@ export default function OutletValutazione() {
     show('Dati cancellati')
   }
 
-  function copyFromOutlet(simId) {
+  function copyFromOutlet(simId: string) {
     const sim = simulations.find(s => s.id === simId)
     if (sim) {
       setCostEdits(sim.cost_edits || {})
