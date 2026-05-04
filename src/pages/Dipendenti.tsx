@@ -1,5 +1,11 @@
-// @ts-nocheck — TODO tighten: pagina complessa con shape Supabase + indexing dinamico, da rivedere
 import React, { useState, useEffect, useMemo, useRef, lazy, Suspense } from 'react';
+import type { Row } from '../types/business';
+
+type Employee = Row<'employees'>;
+type EmployeeOutletAllocation = Row<'employee_outlet_allocations'>;
+type EmployeeCost = Row<'employee_costs'>;
+type CostCenterRow = Row<'cost_centers'>;
+type EmployeeDocument = Row<'employee_documents'>;
 import PageHelp from '../components/PageHelp';
 import {
   ChevronDown,
@@ -42,7 +48,7 @@ import { useAuth } from '../hooks/useAuth';
 // CONSTANTS
 // ============================================================================
 
-const OUTLET_COLORS = {
+const OUTLET_COLORS: Record<string, string> = {
   'Valdichiana': 'bg-blue-600',
   'Barberino': 'bg-emerald-600',
   'Palmanova': 'bg-sky-600',
@@ -92,11 +98,10 @@ export default function Dipendenti() {
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
 
   // Data state
-  // TODO: tighten type — Supabase rows
-  const [employees, setEmployees] = useState<any[]>([]);
-  const [allocations, setAllocations] = useState<any[]>([]);
-  const [costs, setCosts] = useState<any[]>([]);
-  const [costCenters, setCostCenters] = useState<any[]>([]);
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [allocations, setAllocations] = useState<EmployeeOutletAllocation[]>([]);
+  const [costs, setCosts] = useState<EmployeeCost[]>([]);
+  const [costCenters, setCostCenters] = useState<CostCenterRow[]>([]);
   const [lastUpdateTime, setLastUpdateTime] = useState<string | null>(null);
 
   // UI state
@@ -104,22 +109,19 @@ export default function Dipendenti() {
   const [expandedEmployees, setExpandedEmployees] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
   const [showEmployeeForm, setShowEmployeeForm] = useState(false);
-  // TODO: tighten type
-  const [editingEmployee, setEditingEmployee] = useState<any>(null);
+  const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
   const [showCostForm, setShowCostForm] = useState(false);
-  // TODO: tighten type
-  const [editingCost, setEditingCost] = useState<any>(null);
+  const [editingCost, setEditingCost] = useState<EmployeeCost | null>(null);
   const [showDocumentUpload, setShowDocumentUpload] = useState<string | false>(false);
   const [uploadingEmployee, setUploadingEmployee] = useState<string | null>(null);
 
   // New features state
   const [showAllocEditor, setShowAllocEditor] = useState<string | null>(null);
-  // TODO: tighten type
-  const [allocEdits, setAllocEdits] = useState<any[]>([]);
+  // allocEdits: editing rows con allocation_pct sempre number per UI
+  const [allocEdits, setAllocEdits] = useState<EmployeeOutletAllocation[]>([]);
   const [allocErrors, setAllocErrors] = useState('');
-  const [employeeDocs, setEmployeeDocs] = useState<any[]>([]);
-  // TODO: tighten type
-  const [showDocViewer, setShowDocViewer] = useState<any>(null);
+  const [employeeDocs, setEmployeeDocs] = useState<EmployeeDocument[]>([]);
+  const [showDocViewer, setShowDocViewer] = useState<EmployeeDocument | null>(null);
   const [docPdfData, setDocPdfData] = useState<ArrayBuffer | null>(null);
   const [batchImporting, setBatchImporting] = useState(false);
   const batchFileRef = useRef<HTMLInputElement>(null);
@@ -190,12 +192,13 @@ export default function Dipendenti() {
   // Load bilancio costo personale from balance_sheet_data
   useEffect(() => {
     if (!COMPANY_ID) return;
+    const cid = COMPANY_ID; // narrowing per la closure async
     async function loadBilancio() {
       const currentYear = new Date().getFullYear();
       const { data } = await supabase
         .from('balance_sheet_data')
         .select('amount')
-        .eq('company_id', COMPANY_ID)
+        .eq('company_id', cid)
         .eq('account_code', 'totale_personale')
         .eq('section', 'conto_economico')
         .eq('period_type', 'annuale')
@@ -209,6 +212,7 @@ export default function Dipendenti() {
   }, [COMPANY_ID]);
 
   const loadAllData = async () => {
+    if (!COMPANY_ID) return;
     try {
       setLoading(true);
 
@@ -225,7 +229,7 @@ export default function Dipendenti() {
 
       // Load allocations (for company employees)
       const empIds = (empData || []).map(e => e.id);
-      let allocData = [];
+      let allocData: EmployeeOutletAllocation[] = [];
       if (empIds.length > 0) {
         const { data, error: allocError } = await supabase
           .from('employee_outlet_allocations')
@@ -233,12 +237,12 @@ export default function Dipendenti() {
           .in('employee_id', empIds)
           .order('employee_id');
         if (allocError) throw allocError;
-        allocData = data || [];
+        allocData = (data || []) as EmployeeOutletAllocation[];
       }
       setAllocations(allocData);
 
       // Load costs (for company employees)
-      let costData = [];
+      let costData: EmployeeCost[] = [];
       if (empIds.length > 0) {
         const { data, error: costError } = await supabase
           .from('employee_costs')
@@ -246,7 +250,7 @@ export default function Dipendenti() {
           .in('employee_id', empIds)
           .order('employee_id');
         if (costError) throw costError;
-        costData = data || [];
+        costData = (data || []) as EmployeeCost[];
       }
       setCosts(costData);
 
@@ -460,9 +464,9 @@ export default function Dipendenti() {
       await loadAllData();
       setShowEmployeeForm(false);
       setEditingEmployee(null);
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Errore nel salvataggio dipendente:', err);
-      showToast('Errore nel salvataggio: ' + err.message, 'error');
+      showToast('Errore nel salvataggio: ' + (err instanceof Error ? err.message : ''), 'error');
     }
   };
 
@@ -564,17 +568,24 @@ export default function Dipendenti() {
 
   const openAllocEditor = (empId: string) => {
     const empAllocs = allocations.filter(a => a.employee_id === empId);
-    setAllocEdits(empAllocs.length > 0
-      ? empAllocs.map(a => ({ ...a }))
-      : [{ employee_id: empId, outlet_code: '', allocation_pct: 100 }]
-    );
+    if (empAllocs.length > 0) {
+      setAllocEdits(empAllocs.map(a => ({ ...a })));
+    } else {
+      // Stub iniziale: i campi richiesti dal DB schema (id, company_id, ecc.)
+      // verranno valorizzati da Supabase su insert.
+      setAllocEdits([{
+        id: '', company_id: COMPANY_ID || '', employee_id: empId, outlet_code: '',
+        allocation_pct: 100, role_at_outlet: null, is_primary: null,
+        valid_from: null, valid_to: null, created_at: null,
+      }]);
+    }
     setAllocErrors('');
     setShowAllocEditor(empId);
   };
 
   const handleSaveAllocations = async () => {
     // Validate total doesn't exceed 100%
-    const total = allocEdits.reduce((s, a) => s + (parseFloat(a.allocation_pct) || 0), 0);
+    const total = allocEdits.reduce((s, a) => s + (Number(a.allocation_pct) || 0), 0);
     if (total > 100.01) {
       setAllocErrors(`Le allocazioni sommano ${total.toFixed(1)}% — il massimo è 100%`);
       return;
@@ -586,14 +597,18 @@ export default function Dipendenti() {
 
     try {
       const empId = showAllocEditor;
+      if (!empId) return;
       // Delete existing allocations
       await supabase.from('employee_outlet_allocations').delete().eq('employee_id', empId);
-      // Insert new
-      const rows = allocEdits.filter(a => a.outlet_code && a.allocation_pct > 0).map(a => ({
-        employee_id: empId,
-        outlet_code: a.outlet_code,
-        allocation_pct: parseFloat(a.allocation_pct) || 0,
-      }));
+      // Insert new — solo campi richiesti per insert.
+      const rows = allocEdits
+        .filter(a => a.outlet_code && Number(a.allocation_pct) > 0)
+        .map(a => ({
+          employee_id: empId,
+          company_id: a.company_id || COMPANY_ID || '',
+          outlet_code: a.outlet_code,
+          allocation_pct: Number(a.allocation_pct) || 0,
+        }));
       if (rows.length > 0) {
         await supabase.from('employee_outlet_allocations').insert(rows);
       }
@@ -641,12 +656,16 @@ export default function Dipendenti() {
         if (existing) {
           empId = existing.id;
         } else {
+          if (!COMPANY_ID) continue;
+          // Schema vuole first_name/last_name come campi NOT NULL — duplichiamo
+          // da nome/cognome per compat (legacy field IT vs default EN).
           const { data: newEmp } = await supabase.from('employees')
-            .insert({ cognome, nome, is_active: true }).select('id').single();
+            .insert({ company_id: COMPANY_ID, cognome, nome, first_name: nome, last_name: cognome, is_active: true })
+            .select('id').single();
           empId = newEmp?.id;
         }
 
-        if (!empId) continue;
+        if (!empId || !COMPANY_ID) continue;
 
         // Import cost data
         const retrib = getNum('retribuzione') || getNum('lordo');
@@ -659,15 +678,18 @@ export default function Dipendenti() {
           const month = parseInt(getValue('mese')) || selectedMonth;
           const year = parseInt(getValue('anno')) || selectedYear;
 
+          // NOTE: il campo totale_costo NON esiste nello schema impostato —
+          // si calcola lato view/render. void totale per evitare warning unused.
+          void totale;
           await supabase.from('employee_costs').upsert({
             employee_id: empId,
+            company_id: COMPANY_ID,
             year,
             month,
             retribuzione: retrib,
             contributi,
             inail,
             tfr,
-            totale_costo: totale,
           }, { onConflict: 'employee_id,year,month' });
         }
 
@@ -1192,7 +1214,7 @@ export default function Dipendenti() {
         </div>
 
         {/* Bilancio costo personale banner */}
-        {employees.length === 0 && bilancioCostoPersonale > 0 && (
+        {employees.length === 0 && bilancioCostoPersonale != null && bilancioCostoPersonale > 0 && (
           <div className="mb-8 rounded-lg border border-blue-200 bg-blue-50 p-5 flex items-start gap-4">
             <AlertCircle className="w-6 h-6 text-blue-600 flex-shrink-0 mt-0.5" />
             <div>
@@ -1288,19 +1310,26 @@ export default function Dipendenti() {
             data={(() => {
               const year = viewMode === 'consuntivo' ? 2025 : 2026;
               const yearCosts = costs.filter(c => c.year === year);
-              const rows = [];
+              type ExportRow = { cognome: string | null; nome: string | null; qualifica: string; contratto: string; outlet: string; allocazione: number | string; mese: number | string; retribuzione: number; contributi: number; inail: number; tfr: number; totale: number };
+              const rows: ExportRow[] = [];
+              // NOTE: empAllocs[0].cost_center_id è un nome legacy. Lo schema
+              // reale ha outlet_code; cerco il cost center per code per matchare.
               employees.forEach(emp => {
                 const empCosts = yearCosts.filter(c => c.employee_id === emp.id);
                 const empAllocs = allocations.filter(a => a.employee_id === emp.id);
                 const outletName = empAllocs.length > 0
-                  ? costCenters.find(cc => cc.id === empAllocs[0].cost_center_id)?.label || '-' : '-';
+                  ? costCenters.find(cc => cc.code === empAllocs[0].outlet_code)?.label || '-' : '-';
                 const allocPct = empAllocs.length > 0 ? empAllocs[0].allocation_pct : 100;
+                // qualifica/contratto sono campi non presenti nello schema reale —
+                // li manteniamo vuoti per backward compat dell'export.
+                const qualifica = String((emp as Record<string, unknown>).qualifica ?? emp.role_description ?? emp.livello ?? '');
+                const contratto = String((emp as Record<string, unknown>).contratto ?? emp.contratto_tipo ?? emp.contract_type ?? '');
                 if (empCosts.length === 0) {
-                  rows.push({ cognome: emp.cognome, nome: emp.nome, qualifica: emp.qualifica || '', contratto: emp.contratto || '', outlet: outletName, allocazione: allocPct, mese: '-', retribuzione: 0, contributi: 0, inail: 0, tfr: 0, totale: 0 });
+                  rows.push({ cognome: emp.cognome, nome: emp.nome, qualifica, contratto, outlet: outletName, allocazione: allocPct, mese: '-', retribuzione: 0, contributi: 0, inail: 0, tfr: 0, totale: 0 });
                 } else {
                   empCosts.forEach(c => {
                     const tot = (c.retribuzione || 0) + (c.contributi || 0) + (c.inail || 0) + (c.tfr || 0);
-                    rows.push({ cognome: emp.cognome, nome: emp.nome, qualifica: emp.qualifica || '', contratto: emp.contratto || '', outlet: outletName, allocazione: allocPct, mese: c.month, retribuzione: c.retribuzione || 0, contributi: c.contributi || 0, inail: c.inail || 0, tfr: c.tfr || 0, totale: tot });
+                    rows.push({ cognome: emp.cognome, nome: emp.nome, qualifica, contratto, outlet: outletName, allocazione: allocPct, mese: c.month, retribuzione: c.retribuzione || 0, contributi: c.contributi || 0, inail: c.inail || 0, tfr: c.tfr || 0, totale: tot });
                   });
                 }
               });
@@ -1410,7 +1439,7 @@ export default function Dipendenti() {
 
               {/* Total bar */}
               {(() => {
-                const total = allocEdits.reduce((s, a) => s + (parseFloat(a.allocation_pct) || 0), 0);
+                const total = allocEdits.reduce((s, a) => s + (Number(a.allocation_pct) || 0), 0);
                 return (
                   <div className={`mb-3 p-2 rounded-lg text-xs font-medium flex items-center justify-between ${
                     total > 100.01 ? 'bg-red-50 text-red-700 border border-red-200' :
@@ -1425,7 +1454,14 @@ export default function Dipendenti() {
 
               {allocErrors && <p className="text-xs text-red-600 mb-3 flex items-center gap-1"><AlertCircle size={12} /> {allocErrors}</p>}
 
-              <button onClick={() => setAllocEdits([...allocEdits, { employee_id: showAllocEditor, outlet_code: '', allocation_pct: 0 }])}
+              <button onClick={() => {
+                if (!showAllocEditor) return;
+                setAllocEdits([...allocEdits, {
+                  id: '', company_id: COMPANY_ID || '', employee_id: showAllocEditor, outlet_code: '',
+                  allocation_pct: 0, role_at_outlet: null, is_primary: null,
+                  valid_from: null, valid_to: null, created_at: null,
+                }])
+              }}
                 className="text-sm text-blue-600 hover:text-blue-800 mb-4 flex items-center gap-1">
                 <Plus size={14} /> Aggiungi outlet
               </button>
@@ -1580,7 +1616,7 @@ function EmployeeFormInner({ initial, onSave, onCancel }: { initial: any; onSave
             type="date"
             value={form.data_cessazione}
             onChange={e => setForm({ ...form, data_cessazione: e.target.value })}
-            required={form.contratto && form.contratto !== 'indeterminato'}
+            required={!!form.contratto && form.contratto !== 'indeterminato'}
             className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
           />
           {form.contratto === 'indeterminato' && (
@@ -1626,9 +1662,10 @@ function EmployeeFormInner({ initial, onSave, onCancel }: { initial: any; onSave
   );
 }
 
-// TODO: tighten type
-function CostFormInner({ initial, employees, selectedYear, selectedMonth, onSave, onCancel }: { initial: any; employees: any[]; selectedYear: number; selectedMonth: number; onSave: (data: any) => Promise<void>; onCancel: () => void }) {
-  const [form, setForm] = useState({
+interface CostFormState { employee_id: string; year: number; month: number; retribuzione: number; contributi: number; inail: number; tfr: number; totale_costo: number }
+
+function CostFormInner({ initial, employees, selectedYear, selectedMonth, onSave, onCancel }: { initial: EmployeeCost | null; employees: Employee[]; selectedYear: number; selectedMonth: number; onSave: (data: CostFormState) => Promise<void>; onCancel: () => void }) {
+  const [form, setForm] = useState<CostFormState>({
     employee_id: '', year: selectedYear, month: selectedMonth,
     retribuzione: 0, contributi: 0, inail: 0, tfr: 0, totale_costo: 0,
   });
@@ -1644,15 +1681,16 @@ function CostFormInner({ initial, employees, selectedYear, selectedMonth, onSave
         contributi: initial.contributi || 0,
         inail: initial.inail || 0,
         tfr: initial.tfr || 0,
-        totale_costo: initial.totale_costo || 0,
+        // totale_costo non è in schema reale: calcolato lato render.
+        totale_costo: (initial.retribuzione || 0) + (initial.contributi || 0) + (initial.inail || 0) + (initial.tfr || 0),
       });
     }
-  }, [initial]);
+  }, [initial, selectedYear, selectedMonth]);
 
   // Auto-calculate total
   useEffect(() => {
-    const total = (parseFloat(form.retribuzione) || 0) + (parseFloat(form.contributi) || 0) +
-      (parseFloat(form.inail) || 0) + (parseFloat(form.tfr) || 0);
+    const total = (Number(form.retribuzione) || 0) + (Number(form.contributi) || 0) +
+      (Number(form.inail) || 0) + (Number(form.tfr) || 0);
     setForm(f => ({ ...f, totale_costo: total }));
   }, [form.retribuzione, form.contributi, form.inail, form.tfr]);
 
