@@ -1,6 +1,4 @@
-// @ts-nocheck
-// TODO: tighten types
-import React, { useState, useEffect } from 'react'
+import React, { useState } from 'react'
 import { supabase } from '../lib/supabase'
 import {
   X, ChevronRight, ChevronLeft, Check, AlertCircle,
@@ -18,13 +16,12 @@ const BASE_STEPS = [
 
 const ALLEGATI_STEP = { id: 'allegati', label: 'Allegati', icon: Paperclip }
 
-function fmt(n) {
-  if (n == null || n === '') return '—'
-  return new Intl.NumberFormat('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)
+function fmt(n: number | string | boolean | null | undefined): string {
+  if (n == null || n === '' || typeof n === 'boolean') return '—'
+  return new Intl.NumberFormat('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(n))
 }
 
-// TODO: tighten type
-type OutletForm = Record<string, any>
+type OutletForm = Record<string, string | number | boolean | null | undefined>
 
 interface StepDef {
   id: string
@@ -76,10 +73,11 @@ function Field({ label, required, children, hint }: { label: string; required?: 
   )
 }
 
-function Input({ value, onChange, type = 'text', placeholder, ...props }: { value: string | number | undefined; onChange: (v: string) => void; type?: string; placeholder?: string; [key: string]: unknown }) {
+function Input({ value, onChange, type = 'text', placeholder, ...props }: { value: string | number | boolean | null | undefined; onChange: (v: string) => void; type?: string; placeholder?: string; [key: string]: unknown }) {
+  const safeVal = value == null || value === false ? '' : String(value)
   return (
     <input
-      type={type} value={value || ''} onChange={e => onChange(e.target.value)}
+      type={type} value={safeVal} onChange={e => onChange(e.target.value)}
       placeholder={placeholder}
       className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
       {...props}
@@ -87,9 +85,10 @@ function Input({ value, onChange, type = 'text', placeholder, ...props }: { valu
   )
 }
 
-function Select({ value, onChange, children }: { value: string | undefined; onChange: (v: string) => void; children: React.ReactNode }) {
+function Select({ value, onChange, children }: { value: string | number | boolean | null | undefined; onChange: (v: string) => void; children: React.ReactNode }) {
+  const safeVal = value == null || value === false ? '' : String(value)
   return (
-    <select value={value || ''} onChange={e => onChange(e.target.value)}
+    <select value={safeVal} onChange={e => onChange(e.target.value)}
       className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
       {children}
     </select>
@@ -179,7 +178,7 @@ function StepContratto({ form, set }: { form: OutletForm; set: (k: string, v: un
         </Field>
       </div>
       <label className="flex items-center gap-2 text-sm text-slate-700">
-        <input type="checkbox" checked={form.opening_confirmed || false}
+        <input type="checkbox" checked={!!form.opening_confirmed}
           onChange={e => set('opening_confirmed', e.target.checked)}
           className="rounded border-slate-300" />
         Data di apertura confermata (attiva il Business Plan)
@@ -214,7 +213,7 @@ function StepContratto({ form, set }: { form: OutletForm; set: (k: string, v: un
 
 // ====== STEP 4: CANONE E COSTI ======
 function StepCanone({ form, set }: { form: OutletForm; set: (k: string, v: unknown) => void }) {
-  const monthlyCalc = form.rent_annual ? (form.rent_annual / 12).toFixed(2) : ''
+  const monthlyCalc = form.rent_annual ? (Number(form.rent_annual) / 12).toFixed(2) : ''
 
   return (
     <div className="space-y-4">
@@ -228,7 +227,7 @@ function StepCanone({ form, set }: { form: OutletForm; set: (k: string, v: unkno
         <Field label="Canone annuo garantito anno 1 (€)" required>
           <Input type="number" value={form.rent_annual} onChange={v => {
             set('rent_annual', v)
-            if (v) set('rent_monthly', (v / 12).toFixed(2))
+            if (v) set('rent_monthly', (Number(v) / 12).toFixed(2))
           }} placeholder="68000" />
         </Field>
         <Field label="Canone mensile (calc.)" hint="= annuo / 12">
@@ -310,7 +309,7 @@ function StepGaranzie({ form, set }: { form: OutletForm; set: (k: string, v: unk
       </div>
 
       <Field label="Note">
-        <textarea value={form.notes || ''} onChange={e => set('notes', e.target.value)} rows={3}
+        <textarea value={form.notes ? String(form.notes) : ''} onChange={e => set('notes', e.target.value)} rows={3}
           className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
           placeholder="Informazioni aggiuntive dal contratto..." />
       </Field>
@@ -320,7 +319,8 @@ function StepGaranzie({ form, set }: { form: OutletForm; set: (k: string, v: unk
 
 // ====== STEP 6: RIEPILOGO ======
 function StepRiepilogo({ form }: { form: OutletForm }) {
-  const sections = [
+  type RiepItem = [string, string | number | boolean | null | undefined]
+  const sections: Array<{ title: string; items: RiepItem[] }> = [
     { title: 'Anagrafica', items: [
       ['Nome', form.name], ['Codice', form.code], ['Brand', form.brand],
       ['SLP', form.sqm ? `${form.sqm} mq` : '—'], ['Sup. vendita', form.sell_sqm ? `${form.sell_sqm} mq` : '—'],
@@ -362,7 +362,7 @@ function StepRiepilogo({ form }: { form: OutletForm }) {
             {s.items.map(([label, value]) => (
               <div key={label} className="flex justify-between py-0.5">
                 <span className="text-slate-500">{label}</span>
-                <span className="font-medium text-slate-900">{value || '—'}</span>
+                <span className="font-medium text-slate-900">{value == null || value === '' ? '—' : String(value)}</span>
               </div>
             ))}
           </div>
@@ -371,7 +371,7 @@ function StepRiepilogo({ form }: { form: OutletForm }) {
       {form.notes && (
         <div className="bg-slate-50 rounded-lg p-3">
           <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Note</div>
-          <div className="text-sm text-slate-700">{form.notes}</div>
+          <div className="text-sm text-slate-700">{String(form.notes)}</div>
         </div>
       )}
     </div>
@@ -380,7 +380,7 @@ function StepRiepilogo({ form }: { form: OutletForm }) {
 
 // ====== STEP 7: ALLEGATI (solo se da contratto) ======
 function StepAllegati({ allegati, contractFileName, uploadedFiles, onFileUpload }: { allegati: AllegatoEntry[]; contractFileName?: string; uploadedFiles: Record<string, File>; onFileUpload?: (code: string, file: File) => void }) {
-  const defaultLabels = {
+  const defaultLabels: Record<string, string> = {
     'A': 'Planimetria Outlet',
     'B': 'Condizioni Generali',
     'C': 'Planimetria Porzione Immobiliare',
@@ -428,8 +428,9 @@ function StepAllegati({ allegati, contractFileName, uploadedFiles, onFileUpload 
                   className="hidden"
                   accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.xls,.xlsx"
                   onChange={e => {
-                    if (e.target.files[0] && onFileUpload) {
-                      onFileUpload(a.code, e.target.files[0])
+                    const f = e.target.files?.[0]
+                    if (f && onFileUpload) {
+                      onFileUpload(a.code, f)
                     }
                   }}
                 />
@@ -500,11 +501,11 @@ export default function OutletWizard({ onClose, onSaved, initialData, allegati, 
   const [step, setStep] = useState(0)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [form, setForm] = useState(initialData ? { ...defaultForm, ...initialData } : defaultForm)
-  const [wizardUploadedFiles, setWizardUploadedFiles] = useState(initialUploadedFiles || {})
+  const [form, setForm] = useState<OutletForm>(initialData ? { ...defaultForm, ...initialData } : defaultForm)
+  const [wizardUploadedFiles, setWizardUploadedFiles] = useState<Record<string, File>>(initialUploadedFiles || {})
 
-  const set = (k, v) => setForm(prev => ({ ...prev, [k]: v }))
-  const handleFileUpload = (code, file) => setWizardUploadedFiles(prev => ({ ...prev, [code]: file }))
+  const set = (k: string, v: unknown) => setForm(prev => ({ ...prev, [k]: v as OutletForm[string] }))
+  const handleFileUpload = (code: string, file: File) => setWizardUploadedFiles(prev => ({ ...prev, [code]: file }))
 
   function canNext() {
     if (step === 0) return form.name && form.code
@@ -516,17 +517,17 @@ export default function OutletWizard({ onClose, onSaved, initialData, allegati, 
     setSaving(true)
     setError(null)
 
-    const numOrNull = v => v ? parseFloat(v) : null
-    const strOrNull = v => v || null
+    const numOrNull = (v: unknown): number | null => v ? parseFloat(String(v)) : null
+    const strOrNull = (v: unknown): string | null => v ? String(v) : null
 
     const payload = {
       company_id: '00000000-0000-0000-0000-000000000001',
-      name: form.name, code: form.code,
-      brand: strOrNull(form.brand), outlet_type: form.outlet_type,
+      name: String(form.name ?? ''), code: String(form.code ?? ''),
+      brand: strOrNull(form.brand), outlet_type: String(form.outlet_type ?? 'outlet'),
       sqm: numOrNull(form.sqm), sell_sqm: numOrNull(form.sell_sqm), unit_code: strOrNull(form.unit_code),
       mall_name: strOrNull(form.mall_name), concedente: strOrNull(form.concedente), mall_manager: strOrNull(form.concedente),
       address: strOrNull(form.address), city: strOrNull(form.city), province: strOrNull(form.province), region: strOrNull(form.region),
-      delivery_date: strOrNull(form.delivery_date), opening_date: strOrNull(form.opening_date), opening_confirmed: form.opening_confirmed,
+      delivery_date: strOrNull(form.delivery_date), opening_date: strOrNull(form.opening_date), opening_confirmed: !!form.opening_confirmed,
       contract_start: strOrNull(form.contract_start), contract_end: strOrNull(form.contract_end),
       contract_duration_months: numOrNull(form.contract_duration_months), contract_min_months: numOrNull(form.contract_min_months),
       rent_free_days: numOrNull(form.rent_free_days), exit_clause_month: numOrNull(form.exit_clause_month),
@@ -543,7 +544,8 @@ export default function OutletWizard({ onClose, onSaved, initialData, allegati, 
       is_active: true, notes: strOrNull(form.notes),
     }
 
-    let inserted, err
+    let inserted: { id: string } | null = null
+    let err: { message: string } | null = null
 
     if (editId) {
       // Modalita' modifica
@@ -565,7 +567,7 @@ export default function OutletWizard({ onClose, onSaved, initialData, allegati, 
 
     // Crea record allegati se presenti
     if (inserted && allegati && allegati.length > 0) {
-      const defaultLabels = {
+      const defaultLabels: Record<string, string> = {
         'A': 'Planimetria Outlet', 'B': 'Condizioni Generali', 'C': 'Planimetria Porzione Immobiliare',
         'D': 'Elenco Impianti e Cespiti', 'E': 'Progetto layout', 'F': 'Bozza fideiussione bancaria',
         'CG': 'Condizioni Generali', 'REG': 'Regolamento immobiliare',
@@ -575,9 +577,9 @@ export default function OutletWizard({ onClose, onSaved, initialData, allegati, 
       const storagePath = `${payload.company_id}/${outletId}`
 
       // Upload dei file caricati su Supabase Storage
-      const uploadResults = {}
+      const uploadResults: Record<string, string> = {}
       for (const [code, file] of Object.entries(wizardUploadedFiles)) {
-        const ext = file.name.split('.').pop()
+        const ext = file.name.split('.').pop() ?? ''
         const filePath = `${storagePath}/allegato_${code.toLowerCase()}.${ext}`
         const { data: uploadData, error: uploadErr } = await supabase.storage
           .from('outlet-attachments')
