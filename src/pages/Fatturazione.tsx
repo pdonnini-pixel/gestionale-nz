@@ -5,6 +5,7 @@ import InvoiceViewer from '../components/InvoiceViewer'
 import StatusBadge from '../components/ui/StatusBadge'
 import { supabase } from '../lib/supabase'
 import { useYapily } from '../hooks/useYapily'
+import { useCompany } from '../hooks/useCompany'
 import { usePeriod } from '../hooks/usePeriod'
 import { useTableSort } from '../hooks/useTableSort'
 import SortableTh from '../components/ui/SortableTh'
@@ -129,6 +130,7 @@ function FatturePassive() {
   // automaticamente. L'utente puo' comunque sovrascriverlo localmente col
   // select in pagina. Se arriva da Dashboard con ?year= ha la priorita'.
   const { year: globalYear } = usePeriod()
+  const { company } = useCompany()
   const [yearFilter, setYearFilter] = useState(() => {
     if (typeof window === 'undefined') return String(globalYear || new Date().getFullYear())
     const p = new URLSearchParams(window.location.search).get('year')
@@ -1320,12 +1322,28 @@ export default function Fatturazione() {
   }, [])
 
   // Count diretto da electronic_invoices per badge tab coerente
+  // BUG-002 fix (PROMPT_TS_STRICT_COMPLETION Fase 2): la colonna `direction`
+  // non esiste nello schema. Discriminante deciso con Patrizio:
+  //   passiva (acquisto): supplier_vat IS NULL OR supplier_vat != company.vat_number
+  //   attiva (vendita):   supplier_vat == company.vat_number
+  // Caveat: assume che il parser XML SDI popoli supplier_vat con il cedente
+  // della fattura, indipendentemente dalla direzione SDI. Se in futuro emergono
+  // fatture mal-categorizzate, valutare aggiunta colonna direction al DB.
   const loadInvoiceCounts = useCallback(async () => {
     try {
-      // Uso head:true + count:'exact' per ottenere solo il count senza dati
+      const companyVat = company?.vat_number
+      // Senza P.IVA company non possiamo discriminare → trattiamo tutto come passivo
+      // (default conservativo: NZ è prevalentemente in fattura passiva).
+      if (!companyVat) {
+        const totalRes = await supabase.from('electronic_invoices').select('id', { count: 'exact', head: true })
+        setInvoiceCounts({ passive: totalRes.count || 0, active: 0 })
+        return
+      }
       const [passiveRes, activeRes] = await Promise.all([
-        supabase.from('electronic_invoices').select('id', { count: 'exact', head: true }).eq('direction', 'inbound'),
-        supabase.from('electronic_invoices').select('id', { count: 'exact', head: true }).eq('direction', 'outbound'),
+        supabase.from('electronic_invoices').select('id', { count: 'exact', head: true })
+          .or(`supplier_vat.is.null,supplier_vat.neq.${companyVat}`),
+        supabase.from('electronic_invoices').select('id', { count: 'exact', head: true })
+          .eq('supplier_vat', companyVat),
       ])
       setInvoiceCounts({
         passive: passiveRes.count || 0,
@@ -1334,7 +1352,7 @@ export default function Fatturazione() {
     } catch (err: unknown) {
       console.warn('loadInvoiceCounts:', (err as Error).message)
     }
-  }, [])
+  }, [company?.vat_number])
 
   useEffect(() => { loadStats(); loadInvoiceCounts() }, [loadStats, loadInvoiceCounts])
 

@@ -52,27 +52,32 @@ ogni file (uno alla volta). Ordine crescente — sarà l'ordine di lavoro in Fas
   preservare il bug.
 - Commit: `[ts-strict] fix: BUG-001 GlobalSearch usa gross_amount...`
 
-### BUG-002 — Fatturazione.tsx — IN ATTESA DECISIONE PATRIZIO ⏸️
+### BUG-002 — Fatturazione.tsx — FIXATO ✅
 
-`Fatturazione.tsx` righe 1327-1328 fa:
-```ts
-supabase.from('electronic_invoices').select('id', { count: 'exact', head: true }).eq('direction', 'inbound')
-supabase.from('electronic_invoices').select('id', { count: 'exact', head: true }).eq('direction', 'outbound')
-```
+Patrizio ha scelto la regola B: discriminante via `supplier_vat`.
 
-Verificato: la colonna `direction` non esiste su `electronic_invoices`. La
-query produce `400 Bad Request` a runtime. Possibili discriminanti reali nello
-schema:
-- `source` (enum `import_source`): valori `csv_banca | csv_ade | csv_pos |
-  api_pos | api_ade | manuale | csv_fatture | xml_sdi | pdf_bilancio |
-  csv_cedolini | api_yapily`. Nessun valore parla di inbound/outbound.
-- `tipo_documento` (string FatturaPA): TD01=fattura, TD04=nota credito,
-  ecc. Distingue tipi documento, NON direzione.
-- Discriminante semantico: confronto `supplier_vat` con la P.IVA della
-  company → costoso e fragile.
+**Regola applicata:**
+- **Attiva (vendita)**: `supplier_vat == company.vat_number`
+  (NZ è il cedente → fattura emessa da NZ)
+- **Passiva (acquisto)**: `supplier_vat IS NULL` oppure
+  `supplier_vat != company.vat_number`
 
-**Stop concordato**: chiesto a Patrizio quale sia l'intento originale e come
-distinguere passive/active.
+**Default conservativo**: se `supplier_vat` è null, contiamo come passiva.
+
+**Implementazione**: `Fatturazione.tsx::loadInvoiceCounts` legge la
+P.IVA via `useCompany()` (già nel context React, nessuna query
+aggiuntiva). Edge case: se `company.vat_number` non è disponibile,
+ricadiamo su "tutto passivo" (totale, 0).
+
+**Caveat**: il discriminante assume che il parser XML SDI popoli
+`supplier_vat` con il cedente della fattura, indipendentemente dalla
+direzione SDI (inbound/outbound). Se in futuro emergono fatture
+mal-categorizzate (es. NZ riceve fattura da fornitore con stessa P.IVA
+NZ → impossibile in pratica, ma teoricamente diversi sistemi che
+emettono per conto di NZ), valutare aggiunta esplicita colonna
+`direction` al DB (task separato fuori scope).
+
+**Commit**: `[ts-strict] fix: BUG-002 Fatturazione discrimina passive/active...`
 
 ### BUG-003 — AICategorization.tsx — FIXATO ✅
 - Schema reale di `ai_anomaly_log`: `is_resolved`, `created_at` (non
