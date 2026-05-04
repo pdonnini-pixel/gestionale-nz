@@ -1002,6 +1002,45 @@ export type Database = {
           },
         ]
       }
+      budget_approval_log: {
+        Row: {
+          action: string
+          actor_email: string | null
+          actor_user_id: string
+          company_id: string
+          cost_center: string
+          created_at: string
+          id: string
+          reason: string | null
+          rows_affected: number
+          year: number
+        }
+        Insert: {
+          action: string
+          actor_email?: string | null
+          actor_user_id: string
+          company_id: string
+          cost_center: string
+          created_at?: string
+          id?: string
+          reason?: string | null
+          rows_affected?: number
+          year: number
+        }
+        Update: {
+          action?: string
+          actor_email?: string | null
+          actor_user_id?: string
+          company_id?: string
+          cost_center?: string
+          created_at?: string
+          id?: string
+          reason?: string | null
+          rows_affected?: number
+          year?: number
+        }
+        Relationships: []
+      }
       budget_confronto: {
         Row: {
           account_code: string
@@ -1012,6 +1051,8 @@ export type Database = {
           entry_type: string
           id: string
           month: number
+          rettifica_amount: number | null
+          rettifica_pct: number | null
           updated_at: string | null
           year: number
         }
@@ -1024,6 +1065,8 @@ export type Database = {
           entry_type: string
           id?: string
           month?: number
+          rettifica_amount?: number | null
+          rettifica_pct?: number | null
           updated_at?: string | null
           year: number
         }
@@ -1036,6 +1079,8 @@ export type Database = {
           entry_type?: string
           id?: string
           month?: number
+          rettifica_amount?: number | null
+          rettifica_pct?: number | null
           updated_at?: string | null
           year?: number
         }
@@ -1114,6 +1159,9 @@ export type Database = {
           macro_group: string
           month: number
           note: string | null
+          unlock_reason: string | null
+          unlocked_at: string | null
+          unlocked_by: string | null
           updated_at: string | null
           year: number
         }
@@ -1132,6 +1180,9 @@ export type Database = {
           macro_group: string
           month: number
           note?: string | null
+          unlock_reason?: string | null
+          unlocked_at?: string | null
+          unlocked_by?: string | null
           updated_at?: string | null
           year: number
         }
@@ -1150,8 +1201,68 @@ export type Database = {
           macro_group?: string
           month?: number
           note?: string | null
+          unlock_reason?: string | null
+          unlocked_at?: string | null
+          unlocked_by?: string | null
           updated_at?: string | null
           year?: number
+        }
+        Relationships: []
+      }
+      budget_entries_backup_20260504: {
+        Row: {
+          account_code: string | null
+          account_name: string | null
+          actual_amount: number | null
+          approved_at: string | null
+          approved_by: string | null
+          budget_amount: number | null
+          company_id: string | null
+          cost_center: string | null
+          created_at: string | null
+          id: string | null
+          is_approved: boolean | null
+          macro_group: string | null
+          month: number | null
+          note: string | null
+          updated_at: string | null
+          year: number | null
+        }
+        Insert: {
+          account_code?: string | null
+          account_name?: string | null
+          actual_amount?: number | null
+          approved_at?: string | null
+          approved_by?: string | null
+          budget_amount?: number | null
+          company_id?: string | null
+          cost_center?: string | null
+          created_at?: string | null
+          id?: string | null
+          is_approved?: boolean | null
+          macro_group?: string | null
+          month?: number | null
+          note?: string | null
+          updated_at?: string | null
+          year?: number | null
+        }
+        Update: {
+          account_code?: string | null
+          account_name?: string | null
+          actual_amount?: number | null
+          approved_at?: string | null
+          approved_by?: string | null
+          budget_amount?: number | null
+          company_id?: string | null
+          cost_center?: string | null
+          created_at?: string | null
+          id?: string | null
+          is_approved?: boolean | null
+          macro_group?: string | null
+          month?: number | null
+          note?: string | null
+          updated_at?: string | null
+          year?: number | null
         }
         Relationships: []
       }
@@ -7704,6 +7815,10 @@ export type Database = {
         Args: { p_company_id: string }
         Returns: number
       }
+      approve_budget_outlet_year: {
+        Args: { p_cost_center: string; p_year: number }
+        Returns: number
+      }
       bytea_to_text: { Args: { data: string }; Returns: string }
       get_my_company_id: { Args: never; Returns: string }
       get_my_role: {
@@ -7720,6 +7835,7 @@ export type Database = {
         }[]
       }
       get_yapily_credentials: { Args: never; Returns: Json }
+      has_jwt_role: { Args: { role_name: string }; Returns: boolean }
       has_outlet_access: { Args: { p_outlet_id: string }; Returns: boolean }
       has_outlet_write: { Args: { p_outlet_id: string }; Returns: boolean }
       http: {
@@ -7851,9 +7967,14 @@ export type Database = {
         Args: { p_company_id: string }
         Returns: undefined
       }
+      jwt_company_id: { Args: never; Returns: string }
       show_limit: { Args: never; Returns: number }
       show_trgm: { Args: { "": string }; Returns: string[] }
       text_to_bytea: { Args: { data: string }; Returns: string }
+      unlock_budget_outlet_year: {
+        Args: { p_cost_center: string; p_reason: string; p_year: number }
+        Returns: number
+      }
       urlencode:
         | { Args: { data: Json }; Returns: string }
         | {
