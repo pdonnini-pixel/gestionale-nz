@@ -1,5 +1,3 @@
-// @ts-nocheck
-// TODO: tighten types
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { TrendingUp, AlertCircle, Target, Loader2, ToggleLeft, ToggleRight, Save, CheckCircle } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
@@ -188,7 +186,8 @@ export default function ScenarioPlanning() {
         created_at: new Date().toISOString(),
       };
 
-      const { error: insertError } = await supabase
+      const sb = supabase as unknown as { from: (t: string) => { insert: (r: Record<string, unknown>) => Promise<{ error: { code?: string; message: string } | null }> } }
+      const { error: insertError } = await sb
         .from('scenario_simulations')
         .insert(scenarioData);
 
@@ -462,8 +461,8 @@ export default function ScenarioPlanning() {
                       {nuovoOutlet ? 'Mesi al Break-Even' : 'Delta Utile Annuo'}
                     </p>
                     {nuovoOutlet ? (
-                      <p className={`text-2xl font-bold ${scenario.mesiBreakEven > 0 ? 'text-blue-700' : 'text-red-700'}`}>
-                        {scenario.mesiBreakEven > 0
+                      <p className={`text-2xl font-bold ${(scenario.mesiBreakEven ?? 0) > 0 ? 'text-blue-700' : 'text-red-700'}`}>
+                        {(scenario.mesiBreakEven ?? 0) > 0
                           ? `${scenario.mesiBreakEven} mesi`
                           : 'Mai'
                         }

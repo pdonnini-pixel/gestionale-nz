@@ -1,5 +1,3 @@
-// @ts-nocheck
-// TODO: tighten types
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import {
   Calendar, Receipt, AlertTriangle, CheckCircle2, Clock, Plus, Edit2,
@@ -18,7 +16,7 @@ function fmt(n: number | null | undefined) {
 const fmtDate = (d: string | null | undefined) => d ? new Date(d).toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '—'
 const daysUntil = (d: string | null | undefined) => {
   if (!d) return null
-  return Math.round((new Date(d) - new Date()) / (1000 * 60 * 60 * 24))
+  return Math.round((new Date(d).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))
 }
 
 /* ───── configs ───── */
@@ -185,7 +183,7 @@ function ModalDeadline({ isOpen, isEdit, deadline, onClose, onSave, saving }: { 
           <div className="col-span-2">
             <label className="block text-xs font-medium text-slate-500 mb-1">Note</label>
             <textarea value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })}
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" rows="2" />
+              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" rows={2} />
           </div>
         </div>
 
@@ -261,14 +259,14 @@ export default function ScadenzeFiscali() {
   // KPIs
   const kpi = useMemo(() => {
     const active = deadlines.filter(d => !['paid', 'cancelled'].includes(d.status))
-    const overdue = active.filter(d => daysUntil(d.due_date) < 0)
+    const overdue = active.filter(d => (daysUntil(d.due_date) ?? 0) < 0)
     const thisWeek = active.filter(d => {
-      const days = daysUntil(d.due_date)
-      return days >= 0 && days <= 7
+      const days = daysUntil(d.due_date) ?? null
+      return days != null && days >= 0 && days <= 7
     })
     const thisMonth = active.filter(d => {
-      const days = daysUntil(d.due_date)
-      return days >= 0 && days <= 30
+      const days = daysUntil(d.due_date) ?? null
+      return days != null && days >= 0 && days <= 30
     })
     const totalDue = active.reduce((s, d) => s + Number(d.amount || 0), 0)
     const paid = deadlines.filter(d => d.status === 'paid')
@@ -277,16 +275,16 @@ export default function ScadenzeFiscali() {
   }, [deadlines])
 
   // Save handler
-  // TODO: tighten type
-  const handleSave = async (form: any) => {
+  const handleSave = async (form: Record<string, unknown>) => {
+    if (!COMPANY_ID) return
     setSaving(true)
     try {
-      const record = {
+      const record: Record<string, unknown> = {
         company_id: COMPANY_ID,
         deadline_type: form.deadline_type,
         title: form.title,
         description: form.description || null,
-        amount: form.amount ? parseFloat(form.amount) : null,
+        amount: form.amount ? parseFloat(String(form.amount)) : null,
         due_date: form.due_date,
         f24_code: form.f24_code || null,
         tax_period: form.tax_period || null,
@@ -295,23 +293,29 @@ export default function ScadenzeFiscali() {
         recurrence_rule: form.is_recurring ? form.recurrence_rule || null : null,
         notes: form.notes || null,
         status: form.status,
-        reminder_date: form.due_date ? new Date(new Date(form.due_date).getTime() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] : null,
+        reminder_date: form.due_date ? new Date(new Date(String(form.due_date)).getTime() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] : null,
       }
 
+      // Cast supabase per accettare record con shape flessibile.
+      const sb = supabase as unknown as { from: (t: string) => {
+        update: (r: Record<string, unknown>) => { eq: (k: string, v: string) => Promise<{ error: { message: string } | null }> };
+        insert: (r: Record<string, unknown>) => Promise<{ error: { message: string } | null }>;
+      } }
+
       if (editingDeadline?.id) {
-        const { error } = await supabase.from('fiscal_deadlines').update(record).eq('id', editingDeadline.id)
+        const { error } = await sb.from('fiscal_deadlines').update(record).eq('id', editingDeadline.id)
         if (error) throw error
       } else {
         record.created_by = profile?.id
-        const { error } = await supabase.from('fiscal_deadlines').insert(record)
+        const { error } = await sb.from('fiscal_deadlines').insert(record)
         if (error) throw error
       }
       setModalOpen(false)
       setEditingDeadline(null)
       await loadData()
-    } catch (e) {
+    } catch (e: unknown) {
       console.error('Save error:', e)
-      alert('Errore nel salvataggio: ' + e.message)
+      alert('Errore nel salvataggio: ' + (e instanceof Error ? e.message : ''))
     } finally {
       setSaving(false)
     }
@@ -428,7 +432,7 @@ export default function ScadenzeFiscali() {
               className="px-3 py-1.5 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-blue-400/40 bg-white">
               <option value="all">Tutti i tipi</option>
               {uniqueTypes.map(t => (
-                <option key={t} value={t}>{TYPE_CONFIG[t]?.label || t}</option>
+                <option key={t} value={t}>{(TYPE_CONFIG as Record<string, { label: string }>)[t]?.label || t}</option>
               ))}
             </select>
             <div className="relative">
@@ -470,8 +474,8 @@ export default function ScadenzeFiscali() {
                     const days = daysUntil(dl.due_date)
                     const isOverdue = days !== null && days < 0 && dl.status !== 'paid'
                     const isUrgent = days !== null && days >= 0 && days <= 7 && dl.status !== 'paid'
-                    const typeConfig = TYPE_CONFIG[dl.deadline_type] || TYPE_CONFIG.altro
-                    const statusCfg = STATUS_CONFIG[dl.status] || STATUS_CONFIG.pending
+                    const typeConfig = (TYPE_CONFIG as Record<string, { label: string; color: string; icon: typeof FileText }>)[dl.deadline_type] || TYPE_CONFIG.altro
+                    const statusCfg = (STATUS_CONFIG as Record<string, { label: string; color: string }>)[dl.status] || STATUS_CONFIG.pending
                     const TypeIcon = typeConfig.icon
 
                     return (
