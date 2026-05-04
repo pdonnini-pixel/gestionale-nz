@@ -1,6 +1,11 @@
-// @ts-nocheck — TODO tighten: pagina complessa con shape Supabase + indexing dinamico, da rivedere
-import { useState, useEffect, useMemo, useRef } from 'react'
+import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { supabase } from '../lib/supabase'
+
+// Tipi loose per le entità della pagina (la shape Supabase ha molti campi
+// opzionali e relazioni non strict; teniamo Record<string, unknown> con
+// le chiavi note per rendere il code-path leggibile senza esplodere).
+type PayableLite = Record<string, unknown> & { id?: string; payment_method?: string | null; amount_remaining?: number | null }
+type BankAccountLite = Record<string, unknown> & { id?: string }
 import {
   Receipt, Search, Filter, RefreshCw, CheckCircle2, PauseCircle,
   CalendarClock, RotateCcw, XCircle, ChevronDown, X, Landmark,
@@ -19,7 +24,7 @@ function fmtDate(d: string | null | undefined): string {
   return new Date(d).toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric' })
 }
 
-const statusConfig = {
+const statusConfig: Record<string, { label: string; bg: string }> = {
   scaduto:      { label: 'Scaduto',      bg: 'bg-red-100 text-red-700' },
   in_scadenza:  { label: 'In scadenza',  bg: 'bg-amber-100 text-amber-700' },
   da_pagare:    { label: 'Da pagare',    bg: 'bg-blue-100 text-blue-700' },
@@ -30,7 +35,7 @@ const statusConfig = {
   annullato:    { label: 'Annullato',    bg: 'bg-gray-100 text-gray-500' },
 }
 
-const paymentMethodLabels = {
+const paymentMethodLabels: Record<string, string> = {
   bonifico_ordinario: 'Bonifico ordinario',
   bonifico_urgente: 'Bonifico urgente',
   bonifico_sepa: 'Bonifico SEPA',
@@ -62,7 +67,7 @@ const paymentGroups = [
 ]
 
 // RIBA maturity days lookup
-const RIBA_DAYS = { riba_30: 30, riba_60: 60, riba_90: 90, riba_120: 120 }
+const RIBA_DAYS: Record<string, number> = { riba_30: 30, riba_60: 60, riba_90: 90, riba_120: 120 }
 
 // --- Componente Pill ---
 function StatusPill({ status }: { status: string }) {
@@ -71,8 +76,8 @@ function StatusPill({ status }: { status: string }) {
 }
 
 // --- Modal Base ---
-// TODO: tighten type
-function Modal({ open, onClose, title, children, wide }: any) {
+interface ModalProps { open: boolean; onClose: () => void; title: string; children: React.ReactNode; wide?: boolean }
+function Modal({ open, onClose, title, children, wide }: ModalProps) {
   if (!open) return null
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={onClose}>
@@ -88,8 +93,14 @@ function Modal({ open, onClose, title, children, wide }: any) {
 }
 
 // --- Modal SALDA (con logica RIBA) ---
-// TODO: tighten type
-function ModalSalda({ open, onClose, payable, bankAccounts, onConfirm }: any) {
+interface ModalSaldaProps {
+  open: boolean
+  onClose: () => void
+  payable: PayableLite | null
+  bankAccounts: BankAccountLite[]
+  onConfirm: (params: { bankId: string; method: string; amount: number; date: string; note: string; ribaBancaAppoggio: string; ribaSiaCode: string; ribaPresentationDate: string }) => Promise<void>
+}
+function ModalSalda({ open, onClose, payable, bankAccounts, onConfirm }: ModalSaldaProps) {
   const [bankId, setBankId] = useState('')
   const [method, setMethod] = useState(payable?.payment_method || 'bonifico_ordinario')
   const [amount, setAmount] = useState('')
@@ -105,7 +116,8 @@ function ModalSalda({ open, onClose, payable, bankAccounts, onConfirm }: any) {
 
   useEffect(() => {
     if (payable) {
-      setAmount(payable.amount_remaining?.toFixed(2) || '')
+      const rem = payable.amount_remaining
+      setAmount(typeof rem === 'number' ? rem.toFixed(2) : '')
       setMethod(payable.payment_method || 'bonifico_ordinario')
     }
   }, [payable])
@@ -120,12 +132,14 @@ function ModalSalda({ open, onClose, payable, bankAccounts, onConfirm }: any) {
     }
   }, [isRiba, method, ribaPresentationDate])
 
-  async function handleSubmit(e) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setSaving(true)
     await onConfirm({
       bankId, method, amount: parseFloat(amount), date, note,
-      ...(isRiba ? { ribaBancaAppoggio, ribaSiaCode, ribaPresentationDate } : {})
+      ribaBancaAppoggio: isRiba ? ribaBancaAppoggio : '',
+      ribaSiaCode: isRiba ? ribaSiaCode : '',
+      ribaPresentationDate: isRiba ? ribaPresentationDate : '',
     })
     setSaving(false)
   }
@@ -135,8 +149,8 @@ function ModalSalda({ open, onClose, payable, bankAccounts, onConfirm }: any) {
   return (
     <Modal open={open} onClose={onClose} title="Salda scadenza">
       <div className="mb-4 p-3 bg-slate-50 rounded-lg text-sm">
-        <div className="font-medium">{payable.supplier_name}</div>
-        <div className="text-slate-500">Fatt. {payable.invoice_number} — Scadenza {fmtDate(payable.due_date)}</div>
+        <div className="font-medium">{String(payable.supplier_name ?? '')}</div>
+        <div className="text-slate-500">Fatt. {String(payable.invoice_number ?? '')} — Scadenza {fmtDate(payable.due_date as string | null | undefined)}</div>
         <div className="text-lg font-bold mt-1">{fmt(payable.amount_remaining)} €</div>
       </div>
 
@@ -146,11 +160,16 @@ function ModalSalda({ open, onClose, payable, bankAccounts, onConfirm }: any) {
           <select value={bankId} onChange={e => setBankId(e.target.value)} required
             className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none">
             <option value="">Seleziona conto...</option>
-            {bankAccounts.map(ba => (
-              <option key={ba.bank_account_id} value={ba.bank_account_id}>
-                {ba.bank_name} — Disp. {fmt(ba.total_available)} €
-              </option>
-            ))}
+            {bankAccounts.map(ba => {
+              const baId = String(ba.bank_account_id ?? '')
+              const bankName = String(ba.bank_name ?? '')
+              const tot = ba.total_available as number | null | undefined
+              return (
+                <option key={baId} value={baId}>
+                  {bankName} — Disp. {fmt(tot)} €
+                </option>
+              )
+            })}
           </select>
         </div>
 
@@ -239,7 +258,7 @@ function ModalSospendi({ open, onClose, payable, onConfirm }: any) {
   const [saving, setSaving] = useState(false)
   const reasons = ['Contestazione fattura', 'In attesa nota credito', 'Verifica importo', 'Merce non conforme', 'Altro']
 
-  async function handleSubmit(e) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setSaving(true)
     await onConfirm({ reason, note })
@@ -287,7 +306,7 @@ function ModalRimanda({ open, onClose, payable, onConfirm }: any) {
   const [note, setNote] = useState('')
   const [saving, setSaving] = useState(false)
 
-  async function handleSubmit(e) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setSaving(true)
     await onConfirm({ newDate, note })
@@ -353,7 +372,7 @@ function ModalRateizza({ open, onClose, payable, onConfirm }: any) {
     }
   })
 
-  async function handleSubmit(e) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setSaving(true)
     await onConfirm({ rate, originalPayable: payable })
@@ -455,7 +474,7 @@ function ModalFornitore({ open, onClose, supplier, onSave }: any) {
     }
   }, [supplier, open])
 
-  async function handleSubmit(e) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setSaving(true)
     await onSave(form, supplier?.id)
@@ -531,7 +550,7 @@ function parseFatturaPA(xmlText: string) {
   const doc = parser.parseFromString(xmlText, 'text/xml')
 
   // Helper to get text content from a tag name
-  const getText = (parent, tag) => {
+  const getText = (parent: Element | Document | null | undefined, tag: string) => {
     const el = parent?.getElementsByTagName(tag)?.[0]
     return el?.textContent?.trim() || ''
   }
@@ -593,7 +612,7 @@ function parseFatturaPA(xmlText: string) {
 }
 
 // Map FatturaPA payment codes to our methods
-const FATTURAPA_METHODS = {
+const FATTURAPA_METHODS: Record<string, string> = {
   MP01: 'contanti', MP02: 'assegno', MP03: 'assegno',
   MP05: 'bonifico_ordinario', MP06: 'assegno',
   MP08: 'carta_credito', MP09: 'rid', MP10: 'rid',
@@ -604,29 +623,37 @@ const FATTURAPA_METHODS = {
   MP21: 'bollettino_postale', MP22: 'f24',
 }
 
+// Shape ridotta per fattura XML parsata (vedi parseFatturaPA in fondo).
+interface ParsedXmlInvoice {
+  supplier: { name: string; piva: string | null; cf: string | null }
+  invoiceNumber: string
+  invoiceDate: string
+  payments: Array<{ amount: number; dueDate: string; method: string }>
+}
+
 // --- Pagina principale ---
 export default function Scadenzario() {
-  const [payables, setPayables] = useState<any[]>([])
-  const [bankAccounts, setBankAccounts] = useState<any[]>([])
-  const [suppliers, setSuppliers] = useState<any[]>([])
+  const [payables, setPayables] = useState<PayableLite[]>([])
+  const [bankAccounts, setBankAccounts] = useState<BankAccountLite[]>([])
+  const [suppliers, setSuppliers] = useState<Record<string, unknown>[]>([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState('attive')
   const [search, setSearch] = useState('')
-  const [selected, setSelected] = useState<any>(null)
-  const [modal, setModal] = useState<any>(null) // 'salda', 'sospendi', 'rimanda', 'rateizza', 'fornitore', 'importXml'
+  const [selected, setSelected] = useState<PayableLite | null>(null)
+  const [modal, setModal] = useState<string | null>(null) // 'salda', 'sospendi', 'rimanda', 'rateizza', 'fornitore', 'importXml'
   const [tab, setTab] = useState('scadenze') // 'scadenze', 'fornitori', 'riconciliazione'
 
   // Fornitore edit state
-  const [editSupplier, setEditSupplier] = useState<any>(null)
-  const [deleteConfirm, setDeleteConfirm] = useState<any>(null)
+  const [editSupplier, setEditSupplier] = useState<Record<string, unknown> | null>(null)
+  const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name?: string } | null>(null)
 
   // XML import state
-  const [xmlParsed, setXmlParsed] = useState<any>(null)
+  const [xmlParsed, setXmlParsed] = useState<ParsedXmlInvoice[] | null>(null)
   const [xmlImporting, setXmlImporting] = useState(false)
-  const xmlInputRef = useRef(null)
+  const xmlInputRef = useRef<HTMLInputElement | null>(null)
 
   // Riconciliazione
-  const [reconPayments, setReconPayments] = useState<any[]>([])
+  const [reconPayments, setReconPayments] = useState<Record<string, unknown>[]>([])
 
   // Incassi (bank_transactions con amount > 0)
   const [incomes, setIncomes] = useState<any[]>([])
@@ -663,7 +690,7 @@ export default function Scadenzario() {
   }
 
   // Categorizzazione automatica degli incassi in base alla descrizione
-  function categorizeIncome(description) {
+  function categorizeIncome(description: string | null | undefined) {
     const d = (description || '').toLowerCase()
     if (d.includes('p.o.s.') || /\bpos\b/.test(d)) return 'POS'
     if (d.includes('bonifico') && (d.includes('favore') || d.includes('ordinante'))) return 'Bonifico in entrata'
@@ -727,9 +754,9 @@ export default function Scadenzario() {
       supabase.from('v_bank_accounts_detail').select('*'),
       supabase.from('suppliers').select('*').or('is_deleted.is.null,is_deleted.eq.false').order('ragione_sociale'),
     ])
-    if (payRes.data) setPayables(payRes.data)
-    if (bankRes.data) setBankAccounts(bankRes.data)
-    if (supRes.data) setSuppliers(supRes.data)
+    if (payRes.data) setPayables(payRes.data as unknown as PayableLite[])
+    if (bankRes.data) setBankAccounts(bankRes.data as unknown as BankAccountLite[])
+    if (supRes.data) setSuppliers(supRes.data as unknown as Record<string, unknown>[])
 
     // Load recent payments for reconciliation
     const { data: actions } = await supabase
@@ -748,123 +775,130 @@ export default function Scadenzario() {
   // in alto). Le note credito (status='nota_credito') sono escluse.
   const filtered = useMemo(() => {
     let list = payables
-    if (filter === 'attive') list = list.filter(p => ['da_pagare', 'in_scadenza', 'scaduto', 'parziale'].includes(p.status))
+    if (filter === 'attive') list = list.filter(p => ['da_pagare', 'in_scadenza', 'scaduto', 'parziale'].includes(String(p.status ?? '')))
     else if (filter === 'pagate') list = list.filter(p => p.status === 'pagato')
-    else if (filter === 'sospese') list = list.filter(p => ['sospeso', 'rimandato'].includes(p.status))
+    else if (filter === 'sospese') list = list.filter(p => ['sospeso', 'rimandato'].includes(String(p.status ?? '')))
     if (search) {
       const q = search.toLowerCase()
       list = list.filter(p =>
-        (p.supplier_name || '').toLowerCase().includes(q) ||
-        (p.invoice_number || '').toLowerCase().includes(q) ||
-        (p.outlet_name || '').toLowerCase().includes(q)
+        String(p.supplier_name || '').toLowerCase().includes(q) ||
+        String(p.invoice_number || '').toLowerCase().includes(q) ||
+        String(p.outlet_name || '').toLowerCase().includes(q)
       )
     }
     // Ordine: scadenza piu' vecchia prima (quella piu' urgente da pagare)
     return list.slice().sort((a, b) => {
-      const da = a.due_date ? new Date(a.due_date).getTime() : Infinity
-      const db = b.due_date ? new Date(b.due_date).getTime() : Infinity
+      const da = a.due_date ? new Date(String(a.due_date)).getTime() : Infinity
+      const db = b.due_date ? new Date(String(b.due_date)).getTime() : Infinity
       return da - db
     })
   }, [payables, filter, search])
 
   // Totale delle scadenze filtrate — sempre visibile
   const filteredTotal = useMemo(
-    () => filtered.reduce((s, p) => s + (parseFloat(p.gross_amount) || 0), 0),
+    () => filtered.reduce((s, p) => s + (Number(p.gross_amount) || 0), 0),
     [filtered]
   )
 
   const totals = useMemo(() => {
-    const active = payables.filter(p => ['da_pagare', 'in_scadenza', 'scaduto', 'parziale'].includes(p.status))
+    const active = payables.filter(p => ['da_pagare', 'in_scadenza', 'scaduto', 'parziale'].includes(String(p.status ?? '')))
     return {
       count: active.length,
-      total: active.reduce((s, p) => s + (p.amount_remaining || 0), 0),
-      overdue: active.filter(p => p.status === 'scaduto').reduce((s, p) => s + (p.amount_remaining || 0), 0),
-      next7: active.filter(p => p.days_to_due >= 0 && p.days_to_due <= 7).reduce((s, p) => s + (p.amount_remaining || 0), 0),
+      total: active.reduce((s, p) => s + Number(p.amount_remaining || 0), 0),
+      overdue: active.filter(p => p.status === 'scaduto').reduce((s, p) => s + Number(p.amount_remaining || 0), 0),
+      next7: active.filter(p => Number(p.days_to_due ?? -1) >= 0 && Number(p.days_to_due ?? -1) <= 7).reduce((s, p) => s + Number(p.amount_remaining || 0), 0),
       suspended: payables.filter(p => p.status === 'sospeso').length,
     }
   }, [payables])
 
   // --- Azioni ---
-  async function handleSalda({ bankId, method, amount, date, note, ribaBancaAppoggio, ribaSiaCode, ribaPresentationDate }) {
-    const p = selected
+  async function handleSalda({ bankId, method, amount, date, note, ribaBancaAppoggio, ribaSiaCode }: { bankId: string; method: string; amount: number; date: string; note: string; ribaBancaAppoggio: string; ribaSiaCode: string; ribaPresentationDate: string }) {
+    const p = selected as PayableLite | null
+    if (!p) return
+    const amountPaid = Number(p.amount_paid ?? 0)
+    const amountRemaining = Number(p.amount_remaining ?? 0)
+    const newStatus = amount >= amountRemaining ? 'pagato' : 'parziale'
     await supabase.from('payables').update({
-      amount_paid: (p.amount_paid || 0) + amount,
+      amount_paid: amountPaid + amount,
       payment_date: date,
       payment_bank_account_id: bankId,
       payment_method: method,
-      status: amount >= p.amount_remaining ? 'pagato' : 'parziale',
-    }).eq('id', p.id)
+      status: newStatus,
+    } as never).eq('id', String(p.id))
 
     await supabase.from('payable_actions').insert({
-      payable_id: p.id,
-      action_type: amount >= p.amount_remaining ? 'pagamento' : 'pagamento_parziale',
-      old_status: p.status,
-      new_status: amount >= p.amount_remaining ? 'pagato' : 'parziale',
+      payable_id: String(p.id),
+      action_type: amount >= amountRemaining ? 'pagamento' : 'pagamento_parziale',
+      old_status: String(p.status ?? ''),
+      new_status: newStatus,
       amount,
       bank_account_id: bankId,
       payment_method: method,
       note: [note, ribaBancaAppoggio ? `RIBA: ${ribaBancaAppoggio}` : '', ribaSiaCode ? `SIA: ${ribaSiaCode}` : ''].filter(Boolean).join(' | '),
-    })
+    } as never)
 
     setModal(null)
     setSelected(null)
     loadData()
   }
 
-  async function handleSospendi({ reason, note }) {
-    const p = selected
+  async function handleSospendi({ reason, note }: { reason: string; note: string }) {
+    const p = selected as PayableLite | null
+    if (!p) return
     await supabase.from('payables').update({
       status: 'sospeso', suspend_reason: reason,
       suspend_date: new Date().toISOString().slice(0, 10),
-    }).eq('id', p.id)
+    } as never).eq('id', String(p.id))
 
     await supabase.from('payable_actions').insert({
-      payable_id: p.id, action_type: 'sospensione',
-      old_status: p.status, new_status: 'sospeso',
+      payable_id: String(p.id), action_type: 'sospensione',
+      old_status: String(p.status ?? ''), new_status: 'sospeso',
       note: `${reason}: ${note}`,
-    })
+    } as never)
 
     setModal(null); setSelected(null); loadData()
   }
 
-  async function handleRimanda({ newDate, note }) {
-    const p = selected
+  async function handleRimanda({ newDate, note }: { newDate: string; note: string }) {
+    const p = selected as PayableLite | null
+    if (!p) return
     await supabase.from('payables').update({
-      postponed_to: newDate, postpone_count: (p.postpone_count || 0) + 1, status: 'rimandato',
-    }).eq('id', p.id)
+      postponed_to: newDate, postpone_count: Number(p.postpone_count ?? 0) + 1, status: 'rimandato',
+    } as never).eq('id', String(p.id))
 
     await supabase.from('payable_actions').insert({
-      payable_id: p.id, action_type: 'rimando',
-      old_status: p.status, new_status: 'rimandato',
+      payable_id: String(p.id), action_type: 'rimando',
+      old_status: String(p.status ?? ''), new_status: 'rimandato',
       old_due_date: p.due_date, new_due_date: newDate, note,
-    })
+    } as never)
 
     setModal(null); setSelected(null); loadData()
   }
 
-  async function handleRiattiva(p) {
+  async function handleRiattiva(p: PayableLite) {
     await supabase.from('payables').update({
       status: 'da_pagare', suspend_reason: null, suspend_date: null,
-    }).eq('id', p.id)
+    } as never).eq('id', String(p.id))
 
     await supabase.from('payable_actions').insert({
-      payable_id: p.id, action_type: 'riattivazione',
-      old_status: p.status, new_status: 'da_pagare',
-    })
+      payable_id: String(p.id), action_type: 'riattivazione',
+      old_status: String(p.status ?? ''), new_status: 'da_pagare',
+    } as never)
     loadData()
   }
 
   // Rate multiple
-  async function handleRateizza({ rate, originalPayable }) {
+  interface RataInput { num: number; amount: number; date: string }
+  async function handleRateizza({ rate, originalPayable }: { rate: RataInput[]; originalPayable: PayableLite }) {
     try {
       // Mark original as "annullato" and create N new payables
-      await supabase.from('payables').update({ status: 'annullato' }).eq('id', originalPayable.id)
+      await supabase.from('payables').update({ status: 'annullato' } as never).eq('id', String(originalPayable.id))
 
       await supabase.from('payable_actions').insert({
-        payable_id: originalPayable.id, action_type: 'rateizzazione',
-        old_status: originalPayable.status, new_status: 'annullato',
+        payable_id: String(originalPayable.id), action_type: 'rateizzazione',
+        old_status: String(originalPayable.status ?? ''), new_status: 'annullato',
         note: `Rateizzata in ${rate.length} rate`,
-      })
+      } as never)
 
       // Create new payables for each installment
       for (const r of rate) {
@@ -878,9 +912,9 @@ export default function Scadenzario() {
           status: 'da_pagare',
           payment_method: originalPayable.payment_method,
           outlet_id: originalPayable.outlet_id,
-          company_id: originalPayable.company_id,
+          company_id: String(originalPayable.company_id ?? ''),
           parent_payable_id: originalPayable.id,
-        })
+        } as never)
       }
 
       setModal(null); setSelected(null); loadData()
@@ -891,12 +925,12 @@ export default function Scadenzario() {
   }
 
   // Fornitori CRUD
-  async function handleSaveSupplier(form, existingId) {
+  async function handleSaveSupplier(form: Record<string, unknown>, existingId: string | null) {
     try {
       if (existingId) {
-        await supabase.from('suppliers').update(form).eq('id', existingId)
+        await supabase.from('suppliers').update(form as never).eq('id', existingId)
       } else {
-        await supabase.from('suppliers').insert(form)
+        await supabase.from('suppliers').insert(form as never)
       }
       setModal(null); setEditSupplier(null); loadData()
     } catch (err: unknown) {
@@ -905,9 +939,9 @@ export default function Scadenzario() {
     }
   }
 
-  async function handleDeleteSupplier(id) {
+  async function handleDeleteSupplier(id: string) {
     try {
-      await supabase.from('suppliers').update({ is_deleted: true }).eq('id', id)
+      await supabase.from('suppliers').update({ is_deleted: true } as never).eq('id', id)
       setDeleteConfirm(null); loadData()
     } catch (err: unknown) {
       console.error('Error deleting supplier:', err)
@@ -915,7 +949,7 @@ export default function Scadenzario() {
   }
 
   // XML Import
-  async function handleXmlUpload(e) {
+  async function handleXmlUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
     try {
@@ -940,7 +974,7 @@ export default function Scadenzario() {
     try {
       for (const invoice of xmlParsed) {
         // Find or create supplier
-        let supplierId = null
+        let supplierId: string | null = null
         if (invoice.supplier.piva) {
           const { data: existing } = await supabase.from('suppliers')
             .select('id').eq('partita_iva', invoice.supplier.piva).maybeSingle()
@@ -951,8 +985,8 @@ export default function Scadenzario() {
               ragione_sociale: invoice.supplier.name,
               partita_iva: invoice.supplier.piva,
               codice_fiscale: invoice.supplier.cf,
-            }).select('id').single()
-            supplierId = newSup?.id
+            } as never).select('id').single()
+            supplierId = newSup?.id ?? null
           }
         }
 
@@ -967,7 +1001,7 @@ export default function Scadenzario() {
             due_date: pay.dueDate,
             status: 'da_pagare',
             payment_method: FATTURAPA_METHODS[pay.method] || 'bonifico_ordinario',
-          })
+          } as never)
         }
       }
 
@@ -984,15 +1018,15 @@ export default function Scadenzario() {
     { key: 'attive', label: 'Attive', count: totals.count },
     { key: 'tutte', label: 'Tutte', count: payables.length },
     { key: 'pagate', label: 'Pagate', count: payables.filter(p => p.status === 'pagato').length },
-    { key: 'sospese', label: 'Sospese', count: payables.filter(p => ['sospeso', 'rimandato'].includes(p.status)).length },
+    { key: 'sospese', label: 'Sospese', count: payables.filter(p => ['sospeso', 'rimandato'].includes(String(p.status ?? ''))).length },
   ]
 
   const filteredSuppliers = useMemo(() => {
     if (!search) return suppliers.filter(s => !s.is_deleted)
     const q = search.toLowerCase()
     return suppliers.filter(s => !s.is_deleted && (
-      (s.ragione_sociale || '').toLowerCase().includes(q) ||
-      (s.partita_iva || '').toLowerCase().includes(q)
+      String(s.ragione_sociale || '').toLowerCase().includes(q) ||
+      String(s.partita_iva || '').toLowerCase().includes(q)
     ))
   }, [suppliers, search])
 
@@ -1103,29 +1137,32 @@ export default function Scadenzario() {
                     </tr>
                   </thead>
                   <tbody>
-                    {filtered.map(p => (
-                      <tr key={p.id} className="border-b border-slate-50 hover:bg-slate-50/50 transition">
-                        <td className="py-3 px-4 text-sm font-medium text-slate-900">{p.supplier_name || '—'}</td>
-                        <td className="py-3 px-4 text-sm text-slate-600">{p.invoice_number}</td>
-                        <td className="py-3 px-4 text-sm text-slate-500">{p.outlet_name || 'Aziendale'}</td>
-                        <td className="py-3 px-4 text-sm text-right font-medium">{fmt(p.amount_remaining)} €</td>
+                    {filtered.map(p => {
+                      const dtd = Number(p.days_to_due ?? NaN)
+                      const dtdValid = !isNaN(dtd)
+                      return (
+                      <tr key={String(p.id)} className="border-b border-slate-50 hover:bg-slate-50/50 transition">
+                        <td className="py-3 px-4 text-sm font-medium text-slate-900">{String(p.supplier_name || '—')}</td>
+                        <td className="py-3 px-4 text-sm text-slate-600">{String(p.invoice_number ?? '')}</td>
+                        <td className="py-3 px-4 text-sm text-slate-500">{String(p.outlet_name || 'Aziendale')}</td>
+                        <td className="py-3 px-4 text-sm text-right font-medium">{fmt(p.amount_remaining as number | null | undefined)} €</td>
                         <td className="py-3 px-4 text-sm text-center">
-                          <span className={p.days_to_due < 0 ? 'text-red-600 font-medium' : p.days_to_due <= 7 ? 'text-amber-600' : ''}>
-                            {fmtDate(p.due_date)}
+                          <span className={dtdValid && dtd < 0 ? 'text-red-600 font-medium' : dtdValid && dtd <= 7 ? 'text-amber-600' : ''}>
+                            {fmtDate(p.due_date as string | null | undefined)}
                           </span>
-                          {p.days_to_due != null && (
+                          {dtdValid && (
                             <div className="text-xs text-slate-400">
-                              {p.days_to_due < 0 ? `${Math.abs(p.days_to_due)}gg fa` : p.days_to_due === 0 ? 'Oggi' : `tra ${p.days_to_due}gg`}
+                              {dtd < 0 ? `${Math.abs(dtd)}gg fa` : dtd === 0 ? 'Oggi' : `tra ${dtd}gg`}
                             </div>
                           )}
                         </td>
-                        <td className="py-3 px-4 text-center"><StatusPill status={p.status} /></td>
+                        <td className="py-3 px-4 text-center"><StatusPill status={String(p.status ?? '')} /></td>
                         <td className="py-3 px-4 text-xs text-center text-slate-500">
-                          {paymentMethodLabels[p.payment_method] || '—'}
+                          {paymentMethodLabels[String(p.payment_method ?? '')] || '—'}
                         </td>
                         <td className="py-3 px-4 text-right">
                           <div className="flex items-center justify-end gap-1">
-                            {['da_pagare', 'in_scadenza', 'scaduto', 'parziale'].includes(p.status) && (
+                            {['da_pagare', 'in_scadenza', 'scaduto', 'parziale'].includes(String(p.status ?? '')) && (
                               <>
                                 <button onClick={() => { setSelected(p); setModal('salda') }}
                                   className="px-2 py-1 rounded text-xs font-medium bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition" title="Salda">
@@ -1154,7 +1191,8 @@ export default function Scadenzario() {
                           </div>
                         </td>
                       </tr>
-                    ))}
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -1196,27 +1234,30 @@ export default function Scadenzario() {
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredSuppliers.map(s => (
-                      <tr key={s.id} className="border-b border-slate-50 hover:bg-slate-50/50 transition">
-                        <td className="py-3 px-4 text-sm font-medium text-slate-900">{s.ragione_sociale}</td>
-                        <td className="py-3 px-4 text-sm text-slate-600 font-mono">{s.partita_iva || '—'}</td>
-                        <td className="py-3 px-4 text-sm text-slate-500 font-mono">{s.codice_fiscale || '—'}</td>
-                        <td className="py-3 px-4 text-xs text-slate-500 font-mono">{s.iban ? `${s.iban.slice(0, 4)}...${s.iban.slice(-4)}` : '—'}</td>
-                        <td className="py-3 px-4 text-sm text-slate-500">{s.email || '—'}</td>
+                    {filteredSuppliers.map(s => {
+                      const iban = s.iban as string | null | undefined
+                      return (
+                      <tr key={String(s.id)} className="border-b border-slate-50 hover:bg-slate-50/50 transition">
+                        <td className="py-3 px-4 text-sm font-medium text-slate-900">{String(s.ragione_sociale ?? '')}</td>
+                        <td className="py-3 px-4 text-sm text-slate-600 font-mono">{String(s.partita_iva || '—')}</td>
+                        <td className="py-3 px-4 text-sm text-slate-500 font-mono">{String(s.codice_fiscale || '—')}</td>
+                        <td className="py-3 px-4 text-xs text-slate-500 font-mono">{iban ? `${iban.slice(0, 4)}...${iban.slice(-4)}` : '—'}</td>
+                        <td className="py-3 px-4 text-sm text-slate-500">{String(s.email || '—')}</td>
                         <td className="py-3 px-4 text-right">
                           <div className="flex items-center justify-end gap-1">
                             <button onClick={() => { setEditSupplier(s); setModal('fornitore') }}
                               className="p-1.5 rounded text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition" title="Modifica">
                               <Edit3 size={14} />
                             </button>
-                            <button onClick={() => setDeleteConfirm(s)}
+                            <button onClick={() => setDeleteConfirm({ id: String(s.id ?? ''), name: typeof s.ragione_sociale === 'string' ? s.ragione_sociale : undefined })}
                               className="p-1.5 rounded text-slate-400 hover:text-red-600 hover:bg-red-50 transition" title="Elimina">
                               <Trash2 size={14} />
                             </button>
                           </div>
                         </td>
                       </tr>
-                    ))}
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -1293,8 +1334,9 @@ export default function Scadenzario() {
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {filteredIncomes.slice(0, 500).map(i => {
-                      const tipo = categorizeIncome(i.description)
-                      const tipoColor = {
+                      const desc = i.description as string | null | undefined
+                      const tipo = categorizeIncome(desc)
+                      const tipoColors: Record<string, string> = {
                         'POS': 'bg-violet-50 text-violet-700',
                         'Bonifico in entrata': 'bg-blue-50 text-blue-700',
                         'Versamento contanti': 'bg-amber-50 text-amber-700',
@@ -1302,15 +1344,17 @@ export default function Scadenzario() {
                         'Incasso': 'bg-emerald-50 text-emerald-700',
                         'Giroconto': 'bg-slate-100 text-slate-600',
                         'Storno': 'bg-red-50 text-red-700',
-                      }[tipo] || 'bg-slate-100 text-slate-600'
+                      }
+                      const tipoColor = tipoColors[tipo] || 'bg-slate-100 text-slate-600'
+                      const ba = (i as { bank_accounts?: { bank_name?: string } }).bank_accounts
                       return (
-                        <tr key={i.id} className="hover:bg-slate-50/60">
-                          <td className="py-2 px-3 whitespace-nowrap text-slate-600">{fmtDate(i.transaction_date)}</td>
-                          <td className="py-2 px-3 truncate max-w-md text-slate-700" title={i.description}>{i.description || '—'}</td>
+                        <tr key={String(i.id)} className="hover:bg-slate-50/60">
+                          <td className="py-2 px-3 whitespace-nowrap text-slate-600">{fmtDate(i.transaction_date as string | null | undefined)}</td>
+                          <td className="py-2 px-3 truncate max-w-md text-slate-700" title={desc ?? undefined}>{desc || '—'}</td>
                           <td className="py-2 px-3">
                             <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold ${tipoColor}`}>{tipo}</span>
                           </td>
-                          <td className="py-2 px-3 text-xs text-slate-500">{i.bank_accounts?.bank_name || '—'}</td>
+                          <td className="py-2 px-3 text-xs text-slate-500">{ba?.bank_name || '—'}</td>
                           <td className="py-2 px-3 text-right font-medium text-emerald-700 whitespace-nowrap">+{fmt(i.amount)} €</td>
                         </tr>
                       )
@@ -1361,15 +1405,17 @@ export default function Scadenzario() {
                   <tbody>
                     {reconPayments.map(a => {
                       const bank = bankAccounts.find(b => b.bank_account_id === a.bank_account_id)
+                      const bankName = (bank as { bank_name?: string } | undefined)?.bank_name
                       const isReconciled = !!a.bank_account_id && !!a.amount
+                      const actionType = a.action_type as string | null | undefined
                       return (
-                        <tr key={a.id} className={`border-b border-slate-50 ${!isReconciled ? 'bg-amber-50/30' : ''}`}>
-                          <td className="py-2 px-3">{fmtDate(a.created_at)}</td>
-                          <td className="py-2 px-3 capitalize">{a.action_type?.replace('_', ' ')}</td>
-                          <td className="py-2 px-3 text-right font-medium">{fmt(a.amount)} €</td>
-                          <td className="py-2 px-3 text-xs">{paymentMethodLabels[a.payment_method] || '—'}</td>
-                          <td className="py-2 px-3 text-xs">{bank?.bank_name || '—'}</td>
-                          <td className="py-2 px-3 text-xs text-slate-500 max-w-48 truncate">{a.note || '—'}</td>
+                        <tr key={String(a.id)} className={`border-b border-slate-50 ${!isReconciled ? 'bg-amber-50/30' : ''}`}>
+                          <td className="py-2 px-3">{fmtDate(a.created_at as string | null | undefined)}</td>
+                          <td className="py-2 px-3 capitalize">{actionType?.replace('_', ' ')}</td>
+                          <td className="py-2 px-3 text-right font-medium">{fmt(a.amount as number | null | undefined)} €</td>
+                          <td className="py-2 px-3 text-xs">{paymentMethodLabels[String(a.payment_method ?? '')] || '—'}</td>
+                          <td className="py-2 px-3 text-xs">{bankName || '—'}</td>
+                          <td className="py-2 px-3 text-xs text-slate-500 max-w-48 truncate">{String(a.note || '—')}</td>
                           <td className="py-2 px-3 text-center">
                             {isReconciled
                               ? <CheckCircle2 size={16} className="text-green-600 mx-auto" />
@@ -1406,7 +1452,7 @@ export default function Scadenzario() {
                     <p className="text-xs text-slate-500">P.IVA: {inv.supplier.piva || '—'} • Fatt. {inv.invoiceNumber} del {fmtDate(inv.invoiceDate)}</p>
                   </div>
                   <div className="text-right">
-                    <p className="text-lg font-bold">{fmt(inv.totalAmount)} €</p>
+                    <p className="text-lg font-bold">{fmt(inv.payments.reduce((s, p) => s + p.amount, 0))} €</p>
                     <p className="text-xs text-slate-500">{inv.payments.length} scadenz{inv.payments.length === 1 ? 'a' : 'e'}</p>
                   </div>
                 </div>
@@ -1443,7 +1489,7 @@ export default function Scadenzario() {
           <div className="bg-white rounded-xl shadow-xl p-6 max-w-sm w-full mx-4" onClick={e => e.stopPropagation()}>
             <h3 className="text-lg font-bold text-slate-900 mb-2">Conferma eliminazione</h3>
             <p className="text-sm text-slate-600 mb-4">
-              Eliminare il fornitore <strong>{deleteConfirm.ragione_sociale}</strong>? L'operazione è reversibile.
+              Eliminare il fornitore <strong>{deleteConfirm.name ?? ''}</strong>? L'operazione è reversibile.
             </p>
             <div className="flex gap-2 justify-end">
               <button onClick={() => setDeleteConfirm(null)}

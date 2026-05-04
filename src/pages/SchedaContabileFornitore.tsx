@@ -1,4 +1,3 @@
-// @ts-nocheck — TODO tighten: reload contabile + indexing dinamico, da rivedere
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
@@ -10,6 +9,11 @@ import InvoiceViewer from '../components/InvoiceViewer';
 import StatusBadge from '../components/ui/StatusBadge';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
+import type { Row } from '../types/business';
+
+type Supplier = Row<'suppliers'>;
+type Payable = Row<'payables'>;
+type CostCategoryLite = Pick<Row<'cost_categories'>, 'id' | 'name'>;
 
 // ─── Utility ───────────────────────────────────────────────────
 function fmt(n: number | null | undefined): string {
@@ -44,7 +48,7 @@ function worstStatus(statuses: string[]): string {
   return 'pagato';
 }
 
-const paymentMethodLabels = {
+const paymentMethodLabels: Record<string, string> = {
   bonifico_ordinario: 'Bonifico', bonifico_urgente: 'Bonifico urgente', bonifico_sepa: 'Bonifico SEPA',
   riba_30: 'RiBa 30gg', riba_60: 'RiBa 60gg', riba_90: 'RiBa 90gg', riba_120: 'RiBa 120gg',
   rid: 'RID', sdd_core: 'SDD Core', sdd_b2b: 'SDD B2B', carta_credito: 'Carta',
@@ -58,14 +62,13 @@ export default function SchedaContabileFornitore() {
   const { profile } = useAuth();
   const COMPANY_ID = profile?.company_id;
 
-  // TODO: tighten type — Supabase data
-  const [supplier, setSupplier] = useState<any>(null);
-  const [payables, setPayables] = useState<any[]>([]);
+  const [supplier, setSupplier] = useState<Supplier | null>(null);
+  const [payables, setPayables] = useState<Payable[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedYear, setSelectedYear] = useState<number | 'latest' | 'all'>('latest');
   const [expandedInvoices, setExpandedInvoices] = useState<Set<string>>(new Set());
   const [viewingXml, setViewingXml] = useState<string | null>(null);
-  const [categories, setCategories] = useState<any[]>([]);
+  const [categories, setCategories] = useState<CostCategoryLite[]>([]);
 
   // ─── Fetch data ────────────────────────────────────────────
   const fetchData = useCallback(async () => {
@@ -82,8 +85,8 @@ export default function SchedaContabileFornitore() {
 
       // Payables — SOLO da payables, NESSUN join con electronic_invoices
       // Due query separate per evitare problemi con .or() e nomi con caratteri speciali
-      let allPayables = [];
-      const seen = new Set();
+      const allPayables: Payable[] = [];
+      const seen = new Set<string>();
 
       // 1. Per supplier_id (include tutti quelli collegati al fornitore)
       const { data: byId } = await supabase
@@ -107,7 +110,7 @@ export default function SchedaContabileFornitore() {
         (byName || []).forEach(p => { if (!seen.has(p.id)) { seen.add(p.id); allPayables.push(p); } });
       }
 
-      allPayables.sort((a, b) => new Date(b.invoice_date || 0) - new Date(a.invoice_date || 0));
+      allPayables.sort((a, b) => new Date(b.invoice_date || 0).getTime() - new Date(a.invoice_date || 0).getTime());
 
       setPayables(allPayables);
 
@@ -129,7 +132,7 @@ export default function SchedaContabileFornitore() {
 
   // ─── Derived data ──────────────────────────────────────────
   const anni = useMemo(() => {
-    const set = new Set(payables.map(p => new Date(p.invoice_date || p.created_at).getFullYear()));
+    const set = new Set(payables.map(p => new Date(p.invoice_date || p.created_at || '').getFullYear()));
     return [...set].sort((a, b) => b - a);
   }, [payables]);
 
@@ -142,16 +145,29 @@ export default function SchedaContabileFornitore() {
 
   const filteredPayables = useMemo(() => {
     if (selectedYear === 'all') return payables;
-    return payables.filter(p => new Date(p.invoice_date || p.created_at).getFullYear() === selectedYear);
+    return payables.filter(p => new Date(p.invoice_date || p.created_at || '').getFullYear() === selectedYear);
   }, [payables, selectedYear]);
 
   // Group by invoice_number for rate
-  const fattureGrouped = useMemo(() => {
-    const map = new Map();
+  interface FatturaAggregate {
+    invoice_number: string | null;
+    invoice_date: string | null;
+    net_amount: number;
+    vat_amount: number;
+    gross_amount: number;
+    rate: Payable[];
+    due_date: string | null;
+    payment_method: string | null;
+    status?: string;
+  }
+
+  const fattureGrouped = useMemo<FatturaAggregate[]>(() => {
+    const map = new Map<string, FatturaAggregate>();
     for (const p of filteredPayables) {
       const key = p.invoice_number || p.id;
-      if (!map.has(key)) {
-        map.set(key, {
+      let f = map.get(key);
+      if (!f) {
+        f = {
           invoice_number: p.invoice_number,
           invoice_date: p.invoice_date,
           net_amount: 0,
@@ -160,18 +176,18 @@ export default function SchedaContabileFornitore() {
           rate: [],
           due_date: p.due_date,
           payment_method: p.payment_method,
-        });
+        };
+        map.set(key, f);
       }
-      const f = map.get(key);
-      f.net_amount += parseFloat(p.net_amount || 0);
-      f.vat_amount += parseFloat(p.vat_amount || 0);
-      f.gross_amount += parseFloat(p.gross_amount || 0);
+      f.net_amount += Number(p.net_amount || 0);
+      f.vat_amount += Number(p.vat_amount || 0);
+      f.gross_amount += Number(p.gross_amount || 0);
       f.rate.push(p);
-      f.status = worstStatus(f.rate.map(r => r.status));
+      f.status = worstStatus(f.rate.map(r => r.status || 'da_pagare'));
       // Use earliest due_date
       if (p.due_date && (!f.due_date || p.due_date < f.due_date)) f.due_date = p.due_date;
     }
-    return [...map.values()].sort((a, b) => new Date(b.invoice_date || 0) - new Date(a.invoice_date || 0));
+    return [...map.values()].sort((a, b) => new Date(b.invoice_date || 0).getTime() - new Date(a.invoice_date || 0).getTime());
   }, [filteredPayables]);
 
   // KPIs — gestione Note Credito
@@ -179,13 +195,13 @@ export default function SchedaContabileFornitore() {
   // o gross_amount<=0) che prima venivano sommate qui e producevano totali
   // negativi (caso GGZ SRL).
   const kpis = useMemo(() => {
-    const isNotaCredito = (p) => p.status === 'nota_credito' || parseFloat(p.gross_amount || 0) < 0;
-    const totFatturato = payables.filter(p => parseFloat(p.gross_amount || 0) > 0)
-      .reduce((s, p) => s + parseFloat(p.gross_amount || 0), 0);
+    const isNotaCredito = (p: Payable) => p.status === 'nota_credito' || Number(p.gross_amount || 0) < 0;
+    const totFatturato = payables.filter(p => Number(p.gross_amount || 0) > 0)
+      .reduce((s, p) => s + Number(p.gross_amount || 0), 0);
     const totCrediti = payables.filter(isNotaCredito)
-      .reduce((s, p) => s + Math.abs(parseFloat(p.gross_amount || 0)), 0);
+      .reduce((s, p) => s + Math.abs(Number(p.gross_amount || 0)), 0);
     const totPagato = payables.filter(p => p.status === 'pagato' && !isNotaCredito(p))
-      .reduce((s, p) => s + parseFloat(p.gross_amount || 0), 0);
+      .reduce((s, p) => s + Number(p.gross_amount || 0), 0);
     const esposto = totFatturato - totCrediti - totPagato;
     const scadute = payables.filter(p => p.status === 'scaduto').length;
     return { totFatturato, totPagato, totCrediti, esposto, scadute, totali: payables.length };
@@ -206,21 +222,24 @@ export default function SchedaContabileFornitore() {
   // ─── Partitario ────────────────────────────────────────────
   const partitario = useMemo(() => {
     // Raggruppare fatture per invoice_number
-    const invoiceMap = new Map();
+    interface InvoiceMapEntry { date: string | null; amount: number; isNotaCredito: boolean }
+    const invoiceMap = new Map<string, InvoiceMapEntry>();
     for (const p of filteredPayables) {
       const key = p.invoice_number || p.id;
-      if (!invoiceMap.has(key)) {
-        invoiceMap.set(key, { date: p.invoice_date, amount: 0, isNotaCredito: false });
+      let entry = invoiceMap.get(key);
+      if (!entry) {
+        entry = { date: p.invoice_date, amount: 0, isNotaCredito: false };
+        invoiceMap.set(key, entry);
       }
-      const entry = invoiceMap.get(key);
-      entry.amount += parseFloat(p.gross_amount || 0);
-      if (p.status === 'nota_credito' || parseFloat(p.gross_amount || 0) < 0) {
+      entry.amount += Number(p.gross_amount || 0);
+      if (p.status === 'nota_credito' || Number(p.gross_amount || 0) < 0) {
         entry.isNotaCredito = true;
       }
     }
 
     // DARE: fatture positive, AVERE: note credito
-    const movimenti = [];
+    interface Movimento { data: string | null; tipo: 'dare' | 'avere'; descrizione: string; importo: number; isNotaCredito?: boolean }
+    const movimenti: Movimento[] = [];
     for (const [invoiceNumber, entry] of invoiceMap) {
       if (entry.isNotaCredito) {
         movimenti.push({
@@ -248,12 +267,12 @@ export default function SchedaContabileFornitore() {
           data: p.payment_date,
           tipo: 'avere',
           descrizione: `Pagamento — Fatt. ${p.invoice_number || '—'}`,
-          importo: parseFloat(p.gross_amount || 0),
+          importo: Number(p.gross_amount || 0),
         });
       });
 
     // Sort cronologico
-    movimenti.sort((a, b) => new Date(a.data || 0) - new Date(b.data || 0));
+    movimenti.sort((a, b) => new Date(a.data || 0).getTime() - new Date(b.data || 0).getTime());
 
     // Saldo progressivo
     let saldo = 0;
@@ -274,8 +293,8 @@ export default function SchedaContabileFornitore() {
     });
   };
 
-  // TODO: tighten type
-  const handleViewInvoice = async (fattura: any) => {
+  const handleViewInvoice = async (fattura: { invoice_number: string | null; rate?: Payable[] }) => {
+    if (!COMPANY_ID) return;
     // Cerca XML su electronic_invoices per invoice_number
     const invoiceNumber = fattura.invoice_number || fattura.rate?.[0]?.invoice_number;
     if (!invoiceNumber) { alert('XML non disponibile per questa fattura'); return; }
@@ -544,7 +563,7 @@ export default function SchedaContabileFornitore() {
               )}
               {fattureGrouped.map((f, idx) => {
                 const hasRate = f.rate.length > 1 && f.rate.some(r => r.installment_number != null);
-                const isExpanded = expandedInvoices.has(f.invoice_number);
+                const isExpanded = expandedInvoices.has(f.invoice_number ?? '');
                 const dd = daysDiff(f.due_date);
                 const dueBadge = f.status === 'pagato'
                   ? fmtDate(f.rate[0]?.payment_date)
@@ -557,7 +576,7 @@ export default function SchedaContabileFornitore() {
                     <tr className={`border-b border-slate-50 hover:bg-slate-25 transition ${idx % 2 === 0 ? '' : 'bg-slate-25/50'}`}>
                       <td className="px-2 py-2">
                         {hasRate && (
-                          <button onClick={() => toggleExpand(f.invoice_number)} className="p-0.5 rounded hover:bg-slate-100 text-slate-400">
+                          <button onClick={() => toggleExpand(f.invoice_number ?? '')} className="p-0.5 rounded hover:bg-slate-100 text-slate-400">
                             {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                           </button>
                         )}
@@ -589,7 +608,7 @@ export default function SchedaContabileFornitore() {
                           <button onClick={() => handleViewInvoice(f)} className="p-1 rounded hover:bg-blue-50 text-slate-400 hover:text-blue-600 transition" title="Vedi fattura">
                             <Eye size={14} />
                           </button>
-                          {f.status !== 'pagato' && f.status !== 'nota_credito' && parseFloat(f.gross_amount) > 0 && (
+                          {f.status !== 'pagato' && f.status !== 'nota_credito' && f.gross_amount > 0 && (
                             <button onClick={() => navigate(`/scadenzario?supplier=${supplierId}&search=${encodeURIComponent(supplier?.name || '')}`)} className="p-1 rounded hover:bg-emerald-50 text-slate-400 hover:text-emerald-600 transition" title="Paga">
                               <CreditCard size={14} />
                             </button>
@@ -609,8 +628,8 @@ export default function SchedaContabileFornitore() {
                         <td className="px-3 py-1.5 text-xs text-slate-500">{fmtDate(r.due_date)}</td>
                         <td className="px-3 py-1.5 text-right text-xs text-slate-400"></td>
                         <td className="px-3 py-1.5 text-right text-xs text-slate-400"></td>
-                        <td className="px-3 py-1.5 text-right text-xs font-medium text-slate-700">{fmt(parseFloat(r.gross_amount || 0))}</td>
-                        <td className="px-3 py-1.5 text-center"><StatusBadge status={r.status} size="sm" /></td>
+                        <td className="px-3 py-1.5 text-right text-xs font-medium text-slate-700">{fmt(Number(r.gross_amount || 0))}</td>
+                        <td className="px-3 py-1.5 text-center"><StatusBadge status={r.status ?? 'da_pagare'} size="sm" /></td>
                         <td className="px-3 py-1.5 text-center text-xs text-slate-500">
                           {r.status === 'pagato' ? fmtDate(r.payment_date) : daysDiff(r.due_date) != null ? `${daysDiff(r.due_date)}gg` : '—'}
                         </td>

@@ -10,11 +10,10 @@ interface UseTableSortOptions {
   resetOn?: unknown[] | unknown | null
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function getValue(obj: any, path: string): any {
+function getValue(obj: unknown, path: string): unknown {
   if (!obj) return undefined
   if (!path) return undefined
-  if (!path.includes('.')) return obj[path]
+  if (!path.includes('.')) return (obj as Record<string, unknown>)[path]
   return path.split('.').reduce((o: unknown, k: string) => (o == null ? o : (o as Record<string, unknown>)[k]), obj)
 }
 
@@ -44,8 +43,7 @@ function saveToStorage(key: string | null, value: SortEntry[]) {
   }
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function useTableSort<T = any>(rows: T[], defaultSort: SortEntry[] = [], options: UseTableSortOptions = {}) {
+export function useTableSort<T = unknown>(rows: T[], defaultSort: SortEntry[] = [], options: UseTableSortOptions = {}) {
   const { persistKey = null, resetOn = null } = options
 
   const [sortBy, setSortBy] = useState<SortEntry[]>(() => loadFromStorage(persistKey, defaultSort))

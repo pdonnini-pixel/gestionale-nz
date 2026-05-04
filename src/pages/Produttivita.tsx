@@ -1,4 +1,3 @@
-// @ts-nocheck — TODO tighten: indexing dinamico + Recharts payload, da rivedere
 import { useState, useEffect, useMemo } from 'react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ComposedChart,
@@ -89,8 +88,8 @@ export default function Produttivita() {
   }, [year, profile?.company_id]);
 
   // Compute employee count per outlet from allocations (FTE-weighted) or employees table
-  const empCountByOutlet = useMemo(() => {
-    const counts = {};
+  const empCountByOutlet = useMemo<Record<string, number>>(() => {
+    const counts: Record<string, number> = {};
 
     // Prefer allocations (FTE-weighted)
     if (allocations.length > 0) {
@@ -112,10 +111,12 @@ export default function Produttivita() {
   }, [allocations, employees]);
 
   // Compute per-outlet productivity metrics from budget_entries
-  const outletBaseData = useMemo(() => {
+  interface OutletAggregate { ricavi: number; costo_personale: number; costi_totali: number }
+  interface OutletBaseRow { nome: string; ricavi: number; costo_personale: number; costi_totali: number; dipendenti: number | null; colore: string }
+  const outletBaseData = useMemo<OutletBaseRow[]>(() => {
     if (!rawEntries.length) return [];
 
-    const byOutlet = {};
+    const byOutlet: Record<string, OutletAggregate> = {};
     rawEntries.forEach(row => {
       const outlet = row.cost_center || 'Sconosciuto';
       if (!byOutlet[outlet]) byOutlet[outlet] = { ricavi: 0, costo_personale: 0, costi_totali: 0 };
@@ -149,12 +150,13 @@ export default function Produttivita() {
   }, [rawEntries, empCountByOutlet]);
 
   // Monthly trend data for fatturato/dipendente per outlet
-  const monthlyTrendData = useMemo(() => {
+  type MonthRow = { mese: string } & Record<string, number | string>
+  const monthlyTrendData = useMemo<MonthRow[]>(() => {
     if (!rawEntries.length) return [];
 
     // Group revenue by outlet and month
-    const byOutletMonth = {};
-    const outletSet = new Set();
+    const byOutletMonth: Record<string, number> = {};
+    const outletSet = new Set<string>();
     rawEntries.forEach(row => {
       const outlet = row.cost_center || 'Sconosciuto';
       const month = parseInt(row.month) || 0;
@@ -171,9 +173,9 @@ export default function Produttivita() {
     });
 
     // Build array of { month, outlet1: fatturato/dip, outlet2: ... }
-    const months = [];
+    const months: MonthRow[] = [];
     for (let m = 1; m <= 12; m++) {
-      const row = { mese: MONTHS[m - 1] };
+      const row: MonthRow = { mese: MONTHS[m - 1] };
       let hasData = false;
       outletSet.forEach(outlet => {
         const rev = byOutletMonth[`${outlet}__${m}`] || 0;
@@ -195,12 +197,12 @@ export default function Produttivita() {
       // sono null (mostrate come 'N/D'). Prima c'era un fallback a 4 che
       // inventava i numeri: ricavo/4 non ha senso.
       const hasEmployeeData = outlet.dipendenti != null && outlet.dipendenti > 0;
-      const dip = hasEmployeeData ? outlet.dipendenti : null;
-      const ore_sett = hasEmployeeData ? dip * 40 : null;
-      const ore_annuali = hasEmployeeData ? ore_sett * 52 : null;
-      const ricavo_per_dip = hasEmployeeData ? outlet.ricavi / dip : null;
-      const ricavo_per_ora = hasEmployeeData ? outlet.ricavi / ore_annuali : null;
-      const costo_per_ora = hasEmployeeData ? outlet.costo_personale / ore_annuali : null;
+      const dip = hasEmployeeData ? outlet.dipendenti as number : null;
+      const ore_sett = dip != null ? dip * 40 : null;
+      const ore_annuali = ore_sett != null ? ore_sett * 52 : null;
+      const ricavo_per_dip = dip != null ? outlet.ricavi / dip : null;
+      const ricavo_per_ora = ore_annuali != null ? outlet.ricavi / ore_annuali : null;
+      const costo_per_ora = ore_annuali != null ? outlet.costo_personale / ore_annuali : null;
       const margine_per_ora = (ricavo_per_ora != null && costo_per_ora != null) ? ricavo_per_ora - costo_per_ora : null;
       const roi = outlet.costo_personale > 0 ? outlet.ricavi / outlet.costo_personale : 0;
       const incidenza_personale = outlet.ricavi > 0 ? (outlet.costo_personale / outlet.ricavi) * 100 : 0;
@@ -228,8 +230,10 @@ export default function Produttivita() {
       const fromIdx = base.findIndex(m => m.nome === moved.from);
       const toIdx = base.findIndex(m => m.nome === moved.to);
 
-      if (fromIdx >= 0 && toIdx >= 0 && base[fromIdx].dipendenti > moved.count) {
-        const newFromDip = base[fromIdx].dipendenti - moved.count;
+      const fromDipCurrent = base[fromIdx]?.dipendenti;
+      const toDipCurrent = base[toIdx]?.dipendenti;
+      if (fromIdx >= 0 && toIdx >= 0 && fromDipCurrent != null && toDipCurrent != null && fromDipCurrent > moved.count) {
+        const newFromDip = fromDipCurrent - moved.count;
         const newFromOre = newFromDip * 40 * 52;
         base[fromIdx] = {
           ...base[fromIdx],
@@ -240,10 +244,11 @@ export default function Produttivita() {
           ricavo_per_ora: base[fromIdx].ricavi / newFromOre,
           costo_per_ora: base[fromIdx].costo_personale / newFromOre,
         };
-        base[fromIdx].margine_per_ora = base[fromIdx].ricavo_per_ora - base[fromIdx].costo_per_ora;
-        base[fromIdx].roi = base[fromIdx].costo_personale > 0 ? base[fromIdx].ricavi / base[fromIdx].costo_personale : 0;
+        const fr = base[fromIdx];
+        fr.margine_per_ora = (fr.ricavo_per_ora ?? 0) - (fr.costo_per_ora ?? 0);
+        fr.roi = fr.costo_personale > 0 ? fr.ricavi / fr.costo_personale : 0;
 
-        const newToDip = base[toIdx].dipendenti + moved.count;
+        const newToDip = toDipCurrent + moved.count;
         const newToOre = newToDip * 40 * 52;
         base[toIdx] = {
           ...base[toIdx],
@@ -254,8 +259,9 @@ export default function Produttivita() {
           ricavo_per_ora: base[toIdx].ricavi / newToOre,
           costo_per_ora: base[toIdx].costo_personale / newToOre,
         };
-        base[toIdx].margine_per_ora = base[toIdx].ricavo_per_ora - base[toIdx].costo_per_ora;
-        base[toIdx].roi = base[toIdx].costo_personale > 0 ? base[toIdx].ricavi / base[toIdx].costo_personale : 0;
+        const to = base[toIdx];
+        to.margine_per_ora = (to.ricavo_per_ora ?? 0) - (to.costo_per_ora ?? 0);
+        to.roi = to.costo_personale > 0 ? to.ricavi / to.costo_personale : 0;
       }
     }
 
@@ -267,12 +273,12 @@ export default function Produttivita() {
   const kpi = useMemo(() => {
     if (!metriche.length) return null;
     const valide = metriche.filter(m => m.ricavo_per_ora != null);
-    const best = valide.length > 0 ? valide.reduce((a, b) => a.ricavo_per_ora > b.ricavo_per_ora ? a : b) : metriche[0];
-    const worst = valide.length > 0 ? valide.reduce((a, b) => a.ricavo_per_ora < b.ricavo_per_ora ? a : b) : metriche[0];
+    const best = valide.length > 0 ? valide.reduce((a, b) => (a.ricavo_per_ora ?? 0) > (b.ricavo_per_ora ?? 0) ? a : b) : metriche[0];
+    const worst = valide.length > 0 ? valide.reduce((a, b) => (a.ricavo_per_ora ?? 0) < (b.ricavo_per_ora ?? 0) ? a : b) : metriche[0];
     // Media calcolata SOLO sulle metriche con dato valido (exclude null)
     const metricheValide = metriche.filter(m => m.ricavo_per_ora != null);
     const avg_ricavo_ora = metricheValide.length > 0
-      ? metricheValide.reduce((sum, m) => sum + m.ricavo_per_ora, 0) / metricheValide.length
+      ? metricheValide.reduce((sum, m) => sum + (m.ricavo_per_ora ?? 0), 0) / metricheValide.length
       : null;
     const avg_roi = metriche.reduce((sum, m) => sum + m.roi, 0) / metriche.length;
     const totRicavi = metriche.reduce((sum, m) => sum + (m.ricavi || 0), 0);
@@ -311,8 +317,8 @@ export default function Produttivita() {
     .filter(m => m.ricavo_per_ora != null && m.costo_per_ora != null)
     .map(m => ({
       nome: m.nome,
-      'Ricavo/ora': parseFloat(m.ricavo_per_ora.toFixed(2)),
-      'Costo/ora': parseFloat(m.costo_per_ora.toFixed(2)),
+      'Ricavo/ora': parseFloat((m.ricavo_per_ora ?? 0).toFixed(2)),
+      'Costo/ora': parseFloat((m.costo_per_ora ?? 0).toFixed(2)),
     }));
 
   // Outlet names for line chart
@@ -626,7 +632,7 @@ export default function Produttivita() {
               <tbody>
                 {metriche
                   .slice()
-                  .sort((a, b) => b.ricavo_per_ora - a.ricavo_per_ora)
+                  .sort((a, b) => (b.ricavo_per_ora ?? 0) - (a.ricavo_per_ora ?? 0))
                   .map((m, idx) => {
                     const isTop = idx === 0;
                     const isBottom = idx === metriche.length - 1;

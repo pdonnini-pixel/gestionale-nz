@@ -1,4 +1,3 @@
-// @ts-nocheck — TODO tighten: pagina complessa con shape Supabase + indexing dinamico, da rivedere
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import {
   Landmark, Building2, Wallet, CreditCard, TrendingUp, TrendingDown,
@@ -40,7 +39,7 @@ const ACCOUNT_TYPES = [
   { value: 'carta_credito', label: 'Carta di credito' },
 ]
 
-function fmt(n, dec = 2) {
+function fmt(n: number | null | undefined, dec = 2) {
   if (n == null || isNaN(n)) return '\u2014'
   return new Intl.NumberFormat('it-IT', {
     minimumFractionDigits: dec,
@@ -55,36 +54,37 @@ function fmtDate(d: string | null | undefined): string {
   return dt.toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric' })
 }
 
-function fmtDateShort(d) {
+function fmtDateShort(d: string | null | undefined) {
   if (!d) return '\u2014'
   const dt = new Date(d)
   if (isNaN(dt.getTime())) return '\u2014'
   return dt.toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit' })
 }
 
-function maskIban(iban) {
+function maskIban(iban: string | null | undefined) {
   if (!iban || iban.length < 10) return iban || '\u2014'
   return iban.slice(0, 4) + '\u2022\u2022\u2022\u2022\u2022\u2022' + iban.slice(-4)
 }
 
-function daysUntil(dateStr) {
+function daysUntil(dateStr: string | null | undefined): number | null {
   if (!dateStr) return null
   const target = new Date(dateStr)
   const now = new Date()
-  return Math.ceil((target - now) / (1000 * 60 * 60 * 24))
+  return Math.ceil((target.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
 }
 
-function classNames(...classes) {
+function classNames(...classes: (string | false | null | undefined)[]) {
   return classes.filter(Boolean).join(' ')
 }
 
 // Helper: nome fornitore da payable (fallback: JOIN suppliers → supplier_name diretto)
-function getSupplierName(p) {
+type PayableLike = { suppliers?: { ragione_sociale?: string | null; name?: string | null } | null; supplier_name?: string | null; [k: string]: unknown }
+function getSupplierName(p: PayableLike) {
   return p.suppliers?.ragione_sociale || p.suppliers?.name || p.supplier_name || '—'
 }
 
-function statusBadge(status) {
-  const map = {
+function statusBadge(status: string | null | undefined) {
+  const map: Record<string, { bg: string; label: string }> = {
     // Italian DB status values (actual)
     da_pagare: { bg: 'bg-amber-100 text-amber-700', label: 'Da pagare' },
     scaduto: { bg: 'bg-red-100 text-red-800 font-semibold', label: 'Scaduta' },
@@ -100,18 +100,19 @@ function statusBadge(status) {
     cancelled: { bg: 'bg-slate-100 text-slate-500', label: 'Annullata' },
     paid: { bg: 'bg-emerald-100 text-emerald-700', label: 'Pagata' },
   }
-  const s = map[status] || { bg: 'bg-slate-100 text-slate-600', label: status || '\u2014' }
+  const s = map[status || ''] || { bg: 'bg-slate-100 text-slate-600', label: status || '\u2014' }
   return <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${s.bg}`}>{s.label}</span>
 }
 
-function GlassTooltipContent({ active, payload, label }) {
+type TooltipPayload = { name?: string; value?: number; color?: string }
+function GlassTooltipContent({ active, payload, label }: { active?: boolean; payload?: TooltipPayload[]; label?: string | number }) {
   if (!active || !payload?.length) return null
   return (
     <div className="bg-white/90 backdrop-blur-xl border border-white/50 rounded-xl px-4 py-3 shadow-lg">
       {label && <p className="text-xs font-semibold text-slate-700 mb-1.5">{label}</p>}
       {payload.map((p, i) => (
         <p key={i} className="text-sm" style={{ color: p.color }}>
-          {p.name}: <span className="font-semibold">{fmt(p.value)} &euro;</span>
+          {p.name}: <span className="font-semibold">{fmt(p.value)} {'€'}</span>
         </p>
       ))}
     </div>
@@ -122,9 +123,9 @@ function GlassTooltipContent({ active, payload, label }) {
 // ═══ IMPORT XLSX LIBRARY (SheetJS) ═══
 import * as XLSX from 'xlsx'
 
-function detectSeparator(text) {
+function detectSeparator(text: string) {
   const firstLines = text.split('\n').slice(0, 5).join('\n')
-  const counts = { ';': 0, ',': 0, '\t': 0 }
+  const counts: Record<string, number> = { ';': 0, ',': 0, '\t': 0 }
   for (const ch of firstLines) {
     if (ch in counts) counts[ch]++
   }
@@ -133,7 +134,7 @@ function detectSeparator(text) {
   return sorted[0][1] > 0 ? sorted[0][0] : ';'
 }
 
-function detectDateFormat(val) {
+function detectDateFormat(val: unknown) {
   if (!val) return 'unknown'
   const trimmed = String(val).trim()
   if (/^\d{2}\/\d{2}\/\d{4}$/.test(trimmed)) return 'dd/mm/yyyy'
@@ -146,7 +147,7 @@ function detectDateFormat(val) {
   return 'unknown'
 }
 
-function parseCSVDate(val, format) {
+function parseCSVDate(val: unknown, format?: string) {
   if (!val) return null
   const trimmed = String(val).trim()
   // Excel serial number
@@ -205,7 +206,7 @@ function parseCSVDate(val, format) {
   return `${y}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
 }
 
-function parseCSVNumber(val) {
+function parseCSVNumber(val: unknown) {
   if (val == null) return 0
   // Se e' gia' un numero (da XLSX)
   if (typeof val === 'number') return val
@@ -228,25 +229,25 @@ function parseCSVNumber(val) {
   return parseFloat(cleaned) || 0
 }
 
-function parseCSV(text) {
+function parseCSV(text: string) {
   const separator = detectSeparator(text)
   // Rimuovi BOM UTF-8
   const cleanText = text.replace(/^\uFEFF/, '')
-  const lines = cleanText.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0)
-  if (lines.length < 2) return { headers: [], rows: [], separator }
+  const lines = cleanText.split(/\r?\n/).map((l: string) => l.trim()).filter((l: string) => l.length > 0)
+  if (lines.length < 2) return { headers: [] as string[], rows: [] as string[][], separator }
 
   // Trova la riga header: salta righe vuote o che iniziano con numeri (possono essere intestazione banca)
   let headerIdx = 0
   for (let i = 0; i < Math.min(lines.length, 10); i++) {
-    const cells = lines[i].split(separator).map(c => c.replace(/^"|"$/g, '').trim())
+    const cells = lines[i].split(separator).map((c: string) => c.replace(/^"|"$/g, '').trim())
     // Header ha tipicamente testo non numerico in almeno 2 celle
-    const textCells = cells.filter(c => c && !/^\d+[.,]?\d*$/.test(c))
+    const textCells = cells.filter((c: string) => c && !/^\d+[.,]?\d*$/.test(c))
     if (textCells.length >= 2) { headerIdx = i; break }
   }
 
-  const headers = lines[headerIdx].split(separator).map(h => h.replace(/^"|"$/g, '').trim())
-  const rows = lines.slice(headerIdx + 1).map(line => {
-    const cells = []
+  const headers = lines[headerIdx].split(separator).map((h: string) => h.replace(/^"|"$/g, '').trim())
+  const rows = lines.slice(headerIdx + 1).map((line: string) => {
+    const cells: string[] = []
     let current = ''
     let inQuotes = false
     for (let i = 0; i < line.length; i++) {
@@ -257,19 +258,19 @@ function parseCSV(text) {
     }
     cells.push(current.trim())
     return cells
-  }).filter(r => r.some(c => c.length > 0))
+  }).filter((r: string[]) => r.some((c: string) => c.length > 0))
   return { headers, rows, separator, skippedRows: headerIdx }
 }
 
 // Parser per file Excel (XLSX/XLS) via SheetJS
-function parseExcelFile(arrayBuffer) {
+function parseExcelFile(arrayBuffer: ArrayBuffer) {
   const wb = XLSX.read(arrayBuffer, { type: 'array', cellDates: true })
   const sheetName = wb.SheetNames[0]
   const ws = wb.Sheets[sheetName]
 
   // Converti in array of arrays preservando date e numeri
-  const rawData = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: false, dateNF: 'dd/mm/yyyy' })
-  if (rawData.length < 2) return { headers: [], rows: [], separator: 'xlsx', sheetNames: wb.SheetNames }
+  const rawData = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: false, dateNF: 'dd/mm/yyyy' }) as unknown[][]
+  if (rawData.length < 2) return { headers: [] as string[], rows: [] as string[][], separator: 'xlsx', sheetNames: wb.SheetNames }
 
   // Trova la riga header (salta righe vuote, titoli banca, righe saldo)
   // Blacklist: frasi che appaiono in righe informative, NON header
@@ -281,36 +282,36 @@ function parseExcelFile(arrayBuffer) {
   for (let i = 0; i < Math.min(rawData.length, 50); i++) {
     const row = rawData[i]
     if (!Array.isArray(row)) continue
-    const nonEmpty = row.filter(c => c != null && String(c).trim() !== '')
+    const nonEmpty = row.filter((c: unknown) => c != null && String(c).trim() !== '')
     if (nonEmpty.length < 3) continue
     // Salta righe con frasi blacklisted (sono righe informative, non header)
-    const rowText = nonEmpty.map(c => String(c).toLowerCase()).join(' ')
+    const rowText = nonEmpty.map((c: unknown) => String(c).toLowerCase()).join(' ')
     if (headerBlacklist.some(bl => rowText.includes(bl))) continue
     // Header: celle corte (< 30 char), prevalentemente testo, no ":" nei valori
-    const textCells = nonEmpty.filter(c => {
+    const textCells = nonEmpty.filter((c: unknown) => {
       const s = String(c).trim()
       return s.length > 0 && s.length < 35 && !/^\d{1,2}[./-]\d{1,2}[./-]\d{2,4}$/.test(s) && !/^[\d.,]+$/.test(s)
     })
     // Almeno 2 celle testuali corte e la maggior parte delle celle non-vuote sono corte
-    const avgLen = nonEmpty.reduce((sum, c) => sum + String(c).length, 0) / nonEmpty.length
+    const avgLen = nonEmpty.reduce<number>((sum, c) => sum + String(c).length, 0) / nonEmpty.length
     if (textCells.length >= 2 && avgLen < 25) { headerIdx = i; break }
   }
 
-  const headerRow = rawData[headerIdx]
-  const headers = headerRow.map(h => String(h || '').trim())
+  const headerRow = rawData[headerIdx] as unknown[]
+  const headers = headerRow.map((h: unknown) => String(h || '').trim())
   console.log('[parseExcelFile] headerIdx:', headerIdx, 'headers:', headers, 'rawData rows:', rawData.length)
   const dataBlacklist = ['saldo contabile iniziale', 'saldo contabile finale', 'operazioni non contabilizzate',
     'totale movimenti', 'elenco non completo', 'per visualizzare gli altri dati', 'movimenti:',
     'operazioni contabilizzate', 'saldo iniziale', 'saldo finale', 'saldo disponibile']
-  const rows = rawData.slice(headerIdx + 1)
-    .filter(r => {
+  const rows: string[][] = rawData.slice(headerIdx + 1)
+    .filter((r: unknown): r is unknown[] => {
       if (!Array.isArray(r)) return false
       // Non fermarsi alle righe vuote — SKIP, non BREAK
-      if (!r.some(c => c != null && String(c).trim() !== '')) return false
+      if (!r.some((c: unknown) => c != null && String(c).trim() !== '')) return false
       const rowText = r.filter(Boolean).join(' ').toLowerCase()
       return !dataBlacklist.some(bl => rowText.includes(bl))
     })
-    .map(r => r.map(c => {
+    .map((r: unknown[]) => r.map((c: unknown) => {
       if (c instanceof Date) return c.toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric' })
       // Gestione celle multilinea — normalizza newline in spazi
       return String(c ?? '').replace(/\n/g, ' ').replace(/\s+/g, ' ').trim()
@@ -320,8 +321,9 @@ function parseExcelFile(arrayBuffer) {
 }
 
 // Auto-detect column mappings (intelligente per banche italiane)
-function autoMapColumns(headers) {
-  const map = { date: -1, description: -1, amount: -1, dare: -1, avere: -1, balance: -1 }
+type ColMap = { date: number; description: number; amount: number; dare: number; avere: number; balance: number }
+function autoMapColumns(headers: string[]): ColMap {
+  const map: ColMap = { date: -1, description: -1, amount: -1, dare: -1, avere: -1, balance: -1 }
 
   // Pattern flessibili — match parziale su molte varianti banche italiane
   const datePatterns = ['data', 'date', 'dt', 'val', 'valuta', 'contab', 'operaz', 'registr', 'compet']
@@ -384,8 +386,9 @@ function autoMapColumns(headers) {
 // ═══ SHARED UI COMPONENTS ═══
 // ═══════════════════════════════════════════════════════════════════
 
-function KpiCard({ title, value, subtitle, icon: Icon, color = 'blue', onClick }) {
-  const colorMap = {
+type KpiColorT = 'blue' | 'green' | 'amber' | 'purple' | 'red' | 'cyan'
+function KpiCard({ title, value, subtitle, icon: Icon, color = 'blue', onClick }: { title: string; value: string | number; subtitle?: string; icon: React.ComponentType<{ size?: number }>; color?: KpiColorT; onClick?: () => void }) {
+  const colorMap: Record<KpiColorT, string> = {
     blue: 'bg-blue-50 text-blue-600',
     green: 'bg-emerald-50 text-emerald-600',
     amber: 'bg-amber-50 text-amber-600',
@@ -411,7 +414,7 @@ function KpiCard({ title, value, subtitle, icon: Icon, color = 'blue', onClick }
   )
 }
 
-function EmptyState({ icon: Icon, title, description, action }) {
+function EmptyState({ icon: Icon, title, description, action }: { icon: React.ComponentType<{ size?: number; className?: string }>; title: string; description: string; action?: React.ReactNode }) {
   return (
     <div className="flex flex-col items-center justify-center py-16 text-center">
       <div className="p-4 bg-slate-100 rounded-2xl mb-4">
@@ -424,7 +427,7 @@ function EmptyState({ icon: Icon, title, description, action }) {
   )
 }
 
-function Modal({ isOpen, onClose, title, children, maxWidth = 'max-w-lg' }) {
+function Modal({ isOpen, onClose, title, children, maxWidth = 'max-w-lg' }: { isOpen: boolean; onClose: () => void; title: string; children: React.ReactNode; maxWidth?: string }) {
   if (!isOpen) return null
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>
@@ -441,7 +444,7 @@ function Modal({ isOpen, onClose, title, children, maxWidth = 'max-w-lg' }) {
   )
 }
 
-function ConfirmDialog({ isOpen, onClose, onConfirm, title, message, confirmLabel = 'Conferma', danger = false }) {
+function ConfirmDialog({ isOpen, onClose, onConfirm, title, message, confirmLabel = 'Conferma', danger = false }: { isOpen: boolean; onClose: () => void; onConfirm: () => void; title: string; message: string; confirmLabel?: string; danger?: boolean }) {
   if (!isOpen) return null
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>
@@ -468,7 +471,7 @@ function ConfirmDialog({ isOpen, onClose, onConfirm, title, message, confirmLabe
   )
 }
 
-function Pagination({ page, totalPages, onPageChange }) {
+function Pagination({ page, totalPages, onPageChange }: { page: number; totalPages: number; onPageChange: (p: number) => void }) {
   if (totalPages <= 1) return null
   return (
     <div className="flex items-center justify-between px-4 py-3 border-t border-slate-100">
@@ -521,41 +524,45 @@ function Pagination({ page, totalPages, onPageChange }) {
 // ═══ TAB 1: PANORAMICA ═══
 // ═══════════════════════════════════════════════════════════════════
 
-function TabPanoramica({ accounts, transactions, payables, onNavigate }) {
+type AccountT = Record<string, unknown> & { id: string; bank_name?: string | null; account_name?: string | null; current_balance?: number | null; credit_line?: number | null; iban?: string | null; account_type?: string | null; last_balance_update?: string | null }
+type TransactionT = Record<string, unknown> & { id: string; transaction_date?: string | null; amount?: number | null; type?: string | null; description?: string | null; bank_account_id?: string | null; reconciliation_status?: string | null; counterpart_name?: string | null; is_reconciled?: boolean | null; note?: string | null; reconciled_at?: string | null; reconciled_invoice_id?: string | null }
+type PayableT = Record<string, unknown> & { id: string; due_date?: string | null; amount?: number | null; gross_amount?: number | null; amount_paid?: number | null; amount_remaining?: number | null; supplier_name?: string | null; invoice_number?: string | null; status?: string | null; suppliers?: { ragione_sociale?: string | null; name?: string | null; iban?: string | null } | null }
+function TabPanoramica({ accounts, transactions, payables, onNavigate }: { accounts: AccountT[]; transactions: TransactionT[]; payables: PayableT[]; onNavigate: (tab: string) => void }) {
   const totalBalance = useMemo(() =>
-    accounts.reduce((sum, a) => sum + (a.current_balance || 0), 0),
+    accounts.reduce<number>((sum, a) => sum + (Number(a.current_balance) || 0), 0),
     [accounts]
   )
 
   const totalCreditLine = useMemo(() =>
-    accounts.reduce((sum, a) => sum + (a.credit_line || 0), 0),
+    accounts.reduce<number>((sum, a) => sum + (Number(a.credit_line) || 0), 0),
     [accounts]
   )
 
   const last30 = useMemo(() => {
     const cutoff = new Date()
     cutoff.setDate(cutoff.getDate() - 30)
-    return transactions.filter(t => new Date(t.transaction_date) >= cutoff)
+    return transactions.filter(t => t.transaction_date && new Date(t.transaction_date) >= cutoff)
   }, [transactions])
 
-  const inflows = useMemo(() => last30.filter(t => t.amount > 0).reduce((s, t) => s + t.amount, 0), [last30])
-  const outflows = useMemo(() => last30.filter(t => t.amount < 0).reduce((s, t) => s + Math.abs(t.amount), 0), [last30])
+  const inflows = useMemo(() => last30.filter(t => (t.amount || 0) > 0).reduce<number>((s, t) => s + (t.amount || 0), 0), [last30])
+  const outflows = useMemo(() => last30.filter(t => (t.amount || 0) < 0).reduce<number>((s, t) => s + Math.abs(t.amount || 0), 0), [last30])
 
   const overduePayables = useMemo(() =>
-    payables.filter(p => p.status === 'scaduto' || (p.status === 'da_pagare' && daysUntil(p.due_date) < 0)),
+    payables.filter(p => p.status === 'scaduto' || (p.status === 'da_pagare' && (daysUntil(p.due_date) ?? 0) < 0)),
     [payables]
   )
 
   const upcomingPayables = useMemo(() =>
     payables
-      .filter(p => (p.status === 'da_pagare' || p.status === 'in_scadenza' || p.status === 'parziale') && daysUntil(p.due_date) >= 0 && daysUntil(p.due_date) <= 30)
-      .sort((a, b) => new Date(a.due_date) - new Date(b.due_date)),
+      .filter(p => (p.status === 'da_pagare' || p.status === 'in_scadenza' || p.status === 'parziale') && (daysUntil(p.due_date) ?? -1) >= 0 && (daysUntil(p.due_date) ?? 99) <= 30)
+      .sort((a, b) => new Date(a.due_date || 0).getTime() - new Date(b.due_date || 0).getTime()),
     [payables]
   )
 
   // Cashflow chart - last 30 days by day
-  const cashflowData = useMemo(() => {
-    const days = {}
+  type CashflowDay = { date: string; label: string; entrate: number; uscite: number }
+  const cashflowData = useMemo<CashflowDay[]>(() => {
+    const days: Record<string, CashflowDay> = {}
     for (let i = 29; i >= 0; i--) {
       const d = new Date()
       d.setDate(d.getDate() - i)
@@ -565,8 +572,8 @@ function TabPanoramica({ accounts, transactions, payables, onNavigate }) {
     last30.forEach(t => {
       const key = (t.transaction_date || '').split('T')[0]
       if (days[key]) {
-        if (t.amount > 0) days[key].entrate += t.amount
-        else days[key].uscite += Math.abs(t.amount)
+        if ((t.amount || 0) > 0) days[key].entrate += (t.amount || 0)
+        else days[key].uscite += Math.abs(t.amount || 0)
       }
     })
     return Object.values(days)
@@ -574,17 +581,18 @@ function TabPanoramica({ accounts, transactions, payables, onNavigate }) {
 
   // Recent movements (last 10)
   const recentMovements = useMemo(() =>
-    [...transactions].sort((a, b) => new Date(b.transaction_date) - new Date(a.transaction_date)).slice(0, 10),
+    [...transactions].sort((a, b) => new Date(b.transaction_date || 0).getTime() - new Date(a.transaction_date || 0).getTime()).slice(0, 10),
     [transactions]
   )
 
   // Per-bank balances for mini cards
-  const bankSummary = useMemo(() => {
-    const banks = {}
+  type BankSummaryT = { name: string; balance: number; count: number; accounts: AccountT[] }
+  const bankSummary = useMemo<BankSummaryT[]>(() => {
+    const banks: Record<string, BankSummaryT> = {}
     accounts.forEach(a => {
       const key = a.bank_name || 'Altro'
       if (!banks[key]) banks[key] = { name: key, balance: 0, count: 0, accounts: [] }
-      banks[key].balance += a.current_balance || 0
+      banks[key].balance += Number(a.current_balance) || 0
       banks[key].count++
       banks[key].accounts.push(a)
     })
@@ -607,7 +615,7 @@ function TabPanoramica({ accounts, transactions, payables, onNavigate }) {
           icon={ArrowUpRight}
           title="Entrate (30gg)"
           value={`+${fmt(inflows)} \u20AC`}
-          subtitle={`${last30.filter(t => t.amount > 0).length} movimenti`}
+          subtitle={`${last30.filter(t => (t.amount || 0) > 0).length} movimenti`}
           color="green"
           onClick={() => onNavigate('movimenti')}
         />
@@ -615,16 +623,16 @@ function TabPanoramica({ accounts, transactions, payables, onNavigate }) {
           icon={ArrowDownLeft}
           title="Uscite (30gg)"
           value={`-${fmt(outflows)} \u20AC`}
-          subtitle={`${last30.filter(t => t.amount < 0).length} movimenti`}
+          subtitle={`${last30.filter(t => (t.amount || 0) < 0).length} movimenti`}
           color="red"
           onClick={() => onNavigate('movimenti')}
         />
         <KpiCard
           icon={Link2}
           title="Da riconciliare"
-          value={`${transactions.filter(t => !t.is_reconciled && t.amount < 0).length}`}
-          subtitle={transactions.filter(t => !t.is_reconciled && t.amount < 0).length > 0 ? 'Movimenti in attesa' : 'Tutto riconciliato'}
-          color={transactions.filter(t => !t.is_reconciled && t.amount < 0).length > 0 ? 'amber' : 'green'}
+          value={`${transactions.filter(t => !t.is_reconciled && (t.amount || 0) < 0).length}`}
+          subtitle={transactions.filter(t => !t.is_reconciled && (t.amount || 0) < 0).length > 0 ? 'Movimenti in attesa' : 'Tutto riconciliato'}
+          color={transactions.filter(t => !t.is_reconciled && (t.amount || 0) < 0).length > 0 ? 'amber' : 'green'}
           onClick={() => onNavigate('riconciliazione')}
         />
       </div>
@@ -710,8 +718,8 @@ function TabPanoramica({ accounts, transactions, payables, onNavigate }) {
               <p className="text-sm text-slate-400 text-center py-8">Nessuna scadenza imminente</p>
             ) : (
               upcomingPayables.slice(0, 8).map(p => {
-                const days = daysUntil(p.due_date)
-                const remaining = parseFloat(p.gross_amount || p.amount_remaining || 0)
+                const days = daysUntil(p.due_date) ?? 99
+                const remaining = Number(p.gross_amount || p.amount_remaining || 0)
                 return (
                   <div key={p.id} className="flex items-center gap-3 px-5 py-3 hover:bg-slate-50">
                     <div className={classNames(
@@ -722,7 +730,7 @@ function TabPanoramica({ accounts, transactions, payables, onNavigate }) {
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="text-sm font-medium text-slate-900 truncate">{getSupplierName(p)}</div>
-                      <div className="text-xs text-slate-400">{p.invoice_number || ''} - Scadenza {fmtDate(p.due_date)}</div>
+                      <div className="text-xs text-slate-400">{String(p.invoice_number || '')} - Scadenza {fmtDate(p.due_date)}</div>
                     </div>
                     <div className="text-sm font-semibold text-slate-900 whitespace-nowrap">{fmt(remaining)} &euro;</div>
                   </div>
@@ -746,20 +754,21 @@ function TabPanoramica({ accounts, transactions, payables, onNavigate }) {
             ) : (
               recentMovements.map(m => {
                 const acct = accounts.find(a => a.id === m.bank_account_id)
+                const amt = Number(m.amount) || 0
                 return (
                   <div key={m.id} className="flex items-center gap-3 px-5 py-3 hover:bg-slate-50">
                     <div className={classNames(
                       'p-1.5 rounded-lg',
-                      m.amount >= 0 ? 'bg-emerald-50' : 'bg-red-50'
+                      amt >= 0 ? 'bg-emerald-50' : 'bg-red-50'
                     )}>
-                      {m.amount >= 0 ? <ArrowDownLeft size={14} className="text-emerald-600" /> : <ArrowUpRight size={14} className="text-red-500" />}
+                      {amt >= 0 ? <ArrowDownLeft size={14} className="text-emerald-600" /> : <ArrowUpRight size={14} className="text-red-500" />}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium text-slate-900 truncate">{m.description || m.counterpart_name || 'Movimento'}</div>
+                      <div className="text-sm font-medium text-slate-900 truncate">{(m.description as string | null) || (m.counterpart_name as string | null) || 'Movimento'}</div>
                       <div className="text-xs text-slate-400">{fmtDate(m.transaction_date)} {acct ? `\u2022 ${acct.account_name || acct.bank_name}` : ''}</div>
                     </div>
-                    <div className={classNames('text-sm font-semibold whitespace-nowrap', m.amount >= 0 ? 'text-emerald-600' : 'text-red-600')}>
-                      {m.amount >= 0 ? '+' : ''}{fmt(m.amount)} &euro;
+                    <div className={classNames('text-sm font-semibold whitespace-nowrap', amt >= 0 ? 'text-emerald-600' : 'text-red-600')}>
+                      {amt >= 0 ? '+' : ''}{fmt(amt)} &euro;
                     </div>
                   </div>
                 )
@@ -776,7 +785,8 @@ function TabPanoramica({ accounts, transactions, payables, onNavigate }) {
 // ═══ TAB 2: CONTI BANCARI ═══
 // ═══════════════════════════════════════════════════════════════════
 
-function AddAccountModal({ isOpen, onClose, onSave, editAccount }) {
+type AccountFormT = { bank_name: string; account_name: string; iban: string; account_type: string; current_balance: number; credit_line?: number; outlet_code?: string; note?: string; id?: string; color?: string }
+function AddAccountModal({ isOpen, onClose, onSave, editAccount }: { isOpen: boolean; onClose: () => void; onSave: (data: AccountFormT) => void | Promise<void>; editAccount: AccountFormT | null }) {
   const [form, setForm] = useState({
     bank_name: '', account_name: '', iban: '', account_type: 'conto_corrente',
     current_balance: 0, credit_line: 0, outlet_code: '', color: '#3b82f6', note: '',
@@ -885,7 +895,7 @@ function AddAccountModal({ isOpen, onClose, onSave, editAccount }) {
   )
 }
 
-function UpdateBalanceModal({ isOpen, onClose, account, onSave }) {
+function UpdateBalanceModal({ isOpen, onClose, account, onSave }: { isOpen: boolean; onClose: () => void; account: AccountT | null; onSave: (data: { balance: number; balance_date: string; notes: string }) => void | Promise<void> }) {
   const [balance, setBalance] = useState(0)
   const [balanceDate, setBalanceDate] = useState(new Date().toISOString().split('T')[0])
   const [notes, setNotes] = useState('')
@@ -915,7 +925,7 @@ function UpdateBalanceModal({ isOpen, onClose, account, onSave }) {
         <div className="bg-slate-50 rounded-lg p-3 text-sm">
           <span className="text-slate-500">Saldo attuale:</span>{' '}
           <span className="font-semibold">{fmt(account?.current_balance)} &euro;</span>
-          <span className="text-slate-400 ml-2">({fmtDate(account?.balance_updated_at)})</span>
+          <span className="text-slate-400 ml-2">({fmtDate(account?.balance_updated_at as string | null | undefined)})</span>
         </div>
         <div>
           <label className="block text-xs font-medium text-slate-500 mb-1">Nuovo saldo</label>
@@ -946,16 +956,19 @@ function UpdateBalanceModal({ isOpen, onClose, account, onSave }) {
   )
 }
 
-function UploadStatementModal({ isOpen, onClose, account, companyId, onImported }) {
-  const [file, setFile] = useState<any>(null)
-  const [parsed, setParsed] = useState<any>(null)
-  const [columnMap, setColumnMap] = useState({ date: -1, description: -1, amount: -1, dare: -1, avere: -1, balance: -1 })
+function UploadStatementModal({ isOpen, onClose, account, companyId, onImported }: { isOpen: boolean; onClose: () => void; account: AccountT | null; companyId: string; onImported: () => void }) {
+  type ParsedT = { headers: string[]; rows: string[][]; separator?: string; sheetNames?: string[]; skippedRows?: number }
+  type PreviewRow = { date: string | null; description: string; amount: number; balance: number | null }
+  type ImportResultT = { success: boolean; count?: number; error?: string } | null
+  const [file, setFile] = useState<File | null>(null)
+  const [parsed, setParsed] = useState<ParsedT | null>(null)
+  const [columnMap, setColumnMap] = useState<ColMap>({ date: -1, description: -1, amount: -1, dare: -1, avere: -1, balance: -1 })
   const [dateFormat, setDateFormat] = useState('dd/mm/yyyy')
-  const [preview, setPreview] = useState<any[]>([])
+  const [preview, setPreview] = useState<PreviewRow[]>([])
   const [importing, setImporting] = useState(false)
   const [step, setStep] = useState('upload') // upload | map | preview | done
-  const [importResult, setImportResult] = useState<any>(null)
-  const fileRef = useRef(null)
+  const [importResult, setImportResult] = useState<ImportResultT>(null)
+  const fileRef = useRef<HTMLInputElement | null>(null)
 
   useEffect(() => {
     if (!isOpen) {
@@ -965,15 +978,15 @@ function UploadStatementModal({ isOpen, onClose, account, companyId, onImported 
   }, [isOpen])
 
   const [fileType, setFileType] = useState('csv')
-  const [parseError, setParseError] = useState<any>(null)
+  const [parseError, setParseError] = useState<string | null>(null)
 
-  const handleFile = (e) => {
+  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0]
     if (!f) return
     setFile(f)
     setParseError(null)
 
-    const ext = f.name.split('.').pop().toLowerCase()
+    const ext = (f.name.split('.').pop() || '').toLowerCase()
     setFileType(ext === 'xlsx' || ext === 'xls' ? 'xlsx' : ext === 'pdf' ? 'pdf' : 'csv')
 
     if (ext === 'pdf') {
@@ -988,7 +1001,9 @@ function UploadStatementModal({ isOpen, onClose, account, companyId, onImported 
       const reader = new FileReader()
       reader.onload = (ev) => {
         try {
-          const result = parseExcelFile(ev.target.result)
+          const buf = ev.target?.result
+          if (!buf || typeof buf === 'string') return
+          const result = parseExcelFile(buf as ArrayBuffer)
           setParsed(result)
           const map = autoMapColumns(result.headers)
           setColumnMap(map)
@@ -1010,12 +1025,14 @@ function UploadStatementModal({ isOpen, onClose, account, companyId, onImported 
       const reader = new FileReader()
       reader.onload = (ev) => {
         try {
-          let text = ev.target.result
+          const text = ev.target?.result
+          if (typeof text !== 'string') return
           // Se contiene caratteri corrotti, riprova con Latin1
           if (text.includes('\ufffd')) {
             const reader2 = new FileReader()
             reader2.onload = (ev2) => {
-              processCSVText(ev2.target.result)
+              const t2 = ev2.target?.result
+              if (typeof t2 === 'string') processCSVText(t2)
             }
             reader2.readAsText(f, 'ISO-8859-1')
             return
@@ -1029,7 +1046,7 @@ function UploadStatementModal({ isOpen, onClose, account, companyId, onImported 
     }
   }
 
-  const processCSVText = (text) => {
+  const processCSVText = (text: string) => {
     const result = parseCSV(text)
     if (result.headers.length === 0) {
       setParseError('File vuoto o formato non riconosciuto. Verifica che sia un CSV valido.')
@@ -1049,7 +1066,7 @@ function UploadStatementModal({ isOpen, onClose, account, companyId, onImported 
 
   const handlePreview = () => {
     if (!parsed) return
-    const rows = parsed.rows.slice(0, 5).map(row => {
+    const rows: PreviewRow[] = parsed.rows.slice(0, 5).map((row: string[]) => {
       let amount = 0
       if (columnMap.amount >= 0) {
         amount = parseCSVNumber(row[columnMap.amount])
@@ -1075,8 +1092,9 @@ function UploadStatementModal({ isOpen, onClose, account, companyId, onImported 
     // Dichiariamo stmt fuori dal try cosi' nel catch possiamo aggiornare
     // lo status a 'error' ed evitare di lasciare il record in 'processing'
     // per sempre (bug MPS segnalato dall'utente).
-    let stmt = null
+    let stmt: { id: string } | null = null
     try {
+      if (!file) return
       // Create bank_statement record
       const { data: stmtData, error: stmtErr } = await supabase.from('bank_statements').insert({
         company_id: companyId,
@@ -1085,13 +1103,13 @@ function UploadStatementModal({ isOpen, onClose, account, companyId, onImported 
         file_type: fileType === 'xlsx' ? 'xlsx' : 'csv',
         transaction_count: parsed.rows.length,
         status: 'processing',
-      }).select().single()
+      } as never).select().single()
 
       if (stmtErr) throw stmtErr
-      stmt = stmtData
+      stmt = stmtData as { id: string } | null
 
       // Parse all rows
-      const transactions = parsed.rows.map(row => {
+      const transactions = parsed.rows.map((row: string[]) => {
         let amount = 0
         if (columnMap.amount >= 0) {
           amount = parseCSVNumber(row[columnMap.amount])
@@ -1104,7 +1122,7 @@ function UploadStatementModal({ isOpen, onClose, account, companyId, onImported 
         return {
           company_id: companyId,
           bank_account_id: account.id,
-          statement_id: stmt.id,
+          statement_id: stmt?.id || null,
           transaction_date: txDate,
           value_date: txDate,
           amount,
@@ -1120,16 +1138,16 @@ function UploadStatementModal({ isOpen, onClose, account, companyId, onImported 
       let inserted = 0
       for (let i = 0; i < transactions.length; i += 100) {
         const batch = transactions.slice(i, i + 100)
-        const { error: txErr } = await supabase.from('bank_transactions').insert(batch)
+        const { error: txErr } = await supabase.from('bank_transactions').insert(batch as never)
         if (txErr) throw txErr
         inserted += batch.length
       }
 
       // Update statement status
-      await supabase.from('bank_statements').update({
+      if (stmt?.id) await supabase.from('bank_statements').update({
         status: 'completed',
         transaction_count: inserted,
-      }).eq('id', stmt.id)
+      } as never).eq('id', stmt.id)
 
       // Update account balance if last row has balance
       if (transactions.length > 0) {
@@ -1138,7 +1156,7 @@ function UploadStatementModal({ isOpen, onClose, account, companyId, onImported 
           await supabase.from('bank_accounts').update({
             current_balance: lastBalance,
             balance_updated_at: new Date().toISOString(),
-          }).eq('id', account.id)
+          } as never).eq('id', account.id)
         }
       }
 
@@ -1156,9 +1174,9 @@ function UploadStatementModal({ isOpen, onClose, account, companyId, onImported 
           await supabase.from('bank_statements').update({
             status: 'error',
             error_message: (err as Error).message?.substring(0, 500) || 'Errore import',
-          }).eq('id', stmt.id)
-        } catch (updateErr) {
-          console.warn('impossibile marcare bank_statements come error:', updateErr.message)
+          } as never).eq('id', stmt.id)
+        } catch (updateErr: unknown) {
+          console.warn('impossibile marcare bank_statements come error:', (updateErr as Error)?.message)
         }
       }
       setImportResult({ success: false, error: (err as Error).message })
@@ -1180,11 +1198,11 @@ function UploadStatementModal({ isOpen, onClose, account, companyId, onImported 
             onDrop={e => {
               e.preventDefault()
               e.currentTarget.classList.remove('border-blue-400', 'bg-blue-50')
-              if (e.dataTransfer.files?.[0]) {
+              if (e.dataTransfer.files?.[0] && fileRef.current) {
                 const dt = new DataTransfer()
                 dt.items.add(e.dataTransfer.files[0])
                 fileRef.current.files = dt.files
-                handleFile({ target: { files: dt.files } })
+                handleFile({ target: fileRef.current } as unknown as React.ChangeEvent<HTMLInputElement>)
               }
             }}
           >
@@ -1243,14 +1261,14 @@ function UploadStatementModal({ isOpen, onClose, account, companyId, onImported 
           </div>
           <p className="text-sm font-medium text-slate-700">Mappa le colonne:</p>
           <div className="grid grid-cols-2 gap-3">
-            {[
+            {([
               { key: 'date', label: 'Data *' },
               { key: 'description', label: 'Descrizione' },
               { key: 'amount', label: 'Importo (unico)' },
               { key: 'dare', label: 'Dare (uscite)' },
               { key: 'avere', label: 'Avere (entrate)' },
               { key: 'balance', label: 'Saldo' },
-            ].map(field => (
+            ] as Array<{ key: keyof ColMap; label: string }>).map((field) => (
               <div key={field.key}>
                 <label className="block text-xs font-medium text-slate-500 mb-1">{field.label}</label>
                 <select
@@ -1359,29 +1377,29 @@ function UploadStatementModal({ isOpen, onClose, account, companyId, onImported 
   )
 }
 
-function TabContiBancari({ accounts, companyId, onRefresh }) {
+function TabContiBancari({ accounts, companyId, onRefresh }: { accounts: AccountT[]; companyId: string; onRefresh: () => void }) {
   const [showAdd, setShowAdd] = useState(false)
-  const [editAccount, setEditAccount] = useState<any>(null)
-  const [balanceAccount, setBalanceAccount] = useState<any>(null)
-  const [uploadAccount, setUploadAccount] = useState<any>(null)
-  const [showIban, setShowIban] = useState<Record<string, any>>({})
-  const [deleteConfirm, setDeleteConfirm] = useState<any>(null)
+  const [editAccount, setEditAccount] = useState<AccountFormT | null>(null)
+  const [balanceAccount, setBalanceAccount] = useState<AccountT | null>(null)
+  const [uploadAccount, setUploadAccount] = useState<AccountT | null>(null)
+  const [showIban, setShowIban] = useState<Record<string, boolean>>({})
+  const [deleteConfirm, setDeleteConfirm] = useState<AccountT | null>(null)
 
-  const handleSaveAccount = async (form) => {
-    if (editAccount) {
+  const handleSaveAccount = async (form: AccountFormT) => {
+    if (editAccount?.id) {
       const { error } = await supabase.from('bank_accounts')
-        .update({ ...form, updated_at: new Date().toISOString() })
+        .update({ ...form, updated_at: new Date().toISOString() } as never)
         .eq('id', editAccount.id).eq('company_id', companyId)
       if (error) throw error
     } else {
       const { error } = await supabase.from('bank_accounts')
-        .insert({ ...form, company_id: companyId, is_manual: true, is_active: true, currency: 'EUR', balance_updated_at: new Date().toISOString() })
+        .insert({ ...form, company_id: companyId, is_manual: true, is_active: true, currency: 'EUR', balance_updated_at: new Date().toISOString() } as never)
       if (error) throw error
     }
     onRefresh()
   }
 
-  const handleUpdateBalance = async ({ balance, balance_date, notes }) => {
+  const handleUpdateBalance = async ({ balance, balance_date, notes }: { balance: number; balance_date: string; notes: string }) => {
     if (!balanceAccount) return
     const { error: logErr } = await supabase.from('manual_balance_entries').insert({
       company_id: companyId,
@@ -1389,26 +1407,26 @@ function TabContiBancari({ accounts, companyId, onRefresh }) {
       balance,
       balance_date,
       notes,
-    })
+    } as never)
     if (logErr) console.error('balance log error:', logErr)
 
     const { error } = await supabase.from('bank_accounts').update({
       current_balance: balance,
       balance_updated_at: new Date().toISOString(),
-    }).eq('id', balanceAccount.id).eq('company_id', companyId)
+    } as never).eq('id', balanceAccount.id).eq('company_id', companyId)
     if (error) throw error
     onRefresh()
   }
 
   const handleDelete = async () => {
     if (!deleteConfirm) return
-    await supabase.from('bank_accounts').update({ is_active: false }).eq('id', deleteConfirm.id).eq('company_id', companyId)
+    await supabase.from('bank_accounts').update({ is_active: false } as never).eq('id', deleteConfirm.id).eq('company_id', companyId)
     setDeleteConfirm(null)
     onRefresh()
   }
 
   const activeAccounts = accounts.filter(a => a.is_active !== false)
-  const totalBalance = activeAccounts.reduce((s, a) => s + (a.current_balance || 0), 0)
+  const totalBalance = activeAccounts.reduce<number>((s, a) => s + (Number(a.current_balance) || 0), 0)
 
   return (
     <div className="space-y-6">
@@ -1430,7 +1448,7 @@ function TabContiBancari({ accounts, companyId, onRefresh }) {
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {activeAccounts.map((acct, idx) => (
             <div key={acct.id} className="bg-white rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition overflow-hidden">
-              <div className="h-1.5" style={{ backgroundColor: acct.color || COLORS[idx % COLORS.length] }} />
+              <div className="h-1.5" style={{ backgroundColor: (acct.color as string | undefined) || COLORS[idx % COLORS.length] }} />
               <div className="p-5">
                 <div className="flex items-start justify-between mb-3">
                   <div>
@@ -1438,7 +1456,7 @@ function TabContiBancari({ accounts, companyId, onRefresh }) {
                     <div className="text-xs text-slate-400">{acct.bank_name}{acct.outlet_code ? ` \u2022 ${acct.outlet_code}` : ''}</div>
                   </div>
                   <div className="flex gap-1">
-                    <button onClick={() => { setEditAccount(acct); setShowAdd(true) }} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600" title="Modifica">
+                    <button onClick={() => { setEditAccount(acct as unknown as AccountFormT); setShowAdd(true) }} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600" title="Modifica">
                       <Edit2 size={14} />
                     </button>
                     <button onClick={() => setDeleteConfirm(acct)} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500" title="Disattiva">
@@ -1447,7 +1465,7 @@ function TabContiBancari({ accounts, companyId, onRefresh }) {
                   </div>
                 </div>
 
-                <div className={classNames('text-2xl font-bold mb-3', acct.current_balance >= 0 ? 'text-slate-900' : 'text-red-600')}>
+                <div className={classNames('text-2xl font-bold mb-3', (Number(acct.current_balance) || 0) >= 0 ? 'text-slate-900' : 'text-red-600')}>
                   {fmt(acct.current_balance)} &euro;
                 </div>
 
@@ -1458,7 +1476,7 @@ function TabContiBancari({ accounts, companyId, onRefresh }) {
                     {showIban[acct.id] ? acct.iban || '\u2014' : maskIban(acct.iban)}
                   </button>
                   {acct.iban && (
-                    <button onClick={() => navigator.clipboard.writeText(acct.iban)} className="p-1 hover:text-slate-600" title="Copia IBAN">
+                    <button onClick={() => acct.iban && navigator.clipboard.writeText(acct.iban)} className="p-1 hover:text-slate-600" title="Copia IBAN">
                       <Copy size={12} />
                     </button>
                   )}
@@ -1466,21 +1484,21 @@ function TabContiBancari({ accounts, companyId, onRefresh }) {
 
                 <div className="flex items-center justify-between text-xs text-slate-400 mb-4">
                   <span>{ACCOUNT_TYPES.find(t => t.value === acct.account_type)?.label || acct.account_type}</span>
-                  <span>Agg. {fmtDate(acct.balance_updated_at)}</span>
+                  <span>Agg. {fmtDate(acct.balance_updated_at as string | null | undefined)}</span>
                 </div>
 
-                {acct.credit_line > 0 && (
+                {(Number(acct.credit_line) || 0) > 0 && (
                   <div className="mb-4">
                     <div className="flex justify-between text-xs text-slate-500 mb-1">
                       <span>Utilizzo fido</span>
-                      <span>{fmt(Math.max(0, -acct.current_balance))} / {fmt(acct.credit_line)} &euro;</span>
+                      <span>{fmt(Math.max(0, -(Number(acct.current_balance) || 0)))} / {fmt(Number(acct.credit_line) || 0)} &euro;</span>
                     </div>
                     <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
                       <div
                         className="h-full rounded-full transition-all"
                         style={{
-                          width: `${Math.min(100, (Math.max(0, -acct.current_balance) / acct.credit_line) * 100)}%`,
-                          backgroundColor: (-acct.current_balance / acct.credit_line) > 0.8 ? '#ef4444' : '#3b82f6',
+                          width: `${Math.min(100, (Math.max(0, -(Number(acct.current_balance) || 0)) / (Number(acct.credit_line) || 1)) * 100)}%`,
+                          backgroundColor: (-(Number(acct.current_balance) || 0) / (Number(acct.credit_line) || 1)) > 0.8 ? '#ef4444' : '#3b82f6',
                         }}
                       />
                     </div>
@@ -1517,7 +1535,7 @@ function TabContiBancari({ accounts, companyId, onRefresh }) {
 // ═══ TAB 3: MOVIMENTI ═══
 // ═══════════════════════════════════════════════════════════════════
 
-function TabMovimenti({ transactions, accounts }) {
+function TabMovimenti({ transactions, accounts }: { transactions: TransactionT[]; accounts: AccountT[] }) {
   const [search, setSearch] = useState('')
   const [filterAccount, setFilterAccount] = useState('all')
   const [filterType, setFilterType] = useState('all') // all, entrata, uscita
@@ -1525,34 +1543,36 @@ function TabMovimenti({ transactions, accounts }) {
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [page, setPage] = useState(1)
-  const [sortField, setSortField] = useState('transaction_date')
+  const [sortField, setSortField] = useState<keyof TransactionT | string>('transaction_date')
   const [sortDir, setSortDir] = useState('desc')
   const PER_PAGE = 25
 
-  const filtered = useMemo(() => {
+  const filtered = useMemo<TransactionT[]>(() => {
     let items = [...transactions]
     if (search) {
       const q = search.toLowerCase()
       items = items.filter(t =>
         (t.description || '').toLowerCase().includes(q) ||
-        (t.counterpart_name || '').toLowerCase().includes(q) ||
-        (t.reference || '').toLowerCase().includes(q)
+        (String(t.counterpart_name || '')).toLowerCase().includes(q) ||
+        (String(t.reference || '')).toLowerCase().includes(q)
       )
     }
     if (filterAccount !== 'all') items = items.filter(t => t.bank_account_id === filterAccount)
-    if (filterType === 'entrata') items = items.filter(t => t.amount > 0)
-    if (filterType === 'uscita') items = items.filter(t => t.amount < 0)
+    if (filterType === 'entrata') items = items.filter(t => (t.amount || 0) > 0)
+    if (filterType === 'uscita') items = items.filter(t => (t.amount || 0) < 0)
     if (filterReconciled === 'yes') items = items.filter(t => t.is_reconciled)
     if (filterReconciled === 'no') items = items.filter(t => !t.is_reconciled)
-    if (dateFrom) items = items.filter(t => t.transaction_date >= dateFrom)
-    if (dateTo) items = items.filter(t => t.transaction_date <= dateTo)
+    if (dateFrom) items = items.filter(t => (t.transaction_date || '') >= dateFrom)
+    if (dateTo) items = items.filter(t => (t.transaction_date || '') <= dateTo)
 
     items.sort((a, b) => {
-      let va = a[sortField], vb = b[sortField]
-      if (sortField === 'amount') { va = va || 0; vb = vb || 0 }
-      else { va = va || ''; vb = vb || '' }
-      if (va < vb) return sortDir === 'asc' ? -1 : 1
-      if (va > vb) return sortDir === 'asc' ? 1 : -1
+      const ar = a as Record<string, unknown>
+      const br = b as Record<string, unknown>
+      let va: unknown = ar[sortField], vb: unknown = br[sortField]
+      if (sortField === 'amount') { va = (va as number) || 0; vb = (vb as number) || 0 }
+      else { va = (va as string) || ''; vb = (vb as string) || '' }
+      if ((va as number | string) < (vb as number | string)) return sortDir === 'asc' ? -1 : 1
+      if ((va as number | string) > (vb as number | string)) return sortDir === 'asc' ? 1 : -1
       return 0
     })
     return items
@@ -1561,14 +1581,14 @@ function TabMovimenti({ transactions, accounts }) {
   const totalPages = Math.ceil(filtered.length / PER_PAGE) || 1
   const pageItems = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE)
 
-  const totalFiltered = useMemo(() => filtered.reduce((s, t) => s + (t.amount || 0), 0), [filtered])
+  const totalFiltered = useMemo(() => filtered.reduce<number>((s, t) => s + (t.amount || 0), 0), [filtered])
 
-  const handleSort = (field) => {
+  const handleSort = (field: string) => {
     if (sortField === field) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
     else { setSortField(field); setSortDir('desc') }
   }
 
-  const SortIcon = ({ field }) => {
+  const SortIcon = ({ field }: { field: string }) => {
     if (sortField !== field) return <ChevronsUpDown size={12} className="text-slate-300" />
     return sortDir === 'asc' ? <ChevronUp size={12} className="text-blue-600" /> : <ChevronDown size={12} className="text-blue-600" />
   }
@@ -1583,7 +1603,7 @@ function TabMovimenti({ transactions, accounts }) {
         fmtDate(t.transaction_date),
         `"${(t.description || '').replace(/"/g, '""')}"`,
         (t.amount || 0).toFixed(2).replace('.', ','),
-        (t.running_balance != null ? t.running_balance.toFixed(2).replace('.', ',') : ''),
+        (t.running_balance != null ? Number(t.running_balance).toFixed(2).replace('.', ',') : ''),
         acct?.account_name || acct?.bank_name || '',
         t.is_reconciled ? 'Si' : 'No',
       ].join(';')
@@ -1668,19 +1688,19 @@ function TabMovimenti({ transactions, accounts }) {
                       <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{fmtDate(t.transaction_date)}</td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
-                          <div className="w-2 h-2 rounded-full" style={{ backgroundColor: acct?.color || '#94a3b8' }} />
+                          <div className="w-2 h-2 rounded-full" style={{ backgroundColor: (acct?.color as string | undefined) || '#94a3b8' }} />
                           <span className="text-slate-600 text-xs truncate max-w-[100px]">{acct?.account_name || acct?.bank_name || '\u2014'}</span>
                         </div>
                       </td>
                       <td className="px-4 py-3 text-slate-900 max-w-[300px]">
-                        <div className="truncate" title={t.description}>{t.description || '\u2014'}</div>
-                        {t.counterpart_name && <div className="text-xs text-slate-400 truncate">{t.counterpart_name}</div>}
+                        <div className="truncate" title={t.description ?? undefined}>{t.description || '\u2014'}</div>
+                        {Boolean(t.counterpart_name) && <div className="text-xs text-slate-400 truncate">{String(t.counterpart_name)}</div>}
                       </td>
-                      <td className={classNames('px-4 py-3 text-right font-semibold whitespace-nowrap', t.amount >= 0 ? 'text-emerald-600' : 'text-red-600')}>
-                        {t.amount >= 0 ? '+' : ''}{fmt(t.amount)}
+                      <td className={classNames('px-4 py-3 text-right font-semibold whitespace-nowrap', (Number(t.amount) || 0) >= 0 ? 'text-emerald-600' : 'text-red-600')}>
+                        {(Number(t.amount) || 0) >= 0 ? '+' : ''}{fmt(t.amount)}
                       </td>
                       <td className="px-4 py-3 text-right text-slate-500 whitespace-nowrap">
-                        {t.running_balance != null ? fmt(t.running_balance) : '\u2014'}
+                        {t.running_balance != null ? fmt(Number(t.running_balance)) : '\u2014'}
                       </td>
                       <td className="px-4 py-3 text-center">
                         {t.is_reconciled ? (
@@ -1708,17 +1728,17 @@ function TabMovimenti({ transactions, accounts }) {
 // ═══ TAB 4: PAGAMENTI ═══
 // ═══════════════════════════════════════════════════════════════════
 
-function TabPagamenti({ payables, accounts, companyId, onRefresh, preSelectId }) {
+function TabPagamenti({ payables, accounts, companyId, onRefresh, preSelectId }: { payables: PayableT[]; accounts: AccountT[]; companyId: string; onRefresh: () => void; preSelectId?: string | null }) {
   const [search, setSearch] = useState('')
   const [filterStatus, setFilterStatus] = useState('da_pagare')
-  const [selected, setSelected] = useState(() => {
+  const [selected, setSelected] = useState<Record<string, boolean>>(() => {
     if (preSelectId) return { [preSelectId]: true }
     return {}
   })
   const [batchAccount, setBatchAccount] = useState('')
   const [batchNotes, setBatchNotes] = useState('')
   const [creating, setCreating] = useState(false)
-  const [sortField, setSortField] = useState('due_date')
+  const [sortField, setSortField] = useState<string>('due_date')
   const [sortDir, setSortDir] = useState('asc')
 
   const activeAccounts = accounts.filter(a => a.is_active !== false && a.iban)
@@ -1727,9 +1747,9 @@ function TabPagamenti({ payables, accounts, companyId, onRefresh, preSelectId })
     if (activeAccounts.length > 0 && !batchAccount) {
       setBatchAccount(activeAccounts[0].id)
     }
-  }, [activeAccounts.length])
+  }, [activeAccounts.length, activeAccounts, batchAccount])
 
-  const filteredPayables = useMemo(() => {
+  const filteredPayables = useMemo<PayableT[]>(() => {
     let items = [...payables]
     if (filterStatus !== 'all') {
       if (filterStatus === 'da_pagare') items = items.filter(p => p.status === 'da_pagare' || p.status === 'in_scadenza' || p.status === 'parziale')
@@ -1738,30 +1758,32 @@ function TabPagamenti({ payables, accounts, companyId, onRefresh, preSelectId })
     }
     if (search) {
       const q = search.toLowerCase()
-      items = items.filter(p => getSupplierName(p).toLowerCase().includes(q) || (p.invoice_number || '').toLowerCase().includes(q))
+      items = items.filter(p => getSupplierName(p).toLowerCase().includes(q) || (String(p.invoice_number || '')).toLowerCase().includes(q))
     }
     items.sort((a, b) => {
-      let va = a[sortField] || '', vb = b[sortField] || ''
+      const ar = a as Record<string, unknown>
+      const br = b as Record<string, unknown>
+      let va: unknown = ar[sortField] || '', vb: unknown = br[sortField] || ''
       if (sortField === 'amount') { va = Number(a.gross_amount || 0); vb = Number(b.gross_amount || 0) }
-      if (va < vb) return sortDir === 'asc' ? -1 : 1
-      if (va > vb) return sortDir === 'asc' ? 1 : -1
+      if ((va as number | string) < (vb as number | string)) return sortDir === 'asc' ? -1 : 1
+      if ((va as number | string) > (vb as number | string)) return sortDir === 'asc' ? 1 : -1
       return 0
     })
     return items
   }, [payables, filterStatus, search, sortField, sortDir])
 
   const selectedItems = useMemo(() => filteredPayables.filter(p => selected[p.id]), [filteredPayables, selected])
-  const selectedTotal = useMemo(() => selectedItems.reduce((s, p) => s + (p.amount_remaining != null ? Number(p.amount_remaining) : (Number(p.gross_amount || 0) - Number(p.amount_paid || 0))), 0), [selectedItems])
+  const selectedTotal = useMemo(() => selectedItems.reduce<number>((s, p) => s + (p.amount_remaining != null ? Number(p.amount_remaining) : (Number(p.gross_amount || 0) - Number(p.amount_paid || 0))), 0), [selectedItems])
 
   const selectedAccount = accounts.find(a => a.id === batchAccount)
-  const projectedBalance = (selectedAccount?.current_balance || 0) - selectedTotal
+  const projectedBalance = (Number(selectedAccount?.current_balance) || 0) - selectedTotal
 
-  const toggleSelect = (id) => setSelected(prev => ({ ...prev, [id]: !prev[id] }))
+  const toggleSelect = (id: string) => setSelected(prev => ({ ...prev, [id]: !prev[id] }))
   const toggleSelectAll = () => {
     const allSelected = filteredPayables.every(p => selected[p.id])
     if (allSelected) setSelected({})
     else {
-      const newSel = {}
+      const newSel: Record<string, boolean> = {}
       filteredPayables.forEach(p => { newSel[p.id] = true })
       setSelected(newSel)
     }
@@ -1781,31 +1803,33 @@ function TabPagamenti({ payables, accounts, companyId, onRefresh, preSelectId })
         status: 'draft',
         total_amount: selectedTotal,
         payment_count: selectedItems.length,
-        balance_before: selectedAccount?.current_balance || 0,
+        balance_before: Number(selectedAccount?.current_balance) || 0,
         balance_after: projectedBalance,
         notes: batchNotes,
-      }).select().single()
+      } as never).select().single()
 
       if (batchErr) throw batchErr
+      const batchTyped = batch as { id: string } | null
+      if (!batchTyped) throw new Error('No batch created')
 
       // Insert batch items
       const items = selectedItems.map((p, idx) => ({
-        batch_id: batch.id,
+        batch_id: batchTyped.id,
         company_id: companyId,
         payable_id: p.id,
         beneficiary_name: getSupplierName(p),
-        beneficiary_iban: p.iban || '',
+        beneficiary_iban: (p.iban as string | null) || '',
         amount: p.amount_remaining != null ? Number(p.amount_remaining) : (Number(p.gross_amount || 0) - Number(p.amount_paid || 0)),
         currency: 'EUR',
-        payment_reason: `Pag. fatt. ${p.invoice_number || ''}`.trim(),
-        invoice_number: p.invoice_number || '',
+        payment_reason: `Pag. fatt. ${String(p.invoice_number || '')}`.trim(),
+        invoice_number: String(p.invoice_number || ''),
         invoice_date: p.invoice_date,
         due_date: p.due_date,
         priority: idx + 1,
         status: 'pending',
       }))
 
-      const { error: itemsErr } = await supabase.from('payment_batch_items').insert(items)
+      const { error: itemsErr } = await supabase.from('payment_batch_items').insert(items as never)
       if (itemsErr) throw itemsErr
 
       setSelected({})
@@ -1873,7 +1897,7 @@ function TabPagamenti({ payables, accounts, companyId, onRefresh, preSelectId })
                         <td className="px-4 py-3">
                           <div className="font-medium text-slate-900 truncate max-w-[180px]">{getSupplierName(p)}</div>
                         </td>
-                        <td className="px-4 py-3 text-slate-600 text-xs">{p.invoice_number || '\u2014'}</td>
+                        <td className="px-4 py-3 text-slate-600 text-xs">{String(p.invoice_number || '\u2014')}</td>
                         <td className="px-4 py-3">
                           <div className={classNames('text-sm', isOverdue ? 'text-red-600 font-semibold' : 'text-slate-600')}>
                             {fmtDate(p.due_date)}
@@ -1917,7 +1941,7 @@ function TabPagamenti({ payables, accounts, companyId, onRefresh, preSelectId })
                     <div key={p.id} className="flex items-center justify-between py-2 px-3 bg-blue-50 rounded-lg">
                       <div className="min-w-0 flex-1">
                         <div className="text-sm font-medium text-slate-800 truncate">{getSupplierName(p)}</div>
-                        <div className="text-xs text-slate-400">{p.invoice_number || ''}</div>
+                        <div className="text-xs text-slate-400">{String(p.invoice_number || '')}</div>
                       </div>
                       <div className="text-sm font-semibold text-slate-900 whitespace-nowrap ml-2">{fmt(remaining)} &euro;</div>
                       <button onClick={() => toggleSelect(p.id)} className="ml-2 p-1 hover:bg-red-100 rounded text-slate-400 hover:text-red-500">
@@ -1996,10 +2020,39 @@ function TabPagamenti({ payables, accounts, companyId, onRefresh, preSelectId })
 // ═══ TAB 5: DISTINTE ═══
 // ═══════════════════════════════════════════════════════════════════
 
-function TabDistinte({ batches, batchItems, accounts, companyId, onRefresh }) {
-  const [expandedBatch, setExpandedBatch] = useState<any>(null)
-  const [confirmExec, setConfirmExec] = useState<any>(null)
-  const [confirmCancel, setConfirmCancel] = useState<any>(null)
+type BatchT = Record<string, unknown> & {
+  id: string
+  batch_number?: string | null
+  status?: string | null
+  bank_account_id?: string | null
+  total_amount?: number | null
+  payment_count?: number | null
+  notes?: string | null
+  created_at?: string | null
+  executed_at?: string | null
+}
+type BatchItemT = Record<string, unknown> & {
+  id: string
+  batch_id: string
+  payable_id?: string | null
+  beneficiary_name?: string | null
+  beneficiary_iban?: string | null
+  invoice_number?: string | null
+  due_date?: string | null
+  amount?: number | null
+  status?: string | null
+}
+
+function TabDistinte({ batches, batchItems, accounts, companyId, onRefresh }: {
+  batches: BatchT[]
+  batchItems: BatchItemT[]
+  accounts: AccountT[]
+  companyId: string
+  onRefresh: () => void
+}) {
+  const [expandedBatch, setExpandedBatch] = useState<string | null>(null)
+  const [confirmExec, setConfirmExec] = useState<BatchT | null>(null)
+  const [confirmCancel, setConfirmCancel] = useState<BatchT | null>(null)
   const [executing, setExecuting] = useState(false)
 
   const handleExecute = async () => {
@@ -2012,35 +2065,35 @@ function TabDistinte({ batches, batchItems, accounts, companyId, onRefresh }) {
         status: 'executed',
         executed_at: now,
         updated_at: now,
-      }).eq('id', confirmExec.id).eq('company_id', companyId)
+      } as never).eq('id', String(confirmExec.id)).eq('company_id', companyId)
       if (batchErr) throw batchErr
 
       // Update batch items
       const { error: itemsErr } = await supabase.from('payment_batch_items').update({
         status: 'executed',
         executed_at: now,
-      }).eq('batch_id', confirmExec.id).eq('company_id', companyId)
+      } as never).eq('batch_id', String(confirmExec.id)).eq('company_id', companyId)
       if (itemsErr) throw itemsErr
 
       // Update payables status
-      const items = batchItems.filter(i => i.batch_id === confirmExec.id)
+      const items = batchItems.filter((i) => i.batch_id === confirmExec.id)
       for (const item of items) {
         if (item.payable_id) {
           await supabase.from('payables').update({
             status: 'pagato',
             payment_date: now.split('T')[0],
             payment_bank_account_id: confirmExec.bank_account_id,
-          }).eq('id', item.payable_id).eq('company_id', companyId)
+          } as never).eq('id', String(item.payable_id)).eq('company_id', companyId)
         }
       }
 
       // Update bank account balance
-      const acct = accounts.find(a => a.id === confirmExec.bank_account_id)
+      const acct = accounts.find((a) => a.id === confirmExec.bank_account_id)
       if (acct) {
         await supabase.from('bank_accounts').update({
-          current_balance: (acct.current_balance || 0) - (confirmExec.total_amount || 0),
+          current_balance: (Number(acct.current_balance) || 0) - (Number(confirmExec.total_amount) || 0),
           balance_updated_at: now,
-        }).eq('id', acct.id).eq('company_id', companyId)
+        } as never).eq('id', String(acct.id)).eq('company_id', companyId)
       }
 
       setConfirmExec(null)
@@ -2059,11 +2112,11 @@ function TabDistinte({ batches, batchItems, accounts, companyId, onRefresh }) {
       await supabase.from('payment_batches').update({
         status: 'cancelled',
         updated_at: new Date().toISOString(),
-      }).eq('id', confirmCancel.id).eq('company_id', companyId)
+      } as never).eq('id', String(confirmCancel.id)).eq('company_id', companyId)
 
       await supabase.from('payment_batch_items').update({
         status: 'cancelled',
-      }).eq('batch_id', confirmCancel.id).eq('company_id', companyId)
+      } as never).eq('batch_id', String(confirmCancel.id)).eq('company_id', companyId)
 
       setConfirmCancel(null)
       onRefresh()
@@ -2073,7 +2126,7 @@ function TabDistinte({ batches, batchItems, accounts, companyId, onRefresh }) {
   }
 
   const sortedBatches = useMemo(() =>
-    [...batches].sort((a, b) => new Date(b.created_at) - new Date(a.created_at)),
+    [...batches].sort((a, b) => new Date(String(b.created_at) || 0).getTime() - new Date(String(a.created_at) || 0).getTime()),
     [batches]
   )
 
@@ -2188,10 +2241,20 @@ function TabDistinte({ batches, batchItems, accounts, companyId, onRefresh }) {
 // ═══ TAB 6: RICONCILIAZIONE ═══
 // ═══════════════════════════════════════════════════════════════════
 
-function TabRiconciliazione({ transactions, payables, accounts, companyId, onRefresh }) {
+type TxT = TransactionT
+type PayT = PayableT
+type MatchT = { payable: PayT; score: number; percentDiff: number; remaining: number }
+
+function TabRiconciliazione({ transactions, payables, accounts, companyId, onRefresh }: {
+  transactions: TxT[]
+  payables: PayT[]
+  accounts: AccountT[]
+  companyId: string
+  onRefresh: () => void
+}) {
   const [filterAccount, setFilterAccount] = useState('all')
   const [search, setSearch] = useState('')
-  const [selectedMovement, setSelectedMovement] = useState<any>(null)
+  const [selectedMovement, setSelectedMovement] = useState<TxT | null>(null)
   const [manualPayableId, setManualPayableId] = useState('')
   // Nuovo: campo di ricerca per il combobox abbinamento manuale
   const [manualSearch, setManualSearch] = useState('')
@@ -2199,18 +2262,18 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
 
   // Get unreconciled outgoing movements
   const unreconciledMovements = useMemo(() => {
-    let items = transactions.filter(t => !t.is_reconciled && t.amount < 0)
-    if (filterAccount !== 'all') items = items.filter(t => t.bank_account_id === filterAccount)
+    let items = transactions.filter((t) => !t.is_reconciled && (Number(t.amount) || 0) < 0)
+    if (filterAccount !== 'all') items = items.filter((t) => t.bank_account_id === filterAccount)
     if (search) {
       const q = search.toLowerCase()
-      items = items.filter(t => (t.description || '').toLowerCase().includes(q) || (t.counterpart_name || '').toLowerCase().includes(q))
+      items = items.filter((t) => String(t.description || '').toLowerCase().includes(q) || String(t.counterpart_name || '').toLowerCase().includes(q))
     }
-    return items.sort((a, b) => new Date(b.transaction_date) - new Date(a.transaction_date))
+    return items.sort((a, b) => new Date(String(b.transaction_date) || 0).getTime() - new Date(String(a.transaction_date) || 0).getTime())
   }, [transactions, filterAccount, search])
 
   // Unpaid payables for matching
   const unpaidPayables = useMemo(() =>
-    payables.filter(p => p.status === 'da_pagare' || p.status === 'in_scadenza' || p.status === 'scaduto' || p.status === 'parziale'),
+    payables.filter((p) => p.status === 'da_pagare' || p.status === 'in_scadenza' || p.status === 'scaduto' || p.status === 'parziale'),
     [payables]
   )
 
@@ -2224,22 +2287,22 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
    */
   const manualMatchCandidates = useMemo(() => {
     const q = manualSearch.trim().toLowerCase()
-    const mvAmt = selectedMovement ? Math.abs(selectedMovement.amount || 0) : null
-    const tolerance = mvAmt ? mvAmt * 0.05 : null
+    const mvAmt = selectedMovement ? Math.abs(Number(selectedMovement.amount) || 0) : null
+    const tolerance: number = mvAmt ? mvAmt * 0.05 : 0
 
     let list = unpaidPayables.slice()
 
     if (q.length >= 2) {
-      list = list.filter(p =>
+      list = list.filter((p) =>
         getSupplierName(p).toLowerCase().includes(q) ||
-        (p.invoice_number || '').toLowerCase().includes(q) ||
+        String(p.invoice_number || '').toLowerCase().includes(q) ||
         String(p.gross_amount || '').includes(q)
       )
     }
 
     list.sort((a, b) => {
-      const aAmt = Math.abs(parseFloat(a.gross_amount) || 0)
-      const bAmt = Math.abs(parseFloat(b.gross_amount) || 0)
+      const aAmt = Math.abs(Number(a.gross_amount) || 0)
+      const bAmt = Math.abs(Number(b.gross_amount) || 0)
       // Se c'e' un movimento selezionato, metti prima gli importi vicini
       if (mvAmt != null) {
         const aDiff = Math.abs(aAmt - mvAmt)
@@ -2254,23 +2317,23 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
       const nameCompare = getSupplierName(a).toLowerCase().localeCompare(getSupplierName(b).toLowerCase())
       if (nameCompare !== 0) return nameCompare
       // Poi per scadenza
-      return new Date(a.due_date || 0) - new Date(b.due_date || 0)
+      return new Date(String(a.due_date) || 0).getTime() - new Date(String(b.due_date) || 0).getTime()
     })
 
     return list.slice(0, 20)
   }, [unpaidPayables, manualSearch, selectedMovement])
 
   // Auto-match function: match by amount with 5% tolerance, produce confidence score
-  const findMatches = useCallback((movement) => {
+  const findMatches = useCallback((movement: TxT | null): MatchT[] => {
     if (!movement) return []
-    const mvAmount = Math.abs(movement.amount)
+    const mvAmount = Math.abs(Number(movement.amount) || 0)
     const tolerance = 0.05 // 5%
-    const mvDate = new Date(movement.transaction_date)
-    const mvDesc = (movement.description || '').toLowerCase()
-    const mvCounterpart = (movement.counterpart_name || '').toLowerCase()
+    const mvDate = new Date(String(movement.transaction_date) || 0)
+    const mvDesc = String(movement.description || '').toLowerCase()
+    const mvCounterpart = String(movement.counterpart_name || '').toLowerCase()
 
     return unpaidPayables
-      .map(p => {
+      .map((p): MatchT | null => {
         const remaining = p.amount_remaining != null ? Number(p.amount_remaining) : (Number(p.gross_amount || 0) - Number(p.amount_paid || 0))
         const diff = Math.abs(remaining - mvAmount)
         const percentDiff = remaining > 0 ? diff / remaining : 1
@@ -2289,15 +2352,15 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
         if (supplierLow && (mvDesc.includes(supplierLow) || mvCounterpart.includes(supplierLow))) {
           score += 30
         } else if (supplierLow) {
-          const words = supplierLow.split(/\s+/).filter(w => w.length > 3)
-          const matchedWords = words.filter(w => mvDesc.includes(w) || mvCounterpart.includes(w))
+          const words = supplierLow.split(/\s+/).filter((w: string) => w.length > 3)
+          const matchedWords = words.filter((w: string) => mvDesc.includes(w) || mvCounterpart.includes(w))
           if (matchedWords.length > 0) score += 10 + Math.min(20, matchedWords.length * 7)
         }
 
         // Date proximity score (max 20)
         if (p.due_date) {
-          const dueDate = new Date(p.due_date)
-          const daysDiff = Math.abs(Math.ceil((mvDate - dueDate) / (1000 * 60 * 60 * 24)))
+          const dueDate = new Date(String(p.due_date))
+          const daysDiff = Math.abs(Math.ceil((mvDate.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24)))
           if (daysDiff <= 3) score += 20
           else if (daysDiff <= 7) score += 15
           else if (daysDiff <= 30) score += 10
@@ -2306,14 +2369,14 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
 
         return { payable: p, score, percentDiff, remaining }
       })
-      .filter(m => m && m.score >= 85) // Solo match >= 85% — sotto è rumore
+      .filter((m): m is MatchT => m !== null && m.score >= 85) // Solo match >= 85% — sotto è rumore
       .sort((a, b) => b.score - a.score)
       .slice(0, 5)
   }, [unpaidPayables])
 
   const matches = useMemo(() => findMatches(selectedMovement), [selectedMovement, findMatches])
 
-  const handleReconcile = async (movement, payable) => {
+  const handleReconcile = async (movement: TxT, payable: PayT) => {
     setReconciling(true)
     try {
       const now = new Date().toISOString()
@@ -2322,11 +2385,11 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
         is_reconciled: true,
         reconciled_at: now,
         reconciled_invoice_id: payable.id,
-      }).eq('id', movement.id).eq('company_id', companyId)
+      } as never).eq('id', String(movement.id)).eq('company_id', companyId)
       if (txErr) throw txErr
 
       // Update payable
-      const newPaid = Number(payable.amount_paid || 0) + Math.abs(movement.amount)
+      const newPaid = Number(payable.amount_paid || 0) + Math.abs(Number(movement.amount) || 0)
       const totalDue = Number(payable.gross_amount || 0)
       const newRemaining = Math.max(0, totalDue - newPaid)
       const newStatus = newPaid >= totalDue ? 'pagato' : 'parziale'
@@ -2335,7 +2398,7 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
         amount_remaining: newRemaining,
         status: newStatus,
         cash_movement_id: movement.id,
-      }).eq('id', payable.id).eq('company_id', companyId)
+      } as never).eq('id', String(payable.id)).eq('company_id', companyId)
       if (payErr) throw payErr
 
       setSelectedMovement(null)
@@ -2350,19 +2413,19 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
 
   const handleManualReconcile = async () => {
     if (!selectedMovement || !manualPayableId) return
-    const payable = unpaidPayables.find(p => p.id === manualPayableId)
+    const payable = unpaidPayables.find((p) => p.id === manualPayableId)
     if (!payable) { alert('Fattura non trovata'); return }
     await handleReconcile(selectedMovement, payable)
     setManualPayableId('')
   }
 
-  const handleMarkIgnored = async (movement) => {
+  const handleMarkIgnored = async (movement: TxT) => {
     try {
       await supabase.from('bank_transactions').update({
         is_reconciled: true,
         reconciled_at: new Date().toISOString(),
-        note: (movement.note ? movement.note + ' | ' : '') + 'Ignorato manualmente',
-      }).eq('id', movement.id).eq('company_id', companyId)
+        note: (movement.note ? String(movement.note) + ' | ' : '') + 'Ignorato manualmente',
+      } as never).eq('id', String(movement.id)).eq('company_id', companyId)
       setSelectedMovement(null)
       onRefresh()
     } catch (err: unknown) {
@@ -2370,7 +2433,7 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
     }
   }
 
-  const confidenceColor = (score) => {
+  const confidenceColor = (score: number) => {
     if (score >= 80) return 'bg-emerald-100 text-emerald-700'
     if (score >= 50) return 'bg-amber-100 text-amber-700'
     return 'bg-red-100 text-red-700'
@@ -2527,7 +2590,7 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
                   Cerca fattura da abbinare
                   {selectedMovement && (
                     <span className="text-slate-400 font-normal ml-1">
-                      (le fatture con importo vicino a {fmt(Math.abs(selectedMovement.amount))} € sono in cima)
+                      (le fatture con importo vicino a {fmt(Math.abs(Number(selectedMovement.amount) || 0))} € sono in cima)
                     </span>
                   )}
                 </label>
@@ -2545,8 +2608,8 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
                     </div>
                   ) : manualMatchCandidates.map(p => {
                     const isSelected = manualPayableId === p.id
-                    const amt = Math.abs(parseFloat(p.gross_amount) || 0)
-                    const mvAmt = selectedMovement ? Math.abs(selectedMovement.amount) : null
+                    const amt = Math.abs(Number(p.gross_amount) || 0)
+                    const mvAmt = selectedMovement ? Math.abs(Number(selectedMovement.amount) || 0) : null
                     const isClose = mvAmt && Math.abs(amt - mvAmt) <= mvAmt * 0.05
                     return (
                       <button
@@ -2651,7 +2714,7 @@ export default function TesoreriaManuale() {
     return () => { cancelled = true }
   }, [companyId, refreshKey])
 
-  const handleNavigate = useCallback((tab) => setActiveTab(tab), [])
+  const handleNavigate = useCallback((tab: string) => setActiveTab(tab), [])
 
   if (loading) {
     return (
@@ -2689,7 +2752,7 @@ export default function TesoreriaManuale() {
             // Badge counts
             let badge = null
             if (tab.key === 'riconciliazione') {
-              const unrecCount = transactions.filter(t => !t.is_reconciled && t.amount < 0).length
+              const unrecCount = transactions.filter(t => !t.is_reconciled && (t.amount || 0) < 0).length
               if (unrecCount > 0) badge = unrecCount
             }
 

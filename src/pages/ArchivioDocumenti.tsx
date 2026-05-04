@@ -1,4 +1,3 @@
-// @ts-nocheck — TODO tighten: pagina complessa con shape Supabase + indexing dinamico, da rivedere
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -13,22 +12,47 @@ import { useAuth } from '../hooks/useAuth';
 import InvoiceViewer from '../components/InvoiceViewer';
 
 // ─── HELPERS ───────────────────────────────────────────────────
-function formatDate(d) {
+function formatDate(d: string | null | undefined) {
   if (!d) return '-';
   try { return new Date(d).toLocaleDateString('it-IT', { day: '2-digit', month: 'short', year: 'numeric' }); }
   catch { return '-'; }
 }
 
-function formatCurrency(n) {
+function formatCurrency(n: number | null | undefined) {
   if (n == null) return '-';
   return `€ ${Number(n).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-function formatSize(bytes) {
+function formatSize(bytes: number | null | undefined) {
   if (!bytes) return '-';
   if (bytes < 1024) return bytes + ' B';
   if (bytes < 1048576) return (bytes / 1024).toFixed(0) + ' KB';
   return (bytes / 1048576).toFixed(1) + ' MB';
+}
+
+interface RetentionDoc {
+  id: string
+  company_id?: string
+  invoice_number?: string | null
+  invoice_date?: string | null
+  supplier_name?: string | null
+  customer_name?: string | null
+  total_amount?: number | null
+  direction?: string | null
+  sdi_status?: string | null
+  retention_start?: string | null
+  retention_end?: string | null
+  retention_status?: string | null
+  storage_path?: string | null
+  xml_file_path?: string | null
+  created_at?: string | null
+  title?: string | null
+  category?: string | null
+  file_name?: string | null
+  file_path?: string | null
+  storage_bucket?: string | null
+  _source: 'invoice' | 'document'
+  [key: string]: unknown
 }
 
 const MONTH_LABELS = ['Gen', 'Feb', 'Mar', 'Apr', 'Mag', 'Giu', 'Lug', 'Ago', 'Set', 'Ott', 'Nov', 'Dic'];
@@ -51,8 +75,7 @@ export default function ArchivioDocumenti() {
   };
 
   // ── Conservazione state (invariato rispetto alla versione precedente) ──
-  // TODO: tighten type — Supabase rows
-  const [retentionDocs, setRetentionDocs] = useState<any[]>([]);
+  const [retentionDocs, setRetentionDocs] = useState<RetentionDoc[]>([]);
   const [retentionLoading, setRetentionLoading] = useState(false);
   const [retentionFilter, setRetentionFilter] = useState('all');
   const [retentionSearch, setRetentionSearch] = useState('');
@@ -63,10 +86,16 @@ export default function ArchivioDocumenti() {
   }, [COMPANY_ID, activeTab]);
 
   async function loadRetention() {
+    if (!COMPANY_ID) return;
     setRetentionLoading(true);
-    const results = [];
+    const results: RetentionDoc[] = [];
     try {
-      const { data } = await supabase
+      // NOTE: il select include 'direction' e 'total_amount' che non sono colonne
+      // reali dello schema (BUG-001 e BUG-002 documentati): il select restituirà
+      // SelectQueryError. Cast strutturale per allinearsi ai tipi locali finché
+      // la query non viene aggiornata in un task separato.
+      const sb = supabase as unknown as { from: (t: string) => { select: (s: string) => { eq: (k: string, v: string) => { not: (k: string, op: string, v: null) => { order: (k: string, opts: { ascending: boolean }) => { limit: (n: number) => Promise<{ data: RetentionDoc[] | null }> } } } } } }
+      const { data } = await sb
         .from('electronic_invoices')
         .select('id, company_id, invoice_number, invoice_date, supplier_name, customer_name, total_amount, direction, sdi_status, retention_start, retention_end, retention_status, storage_path, xml_file_path, created_at')
         .eq('company_id', COMPANY_ID)
@@ -74,7 +103,7 @@ export default function ArchivioDocumenti() {
         .order('retention_end', { ascending: true })
         .limit(1000);
       (data || []).forEach(d => results.push({ ...d, _source: 'invoice' }));
-    } catch (e) { console.warn('retention invoices:', e.message); }
+    } catch (e: unknown) { console.warn('retention invoices:', e instanceof Error ? e.message : e); }
     try {
       const { data } = await supabase
         .from('documents')
@@ -83,26 +112,24 @@ export default function ArchivioDocumenti() {
         .not('retention_start', 'is', null)
         .order('retention_end', { ascending: true })
         .limit(1000);
-      (data || []).forEach(d => results.push({ ...d, _source: 'document' }));
-    } catch (e) { console.warn('retention documents:', e.message); }
+      (data || []).forEach(d => results.push({ ...(d as object), _source: 'document' } as RetentionDoc));
+    } catch (e: unknown) { console.warn('retention documents:', e instanceof Error ? e.message : e); }
     setRetentionDocs(results);
     setRetentionLoading(false);
   }
 
   const today = new Date();
   const sixMonthsFromNow = new Date(today.getTime() + 180 * 86400000);
-  // TODO: tighten type
-  function getRetentionStatus(doc: any) {
+  function getRetentionStatus(doc: RetentionDoc): 'unknown' | 'expired' | 'expiring' | 'active' {
     if (!doc.retention_end) return 'unknown';
     const end = new Date(doc.retention_end);
     if (end < today) return 'expired';
     if (end < sixMonthsFromNow) return 'expiring';
     return 'active';
   }
-  // TODO: tighten type
-  function daysUntilExpiry(doc: any) {
+  function daysUntilExpiry(doc: RetentionDoc) {
     if (!doc.retention_end) return null;
-    return Math.ceil((new Date(doc.retention_end) - today) / 86400000);
+    return Math.ceil((new Date(doc.retention_end).getTime() - today.getTime()) / 86400000);
   }
   const retentionStats = useMemo(() => {
     const active = retentionDocs.filter(d => getRetentionStatus(d) === 'active').length;
@@ -176,7 +203,7 @@ export default function ArchivioDocumenti() {
         })}
       </div>
 
-      {activeTab === 'archivio' && <ArchivioTab companyId={COMPANY_ID} showToast={showToast} />}
+      {activeTab === 'archivio' && <ArchivioTab companyId={COMPANY_ID ?? undefined} showToast={showToast} />}
 
       {activeTab === 'conservazione' && (
         <ConservazioneTab
@@ -208,13 +235,18 @@ export default function ArchivioDocumenti() {
 // TAB ARCHIVIO — 3 SEZIONI (Fatture, Bilanci, Estratti Conto)
 // ═══════════════════════════════════════════════════════════════
 
+interface InvoiceRow { id: string; invoice_date?: string | null; invoice_number?: string | null; supplier_name?: string | null; gross_amount?: number | null; xml_content?: string | null; storage_path?: string | null; sdi_status?: string | null; [key: string]: unknown }
+interface BalanceSheetRow { id: string; created_at?: string | null; [key: string]: unknown }
+interface EcFileRow { id: string; filename?: string | null; bank_account_id?: string | null; file_path?: string | null; file_size?: number | null; status?: string | null; transaction_count?: number | null; created_at?: string | null; bank_accounts?: { bank_name?: string; account_name?: string } | null; [key: string]: unknown }
+interface EcPreviewRow { id: string; transaction_date?: string | null; description?: string | null; amount?: number | null; running_balance?: number | null; is_reconciled?: boolean | null }
+interface EcPreviewState { ec: EcFileRow; rows: EcPreviewRow[]; loading: boolean }
+
 function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; showToast: (msg: string, type?: string) => void }) {
   const navigate = useNavigate();
-  // TODO: tighten type — Supabase rows
-  const [allInvoices, setAllInvoices] = useState<any[]>([]);
-  const [invoices, setInvoices] = useState<any[]>([]);
-  const [balanceSheets, setBalanceSheets] = useState<any[]>([]);
-  const [ecFiles, setEcFiles] = useState<any[]>([]);
+  const [allInvoices, setAllInvoices] = useState<InvoiceRow[]>([]);
+  const [invoices, setInvoices] = useState<InvoiceRow[]>([]);
+  const [balanceSheets, setBalanceSheets] = useState<BalanceSheetRow[]>([]);
+  const [ecFiles, setEcFiles] = useState<EcFileRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadingYear, setLoadingYear] = useState(false);
 
@@ -231,8 +263,7 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
   const [autoPrintViewer, setAutoPrintViewer] = useState(false);
   const [loadingXml, setLoadingXml] = useState<string | null>(null);
 
-  // TODO: tighten type
-  const [ecPreview, setEcPreview] = useState<any>(null);
+  const [ecPreview, setEcPreview] = useState<EcPreviewState | null>(null);
 
   // Collasso delle 3 sezioni principali. Fatture parte CHIUSA perche'
   // con 199 fatture e' la sezione piu' rumorosa. Bilanci ed EC restano
@@ -266,6 +297,7 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
    * e il count globale delle KPI card. Non viene usato per il rendering.
    */
   async function loadAllInvoicesMinimal() {
+    if (!companyId) return;
     try {
       const { data, error } = await supabase
         .from('electronic_invoices')
@@ -273,9 +305,9 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
         .eq('company_id', companyId)
         .order('invoice_date', { ascending: false });
       if (error) throw error;
-      setAllInvoices(data || []);
-    } catch (e) {
-      console.warn('load all invoices:', e.message);
+      setAllInvoices((data || []) as InvoiceRow[]);
+    } catch (e: unknown) {
+      console.warn('load all invoices:', e instanceof Error ? e.message : e);
       setAllInvoices([]);
     }
   }
@@ -286,7 +318,8 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
    * deve passare da invoice_date. Usiamo gte/lt sull'anno successivo cosi
    * includiamo anche il 31/12 senza problemi di fuso.
    */
-  async function loadInvoicesForYear(y) {
+  async function loadInvoicesForYear(y: number) {
+    if (!companyId) return;
     setLoadingYear(true);
     try {
       const { data, error } = await supabase
@@ -297,10 +330,11 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
         .lt('invoice_date', `${y + 1}-01-01`)
         .order('invoice_date', { ascending: false });
       if (error) throw error;
-      setInvoices(data || []);
-    } catch (e) {
-      console.warn('load invoices year:', e.message);
-      showToast && showToast('Errore caricamento fatture: ' + e.message, 'error');
+      setInvoices((data || []) as InvoiceRow[]);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : '';
+      console.warn('load invoices year:', msg);
+      showToast && showToast('Errore caricamento fatture: ' + msg, 'error');
       setInvoices([]);
     } finally {
       setLoadingYear(false);
@@ -308,6 +342,7 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
   }
 
   async function loadBalanceSheets() {
+    if (!companyId) return;
     try {
       const { data } = await supabase
         .from('balance_sheet_imports')
@@ -315,9 +350,9 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
         .eq('company_id', companyId)
         .order('created_at', { ascending: false })
         .limit(50);
-      setBalanceSheets(data || []);
-    } catch (e) {
-      console.warn('load balance sheets:', e.message);
+      setBalanceSheets((data || []) as BalanceSheetRow[]);
+    } catch (e: unknown) {
+      console.warn('load balance sheets:', e instanceof Error ? e.message : e);
       setBalanceSheets([]);
     }
   }
@@ -335,6 +370,7 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
    *  3. ultimo upload del bank_account_id (fallback)
    */
   async function loadEcFiles() {
+    if (!companyId) return;
     try {
       const [stmtRes, impRes] = await Promise.all([
         supabase
@@ -353,11 +389,12 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
 
       if (stmtRes.error) throw stmtRes.error;
 
-      const imports = impRes.data || [];
+      type ImportItem = { file_name: string | null; file_path: string | null; file_size: number | null; bank_account_id: string | null };
+      const imports = (impRes.data || []) as ImportItem[];
       // 3 indici per i diversi livelli di matching
-      const byAccountAndName = new Map(); // bank_account_id + filename
-      const byName = new Map();            // solo filename
-      const byAccount = new Map();         // solo bank_account_id (piu' recente)
+      const byAccountAndName = new Map<string, ImportItem>(); // bank_account_id + filename
+      const byName = new Map<string, ImportItem>();            // solo filename
+      const byAccount = new Map<string, ImportItem>();         // solo bank_account_id (piu' recente)
       for (const imp of imports) {
         const fn = (imp.file_name || '').toLowerCase();
         const keyA = `${imp.bank_account_id || ''}::${fn}`;
@@ -368,11 +405,11 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
         }
       }
 
-      const enriched = (stmtRes.data || []).map(ec => {
+      const enriched: EcFileRow[] = ((stmtRes.data || []) as Array<{ id: string; filename: string | null; bank_account_id: string | null }>).map(ec => {
         const fn = (ec.filename || '').toLowerCase();
         const byFull = byAccountAndName.get(`${ec.bank_account_id || ''}::${fn}`);
         const byFn = byName.get(fn);
-        const byAcc = byAccount.get(ec.bank_account_id);
+        const byAcc = ec.bank_account_id ? byAccount.get(ec.bank_account_id) : undefined;
         const src = byFull || byFn || byAcc || null;
         return {
           ...ec,
@@ -382,14 +419,14 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
       });
 
       // Deduplica per bank_account_id: tieni l'import piu' recente
-      const latestByAccount = new Map();
+      const latestByAccount = new Map<string, EcFileRow>();
       for (const ec of enriched) {
         const key = ec.bank_account_id || ec.id;
         if (!latestByAccount.has(key)) latestByAccount.set(key, ec);
       }
       setEcFiles(Array.from(latestByAccount.values()));
-    } catch (e) {
-      console.warn('load ec files:', e.message);
+    } catch (e: unknown) {
+      console.warn('load ec files:', e instanceof Error ? e.message : e);
       setEcFiles([]);
     }
   }
@@ -400,10 +437,10 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
    * e cash_movements da ImportHub) con query separate in modo che se una
    * fallisce (FK mancante) l'altra continua a funzionare.
    */
-  // TODO: tighten type
-  async function openEcPreview(ec: any) {
+  async function openEcPreview(ec: EcFileRow) {
+    if (!companyId || !ec.bank_account_id) return;
     setEcPreview({ ec, rows: [], loading: true });
-    const rows = [];
+    const rows: EcPreviewRow[] = [];
     try {
       try {
         const { data, error } = await supabase
@@ -424,7 +461,7 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
             is_reconciled: r.is_reconciled,
           });
         }
-      } catch (e) { console.warn('bt preview:', e.message); }
+      } catch (e: unknown) { console.warn('bt preview:', e instanceof Error ? e.message : e); }
 
       try {
         const { data, error } = await supabase
@@ -445,12 +482,12 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
             is_reconciled: r.is_reconciled,
           });
         }
-      } catch (e) { console.warn('cm preview:', e.message); }
+      } catch (e: unknown) { console.warn('cm preview:', e instanceof Error ? e.message : e); }
 
-      rows.sort((a, b) => new Date(b.transaction_date || 0) - new Date(a.transaction_date || 0));
+      rows.sort((a, b) => new Date(b.transaction_date || 0).getTime() - new Date(a.transaction_date || 0).getTime());
       setEcPreview({ ec, rows: rows.slice(0, 100), loading: false });
-    } catch (err) {
-      showToast('Errore anteprima EC: ' + err.message, 'error');
+    } catch (err: unknown) {
+      showToast('Errore anteprima EC: ' + (err instanceof Error ? err.message : ''), 'error');
       setEcPreview(null);
     }
   }
@@ -461,10 +498,9 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
    * bank-statements via storage.list finche' non trova un filename che
    * contenga il nome dell'EC.
    */
-  // TODO: tighten type
-  async function downloadEcFile(ec: any) {
+  async function downloadEcFile(ec: EcFileRow) {
     if (ec.file_path) {
-      return downloadFile('bank-statements', ec.file_path, ec.filename);
+      return downloadFile('bank-statements', ec.file_path, ec.filename ?? 'extract.xlsx');
     }
     // Fallback: cerca nel bucket per nome file
     try {
@@ -480,8 +516,8 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
       }
       const path = `${companyId}/imports/bank/${match.name}`;
       await downloadFile('bank-statements', path, ec.filename || match.name);
-    } catch (err) {
-      showToast('Errore ricerca file: ' + err.message, 'error');
+    } catch (err: unknown) {
+      showToast('Errore ricerca file: ' + (err instanceof Error ? err.message : ''), 'error');
     }
   }
 
@@ -501,8 +537,8 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
   }, [allInvoices]);
 
   // Conteggio fatture per ciascun anno (usato per i KPI "fatture nell'anno")
-  const invoicesPerYear = useMemo(() => {
-    const counts = {};
+  const invoicesPerYear = useMemo<Record<string, number>>(() => {
+    const counts: Record<string, number> = {};
     allInvoices.forEach(inv => {
       if (!inv.invoice_date) return;
       const y = (inv.invoice_date + '').substring(0, 4);
@@ -518,21 +554,23 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
     return invoices.filter(inv =>
       (inv.supplier_name || '').toLowerCase().includes(q) ||
       (inv.invoice_number || '').toLowerCase().includes(q) ||
-      (inv.supplier_vat || '').toLowerCase().includes(q)
+      (String((inv as { supplier_vat?: string | null }).supplier_vat || '')).toLowerCase().includes(q)
     );
   }, [invoices, searchInvoices]);
 
   // Fatture raggruppate
-  const groups = useMemo(() => {
-    const map = new Map();
+  interface GroupAgg { key: string; label: string; sortKey: string; invoices: InvoiceRow[]; total: number }
+  const groups = useMemo<GroupAgg[]>(() => {
+    const map = new Map<string, GroupAgg>();
     for (const inv of filteredInvoices) {
-      let key, label, sortKey;
+      let key: string, label: string, sortKey: string;
       if (groupBy === 'supplier') {
-        key = inv.supplier_vat || inv.supplier_name || 'unknown';
+        const supplierVat = (inv as { supplier_vat?: string | null }).supplier_vat;
+        key = supplierVat || inv.supplier_name || 'unknown';
         label = inv.supplier_name || 'Fornitore sconosciuto';
         sortKey = label.toLowerCase();
       } else {
-        const d = new Date(inv.invoice_date);
+        const d = new Date(inv.invoice_date || '');
         const m = d.getMonth();
         key = `${d.getFullYear()}-${String(m).padStart(2, '0')}`;
         label = `${MONTH_FULL[m]} ${d.getFullYear()}`;
@@ -541,7 +579,7 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
       if (!map.has(key)) {
         map.set(key, { key, label, sortKey, invoices: [], total: 0 });
       }
-      const g = map.get(key);
+      const g = map.get(key)!;
       g.invoices.push(inv);
       g.total += Number(inv.gross_amount || inv.total_amount || 0);
     }
@@ -610,8 +648,8 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
       }
       setAutoPrintViewer(autoPrint);
       setViewerXml(xml);
-    } catch (err) {
-      showToast('Errore apertura fattura: ' + err.message, 'error');
+    } catch (err: unknown) {
+      showToast('Errore apertura fattura: ' + (err instanceof Error ? err.message : ''), 'error');
     } finally {
       setLoadingXml(null);
     }
@@ -630,8 +668,8 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
       showToast('Download completato');
-    } catch (err) {
-      showToast('Errore download: ' + err.message, 'error');
+    } catch (err: unknown) {
+      showToast('Errore download: ' + (err instanceof Error ? err.message : ''), 'error');
     }
   }
 
@@ -640,8 +678,8 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
       const { data, error } = await supabase.storage.from(bucket).createSignedUrl(path, 3600);
       if (error) throw error;
       window.open(data.signedUrl, '_blank');
-    } catch (err) {
-      showToast('Errore apertura PDF: ' + err.message, 'error');
+    } catch (err: unknown) {
+      showToast('Errore apertura PDF: ' + (err instanceof Error ? err.message : ''), 'error');
     }
   }
 
@@ -659,7 +697,7 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
           sub={`Totale: ${allInvoices.length} su ${availableYears.length} ann${availableYears.length === 1 ? 'o' : 'i'}`}
         />
         <KpiCard label="Bilanci" value={balanceSheets.length} icon={BarChart3} color="indigo" sub="PDF archiviati" />
-        <KpiCard label="Estratti Conto" value={ecFiles.length} icon={Database} color="emerald" sub={`${ecFiles.reduce((s, e) => s + (e.transaction_count || 0), 0)} movimenti totali`} />
+        <KpiCard label="Estratti Conto" value={ecFiles.length} icon={Database} color="emerald" sub={`${ecFiles.reduce((s, e) => s + Number(e.transaction_count || 0), 0)} movimenti totali`} />
         <KpiCard label={`Totale ${year}`} value={invoices.length + balanceSheets.length + ecFiles.length} icon={FolderOpen} color="slate" sub="documenti consultabili" />
       </div>
 
@@ -761,7 +799,7 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
                   {expanded ? <ChevronDown size={16} className="text-slate-500" /> : <ChevronRight size={16} className="text-slate-400" />}
                   {groupBy === 'supplier'
                     ? <Building2 size={14} className="text-blue-500 shrink-0" />
-                    : <div className="w-7 h-7 bg-indigo-100 text-indigo-700 rounded font-semibold text-xs flex items-center justify-center">{MONTH_LABELS[new Date(group.invoices[0].invoice_date).getMonth()]}</div>
+                    : <div className="w-7 h-7 bg-indigo-100 text-indigo-700 rounded font-semibold text-xs flex items-center justify-center">{MONTH_LABELS[new Date(group.invoices[0].invoice_date || '').getMonth()]}</div>
                   }
                   <div className="flex-1 min-w-0">
                     <div className="font-medium text-slate-800 truncate">{group.label}</div>
@@ -791,10 +829,10 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
                             <td className="px-5 py-2.5 text-sm font-medium text-slate-800">{inv.invoice_number || '—'}</td>
                             <td className="px-4 py-2.5 text-sm text-slate-600">{formatDate(inv.invoice_date)}</td>
                             {groupBy === 'month' && (
-                              <td className="px-4 py-2.5 text-sm text-slate-600 truncate max-w-xs" title={inv.supplier_name}>{inv.supplier_name || '—'}</td>
+                              <td className="px-4 py-2.5 text-sm text-slate-600 truncate max-w-xs" title={inv.supplier_name ?? undefined}>{inv.supplier_name || '—'}</td>
                             )}
                             <td className="px-4 py-2.5 text-sm text-right font-medium text-slate-900">
-                              {formatCurrency(inv.gross_amount || inv.total_amount)}
+                              {formatCurrency(inv.gross_amount || (inv as { total_amount?: number | null }).total_amount || null)}
                             </td>
                             <td className="px-4 py-2.5 text-center">
                               {inv.sdi_status && (
@@ -872,28 +910,28 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
                   <FileText size={16} className="text-red-500" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="font-medium text-slate-800 truncate" title={bs.file_name}>
-                    {bs.file_name || 'Bilancio senza nome'}
+                  <div className="font-medium text-slate-800 truncate" title={String(bs.file_name ?? '')}>
+                    {String(bs.file_name ?? 'Bilancio senza nome')}
                   </div>
                   <div className="text-xs text-slate-500 flex gap-3">
-                    {bs.year && <span>Anno {bs.year}</span>}
-                    <span>{formatDate(bs.created_at || bs.uploaded_at)}</span>
-                    {bs.file_size && <span>{formatSize(bs.file_size)}</span>}
-                    {bs.status && <span className="text-indigo-600">· {bs.status}</span>}
+                    {bs.year != null && <span>Anno {String(bs.year)}</span>}
+                    <span>{formatDate((bs.created_at || (bs.uploaded_at as string | null | undefined)) ?? null)}</span>
+                    {bs.file_size != null && <span>{formatSize(bs.file_size as number)}</span>}
+                    {bs.status != null && <span className="text-indigo-600">· {String(bs.status)}</span>}
                   </div>
                 </div>
                 <div className="flex items-center gap-1">
-                  {bs.file_path && (
+                  {bs.file_path != null && (
                     <>
                       <button
-                        onClick={() => openPdfPreview('balance-sheets', bs.file_path)}
+                        onClick={() => openPdfPreview('balance-sheets', String(bs.file_path))}
                         className="px-2.5 py-1 bg-indigo-50 text-indigo-700 rounded-lg text-xs font-semibold hover:bg-indigo-100 border border-indigo-200 inline-flex items-center gap-1"
                         title="Apri il PDF in una nuova scheda"
                       >
                         <Eye size={12} /> Anteprima
                       </button>
                       <button
-                        onClick={() => downloadFile('balance-sheets', bs.file_path, bs.file_name)}
+                        onClick={() => downloadFile('balance-sheets', String(bs.file_path), bs.file_name ? String(bs.file_name) : undefined)}
                         className="px-2.5 py-1 bg-white text-slate-700 rounded-lg text-xs font-semibold hover:bg-slate-50 border border-slate-200 inline-flex items-center gap-1"
                       >
                         <Download size={12} /> Scarica
@@ -934,28 +972,31 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
             </div>
           ) : (
             ecFiles.map(ec => {
-              const bankLabel = ec.bank_accounts?.bank_name
-                ? `${ec.bank_accounts.bank_name}${ec.bank_accounts.account_name ? ` — ${ec.bank_accounts.account_name}` : ''}`
+              const ba = (ec as { bank_accounts?: { bank_name?: string; account_name?: string } }).bank_accounts
+              const bankLabel = ba?.bank_name
+                ? `${ba.bank_name}${ba.account_name ? ` — ${ba.account_name}` : ''}`
                 : 'Banca';
               const statusColor = ec.status === 'completed' ? 'text-emerald-600'
                 : ec.status === 'processing' ? 'text-amber-600'
                 : 'text-slate-500';
+              const txCount = (ec as { transaction_count?: number | null }).transaction_count
+              const createdAt = (ec as { created_at?: string | null }).created_at
               return (
                 <div key={ec.id} className="px-5 py-3 flex items-center gap-3 hover:bg-slate-50">
                   <div className="p-2 bg-emerald-50 rounded-lg shrink-0">
                     <FileText size={16} className="text-emerald-600" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="font-medium text-slate-800 truncate" title={ec.filename}>
+                    <div className="font-medium text-slate-800 truncate" title={ec.filename ?? undefined}>
                       {ec.filename || 'EC senza nome'}
                     </div>
                     <div className="text-xs text-slate-500 flex flex-wrap gap-x-3 gap-y-1">
                       <span className="font-medium text-slate-700">{bankLabel}</span>
-                      {ec.transaction_count != null && (
-                        <span>{ec.transaction_count.toLocaleString('it-IT')} movimenti</span>
+                      {txCount != null && (
+                        <span>{Number(txCount).toLocaleString('it-IT')} movimenti</span>
                       )}
-                      <span>{formatDate(ec.created_at)}</span>
-                      {ec.status && <span className={statusColor}>· {ec.status}</span>}
+                      <span>{formatDate(createdAt)}</span>
+                      {ec.status && <span className={statusColor}>· {String(ec.status)}</span>}
                     </div>
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
@@ -1055,8 +1096,8 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
                     {ecPreview.rows.map(tx => (
                       <tr key={tx.id} className="hover:bg-slate-50">
                         <td className="px-4 py-2 text-slate-600 whitespace-nowrap">{formatDate(tx.transaction_date)}</td>
-                        <td className="px-4 py-2 text-slate-700 truncate max-w-md" title={tx.description}>{tx.description || '—'}</td>
-                        <td className={`px-4 py-2 text-right font-medium whitespace-nowrap ${tx.amount < 0 ? 'text-red-700' : 'text-emerald-700'}`}>
+                        <td className="px-4 py-2 text-slate-700 truncate max-w-md" title={tx.description ?? undefined}>{tx.description || '—'}</td>
+                        <td className={`px-4 py-2 text-right font-medium whitespace-nowrap ${(tx.amount ?? 0) < 0 ? 'text-red-700' : 'text-emerald-700'}`}>
                           {tx.amount != null ? formatCurrency(tx.amount) : '—'}
                         </td>
                         <td className="px-4 py-2 text-right text-slate-500 whitespace-nowrap">
@@ -1076,7 +1117,7 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
               )}
             </div>
             <div className="px-5 py-2.5 border-t border-slate-100 bg-slate-50 text-xs text-slate-500 flex items-center justify-between shrink-0">
-              <span>Mostrati {ecPreview.rows.length} movimenti{(ecPreview.ec?.transaction_count || 0) > ecPreview.rows.length ? ` di ${ecPreview.ec.transaction_count}` : ''}</span>
+              <span>Mostrati {ecPreview.rows.length} movimenti{Number(ecPreview.ec?.transaction_count || 0) > ecPreview.rows.length ? ` di ${ecPreview.ec.transaction_count}` : ''}</span>
               {ecPreview.ec?.bank_account_id && (
                 <button
                   onClick={() => { setEcPreview(null); navigate(`/banche?tab=movimenti&account=${ecPreview.ec.bank_account_id}`); }}

@@ -1,4 +1,3 @@
-// @ts-nocheck — TODO tighten: pagina complessa con shape Supabase + indexing dinamico, da rivedere
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import PageHelp from '../components/PageHelp';
@@ -62,7 +61,7 @@ const PAYMENT_METHOD_OPTIONS = [
 ];
 
 // Human-readable label for payment method enum
-const PAYMENT_LABEL = {};
+const PAYMENT_LABEL: Record<string, string> = {};
 PAYMENT_METHOD_OPTIONS.forEach(g => g.items.forEach(i => { PAYMENT_LABEL[i.value] = i.label; }));
 // v1 fallbacks
 PAYMENT_LABEL.bonifico = 'Bonifico';
@@ -81,10 +80,12 @@ export default function Fornitori() {
   const COMPANY_ID = profile?.company_id;
 
   // Data state
-  // TODO: tighten type — Supabase rows
-  const [suppliers, setSuppliers] = useState<any[]>([]);
-  const [payables, setPayables] = useState<any[]>([]);
-  const [invoices, setInvoices] = useState<any[]>([]);
+  type SupplierRow = Record<string, unknown> & { id: string }
+  type PayableRow = Record<string, unknown> & { id: string }
+  type InvoiceRowF = Record<string, unknown> & { id: string }
+  const [suppliers, setSuppliers] = useState<SupplierRow[]>([]);
+  const [payables, setPayables] = useState<PayableRow[]>([]);
+  const [invoices, setInvoices] = useState<InvoiceRowF[]>([]);
   const [loading, setLoading] = useState(true);
 
   // UI state
@@ -113,6 +114,7 @@ export default function Fornitori() {
   }, [COMPANY_ID]);
 
   async function loadData() {
+    if (!COMPANY_ID) return;
     setLoading(true);
     // Timeout di sicurezza: se una query supera 15 secondi forziamo l'uscita
     // dallo stato di loading per evitare spinner infinito (bug segnalato
@@ -139,9 +141,9 @@ export default function Fornitori() {
       if (payRes.error) console.warn('payables load:', payRes.error.message);
       if (invRes.error) console.warn('invoices load:', invRes.error.message);
 
-      setSuppliers(suppRes.data || []);
-      setPayables(payRes.data || []);
-      setInvoices(invRes.data || []);
+      setSuppliers((suppRes.data || []) as unknown as SupplierRow[]);
+      setPayables((payRes.data || []) as unknown as PayableRow[]);
+      setInvoices((invRes.data || []) as unknown as InvoiceRowF[]);
     } catch (err) {
       console.error('Load error:', err);
     } finally {
@@ -153,17 +155,18 @@ export default function Fornitori() {
   // ─── COMPUTED DATA ────────────────────────────────────────────
 
   // Aggregate payable data per supplier — keyed by supplier_id
-  const supplierStats = useMemo(() => {
-    const stats = {};
+  interface SupplierStat { total: number; paid: number; pending: number; overdue: number; count: number; lastDate: string | null; grossTotal: number; methods: Set<string>; paidCount: number; reconciledCount: number }
+  const supplierStats = useMemo<Record<string, SupplierStat>>(() => {
+    const stats: Record<string, SupplierStat> = {};
     payables.forEach(p => {
-      const key = p.supplier_id;
+      const key = p.supplier_id as string | null
       if (!key) return;
       if (!stats[key]) stats[key] = { total: 0, paid: 0, pending: 0, overdue: 0, count: 0, lastDate: null, grossTotal: 0, methods: new Set(), paidCount: 0, reconciledCount: 0 };
-      const gross = parseFloat(p.gross_amount) || 0;
-      const remaining = parseFloat(p.amount_remaining) || 0;
+      const gross = Number(p.gross_amount) || 0;
+      const remaining = Number(p.amount_remaining) || 0;
       stats[key].grossTotal += gross;
       stats[key].count++;
-      if (p.payment_method) stats[key].methods.add(p.payment_method);
+      if (p.payment_method) stats[key].methods.add(String(p.payment_method));
       if (p.status === 'pagato') {
         stats[key].paid += gross;
         stats[key].paidCount++;
@@ -175,19 +178,21 @@ export default function Fornitori() {
         stats[key].pending += remaining;
       }
       // Track last invoice date
-      if (p.invoice_date && (!stats[key].lastDate || p.invoice_date > stats[key].lastDate)) {
-        stats[key].lastDate = p.invoice_date;
+      const inv = p.invoice_date as string | null
+      if (inv && (!stats[key].lastDate || inv > stats[key].lastDate)) {
+        stats[key].lastDate = inv;
       }
     });
     return stats;
   }, [payables]);
 
   // Invoice totals per supplier — keyed by supplier_id
-  const invoiceStats = useMemo(() => {
-    const stats = {};
+  interface InvoiceStat { totalGross: number; totalNet: number; count: number }
+  const invoiceStats = useMemo<Record<string, InvoiceStat>>(() => {
+    const stats: Record<string, InvoiceStat> = {};
     invoices.forEach(inv => {
       // Try supplier_id first, fallback to vat match
-      let key = inv.supplier_id;
+      let key = inv.supplier_id as string | null | undefined
       if (!key) {
         const match = suppliers.find(s =>
           (inv.supplier_vat && (s.partita_iva === inv.supplier_vat || s.vat_number === inv.supplier_vat)) ||
@@ -197,8 +202,8 @@ export default function Fornitori() {
       }
       if (!key) return;
       if (!stats[key]) stats[key] = { totalGross: 0, totalNet: 0, count: 0 };
-      stats[key].totalGross += parseFloat(inv.gross_amount) || 0;
-      stats[key].totalNet += parseFloat(inv.net_amount) || 0;
+      stats[key].totalGross += Number(inv.gross_amount) || 0;
+      stats[key].totalNet += Number(inv.net_amount) || 0;
       stats[key].count++;
     });
     return stats;
@@ -212,10 +217,10 @@ export default function Fornitori() {
     if (search) {
       const q = search.toLowerCase();
       list = list.filter(s =>
-        (s.ragione_sociale || s.name || '').toLowerCase().includes(q) ||
-        (s.partita_iva || s.vat_number || '').includes(q) ||
-        (s.category || '').toLowerCase().includes(q) ||
-        (s.citta || '').toLowerCase().includes(q)
+        String(s.ragione_sociale || s.name || '').toLowerCase().includes(q) ||
+        String(s.partita_iva || s.vat_number || '').includes(q) ||
+        String(s.category || '').toLowerCase().includes(q) ||
+        String(s.citta || '').toLowerCase().includes(q)
       );
     }
 
@@ -251,27 +256,28 @@ export default function Fornitori() {
     const active = suppliers.filter(s => s.is_active !== false).length;
     const totalPending = payables
       .filter(p => p.status !== 'pagato' && p.status !== 'annullato' && p.status !== 'bloccato' && p.status !== 'nota_credito')
-      .reduce((s, p) => s + (parseFloat(p.amount_remaining) || 0), 0);
+      .reduce((s, p) => s + (Number(p.amount_remaining) || 0), 0);
     const overdue = payables
       .filter(p => p.status === 'scaduto')
-      .reduce((s, p) => s + (parseFloat(p.amount_remaining) || 0), 0);
+      .reduce((s, p) => s + (Number(p.amount_remaining) || 0), 0);
     const totalFatturato = payables
-      .filter(p => p.status !== 'nota_credito' && (parseFloat(p.gross_amount) || 0) > 0)
-      .reduce((s, p) => s + (parseFloat(p.gross_amount) || 0), 0);
+      .filter(p => p.status !== 'nota_credito' && (Number(p.gross_amount) || 0) > 0)
+      .reduce((s, p) => s + (Number(p.gross_amount) || 0), 0);
     const totalCrediti = payables
-      .filter(p => p.status === 'nota_credito' || (parseFloat(p.gross_amount) || 0) < 0)
-      .reduce((s, p) => s + Math.abs(parseFloat(p.gross_amount) || 0), 0);
-    const withPayables = new Set(payables.map(p => p.supplier_id).filter(Boolean)).size;
+      .filter(p => p.status === 'nota_credito' || (Number(p.gross_amount) || 0) < 0)
+      .reduce((s, p) => s + Math.abs(Number(p.gross_amount) || 0), 0);
+    const withPayables = new Set(payables.map(p => p.supplier_id as string | null).filter(Boolean)).size;
     return { active, total: suppliers.length, totalPending, overdue, totalFatturato, totalCrediti, withPayables };
   }, [suppliers, payables]);
 
   // Charts data
-  const spendByCategory = useMemo(() => {
-    const map = {};
+  interface CatBucket { name: string; value: number; count: number }
+  const spendByCategory = useMemo<CatBucket[]>(() => {
+    const map: Record<string, CatBucket> = {};
     suppliers.forEach(s => {
-      const cat = s.category || 'Non categorizzato';
+      const cat = String(s.category || 'Non categorizzato');
       if (!map[cat]) map[cat] = { name: cat, value: 0, count: 0 };
-      const stats = supplierStats[s.id] || { grossTotal: 0 };
+      const stats = supplierStats[s.id] || { grossTotal: 0 } as SupplierStat;
       map[cat].value += stats.grossTotal;
       map[cat].count++;
     });
@@ -281,8 +287,8 @@ export default function Fornitori() {
   const topSuppliersBySpend = useMemo(() => {
     return suppliers
       .map(s => {
-        const stats = supplierStats[s.id] || { grossTotal: 0 };
-        return { name: (s.ragione_sociale || s.name || '').substring(0, 20), value: stats.grossTotal };
+        const stats = supplierStats[s.id] || { grossTotal: 0 } as SupplierStat;
+        return { name: String(s.ragione_sociale || s.name || '').substring(0, 20), value: stats.grossTotal };
       })
       .filter(s => s.value > 0)
       .sort((a, b) => b.value - a.value)
@@ -297,27 +303,29 @@ export default function Fornitori() {
     setShowModal(true);
   }
 
-  // TODO: tighten type
-  function openEdit(supplier: any) {
+  function openEdit(supplier: SupplierRow) {
+    const s = supplier as Record<string, unknown>
+    const str = (k: string) => (s[k] != null ? String(s[k]) : '')
+    const num = (k: string, fallback: number) => (s[k] != null ? Number(s[k]) : fallback)
     setEditingId(supplier.id);
     setForm({
-      ragione_sociale: supplier.ragione_sociale || supplier.name || '',
-      partita_iva: supplier.partita_iva || supplier.vat_number || '',
-      codice_fiscale: supplier.codice_fiscale || supplier.fiscal_code || '',
-      codice_sdi: supplier.codice_sdi || '',
-      pec: supplier.pec || '',
-      email: supplier.email || '',
-      telefono: supplier.telefono || '',
-      iban: supplier.iban || '',
-      indirizzo: supplier.indirizzo || '',
-      citta: supplier.citta || '',
-      provincia: supplier.provincia || '',
-      cap: supplier.cap || '',
-      category: supplier.category || '',
-      payment_terms: supplier.payment_terms || supplier.default_payment_terms || 30,
-      payment_method: supplier.payment_method || supplier.default_payment_method || 'bonifico',
-      cost_center: supplier.cost_center || 'all',
-      note: supplier.note || supplier.notes || '',
+      ragione_sociale: str('ragione_sociale') || str('name'),
+      partita_iva: str('partita_iva') || str('vat_number'),
+      codice_fiscale: str('codice_fiscale') || str('fiscal_code'),
+      codice_sdi: str('codice_sdi'),
+      pec: str('pec'),
+      email: str('email'),
+      telefono: str('telefono'),
+      iban: str('iban'),
+      indirizzo: str('indirizzo'),
+      citta: str('citta'),
+      provincia: str('provincia'),
+      cap: str('cap'),
+      category: str('category'),
+      payment_terms: num('payment_terms', num('default_payment_terms', 30)),
+      payment_method: str('payment_method') || str('default_payment_method') || 'bonifico',
+      cost_center: str('cost_center') || 'all',
+      note: str('note') || str('notes'),
     });
     setShowModal(true);
   }
@@ -345,8 +353,8 @@ export default function Fornitori() {
         provincia: form.provincia.trim() || null,
         cap: form.cap.trim() || null,
         category: form.category || null,
-        payment_terms: parseInt(form.payment_terms) || 30,
-        default_payment_terms: parseInt(form.payment_terms) || 30,
+        payment_terms: parseInt(String(form.payment_terms)) || 30,
+        default_payment_terms: parseInt(String(form.payment_terms)) || 30,
         payment_method: form.payment_method || 'bonifico_ordinario',
         default_payment_method: form.payment_method || 'bonifico_ordinario',
         cost_center: form.cost_center || 'all',
@@ -358,20 +366,20 @@ export default function Fornitori() {
       };
 
       if (editingId) {
-        const { error } = await supabase.from('suppliers').update(record).eq('id', editingId);
+        const { error } = await supabase.from('suppliers').update(record as never).eq('id', editingId);
         if (error) throw error;
         showToast('Fornitore aggiornato');
       } else {
-        const { error } = await supabase.from('suppliers').insert(record);
+        const { error } = await supabase.from('suppliers').insert(record as never);
         if (error) throw error;
         showToast('Fornitore creato');
       }
 
       setShowModal(false);
       await loadData();
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Save error:', err);
-      showToast('Errore: ' + err.message, 'error');
+      showToast('Errore: ' + (err instanceof Error ? err.message : ''), 'error');
     } finally {
       setSaving(false);
     }
@@ -411,9 +419,8 @@ export default function Fornitori() {
   }
 
   // ─── HELPER: get supplier display name ────────────────────────
-  // TODO: tighten type
-  const getName = (s: any) => s.ragione_sociale || s.name || 'N/D';
-  const getVat = (s: any) => s.partita_iva || s.vat_number || '';
+  const getName = (s: SupplierRow) => String(s.ragione_sociale || s.name || 'N/D');
+  const getVat = (s: SupplierRow) => String(s.partita_iva || s.vat_number || '');
 
   // ─── RENDER ───────────────────────────────────────────────────
 
@@ -580,8 +587,8 @@ export default function Fornitori() {
                             <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${s.is_active !== false ? 'bg-emerald-400' : 'bg-slate-300'}`} />
                             <div className="min-w-0">
                               <div className="font-medium text-slate-800 truncate" title={name}>{name}</div>
-                              <div className="text-xs text-slate-400 truncate" title={[s.citta, s.provincia ? `(${s.provincia})` : ''].filter(Boolean).join(' ') || (s.email || s.pec || '')}>
-                                {[s.citta, s.provincia ? `(${s.provincia})` : ''].filter(Boolean).join(' ') || (s.email || s.pec || '')}
+                              <div className="text-xs text-slate-400 truncate" title={String([s.citta, s.provincia ? `(${s.provincia})` : ''].filter(Boolean).join(' ') || s.email || s.pec || '')}>
+                                {String([s.citta, s.provincia ? `(${s.provincia})` : ''].filter(Boolean).join(' ') || s.email || s.pec || '')}
                               </div>
                             </div>
                           </div>
@@ -591,14 +598,14 @@ export default function Fornitori() {
                         </td>
                         <td className="px-3 py-2.5 text-center">
                           {s.category ? (
-                            <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-xs">{s.category}</span>
+                            <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-xs">{String(s.category)}</span>
                           ) : (
                             <span className="text-xs text-slate-300">—</span>
                           )}
                         </td>
                         <td className="px-3 py-2.5 text-center">
                           {pm ? (
-                            <span className="text-xs text-slate-600">{PAYMENT_LABEL[pm] || pm}</span>
+                            <span className="text-xs text-slate-600">{PAYMENT_LABEL[String(pm)] || String(pm)}</span>
                           ) : (
                             <span className="text-xs text-slate-300">—</span>
                           )}
@@ -664,9 +671,9 @@ export default function Fornitori() {
                       {isExpanded && (() => {
                         // Find payables for this supplier by ID
                         const supplierPays = payables.filter(p => p.supplier_id === s.id)
-                          .sort((a, b) => new Date(b.invoice_date || b.created_at) - new Date(a.invoice_date || a.created_at));
+                          .sort((a, b) => new Date(String(b.invoice_date || b.created_at || '')).getTime() - new Date(String(a.invoice_date || a.created_at || '')).getTime());
                         const avgAmount = supplierPays.length > 0
-                          ? supplierPays.reduce((acc, p) => acc + (parseFloat(p.gross_amount) || 0), 0) / supplierPays.length
+                          ? supplierPays.reduce((acc, p) => acc + (Number(p.gross_amount) || 0), 0) / supplierPays.length
                           : 0;
                         return (
                         <tr className="bg-slate-50/50">
@@ -680,15 +687,15 @@ export default function Fornitori() {
                                 <div className="bg-white rounded-lg border border-slate-200 p-3 space-y-1.5 text-sm">
                                   <Detail label="Ragione Sociale" value={name} />
                                   <Detail label="P.IVA" value={vat} mono />
-                                  <Detail label="Cod. Fiscale" value={s.codice_fiscale || s.fiscal_code} mono />
-                                  <Detail label="Codice SDI" value={s.codice_sdi} mono />
-                                  <Detail label="PEC" value={s.pec} />
-                                  <Detail label="IBAN" value={s.iban} mono />
+                                  <Detail label="Cod. Fiscale" value={(s.codice_fiscale || s.fiscal_code) as string | null | undefined} mono />
+                                  <Detail label="Codice SDI" value={s.codice_sdi as string | null | undefined} mono />
+                                  <Detail label="PEC" value={s.pec as string | null | undefined} />
+                                  <Detail label="IBAN" value={s.iban as string | null | undefined} mono />
                                   <div className="border-t border-slate-100 pt-1.5 mt-1.5" />
-                                  <Detail label="Indirizzo" value={s.indirizzo} />
+                                  <Detail label="Indirizzo" value={s.indirizzo as string | null | undefined} />
                                   <Detail label="Città" value={[s.cap, s.citta, s.provincia ? `(${s.provincia})` : ''].filter(Boolean).join(' ')} />
-                                  <Detail label="Email" value={s.email} />
-                                  <Detail label="Telefono" value={s.telefono} />
+                                  <Detail label="Email" value={s.email as string | null | undefined} />
+                                  <Detail label="Telefono" value={s.telefono as string | null | undefined} />
                                 </div>
                               </div>
                               {/* Col 2: Condizioni & classificazione */}
@@ -697,17 +704,17 @@ export default function Fornitori() {
                                   <CreditCard size={14} className="text-indigo-500" /> Condizioni
                                 </h4>
                                 <div className="bg-white rounded-lg border border-slate-200 p-3 space-y-1.5 text-sm">
-                                  <Detail label="Termini pag." value={`${s.payment_terms || s.default_payment_terms || 30} giorni`} />
-                                  <Detail label="Metodo pag." value={PAYMENT_LABEL[s.payment_method || s.default_payment_method] || s.payment_method || s.default_payment_method || '—'} />
-                                  <Detail label="Categoria" value={s.category} />
-                                  <Detail label="Centro costo" value={s.cost_center === 'all' ? 'Tutti gli outlet' : s.cost_center} />
+                                  <Detail label="Termini pag." value={`${(s.payment_terms as number | null) || (s.default_payment_terms as number | null) || 30} giorni`} />
+                                  <Detail label="Metodo pag." value={PAYMENT_LABEL[String(s.payment_method || s.default_payment_method || '')] || (s.payment_method as string | null) || (s.default_payment_method as string | null) || '—'} />
+                                  <Detail label="Categoria" value={s.category as string | null | undefined} />
+                                  <Detail label="Centro costo" value={s.cost_center === 'all' ? 'Tutti gli outlet' : (s.cost_center as string | null | undefined)} />
                                   <Detail label="Stato" value={s.is_active !== false ? '✓ Attivo' : '✗ Disattivato'} />
-                                  {(s.note || s.notes) && (
+                                  {(s.note || s.notes) ? (
                                     <>
                                       <div className="border-t border-slate-100 pt-1.5 mt-1.5" />
-                                      <div className="text-xs text-slate-500 italic">{s.note || s.notes}</div>
+                                      <div className="text-xs text-slate-500 italic">{String(s.note || s.notes || '')}</div>
                                     </>
-                                  )}
+                                  ) : null}
                                 </div>
                               </div>
                               {/* Col 3: Statistiche & ultime fatture */}
@@ -747,10 +754,10 @@ export default function Fornitori() {
                                             <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
                                               pay.status === 'pagato' ? 'bg-emerald-400' : pay.status === 'scaduto' ? 'bg-red-400' : 'bg-amber-400'
                                             }`} />
-                                            <span className="font-medium text-slate-700 truncate" title={pay.invoice_number}>{pay.invoice_number}</span>
-                                            <span className="text-slate-400">{pay.due_date ? new Date(pay.due_date).toLocaleDateString('it-IT') : ''}</span>
+                                            <span className="font-medium text-slate-700 truncate" title={String(pay.invoice_number || '')}>{String(pay.invoice_number || '')}</span>
+                                            <span className="text-slate-400">{pay.due_date ? new Date(String(pay.due_date)).toLocaleDateString('it-IT') : ''}</span>
                                           </div>
-                                          <span className="font-semibold text-slate-700 shrink-0 ml-2">€ {(parseFloat(pay.gross_amount) || 0).toLocaleString('it-IT', { minimumFractionDigits: 2 })}</span>
+                                          <span className="font-semibold text-slate-700 shrink-0 ml-2">€ {(Number(pay.gross_amount) || 0).toLocaleString('it-IT', { minimumFractionDigits: 2 })}</span>
                                         </div>
                                       ))}
                                       {supplierPays.length > 5 && (
@@ -801,7 +808,7 @@ export default function Fornitori() {
                       <CartesianGrid {...GRID_STYLE} horizontal={false} />
                       <XAxis type="number" {...AXIS_STYLE} tickFormatter={v => `€${(v / 1000).toFixed(0)}k`} />
                       <YAxis type="category" dataKey="name" {...AXIS_STYLE} width={120} tick={{ fontSize: 11 }} />
-                      <Tooltip content={<GlassTooltip />} formatter={v => [`€ ${v.toLocaleString('it-IT')}`, 'Spesa']} />
+                      <Tooltip content={<GlassTooltip />} formatter={(v: unknown) => [`€ ${Number(v).toLocaleString('it-IT')}`, 'Spesa']} />
                       <Bar dataKey="value" fill="#6366f1" radius={[0, 6, 6, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
@@ -851,7 +858,7 @@ export default function Fornitori() {
                           <Cell key={i} fill={COLORS[i % COLORS.length]} />
                         ))}
                       </Pie>
-                      <Tooltip formatter={v => `€ ${v.toLocaleString('it-IT')}`} />
+                      <Tooltip formatter={(v: unknown) => `€ ${Number(v).toLocaleString('it-IT')}`} />
                       <Legend />
                     </PieChart>
                   </ResponsiveContainer>
@@ -899,7 +906,7 @@ export default function Fornitori() {
                         return st.grossTotal === 0;
                       }) && (
                         <tr>
-                          <td colSpan="6" className="py-8 text-center text-slate-400">Nessun dato di fatturazione disponibile</td>
+                          <td colSpan={6} className="py-8 text-center text-slate-400">Nessun dato di fatturazione disponibile</td>
                         </tr>
                       )}
                     </tbody>
@@ -999,7 +1006,7 @@ export default function Fornitori() {
                   </div>
                   <div>
                     <label className="text-xs font-medium text-slate-600">Termini pagamento (gg)</label>
-                    <input type="number" value={form.payment_terms} onChange={e => setForm(f => ({ ...f, payment_terms: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" min={0} max={365} />
+                    <input type="number" value={form.payment_terms} onChange={e => setForm(f => ({ ...f, payment_terms: Number(e.target.value) || 0 }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" min={0} max={365} />
                   </div>
                   <div>
                     <label className="text-xs font-medium text-slate-600">Metodo pagamento</label>

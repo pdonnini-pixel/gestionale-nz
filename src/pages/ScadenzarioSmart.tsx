@@ -1,4 +1,3 @@
-// @ts-nocheck — TODO tighten: pagina complessa con shape Supabase + indexing dinamico, da rivedere
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import PageHelp from '../components/PageHelp';
 import {
@@ -149,13 +148,12 @@ const paymentGroups = [
 const RIBA_DAYS = { riba_30: 30, riba_60: 60, riba_90: 90, riba_120: 120 };
 
 // Status pill component — delegates to shared StatusBadge
-function StatusPill({ status }: { status: string }) {
-  return <StatusBadge status={status} size="sm" />
+function StatusPill({ status }: { status: string | null | undefined }) {
+  return <StatusBadge status={status || ''} size="sm" />
 }
 
 // Modal component
-// TODO: tighten type
-function Modal({ open, onClose, title, children, wide }: any) {
+function Modal({ open, onClose, title, children, wide }: { open: boolean; onClose: () => void; title: string; children: React.ReactNode; wide?: boolean }) {
   if (!open) return null
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={onClose}>
@@ -180,25 +178,76 @@ const ScadenzarioSmart = () => {
   const urlSupplier = urlParams.get('supplier');
   const urlSearch = urlParams.get('search');
 
+  type SupplierEmbed = { name?: string | null; ragione_sociale?: string | null; category?: string | null }
+  type AnyRow = {
+    id?: string
+    invoice_number?: string | null
+    invoice_date?: string | null
+    due_date?: string | null
+    original_due_date?: string | null
+    gross_amount?: number | null
+    amount_paid?: number | null
+    amount_remaining?: number | null
+    status?: string | null
+    payment_method?: string | null
+    payment_date?: string | null
+    payment_bank_account_id?: string | null
+    payment_bank_name?: string | null
+    outlet_id?: string | null
+    outlet_name?: string | null
+    cost_center?: string | null
+    notes?: string | null
+    days_to_due?: number | null
+    urgency?: string | null
+    priority?: string | number | null
+    supplier_id?: string | null
+    supplier_iban?: string | null
+    supplier_vat?: string | null
+    suppliers?: SupplierEmbed | null
+    last_action_type?: string | null
+    last_action_note?: string | null
+    last_action_date?: string | null
+    cash_movement_id?: string | null
+    cost_category_id?: string | null
+    verified?: boolean | null
+    transaction_date?: string | null
+    description?: string | null
+    amount?: number | null
+    bank_account_id?: string | null
+    bank_accounts?: { bank_name?: string | null; account_name?: string | null } | null
+    name?: string | null
+    bank_name?: string | null
+    account_name?: string | null
+    current_balance?: number | null
+    company_id?: string | null
+    is_active?: boolean | null
+    is_deleted?: boolean | null
+    fiscal_code?: string | null
+    vat_number?: string | null
+    iban?: string | null
+    macro_group?: string | null
+    sort_order?: number | null
+    [key: string]: unknown
+  }
   const [section, setSection] = useState('scadenze'); // 'situazione' | 'scadenze' | 'ricorrenti' | 'regole'
   const [loading, setLoading] = useState(true);
-  const [payables, setPayables] = useState<any[]>([]);
-  const [fiscalDeadlines, setFiscalDeadlines] = useState<any[]>([]);
+  const [payables, setPayables] = useState<AnyRow[]>([]);
+  const [fiscalDeadlines, setFiscalDeadlines] = useState<AnyRow[]>([]);
   const [sourceFilter, setSourceFilter] = useState('tutte'); // 'tutte' | 'fornitori' | 'fiscali'
 
   // Tab Incassi: i VERI incassi sono i movimenti in entrata dagli estratti
   // conto (bank_transactions.amount > 0), NON le payables pagate. La tabella
   // payables mostrava '0,00 €' di totale perche' i payables pagati sono
   // spese saldate, non incassi.
-  const [bankIncomes, setBankIncomes] = useState<any[]>([]);
+  const [bankIncomes, setBankIncomes] = useState<AnyRow[]>([]);
   const [bankIncomesLoading, setBankIncomesLoading] = useState(false);
   // Filtri dedicati al tab Incassi: tipo (POS/Contanti/Bonifico/…) + banca.
   // Sono indipendenti dai filtri dei Pagamenti (che non hanno senso per
   // movimenti bancari in entrata).
   const [incomeTypeFilter, setIncomeTypeFilter] = useState('all');
   const [incomeBankFilter, setIncomeBankFilter] = useState('all');
-  const [suppliers, setSuppliers] = useState<any[]>([]);
-  const [bankAccounts, setBankAccounts] = useState<any[]>([]);
+  const [suppliers, setSuppliers] = useState<AnyRow[]>([]);
+  const [bankAccounts, setBankAccounts] = useState<AnyRow[]>([]);
   const [cashPosition, setCashPosition] = useState(0);
 
   const [viewMode, setViewMode] = useState('timeline');
@@ -210,21 +259,25 @@ const ScadenzarioSmart = () => {
   const [searchTerm, setSearchTerm] = useState(urlSearch || '');
   const [isSaving, setIsSaving] = useState(false);
 
-  const [selectedIds, setSelectedIds] = useState(new Set());
-  const [paymentPlan, setPaymentPlan] = useState<Record<string, any>>({});
+  type PlanEntry = { bankId: string; type: string; amount: number; note: string }
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [paymentPlan, setPaymentPlan] = useState<Record<string, PlanEntry>>({});
   const [emailRecipients, setEmailRecipients] = useState('');
   const [showEmailConfig, setShowEmailConfig] = useState(false);
-  const [confirmResult, setConfirmResult] = useState<any>(null);
+  type ConfirmPayment = { fornitore: string; fattura: string; importo: number; bankId: string; banca: string; iban: string; ibanBeneficiario: string; pivaBeneficiario: string; tipo: string; metodo: string; note: string }
+  type ConfirmBank = { bankName: string; iban: string; saldoIniziale: number; totalePagamenti: number; pagamenti: ConfirmPayment[]; saldoFinale?: number }
+  type ConfirmResult = { results: ConfirmPayment[]; banks: ConfirmBank[]; totaleComplessivo: number; emailBody: string; emailSubject: string } | null
+  const [confirmResult, setConfirmResult] = useState<ConfirmResult>(null);
   const [selectedMethodGroup, setSelectedMethodGroup] = useState<any>(null);
   const [supplierDetail, setSupplierDetail] = useState<any>(null);
   const [viewingXml, setViewingXml] = useState<any>(null);
-  const [categories, setCategories] = useState<any[]>([]);
+  const [categories, setCategories] = useState<AnyRow[]>([]);
   const [categoryDropdownId, setCategoryDropdownId] = useState<any>(null);
   const [categorySearch, setCategorySearch] = useState('');
   const [statusDropdownId, setStatusDropdownId] = useState<any>(null);
 
   // Selection helpers
-  const toggleSelect = (id, payable) => {
+  const toggleSelect = (id: string, payable: AnyRow) => {
     const next = new Set(selectedIds);
     const nextPlan = { ...paymentPlan };
     if (next.has(id)) {
@@ -232,33 +285,34 @@ const ScadenzarioSmart = () => {
       delete nextPlan[id];
     } else {
       next.add(id);
-      nextPlan[id] = { bankId: '', type: 'saldo', amount: payable.amount_remaining || 0, note: '' };
+      nextPlan[id] = { bankId: '', type: 'saldo', amount: Number(payable.amount_remaining) || 0, note: '' };
     }
     setSelectedIds(next);
     setPaymentPlan(nextPlan);
   };
 
   const toggleSelectAll = () => {
-    const nonPaid = filteredPayables.filter(p => p.status !== 'pagato' && (p.gross_amount || 0) >= 0);
+    const nonPaid = filteredPayables.filter(p => p.status !== 'pagato' && (Number(p.gross_amount) || 0) >= 0);
     if (selectedIds.size === nonPaid.length) {
       setSelectedIds(new Set());
       setPaymentPlan({});
     } else {
-      const next = new Set();
-      const nextPlan = {};
+      const next = new Set<string>();
+      const nextPlan: Record<string, PlanEntry> = {};
       nonPaid.forEach(p => {
+        if (!p.id) return;
         next.add(p.id);
-        nextPlan[p.id] = paymentPlan[p.id] || { bankId: '', type: 'saldo', amount: p.amount_remaining || 0, note: '' };
+        nextPlan[p.id] = paymentPlan[p.id] || { bankId: '', type: 'saldo', amount: Number(p.amount_remaining) || 0, note: '' };
       });
       setSelectedIds(next);
       setPaymentPlan(nextPlan);
     }
   };
 
-  const updatePlan = (id, field, value) => {
+  const updatePlan = (id: string, field: keyof PlanEntry, value: string | number) => {
     setPaymentPlan(prev => ({
       ...prev,
-      [id]: { ...prev[id], [field]: value }
+      [id]: { ...prev[id], [field]: value as never }
     }));
   };
 
@@ -274,9 +328,9 @@ const ScadenzarioSmart = () => {
   const [dateRange, setDateRange] = useState(getDynamicDateRange());
 
   // Bank balances
-  const bankBalances = useMemo(() => {
-    const balances = {};
-    bankAccounts.forEach(ba => { balances[ba.id] = ba.current_balance || 0; });
+  const bankBalances = useMemo<Record<string, number>>(() => {
+    const balances: Record<string, number> = {};
+    bankAccounts.forEach(ba => { if (ba.id) balances[ba.id] = Number(ba.current_balance) || 0; });
     Object.values(paymentPlan).forEach(plan => {
       if (plan.bankId && balances[plan.bankId] !== undefined) {
         balances[plan.bankId] -= (plan.amount || 0);
@@ -286,8 +340,8 @@ const ScadenzarioSmart = () => {
   }, [bankAccounts, paymentPlan]);
 
   // Totale allocato per banca (quanto si sta pagando)
-  const bankSpending = useMemo(() => {
-    const spending = {};
+  const bankSpending = useMemo<Record<string, number>>(() => {
+    const spending: Record<string, number> = {};
     Object.values(paymentPlan).forEach(plan => {
       if (plan.bankId) {
         spending[plan.bankId] = (spending[plan.bankId] || 0) + (plan.amount || 0);
@@ -308,7 +362,14 @@ const ScadenzarioSmart = () => {
   }, [selectedIds, paymentPlan]);
 
   // Modals
-  const [modals, setModals] = useState({
+  type ModalsState = {
+    payment: { open: boolean; payable: AnyRow | null }
+    invoice: { open: boolean; data: AnyRow | null }
+    supplier: { open: boolean; data: AnyRow | null }
+    editSchedule: { open: boolean; schedule: AnyRow | null }
+    deleteConfirm: { open: boolean; scheduleId: string | null; invoiceNumber: string | null }
+  }
+  const [modals, setModals] = useState<ModalsState>({
     payment: { open: false, payable: null },
     invoice: { open: false, data: null },
     supplier: { open: false, data: null },
@@ -335,9 +396,10 @@ const ScadenzarioSmart = () => {
       const { data: payablesRaw } = await supabase
         .from('payables')
         .select('id, cash_movement_id, cost_category_id, verified, payment_date, payment_bank_account_id')
-        .eq('company_id', COMPANY_ID);
-      const payablesExtraMap = {};
+        .eq('company_id', COMPANY_ID!);
+      const payablesExtraMap: Record<string, AnyRow> = {};
       (payablesRaw || []).forEach(p => {
+        if (!p.id) return;
         payablesExtraMap[p.id] = {
           cash_movement_id: p.cash_movement_id || null,
           cost_category_id: p.cost_category_id || null,
@@ -351,20 +413,20 @@ const ScadenzarioSmart = () => {
       const { data: categoriesData } = await supabase
         .from('cost_categories')
         .select('*')
-        .eq('company_id', COMPANY_ID)
+        .eq('company_id', COMPANY_ID!)
         .order('sort_order', { ascending: true });
       setCategories(categoriesData || []);
 
       const { data: suppliersData } = await supabase
         .from('suppliers')
         .select('*')
-        .eq('company_id', COMPANY_ID)
+        .eq('company_id', COMPANY_ID!)
         .or('is_deleted.is.null,is_deleted.eq.false');
 
       const { data: accountsData } = await supabase
         .from('bank_accounts')
         .select('*')
-        .eq('company_id', COMPANY_ID)
+        .eq('company_id', COMPANY_ID!)
         .eq('is_active', true);
 
       // Lookup banca per Fix 5.2: due livelli di matching.
@@ -372,9 +434,9 @@ const ScadenzarioSmart = () => {
       // 2) cash_movement_id -> cash_movements.bank_account_id (riconciliazione
       //    automatica: la banca e' quella su cui e' stato registrato il
       //    movimento bancario abbinato).
-      const bankNameById = new Map((accountsData || []).map(b => [b.id, b.bank_name]));
-      const movementIds = (payablesRaw || []).map(p => p.cash_movement_id).filter(Boolean);
-      const cashMovBankMap = new Map();
+      const bankNameById = new Map<string, string>((accountsData || []).map(b => [b.id, b.bank_name || '']));
+      const movementIds = (payablesRaw || []).map(p => p.cash_movement_id).filter((v): v is string => Boolean(v));
+      const cashMovBankMap = new Map<string, string>();
       if (movementIds.length > 0) {
         const { data: movs } = await supabase
           .from('cash_movements')
@@ -385,10 +447,10 @@ const ScadenzarioSmart = () => {
         });
       }
 
-      const enrichedPayables = (viewData || []).map(row => {
-        const extra = payablesExtraMap[row.id] || {};
-        const baseRow = {
-          id: row.id,
+      const enrichedPayables: AnyRow[] = (viewData || []).map(row => {
+        const extra = ((row.id && payablesExtraMap[row.id]) || {}) as AnyRow;
+        const baseRow: AnyRow = {
+          id: row.id || undefined,
           invoice_number: row.invoice_number || '-',
           invoice_date: row.invoice_date,
           due_date: row.due_date,
@@ -398,14 +460,14 @@ const ScadenzarioSmart = () => {
           amount_remaining: row.amount_remaining || 0,
           status: row.status, // overridden sotto da calculatePayableStatus
           payment_method: row.payment_method,
-          payment_date: extra.payment_date,
-          payment_bank_account_id: extra.payment_bank_account_id,
+          payment_date: (extra.payment_date as string | null) ?? null,
+          payment_bank_account_id: (extra.payment_bank_account_id as string | null) ?? null,
           // Nome banca per la colonna CONTO. Provo prima il banca diretta,
           // poi via cash_movement (per riconciliazioni automatiche).
           payment_bank_name: (() => {
-            const direct = extra.payment_bank_account_id ? bankNameById.get(extra.payment_bank_account_id) : null;
+            const direct = extra.payment_bank_account_id ? bankNameById.get(String(extra.payment_bank_account_id)) : null;
             if (direct) return direct;
-            const viaCM = extra.cash_movement_id ? cashMovBankMap.get(extra.cash_movement_id) : null;
+            const viaCM = extra.cash_movement_id ? cashMovBankMap.get(String(extra.cash_movement_id)) : null;
             return viaCM ? bankNameById.get(viaCM) || null : null;
           })(),
           outlet_id: row.outlet_id,
@@ -426,9 +488,9 @@ const ScadenzarioSmart = () => {
           last_action_type: row.last_action_type,
           last_action_note: row.last_action_note,
           last_action_date: row.last_action_date,
-          cash_movement_id: extra.cash_movement_id || null,
-          cost_category_id: extra.cost_category_id || null,
-          verified: extra.verified || false,
+          cash_movement_id: (extra.cash_movement_id as string | null) ?? null,
+          cost_category_id: (extra.cost_category_id as string | null) ?? null,
+          verified: Boolean(extra.verified),
         };
         // Fix 5.1: ricalcolo lo stato dalla data se non e' terminale
         baseRow.status = calculatePayableStatus(baseRow);
@@ -436,21 +498,21 @@ const ScadenzarioSmart = () => {
       });
 
       setPayables(enrichedPayables);
-      setSuppliers(suppliersData || []);
-      setBankAccounts(accountsData || []);
+      setSuppliers((suppliersData || []) as AnyRow[]);
+      setBankAccounts((accountsData || []) as AnyRow[]);
 
       // Load fiscal deadlines for unified view
       try {
         const { data: fiscalData } = await supabase
           .from('fiscal_deadlines')
           .select('*')
-          .eq('company_id', COMPANY_ID)
+          .eq('company_id', COMPANY_ID!)
           .neq('status', 'cancelled')
           .order('due_date', { ascending: true });
-        setFiscalDeadlines(fiscalData || []);
-      } catch (e) { console.warn('fiscal_deadlines not available:', e.message); }
+        setFiscalDeadlines((fiscalData || []) as AnyRow[]);
+      } catch (e: unknown) { console.warn('fiscal_deadlines not available:', (e as Error).message); }
 
-      const totalBalance = (accountsData || []).reduce((sum, acc) => sum + (acc.current_balance || 0), 0);
+      const totalBalance = (accountsData || []).reduce((sum, acc) => sum + (Number(acc.current_balance) || 0), 0);
       setCashPosition(totalBalance);
 
       const { data: companyData } = await supabase
@@ -458,8 +520,9 @@ const ScadenzarioSmart = () => {
         .select('settings')
         .eq('id', COMPANY_ID)
         .single();
-      if (companyData?.settings?.email_scadenzario) {
-        setEmailRecipients(companyData.settings.email_scadenzario);
+      const settings = companyData?.settings as { email_scadenzario?: string } | null;
+      if (settings?.email_scadenzario) {
+        setEmailRecipients(settings.email_scadenzario);
       }
     } catch (error) {
       console.error('Error fetching data:', error);
@@ -481,13 +544,13 @@ const ScadenzarioSmart = () => {
     if (bankIncomes.length > 0 || !COMPANY_ID) return;
     setBankIncomesLoading(true);
     try {
-      const rows = [];
+      const rows: AnyRow[] = [];
 
       try {
         const { data, error } = await supabase
           .from('bank_transactions')
           .select('id, transaction_date, description, amount, bank_account_id')
-          .eq('company_id', COMPANY_ID)
+          .eq('company_id', COMPANY_ID!)
           .gt('amount', 0)
           .order('transaction_date', { ascending: false })
           .limit(2000);
@@ -501,15 +564,15 @@ const ScadenzarioSmart = () => {
             bank_account_id: r.bank_account_id,
           });
         }
-      } catch (e) {
-        console.warn('bank_transactions incomes:', e.message);
+      } catch (e: unknown) {
+        console.warn('bank_transactions incomes:', (e as Error).message);
       }
 
       try {
         const { data, error } = await supabase
           .from('cash_movements')
           .select('id, date, description, amount, bank_account_id')
-          .eq('company_id', COMPANY_ID)
+          .eq('company_id', COMPANY_ID!)
           .gt('amount', 0)
           .order('date', { ascending: false })
           .limit(2000);
@@ -523,20 +586,20 @@ const ScadenzarioSmart = () => {
             bank_account_id: r.bank_account_id,
           });
         }
-      } catch (e) {
-        console.warn('cash_movements incomes:', e.message);
+      } catch (e: unknown) {
+        console.warn('cash_movements incomes:', (e as Error).message);
       }
 
       // Arricchisci con bank_name dal lookup sul bankAccounts gia' caricato
-      const bankMap = new Map((bankAccounts || []).map(b => [b.id, b]));
+      const bankMap = new Map<string, AnyRow>((bankAccounts || []).map(b => [String(b.id), b]));
       for (const r of rows) {
-        const b = bankMap.get(r.bank_account_id);
+        const b = r.bank_account_id ? bankMap.get(String(r.bank_account_id)) : undefined;
         if (b) {
           r.bank_accounts = { bank_name: b.bank_name, account_name: b.account_name };
         }
       }
 
-      rows.sort((a, b) => new Date(b.transaction_date || 0) - new Date(a.transaction_date || 0));
+      rows.sort((a, b) => new Date(String(b.transaction_date || 0)).getTime() - new Date(String(a.transaction_date || 0)).getTime());
       setBankIncomes(rows);
     } catch (err: unknown) {
       console.warn('load bank incomes:', (err as Error).message);
@@ -556,7 +619,8 @@ const ScadenzarioSmart = () => {
         .eq('id', urlSupplier)
         .single();
       if (sup) {
-        const name = sup.name || sup.ragione_sociale;
+        const supLite = sup as { name?: string | null; ragione_sociale?: string | null };
+        const name = supLite.name || supLite.ragione_sociale || '';
         setSearchTerm(name);
         // Rimuovi il filtro data per mostrare tutte le fatture del fornitore
         setDateRange({ start: '2020-01-01', end: '2030-12-31' });
@@ -585,7 +649,7 @@ const ScadenzarioSmart = () => {
 
   // Handler: update category con propagazione a tutte le fatture dello stesso fornitore
   // Gestisce sia payables con supplier_id che senza (match per supplier_name/supplier_vat)
-  const handleSetCategory = async (payableId, categoryId) => {
+  const handleSetCategory = async (payableId: string, categoryId: string) => {
     const payable = payables.find(p => p.id === payableId);
     if (!payable) return;
 
@@ -619,7 +683,7 @@ const ScadenzarioSmart = () => {
       const { data: matchedSupplier } = await supabase
         .from('suppliers')
         .select('id')
-        .eq('company_id', COMPANY_ID)
+        .eq('company_id', COMPANY_ID!)
         .or(`vat_number.eq.${supplierVat},partita_iva.eq.${supplierVat}`)
         .limit(1)
         .maybeSingle();
@@ -636,7 +700,7 @@ const ScadenzarioSmart = () => {
         .from('payables')
         .update({ cost_category_id: categoryId })
         .eq('supplier_vat', supplierVat)
-        .eq('company_id', COMPANY_ID)
+        .eq('company_id', COMPANY_ID!)
         .is('cost_category_id', null);
       propagatedCount = count || 0;
     } else if (supplierName) {
@@ -644,7 +708,7 @@ const ScadenzarioSmart = () => {
       const { data: matchedSupplier } = await supabase
         .from('suppliers')
         .select('id')
-        .eq('company_id', COMPANY_ID)
+        .eq('company_id', COMPANY_ID!)
         .or(`name.eq.${supplierName},ragione_sociale.eq.${supplierName}`)
         .limit(1)
         .maybeSingle();
@@ -661,7 +725,7 @@ const ScadenzarioSmart = () => {
         .from('payables')
         .update({ cost_category_id: categoryId })
         .eq('supplier_name', supplierName)
-        .eq('company_id', COMPANY_ID)
+        .eq('company_id', COMPANY_ID!)
         .is('cost_category_id', null);
       propagatedCount = count || 0;
     }
@@ -694,12 +758,12 @@ const ScadenzarioSmart = () => {
   };
 
   // Handler: update status inline
-  const handleSetStatus = async (payableId, newStatus) => {
-    const updates = { status: newStatus };
+  const handleSetStatus = async (payableId: string, newStatus: string) => {
+    const updates: Record<string, string> = { status: newStatus };
     if (newStatus === 'pagato') { updates.payment_date = new Date().toISOString().split('T')[0]; }
     const { error } = await supabase
       .from('payables')
-      .update(updates)
+      .update(updates as never)
       .eq('id', payableId);
     if (!error) {
       setPayables(prev => prev.map(p => p.id === payableId ? { ...p, status: newStatus } : p));
@@ -709,30 +773,30 @@ const ScadenzarioSmart = () => {
 
   // Filter payables
   // Convert fiscal deadlines to payable-like objects for unified view
-  const fiscalAsPayables = useMemo(() => {
-    return fiscalDeadlines.map(fd => ({
+  const fiscalAsPayables = useMemo<AnyRow[]>(() => {
+    return fiscalDeadlines.map((fd): AnyRow => ({
       id: `fiscal_${fd.id}`,
       _isFiscal: true,
-      invoice_number: fd.title || fd.deadline_type,
-      invoice_date: fd.created_at,
-      due_date: fd.due_date,
-      original_due_date: fd.due_date,
-      gross_amount: fd.amount || 0,
-      amount_paid: fd.status === 'paid' ? (fd.amount || 0) : 0,
-      amount_remaining: fd.status === 'paid' ? 0 : (fd.amount || 0),
+      invoice_number: (fd.title as string | null) || (fd.deadline_type as string | null),
+      invoice_date: (fd.created_at as string | null),
+      due_date: (fd.due_date as string | null),
+      original_due_date: (fd.due_date as string | null),
+      gross_amount: Number(fd.amount) || 0,
+      amount_paid: fd.status === 'paid' ? (Number(fd.amount) || 0) : 0,
+      amount_remaining: fd.status === 'paid' ? 0 : (Number(fd.amount) || 0),
       status: fd.status === 'paid' ? 'pagato' : fd.status === 'overdue' ? 'scaduto' : fd.status === 'upcoming' ? 'in_scadenza' : 'da_pagare',
-      payment_method: fd.payment_method || 'f24',
+      payment_method: (fd.payment_method as string | null) || 'f24',
       outlet_id: null,
       outlet_name: '',
       cost_center: 'fiscale',
-      notes: fd.notes || '',
-      days_to_due: fd.due_date ? Math.round((new Date(fd.due_date) - new Date()) / (1000 * 60 * 60 * 24)) : null,
+      notes: (fd.notes as string | null) || '',
+      days_to_due: fd.due_date ? Math.round((new Date(String(fd.due_date)).getTime() - Date.now()) / (1000 * 60 * 60 * 24)) : null,
       urgency: null,
       priority: null,
       supplier_id: null,
       supplier_iban: '',
       supplier_vat: '',
-      suppliers: { name: `📋 ${fd.deadline_type?.toUpperCase() || 'Fiscale'}`, ragione_sociale: fd.title || fd.deadline_type, category: 'fiscale' },
+      suppliers: { name: `📋 ${(fd.deadline_type as string | null)?.toUpperCase() || 'Fiscale'}`, ragione_sociale: (fd.title as string | null) || (fd.deadline_type as string | null), category: 'fiscale' },
       last_action_type: null,
       last_action_note: null,
       last_action_date: null,
@@ -744,14 +808,14 @@ const ScadenzarioSmart = () => {
 
   const filteredPayables = useMemo(() => {
     // Combine sources based on filter
-    let source = [];
+    let source: AnyRow[] = [];
     if (sourceFilter === 'fornitori') source = payables;
     else if (sourceFilter === 'fiscali') source = fiscalAsPayables;
     else source = [...payables, ...fiscalAsPayables];
 
     return source.filter((p) => {
       // Escludi note credito dallo Scadenzario (importi negativi o status nota_credito)
-      if (p.status === 'nota_credito' || parseFloat(p.gross_amount || 0) < 0) return false;
+      if (p.status === 'nota_credito' || (Number(p.gross_amount) || 0) < 0) return false;
 
       const matchOutlet = !selectedOutlet || p.outlet_id === selectedOutlet;
       const matchStatus = !selectedStatus
@@ -782,7 +846,7 @@ const ScadenzarioSmart = () => {
   // KPIs
   const kpis = useMemo(() => {
     const totalDuePending = filteredPayables
-      .filter((p) => p.status !== 'pagato' && new Date(p.due_date) <= today)
+      .filter((p) => p.status !== 'pagato' && p.due_date && new Date(p.due_date) <= today)
       .reduce((sum, p) => sum + (p.amount_remaining || 0), 0);
 
     const totalOverdue = filteredPayables
@@ -791,6 +855,7 @@ const ScadenzarioSmart = () => {
 
     const nextSevenDays = filteredPayables
       .filter((p) => {
+        if (!p.due_date) return false;
         const d = new Date(p.due_date);
         return d >= today && d <= new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000) && p.status !== 'pagato';
       })
@@ -820,12 +885,14 @@ const ScadenzarioSmart = () => {
   }, [filteredPayables, cashPosition, today]);
 
   // Totali per singolo metodo di pagamento (stessa base filtrata dei KPI)
-  const methodTotals = useMemo(() => {
+  type MethodAgg = { key: string; label: string; total: number; count: number }
+  const methodTotals = useMemo<MethodAgg[]>(() => {
     const activePays = filteredPayables.filter(p => p.status !== 'pagato' && p.status !== 'annullato');
-    const map = {};
+    const map: Record<string, MethodAgg> = {};
     activePays.forEach(p => {
       const m = p.payment_method || 'altro';
-      if (!map[m]) map[m] = { key: m, label: paymentMethodLabels[m] || m, total: 0, count: 0 };
+      const labels = paymentMethodLabels as Record<string, string>;
+      if (!map[m]) map[m] = { key: m, label: labels[m] || m, total: 0, count: 0 };
       map[m].total += (p.amount_remaining || 0);
       map[m].count += 1;
     });
@@ -834,7 +901,7 @@ const ScadenzarioSmart = () => {
 
   // Monthly data
   const monthlyData = useMemo(() => {
-    const months = [];
+    const months: Array<{ month: string; scadenze: number }> = [];
     for (let i = 0; i < 6; i++) {
       const d = new Date(today);
       d.setMonth(d.getMonth() + i);
@@ -843,6 +910,7 @@ const ScadenzarioSmart = () => {
 
       const total = payables
         .filter((p) => {
+          if (!p.due_date) return false;
           const dueDate = new Date(p.due_date);
           return dueDate >= monthStart && dueDate <= monthEnd && p.status !== 'pagato';
         })
@@ -858,7 +926,7 @@ const ScadenzarioSmart = () => {
 
   // Category data
   const categoryData = useMemo(() => {
-    const cats = {};
+    const cats: Record<string, number> = {};
     payables.forEach((p) => {
       const category = p.suppliers?.category || 'altro';
       cats[category] = (cats[category] || 0) + (p.amount_remaining || 0);
@@ -870,21 +938,23 @@ const ScadenzarioSmart = () => {
   }, [payables]);
 
   // Handlers
-  const handleMarkAsPaid = useCallback(async (payableId, amount, bankAccountId) => {
+  const handleMarkAsPaid = useCallback(async (payableId: string, amount: number, bankAccountId: string | null) => {
     try {
+      const payableMod = modals.payment.payable as AnyRow | null;
       await supabase.from('payables').update({
         amount_paid: amount,
         payment_date: today.toISOString().split('T')[0],
         payment_bank_account_id: bankAccountId,
-        status: amount >= (modals.payment.payable?.amount_remaining || 0) ? 'pagato' : 'parziale',
-      }).eq('id', payableId);
+        status: amount >= ((payableMod?.amount_remaining as number | null) || 0) ? 'pagato' : 'parziale',
+      } as never).eq('id', payableId);
       fetchData();
     } catch (error) {
       console.error('Error marking payment:', error);
     }
-  }, [today, modals]);
+  }, [today, modals, fetchData]);
 
-  const handleCreateInvoice = useCallback(async (invoiceData) => {
+  type InvoiceData = { supplierId: string; invoiceNumber: string; invoiceDate: string; dueDate: string; grossAmount: number; paymentMethod?: string }
+  const handleCreateInvoice = useCallback(async (invoiceData: InvoiceData) => {
     try {
       const { data: inv } = await supabase.from('electronic_invoices').insert([{
         company_id: COMPANY_ID,
@@ -895,7 +965,7 @@ const ScadenzarioSmart = () => {
         total_amount: invoiceData.grossAmount,
         payment_method: invoiceData.paymentMethod,
         source: 'manual',
-      }]).select();
+      } as never]).select();
 
       await supabase.from('payables').insert([{
         company_id: COMPANY_ID,
@@ -908,7 +978,7 @@ const ScadenzarioSmart = () => {
         amount_remaining: invoiceData.grossAmount,
         payment_method: invoiceData.paymentMethod || 'bonifico',
         electronic_invoice_id: inv?.[0]?.id,
-      }]);
+      } as never]);
 
       fetchData();
     } catch (error) {
@@ -916,7 +986,8 @@ const ScadenzarioSmart = () => {
     }
   }, [COMPANY_ID]);
 
-  const handleCreateSupplier = useCallback(async (supplierData) => {
+  type SupplierData = { name: string; vat?: string; fiscal?: string; iban?: string; category?: string; paymentMethod?: string }
+  const handleCreateSupplier = useCallback(async (supplierData: SupplierData) => {
     try {
       const { data } = await supabase.from('suppliers').insert([{
         company_id: COMPANY_ID,
@@ -928,10 +999,10 @@ const ScadenzarioSmart = () => {
         category: supplierData.category,
         payment_method: supplierData.paymentMethod || 'bonifico',
         is_active: true,
-      }]).select();
+      } as never]).select();
 
       if (data) {
-        setSuppliers([...suppliers, ...data]);
+        setSuppliers([...suppliers, ...(data as AnyRow[])]);
         setModals({ ...modals, supplier: { open: false, data: null } });
       }
     } catch (error) {
@@ -939,7 +1010,8 @@ const ScadenzarioSmart = () => {
     }
   }, [suppliers, modals, COMPANY_ID]);
 
-  const handleEditSchedule = useCallback(async (scheduleData) => {
+  type ScheduleData = { id: string; amount?: number; due_date?: string; status?: string; amount_paid?: number }
+  const handleEditSchedule = useCallback(async (scheduleData: ScheduleData) => {
     try {
       setIsSaving(true);
       await supabase.from('payables').update({
@@ -947,7 +1019,7 @@ const ScadenzarioSmart = () => {
         due_date: scheduleData.due_date,
         status: scheduleData.status,
         amount_remaining: (scheduleData.amount || 0) - (scheduleData.amount_paid || 0),
-      }).eq('id', scheduleData.id);
+      } as never).eq('id', scheduleData.id);
 
       setModals({ ...modals, editSchedule: { open: false, schedule: null } });
       fetchData();
@@ -955,9 +1027,9 @@ const ScadenzarioSmart = () => {
       console.error('Error updating schedule:', error);
       setIsSaving(false);
     }
-  }, [modals]);
+  }, [modals, fetchData]);
 
-  const handleDeleteSchedule = useCallback(async (scheduleId) => {
+  const handleDeleteSchedule = useCallback(async (scheduleId: string) => {
     try {
       setIsSaving(true);
       await supabase.from('payables').update({ status: 'annullato' }).eq('id', scheduleId);
@@ -967,7 +1039,7 @@ const ScadenzarioSmart = () => {
       console.error('Error deleting schedule:', error);
       setIsSaving(false);
     }
-  }, [modals]);
+  }, [modals, fetchData]);
 
   const confirmPayments = async () => {
     if (hasNegativeBalance || selectedIds.size === 0) return;
@@ -987,11 +1059,11 @@ const ScadenzarioSmart = () => {
 
         await supabase.from('payables').update({
           amount_paid: newPaid,
-          amount_remaining: payable.gross_amount - newPaid,
+          amount_remaining: (payable.gross_amount ?? 0) - newPaid,
           payment_date: today_str,
           payment_bank_account_id: plan.bankId || null,
           status: newStatus,
-        }).eq('id', id);
+        } as never).eq('id', id);
 
         await supabase.from('payable_actions').insert({
           payable_id: id,
@@ -1001,7 +1073,7 @@ const ScadenzarioSmart = () => {
           amount: plan.amount,
           bank_account_id: plan.bankId || null,
           note: plan.note || null,
-        });
+        } as never);
 
         results.push({
           fornitore: payable.suppliers?.ragione_sociale || payable.suppliers?.name || 'N/A',
@@ -1013,20 +1085,21 @@ const ScadenzarioSmart = () => {
           ibanBeneficiario: payable.supplier_iban || '',
           pivaBeneficiario: payable.supplier_vat || '',
           tipo: plan.type === 'saldo' ? 'SALDO' : 'PARZIALE',
-          metodo: paymentMethodLabels[payable.payment_method] || '',
+          metodo: (paymentMethodLabels as Record<string, string>)[payable.payment_method || ''] || '',
           note: plan.note || '',
         });
       }
 
       // Raggruppa per banca con saldi prima/dopo
-      const bankMap = {};
+      type BankAgg = { bankName: string; iban: string; saldoIniziale: number; totalePagamenti: number; pagamenti: Array<typeof results[number]>; saldoFinale?: number }
+      const bankMap: Record<string, BankAgg> = {};
       results.forEach(r => {
         if (!bankMap[r.bankId]) {
           const ba = bankAccounts.find(b => b.id === r.bankId);
           bankMap[r.bankId] = {
             bankName: r.banca,
-            iban: ba?.iban || '',
-            saldoIniziale: ba?.current_balance || 0,
+            iban: (ba?.iban as string) || '',
+            saldoIniziale: Number(ba?.current_balance) || 0,
             totalePagamenti: 0,
             pagamenti: [],
           };
@@ -1053,7 +1126,7 @@ const ScadenzarioSmart = () => {
         }).join('\n\n') +
         `\n\n${'─'.repeat(40)}\nTOTALE COMPLESSIVO: ${fmt(totaleComplessivo)} €\nNumero operazioni: ${results.length}\n\nCordiali saluti`;
 
-      setConfirmResult({ results, banks, totaleComplessivo, emailBody, emailSubject });
+      setConfirmResult({ results, banks, totaleComplessivo, emailBody, emailSubject } as unknown as NonNullable<ConfirmResult>);
       setSelectedIds(new Set());
       setPaymentPlan({});
       setIsSaving(false);
@@ -1095,10 +1168,12 @@ const ScadenzarioSmart = () => {
   );
 
   // Aging analysis
+  type AgingBucket = '0-30' | '31-60' | '61-90' | '90+'
   const agingAnalysis = useMemo(() => {
-    const buckets = { '0-30': 0, '31-60': 0, '61-90': 0, '90+': 0 };
+    const buckets: Record<AgingBucket, number> = { '0-30': 0, '31-60': 0, '61-90': 0, '90+': 0 };
     displayPayables.forEach((p) => {
-      const diff = Math.floor((today - new Date(p.due_date)) / (1000 * 60 * 60 * 24));
+      if (!p.due_date) return;
+      const diff = Math.floor((today.getTime() - new Date(p.due_date).getTime()) / (1000 * 60 * 60 * 24));
       if (diff <= 30) buckets['0-30'] += p.amount_remaining || 0;
       else if (diff <= 60) buckets['31-60'] += p.amount_remaining || 0;
       else if (diff <= 90) buckets['61-90'] += p.amount_remaining || 0;
@@ -1111,8 +1186,9 @@ const ScadenzarioSmart = () => {
   }, [displayPayables, today]);
 
   // Grouped by supplier
+  type Group = { items: AnyRow[]; total: number; paid: number; remaining: number; label?: string }
   const groupedBySupplier = useMemo(() => {
-    const groups = {};
+    const groups: Record<string, Group> = {};
     displayPayables.forEach(p => {
       const name = p.suppliers?.ragione_sociale || p.suppliers?.name || 'N/A';
       if (!groups[name]) groups[name] = { items: [], total: 0, paid: 0, remaining: 0 };
@@ -1126,7 +1202,7 @@ const ScadenzarioSmart = () => {
 
   // Grouped by month
   const groupedByMonth = useMemo(() => {
-    const groups = {};
+    const groups: Record<string, Group> = {};
     displayPayables.forEach(p => {
       const d = p.due_date ? new Date(p.due_date) : null;
       const key = d ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` : 'N/D';
@@ -1214,8 +1290,8 @@ const ScadenzarioSmart = () => {
                 scadenza: p.due_date,
                 importo: p.gross_amount,
                 residuo: p.amount_remaining,
-                stato: statusConfig[p.status]?.label || p.status,
-                metodo: paymentMethodLabels[p.payment_method] || p.payment_method,
+                stato: (statusConfig as Record<string, { label?: string }>)[p.status || '']?.label || p.status,
+                metodo: (paymentMethodLabels as Record<string, string>)[p.payment_method || ''] || p.payment_method,
               }))}
               columns={[
                 { key: 'fornitore', label: 'Fornitore' },
@@ -1435,7 +1511,8 @@ const ScadenzarioSmart = () => {
                 {(() => {
                   // Genera la lista dinamicamente dai dati caricati: mostro
                   // solo i tipi presenti. Per ognuno il count dei movimenti.
-                  const categorize = (desc) => {
+                  type IncomeType = 'POS' | 'Bonifico' | 'Contanti' | 'Accredito' | 'Incasso' | 'Giroconto' | 'Altro'
+                  const categorize = (desc: string | null | undefined): IncomeType => {
                     const d = (desc || '').toLowerCase();
                     if (d.includes('p.o.s.') || /\bpos\b/.test(d)) return 'POS';
                     if (d.includes('bonifico') && (d.includes('favore') || d.includes('ordinante'))) return 'Bonifico';
@@ -1445,7 +1522,7 @@ const ScadenzarioSmart = () => {
                     if (d.includes('giroconto')) return 'Giroconto';
                     return 'Altro';
                   };
-                  const counts = {};
+                  const counts: Record<string, number> = {};
                   bankIncomes.forEach(i => {
                     const t = categorize(i.description);
                     counts[t] = (counts[t] || 0) + 1;
@@ -1503,7 +1580,7 @@ const ScadenzarioSmart = () => {
               })()}
               {selectedStatus && (
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 text-xs text-slate-600">
-                  {statusConfig[selectedStatus]?.label || selectedStatus} <button onClick={() => setSelectedStatus('')} className="text-slate-400 hover:text-slate-600"><X size={11} /></button>
+                  {(statusConfig as Record<string, { label?: string }>)[selectedStatus]?.label || selectedStatus} <button onClick={() => setSelectedStatus('')} className="text-slate-400 hover:text-slate-600"><X size={11} /></button>
                 </span>
               )}
               {searchTerm && (
@@ -1579,7 +1656,7 @@ const ScadenzarioSmart = () => {
             const daysInMonth = lastDay.getDate();
 
             // Build a map: day number -> array of payables
-            const dayMap = {};
+            const dayMap: Record<number, AnyRow[]> = {};
             displayPayables.forEach(p => {
               if (!p.due_date) return;
               const d = new Date(p.due_date);
@@ -1591,7 +1668,7 @@ const ScadenzarioSmart = () => {
             });
 
             // Determine dot color for a payable
-            const dotColor = (p) => {
+            const dotColor = (p: AnyRow) => {
               if (p.status === 'scaduto') return 'bg-red-500';
               if (p.status === 'in_scadenza') return 'bg-amber-500';
               if (p.status === 'pagato') return 'bg-emerald-500';
@@ -1599,12 +1676,12 @@ const ScadenzarioSmart = () => {
             };
 
             // Build grid cells: leading blanks + days
-            const cells = [];
+            const cells: (number | null)[] = [];
             for (let i = 0; i < startDow; i++) cells.push(null);
             for (let d = 1; d <= daysInMonth; d++) cells.push(d);
 
             const todayDate = new Date();
-            const isToday = (day) => day && todayDate.getFullYear() === year && todayDate.getMonth() === month && todayDate.getDate() === day;
+            const isToday = (day: number | null) => day != null && todayDate.getFullYear() === year && todayDate.getMonth() === month && todayDate.getDate() === day;
 
             const monthLabel = calendarMonth.toLocaleDateString('it-IT', { month: 'long', year: 'numeric' });
 
@@ -1656,7 +1733,7 @@ const ScadenzarioSmart = () => {
                               </span>
                               {items.length > 0 && (
                                 <div className="flex flex-wrap gap-0.5 mt-1">
-                                  {items.slice(0, 4).map((p, i) => (
+                                  {items.slice(0, 4).map((p: AnyRow, i: number) => (
                                     <span key={i} className={`w-2 h-2 rounded-full ${dotColor(p)}`} title={`${p.suppliers?.name || ''} - ${fmt(p.amount_remaining)} EUR`} />
                                   ))}
                                   {items.length > 4 && (
@@ -1693,13 +1770,13 @@ const ScadenzarioSmart = () => {
                       <div className="p-6 text-center text-sm text-slate-400">Nessuna scadenza in questo giorno</div>
                     ) : (
                       <div className="divide-y divide-slate-50">
-                        {selectedDayPayables.map(p => (
+                        {selectedDayPayables.map((p: AnyRow) => (
                           <div key={p.id} className="px-4 py-3 flex items-center justify-between hover:bg-slate-50/50">
                             <div className="flex items-center gap-3">
                               <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${dotColor(p)}`} />
                               <div>
                                 <div className="text-sm font-medium text-slate-800 truncate max-w-[280px]" title={p.suppliers?.ragione_sociale || p.suppliers?.name || ''}>{p.suppliers?.ragione_sociale || p.suppliers?.name || '—'}</div>
-                                <div className="text-xs text-slate-400 truncate max-w-[280px]" title={p.invoice_number || ''}>Fatt. {p.invoice_number || '—'} {p.payment_method ? `- ${paymentMethodLabels[p.payment_method] || p.payment_method}` : ''}</div>
+                                <div className="text-xs text-slate-400 truncate max-w-[280px]" title={p.invoice_number || ''}>Fatt. {p.invoice_number || '—'} {p.payment_method ? `- ${(paymentMethodLabels as Record<string, string>)[p.payment_method] || p.payment_method}` : ''}</div>
                               </div>
                             </div>
                             <div className="flex items-center gap-3">
@@ -1742,7 +1819,7 @@ const ScadenzarioSmart = () => {
                 const q = (searchTerm || '').toLowerCase();
                 const from = dateRange.start ? new Date(dateRange.start) : null;
                 const to = dateRange.end ? new Date(dateRange.end) : null;
-                const categorize = (desc) => {
+                const categorize = (desc: string | null | undefined) => {
                   const d = (desc || '').toLowerCase();
                   if (d.includes('p.o.s.') || /\bpos\b/.test(d)) return { tipo: 'POS', cls: 'bg-violet-50 text-violet-700' };
                   if (d.includes('bonifico') && (d.includes('favore') || d.includes('ordinante'))) return { tipo: 'Bonifico', cls: 'bg-blue-50 text-blue-700' };
@@ -1761,7 +1838,7 @@ const ScadenzarioSmart = () => {
                   if (to && d && d > to) return false;
                   return true;
                 });
-                const totale = filteredIncomes.reduce((s, i) => s + (parseFloat(i.amount) || 0), 0);
+                const totale = filteredIncomes.reduce((s, i) => s + (Number(i.amount) || 0), 0);
                 return (
                   <>
                     <div className="px-4 py-2 bg-emerald-50/50 border-b border-emerald-100 flex items-center justify-between text-xs">
@@ -1785,7 +1862,7 @@ const ScadenzarioSmart = () => {
                             return (
                               <tr key={i.id} className="hover:bg-slate-50/60">
                                 <td className="py-2 px-3 whitespace-nowrap text-slate-600">{fmtDate(i.transaction_date)}</td>
-                                <td className="py-2 px-3 truncate max-w-md text-slate-700" title={i.description}>{i.description || '—'}</td>
+                                <td className="py-2 px-3 truncate max-w-md text-slate-700" title={i.description ?? undefined}>{i.description || '—'}</td>
                                 <td className="py-2 px-3"><span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold ${cat.cls}`}>{cat.tipo}</span></td>
                                 <td className="py-2 px-3 text-xs text-slate-500">{i.bank_accounts?.bank_name || '—'}</td>
                                 <td className="py-2 px-3 text-right font-semibold text-emerald-700 whitespace-nowrap">+{fmt(i.amount)} €</td>
@@ -1840,8 +1917,8 @@ const ScadenzarioSmart = () => {
                       <React.Fragment key={p.id}>
                         <tr className={`border-b border-slate-50 hover:bg-blue-50/50 transition-colors group ${idx % 2 === 1 ? 'even:bg-slate-50/50' : ''}`}>
                           <td className="py-2.5 px-3 text-center">
-                            {p.status !== 'pagato' && (p.gross_amount || 0) >= 0 && (
-                              <button onClick={() => toggleSelect(p.id, p)}>
+                            {p.status !== 'pagato' && (p.gross_amount || 0) >= 0 && p.id && (
+                              <button onClick={() => p.id && toggleSelect(p.id, p)}>
                                 {selectedIds.has(p.id) ? <CheckSquare size={15} className="text-slate-700" /> : <Square size={15} className="text-slate-300" />}
                               </button>
                             )}
@@ -1852,7 +1929,7 @@ const ScadenzarioSmart = () => {
                               {p.due_date ? new Date(p.due_date).toLocaleDateString('it-IT', { day: 'numeric', month: 'long', year: 'numeric' }) : '—'}
                             </div>
                             <div className="text-[10px] text-slate-400 mt-0.5">
-                              {paymentMethodLabels[p.payment_method] || 'Bonifico'}
+                              {(paymentMethodLabels as Record<string, string>)[p.payment_method || ''] || 'Bonifico'}
                             </div>
                           </td>
                           {/* DESCRIZIONE — fornitore + fattura (Sibill style) */}
@@ -1876,7 +1953,7 @@ const ScadenzarioSmart = () => {
                           <td className={`py-2.5 px-3 text-right text-[13px] font-medium whitespace-nowrap ${
                             p.status === 'pagato' ? 'text-slate-400' : p.status === 'scaduto' ? 'text-red-600' : 'text-slate-800'
                           }`}>
-                            {p.amount_remaining > 0 && p.amount_remaining !== p.gross_amount
+                            {(p.amount_remaining ?? 0) > 0 && p.amount_remaining !== p.gross_amount
                               ? <><span className="text-slate-300 line-through text-[11px] mr-1">{fmt(p.gross_amount)}</span>{fmt(p.amount_remaining)} €</>
                               : <>{fmt(p.gross_amount)} €</>
                             }
@@ -1889,10 +1966,10 @@ const ScadenzarioSmart = () => {
                             {statusDropdownId === p.id && (
                               <div className="absolute z-50 top-full left-1/2 -translate-x-1/2 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg py-1 min-w-[140px]" onClick={e => e.stopPropagation()}>
                                 {['da_pagare', 'scaduto', 'parziale', 'pagato', 'contestato', 'annullato'].map(s => (
-                                  <button key={s} onClick={() => handleSetStatus(p.id, s)}
+                                  <button key={s} onClick={() => p.id && handleSetStatus(p.id, s)}
                                     className={`w-full text-left px-3 py-1.5 text-xs hover:bg-slate-50 flex items-center gap-2 ${p.status === s ? 'font-bold' : ''}`}>
-                                    <span className={`w-2 h-2 rounded-full ${statusConfig[s]?.bg?.split(' ')[0] || 'bg-slate-200'}`} />
-                                    {statusConfig[s]?.label || s}
+                                    <span className={`w-2 h-2 rounded-full ${(statusConfig as Record<string, { bg?: string }>)[s]?.bg?.split(' ')[0] || 'bg-slate-200'}`} />
+                                    {(statusConfig as Record<string, { label?: string }>)[s]?.label || s}
                                   </button>
                                 ))}
                               </div>
@@ -1922,10 +1999,10 @@ const ScadenzarioSmart = () => {
                             {(() => {
                               const cat = categories.find(c => c.id === p.cost_category_id);
                               return (
-                                <button onClick={(e) => { e.stopPropagation(); setCategoryDropdownId(categoryDropdownId === p.id ? null : p.id); setCategorySearch(''); setStatusDropdownId(null); }}
+                                <button onClick={(e) => { e.stopPropagation(); setCategoryDropdownId(categoryDropdownId === p.id ? null : (p.id || null)); setCategorySearch(''); setStatusDropdownId(null); }}
                                   className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border transition hover:shadow-sm"
-                                  style={cat ? { backgroundColor: cat.color + '18', color: cat.color, borderColor: cat.color + '40' } : { backgroundColor: '#f8fafc', color: '#94a3b8', borderColor: '#e2e8f0' }}>
-                                  {cat ? <><span className="w-2 h-2 rounded-full" style={{ backgroundColor: cat.color }} />{cat.name}</> : 'Non categorizzata'}
+                                  style={cat ? { backgroundColor: String(cat.color) + '18', color: String(cat.color || ''), borderColor: String(cat.color) + '40' } : { backgroundColor: '#f8fafc', color: '#94a3b8', borderColor: '#e2e8f0' }}>
+                                  {cat ? <><span className="w-2 h-2 rounded-full" style={{ backgroundColor: String(cat.color || '') }} />{String(cat.name || '')}</> : 'Non categorizzata'}
                                 </button>
                               );
                             })()}
@@ -1937,17 +2014,17 @@ const ScadenzarioSmart = () => {
                                     className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-400" />
                                 </div>
                                 <div className="overflow-y-auto max-h-[220px] py-1">
-                                  <button onClick={() => handleSetCategory(p.id, null)}
+                                  <button onClick={() => p.id && handleSetCategory(p.id, '')}
                                     className="w-full text-left px-3 py-1.5 text-xs hover:bg-slate-50 text-slate-400 flex items-center gap-2">
                                     <X size={10} /> Rimuovi categoria
                                   </button>
                                   {categories
-                                    .filter(c => !categorySearch || c.name.toLowerCase().includes(categorySearch.toLowerCase()))
+                                    .filter(c => !categorySearch || (c.name as string | null | undefined)?.toLowerCase().includes(categorySearch.toLowerCase()))
                                     .map(c => (
-                                    <button key={c.id} onClick={() => handleSetCategory(p.id, c.id)}
+                                    <button key={c.id} onClick={() => p.id && c.id && handleSetCategory(p.id, c.id)}
                                       className={`w-full text-left px-3 py-1.5 text-xs hover:bg-slate-50 flex items-center gap-2 ${p.cost_category_id === c.id ? 'font-bold bg-slate-50' : ''}`}>
-                                      <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: c.color }} />
-                                      <span className="truncate" title={c.name}>{c.name}</span>
+                                      <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: String(c.color || '') }} />
+                                      <span className="truncate" title={String(c.name || '')}>{String(c.name || '')}</span>
                                     </button>
                                   ))}
                                 </div>
@@ -1970,7 +2047,7 @@ const ScadenzarioSmart = () => {
                                 <button onClick={async () => {
                                   const { data } = await supabase.from('electronic_invoices')
                                     .select('xml_content')
-                                    .eq('invoice_number', p.invoice_number)
+                                    .eq('invoice_number', p.invoice_number || '')
                                     .not('xml_content', 'is', null)
                                     .limit(1)
                                     .maybeSingle()
@@ -1990,7 +2067,7 @@ const ScadenzarioSmart = () => {
                                 title="Modifica">
                                 <Edit2 size={12} />
                               </button>
-                              <button onClick={() => setModals({ ...modals, deleteConfirm: { open: true, scheduleId: p.id, invoiceNumber: p.invoice_number } })}
+                              <button onClick={() => setModals({ ...modals, deleteConfirm: { open: true, scheduleId: p.id || null, invoiceNumber: p.invoice_number || null } })}
                                 className="p-1 rounded text-slate-400 hover:text-red-600 hover:bg-red-50"
                                 title="Elimina">
                                 <Trash2 size={12} />
@@ -1998,44 +2075,47 @@ const ScadenzarioSmart = () => {
                             </div>
                           </td>
                         </tr>
-                        {selectedIds.has(p.id) && paymentPlan[p.id] && (
+                        {p.id && selectedIds.has(p.id) && paymentPlan[p.id] && (() => {
+                          const pid = p.id;
+                          const plan = paymentPlan[pid];
+                          return (
                           <tr className="bg-slate-50 border-b border-slate-200">
                             <td colSpan={9} className="px-4 py-2.5">
                               <div className="flex items-center gap-4 flex-wrap">
                                 <div>
                                   <label className="text-xs font-medium text-slate-600 block mb-1">Banca</label>
-                                  <select value={paymentPlan[p.id].bankId} onChange={e => updatePlan(p.id, 'bankId', e.target.value)}
+                                  <select value={plan.bankId} onChange={e => updatePlan(pid, 'bankId', e.target.value)}
                                     className="px-2 py-1.5 border border-slate-300 rounded-lg text-sm w-52">
                                     <option value="">Seleziona banca...</option>
                                     {bankAccounts.map(ba => (
-                                      <option key={ba.id} value={ba.id}>{ba.bank_name} ({fmt(bankBalances[ba.id] || 0)} €)</option>
+                                      <option key={String(ba.id)} value={String(ba.id)}>{ba.bank_name} ({fmt(bankBalances[String(ba.id)] || 0)} €)</option>
                                     ))}
                                   </select>
                                 </div>
                                 <div>
                                   <label className="text-xs font-medium text-slate-600 block mb-1">Tipo</label>
                                   <div className="flex rounded-lg overflow-hidden border border-slate-300">
-                                    <button onClick={() => { updatePlan(p.id, 'type', 'saldo'); updatePlan(p.id, 'amount', p.amount_remaining || 0); }}
-                                      className={`px-3 py-1.5 text-sm font-medium ${paymentPlan[p.id].type === 'saldo' ? 'bg-emerald-600 text-white' : 'bg-white text-slate-600'}`}>
+                                    <button onClick={() => { updatePlan(pid, 'type', 'saldo'); updatePlan(pid, 'amount', p.amount_remaining || 0); }}
+                                      className={`px-3 py-1.5 text-sm font-medium ${plan.type === 'saldo' ? 'bg-emerald-600 text-white' : 'bg-white text-slate-600'}`}>
                                       Saldo
                                     </button>
-                                    <button onClick={() => updatePlan(p.id, 'type', 'parziale')}
-                                      className={`px-3 py-1.5 text-sm font-medium ${paymentPlan[p.id].type === 'parziale' ? 'bg-amber-500 text-white' : 'bg-white text-slate-600'}`}>
+                                    <button onClick={() => updatePlan(pid, 'type', 'parziale')}
+                                      className={`px-3 py-1.5 text-sm font-medium ${plan.type === 'parziale' ? 'bg-amber-500 text-white' : 'bg-white text-slate-600'}`}>
                                       Parziale
                                     </button>
                                   </div>
                                 </div>
-                                {paymentPlan[p.id].type === 'parziale' && (
+                                {plan.type === 'parziale' && (
                                   <>
                                     <div>
                                       <label className="text-xs font-medium text-slate-600 block mb-1">Importo</label>
-                                      <input type="number" step="0.01" value={paymentPlan[p.id].amount}
-                                        onChange={e => updatePlan(p.id, 'amount', Math.min(parseFloat(e.target.value) || 0, p.amount_remaining || 0))}
+                                      <input type="number" step="0.01" value={plan.amount}
+                                        onChange={e => updatePlan(pid, 'amount', Math.min(Number(e.target.value) || 0, p.amount_remaining || 0))}
                                         className="px-2 py-1.5 border border-slate-300 rounded-lg text-sm w-32" />
                                     </div>
                                     <div className="flex-1 min-w-48">
                                       <label className="text-xs font-medium text-slate-600 block mb-1">Note</label>
-                                      <input type="text" value={paymentPlan[p.id].note} onChange={e => updatePlan(p.id, 'note', e.target.value)}
+                                      <input type="text" value={plan.note} onChange={e => updatePlan(pid, 'note', e.target.value)}
                                         placeholder="Motivo..." className="px-2 py-1.5 border border-slate-300 rounded-lg text-sm w-full" />
                                     </div>
                                   </>
@@ -2043,7 +2123,8 @@ const ScadenzarioSmart = () => {
                               </div>
                             </td>
                           </tr>
-                        )}
+                          );
+                        })()}
                       </React.Fragment>
                     ))}
                   </tbody>
@@ -2092,8 +2173,8 @@ const ScadenzarioSmart = () => {
                         {group.items.map((p, idx) => (
                           <tr key={p.id} className={`border-b border-slate-50 hover:bg-blue-50/50 transition-colors ${idx % 2 === 1 ? 'bg-slate-50/50' : ''}`}>
                             <td className="py-2 px-3 text-center">
-                              {p.status !== 'pagato' && (p.gross_amount || 0) >= 0 && (
-                                <button onClick={() => toggleSelect(p.id, p)}>
+                              {p.status !== 'pagato' && (p.gross_amount || 0) >= 0 && p.id && (
+                                <button onClick={() => p.id && toggleSelect(p.id, p)}>
                                   {selectedIds.has(p.id) ? <CheckSquare size={16} /> : <Square size={16} />}
                                 </button>
                               )}
@@ -2161,8 +2242,8 @@ const ScadenzarioSmart = () => {
                         {group.items.map((p, idx) => (
                           <tr key={p.id} className={`border-b border-slate-50 hover:bg-blue-50/50 transition-colors ${idx % 2 === 1 ? 'bg-slate-50/50' : ''}`}>
                             <td className="py-2 px-3 text-center">
-                              {p.status !== 'pagato' && (p.gross_amount || 0) >= 0 && (
-                                <button onClick={() => toggleSelect(p.id, p)}>
+                              {p.status !== 'pagato' && (p.gross_amount || 0) >= 0 && p.id && (
+                                <button onClick={() => p.id && toggleSelect(p.id, p)}>
                                   {selectedIds.has(p.id) ? <CheckSquare size={16} /> : <Square size={16} />}
                                 </button>
                               )}
@@ -2197,7 +2278,7 @@ const ScadenzarioSmart = () => {
                 <h3 className="font-medium text-slate-900 mb-1 text-sm">Proiezione Scadenze</h3>
                 <ResponsiveContainer width="100%" height={300}>
                   <BarChart data={monthlyData}>
-                    <CartesianGrid strokeDasharray="3 3" {...GRID_STYLE} />
+                    <CartesianGrid {...GRID_STYLE} strokeDasharray="3 3" />
                     <XAxis dataKey="month" {...AXIS_STYLE} />
                     <YAxis {...AXIS_STYLE} />
                     <Tooltip content={<GlassTooltip />} />
@@ -2224,7 +2305,7 @@ const ScadenzarioSmart = () => {
                 <h3 className="font-medium text-slate-900 mb-1 text-sm">Aging</h3>
                 <ResponsiveContainer width="100%" height={300}>
                   <BarChart data={agingAnalysis}>
-                    <CartesianGrid strokeDasharray="3 3" {...GRID_STYLE} />
+                    <CartesianGrid {...GRID_STYLE} strokeDasharray="3 3" />
                     <XAxis dataKey="range" {...AXIS_STYLE} />
                     <YAxis {...AXIS_STYLE} />
                     <Tooltip content={<GlassTooltip />} />
@@ -2296,7 +2377,7 @@ const ScadenzarioSmart = () => {
             <div className="flex gap-3 pt-2">
               <button onClick={() => setShowEmailConfig(false)} className="flex-1 py-2.5 rounded-lg border border-slate-200 text-sm font-medium hover:bg-slate-50">Annulla</button>
               <button onClick={async () => {
-                await supabase.from('companies').update({ settings: { email_scadenzario: emailRecipients } }).eq('id', COMPANY_ID);
+                if (COMPANY_ID) await supabase.from('companies').update({ settings: { email_scadenzario: emailRecipients } } as never).eq('id', COMPANY_ID);
                 setShowEmailConfig(false);
               }} className="flex-1 py-2.5 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700">Salva</button>
             </div>
@@ -2349,7 +2430,7 @@ const ScadenzarioSmart = () => {
             <div className="flex gap-3 pt-2">
               <button onClick={() => setModals({ ...modals, deleteConfirm: { open: false, scheduleId: null, invoiceNumber: null } })}
                 className="flex-1 py-2.5 rounded-lg border border-slate-200 text-sm font-medium hover:bg-slate-50">Annulla</button>
-              <button onClick={() => handleDeleteSchedule(modals.deleteConfirm.scheduleId)} disabled={isSaving}
+              <button onClick={() => modals.deleteConfirm.scheduleId && handleDeleteSchedule(modals.deleteConfirm.scheduleId)} disabled={isSaving}
                 className="flex-1 py-2.5 rounded-lg bg-red-600 text-white text-sm font-medium hover:bg-red-700 disabled:opacity-50">
                 {isSaving ? 'Cancellazione...' : 'Cancella'}
               </button>
@@ -2402,7 +2483,7 @@ const ScadenzarioSmart = () => {
                 { bg: 'bg-rose-50', border: 'border-rose-200', text: 'text-rose-700', accent: 'text-rose-600', bar: 'bg-rose-500' },
                 { bg: 'bg-cyan-50', border: 'border-cyan-200', text: 'text-cyan-700', accent: 'text-cyan-600', bar: 'bg-cyan-500' },
               ];
-              const c = bank.saldoFinale < 0
+              const c = (bank.saldoFinale ?? 0) < 0
                 ? { bg: 'bg-red-50', border: 'border-red-300', text: 'text-red-700', accent: 'text-red-600', bar: 'bg-red-500' }
                 : bankColors[bIdx % bankColors.length];
 
@@ -2432,11 +2513,11 @@ const ScadenzarioSmart = () => {
                     <ChevronRight size={14} className="text-slate-300" />
                     <div className="flex items-center gap-2">
                       <div className="text-xs text-slate-500">Saldo dopo:</div>
-                      <div className={`text-sm font-semibold ${bank.saldoFinale < 0 ? 'text-red-600' : 'text-emerald-600'}`}>{fmt(bank.saldoFinale)} €</div>
+                      <div className={`text-sm font-semibold ${(bank.saldoFinale ?? 0) < 0 ? 'text-red-600' : 'text-emerald-600'}`}>{fmt((bank.saldoFinale ?? 0))} €</div>
                     </div>
                     {/* Barra progresso saldo */}
                     <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
-                      <div className={`h-full ${c.bar} rounded-full transition-all`} style={{ width: `${Math.max(0, Math.min(100, (bank.saldoFinale / bank.saldoIniziale) * 100))}%` }} />
+                      <div className={`h-full ${c.bar} rounded-full transition-all`} style={{ width: `${Math.max(0, Math.min(100, ((bank.saldoFinale ?? 0) / bank.saldoIniziale) * 100))}%` }} />
                     </div>
                   </div>
 
@@ -2521,9 +2602,11 @@ const ScadenzarioSmart = () => {
 };
 
 // Edit Schedule Modal Component
-const EditScheduleModal = ({ schedule, onUpdate, onSave }) => {
-  const [formData, setFormData] = useState({
-    id: schedule.id,
+type EditSchedulePayload = { id: string; amount: number; due_date: string; status: string }
+type ScheduleLike = Record<string, unknown> & { id?: string; gross_amount?: number | null; due_date?: string | null; status?: string | null; invoice_number?: string | null }
+const EditScheduleModal = ({ schedule, onUpdate: _onUpdate, onSave }: { schedule: ScheduleLike; onUpdate: (s: ScheduleLike) => void; onSave: (data: EditSchedulePayload) => void }) => {
+  const [formData, setFormData] = useState<EditSchedulePayload>({
+    id: schedule.id || '',
     amount: schedule.gross_amount || 0,
     due_date: schedule.due_date || '',
     status: schedule.status || 'da_pagare',
@@ -2533,7 +2616,7 @@ const EditScheduleModal = ({ schedule, onUpdate, onSave }) => {
     <div className="space-y-3">
       <div>
         <label className="text-sm font-medium text-slate-700 mb-1 block">Importo</label>
-        <input type="number" step="0.01" value={formData.amount} onChange={e => setFormData({ ...formData, amount: parseFloat(e.target.value) })}
+        <input type="number" step="0.01" value={formData.amount} onChange={e => setFormData({ ...formData, amount: Number(e.target.value) })}
           className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none" />
       </div>
       <div>
@@ -2558,8 +2641,11 @@ const EditScheduleModal = ({ schedule, onUpdate, onSave }) => {
 };
 
 // Invoice Modal Component
-const InvoiceModal = ({ suppliers, paymentGroups, paymentMethodLabels, onSave, onClose }) => {
-  const [formData, setFormData] = useState({
+type InvoiceFormState = { supplierId: string; invoiceNumber: string; invoiceDate: string; dueDate: string; grossAmount: number; paymentMethod: string }
+type SupplierLite = { id?: string; name?: string | null; ragione_sociale?: string | null; [k: string]: unknown }
+type PaymentGroup = { label: string; methods: string[] }
+const InvoiceModal = ({ suppliers, paymentGroups, paymentMethodLabels, onSave, onClose }: { suppliers: SupplierLite[]; paymentGroups: PaymentGroup[]; paymentMethodLabels: Record<string, string>; onSave: (data: InvoiceFormState) => void; onClose: () => void }) => {
+  const [formData, setFormData] = useState<InvoiceFormState>({
     supplierId: '',
     invoiceNumber: '',
     invoiceDate: new Date().toISOString().split('T')[0],
@@ -2597,7 +2683,7 @@ const InvoiceModal = ({ suppliers, paymentGroups, paymentMethodLabels, onSave, o
       </div>
       <div>
         <label className="block text-sm font-medium text-slate-700 mb-1">Importo Lordo</label>
-        <input type="number" step="0.01" value={formData.grossAmount} onChange={e => setFormData({ ...formData, grossAmount: parseFloat(e.target.value) })}
+        <input type="number" step="0.01" value={formData.grossAmount} onChange={e => setFormData({ ...formData, grossAmount: Number(e.target.value) })}
           className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none" />
       </div>
       <div>
@@ -2620,8 +2706,9 @@ const InvoiceModal = ({ suppliers, paymentGroups, paymentMethodLabels, onSave, o
 };
 
 // Supplier Modal Component
-const SupplierModal = ({ onSave, onClose }) => {
-  const [formData, setFormData] = useState({
+type SupplierFormState = { name: string; vat: string; fiscal: string; iban: string; category: string; paymentMethod: string; paymentTerms: number }
+const SupplierModal = ({ onSave, onClose }: { onSave: (data: SupplierFormState) => void; onClose: () => void }) => {
+  const [formData, setFormData] = useState<SupplierFormState>({
     name: '', vat: '', fiscal: '', iban: '', category: 'merce',
     paymentMethod: 'bonifico_ordinario', paymentTerms: 30,
   });

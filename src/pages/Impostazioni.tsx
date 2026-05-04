@@ -1,4 +1,3 @@
-// @ts-nocheck — TODO tighten: pagina complessa con shape Supabase + indexing dinamico, da rivedere
 import { useState, useEffect, useCallback } from 'react'
 import {
   Settings, Users, Tag, Building2, Shield, Plus, Trash2, Pencil, Save, X,
@@ -9,7 +8,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 
 // Role-based permissions
-const ROLE_PERMISSIONS = {
+const ROLE_PERMISSIONS: Record<string, string[]> = {
   super_advisor: ['company', 'users', 'costs', 'centri', 'sdi'],
   ceo: ['company', 'users', 'costs', 'centri', 'sdi'],
   cfo: ['company', 'costs', 'centri', 'sdi'],
@@ -62,16 +61,18 @@ const MACRO_GROUPS = [
 // ========================
 function fmt(n: number | null | undefined | string) {
   if (n == null || n === '') return '—'
-  return new Intl.NumberFormat('it-IT', { maximumFractionDigits: 0 }).format(n)
+  return new Intl.NumberFormat('it-IT', { maximumFractionDigits: 0 }).format(Number(n))
 }
 
-function getCentroLabel(id: string, costCenters: any[]) {
-  const c = costCenters?.find((x: any) => x.code === id)
+interface CostCenterLite { id?: string; code: string; label: string }
+
+function getCentroLabel(id: string, costCenters: CostCenterLite[]) {
+  const c = costCenters?.find(x => x.code === id)
   return c ? c.label : id
 }
 
 function getCentroColor(id: string) {
-  const colors = {
+  const colors: Record<string, string> = {
     'all': 'bg-slate-600',
     'sede_magazzino': 'bg-amber-600',
     'valdichiana': 'bg-blue-600',
@@ -93,23 +94,31 @@ interface SectionProps {
   companyId: string | undefined
 }
 
+interface SocioForm { nome: string; ruolo: string; quota: string }
+interface CompanyForm {
+  partita_iva?: string
+  codice_fiscale?: string
+  pec?: string
+  soci?: SocioForm[]
+  [key: string]: unknown
+}
+
 function CompanySection({ showToast, companyId: COMPANY_ID }: SectionProps) {
-  // TODO: tighten type — Supabase row
-  const [company, setCompany] = useState<any>(null)
+  const [company, setCompany] = useState<CompanyForm | null>(null)
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState<string | null>(null)
-  // TODO: tighten type
-  const [formData, setFormData] = useState<any>({})
+  const [formData, setFormData] = useState<CompanyForm>({})
   const [editingSoci, setEditingSoci] = useState(false)
-  // TODO: tighten type
-  const [sociForm, setSociForm] = useState<any[]>([])
+  const [sociForm, setSociForm] = useState<SocioForm[]>([])
   const [savingSoci, setSavingSoci] = useState(false)
 
   useEffect(() => {
     loadCompany()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const loadCompany = async () => {
+    if (!COMPANY_ID) { setLoading(false); return }
     try {
       setLoading(true)
       const { data, error } = await supabase
@@ -119,9 +128,9 @@ function CompanySection({ showToast, companyId: COMPANY_ID }: SectionProps) {
         .single()
 
       if (error) throw error
-      setCompany(data)
-      setFormData(data || {})
-    } catch (err) {
+      setCompany(data as unknown as CompanyForm)
+      setFormData((data as unknown as CompanyForm) || {})
+    } catch {
       showToast?.('Errore caricamento dati azienda', 'error')
     } finally {
       setLoading(false)
@@ -130,27 +139,30 @@ function CompanySection({ showToast, companyId: COMPANY_ID }: SectionProps) {
 
   const handleSave = async () => {
     // Validazioni
-    if (formData.partita_iva && !/^\d{11}$/.test(formData.partita_iva.replace(/\s/g, ''))) {
+    const piva = typeof formData.partita_iva === 'string' ? formData.partita_iva : ''
+    const cf = typeof formData.codice_fiscale === 'string' ? formData.codice_fiscale : ''
+    const pec = typeof formData.pec === 'string' ? formData.pec : ''
+    if (piva && !/^\d{11}$/.test(piva.replace(/\s/g, ''))) {
       showToast?.('P.IVA deve avere 11 cifre', 'error'); return
     }
-    if (formData.codice_fiscale && formData.codice_fiscale.length > 0 && formData.codice_fiscale.length < 11) {
+    if (cf && cf.length > 0 && cf.length < 11) {
       showToast?.('Codice fiscale non valido', 'error'); return
     }
-    if (formData.pec && formData.pec.length > 0 && !formData.pec.includes('@')) {
+    if (pec && pec.length > 0 && !pec.includes('@')) {
       showToast?.('PEC non valida', 'error'); return
     }
     try {
       if (!COMPANY_ID) { showToast?.('ID azienda mancante', 'error'); return }
       const { error } = await supabase
         .from('company_settings')
-        .update(formData)
+        .update(formData as never)
         .eq('id', COMPANY_ID)
 
       if (error) throw error
       setCompany(formData)
       setEditing(null)
       showToast?.('Dati azienda aggiornati')
-    } catch (err) {
+    } catch {
       showToast?.('Errore salvataggio dati azienda', 'error')
     }
   }
@@ -166,7 +178,7 @@ function CompanySection({ showToast, companyId: COMPANY_ID }: SectionProps) {
   const removeSocio = (idx: number) => {
     setSociForm(prev => prev.filter((_, i) => i !== idx))
   }
-  const updateSocio = (idx: number, field: string, value: string) => {
+  const updateSocio = <K extends keyof SocioForm>(idx: number, field: K, value: SocioForm[K]) => {
     setSociForm(prev => prev.map((s, i) => i === idx ? { ...s, [field]: value } : s))
   }
   const saveSoci = async () => {
@@ -181,15 +193,16 @@ function CompanySection({ showToast, companyId: COMPANY_ID }: SectionProps) {
     try {
       setSavingSoci(true)
       if (!COMPANY_ID) { showToast?.('ID azienda mancante', 'error'); return }
+      // soci è jsonb in DB → cast strutturale richiesto
       const { error } = await supabase
         .from('company_settings')
-        .update({ soci: sociForm })
+        .update({ soci: sociForm } as never)
         .eq('id', COMPANY_ID)
       if (error) throw error
-      setCompany(prev => ({ ...prev, soci: sociForm }))
+      setCompany(prev => ({ ...(prev || {}), soci: sociForm }))
       setEditingSoci(false)
       showToast?.('Compagine societaria aggiornata')
-    } catch (err) {
+    } catch {
       showToast?.('Errore salvataggio soci', 'error')
     } finally {
       setSavingSoci(false)
@@ -203,7 +216,7 @@ function CompanySection({ showToast, companyId: COMPANY_ID }: SectionProps) {
   return (
     <div className="px-5 py-4 space-y-5">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-x-10 gap-y-2">
-        {[
+        {([
           ['ragione_sociale', 'Ragione sociale'],
           ['forma_giuridica', 'Forma giuridica'],
           ['sede_legale', 'Sede legale'],
@@ -216,18 +229,18 @@ function CompanySection({ showToast, companyId: COMPANY_ID }: SectionProps) {
           ['codice_sdi', 'Codice SDI'],
           ['ateco', 'ATECO'],
           ['amministratore', 'Amministratore'],
-        ].map(([field, label]) => (
+        ] as const).map(([field, label]) => (
           <div key={field} className="flex justify-between py-2 border-b border-slate-50">
             <span className="text-sm text-slate-500">{label}</span>
             {editing === field ? (
               <input
                 type="text"
-                value={formData[field] || ''}
+                value={String(formData[field] ?? '')}
                 onChange={(e) => setFormData(p => ({ ...p, [field]: e.target.value }))}
                 className="text-sm font-medium text-slate-900 border border-blue-200 rounded px-2 py-1"
               />
             ) : (
-              <span className="text-sm font-medium text-slate-900 text-right">{d[field] || '—'}</span>
+              <span className="text-sm font-medium text-slate-900 text-right">{(d[field] as string | undefined) || '—'}</span>
             )}
           </div>
         ))}
@@ -287,10 +300,10 @@ function CompanySection({ showToast, companyId: COMPANY_ID }: SectionProps) {
         )}
       </div>
 
-      {d.note && (
+      {d.note != null && d.note !== '' && (
         <div className="text-sm text-slate-500 bg-slate-50 rounded-lg p-3 flex items-start gap-2">
           <AlertCircle size={16} className="text-slate-400 mt-0.5 shrink-0" />
-          {d.note}
+          {String(d.note)}
         </div>
       )}
 
@@ -304,7 +317,7 @@ function CompanySection({ showToast, companyId: COMPANY_ID }: SectionProps) {
             Salva
           </button>
           <button
-            onClick={() => { setEditing(null); setFormData(company) }}
+            onClick={() => { setEditing(null); setFormData(company || {}) }}
             className="px-4 py-2 text-sm text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50"
           >
             Annulla
@@ -341,7 +354,7 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
       const { data, error } = await supabase
         .from('app_users')
         .select('*')
-        .eq('company_id', COMPANY_ID)
+        .eq('company_id', COMPANY_ID || '')
         .order('nome', { ascending: true })
 
       if (error) throw error
@@ -358,7 +371,7 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
       const { data, error } = await supabase
         .from('cost_centers')
         .select('*')
-        .eq('company_id', COMPANY_ID)
+        .eq('company_id', COMPANY_ID || '')
         .order('sort_order', { ascending: true })
 
       if (error) throw error
@@ -585,7 +598,7 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
                 </div>
                 <div className="text-xs text-slate-400 truncate">{u.email}</div>
                 <div className="flex flex-wrap gap-1 mt-1">
-                  {u.outlet_access && u.outlet_access.map(o => (
+                  {u.outlet_access && u.outlet_access.map((o: string) => (
                     <span key={o} className="inline-block text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">
                       {getCentroLabel(o, costCenters)}
                     </span>
@@ -658,7 +671,7 @@ function CostSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
       const { data, error } = await supabase
         .from('chart_of_accounts')
         .select('*')
-        .eq('company_id', COMPANY_ID)
+        .eq('company_id', COMPANY_ID || '')
         .order('code', { ascending: true })
 
       if (error) throw error
@@ -675,7 +688,7 @@ function CostSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
       const { data, error } = await supabase
         .from('cost_centers')
         .select('*')
-        .eq('company_id', COMPANY_ID)
+        .eq('company_id', COMPANY_ID || '')
         .order('sort_order', { ascending: true })
 
       if (error) throw error
@@ -802,7 +815,8 @@ function CostSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
     return matchSearch && matchCentro
   })
 
-  const groups = {}
+  type CostItem = typeof filtered[number]
+  const groups: Record<string, CostItem[]> = {}
   filtered.forEach(c => {
     if (!groups[c.macro_group]) groups[c.macro_group] = []
     groups[c.macro_group].push(c)
@@ -992,7 +1006,7 @@ function CostSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
                             </td>
                             <td className="px-4 py-2.5">
                               <div className="flex flex-wrap gap-1">
-                                {c.default_centers && c.default_centers.map(cc => (
+                                {c.default_centers && c.default_centers.map((cc: string) => (
                                   <span key={cc} className={`text-[10px] px-1.5 py-0.5 rounded-full text-white ${getCentroColor(cc)}`}>
                                     {getCentroLabel(cc, costCenters)}
                                   </span>
@@ -1072,7 +1086,7 @@ function CentriDiCostoSection({ showToast, companyId: COMPANY_ID }: SectionProps
       const { data, error } = await supabase
         .from('cost_centers')
         .select('*')
-        .eq('company_id', COMPANY_ID)
+        .eq('company_id', COMPANY_ID || '')
         .order('sort_order', { ascending: true })
 
       if (error) throw error
@@ -1301,7 +1315,7 @@ function SdiSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
       const { data, error } = await supabase
         .from('sdi_config')
         .select('*')
-        .eq('company_id', COMPANY_ID)
+        .eq('company_id', COMPANY_ID || '')
         .single()
       if (error && error.code !== 'PGRST116') throw error
       setConfig(data)
@@ -1324,8 +1338,8 @@ function SdiSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
       if (error) throw error
       setConfig({ ...config, environment: newEnv })
       showToast?.(`Ambiente SDI impostato su ${newEnv === 'PRODUCTION' ? 'Produzione' : 'Test'}`)
-    } catch (err) {
-      showToast?.('Errore aggiornamento: ' + err.message, 'error')
+    } catch (err: unknown) {
+      showToast?.('Errore aggiornamento: ' + (err instanceof Error ? err.message : ''), 'error')
     } finally {
       setSaving(false)
     }
@@ -1335,15 +1349,16 @@ function SdiSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
     if (!config) return
     setSaving(true)
     try {
+      // sdi_config è una tabella tipata in DB → cast strutturale per chiave dinamica.
       const { error } = await supabase
         .from('sdi_config')
-        .update({ [field]: value, updated_at: new Date().toISOString() })
+        .update({ [field]: value, updated_at: new Date().toISOString() } as never)
         .eq('id', config.id)
       if (error) throw error
       setConfig({ ...config, [field]: value })
       showToast?.('Configurazione aggiornata')
-    } catch (err) {
-      showToast?.('Errore: ' + err.message, 'error')
+    } catch (err: unknown) {
+      showToast?.('Errore: ' + (err instanceof Error ? err.message : ''), 'error')
     } finally {
       setSaving(false)
     }
@@ -1369,9 +1384,10 @@ function SdiSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
       if (!res.ok) throw new Error(json.error || 'Errore test')
       setTestResult({ success: true, data: json.data })
       showToast?.('Connessione SDI verificata')
-    } catch (err) {
-      setTestResult({ success: false, error: err.message })
-      showToast?.('Test fallito: ' + err.message, 'error')
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : ''
+      setTestResult({ success: false, error: msg })
+      showToast?.('Test fallito: ' + msg, 'error')
     } finally {
       setTesting(false)
     }
@@ -1391,7 +1407,7 @@ function SdiSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
     )
   }
 
-  const STATUS_COLORS = {
+  const STATUS_COLORS: Record<string, string> = {
     COMPLETED: 'bg-green-100 text-green-700',
     ACTIVE: 'bg-green-100 text-green-700',
     TESTING: 'bg-amber-100 text-amber-700',
@@ -1564,7 +1580,7 @@ export default function Impostazioni() {
   const { profile } = useAuth()
   const COMPANY_ID = profile?.company_id
   const userRole = profile?.role || 'super_advisor'
-  const allowedSections = ROLE_PERMISSIONS[userRole as keyof typeof ROLE_PERMISSIONS] || []
+  const allowedSections = ROLE_PERMISSIONS[userRole] || []
   const [toast, setToast] = useState<{ msg: string; type: string } | null>(null)
 
   const showToast = (msg: string, type = 'success') => {
@@ -1624,7 +1640,7 @@ export default function Impostazioni() {
               </div>
               {isOpen && hasAccess && (
                 <div className="border-t border-slate-100">
-                  <Component showToast={showToast} companyId={COMPANY_ID} />
+                  <Component showToast={showToast} companyId={COMPANY_ID ?? undefined} />
                 </div>
               )}
             </div>

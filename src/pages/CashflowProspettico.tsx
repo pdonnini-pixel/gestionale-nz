@@ -1,4 +1,3 @@
-// @ts-nocheck — TODO tighten: pagina complessa con shape Supabase + indexing dinamico, da rivedere
 import React, { useState, useEffect, useMemo } from 'react';
 import PageHelp from '../components/PageHelp';
 import {
@@ -98,18 +97,18 @@ export default function CashflowProspettico() {
   const [hasNegativeMonth, setHasNegativeMonth] = useState(false);
 
   // Raw data for daily/weekly views
-  // TODO: tighten type
-  const [rawPayables, setRawPayables] = useState<any[]>([]);
-  const [rawDailyRevenue, setRawDailyRevenue] = useState<any[]>([]);
-  const [rawOutlets, setRawOutlets] = useState<any[]>([]);
-  const [rawRecurringCosts, setRawRecurringCosts] = useState<any[]>([]);
-  const [rawLoans, setRawLoans] = useState<any[]>([]);
-  const [rawBudgetConfronto, setRawBudgetConfronto] = useState<any[]>([]);
-  const [rawBudgetRevenue, setRawBudgetRevenue] = useState<any[]>([]);
+  type AnyRow = Record<string, unknown>
+  const [rawPayables, setRawPayables] = useState<AnyRow[]>([]);
+  const [rawDailyRevenue, setRawDailyRevenue] = useState<AnyRow[]>([]);
+  const [rawOutlets, setRawOutlets] = useState<AnyRow[]>([]);
+  const [rawRecurringCosts, setRawRecurringCosts] = useState<AnyRow[]>([]);
+  const [rawLoans, setRawLoans] = useState<AnyRow[]>([]);
+  const [rawBudgetConfronto, setRawBudgetConfronto] = useState<AnyRow[]>([]);
+  const [rawBudgetRevenue, setRawBudgetRevenue] = useState<AnyRow[]>([]);
 
   // Actual monthly data from cash_movements
-  // TODO: tighten type
-  const [actualMonthlyData, setActualMonthlyData] = useState<any[]>([]);
+  type ActualMonth = { month: number; entrate: number; uscite: number; netto: number; hasData: boolean }
+  const [actualMonthlyData, setActualMonthlyData] = useState<ActualMonth[]>([]);
 
   // Summary KPIs
   const [totalInflows, setTotalInflows] = useState(0);
@@ -137,6 +136,8 @@ export default function CashflowProspettico() {
 
   const fetchAllData = async () => {
     try {
+      if (!COMPANY_ID) return;
+      const companyId = COMPANY_ID;
       setLoading(true);
       setError(null);
 
@@ -148,14 +149,15 @@ export default function CashflowProspettico() {
       if (ccError) throw ccError;
       setCostCenters(costCenterData || []);
 
-      // 2. Get initial bank balance
+      // 2. Get initial bank balance (somma di tutti i conti bancari)
+      // BUG-004 fix: v_cash_position restituisce 1 riga per banca, .single() falliva con 406
+      // quando ci sono più conti. Sommiamo i current_balance in JS, come fa Dashboard.tsx
       const { data: balanceData, error: balError } = await supabase
         .from('v_cash_position')
         .select('current_balance')
-        .eq('company_id', COMPANY_ID)
-        .single();
+        .eq('company_id', companyId);
 
-      const balance = balanceData?.current_balance || 0;
+      const balance = (balanceData || []).reduce((s, b) => s + (b.current_balance || 0), 0);
       setInitialBalance(balance);
 
       // 3. Fetch all required data
@@ -172,44 +174,44 @@ export default function CashflowProspettico() {
         supabase
           .from('recurring_costs')
           .select('*')
-          .eq('company_id', COMPANY_ID)
+          .eq('company_id', companyId)
           .eq('is_active', true),
         supabase
           .from('v_payables_operative')
           .select('*')
-          .eq('company_id', COMPANY_ID),
+          .eq('company_id', companyId),
         supabase
           .from('budget_confronto')
           .select('*')
-          .eq('company_id', COMPANY_ID)
+          .eq('company_id', companyId)
           .eq('year', year),
         supabase
           .from('loans')
           .select('*')
-          .eq('company_id', COMPANY_ID)
+          .eq('company_id', companyId)
           .eq('is_active', true),
         supabase
           .from('outlets')
           .select('id, code, name, rent_monthly')
-          .eq('company_id', COMPANY_ID)
+          .eq('company_id', companyId)
           .eq('is_active', true),
         supabase
           .from('payables')
           .select('id, due_date, gross_amount, amount_paid, outlet_id, status, supplier_id, invoice_number')
-          .eq('company_id', COMPANY_ID)
+          .eq('company_id', companyId)
           .in('status', ['da_pagare', 'in_scadenza', 'scaduto']),
         // Daily revenue for daily/weekly views
         supabase
           .from('daily_revenue')
           .select('id, date, outlet_id, gross_revenue, net_revenue')
-          .eq('company_id', COMPANY_ID)
+          .eq('company_id', companyId)
           .gte('date', getDateRange().from)
           .lte('date', getDateRange().to),
         // Budget entries for revenue accounts (account_code starts with '5')
         supabase
           .from('budget_entries')
           .select('cost_center, account_code, budget_amount, month')
-          .eq('company_id', COMPANY_ID)
+          .eq('company_id', companyId)
           .eq('year', year)
           .like('account_code', '5%')
       ]);
@@ -231,21 +233,29 @@ export default function CashflowProspettico() {
       if (outletsData) {
         outletsData.forEach(outlet => {
           if (!filteredOutlet || outlet.code === filteredOutlet) {
-            totalMonthlyRent += parseFloat(outlet.rent_monthly) || 0;
+            totalMonthlyRent += Number(outlet.rent_monthly) || 0;
           }
         });
       }
 
       // B1: Build a map of outlet_id -> outlet.code for payables filtering
-      const outletIdToCode = {};
+      const outletIdToCode: Record<string, string> = {};
       if (outletsData) {
         outletsData.forEach(outlet => {
-          outletIdToCode[outlet.id] = outlet.code;
+          if (outlet.id && outlet.code) outletIdToCode[outlet.id] = outlet.code;
         });
       }
 
       // Process monthly data
-      const monthData = Array.from({ length: 12 }, (_, i) => ({
+      type MonthData = {
+        month: number; monthName: string;
+        entrate_sdi: number; entrate_budget: number;
+        uscite_sdi: number; uscite_ricorrenti: number; uscite_scadenze: number;
+        uscite_canoni: number; rate_finanziamenti: number;
+        tot_entrate: number; tot_uscite: number; flusso_netto: number; saldo_progressivo: number;
+        tipo?: string;
+      }
+      const monthData: MonthData[] = Array.from({ length: 12 }, (_, i) => ({
         month: i,
         monthName: MONTHS[i],
         entrate_sdi: 0,
@@ -254,7 +264,8 @@ export default function CashflowProspettico() {
         uscite_ricorrenti: 0,
         uscite_scadenze: 0,
         uscite_canoni: totalMonthlyRent,
-        rate_finanziamenti: 0
+        rate_finanziamenti: 0,
+        tot_entrate: 0, tot_uscite: 0, flusso_netto: 0, saldo_progressivo: 0,
       }));
 
       // 3.1 Add budget revenues from budget_confronto
@@ -263,9 +274,9 @@ export default function CashflowProspettico() {
         budgetConfrontoData.forEach(entry => {
           if (entry.entry_type === 'rev_monthly') {
             hasConfrontoRevenue = true;
-            const month = entry.month - 1; // 1-12 to 0-11
+            const month = (Number(entry.month) || 1) - 1; // 1-12 to 0-11
             if (!filteredOutlet || entry.cost_center === filteredOutlet) {
-              monthData[month].entrate_budget += entry.amount || 0;
+              monthData[month].entrate_budget += Number(entry.amount) || 0;
             }
           }
         });
@@ -274,10 +285,10 @@ export default function CashflowProspettico() {
       // 3.1b Fallback: use budget_entries revenue accounts (code starts with '5')
       if (!hasConfrontoRevenue && budgetRevenueData && budgetRevenueData.length > 0) {
         budgetRevenueData.forEach(entry => {
-          const month = (entry.month || 1) - 1; // 1-12 to 0-11
+          const month = (Number(entry.month) || 1) - 1; // 1-12 to 0-11
           if (month >= 0 && month < 12) {
             if (!filteredOutlet || entry.cost_center === filteredOutlet) {
-              monthData[month].entrate_budget += parseFloat(entry.budget_amount) || 0;
+              monthData[month].entrate_budget += Number(entry.budget_amount) || 0;
             }
           }
         });
@@ -286,10 +297,11 @@ export default function CashflowProspettico() {
       // 3.2 Add SDI payables
       if (payablesData) {
         payablesData.forEach(payable => {
-          if (!['pagato', 'annullato'].includes(payable.status)) {
-            const month = parseMonth(payable.due_date);
-            if (month !== null && (!filteredOutlet || payable.cost_center_code === filteredOutlet)) {
-              const outstandingAmount = (payable.amount_total || 0) - (payable.amount_paid || 0);
+          const p = payable as Record<string, unknown>
+          if (!['pagato', 'annullato'].includes(String(p.status || ''))) {
+            const month = parseMonth(String(p.due_date || ''));
+            if (month !== null && (!filteredOutlet || p.cost_center_code === filteredOutlet)) {
+              const outstandingAmount = (Number(p.amount_total) || 0) - (Number(p.amount_paid) || 0);
               monthData[month].uscite_sdi += outstandingAmount;
             }
           }
@@ -301,13 +313,14 @@ export default function CashflowProspettico() {
         payablesScadenze.forEach(payable => {
           const dueDate = payable.due_date;
           if (!dueDate) return;
-          const payableDate = new Date(dueDate);
+          const payableDate = new Date(String(dueDate));
           // Only include payables for the selected year
           if (payableDate.getFullYear() !== year) return;
           const month = payableDate.getMonth();
           // Filter by outlet if selected
-          if (filteredOutlet && outletIdToCode[payable.outlet_id] !== filteredOutlet) return;
-          const outstanding = (parseFloat(payable.gross_amount) || 0) - (parseFloat(payable.amount_paid) || 0);
+          const oid = payable.outlet_id ? String(payable.outlet_id) : '';
+          if (filteredOutlet && outletIdToCode[oid] !== filteredOutlet) return;
+          const outstanding = (Number(payable.gross_amount) || 0) - (Number(payable.amount_paid) || 0);
           if (outstanding > 0) {
             monthData[month].uscite_scadenze += outstanding;
           }
@@ -318,8 +331,7 @@ export default function CashflowProspettico() {
       if (recurringCosts) {
         recurringCosts.forEach(cost => {
           if (!filteredOutlet || cost.cost_center === filteredOutlet) {
-            const dayOfMonth = cost.day_of_month || 1;
-            const startMonth = (cost.month_start || 1) - 1; // 1-12 to 0-11
+            const startMonth = (Number(cost.month_start) || 1) - 1; // 1-12 to 0-11
 
             for (let m = 0; m < 12; m++) {
               let shouldInclude = false;
@@ -337,7 +349,7 @@ export default function CashflowProspettico() {
               }
 
               if (shouldInclude) {
-                monthData[m].uscite_ricorrenti += cost.amount || 0;
+                monthData[m].uscite_ricorrenti += Number(cost.amount) || 0;
               }
             }
           }
@@ -348,7 +360,7 @@ export default function CashflowProspettico() {
       if (loansData) {
         loansData.forEach(loan => {
           for (let m = 0; m < 12; m++) {
-            monthData[m].rate_finanziamenti += loan.monthly_payment || 0;
+            monthData[m].rate_finanziamenti += Number((loan as Record<string, unknown>).monthly_payment) || Number((loan as Record<string, unknown>).installment_amount) || 0;
           }
         });
       }
@@ -386,7 +398,7 @@ export default function CashflowProspettico() {
       const { data: rawMovements, error: movError } = await supabase
         .from('cash_movements')
         .select('date, type, amount')
-        .eq('company_id', COMPANY_ID)
+        .eq('company_id', companyId)
         .gte('date', yearStart)
         .lte('date', yearEnd)
         .order('date', { ascending: true });
@@ -401,12 +413,13 @@ export default function CashflowProspettico() {
         }));
 
         rawMovements.forEach(m => {
+          if (!m.date) return;
           const monthIdx = new Date(m.date).getMonth();
           monthActual[monthIdx].hasData = true;
           if (m.type === 'entrata') {
-            monthActual[monthIdx].entrate += Math.abs(m.amount || 0);
+            monthActual[monthIdx].entrate += Math.abs(Number(m.amount) || 0);
           } else {
-            monthActual[monthIdx].uscite += Math.abs(m.amount || 0);
+            monthActual[monthIdx].uscite += Math.abs(Number(m.amount) || 0);
           }
         });
 
@@ -456,18 +469,19 @@ export default function CashflowProspettico() {
     const filteredOutlet = selectedOutlet === 'all' ? null : selectedOutlet;
     const multiplier = scenario === 'ottimistico' ? 1.1 : scenario === 'pessimistico' ? 0.9 : 1;
 
-    const outletIdToCode = {};
-    const outletIdToName = {};
+    const outletIdToCode: Record<string, string> = {};
+    const outletIdToName: Record<string, string> = {};
     rawOutlets.forEach(o => {
-      outletIdToCode[o.id] = o.code;
-      outletIdToName[o.id] = o.name || o.code;
+      const id = String(o.id || ''); if (!id) return;
+      outletIdToCode[id] = String(o.code || '');
+      outletIdToName[id] = String(o.name || o.code || '');
     });
 
     // Total daily rent (monthly rent / 30)
     let totalDailyRent = 0;
     rawOutlets.forEach(outlet => {
       if (!filteredOutlet || outlet.code === filteredOutlet) {
-        totalDailyRent += (parseFloat(outlet.rent_monthly) || 0) / 30;
+        totalDailyRent += (Number(outlet.rent_monthly) || 0) / 30;
       }
     });
 
@@ -475,16 +489,17 @@ export default function CashflowProspettico() {
     let dailyRecurring = 0;
     (rawRecurringCosts || []).forEach(cost => {
       if (!filteredOutlet || cost.cost_center === filteredOutlet) {
+        const amt = Number(cost.amount) || 0;
         if (cost.frequency === 'monthly') {
-          dailyRecurring += (cost.amount || 0) / 30;
+          dailyRecurring += amt / 30;
         } else if (cost.frequency === 'quarterly') {
-          dailyRecurring += (cost.amount || 0) / 90;
+          dailyRecurring += amt / 90;
         } else if (cost.frequency === 'annual') {
-          dailyRecurring += (cost.amount || 0) / 365;
+          dailyRecurring += amt / 365;
         } else if (cost.frequency === 'semiannual') {
-          dailyRecurring += (cost.amount || 0) / 180;
+          dailyRecurring += amt / 180;
         } else if (cost.frequency === 'bimonthly') {
-          dailyRecurring += (cost.amount || 0) / 60;
+          dailyRecurring += amt / 60;
         }
       }
     });
@@ -492,57 +507,62 @@ export default function CashflowProspettico() {
     // Daily loan payment
     let dailyLoan = 0;
     (rawLoans || []).forEach(loan => {
-      dailyLoan += (loan.monthly_payment || 0) / 30;
+      dailyLoan += (Number(loan.monthly_payment) || Number(loan.installment_amount) || 0) / 30;
     });
 
     // Build revenue by date
-    const revenueByDate = {};
+    type RevItem = { outlet_name: string; gross_revenue: number }
+    const revenueByDate: Record<string, RevItem[]> = {};
     (rawDailyRevenue || []).forEach(rev => {
-      const dateKey = rev.date;
+      const dateKey = String(rev.date || '');
+      if (!dateKey) return;
       if (!revenueByDate[dateKey]) revenueByDate[dateKey] = [];
-      if (!filteredOutlet || outletIdToCode[rev.outlet_id] === filteredOutlet) {
+      const oid = String(rev.outlet_id || '');
+      if (!filteredOutlet || outletIdToCode[oid] === filteredOutlet) {
         revenueByDate[dateKey].push({
-          outlet_name: outletIdToName[rev.outlet_id] || 'N/A',
-          gross_revenue: parseFloat(rev.gross_revenue) || 0
+          outlet_name: outletIdToName[oid] || 'N/A',
+          gross_revenue: Number(rev.gross_revenue) || 0
         });
       }
     });
 
     // Build payables by date
-    const payablesByDate = {};
+    type PayItem = { invoice_number: string; supplier_id: unknown; gross_amount: number }
+    const payablesByDate: Record<string, PayItem[]> = {};
     (rawPayables || []).forEach(p => {
       if (!p.due_date) return;
-      if (filteredOutlet && outletIdToCode[p.outlet_id] !== filteredOutlet) return;
-      const outstanding = (parseFloat(p.gross_amount) || 0) - (parseFloat(p.amount_paid) || 0);
+      const oid = String(p.outlet_id || '');
+      if (filteredOutlet && outletIdToCode[oid] !== filteredOutlet) return;
+      const outstanding = (Number(p.gross_amount) || 0) - (Number(p.amount_paid) || 0);
       if (outstanding <= 0) return;
-      const dateKey = p.due_date;
+      const dateKey = String(p.due_date);
       if (!payablesByDate[dateKey]) payablesByDate[dateKey] = [];
       payablesByDate[dateKey].push({
-        invoice_number: p.invoice_number || '-',
+        invoice_number: String(p.invoice_number || '-'),
         supplier_id: p.supplier_id,
         gross_amount: outstanding
       });
     });
 
     // Build budget-based daily revenue estimate (monthly budget / days in month)
-    const monthlyBudgetRevenue = Array(12).fill(0);
+    const monthlyBudgetRevenue: number[] = Array(12).fill(0);
     let hasConfrontoRev = false;
     (rawBudgetConfronto || []).forEach(entry => {
       if (entry.entry_type === 'rev_monthly') {
         hasConfrontoRev = true;
-        const month = (entry.month || 1) - 1;
+        const month = (Number(entry.month) || 1) - 1;
         if (!filteredOutlet || entry.cost_center === filteredOutlet) {
-          monthlyBudgetRevenue[month] += entry.amount || 0;
+          monthlyBudgetRevenue[month] += Number(entry.amount) || 0;
         }
       }
     });
     // Fallback: use budget_entries revenue accounts (code starts with '5')
     if (!hasConfrontoRev && rawBudgetRevenue && rawBudgetRevenue.length > 0) {
       rawBudgetRevenue.forEach(entry => {
-        const month = (entry.month || 1) - 1;
+        const month = (Number(entry.month) || 1) - 1;
         if (month >= 0 && month < 12) {
           if (!filteredOutlet || entry.cost_center === filteredOutlet) {
-            monthlyBudgetRevenue[month] += parseFloat(entry.budget_amount) || 0;
+            monthlyBudgetRevenue[month] += Number(entry.budget_amount) || 0;
           }
         }
       });
@@ -580,8 +600,8 @@ export default function CashflowProspettico() {
       const rentItems = rawOutlets
         .filter(o => !filteredOutlet || o.code === filteredOutlet)
         .map(o => ({
-          label: o.name || o.code,
-          amount: Math.round((parseFloat(o.rent_monthly) || 0) / 30)
+          label: String(o.name || o.code || ''),
+          amount: Math.round((Number(o.rent_monthly) || 0) / 30)
         }))
         .filter(item => item.amount > 0);
 
@@ -617,79 +637,88 @@ export default function CashflowProspettico() {
     const filteredOutlet = selectedOutlet === 'all' ? null : selectedOutlet;
     const multiplier = scenario === 'ottimistico' ? 1.1 : scenario === 'pessimistico' ? 0.9 : 1;
 
-    const outletIdToCode = {};
-    const outletIdToName = {};
+    const outletIdToCode: Record<string, string> = {};
+    const outletIdToName: Record<string, string> = {};
     rawOutlets.forEach(o => {
-      outletIdToCode[o.id] = o.code;
-      outletIdToName[o.id] = o.name || o.code;
+      const id = String(o.id || ''); if (!id) return;
+      outletIdToCode[id] = String(o.code || '');
+      outletIdToName[id] = String(o.name || o.code || '');
     });
 
     let totalDailyRent = 0;
     rawOutlets.forEach(outlet => {
       if (!filteredOutlet || outlet.code === filteredOutlet) {
-        totalDailyRent += (parseFloat(outlet.rent_monthly) || 0) / 30;
+        totalDailyRent += (Number(outlet.rent_monthly) || 0) / 30;
       }
     });
 
     let dailyRecurring = 0;
     (rawRecurringCosts || []).forEach(cost => {
       if (!filteredOutlet || cost.cost_center === filteredOutlet) {
-        if (cost.frequency === 'monthly') dailyRecurring += (cost.amount || 0) / 30;
-        else if (cost.frequency === 'quarterly') dailyRecurring += (cost.amount || 0) / 90;
-        else if (cost.frequency === 'annual') dailyRecurring += (cost.amount || 0) / 365;
-        else if (cost.frequency === 'semiannual') dailyRecurring += (cost.amount || 0) / 180;
-        else if (cost.frequency === 'bimonthly') dailyRecurring += (cost.amount || 0) / 60;
+        const amt = Number(cost.amount) || 0;
+        if (cost.frequency === 'monthly') dailyRecurring += amt / 30;
+        else if (cost.frequency === 'quarterly') dailyRecurring += amt / 90;
+        else if (cost.frequency === 'annual') dailyRecurring += amt / 365;
+        else if (cost.frequency === 'semiannual') dailyRecurring += amt / 180;
+        else if (cost.frequency === 'bimonthly') dailyRecurring += amt / 60;
       }
     });
 
     let dailyLoan = 0;
     (rawLoans || []).forEach(loan => {
-      dailyLoan += (loan.monthly_payment || 0) / 30;
+      dailyLoan += (Number(loan.monthly_payment) || Number(loan.installment_amount) || 0) / 30;
     });
 
-    const revenueByDate = {};
+    type RevItem = { outlet_name: string; gross_revenue: number }
+    const revenueByDate: Record<string, RevItem[]> = {};
     (rawDailyRevenue || []).forEach(rev => {
-      if (!filteredOutlet || outletIdToCode[rev.outlet_id] === filteredOutlet) {
-        if (!revenueByDate[rev.date]) revenueByDate[rev.date] = [];
-        revenueByDate[rev.date].push({
-          outlet_name: outletIdToName[rev.outlet_id] || 'N/A',
-          gross_revenue: parseFloat(rev.gross_revenue) || 0
+      const oid = String(rev.outlet_id || '');
+      const dateKey = String(rev.date || '');
+      if (!dateKey) return;
+      if (!filteredOutlet || outletIdToCode[oid] === filteredOutlet) {
+        if (!revenueByDate[dateKey]) revenueByDate[dateKey] = [];
+        revenueByDate[dateKey].push({
+          outlet_name: outletIdToName[oid] || 'N/A',
+          gross_revenue: Number(rev.gross_revenue) || 0
         });
       }
     });
 
-    const payablesByDate = {};
+    type PayItem = { invoice_number: string; supplier_id: unknown; gross_amount: number }
+    const payablesByDate: Record<string, PayItem[]> = {};
     (rawPayables || []).forEach(p => {
       if (!p.due_date) return;
-      if (filteredOutlet && outletIdToCode[p.outlet_id] !== filteredOutlet) return;
-      const outstanding = (parseFloat(p.gross_amount) || 0) - (parseFloat(p.amount_paid) || 0);
+      const oid = String(p.outlet_id || '');
+      if (filteredOutlet && outletIdToCode[oid] !== filteredOutlet) return;
+      const outstanding = (Number(p.gross_amount) || 0) - (Number(p.amount_paid) || 0);
       if (outstanding <= 0) return;
-      if (!payablesByDate[p.due_date]) payablesByDate[p.due_date] = [];
-      payablesByDate[p.due_date].push({
-        invoice_number: p.invoice_number || '-',
+      const dateKey = String(p.due_date);
+      if (!payablesByDate[dateKey]) payablesByDate[dateKey] = [];
+      payablesByDate[dateKey].push({
+        invoice_number: String(p.invoice_number || '-'),
         supplier_id: p.supplier_id,
         gross_amount: outstanding
       });
     });
 
-    const monthlyBudgetRevenue = Array(12).fill(0);
+    const monthlyBudgetRevenue: number[] = Array(12).fill(0);
     let hasConfrontoRevW = false;
     (rawBudgetConfronto || []).forEach(entry => {
       if (entry.entry_type === 'rev_monthly') {
         hasConfrontoRevW = true;
-        const month = (entry.month || 1) - 1;
+        const month = (Number(entry.month) || 1) - 1;
         if (!filteredOutlet || entry.cost_center === filteredOutlet) {
-          monthlyBudgetRevenue[month] += entry.amount || 0;
+          monthlyBudgetRevenue[month] += Number(entry.amount) || 0;
         }
       }
     });
     // Fallback: use budget_entries revenue accounts (code starts with '5')
     if (!hasConfrontoRevW && rawBudgetRevenue && rawBudgetRevenue.length > 0) {
       rawBudgetRevenue.forEach(entry => {
-        const month = (entry.month || 1) - 1;
+        const month = (Number(entry.month) || 1) - 1;
         if (month >= 0 && month < 12) {
           if (!filteredOutlet || entry.cost_center === filteredOutlet) {
-            monthlyBudgetRevenue[month] += parseFloat(entry.budget_amount) || 0;
+            monthlyBudgetRevenue[month] += Number(entry.budget_amount) || 0;
           }
         }
       });
@@ -700,7 +729,9 @@ export default function CashflowProspettico() {
     // Start from Monday of current week
     const weekStart = getWeekStart(today);
 
-    const weeks = [];
+    type WeekItem = { label: string; amount: number }
+    type Week = { label: string; dateKey: string; entrate: number; uscite: number; flusso_netto: number; saldo_progressivo: number; entrateItems: WeekItem[]; usciteItems: WeekItem[] }
+    const weeks: Week[] = [];
     let cumBalance = initialBalance;
 
     for (let w = 0; w < 13; w++) {
@@ -711,8 +742,8 @@ export default function CashflowProspettico() {
 
       let weekEntrate = 0;
       let weekUscite = 0;
-      const weekEntrateItems = [];
-      const weekUsciteItems = [];
+      const weekEntrateItems: WeekItem[] = [];
+      const weekUsciteItems: WeekItem[] = [];
 
       for (let d = 0; d < 7; d++) {
         const date = new Date(wStart);
@@ -843,53 +874,60 @@ export default function CashflowProspettico() {
   }, [viewMode, monthlyData, dailyData, weeklyData, year]);
 
   // ===== DRILL-DOWN DETAIL FOR MONTHLY VIEW =====
-  const getMonthlyDrillDown = (monthIdx: number, column: string) => {
+  type DrillItem = { label: string; amount: number }
+  const getMonthlyDrillDown = (monthIdx: number, column: string): DrillItem[] => {
     const filteredOutlet = selectedOutlet === 'all' ? null : selectedOutlet;
-    const outletIdToCode = {};
-    const outletIdToName = {};
+    const outletIdToCode: Record<string, string> = {};
+    const outletIdToName: Record<string, string> = {};
     rawOutlets.forEach(o => {
-      outletIdToCode[o.id] = o.code;
-      outletIdToName[o.id] = o.name || o.code;
+      const id = String(o.id || ''); if (!id) return;
+      outletIdToCode[id] = String(o.code || '');
+      outletIdToName[id] = String(o.name || o.code || '');
     });
 
     if (column === 'entrate') {
-      const items = [];
+      const items: DrillItem[] = [];
       // Daily revenue records for this month
       (rawDailyRevenue || []).forEach(rev => {
-        const d = new Date(rev.date);
+        const dateStr = String(rev.date || '');
+        if (!dateStr) return;
+        const d = new Date(dateStr);
         if (d.getMonth() === monthIdx && d.getFullYear() === year) {
-          if (!filteredOutlet || outletIdToCode[rev.outlet_id] === filteredOutlet) {
+          const oid = String(rev.outlet_id || '');
+          if (!filteredOutlet || outletIdToCode[oid] === filteredOutlet) {
             items.push({
-              label: `${formatDateFull(rev.date)} - ${outletIdToName[rev.outlet_id] || 'N/A'}`,
-              amount: Math.round(parseFloat(rev.gross_revenue) || 0)
+              label: `${formatDateFull(dateStr)} - ${outletIdToName[oid] || 'N/A'}`,
+              amount: Math.round(Number(rev.gross_revenue) || 0)
             });
           }
         }
       });
       // Budget entries
       (rawBudgetConfronto || []).forEach(entry => {
-        if (entry.entry_type === 'rev_monthly' && (entry.month - 1) === monthIdx) {
+        if (entry.entry_type === 'rev_monthly' && ((Number(entry.month) || 0) - 1) === monthIdx) {
           if (!filteredOutlet || entry.cost_center === filteredOutlet) {
             items.push({
-              label: `Budget - ${entry.cost_center || 'Generale'}`,
-              amount: Math.round(entry.amount || 0)
+              label: `Budget - ${String(entry.cost_center || 'Generale')}`,
+              amount: Math.round(Number(entry.amount) || 0)
             });
           }
         }
       });
       return items;
     } else {
-      const items = [];
+      const items: DrillItem[] = [];
       // Payables due this month
       (rawPayables || []).forEach(p => {
         if (!p.due_date) return;
-        const d = new Date(p.due_date);
+        const due = String(p.due_date);
+        const d = new Date(due);
         if (d.getMonth() !== monthIdx || d.getFullYear() !== year) return;
-        if (filteredOutlet && outletIdToCode[p.outlet_id] !== filteredOutlet) return;
-        const outstanding = (parseFloat(p.gross_amount) || 0) - (parseFloat(p.amount_paid) || 0);
+        const oid = String(p.outlet_id || '');
+        if (filteredOutlet && outletIdToCode[oid] !== filteredOutlet) return;
+        const outstanding = (Number(p.gross_amount) || 0) - (Number(p.amount_paid) || 0);
         if (outstanding > 0) {
           items.push({
-            label: `Fatt. ${p.invoice_number || '-'} (scad. ${formatDateFull(p.due_date)})`,
+            label: `Fatt. ${String(p.invoice_number || '-')} (scad. ${formatDateFull(due)})`,
             amount: Math.round(outstanding)
           });
         }
@@ -897,9 +935,9 @@ export default function CashflowProspettico() {
       // Rent
       rawOutlets.forEach(o => {
         if (!filteredOutlet || o.code === filteredOutlet) {
-          const rent = parseFloat(o.rent_monthly) || 0;
+          const rent = Number(o.rent_monthly) || 0;
           if (rent > 0) {
-            items.push({ label: `Canone - ${o.name || o.code}`, amount: Math.round(rent) });
+            items.push({ label: `Canone - ${String(o.name || o.code || '')}`, amount: Math.round(rent) });
           }
         }
       });
@@ -907,7 +945,7 @@ export default function CashflowProspettico() {
       (rawRecurringCosts || []).forEach(cost => {
         if (!filteredOutlet || cost.cost_center === filteredOutlet) {
           // Check if this cost applies to this month
-          const startMonth = (cost.month_start || 1) - 1;
+          const startMonth = (Number(cost.month_start) || 1) - 1;
           let applies = false;
           if (cost.frequency === 'monthly') applies = true;
           else if (cost.frequency === 'bimonthly') applies = (monthIdx - startMonth) % 2 === 0 && monthIdx >= startMonth;
@@ -915,14 +953,15 @@ export default function CashflowProspettico() {
           else if (cost.frequency === 'semiannual') applies = (monthIdx - startMonth) % 6 === 0 && monthIdx >= startMonth;
           else if (cost.frequency === 'annual') applies = monthIdx === startMonth;
           if (applies) {
-            items.push({ label: `${cost.description || cost.category || 'Costo ricorrente'}`, amount: Math.round(cost.amount || 0) });
+            items.push({ label: `${String(cost.description || cost.category || 'Costo ricorrente')}`, amount: Math.round(Number(cost.amount) || 0) });
           }
         }
       });
       // Loan payments
       (rawLoans || []).forEach(loan => {
-        if (loan.monthly_payment > 0) {
-          items.push({ label: `Rata - ${loan.description || 'Finanziamento'}`, amount: Math.round(loan.monthly_payment) });
+        const monthly = Number(loan.monthly_payment) || Number(loan.installment_amount) || 0;
+        if (monthly > 0) {
+          items.push({ label: `Rata - ${String(loan.description || 'Finanziamento')}`, amount: Math.round(monthly) });
         }
       });
       return items;
@@ -1351,8 +1390,8 @@ export default function CashflowProspettico() {
                         <tr className="bg-slate-50">
                           <td colSpan={8} className="px-6 py-4">
                             <DrillDownPanel
-                              items={getDrillDownItems(idx, expandedColumn)}
-                              column={expandedColumn}
+                              items={getDrillDownItems(idx, expandedColumn || '')}
+                              column={expandedColumn || ''}
                               onClose={() => { setExpandedRow(null); setExpandedColumn(null); }}
                             />
                           </td>
@@ -1411,8 +1450,8 @@ export default function CashflowProspettico() {
                         <tr className="bg-slate-50">
                           <td colSpan={5} className="px-6 py-4">
                             <DrillDownPanel
-                              items={getDrillDownItems(idx, expandedColumn)}
-                              column={expandedColumn}
+                              items={getDrillDownItems(idx, expandedColumn || '')}
+                              column={expandedColumn || ''}
                               onClose={() => { setExpandedRow(null); setExpandedColumn(null); }}
                             />
                           </td>

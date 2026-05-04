@@ -481,8 +481,7 @@ export default function Contratti() {
   // TODO: tighten type
   const [editingContract, setEditingContract] = useState<ContractRow | null>(null)
   const [expandedId, setExpandedId] = useState<string | null>(null)
-  // TODO: tighten type
-  const [contractDocs, setContractDocs] = useState<Record<string, any[]>>({})
+  const [contractDocs, setContractDocs] = useState<Record<string, ContractDoc[]>>({})
   const [docsLoading, setDocsLoading] = useState(false)
   // TODO: tighten type
   const [previewFile, setPreviewFile] = useState<ContractDoc | null>(null)

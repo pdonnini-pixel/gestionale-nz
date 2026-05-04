@@ -1,4 +1,3 @@
-// @ts-nocheck — TODO tighten: indexing dinamico + Recharts payload, da rivedere
 import { useState, useEffect } from 'react'
 import { useAuth } from '../hooks/useAuth'
 import PageHelp from '../components/PageHelp'
@@ -119,8 +118,7 @@ function AlertItem({ icon: Icon, color, title, description, link, linkLabel }: A
 /* ═══════════════════════════════════════
    COMPACT SPARKLINE TOOLTIP
    ═══════════════════════════════════════ */
-// TODO: tighten type — recharts tooltip payload
-function SparklineTooltip({ active, payload }: { active?: boolean; payload?: any[] }) {
+function SparklineTooltip({ active, payload }: { active?: boolean; payload?: Array<{ payload: { label?: string; entrate?: number; uscite?: number } }> }) {
   if (!active || !payload?.[0]) return null
   const d = payload[0].payload
   return (
@@ -210,9 +208,9 @@ export default function Dashboard() {
             .eq('period_type', 'annuale')
             .eq('section', 'conto_economico')
 
-          if (bsData?.length > 0) {
+          if (bsData && bsData.length > 0) {
             const bs: Record<string, number> = {}
-            bsData.forEach((r: any) => { bs[r.account_code] = r.amount })
+            bsData.forEach(r => { if (r.account_code) bs[r.account_code] = r.amount ?? 0 })
             setRicavi(bs.ricavi_vendite || 0)
             setUtile(bs.utile_netto || 0)
             setTotalCosti(bs.totale_costi_produzione || 0)
@@ -231,8 +229,8 @@ export default function Dashboard() {
               .gte('invoice_date', range.from)
               .lte('invoice_date', range.to)
 
-            if (invData?.length > 0) {
-              setTotalCosti(invData.reduce((s, r) => s + parseFloat(r.gross_amount || 0), 0))
+            if (invData && invData.length > 0) {
+              setTotalCosti(invData.reduce((s, r) => s + Number(r.gross_amount || 0), 0))
               setDataSource('fatture')
             }
           } catch (e) {}
@@ -274,9 +272,9 @@ export default function Dashboard() {
 
           if (outletsRaw && outletsRaw.length > 0) {
             setOutletsData(outletsRaw.map((o, i) => ({
-              name: o.outlet_name,
+              name: o.outlet_name ?? '',
               ricavi: o.ytd_revenue || 0,
-              dip: o.staff_count || 0,
+              dip: ((o as { staff_count?: number | null }).staff_count) ?? 0,
               colore: OUTLET_COLORS[i % OUTLET_COLORS.length],
             })))
           } else {
@@ -298,18 +296,20 @@ export default function Dashboard() {
                 .eq('company_id', COMPANY_ID)
             ])
 
-            const outletNameMap = {}
+            interface OutletAggLocal { name: string; ricavi: number }
+            const outletNameMap: Record<string, string> = {}
             ;(outletsList || []).forEach(o => { outletNameMap[o.id] = o.name })
 
             if (drAgg && drAgg.length > 0) {
               // Group by outlet_id and sum gross_revenue
-              const outletMap = {}
+              const outletMap: Record<string, OutletAggLocal> = {}
               drAgg.forEach(r => {
                 const oid = r.outlet_id
+                if (!oid) return
                 if (!outletMap[oid]) {
                   outletMap[oid] = { name: outletNameMap[oid] || '?', ricavi: 0 }
                 }
-                outletMap[oid].ricavi += parseFloat(r.gross_revenue) || 0
+                outletMap[oid].ricavi += Number(r.gross_revenue) || 0
               })
               const sorted = Object.values(outletMap).sort((a, b) => b.ricavi - a.ricavi)
               setOutletsData(sorted.map((o, i) => ({
@@ -330,11 +330,12 @@ export default function Dashboard() {
                 .in('account_code', ['510107', '51010101', '510108', 'RIC001', 'RIC002', 'RIC003'])
 
               if (budgetData && budgetData.length > 0) {
-                const bMap = {}
+                const bMap: Record<string, OutletAggLocal> = {}
                 budgetData.forEach(r => {
                   const cc = r.cost_center
+                  if (!cc) return
                   if (!bMap[cc]) bMap[cc] = { name: cc.charAt(0).toUpperCase() + cc.slice(1), ricavi: 0 }
-                  bMap[cc].ricavi += parseFloat(r.budget_amount) || 0
+                  bMap[cc].ricavi += Number(r.budget_amount) || 0
                 })
                 const sorted = Object.values(bMap).sort((a, b) => b.ricavi - a.ricavi)
                 if (sorted.length > 0) {
@@ -356,13 +357,13 @@ export default function Dashboard() {
                   .eq('year', YEAR)
 
                 if (budgetRic && budgetRic.length > 0) {
-                  const bMap = {}
+                  const bMap: Record<string, OutletAggLocal> = {}
                   budgetRic.forEach(r => {
                     const cc = r.cost_center
                     if (!cc) return
                     // Escludi rettifiche bilancio e spese non divise dalla vista outlet
                     if (cc === 'rettifica_bilancio' || cc === 'spese_non_divise') return
-                    const amt = parseFloat(r.actual_amount) || parseFloat(r.budget_amount) || 0
+                    const amt = Number(r.actual_amount) || Number(r.budget_amount) || 0
                     if (!bMap[cc]) bMap[cc] = { name: cc.charAt(0).toUpperCase() + cc.slice(1), ricavi: 0 }
                     bMap[cc].ricavi += amt
                   })
@@ -412,14 +413,15 @@ export default function Dashboard() {
             .gte('date', fromDate)
             .order('date', { ascending: true })
 
-          if (cmData?.length > 0) {
-            const dayMap = {}
+          if (cmData && cmData.length > 0) {
+            interface DayRow { date: string; entrate: number; uscite: number; netto: number; label?: string }
+            const dayMap: Record<string, DayRow> = {}
             let totE = 0, totU = 0
             cmData.forEach(row => {
               const dk = row.date
               if (!dayMap[dk]) dayMap[dk] = { date: dk, entrate: 0, uscite: 0, netto: 0 }
-              const abs = Math.abs(parseFloat(row.amount) || 0)
-              if (row.type === 'inflow') {
+              const abs = Math.abs(Number(row.amount) || 0)
+              if (row.type === 'entrata') {
                 dayMap[dk].entrate += abs
                 totE += abs
               } else {
@@ -477,8 +479,10 @@ export default function Dashboard() {
             .order('date', { ascending: false })
 
           // Keep only the most recent record per outlet
-          const latestByOutlet = {}
-          ;(drData || []).forEach(r => {
+          type DailyRow = { outlet_id: string | null; gross_revenue: number | null; date: string | null; outlets: { name: string } | null }
+          const latestByOutlet: Record<string, DailyRow> = {}
+          ;((drData || []) as unknown as DailyRow[]).forEach(r => {
+            if (!r.outlet_id) return
             if (!latestByOutlet[r.outlet_id]) {
               latestByOutlet[r.outlet_id] = r
             }
@@ -486,8 +490,8 @@ export default function Dashboard() {
 
           setDailyRevenue(Object.values(latestByOutlet).map(r => ({
             outlet: r.outlets?.name || '?',
-            revenue: parseFloat(r.gross_revenue) || 0,
-            date: r.date,
+            revenue: Number(r.gross_revenue) || 0,
+            date: r.date ?? '',
           })))
         } catch (e) {}
 

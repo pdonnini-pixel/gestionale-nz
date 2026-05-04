@@ -1,4 +1,3 @@
-// @ts-nocheck — TODO tighten: pattern dinamici outlet-key e indexing complesso, da rivedere
 import { useState, useMemo } from 'react';
 import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
@@ -15,8 +14,10 @@ function fmt(n: number, dec = 0): string {
   }).format(n);
 }
 
+interface OutletConfig { id: string; label: string; annual_revenue: number; color: string }
+
 // Outlet configuration
-const OUTLETS = [
+const OUTLETS: OutletConfig[] = [
   { id: 'valdichiana', label: 'Valdichiana Village', annual_revenue: 815000, color: '#3b82f6' },
   { id: 'barberino', label: 'Barberino Outlet', annual_revenue: 355000, color: '#10b981' },
   { id: 'franciacorta', label: 'Franciacorta Village', annual_revenue: 411000, color: '#f59e0b' },
@@ -25,8 +26,21 @@ const OUTLETS = [
   { id: 'valmontone', label: 'Valmontone Outlet', annual_revenue: 219000, color: '#06b6d4' }
 ];
 
+interface POSMonthEntry {
+  month: number
+  month_label: string
+  n_scontrini: number
+  importo_totale: number
+  scontrino_medio: number
+  n_pezzi_venduti: number
+  outlet_id: string
+  outlet_label: string
+}
+
+type POSData = Record<string, Record<number, POSMonthEntry>>
+
 // Seasonal multiplier (higher in summer and Dec, lower in Jan-Feb)
-const SEASONAL_MULTIPLIER = {
+const SEASONAL_MULTIPLIER: Record<number, number> = {
   1: 0.75,  // January
   2: 0.80,  // February
   3: 0.90,  // March
@@ -42,8 +56,8 @@ const SEASONAL_MULTIPLIER = {
 };
 
 // Generate 12 months of POS data per outlet
-function generatePOSData() {
-  const data = {};
+function generatePOSData(): POSData {
+  const data: POSData = {};
   const months = ['Gen', 'Feb', 'Mar', 'Apr', 'Mag', 'Giu', 'Lug', 'Ago', 'Set', 'Ott', 'Nov', 'Dic'];
 
   OUTLETS.forEach(outlet => {
@@ -76,15 +90,16 @@ function generatePOSData() {
 }
 
 // Build chart data structure
-function buildChartData(posData) {
-  const monthlyData = {};
+type ChartRow = { month: number; month_label: string } & Record<string, number | string>
+
+function buildChartData(posData: POSData): ChartRow[] {
+  const monthlyData: Record<number, ChartRow> = {};
 
   Object.keys(posData).forEach(outletId => {
     for (let month = 1; month <= 12; month++) {
       if (!monthlyData[month]) {
         monthlyData[month] = { month, month_label: posData[outletId][month].month_label };
       }
-      const outlet = OUTLETS.find(o => o.id === outletId);
       monthlyData[month][`scontrini_${outletId}`] = posData[outletId][month].n_scontrini;
       monthlyData[month][`medio_${outletId}`] = parseFloat(posData[outletId][month].scontrino_medio.toFixed(2));
       monthlyData[month][`importo_${outletId}`] = posData[outletId][month].importo_totale;
@@ -95,7 +110,7 @@ function buildChartData(posData) {
 }
 
 // Calculate KPIs
-function calculateKPIs(posData, selectedOutlet) {
+function calculateKPIs(posData: POSData, selectedOutlet: string | null) {
   let totalScontrini = 0;
   let totalImporto = 0;
   let totalPezzi = 0;
@@ -126,8 +141,8 @@ function calculateKPIs(posData, selectedOutlet) {
 }
 
 // Distribution by amount ranges
-function calculateDistribution(posData, selectedOutlet) {
-  const ranges = {
+function calculateDistribution(posData: POSData, selectedOutlet: string | null) {
+  const ranges: Record<string, number> = {
     '0-20€': 0,
     '20-50€': 0,
     '50-100€': 0,
@@ -140,7 +155,6 @@ function calculateDistribution(posData, selectedOutlet) {
   outlets.forEach(outletId => {
     for (let month = 1; month <= 12; month++) {
       const data = posData[outletId][month];
-      const avg = data.scontrino_medio;
 
       // Simulate distribution: most transactions around average ±40%
       const low = Math.round(data.n_scontrini * 0.15);
@@ -161,7 +175,7 @@ function calculateDistribution(posData, selectedOutlet) {
 }
 
 // Best/worst performers
-function getPerformers(posData) {
+function getPerformers(posData: POSData) {
   const outletMetrics = OUTLETS.map(outlet => {
     let totalImporto = 0;
     let totalScontrini = 0;

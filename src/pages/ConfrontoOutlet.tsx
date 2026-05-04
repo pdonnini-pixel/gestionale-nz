@@ -1,4 +1,3 @@
-// @ts-nocheck — TODO tighten: indexing dinamico + Recharts payload, da rivedere
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
@@ -25,8 +24,9 @@ function fmt(n: number | null | undefined, dec = 0): string {
 /* ═══════════════════════════════════════
    KPI Badge small
    ═══════════════════════════════════════ */
-function KpiBadge({ label, value, sub, color = 'blue' }: { label: string; value: string | number; sub?: string; color?: string }) {
-  const colors = {
+type BadgeColor = 'blue' | 'green' | 'amber' | 'purple' | 'red'
+function KpiBadge({ label, value, sub, color = 'blue' }: { label: string; value: string | number; sub?: string; color?: BadgeColor }) {
+  const colors: Record<BadgeColor, string> = {
     blue: 'bg-blue-50 text-blue-600 border-blue-100',
     green: 'bg-emerald-50 text-emerald-600 border-emerald-100',
     amber: 'bg-amber-50 text-amber-600 border-amber-100',
@@ -45,8 +45,15 @@ function KpiBadge({ label, value, sub, color = 'blue' }: { label: string; value:
 /* ═══════════════════════════════════════
    CARD OUTLET — Singola colonna confronto
    ═══════════════════════════════════════ */
-// TODO: tighten type
-function OutletCard({ name, outletData, calculatedMetrics, ranking, onNavigate }: any) {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type CalcMetricsT = any
+function OutletCard({ name, outletData, calculatedMetrics, ranking, onNavigate }: {
+  name: string
+  outletData: { color?: string | null }
+  calculatedMetrics: CalcMetricsT | null | undefined
+  ranking?: number | null
+  onNavigate: () => void
+}) {
   const [open, setOpen] = useState(false)
 
   if (!calculatedMetrics) {
@@ -222,31 +229,67 @@ function OutletCard({ name, outletData, calculatedMetrics, ranking, onNavigate }
 /* ═══════════════════════════════════════
    TABELLA BENCHMARK COMPARATIVA
    ═══════════════════════════════════════ */
-// TODO: tighten type
-function TabellaBenchmark({ outletMetrics }: any) {
+type CalculatedMetrics = {
+  ricavi: number
+  margine: number
+  marginePct: number
+  costoPersonale: number
+  affitto: number
+  servizi: number
+  merci: number
+  costiDiretti: number
+  costiTotali: number
+  personaleCount: number
+  ricavoPerDip: number | null
+  incidenzaPersonale: number
+  incidenzaAffitto: number
+  breakeven: number
+  quotaSede: number
+  variance: { ricavi: number; margine: number; ricaviPct: number }
+  approvalPct: number
+  budgetRicavi: number
+  actualRicavi: number
+  isVariance: boolean
+}
+type OutletDataLite = {
+  id?: string
+  code?: string
+  label?: string
+  name?: string
+  color?: string
+}
+type OutletMetric = {
+  name: string
+  outletData: OutletDataLite
+  calculatedMetrics: CalculatedMetrics | null
+}
+
+function TabellaBenchmark({ outletMetrics }: { outletMetrics: OutletMetric[] }) {
   if (!outletMetrics || outletMetrics.length === 0) return null
 
-  const rows = outletMetrics.filter(o => o.calculatedMetrics).sort((a, b) =>
-    (b.calculatedMetrics?.ricavi || 0) - (a.calculatedMetrics?.ricavi || 0)
-  )
+  const rows = outletMetrics
+    .filter((o): o is OutletMetric & { calculatedMetrics: CalculatedMetrics } => o.calculatedMetrics !== null)
+    .sort((a, b) => b.calculatedMetrics.ricavi - a.calculatedMetrics.ricavi)
 
   const isVariance = rows[0]?.calculatedMetrics?.isVariance || false
 
+  type MetricBest = 'max' | 'min' | null
+  type MetricRow = { label: string; key: string; fn: (r: typeof rows[number]) => number; best: MetricBest; pct?: boolean }
   // In variance le metriche di costo sono "delta": un delta positivo significa
   // costo aumentato (peggio), un delta negativo significa costo diminuito (meglio).
   // Per i ricavi/margini è il contrario: positivo è meglio.
-  const metrics = [
-    { label: isVariance ? 'Δ Ricavi' : 'Ricavi', key: 'ricavi', fn: r => r.calculatedMetrics?.ricavi || 0, best: 'max' },
-    { label: isVariance ? 'Δ Margine €' : 'Margine €', key: 'margine', fn: r => r.calculatedMetrics?.margine || 0, best: 'max' },
-    { label: isVariance ? 'Δ Margine %' : 'Margine %', key: 'marginePct', fn: r => r.calculatedMetrics?.marginePct || 0, best: 'max', pct: true },
-    { label: 'Dipendenti', key: 'ndip', fn: r => r.calculatedMetrics?.personaleCount || 0, best: null },
-    { label: isVariance ? 'Δ €/Dipendente' : '€/Dipendente', key: 'ricPerDip', fn: r => r.calculatedMetrics?.ricavoPerDip || 0, best: 'max' },
-    { label: isVariance ? 'Δ Costo personale' : 'Costo personale', key: 'costoPers', fn: r => r.calculatedMetrics?.costoPersonale || 0, best: 'min' },
-    { label: isVariance ? 'Δ Affitto' : 'Affitto', key: 'affitto', fn: r => r.calculatedMetrics?.affitto || 0, best: 'min' },
-    { label: isVariance ? 'Δ Inc. personale %' : 'Inc. personale %', key: 'incPers', fn: r => r.calculatedMetrics?.incidenzaPersonale || 0, best: 'min', pct: true },
-    { label: isVariance ? 'Δ Inc. affitto %' : 'Inc. affitto %', key: 'incAff', fn: r => r.calculatedMetrics?.incidenzaAffitto || 0, best: 'min', pct: true },
+  const metrics: MetricRow[] = [
+    { label: isVariance ? 'Δ Ricavi' : 'Ricavi', key: 'ricavi', fn: r => r.calculatedMetrics.ricavi || 0, best: 'max' },
+    { label: isVariance ? 'Δ Margine €' : 'Margine €', key: 'margine', fn: r => r.calculatedMetrics.margine || 0, best: 'max' },
+    { label: isVariance ? 'Δ Margine %' : 'Margine %', key: 'marginePct', fn: r => r.calculatedMetrics.marginePct || 0, best: 'max', pct: true },
+    { label: 'Dipendenti', key: 'ndip', fn: r => r.calculatedMetrics.personaleCount || 0, best: null },
+    { label: isVariance ? 'Δ €/Dipendente' : '€/Dipendente', key: 'ricPerDip', fn: r => r.calculatedMetrics.ricavoPerDip || 0, best: 'max' },
+    { label: isVariance ? 'Δ Costo personale' : 'Costo personale', key: 'costoPers', fn: r => r.calculatedMetrics.costoPersonale || 0, best: 'min' },
+    { label: isVariance ? 'Δ Affitto' : 'Affitto', key: 'affitto', fn: r => r.calculatedMetrics.affitto || 0, best: 'min' },
+    { label: isVariance ? 'Δ Inc. personale %' : 'Inc. personale %', key: 'incPers', fn: r => r.calculatedMetrics.incidenzaPersonale || 0, best: 'min', pct: true },
+    { label: isVariance ? 'Δ Inc. affitto %' : 'Inc. affitto %', key: 'incAff', fn: r => r.calculatedMetrics.incidenzaAffitto || 0, best: 'min', pct: true },
     // Breakeven sui delta non è significativo: rimosso in modalità Scostamento
-    ...(isVariance ? [] : [{ label: 'Breakeven', key: 'breakeven', fn: r => r.calculatedMetrics?.breakeven || 0, best: 'min' }]),
+    ...(isVariance ? [] : [{ label: 'Breakeven', key: 'breakeven', fn: (r: typeof rows[number]) => r.calculatedMetrics.breakeven || 0, best: 'min' as MetricBest }]),
   ]
 
   return (
@@ -338,10 +381,14 @@ export default function ConfrontoOutlet() {
   const navigate = useNavigate()
   const COMPANY_ID = profile?.company_id
   const { year, quarter } = usePeriod()
-  const [outlets, setOutlets] = useState<any[]>([])
-  const [budgetData, setBudgetData] = useState<any[]>([])
-  const [employeeCosts, setEmployeeCosts] = useState<any[]>([])
-  const [balanceData, setBalanceData] = useState<any[]>([])
+  type CostCenterRow = { id?: string; code?: string; label?: string; name?: string; color?: string; sort_order?: number; is_active?: boolean }
+  type BudgetEntryRow = { cost_center?: string | null; account_code?: string | null; account_name?: string | null; macro_group?: string | null; budget_amount?: number | null; actual_amount?: number | null; month?: number | null; is_approved?: boolean | null }
+  type EmployeeCostRow = { outlet_code?: string | null; employee_id?: string | null; month?: number | null; totale_allocato?: number | null }
+  type BalanceRow = Record<string, unknown>
+  const [outlets, setOutlets] = useState<CostCenterRow[]>([])
+  const [budgetData, setBudgetData] = useState<BudgetEntryRow[]>([])
+  const [employeeCosts, setEmployeeCosts] = useState<EmployeeCostRow[]>([])
+  const [balanceData, setBalanceData] = useState<BalanceRow[]>([])
   const [loading, setLoading] = useState(true)
   const [viewMode, setViewMode] = useState('budget') // 'budget', 'actual', 'variance'
   const [hasData, setHasData] = useState(false)
@@ -359,27 +406,28 @@ export default function ConfrontoOutlet() {
   // Fetch outlets, budget, balance_sheet_data, and employee costs
   useEffect(() => {
     if (!COMPANY_ID) return
+    const companyId = COMPANY_ID
     async function loadData() {
       setLoading(true)
       try {
         const { data: costCenters } = await supabase
           .from('cost_centers')
           .select('*')
-          .eq('company_id', COMPANY_ID)
+          .eq('company_id', companyId)
           .eq('is_active', true)
           .order('sort_order')
 
         const { data: budgetEntries } = await supabase
           .from('budget_entries')
           .select('*')
-          .eq('company_id', COMPANY_ID)
+          .eq('company_id', companyId)
           .eq('year', year)
 
         // Anche balance_sheet_data per confronto
         const { data: bsData } = await supabase
           .from('balance_sheet_data')
           .select('*')
-          .eq('company_id', COMPANY_ID)
+          .eq('company_id', companyId)
           .eq('year', year)
 
         const { data: empCosts } = await supabase
@@ -387,10 +435,10 @@ export default function ConfrontoOutlet() {
           .select('*')
           .eq('year', year)
 
-        setOutlets(costCenters || [])
-        setBudgetData(budgetEntries || [])
-        setBalanceData(bsData || [])
-        setEmployeeCosts(empCosts || [])
+        setOutlets((costCenters || []) as CostCenterRow[])
+        setBudgetData((budgetEntries || []) as BudgetEntryRow[])
+        setBalanceData((bsData || []) as BalanceRow[])
+        setEmployeeCosts((empCosts || []) as EmployeeCostRow[])
         setHasData((budgetEntries?.length || 0) > 0 || (bsData?.length || 0) > 0)
       } catch (err: unknown) {
         console.error('Error loading data:', err)
@@ -402,8 +450,8 @@ export default function ConfrontoOutlet() {
   }, [year, quarter, COMPANY_ID])
 
   // Helper: somma un campo da righe filtrate
-  function sumField(rows, field) {
-    return rows.reduce((s, b) => s + (b[field] || 0), 0)
+  function sumField<T extends Record<string, unknown>>(rows: T[], field: keyof T): number {
+    return rows.reduce((s, b) => s + (Number(b[field]) || 0), 0)
   }
 
   // Quota sede: calcola costi sede e ripartisci equamente tra outlet attivi
@@ -411,10 +459,10 @@ export default function ConfrontoOutlet() {
     const sedeEntries = budgetData.filter(b => {
       const cc = (b.cost_center || '').toLowerCase()
       return (cc === 'sede' || cc === 'sede_magazzino' || cc === 'all') &&
-        (selectedMonths ? selectedMonths.includes(b.month) : true)
+        (selectedMonths ? (b.month != null && selectedMonths.includes(b.month)) : true)
     })
-    const amountField = viewMode === 'actual' ? 'actual_amount' : 'budget_amount'
-    const totalSede = sedeEntries.reduce((s, b) => s + Math.abs(b[amountField] || 0), 0)
+    const amountField: 'actual_amount' | 'budget_amount' = viewMode === 'actual' ? 'actual_amount' : 'budget_amount'
+    const totalSede = sedeEntries.reduce((s, b) => s + Math.abs(Number(b[amountField]) || 0), 0)
     const activeOutlets = outlets.filter(o => o.code !== 'SEDE' && o.code !== 'sede_magazzino').length
     return activeOutlets > 0 ? totalSede / activeOutlets : 0
   }, [budgetData, outlets, selectedMonths, viewMode])
@@ -429,8 +477,7 @@ export default function ConfrontoOutlet() {
     // Build a lookup: for each cost_center code in budget_entries, match to an outlet
     // cost_centers.code may differ from budget_entries.cost_center (case, naming)
     // We match case-insensitively and also try the outlet label (first word, lowercase)
-    const outletCodeToBudgetCC = {}
-    const allBudgetCCs = [...new Set(budgetData.map(b => b.cost_center))]
+    const allBudgetCCs = [...new Set(budgetData.map(b => b.cost_center).filter((cc): cc is string => Boolean(cc)))]
 
     return outlets
       .filter(o => o.code !== 'SEDE' && o.code !== 'sede_magazzino') // escludi sede dalla comparazione
@@ -442,7 +489,7 @@ export default function ConfrontoOutlet() {
       const outletName = (outlet.name || '').toLowerCase()
 
       const matchingCC = allBudgetCCs.find(cc => {
-        const ccLower = (cc || '').toLowerCase()
+        const ccLower = cc.toLowerCase()
         return ccLower === outletCode || ccLower === outletLabel || ccLower === outletName
       }) || outlet.code // fallback to exact code
 
@@ -453,36 +500,36 @@ export default function ConfrontoOutlet() {
           const matchCode = matchingCC ? ccLower === matchingCC.toLowerCase() : ccLower === outletCode
           return matchCode
         })
-        .filter(b => selectedMonths ? selectedMonths.includes(b.month) : true)
+        .filter(b => selectedMonths ? (b.month != null && selectedMonths.includes(b.month)) : true)
 
       if (!outletBudget.length) {
-        return { name: outlet.label, outletData: outlet, calculatedMetrics: null }
+        return { name: outlet.label || '', outletData: outlet, calculatedMetrics: null } as OutletMetric
       }
 
       // Calcola sia budget che actual per confronto
-      function calcMetrics(field) {
+      function calcMetrics(field: 'budget_amount' | 'actual_amount') {
         // Revenue: account_code starts with '5', or macro_group contains 'Ricavi'
         const ricavi = outletBudget
           .filter(b => b.account_code?.startsWith('5') || b.macro_group?.includes('Ricavi'))
-          .reduce((sum, b) => sum + (b[field] || 0), 0)
+          .reduce((sum, b) => sum + (Number(b[field]) || 0), 0)
 
         // Costo personale: account_code starts with '6' (personale), or name matches
         const costoPersonale = outletBudget
           .filter(b => b.account_code?.startsWith('6') || b.account_name?.toLowerCase().match(/personal|dipendent|retrib|stipend/))
-          .reduce((sum, b) => sum + Math.abs(b[field] || 0), 0)
+          .reduce((sum, b) => sum + Math.abs(Number(b[field]) || 0), 0)
 
         const affitto = outletBudget
           .filter(b => b.account_name?.toLowerCase().match(/affitto|godimento|locazion/))
-          .reduce((sum, b) => sum + Math.abs(b[field] || 0), 0)
+          .reduce((sum, b) => sum + Math.abs(Number(b[field]) || 0), 0)
 
         const servizi = outletBudget
           .filter(b => (b.account_name?.toLowerCase().includes('servizi') || b.account_name?.toLowerCase().includes('manut')))
-          .reduce((sum, b) => sum + Math.abs(b[field] || 0), 0)
+          .reduce((sum, b) => sum + Math.abs(Number(b[field]) || 0), 0)
 
         // Merci: account_code starts with '7', or macro_group contains Acquisti/Merci
         const merci = outletBudget
           .filter(b => b.account_code?.startsWith('7') || b.macro_group?.includes('Acquisti') || b.macro_group?.includes('Merci'))
-          .reduce((sum, b) => sum + Math.abs(b[field] || 0), 0)
+          .reduce((sum, b) => sum + Math.abs(Number(b[field]) || 0), 0)
 
         return { ricavi, costoPersonale, affitto, servizi, merci }
       }
@@ -510,8 +557,8 @@ export default function ConfrontoOutlet() {
       // Dipendenti dalla view (filtro per mesi se necessario)
       const empRows = employeeCosts
         .filter(e => e.outlet_code === outlet.code)
-        .filter(e => selectedMonths ? selectedMonths.includes(e.month) : true)
-      const personaleCount = new Set(empRows.map(e => e.employee_id)).size
+        .filter(e => selectedMonths ? (e.month != null && selectedMonths.includes(e.month)) : true)
+      const personaleCount = new Set(empRows.map(e => e.employee_id).filter((id): id is string => Boolean(id))).size
       const costoPersonaleFromDb = empRows.reduce((sum, e) => sum + (e.totale_allocato || 0), 0)
 
       // In variance non sostituiamo con il dato DB (che è solo actual):
@@ -528,7 +575,7 @@ export default function ConfrontoOutlet() {
       const margine = ricavi - costiTotali
       // In variance le percentuali sono "delta in punti percentuali"
       // (incidenza_actual - incidenza_budget); altrimenti calcolo classico.
-      let marginePct, incidenzaPersonale, incidenzaAffitto
+      let marginePct: number, incidenzaPersonale: number, incidenzaAffitto: number
       if (isVariance) {
         const aPersonale = costoPersonaleFromDb || actual.costoPersonale
         const aMargine = actual.ricavi - actual.merci - aPersonale - actual.affitto - actual.servizi - quotaSedePerOutlet
@@ -555,7 +602,7 @@ export default function ConfrontoOutlet() {
       // In variance il breakeven calcolato sui delta è privo di significato
       // (denominatore può essere negativo o piccolissimo). Lo mettiamo a 0,
       // la card lo nasconderà in modalità scostamento.
-      let breakeven
+      let breakeven: number
       if (isVariance) {
         breakeven = 0
       } else {
@@ -578,7 +625,7 @@ export default function ConfrontoOutlet() {
       const approvalPct = totalMonthEntries > 0 ? Math.round(approvedMonths / totalMonthEntries * 100) : 0
 
       return {
-        name: outlet.label,
+        name: outlet.label || '',
         outletData: outlet,
         calculatedMetrics: {
           ricavi, margine, marginePct,
@@ -593,17 +640,15 @@ export default function ConfrontoOutlet() {
           actualRicavi: actual.ricavi,
           isVariance, // 8.2: per la UI distinguere modalità Scostamento
         },
-      }
+      } as OutletMetric
     })
   }, [outlets, budgetData, balanceData, employeeCosts, selectedMonths, viewMode, quotaSedePerOutlet])
 
   // Rankings
-  const rankings = useMemo(() => {
-    const withData = outletMetrics.filter(o => o.calculatedMetrics)
-    const sorted = [...withData].sort((a, b) =>
-      (b.calculatedMetrics?.ricavi || 0) - (a.calculatedMetrics?.ricavi || 0)
-    )
-    const map = {}
+  const rankings = useMemo<Record<string, number>>(() => {
+    const withData = outletMetrics.filter((o): o is OutletMetric & { calculatedMetrics: CalculatedMetrics } => o.calculatedMetrics !== null)
+    const sorted = [...withData].sort((a, b) => b.calculatedMetrics.ricavi - a.calculatedMetrics.ricavi)
+    const map: Record<string, number> = {}
     sorted.forEach((o, i) => { map[o.name] = i + 1 })
     return map
   }, [outletMetrics])
@@ -611,7 +656,7 @@ export default function ConfrontoOutlet() {
   // Chart data
   const chartRicavi = useMemo(() => {
     return outletMetrics
-      .filter(o => o.calculatedMetrics?.ricavi)
+      .filter((o): o is OutletMetric & { calculatedMetrics: CalculatedMetrics } => Boolean(o.calculatedMetrics?.ricavi))
       .map(o => ({
         name: shortOutletName(o.name),
         ricavi: o.calculatedMetrics.ricavi,
@@ -621,7 +666,7 @@ export default function ConfrontoOutlet() {
 
   const chartMargini = useMemo(() => {
     return outletMetrics
-      .filter(o => o.calculatedMetrics)
+      .filter((o): o is OutletMetric & { calculatedMetrics: CalculatedMetrics } => o.calculatedMetrics !== null)
       .map(o => ({
         name: shortOutletName(o.name),
         margine: o.calculatedMetrics.margine,
@@ -641,7 +686,7 @@ export default function ConfrontoOutlet() {
 
   // Export Excel (CSV come fallback leggero)
   function exportExcel(): void {
-    const rows = outletMetrics.filter(o => o.calculatedMetrics)
+    const rows = outletMetrics.filter((o): o is OutletMetric & { calculatedMetrics: CalculatedMetrics } => o.calculatedMetrics !== null)
     if (!rows.length) return
     const header = ['Outlet','Ricavi','Margine','Margine %','Dipendenti','€/Dipendente','Costo personale','Affitto','Servizi','Merci','Breakeven','Quota sede','Approvazione %']
     const csvRows = [header.join(';')]
@@ -650,7 +695,7 @@ export default function ConfrontoOutlet() {
       csvRows.push([
         `"${formatOutletName(o.name)}"`,
         m.ricavi.toFixed(2), m.margine.toFixed(2), m.marginePct.toFixed(1),
-        m.personaleCount, m.ricavoPerDip.toFixed(2),
+        m.personaleCount, (m.ricavoPerDip ?? 0).toFixed(2),
         m.costoPersonale.toFixed(2), m.affitto.toFixed(2),
         m.servizi.toFixed(2), m.merci.toFixed(2),
         m.breakeven.toFixed(2), m.quotaSede.toFixed(2),
@@ -744,16 +789,18 @@ export default function ConfrontoOutlet() {
         </div>
         <div className="ml-auto">
           <ExportMenu
-            data={outletMetrics.filter(o => o.calculatedMetrics).map(o => {
-              const m = o.calculatedMetrics;
-              return {
-                outlet: formatOutletName(o.name), ricavi: m.ricavi, margine: m.margine,
-                margine_pct: m.marginePct, dipendenti: m.personaleCount,
-                per_dipendente: m.ricavoPerDip, costo_personale: m.costoPersonale,
-                affitto: m.affitto, servizi: m.servizi, merci: m.merci,
-                breakeven: m.breakeven, quota_sede: m.quotaSede,
-              };
-            })}
+            data={outletMetrics
+              .filter((o): o is OutletMetric & { calculatedMetrics: CalculatedMetrics } => o.calculatedMetrics !== null)
+              .map(o => {
+                const m = o.calculatedMetrics;
+                return {
+                  outlet: formatOutletName(o.name), ricavi: m.ricavi, margine: m.margine,
+                  margine_pct: m.marginePct, dipendenti: m.personaleCount,
+                  per_dipendente: m.ricavoPerDip ?? 0, costo_personale: m.costoPersonale,
+                  affitto: m.affitto, servizi: m.servizi, merci: m.merci,
+                  breakeven: m.breakeven, quota_sede: m.quotaSede,
+                };
+              })}
             columns={[
               { key: 'outlet', label: 'Outlet' },
               { key: 'ricavi', label: 'Ricavi', format: 'euro' },

@@ -1,4 +1,3 @@
-// @ts-nocheck — TODO tighten: pagina complessa con shape Supabase + indexing dinamico, da rivedere
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import PageHelp from '../components/PageHelp'
@@ -25,14 +24,14 @@ import SortableTh from '../components/ui/SortableTh'
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ef4444', '#06b6d4', '#ec4899']
 
 /* ───── helpers ───── */
-function fmt(n, dec = 2) {
+function fmt(n: number | null | undefined, dec = 2) {
   if (n == null) return '—'
   return new Intl.NumberFormat('it-IT', { minimumFractionDigits: dec, maximumFractionDigits: dec }).format(n)
 }
 
-// TODO: tighten type
-function KpiCard({ title, value, subtitle, icon: Icon, color = 'blue' }: any) {
-  const colorMap = {
+type KpiColor = 'blue' | 'green' | 'amber' | 'purple' | 'red' | 'cyan'
+function KpiCard({ title, value, subtitle, icon: Icon, color = 'blue' }: { title: string; value: string | number; subtitle?: string; icon: React.ComponentType<{ size?: number }>; color?: KpiColor }) {
+  const colorMap: Record<KpiColor, string> = {
     blue: 'bg-blue-50 text-blue-600',
     green: 'bg-emerald-50 text-emerald-600',
     amber: 'bg-amber-50 text-amber-600',
@@ -55,8 +54,9 @@ function KpiCard({ title, value, subtitle, icon: Icon, color = 'blue' }: any) {
 /* ────────────────────────────────────────
    Modal Aggiungi/Modifica Conto Bancario
    ──────────────────────────────────────── */
-function ModalBankAccount({ isOpen, isEdit, account, onClose, onSave }) {
-  const [formData, setFormData] = useState({
+type BankAccountForm = { bank_name: string; account_name: string; iban: string; account_type: string; current_balance: number; outlet_code: string; note: string; id?: string }
+function ModalBankAccount({ isOpen, isEdit, account, onClose, onSave }: { isOpen: boolean; isEdit: boolean; account: BankAccountForm | null; onClose: () => void; onSave: (data: BankAccountForm) => void | Promise<void> }) {
+  const [formData, setFormData] = useState<BankAccountForm>({
     bank_name: '',
     account_name: '',
     iban: '',
@@ -168,7 +168,7 @@ function ModalBankAccount({ isOpen, isEdit, account, onClose, onSave }) {
               value={formData.note}
               onChange={e => setFormData({ ...formData, note: e.target.value })}
               className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              rows="2"
+              rows={2}
             />
           </div>
         </div>
@@ -196,8 +196,10 @@ function ModalBankAccount({ isOpen, isEdit, account, onClose, onSave }) {
 /* ────────────────────────────────────────
    Modal Aggiungi/Modifica Prestito
    ──────────────────────────────────────── */
-function ModalLoan({ isOpen, isEdit, loan, onClose, onSave }) {
-  const [formData, setFormData] = useState({
+type LoanForm = { description: string; total_amount: number; interest_rate: number; start_date: string; end_date: string; id?: string }
+type LoanLite = LoanForm & Record<string, unknown>
+function ModalLoan({ isOpen, isEdit, loan, onClose, onSave }: { isOpen: boolean; isEdit: boolean; loan: LoanLite | null; onClose: () => void; onSave: (data: LoanForm) => void | Promise<void> }) {
+  const [formData, setFormData] = useState<LoanForm>({
     description: '',
     total_amount: 0,
     interest_rate: 0,
@@ -326,19 +328,21 @@ function ModalLoan({ isOpen, isEdit, loan, onClose, onSave }) {
 /* ────────────────────────────────────────
    Sezione: Conti Bancari
    ──────────────────────────────────────── */
-function SezioneBanche({ accounts, totalBanks, search, onAddEdit, onDelete, loading }) {
-  const [expanded, setExpanded] = useState<any>(null)
+type AccountRow = Record<string, unknown> & { id: string; bank_name?: string | null; account_name?: string | null; account_type?: string | null; current_balance?: number | null; outlet_code?: string | null; iban?: string | null; last_update?: string | null }
+function SezioneBanche({ accounts, totalBanks, search, onAddEdit, onDelete, loading }: { accounts: AccountRow[]; totalBanks: number; search: string; onAddEdit: (c: AccountRow | null) => void; onDelete: (id: string) => void; loading: boolean }) {
+  const [expanded, setExpanded] = useState<string | null>(null)
 
   const filtered = accounts.filter(c =>
     !search ||
-    c.bank_name.toLowerCase().includes(search.toLowerCase()) ||
-    c.account_name.toLowerCase().includes(search.toLowerCase())
+    (c.bank_name || '').toLowerCase().includes(search.toLowerCase()) ||
+    (c.account_name || '').toLowerCase().includes(search.toLowerCase())
   )
 
-  const perBanca = {}
+  const perBanca: Record<string, AccountRow[]> = {}
   filtered.forEach(c => {
-    if (!perBanca[c.bank_name]) perBanca[c.bank_name] = []
-    perBanca[c.bank_name].push(c)
+    const bn = c.bank_name || ''
+    if (!perBanca[bn]) perBanca[bn] = []
+    perBanca[bn].push(c)
   })
 
   if (loading) return <div className="text-center py-8 text-slate-400">Caricamento...</div>
@@ -359,7 +363,7 @@ function SezioneBanche({ accounts, totalBanks, search, onAddEdit, onDelete, load
       </div>
 
       {Object.entries(perBanca).map(([banca, conti]) => {
-        const totBanca = conti.reduce((s, c) => s + c.current_balance, 0)
+        const totBanca = conti.reduce((s: number, c) => s + (Number(c.current_balance) || 0), 0)
         return (
           <div key={banca} className="bg-white rounded-xl border border-slate-200/80 overflow-hidden">
             <div
@@ -398,9 +402,9 @@ function SezioneBanche({ accounts, totalBanks, search, onAddEdit, onDelete, load
                       <tr key={c.id} className="border-t border-slate-50 hover:bg-slate-50/50 transition text-sm">
                         <td className="py-3 px-4">
                           <div className="font-medium text-slate-900">{c.account_name}</div>
-                          {c.last_update && (
+                          {Boolean(c.last_update) && (
                             <div className="text-[10px] text-slate-400 flex items-center gap-0.5 mt-0.5">
-                              <Clock size={9} /> Agg. {new Date(c.last_update).toLocaleDateString('it-IT')} {new Date(c.last_update).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}
+                              <Clock size={9} /> Agg. {new Date(String(c.last_update)).toLocaleDateString('it-IT')} {new Date(String(c.last_update)).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}
                             </div>
                           )}
                         </td>
@@ -408,11 +412,11 @@ function SezioneBanche({ accounts, totalBanks, search, onAddEdit, onDelete, load
                           <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
                             c.account_type === 'conto_corrente' ? 'bg-blue-50 text-blue-700' : 'bg-purple-50 text-purple-700'
                           }`}>
-                            {c.account_type === 'conto_corrente' ? 'C/C' : c.account_type === 'deposito' ? 'Dep.' : c.account_type.toUpperCase()}
+                            {c.account_type === 'conto_corrente' ? 'C/C' : c.account_type === 'deposito' ? 'Dep.' : (c.account_type || '').toUpperCase()}
                           </span>
                         </td>
                         <td className="py-3 px-4 text-right font-semibold text-slate-900">{fmt(c.current_balance)} €</td>
-                        <td className="py-3 px-4 text-right text-slate-500">{totalBanks > 0 ? ((c.current_balance / totalBanks) * 100).toFixed(1) : 0}%</td>
+                        <td className="py-3 px-4 text-right text-slate-500">{totalBanks > 0 ? (((Number(c.current_balance) || 0) / totalBanks) * 100).toFixed(1) : 0}%</td>
                         <td className="py-3 px-4 text-center flex items-center justify-center gap-2">
                           <button
                             onClick={() => onAddEdit(c)}
@@ -447,9 +451,9 @@ function SezioneBanche({ accounts, totalBanks, search, onAddEdit, onDelete, load
 /* ────────────────────────────────────────
    Sezione: Casse Outlet
    ──────────────────────────────────────── */
-function SezioneCasse({ accounts, totalCashes }) {
+function SezioneCasse({ accounts, totalCashes }: { accounts: AccountRow[]; totalCashes: number }) {
   const casse = accounts.filter(a => a.account_type === 'cassa')
-  const chartData = casse.map(c => ({ name: c.outlet_code || 'N/A', saldo: c.current_balance }))
+  const chartData = casse.map(c => ({ name: c.outlet_code || 'N/A', saldo: Number(c.current_balance) || 0 }))
 
   if (casse.length === 0) return null
 
@@ -475,7 +479,7 @@ function SezioneCasse({ accounts, totalCashes }) {
                 <tr key={c.id} className="border-t border-slate-50 hover:bg-slate-50/50 transition text-sm">
                   <td className="py-3 px-4 font-medium text-slate-900">{c.outlet_code}</td>
                   <td className="py-3 px-4 text-right font-semibold text-slate-900">{fmt(c.current_balance)} €</td>
-                  <td className="py-3 px-4 text-right text-slate-500">{totalCashes > 0 ? ((c.current_balance / totalCashes) * 100).toFixed(1) : 0}%</td>
+                  <td className="py-3 px-4 text-right text-slate-500">{totalCashes > 0 ? (((Number(c.current_balance) || 0) / totalCashes) * 100).toFixed(1) : 0}%</td>
                 </tr>
               ))}
             </tbody>
@@ -504,7 +508,7 @@ function SezioneCasse({ accounts, totalCashes }) {
                 <CartesianGrid {...GRID_STYLE} />
                 <XAxis dataKey="name" {...AXIS_STYLE} />
                 <YAxis {...AXIS_STYLE} tickFormatter={v => `${(v/1000).toFixed(0)}k`} />
-                <Tooltip content={<GlassTooltip formatter={v => `${fmt(v)} €`} suffix="" />} cursor={{ fill: 'rgba(99,102,241,0.04)', radius: 8 }} />
+                <Tooltip content={<GlassTooltip formatter={(v: unknown) => `${fmt(Number(v) || 0)} €`} suffix="" />} cursor={{ fill: 'rgba(99,102,241,0.04)', radius: 8 }} />
                 <Bar dataKey="saldo" radius={[8, 8, 0, 0]} animationDuration={800}>
                   {chartData.map((_, i) => <Cell key={i} fill={`url(#grad-casse-${i})`} />)}
                 </Bar>
@@ -520,7 +524,8 @@ function SezioneCasse({ accounts, totalCashes }) {
 /* ────────────────────────────────────────
    Sezione: Finanziamenti & Debiti
    ──────────────────────────────────────── */
-function SezioneFinanziamenti({ loans, onAddEdit, onDelete }) {
+type LoanRow = Record<string, unknown> & { id: string; description?: string | null; total_amount?: number | null; remaining_amount?: number | null; interest_rate?: number | null; start_date?: string | null; end_date?: string | null; loan_type?: string | null; is_active?: boolean | null; lender?: string | null }
+function SezioneFinanziamenti({ loans, onAddEdit, onDelete }: { loans: LoanRow[]; onAddEdit: (l: LoanRow | null) => void; onDelete: (id: string) => void }) {
   const [tassoSoci, setTassoSoci] = useState(3.5)
   const [tassoMps, setTassoMps] = useState(4.0)
 
@@ -528,8 +533,8 @@ function SezioneFinanziamenti({ loans, onAddEdit, onDelete }) {
   const loansSoci = loansActive.filter(l => l.loan_type === 'soci')
   const loansBancari = loansActive.filter(l => l.loan_type === 'bancario_breve' || l.loan_type === 'bancario_lungo')
 
-  const totSoci = loansSoci.reduce((s, l) => s + l.remaining_amount, 0)
-  const totBancari = loansBancari.reduce((s, l) => s + l.remaining_amount, 0)
+  const totSoci = loansSoci.reduce<number>((s, l) => s + (Number(l.remaining_amount) || 0), 0)
+  const totBancari = loansBancari.reduce<number>((s, l) => s + (Number(l.remaining_amount) || 0), 0)
   const totDebiti = totSoci + totBancari
 
   const intSociAnnuo = totSoci * (tassoSoci / 100)
@@ -568,7 +573,7 @@ function SezioneFinanziamenti({ loans, onAddEdit, onDelete }) {
           <tbody>
             {loansActive.map(l => {
               const isSoci = l.loan_type === 'soci'
-              const intAnnuo = isSoci ? (l.remaining_amount * tassoSoci / 100) : (l.remaining_amount * tassoMps / 100)
+              const intAnnuo = isSoci ? ((Number(l.remaining_amount) || 0) * tassoSoci / 100) : ((Number(l.remaining_amount) || 0) * tassoMps / 100)
               return (
                 <tr key={l.id} className="border-t border-slate-50 hover:bg-slate-50/50 transition text-sm">
                   <td className="py-3 px-4">
@@ -582,9 +587,9 @@ function SezioneFinanziamenti({ loans, onAddEdit, onDelete }) {
                   <td className="py-3 px-4 text-slate-900 font-medium">{fmt(l.remaining_amount)} €</td>
                   <td className="py-3 px-4">
                     <span className={`text-xs px-2 py-0.5 rounded-full ${
-                      new Date(l.end_date) < new Date(Date.now() + 365 * 24 * 60 * 60 * 1000) ? 'bg-red-50 text-red-600' : 'bg-slate-100 text-slate-600'
+                      l.end_date && new Date(l.end_date) < new Date(Date.now() + 365 * 24 * 60 * 60 * 1000) ? 'bg-red-50 text-red-600' : 'bg-slate-100 text-slate-600'
                     }`}>
-                      {new Date(l.end_date).toLocaleDateString('it-IT')}
+                      {l.end_date ? new Date(l.end_date).toLocaleDateString('it-IT') : '—'}
                     </span>
                   </td>
                   <td className="py-3 px-4 text-right font-medium text-amber-600">{fmt(intAnnuo)} €</td>
@@ -698,36 +703,37 @@ function SezioneFinanziamenti({ loans, onAddEdit, onDelete }) {
 /* ────────────────────────────────────────
    Sezione: Composizione liquidità (Pie)
    ──────────────────────────────────────── */
-function SezioneComposizione({ accounts, totalLiquidity }) {
+function SezioneComposizione({ accounts, totalLiquidity }: { accounts: AccountRow[]; totalLiquidity: number }) {
   const [view, setView] = useState('conto') // 'tipo' or 'conto'
 
-  const contiCorr = accounts.filter(c => c.account_type === 'conto_corrente').reduce((s, c) => s + c.current_balance, 0)
-  const depositi = accounts.filter(c => c.account_type === 'deposito').reduce((s, c) => s + c.current_balance, 0)
-  const casse = accounts.filter(c => c.account_type === 'cassa').reduce((s, c) => s + c.current_balance, 0)
+  const contiCorr = accounts.filter(c => c.account_type === 'conto_corrente').reduce<number>((s, c) => s + (Number(c.current_balance) || 0), 0)
+  const depositi = accounts.filter(c => c.account_type === 'deposito').reduce<number>((s, c) => s + (Number(c.current_balance) || 0), 0)
+  const casse = accounts.filter(c => c.account_type === 'cassa').reduce<number>((s, c) => s + (Number(c.current_balance) || 0), 0)
 
-  const pieDataTipo = [
+  type PieEntry = { name: string; value: number; realValue?: number; color: string; type?: string }
+  const pieDataTipo: PieEntry[] = [
     { name: 'C/C', value: contiCorr, color: '#3b82f6' },
     { name: 'Depositi', value: depositi, color: '#8b5cf6' },
     { name: 'Casse', value: casse, color: '#10b981' },
   ]
 
   const ACCOUNT_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ef4444', '#06b6d4', '#ec4899', '#84cc16', '#f97316', '#6366f1']
-  const pieDataConto = accounts
-    .filter(a => a.current_balance !== 0)
-    .sort((a, b) => Math.abs(b.current_balance) - Math.abs(a.current_balance))
+  const pieDataConto: PieEntry[] = accounts
+    .filter(a => Number(a.current_balance) !== 0)
+    .sort((a, b) => Math.abs(Number(b.current_balance) || 0) - Math.abs(Number(a.current_balance) || 0))
     .map((a, i) => ({
       name: a.account_name || a.bank_name || 'Conto',
-      value: Math.abs(a.current_balance),
-      realValue: a.current_balance,
+      value: Math.abs(Number(a.current_balance) || 0),
+      realValue: Number(a.current_balance) || 0,
       color: ACCOUNT_COLORS[i % ACCOUNT_COLORS.length],
       type: a.account_type === 'cassa' ? 'Cassa' : a.account_type === 'deposito' ? 'Deposito' : 'C/C',
     }))
 
-  const pieData = view === 'tipo' ? pieDataTipo : pieDataConto
+  const pieData: PieEntry[] = view === 'tipo' ? pieDataTipo : pieDataConto
 
   // Attivita vs Passivita breakdown
-  const attivita = accounts.filter(a => a.current_balance > 0).reduce((s, a) => s + a.current_balance, 0)
-  const passivita = Math.abs(accounts.filter(a => a.current_balance < 0).reduce((s, a) => s + a.current_balance, 0))
+  const attivita = accounts.filter(a => (Number(a.current_balance) || 0) > 0).reduce<number>((s, a) => s + (Number(a.current_balance) || 0), 0)
+  const passivita = Math.abs(accounts.filter(a => (Number(a.current_balance) || 0) < 0).reduce<number>((s, a) => s + (Number(a.current_balance) || 0), 0))
   const barTotal = attivita + passivita
 
   return (
@@ -768,11 +774,11 @@ function SezioneComposizione({ accounts, totalLiquidity }) {
             <Pie data={pieData} dataKey="value" cx="50%" cy="50%" innerRadius={50} outerRadius={80} paddingAngle={2} strokeWidth={0}>
               {pieData.map((d, i) => <Cell key={i} fill={`url(#pie-grad-compo-${view}-${i})`} stroke="white" strokeWidth={2} />)}
             </Pie>
-            <Tooltip content={<GlassTooltip formatter={(v, name, props) => {
-              const entry = props?.payload
-              const real = entry?.realValue != null ? entry.realValue : v
+            <Tooltip content={<GlassTooltip formatter={((v: unknown, _name?: unknown, props?: unknown) => {
+              const entry = (props as { payload?: { realValue?: number } } | undefined)?.payload
+              const real = entry?.realValue != null ? entry.realValue : (Number(v) || 0)
               return `${fmt(real)} €`
-            }} suffix="" />} />
+            }) as unknown as (value: number) => string} suffix="" />} />
           </PieChart>
         </ResponsiveContainer>
         <div className="space-y-2 flex-1 min-w-0 max-h-[180px] overflow-y-auto pr-1">
@@ -816,12 +822,13 @@ function SezioneComposizione({ accounts, totalLiquidity }) {
 /* ────────────────────────────────────────
    Sezione: Movimenti Reali (cash_movements)
    ──────────────────────────────────────── */
-function SezioneMovimentiReali({ movements, setMovements, accounts, search, loading, onLoadMore, hasMore, selectedAccountId, onSelectAccount }) {
+type MovementRow = Record<string, unknown> & { id: string; date?: string | null; description?: string | null; counterpart?: string | null; type?: string | null; amount?: number | null; verified?: boolean | null; verified_at?: string | null; bank_account_id?: string | null; running_balance?: number | null; cost_category_id?: string | null }
+function SezioneMovimentiReali({ movements, setMovements, accounts, search, loading, onLoadMore, hasMore, selectedAccountId, onSelectAccount }: { movements: MovementRow[]; setMovements: React.Dispatch<React.SetStateAction<MovementRow[]>>; accounts: AccountRow[]; search: string; loading: boolean; onLoadMore: () => void; hasMore: boolean; selectedAccountId: string | null; onSelectAccount: (id: string | null) => void }) {
   const [subTab, setSubTab] = useState('tutti') // tutti, entrate, uscite, da_verificare
-  const [togglingId, setTogglingId] = useState<any>(null)
+  const [togglingId, setTogglingId] = useState<string | null>(null)
 
-  const filtered = useMemo(() => {
-    let list = movements || []
+  const filtered = useMemo<MovementRow[]>(() => {
+    let list: MovementRow[] = movements || []
     if (search) {
       const q = search.toLowerCase()
       list = list.filter(m =>
@@ -846,20 +853,20 @@ function SezioneMovimentiReali({ movements, setMovements, accounts, search, load
   // KPI calcolati sui movimenti caricati (non solo quelli filtrati per sub-tab)
   const kpi = useMemo(() => {
     const all = movements || []
-    const entrate = all.filter(m => m.type === 'entrata').reduce((s, m) => s + Number(m.amount || 0), 0)
-    const uscite = all.filter(m => m.type === 'uscita').reduce((s, m) => s + Number(m.amount || 0), 0)
+    const entrate = all.filter(m => m.type === 'entrata').reduce<number>((s, m) => s + Number(m.amount || 0), 0)
+    const uscite = all.filter(m => m.type === 'uscita').reduce<number>((s, m) => s + Number(m.amount || 0), 0)
     const nonVerificati = all.filter(m => !m.verified).length
     return { count: all.length, entrate, uscite, netto: entrate - uscite, nonVerificati }
   }, [movements])
 
-  const getAccountName = (id) => {
+  const getAccountName = (id: string | null | undefined) => {
     const acc = accounts.find(a => a.id === id)
     return acc ? `${acc.bank_name} — ${acc.account_name}` : '—'
   }
 
-  const fmtDate = (d) => d ? new Date(d).toLocaleDateString('it-IT') : '—'
+  const fmtDate = (d: string | null | undefined) => d ? new Date(d).toLocaleDateString('it-IT') : '—'
 
-  const handleToggleVerified = async (movement) => {
+  const handleToggleVerified = async (movement: MovementRow) => {
     setTogglingId(movement.id)
     try {
       const newVal = !movement.verified
@@ -868,7 +875,7 @@ function SezioneMovimentiReali({ movements, setMovements, accounts, search, load
         .update({
           verified: newVal,
           verified_at: newVal ? new Date().toISOString() : null,
-        })
+        } as never)
         .eq('id', movement.id)
       if (!error && setMovements) {
         setMovements(prev => prev.map(m =>
@@ -987,10 +994,10 @@ function SezioneMovimentiReali({ movements, setMovements, accounts, search, load
                           {m.counterpart || '—'}
                         </td>
                         <td className={`py-2.5 px-4 text-right font-medium whitespace-nowrap text-[13px] ${isEntrata ? 'text-emerald-600' : 'text-red-500'}`}>
-                          {isEntrata ? '+' : '-'}{fmt(Math.abs(m.amount))} €
+                          {isEntrata ? '+' : '-'}{fmt(Math.abs(Number(m.amount) || 0))} €
                         </td>
                         <td className="py-2.5 px-4 text-right text-xs text-slate-400 whitespace-nowrap">
-                          {m.balance_after != null ? `${fmt(m.balance_after)} €` : '—'}
+                          {m.balance_after != null ? `${fmt(Number(m.balance_after) || 0)} €` : '—'}
                         </td>
                         <td className="py-2.5 px-4 text-center">
                           <button
@@ -1046,8 +1053,10 @@ function SezioneMovimentiReali({ movements, setMovements, accounts, search, load
 /* ────────────────────────────────────────
    Sezione: Movimenti Bancari (legacy bank_transactions)
    ──────────────────────────────────────── */
-function SezioneMovimenti({ transactions, accounts, suppliers, search }) {
-  const filtered = useMemo(() => {
+type TransactionRow = Record<string, unknown> & { id: string; transaction_date?: string | null; description?: string | null; counterpart?: string | null; reference?: string | null; amount?: number | null; bank_account_id?: string | null; running_balance?: number | null; payable_id?: string | null; supplier_id?: string | null }
+type SupplierLite = { id: string; name?: string | null; ragione_sociale?: string | null }
+function SezioneMovimenti({ transactions, accounts, suppliers: _suppliers, search }: { transactions: TransactionRow[]; accounts: AccountRow[]; suppliers: SupplierLite[]; search: string }) {
+  const filtered = useMemo<TransactionRow[]>(() => {
     let list = transactions || []
     if (search) {
       const q = search.toLowerCase()
@@ -1060,7 +1069,7 @@ function SezioneMovimenti({ transactions, accounts, suppliers, search }) {
     return list.slice(0, 100)
   }, [transactions, search])
 
-  const getAccountName = (id) => {
+  const getAccountName = (id: string | null | undefined) => {
     const acc = accounts.find(a => a.id === id)
     return acc ? `${acc.bank_name} — ${acc.account_name}` : '—'
   }
@@ -1103,12 +1112,12 @@ function SezioneMovimenti({ transactions, accounts, suppliers, search }) {
                     <td className="py-2 px-4 text-slate-900 max-w-64 truncate" title={t.description || '—'}>{t.description || '—'}</td>
                     <td className="py-2 px-4 text-slate-500 text-xs">{t.counterpart || '—'}</td>
                     <td className="py-2 px-4 text-right text-red-600 font-medium">
-                      {t.amount < 0 ? fmt(Math.abs(t.amount)) : ''}
+                      {(Number(t.amount) || 0) < 0 ? fmt(Math.abs(Number(t.amount) || 0)) : ''}
                     </td>
                     <td className="py-2 px-4 text-right text-emerald-600 font-medium">
-                      {t.amount >= 0 ? fmt(t.amount) : ''}
+                      {(Number(t.amount) || 0) >= 0 ? fmt(Number(t.amount) || 0) : ''}
                     </td>
-                    <td className="py-2 px-4 text-right font-medium">{t.running_balance != null ? fmt(t.running_balance) : '—'}</td>
+                    <td className="py-2 px-4 text-right font-medium">{t.running_balance != null ? fmt(Number(t.running_balance) || 0) : '—'}</td>
                     <td className="py-2 px-4 text-center">
                       {t.payable_id || t.supplier_id ? (
                         <Link2 size={14} className="text-blue-500 mx-auto" />
@@ -1130,12 +1139,13 @@ function SezioneMovimenti({ transactions, accounts, suppliers, search }) {
 /* ────────────────────────────────────────
    Sezione: Import Estratto Conto
    ──────────────────────────────────────── */
-function SezioneImport({ accounts, onImportComplete }) {
+function SezioneImport({ accounts, onImportComplete }: { accounts: AccountRow[]; onImportComplete: () => void | Promise<void> }) {
   const [selectedAccount, setSelectedAccount] = useState('')
   const [format, setFormat] = useState('standard')
   const [importing, setImporting] = useState(false)
-  const [importResult, setImportResult] = useState<any>(null)
-  const fileRef = useRef(null)
+  type ImportResult = { imported?: number; errors?: number; total?: number; error?: string } | null
+  const [importResult, setImportResult] = useState<ImportResult>(null)
+  const fileRef = useRef<HTMLInputElement | null>(null)
 
   const formats = [
     { key: 'standard', label: 'Standard (CSV semicolon)', desc: 'Data;Descrizione;Dare;Avere;Saldo' },
@@ -1144,7 +1154,7 @@ function SezioneImport({ accounts, onImportComplete }) {
     { key: 'pos', label: 'POS / Carte', desc: 'Movimenti POS e carte di credito' },
   ]
 
-  async function handleFileUpload(e) {
+  async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file || !selectedAccount) return
 
@@ -1161,12 +1171,12 @@ function SezioneImport({ accounts, onImportComplete }) {
 
       for (const line of dataLines) {
         try {
-          let parts
+          let parts: string[]
           if (format === 'pos') {
             // POS format: Date,Reference,Amount,Card
             parts = line.split(',').map(s => s.trim().replace(/^"|"$/g, ''))
             if (parts.length < 3) continue
-            const amount = parseFloat(parts[2]?.replace('.', '').replace(',', '.')) || 0
+            const amount = Number(parts[2]?.replace('.', '').replace(',', '.')) || 0
             await supabase.from('bank_transactions').insert({
               bank_account_id: selectedAccount,
               transaction_date: parts[0] || new Date().toISOString().slice(0, 10),
@@ -1174,14 +1184,14 @@ function SezioneImport({ accounts, onImportComplete }) {
               amount: -Math.abs(amount), // POS are always outgoing
               reference: parts[3] || '',
               source_format: 'pos',
-            })
+            } as never)
           } else {
             // Standard/mensile/trimestrale: semicolon separated
             parts = line.split(';').map(s => s.trim().replace(/^"|"$/g, ''))
             if (parts.length < 4) continue
-            const dare = parseFloat(parts[2]?.replace('.', '').replace(',', '.')) || 0
-            const avere = parseFloat(parts[3]?.replace('.', '').replace(',', '.')) || 0
-            const saldo = parts[4] ? parseFloat(parts[4]?.replace('.', '').replace(',', '.')) : null
+            const dare = Number(parts[2]?.replace('.', '').replace(',', '.')) || 0
+            const avere = Number(parts[3]?.replace('.', '').replace(',', '.')) || 0
+            const saldo = parts[4] ? Number(parts[4]?.replace('.', '').replace(',', '.')) : null
 
             await supabase.from('bank_transactions').insert({
               bank_account_id: selectedAccount,
@@ -1190,7 +1200,7 @@ function SezioneImport({ accounts, onImportComplete }) {
               amount: avere > 0 ? avere : -dare,
               running_balance: saldo,
               source_format: format,
-            })
+            } as never)
           }
           imported++
         } catch {
@@ -1249,12 +1259,12 @@ function SezioneImport({ accounts, onImportComplete }) {
         </div>
       </div>
       {importResult && (
-        <div className={`p-3 rounded-lg text-sm ${importResult.errors > 0 ? 'bg-amber-50 border border-amber-200' : 'bg-emerald-50 border border-emerald-200'}`}>
+        <div className={`p-3 rounded-lg text-sm ${(importResult.errors ?? 0) > 0 ? 'bg-amber-50 border border-amber-200' : 'bg-emerald-50 border border-emerald-200'}`}>
           {importResult.error
             ? <p className="text-red-700">Errore: {importResult.error}</p>
-            : <p className={importResult.errors > 0 ? 'text-amber-700' : 'text-emerald-700'}>
+            : <p className={(importResult.errors ?? 0) > 0 ? 'text-amber-700' : 'text-emerald-700'}>
                 Importate {importResult.imported}/{importResult.total} operazioni
-                {importResult.errors > 0 && ` (${importResult.errors} errori)`}
+                {(importResult.errors ?? 0) > 0 && ` (${importResult.errors} errori)`}
               </p>
           }
         </div>
@@ -1266,25 +1276,29 @@ function SezioneImport({ accounts, onImportComplete }) {
 /* ────────────────────────────────────────
    Sezione: Riconciliazione bancaria (v2)
    ──────────────────────────────────────── */
-function SezioneRiconciliazione({ companyId, accounts }) {
-  const [reconData, setReconData] = useState({ reconciled: [], suggested: [], unmatched: [] })
-  const [reconLog, setReconLog] = useState<any[]>([])
+type ReconCandidate = { payable: PayableLite; score: number; details?: Record<string, unknown> }
+type PayableLite = Record<string, unknown> & { id: string; suppliers?: { id?: string; ragione_sociale?: string | null; name?: string | null } | null; cash_movement_id?: string | null; invoice_number?: string | null; gross_amount?: number | null }
+type ReconItem = { movement: MovementRow; payable: PayableLite | null; matchType: string; score: number; candidates?: ReconCandidate[]; details?: Record<string, unknown>; confidence?: number }
+type ReconData = { reconciled: ReconItem[]; suggested: ReconItem[]; unmatched: MovementRow[] }
+function SezioneRiconciliazione({ companyId, accounts }: { companyId: string; accounts: AccountRow[] }) {
+  const [reconData, setReconData] = useState<ReconData>({ reconciled: [], suggested: [], unmatched: [] })
+  const [reconLog, setReconLog] = useState<Record<string, unknown>[]>([])
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<any>(null)
+  const [error, setError] = useState<string | null>(null)
   const [stats, setStats] = useState({ reconciled: 0, suggested: 0, unmatched: 0 })
   const [openSection, setOpenSection] = useState('suggested') // reconciled | suggested | unmatched
   const [logOpen, setLogOpen] = useState(false)
   const [filterAccountId, setFilterAccountId] = useState('')
   const [filterDateFrom, setFilterDateFrom] = useState('')
   const [filterDateTo, setFilterDateTo] = useState('')
-  const [actionLoading, setActionLoading] = useState<any>(null) // id of item being acted upon
-  const [manualSearchOpen, setManualSearchOpen] = useState<any>(null) // movementId for manual search
+  const [actionLoading, setActionLoading] = useState<string | null>(null) // id of item being acted upon
+  const [manualSearchOpen, setManualSearchOpen] = useState<string | null>(null) // movementId for manual search
   const [manualSearchQuery, setManualSearchQuery] = useState('')
-  const [unpaidPayables, setUnpaidPayables] = useState<any[]>([])
+  const [unpaidPayables, setUnpaidPayables] = useState<PayableLite[]>([])
   const [payablesLoading, setPayablesLoading] = useState(false)
   const [initialLoaded, setInitialLoaded] = useState(false)
   const [hasRunThisSession, setHasRunThisSession] = useState(false)
-  const [expandedMovement, setExpandedMovement] = useState<any>(null) // movementId expanded to show candidates
+  const [expandedMovement, setExpandedMovement] = useState<string | null>(null) // movementId expanded to show candidates
   // Pagination
   const PAGE_SIZE = 20
   const [reconciledPage, setReconciledPage] = useState(1)
@@ -1292,8 +1306,8 @@ function SezioneRiconciliazione({ companyId, accounts }) {
   const [unmatchedPage, setUnmatchedPage] = useState(1)
   const [logPage, setLogPage] = useState(1)
 
-  const fmtDate = (d) => d ? new Date(d).toLocaleDateString('it-IT') : '—'
-  const fmtEuro = (n) => n != null ? `€${fmt(n)}` : '—'
+  const fmtDate = (d: string | null | undefined) => d ? new Date(d).toLocaleDateString('it-IT') : '—'
+  const fmtEuro = (n: number | null | undefined) => n != null ? `€${fmt(n)}` : '—'
 
   // ── Load persisted reconciliation state from DB on mount ──
   useEffect(() => {
@@ -1317,12 +1331,12 @@ function SezioneRiconciliazione({ companyId, accounts }) {
           .not('cash_movement_id', 'is', null)
 
         // 3. Build reconciled pairs
-        const payableByMovId = {}
+        const payableByMovId: Record<string, PayableLite> = {}
         for (const p of (linkedPayables || [])) {
-          payableByMovId[p.cash_movement_id] = p
+          if (p.cash_movement_id) payableByMovId[p.cash_movement_id] = p as PayableLite
         }
-        const reconciledItems = (reconMovements || []).map(m => ({
-          movement: m,
+        const reconciledItems: ReconItem[] = (reconMovements || []).map(m => ({
+          movement: m as MovementRow,
           payable: payableByMovId[m.id] || null,
           matchType: 'confermato',
           score: 100,
@@ -1345,7 +1359,8 @@ function SezioneRiconciliazione({ companyId, accounts }) {
     setLoading(true)
     setError(null)
     try {
-      const result = await runAutoReconciliation(companyId, filterAccountId || null)
+      type ReconResult = { reconciled?: ReconItem[]; suggested?: ReconItem[]; unmatched?: MovementRow[]; errors?: Array<{ message?: string }> }
+      const result = await (runAutoReconciliation as unknown as (companyId: string, accountId: string | null) => Promise<ReconResult>)(companyId, filterAccountId || null)
 
       // Merge: keep previously-saved reconciled items + add new ones from this run
       setReconData(prev => {
@@ -1383,11 +1398,12 @@ function SezioneRiconciliazione({ companyId, accounts }) {
 
   const loadLog = useCallback(async () => {
     try {
-      const filters = {}
+      type LogFilters = { bankAccountId?: string; dateFrom?: string; dateTo?: string }
+      const filters: LogFilters = {}
       if (filterAccountId) filters.bankAccountId = filterAccountId
       if (filterDateFrom) filters.dateFrom = filterDateFrom
       if (filterDateTo) filters.dateTo = filterDateTo
-      const result = await getReconciliationLog(companyId, filters)
+      const result = await (getReconciliationLog as unknown as (companyId: string, filters: LogFilters) => Promise<{ data?: Record<string, unknown>[] }>)(companyId, filters)
       setReconLog(result?.data || [])
       setLogPage(1)
     } catch (err: unknown) {
@@ -1396,7 +1412,7 @@ function SezioneRiconciliazione({ companyId, accounts }) {
     }
   }, [companyId, filterAccountId, filterDateFrom, filterDateTo])
 
-  const handleConfirm = async (movementId, payableId) => {
+  const handleConfirm = async (movementId: string, payableId: string) => {
     setActionLoading(movementId)
     try {
       await applyReconciliation(movementId, payableId, 'confermato', '')
@@ -1427,7 +1443,7 @@ function SezioneRiconciliazione({ companyId, accounts }) {
     }
   }
 
-  const handleReject = async (movementId, payableId) => {
+  const handleReject = async (movementId: string, payableId: string | null) => {
     // Confirm with operator
     const ok = window.confirm(
       'Rifiuti questo abbinamento?\n\n' +
@@ -1463,7 +1479,7 @@ function SezioneRiconciliazione({ companyId, accounts }) {
         return {
           ...prev,
           suggested: prev.suggested.filter(s => s.movement?.id !== movementId),
-          unmatched: item ? [...prev.unmatched, { movement: item.movement }] : prev.unmatched,
+          unmatched: item ? [...prev.unmatched, item.movement] : prev.unmatched,
         }
       })
       setStats(prev => ({ ...prev, suggested: prev.suggested - 1, unmatched: prev.unmatched + 1 }))
@@ -1474,12 +1490,12 @@ function SezioneRiconciliazione({ companyId, accounts }) {
     }
   }
 
-  const handleUnlink = async (movementId, payableId) => {
+  const handleUnlink = async (movementId: string, payableId: string) => {
     // Find the item to show details in the confirmation
     const item = reconData.reconciled.find(r => r.movement?.id === movementId)
     const supplierName = item?.payable?.suppliers?.ragione_sociale || item?.payable?.suppliers?.name || 'fornitore'
-    const invoiceNum = item?.payable?.invoice_number || ''
-    const amount = item?.movement?.amount ? `€${Math.abs(item.movement.amount).toFixed(2)}` : ''
+    const invoiceNum = (item?.payable?.invoice_number as string | null) || ''
+    const amount = item?.movement?.amount ? `€${Math.abs(Number(item.movement.amount) || 0).toFixed(2)}` : ''
 
     const ok = window.confirm(
       `Stai scollegando questo movimento dalla fattura ${invoiceNum} di ${supplierName} per ${amount}.\n\n` +
@@ -1510,17 +1526,17 @@ function SezioneRiconciliazione({ companyId, accounts }) {
     }
   }
 
-  const handleManualMatch = async (movementId, payableId) => {
+  const handleManualMatch = async (movementId: string, payableId: string) => {
     setActionLoading(movementId)
     try {
       await applyReconciliation(movementId, payableId, 'manuale', '')
       setReconData(prev => {
-        const item = prev.unmatched.find(u => u.movement?.id === movementId)
-        const payable = unpaidPayables.find(p => p.id === payableId)
+        const item = prev.unmatched.find(u => u.id === movementId)
+        const payable = unpaidPayables.find(p => p.id === payableId) || null
         return {
           ...prev,
-          unmatched: prev.unmatched.filter(u => u.movement?.id !== movementId),
-          reconciled: item ? [...prev.reconciled, { ...item, payable, matchType: 'manuale', confidence: 100 }] : prev.reconciled,
+          unmatched: prev.unmatched.filter(u => u.id !== movementId),
+          reconciled: item ? [...prev.reconciled, { movement: item, payable, matchType: 'manuale', score: 100 }] : prev.reconciled,
         }
       })
       setStats(prev => ({ ...prev, unmatched: prev.unmatched - 1, reconciled: prev.reconciled + 1 }))
@@ -1544,7 +1560,7 @@ function SezioneRiconciliazione({ companyId, accounts }) {
         .is('cash_movement_id', null)
         .order('due_date', { ascending: false })
         .limit(200)
-      setUnpaidPayables(data || [])
+      setUnpaidPayables((data || []) as PayableLite[])
     } catch (err: unknown) {
       console.error('Error loading payables:', err)
     } finally {
@@ -1552,7 +1568,7 @@ function SezioneRiconciliazione({ companyId, accounts }) {
     }
   }
 
-  const openManualSearch = (movementId) => {
+  const openManualSearch = (movementId: string) => {
     setManualSearchOpen(movementId)
     setManualSearchQuery('')
     loadUnpaidPayables()
@@ -1564,25 +1580,25 @@ function SezioneRiconciliazione({ companyId, accounts }) {
     return unpaidPayables.filter(p =>
       (p.suppliers?.ragione_sociale || '').toLowerCase().includes(q) ||
       (p.suppliers?.name || '').toLowerCase().includes(q) ||
-      (p.invoice_number || '').toLowerCase().includes(q) ||
+      (String(p.invoice_number || '').toLowerCase()).includes(q) ||
       String(p.gross_amount).includes(q)
     ).slice(0, 20)
   }, [unpaidPayables, manualSearchQuery])
 
-  const confidenceColor = (score) => {
+  const confidenceColor = (score: number) => {
     if (score >= 65) return 'bg-yellow-400'
     return 'bg-amber-500'
   }
 
-  const confidenceTextColor = (score) => {
+  const confidenceTextColor = (score: number) => {
     if (score >= 65) return 'text-yellow-700'
     return 'text-amber-700'
   }
 
-  const paginate = (arr, page) => arr.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
-  const totalPages = (arr) => Math.max(1, Math.ceil(arr.length / PAGE_SIZE))
+  const paginate = <T,>(arr: T[], page: number): T[] => arr.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+  const totalPages = <T,>(arr: T[]) => Math.max(1, Math.ceil(arr.length / PAGE_SIZE))
 
-  const PaginationControls = ({ page, setPage, total }) => {
+  const PaginationControls = ({ page, setPage, total }: { page: number; setPage: React.Dispatch<React.SetStateAction<number>>; total: unknown[] }) => {
     const tp = totalPages(total)
     if (tp <= 1) return null
     return (
@@ -1598,9 +1614,9 @@ function SezioneRiconciliazione({ companyId, accounts }) {
     )
   }
 
-  const SectionHeader = ({ sectionKey, label, count, borderColor, icon: SIcon }) => (
+  const SectionHeader = ({ sectionKey, label, count, borderColor, icon: SIcon }: { sectionKey: string; label: string; count: number; borderColor: string; icon: React.ComponentType<{ size?: number; className?: string }> }) => (
     <button
-      onClick={() => setOpenSection(openSection === sectionKey ? null : sectionKey)}
+      onClick={() => setOpenSection(openSection === sectionKey ? '' : sectionKey)}
       className="w-full flex items-center justify-between p-4 hover:bg-slate-50/50 transition"
     >
       <div className="flex items-center gap-3">
@@ -1735,7 +1751,7 @@ function SezioneRiconciliazione({ companyId, accounts }) {
                     {paginate(reconData.reconciled, reconciledPage).map((item, i) => (
                       <tr key={item.movement?.id || i} className="border-b border-slate-50 hover:bg-slate-50/50 transition">
                         <td className="py-2 px-4 text-slate-600 whitespace-nowrap border-l-4 border-l-emerald-500">
-                          {fmtDate(item.movement?.date || item.movement?.transaction_date)}
+                          {fmtDate(item.movement?.date || (item.movement?.transaction_date as string | null | undefined))}
                         </td>
                         <td className="py-2 px-4 text-slate-900 max-w-[280px] relative group">
                           <span className="block truncate cursor-help">{item.movement?.description || '—'}</span>
@@ -1747,13 +1763,13 @@ function SezioneRiconciliazione({ companyId, accounts }) {
                           )}
                         </td>
                         <td className="py-2 px-4 text-right font-medium text-red-600 whitespace-nowrap">
-                          {fmtEuro(item.movement?.amount)}
+                          {fmtEuro(Number(item.movement?.amount) || 0)}
                         </td>
                         <td className="py-2 px-4 text-center"><Link2 size={14} className="text-emerald-500 mx-auto" /></td>
-                        <td className="py-2 px-4 text-slate-700">{item.payable?.suppliers?.ragione_sociale || item.payable?.suppliers?.name || item.payable?.supplier_name || '—'}</td>
+                        <td className="py-2 px-4 text-slate-700">{item.payable?.suppliers?.ragione_sociale || item.payable?.suppliers?.name || (item.payable?.supplier_name as string | null) || '—'}</td>
                         <td className="py-2 px-4 text-slate-500 text-xs">{item.payable?.invoice_number || '—'}</td>
                         <td className="py-2 px-4 text-right font-medium text-slate-700 whitespace-nowrap">
-                          {fmtEuro(item.payable?.gross_amount || item.payable?.total_amount)}
+                          {fmtEuro(Number(item.payable?.gross_amount || item.payable?.total_amount) || 0)}
                         </td>
                         <td className="py-2 px-4 text-center">
                           <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
@@ -1767,7 +1783,7 @@ function SezioneRiconciliazione({ companyId, accounts }) {
                         </td>
                         <td className="py-2 px-4 text-center">
                           <button
-                            onClick={() => handleUnlink(item.movement?.id, item.payable?.id)}
+                            onClick={() => item.movement?.id && item.payable?.id && handleUnlink(item.movement.id, item.payable.id)}
                             disabled={actionLoading === item.movement?.id}
                             className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50 rounded-lg transition disabled:opacity-50"
                             title="Scollega"
@@ -1830,7 +1846,7 @@ function SezioneRiconciliazione({ companyId, accounts }) {
 
                           {/* Date */}
                           <div className="shrink-0 text-xs text-slate-500 w-20">
-                            {fmtDate(item.movement?.date || item.movement?.transaction_date)}
+                            {fmtDate(item.movement?.date || (item.movement?.transaction_date as string | null | undefined))}
                           </div>
 
                           {/* Description with tooltip */}
@@ -1846,7 +1862,7 @@ function SezioneRiconciliazione({ companyId, accounts }) {
 
                           {/* Amount */}
                           <div className="shrink-0 text-sm font-bold text-red-600 w-28 text-right">
-                            {fmtEuro(item.movement?.amount)}
+                            {fmtEuro(Number(item.movement?.amount) || 0)}
                           </div>
 
                           {/* Candidate count badge */}
@@ -1875,7 +1891,7 @@ function SezioneRiconciliazione({ companyId, accounts }) {
                                 onClick={(e) => {
                                   e.stopPropagation()
                                   const exactCandidate = (item.candidates || []).find(c => c.details?.amountLabel === 'esatto')
-                                  if (exactCandidate) handleConfirm(movId, exactCandidate.payable?.id)
+                                  if (exactCandidate && movId && exactCandidate.payable?.id) handleConfirm(movId, exactCandidate.payable.id)
                                 }}
                                 disabled={actionLoading === movId}
                                 className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-lg transition disabled:opacity-50"
@@ -1895,9 +1911,9 @@ function SezioneRiconciliazione({ companyId, accounts }) {
                               Fatture candidate per questo movimento — seleziona quella corretta
                             </div>
 
-                            {(item.candidates && item.candidates.length > 0 ? item.candidates : [{ payable: item.payable, score: item.score, details: item.details }]).map((candidate, ci) => {
+                            {(item.candidates && item.candidates.length > 0 ? item.candidates : [{ payable: item.payable, score: item.score, details: item.details }] as ReconCandidate[]).map((candidate, ci) => {
                               const cPayable = candidate.payable
-                              const cDetails = candidate.details || {}
+                              const cDetails = (candidate.details || {}) as Record<string, unknown>
                               const isExact = cDetails.amountLabel === 'esatto'
                               const supplierName = cPayable?.suppliers?.ragione_sociale || cPayable?.suppliers?.name || '—'
 
@@ -1919,7 +1935,7 @@ function SezioneRiconciliazione({ companyId, accounts }) {
                                       </span>
                                     ) : (
                                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-xs">
-                                        Δ €{cDetails.amountDiff || '?'} ({cDetails.pctDiff || '?'}%)
+                                        Δ €{String(cDetails.amountDiff || '?')} ({String(cDetails.pctDiff || '?')}%)
                                       </span>
                                     )}
                                   </div>
@@ -1930,11 +1946,11 @@ function SezioneRiconciliazione({ companyId, accounts }) {
                                     <div className="text-xs text-slate-500 flex items-center gap-2">
                                       <span>Fatt. {cPayable?.invoice_number || '—'}</span>
                                       <span>·</span>
-                                      <span>{fmtEuro(cPayable?.gross_amount)}</span>
-                                      {cPayable?.due_date && (
+                                      <span>{fmtEuro(Number(cPayable?.gross_amount) || 0)}</span>
+                                      {Boolean(cPayable?.due_date) && (
                                         <>
                                           <span>·</span>
-                                          <span>Scad. {fmtDate(cPayable.due_date)}</span>
+                                          <span>Scad. {fmtDate(cPayable?.due_date as string | null | undefined)}</span>
                                         </>
                                       )}
                                     </div>
@@ -1942,11 +1958,11 @@ function SezioneRiconciliazione({ companyId, accounts }) {
 
                                   {/* Name match badge */}
                                   <div className="shrink-0 w-28">
-                                    {cDetails.nameScore >= 20 ? (
+                                    {Number(cDetails.nameScore) >= 20 ? (
                                       <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 text-xs">
                                         Nome ✓
                                       </span>
-                                    ) : cDetails.nameScore >= 10 ? (
+                                    ) : Number(cDetails.nameScore) >= 10 ? (
                                       <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-blue-50 text-blue-500 text-xs">
                                         Nome ~
                                       </span>
@@ -1959,13 +1975,13 @@ function SezioneRiconciliazione({ companyId, accounts }) {
 
                                   {/* Date proximity badge */}
                                   <div className="shrink-0 w-20">
-                                    {cDetails.daysDiff != null && cDetails.daysDiff <= 30 ? (
+                                    {cDetails.daysDiff != null && Number(cDetails.daysDiff) <= 30 ? (
                                       <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-purple-50 text-purple-700 text-xs">
-                                        {cDetails.daysDiff}gg
+                                        {String(cDetails.daysDiff)}gg
                                       </span>
                                     ) : cDetails.daysDiff != null ? (
                                       <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-slate-100 text-slate-400 text-xs">
-                                        {cDetails.daysDiff}gg
+                                        {String(cDetails.daysDiff)}gg
                                       </span>
                                     ) : null}
                                   </div>
@@ -1973,7 +1989,7 @@ function SezioneRiconciliazione({ companyId, accounts }) {
                                   {/* Assign button */}
                                   <div className="shrink-0">
                                     <button
-                                      onClick={() => handleConfirm(movId, cPayable?.id)}
+                                      onClick={() => movId && cPayable?.id && handleConfirm(movId, cPayable.id)}
                                       disabled={actionLoading === movId}
                                       className={`inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg transition disabled:opacity-50 ${
                                         isExact
@@ -1992,7 +2008,7 @@ function SezioneRiconciliazione({ companyId, accounts }) {
                             <div className="px-4 py-2.5 bg-slate-50 flex items-center justify-between border-t border-slate-200">
                               <span className="text-xs text-slate-500">Nessuna di queste fatture corrisponde a questo movimento?</span>
                               <button
-                                onClick={() => handleReject(movId, item.payable?.id)}
+                                onClick={() => movId && handleReject(movId, item.payable?.id || null)}
                                 disabled={actionLoading === movId}
                                 className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-slate-600 border border-slate-300 hover:bg-slate-100 rounded-lg transition disabled:opacity-50"
                               >
@@ -2034,35 +2050,35 @@ function SezioneRiconciliazione({ companyId, accounts }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {paginate(reconData.unmatched, unmatchedPage).map((item, i) => (
-                      <tr key={item.movement?.id || i} className="border-b border-slate-50 hover:bg-slate-50/50 transition relative">
+                    {paginate(reconData.unmatched, unmatchedPage).map((mov, i) => (
+                      <tr key={mov.id || i} className="border-b border-slate-50 hover:bg-slate-50/50 transition relative">
                         <td className="py-2 px-4 text-slate-600 whitespace-nowrap border-l-4 border-l-slate-400">
-                          {fmtDate(item.movement?.date || item.movement?.transaction_date)}
+                          {fmtDate(mov.date || (mov.transaction_date as string | null | undefined))}
                         </td>
                         <td className="py-2 px-4 text-slate-900 max-w-[280px] relative group">
-                          <span className="block truncate cursor-help">{item.movement?.description || '—'}</span>
-                          {item.movement?.description && (
+                          <span className="block truncate cursor-help">{mov.description || '—'}</span>
+                          {Boolean(mov.description) && (
                             <div className="hidden group-hover:block absolute z-50 left-0 top-full mt-1 p-3 bg-slate-800 text-white text-xs rounded-lg shadow-xl max-w-md whitespace-pre-wrap leading-relaxed border border-slate-600">
                               <div className="font-semibold text-slate-300 mb-1">Descrizione completa:</div>
-                              {item.movement.description}
+                              {mov.description}
                             </div>
                           )}
                         </td>
-                        <td className="py-2 px-4 text-slate-500 text-xs">{item.movement?.counterpart || '—'}</td>
+                        <td className="py-2 px-4 text-slate-500 text-xs">{mov.counterpart || '—'}</td>
                         <td className="py-2 px-4 text-right font-medium text-red-600 whitespace-nowrap">
-                          {fmtEuro(item.movement?.amount)}
+                          {fmtEuro(Number(mov.amount) || 0)}
                         </td>
                         <td className="py-2 px-4 text-center">
                           <div className="relative">
                             <button
-                              onClick={() => openManualSearch(item.movement?.id)}
+                              onClick={() => openManualSearch(mov.id)}
                               className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-blue-600 hover:bg-blue-50 rounded-lg transition"
                               title="Cerca fattura"
                             >
                               <Search size={12} /> Cerca fattura
                             </button>
                             {/* Manual search dropdown */}
-                            {manualSearchOpen === item.movement?.id && (
+                            {manualSearchOpen === mov.id && (
                               <div className="absolute right-0 top-full mt-1 w-96 bg-white border border-slate-200 rounded-xl shadow-xl z-50 p-3 space-y-2">
                                 <div className="flex items-center justify-between">
                                   <span className="text-xs font-semibold text-slate-700">Cerca fattura da collegare</span>
@@ -2090,15 +2106,15 @@ function SezioneRiconciliazione({ companyId, accounts }) {
                                     filteredPayables.map(p => (
                                       <button
                                         key={p.id}
-                                        onClick={() => handleManualMatch(item.movement?.id, p.id)}
-                                        disabled={actionLoading === item.movement?.id}
+                                        onClick={() => handleManualMatch(mov.id, p.id)}
+                                        disabled={actionLoading === mov.id}
                                         className="w-full flex items-center justify-between p-2 rounded-lg text-left hover:bg-blue-50 transition text-xs disabled:opacity-50"
                                       >
                                         <div>
                                           <div className="font-medium text-slate-900">{p.suppliers?.ragione_sociale || p.suppliers?.name || '—'}</div>
-                                          <div className="text-slate-400">Fatt. {p.invoice_number || '—'} — Scad. {fmtDate(p.due_date)}</div>
+                                          <div className="text-slate-400">Fatt. {p.invoice_number || '—'} — Scad. {fmtDate(p.due_date as string | null | undefined)}</div>
                                         </div>
-                                        <div className="font-medium text-slate-700 whitespace-nowrap ml-2">{fmtEuro(p.gross_amount)}</div>
+                                        <div className="font-medium text-slate-700 whitespace-nowrap ml-2">{fmtEuro(Number(p.gross_amount) || 0)}</div>
                                       </button>
                                     ))
                                   )}
@@ -2153,7 +2169,9 @@ function SezioneRiconciliazione({ companyId, accounts }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {paginate(reconLog, logPage).map((entry, i) => (
+                    {paginate(reconLog, logPage).map((entryRaw, i) => {
+                      const entry = entryRaw as Record<string, unknown> & { id?: string; performed_at?: string; created_at?: string; match_type?: string; cash_movements?: { description?: string; date?: string }; cash_movement_id?: string; payables?: { invoice_number?: string; suppliers?: { ragione_sociale?: string } }; payable_id?: string; confidence?: number; notes?: string }
+                      return (
                       <tr key={entry.id || i} className="border-b border-slate-50 hover:bg-slate-50/50 transition">
                         <td className="py-2 px-4 text-slate-600 whitespace-nowrap">{fmtDate(entry.performed_at || entry.created_at)}</td>
                         <td className="py-2 px-4">
@@ -2188,7 +2206,8 @@ function SezioneRiconciliazione({ companyId, accounts }) {
                         </td>
                         <td className="py-2 px-4 text-slate-500 text-xs">{entry.notes || '—'}</td>
                       </tr>
-                    ))}
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -2208,21 +2227,21 @@ export default function Banche() {
   const { profile } = useAuth();
   const COMPANY_ID = profile?.company_id;
 
-  const [accounts, setAccounts] = useState<any[]>([])
-  const [loans, setLoans] = useState<any[]>([])
-  const [transactions, setTransactions] = useState<any[]>([])
-  const [cashMovements, setCashMovements] = useState<any[]>([])
+  const [accounts, setAccounts] = useState<AccountRow[]>([])
+  const [loans, setLoans] = useState<LoanRow[]>([])
+  const [transactions, setTransactions] = useState<TransactionRow[]>([])
+  const [cashMovements, setCashMovements] = useState<MovementRow[]>([])
   const [cashMovementsLoading, setCashMovementsLoading] = useState(false)
   const [cashMovementsHasMore, setCashMovementsHasMore] = useState(true)
   const [cashMovementsLimit, setCashMovementsLimit] = useState(50)
-  const [cashMovementsAccountFilter, setCashMovementsAccountFilter] = useState<any>(null)
-  const [payableActions, setPayableActions] = useState<any[]>([])
+  const [cashMovementsAccountFilter, setCashMovementsAccountFilter] = useState<string | null>(null)
+  const [payableActions, setPayableActions] = useState<Record<string, unknown>[]>([])
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
   const [modalOpen, setModalOpen] = useState(false)
-  const [editingAccount, setEditingAccount] = useState<any>(null)
+  const [editingAccount, setEditingAccount] = useState<BankAccountForm | null>(null)
   const [loanModalOpen, setLoanModalOpen] = useState(false)
-  const [editingLoan, setEditingLoan] = useState<any>(null)
+  const [editingLoan, setEditingLoan] = useState<LoanLite | null>(null)
   const [searchParams] = useSearchParams()
   // Inizializza tab da URL query (?tab=riconciliazione) cosi il link dopo
   // import EC atterra direttamente sul pannello di riconciliazione
@@ -2232,7 +2251,8 @@ export default function Banche() {
     return 'conti'
   }) // conti, movimenti, riconciliazione
   const [syncAllLoading, setSyncAllLoading] = useState(false)
-  const [syncAllResult, setSyncAllResult] = useState<any>(null)
+  type SyncAllResult = { success?: boolean; updated?: number; failed?: number; errors?: string[]; error?: string; newTransactions?: number; accounts?: number } | null
+  const [syncAllResult, setSyncAllResult] = useState<SyncAllResult>(null)
   const [bankTxKpi, setBankTxKpi] = useState({ entrate: 0, uscite: 0, saldoNetto: 0 })
 
   useEffect(() => {
@@ -2240,8 +2260,9 @@ export default function Banche() {
     loadData()
   }, [COMPANY_ID])
 
-  const loadCashMovements = async (limit = 50, accountId = null) => {
+  const loadCashMovements = async (limit = 50, accountId: string | null = null) => {
     try {
+      if (!COMPANY_ID) return
       setCashMovementsLoading(true)
       let query = supabase
         .from('cash_movements')
@@ -2258,7 +2279,7 @@ export default function Banche() {
       if (error) {
         console.error('Error loading cash_movements:', error)
       } else {
-        setCashMovements(data || [])
+        setCashMovements((data || []) as MovementRow[])
         setCashMovementsHasMore((data || []).length >= limit)
       }
     } catch (error) {
@@ -2270,18 +2291,20 @@ export default function Banche() {
 
   const loadData = async () => {
     try {
+      if (!COMPANY_ID) return
+      const companyId = COMPANY_ID
       setLoading(true)
       const [accountsRes, loansRes, txRes, actionsRes] = await Promise.all([
-        supabase.from('bank_accounts').select('*').eq('company_id', COMPANY_ID).eq('is_active', true),
-        supabase.from('loans').select('*').eq('company_id', COMPANY_ID),
+        supabase.from('bank_accounts').select('*').eq('company_id', companyId).eq('is_active', true),
+        supabase.from('loans').select('*').eq('company_id', companyId),
         supabase.from('bank_transactions').select('*').order('transaction_date', { ascending: false }).limit(200),
         supabase.from('payable_actions').select('*').in('action_type', ['pagamento', 'pagamento_parziale']).order('performed_at', { ascending: false }).limit(100),
       ])
 
-      if (accountsRes.data) setAccounts(accountsRes.data)
-      if (loansRes.data) setLoans(loansRes.data)
-      if (txRes.data) setTransactions(txRes.data)
-      if (actionsRes.data) setPayableActions(actionsRes.data)
+      if (accountsRes.data) setAccounts(accountsRes.data as AccountRow[])
+      if (loansRes.data) setLoans(loansRes.data as LoanRow[])
+      if (txRes.data) setTransactions(txRes.data as TransactionRow[])
+      if (actionsRes.data) setPayableActions(actionsRes.data as Record<string, unknown>[])
 
       // Also load cash_movements (real bank data)
       await loadCashMovements(cashMovementsLimit, cashMovementsAccountFilter)
@@ -2355,22 +2378,22 @@ export default function Banche() {
     setCashMovementsLimit(prev => prev + 50)
   }
 
-  const handleCashMovementsAccountFilter = (accountId) => {
+  const handleCashMovementsAccountFilter = (accountId: string | null) => {
     setCashMovementsAccountFilter(accountId)
     setCashMovementsLimit(50) // reset pagination on filter change
   }
 
-  const handleAddEditAccount = (account) => {
-    setEditingAccount(account)
+  const handleAddEditAccount = (account: AccountRow | null) => {
+    setEditingAccount(account ? (account as unknown as BankAccountForm) : null)
     setModalOpen(true)
   }
 
-  const handleSaveAccount = async (formData) => {
+  const handleSaveAccount = async (formData: BankAccountForm) => {
     try {
       if (editingAccount?.id) {
         await supabase
           .from('bank_accounts')
-          .update({ ...formData, last_update: new Date().toISOString() })
+          .update({ ...formData, last_update: new Date().toISOString() } as never)
           .eq('id', editingAccount.id)
       } else {
         await supabase
@@ -2380,7 +2403,7 @@ export default function Banche() {
             company_id: COMPANY_ID,
             is_active: true,
             last_update: new Date().toISOString()
-          }])
+          } as never])
       }
       await loadData()
     } catch (error) {
@@ -2389,12 +2412,12 @@ export default function Banche() {
     }
   }
 
-  const handleDeleteAccount = async (id) => {
+  const handleDeleteAccount = async (id: string) => {
     if (confirm('Sei sicuro di voler eliminare questo conto?')) {
       try {
         await supabase
           .from('bank_accounts')
-          .update({ is_active: false })
+          .update({ is_active: false } as never)
           .eq('id', id)
         await loadData()
       } catch (error) {
@@ -2403,12 +2426,12 @@ export default function Banche() {
     }
   }
 
-  const handleAddEditLoan = (loan) => {
-    setEditingLoan(loan)
+  const handleAddEditLoan = (loan: LoanRow | null) => {
+    setEditingLoan(loan ? (loan as unknown as LoanLite) : null)
     setLoanModalOpen(true)
   }
 
-  const handleSaveLoan = async (formData) => {
+  const handleSaveLoan = async (formData: LoanForm) => {
     try {
       if (editingLoan?.id) {
         await supabase
@@ -2419,7 +2442,7 @@ export default function Banche() {
             interest_rate: formData.interest_rate,
             start_date: formData.start_date,
             end_date: formData.end_date
-          })
+          } as never)
           .eq('id', editingLoan.id)
       } else {
         await supabase
@@ -2432,7 +2455,7 @@ export default function Banche() {
             end_date: formData.end_date,
             company_id: COMPANY_ID,
             is_active: true
-          }])
+          } as never])
       }
       await loadData()
     } catch (error) {
@@ -2441,12 +2464,12 @@ export default function Banche() {
     }
   }
 
-  const handleDeleteLoan = async (id) => {
+  const handleDeleteLoan = async (id: string) => {
     if (confirm('Sei sicuro di voler eliminare questo prestito?')) {
       try {
         await supabase
           .from('loans')
-          .update({ is_active: false })
+          .update({ is_active: false } as never)
           .eq('id', id)
         await loadData()
       } catch (error) {
@@ -2455,10 +2478,10 @@ export default function Banche() {
     }
   }
 
-  const totalBanks = accounts.reduce((s, a) => s + a.current_balance, 0)
-  const totalCashes = accounts.filter(a => a.account_type === 'cassa').reduce((s, a) => s + a.current_balance, 0)
-  const totalBancari = accounts.filter(a => a.account_type !== 'cassa').reduce((s, a) => s + a.current_balance, 0)
-  const totalDebiti = loans.filter(l => l.is_active).reduce((s, l) => s + l.remaining_amount, 0)
+  const totalBanks = accounts.reduce<number>((s, a) => s + (Number(a.current_balance) || 0), 0)
+  const totalCashes = accounts.filter(a => a.account_type === 'cassa').reduce<number>((s, a) => s + (Number(a.current_balance) || 0), 0)
+  const totalBancari = accounts.filter(a => a.account_type !== 'cassa').reduce<number>((s, a) => s + (Number(a.current_balance) || 0), 0)
+  const totalDebiti = loans.filter(l => l.is_active).reduce<number>((s, l) => s + (Number(l.remaining_amount) || 0), 0)
   const posizioneLorda = totalBancari
   const posizioneNetta = totalBanks - totalDebiti
 
@@ -2599,7 +2622,7 @@ export default function Banche() {
 
       {/* Tab: Riconciliazione */}
       {activeTab === 'riconciliazione' && (
-        <SezioneRiconciliazione companyId={COMPANY_ID} accounts={accounts} />
+        <SezioneRiconciliazione companyId={COMPANY_ID || ''} accounts={accounts} />
       )}
 
       {/* Tab: Conti & Saldi */}
@@ -2614,8 +2637,8 @@ export default function Banche() {
         <div className="lg:col-span-2 bg-white rounded-xl border border-slate-200/80 p-5">
           <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-4">Riepilogo finanziario</h3>
           <div className="grid grid-cols-2 gap-x-8 gap-y-2 text-sm">
-            <div className="flex justify-between"><span className="text-slate-500">Conti correnti</span><span className="font-medium">{fmt(accounts.filter(c => c.account_type === 'conto_corrente').reduce((s,c)=>s+c.current_balance,0))} €</span></div>
-            <div className="flex justify-between"><span className="text-slate-500">Conti deposito</span><span className="font-medium">{fmt(accounts.filter(c => c.account_type === 'deposito').reduce((s,c)=>s+c.current_balance,0))} €</span></div>
+            <div className="flex justify-between"><span className="text-slate-500">Conti correnti</span><span className="font-medium">{fmt(accounts.filter(c => c.account_type === 'conto_corrente').reduce<number>((s,c)=>s+(Number(c.current_balance)||0),0))} €</span></div>
+            <div className="flex justify-between"><span className="text-slate-500">Conti deposito</span><span className="font-medium">{fmt(accounts.filter(c => c.account_type === 'deposito').reduce<number>((s,c)=>s+(Number(c.current_balance)||0),0))} €</span></div>
             <div className="flex justify-between"><span className="text-slate-500">Casse outlet</span><span className="font-medium">{fmt(totalCashes)} €</span></div>
             <div className="flex justify-between"><span className="text-slate-500">Liquidità totale</span><span className="font-bold text-blue-600">{fmt(totalBanks)} €</span></div>
             <div className="flex justify-between"><span className="text-slate-500">Debiti finanziari</span><span className="font-medium text-red-500">{fmt(totalDebiti)} €</span></div>

@@ -1,4 +1,3 @@
-// @ts-nocheck — TODO tighten: indexing dinamico per outlet-key, da rivedere
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import ExportMenu from '../components/ExportMenu'
 import {
@@ -37,13 +36,19 @@ export default function MarginiCategoria() {
   const [period, setPeriod] = useState<'ytd' | 'last12' | 'custom'>('ytd')
   const [year, setYear] = useState(new Date().getFullYear())
 
-  // Raw data — TODO: tighten type — Supabase data
-  const [outlets, setOutlets] = useState<any[]>([])
-  const [revenue, setRevenue] = useState<any[]>([])
-  const [costs, setCosts] = useState<any[]>([])       // from payables
-  const [bankCosts, setBankCosts] = useState<any[]>([]) // from cash_movements (uscite)
-  const [costCategories, setCostCategories] = useState<any[]>([])
-  const [budgets, setBudgets] = useState<any[]>([])   // outlet_cost_template
+  // Raw data — Supabase data
+  type OutletLite = { id: string; name: string; code?: string | null; rent_monthly?: number | null; staff_budget_monthly?: number | null; condo_marketing_monthly?: number | null; admin_cost_monthly?: number | null; target_margin_pct?: number | null; target_cogs_pct?: number | null; is_active?: boolean | null }
+  type RevenueRow = { outlet_id?: string | null; date?: string | null; gross_revenue?: number | null; net_revenue?: number | null; transactions_count?: number | null }
+  type PayableRow = { outlet_id?: string | null; invoice_date?: string | null; net_amount?: number | null; vat_amount?: number | null; gross_amount?: number | null; cost_category_id?: string | null; status?: string | null }
+  type CashRow = { outlet_id?: string | null; date?: string | null; type?: string | null; amount?: number | null; cost_category_id?: string | null }
+  type CostCategoryRow = { id: string; code?: string | null; name?: string | null; macro_group?: string | null; is_fixed?: boolean | null; sort_order?: number | null }
+  type BudgetTemplateRow = { outlet_id?: string | null; cost_category_id?: string | null; budget_monthly?: number | null; budget_annual?: number | null; is_fixed?: boolean | null }
+  const [outlets, setOutlets] = useState<OutletLite[]>([])
+  const [revenue, setRevenue] = useState<RevenueRow[]>([])
+  const [costs, setCosts] = useState<PayableRow[]>([])
+  const [bankCosts, setBankCosts] = useState<CashRow[]>([])
+  const [costCategories, setCostCategories] = useState<CostCategoryRow[]>([])
+  const [budgets, setBudgets] = useState<BudgetTemplateRow[]>([])
 
   // ── Date range ──
   const dateRange = useMemo(() => {
@@ -74,12 +79,12 @@ export default function MarginiCategoria() {
       ])
 
       if (outletRes.error) throw outletRes.error
-      setOutlets(outletRes.data || [])
-      setRevenue(revenueRes.data || [])
-      setCosts(costsRes.data || [])
-      setBankCosts(bankRes.data || [])
-      setCostCategories(catRes.data || [])
-      setBudgets(budgetRes.data || [])
+      setOutlets((outletRes.data || []) as OutletLite[])
+      setRevenue((revenueRes.data || []) as RevenueRow[])
+      setCosts((costsRes.data || []) as PayableRow[])
+      setBankCosts((bankRes.data || []) as CashRow[])
+      setCostCategories((catRes.data || []) as CostCategoryRow[])
+      setBudgets((budgetRes.data || []) as BudgetTemplateRow[])
     } catch (err: unknown) {
       console.error('Fetch error:', err)
       setError((err as Error).message)
@@ -93,20 +98,23 @@ export default function MarginiCategoria() {
   // ═══ COMPUTED DATA ═══
 
   // Revenue per outlet
+  type RevenueAgg = { gross: number; net: number; transactions: number }
+  type CostAgg = { total: number; byCategory: Record<string, number> }
   const revenueByOutlet = useMemo(() => {
-    const map = {}
+    const map: Record<string, RevenueAgg> = {}
     revenue.forEach(r => {
-      if (!map[r.outlet_id]) map[r.outlet_id] = { gross: 0, net: 0, transactions: 0 }
-      map[r.outlet_id].gross += Number(r.gross_revenue) || 0
-      map[r.outlet_id].net += Number(r.net_revenue) || 0
-      map[r.outlet_id].transactions += Number(r.transactions_count) || 0
+      const id = r.outlet_id || '_company'
+      if (!map[id]) map[id] = { gross: 0, net: 0, transactions: 0 }
+      map[id].gross += Number(r.gross_revenue) || 0
+      map[id].net += Number(r.net_revenue) || 0
+      map[id].transactions += Number(r.transactions_count) || 0
     })
     return map
   }, [revenue])
 
   // Costs per outlet (from payables)
   const costsByOutlet = useMemo(() => {
-    const map = {}
+    const map: Record<string, CostAgg> = {}
     costs.forEach(c => {
       const oid = c.outlet_id || '_company'
       if (!map[oid]) map[oid] = { total: 0, byCategory: {} }
@@ -120,7 +128,7 @@ export default function MarginiCategoria() {
 
   // Bank costs per outlet (from cash_movements uscite)
   const bankCostsByOutlet = useMemo(() => {
-    const map = {}
+    const map: Record<string, CostAgg> = {}
     bankCosts.forEach(m => {
       const oid = m.outlet_id || '_company'
       if (!map[oid]) map[oid] = { total: 0, byCategory: {} }
@@ -134,10 +142,12 @@ export default function MarginiCategoria() {
 
   // Budget annuale per outlet
   const budgetByOutlet = useMemo(() => {
-    const map = {}
+    const map: Record<string, number> = {}
     budgets.forEach(b => {
-      if (!map[b.outlet_id]) map[b.outlet_id] = 0
-      map[b.outlet_id] += Number(b.budget_annual) || (Number(b.budget_monthly) || 0) * 12
+      const id = b.outlet_id
+      if (!id) return
+      if (!map[id]) map[id] = 0
+      map[id] += Number(b.budget_annual) || (Number(b.budget_monthly) || 0) * 12
     })
     // Also add from outlets table (rent, staff, etc.)
     outlets.forEach(o => {
@@ -182,31 +192,35 @@ export default function MarginiCategoria() {
         budgetVar,
         targetMargin,
         onTarget: marginPct >= targetMargin,
-        color: OUTLET_COLORS[o.name]?.main || PALETTE[0],
+        color: (OUTLET_COLORS as Record<string, { main?: string }>)[o.name]?.main || PALETTE[0],
       }
     }).sort((a, b) => b.revenue - a.revenue)
   }, [outlets, revenueByOutlet, costsByOutlet, bankCostsByOutlet, budgetByOutlet])
 
   // Totals
-  const totals = useMemo(() => {
-    const t = outletData.reduce((acc, o) => ({
+  type Totals = { revenue: number; costs: number; margin: number; transactions: number; budget: number; marginPct: number; budgetVar: number | null }
+  const totals = useMemo<Totals>(() => {
+    const base = outletData.reduce((acc, o) => ({
       revenue: acc.revenue + o.revenue,
       costs: acc.costs + o.costs,
       margin: acc.margin + o.margin,
       transactions: acc.transactions + o.transactions,
       budget: acc.budget + o.budget,
     }), { revenue: 0, costs: 0, margin: 0, transactions: 0, budget: 0 })
-    t.marginPct = t.revenue > 0 ? (t.margin / t.revenue) * 100 : 0
-    t.budgetVar = t.budget > 0 ? ((t.costs - t.budget) / t.budget) * 100 : null
-    return t
+    return {
+      ...base,
+      marginPct: base.revenue > 0 ? (base.margin / base.revenue) * 100 : 0,
+      budgetVar: base.budget > 0 ? ((base.costs - base.budget) / base.budget) * 100 : null,
+    }
   }, [outletData])
 
   // Cost breakdown by macro_group
-  const costBreakdown = useMemo(() => {
-    const catMap = {}
+  type GroupAgg = { group: string; name: string; total: number; items: Record<string, number> }
+  const costBreakdown = useMemo<GroupAgg[]>(() => {
+    const catMap: Record<string, CostCategoryRow> = {}
     costCategories.forEach(c => { catMap[c.id] = c })
 
-    const groups = {}
+    const groups: Record<string, GroupAgg> = {}
     // Merge payables costs
     Object.values(costsByOutlet).forEach(outlet => {
       Object.entries(outlet.byCategory).forEach(([catId, amt]) => {
@@ -222,8 +236,9 @@ export default function MarginiCategoria() {
   }, [costsByOutlet, costCategories])
 
   // Monthly trend
+  type MonthAgg = { month: string; revenue: number; costs: number }
   const monthlyTrend = useMemo(() => {
-    const map = {}
+    const map: Record<string, MonthAgg> = {}
     revenue.forEach(r => {
       const m = r.date?.slice(0, 7) // YYYY-MM
       if (!m) return
@@ -296,10 +311,10 @@ export default function MarginiCategoria() {
         <div className="flex items-center gap-3">
           {/* Period selector */}
           <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-1">
-            {[
+            {([
               { key: 'ytd', label: `YTD ${year}` },
               { key: 'last12', label: 'Ultimi 12m' },
-            ].map(p => (
+            ] as const).map(p => (
               <button key={p.key} onClick={() => setPeriod(p.key)}
                 className={`px-3 py-1.5 text-xs font-medium rounded-md transition ${period === p.key ? 'bg-white shadow text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}>
                 {p.label}
@@ -352,11 +367,11 @@ export default function MarginiCategoria() {
 
       {/* Tabs */}
       <div className="flex gap-1 bg-slate-100 rounded-lg p-1 w-fit">
-        {[
+        {([
           { key: 'outlet', label: 'Per Outlet', icon: Store },
           { key: 'costi', label: 'Struttura Costi', icon: PieChartIcon },
           { key: 'trend', label: 'Trend Mensile', icon: BarChart3 },
-        ].map(t => (
+        ] as const).map(t => (
           <button key={t.key} onClick={() => setTab(t.key)}
             className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-md transition ${tab === t.key ? 'bg-white shadow text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}>
             <t.icon size={15} /> {t.label}
@@ -521,7 +536,7 @@ function CostiTab({ costBreakdown, totalCosts }: { costBreakdown: any[]; totalCo
             <ResponsiveContainer width="100%" height={320}>
               <PieChart>
                 <Pie data={pieData} cx="50%" cy="50%" outerRadius={120} innerRadius={60}
-                  dataKey="value" label={<ModernPieLabel />} paddingAngle={2}>
+                  dataKey="value" label={ModernPieLabel as never} paddingAngle={2}>
                   {pieData.map((entry, i) => <Cell key={i} fill={entry.fill} />)}
                 </Pie>
                 <Tooltip content={<GlassTooltip />} />
@@ -562,11 +577,11 @@ function CostiTab({ costBreakdown, totalCosts }: { costBreakdown: any[]; totalCo
                 {/* Sub-items */}
                 <div className="ml-5 space-y-1">
                   {Object.entries(group.items)
-                    .sort(([, a], [, b]) => b - a)
+                    .sort(([, a], [, b]) => (b as number) - (a as number))
                     .map(([name, amt], i) => (
                       <div key={i} className="flex justify-between text-xs">
                         <span className="text-slate-500">{name}</span>
-                        <span className="text-slate-700 tabular-nums">{fmt(amt)} €</span>
+                        <span className="text-slate-700 tabular-nums">{fmt(amt as number)} €</span>
                       </div>
                     ))}
                 </div>
@@ -643,14 +658,14 @@ function TrendTab({ data }: { data: any[] }) {
 
 // ═══ HELPERS ═══
 function groupLabel(macro: string | null): string {
-  const labels = {
+  const labels: Record<string, string> = {
     locazione: 'Locazione & Affitti',
     personale: 'Personale',
     generali_amministrative: 'Generali & Amministrative',
     finanziarie: 'Oneri Finanziari',
     oneri_diversi: 'Oneri Diversi',
   }
-  return labels[macro] || macro || 'Altro'
+  return (macro && labels[macro]) || macro || 'Altro'
 }
 
 function Kpi({ icon: Icon, label, value, sub, color }: { icon: React.ComponentType<{ size?: number }>; label: string; value: string | number; sub?: string; color: string }) {

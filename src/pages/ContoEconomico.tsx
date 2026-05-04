@@ -1,5 +1,4 @@
-// @ts-nocheck — TODO tighten: pagina complessa con shape Supabase + indexing dinamico, da rivedere
-import { useState, useEffect, useCallback, useMemo, Suspense } from 'react'
+import React, { useState, useEffect, useCallback, useMemo, Suspense } from 'react'
 import PageHelp from '../components/PageHelp'
 import {
   TrendingUp, TrendingDown, DollarSign, PieChart, BarChart3, Upload,
@@ -158,8 +157,9 @@ function parseItalianNumber(str: string | null | undefined): number {
 
 // ===== UI COMPONENTS =====
 // TODO: tighten type
-function Kpi({ label, value, sub, icon: Icon, color = 'blue', trend }: any) {
-  const colors = {
+type KpiColor = 'blue' | 'green' | 'amber' | 'red' | 'purple' | 'indigo'
+function Kpi({ label, value, sub, icon: Icon, color = 'blue', trend }: { label: string; value: string | number; sub?: string; icon: React.ComponentType<{ size?: number }>; color?: KpiColor; trend?: number | null }) {
+  const colors: Record<KpiColor, string> = {
     blue: 'bg-blue-50 text-blue-600', green: 'bg-emerald-50 text-emerald-600',
     amber: 'bg-amber-50 text-amber-600', red: 'bg-red-50 text-red-600',
     purple: 'bg-purple-50 text-purple-600', indigo: 'bg-indigo-50 text-indigo-600',
@@ -182,8 +182,7 @@ function Kpi({ label, value, sub, icon: Icon, color = 'blue', trend }: any) {
   )
 }
 
-// TODO: tighten type
-function Section({ title, icon: Icon, children, defaultOpen = true, badge }: any) {
+function Section({ title, icon: Icon, children, defaultOpen = true, badge }: { title: string; icon: React.ComponentType<{ size?: number; className?: string }>; children: React.ReactNode; defaultOpen?: boolean; badge?: string | number | null }) {
   const [open, setOpen] = useState(defaultOpen)
   return (
     <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
@@ -201,8 +200,7 @@ function Section({ title, icon: Icon, children, defaultOpen = true, badge }: any
   )
 }
 
-// TODO: tighten type
-function CeRow({ label, v2025, v2024, total2025, total2024, bold, indent, highlight, sub, border, editable, onChange, simMode, onEditChange, fieldKey, isDirty }: any) {
+function CeRow({ label, v2025, v2024, total2025, total2024, bold, indent, highlight, sub, border, editable, onChange, simMode, onEditChange, fieldKey, isDirty }: { label: string; v2025?: number | null; v2024?: number | null; total2025?: number | null; total2024?: number | null; bold?: boolean; indent?: boolean; highlight?: boolean; sub?: boolean; border?: boolean; editable?: boolean; onChange?: (v: number) => void; simMode?: boolean; onEditChange?: (key: string, dirty: boolean) => void; fieldKey?: string; isDirty?: boolean }) {
   const var25vs24 = variation(v2025, v2024)
   const value = v2025 != null ? v2025 : ''
   return (
@@ -217,7 +215,7 @@ function CeRow({ label, v2025, v2024, total2025, total2024, bold, indent, highli
             type="number"
             value={value}
             onChange={(e) => {
-              onChange(parseFloat(e.target.value) || 0)
+              onChange?.(parseFloat(e.target.value) || 0)
               if (onEditChange && fieldKey) {
                 onEditChange(fieldKey, true)
               }
@@ -251,8 +249,7 @@ const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'
 const TREND_COLORS = { ricavi: '#3b82f6', ebitda: '#10b981', personale: '#f59e0b', utile: '#8b5cf6' }
 
 // ===== ANALYSIS ENGINE =====
-// TODO: tighten type
-function analyzeStrengthsWeaknesses(ce: any, ricavi: number) {
+function analyzeStrengthsWeaknesses(ce: Record<string, number | null | undefined>, ricavi: number) {
   if (!ricavi || ricavi === 0) return { strengths: [], weaknesses: [], recommendations: [] }
 
   const strengths = []
@@ -379,7 +376,10 @@ export default function ContoEconomico() {
 
   // Feature: Cash-basis (Cassa) view
   const [viewMode, setViewMode] = useState<'competenza' | 'cassa' | 'riconciliazione'>('competenza')
-  const [cashData, setCashData] = useState<any>(null) // { monthly: [...], byCategory: [...], totals: {} }
+  type CashMonth = { mese: number; meseLabel: string; entrate: number; uscite: number; netto: number }
+  type CashCat = { category_id: string; entrate: number; uscite: number; category_name?: string; name?: string }
+  type CashDataT = { monthly: CashMonth[]; byCategory: CashCat[]; totals: { entrate: number; uscite: number; netto: number }; count: number; hasCategorized: boolean } | null
+  const [cashData, setCashData] = useState<CashDataT>(null)
   const [cashLoading, setCashLoading] = useState(false)
 
   // Riconciliazione Bilancio data
@@ -393,16 +393,21 @@ export default function ContoEconomico() {
   const [availableYears, setAvailableYears] = useState([2023, 2024, 2025, 2026])
 
   // ═══ Load bilancio tree from Supabase (persists across page reloads) ═══
+  type BilancioRow = { code: string; description: string; amount: number; level: number; isMacro: boolean }
+  type BilancioNode = BilancioRow & { children: BilancioNode[] }
+  type SectionKey = 'sp_attivita' | 'sp_passivita' | 'ce_costi' | 'ce_ricavi'
   const loadBilancioFromSupabase = async () => {
     try {
-      const sections = ['sp_attivita', 'sp_passivita', 'ce_costi', 'ce_ricavi']
+      if (!COMPANY_ID) return
+      const companyId = COMPANY_ID
+      const sections = ['sp_attivita', 'sp_passivita', 'ce_costi', 'ce_ricavi'] as const
       const { data } = await supabase
         .from('balance_sheet_data')
         .select('*')
-        .eq('company_id', COMPANY_ID)
+        .eq('company_id', companyId)
         .eq('year', year)
         .eq('period_type', periodType)
-        .in('section', sections)
+        .in('section', sections as unknown as string[])
         .order('sort_order')
 
       if (!data || data.length === 0) {
@@ -416,10 +421,11 @@ export default function ContoEconomico() {
       const cleanData = data.filter(row => !junkPattern.test(row.account_name || ''))
 
       // Reconstruct bilancio tree structure from flat Supabase records
-      const bySection = { sp_attivita: [], sp_passivita: [], ce_costi: [], ce_ricavi: [] }
+      const bySection: Record<SectionKey, BilancioRow[]> = { sp_attivita: [], sp_passivita: [], ce_costi: [], ce_ricavi: [] }
       cleanData.forEach(row => {
-        if (bySection[row.section]) {
-          bySection[row.section].push({
+        const sectionKey = row.section as SectionKey
+        if (bySection[sectionKey]) {
+          bySection[sectionKey].push({
             code: row.account_code || '',
             description: row.account_name || '',
             amount: row.amount || 0,
@@ -430,12 +436,12 @@ export default function ContoEconomico() {
       })
 
       // Build trees
-      const buildTree = (rows) => {
+      const buildTree = (rows: BilancioRow[]): BilancioNode[] => {
         if (!rows || rows.length === 0) return []
-        const tree = []
-        const stack = []
+        const tree: BilancioNode[] = []
+        const stack: { node: BilancioNode; level: number }[] = []
         for (const row of rows) {
-          const node = { ...row, children: [] }
+          const node: BilancioNode = { ...row, children: [] }
           while (stack.length > 0 && stack[stack.length - 1].level >= node.level) stack.pop()
           if (stack.length === 0) tree.push(node)
           else stack[stack.length - 1].node.children.push(node)
@@ -459,7 +465,7 @@ export default function ContoEconomico() {
       const { data: ceData } = await supabase
         .from('balance_sheet_data')
         .select('amount')
-        .eq('company_id', COMPANY_ID)
+        .eq('company_id', companyId)
         .eq('year', year)
         .eq('period_type', periodType)
         .eq('section', 'conto_economico')
@@ -472,7 +478,7 @@ export default function ContoEconomico() {
       const { data: impData } = await supabase
         .from('balance_sheet_imports')
         .select('file_name, period_label')
-        .eq('company_id', COMPANY_ID)
+        .eq('company_id', companyId)
         .eq('year', year)
         .eq('period_type', periodType)
         .order('created_at', { ascending: false })
@@ -481,7 +487,7 @@ export default function ContoEconomico() {
 
       const reconstructed = {
         meta: {
-          company: companyInfo?.denominazione || 'NEW ZAGO S.R.L.',
+          company: (companyInfo as { denominazione?: string } | null)?.denominazione || 'NEW ZAGO S.R.L.',
           period: impData?.period_label || `${periodType} ${year}`,
         },
         patrimoniale: {
@@ -511,15 +517,17 @@ export default function ContoEconomico() {
   // ═══ Load PREVIOUS year bilancio tree from Supabase for YoY comparison ═══
   const loadPrevBilancioFromSupabase = async () => {
     try {
+      if (!COMPANY_ID) return
+      const companyId = COMPANY_ID
       const prevYear = year - 1
-      const sections = ['sp_attivita', 'sp_passivita', 'ce_costi', 'ce_ricavi']
+      const sections = ['sp_attivita', 'sp_passivita', 'ce_costi', 'ce_ricavi'] as const
       const { data } = await supabase
         .from('balance_sheet_data')
         .select('*')
-        .eq('company_id', COMPANY_ID)
+        .eq('company_id', companyId)
         .eq('year', prevYear)
         .eq('period_type', periodType)
-        .in('section', sections)
+        .in('section', sections as unknown as string[])
         .order('sort_order')
 
       if (!data || data.length === 0) {
@@ -531,16 +539,17 @@ export default function ContoEconomico() {
       const cleanData = data.filter(row => !junkPattern.test(row.account_name || ''))
 
       // Build a lookup map: account_code -> amount (for matching with current year)
-      const prevByCode = {}
+      const prevByCode: Record<string, number> = {}
       cleanData.forEach(row => {
-        prevByCode[row.account_code] = row.amount || 0
+        if (row.account_code) prevByCode[row.account_code] = row.amount || 0
       })
 
       // Also build section-based structures for tree matching
-      const bySection = { sp_attivita: [], sp_passivita: [], ce_costi: [], ce_ricavi: [] }
+      const bySection: Record<SectionKey, BilancioRow[]> = { sp_attivita: [], sp_passivita: [], ce_costi: [], ce_ricavi: [] }
       cleanData.forEach(row => {
-        if (bySection[row.section]) {
-          bySection[row.section].push({
+        const sectionKey = row.section as SectionKey
+        if (bySection[sectionKey]) {
+          bySection[sectionKey].push({
             code: row.account_code || '',
             description: row.account_name || '',
             amount: row.amount || 0,
@@ -564,7 +573,7 @@ export default function ContoEconomico() {
       const { data: ceData } = await supabase
         .from('balance_sheet_data')
         .select('amount')
-        .eq('company_id', COMPANY_ID)
+        .eq('company_id', companyId)
         .eq('year', prevYear)
         .eq('period_type', periodType)
         .eq('section', 'conto_economico')
@@ -623,11 +632,11 @@ export default function ContoEconomico() {
     // 'NEW ZAGO S.R.L. — CF' senza valore.
     try {
       const [settingsRes, companyRes] = await Promise.all([
-        supabase.from('company_settings').select('*').eq('company_id', COMPANY_ID).maybeSingle(),
-        supabase.from('companies').select('*').eq('id', COMPANY_ID).maybeSingle(),
+        supabase.from('company_settings').select('*').eq('company_id', COMPANY_ID!).maybeSingle(),
+        supabase.from('companies').select('*').eq('id', COMPANY_ID!).maybeSingle(),
       ])
-      const settings = settingsRes.data || {}
-      const company = companyRes.data || {}
+      const settings = (settingsRes.data || {}) as Record<string, unknown>
+      const company = (companyRes.data || {}) as Record<string, unknown>
       setCompanyInfo({
         ...settings,
         // Normalizzo i nomi campo: tutti i codici (CF o PIVA) finiscono in
@@ -652,7 +661,7 @@ export default function ContoEconomico() {
       const { data } = await supabase
         .from('balance_sheet_imports')
         .select('*')
-        .eq('company_id', COMPANY_ID)
+        .eq('company_id', COMPANY_ID!)
         .order('created_at', { ascending: false })
       setImports(data || [])
     } catch (error) {
@@ -666,7 +675,7 @@ export default function ContoEconomico() {
       const { data } = await supabase
         .from('balance_sheet_data')
         .select('year')
-        .eq('company_id', COMPANY_ID)
+        .eq('company_id', COMPANY_ID!)
         .neq('section', 'nota_integrativa')
       if (data && data.length > 0) {
         const years = [...new Set(data.map(d => d.year))].sort((a, b) => b - a)
@@ -683,7 +692,7 @@ export default function ContoEconomico() {
       const { data } = await supabase
         .from('balance_sheet_data')
         .select('*')
-        .eq('company_id', COMPANY_ID)
+        .eq('company_id', COMPANY_ID!)
         .eq('year', year)
         .eq('period_type', periodType)
       setPeriodData(data || [])
@@ -701,7 +710,7 @@ export default function ContoEconomico() {
       const { data } = await supabase
         .from('balance_sheet_data')
         .select('*')
-        .eq('company_id', COMPANY_ID)
+        .eq('company_id', COMPANY_ID!)
         .eq('year', year)
         .eq('period_type', periodType)
         .eq('section', 'nota_integrativa')
@@ -722,7 +731,7 @@ export default function ContoEconomico() {
       const { data: existing } = await supabase
         .from('balance_sheet_data')
         .select('id')
-        .eq('company_id', COMPANY_ID)
+        .eq('company_id', COMPANY_ID!)
         .eq('year', year)
         .eq('period_type', periodType)
         .eq('section', 'nota_integrativa')
@@ -735,6 +744,7 @@ export default function ContoEconomico() {
           .update({ account_name: notaIntegrativa })
           .eq('id', existing.id)
       } else {
+        if (!COMPANY_ID) return
         await supabase
           .from('balance_sheet_data')
           .insert({
@@ -762,24 +772,24 @@ export default function ContoEconomico() {
       const { data } = await supabase
         .from('balance_sheet_data')
         .select('*')
-        .eq('company_id', COMPANY_ID)
+        .eq('company_id', COMPANY_ID!)
         .eq('period_type', periodType)
         .in('year', years)
         .neq('section', 'nota_integrativa')
 
-      const byYear = {}
+      const byYear: Record<number, Record<string, number>> = {}
       years.forEach(y => { byYear[y] = {} })
       ;(data || []).forEach(row => {
         if (!byYear[row.year]) byYear[row.year] = {}
-        byYear[row.year][row.account_code] = row.amount
+        if (row.account_code) byYear[row.year][row.account_code] = row.amount || 0
       })
 
       const trend = years.map(y => ({
         anno: y.toString(),
-        ricavi: byYear[y].ricavi_vendite || 0,
-        ebitda: byYear[y].differenza_ab || 0,
-        personale: byYear[y].totale_personale || 0,
-        utile: byYear[y].utile_netto || 0,
+        ricavi: byYear[y]?.ricavi_vendite || 0,
+        ebitda: byYear[y]?.differenza_ab || 0,
+        personale: byYear[y]?.totale_personale || 0,
+        utile: byYear[y]?.utile_netto || 0,
       })).filter(t => t.ricavi > 0 || t.ebitda !== 0 || t.utile !== 0)
 
       setTrendData(trend)
@@ -797,7 +807,7 @@ export default function ContoEconomico() {
       const { data, error } = await supabase
         .from('cash_movements')
         .select('id, date, type, amount, cost_category_id, description')
-        .eq('company_id', COMPANY_ID)
+        .eq('company_id', COMPANY_ID!)
         .gte('date', range.from)
         .lte('date', range.to)
         .order('date')
@@ -811,16 +821,19 @@ export default function ContoEconomico() {
       }
 
       // Aggregate monthly
-      const monthlyMap = {}
+      type MonthAgg = { mese: number; meseLabel: string; entrate: number; uscite: number; netto: number }
+      const monthlyMap: Record<number, MonthAgg> = {}
       for (let m = 1; m <= 12; m++) {
         monthlyMap[m] = { mese: m, meseLabel: new Date(year, m - 1, 1).toLocaleDateString('it-IT', { month: 'short' }), entrate: 0, uscite: 0, netto: 0 }
       }
 
       let totalEntrate = 0, totalUscite = 0
       let categorizedCount = 0
-      const categoryMap = {}
+      type CatAgg = { category_id: string; entrate: number; uscite: number }
+      const categoryMap: Record<string, CatAgg> = {}
 
       data.forEach(row => {
+        if (!row.date) return
         const month = new Date(row.date).getMonth() + 1
         const amt = Math.abs(row.amount || 0)
         if (row.type === 'entrata') {
@@ -844,17 +857,17 @@ export default function ContoEconomico() {
       const monthly = Object.values(monthlyMap).filter(m => m.entrate > 0 || m.uscite > 0)
 
       // Load category names if we have categorized data
-      let byCategory = Object.values(categoryMap)
+      const byCategory: Array<CatAgg & { category_name?: string }> = Object.values(categoryMap)
+      const catNameMap: Record<string, string> = {}
       if (byCategory.length > 0) {
         const catIds = byCategory.map(c => c.category_id)
         const { data: cats } = await supabase
           .from('cost_categories')
           .select('id, name')
           .in('id', catIds)
-        const catNameMap = {}
-        ;(cats || []).forEach(c => { catNameMap[c.id] = c.name })
-        byCategory = byCategory.map(c => ({ ...c, name: catNameMap[c.category_id] || `Categoria ${c.category_id}` }))
-          .sort((a, b) => (b.uscite + b.entrate) - (a.uscite + a.entrate))
+        ;(cats || []).forEach(c => { if (c.id && c.name) catNameMap[c.id] = c.name })
+        byCategory.forEach(c => { c.category_name = catNameMap[c.category_id] || `Categoria ${c.category_id}` })
+        byCategory.sort((a, b) => (b.uscite + b.entrate) - (a.uscite + a.entrate))
       }
 
       setCashData({
@@ -885,7 +898,7 @@ export default function ContoEconomico() {
       const { data, error } = await supabase
         .from('budget_entries')
         .select('account_code, account_name, budget_amount, actual_amount, cost_center, macro_group')
-        .eq('company_id', COMPANY_ID)
+        .eq('company_id', COMPANY_ID!)
         .eq('year', year)
 
       if (error) throw error
@@ -895,7 +908,8 @@ export default function ContoEconomico() {
       }
 
       // Helper: prende actual_amount se disponibile, altrimenti budget_amount
-      const getAmount = (e) => parseFloat(e.actual_amount) || parseFloat(e.budget_amount) || 0
+      type BudgetRowLite = { account_code?: string | null; account_name?: string | null; budget_amount?: number | null; actual_amount?: number | null; cost_center?: string | null; macro_group?: string | null }
+      const getAmount = (e: BudgetRowLite) => Number(e.actual_amount) || Number(e.budget_amount) || 0
 
       // Ricavi: account_code inizia con '5', esclusa rettifica
       const ricavi = data
@@ -914,16 +928,17 @@ export default function ContoEconomico() {
 
       // Rettifiche: cost_center = 'rettifica_bilancio' (usano budget_amount)
       const rettificheEntries = data.filter(e => e.cost_center === 'rettifica_bilancio')
-      const rettificheTotale = rettificheEntries.reduce((sum, e) => sum + (parseFloat(e.budget_amount) || 0), 0)
+      const rettificheTotale = rettificheEntries.reduce((sum, e) => sum + (Number(e.budget_amount) || 0), 0)
 
       // Raggruppa rettifiche per tipo (account_code)
       const rettificheByType: Record<string, RiconRettifica> = {}
       rettificheEntries.forEach(e => {
         const key = e.account_code
+        if (!key) return
         if (!rettificheByType[key]) {
-          rettificheByType[key] = { code: key, name: e.account_name, total: 0 }
+          rettificheByType[key] = { code: key, name: e.account_name || '', total: 0 }
         }
-        rettificheByType[key].total += parseFloat(e.budget_amount) || 0
+        rettificheByType[key].total += Number(e.budget_amount) || 0
       })
 
       const risultatoGestionale = ricavi - costiOutlet - speseNonDivise
@@ -938,7 +953,7 @@ export default function ContoEconomico() {
         available: true,
       } : { ebit: null, proventiFinanziari: null, oneriFinanziari: null, utileNetto: null, available: false }
 
-      const deltaClassificazione = bilancioUfficiale.available
+      const deltaClassificazione = bilancioUfficiale.available && bilancioUfficiale.ebit !== null
         ? risultatoConRettifica - bilancioUfficiale.ebit
         : null
 
@@ -968,7 +983,7 @@ export default function ContoEconomico() {
   }, [viewMode, year, loadRiconciliazione])
 
   // Feature 4: PDF parsing with pdfjs-dist
-  const handleFileUpload = async (e) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
 
@@ -987,11 +1002,12 @@ export default function ContoEconomico() {
       await supabase
         .from('balance_sheet_imports')
         .delete()
-        .eq('company_id', COMPANY_ID)
+        .eq('company_id', COMPANY_ID!)
         .eq('year', year)
         .eq('period_type', periodType)
 
       // Create import record
+      if (!COMPANY_ID) throw new Error('No company id')
       const { error: insertError } = await supabase
         .from('balance_sheet_imports')
         .insert({
@@ -1004,7 +1020,7 @@ export default function ContoEconomico() {
           file_size: file.size,
           status: 'uploaded',
           uploaded_by: profile?.id || null,
-          uploaded_by_name: profile?.full_name || profile?.email || null,
+          uploaded_by_name: (profile as { full_name?: string; email?: string } | null)?.full_name || profile?.email || null,
         })
         .select()
 
@@ -1029,35 +1045,42 @@ export default function ContoEconomico() {
 
           // Also populate legacy form fields for backward compatibility
           const t = parsed.contoEconomico.totals
-          const ceMacro = {}
-          parsed.contoEconomico.costi.forEach(row => {
+          const ceMacro: Record<string, number> = {}
+          parsed.contoEconomico.costi.forEach((row: BilancioRow) => {
             if (row.isMacro) ceMacro[row.code] = row.amount
           })
-          const ceSub = {}
-          parsed.contoEconomico.costi.forEach(row => {
+          const ceSub: Record<string, number> = {}
+          parsed.contoEconomico.costi.forEach((row: BilancioRow) => {
             if (row.level === 1) ceSub[row.code] = row.amount
           })
 
-          const extracted = {
-            ricavi_vendite: t.ricavi || 0,
-            materie_prime: ceMacro['61'] || 0,
-            servizi: ceMacro['63'] || 0,
-            godimento_beni_terzi: ceMacro['65'] || 0,
+          const totalePersonale = ceMacro['67'] || 0
+          const totaleAmmortamenti = (ceMacro['69'] || 0) + (ceMacro['71'] || 0)
+          const variazioneRimanenze = ceMacro['73'] || 0
+          const oneriDiversi = ceMacro['77'] || 0
+          const materiePrime = ceMacro['61'] || 0
+          const servizi = ceMacro['63'] || 0
+          const godimentoBeniTerzi = ceMacro['65'] || 0
+          const totaleCostiProduzione = Math.round((materiePrime + servizi + godimentoBeniTerzi + totalePersonale + totaleAmmortamenti + variazioneRimanenze + oneriDiversi) * 100) / 100
+          const ricaviVendite = t.ricavi || 0
+          const extracted: Record<string, number> = {
+            ricavi_vendite: ricaviVendite,
+            materie_prime: materiePrime,
+            servizi: servizi,
+            godimento_beni_terzi: godimentoBeniTerzi,
             salari_stipendi: ceSub['6701'] || 0,
             oneri_sociali: ceSub['6703'] || 0,
             tfr: ceSub['6705'] || 0,
-            totale_personale: ceMacro['67'] || 0,
-            totale_ammortamenti: (ceMacro['69'] || 0) + (ceMacro['71'] || 0),
-            variazione_rimanenze: ceMacro['73'] || 0,
-            oneri_diversi: ceMacro['77'] || 0,
+            totale_personale: totalePersonale,
+            totale_ammortamenti: totaleAmmortamenti,
+            variazione_rimanenze: variazioneRimanenze,
+            oneri_diversi: oneriDiversi,
             oneri_finanziari: ceMacro['83'] || 0,
             imposte: 0,
             utile_netto: t.risultato || 0,
+            totale_costi_produzione: totaleCostiProduzione,
+            differenza_ab: Math.round((ricaviVendite - totaleCostiProduzione) * 100) / 100,
           }
-          extracted.totale_costi_produzione = Math.round((extracted.materie_prime + extracted.servizi +
-            extracted.godimento_beni_terzi + extracted.totale_personale +
-            extracted.totale_ammortamenti + extracted.variazione_rimanenze + extracted.oneri_diversi) * 100) / 100
-          extracted.differenza_ab = Math.round((extracted.ricavi_vendite - extracted.totale_costi_produzione) * 100) / 100
 
           setParsedFields(extracted)
           setFormData(prev => ({ ...prev, ...extracted }))
@@ -1079,7 +1102,7 @@ export default function ContoEconomico() {
 
   // Feature 5: Validation
   const validateFormData = () => {
-    const errors = {}
+    const errors: Record<string, string> = {}
     let hasErrors = false
 
     CE_FIELDS.forEach(field => {
@@ -1088,7 +1111,7 @@ export default function ContoEconomico() {
         errors[field.key] = 'Campo obbligatorio'
         hasErrors = true
       }
-      if (val !== undefined && val !== '' && field.min !== undefined && parseFloat(val) < field.min) {
+      if (val !== undefined && val !== '' && field.min !== undefined && Number(val) < field.min) {
         errors[field.key] = `Il valore non può essere inferiore a ${field.min}`
         hasErrors = true
       }
@@ -1105,6 +1128,7 @@ export default function ContoEconomico() {
     if (!validateFormData()) return
 
     try {
+      if (!COMPANY_ID) return
       const records = Object.entries(formData)
         .filter(([, value]) => value !== '' && value !== undefined && value !== null)
         .map(([key, value]) => ({
@@ -1114,7 +1138,7 @@ export default function ContoEconomico() {
           section: 'conto_economico',
           account_code: key,
           account_name: CE_FIELDS.find(f => f.key === key)?.label || key.replace(/_/g, ' '),
-          amount: parseFloat(value) || 0,
+          amount: Number(value) || 0,
           sort_order: CE_FIELDS.findIndex(f => f.key === key),
         }))
 
@@ -1122,7 +1146,7 @@ export default function ContoEconomico() {
       await supabase
         .from('balance_sheet_data')
         .delete()
-        .eq('company_id', COMPANY_ID)
+        .eq('company_id', COMPANY_ID!)
         .eq('year', year)
         .eq('period_type', periodType)
         .eq('section', 'conto_economico')
@@ -1155,6 +1179,7 @@ export default function ContoEconomico() {
     setSaving(true)
     try {
       // Build records for dirty fields only
+      if (!COMPANY_ID) return
       const records = Object.entries(dirtyFields)
         .filter(([, isDirty]) => isDirty)
         .map(([key]) => {
@@ -1166,7 +1191,7 @@ export default function ContoEconomico() {
             section: 'conto_economico',
             account_code: key,
             account_name: field?.label || key.replace(/_/g, ' '),
-            amount: parseFloat(ce25[key]) || 0,
+            amount: Number(ce25[key]) || 0,
             sort_order: CE_FIELDS.findIndex(f => f.key === key),
           }
         })
@@ -1176,7 +1201,7 @@ export default function ContoEconomico() {
         await supabase
           .from('balance_sheet_data')
           .delete()
-          .eq('company_id', COMPANY_ID)
+          .eq('company_id', COMPANY_ID!)
           .eq('year', year)
           .eq('period_type', periodType)
           .eq('section', 'conto_economico')
@@ -1196,7 +1221,7 @@ export default function ContoEconomico() {
       setTimeout(() => setSaveMessage(null), 3000)
     } catch (error) {
       console.error('Error saving manual changes:', error)
-      setSaveMessage({ type: 'error', text: 'Errore nel salvataggio: ' + (error.message || 'sconosciuto') })
+      setSaveMessage({ type: 'error', text: 'Errore nel salvataggio: ' + ((error as Error)?.message || 'sconosciuto') })
       setTimeout(() => setSaveMessage(null), 5000)
     } finally {
       setSaving(false)
@@ -1216,7 +1241,7 @@ export default function ContoEconomico() {
         await supabase
           .from('balance_sheet_data')
           .delete()
-          .eq('company_id', COMPANY_ID)
+          .eq('company_id', COMPANY_ID!)
           .eq('year', year)
           .eq('period_type', periodType)
           .eq('section', section)
@@ -1225,7 +1250,7 @@ export default function ContoEconomico() {
       // Insert in batches of 100
       for (let i = 0; i < records.length; i += 100) {
         const batch = records.slice(i, i + 100)
-        const { error } = await supabase.from('balance_sheet_data').insert(batch)
+        const { error } = await supabase.from('balance_sheet_data').insert(batch as never)
         if (error) throw error
       }
 
@@ -1234,14 +1259,14 @@ export default function ContoEconomico() {
       loadAvailableYears()
     } catch (error) {
       console.error('Error saving bilancio:', error)
-      alert('Errore nel salvataggio: ' + (error.message || 'sconosciuto'))
+      alert('Errore nel salvataggio: ' + ((error as Error)?.message || 'sconosciuto'))
     } finally {
       setBilancioSaving(false)
     }
   }
 
   // Feature 2: Approval workflow
-  const handleApproveImport = async (imp) => {
+  const handleApproveImport = async (imp: { id: string }) => {
     try {
       await supabase
         .from('balance_sheet_imports')
@@ -1259,7 +1284,7 @@ export default function ContoEconomico() {
     }
   }
 
-  const handleRejectImport = async (imp) => {
+  const handleRejectImport = async (imp: { id: string }) => {
     try {
       await supabase
         .from('balance_sheet_imports')
@@ -1273,29 +1298,30 @@ export default function ContoEconomico() {
     }
   }
 
-  const buildCeFromData = (data) => {
+  type CeMap = Record<string, number>
+  const buildCeFromData = (data: unknown): CeMap | null => {
     if (!data || !Array.isArray(data) || data.length === 0) return null
-    const ce = {}
-    data.filter(r => r.section !== 'nota_integrativa').forEach(row => {
-      ce[row.account_code] = row.amount
+    const ce: CeMap = {}
+    data.filter((r: { section?: string }) => r.section !== 'nota_integrativa').forEach((row: { account_code?: string; amount?: number }) => {
+      if (row.account_code) ce[row.account_code] = Number(row.amount) || 0
     })
     return ce
   }
 
   // Load previous year for comparison
-  const [prevYearData, setPrevYearData] = useState<any>(null)
+  const [prevYearData, setPrevYearData] = useState<CeMap | null>(null)
   useEffect(() => {
     const loadPrev = async () => {
       try {
         const { data } = await supabase
           .from('balance_sheet_data')
           .select('*')
-          .eq('company_id', COMPANY_ID)
+          .eq('company_id', COMPANY_ID!)
           .eq('year', year - 1)
           .eq('period_type', periodType)
           .neq('section', 'nota_integrativa')
-        const ce = {}
-        ;(data || []).forEach(row => { ce[row.account_code] = row.amount })
+        const ce: CeMap = {}
+        ;(data || []).forEach(row => { if (row.account_code) ce[row.account_code] = Number(row.amount) || 0 })
         setPrevYearData(ce)
       } catch (e) { console.error(e) }
     }
@@ -1327,8 +1353,8 @@ export default function ContoEconomico() {
     { name: 'Oneri diversi', value: ce25.oneri_diversi || 0 },
   ].filter(d => d.value > 0)
 
-  const handleSimulationChange = (field, value) => {
-    setSimData({ ...simData || ce25, [field]: value })
+  const handleSimulationChange = (field: string, value: number) => {
+    setSimData({ ...(simData || ce25), [field]: value })
   }
 
   const periodi = ['annuale', 'trimestrale', 'mensile', 'provvisorio']
@@ -1619,10 +1645,10 @@ export default function ContoEconomico() {
                   <div className="p-5">
                     <ResponsiveContainer width="100%" height={280}>
                       <RePie>
-                        <Pie data={cashData.byCategory.map(c => ({ name: c.name, value: c.uscite }))} dataKey="value" nameKey="name"
+                        <Pie data={cashData.byCategory.map(c => ({ name: c.category_name || c.name || '', value: c.uscite }))} dataKey="value" nameKey="name"
                           cx="50%" cy="50%" innerRadius={55} outerRadius={105} paddingAngle={3} strokeWidth={0}
-                          label={({ name, percent }) => percent > 0.03 ? `${name.split(' ')[0]} ${(percent * 100).toFixed(0)}%` : ''}>
-                          {cashData.byCategory.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} stroke="white" strokeWidth={2} />)}
+                          label={({ name, percent }: { name?: string; percent?: number }) => (percent ?? 0) > 0.03 ? `${(name || '').split(' ')[0]} ${((percent ?? 0) * 100).toFixed(0)}%` : ''}>
+                          {cashData.byCategory.map((_: CashCat, i: number) => <Cell key={i} fill={COLORS[i % COLORS.length]} stroke="white" strokeWidth={2} />)}
                         </Pie>
                         <Tooltip content={<GlassTooltip formatter={v => `${fmt(v)} €`} suffix="" />} />
                       </RePie>
@@ -1637,11 +1663,11 @@ export default function ContoEconomico() {
                           </tr>
                         </thead>
                         <tbody>
-                          {cashData.byCategory.map((c, i) => (
+                          {cashData.byCategory.map((c: CashCat, i: number) => (
                             <tr key={c.category_id} className="border-b border-slate-50">
                               <td className="py-1.5 px-3 flex items-center gap-2">
                                 <div className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ backgroundColor: COLORS[i % COLORS.length] }} />
-                                <span className="text-slate-700">{c.name}</span>
+                                <span className="text-slate-700">{c.category_name || c.name}</span>
                               </td>
                               <td className="py-1.5 px-3 text-right tabular-nums text-emerald-600">{c.entrate > 0 ? `${fmt(c.entrate)} €` : '—'}</td>
                               <td className="py-1.5 px-3 text-right tabular-nums text-red-600">{c.uscite > 0 ? `${fmt(c.uscite)} €` : '—'}</td>
@@ -1877,8 +1903,8 @@ export default function ContoEconomico() {
                       </div>
                       <div className="border-t-2 border-emerald-300 pt-4 flex justify-between items-center">
                         <span className="text-base font-bold text-emerald-900">UTILE NETTO</span>
-                        <span className={`text-xl font-bold tabular-nums ${riconData.bilancioUfficiale.utileNetto >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                          {riconData.bilancioUfficiale.utileNetto >= 0 ? '+' : ''}{fmt(riconData.bilancioUfficiale.utileNetto)} €
+                        <span className={`text-xl font-bold tabular-nums ${(riconData.bilancioUfficiale.utileNetto ?? 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                          {(riconData.bilancioUfficiale.utileNetto ?? 0) >= 0 ? '+' : ''}{fmt(riconData.bilancioUfficiale.utileNetto)} €
                         </span>
                       </div>
                     </>
@@ -1941,8 +1967,8 @@ export default function ContoEconomico() {
                 detail: `${fmt(ebit25)} / ${fmt(ricavi25)} = ${ebitPct25.toFixed(2)}%`,
                 benchmark: '>8% eccellente, 3-8% buono, <3% critico',
               },
-              { label: 'Periodo', value: `${periodType} ${year}`, status: 'blue' },
-              { label: 'Stato', value: simulationMode ? 'Simulazione' : 'Dati reali', status: simulationMode ? 'purple' : 'green' },
+              { label: 'Periodo', value: `${periodType} ${year}`, status: 'blue', formula: '', detail: '', benchmark: '' },
+              { label: 'Stato', value: simulationMode ? 'Simulazione' : 'Dati reali', status: simulationMode ? 'purple' : 'green', formula: '', detail: '', benchmark: '' },
             ].map(r => (
               <IndiceCard key={r.label} {...r} />
             ))}
@@ -2286,7 +2312,7 @@ export default function ContoEconomico() {
                 <RePie>
                   <Pie data={costiPieData} dataKey="value" nameKey="name" cx="50%" cy="50%"
                     innerRadius={55} outerRadius={105} paddingAngle={3} strokeWidth={0}
-                    label={({ name, percent }) => percent > 0.03 ? `${name.split(' ')[0]} ${(percent * 100).toFixed(0)}%` : ''}>
+                    label={({ name, percent }: { name?: string; percent?: number }) => (percent ?? 0) > 0.03 ? `${(name || '').split(' ')[0]} ${((percent ?? 0) * 100).toFixed(0)}%` : ''}>
                     {costiPieData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} stroke="white" strokeWidth={2} />)}
                   </Pie>
                   <Tooltip content={<GlassTooltip formatter={v => `${fmt(v)} €`} suffix="" />} />
@@ -2416,9 +2442,10 @@ export default function ContoEconomico() {
 }
 
 // ═══ INDICE CARD WITH TOOLTIP ═══
-function IndiceCard({ label, value, status, formula, detail, benchmark }) {
+type IndiceStatus = 'green' | 'amber' | 'red' | 'blue' | 'purple'
+function IndiceCard({ label, value, status, formula, detail, benchmark }: { label: string; value: string; status: string; formula?: string; detail?: string; benchmark?: string }) {
   const [showTip, setShowTip] = useState(false)
-  const colors = {
+  const colors: Record<IndiceStatus, string> = {
     green: 'bg-emerald-50/50 border-emerald-200',
     amber: 'bg-amber-50/50 border-amber-200',
     red: 'bg-red-50/50 border-red-200',
@@ -2426,7 +2453,7 @@ function IndiceCard({ label, value, status, formula, detail, benchmark }) {
     purple: 'bg-purple-50/50 border-purple-200',
   }
   return (
-    <div className={`rounded-lg p-3 border relative ${colors[status] || colors.blue}`}>
+    <div className={`rounded-lg p-3 border relative ${colors[status as IndiceStatus] || colors.blue}`}>
       <div className="flex items-center justify-between">
         <p className="text-xs text-slate-500 font-medium">{label}</p>
         {formula && (
@@ -2464,7 +2491,8 @@ function IndiceCard({ label, value, status, formula, detail, benchmark }) {
 }
 
 // ═══ BILANCIO TREE COMPONENT ═══
-function BilancioTree({ rows, prevByCode, showYoY, isCost, currentYear }) {
+type TreeNodeT = { code: string; description: string; amount: number; level: number; isMacro: boolean; children?: TreeNodeT[] }
+function BilancioTree({ rows, prevByCode, showYoY, isCost, currentYear }: { rows: TreeNodeT[]; prevByCode: Record<string, number> | null; showYoY: boolean; isCost: boolean; currentYear: number }) {
   if (!rows || rows.length === 0) return <p className="text-xs text-slate-400 italic">Nessun dato</p>
   return (
     <div className="space-y-0.5">
@@ -2480,7 +2508,7 @@ function BilancioTree({ rows, prevByCode, showYoY, isCost, currentYear }) {
   )
 }
 
-function TreeNode({ node, depth = 0, prevByCode, showYoY, isCost }) {
+function TreeNode({ node, depth = 0, prevByCode, showYoY, isCost }: { node: TreeNodeT; depth?: number; prevByCode: Record<string, number> | null; showYoY: boolean; isCost: boolean }) {
   const [open, setOpen] = useState(node.level === 0) // macro level open by default
   const hasChildren = node.children && node.children.length > 0
   const isMacroRow = node.level === 0
@@ -2491,7 +2519,7 @@ function TreeNode({ node, depth = 0, prevByCode, showYoY, isCost }) {
   // For costs: negative delta = improvement. For revenues: positive delta = improvement
   const isPositiveImprovement = isCost ? (delta != null && delta < 0) : (delta != null && delta > 0)
 
-  const fmtAmount = (n) => {
+  const fmtAmount = (n: number | null | undefined) => {
     if (n == null) return '\u2014'
     const abs = Math.abs(n)
     const formatted = new Intl.NumberFormat('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(abs)
@@ -2554,7 +2582,7 @@ function TreeNode({ node, depth = 0, prevByCode, showYoY, isCost }) {
       </div>
       {open && hasChildren && (
         <div>
-          {node.children.map((child, i) => (
+          {(node.children || []).map((child: TreeNodeT, i: number) => (
             <TreeNode key={`${child.code}-${i}`} node={child} depth={depth + 1} prevByCode={prevByCode} showYoY={showYoY} isCost={isCost} />
           ))}
         </div>

@@ -1,4 +1,3 @@
-// @ts-nocheck — TODO tighten: monolite ~1400 righe, pattern dinamici budget/cost-center, da rivedere insieme alle altre pagine complesse
 import React, { useState, useEffect, useMemo, useCallback } from 'react'
 import { useAuth } from '../hooks/useAuth'
 import { usePeriod } from '../hooks/usePeriod'
@@ -31,12 +30,12 @@ const COST_CENTER_LABEL_OVERRIDES = {
  * - Altrimenti: title case con sostituzione underscore -> spazio
  */
 // TODO: tighten type
-function prettyCenterLabel(cc: any): string {
+function prettyCenterLabel(cc: { code?: string; label?: string; name?: string } | string | null | undefined): string {
   if (!cc) return '—'
-  const code = cc.code || cc
-  const override = COST_CENTER_LABEL_OVERRIDES[code]
+  const code = (typeof cc === 'string' ? cc : (cc.code || ''))
+  const override = (COST_CENTER_LABEL_OVERRIDES as Record<string, string>)[code]
   if (override) return override
-  const raw = cc.label || cc.name || code
+  const raw = typeof cc === 'string' ? cc : (cc.label || cc.name || code)
   if (typeof raw !== 'string') return String(raw)
   // Se la stringa contiene underscore o e' tutto minuscolo "snake_case"
   if (/[_]/.test(raw) || raw === raw.toLowerCase()) {
@@ -87,9 +86,9 @@ const ACCOUNT_NAME_ABBREVIATIONS = {
  * (>30 caratteri). Altrimenti torna il nome originale invariato.
  * Il chiamante DEVE usare title={originale} per il tooltip.
  */
-function prettifyAccountName(name) {
+function prettifyAccountName(name: string | null | undefined): string {
   if (!name || typeof name !== 'string') return name || ''
-  const direct = ACCOUNT_NAME_ABBREVIATIONS[name.trim()]
+  const direct = (ACCOUNT_NAME_ABBREVIATIONS as Record<string, string>)[name.trim()]
   if (direct) return direct
   // Match case-insensitive sul testo
   const lower = name.trim().toLowerCase()
@@ -99,7 +98,7 @@ function prettifyAccountName(name) {
   return name
 }
 
-function ConfirmDialog({ title, message, onConfirm, onCancel, confirmLabel = 'Svuota', destructive = true }) {
+function ConfirmDialog({ title, message, onConfirm, onCancel, confirmLabel = 'Svuota', destructive = true }: { title: string; message: string; onConfirm: () => void; onCancel: () => void; confirmLabel?: string; destructive?: boolean }) {
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={onCancel}>
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6" onClick={e => e.stopPropagation()}>
@@ -123,23 +122,27 @@ function ConfirmDialog({ title, message, onConfirm, onCancel, confirmLabel = 'Sv
   )
 }
 
-function fmt(n, dec = 2) {
+function fmt(n: number | null | undefined, dec = 2) {
   if (n == null || isNaN(n)) return '—'
   return new Intl.NumberFormat('it-IT', { minimumFractionDigits: dec, maximumFractionDigits: dec }).format(n)
 }
-function fmtC(n) { return n == null || isNaN(n) ? '—' : `${fmt(n, 2)} €` }
+function fmtC(n: number | null | undefined) { return n == null || isNaN(n) ? '—' : `${fmt(n, 2)} €` }
 
-function getCodeLevel(code) {
+function getCodeLevel(code: string | null | undefined) {
   if (!code) return 0
   const len = code.replace(/\s/g, '').length
   if (len <= 2) return 0; if (len <= 4) return 1; if (len <= 6) return 2; return 3
 }
 
-function buildTree(rows) {
+type TreeRow = { code: string; description?: string; amount?: number; level: number; [key: string]: unknown }
+type TreeNodeT = TreeRow & { children: TreeNodeT[] }
+
+function buildTree(rows: TreeRow[] | null | undefined): TreeNodeT[] {
   if (!rows || !rows.length) return []
-  const tree = [], stack = []
+  const tree: TreeNodeT[] = []
+  const stack: { node: TreeNodeT; level: number }[] = []
   for (const row of rows) {
-    const node = { ...row, children: [] }
+    const node: TreeNodeT = { ...row, children: [] }
     while (stack.length > 0 && stack[stack.length - 1].level >= node.level) stack.pop()
     if (stack.length === 0) tree.push(node); else stack[stack.length - 1].node.children.push(node)
     stack.push({ node, level: node.level })
@@ -147,16 +150,16 @@ function buildTree(rows) {
   return tree
 }
 
-function sumMacros(tree) { return tree.reduce((s, n) => s + (n.amount || 0), 0) }
+function sumMacros(tree: TreeNodeT[]): number { return tree.reduce<number>((s, n) => s + (n.amount || 0), 0) }
 
 // Apply edits to a tree, recomputing parent sums from edited children
-function applyEdits(tree, edits) {
+function applyEdits(tree: TreeNodeT[], edits: Record<string, number>): TreeNodeT[] {
   if (!tree || !tree.length) return []
   return tree.map(node => {
     const children = node.children?.length ? applyEdits(node.children, edits) : []
-    let amount
+    let amount: number
     if (children.length > 0) {
-      amount = children.reduce((s, c) => s + (c.amount || 0), 0)
+      amount = children.reduce<number>((s, c) => s + (c.amount || 0), 0)
     } else {
       amount = edits[node.code] != null ? edits[node.code] : (node.amount || 0)
     }
@@ -165,13 +168,13 @@ function applyEdits(tree, edits) {
 }
 
 // Variante zero-based: foglie senza edit = 0 (per rettifica, che è solo manuale)
-function applyEditsZero(tree, edits) {
+function applyEditsZero(tree: TreeNodeT[], edits: Record<string, number>): TreeNodeT[] {
   if (!tree || !tree.length) return []
   return tree.map(node => {
     const children = node.children?.length ? applyEditsZero(node.children, edits) : []
-    let amount
+    let amount: number
     if (children.length > 0) {
-      amount = children.reduce((s, c) => s + (c.amount || 0), 0)
+      amount = children.reduce<number>((s, c) => s + (c.amount || 0), 0)
     } else {
       const v = edits[node.code]
       amount = (v != null && typeof v === 'number') ? v : 0
@@ -181,9 +184,9 @@ function applyEditsZero(tree, edits) {
 }
 
 // Flatten leaf codes from a tree
-function flattenLeaves(tree) {
-  const result = {}
-  const walk = nodes => nodes.forEach(n => {
+function flattenLeaves(tree: TreeNodeT[]): Record<string, number> {
+  const result: Record<string, number> = {}
+  const walk = (nodes: TreeNodeT[]) => nodes.forEach(n => {
     if (n.children?.length) walk(n.children)
     else result[n.code] = n.amount || 0
   })
@@ -194,7 +197,7 @@ function flattenLeaves(tree) {
 /* ═══════════════════════════════════════════════════════════
    EDITABLE TREE NODE — always shows input on leaves
    ═══════════════════════════════════════════════════════════ */
-function TreeNodeEdit({ node, depth = 0, edits, onEdit }) {
+function TreeNodeEdit({ node, depth = 0, edits, onEdit }: { node: TreeNodeT; depth?: number; edits: Record<string, number>; onEdit: (code: string, value: number | null) => void }) {
   const [open, setOpen] = useState(false) // start collapsed
   const hasKids = node.children?.length > 0
   const isMacro = node.level === 0
@@ -233,7 +236,7 @@ function TreeNodeEdit({ node, depth = 0, edits, onEdit }) {
             placeholder="0"
           />
         ) : (
-          <span className={`tabular-nums text-right shrink-0 ml-1 text-[11px] ${isMacro ? 'font-bold text-slate-900 w-28' : 'text-slate-500 w-24'} ${node.amount < 0 ? 'text-red-600' : ''}`}>
+          <span className={`tabular-nums text-right shrink-0 ml-1 text-[11px] ${isMacro ? 'font-bold text-slate-900 w-28' : 'text-slate-500 w-24'} ${(node.amount ?? 0) < 0 ? 'text-red-600' : ''}`}>
             {fmt(node.amount)} €
           </span>
         )}
@@ -248,7 +251,7 @@ function TreeNodeEdit({ node, depth = 0, edits, onEdit }) {
 /* ═══════════════════════════════════════════════════════════
    READ-ONLY TREE NODE
    ═══════════════════════════════════════════════════════════ */
-function TreeNodeView({ node, depth = 0 }) {
+function TreeNodeView({ node, depth = 0 }: { node: TreeNodeT; depth?: number }) {
   const [open, setOpen] = useState(false)
   const hasKids = node.children?.length > 0
   const isMacro = node.level === 0
@@ -265,7 +268,7 @@ function TreeNodeView({ node, depth = 0 }) {
         >
           {prettifyAccountName(node.description)}
         </span>
-        <span className={`tabular-nums text-right shrink-0 ml-auto ${isMacro ? 'text-[11px] font-bold text-slate-900' : 'text-[10px] text-slate-600'} ${node.amount < 0 ? 'text-red-600' : ''}`}>
+        <span className={`tabular-nums text-right shrink-0 ml-auto ${isMacro ? 'text-[11px] font-bold text-slate-900' : 'text-[10px] text-slate-600'} ${(node.amount ?? 0) < 0 ? 'text-red-600' : ''}`}>
           {fmt(node.amount)} €
         </span>
       </div>
@@ -277,8 +280,9 @@ function TreeNodeView({ node, depth = 0 }) {
 /* ═══════════════════════════════════════════════════════════
    KPI
    ═══════════════════════════════════════════════════════════ */
-function Kpi({ icon: Icon, label, value, sub, color = 'indigo', alert }) {
-  const cm = { indigo: 'bg-indigo-50 text-indigo-600', blue: 'bg-blue-50 text-blue-600', green: 'bg-emerald-50 text-emerald-600', red: 'bg-red-50 text-red-600', amber: 'bg-amber-50 text-amber-600', purple: 'bg-purple-50 text-purple-600' }
+type KpiColor = 'indigo' | 'blue' | 'green' | 'red' | 'amber' | 'purple'
+function Kpi({ icon: Icon, label, value, sub, color = 'indigo', alert }: { icon: React.ComponentType<{ size?: number }>; label: string; value: string | number; sub?: string; color?: KpiColor; alert?: boolean }) {
+  const cm: Record<KpiColor, string> = { indigo: 'bg-indigo-50 text-indigo-600', blue: 'bg-blue-50 text-blue-600', green: 'bg-emerald-50 text-emerald-600', red: 'bg-red-50 text-red-600', amber: 'bg-amber-50 text-amber-600', purple: 'bg-purple-50 text-purple-600' }
   return (
     <div className={`bg-white rounded-xl border p-4 shadow-sm ${alert ? 'border-red-200 ring-1 ring-red-100' : 'border-slate-200'}`}>
       <div className="flex items-center gap-3">
@@ -305,32 +309,38 @@ export default function BudgetControl() {
   const [tab, setTab] = useState('bp')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [toast, setToast] = useState<any>(null)
-  const show = (msg, t = 'success') => { setToast({ msg, t }); setTimeout(() => setToast(null), 3000) }
+  const [toast, setToast] = useState<{ msg: string; t: string } | null>(null)
+  const show = (msg: string, t = 'success') => { setToast({ msg, t }); setTimeout(() => setToast(null), 3000) }
 
   // Data
-  const [costCenters, setCostCenters] = useState<any[]>([])
-  const [ceRawCosti, setCeRawCosti] = useState<any[]>([])
-  const [ceRawRicavi, setCeRawRicavi] = useState<any[]>([])
-  const [budgetEntries, setBudgetEntries] = useState<any[]>([])
+  type CostCenter = { code: string; label?: string; name?: string; sort_order?: number; [k: string]: unknown }
+  type CeRow = TreeRow & { account_code?: string; account_name?: string; macro_group?: string }
+  type BudgetEntry = { cost_center?: string; account_code?: string; account_name?: string; budget_amount?: number; actual_amount?: number; month?: number; year?: number; macro_group?: string; [k: string]: unknown }
+  const [costCenters, setCostCenters] = useState<CostCenter[]>([])
+  const [ceRawCosti, setCeRawCosti] = useState<CeRow[]>([])
+  const [ceRawRicavi, setCeRawRicavi] = useState<CeRow[]>([])
+  const [budgetEntries, setBudgetEntries] = useState<BudgetEntry[]>([])
 
   // Cash-basis data from cash_movements
+  type CashByMonth = Record<string, { entrate: number; uscite: number }>
   const [cashTotals, setCashTotals] = useState({ entrate: 0, uscite: 0, netto: 0, count: 0 })
-  const [cashByMonth, setCashByMonth] = useState<Record<string, any>>({}) // { month: { entrate, uscite } }
+  const [cashByMonth, setCashByMonth] = useState<CashByMonth>({})
   const [cashLoaded, setCashLoaded] = useState(false)
 
   // BP edits: { outletCode: { accountCode: amount } }
-  const [bpEdits, setBpEdits] = useState<Record<string, any>>({})
+  type EditMap = Record<string, Record<string, number>>
+  const [bpEdits, setBpEdits] = useState<EditMap>({})
 
   // Confronto state
   const [confOutlet, setConfOutlet] = useState('')
   const [confView, setConfView] = useState('annuale') // 'annuale' | 'mensile'
-  const [consEdits, setConsEdits] = useState<Record<string, any>>({}) // consuntivo edits per outlet
-  const [rettEdits, setRettEdits] = useState<Record<string, any>>({}) // rettifiche per outlet: { outletCode: { accountCode: amount } }
+  const [consEdits, setConsEdits] = useState<EditMap>({}) // consuntivo edits per outlet
+  const [rettEdits, setRettEdits] = useState<EditMap>({}) // rettifiche per outlet
   // Monthly edits: { outletCode: { accountCode: [12 values] } }
-  const [prevMonthly, setPrevMonthly] = useState<Record<string, any>>({})  // preventivo costi mensile
-  const [revMonthly, setRevMonthly] = useState<Record<string, any>>({})    // ricavi previsti mensile
-  const [consMonthly, setConsMonthly] = useState<Record<string, any>>({})   // consuntivo mensile
+  type MonthlyEditMap = Record<string, Record<string, number[]>>
+  const [prevMonthly, setPrevMonthly] = useState<MonthlyEditMap>({})  // preventivo costi mensile
+  const [revMonthly, setRevMonthly] = useState<MonthlyEditMap>({})    // ricavi previsti mensile
+  const [consMonthly, setConsMonthly] = useState<MonthlyEditMap>({})   // consuntivo mensile
 
 
   // ─── LOAD CASH MOVEMENTS ─────────────────────────────────
@@ -356,17 +366,19 @@ export default function BudgetControl() {
       }
 
       let totalEntrate = 0, totalUscite = 0
-      const byMonth = {}
+      const byMonth: CashByMonth = {}
       data.forEach(row => {
+        if (!row.date) return
         const month = new Date(row.date).getMonth() + 1
-        if (!byMonth[month]) byMonth[month] = { entrate: 0, uscite: 0 }
+        const key = String(month)
+        if (!byMonth[key]) byMonth[key] = { entrate: 0, uscite: 0 }
         const amt = Math.abs(row.amount || 0)
         if (row.type === 'entrata') {
           totalEntrate += amt
-          byMonth[month].entrate += amt
+          byMonth[key].entrate += amt
         } else {
           totalUscite += amt
-          byMonth[month].uscite += amt
+          byMonth[key].uscite += amt
         }
       })
 
@@ -385,56 +397,63 @@ export default function BudgetControl() {
   const loadAll = async () => {
     setLoading(true)
     try {
+      if (!CID) return
+      const cid = CID
       const [ccR, bsR, buR, cfR] = await Promise.all([
-        supabase.from('cost_centers').select('*').eq('company_id', CID).eq('is_active', true).order('sort_order'),
-        supabase.from('balance_sheet_data').select('*').eq('company_id', CID).eq('year', 2025).in('section', ['ce_costi', 'ce_ricavi']).order('sort_order'),
-        supabase.from('budget_entries').select('*').eq('company_id', CID).eq('year', 2026),
-        supabase.from('budget_confronto').select('*').eq('company_id', CID).eq('year', year),
+        supabase.from('cost_centers').select('*').eq('company_id', cid).eq('is_active', true).order('sort_order'),
+        supabase.from('balance_sheet_data').select('*').eq('company_id', cid).eq('year', 2025).in('section', ['ce_costi', 'ce_ricavi']).order('sort_order'),
+        supabase.from('budget_entries').select('*').eq('company_id', cid).eq('year', 2026),
+        supabase.from('budget_confronto').select('*').eq('company_id', cid).eq('year', year),
       ])
-      setCostCenters(ccR.data || [])
-      setBudgetEntries(buR.data || [])
+      setCostCenters((ccR.data || []) as CostCenter[])
+      setBudgetEntries((buR.data || []) as BudgetEntry[])
 
       const junk = /Azienda:|Cod\.\s*Fiscale|Partita\s*IVA|^VIA\s|PERIODO\s*DAL|Totali\s*fino|^Pag\.|Considera anche|movimenti provvisori/i
       const clean = (bsR.data || []).filter(r => (r.account_code && r.account_code.trim()) && !junk.test(r.account_name || ''))
-      const co = [], ri = []
+      const co: CeRow[] = [], ri: CeRow[] = []
       clean.forEach(r => {
-        const row = { code: r.account_code||'', description: r.account_name||'', amount: r.amount||0, level: getCodeLevel(r.account_code), isMacro: (r.account_code||'').replace(/\s/g,'').length <= 2 }
-        r.section === 'ce_costi' ? co.push(row) : ri.push(row)
+        const row: CeRow = { code: r.account_code||'', description: r.account_name||'', amount: r.amount||0, level: getCodeLevel(r.account_code), isMacro: (r.account_code||'').replace(/\s/g,'').length <= 2 }
+        if (r.section === 'ce_costi') co.push(row); else ri.push(row)
       })
       setCeRawCosti(co); setCeRawRicavi(ri)
 
       // Reconstruct bpEdits from saved budget_entries (escludi rettifiche bilancio)
-      const edits = {}
-      ;(buR.data || []).filter(e => e.cost_center !== 'rettifica_bilancio').forEach(e => {
+      const edits: EditMap = {}
+      ;((buR.data || []) as BudgetEntry[]).filter(e => e.cost_center !== 'rettifica_bilancio').forEach(e => {
         const cc = e.cost_center || 'all'
+        const ac = e.account_code
+        if (!ac) return
         if (!edits[cc]) edits[cc] = {}
-        edits[cc][e.account_code] = (edits[cc][e.account_code] || 0) + (parseFloat(e.budget_amount) || 0)
+        edits[cc][ac] = (edits[cc][ac] || 0) + (Number(e.budget_amount) || 0)
       })
       setBpEdits(edits)
 
       // ─── Reconstruct confronto data from budget_confronto ───
-      const newConsEdits = {}, newRettEdits = {}
-      const newPrevM = {}, newRevM = {}, newConsM = {}
-      ;(cfR.data || []).forEach(r => {
-        const cc = r.cost_center, ac = r.account_code, amt = parseFloat(r.amount) || 0
+      const newConsEdits: EditMap = {}, newRettEdits: EditMap = {}
+      const newPrevM: MonthlyEditMap = {}, newRevM: MonthlyEditMap = {}, newConsM: MonthlyEditMap = {}
+      type CfRow = { cost_center?: string | null; account_code?: string | null; amount?: number | null; entry_type?: string | null; month?: number | null }
+      ;((cfR.data || []) as CfRow[]).forEach(r => {
+        const cc = r.cost_center, ac = r.account_code
+        if (!cc || !ac) return
+        const amt = Number(r.amount) || 0
         if (r.entry_type === 'consuntivo' && r.month === 0) {
           if (!newConsEdits[cc]) newConsEdits[cc] = {}
           newConsEdits[cc][ac] = amt
         } else if (r.entry_type === 'rettifica' && r.month === 0) {
           if (!newRettEdits[cc]) newRettEdits[cc] = {}
           newRettEdits[cc][ac] = amt
-        } else if (r.entry_type === 'prev_monthly' && r.month >= 1) {
+        } else if (r.entry_type === 'prev_monthly' && (r.month || 0) >= 1) {
           if (!newPrevM[cc]) newPrevM[cc] = {}
           if (!newPrevM[cc][ac]) newPrevM[cc][ac] = Array(12).fill(0)
-          newPrevM[cc][ac][r.month - 1] = amt
-        } else if (r.entry_type === 'rev_monthly' && r.month >= 1) {
+          newPrevM[cc][ac][(r.month || 1) - 1] = amt
+        } else if (r.entry_type === 'rev_monthly' && (r.month || 0) >= 1) {
           if (!newRevM[cc]) newRevM[cc] = {}
           if (!newRevM[cc][ac]) newRevM[cc][ac] = Array(12).fill(0)
-          newRevM[cc][ac][r.month - 1] = amt
-        } else if (r.entry_type === 'cons_monthly' && r.month >= 1) {
+          newRevM[cc][ac][(r.month || 1) - 1] = amt
+        } else if (r.entry_type === 'cons_monthly' && (r.month || 0) >= 1) {
           if (!newConsM[cc]) newConsM[cc] = {}
           if (!newConsM[cc][ac]) newConsM[cc][ac] = Array(12).fill(0)
-          newConsM[cc][ac][r.month - 1] = amt
+          newConsM[cc][ac][(r.month || 1) - 1] = amt
         }
       })
       setConsEdits(newConsEdits)
@@ -460,7 +479,7 @@ export default function BudgetControl() {
   const hasTree = ceRawCosti.length > 0 || ceRawRicavi.length > 0
 
   // ─── SAVE BP ───────────────────────────────────────────────
-  const saveBP = async (code) => {
+  const saveBP = async (code: string) => {
     setSaving(true)
     try {
       const costEdits = bpEdits[code] || {}
@@ -476,55 +495,57 @@ export default function BudgetControl() {
         Array.from({ length: 12 }, (_, i) => ({
           company_id: CID, account_code: ac, account_name: ac, macro_group: 'CE',
           cost_center: code, year: 2026, month: i + 1,
-          budget_amount: Math.round(amt / 12), is_approved: false,
+          budget_amount: Math.round((amt as number) / 12), is_approved: false,
         }))
       ).flat()
-      const { error } = await supabase.from('budget_entries').upsert(entries, { onConflict: 'company_id,account_code,cost_center,year,month' })
+      const { error } = await supabase.from('budget_entries').upsert(entries as never, { onConflict: 'company_id,account_code,cost_center,year,month' })
       if (error) throw error
       show(`Preventivo ${code} salvato ✓ (${Object.keys(costEdits).length} costi + ${Object.keys(ricaviLeaves).length} ricavi)`)
-    } catch (e) { show(e.message, 'error') } finally { setSaving(false) }
+    } catch (e: unknown) { show((e as Error).message, 'error') } finally { setSaving(false) }
   }
 
   // ─── SAVE CONFRONTO (annuale + mensile) ────────────────────
-  const saveConfronto = async (outletCode) => {
+  const saveConfronto = async (outletCode: string) => {
     setSaving(true)
     try {
-      const rows = []
+      type CfInsertRow = { company_id: string; cost_center: string; account_code: string; year: number; month: number; entry_type: string; amount: number; updated_at: string }
+      const rows: CfInsertRow[] = []
       // Annuale: consuntivo
       Object.entries(consEdits[outletCode] || {}).forEach(([ac, amt]) => {
-        if (typeof amt === 'number' && amt !== 0) rows.push({ company_id: CID, cost_center: outletCode, account_code: ac, year, month: 0, entry_type: 'consuntivo', amount: amt, updated_at: new Date().toISOString() })
+        if (typeof amt === 'number' && amt !== 0 && CID) rows.push({ company_id: CID, cost_center: outletCode, account_code: ac, year, month: 0, entry_type: 'consuntivo', amount: amt, updated_at: new Date().toISOString() })
       })
       // Annuale: rettifica
       Object.entries(rettEdits[outletCode] || {}).forEach(([ac, amt]) => {
-        if (typeof amt === 'number' && amt !== 0) rows.push({ company_id: CID, cost_center: outletCode, account_code: ac, year, month: 0, entry_type: 'rettifica', amount: amt, updated_at: new Date().toISOString() })
+        if (typeof amt === 'number' && amt !== 0 && CID) rows.push({ company_id: CID, cost_center: outletCode, account_code: ac, year, month: 0, entry_type: 'rettifica', amount: amt, updated_at: new Date().toISOString() })
       })
       // Mensile: prev costi
       Object.entries(prevMonthly[outletCode] || {}).forEach(([ac, arr]) => {
-        (arr || []).forEach((v, mi) => {
-          if (typeof v === 'number' && v !== 0) rows.push({ company_id: CID, cost_center: outletCode, account_code: ac, year, month: mi + 1, entry_type: 'prev_monthly', amount: v, updated_at: new Date().toISOString() })
+        (arr as number[] || []).forEach((v, mi) => {
+          if (typeof v === 'number' && v !== 0 && CID) rows.push({ company_id: CID, cost_center: outletCode, account_code: ac, year, month: mi + 1, entry_type: 'prev_monthly', amount: v, updated_at: new Date().toISOString() })
         })
       })
       // Mensile: ricavi previsti
       Object.entries(revMonthly[outletCode] || {}).forEach(([ac, arr]) => {
-        (arr || []).forEach((v, mi) => {
-          if (typeof v === 'number' && v !== 0) rows.push({ company_id: CID, cost_center: outletCode, account_code: ac, year, month: mi + 1, entry_type: 'rev_monthly', amount: v, updated_at: new Date().toISOString() })
+        (arr as number[] || []).forEach((v, mi) => {
+          if (typeof v === 'number' && v !== 0 && CID) rows.push({ company_id: CID, cost_center: outletCode, account_code: ac, year, month: mi + 1, entry_type: 'rev_monthly', amount: v, updated_at: new Date().toISOString() })
         })
       })
       // Mensile: consuntivo
       Object.entries(consMonthly[outletCode] || {}).forEach(([ac, arr]) => {
-        (arr || []).forEach((v, mi) => {
-          if (typeof v === 'number' && v !== 0) rows.push({ company_id: CID, cost_center: outletCode, account_code: ac, year, month: mi + 1, entry_type: 'cons_monthly', amount: v, updated_at: new Date().toISOString() })
+        (arr as number[] || []).forEach((v, mi) => {
+          if (typeof v === 'number' && v !== 0 && CID) rows.push({ company_id: CID, cost_center: outletCode, account_code: ac, year, month: mi + 1, entry_type: 'cons_monthly', amount: v, updated_at: new Date().toISOString() })
         })
       })
 
       if (rows.length === 0) { show('Nessun dato da salvare', 'error'); setSaving(false); return }
 
       // Delete old data for this outlet/year, then insert fresh
+      if (!CID) return
       await supabase.from('budget_confronto').delete().eq('company_id', CID).eq('cost_center', outletCode).eq('year', year)
-      const { error } = await supabase.from('budget_confronto').insert(rows)
+      const { error } = await supabase.from('budget_confronto').insert(rows as never)
       if (error) throw error
       show(`Confronto ${outletCode} salvato ✓ (${rows.length} righe)`)
-    } catch (e) { show(e.message, 'error') } finally { setSaving(false) }
+    } catch (e: unknown) { show((e as Error).message, 'error') } finally { setSaving(false) }
   }
 
   // ─── MAPPA RICAVI → OUTLET ─────────────────────────────────
@@ -546,23 +567,23 @@ export default function BudgetControl() {
   // Filtra l'albero ricavi per outlet:
   // - Outlet: vede SOLO il suo corrispettivo (es. 510107 per Valdichiana). Nient'altro.
   // - Magazzino: vede TUTTO tranne i corrispettivi degli outlet (59, 81, 89 + 510101)
-  const filterRicaviTree = (tree, outletCode) => {
+  const filterRicaviTree = (tree: TreeNodeT[], outletCode: string): TreeNodeT[] => {
     const isHQ = outletCode === HQ_CODE
-    const walk = (nodes) => nodes.map(node => {
+    const walk = (nodes: TreeNodeT[]): TreeNodeT[] => nodes.map((node: TreeNodeT): TreeNodeT | null => {
       if (node.children?.length > 0) {
-        const filteredKids = walk(node.children).filter(Boolean)
+        const filteredKids = walk(node.children).filter((n): n is TreeNodeT => n !== null)
         if (filteredKids.length === 0) return null
-        const amount = filteredKids.reduce((s, c) => s + (c.amount || 0), 0)
+        const amount = filteredKids.reduce<number>((s, c) => s + (c.amount || 0), 0)
         return { ...node, children: filteredKids, amount }
       }
       // Foglia
       if (OUTLET_CORRISP_CODES.has(node.code)) {
         // Corrispettivo outlet-specifico: tieni solo per il suo outlet
-        return RICAVI_OUTLET_MAP[node.code] === outletCode ? node : null
+        return (RICAVI_OUTLET_MAP as Record<string, string>)[node.code] === outletCode ? node : null
       }
       // Tutti gli altri ricavi (59, 81, 89, ecc.): SOLO magazzino
       return isHQ ? node : null
-    }).filter(Boolean)
+    }).filter((n): n is TreeNodeT => n !== null)
     return walk(tree)
   }
 
@@ -570,14 +591,15 @@ export default function BudgetControl() {
   // I ricavi vengono dal bilancio filtrato per outlet (read-only, auto-salvati con saveBP)
 
   // ─── CONFIRM DIALOG STATE ────────────────────────────────
-  const [confirmAction, setConfirmAction] = useState<any>(null)
-  // confirmAction = { title, message, action: () => void }
+  type ConfirmActionT = { title: string; message: string; action: () => void | Promise<void> } | null
+  const [confirmAction, setConfirmAction] = useState<ConfirmActionT>(null)
 
-  const clearOutlet = (code) => {
+  const clearOutlet = (code: string) => {
     setConfirmAction({
       title: `Svuota Business Plan — ${code}`,
       message: 'Tutti i costi inseriti per questo outlet verranno cancellati da memoria e database.',
       action: async () => {
+        if (!CID) return
         setBpEdits(prev => { const next = { ...prev }; delete next[code]; return next })
         await supabase.from('budget_entries').delete().eq('company_id', CID).eq('cost_center', code).eq('year', year)
         show('Dati cancellati da memoria e database')
@@ -590,6 +612,7 @@ export default function BudgetControl() {
       title: 'Svuota tutti i Business Plan',
       message: 'Tutti i dati di tutti gli outlet verranno cancellati da memoria e database.',
       action: async () => {
+        if (!CID) return
         setBpEdits({})
         await supabase.from('budget_entries').delete().eq('company_id', CID).eq('year', year)
         show('Tutti i dati cancellati da memoria e database')
@@ -598,11 +621,12 @@ export default function BudgetControl() {
   }
 
   // Svuota confronto annuale (consuntivo + rettifica) per outlet — anche da DB
-  const clearConfrontoAnnuale = (outletCode) => {
+  const clearConfrontoAnnuale = (outletCode: string) => {
     setConfirmAction({
       title: `Svuota Confronto Annuale — ${outletCode}`,
       message: 'Consuntivo e rettifiche annuali verranno cancellati da memoria e database.',
       action: async () => {
+        if (!CID) return
         setConsEdits(prev => { const n = { ...prev }; delete n[outletCode]; return n })
         setRettEdits(prev => { const n = { ...prev }; delete n[outletCode]; return n })
         await supabase.from('budget_confronto').delete()
@@ -614,11 +638,12 @@ export default function BudgetControl() {
   }
 
   // Svuota confronto mensile per outlet — anche da DB
-  const clearConfrontoMensile = (outletCode) => {
+  const clearConfrontoMensile = (outletCode: string) => {
     setConfirmAction({
       title: `Svuota Dati Mensili — ${outletCode}`,
       message: 'Costi preventivo, ricavi e consuntivo mensili verranno cancellati da memoria e database.',
       action: async () => {
+        if (!CID) return
         setPrevMonthly(prev => { const n = { ...prev }; delete n[outletCode]; return n })
         setRevMonthly(prev => { const n = { ...prev }; delete n[outletCode]; return n })
         setConsMonthly(prev => { const n = { ...prev }; delete n[outletCode]; return n })
@@ -701,20 +726,20 @@ export default function BudgetControl() {
 
           {/* Sede card */}
           {hq && hasTree && (
-            <BPCard label={hq.label} code={HQ_CODE} isHQ numOps={ops.length}
+            <BPCard label={hq.label || HQ_CODE} code={HQ_CODE} isHQ numOps={ops.length}
               costiTree={costiTree} ricaviTree={filterRicaviTree(ricaviTree, HQ_CODE)}
-              edits={bpEdits[HQ_CODE]||{}} setEdits={ed => setBpEdits(p => ({...p,[HQ_CODE]:ed}))}
+              edits={bpEdits[HQ_CODE]||{}} setEdits={(ed: Record<string, number>) => setBpEdits(p => ({...p,[HQ_CODE]:ed}))}
               onClear={() => clearOutlet(HQ_CODE)}
               onSave={() => saveBP(HQ_CODE)} saving={saving} color="#f59e0b" year={year} />
           )}
 
           {/* Outlet cards */}
           {ops.map(cc => (
-            <BPCard key={cc.code} label={prettyCenterLabel(cc)} code={cc.code}
+            <BPCard key={cc.code} label={prettyCenterLabel(cc)} code={cc.code} isHQ={false} numOps={0}
               costiTree={costiTree} ricaviTree={filterRicaviTree(ricaviTree, cc.code)}
-              edits={bpEdits[cc.code]||{}} setEdits={ed => setBpEdits(p => ({...p,[cc.code]:ed}))}
+              edits={bpEdits[cc.code]||{}} setEdits={(ed: Record<string, number>) => setBpEdits(p => ({...p,[cc.code]:ed}))}
               onClear={() => clearOutlet(cc.code)}
-              onSave={() => saveBP(cc.code)} saving={saving} color={cc.color||'#6366f1'} year={year} />
+              onSave={() => saveBP(cc.code)} saving={saving} color={(cc.color as string | undefined)||'#6366f1'} year={year} />
           ))}
         </div>
       )}
@@ -762,9 +787,9 @@ export default function BudgetControl() {
                   outletLabel={prettyCenterLabel(costCenters.find(c => c.code === confOutlet)) || prettyCenterLabel({ code: confOutlet })}
                   prevEdits={bpEdits[confOutlet] || {}}
                   consEdits={consEdits[confOutlet] || {}}
-                  onConsEdit={(code, val) => setConsEdits(prev => ({...prev, [confOutlet]: {...(prev[confOutlet]||{}), [code]: val}}))}
+                  onConsEdit={(code: string, val: number) => setConsEdits(prev => ({...prev, [confOutlet]: {...(prev[confOutlet]||{}), [code]: val}}))}
                   rettEdits={rettEdits[confOutlet] || {}}
-                  onRettEdit={(code, val) => setRettEdits(prev => ({...prev, [confOutlet]: {...(prev[confOutlet]||{}), [code]: val}}))}
+                  onRettEdit={(code: string, val: number | string | undefined) => setRettEdits(prev => ({...prev, [confOutlet]: {...(prev[confOutlet]||{}), [code]: (typeof val === 'number' ? val : 0)}}))}
                   costiTree={costiTree}
                   ricaviTree={filterRicaviTree(ricaviTree, confOutlet)}
                   year={year}
@@ -779,21 +804,21 @@ export default function BudgetControl() {
                   costiTree={costiTree}
                   ricaviTree={filterRicaviTree(ricaviTree, confOutlet)}
                   prevMonthly={prevMonthly[confOutlet] || {}}
-                  onPrevMonthly={(code, month, val) => setPrevMonthly(prev => {
+                  onPrevMonthly={(code: string, month: number, val: number) => setPrevMonthly(prev => {
                     const outlet = { ...(prev[confOutlet] || {}) }
                     const arr = [...(outlet[code] || Array(12).fill(0))]
                     arr[month] = val
                     return { ...prev, [confOutlet]: { ...outlet, [code]: arr } }
                   })}
                   revMonthly={revMonthly[confOutlet] || {}}
-                  onRevMonthly={(code, month, val) => setRevMonthly(prev => {
+                  onRevMonthly={(code: string, month: number, val: number) => setRevMonthly(prev => {
                     const outlet = { ...(prev[confOutlet] || {}) }
                     const arr = [...(outlet[code] || Array(12).fill(0))]
                     arr[month] = val
                     return { ...prev, [confOutlet]: { ...outlet, [code]: arr } }
                   })}
                   consMonthly={consMonthly[confOutlet] || {}}
-                  onConsMonthly={(code, month, val) => setConsMonthly(prev => {
+                  onConsMonthly={(code: string, month: number, val: number) => setConsMonthly(prev => {
                     const outlet = { ...(prev[confOutlet] || {}) }
                     const arr = [...(outlet[code] || Array(12).fill(0))]
                     arr[month] = val
@@ -830,7 +855,8 @@ export default function BudgetControl() {
 /* ═══════════════════════════════════════════════════════════
    BP CARD — Per outlet, struttura CE editabile
    ═══════════════════════════════════════════════════════════ */
-function BPCard({ label, code, isHQ, numOps, costiTree, ricaviTree, edits, setEdits, onClear, onSave, saving, color, year }) {
+type BPCardProps = { label: string; code: string; isHQ: boolean; numOps: number; costiTree: TreeNodeT[]; ricaviTree: TreeNodeT[]; edits: Record<string, number>; setEdits: (ed: Record<string, number>) => void; onClear: () => void; onSave: () => void | Promise<void>; saving: boolean; color: string; year: number }
+function BPCard({ label, code, isHQ, numOps, costiTree, ricaviTree, edits, setEdits, onClear, onSave, saving, color, year }: BPCardProps) {
   const [open, setOpen] = useState(false)
 
   // COSTI: partono da ZERO, l'operatore compila manualmente
@@ -841,7 +867,7 @@ function BPCard({ label, code, isHQ, numOps, costiTree, ricaviTree, edits, setEd
   const ris = totR - totC
   const hasEdits = Object.keys(edits).length > 0
 
-  const onEdit = (ac, val) => setEdits({ ...edits, [ac]: val })
+  const onEdit = (ac: string, val: number | null) => setEdits({ ...edits, [ac]: val ?? 0 })
 
   return (
     <div className={`bg-white rounded-xl border shadow-sm overflow-hidden ${isHQ ? 'border-amber-200' : 'border-slate-200'}`}>
@@ -916,9 +942,9 @@ function BPCard({ label, code, isHQ, numOps, costiTree, ricaviTree, edits, setEd
    CONFRONTO MENSILE — Albero CE con selettore mese + copia
    ═══════════════════════════════════════════════════════════ */
 
-function CopyMonthPopover({ fromMonth, onCopy, onClose }) {
-  const [sel, setSel] = useState(Array(12).fill(false))
-  const toggle = i => setSel(p => { const n = [...p]; n[i] = !n[i]; return n })
+function CopyMonthPopover({ fromMonth, onCopy, onClose }: { fromMonth: number; onCopy: (selMonths: boolean[]) => void; onClose: () => void }) {
+  const [sel, setSel] = useState<boolean[]>(Array(12).fill(false))
+  const toggle = (i: number) => setSel(p => { const n = [...p]; n[i] = !n[i]; return n })
   const allSel = sel.every((v, i) => i === fromMonth || v)
   const toggleAll = () => setSel(Array(12).fill(!allSel).map((v, i) => i === fromMonth ? false : v))
   const count = sel.filter(Boolean).length
@@ -957,7 +983,8 @@ function CopyMonthPopover({ fromMonth, onCopy, onClose }) {
   )
 }
 
-function MonthlyTreeNode({ node, depth = 0, edits, onEdit, mese, monthly, onCopyToMonths }) {
+type MonthlyTreeNodeProps = { node: TreeNodeT; depth?: number; edits: Record<string, number>; onEdit: (code: string, val: number | null) => void; mese: number; monthly: MonthlyMap; onCopyToMonths: (code: string, mi: number, val: number) => void }
+function MonthlyTreeNode({ node, depth = 0, edits, onEdit, mese, monthly, onCopyToMonths }: MonthlyTreeNodeProps) {
   const [open, setOpen] = useState(false)
   const [showCopy, setShowCopy] = useState(false)
   const hasKids = node.children?.length > 0
@@ -967,12 +994,12 @@ function MonthlyTreeNode({ node, depth = 0, edits, onEdit, mese, monthly, onCopy
   const isEdited = edits[node.code] != null
 
   // Collect all leaf codes under this node
-  const collectLeaves = (n) => {
+  const collectLeaves = (n: TreeNodeT): string[] => {
     if (!n.children?.length) return [n.code]
     return n.children.flatMap(collectLeaves)
   }
 
-  const handleCopy = (selMonths) => {
+  const handleCopy = (selMonths: boolean[]) => {
     const codes = collectLeaves(node)
     codes.forEach(code => {
       const srcVal = monthly[code]?.[mese] || 0
@@ -1031,15 +1058,17 @@ function MonthlyTreeNode({ node, depth = 0, edits, onEdit, mese, monthly, onCopy
   )
 }
 
-function ConfrontoMensile({ outletCode, outletLabel, costiTree, ricaviTree, prevMonthly, onPrevMonthly, revMonthly, onRevMonthly, consMonthly, onConsMonthly, year }) {
+type MonthlyMap = Record<string, number[]>
+type ConfrontoMensileProps = { outletCode: string; outletLabel: string; costiTree: TreeNodeT[]; ricaviTree: TreeNodeT[]; prevMonthly: MonthlyMap; onPrevMonthly: (code: string, month: number, val: number) => void; revMonthly: MonthlyMap; onRevMonthly: (code: string, month: number, val: number) => void; consMonthly: MonthlyMap; onConsMonthly: (code: string, month: number, val: number) => void; year: number }
+function ConfrontoMensile({ outletCode, outletLabel, costiTree, ricaviTree, prevMonthly, onPrevMonthly, revMonthly, onRevMonthly, consMonthly, onConsMonthly, year }: ConfrontoMensileProps) {
   const [mese, setMese] = useState(0)
 
   // Edits for selected month
-  const costiEditsForMonth = {}
+  const costiEditsForMonth: Record<string, number> = {}
   Object.entries(prevMonthly).forEach(([code, arr]) => {
     if (arr && arr[mese]) costiEditsForMonth[code] = arr[mese]
   })
-  const ricaviEditsForMonth = {}
+  const ricaviEditsForMonth: Record<string, number> = {}
   Object.entries(revMonthly).forEach(([code, arr]) => {
     if (arr && arr[mese]) ricaviEditsForMonth[code] = arr[mese]
   })
@@ -1100,7 +1129,7 @@ function ConfrontoMensile({ outletCode, outletLabel, costiTree, ricaviTree, prev
               <div className="text-xs font-semibold text-red-500 uppercase tracking-wider mb-2">Costi preventivo — {MESI[mese]}</div>
               <div className="border border-slate-200 rounded-lg p-1.5 max-h-[500px] overflow-y-auto">
                 {editedC.map((n, i) => <MonthlyTreeNode key={`mc-${n.code}-${i}-${mese}`} node={n} edits={costiEditsForMonth}
-                  onEdit={(code, val) => onPrevMonthly(code, mese, val)} mese={mese} monthly={prevMonthly} onCopyToMonths={onPrevMonthly} />)}
+                  onEdit={(code, val) => onPrevMonthly(code, mese, val ?? 0)} mese={mese} monthly={prevMonthly} onCopyToMonths={onPrevMonthly} />)}
               </div>
               <div className="mt-2 pt-2 border-t-2 border-slate-300 flex justify-between px-2">
                 <span className="text-sm font-bold">TOTALE COSTI {MESI_SHORT[mese]}</span>
@@ -1112,7 +1141,7 @@ function ConfrontoMensile({ outletCode, outletLabel, costiTree, ricaviTree, prev
               <div className="text-xs font-semibold text-emerald-500 uppercase tracking-wider mb-2">Ricavi previsti — {MESI[mese]}</div>
               <div className="border border-slate-200 rounded-lg p-1.5 max-h-[500px] overflow-y-auto">
                 {editedR.map((n, i) => <MonthlyTreeNode key={`mr-${n.code}-${i}-${mese}`} node={n} edits={ricaviEditsForMonth}
-                  onEdit={(code, val) => onRevMonthly(code, mese, val)} mese={mese} monthly={revMonthly} onCopyToMonths={onRevMonthly} />)}
+                  onEdit={(code, val) => onRevMonthly(code, mese, val ?? 0)} mese={mese} monthly={revMonthly} onCopyToMonths={onRevMonthly} />)}
               </div>
               <div className="mt-2 pt-2 border-t-2 border-slate-300 flex justify-between px-2">
                 <span className="text-sm font-bold">TOTALE RICAVI {MESI_SHORT[mese]}</span>
@@ -1141,7 +1170,8 @@ function ConfrontoMensile({ outletCode, outletLabel, costiTree, ricaviTree, prev
    ═══════════════════════════════════════════════════════════ */
 const CONF_COLS = '1fr 85px 95px 90px 85px 55px'
 
-function ConfrontoRow({ prevNode, consNode, rettNode, depth = 0, consEdits, onConsEdit, rettEdits, onRettEdit }) {
+type ConfrontoRowProps = { prevNode: TreeNodeT; consNode: TreeNodeT; rettNode: TreeNodeT; depth?: number; consEdits: Record<string, number>; onConsEdit: (code: string, val: number) => void; rettEdits: Record<string, number | string>; onRettEdit: (code: string, val: number | string | undefined) => void }
+function ConfrontoRow({ prevNode, consNode, rettNode, depth = 0, consEdits, onConsEdit, rettEdits, onRettEdit }: ConfrontoRowProps) {
   const [open, setOpen] = useState(false)
   const hasKids = prevNode.children?.length > 0
   const isMacro = prevNode.level === 0
@@ -1224,7 +1254,9 @@ function ConfrontoRow({ prevNode, consNode, rettNode, depth = 0, consEdits, onCo
    CONFRONTO PANEL — Preventivo | Consuntivo | Rettifica | Scostamento
    Scostamento = Consuntivo + Rettifica - Preventivo
    ═══════════════════════════════════════════════════════════ */
-function ConfrontoPanel({ outletCode, outletLabel, prevEdits, consEdits, onConsEdit, rettEdits, onRettEdit, costiTree, ricaviTree, year, cashTotals, cashLoaded }) {
+type CashTotalsT = { entrate: number; uscite: number; netto: number; count: number }
+type ConfrontoPanelProps = { outletCode: string; outletLabel: string; prevEdits: Record<string, number>; consEdits: Record<string, number>; onConsEdit: (code: string, val: number) => void; rettEdits: Record<string, number>; onRettEdit: (code: string, val: number | string | undefined) => void; costiTree: TreeNodeT[]; ricaviTree: TreeNodeT[]; year: number; cashTotals: CashTotalsT; cashLoaded: boolean }
+function ConfrontoPanel({ outletCode, outletLabel, prevEdits, consEdits, onConsEdit, rettEdits, onRettEdit, costiTree, ricaviTree, year, cashTotals, cashLoaded }: ConfrontoPanelProps) {
   const prevC = applyEdits(costiTree, prevEdits)
   const prevR = applyEdits(ricaviTree, prevEdits)
   const consC = applyEditsZero(costiTree, consEdits)

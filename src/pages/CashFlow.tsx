@@ -1,4 +1,3 @@
-// @ts-nocheck — TODO tighten: indexing dinamico + Recharts payload, da rivedere
 import { useState, useMemo, useEffect } from 'react';
 import {
   AreaChart, Area, BarChart, Bar, ComposedChart, Line, XAxis, YAxis,
@@ -18,10 +17,12 @@ function fmt(n: number, dec = 0) {
 }
 
 // Default seasonal factors (fallback if no historical data)
-const DEFAULT_SEASONAL_FACTORS = {
+const DEFAULT_SEASONAL_FACTORS: Record<number, number> = {
   1: 1.05, 2: 0.95, 3: 0.95, 4: 0.9, 5: 0.9, 6: 0.95,
   7: 1.15, 8: 1.15, 9: 0.95, 10: 1.0, 11: 1.05, 12: 1.3
 };
+
+interface WeekRow { week: string; entrate: number; uscite: number; netto: number }
 
 export default function CashFlow() {
   const { profile } = useAuth();
@@ -40,8 +41,7 @@ export default function CashFlow() {
   const [seasonalFactors, setSeasonalFactors] = useState<Record<number, number>>(DEFAULT_SEASONAL_FACTORS);
 
   // State for actual (consuntivo) weekly data from cash_movements
-  // TODO: tighten type
-  const [actualWeeklyData, setActualWeeklyData] = useState<any[]>([]);
+  const [actualWeeklyData, setActualWeeklyData] = useState<WeekRow[]>([]);
 
   // Fetch data from Supabase
   useEffect(() => {
@@ -88,9 +88,9 @@ export default function CashFlow() {
         if (costsError) throw costsError;
 
         // Build fixed costs dictionary by macro_group
-        const costsByGroup = {};
+        const costsByGroup: Record<string, number> = {};
         (costsData || []).forEach(cat => {
-          if (!costsByGroup[cat.macro_group]) {
+          if (cat.macro_group && !costsByGroup[cat.macro_group]) {
             costsByGroup[cat.macro_group] = 0;
           }
         });
@@ -121,10 +121,10 @@ export default function CashFlow() {
 
         // Calculate seasonal factors from historical data
         if (pnlData && pnlData.length > 0) {
-          const monthlyRevenue = {};
-          const monthlySum = {};
+          const monthlySum: Record<number, number> = {};
 
           (pnlData || []).forEach(row => {
+            if (row.month == null) return;
             if (!monthlySum[row.month]) {
               monthlySum[row.month] = 0;
             }
@@ -133,16 +133,17 @@ export default function CashFlow() {
 
           // Calculate average per month and derive seasonal factor
           const monthlyAverage = Object.values(monthlySum).reduce((a, b) => a + b, 0) / 12;
-          const newSeasonalFactors = {};
+          const newSeasonalFactors: Record<number, number> = {};
 
           Object.entries(monthlySum).forEach(([month, total]) => {
-            newSeasonalFactors[month] = monthlyAverage > 0 ? total / monthlyAverage : 1;
+            const m = Number(month);
+            newSeasonalFactors[m] = monthlyAverage > 0 ? total / monthlyAverage : 1;
           });
 
           // Fill missing months with default
           for (let m = 1; m <= 12; m++) {
             if (!newSeasonalFactors[m]) {
-              newSeasonalFactors[m] = DEFAULT_SEASONAL_FACTORS[m] || 1;
+              newSeasonalFactors[m] = (DEFAULT_SEASONAL_FACTORS as Record<number, number>)[m] || 1;
             }
           }
 
@@ -150,7 +151,9 @@ export default function CashFlow() {
         }
 
         // 6. Fetch actual weekly data from cash_movements (last 13 weeks)
-        const { data: actualData, error: actualError } = await supabase
+        // RPC dinamico non incluso nei tipi generati: cast strutturale.
+        const sb = supabase as unknown as { rpc: (name: string, args: Record<string, string | null>) => { select: (s: string) => Promise<{ data: WeekRow[] | null; error: { message: string } | null }> } }
+        const { data: actualData, error: actualError } = await sb
           .rpc('get_weekly_cash_movements', { p_company_id: COMPANY_ID })
           .select('*');
 
@@ -166,7 +169,7 @@ export default function CashFlow() {
 
           if (!rawError && rawMovements && rawMovements.length > 0) {
             // Group by ISO week manually
-            const weekMap = {};
+            const weekMap: Record<string, WeekRow> = {};
             rawMovements.forEach(m => {
               const d = new Date(m.date);
               // Get Monday of the week
@@ -289,8 +292,9 @@ export default function CashFlow() {
   }, [weeklyData]);
 
   // Monthly summary
-  const monthlySummary = useMemo(() => {
-    const summary = {};
+  interface MonthSummary { month: number; entrate: number; uscite: number; saldo_finale: number }
+  const monthlySummary = useMemo<MonthSummary[]>(() => {
+    const summary: Record<number, MonthSummary> = {};
     weeklyData.forEach(week => {
       if (!summary[week.month]) {
         summary[week.month] = {
@@ -307,8 +311,9 @@ export default function CashFlow() {
     // Calculate ending balance per month
     let saldo = initialBalance;
     Object.keys(summary).forEach(month => {
-      saldo = saldo + summary[month].entrate - summary[month].uscite;
-      summary[month].saldo_finale = saldo;
+      const m = Number(month);
+      saldo = saldo + summary[m].entrate - summary[m].uscite;
+      summary[m].saldo_finale = saldo;
     });
 
     return Object.values(summary);
