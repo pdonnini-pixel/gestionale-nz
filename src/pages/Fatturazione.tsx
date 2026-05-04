@@ -1,4 +1,3 @@
-// @ts-nocheck — TODO tighten: pagina complessa con shape Supabase + indexing dinamico, da rivedere
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import PageHelp from '../components/PageHelp'
 import InvoiceViewer from '../components/InvoiceViewer'
@@ -41,8 +40,10 @@ const CORR_STATUS_CONFIG = {
   ERROR: { label: 'Errore', color: 'bg-red-100 text-red-700' },
 }
 
-// TODO: tighten type
-function SdiStatusBadge({ status, configMap = SDI_STATUS_CONFIG }: any) {
+type StatusConfigEntry = { label: string; color: string; icon?: React.ComponentType<{ size?: number }> }
+type StatusConfigMap = Record<string, StatusConfigEntry>
+
+function SdiStatusBadge({ status, configMap = SDI_STATUS_CONFIG as StatusConfigMap }: { status: string; configMap?: StatusConfigMap }) {
   const cfg = configMap[status] || configMap.PENDING
   const Icon = cfg.icon || Clock
   return (
@@ -53,8 +54,9 @@ function SdiStatusBadge({ status, configMap = SDI_STATUS_CONFIG }: any) {
   )
 }
 
-function KpiCard({ icon: Icon, label, value, sub, color = 'blue' }) {
-  const colorMap = {
+type KpiColor = 'blue' | 'green' | 'red' | 'amber' | 'slate'
+function KpiCard({ icon: Icon, label, value, sub, color = 'blue' }: { icon: React.ComponentType<{ size?: number }>; label: string; value: string | number; sub?: string; color?: KpiColor }) {
+  const colorMap: Record<KpiColor, string> = {
     blue: 'bg-blue-50 text-blue-600',
     green: 'bg-green-50 text-green-600',
     red: 'bg-red-50 text-red-600',
@@ -79,7 +81,7 @@ function KpiCard({ icon: Icon, label, value, sub, color = 'blue' }) {
 
 // ─── callFunction helper (same pattern as useYapily) ────────────────────
 
-async function callEdgeFunction(fnName, method = 'GET', body = null, params = null) {
+async function callEdgeFunction(fnName: string, method = 'GET', body: Record<string, unknown> | null = null, params: Record<string, string> | null = null) {
   const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhmdmZ4c3ZxcG5wdmliZ2VxcHFwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUxNDkwNDcsImV4cCI6MjA5MDcyNTA0N30.ohYziAXiOWS0TKU9HHuhUAbf5Geh10xbLGEoftOMJZA'
   const baseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://xfvfxsvqpnpvibgeqpqp.supabase.co'
 
@@ -89,7 +91,7 @@ async function callEdgeFunction(fnName, method = 'GET', body = null, params = nu
     if (qs) url += `?${qs}`
   }
 
-  const doFetch = async (accessToken) => {
+  const doFetch = async (accessToken: string) => {
     return fetch(url, {
       method,
       headers: {
@@ -121,7 +123,27 @@ async function callEdgeFunction(fnName, method = 'GET', body = null, params = nu
 // ═══════════════════════════════════════════════════════════════════════
 
 function FatturePassive() {
-  const [invoices, setInvoices] = useState<any[]>([])
+  type InvoiceRow = {
+    id: string
+    invoice_date?: string | null
+    invoice_number?: string | null
+    supplier_name?: string | null
+    supplier_vat?: string | null
+    sdi_status?: string | null
+    sdi_id?: string | null
+    description?: string | null
+    gross_amount?: number | null
+    net_amount?: number | null
+    taxable_amount?: number | null
+    vat_amount?: number | null
+    tipo_documento?: string | null
+    payment_method?: string | null
+    due_date?: string | null
+    xml_content?: string | null
+    notification_history?: Array<{ tipo?: string; data?: string; codice?: string; descrizione?: string }> | null
+    [key: string]: unknown
+  }
+  const [invoices, setInvoices] = useState<InvoiceRow[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState('ALL')
@@ -166,7 +188,7 @@ function FatturePassive() {
   useEffect(() => { loadInvoices() }, [loadInvoices])
 
   // Upload XML FatturaPA
-  const handleXmlUpload = async (e) => {
+  const handleXmlUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
     setUploading(true)
@@ -176,9 +198,9 @@ function FatturePassive() {
         alert('Il file non sembra essere un XML FatturaPA valido.')
         return
       }
-      const result = await callEdgeFunction('sdi-receive', 'POST', { xmlContent })
+      const result = await callEdgeFunction('sdi-receive', 'POST', { xmlContent }) as { data?: { action?: string; invoice?: { invoice_number?: string } } }
       if (result.data) {
-        alert(`Fattura ${result.data.action === 'created' ? 'importata' : 'aggiornata'}: ${result.data.invoice.invoice_number}`)
+        alert(`Fattura ${result.data.action === 'created' ? 'importata' : 'aggiornata'}: ${result.data.invoice?.invoice_number}`)
         loadInvoices()
       }
     } catch (err: unknown) {
@@ -190,8 +212,9 @@ function FatturePassive() {
   }
 
   // Carica XML multipli per associare xml_content alle fatture esistenti
-  const [xmlUpdateProgress, setXmlUpdateProgress] = useState<any>(null)
-  const handleBulkXmlUpdate = async (e) => {
+  type XmlProgress = { total: number; done: number; matched: number; errors: number; finished?: boolean }
+  const [xmlUpdateProgress, setXmlUpdateProgress] = useState<XmlProgress | null>(null)
+  const handleBulkXmlUpdate = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files
     if (!files || files.length === 0) return
     setXmlUpdateProgress({ total: files.length, done: 0, matched: 0, errors: 0 })
@@ -229,7 +252,7 @@ function FatturePassive() {
       setXmlUpdateProgress({ total: files.length, done, matched, errors })
     }
 
-    setXmlUpdateProgress(prev => ({ ...prev, finished: true }))
+    setXmlUpdateProgress(prev => prev ? { ...prev, finished: true } : prev)
     loadInvoices()
     e.target.value = ''
   }
@@ -263,13 +286,14 @@ function FatturePassive() {
 
   // Stats calcolate sul SET FILTRATO — cosi i KPI si aggiornano con il filtro anno
   // e corrispondono al valore mostrato nella Dashboard (Costi = fatture {year}).
-  const stats = useMemo(() => {
-    const s = { total: 0, withSdi: 0, totalAmount: 0, byStatus: {} }
+  type Stats = { total: number; withSdi: number; totalAmount: number; byStatus: Record<string, number> }
+  const stats = useMemo<Stats>(() => {
+    const s: Stats = { total: 0, withSdi: 0, totalAmount: 0, byStatus: {} }
     for (const inv of filtered) {
       s.total++
       if (inv.sdi_id) s.withSdi++
       s.totalAmount += Number(inv.gross_amount || 0)
-      const st = inv.sdi_status || 'RECEIVED'
+      const st = String(inv.sdi_status || 'RECEIVED')
       s.byStatus[st] = (s.byStatus[st] || 0) + 1
     }
     return s
@@ -406,9 +430,9 @@ function FatturePassive() {
               ) : sortedFiltered.map((inv, idx) => (
                 <tr key={inv.id} onClick={() => { setSelectedInvoice(inv); setShowXml(false) }} className={`border-b border-slate-100 hover:bg-blue-50/50 transition-colors cursor-pointer ${idx % 2 === 1 ? 'bg-slate-50/50' : ''}`}>
                   <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{fmtDate(inv.invoice_date)}</td>
-                  <td className="px-4 py-3 font-medium text-slate-900 truncate min-w-[150px] max-w-[200px]" title={inv.invoice_number}>{inv.invoice_number || '—'}</td>
+                  <td className="px-4 py-3 font-medium text-slate-900 truncate min-w-[150px] max-w-[200px]" title={inv.invoice_number ?? undefined}>{inv.invoice_number || '—'}</td>
                   <td className="px-4 py-3 min-w-[200px]">
-                    <div className="font-medium text-slate-800 truncate max-w-[280px]" title={inv.supplier_name}>{inv.supplier_name || '—'}</div>
+                    <div className="font-medium text-slate-800 truncate max-w-[280px]" title={inv.supplier_name ?? undefined}>{inv.supplier_name || '—'}</div>
                     {inv.supplier_vat && <div className="text-xs text-slate-400">P.IVA {inv.supplier_vat}</div>}
                   </td>
                   <td className="px-4 py-3 text-slate-600">{inv.tipo_documento || '—'}</td>
@@ -551,7 +575,7 @@ function FatturePassive() {
               {selectedInvoice.xml_content && (
                 <div className="space-y-2">
                   <button
-                    onClick={() => setViewingXml(selectedInvoice.xml_content)}
+                    onClick={() => setViewingXml(selectedInvoice.xml_content ?? null)}
                     className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition"
                   >
                     <Eye size={14} />
@@ -589,14 +613,39 @@ function FatturePassive() {
 // ═══════════════════════════════════════════════════════════════════════
 
 function FattureAttive() {
-  const [invoices, setInvoices] = useState<any[]>([])
+  type ActiveInvoiceRow = {
+    id: string
+    invoice_number?: string | null
+    invoice_date?: string | null
+    client_name?: string | null
+    client_vat?: string | null
+    client_fiscal_code?: string | null
+    codice_destinatario?: string | null
+    pec_destinatario?: string | null
+    sdi_id?: string | null
+    sdi_status?: string | null
+    sdi_notifications?: Array<{ type?: string; timestamp?: string; message?: string; date?: string; description?: string }> | null
+    notes?: string | null
+    tipo_documento?: string | null
+    total_amount?: number | null
+    taxable_amount?: number | null
+    vat_amount?: number | null
+    vat_rate?: number | string | null
+    gross_amount?: number | null
+    xml_content?: string | null
+    description?: string | null
+    payment_method?: string | null
+    due_date?: string | null
+    [key: string]: unknown
+  }
+  const [invoices, setInvoices] = useState<ActiveInvoiceRow[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
-  const [sending, setSending] = useState<any>(null) // invoiceId in corso di invio
+  const [sending, setSending] = useState<string | null>(null) // invoiceId in corso di invio
   const [searchTerm, setSearchTerm] = useState('')
-  const [selectedInvoice, setSelectedInvoice] = useState<any>(null)
+  const [selectedInvoice, setSelectedInvoice] = useState<ActiveInvoiceRow | null>(null)
   const [showXml, setShowXml] = useState(false)
-  const [viewingXml, setViewingXml] = useState<any>(null)
+  const [viewingXml, setViewingXml] = useState<string | null>(null)
 
   const loadInvoices = useCallback(async () => {
     setLoading(true)
@@ -607,7 +656,7 @@ function FattureAttive() {
         .order('invoice_date', { ascending: false })
         .limit(500)
       if (error) throw error
-      setInvoices(data || [])
+      setInvoices((data || []) as ActiveInvoiceRow[])
     } catch (err: unknown) {
       console.error('Errore caricamento fatture attive:', err)
     } finally {
@@ -618,7 +667,7 @@ function FattureAttive() {
   useEffect(() => { loadInvoices() }, [loadInvoices])
 
   // Genera XML per una fattura
-  const handleGenerateXml = async (invoiceId) => {
+  const handleGenerateXml = async (invoiceId: string) => {
     try {
       await callEdgeFunction('sdi-generate-xml', 'POST', { invoiceId })
       alert('XML generato con successo')
@@ -629,11 +678,11 @@ function FattureAttive() {
   }
 
   // Invia fattura a SDI
-  const handleSend = async (invoiceId) => {
+  const handleSend = async (invoiceId: string) => {
     setSending(invoiceId)
     try {
-      const result = await callEdgeFunction('sdi-send', 'POST', { invoiceId })
-      alert(`Fattura inviata! SDI ID: ${result.data.sdiId} (${result.data.environment})`)
+      const result = await callEdgeFunction('sdi-send', 'POST', { invoiceId }) as { data?: { sdiId?: string; environment?: string } }
+      alert(`Fattura inviata! SDI ID: ${result.data?.sdiId} (${result.data?.environment})`)
       loadInvoices()
     } catch (err: unknown) {
       alert('Errore invio SDI: ' + (err as Error).message)
@@ -650,7 +699,7 @@ function FattureAttive() {
     vat_rate: '22.00', payment_method: 'MP05', due_date: '', description: '',
   })
 
-  const handleCreateInvoice = async (e) => {
+  const handleCreateInvoice = async (e: React.FormEvent) => {
     e.preventDefault()
     try {
       const { data: { user } } = await supabase.auth.getUser()
@@ -691,7 +740,7 @@ function FattureAttive() {
   const stats = {
     total: invoices.length,
     draft: invoices.filter(i => i.sdi_status === 'DRAFT').length,
-    sent: invoices.filter(i => ['SENT', 'DELIVERED', 'ACCEPTED'].includes(i.sdi_status)).length,
+    sent: invoices.filter(i => ['SENT', 'DELIVERED', 'ACCEPTED'].includes(i.sdi_status || '')).length,
     totalAmount: invoices.reduce((s, i) => s + Number(i.total_amount || 0), 0),
   }
 
@@ -995,18 +1044,19 @@ function FattureAttive() {
                   <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Timeline SDI</h4>
                   <div className="relative pl-4 border-l-2 border-slate-200 space-y-3">
                     {selectedInvoice.sdi_notifications.map((notif, i) => {
-                      const NOTIF_COLORS = {
+                      const NOTIF_COLORS: Record<string, string> = {
                         RC: 'bg-green-500', NS: 'bg-red-500', MC: 'bg-amber-500',
                         AT: 'bg-amber-500', NE: 'bg-blue-500', DT: 'bg-green-500',
                       }
-                      const NOTIF_LABELS = {
+                      const NOTIF_LABELS: Record<string, string> = {
                         RC: 'Ricevuta di consegna', NS: 'Notifica di scarto', MC: 'Mancata consegna',
                         AT: 'Attestazione trasmissione', NE: 'Esito committente', DT: 'Decorrenza termini',
                       }
+                      const t = notif.type || ''
                       return (
                         <div key={i} className="relative">
-                          <div className={`absolute -left-[21px] top-1 w-3 h-3 rounded-full ${NOTIF_COLORS[notif.type] || 'bg-slate-400'} border-2 border-white`} />
-                          <div className="text-sm font-medium text-slate-800">{NOTIF_LABELS[notif.type] || notif.type}</div>
+                          <div className={`absolute -left-[21px] top-1 w-3 h-3 rounded-full ${NOTIF_COLORS[t] || 'bg-slate-400'} border-2 border-white`} />
+                          <div className="text-sm font-medium text-slate-800">{NOTIF_LABELS[t] || t}</div>
                           <div className="text-xs text-slate-400">{notif.timestamp ? new Date(notif.timestamp).toLocaleString('it-IT') : '—'}</div>
                           {notif.message && <div className="text-xs text-slate-500 mt-0.5">{notif.message}</div>}
                         </div>
@@ -1039,7 +1089,7 @@ function FattureAttive() {
               {selectedInvoice.xml_content && (
                 <div className="space-y-2">
                   <button
-                    onClick={() => setViewingXml(selectedInvoice.xml_content)}
+                    onClick={() => setViewingXml(selectedInvoice.xml_content ?? null)}
                     className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition"
                   >
                     <Eye size={14} />
@@ -1083,9 +1133,23 @@ function FattureAttive() {
 // ═══════════════════════════════════════════════════════════════════════
 
 function Corrispettivi() {
-  const [dailyRevenue, setDailyRevenue] = useState<any[]>([])
-  const [corrispettiviLog, setCorrispettiviLog] = useState<any[]>([])
-  const [outlets, setOutlets] = useState<any[]>([])
+  type RevenueRow = {
+    id?: string
+    date?: string | null
+    outlet_id?: string | null
+    outlet_name?: string | null
+    gross_revenue?: number | null
+    net_revenue?: number | null
+    transactions_count?: number | null
+    avg_ticket?: number | null
+    outlets?: { name?: string | null } | null
+    [key: string]: unknown
+  }
+  type OutletLite = { id: string; name?: string | null }
+  type MonthAgg = { month: string; outlet: string; grossRevenue: number; netRevenue: number; transactions: number; days: number; totalTicket: number }
+  const [dailyRevenue, setDailyRevenue] = useState<RevenueRow[]>([])
+  const [corrispettiviLog, setCorrispettiviLog] = useState<RevenueRow[]>([])
+  const [outlets, setOutlets] = useState<OutletLite[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedOutlet, setSelectedOutlet] = useState('ALL')
   const [viewSource, setViewSource] = useState('pos') // 'pos' | 'ade'
@@ -1101,14 +1165,14 @@ function Corrispettivi() {
         supabase.from('outlets').select('id, name').order('name'),
         supabase.from('corrispettivi_log').select('*').order('date', { ascending: false }).limit(5000),
       ])
-      const outletMap = new Map((outs || []).map(o => [o.id, o.name]))
-      const enrich = (rows) => (rows || []).map(r => ({
+      const outletMap = new Map<string, string>((outs || []).map(o => [o.id, o.name || '']))
+      const enrich = (rows: RevenueRow[] | null): RevenueRow[] => (rows || []).map(r => ({
         ...r,
-        outlets: { name: outletMap.get(r.outlet_id) || r.outlet_name || 'Sconosciuto' },
+        outlets: { name: (r.outlet_id ? outletMap.get(r.outlet_id) : null) || r.outlet_name || 'Sconosciuto' },
       }))
-      setDailyRevenue(enrich(revenue))
-      setOutlets(outs || [])
-      setCorrispettiviLog(enrich(corrLog))
+      setDailyRevenue(enrich(revenue as RevenueRow[] | null))
+      setOutlets((outs || []) as OutletLite[])
+      setCorrispettiviLog(enrich(corrLog as RevenueRow[] | null))
     } catch (err: unknown) {
       console.error('Errore caricamento corrispettivi:', err)
     } finally {
@@ -1121,8 +1185,8 @@ function Corrispettivi() {
   const filtered = dailyRevenue.filter(e => selectedOutlet === 'ALL' || e.outlet_id === selectedOutlet)
 
   // Aggregate by month + outlet
-  const monthlyData = filtered.reduce((acc, row) => {
-    const d = new Date(row.date)
+  const monthlyData = filtered.reduce<Record<string, MonthAgg>>((acc, row) => {
+    const d = new Date(row.date || '')
     const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
     const outletName = row.outlets?.name || 'Sconosciuto'
     const key = `${monthKey}|${outletName}`
@@ -1148,7 +1212,7 @@ function Corrispettivi() {
       : 0,
   }
 
-  const fmtMonth = (m) => {
+  const fmtMonth = (m: string) => {
     const [y, mo] = m.split('-')
     const monthNames = ['Gen','Feb','Mar','Apr','Mag','Giu','Lug','Ago','Set','Ott','Nov','Dic']
     return `${monthNames[parseInt(mo) - 1]} ${y}`
@@ -1213,22 +1277,22 @@ function Corrispettivi() {
                 ) : corrispettiviLog
                     .filter(c => selectedOutlet === 'ALL' || c.outlet_id === selectedOutlet)
                     .map((corr) => (
-                  <tr key={corr.id} className="border-b border-slate-100 hover:bg-blue-50/50 transition-colors">
+                  <tr key={String(corr.id)} className="border-b border-slate-100 hover:bg-blue-50/50 transition-colors">
                     <td className="px-4 py-3 font-medium text-slate-800">{fmtDate(corr.date)}</td>
                     <td className="px-4 py-3 text-slate-700">
                       {corr.outlets?.name || 'N/A'}
-                      {corr.device_serial && <span className="text-xs text-slate-400 ml-1">({corr.device_serial})</span>}
+                      {Boolean(corr.device_serial) && <span className="text-xs text-slate-400 ml-1">({String(corr.device_serial)})</span>}
                     </td>
-                    <td className="px-4 py-3 text-right font-semibold text-slate-900">{fmt(corr.total_amount)}</td>
+                    <td className="px-4 py-3 text-right font-semibold text-slate-900">{fmt(Number(corr.total_amount) || 0)}</td>
                     <td className="px-4 py-3 text-slate-600 text-xs">
                       {corr.vat_breakdown ? (
                         typeof corr.vat_breakdown === 'object'
-                          ? Object.entries(corr.vat_breakdown).map(([k, v]) => `${k}: ${fmt(v)}`).join(', ')
+                          ? Object.entries(corr.vat_breakdown as Record<string, unknown>).map(([k, v]) => `${k}: ${fmt(Number(v) || 0)}`).join(', ')
                           : String(corr.vat_breakdown)
                       ) : '—'}
                     </td>
                     <td className="px-4 py-3 text-center">
-                      <SdiStatusBadge status={corr.submission_status || 'PENDING'} configMap={{
+                      <SdiStatusBadge status={String(corr.submission_status || 'PENDING')} configMap={{
                         SUBMITTED: { label: 'Inviato', color: 'bg-green-100 text-green-700', icon: CheckCircle },
                         PENDING: { label: 'In attesa', color: 'bg-amber-100 text-amber-700', icon: Clock },
                         ERROR: { label: 'Errore', color: 'bg-red-100 text-red-700', icon: XCircle },
@@ -1300,22 +1364,34 @@ function Corrispettivi() {
 // ═══════════════════════════════════════════════════════════════════════
 
 export default function Fatturazione() {
+  const { company } = useCompany()
   const [activeTab, setActiveTab] = useState('passive')
-  const [sdiStats, setSdiStats] = useState<any>(null)
+  type SdiStats = {
+    config?: { sdi_environment?: string; sdi_recipient_code?: string; auto_send_enabled?: boolean; environment?: string; accreditation_status?: string }
+    passive?: { total?: number }
+    active?: { total?: number }
+    corrispettivi?: { total?: number }
+    sentToday?: number
+    pendingCount?: number
+    errorCount?: number
+    totalToday?: number
+  } | null
+  const [sdiStats, setSdiStats] = useState<SdiStats>(null)
   // Conteggio diretto da electronic_invoices — fonte unica per il badge
   // sul tab cosi' e' SEMPRE coerente con la tabella mostrata sotto. Prima
   // il badge usava sdiStats (edge function SDI) e il KPI 'Fatture passive'
   // usava la query DB — differivano di 4 unita'.
   const [invoiceCounts, setInvoiceCounts] = useState({ passive: 0, active: 0 })
   const [syncing, setSyncing] = useState(false)
-  const [syncResult, setSyncResult] = useState<any>(null)
+  type SyncResult = { error?: string; fatture?: number; fattureSincronizzate?: number; corrispettivi?: number; corrispettiviSincronizzati?: number; durationMs?: number; errors?: string[] } | null
+  const [syncResult, setSyncResult] = useState<SyncResult>(null)
   const [syncKey, setSyncKey] = useState(0) // increment to force child refresh
 
   // Carica statistiche SDI globali (config + stato)
   const loadStats = useCallback(async () => {
     try {
-      const result = await callEdgeFunction('sdi-status-check', 'GET')
-      setSdiStats(result.data)
+      const result = await callEdgeFunction('sdi-status-check', 'GET') as { data?: NonNullable<SdiStats> }
+      setSdiStats(result.data ?? null)
     } catch (err: unknown) {
       console.error('Errore caricamento statistiche SDI:', err)
     }
@@ -1438,7 +1514,7 @@ export default function Fatturazione() {
         <div className={`rounded-xl border p-4 flex items-start gap-3 ${
           syncResult.error
             ? 'bg-red-50 border-red-200 text-red-800'
-            : (syncResult.errors?.length > 0)
+            : ((syncResult.errors?.length ?? 0) > 0)
               ? 'bg-amber-50 border-amber-200 text-amber-800'
               : 'bg-green-50 border-green-200 text-green-800'
         }`}>
@@ -1460,7 +1536,7 @@ export default function Fatturazione() {
                   sincronizzati dal cassetto fiscale
                   {syncResult.durationMs && <span className="text-xs ml-1">({Math.round(syncResult.durationMs / 1000)}s)</span>}
                 </p>
-                {syncResult.errors?.map((err, i) => (
+                {syncResult.errors?.map((err: string, i: number) => (
                   <p key={i} className="text-xs mt-1 text-amber-600">{err}</p>
                 ))}
               </div>
