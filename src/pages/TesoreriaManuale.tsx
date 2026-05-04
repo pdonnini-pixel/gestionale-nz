@@ -1,5 +1,4 @@
-// @ts-nocheck
-// TODO: tighten types — this file needs proper type annotations
+// @ts-nocheck — TODO tighten: pagina complessa con shape Supabase + indexing dinamico, da rivedere
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import {
   Landmark, Building2, Wallet, CreditCard, TrendingUp, TrendingDown,
