@@ -1,4 +1,3 @@
-// @ts-nocheck — TODO tighten: pagina complessa con shape Supabase + indexing dinamico, da rivedere
 import { useState, useEffect, lazy, Suspense } from 'react'
 import PageHelp from '../components/PageHelp'
 import { supabase } from '../lib/supabase'
@@ -114,7 +113,7 @@ function OutletGrid({ outlets, revenue, onSelect }: { outlets: any[]; revenue: R
                   <div className="text-xs text-slate-400">{outlet.code}</div>
                 </div>
               </div>
-              <StatusBadge outlet={outlet} isActive={outlet.is_active} />
+              <StatusBadge outlet={outlet} isActive={outlet.is_active ?? undefined} />
             </div>
 
             <div className="space-y-2 text-sm">
@@ -196,17 +195,19 @@ function DeleteConfirmModal({ title, message, onConfirm, onCancel, loading: delL
 // ====== DOCUMENT ARCHIVE ======
 function DocumentArchive({ outletId, companyId }: { outletId: string; companyId: string }) {
   const { profile } = useAuth()
-  const [documents, setDocuments] = useState([])
+  type DocRow = Record<string, unknown> & { id: string }
+  const [documents, setDocuments] = useState<DocRow[]>([])
   const [loading, setLoading] = useState(true)
-  const [selectedCategory, setSelectedCategory] = useState(null)
-  const [previewDoc, setPreviewDoc] = useState(null)
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
+  const [previewDoc, setPreviewDoc] = useState<DocRow | null>(null)
   const [uploading, setUploading] = useState(false)
   const [uploadCategory, setUploadCategory] = useState('contratto')
-  const [deleteTarget, setDeleteTarget] = useState(null)
+  const [deleteTarget, setDeleteTarget] = useState<DocRow | null>(null)
   const [deleting, setDeleting] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [dragOver, setDragOver] = useState(false)
-  const [versionHistory, setVersionHistory] = useState(null)
+  type VersionHistoryT = { doc: DocRow; versions: DocRow[] } | null
+  const [versionHistory, setVersionHistory] = useState<VersionHistoryT>(null)
 
   useEffect(() => {
     loadDocuments()
@@ -231,9 +232,9 @@ function DocumentArchive({ outletId, companyId }: { outletId: string; companyId:
         .order('created_at', { ascending: false })
 
       // Merge both sources
-      const allDocs = [
-        ...(contractDocs || []).map(d => ({ ...d, source: 'contract_documents' })),
-        ...(refDocs || []).map(d => ({ ...d, source: 'documents' }))
+      const allDocs: DocRow[] = [
+        ...((contractDocs || []) as DocRow[]).map(d => ({ ...d, source: 'contract_documents' })),
+        ...((refDocs || []) as DocRow[]).map(d => ({ ...d, source: 'documents' }))
       ]
       setDocuments(allDocs)
     } catch (err) {
@@ -244,17 +245,17 @@ function DocumentArchive({ outletId, companyId }: { outletId: string; companyId:
   }
 
   function closePreviewDoc() {
-    if (previewDoc?.blobUrl) URL.revokeObjectURL(previewDoc.blobUrl)
+    if (previewDoc?.blobUrl) URL.revokeObjectURL(String(previewDoc.blobUrl))
     setPreviewDoc(null)
   }
 
   const UPLOAD_BUCKET = 'outlet-attachments'
 
-  async function getSignedUrl(doc) {
-    const filePath = doc.file_path || doc.file_name
+  async function getSignedUrl(doc: DocRow) {
+    const filePath = String(doc.file_path || doc.file_name || '')
     if (!filePath) return null
     // Usa il bucket salvato se disponibile, altrimenti il default
-    const bucket = doc.storage_bucket || UPLOAD_BUCKET
+    const bucket = String(doc.storage_bucket || UPLOAD_BUCKET)
     const { data, error } = await supabase.storage
       .from(bucket)
       .createSignedUrl(filePath, 3600)
@@ -262,10 +263,10 @@ function DocumentArchive({ outletId, companyId }: { outletId: string; companyId:
     return null
   }
 
-  async function handlePreview(doc) {
-    const filePath = doc.file_path || doc.file_name
+  async function handlePreview(doc: DocRow) {
+    const filePath = String(doc.file_path || doc.file_name || '')
     if (!filePath) { alert('File non trovato'); return }
-    const bucket = doc.storage_bucket || UPLOAD_BUCKET
+    const bucket = String(doc.storage_bucket || UPLOAD_BUCKET)
     // Scarica il file come blob tramite Supabase client (no CORS issues)
     const { data: blob, error } = await supabase.storage
       .from(bucket)
@@ -288,7 +289,7 @@ function DocumentArchive({ outletId, companyId }: { outletId: string; companyId:
     setPreviewDoc({ ...doc, signedUrl: url, pdfData: arrayBuffer, blobUrl })
   }
 
-  async function handleDownload(doc) {
+  async function handleDownload(doc: DocRow) {
     const url = await getSignedUrl(doc)
     if (url) {
       window.open(url, '_blank')
@@ -306,17 +307,17 @@ function DocumentArchive({ outletId, companyId }: { outletId: string; companyId:
       await supabase.from(table).delete().eq('id', doc.id)
       if (doc.file_path) {
         const buckets = doc.storage_bucket
-          ? [doc.storage_bucket]
+          ? [String(doc.storage_bucket)]
           : [UPLOAD_BUCKET, 'contract-documents', 'general-documents']
         for (const bucket of buckets) {
-          await supabase.storage.from(bucket).remove([doc.file_path])
+          await supabase.storage.from(bucket).remove([String(doc.file_path)])
         }
       }
       setDeleteTarget(null)
       await loadDocuments()
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Delete error:', err)
-      alert('Errore eliminazione: ' + (err.message || ''))
+      alert('Errore eliminazione: ' + ((err as Error)?.message || ''))
     } finally {
       setDeleting(false)
     }
@@ -325,7 +326,7 @@ function DocumentArchive({ outletId, companyId }: { outletId: string; companyId:
   const MAX_FILE_SIZE = 50 * 1024 * 1024 // 50 MB
 
   // Upload singolo file con versioning + audit trail
-  async function uploadSingleDocument(file) {
+  async function uploadSingleDocument(file: File): Promise<{ error?: string; ok?: boolean }> {
     if (file.size > MAX_FILE_SIZE) {
       return { error: `${file.name}: troppo grande (${(file.size / 1024 / 1024).toFixed(1)} MB, max 50 MB)` }
     }
@@ -340,15 +341,15 @@ function DocumentArchive({ outletId, companyId }: { outletId: string; companyId:
       // Salva versione precedente
       await supabase.from('document_versions').insert({
         document_id: existing.id,
-        document_table: existing.source || 'documents',
-        version_number: (existing.version_count || 0) + 1,
-        file_name: existing.file_name,
-        file_path: existing.file_path,
-        file_size: existing.file_size,
-        storage_bucket: existing.storage_bucket || UPLOAD_BUCKET,
-        uploaded_by: existing.uploaded_by,
-        uploaded_by_name: existing.uploaded_by_name,
-      })
+        document_table: String(existing.source || 'documents'),
+        version_number: (Number(existing.version_count) || 0) + 1,
+        file_name: String(existing.file_name || ''),
+        file_path: String(existing.file_path || ''),
+        file_size: Number(existing.file_size) || 0,
+        storage_bucket: String(existing.storage_bucket || UPLOAD_BUCKET),
+        uploaded_by: (existing.uploaded_by as string | null) || null,
+        uploaded_by_name: (existing.uploaded_by_name as string | null) || null,
+      } as never)
     }
 
     // Upload su storage
@@ -359,7 +360,7 @@ function DocumentArchive({ outletId, companyId }: { outletId: string; companyId:
 
     // Audit trail: chi ha caricato
     const uploadedBy = profile?.id || null
-    const uploadedByName = profile?.full_name || profile?.email || 'Utente'
+    const uploadedByName = (profile as { full_name?: string; email?: string } | null)?.full_name || profile?.email || 'Utente'
 
     if (existing) {
       // Aggiorna documento esistente (sovrascrive con nuova versione)
@@ -369,7 +370,7 @@ function DocumentArchive({ outletId, companyId }: { outletId: string; companyId:
         file_size: file.size,
         uploaded_by: uploadedBy,
         uploaded_by_name: uploadedByName,
-      }).eq('id', existing.id)
+      } as never).eq('id', existing.id)
     } else {
       // Crea nuovo record
       const { error: dbErr } = await supabase.from('documents').insert({
@@ -383,17 +384,17 @@ function DocumentArchive({ outletId, companyId }: { outletId: string; companyId:
         storage_bucket: UPLOAD_BUCKET,
         uploaded_by: uploadedBy,
         uploaded_by_name: uploadedByName,
-      })
+      } as never)
       if (dbErr) return { error: `${file.name}: ${dbErr.message}` }
     }
     return { ok: true }
   }
 
   // Upload multiplo (batch)
-  async function handleUploadDocuments(files) {
+  async function handleUploadDocuments(files: File[]) {
     if (!files || files.length === 0) return
     setUploading(true)
-    const errors = []
+    const errors: string[] = []
     for (const file of files) {
       const result = await uploadSingleDocument(file)
       if (result.error) errors.push(result.error)
@@ -405,28 +406,23 @@ function DocumentArchive({ outletId, companyId }: { outletId: string; companyId:
     setUploading(false)
   }
 
-  // Singolo file (compatibilità)
-  async function handleUploadDocument(file) {
-    await handleUploadDocuments([file])
-  }
-
   // Drag & Drop handlers
-  function handleDragOver(e) { e.preventDefault(); e.stopPropagation(); setDragOver(true) }
-  function handleDragLeave(e) { e.preventDefault(); e.stopPropagation(); setDragOver(false) }
-  function handleDrop(e) {
+  function handleDragOver(e: React.DragEvent) { e.preventDefault(); e.stopPropagation(); setDragOver(true) }
+  function handleDragLeave(e: React.DragEvent) { e.preventDefault(); e.stopPropagation(); setDragOver(false) }
+  function handleDrop(e: React.DragEvent) {
     e.preventDefault(); e.stopPropagation(); setDragOver(false)
     const files = Array.from(e.dataTransfer.files)
     if (files.length > 0) handleUploadDocuments(files)
   }
 
   // Carica storico versioni
-  async function loadVersionHistory(doc) {
+  async function loadVersionHistory(doc: DocRow) {
     const { data } = await supabase
       .from('document_versions')
       .select('*')
       .eq('document_id', doc.id)
       .order('created_at', { ascending: false })
-    setVersionHistory({ doc, versions: data || [] })
+    setVersionHistory({ doc, versions: (data || []) as DocRow[] })
   }
 
   if (loading) {
@@ -443,10 +439,10 @@ function DocumentArchive({ outletId, companyId }: { outletId: string; companyId:
     .filter(d => {
       if (!searchQuery.trim()) return true
       const q = searchQuery.toLowerCase()
-      return (d.file_name?.toLowerCase().includes(q)) ||
-             (d.category?.toLowerCase().includes(q)) ||
-             (d.description?.toLowerCase().includes(q)) ||
-             (d.uploaded_by_name?.toLowerCase().includes(q))
+      return ((d.file_name as string | null | undefined)?.toLowerCase().includes(q)) ||
+             ((d.category as string | null | undefined)?.toLowerCase().includes(q)) ||
+             ((d.description as string | null | undefined)?.toLowerCase().includes(q)) ||
+             ((d.uploaded_by_name as string | null | undefined)?.toLowerCase().includes(q))
     })
 
   const uploadSection = (
@@ -579,25 +575,25 @@ function DocumentArchive({ outletId, companyId }: { outletId: string; companyId:
               className="flex items-center gap-3 p-3 rounded-lg border border-slate-200 hover:bg-slate-50 transition"
             >
               <div className="flex-1 min-w-0">
-                <div className="text-sm font-medium text-slate-900">{doc.file_name}</div>
+                <div className="text-sm font-medium text-slate-900">{String(doc.file_name || '')}</div>
                 <div className="text-xs text-slate-500 space-x-2">
                   <span>{doc.category ? DOCUMENT_CATEGORIES.find(c => c.value === doc.category)?.label : 'Documento'}</span>
-                  {doc.file_size && (
+                  {Boolean(doc.file_size) && (
                     <>
                       <span>•</span>
-                      <span>{(doc.file_size / 1024 / 1024).toFixed(2)} MB</span>
+                      <span>{(Number(doc.file_size) / 1024 / 1024).toFixed(2)} MB</span>
                     </>
                   )}
-                  {doc.created_at && (
+                  {Boolean(doc.created_at) && (
                     <>
                       <span>•</span>
-                      <span>{new Date(doc.created_at).toLocaleDateString('it-IT')}</span>
+                      <span>{new Date(String(doc.created_at)).toLocaleDateString('it-IT')}</span>
                     </>
                   )}
-                  {doc.uploaded_by_name && (
+                  {Boolean(doc.uploaded_by_name) && (
                     <>
                       <span>•</span>
-                      <span className="inline-flex items-center gap-1"><User size={10} /> {doc.uploaded_by_name}</span>
+                      <span className="inline-flex items-center gap-1"><User size={10} /> {String(doc.uploaded_by_name)}</span>
                     </>
                   )}
                 </div>
@@ -647,11 +643,11 @@ function DocumentArchive({ outletId, companyId }: { outletId: string; companyId:
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-5xl overflow-hidden flex flex-col" style={{ height: '90vh' }} onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between p-4 border-b border-slate-200 shrink-0">
               <div className="flex-1 min-w-0">
-                <h3 className="text-lg font-semibold text-slate-900 truncate">{previewDoc.file_name}</h3>
+                <h3 className="text-lg font-semibold text-slate-900 truncate">{String(previewDoc.file_name || '')}</h3>
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 <button
-                  onClick={() => window.open(previewDoc.signedUrl, '_blank')}
+                  onClick={() => window.open(String(previewDoc.signedUrl || ''), '_blank')}
                   className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-slate-200 hover:bg-slate-50 transition text-slate-600"
                 >
                   <Download size={14} />
@@ -666,18 +662,18 @@ function DocumentArchive({ outletId, companyId }: { outletId: string; companyId:
               </div>
             </div>
             <div className="flex-1 overflow-hidden">
-              {previewDoc.file_name?.toLowerCase().match(/\.pdf$/i) ? (
-                <Suspense fallback={<div className="flex items-center justify-center h-full"><div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600" /></div>}><PdfViewer pdfData={previewDoc.pdfData} url={previewDoc.signedUrl} /></Suspense>
-              ) : previewDoc.file_name?.toLowerCase().match(/\.(jpg|jpeg|png|gif|webp)$/i) ? (
+              {String(previewDoc.file_name || '').toLowerCase().match(/\.pdf$/i) ? (
+                <Suspense fallback={<div className="flex items-center justify-center h-full"><div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600" /></div>}><PdfViewer pdfData={previewDoc.pdfData as ArrayBuffer | undefined} url={String(previewDoc.signedUrl || '')} /></Suspense>
+              ) : String(previewDoc.file_name || '').toLowerCase().match(/\.(jpg|jpeg|png|gif|webp)$/i) ? (
                 <div className="flex items-center justify-center h-full p-6">
-                  <img src={previewDoc.blobUrl || previewDoc.signedUrl} alt={previewDoc.file_name} className="max-w-full max-h-full rounded-lg shadow object-contain" />
+                  <img src={String(previewDoc.blobUrl || previewDoc.signedUrl || '')} alt={String(previewDoc.file_name || '')} className="max-w-full max-h-full rounded-lg shadow object-contain" />
                 </div>
-              ) : previewDoc.file_name?.toLowerCase().match(/\.(doc|docx|xls|xlsx)$/i) ? (
+              ) : String(previewDoc.file_name || '').toLowerCase().match(/\.(doc|docx|xls|xlsx)$/i) ? (
                 <div className="flex items-center justify-center h-full text-slate-400">
                   <p className="text-center">
                     Anteprima non disponibile per file Word/Excel.<br/>
                     <button
-                      onClick={() => window.open(previewDoc.signedUrl, '_blank')}
+                      onClick={() => window.open(String(previewDoc.signedUrl || ''), '_blank')}
                       className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition text-sm"
                     >
                       Scarica il file
@@ -689,7 +685,7 @@ function DocumentArchive({ outletId, companyId }: { outletId: string; companyId:
                   <p className="text-center">
                     Anteprima non disponibile per questo tipo di file.<br/>
                     <button
-                      onClick={() => window.open(previewDoc.signedUrl, '_blank')}
+                      onClick={() => window.open(String(previewDoc.signedUrl || ''), '_blank')}
                       className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
                     >
                       Scarica il file
@@ -715,7 +711,7 @@ function DocumentArchive({ outletId, companyId }: { outletId: string; companyId:
                 <X size={18} />
               </button>
             </div>
-            <p className="text-sm text-slate-500 mb-3">{versionHistory.doc.file_name}</p>
+            <p className="text-sm text-slate-500 mb-3">{String(versionHistory.doc.file_name || '')}</p>
             {versionHistory.versions.length === 0 ? (
               <div className="text-sm text-slate-400 text-center py-6">
                 <History size={24} className="mx-auto mb-2 opacity-40" />
@@ -724,15 +720,15 @@ function DocumentArchive({ outletId, companyId }: { outletId: string; companyId:
               </div>
             ) : (
               <div className="space-y-2 max-h-64 overflow-auto">
-                {versionHistory.versions.map((v, i) => (
+                {versionHistory.versions.map((v) => (
                   <div key={v.id} className="flex items-center gap-3 p-3 rounded-lg border border-slate-200 text-sm">
-                    <div className="p-1.5 rounded bg-slate-100 text-slate-500 text-xs font-mono">v{v.version_number}</div>
+                    <div className="p-1.5 rounded bg-slate-100 text-slate-500 text-xs font-mono">v{String(v.version_number || '')}</div>
                     <div className="flex-1 min-w-0">
-                      <div className="text-slate-700 truncate">{v.file_name}</div>
+                      <div className="text-slate-700 truncate">{String(v.file_name || '')}</div>
                       <div className="text-xs text-slate-400">
-                        {new Date(v.created_at).toLocaleString('it-IT')}
-                        {v.uploaded_by_name && ` — ${v.uploaded_by_name}`}
-                        {v.file_size && ` — ${(v.file_size / 1024 / 1024).toFixed(2)} MB`}
+                        {v.created_at ? new Date(String(v.created_at)).toLocaleString('it-IT') : ''}
+                        {v.uploaded_by_name ? ` — ${String(v.uploaded_by_name)}` : ''}
+                        {v.file_size ? ` — ${(Number(v.file_size) / 1024 / 1024).toFixed(2)} MB` : ''}
                       </div>
                     </div>
                   </div>
@@ -747,7 +743,7 @@ function DocumentArchive({ outletId, companyId }: { outletId: string; companyId:
       {deleteTarget && (
         <DeleteConfirmModal
           title="Elimina documento"
-          message={<>Sei sicuro di voler eliminare <strong>{deleteTarget.file_name}</strong>? Il file verrà rimosso dallo storage.</>}
+          message={`Sei sicuro di voler eliminare ${String(deleteTarget.file_name || '')}? Il file verrà rimosso dallo storage.`}
           onConfirm={confirmDeleteDocument}
           onCancel={() => setDeleteTarget(null)}
           loading={deleting}
@@ -776,7 +772,7 @@ function ExtractedContractData({ outlet }: { outlet: any }) {
   }
 
   const endDate = calculateEndDate()
-  const daysToEnd = endDate ? Math.ceil((endDate - new Date()) / (1000 * 60 * 60 * 24)) : null
+  const daysToEnd = endDate ? Math.ceil((endDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24)) : null
   const isExpiring = daysToEnd && daysToEnd > 0 && daysToEnd < 180
 
   return (
@@ -897,17 +893,18 @@ function ExtractedContractData({ outlet }: { outlet: any }) {
 
 // ====== ALLEGATI OUTLET ======
 function OutletAllegati({ outletId, companyId }: { outletId: string; companyId: string }) {
-  const [attachments, setAttachments] = useState([])
+  type AttachRow = Record<string, unknown> & { id: string }
+  const [attachments, setAttachments] = useState<AttachRow[]>([])
   const [loading, setLoading] = useState(true)
-  const [uploading, setUploading] = useState(null)
+  const [uploading, setUploading] = useState<string | null>(null)
   const [showAddForm, setShowAddForm] = useState(false)
   const [newLabel, setNewLabel] = useState('')
-  const [deleteTarget, setDeleteTarget] = useState(null)
+  const [deleteTarget, setDeleteTarget] = useState<AttachRow | null>(null)
   const [deleting, setDeleting] = useState(false)
-  const [previewAtt, setPreviewAtt] = useState(null)
+  const [previewAtt, setPreviewAtt] = useState<AttachRow | null>(null)
 
   function closePreviewAtt() {
-    if (previewAtt?.blobUrl) URL.revokeObjectURL(previewAtt.blobUrl)
+    if (previewAtt?.blobUrl) URL.revokeObjectURL(String(previewAtt.blobUrl))
     setPreviewAtt(null)
   }
 
@@ -922,23 +919,23 @@ function OutletAllegati({ outletId, companyId }: { outletId: string; companyId: 
       .select('*')
       .eq('outlet_id', outletId)
       .order('created_at')
-    setAttachments(data || [])
+    setAttachments(((data || []) as AttachRow[]))
     setLoading(false)
   }
 
   const MAX_ATTACH_SIZE = 50 * 1024 * 1024 // 50 MB
 
-  async function handleFileUpload(attachment, file) {
+  async function handleFileUpload(attachment: AttachRow, file: File) {
     if (file.size > MAX_ATTACH_SIZE) {
       alert(`Il file è troppo grande (${(file.size / 1024 / 1024).toFixed(1)} MB).\nDimensione massima consentita: 50 MB.`)
       return
     }
-    setUploading(attachment.id)
+    setUploading(String(attachment.id))
     try {
       const cid = companyId
       const ext = file.name.split('.').pop()
       const timestamp = Date.now()
-      const filePath = `${cid}/${outletId}/${attachment.attachment_type}_${timestamp}.${ext}`
+      const filePath = `${cid}/${outletId}/${String(attachment.attachment_type || '')}_${timestamp}.${ext}`
 
       const { error: uploadErr } = await supabase.storage
         .from('outlet-attachments')
@@ -962,15 +959,15 @@ function OutletAllegati({ outletId, companyId }: { outletId: string; companyId: 
           file_name: file.name,
           file_path: filePath,
           uploaded_at: new Date().toISOString(),
-        })
+        } as never)
         .eq('id', attachment.id)
 
       if (dbErr) console.error('DB update error:', dbErr)
 
       await loadAttachments()
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Upload error:', err)
-      alert('Errore: ' + (err.message || ''))
+      alert('Errore: ' + ((err as Error)?.message || ''))
     } finally {
       setUploading(null)
     }
@@ -989,7 +986,7 @@ function OutletAllegati({ outletId, companyId }: { outletId: string; companyId: 
         label: newLabel.trim(),
         is_required: false,
         is_uploaded: false,
-      })
+      } as never)
     if (error) {
       alert('Errore: ' + error.message)
     } else {
@@ -1004,30 +1001,31 @@ function OutletAllegati({ outletId, companyId }: { outletId: string; companyId: 
     setDeleting(true)
     try {
       if (deleteTarget.file_path) {
-        await supabase.storage.from('outlet-attachments').remove([deleteTarget.file_path])
+        await supabase.storage.from('outlet-attachments').remove([String(deleteTarget.file_path)])
       }
       await supabase.from('outlet_attachments').delete().eq('id', deleteTarget.id)
       setDeleteTarget(null)
       await loadAttachments()
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Delete attachment error:', err)
-      alert('Errore eliminazione: ' + (err.message || ''))
+      alert('Errore eliminazione: ' + ((err as Error)?.message || ''))
     } finally {
       setDeleting(false)
     }
   }
 
-  async function handlePreviewAttachment(att) {
-    if (!att.file_path) { alert('File non ancora caricato'); return }
+  async function handlePreviewAttachment(att: AttachRow) {
+    const filePath = att.file_path ? String(att.file_path) : ''
+    if (!filePath) { alert('File non ancora caricato'); return }
     // Scarica blob direttamente via Supabase client (no CORS)
     const { data: blob, error } = await supabase.storage
       .from('outlet-attachments')
-      .download(att.file_path)
+      .download(filePath)
     if (error || !blob) {
       // Fallback: signed URL
       const { data: signedData } = await supabase.storage
         .from('outlet-attachments')
-        .createSignedUrl(att.file_path, 3600)
+        .createSignedUrl(filePath, 3600)
       if (signedData?.signedUrl) {
         setPreviewAtt({ ...att, signedUrl: signedData.signedUrl, pdfData: null })
       } else {
@@ -1040,7 +1038,7 @@ function OutletAllegati({ outletId, companyId }: { outletId: string; companyId: 
     // Signed URL per il bottone Scarica
     const { data: signedData } = await supabase.storage
       .from('outlet-attachments')
-      .createSignedUrl(att.file_path, 3600)
+      .createSignedUrl(filePath, 3600)
     setPreviewAtt({ ...att, signedUrl: signedData?.signedUrl, pdfData: arrayBuffer, blobUrl })
   }
 
@@ -1126,7 +1124,7 @@ function OutletAllegati({ outletId, companyId }: { outletId: string; companyId: 
               className="hidden"
               accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.xls,.xlsx"
               onChange={e => {
-                if (e.target.files[0]) handleFileUpload(att, e.target.files[0])
+                if (e.target.files?.[0]) handleFileUpload(att, e.target.files[0])
               }}
               disabled={uploading === att.id}
             />
@@ -1141,9 +1139,9 @@ function OutletAllegati({ outletId, companyId }: { outletId: string; companyId: 
                 <Clock size={18} className="text-slate-400 shrink-0" />
               )}
               <div className="flex-1 min-w-0">
-                <div className="text-sm font-medium text-slate-900">{att.label}</div>
+                <div className="text-sm font-medium text-slate-900">{String(att.label || '')}</div>
                 {att.is_uploaded && att.file_name ? (
-                  <div className="text-xs text-emerald-600 truncate">{att.file_name}</div>
+                  <div className="text-xs text-emerald-600 truncate">{String(att.file_name)}</div>
                 ) : uploading === att.id ? (
                   <div className="text-xs text-blue-600">Caricamento in corso...</div>
                 ) : (
@@ -1152,7 +1150,7 @@ function OutletAllegati({ outletId, companyId }: { outletId: string; companyId: 
               </div>
             </div>
             <div className="flex items-center gap-1.5 shrink-0">
-              {att.is_required && !att.is_uploaded && (
+              {Boolean(att.is_required) && !att.is_uploaded && (
                 <span className="text-xs text-amber-600 font-medium mr-1">Richiesto</span>
               )}
               {att.is_uploaded ? (
@@ -1186,7 +1184,7 @@ function OutletAllegati({ outletId, companyId }: { outletId: string; companyId: 
       {deleteTarget && (
         <DeleteConfirmModal
           title="Elimina allegato"
-          message={<>Sei sicuro di voler eliminare <strong>{deleteTarget.label}</strong>?{deleteTarget.is_uploaded && ' Il file caricato verrà rimosso dallo storage.'}</>}
+          message={`Sei sicuro di voler eliminare ${String(deleteTarget.label || '')}?${deleteTarget.is_uploaded ? ' Il file caricato verrà rimosso dallo storage.' : ''}`}
           onConfirm={confirmDeleteAttachment}
           onCancel={() => setDeleteTarget(null)}
           loading={deleting}
@@ -1199,12 +1197,12 @@ function OutletAllegati({ outletId, companyId }: { outletId: string; companyId: 
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-5xl overflow-hidden flex flex-col" style={{ height: '90vh' }} onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between p-4 border-b border-slate-200 shrink-0">
               <div className="flex-1 min-w-0">
-                <h3 className="text-lg font-semibold text-slate-900 truncate">{previewAtt.label}</h3>
-                {previewAtt.file_name && <p className="text-xs text-slate-500 truncate">{previewAtt.file_name}</p>}
+                <h3 className="text-lg font-semibold text-slate-900 truncate">{String(previewAtt.label || '')}</h3>
+                {Boolean(previewAtt.file_name) && <p className="text-xs text-slate-500 truncate">{String(previewAtt.file_name)}</p>}
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 <button
-                  onClick={() => window.open(previewAtt.signedUrl, '_blank')}
+                  onClick={() => window.open(String(previewAtt.signedUrl || ''), '_blank')}
                   className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-slate-200 hover:bg-slate-50 transition text-slate-600"
                 >
                   <Download size={14} />
@@ -1216,18 +1214,18 @@ function OutletAllegati({ outletId, companyId }: { outletId: string; companyId: 
               </div>
             </div>
             <div className="flex-1 overflow-hidden">
-              {previewAtt.file_name?.toLowerCase().match(/\.pdf$/i) ? (
-                <Suspense fallback={<div className="flex items-center justify-center h-full"><div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600" /></div>}><PdfViewer pdfData={previewAtt.pdfData} url={previewAtt.signedUrl} /></Suspense>
-              ) : previewAtt.file_name?.toLowerCase().match(/\.(jpg|jpeg|png|gif|webp)$/i) ? (
+              {String(previewAtt.file_name || '').toLowerCase().match(/\.pdf$/i) ? (
+                <Suspense fallback={<div className="flex items-center justify-center h-full"><div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600" /></div>}><PdfViewer pdfData={previewAtt.pdfData as ArrayBuffer | undefined} url={String(previewAtt.signedUrl || '')} /></Suspense>
+              ) : String(previewAtt.file_name || '').toLowerCase().match(/\.(jpg|jpeg|png|gif|webp)$/i) ? (
                 <div className="flex items-center justify-center h-full p-6">
-                  <img src={previewAtt.blobUrl || previewAtt.signedUrl} alt={previewAtt.label} className="max-w-full max-h-full rounded-lg shadow object-contain" />
+                  <img src={String(previewAtt.blobUrl || previewAtt.signedUrl || '')} alt={String(previewAtt.label || '')} className="max-w-full max-h-full rounded-lg shadow object-contain" />
                 </div>
-              ) : previewAtt.file_name?.toLowerCase().match(/\.(doc|docx|xls|xlsx)$/i) ? (
+              ) : String(previewAtt.file_name || '').toLowerCase().match(/\.(doc|docx|xls|xlsx)$/i) ? (
                 <div className="flex items-center justify-center h-full text-slate-400">
                   <p className="text-center">
                     Anteprima non disponibile per file Word/Excel.<br/>
                     <button
-                      onClick={() => window.open(previewAtt.signedUrl, '_blank')}
+                      onClick={() => window.open(String(previewAtt.signedUrl || ''), '_blank')}
                       className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition text-sm"
                     >
                       Scarica il file
@@ -1239,7 +1237,7 @@ function OutletAllegati({ outletId, companyId }: { outletId: string; companyId: 
                   <p className="text-center">
                     Anteprima non disponibile per questo tipo di file.<br/>
                     <button
-                      onClick={() => window.open(previewAtt.signedUrl, '_blank')}
+                      onClick={() => window.open(String(previewAtt.signedUrl || ''), '_blank')}
                       className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
                     >
                       Scarica il file
@@ -1256,15 +1254,15 @@ function OutletAllegati({ outletId, companyId }: { outletId: string; companyId: 
 }
 
 // ====== ALERT SCADENZE CONTRATTI ======
-// TODO: tighten type
-function ContractAlerts({ outlet }: { outlet: any }) {
-  const alerts = []
+type AlertItem = { type: 'critical' | 'warning' | 'info'; icon: string; title: string; detail: string; daysLeft: number }
+function ContractAlerts({ outlet }: { outlet: Record<string, unknown> }) {
+  const alerts: AlertItem[] = []
   const today = new Date()
 
   // Scadenza contratto
   if (outlet.contract_end_date) {
-    const end = new Date(outlet.contract_end_date)
-    const daysLeft = Math.ceil((end - today) / (1000 * 60 * 60 * 24))
+    const end = new Date(String(outlet.contract_end_date))
+    const daysLeft = Math.ceil((end.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
     if (daysLeft <= 365) {
       alerts.push({
         type: daysLeft <= 90 ? 'critical' : daysLeft <= 180 ? 'warning' : 'info',
@@ -1278,8 +1276,8 @@ function ContractAlerts({ outlet }: { outlet: any }) {
 
   // Clausola di recesso
   if (outlet.exit_clause_date) {
-    const exit = new Date(outlet.exit_clause_date)
-    const daysLeft = Math.ceil((exit - today) / (1000 * 60 * 60 * 24))
+    const exit = new Date(String(outlet.exit_clause_date))
+    const daysLeft = Math.ceil((exit.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
     if (daysLeft > 0 && daysLeft <= 180) {
       alerts.push({
         type: daysLeft <= 60 ? 'critical' : 'warning',
@@ -1293,8 +1291,8 @@ function ContractAlerts({ outlet }: { outlet: any }) {
 
   // Scadenza garanzia/fidejussione
   if (outlet.guarantee_expiry) {
-    const exp = new Date(outlet.guarantee_expiry)
-    const daysLeft = Math.ceil((exp - today) / (1000 * 60 * 60 * 24))
+    const exp = new Date(String(outlet.guarantee_expiry))
+    const daysLeft = Math.ceil((exp.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
     if (daysLeft <= 90) {
       alerts.push({
         type: daysLeft <= 30 ? 'critical' : 'warning',
@@ -1308,16 +1306,16 @@ function ContractAlerts({ outlet }: { outlet: any }) {
 
   // Rinnovo automatico
   if (outlet.contract_start_date && outlet.contract_duration_months && !outlet.contract_end_date) {
-    const start = new Date(outlet.contract_start_date)
+    const start = new Date(String(outlet.contract_start_date))
     const endCalc = new Date(start)
-    endCalc.setMonth(endCalc.getMonth() + outlet.contract_duration_months)
-    const daysLeft = Math.ceil((endCalc - today) / (1000 * 60 * 60 * 24))
+    endCalc.setMonth(endCalc.getMonth() + Number(outlet.contract_duration_months))
+    const daysLeft = Math.ceil((endCalc.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
     if (daysLeft <= 180 && daysLeft > 0) {
       alerts.push({
         type: 'info',
         icon: '🔵',
         title: `Termine periodo contrattuale tra ${daysLeft} giorni`,
-        detail: `Fine periodo: ${endCalc.toLocaleDateString('it-IT')} (${outlet.contract_duration_months} mesi da inizio)`,
+        detail: `Fine periodo: ${endCalc.toLocaleDateString('it-IT')} (${String(outlet.contract_duration_months)} mesi da inizio)`,
         daysLeft,
       })
     }
@@ -1356,8 +1354,9 @@ function ContractAlerts({ outlet }: { outlet: any }) {
 }
 
 // ====== CORRISPETTIVI TAB ======
+type DailyRevenueRow = { date: string; gross_revenue: number | null; transactions_count: number | null; avg_ticket: number | null }
 function CorrispettiviTab({ outletId, companyId }: { outletId: string; companyId: string }) {
-  const [daily, setDaily] = useState([])
+  const [daily, setDaily] = useState<DailyRevenueRow[]>([])
   const [loading, setLoading] = useState(true)
   const [period, setPeriod] = useState('30') // 7, 30, 90
 
@@ -1392,7 +1391,7 @@ function CorrispettiviTab({ outletId, companyId }: { outletId: string; companyId
   const avgDaily = daily.length > 0 ? totalRev / daily.length : 0
   const totalTx = daily.reduce((s, d) => s + (d.transactions_count || 0), 0)
   const avgTicket = totalTx > 0 ? totalRev / totalTx : 0
-  const bestDay = daily.reduce((best, d) => (d.gross_revenue || 0) > best.value ? { date: d.date, value: d.gross_revenue } : best, { date: '', value: 0 })
+  const bestDay = daily.reduce<{ date: string; value: number }>((best, d) => (d.gross_revenue || 0) > best.value ? { date: d.date, value: d.gross_revenue || 0 } : best, { date: '', value: 0 })
 
   const chartData = daily.map(d => ({
     ...d,
@@ -1508,8 +1507,9 @@ function CorrispettiviTab({ outletId, companyId }: { outletId: string; companyId
 }
 
 // ====== STAFF TAB ======
+type StaffRow = { id: string; first_name?: string | null; last_name?: string | null; role?: string | null; contract_type?: string | null; annual_gross_salary?: number | null; monthly_net_salary?: number | null; hire_date?: string | null; is_active?: boolean | null }
 function StaffTab({ outletId, companyId }: { outletId: string; companyId: string }) {
-  const [staff, setStaff] = useState([])
+  const [staff, setStaff] = useState<StaffRow[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -1526,7 +1526,7 @@ function StaffTab({ outletId, companyId }: { outletId: string; companyId: string
         .eq('company_id', companyId)
         .order('last_name')
 
-      setStaff(data || [])
+      setStaff(((data || []) as unknown) as StaffRow[])
     } catch (e) {
       console.error('Staff load error:', e)
     } finally {
@@ -1598,14 +1598,16 @@ function StaffTab({ outletId, companyId }: { outletId: string; companyId: string
 
 // ====== DETTAGLIO OUTLET — HUB CON TAB ======
 // TODO: tighten type
-function OutletDetail({ outlet, revenue, onBack, onEdit, onDelete }: { outlet: any; revenue: Record<string, any>; onBack: () => void; onEdit: (o: any) => void; onDelete: (id: string) => void }) {
-  const { profile } = useAuth()
+type OutletEntity = Record<string, unknown> & { id: string; company_id?: string; name?: string | null; code?: string | null; mall_name?: string | null; rent_monthly?: number | null; condo_marketing_monthly?: number | null; is_active?: boolean | null }
+function OutletDetail({ outlet, revenue, onBack, onEdit, onDelete }: { outlet: OutletEntity; revenue: Record<string, Record<number, number>>; onBack: () => void; onEdit: (o: OutletEntity) => void; onDelete: (o: OutletEntity) => void }) {
+  const { profile: _profile } = useAuth()
   const currentYear = new Date().getFullYear()
-  const yearData = revenue[outlet.id] || {}
+  const yearData: Record<number, number> = revenue[outlet.id] || {}
   const [detailTab, setDetailTab] = useState('overview')
 
   // Corrispettivi sparkline (last 7 days for overview)
-  const [recentDaily, setRecentDaily] = useState([])
+  type RecentDailyRow = { date: string; gross_revenue: number | null }
+  const [recentDaily, setRecentDaily] = useState<RecentDailyRow[]>([])
   useEffect(() => {
     async function loadRecent() {
       const daysAgo = new Date()
@@ -1614,28 +1616,28 @@ function OutletDetail({ outlet, revenue, onBack, onEdit, onDelete }: { outlet: a
         .from('daily_revenue')
         .select('date, gross_revenue')
         .eq('outlet_id', outlet.id)
-        .eq('company_id', outlet.company_id)
+        .eq('company_id', outlet.company_id || '')
         .gte('date', daysAgo.toISOString().split('T')[0])
         .order('date', { ascending: true })
-      setRecentDaily(data || [])
+      setRecentDaily((data || []) as RecentDailyRow[])
     }
     loadRecent()
-  }, [outlet.id])
+  }, [outlet.id, outlet.company_id])
 
   const chartData = MONTHS.map((name, i) => ({
     month: name,
     ricavi: yearData[i + 1] || 0,
   }))
 
-  const ytd = Object.values(yearData).reduce((s, v) => s + v, 0)
+  const ytd = Object.values(yearData).reduce<number>((s, v) => s + (Number(v) || 0), 0)
   const avgMonth = Object.keys(yearData).length > 0 ? ytd / Object.keys(yearData).length : 0
-  const bestMonth = Object.entries(yearData).reduce(
-    (best, [m, v]) => v > best.value ? { month: parseInt(m), value: v } : best,
+  const bestMonth = Object.entries(yearData).reduce<{ month: number; value: number }>(
+    (best, [m, v]) => Number(v) > best.value ? { month: parseInt(m), value: Number(v) } : best,
     { month: 0, value: 0 }
   )
 
-  const rentAnnual = (outlet.rent_monthly || 0) * 12
-  const condoAnnual = (outlet.condo_marketing_monthly || 0) * 12
+  const rentAnnual = (Number(outlet.rent_monthly) || 0) * 12
+  const condoAnnual = (Number(outlet.condo_marketing_monthly) || 0) * 12
   const occupancyCost = rentAnnual + condoAnnual
   const occupancyRatio = ytd > 0 ? (occupancyCost / ytd * 100) : 0
   const yesterdayRev = recentDaily.length > 0 ? recentDaily[recentDaily.length - 1]?.gross_revenue || 0 : null
@@ -1658,7 +1660,7 @@ function OutletDetail({ outlet, revenue, onBack, onEdit, onDelete }: { outlet: a
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-3">
             <h2 className="text-xl sm:text-2xl font-bold text-slate-900 truncate">{formatOutletName(outlet.name)}</h2>
-            <StatusBadge outlet={outlet} isActive={outlet.is_active} />
+            <StatusBadge outlet={outlet} isActive={outlet.is_active ?? undefined} />
           </div>
           <p className="text-xs sm:text-sm text-slate-500">
             {outlet.mall_name} — {outlet.code}
@@ -1729,7 +1731,7 @@ function OutletDetail({ outlet, revenue, onBack, onEdit, onDelete }: { outlet: a
                 <BarChart data={recentDaily.map(d => ({ ...d, label: new Date(d.date).toLocaleDateString('it-IT', { weekday: 'short', day: '2-digit' }) }))}>
                   <XAxis dataKey="label" {...AXIS_STYLE} />
                   <YAxis hide />
-                  <Tooltip formatter={v => [`${fmt(v)} €`, 'Incasso']} />
+                  <Tooltip formatter={(v: unknown) => [`${fmt(Number(v) || 0)} €`, 'Incasso']} />
                   <Bar dataKey="gross_revenue" fill="#6366f1" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
@@ -1764,11 +1766,11 @@ function OutletDetail({ outlet, revenue, onBack, onEdit, onDelete }: { outlet: a
             <h3 className="text-sm font-semibold text-slate-900 mb-3">Anagrafica</h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2 text-sm">
               <div className="flex justify-between py-1.5 border-b border-slate-50"><span className="text-slate-500">Centro commerciale</span><span className="font-medium">{outlet.mall_name || '—'}</span></div>
-              <div className="flex justify-between py-1.5 border-b border-slate-50"><span className="text-slate-500">Tipo</span><span className="font-medium">{outlet.outlet_type || '—'}</span></div>
-              <div className="flex justify-between py-1.5 border-b border-slate-50"><span className="text-slate-500">Apertura</span><span className="font-medium">{outlet.opening_date ? new Date(outlet.opening_date).toLocaleDateString('it-IT') : '—'}</span></div>
-              <div className="flex justify-between py-1.5 border-b border-slate-50"><span className="text-slate-500">Superficie</span><span className="font-medium">{outlet.sqm || '—'} mq</span></div>
-              <div className="flex justify-between py-1.5 border-b border-slate-50"><span className="text-slate-500">Canone mensile</span><span className="font-medium">{fmt(outlet.rent_monthly, 2)} €</span></div>
-              <div className="flex justify-between py-1.5 border-b border-slate-50"><span className="text-slate-500">Spese cond.</span><span className="font-medium">{fmt(outlet.condo_marketing_monthly, 2)} €</span></div>
+              <div className="flex justify-between py-1.5 border-b border-slate-50"><span className="text-slate-500">Tipo</span><span className="font-medium">{(outlet.outlet_type as string | null) || '—'}</span></div>
+              <div className="flex justify-between py-1.5 border-b border-slate-50"><span className="text-slate-500">Apertura</span><span className="font-medium">{outlet.opening_date ? new Date(String(outlet.opening_date)).toLocaleDateString('it-IT') : '—'}</span></div>
+              <div className="flex justify-between py-1.5 border-b border-slate-50"><span className="text-slate-500">Superficie</span><span className="font-medium">{(outlet.sqm as string | number | null) || '—'} mq</span></div>
+              <div className="flex justify-between py-1.5 border-b border-slate-50"><span className="text-slate-500">Canone mensile</span><span className="font-medium">{fmt(Number(outlet.rent_monthly) || 0, 2)} €</span></div>
+              <div className="flex justify-between py-1.5 border-b border-slate-50"><span className="text-slate-500">Spese cond.</span><span className="font-medium">{fmt(Number(outlet.condo_marketing_monthly) || 0, 2)} €</span></div>
             </div>
           </div>
 
@@ -1779,7 +1781,7 @@ function OutletDetail({ outlet, revenue, onBack, onEdit, onDelete }: { outlet: a
 
       {/* ─── Tab: Corrispettivi ─── */}
       {detailTab === 'corrispettivi' && (
-        <CorrispettiviTab outletId={outlet.id} companyId={outlet.company_id} />
+        <CorrispettiviTab outletId={outlet.id} companyId={outlet.company_id || ''} />
       )}
 
       {/* ─── Tab: Budget ─── */}
@@ -1806,14 +1808,14 @@ function OutletDetail({ outlet, revenue, onBack, onEdit, onDelete }: { outlet: a
 
       {/* ─── Tab: Staff ─── */}
       {detailTab === 'staff' && (
-        <StaffTab outletId={outlet.id} companyId={outlet.company_id} />
+        <StaffTab outletId={outlet.id} companyId={outlet.company_id || ''} />
       )}
 
       {/* ─── Tab: Documenti ─── */}
       {detailTab === 'documenti' && (
         <div className="space-y-4">
-          <DocumentArchive outletId={outlet.id} companyId={outlet.company_id} />
-          <OutletAllegati outletId={outlet.id} companyId={outlet.company_id} />
+          <DocumentArchive outletId={outlet.id} companyId={outlet.company_id || ''} />
+          <OutletAllegati outletId={outlet.id} companyId={outlet.company_id || ''} />
         </div>
       )}
     </div>
@@ -1825,14 +1827,14 @@ export default function Outlet() {
   const { profile } = useAuth()
   const [loading, setLoading] = useState(true)
   // TODO: tighten type — Supabase rows
-  const [outlets, setOutlets] = useState<any[]>([])
-  const [revenue, setRevenue] = useState<Record<string, any>>({})
+  const [outlets, setOutlets] = useState<OutletEntity[]>([])
+  const [revenue, setRevenue] = useState<Record<string, Record<number, number>>>({})
   // Anno effettivamente usato per caricare i dati di fatturato (quello
   // in cui sono state trovate righe in budget_entries). Serve a mostrare
   // nel titolo l'anno CORRETTO invece dell'hardcoded 'currentYear - 1'.
   const [revenueYear, setRevenueYear] = useState<number | null>(null)
   // TODO: tighten type
-  const [selectedOutlet, setSelectedOutlet] = useState<any>(null)
+  const [selectedOutlet, setSelectedOutlet] = useState<OutletEntity | null>(null)
   const [search, setSearch] = useState('')
   const [showWizard, setShowWizard] = useState(false)
   const [showContractUploader, setShowContractUploader] = useState(false)
@@ -1841,8 +1843,8 @@ export default function Outlet() {
   const [wizardAllegati, setWizardAllegati] = useState<any>(null)
   const [wizardContractFile, setWizardContractFile] = useState<any>(null)
   const [wizardUploadedFiles, setWizardUploadedFiles] = useState<any>(null)
-  const [editOutlet, setEditOutlet] = useState<any>(null)
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null)
+  const [editOutlet, setEditOutlet] = useState<OutletEntity | null>(null)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState<OutletEntity | null>(null)
   const [deleting, setDeleting] = useState(false)
   const [tab, setTab] = useState('operativi')
   const canWrite = profile?.role === 'super_advisor'
@@ -1853,43 +1855,45 @@ export default function Outlet() {
   async function loadData() {
     setLoading(true)
     try {
+      if (!profile?.company_id) return
+      const companyId = profile.company_id
       // Carica outlets
       const { data: outData, error: outErr } = await supabase
         .from('outlets')
         .select('*')
-        .eq('company_id', profile?.company_id)
+        .eq('company_id', companyId)
         .order('name')
 
       if (outErr) {
         console.error('Outlets error:', outErr)
       } else {
-        setOutlets(outData || [])
+        setOutlets((outData || []) as OutletEntity[])
       }
 
       // Carica ricavi da budget_entries (ricavi consuntivo per outlet)
       // Mappa bidirezionale: codice outlet (BRB) ↔ codice cost_center (barberino)
-      const COST_CENTER_MAP = {
+      const COST_CENTER_MAP: Record<string, string> = {
         'barberino': 'BRB', 'brugnato': 'BRG', 'franciacorta': 'FRC',
         'palmanova': 'PLM', 'torino': 'TRN', 'valdichiana': 'VDC',
         'valmontone': 'VLM', 'sede_magazzino': 'SEDE',
       }
 
       // Also map outlet name (lowercase) → outlet id
-      const codeToId = {}
-      const nameToId = {}
+      const codeToId: Record<string, string> = {}
+      const nameToId: Record<string, string> = {}
       ;(outData || []).forEach(o => {
-        codeToId[o.code] = o.id
+        if (o.code) codeToId[o.code] = o.id
         nameToId[(o.name || '').toLowerCase()] = o.id
       })
 
       // Try current year first, then previous year
-      let budgetData = null
-      let budgetDataYear = null
+      let budgetData: Array<{ cost_center?: string | null; month?: number | null; actual_amount?: number | null; budget_amount?: number | null; account_code?: string | null }> | null = null
+      let budgetDataYear: number | null = null
       for (const yr of [currentYear, currentYear - 1]) {
         const { data, error: budgetErr } = await supabase
           .from('budget_entries')
           .select('cost_center, month, actual_amount, budget_amount, account_code')
-          .eq('company_id', profile?.company_id)
+          .eq('company_id', companyId)
           .eq('year', yr)
 
         if (!budgetErr && data && data.length > 0) {
@@ -1902,22 +1906,24 @@ export default function Outlet() {
       setRevenueYear(budgetDataYear)
 
       if (budgetData && budgetData.length > 0) {
-        const grouped = {}
+        const grouped: Record<string, Record<number, number>> = {}
         budgetData.forEach(r => {
+          const cc = r.cost_center || ''
           // Prova match diretto con code, poi con mappa, poi con nome outlet
-          let outletId = codeToId[r.cost_center]
+          let outletId = codeToId[cc]
           if (!outletId) {
-            const mappedCode = COST_CENTER_MAP[r.cost_center]
+            const mappedCode = COST_CENTER_MAP[cc]
             if (mappedCode) outletId = codeToId[mappedCode]
           }
           if (!outletId) {
-            outletId = nameToId[(r.cost_center || '').toLowerCase()]
+            outletId = nameToId[cc.toLowerCase()]
           }
           if (!outletId) return
-          const amount = parseFloat(r.actual_amount) || parseFloat(r.budget_amount) || 0
+          const amount = Number(r.actual_amount) || Number(r.budget_amount) || 0
           if (amount === 0) return
           if (!grouped[outletId]) grouped[outletId] = {}
-          grouped[outletId][r.month] = (grouped[outletId][r.month] || 0) + amount
+          const m = r.month ?? 0
+          grouped[outletId][m] = (grouped[outletId][m] || 0) + amount
         })
         setRevenue(grouped)
       }
@@ -1928,40 +1934,43 @@ export default function Outlet() {
     }
   }
 
-  function handleEdit(outlet) {
+  function handleEdit(outletIn: OutletEntity) {
+    const o = outletIn as Record<string, unknown>
+    const str = (k: string) => String(o[k] || '')
+    const num = (k: string) => o[k] != null ? String(o[k]) : ''
     const formData = {
-      name: outlet.name || '', code: outlet.code || '', brand: outlet.brand || '',
-      outlet_type: outlet.outlet_type || 'outlet',
-      sqm: outlet.sqm?.toString() || '', sell_sqm: outlet.sell_sqm?.toString() || '',
-      unit_code: outlet.unit_code || '',
-      mall_name: outlet.mall_name || '', concedente: outlet.concedente || '',
-      address: outlet.address || '', city: outlet.city || '',
-      province: outlet.province || '', region: outlet.region || '',
-      delivery_date: outlet.delivery_date || '', opening_date: outlet.opening_date || '',
-      opening_confirmed: outlet.opening_confirmed || false,
-      contract_start: outlet.contract_start || '', contract_end: outlet.contract_end || '',
-      contract_duration_months: outlet.contract_duration_months?.toString() || '',
-      contract_min_months: outlet.contract_min_months?.toString() || '',
-      rent_free_days: outlet.rent_free_days?.toString() || '',
-      exit_clause_month: outlet.exit_clause_month?.toString() || '',
-      rent_annual: outlet.rent_annual?.toString() || '',
-      rent_monthly: outlet.rent_monthly?.toString() || '',
-      rent_per_sqm: outlet.rent_per_sqm?.toString() || '',
-      variable_rent_pct: outlet.variable_rent_pct?.toString() || '',
-      rent_year2_annual: outlet.rent_year2_annual?.toString() || '',
-      rent_year3_annual: outlet.rent_year3_annual?.toString() || '',
-      condo_marketing_monthly: outlet.condo_marketing_monthly?.toString() || '',
-      staff_budget_monthly: outlet.staff_budget_monthly?.toString() || '',
-      deposit_guarantee: outlet.deposit_guarantee?.toString() || '',
-      advance_payment: outlet.advance_payment?.toString() || '',
-      setup_cost: outlet.setup_cost?.toString() || '',
-      target_margin_pct: outlet.target_margin_pct?.toString() || '60',
-      target_cogs_pct: outlet.target_cogs_pct?.toString() || '40',
-      exit_revenue_threshold: outlet.exit_revenue_threshold?.toString() || outlet.min_revenue_target?.toString() || '',
-      min_revenue_period: outlet.min_revenue_period || '',
-      notes: outlet.notes || '',
+      name: str('name'), code: str('code'), brand: str('brand'),
+      outlet_type: str('outlet_type') || 'outlet',
+      sqm: num('sqm'), sell_sqm: num('sell_sqm'),
+      unit_code: str('unit_code'),
+      mall_name: str('mall_name'), concedente: str('concedente'),
+      address: str('address'), city: str('city'),
+      province: str('province'), region: str('region'),
+      delivery_date: str('delivery_date'), opening_date: str('opening_date'),
+      opening_confirmed: Boolean(o.opening_confirmed),
+      contract_start: str('contract_start'), contract_end: str('contract_end'),
+      contract_duration_months: num('contract_duration_months'),
+      contract_min_months: num('contract_min_months'),
+      rent_free_days: num('rent_free_days'),
+      exit_clause_month: num('exit_clause_month'),
+      rent_annual: num('rent_annual'),
+      rent_monthly: num('rent_monthly'),
+      rent_per_sqm: num('rent_per_sqm'),
+      variable_rent_pct: num('variable_rent_pct'),
+      rent_year2_annual: num('rent_year2_annual'),
+      rent_year3_annual: num('rent_year3_annual'),
+      condo_marketing_monthly: num('condo_marketing_monthly'),
+      staff_budget_monthly: num('staff_budget_monthly'),
+      deposit_guarantee: num('deposit_guarantee'),
+      advance_payment: num('advance_payment'),
+      setup_cost: num('setup_cost'),
+      target_margin_pct: num('target_margin_pct') || '60',
+      target_cogs_pct: num('target_cogs_pct') || '40',
+      exit_revenue_threshold: num('exit_revenue_threshold') || num('min_revenue_target'),
+      min_revenue_period: str('min_revenue_period'),
+      notes: str('notes'),
     }
-    setEditOutlet(outlet)
+    setEditOutlet(outletIn)
     setWizardInitialData(formData)
     setWizardAllegati(null)
     setWizardContractFile(null)
@@ -1969,7 +1978,7 @@ export default function Outlet() {
     setShowWizard(true)
   }
 
-  async function handleDelete(outlet) {
+  async function handleDelete(outlet: OutletEntity) {
     setShowDeleteConfirm(outlet)
   }
 
@@ -2020,7 +2029,7 @@ export default function Outlet() {
 
   const filtered = outlets.filter(o =>
     !search ||
-    o.name.toLowerCase().includes(search.toLowerCase()) ||
+    (o.name || '').toLowerCase().includes(search.toLowerCase()) ||
     o.code?.toLowerCase().includes(search.toLowerCase()) ||
     o.mall_name?.toLowerCase().includes(search.toLowerCase())
   )
