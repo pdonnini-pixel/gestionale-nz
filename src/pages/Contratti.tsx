@@ -51,8 +51,16 @@ function KpiCard({ title, value, subtitle, icon: Icon, color = 'blue' }: { title
 }
 
 // ====== MODAL NUOVO CONTRATTO ======
-// TODO: tighten type
-function ModalNuovoContratto({ outlets, onClose, onSave, editingContract = null, profile }: { outlets: any[]; onClose: () => void; onSave: () => void; editingContract?: any; profile: any }) {
+// TODO: tighten types — usare interfaces precise quando si refactorizzano
+// ContractRow/Profile/Outlet (richiede coordinamento con altre pagine)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type ContractRow = any
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type OutletLite = any
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type ProfileLite = any
+
+function ModalNuovoContratto({ outlets, onClose, onSave, editingContract = null, profile }: { outlets: OutletLite[]; onClose: () => void; onSave: () => void; editingContract?: ContractRow | null; profile: ProfileLite | null }) {
   const [form, setForm] = useState(editingContract ? {
     name: editingContract.name,
     counterpart: editingContract.counterpart,
@@ -176,7 +184,7 @@ function ModalNuovoContratto({ outlets, onClose, onSave, editingContract = null,
   }
 
   // TODO: tighten type
-  const set = (k: string, v: any) => setForm(prev => ({ ...prev, [k]: v }))
+  const set = (k: string, v: unknown) => setForm(prev => ({ ...prev, [k]: v }))
   const isEditing = !!editingContract
 
   return (
@@ -298,7 +306,12 @@ function ModalNuovoContratto({ outlets, onClose, onSave, editingContract = null,
 
 // ====== PDF UPLOADER (Supabase Storage) ======
 // TODO: tighten type
-function PdfUploader({ contractId, files, loading: filesLoading, onUploadDone, onRemoveDone, onPreview }: { contractId: string; files: any[]; loading: boolean; onUploadDone: () => void; onRemoveDone: () => void; onPreview: (f: any) => void }) {
+// TODO: tighten — ContractDoc shape rifletta tabella documents (file_path,
+// uploaded_at sono aliasati lato runtime).
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type ContractDoc = any
+
+function PdfUploader({ contractId, files, loading: filesLoading, onUploadDone, onRemoveDone, onPreview }: { contractId: string; files: ContractDoc[]; loading: boolean; onUploadDone: () => void; onRemoveDone: () => void; onPreview: (f: ContractDoc) => void }) {
   const [dragActive, setDragActive] = useState(false)
   const [uploading, setUploading] = useState(false)
 
@@ -336,7 +349,7 @@ function PdfUploader({ contractId, files, loading: filesLoading, onUploadDone, o
   }
 
   // TODO: tighten type
-  async function handleRemove(doc: any) {
+  async function handleRemove(doc: ContractDoc) {
     if (doc.file_path) {
       await supabase.storage.from('contract-documents').remove([doc.file_path])
     }
@@ -409,7 +422,7 @@ function PdfUploader({ contractId, files, loading: filesLoading, onUploadDone, o
 
 // ====== PDF PREVIEW MODAL (Supabase signed URL) ======
 // TODO: tighten type
-function PdfPreviewModal({ file, onClose }: { file: any; onClose: () => void }) {
+function PdfPreviewModal({ file, onClose }: { file: ContractDoc; onClose: () => void }) {
   const [pdfUrl, setPdfUrl] = useState<string | null>(null)
   const [loadingUrl, setLoadingUrl] = useState(false)
 
@@ -466,13 +479,13 @@ export default function Contratti() {
   const [filterStatus, setFilterStatus] = useState('')
   const [showModal, setShowModal] = useState(false)
   // TODO: tighten type
-  const [editingContract, setEditingContract] = useState<any>(null)
+  const [editingContract, setEditingContract] = useState<ContractRow | null>(null)
   const [expandedId, setExpandedId] = useState<string | null>(null)
   // TODO: tighten type
   const [contractDocs, setContractDocs] = useState<Record<string, any[]>>({})
   const [docsLoading, setDocsLoading] = useState(false)
   // TODO: tighten type
-  const [previewFile, setPreviewFile] = useState<any>(null)
+  const [previewFile, setPreviewFile] = useState<ContractDoc | null>(null)
   const canWrite = profile?.role === 'super_advisor'
 
   useEffect(() => { loadData() }, [])

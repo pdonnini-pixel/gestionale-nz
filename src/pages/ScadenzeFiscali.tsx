@@ -54,7 +54,9 @@ const STATUS_CONFIG = {
 
 /* ───── Form modal ───── */
 // TODO: tighten type
-function ModalDeadline({ isOpen, isEdit, deadline, onClose, onSave, saving }: { isOpen: boolean; isEdit: boolean; deadline: any; onClose: () => void; onSave: (form: any) => void; saving: boolean }) {
+type Deadline = Record<string, unknown> & { id?: string }
+
+function ModalDeadline({ isOpen, isEdit, deadline, onClose, onSave, saving }: { isOpen: boolean; isEdit: boolean; deadline: Deadline | null; onClose: () => void; onSave: (form: Record<string, unknown>) => void; saving: boolean }) {
   const [form, setForm] = useState({
     deadline_type: 'f24', title: '', description: '', amount: '',
     due_date: '', f24_code: '', tax_period: '', payment_method: 'f24',
@@ -63,19 +65,20 @@ function ModalDeadline({ isOpen, isEdit, deadline, onClose, onSave, saving }: { 
 
   useEffect(() => {
     if (isEdit && deadline) {
+      const d = deadline as Record<string, string | number | boolean | null | undefined>
       setForm({
-        deadline_type: deadline.deadline_type || 'f24',
-        title: deadline.title || '',
-        description: deadline.description || '',
-        amount: deadline.amount || '',
-        due_date: deadline.due_date || '',
-        f24_code: deadline.f24_code || '',
-        tax_period: deadline.tax_period || '',
-        payment_method: deadline.payment_method || 'f24',
-        is_recurring: deadline.is_recurring || false,
-        recurrence_rule: deadline.recurrence_rule || '',
-        notes: deadline.notes || '',
-        status: deadline.status || 'pending',
+        deadline_type: String(d.deadline_type || 'f24'),
+        title: String(d.title || ''),
+        description: String(d.description || ''),
+        amount: String(d.amount || ''),
+        due_date: String(d.due_date || ''),
+        f24_code: String(d.f24_code || ''),
+        tax_period: String(d.tax_period || ''),
+        payment_method: String(d.payment_method || 'f24'),
+        is_recurring: Boolean(d.is_recurring),
+        recurrence_rule: String(d.recurrence_rule || ''),
+        notes: String(d.notes || ''),
+        status: String(d.status || 'pending'),
       })
     } else {
       setForm({
@@ -323,7 +326,7 @@ export default function ScadenzeFiscali() {
 
   // Quick mark as paid
   // TODO: tighten type
-  const markPaid = async (dl: any) => {
+  const markPaid = async (dl: { id: string; amount?: number | null }) => {
     try {
       await supabase.from('fiscal_deadlines').update({
         status: 'paid',

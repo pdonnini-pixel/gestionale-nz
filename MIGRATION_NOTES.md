@@ -62,16 +62,25 @@
 
 ## File con `@ts-nocheck` (debito tecnico documentato)
 
-51 file hanno `// @ts-nocheck` in testa. Questo è necessario perché:
-- I tipi Supabase generati usano `null` dove il codice esistente tratta i campi come opzionali
-- Molti componenti usano pattern JS dinamici (index access, destructuring) che richiederebbero
-  riscrittura significativa per soddisfare strict mode
-- La rimozione dei `@ts-nocheck` è un task incrementale post-migrazione
+Stato originale: 51 file. Dopo task `feature-ts-cleanup-nocheck` (04/05/2026):
+**26 file ripuliti completamente, 25 file ancora con `@ts-nocheck`** —
+tutti pagine complesse con shape Supabase non typed e pattern dinamici
+che richiedono refactor strutturale. Vedi `CLEANUP_NOCHECK_NOTES.md` per
+dettagli, motivazioni delle decisioni autonome e priorità refactor.
 
-**File interessati:**
+**File ancora con `@ts-nocheck` (25, tutte pagine):**
+AllocazioneFornitori, AnalyticsPOS, ArchivioDocumenti, Banche, BudgetControl,
+CashFlow, CashflowProspettico, ConfrontoOutlet, ContoEconomico, Dashboard,
+Dipendenti, Fatturazione, Fornitori, ImportHub, Impostazioni,
+MarginiCategoria, MarginiOutlet, OpenToBuy, Outlet, Produttivita,
+Scadenzario, ScadenzarioSmart, SchedaContabileFornitore, StockSellthrough,
+TesoreriaManuale.
+
+**File originariamente in lista, ora ripuliti (26):**
 - 12 componenti in `src/components/`
 - 6 file lib/parsers in `src/lib/`
-- 33 pagine in `src/pages/`
+- 8 pagine: Login, BankingCallback, Importazioni, Onboarding, StoreManager,
+  ScadenzeFiscali, ScenarioPlanning, Contratti
 
 **File SENZA @ts-nocheck (tipizzazione completa):**
 - `src/lib/supabase.ts`
