@@ -1,4 +1,3 @@
-// @ts-nocheck — TODO tighten: indexing dinamico (suppliers/details), da rivedere
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
@@ -6,6 +5,28 @@ import {
   Users, Search, Settings2, Store, Percent, DollarSign, Equal, ArrowRight,
   CheckCircle2, AlertCircle, X, Loader2, Plus, Trash2, Save
 } from 'lucide-react'
+import type { Row } from '../types/business'
+
+type AllocationMode = 'DIRETTO' | 'SPLIT_PCT' | 'SPLIT_VALORE' | 'QUOTE_UGUALI'
+type ColorKey = 'blue' | 'purple' | 'amber' | 'emerald' | 'gray'
+
+type SupplierLite = Pick<Row<'suppliers'>, 'id' | 'ragione_sociale' | 'name' | 'partita_iva' | 'cost_center' | 'is_active'>
+type OutletLite = Pick<Row<'outlets'>, 'id' | 'code' | 'name' | 'is_active'>
+type AllocationRule = Row<'supplier_allocation_rules'>
+type AllocationDetail = Row<'supplier_allocation_details'>
+
+interface RuleWithDetails extends AllocationRule {
+  details: AllocationDetail[]
+}
+
+interface EditDetail {
+  outlet_id: string
+  percentage: number
+  fixed_value: number
+  selected: boolean
+}
+
+type SetDetailField = <K extends keyof EditDetail>(outletId: string, field: K, value: EditDetail[K]) => void
 
 /* ───────── helpers ───────── */
 
@@ -17,14 +38,16 @@ function fmt(n: number | null | undefined, dec = 2): string {
   }).format(n)
 }
 
-const MODE_META = {
+interface ModeMeta { label: string; color: ColorKey; icon: typeof ArrowRight; desc: string }
+const MODE_META: Record<AllocationMode, ModeMeta> = {
   DIRETTO:       { label: 'Diretto',        color: 'blue',    icon: ArrowRight,   desc: 'Tutto a un solo outlet' },
   SPLIT_PCT:     { label: 'Split %',        color: 'purple',  icon: Percent,      desc: 'Ripartizione percentuale' },
   SPLIT_VALORE:  { label: 'Split Valore',   color: 'amber',   icon: DollarSign,   desc: 'Importi fissi per outlet' },
   QUOTE_UGUALI:  { label: 'Quote Uguali',   color: 'emerald', icon: Equal,        desc: 'Diviso in parti uguali' },
 }
 
-const COLOR_MAP = {
+interface ColorTheme { bg: string; border: string; text: string; ring: string; badge: string }
+const COLOR_MAP: Record<ColorKey, ColorTheme> = {
   blue:    { bg: 'bg-blue-50',    border: 'border-blue-300',    text: 'text-blue-700',    ring: 'ring-blue-500',    badge: 'bg-blue-100 text-blue-800' },
   purple:  { bg: 'bg-purple-50',  border: 'border-purple-300',  text: 'text-purple-700',  ring: 'ring-purple-500',  badge: 'bg-purple-100 text-purple-800' },
   amber:   { bg: 'bg-amber-50',   border: 'border-amber-300',   text: 'text-amber-700',   ring: 'ring-amber-500',   badge: 'bg-amber-100 text-amber-800' },
@@ -38,21 +61,20 @@ export default function AllocazioneFornitori() {
   const { profile } = useAuth()
   const COMPANY_ID = profile?.company_id
 
-  // TODO: tighten type — Supabase data
   /* ── state ── */
-  const [suppliers, setSuppliers]     = useState<any[]>([])
-  const [outlets, setOutlets]         = useState<any[]>([])
-  const [rules, setRules]             = useState<any[]>([])   // active rules with details
+  const [suppliers, setSuppliers]     = useState<SupplierLite[]>([])
+  const [outlets, setOutlets]         = useState<OutletLite[]>([])
+  const [rules, setRules]             = useState<RuleWithDetails[]>([])   // active rules with details
   const [loading, setLoading]         = useState(true)
   const [search, setSearch]           = useState('')
-  const [selectedSupplier, setSelectedSupplier] = useState<any>(null) // opens modal
+  const [selectedSupplier, setSelectedSupplier] = useState<SupplierLite | null>(null) // opens modal
   const [saving, setSaving]           = useState(false)
   const [error, setError]             = useState<string | null>(null)
 
   /* modal editor state */
-  const [editMode, setEditMode]       = useState<string | null>(null)           // 'DIRETTO' | 'SPLIT_PCT' | ...
-  const [editDetails, setEditDetails] = useState<any[]>([])             // [{outlet_id, percentage, fixed_value, selected}]
-  const [existingRule, setExistingRule] = useState<any>(null)          // rule record if editing
+  const [editMode, setEditMode]       = useState<AllocationMode | null>(null)
+  const [editDetails, setEditDetails] = useState<EditDetail[]>([])
+  const [existingRule, setExistingRule] = useState<RuleWithDetails | null>(null)
 
   /* ── data loading ── */
 
@@ -87,24 +109,24 @@ export default function AllocazioneFornitori() {
 
       // Load details for all active rules
       const ruleIds = (ruleRes.data || []).map(r => r.id)
-      let detailsData = []
+      let detailsData: AllocationDetail[] = []
       if (ruleIds.length > 0) {
         const detRes = await supabase
           .from('supplier_allocation_details')
           .select('id, rule_id, outlet_id, percentage, fixed_value')
           .in('rule_id', ruleIds)
         if (detRes.error) throw detRes.error
-        detailsData = detRes.data || []
+        detailsData = (detRes.data || []) as AllocationDetail[]
       }
 
       // Attach details to rules
-      const rulesWithDetails = (ruleRes.data || []).map(r => ({
-        ...r,
+      const rulesWithDetails: RuleWithDetails[] = (ruleRes.data || []).map(r => ({
+        ...(r as AllocationRule),
         details: detailsData.filter(d => d.rule_id === r.id),
       }))
 
-      setSuppliers(supRes.data || [])
-      setOutlets(outRes.data || [])
+      setSuppliers((supRes.data || []) as SupplierLite[])
+      setOutlets((outRes.data || []) as OutletLite[])
       setRules(rulesWithDetails)
     } catch (err: unknown) {
       console.error('[AllocazioneFornitori] load error:', err)
@@ -118,9 +140,9 @@ export default function AllocazioneFornitori() {
 
   /* ── derived data ── */
 
-  const ruleBySupplier = useMemo(() => {
-    const map = {}
-    rules.forEach(r => { map[r.supplier_id] = r })
+  const ruleBySupplier = useMemo<Record<string, RuleWithDetails>>(() => {
+    const map: Record<string, RuleWithDetails> = {}
+    rules.forEach(r => { if (r.supplier_id) map[r.supplier_id] = r })
     return map
   }, [rules])
 
@@ -147,12 +169,12 @@ export default function AllocazioneFornitori() {
 
   /* ── open modal ── */
 
-  const openEditor = useCallback((supplier) => {
+  const openEditor = useCallback((supplier: SupplierLite) => {
     const rule = ruleBySupplier[supplier.id] || null
     setSelectedSupplier(supplier)
     setExistingRule(rule)
     if (rule) {
-      setEditMode(rule.allocation_mode)
+      setEditMode(rule.allocation_mode as AllocationMode)
       // Build detail rows from existing
       setEditDetails(outlets.map(o => {
         const det = rule.details.find(d => d.outlet_id === o.id)
@@ -185,7 +207,7 @@ export default function AllocazioneFornitori() {
 
   /* ── mode change resets details ── */
 
-  const changeMode = useCallback((mode: string) => {
+  const changeMode = useCallback((mode: AllocationMode) => {
     setEditMode(mode)
     setEditDetails(prev => prev.map(d => ({
       ...d,
@@ -200,8 +222,7 @@ export default function AllocazioneFornitori() {
 
   /* ── detail updaters ── */
 
-  // TODO: tighten type
-  const setDetailField = useCallback((outletId: string, field: string, value: any) => {
+  const setDetailField = useCallback(<K extends keyof EditDetail>(outletId: string, field: K, value: EditDetail[K]) => {
     setEditDetails(prev => prev.map(d =>
       d.outlet_id === outletId ? { ...d, [field]: value } : d
     ))
@@ -221,7 +242,7 @@ export default function AllocazioneFornitori() {
     if (editMode === 'SPLIT_PCT') {
       const active = editDetails.filter(d => d.percentage > 0)
       if (active.length === 0) return { valid: false, message: 'Inserisci almeno una percentuale' }
-      const total = editDetails.reduce((s, d) => s + (parseFloat(d.percentage) || 0), 0)
+      const total = editDetails.reduce((s, d) => s + (Number(d.percentage) || 0), 0)
       if (Math.abs(total - 100) > 0.01) return { valid: false, message: `Il totale è ${fmt(total)}% — deve essere 100%` }
       return { valid: true, message: '' }
     }
@@ -258,6 +279,7 @@ export default function AllocazioneFornitori() {
       }
 
       // 2. Insert new rule
+      if (!editMode) return
       const { data: newRule, error: ruleErr } = await supabase
         .from('supplier_allocation_rules')
         .insert({
@@ -270,9 +292,11 @@ export default function AllocazioneFornitori() {
         .select('id')
         .single()
       if (ruleErr) throw ruleErr
+      if (!newRule) return
 
       // 3. Build detail rows
-      let detailRows = []
+      type DetailRow = { rule_id: string; outlet_id: string; percentage: number | null; fixed_value: number | null }
+      let detailRows: DetailRow[] = []
       if (editMode === 'DIRETTO') {
         const sel = editDetails.find(d => d.selected)
         if (sel) {
@@ -285,21 +309,21 @@ export default function AllocazioneFornitori() {
         }
       } else if (editMode === 'SPLIT_PCT') {
         detailRows = editDetails
-          .filter(d => (parseFloat(d.percentage) || 0) > 0)
+          .filter(d => (Number(d.percentage) || 0) > 0)
           .map(d => ({
             rule_id: newRule.id,
             outlet_id: d.outlet_id,
-            percentage: parseFloat(d.percentage) || 0,
+            percentage: Number(d.percentage) || 0,
             fixed_value: null,
           }))
       } else if (editMode === 'SPLIT_VALORE') {
         detailRows = editDetails
-          .filter(d => (parseFloat(d.fixed_value) || 0) > 0)
+          .filter(d => (Number(d.fixed_value) || 0) > 0)
           .map(d => ({
             rule_id: newRule.id,
             outlet_id: d.outlet_id,
             percentage: null,
-            fixed_value: parseFloat(d.fixed_value) || 0,
+            fixed_value: Number(d.fixed_value) || 0,
           }))
       } else if (editMode === 'QUOTE_UGUALI') {
         const selected = editDetails.filter(d => d.selected)
@@ -357,15 +381,16 @@ export default function AllocazioneFornitori() {
 
   /* ── outlet name helper ── */
 
-  const outletName = useCallback((id: string) => {
-    const o = outlets.find((o: any) => o.id === id)
+  const outletName = useCallback((id: string | null) => {
+    if (!id) return ''
+    const o = outlets.find(x => x.id === id)
     return o ? `${o.code} — ${o.name}` : id
   }, [outlets])
 
   /* ── computed totals for editor ── */
 
-  const pctTotal   = useMemo(() => editDetails.reduce((s, d) => s + (parseFloat(d.percentage) || 0), 0), [editDetails])
-  const valTotal   = useMemo(() => editDetails.reduce((s, d) => s + (parseFloat(d.fixed_value) || 0), 0), [editDetails])
+  const pctTotal   = useMemo(() => editDetails.reduce((s, d) => s + (Number(d.percentage) || 0), 0), [editDetails])
+  const valTotal   = useMemo(() => editDetails.reduce((s, d) => s + (Number(d.fixed_value) || 0), 0), [editDetails])
   const selCount   = useMemo(() => editDetails.filter(d => d.selected).length, [editDetails])
   const equalShare = useMemo(() => selCount > 0 ? 100 / selCount : 0, [selCount])
 
@@ -476,7 +501,7 @@ export default function AllocazioneFornitori() {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Modalità di allocazione</label>
                 <div className="grid grid-cols-2 gap-3">
-                  {Object.entries(MODE_META).map(([key, meta]) => {
+                  {(Object.entries(MODE_META) as Array<[AllocationMode, ModeMeta]>).map(([key, meta]) => {
                     const c = COLOR_MAP[meta.color]
                     const active = editMode === key
                     const Icon = meta.icon
@@ -620,8 +645,10 @@ function StatCard({ icon: Icon, label, value, color }: { icon: React.ComponentTy
 
 /* ── Supplier Section ── */
 
-// TODO: tighten type
-function SupplierSection({ title, suppliers, ruleBySupplier, outlets, onSelect, outletName, emptyColor }: { title: string; suppliers: any[]; ruleBySupplier: Record<string, any>; outlets: any[]; onSelect: (s: any) => void; outletName: (id: string) => string; emptyColor?: boolean }) {
+// `outlets` e `emptyColor` non usati dentro il sub-component ma mantenuti
+// nella signature originale: marcati void per silenziare TS sui non-usati.
+function SupplierSection({ title, suppliers, ruleBySupplier, outlets, onSelect, outletName, emptyColor }: { title: string; suppliers: SupplierLite[]; ruleBySupplier: Record<string, RuleWithDetails>; outlets: OutletLite[]; onSelect: (s: SupplierLite) => void; outletName: (id: string | null) => string; emptyColor?: boolean }) {
+  void outlets; void emptyColor;
   if (suppliers.length === 0) return null
 
   return (
@@ -632,9 +659,9 @@ function SupplierSection({ title, suppliers, ruleBySupplier, outlets, onSelect, 
       <div className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-100 overflow-hidden">
         {suppliers.map(s => {
           const rule = ruleBySupplier[s.id]
-          const mode = rule?.allocation_mode
+          const mode = rule?.allocation_mode as AllocationMode | undefined
           const meta = mode ? MODE_META[mode] : null
-          const colorKey = meta ? meta.color : 'gray'
+          const colorKey: ColorKey = meta ? meta.color : 'gray'
           const c = COLOR_MAP[colorKey]
 
           return (
@@ -652,7 +679,7 @@ function SupplierSection({ title, suppliers, ruleBySupplier, outlets, onSelect, 
                 )}
               </div>
               <div className="flex items-center gap-2 flex-shrink-0 ml-3">
-                {rule ? (
+                {rule && meta ? (
                   <>
                     <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${c.badge}`}>
                       {meta.label}
@@ -676,9 +703,8 @@ function SupplierSection({ title, suppliers, ruleBySupplier, outlets, onSelect, 
 
 /* ── Rule Summary (tiny inline) ── */
 
-// TODO: tighten type
-function RuleSummary({ rule, outletName }: { rule: any; outletName: (id: string) => string }) {
-  if (!rule?.details || rule.details.length === 0) return null
+function RuleSummary({ rule, outletName }: { rule: RuleWithDetails; outletName: (id: string | null) => string }) {
+  if (!rule.details || rule.details.length === 0) return null
 
   if (rule.allocation_mode === 'DIRETTO') {
     const d = rule.details[0]
@@ -691,7 +717,7 @@ function RuleSummary({ rule, outletName }: { rule: any; outletName: (id: string)
     return <span className="text-xs text-gray-500 hidden sm:inline">{rule.details.length} outlet</span>
   }
   if (rule.allocation_mode === 'SPLIT_VALORE') {
-    const total = rule.details.reduce((s, d) => s + (parseFloat(d.fixed_value) || 0), 0)
+    const total = rule.details.reduce((s, d) => s + (Number(d.fixed_value) || 0), 0)
     return <span className="text-xs text-gray-500 hidden sm:inline">{fmt(total)} &euro;</span>
   }
   return null
@@ -701,7 +727,8 @@ function RuleSummary({ rule, outletName }: { rule: any; outletName: (id: string)
 
 /* DIRETTO */
 // TODO: tighten type
-function DirettoForm({ outlets, editDetails, setDetailField, outletName }: { outlets: any[]; editDetails: any[]; setDetailField: (outletId: string, field: string, value: any) => void; outletName: (id: string) => string }) {
+function DirettoForm({ outlets, editDetails, setDetailField, outletName }: { outlets: OutletLite[]; editDetails: EditDetail[]; setDetailField: SetDetailField; outletName: (id: string | null) => string }) {
+  void outletName;
   const selectedId = editDetails.find(d => d.selected)?.outlet_id || null
 
   const handleSelect = (outletId: string) => {
@@ -743,7 +770,8 @@ function DirettoForm({ outlets, editDetails, setDetailField, outletName }: { out
 
 /* SPLIT_PCT */
 // TODO: tighten type
-function SplitPctForm({ outlets, editDetails, setDetailField, outletName, pctTotal }: { outlets: any[]; editDetails: any[]; setDetailField: (outletId: string, field: string, value: any) => void; outletName: (id: string) => string; pctTotal: number }) {
+function SplitPctForm({ outlets, editDetails, setDetailField, outletName, pctTotal }: { outlets: OutletLite[]; editDetails: EditDetail[]; setDetailField: SetDetailField; outletName: (id: string | null) => string; pctTotal: number }) {
+  void outletName;
   const isValid = Math.abs(pctTotal - 100) <= 0.01
 
   return (
@@ -786,7 +814,8 @@ function SplitPctForm({ outlets, editDetails, setDetailField, outletName, pctTot
 
 /* SPLIT_VALORE */
 // TODO: tighten type
-function SplitValoreForm({ outlets, editDetails, setDetailField, outletName, valTotal }: { outlets: any[]; editDetails: any[]; setDetailField: (outletId: string, field: string, value: any) => void; outletName: (id: string) => string; valTotal: number }) {
+function SplitValoreForm({ outlets, editDetails, setDetailField, outletName, valTotal }: { outlets: OutletLite[]; editDetails: EditDetail[]; setDetailField: SetDetailField; outletName: (id: string | null) => string; valTotal: number }) {
+  void outletName;
   return (
     <div>
       <label className="block text-sm font-medium text-gray-700 mb-2">Importo fisso per outlet (EUR)</label>
@@ -824,7 +853,8 @@ function SplitValoreForm({ outlets, editDetails, setDetailField, outletName, val
 
 /* QUOTE_UGUALI */
 // TODO: tighten type
-function QuoteUgualiForm({ outlets, editDetails, setDetailField, outletName, selCount, equalShare }: { outlets: any[]; editDetails: any[]; setDetailField: (outletId: string, field: string, value: any) => void; outletName: (id: string) => string; selCount: number; equalShare: number }) {
+function QuoteUgualiForm({ outlets, editDetails, setDetailField, outletName, selCount, equalShare }: { outlets: OutletLite[]; editDetails: EditDetail[]; setDetailField: SetDetailField; outletName: (id: string | null) => string; selCount: number; equalShare: number }) {
+  void outletName;
   return (
     <div>
       <label className="block text-sm font-medium text-gray-700 mb-2">Seleziona gli outlet (divisione uguale)</label>
