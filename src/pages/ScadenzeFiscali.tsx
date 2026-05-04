@@ -219,8 +219,7 @@ export default function ScadenzeFiscali() {
   const [filterStatus, setFilterStatus] = useState('active')
   const [filterType, setFilterType] = useState('all')
   const [modalOpen, setModalOpen] = useState(false)
-  // TODO: tighten type
-  const [editingDeadline, setEditingDeadline] = useState<any>(null)
+  const [editingDeadline, setEditingDeadline] = useState<Deadline | null>(null)
   const [saving, setSaving] = useState(false)
 
   const loadData = useCallback(async () => {

@@ -118,8 +118,7 @@ function AlertItem({ icon: Icon, color, title, description, link, linkLabel }: A
 /* ═══════════════════════════════════════
    COMPACT SPARKLINE TOOLTIP
    ═══════════════════════════════════════ */
-// TODO: tighten type — recharts tooltip payload
-function SparklineTooltip({ active, payload }: { active?: boolean; payload?: any[] }) {
+function SparklineTooltip({ active, payload }: { active?: boolean; payload?: Array<{ payload: { label?: string; entrate?: number; uscite?: number } }> }) {
   if (!active || !payload?.[0]) return null
   const d = payload[0].payload
   return (

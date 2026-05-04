@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, Suspense } from 'react'
+import React, { useState, useEffect, useCallback, useMemo, Suspense } from 'react'
 import PageHelp from '../components/PageHelp'
 import {
   TrendingUp, TrendingDown, DollarSign, PieChart, BarChart3, Upload,
@@ -182,8 +182,7 @@ function Kpi({ label, value, sub, icon: Icon, color = 'blue', trend }: { label: 
   )
 }
 
-// TODO: tighten type
-function Section({ title, icon: Icon, children, defaultOpen = true, badge }: any) {
+function Section({ title, icon: Icon, children, defaultOpen = true, badge }: { title: string; icon: React.ComponentType<{ size?: number; className?: string }>; children: React.ReactNode; defaultOpen?: boolean; badge?: string | number | null }) {
   const [open, setOpen] = useState(defaultOpen)
   return (
     <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
@@ -201,8 +200,7 @@ function Section({ title, icon: Icon, children, defaultOpen = true, badge }: any
   )
 }
 
-// TODO: tighten type
-function CeRow({ label, v2025, v2024, total2025, total2024, bold, indent, highlight, sub, border, editable, onChange, simMode, onEditChange, fieldKey, isDirty }: any) {
+function CeRow({ label, v2025, v2024, total2025, total2024, bold, indent, highlight, sub, border, editable, onChange, simMode, onEditChange, fieldKey, isDirty }: { label: string; v2025?: number | null; v2024?: number | null; total2025?: number | null; total2024?: number | null; bold?: boolean; indent?: boolean; highlight?: boolean; sub?: boolean; border?: boolean; editable?: boolean; onChange?: (v: number) => void; simMode?: boolean; onEditChange?: (key: string, dirty: boolean) => void; fieldKey?: string; isDirty?: boolean }) {
   const var25vs24 = variation(v2025, v2024)
   const value = v2025 != null ? v2025 : ''
   return (
@@ -217,7 +215,7 @@ function CeRow({ label, v2025, v2024, total2025, total2024, bold, indent, highli
             type="number"
             value={value}
             onChange={(e) => {
-              onChange(parseFloat(e.target.value) || 0)
+              onChange?.(parseFloat(e.target.value) || 0)
               if (onEditChange && fieldKey) {
                 onEditChange(fieldKey, true)
               }
@@ -251,8 +249,7 @@ const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'
 const TREND_COLORS = { ricavi: '#3b82f6', ebitda: '#10b981', personale: '#f59e0b', utile: '#8b5cf6' }
 
 // ===== ANALYSIS ENGINE =====
-// TODO: tighten type
-function analyzeStrengthsWeaknesses(ce: any, ricavi: number) {
+function analyzeStrengthsWeaknesses(ce: Record<string, number | null | undefined>, ricavi: number) {
   if (!ricavi || ricavi === 0) return { strengths: [], weaknesses: [], recommendations: [] }
 
   const strengths = []

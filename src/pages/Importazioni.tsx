@@ -140,7 +140,7 @@ function UploadArea({ onUpload, uploading }: { onUpload: (file: File, source: st
 }
 
 // ====== STORICO IMPORTAZIONI ======
-// TODO: tighten type — Supabase data
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function ImportHistory({ batches, onRefresh }: { batches: any[]; onRefresh: () => void }) {
   const [expandedId, setExpandedId] = useState<string | null>(null)
 

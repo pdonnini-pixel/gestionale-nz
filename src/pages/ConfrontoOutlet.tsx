@@ -45,8 +45,15 @@ function KpiBadge({ label, value, sub, color = 'blue' }: { label: string; value:
 /* ═══════════════════════════════════════
    CARD OUTLET — Singola colonna confronto
    ═══════════════════════════════════════ */
-// TODO: tighten type
-function OutletCard({ name, outletData, calculatedMetrics, ranking, onNavigate }: any) {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type CalcMetricsT = any
+function OutletCard({ name, outletData, calculatedMetrics, ranking, onNavigate }: {
+  name: string
+  outletData: { color?: string | null }
+  calculatedMetrics: CalcMetricsT | null | undefined
+  ranking?: number | null
+  onNavigate: () => void
+}) {
   const [open, setOpen] = useState(false)
 
   if (!calculatedMetrics) {

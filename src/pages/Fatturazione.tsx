@@ -129,19 +129,22 @@ function FatturePassive() {
     invoice_number?: string | null
     supplier_name?: string | null
     supplier_vat?: string | null
+    supplier_fiscal_code?: string | null
     sdi_status?: string | null
     sdi_id?: string | null
     description?: string | null
+    notes?: string | null
     gross_amount?: number | null
     net_amount?: number | null
     taxable_amount?: number | null
     vat_amount?: number | null
     tipo_documento?: string | null
     payment_method?: string | null
+    payment_terms?: string | null
+    codice_destinatario?: string | null
     due_date?: string | null
     xml_content?: string | null
     notification_history?: Array<{ tipo?: string; data?: string; codice?: string; descrizione?: string }> | null
-    [key: string]: unknown
   }
   const [invoices, setInvoices] = useState<InvoiceRow[]>([])
   const [loading, setLoading] = useState(true)
@@ -163,9 +166,9 @@ function FatturePassive() {
   useEffect(() => {
     if (globalYear) setYearFilter(String(globalYear))
   }, [globalYear])
-  const [selectedInvoice, setSelectedInvoice] = useState<any>(null)
+  const [selectedInvoice, setSelectedInvoice] = useState<InvoiceRow | null>(null)
   const [showXml, setShowXml] = useState(false)
-  const [viewingXml, setViewingXml] = useState<any>(null) // XML content for InvoiceViewer
+  const [viewingXml, setViewingXml] = useState<string | null>(null) // XML content for InvoiceViewer
   const [uploading, setUploading] = useState(false)
 
   const loadInvoices = useCallback(async () => {

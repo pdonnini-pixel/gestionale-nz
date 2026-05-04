@@ -419,9 +419,8 @@ export default function Fornitori() {
   }
 
   // ─── HELPER: get supplier display name ────────────────────────
-  // TODO: tighten type
-  const getName = (s: any) => s.ragione_sociale || s.name || 'N/D';
-  const getVat = (s: any) => s.partita_iva || s.vat_number || '';
+  const getName = (s: SupplierRow) => String(s.ragione_sociale || s.name || 'N/D');
+  const getVat = (s: SupplierRow) => String(s.partita_iva || s.vat_number || '');
 
   // ─── RENDER ───────────────────────────────────────────────────
 
