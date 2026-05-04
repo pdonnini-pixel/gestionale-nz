@@ -1,5 +1,3 @@
-// @ts-nocheck
-// TODO: tighten types
 import React, { useState } from 'react';
 import {
   BarChart,
@@ -151,7 +149,7 @@ const StoreManager = () => {
               onClick={() => setSelectedOutlet((current) => current)}
               className="flex items-center gap-3 bg-white border border-gray-300 rounded-lg px-4 py-3 hover:bg-gray-50 transition"
             >
-              <span className="text-gray-900 font-medium">{currentOutlet.label}</span>
+              <span className="text-gray-900 font-medium">{currentOutlet?.label ?? ''}</span>
               <ChevronDown size={18} className="text-gray-500" />
             </button>
 
@@ -441,7 +439,7 @@ const StoreManager = () => {
           <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg border border-blue-200 p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-gray-700 text-sm font-medium">Meteo {currentOutlet.city}</p>
+                <p className="text-gray-700 text-sm font-medium">Meteo {currentOutlet?.city ?? ''}</p>
                 <p className="text-2xl font-bold text-gray-900 mt-2">{weatherData.temp}°</p>
                 <p className="text-sm text-gray-700 mt-1">{weatherData.condition}</p>
               </div>
