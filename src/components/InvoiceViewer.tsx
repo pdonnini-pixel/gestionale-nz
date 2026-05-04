@@ -1,12 +1,10 @@
-// @ts-nocheck
-// TODO: tighten types
-import React, { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { X, Printer, Download, FileText, AlertCircle } from 'lucide-react'
 
 // ─── FatturaPA XML → HTML (parser manuale) ───────────────────────
 // Supporta TD01 (Fattura), TD04 (Nota credito), TD06 (Parcella), TD24 (Differita)
 
-const TIPO_DOCUMENTO = {
+const TIPO_DOCUMENTO: Record<string, string> = {
   TD01: 'Fattura', TD02: 'Acconto/Anticipo', TD03: 'Acconto/Anticipo parcella',
   TD04: 'Nota di credito', TD05: 'Nota di debito', TD06: 'Parcella',
   TD16: 'Integrazione reverse charge', TD17: 'Integrazione acquisti UE',
@@ -14,7 +12,7 @@ const TIPO_DOCUMENTO = {
   TD26: 'Cessione beni ammortizzabili', TD27: 'Fattura autoconsumo/cessioni gratuite',
 }
 
-const MODALITA_PAGAMENTO = {
+const MODALITA_PAGAMENTO: Record<string, string> = {
   MP01: 'Contanti', MP02: 'Assegno', MP03: 'Assegno circolare',
   MP04: 'Contanti presso Tesoreria', MP05: 'Bonifico', MP06: 'Vaglia cambiario',
   MP07: 'Bollettino bancario', MP08: 'Carta di pagamento', MP09: 'RID',
@@ -26,14 +24,14 @@ const MODALITA_PAGAMENTO = {
   MP22: 'Trattenuta su somme già riscosse', MP23: 'PagoPA',
 }
 
-function fmtNum(val) {
+function fmtNum(val: string | number | null | undefined): string {
   if (val == null || val === '') return '—'
   const n = parseFloat(String(val).replace(',', '.'))
-  if (isNaN(n)) return val
+  if (isNaN(n)) return String(val)
   return new Intl.NumberFormat('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)
 }
 
-function fmtDate(val) {
+function fmtDate(val: string | null | undefined): string {
   if (!val) return '—'
   const parts = val.split('-')
   if (parts.length === 3) return `${parts[2]}/${parts[1]}/${parts[0]}`
@@ -50,13 +48,13 @@ interface FatturaData {
   pagamento: Array<Record<string, string>>
 }
 
-function getTextContent(parent: Element | null, tagName: string): string {
+function getTextContent(parent: Element | null | undefined, tagName: string): string {
   if (!parent) return ''
   const el = parent.getElementsByTagName(tagName)[0]
-  return el ? el.textContent.trim() : ''
+  return el?.textContent?.trim() ?? ''
 }
 
-function getAllElements(parent: Element | null, tagName: string): Element[] {
+function getAllElements(parent: Element | null | undefined, tagName: string): Element[] {
   if (!parent) return []
   return Array.from(parent.getElementsByTagName(tagName))
 }
@@ -170,8 +168,8 @@ function parseFatturaPA(xmlString: string): FatturaData {
 function FatturaRendered({ data }: { data: FatturaData }) {
   const { fornitore, cliente, documento, linee, riepilogo, pagamento } = data
 
-  const totaleImponibile = riepilogo.reduce((s, r) => s + parseFloat(r.imponibile || 0), 0)
-  const totaleImposta = riepilogo.reduce((s, r) => s + parseFloat(r.imposta || 0), 0)
+  const totaleImponibile = riepilogo.reduce((s, r) => s + parseFloat(r.imponibile || '0'), 0)
+  const totaleImposta = riepilogo.reduce((s, r) => s + parseFloat(r.imposta || '0'), 0)
 
   return (
     <div className="space-y-6 text-sm">
@@ -360,8 +358,8 @@ export default function InvoiceViewer({ xmlContent, onClose, autoPrint = false }
     if (!printWindow) return
 
     const { fornitore, cliente, documento, linee, riepilogo, pagamento } = parsed
-    const totaleImponibile = riepilogo.reduce((s, r) => s + parseFloat(r.imponibile || 0), 0)
-    const totaleImposta = riepilogo.reduce((s, r) => s + parseFloat(r.imposta || 0), 0)
+    const totaleImponibile = riepilogo.reduce((s, r) => s + parseFloat(r.imponibile || '0'), 0)
+    const totaleImposta = riepilogo.reduce((s, r) => s + parseFloat(r.imposta || '0'), 0)
 
     const righeHTML = linee.map(l => `
       <tr>
@@ -476,6 +474,7 @@ export default function InvoiceViewer({ xmlContent, onClose, autoPrint = false }
   }
 
   const handleDownloadXml = () => {
+    if (!xmlContent) return
     const blob = new Blob([xmlContent], { type: 'application/xml' })
     const a = document.createElement('a')
     a.href = URL.createObjectURL(blob)
