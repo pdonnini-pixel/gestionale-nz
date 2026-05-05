@@ -1,5 +1,10 @@
 import React, { useState, useEffect, useMemo, useRef, lazy, Suspense } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import type { Row } from '../types/business';
+
+// Vista Dipendenti — persistita in URL come ?view=
+type DipendentiView = 'consuntivo' | 'organico';
+const VALID_DIPENDENTI_VIEWS: DipendentiView[] = ['consuntivo', 'organico'];
 
 type Employee = Row<'employees'>;
 type EmployeeOutletAllocation = Row<'employee_outlet_allocations'>;
@@ -93,7 +98,17 @@ export default function Dipendenti() {
   const { profile } = useAuth();
   const COMPANY_ID = profile?.company_id;
 
-  const [viewMode, setViewMode] = useState('consuntivo'); // 'consuntivo' | 'organico'
+  // viewMode persistito in URL come ?view=… (default 'consuntivo')
+  const [searchParams, setSearchParams] = useSearchParams();
+  const viewParam = searchParams.get('view');
+  const viewMode: DipendentiView = VALID_DIPENDENTI_VIEWS.includes(viewParam as DipendentiView)
+    ? (viewParam as DipendentiView)
+    : 'consuntivo';
+  const setViewMode = (next: DipendentiView) => {
+    const params = new URLSearchParams(searchParams);
+    params.set('view', next);
+    setSearchParams(params);
+  };
   const [selectedYear, setSelectedYear] = useState(2025);
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
 
