@@ -1,5 +1,19 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate, Link, useSearchParams } from 'react-router-dom';
+
+// Tab anno SchedaContabileFornitore — persistito in URL come ?year=
+// Valori ammessi: 'latest' (default), 'all', o un anno numerico (es. '2025')
+type SchedaYear = number | 'latest' | 'all';
+const isValidYearParam = (raw: string | null): raw is string => {
+  if (raw === 'latest' || raw === 'all') return true;
+  if (raw && /^\d{4}$/.test(raw)) return true;
+  return false;
+};
+const parseYearParam = (raw: string | null): SchedaYear => {
+  if (raw === 'all') return 'all';
+  if (raw && /^\d{4}$/.test(raw)) return Number(raw);
+  return 'latest';
+};
 import {
   ArrowLeft, BookOpen, Eye, CreditCard, ChevronDown, ChevronRight,
   Download, FileText, Printer, TrendingUp, TrendingDown, AlertTriangle,
@@ -65,7 +79,15 @@ export default function SchedaContabileFornitore() {
   const [supplier, setSupplier] = useState<Supplier | null>(null);
   const [payables, setPayables] = useState<Payable[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedYear, setSelectedYear] = useState<number | 'latest' | 'all'>('latest');
+  // selectedYear persistito in URL come ?year=… (default 'latest')
+  const [searchParams, setSearchParams] = useSearchParams();
+  const yearParam = searchParams.get('year');
+  const selectedYear: SchedaYear = isValidYearParam(yearParam) ? parseYearParam(yearParam) : 'latest';
+  const setSelectedYear = (next: SchedaYear) => {
+    const params = new URLSearchParams(searchParams);
+    params.set('year', String(next));
+    setSearchParams(params);
+  };
   const [expandedInvoices, setExpandedInvoices] = useState<Set<string>>(new Set());
   const [viewingXml, setViewingXml] = useState<string | null>(null);
   const [categories, setCategories] = useState<CostCategoryLite[]>([]);
