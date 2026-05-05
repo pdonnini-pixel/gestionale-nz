@@ -1,5 +1,9 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+
+// Tab Fornitori — persistito in URL come ?tab=
+type FornitoriTab = 'anagrafica' | 'analytics';
+const VALID_FORNITORI_TABS: FornitoriTab[] = ['anagrafica', 'analytics'];
 import PageHelp from '../components/PageHelp';
 import {
   Building2, Search, Plus, Edit3, Trash2, FileText, Phone, Mail, MapPin,
@@ -95,7 +99,17 @@ export default function Fornitori() {
   const [sortField, setSortField] = useState('ragione_sociale');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState('anagrafica');
+  // activeTab persistito in URL come ?tab=… (default 'anagrafica')
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tabParam = searchParams.get('tab');
+  const activeTab: FornitoriTab = VALID_FORNITORI_TABS.includes(tabParam as FornitoriTab)
+    ? (tabParam as FornitoriTab)
+    : 'anagrafica';
+  const setActiveTab = (next: FornitoriTab) => {
+    const params = new URLSearchParams(searchParams);
+    params.set('tab', next);
+    setSearchParams(params);
+  };
 
   // Modal state
   const [showModal, setShowModal] = useState(false);
@@ -481,10 +495,10 @@ export default function Fornitori() {
 
       {/* TAB NAV */}
       <div className="flex gap-1 bg-slate-100 rounded-lg p-1 w-fit">
-        {[
+        {([
           { id: 'anagrafica', label: 'Anagrafica', icon: Building2 },
           { id: 'analytics', label: 'Analytics', icon: BarChart3 },
-        ].map(tab => (
+        ] as const).map(tab => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
