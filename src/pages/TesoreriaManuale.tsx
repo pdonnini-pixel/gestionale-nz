@@ -14,7 +14,11 @@ import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer,
   CartesianGrid, BarChart, Bar, Cell, Legend
 } from 'recharts'
-import { useLocation } from 'react-router-dom'
+import { useSearchParams } from 'react-router-dom'
+
+// Tab principale TesoreriaManuale — persistito in URL come ?tab=
+type TesoreriaTab = 'panoramica' | 'conti' | 'movimenti' | 'riconciliazione'
+const VALID_TESORERIA_TABS: TesoreriaTab[] = ['panoramica', 'conti', 'movimenti', 'riconciliazione']
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 
@@ -29,7 +33,7 @@ const TABS = [
   { key: 'conti', label: 'Conti Bancari', icon: Building2 },
   { key: 'movimenti', label: 'Movimenti', icon: ArrowUpRight },
   { key: 'riconciliazione', label: 'Riconciliazione', icon: Link2 },
-]
+] as const
 
 const ACCOUNT_TYPES = [
   { value: 'conto_corrente', label: 'C/C' },
@@ -2662,15 +2666,21 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
 
 export default function TesoreriaManuale() {
   const { session } = useAuth()
-  const location = useLocation()
   const companyId = session?.user?.app_metadata?.company_id || '00000000-0000-0000-0000-000000000001'
 
-  // Read tab and pre-select from URL params (e.g. /banche?tab=pagamenti&select=UUID)
-  const urlParams = new URLSearchParams(location.search)
-  const urlTab = urlParams.get('tab')
-  const urlSelect = urlParams.get('select')
-
-  const [activeTab, setActiveTab] = useState(urlTab || 'panoramica')
+  // activeTab persistito in URL come ?tab=… (default 'panoramica')
+  // L'URL `?tab=…&select=…` era già supportato in lettura: ora persiste
+  // anche nei click utente.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const tabParam = searchParams.get('tab')
+  const activeTab: TesoreriaTab = VALID_TESORERIA_TABS.includes(tabParam as TesoreriaTab)
+    ? (tabParam as TesoreriaTab)
+    : 'panoramica'
+  const setActiveTab = (next: TesoreriaTab) => {
+    const params = new URLSearchParams(searchParams)
+    params.set('tab', next)
+    setSearchParams(params)
+  }
   const [loading, setLoading] = useState(true)
   const [refreshKey, setRefreshKey] = useState(0)
 
@@ -2714,7 +2724,17 @@ export default function TesoreriaManuale() {
     return () => { cancelled = true }
   }, [companyId, refreshKey])
 
-  const handleNavigate = useCallback((tab: string) => setActiveTab(tab), [])
+  // I figli passano stringhe (alcune obsolete come 'pagamenti'): validiamo
+  // contro VALID_TESORERIA_TABS e ignoriamo i valori sconosciuti.
+  const handleNavigate = useCallback((tab: string) => {
+    if (VALID_TESORERIA_TABS.includes(tab as TesoreriaTab)) {
+      setSearchParams(prev => {
+        const params = new URLSearchParams(prev)
+        params.set('tab', tab)
+        return params
+      })
+    }
+  }, [setSearchParams])
 
   if (loading) {
     return (
