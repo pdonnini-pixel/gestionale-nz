@@ -1,5 +1,14 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
+
+// Tab principale BudgetControl — persistito in URL come ?tab=
+type BudgetTab = 'bp' | 'confronto'
+const VALID_BUDGET_TABS: BudgetTab[] = ['bp', 'confronto']
+
+// Vista confronto Preventivo vs Consuntivo — persistita come ?confView=
+type BudgetConfView = 'annuale' | 'mensile'
+const VALID_BUDGET_CONF_VIEWS: BudgetConfView[] = ['annuale', 'mensile']
 import { useRole } from '../hooks/useRole'
 import { usePeriod } from '../hooks/usePeriod'
 import PageHelp from '../components/PageHelp'
@@ -439,7 +448,18 @@ export default function BudgetControl() {
   const CID = profile?.company_id
   const { year, quarter, getDateRange } = usePeriod()
 
-  const [tab, setTab] = useState('bp')
+  // tab + confView persistiti in URL come ?tab=… e ?confView=…
+  // (default: tab=bp, confView=annuale)
+  const [searchParams, setSearchParams] = useSearchParams()
+  const tabParam = searchParams.get('tab')
+  const tab: BudgetTab = VALID_BUDGET_TABS.includes(tabParam as BudgetTab)
+    ? (tabParam as BudgetTab)
+    : 'bp'
+  const setTab = (next: BudgetTab) => {
+    const params = new URLSearchParams(searchParams)
+    params.set('tab', next)
+    setSearchParams(params)
+  }
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [workflow, setWorkflow] = useState<WorkflowMap>({})
@@ -524,7 +544,16 @@ export default function BudgetControl() {
 
   // Confronto state
   const [confOutlet, setConfOutlet] = useState('')
-  const [confView, setConfView] = useState('annuale') // 'annuale' | 'mensile'
+  // confView persistito in URL come ?confView=… (default 'annuale')
+  const confViewParam = searchParams.get('confView')
+  const confView: BudgetConfView = VALID_BUDGET_CONF_VIEWS.includes(confViewParam as BudgetConfView)
+    ? (confViewParam as BudgetConfView)
+    : 'annuale'
+  const setConfView = (next: BudgetConfView) => {
+    const params = new URLSearchParams(searchParams)
+    params.set('confView', next)
+    setSearchParams(params)
+  }
   const [consEdits, setConsEdits] = useState<EditMap>({}) // consuntivo edits per outlet
   const [rettEdits, setRettEdits] = useState<EditMap>({}) // rettifiche per outlet
   // Monthly edits: { outletCode: { accountCode: [12 values] } }
@@ -961,7 +990,7 @@ export default function BudgetControl() {
 
       {/* TABS */}
       <div className="flex gap-1 bg-slate-100 rounded-lg p-1 w-fit">
-        {[{ id:'bp', label:'Business Plan', icon:Target }, { id:'confronto', label:'Preventivo vs Consuntivo', icon:BarChart3 }].map(t => (
+        {([{ id:'bp', label:'Business Plan', icon:Target }, { id:'confronto', label:'Preventivo vs Consuntivo', icon:BarChart3 }] as const).map(t => (
           <button key={t.id} onClick={() => setTab(t.id)} className={`px-4 py-2 rounded-md text-sm font-medium flex items-center gap-2 transition ${tab===t.id?'bg-white text-indigo-700 shadow-sm':'text-slate-500 hover:text-slate-700'}`}>
             <t.icon size={16} /> {t.label}
           </button>
@@ -1077,7 +1106,7 @@ export default function BudgetControl() {
                     .map(cc => <option key={cc.code} value={cc.code}>{prettyCenterLabel(cc)}</option>)}
                 </select>
                 <div className="flex gap-1 bg-slate-100 rounded-lg p-0.5">
-                  {[{k:'annuale',l:'Annuale'},{k:'mensile',l:'Mensile'}].map(v => (
+                  {([{k:'annuale',l:'Annuale'},{k:'mensile',l:'Mensile'}] as const).map(v => (
                     <button key={v.k} onClick={() => setConfView(v.k)}
                       className={`px-3 py-1.5 text-xs font-medium rounded-md transition ${confView===v.k?'bg-white text-indigo-700 shadow-sm':'text-slate-500 hover:text-slate-700'}`}>
                       {v.l}
