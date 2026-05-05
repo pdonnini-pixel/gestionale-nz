@@ -1,5 +1,9 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
+
+// Tab principale Banche — persistito in URL come ?tab=
+type BancheTab = 'conti' | 'movimenti' | 'riconciliazione'
+const VALID_BANCHE_TABS: BancheTab[] = ['conti', 'movimenti', 'riconciliazione']
 import PageHelp from '../components/PageHelp'
 import {
   Landmark, Building2, Wallet, CreditCard, TrendingUp,
@@ -2242,14 +2246,19 @@ export default function Banche() {
   const [editingAccount, setEditingAccount] = useState<BankAccountForm | null>(null)
   const [loanModalOpen, setLoanModalOpen] = useState(false)
   const [editingLoan, setEditingLoan] = useState<LoanLite | null>(null)
-  const [searchParams] = useSearchParams()
-  // Inizializza tab da URL query (?tab=riconciliazione) cosi il link dopo
-  // import EC atterra direttamente sul pannello di riconciliazione
-  const [activeTab, setActiveTab] = useState(() => {
-    const t = searchParams.get('tab')
-    if (t === 'riconciliazione' || t === 'movimenti' || t === 'conti') return t
-    return 'conti'
-  }) // conti, movimenti, riconciliazione
+  // activeTab persistito in URL come ?tab=… (default 'conti')
+  // Il link dopo import EC atterra già su ?tab=riconciliazione: ora il valore
+  // è derivato dall'URL (non più state interno) e i click utente lo aggiornano.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const tabParam = searchParams.get('tab')
+  const activeTab: BancheTab = VALID_BANCHE_TABS.includes(tabParam as BancheTab)
+    ? (tabParam as BancheTab)
+    : 'conti'
+  const setActiveTab = (next: BancheTab) => {
+    const params = new URLSearchParams(searchParams)
+    params.set('tab', next)
+    setSearchParams(params)
+  }
   const [syncAllLoading, setSyncAllLoading] = useState(false)
   type SyncAllResult = { success?: boolean; updated?: number; failed?: number; errors?: string[]; error?: string; newTransactions?: number; accounts?: number } | null
   const [syncAllResult, setSyncAllResult] = useState<SyncAllResult>(null)
@@ -2529,11 +2538,11 @@ export default function Banche() {
           </div>
           <div className="flex items-center gap-2 mt-2">
             <div className="flex gap-0.5 bg-slate-100/80 rounded-lg p-0.5">
-              {[
+              {([
                 { key: 'conti', label: 'Conti & Saldi', icon: Landmark },
                 { key: 'movimenti', label: 'Movimenti', icon: ListOrdered },
                 { key: 'riconciliazione', label: 'Riconciliazione', icon: ArrowLeftRight },
-              ].map(t => (
+              ] as const).map(t => (
                 <button key={t.key} onClick={() => setActiveTab(t.key)}
                   className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition ${
                     activeTab === t.key ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
