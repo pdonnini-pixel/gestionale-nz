@@ -1,5 +1,9 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
+
+// Vista ConfrontoOutlet — persistita in URL come ?view=
+type ConfrontoView = 'budget' | 'actual' | 'variance'
+const VALID_CONFRONTO_VIEWS: ConfrontoView[] = ['budget', 'actual', 'variance']
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { usePeriod } from '../hooks/usePeriod'
@@ -390,7 +394,17 @@ export default function ConfrontoOutlet() {
   const [employeeCosts, setEmployeeCosts] = useState<EmployeeCostRow[]>([])
   const [balanceData, setBalanceData] = useState<BalanceRow[]>([])
   const [loading, setLoading] = useState(true)
-  const [viewMode, setViewMode] = useState('budget') // 'budget', 'actual', 'variance'
+  // viewMode persistito in URL come ?view=… (default 'budget')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const viewParam = searchParams.get('view')
+  const viewMode: ConfrontoView = VALID_CONFRONTO_VIEWS.includes(viewParam as ConfrontoView)
+    ? (viewParam as ConfrontoView)
+    : 'budget'
+  const setViewMode = (next: ConfrontoView) => {
+    const params = new URLSearchParams(searchParams)
+    params.set('view', next)
+    setSearchParams(params)
+  }
   const [hasData, setHasData] = useState(false)
 
   // Mappa quarter globale al period locale per filtrare per mesi
@@ -769,11 +783,11 @@ export default function ConfrontoOutlet() {
           {year} — {PERIOD_OPTIONS.find(p => p.value === period)?.label || 'Annuale'}
         </span>
         <div className="flex rounded-lg border border-slate-200 overflow-hidden">
-          {[
+          {([
             { value: 'budget', label: 'Preventivo' },
             { value: 'actual', label: 'Consuntivo' },
             { value: 'variance', label: 'Scostamento' },
-          ].map(v => (
+          ] as const).map(v => (
             <button
               key={v.value}
               onClick={() => setViewMode(v.value)}
