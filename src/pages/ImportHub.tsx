@@ -1,5 +1,9 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+
+// Tab ImportHub — persistito in URL come ?tab=
+type ImportHubTab = 'sources' | 'overview' | 'history';
+const VALID_IMPORT_HUB_TABS: ImportHubTab[] = ['sources', 'overview', 'history'];
 import PageHelp from '../components/PageHelp';
 import {
   Upload,
@@ -139,7 +143,17 @@ export default function ImportHub() {
   const [computingMatches, setComputingMatches] = useState(false);
   const [applyingMatches, setApplyingMatches] = useState(false);
 
-  const [activeTab, setActiveTab] = useState('sources');
+  // activeTab persistito in URL come ?tab=… (default 'sources')
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tabParam = searchParams.get('tab');
+  const activeTab: ImportHubTab = VALID_IMPORT_HUB_TABS.includes(tabParam as ImportHubTab)
+    ? (tabParam as ImportHubTab)
+    : 'sources';
+  const setActiveTab = (next: ImportHubTab) => {
+    const params = new URLSearchParams(searchParams);
+    params.set('tab', next);
+    setSearchParams(params);
+  };
   const [selectedSource, setSelectedSource] = useState<ImportSourceId | null>(null);
   const [dragActive, setDragActive] = useState(false);
   const [uploadedFiles, setUploadedFiles] = useState<ImportDoc[]>([]);
@@ -880,11 +894,11 @@ export default function ImportHub() {
       <div className="bg-white border-b border-gray-200 sticky top-0 z-10">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <nav className="flex space-x-8">
-            {[
+            {([
               { id: 'sources', label: 'Fonti di importazioni', icon: Database },
               { id: 'overview', label: 'Panoramica', icon: BarChart3 },
               { id: 'history', label: 'Cronologia', icon: Clock },
-            ].map((tab) => {
+            ] as const).map((tab) => {
               const Icon = tab.icon;
               return (
                 <button
