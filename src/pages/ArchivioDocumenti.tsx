@@ -1,5 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+
+// Tab ArchivioDocumenti — persistito in URL come ?tab=
+type ArchivioTab = 'archivio' | 'conservazione';
+const VALID_ARCHIVIO_TABS: ArchivioTab[] = ['archivio', 'conservazione'];
 import {
   FileText, Search, Download, Eye, RefreshCw,
   X, FileWarning, CheckCircle,
@@ -66,7 +70,17 @@ export default function ArchivioDocumenti() {
   const { profile } = useAuth();
   const COMPANY_ID = profile?.company_id;
 
-  const [activeTab, setActiveTab] = useState('archivio'); // archivio | conservazione
+  // activeTab persistito in URL come ?tab=… (default 'archivio')
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tabParam = searchParams.get('tab');
+  const activeTab: ArchivioTab = VALID_ARCHIVIO_TABS.includes(tabParam as ArchivioTab)
+    ? (tabParam as ArchivioTab)
+    : 'archivio';
+  const setActiveTab = (next: ArchivioTab) => {
+    const params = new URLSearchParams(searchParams);
+    params.set('tab', next);
+    setSearchParams(params);
+  };
   const [toast, setToast] = useState<{ msg: string; type: string } | null>(null);
 
   const showToast = (msg: string, type = 'success') => {
@@ -182,10 +196,10 @@ export default function ArchivioDocumenti() {
 
       {/* TABS */}
       <div className="flex gap-1 bg-white rounded-xl border border-slate-200 p-1 shadow-sm">
-        {[
+        {([
           { key: 'archivio', label: 'Archivio', icon: FolderOpen },
           { key: 'conservazione', label: 'Conservazione Sostitutiva', icon: ShieldCheck },
-        ].map(tab => {
+        ] as const).map(tab => {
           const Icon = tab.icon;
           const active = activeTab === tab.key;
           return (
