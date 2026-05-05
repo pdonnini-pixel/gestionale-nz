@@ -1,5 +1,10 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import PageHelp from '../components/PageHelp';
+
+// Tab principale ScadenzarioSmart — persistito in URL come ?section=
+type ScadenzarioSection = 'situazione' | 'scadenze' | 'ricorrenti' | 'regole';
+const VALID_SCADENZARIO_SECTIONS: ScadenzarioSection[] = ['situazione', 'scadenze', 'ricorrenti', 'regole'];
 import {
   Calendar, TrendingUp, TrendingDown, Filter, AlertCircle, Clock,
   DollarSign, BarChart3, Eye, EyeOff, ChevronDown, CheckCircle2,
@@ -229,7 +234,17 @@ const ScadenzarioSmart = () => {
     sort_order?: number | null
     [key: string]: unknown
   }
-  const [section, setSection] = useState('scadenze'); // 'situazione' | 'scadenze' | 'ricorrenti' | 'regole'
+  // section persistita in URL come ?section=… (default 'scadenze')
+  const [searchParams, setSearchParams] = useSearchParams();
+  const sectionParam = searchParams.get('section');
+  const section: ScadenzarioSection = VALID_SCADENZARIO_SECTIONS.includes(sectionParam as ScadenzarioSection)
+    ? (sectionParam as ScadenzarioSection)
+    : 'scadenze';
+  const setSection = (next: ScadenzarioSection) => {
+    const params = new URLSearchParams(searchParams);
+    params.set('section', next);
+    setSearchParams(params);
+  };
   const [loading, setLoading] = useState(true);
   const [payables, setPayables] = useState<AnyRow[]>([]);
   const [fiscalDeadlines, setFiscalDeadlines] = useState<AnyRow[]>([]);
@@ -1239,12 +1254,12 @@ const ScadenzarioSmart = () => {
                 perche' la funzionalita' non e' ancora pronta — evitare che
                 Sabrina/Veronica clicchino e si confondano con la pagina vuota. */}
             <div className="flex gap-1">
-              {[
-                { key: 'situazione', label: 'Situazione' },
-                { key: 'scadenze', label: 'Scadenzario' },
-                { key: 'ricorrenti', label: 'Ricorrenze' },
+              {([
+                { key: 'situazione', label: 'Situazione', disabled: false },
+                { key: 'scadenze', label: 'Scadenzario', disabled: false },
+                { key: 'ricorrenti', label: 'Ricorrenze', disabled: false },
                 { key: 'regole', label: 'Regole', disabled: true },
-              ].map(t => (
+              ] as { key: ScadenzarioSection; label: string; disabled: boolean }[]).map(t => (
                 <button
                   key={t.key}
                   onClick={() => !t.disabled && setSection(t.key)}
