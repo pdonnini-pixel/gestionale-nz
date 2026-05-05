@@ -1,4 +1,9 @@
 import { useState, useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
+
+// Vista AnalyticsPOS — persistita in URL come ?view=
+type AnalyticsView = 'annual' | 'month';
+const VALID_ANALYTICS_VIEWS: AnalyticsView[] = ['annual', 'month'];
 import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer
@@ -202,7 +207,17 @@ function getPerformers(posData: POSData) {
 
 export default function AnalyticsPOS() {
   const [selectedOutlet, setSelectedOutlet] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<'annual' | 'month'>('annual');
+  // viewMode persistito in URL come ?view=… (default 'annual')
+  const [searchParams, setSearchParams] = useSearchParams();
+  const viewParam = searchParams.get('view');
+  const viewMode: AnalyticsView = VALID_ANALYTICS_VIEWS.includes(viewParam as AnalyticsView)
+    ? (viewParam as AnalyticsView)
+    : 'annual';
+  const setViewMode = (next: AnalyticsView) => {
+    const params = new URLSearchParams(searchParams);
+    params.set('view', next);
+    setSearchParams(params);
+  };
 
   const posData = useMemo(() => generatePOSData(), []);
   const chartData = useMemo(() => buildChartData(posData), [posData]);
