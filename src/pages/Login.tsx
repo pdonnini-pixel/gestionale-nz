@@ -1,9 +1,21 @@
 import { useState } from 'react'
 import { useAuth } from '../hooks/useAuth'
+import { getCurrentTenant } from '../lib/tenants'
 import { LogIn, Eye, EyeOff, AlertCircle } from 'lucide-react'
+
+function tenantInitials(displayName: string): string {
+  return displayName
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0])
+    .join('')
+    .toUpperCase()
+}
 
 export default function Login() {
   const { signIn } = useAuth()
+  const tenant = getCurrentTenant()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPw, setShowPw] = useState(false)
@@ -20,14 +32,27 @@ export default function Login() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900">
+    <div className="min-h-screen flex flex-col bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900">
+      {/* Banda tenant — coerente con Layout, evita confusione su quale tenant si sta loggando */}
+      <div
+        className="h-7 shrink-0 flex items-center justify-center px-4 text-white text-xs font-semibold gap-2"
+        style={{ background: tenant.accentBg }}
+        title={`Login per il tenant ${tenant.displayName}.`}
+      >
+        <span className="opacity-90">Tenant:</span>
+        <span className="font-bold tracking-wide">{tenant.displayName}</span>
+      </div>
+      <div className="flex-1 flex items-center justify-center">
       <div className="w-full max-w-md">
         {/* Logo area */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-white/10 backdrop-blur-sm mb-4">
-            <span className="text-2xl font-bold text-white">NZ</span>
+          <div
+            className="inline-flex items-center justify-center w-16 h-16 rounded-2xl backdrop-blur-sm mb-4"
+            style={{ background: tenant.accentBg }}
+          >
+            <span className="text-2xl font-bold text-white">{tenantInitials(tenant.displayName)}</span>
           </div>
-          <h1 className="text-2xl font-bold text-white">Gestionale New Zago</h1>
+          <h1 className="text-2xl font-bold text-white">Gestionale {tenant.displayName}</h1>
           <p className="text-blue-200 mt-1">Accedi al tuo pannello di controllo</p>
         </div>
 
@@ -92,8 +117,9 @@ export default function Login() {
         </div>
 
         <p className="text-center text-blue-300/60 text-xs mt-6">
-          New Zago Gestionale v1.0
+          Gestionale NZ v1.0 · {tenant.alias}
         </p>
+      </div>
       </div>
     </div>
   )

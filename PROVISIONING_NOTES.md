@@ -11,7 +11,7 @@
 |------|-------|------|
 | 0 — Setup + planning | ✅ in chiusura | Branch creato, inventario fatto |
 | 1 — Tooling provisioning | ✅ chiusa | 8 script in `frontend/tools/provisioning/`, typecheck OK |
-| 2 — Hostname routing + tenant header | ⏳ | tenants.ts + Layout badge |
+| 2 — Hostname routing + tenant header | ✅ chiusa | tenants.ts + Layout badge + Login parametrizzato |
 | 3 — Wizard onboarding bloccante | ⏳ | STOP & ASK liste outlet |
 | 4 — Provisioning Made + Zago | ⏳ | STOP & ASK token + costi |
 | 5 — Setup Netlify multi-deploy | ⏳ | STOP & ASK creazione site |
@@ -125,9 +125,34 @@ check-version-drift.ts  ← tabella di drift filename × tenant
 
 ---
 
-## Fase 2 — Hostname routing
+## Fase 2 — Hostname routing (chiusa)
 
-(da popolare)
+### File creati / modificati
+
+- **`frontend/src/lib/tenants.ts`** (nuovo): mapping host → `TenantConfig` con `alias`, `displayName`, `supabaseUrl`, `supabaseAnonKey`, `accentColor`, `accentBg`. Cache statica (un tenant per tab). Throw esplicito al boot se mancano env per il tenant attivo (Made/Zago).
+- **`frontend/src/lib/supabase.ts`**: ora chiama `getCurrentTenant()` invece di leggere `import.meta.env.VITE_SUPABASE_URL` direttamente.
+- **`frontend/.env.example`** (nuovo): elenca le 3 coppie `VITE_SUPABASE_URL_*` / `VITE_SUPABASE_ANON_KEY_*` per NEWZAGO/MADE/ZAGO + fallback dev.
+- **`frontend/src/components/Layout.tsx`**: aggiunto `<TenantBadge />` sopra l'header — banda colorata 28px, sempre visibile, con nome tenant e tooltip.
+- **`frontend/src/pages/Login.tsx`**: rimosso "New Zago" hardcoded. Ora usa `tenant.displayName`, iniziali e accentBg.
+
+### Decisioni autonome Fase 2
+
+1. **Colori accent decisi senza Patrizio**:
+   - NZ: emerald (`#047857` dark / `#10b981` bg)
+   - Made Retail: blu (`#1d4ed8` / `#3b82f6`)
+   - Zago: orange (`#c2410c` / `#f97316`)
+
+   Patrizio ha chiesto "verde NZ, blu Made, arancione Zago — da concordare". Ho applicato esattamente questa associazione. Se vuole cambiare, sono 3 hex in `tenants.ts`.
+2. **Fallback hardcoded NZ in `tenants.ts`** (URL + anon key del progetto NZ) per NON rompere dev locale di chi non ha `.env`. Made/Zago invece NON hanno fallback: se manca l'env, l'app fallisce esplicitamente al boot. Made/Zago non sono mai eseguiti in dev locale.
+3. **Hostname matching include deploy preview Netlify** (`*--made-gestionale-nz.netlify.app` per branch deploy, ecc.) — i deploy preview puntano allo stesso tenant del site di produzione.
+4. **`localhost` punta sempre a NZ**: dev locale si comporta come tenant NZ. Per testare Made/Zago in locale serve modificare `/etc/hosts` o usare un tunnel.
+5. **Niente switcher in-app**: l'isolamento è fisico. Per cambiare tenant, l'utente apre tab diversa con un altro subdomain (esplicito nel tooltip del badge).
+6. **Banda di tenant inclusa in Login**, non solo dentro Layout: l'utente deve sapere su che tenant sta loggando, prima di mettere le credenziali.
+
+### Verifiche
+
+- `npm run typecheck` ✅ zero errori
+- `npx vite build --outDir /tmp/nz-dist-fase2` ✅ pulito
 
 ---
 
