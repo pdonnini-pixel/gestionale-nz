@@ -1373,6 +1373,7 @@ function Corrispettivi() {
 
 export default function Fatturazione() {
   const { company } = useCompany()
+  const { year } = usePeriod()
   // activeTab persistito in URL come ?tab=… (default 'passive')
   const [searchParams, setSearchParams] = useSearchParams()
   const tabParam = searchParams.get('tab')
@@ -1426,17 +1427,23 @@ export default function Fatturazione() {
   const loadInvoiceCounts = useCallback(async () => {
     try {
       const companyVat = company?.vat_number
+      // Filtro anno globale (da usePeriod) → counter coerente con la tabella sotto.
+      const yearStart = `${year}-01-01`
+      const yearEnd = `${year}-12-31`
       // Senza P.IVA company non possiamo discriminare → trattiamo tutto come passivo
       // (default conservativo: NZ è prevalentemente in fattura passiva).
       if (!companyVat) {
         const totalRes = await supabase.from('electronic_invoices').select('id', { count: 'exact', head: true })
+          .gte('invoice_date', yearStart).lte('invoice_date', yearEnd)
         setInvoiceCounts({ passive: totalRes.count || 0, active: 0 })
         return
       }
       const [passiveRes, activeRes] = await Promise.all([
         supabase.from('electronic_invoices').select('id', { count: 'exact', head: true })
+          .gte('invoice_date', yearStart).lte('invoice_date', yearEnd)
           .or(`supplier_vat.is.null,supplier_vat.neq.${companyVat}`),
         supabase.from('electronic_invoices').select('id', { count: 'exact', head: true })
+          .gte('invoice_date', yearStart).lte('invoice_date', yearEnd)
           .eq('supplier_vat', companyVat),
       ])
       setInvoiceCounts({
@@ -1446,7 +1453,7 @@ export default function Fatturazione() {
     } catch (err: unknown) {
       console.warn('loadInvoiceCounts:', (err as Error).message)
     }
-  }, [company?.vat_number])
+  }, [company?.vat_number, year])
 
   useEffect(() => { loadStats(); loadInvoiceCounts() }, [loadStats, loadInvoiceCounts])
 
