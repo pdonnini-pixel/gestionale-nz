@@ -12,7 +12,7 @@
 | 0 — Setup + planning | ✅ in chiusura | Branch creato, inventario fatto |
 | 1 — Tooling provisioning | ✅ chiusa | 8 script in `frontend/tools/provisioning/`, typecheck OK |
 | 2 — Hostname routing + tenant header | ✅ chiusa | tenants.ts + Layout badge + Login parametrizzato |
-| 3 — Wizard onboarding bloccante | ⏳ | STOP & ASK liste outlet |
+| 3 — Wizard onboarding bloccante | ✅ chiusa (manuale) | 5 step + role gating + redirect forzato |
 | 4 — Provisioning Made + Zago | ⏳ | STOP & ASK token + costi |
 | 5 — Setup Netlify multi-deploy | ⏳ | STOP & ASK creazione site |
 | 6 — Test E2E + PR | ⏳ | |
@@ -156,9 +156,61 @@ check-version-drift.ts  ← tabella di drift filename × tenant
 
 ---
 
-## Fase 3 — Wizard onboarding
+## Fase 3 — Wizard onboarding (chiusa)
 
-(da popolare)
+### File creati / modificati
+
+- **`frontend/src/hooks/useOnboardingStatus.tsx`** (nuovo): query `companies LIMIT 1` con RLS attiva. Se zero righe → tenant vergine.
+- **`frontend/src/App.tsx`**: aggiunto `<OnboardingGate>` che wrappa `<Layout>` e fa `<Navigate to="/onboarding" />` se needsOnboarding e route diversa.
+- **`frontend/src/pages/Onboarding.tsx`**: riscritto completamente (3 step → 5 step). Banda tenant in alto. Role gating: utenti senza `super_advisor` o `budget_approver` vedono placeholder "Tenant non ancora configurato".
+
+### Step del wizard
+
+1. **Anagrafica azienda**: ragione sociale, P.IVA, codice fiscale, sede legale, PEC, codice SDI, telefono.
+2. **Outlet** (lista, almeno 1 obbligatorio): nome, codice, indirizzo, città, provincia, CAP. Add/remove rows.
+3. **Piano dei conti**: scelta tra "Template NZ" (25 categorie + 20 conti) e "Minimo" (5 categorie, no chart_of_accounts).
+4. **Fornitori principali** (opzionale): lista nome + P.IVA. Skip permesso.
+5. **Riepilogo + conferma**: pannelli read-only con tutti i dati, pulsante "Completa configurazione".
+
+### Submit transazionale
+
+L'INSERT su 7 tabelle è in sequenza, non in transazione DB (limite supabase-js):
+1. `companies` → ottiene companyId
+2. `user_profiles.company_id` ← compatibilità con `useAuth.profile`
+3. `outlets` (N records)
+4. `cost_centers` (sede + uno per outlet)
+5. `cost_categories` (template scelto)
+6. `chart_of_accounts` (solo se template NZ)
+7. `suppliers` (solo se Lilian ne ha inseriti)
+8. `company_settings` con `onboarding_completed=true` e `onboarded_by`
+
+In caso di errore intermedio, lo state UI mostra il messaggio e Lilian può riprovare. Se il submit ha già creato `companies`, le INSERT successive prima del completamento si replicheranno al re-submit. Limitazione documentata, da migliorare in V2 con una RPC `complete_onboarding(...)` server-side.
+
+### Decisioni autonome Fase 3
+
+1. **Wizard manuale (no import bulk CSV/Excel)**: il PROMPT prevedeva "STOP & ASK Patrizio" su questa scelta. Decisione presa autonomamente per non bloccare la Fase 3, perché il wizard manuale è prerequisito di entrambe le opzioni. Da chiedere a Patrizio se vuole l'import bulk come addon (Fase 3.5). Vedi sezione "Stop concordati" in fondo.
+2. **Template NZ del piano dei conti** = 25 categorie (macro_group: costo_venduto, locazione, personale, utenze, generali_amministrative, marketing, manutenzione, logistica, imposte, finanziarie, oneri_diversi) + 20 conti (account_code 510100 … 910100). NON include le righe gap di bilancio NZ-specific (CAT_69, ADJ_*) — quelle nascono dalla sessione di consulenza 21/04/2026 e sono legate a quel bilancio specifico.
+3. **Role gating** = `super_advisor` OR `budget_approver`. Lilian è `budget_approver`. Sabrina/Veronica (contabile) vedono placeholder. L'autorità finale è la RLS lato server.
+4. **OnboardingGate fa redirect SOLO sulle route Layout-wrapped**, non su `/login`, `/onboarding` o `/banking/callback` (quest'ultime sono già fuori dal cono `<Layout>`).
+5. **Limitazione: post-onboarding il JWT app_metadata.company_id NON si aggiorna automaticamente**. Le RLS che usano `get_my_company_id()` (definita in `supabase/003_rls_policies.sql` come `SELECT company_id FROM user_profiles WHERE id = auth.uid()`) leggono da `user_profiles`, quindi sono OK perché il wizard fa `UPDATE user_profiles.company_id`. Ma le funzioni che usano `auth.jwt()` direttamente (se presenti) non vedrebbero il company_id senza re-login. Per sicurezza, dopo `window.location.href = '/'` Lilian potrebbe dover fare logout+login. Da verificare in test E2E (Fase 6).
+6. **Banda tenant in alto a Onboarding** (oltre che in Login e Layout) — coerenza visiva: ovunque sia chiaro su quale tenant si sta operando.
+
+### ⚠️ Gap critico identificato (BLOCCA la Fase 4)
+
+Le 7 migrazioni in `frontend/supabase/migrations/` sono DELTA su uno schema baseline che vive in `supabase/00*.sql` (cartella radice del progetto, NON nella cartella migrations). La 001 fa `ALTER TABLE companies …` ma `companies` non viene creata da nessuno dei 7 file.
+
+Su un tenant Supabase appena creato, `apply-migrations.ts` fallirà alla 001 perché le tabelle non esistono. Per risolvere prima di Fase 4 servono 2 decisioni di Patrizio:
+
+**Opzione A** (consigliata): aggiungere `frontend/supabase/migrations/20260417_000_baseline_schema.sql` che concatena `supabase/001_complete_schema.sql` + `002_views.sql` + `003_rls_policies.sql` + … con `CREATE … IF NOT EXISTS`/`CREATE OR REPLACE`. Su NZ è no-op (tabelle già esistono); su Made/Zago crea da zero. Lavoro stimato: 1-2 ore di concatenazione + verifica idempotenza.
+
+**Opzione B**: usare `pg_dump --schema-only` da NZ per generare il baseline e applicarlo come migrazione 000. Richiede accesso al DB NZ.
+
+Va deciso prima di lanciare `full-provision.ts` per Made/Zago. Aggiunto allo Stop 2.
+
+### Verifiche
+
+- `npm run typecheck` ✅ zero errori
+- `npx vite build --outDir /tmp/nz-dist-fase3` ✅ pulito
 
 ---
 
