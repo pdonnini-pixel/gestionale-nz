@@ -47,18 +47,35 @@ async function main(): Promise<void> {
         skipped.push(m.filename)
         continue
       }
-      console.log(`   ▶ applico ${m.filename} …`)
-      try {
-        await client.query('BEGIN')
-        await client.query(m.sql)
-        await recordMigration(client, m.filename, m.checksum)
-        await client.query('COMMIT')
-        applied.push(m.filename)
-      } catch (err) {
-        await client.query('ROLLBACK').catch(() => undefined)
-        throw new Error(
-          `Migrazione ${m.filename} fallita: ${err instanceof Error ? err.message : String(err)}`
-        )
+      // Some DDL statements (e.g. ALTER TYPE … ADD VALUE) cannot run inside
+      // an explicit transaction. Migrations starting with `-- @no-transaction`
+      // are applied in autocommit, then the log row is written separately.
+      const noTx = /^\s*--\s*@no-transaction\b/.test(m.sql)
+
+      console.log(`   ▶ applico ${m.filename}${noTx ? ' (no-tx)' : ''} …`)
+      if (noTx) {
+        try {
+          await client.query(m.sql)
+          await recordMigration(client, m.filename, m.checksum)
+          applied.push(m.filename)
+        } catch (err) {
+          throw new Error(
+            `Migrazione ${m.filename} fallita: ${err instanceof Error ? err.message : String(err)}`
+          )
+        }
+      } else {
+        try {
+          await client.query('BEGIN')
+          await client.query(m.sql)
+          await recordMigration(client, m.filename, m.checksum)
+          await client.query('COMMIT')
+          applied.push(m.filename)
+        } catch (err) {
+          await client.query('ROLLBACK').catch(() => undefined)
+          throw new Error(
+            `Migrazione ${m.filename} fallita: ${err instanceof Error ? err.message : String(err)}`
+          )
+        }
       }
     }
   })
