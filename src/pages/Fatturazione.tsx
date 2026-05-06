@@ -1,5 +1,10 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import PageHelp from '../components/PageHelp'
+
+// Tab principale Fatturazione — persistito in URL come ?tab=
+type FatturazioneTab = 'passive' | 'active' | 'corrispettivi'
+const VALID_FATTURAZIONE_TABS: FatturazioneTab[] = ['passive', 'active', 'corrispettivi']
 import InvoiceViewer from '../components/InvoiceViewer'
 import StatusBadge from '../components/ui/StatusBadge'
 import { supabase } from '../lib/supabase'
@@ -1368,7 +1373,17 @@ function Corrispettivi() {
 
 export default function Fatturazione() {
   const { company } = useCompany()
-  const [activeTab, setActiveTab] = useState('passive')
+  // activeTab persistito in URL come ?tab=… (default 'passive')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const tabParam = searchParams.get('tab')
+  const activeTab: FatturazioneTab = VALID_FATTURAZIONE_TABS.includes(tabParam as FatturazioneTab)
+    ? (tabParam as FatturazioneTab)
+    : 'passive'
+  const setActiveTab = (next: FatturazioneTab) => {
+    const params = new URLSearchParams(searchParams)
+    params.set('tab', next)
+    setSearchParams(params)
+  }
   type SdiStats = {
     config?: { sdi_environment?: string; sdi_recipient_code?: string; auto_send_enabled?: boolean; environment?: string; accreditation_status?: string }
     passive?: { total?: number }
@@ -1476,7 +1491,7 @@ export default function Fatturazione() {
     }
   }
 
-  const tabs = [
+  const tabs: { id: FatturazioneTab; label: string; icon: typeof Inbox; count: number | undefined }[] = [
     // Badge: count diretto da electronic_invoices (stessa fonte del KPI
     // dentro la tab) cosi' i due numeri NON divergono mai.
     { id: 'passive', label: 'Fatture Passive', icon: Inbox, count: invoiceCounts.passive || sdiStats?.passive?.total },

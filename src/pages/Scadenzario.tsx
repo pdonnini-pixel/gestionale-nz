@@ -1,5 +1,14 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+
+// Tab principale Scadenzario — persistito in URL come ?tab=
+type ScadenzarioTab = 'scadenze' | 'incassi' | 'fornitori' | 'riconciliazione'
+const VALID_SCADENZARIO_TABS: ScadenzarioTab[] = ['scadenze', 'incassi', 'fornitori', 'riconciliazione']
+
+// Filtro stato scadenze — persistito in URL come ?filter=
+type ScadenzarioFilter = 'attive' | 'tutte' | 'pagate' | 'sospese' | 'scadute'
+const VALID_SCADENZARIO_FILTERS: ScadenzarioFilter[] = ['attive', 'tutte', 'pagate', 'sospese', 'scadute']
 
 // Tipi loose per le entità della pagina (la shape Supabase ha molti campi
 // opzionali e relazioni non strict; teniamo Record<string, unknown> con
@@ -637,11 +646,30 @@ export default function Scadenzario() {
   const [bankAccounts, setBankAccounts] = useState<BankAccountLite[]>([])
   const [suppliers, setSuppliers] = useState<Record<string, unknown>[]>([])
   const [loading, setLoading] = useState(true)
-  const [filter, setFilter] = useState('attive')
+  // tab + filter persistiti in URL come ?tab=… e ?filter=…
+  // (default: tab=scadenze, filter=attive)
+  const [searchParams, setSearchParams] = useSearchParams()
+  const tabParam = searchParams.get('tab')
+  const tab: ScadenzarioTab = VALID_SCADENZARIO_TABS.includes(tabParam as ScadenzarioTab)
+    ? (tabParam as ScadenzarioTab)
+    : 'scadenze'
+  const setTab = (next: ScadenzarioTab) => {
+    const params = new URLSearchParams(searchParams)
+    params.set('tab', next)
+    setSearchParams(params)
+  }
+  const filterParam = searchParams.get('filter')
+  const filter: ScadenzarioFilter = VALID_SCADENZARIO_FILTERS.includes(filterParam as ScadenzarioFilter)
+    ? (filterParam as ScadenzarioFilter)
+    : 'attive'
+  const setFilter = (next: ScadenzarioFilter) => {
+    const params = new URLSearchParams(searchParams)
+    params.set('filter', next)
+    setSearchParams(params)
+  }
   const [search, setSearch] = useState('')
   const [selected, setSelected] = useState<PayableLite | null>(null)
   const [modal, setModal] = useState<string | null>(null) // 'salda', 'sospendi', 'rimanda', 'rateizza', 'fornitore', 'importXml'
-  const [tab, setTab] = useState('scadenze') // 'scadenze', 'fornitori', 'riconciliazione'
 
   // Fornitore edit state
   const [editSupplier, setEditSupplier] = useState<Record<string, unknown> | null>(null)
@@ -733,18 +761,15 @@ export default function Scadenzario() {
     [filteredIncomes]
   )
 
-  // ─── INIT FROM URL PARAMS ───────────────────────────────────────
+  // ─── INIT SEARCH FROM URL ───────────────────────────────────────
   // Supporta navigazione dalla Scheda Contabile del fornitore
-  // (/scadenzario?supplier=<id>&search=<nome>) con filtri pre-applicati.
+  // (/scadenzario?supplier=<id>&search=<nome>) con search pre-applicata.
+  // tab/filter sono ora derivati da searchParams direttamente sopra.
   useEffect(() => {
     if (typeof window === 'undefined') return
     const params = new URLSearchParams(window.location.search)
     const searchParam = params.get('search') || params.get('supplier_name')
-    const filterParam = params.get('filter')
-    const tabParam = params.get('tab')
     if (searchParam) setSearch(decodeURIComponent(searchParam))
-    if (filterParam && ['attive', 'pagate', 'sospese', 'tutte', 'scadute'].includes(filterParam)) setFilter(filterParam)
-    if (tabParam && ['scadenze', 'fornitori', 'riconciliazione', 'incassi'].includes(tabParam)) setTab(tabParam)
   }, [])
 
   async function loadData() {
@@ -1014,7 +1039,7 @@ export default function Scadenzario() {
     }
   }
 
-  const filterTabs = [
+  const filterTabs: { key: ScadenzarioFilter; label: string; count: number }[] = [
     { key: 'attive', label: 'Attive', count: totals.count },
     { key: 'tutte', label: 'Tutte', count: payables.length },
     { key: 'pagate', label: 'Pagate', count: payables.filter(p => p.status === 'pagato').length },
@@ -1052,12 +1077,12 @@ export default function Scadenzario() {
 
       {/* Top tabs: Scadenze / Incassi / Fornitori / Riconciliazione */}
       <div className="flex gap-1 bg-slate-100 rounded-lg p-1 w-fit">
-        {[
+        {([
           { key: 'scadenze', label: 'Scadenze', icon: Receipt },
           { key: 'incassi', label: 'Incassi', icon: ArrowLeftRight },
           { key: 'fornitori', label: 'Fornitori', icon: Building2 },
           { key: 'riconciliazione', label: 'Riconciliazione', icon: ArrowLeftRight },
-        ].map(t => (
+        ] as const).map(t => (
           <button key={t.key} onClick={() => setTab(t.key)}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition ${
               tab === t.key ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'

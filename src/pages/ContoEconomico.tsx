@@ -1,5 +1,14 @@
 import React, { useState, useEffect, useCallback, useMemo, Suspense } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import PageHelp from '../components/PageHelp'
+
+// Tipologia periodo ContoEconomico — persistita in URL come ?periodo=
+type ContoPeriod = 'annuale' | 'trimestrale' | 'mensile' | 'provvisorio'
+const VALID_CONTO_PERIODS: ContoPeriod[] = ['annuale', 'trimestrale', 'mensile', 'provvisorio']
+
+// Vista ContoEconomico (competenza/cassa/riconciliazione) — persistita come ?view=
+type ContoView = 'competenza' | 'cassa' | 'riconciliazione'
+const VALID_CONTO_VIEWS: ContoView[] = ['competenza', 'cassa', 'riconciliazione']
 import {
   TrendingUp, TrendingDown, DollarSign, PieChart, BarChart3, Upload,
   ArrowUpRight, ArrowDownRight, ChevronDown, ChevronUp, AlertCircle,
@@ -335,7 +344,17 @@ export default function ContoEconomico() {
   const { profile } = useAuth()
   const COMPANY_ID = profile?.company_id
   const { year, quarter, getDateRange } = usePeriod()
-  const [periodType, setPeriodType] = useState('annuale')
+  // periodType persistito in URL come ?periodo=… (default 'annuale')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const periodoParam = searchParams.get('periodo')
+  const periodType: ContoPeriod = VALID_CONTO_PERIODS.includes(periodoParam as ContoPeriod)
+    ? (periodoParam as ContoPeriod)
+    : 'annuale'
+  const setPeriodType = (next: ContoPeriod) => {
+    const params = new URLSearchParams(searchParams)
+    params.set('periodo', next)
+    setSearchParams(params)
+  }
   const [periodData, setPeriodData] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [simulationMode, setSimulationMode] = useState(false)
@@ -375,7 +394,16 @@ export default function ContoEconomico() {
   const [showYoY, setShowYoY] = useState(true)
 
   // Feature: Cash-basis (Cassa) view
-  const [viewMode, setViewMode] = useState<'competenza' | 'cassa' | 'riconciliazione'>('competenza')
+  // viewMode persistito in URL come ?view=… (default 'competenza')
+  const viewParam = searchParams.get('view')
+  const viewMode: ContoView = VALID_CONTO_VIEWS.includes(viewParam as ContoView)
+    ? (viewParam as ContoView)
+    : 'competenza'
+  const setViewMode = (next: ContoView) => {
+    const params = new URLSearchParams(searchParams)
+    params.set('view', next)
+    setSearchParams(params)
+  }
   type CashMonth = { mese: number; meseLabel: string; entrate: number; uscite: number; netto: number }
   type CashCat = { category_id: string; entrate: number; uscite: number; category_name?: string; name?: string }
   type CashDataT = { monthly: CashMonth[]; byCategory: CashCat[]; totals: { entrate: number; uscite: number; netto: number }; count: number; hasCategorized: boolean } | null
@@ -1357,7 +1385,7 @@ export default function ContoEconomico() {
     setSimData({ ...(simData || ce25), [field]: value })
   }
 
-  const periodi = ['annuale', 'trimestrale', 'mensile', 'provvisorio']
+  const periodi: ContoPeriod[] = ['annuale', 'trimestrale', 'mensile', 'provvisorio']
 
   return (
     <div className="p-6 space-y-5 max-w-[1400px] mx-auto">
@@ -1376,7 +1404,7 @@ export default function ContoEconomico() {
         {/* Controls */}
         <div className="flex gap-3 flex-wrap justify-end">
           <div className="flex gap-2">
-            <select value={periodType} onChange={(e) => setPeriodType(e.target.value)}
+            <select value={periodType} onChange={(e) => setPeriodType(e.target.value as ContoPeriod)}
               className="px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white">
               {periodi.map(p => <option key={p} value={p}>{p}</option>)}
             </select>

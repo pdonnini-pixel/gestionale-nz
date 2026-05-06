@@ -1,5 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import PageHelp from '../components/PageHelp';
+
+// Vista temporale Cashflow Prospettico — persistita in URL come ?view=
+type CashflowView = 'giornaliero' | 'settimanale' | 'mensile';
+const VALID_CASHFLOW_VIEWS: CashflowView[] = ['giornaliero', 'settimanale', 'mensile'];
 import {
   ComposedChart,
   Bar,
@@ -85,7 +90,17 @@ export default function CashflowProspettico() {
   // State
   const [selectedOutlet, setSelectedOutlet] = useState('all');
   const [scenario, setScenario] = useState('base'); // 'base', 'ottimistico', 'pessimistico'
-  const [viewMode, setViewMode] = useState('mensile'); // 'giornaliero' | 'settimanale' | 'mensile'
+  // viewMode persistito in URL come ?view=… (default 'mensile')
+  const [searchParams, setSearchParams] = useSearchParams();
+  const viewParam = searchParams.get('view');
+  const viewMode: CashflowView = VALID_CASHFLOW_VIEWS.includes(viewParam as CashflowView)
+    ? (viewParam as CashflowView)
+    : 'mensile';
+  const setViewMode = (next: CashflowView) => {
+    const params = new URLSearchParams(searchParams);
+    params.set('view', next);
+    setSearchParams(params);
+  };
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -1086,11 +1101,11 @@ export default function CashflowProspettico() {
 
         {/* View Mode Selector */}
         <div className="flex gap-1 mb-4 bg-slate-200 rounded-lg p-1 w-fit">
-          {[
+          {([
             { value: 'giornaliero', label: 'Giornaliero', sub: '30 giorni' },
             { value: 'settimanale', label: 'Settimanale', sub: '3 mesi' },
             { value: 'mensile', label: 'Mensile', sub: '12 mesi' }
-          ].map(mode => (
+          ] as const).map(mode => (
             <button
               key={mode.value}
               onClick={() => setViewMode(mode.value)}
