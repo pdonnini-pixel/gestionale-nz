@@ -10,7 +10,7 @@
 | Fase | Stato | Note |
 |------|-------|------|
 | 0 — Setup + planning | ✅ in chiusura | Branch creato, inventario fatto |
-| 1 — Tooling provisioning | ⏳ da avviare | 8 script TypeScript |
+| 1 — Tooling provisioning | ✅ chiusa | 8 script in `frontend/tools/provisioning/`, typecheck OK |
 | 2 — Hostname routing + tenant header | ⏳ | tenants.ts + Layout badge |
 | 3 — Wizard onboarding bloccante | ⏳ | STOP & ASK liste outlet |
 | 4 — Provisioning Made + Zago | ⏳ | STOP & ASK token + costi |
@@ -76,9 +76,52 @@ Nomi attesi nel template (estratti dai consumer Edge Function):
 
 ---
 
-## Fase 1 — Tooling (in corso)
+## Fase 1 — Tooling (chiusa)
 
-(da popolare al termine)
+### Struttura creata in `frontend/tools/provisioning/`
+
+```
+package.json            ← deps: @supabase/supabase-js, pg, dotenv, tsx, ts
+tsconfig.json           ← strict, ESNext, separato dal frontend tsconfig
+.env.example            ← SUPABASE_ACCESS_TOKEN, ORG_ID, REGION, ecc.
+.env                    ← (da creare, gitignored)
+secrets-template.json   ← placeholder Yapily/SDI
+README.md
+tenants.json            ← (creato a run-time, gitignored, ha service_role_key)
+lib/
+  env.ts                ← lettura/validazione .env
+  cli.ts                ← argv parser, generateStrongPassword
+  tenants-store.ts      ← load/save tenants.json (mode 0o600)
+  management-api.ts     ← wrapper Management API v1 + waitForProjectReady
+  db.ts                 ← pg client + ensureMigrationsLogTable
+  migrations.ts         ← legge supabase/migrations/*.sql con sha256 checksum
+  edge-functions.ts     ← deploy via `supabase functions deploy --project-ref`
+create-tenant.ts        ← POST /v1/projects, salva keys in tenants.json
+apply-migrations.ts     ← applica migrazioni in transazione, log in _migrations_log
+deploy-edge-functions.ts← deploya tutte le 11 functions
+setup-vault.ts          ← crea solo placeholder mancanti (mai sovrascrive)
+create-user.ts          ← supabase.auth.admin.createUser/updateUserById
+full-provision.ts       ← orchestratore (5 step + 4 utenti seed)
+sync-migrations-all.ts  ← rollout sincrono su tutti i tenant
+check-version-drift.ts  ← tabella di drift filename × tenant
+```
+
+### Decisioni autonome Fase 1
+
+1. **Autenticazione DB → service_role_key + URL diretto `db.<ref>.supabase.co:5432`**, non via CLI Supabase. Più portabile, niente dipendenza dalla CLI per le migrazioni (la CLI serve solo per le Edge Function).
+2. **Tracciamento migrazioni → tabella `public._migrations_log`** con `filename PRIMARY KEY, applied_at, checksum`. Più semplice della tabella nativa di Supabase migrations (`supabase_migrations.schema_migrations`) che pretende un formato specifico nel filename. La nostra è additiva, idempotente, e non confligge con lo schema esistente di NZ.
+3. **Edge Functions deploy → CLI Supabase** (`npx supabase functions deploy <name> --project-ref <ref>`). La CLI legge `SUPABASE_ACCESS_TOKEN` dall'env automaticamente.
+4. **`setup-vault.ts` è iper-conservativo**: legge i secret esistenti e crea SOLO quelli mancanti. Non sovrascrive mai. Questo evita di azzerare credenziali Yapily/SDI reali per errore.
+5. **DB password → autogenerata** (`crypto.getRandomValues` 24 bytes hex) e salvata SOLO in `tenants.json` locale. Mai stampata in stdout, mai committata.
+6. **Utenti seed in `full-provision.ts`** = 4 fissi (Patrizio super_advisor, Lilian budget_approver, Sabrina/Veronica contabile). Hardcoded perché il vincolo §41 dice "stessa email replicata sui 3 tenant". Email Sabrina/Veronica usano `@newzago.it` ma vanno verificate (vedi backlog). Stessa password (`SEED_USERS_PASSWORD` env) su tutti.
+7. **`check-version-drift.ts`** confronta filename, non checksum. Se serve verifica più rigorosa (stessa migrazione applicata in modo diverso) si può estendere — per ora è sufficiente.
+8. **Registrazione di NZ in `tenants.json`** lasciata manuale (vedi README §"Registrazione manuale del tenant New Zago"). Non posso recuperare service_role_key di NZ senza accesso interattivo, e il PROMPT vincola "non toccare NZ" — quindi NZ entra in `sync-migrations-all` solo dopo registrazione esplicita di Patrizio.
+
+### Verifiche
+
+- `npx tsc --noEmit` su `tools/provisioning/`: ✅ zero errori
+- `npm run typecheck` su frontend: ✅ zero errori (i tools sono fuori dal cono `include: ["src"]`)
+- `tools/provisioning/.env` e `tenants.json` aggiunti a `.gitignore`
 
 ---
 
