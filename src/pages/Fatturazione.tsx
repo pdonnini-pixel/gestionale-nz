@@ -1280,7 +1280,7 @@ function Corrispettivi() {
                   <tr><td colSpan={5} className="text-center py-12 text-slate-400">
                     <Inbox size={32} className="mx-auto mb-2 text-slate-300" />
                     <p>Nessun corrispettivo dal cassetto fiscale.</p>
-                    <p className="text-xs mt-1">Clicca "Sincronizza SDI" per scaricare i corrispettivi da Agenzia delle Entrate.</p>
+                    <p className="text-xs mt-1">Sincronizzazione SDI non ancora attiva — in attesa di accreditamento Agenzia delle Entrate.</p>
                   </td></tr>
                 ) : corrispettiviLog
                     .filter(c => selectedOutlet === 'ALL' || c.outlet_id === selectedOutlet)
@@ -1519,11 +1519,12 @@ export default function Fatturazione() {
         </div>
         <button
           onClick={handleSyncSdi}
-          disabled={syncing}
-          className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+          disabled={true}
+          title="Sincronizzazione SDI non disponibile — accreditamento Agenzia delle Entrate ancora da completare. Contattare EPPI per maggiori informazioni."
+          className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-xl transition disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
         >
-          {syncing ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
-          {syncing ? 'Sincronizzazione...' : 'Sincronizza SDI'}
+          <RefreshCw size={16} />
+          Sincronizza SDI
         </button>
       </div>
 
