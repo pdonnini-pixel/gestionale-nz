@@ -14,8 +14,8 @@
 | 2 — Hostname routing + tenant header | ✅ chiusa | tenants.ts + Layout badge + Login parametrizzato |
 | 3 — Wizard onboarding bloccante | ✅ chiusa (manuale) | 5 step + role gating + redirect forzato |
 | 3.5 — Baseline schema migration | ✅ chiusa | concatenazione idempotente di 12 file root → 1 baseline |
-| 4 — Provisioning Made + Zago | 🚧 in corso | token + costi confermati; bulk import non richiesto |
-| 5 — Setup Netlify multi-deploy | ⏳ | STOP & ASK creazione site |
+| 4 — Provisioning Made + Zago | ✅ chiusa | 2 progetti Supabase creati, drift = 0 |
+| 5 — Setup Netlify multi-deploy | 🚧 STOP & ASK | site da creare a mano da UI Netlify |
 | 6 — Test E2E + PR | ⏳ | |
 
 ---
@@ -275,7 +275,60 @@ Va deciso prima di lanciare `full-provision.ts` per Made/Zago. Aggiunto allo Sto
 
 ---
 
-## Fase 4 — Provisioning Made + Zago (in corso)
+## Fase 4 — Provisioning Made + Zago (chiusa)
+
+### Tenant creati
+
+| alias | project_ref | region | utenti seed | Edge Fn | Vault placeholder |
+|---|---|---|---|---|---|
+| `made-retail` | `wdgoebzvosspjqttitra` | eu-west-1 | 4 | 11/11 | 6/6 |
+| `zago` | `jxlwvzjreukscnswkbjx` | eu-west-1 | 4 | 11/11 | 6/6 |
+
+`check-version-drift.ts` → ✅ tutti i tenant alla stessa versione (8 migrazioni applicate).
+
+### Utenti seed creati su entrambi i tenant
+
+- `pdonnini@gmail.com` (super_advisor)
+- `lilianmammoliti@gmail.com` (budget_approver)
+- `sabrina@newzago.it` (contabile)
+- `veronica@newzago.it` (contabile)
+
+⚠️ Le email di Sabrina/Veronica (`@newzago.it`) sono **placeholder** — non confermate da Patrizio. Se in produzione hanno email diverse, lanciare `create-user.ts <alias> --email <email-vera> --role contabile` (idempotente) per ogni tenant.
+
+Password seed unica per i 4 utenti: salvata in `tools/provisioning/.env` come `SEED_USERS_PASSWORD`. Recuperabile da Patrizio nel file locale (gitignored).
+
+### Imprevisti incontrati e soluzioni
+
+1. **DNS direct connection assente per progetti nuovi**: `db.<ref>.supabase.co` non risolve. I nuovi progetti Supabase usano il pooler Supavisor di default (direct connection è add-on a $4/mese). `create-tenant.ts` ora costruisce la URL via session pooler `aws-0-<region>.pooler.supabase.com:5432` con username `postgres.<ref>`. Stessa modifica applicata manualmente al record di Made in `tenants.json`.
+2. **Schema NZ più ampio dei file SQL versionati**: `bank_transactions`, `active_invoices`, `app_users`, `budget_entries` e altre 40+ tabelle erano state create via dashboard SQL editor, NON nei file `supabase/00*.sql`. La baseline costruita da quei file era incompleta. Sostituita con un dump completo dello schema NZ via Management API (`/v1/projects/{ref}/database/query` su `pg_catalog`) — script `dump-nz-schema.py`. Risultato: 79 tabelle, viste topo-sortate, 1560 statement.
+3. **Le 7 migrazioni delta erano già incorporate nel baseline**: il dump di NZ riflette lo stato POST-001..007. La 001 quindi falliva con "policy already exists". Soluzione: il baseline ora termina con un blocco `INSERT INTO _migrations_log (filename, checksum) VALUES (...) ON CONFLICT DO NOTHING` che marca le 7 delta come `incorporated-in-baseline`. `apply-migrations.ts` le skippa.
+4. **`config.toml` con sintassi vecchia**: `[project]\nid = "..."` rifiutata da Supabase CLI 2.98 con `'config.config' has invalid keys: project`. Cambiato in `project_id = "..."` top-level (sintassi v2). NZ non è impattato (config.toml è usato solo lato CLI).
+5. **Pooler lag su progetti appena creati**: dopo create-tenant, il pooler Supavisor impiega 10-30s per registrare l'utente del nuovo progetto. La prima `apply-migrations` su Zago ha fallito con `tenant/user not found`; un retry loop ha risolto. Per ridurre il rischio in futuro, in `create-tenant.ts` si potrebbe aggiungere uno sleep `30s` dopo `waitForProjectReady` (non fatto in questa Fase 4 perché il retry manuale è semplice).
+6. **`tee` maschera l'exit code**: `npx tsx full-provision.ts ... 2>&1 | tee /tmp/log` riporta exit 0 anche se tsx fallisce, perché in pipeline è l'exit dell'ultimo comando a contare. Notato — non bloccante.
+
+### File aggiunti
+
+- `tools/provisioning/dump-nz-schema.py`: dump completo dello schema NZ via Management API. Ricomputa `_nz_schema_dump.sql`.
+- `tools/provisioning/mark-deltas-applied.ts`: marca le 7 delta come applicate su tenant che hanno il baseline ma non i marker (utile se il baseline viene aggiornato in futuro).
+
+### Decisioni autonome Fase 4
+
+1. **Baseline riprodotta come dump pg_catalog** invece che concatenazione dei file SQL root. Lo script `build-baseline-migration.py` (Fase 3.5 v1) è ora obsoleto rispetto a `dump-nz-schema.py`. Lascio entrambi nel repo: `build-baseline-migration.py` documenta il primo approccio (utile come riferimento storico), `dump-nz-schema.py` è il sorgente di verità ora.
+2. **Pooler session mode (5432) usato per le migrazioni**, non transaction mode (6543). Il transaction mode non supporta DDL multi-statement.
+3. **DB password autogenerata** (`generateStrongPassword` 24 byte hex) e salvata SOLO in `tenants.json` locale.
+
+### Output finali per Patrizio (per Fase 5 Netlify)
+
+| Tenant | URL Supabase | anon_key snippet |
+|---|---|---|
+| `made-retail` | `https://wdgoebzvosspjqttitra.supabase.co` | `eyJ…gU6D41nojoX6tSAPrJIWLWrBhxKI9ua1EhQ8f9W4zLs` |
+| `zago` | `https://jxlwvzjreukscnswkbjx.supabase.co` | `eyJ…leQ6ggCx7M81BnOH9JEpn6MWQfHMdDnUmmUfwIgKzV4` |
+
+Le keys complete sono in `tools/provisioning/tenants.json` (gitignored).
+
+---
+
+## Fase 5 — Setup Netlify multi-deploy (STOP & ASK)
 
 (da popolare al termine)
 

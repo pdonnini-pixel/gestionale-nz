@@ -27,8 +27,20 @@ import {
   type TenantRecord,
 } from './lib/tenants-store.js'
 
-function buildDatabaseUrl(ref: string, password: string): string {
-  return `postgresql://postgres:${encodeURIComponent(password)}@db.${ref}.supabase.co:5432/postgres`
+/**
+ * Costruisce l'URL di connessione DB usando il session pooler Supavisor
+ * (porta 5432). I progetti Supabase creati di recente hanno il direct
+ * connection `db.<ref>.supabase.co` disabilitato di default — usare il
+ * pooler è quindi la scelta giusta sia per dev che per provisioning.
+ *
+ * Nota: il transaction pooler (6543) NON va per le migrazioni DDL —
+ * servirebbe session mode (5432) per DDL multi-statement, transazioni e
+ * advisory locks. Usiamo quindi sempre la 5432.
+ */
+function buildDatabaseUrl(ref: string, region: string, password: string): string {
+  const user = `postgres.${ref}`
+  const host = `aws-0-${region}.pooler.supabase.com`
+  return `postgresql://${user}:${encodeURIComponent(password)}@${host}:5432/postgres`
 }
 
 async function main(): Promise<void> {
@@ -103,7 +115,7 @@ async function main(): Promise<void> {
     projectRef: ref,
     region: env.region,
     createdAt: new Date().toISOString(),
-    databaseUrl: dbPass ? buildDatabaseUrl(ref, dbPass) : '',
+    databaseUrl: dbPass ? buildDatabaseUrl(ref, env.region, dbPass) : '',
     anonKey,
     serviceRoleKey,
     companyId: null,

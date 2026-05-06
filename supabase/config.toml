@@ -1,5 +1,4 @@
-[project]
-id = "xfvfxsvqpnpvibgeqpqp"
+project_id = "xfvfxsvqpnpvibgeqpqp"
 
 # SDI webhooks — verify_jwt MUST be false (called by AdE, not by frontend)
 [functions.sdi-receive]
