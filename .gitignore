@@ -8,3 +8,15 @@ deploy-*.zip
 
 # Local Netlify folder
 .netlify
+
+# Provisioning tooling — contiene service_role_key e DB password
+tools/provisioning/tenants.json
+tools/provisioning/.env
+tools/provisioning/node_modules
+
+# Dump intermedio dello schema NZ (output di dump-nz-schema.py)
+# La sorgente di verità è supabase/migrations/20260417_000_baseline_schema.sql
+tools/provisioning/_nz_schema_dump.sql
+
+# Stato CLI Supabase locale
+supabase/.temp/

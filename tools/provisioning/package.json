@@ -1,0 +1,28 @@
+{
+  "name": "@gestionale-nz/provisioning",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Tooling di provisioning multi-tenant Supabase (Made Retail, Zago, NZ).",
+  "scripts": {
+    "create-tenant": "tsx create-tenant.ts",
+    "apply-migrations": "tsx apply-migrations.ts",
+    "deploy-edge-functions": "tsx deploy-edge-functions.ts",
+    "setup-vault": "tsx setup-vault.ts",
+    "create-user": "tsx create-user.ts",
+    "full-provision": "tsx full-provision.ts",
+    "sync-migrations-all": "tsx sync-migrations-all.ts",
+    "check-version-drift": "tsx check-version-drift.ts"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.101.1",
+    "dotenv": "^16.4.5",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "@types/pg": "^8.11.10",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  }
+}

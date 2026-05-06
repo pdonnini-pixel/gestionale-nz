@@ -1,7 +1,8 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { AuthProvider, useAuth } from './hooks/useAuth'
 import { CompanyProvider } from './hooks/useCompany'
 import { PeriodProvider } from './hooks/usePeriod'
+import { useOnboardingStatus } from './hooks/useOnboardingStatus'
 import { lazy, Suspense, type ReactNode } from 'react'
 import Layout from './components/Layout'
 import Login from './pages/Login'
@@ -60,6 +61,29 @@ function ProtectedRoute({ children }: { children: ReactNode }) {
   return session ? <>{children}</> : <Navigate to="/login" replace />
 }
 
+/**
+ * Forza il redirect a /onboarding se il tenant è vergine (nessuna company).
+ * Pensato per i tenant ADR-001 appena creati: la prima persona che entra è
+ * Lilian (o Patrizio super_advisor) e DEVE compilare il wizard prima di
+ * poter usare il resto dell'app. Sabrina/Veronica vedono il placeholder
+ * dentro Onboarding.tsx (vedi role check lì).
+ */
+function OnboardingGate({ children }: { children: ReactNode }) {
+  const { needsOnboarding, loading } = useOnboardingStatus()
+  const location = useLocation()
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="w-8 h-8 border-3 border-blue-200 border-t-blue-600 rounded-full animate-spin" />
+      </div>
+    )
+  }
+  if (needsOnboarding && location.pathname !== '/onboarding') {
+    return <Navigate to="/onboarding" replace />
+  }
+  return <>{children}</>
+}
+
 function PublicRoute({ children }: { children: ReactNode }) {
   const { session, loading } = useAuth()
   if (loading) return null
@@ -73,7 +97,7 @@ function AppRoutes() {
         <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
         <Route path="/onboarding" element={<ProtectedRoute><Onboarding /></ProtectedRoute>} />
         <Route path="/banking/callback" element={<ProtectedRoute><BankingCallback /></ProtectedRoute>} />
-        <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
+        <Route element={<ProtectedRoute><OnboardingGate><Layout /></OnboardingGate></ProtectedRoute>}>
           <Route index element={<Dashboard />} />
           <Route path="outlet" element={<Outlet />} />
           <Route path="scadenzario" element={<Scadenzario />} />

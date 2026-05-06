@@ -7,11 +7,35 @@ import HelpPanel from './HelpPanel'
 import GlobalSearch from './GlobalSearch'
 import { useAuth } from '../hooks/useAuth'
 import { usePeriod } from '../hooks/usePeriod'
+import { getCurrentTenant } from '../lib/tenants'
 import {
   Menu, Search, ChevronRight,
   LayoutDashboard, Store, Receipt, User,
-  UserCircle, Settings, LogOut
+  UserCircle, Settings, LogOut, Building2
 } from 'lucide-react'
+
+// ─── TENANT BADGE ─────────────────────────────────────────────
+// Banda colorata sempre visibile in cima all'app: serve a Sabrina/Veronica
+// (che lavorano su 3 tenant nello stesso flusso) per non confondere su quale
+// tenant stanno operando. Mitigazione esplicita della "trappola n°1 day 1"
+// in CLAUDE.md (§Trappole multi-tenant).
+function TenantBadge() {
+  const tenant = getCurrentTenant()
+  return (
+    <div
+      className="h-7 shrink-0 flex items-center px-3 sm:px-4 text-white text-xs font-semibold gap-2"
+      style={{ background: tenant.accentBg }}
+      title={`Stai operando sul tenant ${tenant.displayName}. Per cambiare tenant, apri una nuova tab con un altro subdomain.`}
+    >
+      <Building2 size={14} className="opacity-90 shrink-0" />
+      <span className="opacity-90">Tenant attivo:</span>
+      <span className="font-bold tracking-wide truncate">{tenant.displayName}</span>
+      <span className="ml-auto opacity-80 hidden md:inline truncate">
+        Per cambiare tenant, apri una nuova tab.
+      </span>
+    </div>
+  )
+}
 
 // ─── PERIOD SELECTOR ──────────────────────────────────────────
 function PeriodSelector() {
@@ -217,6 +241,9 @@ export default function Layout() {
       <Sidebar mobileOpen={mobileOpen} setMobileOpen={setMobileOpen} />
 
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+        {/* Tenant badge (banda colorata) */}
+        <TenantBadge />
+
         {/* Top bar */}
         <header className="h-12 shrink-0 bg-white border-b border-slate-200 flex items-center justify-between px-3 sm:px-4 gap-2">
           {/* Left: hamburger (mobile) + breadcrumb */}
