@@ -13,7 +13,8 @@
 | 1 — Tooling provisioning | ✅ chiusa | 8 script in `frontend/tools/provisioning/`, typecheck OK |
 | 2 — Hostname routing + tenant header | ✅ chiusa | tenants.ts + Layout badge + Login parametrizzato |
 | 3 — Wizard onboarding bloccante | ✅ chiusa (manuale) | 5 step + role gating + redirect forzato |
-| 4 — Provisioning Made + Zago | ⏳ | STOP & ASK token + costi |
+| 3.5 — Baseline schema migration | ✅ chiusa | concatenazione idempotente di 12 file root → 1 baseline |
+| 4 — Provisioning Made + Zago | 🚧 in corso | token + costi confermati; bulk import non richiesto |
 | 5 — Setup Netlify multi-deploy | ⏳ | STOP & ASK creazione site |
 | 6 — Test E2E + PR | ⏳ | |
 
@@ -214,9 +215,69 @@ Va deciso prima di lanciare `full-provision.ts` per Made/Zago. Aggiunto allo Sto
 
 ---
 
-## Fase 4 — Provisioning Made + Zago
+## Fase 3.5 — Baseline schema migration (chiusa)
 
-(da popolare)
+### File aggiunti
+
+- **`frontend/tools/provisioning/build-baseline-migration.py`**: trasforma 12 file SQL della radice (`supabase/00*.sql`) in un'unica migrazione idempotente.
+- **`frontend/tools/provisioning/validate-baseline.py`**: lint statico del baseline. Cerca violazioni di idempotenza (CREATE TABLE senza IF NOT EXISTS, CREATE FUNCTION senza OR REPLACE, ecc.).
+- **`frontend/supabase/migrations/20260417_000_baseline_schema.sql`** (~171 KB, ~3970 righe, ~956 statement): SCHEMA baseline NZ-derivato, con tutte le rewrite di idempotenza applicate.
+
+### File inclusi nel baseline (12)
+
+```
+001_complete_schema.sql          (tabelle + tipi + trigger)
+002_views.sql                    (25 viste analitiche)
+003_rls_policies.sql             (helper functions get_my_company_id/get_my_role + 80+ policy)
+007_add_outlet_fields_torino.sql (ALTER outlets — INSERT Torino escluso)
+008_outlet_attachments.sql       (CREATE TABLE outlet_attachments)
+009_catch_all_missing.sql        (32 IF NOT EXISTS già pronti)
+010_fix_missing_columns.sql      (ALTER vari, ora con IF NOT EXISTS)
+012_fix_delete_policies.sql      (DROP+CREATE POLICY)
+013_add_yapily_columns_to_bank_transactions.sql
+014_create_supplier_allocation_tables.sql (supplier_allocation_rules, _details)
+015_add_sdi_id_unique_index.sql
+017_create_sdi_sync_log.sql
+```
+
+### File esclusi dal baseline (NON sono schema)
+
+```
+004_seed_data.sql                         dati seed NZ (outlets, banks, ecc.)
+005_seed_scadenzario.sql                  dati seed NZ
+006_cleanup_test_data.sql                 cleanup specifico (one-off)
+011_seed_employees.sql                    dipendenti reali NZ
+016_insert_rettifica_variazione_rimanenze NZ-specific bilancio
+007 — INSERT INTO outlets (Torino)        outlet specifico NZ, escluso inline
+```
+
+### Trasformazioni di idempotenza applicate
+
+| Pattern originale | Trasformato in |
+|---|---|
+| `CREATE TABLE x` | `CREATE TABLE IF NOT EXISTS x` |
+| `CREATE [UNIQUE] INDEX x` | `… IF NOT EXISTS …` |
+| `CREATE FUNCTION` | `CREATE OR REPLACE FUNCTION` |
+| `CREATE VIEW` | `CREATE OR REPLACE VIEW` |
+| `ALTER TABLE … ADD COLUMN col` | `… ADD COLUMN IF NOT EXISTS col` |
+| `CREATE TYPE x AS ENUM (…)` | `DO $do$ BEGIN … EXCEPTION WHEN duplicate_object THEN NULL; END $do$` |
+| `CREATE TRIGGER trg ON tab` | preceduto da `DROP TRIGGER IF EXISTS trg ON tab` |
+| `CREATE POLICY pol ON tab` | preceduto da `DROP POLICY IF EXISTS pol ON tab` |
+
+### Verifica
+
+- `python3 validate-baseline.py` ✅ zero violazioni
+- **NB: dry-run completo NON eseguito su NZ.** Le credenziali DB di NZ non sono recuperabili via Management API (richiederebbero un reset password lato dashboard). La verifica empirica di idempotenza viene fatta in Fase 4 applicando il baseline al primo tenant nuovo, poi rilanciando `apply-migrations.ts` (deve dire "tutto skippato"). Per costruzione, se il primo tenant nuovo passa entrambi i giri, la stessa cosa vale su NZ se mai venisse aggiunto a `tenants.json`.
+
+### Decisione autonoma Fase 3.5
+
+1. **Non aggiungo automaticamente NZ a `tenants.json`** dopo Fase 4. Il PROMPT vincola "NON toccare NZ"; aggiungere la sua connection string al tooling significa darmi la possibilità di modificare il DB. Patrizio dovrà aggiungerlo manualmente quando vorrà che NZ partecipi a `sync-migrations-all.ts`. Le istruzioni sono in `tools/provisioning/README.md` §"Registrazione manuale del tenant New Zago".
+
+---
+
+## Fase 4 — Provisioning Made + Zago (in corso)
+
+(da popolare al termine)
 
 ---
 
