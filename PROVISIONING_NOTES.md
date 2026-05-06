@@ -15,8 +15,8 @@
 | 3 — Wizard onboarding bloccante | ✅ chiusa (manuale) | 5 step + role gating + redirect forzato |
 | 3.5 — Baseline schema migration | ✅ chiusa | concatenazione idempotente di 12 file root → 1 baseline |
 | 4 — Provisioning Made + Zago | ✅ chiusa | 2 progetti Supabase creati, drift = 0 |
-| 5 — Setup Netlify multi-deploy | 🚧 STOP & ASK | site da creare a mano da UI Netlify |
-| 6 — Test E2E + PR | ⏳ | |
+| 5 — Setup Netlify multi-deploy | ✅ chiusa | 3 site Netlify live, env vars configurate da Patrizio |
+| 6 — Chiusura tecnica | ✅ chiusa | drift = 0, typecheck/build ok, PR mergiata |
 
 ---
 
@@ -328,18 +328,67 @@ Le keys complete sono in `tools/provisioning/tenants.json` (gitignored).
 
 ---
 
-## Fase 5 — Setup Netlify multi-deploy (STOP & ASK)
+## Fase 5 — Setup Netlify multi-deploy (chiusa)
 
-(da popolare al termine)
+Eseguita da Patrizio dalla UI Netlify (richiesta `Add new site → Import from GitHub`).
+
+### 3 site finali
+
+| Tenant | Subdomain | Netlify env vars |
+|---|---|---|
+| New Zago | `gestionale-nz.netlify.app` | (legacy fallback hardcoded in `tenants.ts`, env vars opzionali) |
+| Made Retail | `made-gestionale-nz.netlify.app` | `VITE_SUPABASE_URL_MADE`, `VITE_SUPABASE_ANON_KEY_MADE` |
+| Zago | `zago-gestionale-nz.netlify.app` | `VITE_SUPABASE_URL_ZAGO`, `VITE_SUPABASE_ANON_KEY_ZAGO` |
+
+I 3 deploy sono verdi. `tenants.ts` aveva già i 3 hostname previsti hardcoded — nessun aggiornamento server necessario dopo la conferma dei subdomain definitivi.
+
+PR `feature-provisioning-multitenant` mergiata in `main` (#8). Backend e frontend ora allineati a un'architettura multi-tenant fisica funzionante.
 
 ---
 
-## Fase 5 — Setup Netlify
+## Fase 6 — Chiusura tecnica (chiusa)
 
-(da popolare)
+### Verifiche eseguite post-merge
 
----
+| Check | Risultato |
+|---|---|
+| `tools/provisioning/check-version-drift.ts` | ✅ Made + Zago alla stessa versione (8/8 migrazioni). NZ skippato per design (non in `tenants.json`). |
+| `npm run typecheck` (root frontend) | ✅ zero errori |
+| `npx vite build` (sandbox `/tmp/nz-dist-final`) | ✅ pulito |
+| `python3 validate-baseline.py` | ✅ zero violazioni di idempotenza |
 
-## Fase 6 — Test E2E
+### Test E2E browser
 
-(da popolare)
+Decisione di Patrizio: i test E2E (login Lilian, wizard onboarding, isolamento dati cross-tenant) li esegue manualmente con Patrizio, fuori da questo task. Non rientrano nello scope tecnico chiuso da Cowork.
+
+### Decisioni autonome chiave (riepilogo cross-fasi)
+
+1. **NZ NON aggiunto a `tenants.json`**: vincolo "non toccare NZ" implica non gestirne credenziali nello stesso tooling che fa apply-migrations / deploy-edge-functions / setup-vault. Conseguenza: `check-version-drift` non vede NZ, `sync-migrations-all` non lo aggiorna automaticamente. Per allineare future migrazioni anche su NZ, Patrizio (o un cron operatore) dovrà aggiungere NZ al tooling con un onboarding manuale documentato in `tools/provisioning/README.md`.
+2. **Baseline come dump pg_catalog di NZ** (non concatenazione dei file `supabase/00*.sql`): lo schema reale di NZ ha 79 tabelle, mentre i file SQL versionati ne avevano 35. Il dump via Management API (`/database/query` su `pg_catalog`) garantisce parità schema 1:1 tra NZ e i nuovi tenant, senza richiedere credenziali DB.
+3. **7 migrazioni delta marcate come `incorporated-in-baseline`** in `_migrations_log` su Made/Zago, perché il dump di NZ riflette già lo stato post-001..007. Su NZ non c'è `_migrations_log` (il tooling non l'ha mai applicato lì): se NZ verrà aggiunto in futuro, va popolato manualmente con uno `INSERT INTO _migrations_log` per tutte le 8 migrazioni.
+4. **Direct connection abbandonata in favore del session pooler Supavisor** (porta 5432). I nuovi progetti Supabase non hanno il direct DNS attivo per default (richiederebbe l'add-on IPv4 a $4/mese per progetto). Il pooler è gratuito e supporta DDL multi-statement.
+5. **Wizard onboarding solo manuale** (no import bulk CSV/Excel). Su esplicita risposta di Patrizio in fase 4: Lilian compila step-by-step.
+6. **Colori accent**: NZ verde, Made blu, Zago arancione. Decisi senza Patrizio in Fase 2 e mantenuti.
+7. **DB password autogenerate** `crypto.getRandomValues(24 byte hex)`, salvate solo in `tools/provisioning/tenants.json` (gitignored). Recuperabili da lì se serve un reset.
+8. **`config.toml` aggiornato a sintassi v2 di Supabase CLI** (`project_id` top-level invece di `[project]\nid`). Nessun impatto su NZ in produzione (config.toml è usato solo lato CLI).
+
+### Limitazioni note (consegnate a Patrizio)
+
+1. **Email seed Sabrina/Veronica = `@newzago.it`** (placeholder, non confermate). Se diverse, lanciare `create-user.ts <alias> --email <vera> --role contabile` per ognuno dei 2 tenant nuovi. Idempotente: aggiorna i metadati senza creare duplicati.
+2. **Post-onboarding può essere necessario logout+login**: il wizard fa `UPDATE user_profiles.company_id`, ma `app_metadata.company_id` nel JWT NON si rinfresca automaticamente. Le RLS attuali leggono da `user_profiles` via `get_my_company_id()`, quindi funziona; ma se in futuro qualche RLS legge `auth.jwt()->>app_metadata`, servirà un re-login dopo il wizard. Da verificare nel test E2E.
+3. **`supabase/.temp/` aggiunto a `.gitignore`** per evitare di committare lo stato della CLI Supabase locale (creato da `supabase link`).
+4. **Pooler lag su nuovi progetti**: 10-30s tra `ACTIVE_HEALTHY` e prima connessione DB working. Se un futuro `full-provision.ts` di un nuovo cliente fallisce con `tenant/user not found`, basta rilanciare `apply-migrations.ts` dopo qualche secondo. Per evitarlo si può aggiungere uno sleep di 30s dopo `waitForProjectReady` in `create-tenant.ts` — non fatto qui per non rallentare in modo cieco.
+5. **Vault dei nuovi tenant è VUOTO** (placeholder). Le Edge Functions Yapily/SDI non funzioneranno finché Lilian/Patrizio non inseriranno credenziali reali via dashboard Supabase. Coerente con scope `setup-vault` e con vincolo "no SDI/Yapily in scope per Made/Zago".
+
+### Recap deliverable
+
+- [x] Branch `feature-provisioning-multitenant` mergiato in main (#8)
+- [x] 5 commit atomici tracciabili con prefisso `[provisioning] fase{0,1,2,3,3.5,4}:`
+- [x] 2 nuovi tenant Supabase Pro attivi (Made Retail, Zago) — drift = 0
+- [x] 3 site Netlify live (`gestionale-nz`, `made-gestionale-nz`, `zago-gestionale-nz`)
+- [x] Tooling end-to-end in `tools/provisioning/` per provisioning di clienti futuri
+- [x] `sync-migrations-all.ts` + `check-version-drift.ts` per rollout sincrono
+- [x] Wizard onboarding 5-step bloccante per tenant vergini
+- [x] `tenants.ts` con header colorato anti-confusione (Sabrina/Veronica)
+- [x] PROVISIONING_NOTES.md completo con storia di tutte le decisioni
+- [ ] Test E2E browser (in carico a Patrizio)
