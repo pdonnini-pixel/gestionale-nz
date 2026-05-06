@@ -343,3 +343,18 @@ Le keys complete sono in `tools/provisioning/tenants.json` (gitignored).
 ## Fase 6 — Test E2E
 
 (da popolare)
+
+---
+
+## Follow-up (post-merge): fix bootstrap onboarding
+
+Dopo la chiusura del provisioning iniziale, il primo test E2E del wizard
+ha fatto emergere 7 bug architetturali (RLS bootstrap, schema drift,
+transactional integrity, ecc.) che impedivano al wizard di completare su
+tenant vergini.
+
+Tutti chiusi nel branch **`fix-onboarding-bootstrap`** con la nuova
+RPC `public.onboard_tenant(jsonb,jsonb,text,jsonb)` SECURITY DEFINER e
+3 migrazioni additive (`20260506_008..010`). Vedi
+`frontend/ONBOARDING_FIX_NOTES.md` per il dettaglio dei bug, delle
+decisioni autonome e dello smoke test E2E.
