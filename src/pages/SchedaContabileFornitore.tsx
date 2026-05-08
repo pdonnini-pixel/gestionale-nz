@@ -412,7 +412,7 @@ export default function SchedaContabileFornitore() {
         <thead><tr><th>Data</th><th>Descrizione</th><th style="text-align:right">Dare (Fatture)</th><th style="text-align:right">Avere (Pagamenti)</th><th style="text-align:right">Saldo</th></tr></thead>
         <tbody>${partitarioHTML}</tbody>
       </table>
-      <div class="footer">Generato il ${new Date().toLocaleDateString('it-IT')} — Gestionale New Zago</div>
+      <div class="footer">Generato il ${new Date().toLocaleDateString('it-IT')}</div>
       <script>window.onload = function() { window.print(); };</script>
     </body></html>`);
     w.document.close();

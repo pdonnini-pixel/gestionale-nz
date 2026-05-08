@@ -467,7 +467,7 @@ export default function InvoiceViewer({ xmlContent, onClose, autoPrint = false }
         </tr></thead>
         <tbody>${pagamentiHTML}</tbody>
       </table>
-      <div class="footer">Documento generato dal gestionale New Zago</div>
+      <div class="footer">Documento generato dal gestionale</div>
       <script>window.onload = function() { window.print(); };</script>
     </body></html>`)
     printWindow.document.close()

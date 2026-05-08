@@ -2,6 +2,7 @@ import { useState, useEffect, lazy, Suspense } from 'react'
 import PageHelp from '../components/PageHelp'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
+import { useCompanyLabels } from '../hooks/useCompanyLabels'
 import {
   Store, RefreshCw, MapPin, Calendar, Target, TrendingUp,
   ChevronRight, ArrowLeft, DollarSign, Users, FileText, X, Search, Plus,
@@ -1825,6 +1826,7 @@ function OutletDetail({ outlet, revenue, onBack, onEdit, onDelete }: { outlet: O
 // ====== MAIN PAGE ======
 export default function Outlet() {
   const { profile } = useAuth()
+  const labels = useCompanyLabels()
   const [loading, setLoading] = useState(true)
   // TODO: tighten type — Supabase rows
   const [outlets, setOutlets] = useState<OutletEntity[]>([])
@@ -2082,9 +2084,9 @@ export default function Outlet() {
             <>
               <div className="flex items-center justify-between">
                 <div>
-                  <h1 className="text-2xl font-bold text-slate-900">Outlet</h1>
+                  <h1 className="text-2xl font-bold text-slate-900">{labels.pointOfSalePlural}</h1>
                   <p className="text-sm text-slate-500">
-                    {outlets.length} punti vendita — Fatturato catena {revenueYear || currentYear}: {fmt(totalRevenue)} €
+                    {outlets.length} {labels.pointOfSalePluralLower} — Fatturato catena {revenueYear || currentYear}: {fmt(totalRevenue)} €
                   </p>
                 </div>
                 <div className="flex gap-2">

@@ -7,6 +7,7 @@ import { GlassTooltip, AXIS_STYLE, GRID_STYLE, OUTLET_COLORS } from '../componen
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { usePeriod } from '../hooks/usePeriod'
+import { useCompanyLabels } from '../hooks/useCompanyLabels'
 import { useTableSort } from '../hooks/useTableSort'
 import SortableTh from '../components/ui/SortableTh'
 import PageHelp from '../components/PageHelp'
@@ -38,6 +39,7 @@ function heatmapText(pct: number | null): string {
 
 export default function MarginiOutlet() {
   const { profile } = useAuth()
+  const labels = useCompanyLabels()
   // Anno: si inizializza dal globalYear del PeriodContext (selettore header)
   // e si sincronizza quando cambia. L'utente puo' sovrascriverlo localmente.
   const { year: globalYear } = usePeriod()
@@ -246,9 +248,9 @@ export default function MarginiOutlet() {
           <div>
             <h1 className="text-4xl font-bold text-slate-900 mb-2 flex items-center gap-3">
               <TrendingUp className="w-10 h-10 text-blue-600" />
-              Analisi Margini per Outlet
+              Analisi Margini per {labels.pointOfSale}
             </h1>
-            <p className="text-slate-600">Confronto ricavi, costi e margini tra tutti gli outlet - Anno {year}</p>
+            <p className="text-slate-600">Confronto ricavi, costi e margini tra i {labels.pointOfSalePluralLower} — Anno {year}</p>
           </div>
           <div className="flex items-center gap-2">
             <label className="text-sm font-medium text-slate-700">Anno:</label>

@@ -7,6 +7,7 @@ const VALID_CONFRONTO_VIEWS: ConfrontoView[] = ['budget', 'actual', 'variance']
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { usePeriod } from '../hooks/usePeriod'
+import { useCompanyLabels } from '../hooks/useCompanyLabels'
 import ExportMenu from '../components/ExportMenu'
 import {
   Store, TrendingUp, Users, DollarSign, RefreshCw, ChevronDown, ChevronUp,
@@ -382,6 +383,7 @@ const PERIOD_OPTIONS = [
 
 export default function ConfrontoOutlet() {
   const { profile } = useAuth()
+  const labels = useCompanyLabels()
   const navigate = useNavigate()
   const COMPANY_ID = profile?.company_id
   const { year, quarter } = usePeriod()
@@ -746,15 +748,15 @@ export default function ConfrontoOutlet() {
     return (
       <div className="p-6 space-y-6 max-w-[1600px] mx-auto">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Confronto Outlet</h1>
-          <p className="text-sm text-slate-500">Comparazione parallela P&L per outlet</p>
+          <h1 className="text-2xl font-bold text-slate-900">Confronto {labels.pointOfSalePlural}</h1>
+          <p className="text-sm text-slate-500">Comparazione parallela P&L per {labels.pointOfSaleLower}</p>
         </div>
 
         <div className="rounded-2xl border-2 border-dashed border-slate-300 p-12 text-center bg-slate-50/50">
           <AlertCircle size={48} className="text-slate-300 mx-auto mb-4" />
           <h2 className="text-lg font-semibold text-slate-700 mb-2">Nessun dato disponibile</h2>
           <p className="text-sm text-slate-500 mb-4">
-            Carica i dati dal Budget o dal Bilancio per visualizzare il confronto tra gli outlet
+            Carica i dati dal Budget o dal Bilancio per visualizzare il confronto tra i {labels.pointOfSalePluralLower}
           </p>
           <button
             onClick={() => window.location.href = '/budget'}
@@ -771,9 +773,9 @@ export default function ConfrontoOutlet() {
     <div className="p-6 space-y-6 max-w-[1600px] mx-auto">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-slate-900">Confronto Outlet</h1>
+        <h1 className="text-2xl font-bold text-slate-900">Confronto {labels.pointOfSalePlural}</h1>
         <p className="text-sm text-slate-500">
-          Comparazione parallela P&L per outlet — Anno {year}
+          Comparazione parallela P&L per {labels.pointOfSaleLower} — Anno {year}
         </p>
       </div>
 

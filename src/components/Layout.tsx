@@ -1,7 +1,8 @@
 import React from 'react'
 import { Outlet, useLocation, NavLink, useNavigate } from 'react-router-dom'
-import { useState, useEffect, useRef } from 'react'
-import Sidebar, { BREADCRUMB_MAP } from './Sidebar'
+import { useState, useEffect, useMemo, useRef } from 'react'
+import Sidebar, { buildBreadcrumbMap } from './Sidebar'
+import { useCompanyLabels } from '../hooks/useCompanyLabels'
 import NotificationBell from './NotificationBell'
 import HelpPanel from './HelpPanel'
 import GlobalSearch from './GlobalSearch'
@@ -74,8 +75,10 @@ function PeriodSelector() {
 // ─── BREADCRUMB ───────────────────────────────────────────────
 function Breadcrumb() {
   const location = useLocation()
+  const labels = useCompanyLabels()
   const path = '/' + location.pathname.split('/').filter(Boolean).join('/')
-  const crumb = BREADCRUMB_MAP[path === '/' ? '/' : path]
+  const breadcrumbMap = useMemo(() => buildBreadcrumbMap(labels), [labels])
+  const crumb = breadcrumbMap[path === '/' ? '/' : path]
 
   if (!crumb || path === '/') return null
 

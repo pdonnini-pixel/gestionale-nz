@@ -515,7 +515,7 @@ export default function ContoEconomico() {
 
       const reconstructed = {
         meta: {
-          company: (companyInfo as { denominazione?: string } | null)?.denominazione || 'NEW ZAGO S.R.L.',
+          company: (companyInfo as { denominazione?: string } | null)?.denominazione || '',
           period: impData?.period_label || `${periodType} ${year}`,
         },
         patrimoniale: {
@@ -655,9 +655,10 @@ export default function ContoEconomico() {
 
   const loadCompanyInfo = async () => {
     // Carico da 2 sorgenti: company_settings (dati estesi) + companies
-    // (denominazione, partita iva, codice fiscale). Fallback esplicito su
-    // dati NEW ZAGO se nessuna tabella restituisce CF/PIVA. Evita il bug
-    // 'NEW ZAGO S.R.L. — CF' senza valore.
+    // (denominazione, partita iva, codice fiscale). Niente fallback hardcoded
+    // a un tenant specifico — il prodotto è multi-tenant. Se i dati non sono
+    // disponibili, mostro stringa vuota e l'utente può aggiornare in
+    // Impostazioni.
     try {
       const [settingsRes, companyRes] = await Promise.all([
         supabase.from('company_settings').select('*').eq('company_id', COMPANY_ID!).maybeSingle(),
@@ -667,19 +668,17 @@ export default function ContoEconomico() {
       const company = (companyRes.data || {}) as Record<string, unknown>
       setCompanyInfo({
         ...settings,
-        // Normalizzo i nomi campo: tutti i codici (CF o PIVA) finiscono in
-        // cf_piva. Cerco prima il CF, poi la PIVA, poi fallback NZ.
-        denominazione: settings.denominazione || company.name || company.denominazione || 'NEW ZAGO S.R.L.',
-        cf_piva: settings.cf_piva || company.fiscal_code || company.vat_number || company.codice_fiscale || company.partita_iva || '07362100484',
-        sede: settings.sede || company.city || 'FIRENZE (FI)',
+        denominazione: settings.denominazione || company.name || company.denominazione || '',
+        cf_piva: settings.cf_piva || company.fiscal_code || company.vat_number || company.codice_fiscale || company.partita_iva || '',
+        sede: settings.sede || company.city || '',
       })
     } catch (error) {
       console.error('Error loading company info:', error)
-      // Fallback finale se entrambe le query falliscono
+      // Fallback finale se entrambe le query falliscono: stringhe vuote.
       setCompanyInfo({
-        denominazione: 'NEW ZAGO S.R.L.',
-        cf_piva: '07362100484',
-        sede: 'FIRENZE (FI)',
+        denominazione: '',
+        cf_piva: '',
+        sede: '',
       })
     }
   }
@@ -1394,11 +1393,12 @@ export default function ContoEconomico() {
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Conto Economico & Bilancio</h1>
           <p className="text-sm text-slate-500 mt-1">
-            {companyInfo?.denominazione || 'NEW ZAGO S.R.L.'} — CF/P.IVA {companyInfo?.cf_piva || '07362100484'}
+            {companyInfo?.denominazione || '—'}
+            {companyInfo?.cf_piva && <> — CF/P.IVA {companyInfo.cf_piva}</>}
           </p>
-          <p className="text-xs text-slate-400 mt-0.5">
-            Sede: {companyInfo?.sede || 'FIRENZE (FI)'}
-          </p>
+          {companyInfo?.sede && (
+            <p className="text-xs text-slate-400 mt-0.5">Sede: {companyInfo.sede}</p>
+          )}
         </div>
 
         {/* Controls */}
@@ -1949,7 +1949,7 @@ export default function ContoEconomico() {
 
               {/* Footer note */}
               <div className="text-center text-xs text-slate-400 py-2">
-                Dati dal bilancio ufficiale {companyInfo?.denominazione || 'New Zago S.R.L.'} {year}
+                Dati dal bilancio ufficiale {companyInfo?.denominazione || ''} {year}
                 {riconData.rettifiche.some(r => r.code === 'B11_RIM') && ' — Variazione rimanenze: voce B.11 CE civilistico'}
               </div>
             </>

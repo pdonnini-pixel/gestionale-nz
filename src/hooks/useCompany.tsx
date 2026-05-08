@@ -8,6 +8,7 @@ interface Company {
   vat_number: string | null
   pec: string | null
   sdi_code: string | null
+  point_of_sale_label: string
 }
 
 interface CompanyContextValue {
@@ -37,15 +38,36 @@ export function CompanyProvider({ children }: { children: ReactNode }) {
     setLoading(true)
 
     // Carica tutte le aziende accessibili all'utente (filtrate da RLS)
-    const { data, error } = await supabase
-      .from('companies')
-      .select('id, name, vat_number, pec, sdi_code')
-      .order('name')
+    // I tipi auto-generati da `supabase gen types` non includono ancora
+    // `point_of_sale_label` (introdotta in migrazione 011). Cast minimo per
+    // accedere alla colonna a runtime senza propagare `any`.
+    const { data, error } = await (supabase.from('companies').select(
+      'id, name, vat_number, pec, sdi_code, point_of_sale_label',
+    ) as unknown as Promise<{
+      data: Array<{
+        id: string
+        name: string
+        vat_number: string | null
+        pec: string | null
+        sdi_code: string | null
+        point_of_sale_label: string | null
+      }> | null
+      error: { message: string } | null
+    }>)
 
     if (!error && data) {
-      setCompanies(data)
-      // Seleziona l'azienda del profilo utente come default
-      const current = data.find(c => c.id === profile!.company_id) || data[0]
+      // Defensive default: per tenant pre-migrazione 011 la colonna potrebbe
+      // tornare null in vecchie cache; normalizziamo a "Punto vendita".
+      const normalized: Company[] = data.map((c) => ({
+        id: c.id,
+        name: c.name,
+        vat_number: c.vat_number,
+        pec: c.pec,
+        sdi_code: c.sdi_code,
+        point_of_sale_label: c.point_of_sale_label ?? 'Punto vendita',
+      }))
+      setCompanies(normalized)
+      const current = normalized.find((c) => c.id === profile!.company_id) || normalized[0]
       setCompany(current)
     }
     setLoading(false)
