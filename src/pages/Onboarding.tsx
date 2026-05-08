@@ -18,71 +18,12 @@ const STEPS = [
   { id: 5, label: 'Conferma', icon: Settings },
 ] as const
 
-// Categorie/centri di costo minimi (sempre creati). Volutamente piccolo:
-// ogni cliente personalizza il suo piano dei conti dopo l'onboarding.
-const MINIMAL_COST_CATEGORIES = [
-  { name: 'Costo del venduto', macro_group: 'Costo del venduto', sort_order: 1 },
-  { name: 'Affitto', macro_group: 'Locazione', sort_order: 2 },
-  { name: 'Stipendi', macro_group: 'Personale', sort_order: 3 },
-  { name: 'Utenze', macro_group: 'Utenze & Servizi', sort_order: 4 },
-  { name: 'Servizi commerciali', macro_group: 'Generali & Amministrative', sort_order: 5 },
-] as const
-
-// Template "stile NZ": piano dei conti più ricco (categorie + macro_group
-// allineati a quelli usati da NZ in produzione). Le voci NZ-specific
-// (gap di bilancio CAT_69/71/ADJ_*) NON sono incluse — quelle sono
-// peculiari di NZ, non riproducibili come template generico.
-const NZ_TEMPLATE_COST_CATEGORIES = [
-  { name: 'Costo del venduto', macro_group: 'costo_venduto', sort_order: 1 },
-  { name: 'Affitto outlet', macro_group: 'locazione', sort_order: 2 },
-  { name: 'Affitto sede', macro_group: 'locazione', sort_order: 3 },
-  { name: 'Stipendi', macro_group: 'personale', sort_order: 4 },
-  { name: 'Contributi previdenziali', macro_group: 'personale', sort_order: 5 },
-  { name: 'TFR', macro_group: 'personale', sort_order: 6 },
-  { name: 'Trasferte e rimborsi', macro_group: 'personale', sort_order: 7 },
-  { name: 'Energia elettrica', macro_group: 'utenze', sort_order: 8 },
-  { name: 'Gas / riscaldamento', macro_group: 'utenze', sort_order: 9 },
-  { name: 'Acqua', macro_group: 'utenze', sort_order: 10 },
-  { name: 'Telefonia / internet', macro_group: 'utenze', sort_order: 11 },
-  { name: 'Commercialista', macro_group: 'generali_amministrative', sort_order: 12 },
-  { name: 'Consulenze', macro_group: 'generali_amministrative', sort_order: 13 },
-  { name: 'Assicurazioni', macro_group: 'generali_amministrative', sort_order: 14 },
-  { name: 'Cancelleria / ufficio', macro_group: 'generali_amministrative', sort_order: 15 },
-  { name: 'Software / licenze', macro_group: 'generali_amministrative', sort_order: 16 },
-  { name: 'Marketing / pubblicità', macro_group: 'marketing', sort_order: 17 },
-  { name: 'E-commerce / piattaforme', macro_group: 'marketing', sort_order: 18 },
-  { name: 'Manutenzione locali', macro_group: 'manutenzione', sort_order: 19 },
-  { name: 'Manutenzione attrezzature', macro_group: 'manutenzione', sort_order: 20 },
-  { name: 'Trasporti / logistica', macro_group: 'logistica', sort_order: 21 },
-  { name: 'Imballaggi / shopper', macro_group: 'logistica', sort_order: 22 },
-  { name: 'Imposte e tasse', macro_group: 'imposte', sort_order: 23 },
-  { name: 'Oneri finanziari', macro_group: 'finanziarie', sort_order: 24 },
-  { name: 'Oneri diversi di gestione', macro_group: 'oneri_diversi', sort_order: 25 },
-] as const
-
-// Piano dei conti: 20 conti minimi allineati al template NZ.
-const NZ_TEMPLATE_CHART_OF_ACCOUNTS = [
-  { code: '510100', name: 'Ricavi vendite', kind: 'revenue' },
-  { code: '510200', name: 'Sconti commerciali', kind: 'revenue' },
-  { code: '610100', name: 'Costo del venduto', kind: 'cogs' },
-  { code: '610200', name: 'Variazione rimanenze', kind: 'cogs' },
-  { code: '710100', name: 'Stipendi e salari', kind: 'expense' },
-  { code: '710200', name: 'Contributi previdenziali', kind: 'expense' },
-  { code: '710300', name: 'TFR', kind: 'expense' },
-  { code: '720100', name: 'Affitti passivi', kind: 'expense' },
-  { code: '730100', name: 'Utenze', kind: 'expense' },
-  { code: '740100', name: 'Servizi commerciali', kind: 'expense' },
-  { code: '740200', name: 'Servizi amministrativi', kind: 'expense' },
-  { code: '750100', name: 'Marketing e pubblicità', kind: 'expense' },
-  { code: '760100', name: 'Manutenzioni', kind: 'expense' },
-  { code: '770100', name: 'Imballaggi e logistica', kind: 'expense' },
-  { code: '810100', name: 'Ammortamenti immateriali', kind: 'amortization' },
-  { code: '810200', name: 'Ammortamenti materiali', kind: 'amortization' },
-  { code: '820100', name: 'Oneri finanziari', kind: 'financial' },
-  { code: '820200', name: 'Proventi finanziari', kind: 'financial' },
-  { code: '830100', name: 'Oneri diversi di gestione', kind: 'expense' },
-  { code: '910100', name: 'Imposte e tasse', kind: 'tax' },
-] as const
+// Il template applicato lato server è scelto via parametro `chartTemplate`
+// alla RPC `onboard_tenant`. I valori sono `'nz'` (~26 categorie + 20 conti
+// allineati allo schema NZ reale) o `'minimal'` (5 categorie, no chart).
+//
+// I dettagli del template vivono in `frontend/supabase/migrations/20260506_009_onboard_tenant_rpc.sql`
+// — qui basta passare la scelta dell'utente.
 
 interface CompanyForm {
   name: string; vat_number: string; fiscal_code: string; legal_address: string; pec: string; sdi_code: string; phone: string
@@ -119,7 +60,7 @@ const ALLOWED_ROLES = ['super_advisor', 'budget_approver'] as const
 // MAIN COMPONENT
 // ============================================================================
 export default function Onboarding() {
-  const { profile } = useAuth()
+  const { profile, refreshProfile } = useAuth()
   const { roles } = useRole()
   const navigate = useNavigate()
   const tenant = getCurrentTenant()
@@ -171,124 +112,82 @@ export default function Onboarding() {
   }
 
   async function handleSubmit() {
-    if (!canSubmit || saving || !profile) return
+    // Diagnostica esplicita: niente early-return silenzioso (era BUG-A nel
+    // primo test E2E — handleSubmit usciva senza messaggio se profile = null).
+    if (!canSubmit) {
+      setError('Compila almeno azienda e un outlet prima di completare.')
+      return
+    }
+    if (saving) return
+    if (!profile) {
+      setError('Profilo utente non caricato. Effettua logout e login di nuovo, poi riprova.')
+      return
+    }
+
     try {
       setSaving(true)
       setError(null)
 
-      const sb = supabase as unknown as {
-        from: (t: string) => {
-          insert: (r: Record<string, unknown>[] | Record<string, unknown>) => {
-            select: () => { single: () => Promise<{ data: { id: string } | null; error: { message: string } | null }> }
-          } & Promise<{ error: { message: string } | null }>
-          update: (r: Record<string, unknown>) => { eq: (k: string, v: string) => Promise<{ error: { message: string } | null }> }
-        }
+      // L'onboarding è atomico server-side: la RPC `onboard_tenant` esegue
+      // companies + outlets + cost_centers + cost_categories + chart_of_accounts
+      // + suppliers + company_settings + UPDATE user_profiles.company_id
+      // dentro un'unica transazione PL/pgSQL con SECURITY DEFINER. Se
+      // qualcosa fallisce, ROLLBACK automatico — niente stato parziale.
+      const filledSuppliers = suppliers.filter((s) => s.name.trim().length > 0)
+
+      const payloadCompany = {
+        name: company.name.trim(),
+        vat_number: company.vat_number.trim() || null,
+        fiscal_code: company.fiscal_code.trim() || null,
+        legal_address: company.legal_address.trim() || null,
+        pec: company.pec.trim() || null,
+        sdi_code: company.sdi_code.trim() || null,
       }
-
-      // 1. companies
-      const { data: newCompany, error: companyError } = await sb
-        .from('companies')
-        .insert([{
-          name: company.name.trim(),
-          vat_number: company.vat_number.trim(),
-          fiscal_code: company.fiscal_code.trim() || null,
-          legal_address: company.legal_address.trim() || null,
-          pec: company.pec.trim() || null,
-          sdi_code: company.sdi_code.trim() || null,
-          settings: {},
-        }])
-        .select()
-        .single()
-      if (companyError) throw companyError
-      if (!newCompany) throw new Error('Azienda non creata')
-      const companyId = newCompany.id
-
-      // 2. user_profiles → company_id (compatibilità lato client)
-      const { error: profileError } = await sb
-        .from('user_profiles')
-        .update({ company_id: companyId })
-        .eq('id', profile.id)
-      if (profileError) throw profileError
-
-      // 3. outlets (N records, almeno 1)
-      const outletsPayload = outlets.map((o) => ({
-        company_id: companyId,
+      const payloadOutlets = outlets.map((o) => ({
         name: o.name.trim(),
-        code: o.code.trim().toUpperCase(),
+        code: o.code.trim(),
         address: o.address.trim() || null,
         city: o.city.trim() || null,
-        province: o.province.trim().toUpperCase() || null,
+        province: o.province.trim() || null,
         cap: o.cap.trim() || null,
         phone: o.phone.trim() || null,
         email: o.email.trim() || null,
-        is_active: true,
       }))
-      const { error: outletsError } = await supabase.from('outlets').insert(outletsPayload as never)
-      if (outletsError) throw outletsError
+      const payloadSuppliers = filledSuppliers.map((s) => ({
+        name: s.name.trim(),
+        vat_number: s.vat_number.trim() || null,
+      }))
 
-      // 4. cost_centers: sede + uno per outlet
-      const costCenters = [
-        { code: 'sede', label: 'Sede / Magazzino', company_id: companyId, sort_order: 1 },
-        ...outlets.map((o, i) => ({
-          code: o.code.trim().toLowerCase(),
-          label: o.name.trim(),
-          company_id: companyId,
-          sort_order: i + 2,
-        })),
-      ]
-      const { error: ccError } = await supabase.from('cost_centers').insert(costCenters as never)
-      if (ccError) throw ccError
+      // supabase-js types per la RPC sono generici; usiamo cast minimo qui.
+      const rpc = supabase.rpc as unknown as (
+        fn: string,
+        args: Record<string, unknown>,
+      ) => Promise<{ data: string | null; error: { message: string } | null }>
 
-      // 5. cost_categories — template scelto
-      const categories = (chartTemplate === 'nz' ? NZ_TEMPLATE_COST_CATEGORIES : MINIMAL_COST_CATEGORIES).map(
-        (c) => ({ name: c.name, macro_group: c.macro_group, sort_order: c.sort_order, company_id: companyId }),
-      )
-      const { error: catError } = await supabase.from('cost_categories').insert(categories as never)
-      if (catError) throw catError
+      const { data: newCompanyId, error: rpcErr } = await rpc('onboard_tenant', {
+        p_company: payloadCompany,
+        p_outlets: payloadOutlets,
+        p_chart_template: chartTemplate,
+        p_suppliers: payloadSuppliers,
+      })
 
-      // 6. chart_of_accounts (solo template NZ)
-      if (chartTemplate === 'nz') {
-        const accounts = NZ_TEMPLATE_CHART_OF_ACCOUNTS.map((a) => ({
-          company_id: companyId,
-          account_code: a.code,
-          account_name: a.name,
-          account_type: a.kind,
-        }))
-        const { error: coaError } = await supabase.from('chart_of_accounts').insert(accounts as never)
-        if (coaError) throw coaError
-      }
+      if (rpcErr) throw new Error(rpcErr.message)
+      if (!newCompanyId) throw new Error('Onboarding non completato (nessun company_id restituito)')
 
-      // 7. suppliers (opzionale)
-      const filledSuppliers = suppliers.filter((s) => s.name.trim().length > 0)
-      if (filledSuppliers.length > 0) {
-        const supPayload = filledSuppliers.map((s) => ({
-          company_id: companyId,
-          name: s.name.trim(),
-          vat_number: s.vat_number.trim() || null,
-        }))
-        const { error: supError } = await supabase.from('suppliers').insert(supPayload as never)
-        if (supError) throw supError
-      }
+      // user_profiles.company_id è già stato aggiornato dalla RPC.
+      // Ricarichiamo il profilo locale così che useAuth.profile mostri
+      // subito il nuovo company_id e l'OnboardingGate smetta di redirigere.
+      await refreshProfile()
 
-      // 8. company_settings — onboarding_completed flag
-      const { error: settingsError } = await supabase.from('company_settings').insert([{
-        company_id: companyId,
-        settings_key: 'general',
-        settings_value: {
-          currency: 'EUR',
-          fiscal_year_start: '01',
-          onboarding_completed: true,
-          onboarding_date: new Date().toISOString(),
-          onboarded_by: profile.email ?? profile.id,
-        },
-      }] as never)
-      if (settingsError) throw settingsError
-
-      // Reload per ricaricare profilo + RLS company_id
+      // Hard reload per essere sicuri che ogni store/cache locale che ha
+      // letto company_id=null venga ripopolato. Usato anche prima — manteniamo.
       window.location.href = '/'
     } catch (err) {
       console.error('Errore onboarding:', err)
-      setError((err as Error).message || 'Errore durante la configurazione. Riprova.')
+      setError(
+        (err as Error).message ||
+          'Errore durante la configurazione. Riprova o contatta il supporto.',
+      )
     } finally {
       setSaving(false)
     }
