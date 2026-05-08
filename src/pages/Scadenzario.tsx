@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import { useCompanyLabels } from '../hooks/useCompanyLabels'
 
 // Tab principale Scadenzario — persistito in URL come ?tab=
 type ScadenzarioTab = 'scadenze' | 'incassi' | 'fornitori' | 'riconciliazione'
@@ -642,6 +643,7 @@ interface ParsedXmlInvoice {
 
 // --- Pagina principale ---
 export default function Scadenzario() {
+  const labels = useCompanyLabels()
   const [payables, setPayables] = useState<PayableLite[]>([])
   const [bankAccounts, setBankAccounts] = useState<BankAccountLite[]>([])
   const [suppliers, setSuppliers] = useState<Record<string, unknown>[]>([])
@@ -1153,7 +1155,7 @@ export default function Scadenzario() {
                     <tr className="border-b border-slate-100 text-xs text-slate-500 uppercase tracking-wider">
                       <th className="py-3 px-4 text-left font-medium">Fornitore</th>
                       <th className="py-3 px-4 text-left font-medium">Fattura</th>
-                      <th className="py-3 px-4 text-left font-medium">Outlet</th>
+                      <th className="py-3 px-4 text-left font-medium">{labels.pointOfSale}</th>
                       <th className="py-3 px-4 text-right font-medium">Importo</th>
                       <th className="py-3 px-4 text-center font-medium">Scadenza</th>
                       <th className="py-3 px-4 text-center font-medium">Stato</th>

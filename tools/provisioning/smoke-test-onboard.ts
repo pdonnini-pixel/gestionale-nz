@@ -168,6 +168,7 @@ async function main(): Promise<void> {
     p_outlets: [{ name: 'x', code: 'X1' }],
     p_chart_template: 'minimal',
     p_suppliers: [],
+    p_point_of_sale_label: posLabel,
   })
   if (!rpcErr2) {
     throw new Error('Re-onboarding NON ha fallito (atteso: errore "tenant non vergine")')

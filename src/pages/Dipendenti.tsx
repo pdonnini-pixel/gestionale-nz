@@ -48,6 +48,7 @@ import ExportMenu from '../components/ExportMenu';
 import { supabase } from '../lib/supabase';
 import { GlassTooltip, AXIS_STYLE, GRID_STYLE } from '../components/ChartTheme';
 import { useAuth } from '../hooks/useAuth';
+import { useCompanyLabels } from '../hooks/useCompanyLabels';
 
 // ============================================================================
 // CONSTANTS
@@ -96,6 +97,7 @@ const MONTHS = [
 
 export default function Dipendenti() {
   const { profile } = useAuth();
+  const labels = useCompanyLabels();
   const COMPANY_ID = profile?.company_id;
 
   // viewMode persistito in URL come ?view=… (default 'consuntivo')
@@ -1142,7 +1144,7 @@ export default function Dipendenti() {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-slate-200 bg-slate-50">
-              <th className="px-6 py-3 text-left font-semibold text-slate-900">Outlet</th>
+              <th className="px-6 py-3 text-left font-semibold text-slate-900">{labels.pointOfSale}</th>
               <th className="px-6 py-3 text-right font-semibold text-slate-900">Dipendenti</th>
               <th className="px-6 py-3 text-right font-semibold text-slate-900">Totale Costo</th>
             </tr>

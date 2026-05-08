@@ -360,7 +360,7 @@ export default function MarginiOutlet() {
                   <table className="w-full text-sm">
                     <thead>
                       <tr>
-                        <th className="px-3 py-2 text-left text-slate-700 font-semibold bg-slate-50 sticky left-0 z-10">Outlet</th>
+                        <th className="px-3 py-2 text-left text-slate-700 font-semibold bg-slate-50 sticky left-0 z-10">{labels.pointOfSale}</th>
                         {MONTHS.map((m, idx) => (
                           <th key={idx} className="px-2 py-2 text-center text-slate-700 font-semibold bg-slate-50 min-w-[56px]">{m}</th>
                         ))}
@@ -424,7 +424,7 @@ export default function MarginiOutlet() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-slate-200 bg-slate-50">
-                      <SortableTh sortKey="nome" sortBy={moSortBy} onSort={moOnSort}>Outlet</SortableTh>
+                      <SortableTh sortKey="nome" sortBy={moSortBy} onSort={moOnSort}>{labels.pointOfSale}</SortableTh>
                       <SortableTh sortKey="ricavi" sortBy={moSortBy} onSort={moOnSort} align="right">Ricavi</SortableTh>
                       <SortableTh sortKey="costi" sortBy={moSortBy} onSort={moOnSort} align="right">Costi</SortableTh>
                       <SortableTh sortKey="margine" sortBy={moSortBy} onSort={moOnSort} align="right">Margine</SortableTh>

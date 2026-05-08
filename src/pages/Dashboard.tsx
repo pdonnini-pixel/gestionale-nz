@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../hooks/useAuth'
+import { useCompanyLabels } from '../hooks/useCompanyLabels'
 import PageHelp from '../components/PageHelp'
 import { usePeriod } from '../hooks/usePeriod'
 import { supabase } from '../lib/supabase'
@@ -137,6 +138,7 @@ function SparklineTooltip({ active, payload }: { active?: boolean; payload?: Arr
    ═══════════════════════════════════════ */
 export default function Dashboard() {
   const { profile } = useAuth()
+  const labels = useCompanyLabels()
   const { year, quarter, getDateRange } = usePeriod()
   const COMPANY_ID = profile?.company_id
   const periodRange = getDateRange()
@@ -756,7 +758,7 @@ export default function Dashboard() {
                 <thead className="bg-slate-50">
                   <tr className="text-[11px] text-slate-500 uppercase tracking-wider">
                     <th className="py-2 px-4 text-left font-medium w-10">#</th>
-                    <th className="py-2 px-4 text-left font-medium">Outlet</th>
+                    <th className="py-2 px-4 text-left font-medium">{labels.pointOfSale}</th>
                     <th className="py-2 px-4 text-right font-medium">Ricavi {year}</th>
                     <th className="py-2 px-4 text-right font-medium">% Tot</th>
                     <th className="py-2 px-4 text-right font-medium">Ultimo</th>

@@ -7,6 +7,7 @@ import { TrendingUp, Users, Euro, Target, AlertCircle, CheckCircle, Loader2, Awa
 import { GlassTooltip, AXIS_STYLE, GRID_STYLE, PALETTE } from '../components/ChartTheme';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
+import { useCompanyLabels } from '../hooks/useCompanyLabels';
 import { usePeriod } from '../hooks/usePeriod';
 import PageHelp from '../components/PageHelp';
 
@@ -23,6 +24,7 @@ const MEDAL = ['', '\u{1F947}', '\u{1F948}', '\u{1F949}'];
 
 export default function Produttivita() {
   const { profile } = useAuth();
+  const labels = useCompanyLabels();
   // Anno sincronizzato col PeriodContext globale (selettore header).
   const { year: globalYear } = usePeriod();
   const [loading, setLoading] = useState(true);
@@ -485,7 +487,7 @@ export default function Produttivita() {
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50">
                   <th className="px-4 py-3 text-center text-slate-700 font-semibold w-16">Rank</th>
-                  <th className="px-4 py-3 text-left text-slate-700 font-semibold">Outlet</th>
+                  <th className="px-4 py-3 text-left text-slate-700 font-semibold">{labels.pointOfSale}</th>
                   <th className="px-4 py-3 text-right text-slate-700 font-semibold">Fatturato</th>
                   <th className="px-4 py-3 text-right text-slate-700 font-semibold">N. Dipendenti</th>
                   <th className="px-4 py-3 text-right text-slate-700 font-semibold">Fatturato/Dipendente</th>
@@ -619,7 +621,7 @@ export default function Produttivita() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50">
-                  <th className="px-4 py-3 text-left text-slate-700 font-semibold">Outlet</th>
+                  <th className="px-4 py-3 text-left text-slate-700 font-semibold">{labels.pointOfSale}</th>
                   <th className="px-4 py-3 text-right text-slate-700 font-semibold">Ricavi</th>
                   <th className="px-4 py-3 text-right text-slate-700 font-semibold">Costo Personale</th>
                   <th className="px-4 py-3 text-right text-slate-700 font-semibold">Incidenza %</th>
