@@ -69,6 +69,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await supabase.auth.signOut()
     setSession(null)
     setProfile(null)
+    // Force redirect a /login + full page reload per ripulire eventuali
+    // state React stale (es. company_id cached, tenants config ecc.).
+    window.location.href = '/login'
   }
 
   // Ricarica il profilo dal DB (chiamare dopo update di first_name/last_name
