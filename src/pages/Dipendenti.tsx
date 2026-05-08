@@ -1219,7 +1219,7 @@ export default function Dipendenti() {
         {/* Header */}
         <div className="mb-8">
           <h1 className="text-4xl font-bold text-slate-900 mb-2">Gestione Dipendenti</h1>
-          <p className="text-slate-600">New Zago S.R.L. ERP | Costi Personale 2025-2026</p>
+          <p className="text-slate-600">Costi Personale</p>
           {lastUpdateTime && (
             <div className="flex items-center gap-2 text-xs text-slate-500 mt-2">
               <Clock className="w-3 h-3" />

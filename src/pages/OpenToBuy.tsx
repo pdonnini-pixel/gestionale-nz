@@ -188,7 +188,7 @@ export default function OpenToBuy() {
         {/* Header */}
         <div className="mb-8">
           <h1 className="text-4xl font-bold text-slate-900 mb-2">Open-to-Buy Planner</h1>
-          <p className="text-slate-600">Pianificazione stagionale acquisti per New Zago S.R.L.</p>
+          <p className="text-slate-600">Pianificazione stagionale acquisti</p>
         </div>
 
         {/* Season Selector */}

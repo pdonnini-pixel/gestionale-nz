@@ -560,7 +560,7 @@ export default function StockSellthrough() {
         {/* Header */}
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-slate-900 mb-2">Analisi Sell-Through Magazzino</h1>
-          <p className="text-slate-600">Monitoraggio giacenze e rotazione stock per gli outlet New Zago</p>
+          <p className="text-slate-600">Monitoraggio giacenze e rotazione stock per i punti vendita</p>
         </div>
 
         {/* KPI Cards */}

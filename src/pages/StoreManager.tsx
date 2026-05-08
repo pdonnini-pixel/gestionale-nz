@@ -140,7 +140,7 @@ const StoreManager = () => {
         <div className="flex items-center justify-between mb-6">
           <div>
             <h1 className="text-3xl font-bold text-gray-900">Dashboard Punto Vendita</h1>
-            <p className="text-sm text-gray-500 mt-1">New Zago S.R.L. • Giovedì 3 Aprile 2026</p>
+            <p className="text-sm text-gray-500 mt-1">{new Date().toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</p>
           </div>
 
           {/* Outlet Selector */}

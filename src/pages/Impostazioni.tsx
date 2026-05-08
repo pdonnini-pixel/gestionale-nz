@@ -1589,10 +1589,10 @@ export default function Impostazioni() {
   }
 
   const sections = [
-    { id: 'company', icon: Building2, title: 'Dati azienda', subtitle: 'New Zago S.R.L. — visura e compagine societaria', component: CompanySection },
-    { id: 'users', icon: Users, title: 'Utenti', subtitle: 'Gestione utenti, ruoli e accessi per outlet', component: UserSection },
+    { id: 'company', icon: Building2, title: 'Dati azienda', subtitle: 'Visura e compagine societaria', component: CompanySection },
+    { id: 'users', icon: Users, title: 'Utenti', subtitle: 'Gestione utenti, ruoli e accessi', component: UserSection },
     { id: 'costs', icon: Tag, title: 'Voci di costo', subtitle: 'Catalogo costi con assegnazione a centri di costo e gerarchia conti/sottoconti', component: CostSection },
-    { id: 'centri', icon: Shield, title: 'Centri di costo', subtitle: 'Outlet, sede, magazzino — entità di allocazione', component: CentriDiCostoSection },
+    { id: 'centri', icon: Shield, title: 'Centri di costo', subtitle: 'Punti vendita, sede, magazzino — entità di allocazione', component: CentriDiCostoSection },
     { id: 'sdi', icon: FileText, title: 'Fatturazione SDI', subtitle: 'Accreditamento, certificati e configurazione Sistema di Interscambio', component: SdiSection },
   ]
 

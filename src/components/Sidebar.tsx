@@ -2,6 +2,7 @@ import React from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { useCompany } from '../hooks/useCompany'
+import { useCompanyLabels, type CompanyLabels } from '../hooks/useCompanyLabels'
 import {
   LayoutDashboard, Store, FileText, Users, Settings, LogOut,
   ChevronDown, ChevronRight, Landmark, BarChart3, GitCompare, Target,
@@ -37,93 +38,124 @@ interface NavSection {
   items: NavItem[]
 }
 
-const allSections: NavSection[] = [
-  {
-    key: 'cruscotto',
-    label: 'Cruscotto',
-    items: [
-      { to: '/', icon: LayoutDashboard, label: 'Dashboard', roles: ['super_advisor', 'ceo', 'cfo', 'coo', 'contabile'] },
-    ]
-  },
-  {
-    key: 'finanza',
-    label: 'Finanza',
-    items: [
-      { to: '/banche', icon: Landmark, label: 'Banche', roles: ['super_advisor', 'ceo', 'cfo', 'contabile'] },
-      { to: '/cash-flow', icon: TrendingUp, label: 'Cashflow', roles: ['super_advisor', 'ceo', 'cfo'] },
-      { to: '/conto-economico', icon: BarChart3, label: 'Conto Economico', roles: ['super_advisor', 'ceo', 'cfo'] },
-    ]
-  },
-  {
-    key: 'outlet',
-    label: 'Outlet & Performance',
-    items: [
-      { to: '/outlet', icon: Store, label: 'Outlet', roles: ['super_advisor', 'ceo', 'coo'] },
-      { to: '/confronto-outlet', icon: GitCompare, label: 'Confronto Outlet', roles: ['super_advisor', 'ceo', 'cfo'] },
-      { to: '/budget', icon: Target, label: 'Budget & Controllo', roles: ['super_advisor', 'ceo', 'cfo'] },
-    ]
-  },
-  {
-    key: 'ciclo_passivo',
-    label: 'Ciclo Passivo',
-    items: [
-      { to: '/fornitori', icon: Users, label: 'Fornitori', roles: ['super_advisor', 'cfo', 'contabile'] },
-      { to: '/allocazione-fornitori', icon: Split, label: 'Divisione Fornitori', roles: ['super_advisor', 'cfo', 'contabile'] },
-      { to: '/fatturazione', icon: FileText, label: 'Fatturazione', roles: ['super_advisor', 'cfo', 'contabile'] },
-      { to: '/scadenzario', icon: CalendarClock, label: 'Scadenzario', badgeKey: 'scadenzario', roles: ['super_advisor', 'ceo', 'cfo', 'contabile'] },
-    ]
-  },
-  {
-    key: 'risorse',
-    label: 'Risorse',
-    items: [
-      { to: '/dipendenti', icon: UserCheck, label: 'Dipendenti', roles: ['super_advisor', 'coo'] },
-    ]
-  },
-  {
-    key: 'ai_analytics',
-    label: 'AI & Analytics',
-    items: [
-      { to: '/ai-categorie', icon: Sparkles, label: 'AI Categorie', roles: ['super_advisor', 'cfo'] },
-      { to: '/margini', icon: PieChart, label: 'Margini Outlet', roles: ['super_advisor', 'ceo', 'cfo'] },
-      { to: '/produttivita', icon: Activity, label: 'Produttività', roles: ['super_advisor', 'ceo', 'coo'] },
-      { to: '/scenario', icon: Sliders, label: 'Scenario Planning', roles: ['super_advisor', 'ceo'] },
-    ]
-  },
-  {
-    key: 'sistema',
-    label: 'Sistema',
-    items: [
-      { to: '/import-hub', icon: Upload, label: 'Import Hub', roles: ['super_advisor', 'cfo', 'contabile'] },
-      { to: '/archivio', icon: FolderArchive, label: 'Archivio Documenti', roles: ['super_advisor', 'cfo', 'contabile'] },
-      { to: '/impostazioni', icon: Settings, label: 'Impostazioni', roles: ['super_advisor'] },
-    ]
-  },
-]
-
-// ─── BREADCRUMB MAP (exported for use in Layout) ───────────────
-export const BREADCRUMB_MAP: Record<string, { section: string; page: string }> = {
-  '/': { section: 'Cruscotto', page: 'Dashboard' },
-  '/banche': { section: 'Finanza', page: 'Banche' },
-  '/cash-flow': { section: 'Finanza', page: 'Cashflow' },
-  '/conto-economico': { section: 'Finanza', page: 'Conto Economico' },
-  '/outlet': { section: 'Outlet & Performance', page: 'Outlet' },
-  '/confronto-outlet': { section: 'Outlet & Performance', page: 'Confronto Outlet' },
-  '/budget': { section: 'Outlet & Performance', page: 'Budget & Controllo' },
-  '/fornitori': { section: 'Ciclo Passivo', page: 'Fornitori' },
-  '/allocazione-fornitori': { section: 'Ciclo Passivo', page: 'Divisione Fornitori' },
-  '/fatturazione': { section: 'Ciclo Passivo', page: 'Fatturazione' },
-  '/scadenzario': { section: 'Ciclo Passivo', page: 'Scadenzario' },
-  '/scadenze-fiscali': { section: 'Ciclo Passivo', page: 'Scadenze Fiscali' },
-  '/dipendenti': { section: 'Risorse', page: 'Dipendenti' },
-  '/ai-categorie': { section: 'AI & Analytics', page: 'AI Categorie' },
-  '/margini': { section: 'AI & Analytics', page: 'Margini Outlet' },
-  '/produttivita': { section: 'AI & Analytics', page: 'Produttività' },
-  '/scenario': { section: 'AI & Analytics', page: 'Scenario Planning' },
-  '/import-hub': { section: 'Sistema', page: 'Import Hub' },
-  '/archivio': { section: 'Sistema', page: 'Archivio Documenti' },
-  '/impostazioni': { section: 'Sistema', page: 'Impostazioni' },
+// Le sezioni della sidebar sono costruite dinamicamente perché alcune label
+// dipendono dalla terminologia del tenant (es. "Outlet" per NZ vs "Negozi"
+// per Made vs "Boutique" per cliente futuro). I nomi tecnici delle route
+// (`/outlet`, `/confronto-outlet`, `/margini`) restano invariati.
+function buildSections(labels: CompanyLabels): NavSection[] {
+  const posPlural = labels.pointOfSalePlural
+  const posSingular = labels.pointOfSale
+  return [
+    {
+      key: 'cruscotto',
+      label: 'Cruscotto',
+      items: [
+        { to: '/', icon: LayoutDashboard, label: 'Dashboard', roles: ['super_advisor', 'ceo', 'cfo', 'coo', 'contabile'] },
+      ],
+    },
+    {
+      key: 'finanza',
+      label: 'Finanza',
+      items: [
+        { to: '/banche', icon: Landmark, label: 'Banche', roles: ['super_advisor', 'ceo', 'cfo', 'contabile'] },
+        { to: '/cash-flow', icon: TrendingUp, label: 'Cashflow', roles: ['super_advisor', 'ceo', 'cfo'] },
+        { to: '/conto-economico', icon: BarChart3, label: 'Conto Economico', roles: ['super_advisor', 'ceo', 'cfo'] },
+      ],
+    },
+    {
+      key: 'outlet',
+      label: `${posPlural} & Performance`,
+      items: [
+        { to: '/outlet', icon: Store, label: posSingular, roles: ['super_advisor', 'ceo', 'coo'] },
+        { to: '/confronto-outlet', icon: GitCompare, label: `Confronto ${posPlural}`, roles: ['super_advisor', 'ceo', 'cfo'] },
+        { to: '/budget', icon: Target, label: 'Budget & Controllo', roles: ['super_advisor', 'ceo', 'cfo'] },
+      ],
+    },
+    {
+      key: 'ciclo_passivo',
+      label: 'Ciclo Passivo',
+      items: [
+        { to: '/fornitori', icon: Users, label: 'Fornitori', roles: ['super_advisor', 'cfo', 'contabile'] },
+        { to: '/allocazione-fornitori', icon: Split, label: 'Divisione Fornitori', roles: ['super_advisor', 'cfo', 'contabile'] },
+        { to: '/fatturazione', icon: FileText, label: 'Fatturazione', roles: ['super_advisor', 'cfo', 'contabile'] },
+        { to: '/scadenzario', icon: CalendarClock, label: 'Scadenzario', badgeKey: 'scadenzario', roles: ['super_advisor', 'ceo', 'cfo', 'contabile'] },
+      ],
+    },
+    {
+      key: 'risorse',
+      label: 'Risorse',
+      items: [
+        { to: '/dipendenti', icon: UserCheck, label: 'Dipendenti', roles: ['super_advisor', 'coo'] },
+      ],
+    },
+    {
+      key: 'ai_analytics',
+      label: 'AI & Analytics',
+      items: [
+        { to: '/ai-categorie', icon: Sparkles, label: 'AI Categorie', roles: ['super_advisor', 'cfo'] },
+        { to: '/margini', icon: PieChart, label: `Margini ${posPlural}`, roles: ['super_advisor', 'ceo', 'cfo'] },
+        { to: '/produttivita', icon: Activity, label: 'Produttività', roles: ['super_advisor', 'ceo', 'coo'] },
+        { to: '/scenario', icon: Sliders, label: 'Scenario Planning', roles: ['super_advisor', 'ceo'] },
+      ],
+    },
+    {
+      key: 'sistema',
+      label: 'Sistema',
+      items: [
+        { to: '/import-hub', icon: Upload, label: 'Import Hub', roles: ['super_advisor', 'cfo', 'contabile'] },
+        { to: '/archivio', icon: FolderArchive, label: 'Archivio Documenti', roles: ['super_advisor', 'cfo', 'contabile'] },
+        { to: '/impostazioni', icon: Settings, label: 'Impostazioni', roles: ['super_advisor'] },
+      ],
+    },
+  ]
 }
+
+// ─── BREADCRUMB MAP (factory esposto a Layout.tsx) ─────────────
+// Dipende da `labels` perché alcuni titoli pagina sono terminology-driven.
+export function buildBreadcrumbMap(
+  labels: CompanyLabels,
+): Record<string, { section: string; page: string }> {
+  const posPlural = labels.pointOfSalePlural
+  const posSingular = labels.pointOfSale
+  const sectionPos = `${posPlural} & Performance`
+  return {
+    '/': { section: 'Cruscotto', page: 'Dashboard' },
+    '/banche': { section: 'Finanza', page: 'Banche' },
+    '/cash-flow': { section: 'Finanza', page: 'Cashflow' },
+    '/conto-economico': { section: 'Finanza', page: 'Conto Economico' },
+    '/outlet': { section: sectionPos, page: posSingular },
+    '/confronto-outlet': { section: sectionPos, page: `Confronto ${posPlural}` },
+    '/budget': { section: sectionPos, page: 'Budget & Controllo' },
+    '/fornitori': { section: 'Ciclo Passivo', page: 'Fornitori' },
+    '/allocazione-fornitori': { section: 'Ciclo Passivo', page: 'Divisione Fornitori' },
+    '/fatturazione': { section: 'Ciclo Passivo', page: 'Fatturazione' },
+    '/scadenzario': { section: 'Ciclo Passivo', page: 'Scadenzario' },
+    '/scadenze-fiscali': { section: 'Ciclo Passivo', page: 'Scadenze Fiscali' },
+    '/dipendenti': { section: 'Risorse', page: 'Dipendenti' },
+    '/ai-categorie': { section: 'AI & Analytics', page: 'AI Categorie' },
+    '/margini': { section: 'AI & Analytics', page: `Margini ${posPlural}` },
+    '/produttivita': { section: 'AI & Analytics', page: 'Produttività' },
+    '/scenario': { section: 'AI & Analytics', page: 'Scenario Planning' },
+    '/import-hub': { section: 'Sistema', page: 'Import Hub' },
+    '/archivio': { section: 'Sistema', page: 'Archivio Documenti' },
+    '/impostazioni': { section: 'Sistema', page: 'Impostazioni' },
+  }
+}
+
+/**
+ * @deprecated Usa `buildBreadcrumbMap(labels)` con `useCompanyLabels()`.
+ * Manteniamo questa export per backward compatibility con eventuali consumer
+ * legacy che importano `BREADCRUMB_MAP` come costante. Le label terminology-
+ * driven qui sono in italiano "default" (Outlet/Confronto Outlet/Margini Outlet)
+ * — coerenti con NZ in produzione, ma non cambiano per Made/Zago.
+ */
+export const BREADCRUMB_MAP: Record<string, { section: string; page: string }> =
+  buildBreadcrumbMap({
+    pointOfSale: 'Outlet',
+    pointOfSalePlural: 'Outlet',
+    pointOfSaleLower: 'outlet',
+    pointOfSalePluralLower: 'outlet',
+  })
 
 // ─── HELPER: find which section key contains a given path ──────
 function findSectionKeyForPath(path: string, sections: NavSection[]): string | null {
@@ -144,6 +176,7 @@ interface SidebarProps {
 export default function Sidebar({ mobileOpen, setMobileOpen, badges = {} }: SidebarProps) {
   const { profile, signOut } = useAuth()
   const { company, companies, switchCompany } = useCompany()
+  const labels = useCompanyLabels()
   const [companyDropdownOpen, setCompanyDropdownOpen] = useState(false)
   const [collapsed, setCollapsed] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
@@ -153,10 +186,12 @@ export default function Sidebar({ mobileOpen, setMobileOpen, badges = {} }: Side
   const roleLabels: Record<string, string> = {
     super_advisor: 'Super Advisor',
     ceo: 'CEO', cfo: 'CFO', coo: 'COO',
-    contabile: 'Contabile'
+    contabile: 'Contabile',
+    budget_approver: 'Approvatore Budget',
   }
 
-  // Filter sections by role
+  // Filter sections by role; sezioni rifatte ad ogni cambio terminologia.
+  const allSections = useMemo(() => buildSections(labels), [labels])
   const sections = useMemo(() => {
     return allSections
       .map(section => ({
@@ -164,7 +199,7 @@ export default function Sidebar({ mobileOpen, setMobileOpen, badges = {} }: Side
         items: section.items.filter(item => item.roles.includes(role))
       }))
       .filter(section => section.items.length > 0)
-  }, [role])
+  }, [role, allSections])
 
   // Determine which section contains the active route
   const activeSectionKey = useMemo(() => {

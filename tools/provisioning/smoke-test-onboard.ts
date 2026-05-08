@@ -69,9 +69,18 @@ async function main(): Promise<void> {
   }
 
   // 4. Chiamata RPC onboard_tenant
+  // Per il smoke test scegliamo una label POS diversa per ogni alias così
+  // si verifica anche il path della terminologia configurabile (BUG fix
+  // wizard validation + terminologia).
   const tenantName = `Test ${alias.toUpperCase()} Srl`
   const tenantVat = '00000000001'
-  console.log(`▶  Chiamo onboard_tenant per "${tenantName}" …`)
+  const posLabelByAlias: Record<string, string> = {
+    'made-retail': 'Negozio',
+    'zago': 'Boutique',
+    newzago: 'Outlet',
+  }
+  const posLabel = posLabelByAlias[alias] ?? 'Punto vendita'
+  console.log(`▶  Chiamo onboard_tenant per "${tenantName}" (POS label: ${posLabel}) …`)
   const { data: companyId, error: rpcErr } = await sb.rpc('onboard_tenant', {
     p_company: {
       name: tenantName,
@@ -79,17 +88,18 @@ async function main(): Promise<void> {
       fiscal_code: null,
       legal_address: 'Via Test 1, 20100 Milano MI',
       pec: 'test@pec.it',
-      sdi_code: 'XXXXXXX',
+      sdi_code: '0000000',
     },
     p_outlets: [
-      { name: 'Outlet Test 1', code: 'TST1', address: 'Via Outlet 1', city: 'Milano', province: 'MI', cap: '20100' },
-      { name: 'Outlet Test 2', code: 'TST2', city: 'Roma', province: 'RM', cap: '00100' },
+      { name: `${posLabel} Test 1`, code: 'TS1', address: 'Via Test 1', city: 'Milano', province: 'MI', cap: '20100' },
+      { name: `${posLabel} Test 2`, code: 'TS2', city: 'Roma', province: 'RM', cap: '00100' },
     ],
     p_chart_template: 'nz',
     p_suppliers: [
       { name: 'Fornitore A', vat_number: '11111111111' },
       { name: 'Fornitore B' },
     ],
+    p_point_of_sale_label: posLabel,
   })
   if (rpcErr) throw new Error(`RPC fallita: ${rpcErr.message}`)
   if (!companyId) throw new Error('RPC ha ritornato null')
@@ -131,6 +141,25 @@ async function main(): Promise<void> {
     throw new Error(`user_profiles.company_id non aggiornato: ${profilePost?.company_id}`)
   }
   console.log(`   ✓ user_profiles.company_id = ${profilePost.company_id}`)
+
+  // 6b. Verifica companies.point_of_sale_label salvato correttamente
+  const { data: companyPost } = await (admin as unknown as {
+    from: (t: string) => {
+      select: (q: string) => {
+        eq: (col: string, v: string) => {
+          single: () => Promise<{ data: { name: string; point_of_sale_label: string } | null; error: { message: string } | null }>
+        }
+      }
+    }
+  })
+    .from('companies')
+    .select('name, point_of_sale_label')
+    .eq('id', companyId)
+    .single()
+  if (companyPost?.point_of_sale_label !== posLabel) {
+    throw new Error(`companies.point_of_sale_label = "${companyPost?.point_of_sale_label}", atteso "${posLabel}"`)
+  }
+  console.log(`   ✓ companies.point_of_sale_label = "${companyPost.point_of_sale_label}"`)
 
   // 7. Idempotency: re-chiamata della RPC deve fallire
   console.log(`▶  Verifico che re-onboarding fallisca …`)
