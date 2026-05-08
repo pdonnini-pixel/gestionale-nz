@@ -158,18 +158,15 @@ export default function Onboarding() {
         vat_number: s.vat_number.trim() || null,
       }))
 
-      // supabase-js types per la RPC sono generici; usiamo cast minimo qui.
-      const rpc = supabase.rpc as unknown as (
-        fn: string,
-        args: Record<string, unknown>,
-      ) => Promise<{ data: string | null; error: { message: string } | null }>
-
-      const { data: newCompanyId, error: rpcErr } = await rpc('onboard_tenant', {
+      // BUG-FIX: chiamare supabase.rpc() direttamente. Estrarlo come variabile
+      // (`const rpc = supabase.rpc`) PERDE il binding del `this` → TypeError
+      // "Cannot read properties of undefined (reading 'rest')" a runtime.
+      const { data: newCompanyId, error: rpcErr } = await supabase.rpc('onboard_tenant', {
         p_company: payloadCompany,
         p_outlets: payloadOutlets,
         p_chart_template: chartTemplate,
         p_suppliers: payloadSuppliers,
-      })
+      }) as { data: string | null; error: { message: string } | null }
 
       if (rpcErr) throw new Error(rpcErr.message)
       if (!newCompanyId) throw new Error('Onboarding non completato (nessun company_id restituito)')
