@@ -1289,7 +1289,7 @@ function Corrispettivi() {
           onChange={(e) => setSelectedOutlet(e.target.value)}
           className="px-3 py-2 text-sm border border-slate-200 rounded-lg"
         >
-          <option value="ALL">Tutti gli outlet</option>
+          <option value="ALL">Tutti gli {labels.pointOfSalePluralLower}</option>
           {outlets.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
         </select>
         <button onClick={loadData} className="p-2 text-slate-500 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition">
@@ -1305,7 +1305,7 @@ function Corrispettivi() {
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200">
                   <th className="text-left px-4 py-3 font-medium text-slate-600">Data</th>
-                  <th className="text-left px-4 py-3 font-medium text-slate-600">Outlet/Dispositivo</th>
+                  <th className="text-left px-4 py-3 font-medium text-slate-600">{labels.pointOfSale}/Dispositivo</th>
                   <th className="text-right px-4 py-3 font-medium text-slate-600">Totale</th>
                   <th className="text-left px-4 py-3 font-medium text-slate-600">Dettaglio IVA</th>
                   <th className="text-center px-4 py-3 font-medium text-slate-600">Stato AdE</th>

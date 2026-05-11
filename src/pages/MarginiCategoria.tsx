@@ -307,7 +307,7 @@ export default function MarginiCategoria() {
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Margini per Outlet</h1>
+          <h1 className="text-2xl font-bold text-slate-900">Margini per {labels.pointOfSale}</h1>
           <p className="text-sm text-slate-500 mt-1">Ricavi, costi e margini operativi per punto vendita</p>
         </div>
         <div className="flex items-center gap-3">
@@ -421,7 +421,7 @@ function OutletTab({ outletData, totals }: { outletData: any[]; totals: any }) {
     <div className="space-y-6">
       {/* Bar chart */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
-        <h3 className="text-sm font-semibold text-slate-900 mb-4">Ricavi vs Costi per Outlet</h3>
+        <h3 className="text-sm font-semibold text-slate-900 mb-4">Ricavi vs Costi per {labels.pointOfSale}</h3>
         <ResponsiveContainer width="100%" height={320}>
           <BarChart data={chartData} barGap={2}>
             <CartesianGrid {...GRID_STYLE} />

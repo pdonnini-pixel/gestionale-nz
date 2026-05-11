@@ -261,11 +261,11 @@ export default function OpenToBuy() {
 
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
             <div className="flex items-center justify-between mb-2">
-              <h3 className="text-sm font-medium text-slate-600">OTB Medio per Outlet</h3>
+              <h3 className="text-sm font-medium text-slate-600">OTB Medio per {labels.pointOfSale}</h3>
               <TrendingUp className="w-5 h-5 text-green-600" />
             </div>
             <p className="text-3xl font-bold text-slate-900">€{fmt(kpis.avgOTB, 0)}</p>
-            <p className="text-xs text-slate-500 mt-1">Media dei 7 outlet</p>
+            <p className="text-xs text-slate-500 mt-1">Media dei {LEGACY_OUTLETS.length} {labels.pointOfSalePluralLower}</p>
           </div>
 
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
@@ -304,7 +304,7 @@ export default function OpenToBuy() {
 
         {/* Outlet Editable Cards */}
         <div className="mb-8">
-          <h2 className="text-2xl font-bold text-slate-900 mb-4">Parametri per Outlet</h2>
+          <h2 className="text-2xl font-bold text-slate-900 mb-4">Parametri per {labels.pointOfSale}</h2>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {LEGACY_OUTLETS.map((outlet) => {
               const d = data[season][outlet];
@@ -379,7 +379,7 @@ export default function OpenToBuy() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
           {/* OTB per Outlet */}
           <div className="rounded-2xl p-6 shadow-lg" style={{ background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)', border: '1px solid rgba(99,102,241,0.08)' }}>
-            <h3 className="text-lg font-bold text-slate-900 mb-4">Budget OTB per Outlet</h3>
+            <h3 className="text-lg font-bold text-slate-900 mb-4">Budget OTB per {labels.pointOfSale}</h3>
             <ResponsiveContainer width="100%" height={300}>
               <BarChart data={chartData}>
                 <defs>
@@ -432,7 +432,7 @@ export default function OpenToBuy() {
         {/* Summary Table */}
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
           <div className="p-6 border-b border-slate-200">
-            <h3 className="text-lg font-bold text-slate-900">Riepilogo Completo Outlet</h3>
+            <h3 className="text-lg font-bold text-slate-900">Riepilogo Completo {labels.pointOfSalePlural}</h3>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">

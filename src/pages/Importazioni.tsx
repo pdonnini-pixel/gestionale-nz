@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
+import { useCompanyLabels } from '../hooks/useCompanyLabels'
 import {
   Upload, RefreshCw, FileText, Check, X, AlertCircle,
   Clock, ChevronDown, ChevronUp, Download, Trash2, Eye
@@ -40,6 +41,7 @@ function StatusBadge({ status }: { status: string }) {
 
 // ====== UPLOAD AREA ======
 function UploadArea({ onUpload, uploading }: { onUpload: (file: File, source: string, outletId: string) => void; uploading: boolean }) {
+  const labels = useCompanyLabels()
   const fileRef = useRef<HTMLInputElement>(null)
   const [dragOver, setDragOver] = useState(false)
   const [selectedSource, setSelectedSource] = useState('csv_banca')
@@ -85,13 +87,13 @@ function UploadArea({ onUpload, uploading }: { onUpload: (file: File, source: st
           </select>
         </div>
         <div>
-          <label className="block text-xs font-medium text-slate-500 mb-1.5">Outlet (opzionale)</label>
+          <label className="block text-xs font-medium text-slate-500 mb-1.5">{labels.pointOfSale} (opzionale)</label>
           <select
             value={selectedOutlet}
             onChange={e => setSelectedOutlet(e.target.value)}
             className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
           >
-            <option value="">Tutti gli outlet / Sede</option>
+            <option value="">Tutti gli {labels.pointOfSalePluralLower} / Sede</option>
             {outlets.map(o => (
               <option key={o.id} value={o.id}>{o.name} ({o.code})</option>
             ))}

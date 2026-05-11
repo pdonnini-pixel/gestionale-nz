@@ -5,6 +5,7 @@ import { GlassTooltip, AXIS_STYLE, GRID_STYLE } from '../components/ChartTheme';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
 import { usePeriod } from '../hooks/usePeriod';
+import { useCompanyLabels } from '../hooks/useCompanyLabels';
 import PageHelp from '../components/PageHelp';
 
 function fmt(n: number, dec = 0) {
@@ -13,6 +14,7 @@ function fmt(n: number, dec = 0) {
 
 export default function ScenarioPlanning() {
   const { profile } = useAuth();
+  const labels = useCompanyLabels();
   // Anno sincronizzato col PeriodContext globale (selettore header).
   const { year: globalYear } = usePeriod();
   const [loading, setLoading] = useState(true);
@@ -243,7 +245,7 @@ export default function ScenarioPlanning() {
               <Target className="w-10 h-10 text-blue-600" />
               Scenario Planning
             </h1>
-            <p className="text-slate-600 mt-2">Simula variazioni di ricavi, costi e apertura nuovo outlet - Anno {year}</p>
+            <p className="text-slate-600 mt-2">Simula variazioni di ricavi, costi e apertura nuovo {labels.pointOfSaleLower} - Anno {year}</p>
           </div>
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2">
@@ -299,7 +301,7 @@ export default function ScenarioPlanning() {
                 <h2 className="text-lg font-semibold text-slate-900 mb-4">Baseline {year}</h2>
                 <div className="space-y-3">
                   <div className="flex justify-between">
-                    <span className="text-slate-600">Outlet attivi</span>
+                    <span className="text-slate-600">{labels.pointOfSalePlural} attivi</span>
                     <span className="font-semibold text-slate-900">{baseline.numOutlet}</span>
                   </div>
                   <div className="flex justify-between">
@@ -385,7 +387,7 @@ export default function ScenarioPlanning() {
                 <div className="py-3 border-t border-slate-200">
                   <div className="flex items-center justify-between">
                     <div>
-                      <label className="text-sm font-medium text-slate-700">Nuovo Outlet</label>
+                      <label className="text-sm font-medium text-slate-700">Nuovo {labels.pointOfSale}</label>
                       <p className="text-xs text-slate-500 mt-0.5">Simula apertura di un nuovo punto vendita</p>
                     </div>
                     <button
@@ -402,7 +404,7 @@ export default function ScenarioPlanning() {
 
                   {nuovoOutlet && (
                     <div className="mt-3">
-                      <label className="block text-xs font-medium text-slate-600 mb-1">Costi stimati annui nuovo outlet</label>
+                      <label className="block text-xs font-medium text-slate-600 mb-1">Costi stimati annui nuovo {labels.pointOfSaleLower}</label>
                       <div className="flex items-center gap-2">
                         <input
                           type="number"
@@ -415,7 +417,7 @@ export default function ScenarioPlanning() {
                         />
                         <span className="text-sm text-slate-500 whitespace-nowrap">&euro;</span>
                       </div>
-                      <p className="text-xs text-slate-400 mt-1">Ricavi stimati: {fmt(baseline.avgRicaviOutlet)} &euro; (media outlet)</p>
+                      <p className="text-xs text-slate-400 mt-1">Ricavi stimati: {fmt(baseline.avgRicaviOutlet)} &euro; (media {labels.pointOfSalePluralLower})</p>
                     </div>
                   )}
                 </div>
@@ -552,7 +554,7 @@ export default function ScenarioPlanning() {
                       </tr>
                       {nuovoOutlet && (
                         <tr className="border-b border-slate-100 bg-blue-50">
-                          <td className="px-4 py-3 text-blue-900 font-medium">Nuovo Outlet</td>
+                          <td className="px-4 py-3 text-blue-900 font-medium">Nuovo {labels.pointOfSale}</td>
                           <td className="px-4 py-3 text-right text-slate-400">-</td>
                           <td className="px-4 py-3 text-right text-blue-700">
                             +{fmt(baseline.avgRicaviOutlet)} ricavi / +{fmt(costiNuovoOutlet)} costi
@@ -649,7 +651,7 @@ export default function ScenarioPlanning() {
                       <li>Variazione costi personale del {varPersonale > 0 ? '+' : ''}{varPersonale}%: {varPersonale > 0 ? '+' : ''}{fmt(baseline.costiPersonale * varPersonale / 100)} &euro;</li>
                     )}
                     {nuovoOutlet && (
-                      <li>Nuovo outlet: +{fmt(baseline.avgRicaviOutlet)} &euro; ricavi, +{fmt(costiNuovoOutlet)} &euro; costi</li>
+                      <li>Nuovo {labels.pointOfSaleLower}: +{fmt(baseline.avgRicaviOutlet)} &euro; ricavi, +{fmt(costiNuovoOutlet)} &euro; costi</li>
                     )}
                     <li className="font-semibold pt-1 border-t border-current/20">
                       Effetto netto sull'utile: {scenario.deltaUtile >= 0 ? '+' : ''}{fmt(scenario.deltaUtile)} &euro; ({scenario.deltaPercent >= 0 ? '+' : ''}{scenario.deltaPercent.toFixed(1)}%)

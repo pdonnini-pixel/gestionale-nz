@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Search, X, Store, Building2, Receipt, Landmark, Users, FileText, ArrowRight, LucideIcon } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
+import { useCompanyLabels } from '../hooks/useCompanyLabels'
 
 interface SearchCategory {
   key: string
@@ -37,6 +38,7 @@ interface GlobalSearchProps {
 
 export default function GlobalSearch({ open: openProp, onClose }: GlobalSearchProps) {
   const { profile } = useAuth()
+  const labels = useCompanyLabels()
   const navigate = useNavigate()
   const COMPANY_ID = profile?.company_id
   const [internalOpen, setInternalOpen] = useState(false)
@@ -165,7 +167,7 @@ export default function GlobalSearch({ open: openProp, onClose }: GlobalSearchPr
             value={query}
             onChange={e => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Cerca outlet, fornitori, fatture, movimenti..."
+            placeholder={`Cerca ${labels.pointOfSalePluralLower}, fornitori, fatture, movimenti...`}
             className="flex-1 text-sm text-slate-900 placeholder-slate-400 outline-none bg-transparent"
           />
           <kbd className="hidden sm:inline-flex items-center px-1.5 py-0.5 text-[10px] font-mono text-slate-400 bg-slate-100 rounded border border-slate-200">ESC</kbd>

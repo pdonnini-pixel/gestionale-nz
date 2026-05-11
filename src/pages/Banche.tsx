@@ -2651,7 +2651,7 @@ export default function Banche() {
           <div className="grid grid-cols-2 gap-x-8 gap-y-2 text-sm">
             <div className="flex justify-between"><span className="text-slate-500">Conti correnti</span><span className="font-medium">{fmt(accounts.filter(c => c.account_type === 'conto_corrente').reduce<number>((s,c)=>s+(Number(c.current_balance)||0),0))} €</span></div>
             <div className="flex justify-between"><span className="text-slate-500">Conti deposito</span><span className="font-medium">{fmt(accounts.filter(c => c.account_type === 'deposito').reduce<number>((s,c)=>s+(Number(c.current_balance)||0),0))} €</span></div>
-            <div className="flex justify-between"><span className="text-slate-500">Casse outlet</span><span className="font-medium">{fmt(totalCashes)} €</span></div>
+            <div className="flex justify-between"><span className="text-slate-500">Casse {labels.pointOfSalePluralLower}</span><span className="font-medium">{fmt(totalCashes)} €</span></div>
             <div className="flex justify-between"><span className="text-slate-500">Liquidità totale</span><span className="font-bold text-blue-600">{fmt(totalBanks)} €</span></div>
             <div className="flex justify-between"><span className="text-slate-500">Debiti finanziari</span><span className="font-medium text-red-500">{fmt(totalDebiti)} €</span></div>
             <div className="flex justify-between"><span className="text-slate-500">Fin. attive</span><span className="font-medium text-slate-900">{loans.filter(l => l.is_active).length}</span></div>

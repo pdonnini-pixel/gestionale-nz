@@ -6,6 +6,7 @@ import {
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
+import { useCompanyLabels } from '../hooks/useCompanyLabels'
 
 // Role-based permissions
 const ROLE_PERMISSIONS: Record<string, string[]> = {
@@ -332,6 +333,7 @@ function CompanySection({ showToast, companyId: COMPANY_ID }: SectionProps) {
 // SEZIONE UTENTI (CRUD)
 // ==========================================
 function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
+  const labels = useCompanyLabels()
   // TODO: tighten type — Supabase rows
   const [users, setUsers] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -552,7 +554,7 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
           </div>
           {/* Outlet assegnati */}
           <div>
-            <label className="block text-xs font-medium text-slate-600 mb-2">Outlet visibili</label>
+            <label className="block text-xs font-medium text-slate-600 mb-2">{labels.pointOfSalePlural} visibili</label>
             <div className="flex flex-wrap gap-2">
               {[{ code: 'all', label: 'Tutti gli outlet' }, ...costCenters].map(c => {
                 const selected = form.outlet_access.includes(c.code)

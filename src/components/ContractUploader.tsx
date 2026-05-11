@@ -1,5 +1,6 @@
 import { useState, useRef } from 'react'
 import { parseContract, extractTextFromDoc, extractTextFromDocx, extractTextFromPdf } from '../lib/contractParser'
+import { useCompanyLabels } from '../hooks/useCompanyLabels'
 import {
   Upload, FileText, Check, AlertCircle, RefreshCw,
   X, Sparkles, ArrowRight
@@ -205,6 +206,7 @@ interface ContractUploaderProps {
 }
 
 export default function ContractUploader({ onDataExtracted, onCancel }: ContractUploaderProps) {
+  const labels = useCompanyLabels()
   const fileRef = useRef<HTMLInputElement>(null)
   const [dragOver, setDragOver] = useState(false)
   const [analyzing, setAnalyzing] = useState(false)
@@ -334,7 +336,7 @@ export default function ContractUploader({ onDataExtracted, onCancel }: Contract
         {/* Header */}
         <div className="flex items-center justify-between p-5 border-b border-slate-100">
           <div>
-            <h2 className="text-lg font-semibold text-slate-900">Crea outlet da contratto</h2>
+            <h2 className="text-lg font-semibold text-slate-900">Crea {labels.pointOfSaleLower} da contratto</h2>
             <p className="text-xs text-slate-400 mt-0.5">Carica il contratto e i dati verranno estratti automaticamente</p>
           </div>
           <button onClick={onCancel} className="p-1 hover:bg-slate-100 rounded-lg"><X size={20} /></button>

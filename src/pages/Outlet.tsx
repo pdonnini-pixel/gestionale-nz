@@ -1510,6 +1510,7 @@ function CorrispettiviTab({ outletId, companyId }: { outletId: string; companyId
 // ====== STAFF TAB ======
 type StaffRow = { id: string; first_name?: string | null; last_name?: string | null; role?: string | null; contract_type?: string | null; annual_gross_salary?: number | null; monthly_net_salary?: number | null; hire_date?: string | null; is_active?: boolean | null }
 function StaffTab({ outletId, companyId }: { outletId: string; companyId: string }) {
+  const labels = useCompanyLabels()
   const [staff, setStaff] = useState<StaffRow[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -1560,7 +1561,7 @@ function StaffTab({ outletId, companyId }: { outletId: string; companyId: string
       {staff.length === 0 ? (
         <div className="bg-slate-50 rounded-xl p-8 text-center">
           <Users size={32} className="mx-auto text-slate-300 mb-3" />
-          <p className="text-sm text-slate-500">Nessun dipendente assegnato a questo outlet</p>
+          <p className="text-sm text-slate-500">Nessun dipendente assegnato a questo {labels.pointOfSaleLower}</p>
           <p className="text-xs text-slate-400 mt-1">Assegna dipendenti dalla pagina <a href="/dipendenti" className="text-blue-500 hover:underline">Dipendenti</a></p>
         </div>
       ) : (
@@ -2132,7 +2133,7 @@ export default function Outlet() {
               {filtered.length === 0 ? (
                 <div className="text-center py-16 text-slate-400">
                   <Store size={40} className="mx-auto mb-3 opacity-50" />
-                  <p className="text-sm">{search ? 'Nessun outlet trovato per la ricerca.' : 'Nessun outlet disponibile.'}</p>
+                  <p className="text-sm">{search ? `Nessun ${labels.pointOfSaleLower} trovato per la ricerca.` : `Nessun ${labels.pointOfSaleLower} disponibile.`}</p>
                   {!search && outlets.length === 0 && (
                     <p className="text-xs mt-1">Verifica le policy RLS e i permessi del tuo utente.</p>
                   )}
@@ -2183,7 +2184,7 @@ export default function Outlet() {
                 <Trash2 size={22} className="text-red-600" />
               </div>
               <div>
-                <h3 className="text-lg font-semibold text-slate-900">Elimina outlet</h3>
+                <h3 className="text-lg font-semibold text-slate-900">Elimina {labels.pointOfSaleLower}</h3>
                 <p className="text-sm text-slate-500">Questa azione non puo' essere annullata</p>
               </div>
             </div>

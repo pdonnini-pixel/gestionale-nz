@@ -294,7 +294,7 @@ export default function MarginiOutlet() {
             {/* KPI Summary Cards */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
               <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
-                <p className="text-slate-600 text-sm font-medium mb-1">Outlet Analizzati</p>
+                <p className="text-slate-600 text-sm font-medium mb-1">{labels.pointOfSalePlural} Analizzati</p>
                 <p className="text-2xl font-bold text-slate-900">{outletMargins.length}</p>
               </div>
               <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
@@ -315,7 +315,7 @@ export default function MarginiOutlet() {
 
             {/* Bar Chart - Outlet Comparison with percentage labels */}
             <div className="rounded-2xl p-6 shadow-lg mb-8" style={{ background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)', border: '1px solid rgba(99,102,241,0.08)' }}>
-              <h2 className="text-lg font-semibold text-slate-900 mb-4">Confronto Ricavi vs Costi per Outlet</h2>
+              <h2 className="text-lg font-semibold text-slate-900 mb-4">Confronto Ricavi vs Costi per {labels.pointOfSale}</h2>
               <ResponsiveContainer width="100%" height={400}>
                 <BarChart data={chartData} barGap={4}>
                   <defs>
@@ -412,8 +412,8 @@ export default function MarginiOutlet() {
 
             {/* Table with drill-down */}
             <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
-              <h2 className="text-lg font-semibold text-slate-900 mb-4">Dettaglio Margini per Outlet</h2>
-              <p className="text-sm text-slate-500 mb-4">Clicca su un outlet per espandere il breakdown dei conti</p>
+              <h2 className="text-lg font-semibold text-slate-900 mb-4">Dettaglio Margini per {labels.pointOfSale}</h2>
+              <p className="text-sm text-slate-500 mb-4">Clicca su un {labels.pointOfSaleLower} per espandere il breakdown dei conti</p>
               {moSortBy.length > 0 && !(moSortBy.length === 1 && moSortBy[0].key === 'marginePercent' && moSortBy[0].dir === 'desc') && (
                 <div className="px-3 py-1.5 mb-2 bg-blue-50/50 rounded text-xs text-blue-700 flex items-center gap-2">
                   <span>Ordinamento personalizzato attivo</span>

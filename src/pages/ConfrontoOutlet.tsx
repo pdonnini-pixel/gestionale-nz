@@ -832,7 +832,7 @@ export default function ConfrontoOutlet() {
               { key: 'quota_sede', label: 'Quota Sede', format: 'euro' },
             ]}
             filename="confronto_outlet"
-            title="Confronto Outlet"
+            title={`Confronto ${labels.pointOfSalePlural}`}
           />
         </div>
       </div>
@@ -842,20 +842,20 @@ export default function ConfrontoOutlet() {
         <div className="rounded-2xl p-5 shadow-lg" style={{ background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)', border: '1px solid rgba(99,102,241,0.08)' }}>
           <div className="p-2.5 rounded-lg bg-blue-50 text-blue-600 inline-flex mb-3"><Store size={20} /></div>
           <div className="text-2xl font-bold text-slate-900">{outletMetrics.filter(o => o.calculatedMetrics).length}</div>
-          <div className="text-sm text-slate-500">Outlet con dati</div>
+          <div className="text-sm text-slate-500">{labels.pointOfSalePlural} con dati</div>
           <div className="text-xs text-slate-400">su {outletMetrics.length} totali</div>
         </div>
         <div className="rounded-2xl p-5 shadow-lg" style={{ background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)', border: '1px solid rgba(99,102,241,0.08)' }}>
           <div className="p-2.5 rounded-lg bg-emerald-50 text-emerald-600 inline-flex mb-3"><TrendingUp size={20} /></div>
           <div className="text-2xl font-bold text-slate-900">{fmt(totRicavi)} €</div>
-          <div className="text-sm text-slate-500">Ricavi totali outlet</div>
+          <div className="text-sm text-slate-500">Ricavi totali {labels.pointOfSalePluralLower}</div>
           <div className="text-xs text-slate-400">Media: {fmt(avgRicavi)} €</div>
         </div>
         <div className="rounded-2xl p-5 shadow-lg" style={{ background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)', border: '1px solid rgba(99,102,241,0.08)' }}>
           <div className="p-2.5 rounded-lg bg-amber-50 text-amber-600 inline-flex mb-3"><Users size={20} /></div>
           <div className="text-2xl font-bold text-slate-900">{totDipendenti}</div>
-          <div className="text-sm text-slate-500">Dipendenti outlet</div>
-          <div className="text-xs text-slate-400">Media: {(totDipendenti / (outletMetrics.filter(o => o.calculatedMetrics).length || 1)).toFixed(1)} per outlet</div>
+          <div className="text-sm text-slate-500">Dipendenti {labels.pointOfSalePluralLower}</div>
+          <div className="text-xs text-slate-400">Media: {(totDipendenti / (outletMetrics.filter(o => o.calculatedMetrics).length || 1)).toFixed(1)} per {labels.pointOfSaleLower}</div>
         </div>
         <div className="rounded-2xl p-5 shadow-lg" style={{ background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)', border: '1px solid rgba(99,102,241,0.08)' }}>
           <div className="p-2.5 rounded-lg bg-purple-50 text-purple-600 inline-flex mb-3"><DollarSign size={20} /></div>
@@ -874,7 +874,7 @@ export default function ConfrontoOutlet() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {/* Ricavi per outlet */}
           <div className="rounded-2xl p-5 shadow-lg" style={{ background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)', border: '1px solid rgba(99,102,241,0.08)' }}>
-            <h3 className="text-sm font-semibold text-slate-700 mb-4">Ricavi per outlet</h3>
+            <h3 className="text-sm font-semibold text-slate-700 mb-4">Ricavi per {labels.pointOfSaleLower}</h3>
             <ResponsiveContainer width="100%" height={250}>
               <BarChart data={chartRicavi} margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
                 <defs>
@@ -898,7 +898,7 @@ export default function ConfrontoOutlet() {
 
           {/* Margine per outlet */}
           <div className="rounded-2xl p-5 shadow-lg" style={{ background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)', border: '1px solid rgba(99,102,241,0.08)' }}>
-            <h3 className="text-sm font-semibold text-slate-700 mb-4">Margine per outlet</h3>
+            <h3 className="text-sm font-semibold text-slate-700 mb-4">Margine per {labels.pointOfSaleLower}</h3>
             <ResponsiveContainer width="100%" height={250}>
               <BarChart data={chartMargini} margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
                 <defs>
