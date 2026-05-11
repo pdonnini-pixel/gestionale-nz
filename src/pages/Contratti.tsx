@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
+import { useCompanyLabels } from '../hooks/useCompanyLabels'
 import {
   FileText, RefreshCw, Search, Plus, Calendar, AlertTriangle,
   Check, X, AlertCircle, Clock, ChevronDown, ChevronUp, MapPin,
@@ -61,6 +62,7 @@ type OutletLite = any
 type ProfileLite = any
 
 function ModalNuovoContratto({ outlets, onClose, onSave, editingContract = null, profile }: { outlets: OutletLite[]; onClose: () => void; onSave: () => void; editingContract?: ContractRow | null; profile: ProfileLite | null }) {
+  const labels = useCompanyLabels()
   const [form, setForm] = useState(editingContract ? {
     name: editingContract.name,
     counterpart: editingContract.counterpart,
@@ -225,7 +227,7 @@ function ModalNuovoContratto({ outlets, onClose, onSave, editingContract = null,
             </div>
           </div>
           <div>
-            <label className="block text-xs font-medium text-slate-500 mb-1">Outlet</label>
+            <label className="block text-xs font-medium text-slate-500 mb-1">{labels.pointOfSale}</label>
             <select value={form.outlet_id} onChange={e => set('outlet_id', e.target.value)}
               className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
               <option value="">Sede / Tutti</option>

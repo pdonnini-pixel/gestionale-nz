@@ -16,6 +16,7 @@ import {
 } from '../components/ChartTheme'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
+import { useCompanyLabels } from '../hooks/useCompanyLabels'
 
 // ═══ HELPERS ═══
 const fmt = (n: number | null | undefined): string => n == null ? '—' : new Intl.NumberFormat('it-IT', { maximumFractionDigits: 0 }).format(n)
@@ -390,6 +391,7 @@ export default function MarginiCategoria() {
 // ═══ OUTLET TAB ═══
 // TODO: tighten type
 function OutletTab({ outletData, totals }: { outletData: any[]; totals: any }) {
+  const labels = useCompanyLabels()
   const [sortKey, setSortKey] = useState('revenue')
   const [sortDir, setSortDir] = useState<'desc' | 'asc'>('desc')
 
@@ -439,7 +441,7 @@ function OutletTab({ outletData, totals }: { outletData: any[]; totals: any }) {
           <table className="w-full">
             <thead className="bg-slate-50 border-b border-slate-200">
               <tr>
-                <th className="py-3 px-4 text-xs font-semibold text-slate-500 text-left">Outlet</th>
+                <th className="py-3 px-4 text-xs font-semibold text-slate-500 text-left">{labels.pointOfSale}</th>
                 <SortHeader k="revenue" label="Ricavi" />
                 <SortHeader k="costs" label="Costi" />
                 <SortHeader k="margin" label="Margine" />

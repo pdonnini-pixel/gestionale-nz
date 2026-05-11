@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ComposedChart } from 'recharts';
 import { Info, TrendingUp, Package, Percent } from 'lucide-react';
 import { GlassTooltip, AXIS_STYLE, GRID_STYLE } from '../components/ChartTheme';
+import { useCompanyLabels } from '../hooks/useCompanyLabels';
 
 function fmt(n: number, dec = 0): string {
   return new Intl.NumberFormat('it-IT', { minimumFractionDigits: dec, maximumFractionDigits: dec }).format(n);
@@ -128,6 +129,7 @@ const initialData: SeasonDataset = {
 const outlets = ['Valdichiana', 'Barberino', 'Franciacorta', 'Palmanova', 'Brugnato', 'Valmontone', 'Torino'];
 
 export default function OpenToBuy() {
+  const labels = useCompanyLabels();
   const [season, setSeason] = useState<'SS26' | 'FW26'>('SS26');
   const [data, setData] = useState(initialData);
 
@@ -398,7 +400,7 @@ export default function OpenToBuy() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200">
-                  <th className="px-6 py-3 text-left font-semibold text-slate-900">Outlet</th>
+                  <th className="px-6 py-3 text-left font-semibold text-slate-900">{labels.pointOfSale}</th>
                   <th className="px-6 py-3 text-right font-semibold text-slate-900">Vendite Previste</th>
                   <th className="px-6 py-3 text-right font-semibold text-slate-900">Ricarico %</th>
                   <th className="px-6 py-3 text-right font-semibold text-slate-900">Scorta Iniz.</th>

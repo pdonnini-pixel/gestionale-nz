@@ -18,6 +18,7 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, PieCha
 import { supabase } from '../lib/supabase'
 import { GlassTooltip, AXIS_STYLE, GRID_STYLE } from '../components/ChartTheme'
 import { useAuth } from '../hooks/useAuth'
+import { useCompanyLabels } from '../hooks/useCompanyLabels'
 import OpenBanking from '../components/OpenBanking'
 import AICategorization from '../components/AICategorization'
 
@@ -456,6 +457,7 @@ function SezioneBanche({ accounts, totalBanks, search, onAddEdit, onDelete, load
    Sezione: Casse Outlet
    ──────────────────────────────────────── */
 function SezioneCasse({ accounts, totalCashes }: { accounts: AccountRow[]; totalCashes: number }) {
+  const labels = useCompanyLabels()
   const casse = accounts.filter(a => a.account_type === 'cassa')
   const chartData = casse.map(c => ({ name: c.outlet_code || 'N/A', saldo: Number(c.current_balance) || 0 }))
 
@@ -465,7 +467,7 @@ function SezioneCasse({ accounts, totalCashes }: { accounts: AccountRow[]; total
     <div className="space-y-4">
       <h2 className="text-lg font-semibold text-slate-900 flex items-center gap-2">
         <Store size={20} className="text-emerald-600" />
-        Casse Outlet
+        Casse {labels.pointOfSalePlural}
       </h2>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -473,7 +475,7 @@ function SezioneCasse({ accounts, totalCashes }: { accounts: AccountRow[]; total
           <table className="w-full">
             <thead className="bg-slate-50">
               <tr className="text-xs text-slate-500 uppercase tracking-wider">
-                <th className="py-2.5 px-4 text-left font-medium">Outlet</th>
+                <th className="py-2.5 px-4 text-left font-medium">{labels.pointOfSale}</th>
                 <th className="py-2.5 px-4 text-right font-medium">Saldo</th>
                 <th className="py-2.5 px-4 text-right font-medium">%</th>
               </tr>
@@ -2229,6 +2231,7 @@ function SezioneRiconciliazione({ companyId, accounts }: { companyId: string; ac
    ══════════════════════════════════════════ */
 export default function Banche() {
   const { profile } = useAuth();
+  const labels = useCompanyLabels();
   const COMPANY_ID = profile?.company_id;
 
   const [accounts, setAccounts] = useState<AccountRow[]>([])

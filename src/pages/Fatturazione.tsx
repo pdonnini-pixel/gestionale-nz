@@ -10,6 +10,7 @@ import StatusBadge from '../components/ui/StatusBadge'
 import { supabase } from '../lib/supabase'
 import { useYapily } from '../hooks/useYapily'
 import { useCompany } from '../hooks/useCompany'
+import { useCompanyLabels } from '../hooks/useCompanyLabels'
 import { usePeriod } from '../hooks/usePeriod'
 import { useTableSort } from '../hooks/useTableSort'
 import SortableTh from '../components/ui/SortableTh'
@@ -1141,6 +1142,7 @@ function FattureAttive() {
 // ═══════════════════════════════════════════════════════════════════════
 
 function Corrispettivi() {
+  const labels = useCompanyLabels()
   type RevenueRow = {
     id?: string
     date?: string | null
@@ -1326,7 +1328,7 @@ function Corrispettivi() {
             <thead className="sticky top-0 bg-slate-50 z-10">
               <tr className="bg-slate-50 border-b border-slate-200">
                 <th className="text-left px-4 py-3 font-medium text-slate-600">Mese</th>
-                <th className="text-left px-4 py-3 font-medium text-slate-600">Outlet</th>
+                <th className="text-left px-4 py-3 font-medium text-slate-600">{labels.pointOfSale}</th>
                 <th className="text-right px-4 py-3 font-medium text-slate-600">Incasso Lordo</th>
                 <th className="text-right px-4 py-3 font-medium text-slate-600">Transazioni</th>
                 <th className="text-right px-4 py-3 font-medium text-slate-600">Scontrino Medio</th>

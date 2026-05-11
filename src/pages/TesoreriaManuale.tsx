@@ -21,6 +21,7 @@ type TesoreriaTab = 'panoramica' | 'conti' | 'movimenti' | 'riconciliazione'
 const VALID_TESORERIA_TABS: TesoreriaTab[] = ['panoramica', 'conti', 'movimenti', 'riconciliazione']
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
+import { useCompanyLabels } from '../hooks/useCompanyLabels'
 
 // ═══════════════════════════════════════════════════════════════════
 // ═══ HELPERS ═══
@@ -791,6 +792,7 @@ function TabPanoramica({ accounts, transactions, payables, onNavigate }: { accou
 
 type AccountFormT = { bank_name: string; account_name: string; iban: string; account_type: string; current_balance: number; credit_line?: number; outlet_code?: string; note?: string; id?: string; color?: string }
 function AddAccountModal({ isOpen, onClose, onSave, editAccount }: { isOpen: boolean; onClose: () => void; onSave: (data: AccountFormT) => void | Promise<void>; editAccount: AccountFormT | null }) {
+  const labels = useCompanyLabels()
   const [form, setForm] = useState({
     bank_name: '', account_name: '', iban: '', account_type: 'conto_corrente',
     current_balance: 0, credit_line: 0, outlet_code: '', color: '#3b82f6', note: '',
@@ -870,7 +872,7 @@ function AddAccountModal({ isOpen, onClose, onSave, editAccount }: { isOpen: boo
         </div>
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="block text-xs font-medium text-slate-500 mb-1">Outlet</label>
+            <label className="block text-xs font-medium text-slate-500 mb-1">{labels.pointOfSale}</label>
             <input type="text" value={form.outlet_code} onChange={e => setForm({ ...form, outlet_code: e.target.value })}
               className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="es. BRB, VDC..." />
           </div>

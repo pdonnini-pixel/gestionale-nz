@@ -10,6 +10,7 @@ import {
 } from 'recharts';
 import { TrendingUp, TrendingDown, ShoppingCart, DollarSign, Package, Eye } from 'lucide-react';
 import { GlassTooltip, AXIS_STYLE, GRID_STYLE } from '../components/ChartTheme';
+import { useCompanyLabels } from '../hooks/useCompanyLabels';
 
 // Formato numero italiano
 function fmt(n: number, dec = 0): string {
@@ -206,6 +207,7 @@ function getPerformers(posData: POSData) {
 }
 
 export default function AnalyticsPOS() {
+  const labels = useCompanyLabels();
   const [selectedOutlet, setSelectedOutlet] = useState<string | null>(null);
   // viewMode persistito in URL come ?view=… (default 'annual')
   const [searchParams, setSearchParams] = useSearchParams();
@@ -268,7 +270,7 @@ export default function AnalyticsPOS() {
         {/* Controls */}
         <div className="mb-8 flex flex-wrap gap-4 items-center">
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-2">Outlet</label>
+            <label className="block text-sm font-medium text-slate-700 mb-2">{labels.pointOfSale}</label>
             <select
               value={selectedOutlet || ''}
               onChange={(e) => setSelectedOutlet(e.target.value || null)}
@@ -491,7 +493,7 @@ export default function AnalyticsPOS() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-slate-200">
-                  <th className="text-left py-3 px-4 font-semibold text-slate-900">Outlet</th>
+                  <th className="text-left py-3 px-4 font-semibold text-slate-900">{labels.pointOfSale}</th>
                   <th className="text-right py-3 px-4 font-semibold text-slate-900">Scontrini</th>
                   <th className="text-right py-3 px-4 font-semibold text-slate-900">Scontrino Medio</th>
                   <th className="text-right py-3 px-4 font-semibold text-slate-900">Pezzi/Scontrino</th>

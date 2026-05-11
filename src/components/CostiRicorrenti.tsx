@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
+import { useCompanyLabels } from '../hooks/useCompanyLabels';
 
 const paymentMethodLabels: Record<string, string> = {
   bonifico_ordinario: 'Bonifico ordinario',
@@ -126,6 +127,7 @@ interface FormState {
 
 function CostiRicorrenti() {
   const { profile } = useAuth();
+  const labels = useCompanyLabels();
   const COMPANY_ID = profile?.company_id;
 
   // State
@@ -605,7 +607,7 @@ function CostiRicorrenti() {
           <table className="w-full text-sm">
             <thead className="bg-slate-50 border-b border-slate-200">
               <tr>
-                <th className="px-4 py-3 text-left font-semibold text-slate-900">Outlet</th>
+                <th className="px-4 py-3 text-left font-semibold text-slate-900">{labels.pointOfSale}</th>
                 <th className="px-4 py-3 text-left font-semibold text-slate-900">Categoria</th>
                 <th className="px-4 py-3 text-left font-semibold text-slate-900">Descrizione</th>
                 <th className="px-4 py-3 text-right font-semibold text-slate-900">Importo</th>
