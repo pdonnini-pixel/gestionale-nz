@@ -131,8 +131,17 @@ async function callEdgeFunction(fnName: string, method = 'GET', body: Record<str
   // arriva quando il tenant non ha certificati SDI configurati nel Vault,
   // e ritentare con un nuovo token NON cambia il risultato — anzi, il loop
   // di refreshSession + re-fetch può scatenare ri-render cascata.
-  const res = await doFetch(session.access_token)
-  if (res.status === 401 || res.status === 403) {
+  // Inoltre catturiamo CORS/network failures (TypeError "Failed to fetch")
+  // come SdiNotConfigured: succede quando l'Edge Function non è deployata
+  // sul tenant o il preflight CORS fallisce. Stesso effetto pratico: SDI
+  // non disponibile per questo tenant.
+  let res: Response
+  try {
+    res = await doFetch(session.access_token)
+  } catch (fetchErr) {
+    throw new SdiNotConfiguredError(`Edge Function ${fnName} non raggiungibile (CORS/network): ${(fetchErr as Error).message}`)
+  }
+  if (res.status === 401 || res.status === 403 || res.status === 404) {
     throw new SdiNotConfiguredError(`Edge Function ${fnName} ha risposto ${res.status} — SDI probabilmente non configurato.`)
   }
   let json: { error?: string } & Record<string, unknown>
