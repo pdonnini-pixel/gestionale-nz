@@ -1282,7 +1282,7 @@ function Corrispettivi() {
                   <tr><td colSpan={5} className="text-center py-12 text-slate-400">
                     <Inbox size={32} className="mx-auto mb-2 text-slate-300" />
                     <p>Nessun corrispettivo dal cassetto fiscale.</p>
-                    <p className="text-xs mt-1">Clicca "Sincronizza SDI" per scaricare i corrispettivi da Agenzia delle Entrate.</p>
+                    <p className="text-xs mt-1">Sincronizzazione SDI non ancora attiva — in attesa di accreditamento Agenzia delle Entrate.</p>
                   </td></tr>
                 ) : corrispettiviLog
                     .filter(c => selectedOutlet === 'ALL' || c.outlet_id === selectedOutlet)
@@ -1375,6 +1375,7 @@ function Corrispettivi() {
 
 export default function Fatturazione() {
   const { company } = useCompany()
+  const { year } = usePeriod()
   // activeTab persistito in URL come ?tab=… (default 'passive')
   const [searchParams, setSearchParams] = useSearchParams()
   const tabParam = searchParams.get('tab')
@@ -1428,17 +1429,23 @@ export default function Fatturazione() {
   const loadInvoiceCounts = useCallback(async () => {
     try {
       const companyVat = company?.vat_number
+      // Filtro anno globale (da usePeriod) → counter coerente con la tabella sotto.
+      const yearStart = `${year}-01-01`
+      const yearEnd = `${year}-12-31`
       // Senza P.IVA company non possiamo discriminare → trattiamo tutto come passivo
       // (default conservativo: NZ è prevalentemente in fattura passiva).
       if (!companyVat) {
         const totalRes = await supabase.from('electronic_invoices').select('id', { count: 'exact', head: true })
+          .gte('invoice_date', yearStart).lte('invoice_date', yearEnd)
         setInvoiceCounts({ passive: totalRes.count || 0, active: 0 })
         return
       }
       const [passiveRes, activeRes] = await Promise.all([
         supabase.from('electronic_invoices').select('id', { count: 'exact', head: true })
+          .gte('invoice_date', yearStart).lte('invoice_date', yearEnd)
           .or(`supplier_vat.is.null,supplier_vat.neq.${companyVat}`),
         supabase.from('electronic_invoices').select('id', { count: 'exact', head: true })
+          .gte('invoice_date', yearStart).lte('invoice_date', yearEnd)
           .eq('supplier_vat', companyVat),
       ])
       setInvoiceCounts({
@@ -1448,7 +1455,7 @@ export default function Fatturazione() {
     } catch (err: unknown) {
       console.warn('loadInvoiceCounts:', (err as Error).message)
     }
-  }, [company?.vat_number])
+  }, [company?.vat_number, year])
 
   useEffect(() => { loadStats(); loadInvoiceCounts() }, [loadStats, loadInvoiceCounts])
 
@@ -1521,11 +1528,12 @@ export default function Fatturazione() {
         </div>
         <button
           onClick={handleSyncSdi}
-          disabled={syncing}
-          className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+          disabled={true}
+          title="Sincronizzazione SDI non disponibile — accreditamento Agenzia delle Entrate ancora da completare. Contattare EPPI per maggiori informazioni."
+          className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-xl transition disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
         >
-          {syncing ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
-          {syncing ? 'Sincronizzazione...' : 'Sincronizza SDI'}
+          <RefreshCw size={16} />
+          Sincronizza SDI
         </button>
       </div>
 
