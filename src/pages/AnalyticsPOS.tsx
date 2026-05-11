@@ -318,7 +318,7 @@ export default function AnalyticsPOS() {
               onChange={(e) => setSelectedOutlet(e.target.value || null)}
               className="px-4 py-2 border border-slate-300 rounded-lg bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
-              <option value="">Tutti gli outlet</option>
+              <option value="">Tutti gli {labels.pointOfSalePluralLower}</option>
               {OUTLETS.map(outlet => (
                 <option key={outlet.id} value={outlet.id}>
                   {outlet.label}

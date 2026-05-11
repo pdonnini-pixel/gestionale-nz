@@ -11,6 +11,7 @@ type BudgetConfView = 'annuale' | 'mensile'
 const VALID_BUDGET_CONF_VIEWS: BudgetConfView[] = ['annuale', 'mensile']
 import { useRole } from '../hooks/useRole'
 import { usePeriod } from '../hooks/usePeriod'
+import { useCompanyLabels } from '../hooks/useCompanyLabels'
 import PageHelp from '../components/PageHelp'
 import {
   Calculator, ChevronDown, ChevronUp,
@@ -444,6 +445,7 @@ function Kpi({ icon: Icon, label, value, sub, color = 'indigo', alert }: { icon:
 export default function BudgetControl() {
   const { profile } = useAuth()
   const { hasRole } = useRole()
+  const labels = useCompanyLabels()
   const canApproveBudget = hasRole('budget_approver')
   const CID = profile?.company_id
   const { year, quarter, getDateRange } = usePeriod()
@@ -995,7 +997,7 @@ export default function BudgetControl() {
           <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-3">
             <Calculator className="text-indigo-600" size={28} /> Budget & Controllo
           </h1>
-          <p className="text-slate-500 mt-1 text-sm">Business Plan preventivo/consuntivo per outlet</p>
+          <p className="text-slate-500 mt-1 text-sm">Business Plan preventivo/consuntivo per {labels.pointOfSaleLower}</p>
         </div>
         <span className="px-3 py-2 border border-slate-200 rounded-lg text-sm font-semibold bg-slate-50">{year}</span>
       </div>
@@ -1023,7 +1025,7 @@ export default function BudgetControl() {
             </div>
           )}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <Kpi icon={Store} label="Outlet operativi" value={ops.length} sub="punti vendita" color="indigo" />
+            <Kpi icon={Store} label={`${labels.pointOfSalePlural} operativi`} value={ops.length} sub={labels.pointOfSalePluralLower} color="indigo" />
             <Kpi icon={TrendingUp} label="Bilancio 2025" value={hasTree ? `${ceRawCosti.length+ceRawRicavi.length} voci` : 'Non trovato'} color={hasTree?'green':'amber'} />
             <Kpi icon={BarChart3} label="Budget salvati" value={budgetEntries.length} color="blue" />
             <Kpi icon={Target} label="Anno" value={year} color="purple" />
@@ -1040,7 +1042,7 @@ export default function BudgetControl() {
           {hasTree && canApproveBudget && (
             <div className="flex items-center gap-3 bg-indigo-50 border border-indigo-200 rounded-xl p-4">
               <div className="flex-1">
-                <p className="text-sm font-medium text-indigo-800">Compila i costi previsti per ogni outlet</p>
+                <p className="text-sm font-medium text-indigo-800">Compila i costi previsti per ogni {labels.pointOfSaleLower}</p>
                 <p className="text-xs text-indigo-600 mt-0.5">I ricavi sono assegnati automaticamente dal bilancio {year - 1}. Inserisci i costi previsti, poi salva e approva il preventivo per lockarlo.</p>
               </div>
               {Object.keys(bpEdits).length > 0 && (
@@ -1112,7 +1114,7 @@ export default function BudgetControl() {
           ) : (
             <>
               <div className="flex items-center gap-3 flex-wrap">
-                <span className="text-sm text-slate-600 font-medium">Outlet:</span>
+                <span className="text-sm text-slate-600 font-medium">{labels.pointOfSale}:</span>
                 <select value={confOutlet} onChange={e => setConfOutlet(e.target.value)} className="px-3 py-2 border border-slate-200 rounded-lg text-sm">
                   {(canApproveBudget ? outletsWithBP : outletsWithBP.filter(cc => (workflow[cc.code]?.status ?? 'bozza') !== 'bozza'))
                     .map(cc => <option key={cc.code} value={cc.code}>{prettyCenterLabel(cc)}</option>)}

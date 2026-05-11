@@ -5,6 +5,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 type ImportHubTab = 'sources' | 'overview' | 'history';
 const VALID_IMPORT_HUB_TABS: ImportHubTab[] = ['sources', 'overview', 'history'];
 import PageHelp from '../components/PageHelp';
+import { useCompanyLabels } from '../hooks/useCompanyLabels';
 import {
   Upload,
   Database,
@@ -121,6 +122,7 @@ const IMPORT_SOURCE_CONFIG: Record<ImportSourceId, ImportSourceConfig> = {
 
 export default function ImportHub() {
   const { profile } = useAuth();
+  const labels = useCompanyLabels();
   const COMPANY_ID = profile?.company_id;
   const navigate = useNavigate();
 
@@ -1143,7 +1145,7 @@ export default function ImportHub() {
                         <option key={o.id} value={o.id}>{o.name}</option>
                       ))}
                     </select>
-                    <p className="text-xs text-blue-700 mt-1">Se non selezionato, i costi vengono ripartiti automaticamente in base alle allocazioni outlet di ogni dipendente</p>
+                    <p className="text-xs text-blue-700 mt-1">Se non selezionato, i costi vengono ripartiti automaticamente in base alle allocazioni {labels.pointOfSalePluralLower} di ogni dipendente</p>
                   </div>
                 </div>
               )}
@@ -1191,7 +1193,7 @@ export default function ImportHub() {
                     onChange={(e) => setSelectedOutlet(e.target.value)}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   >
-                    <option value="">-- Seleziona outlet --</option>
+                    <option value="">-- Seleziona {labels.pointOfSaleLower} --</option>
                     {outlets.map((o) => (
                       <option key={o.id} value={o.id}>{o.name}</option>
                     ))}

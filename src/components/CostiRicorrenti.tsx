@@ -566,7 +566,7 @@ function CostiRicorrenti() {
             onChange={(e) => setFilterOutlet(e.target.value)}
             className="px-4 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
           >
-            <option value="">Tutti gli outlet</option>
+            <option value="">Tutti gli {labels.pointOfSalePluralLower}</option>
             {costCenters.map((center) => (
               <option key={center.id} value={center.code}>
                 {center.label}
@@ -760,7 +760,7 @@ function CostiRicorrenti() {
                     onChange={(e) => handleFormChange('cost_center', e.target.value)}
                     className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                   >
-                    <option value="">Seleziona outlet</option>
+                    <option value="">Seleziona {labels.pointOfSaleLower}</option>
                     {costCenters.map((center) => (
                       <option key={center.id} value={center.code}>
                         {center.label}

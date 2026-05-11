@@ -397,7 +397,7 @@ export default function Produttivita() {
         <div className="flex items-center justify-between mb-8">
           <div>
             <h1 className="text-4xl font-bold text-slate-900 mb-2">Analisi Produttività</h1>
-            <p className="text-slate-600">Analytics sulla performance dei dipendenti per outlet - Anno {year}</p>
+            <p className="text-slate-600">Analytics sulla performance dei dipendenti per {labels.pointOfSaleLower} - Anno {year}</p>
           </div>
           <div className="flex items-center gap-2">
             <label className="text-sm font-medium text-slate-700">Anno:</label>
@@ -462,7 +462,7 @@ export default function Produttivita() {
                 <TrendingUp className="w-4 h-4 text-blue-600" />
               </div>
               <div className="text-2xl font-bold text-slate-900">{fmt(kpi.avg_ricavo_ora, 2)}&euro;</div>
-              <div className="text-xs text-slate-500 mt-2">Tutti gli outlet</div>
+              <div className="text-xs text-slate-500 mt-2">Tutti gli {labels.pointOfSalePluralLower}</div>
             </div>
 
             <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
@@ -688,26 +688,26 @@ export default function Produttivita() {
             <div className="space-y-4">
               <div className="grid grid-cols-3 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">Da Outlet</label>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Da {labels.pointOfSale}</label>
                   <select
                     value={moved.from || ''}
                     onChange={(e) => setMoved({ ...moved, from: e.target.value })}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
-                    <option value="">Seleziona outlet</option>
+                    <option value="">Seleziona {labels.pointOfSaleLower}</option>
                     {metriche.map(m => (
                       <option key={m.nome} value={m.nome}>{m.nome}</option>
                     ))}
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">A Outlet</label>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">A {labels.pointOfSale}</label>
                   <select
                     value={moved.to || ''}
                     onChange={(e) => setMoved({ ...moved, to: e.target.value })}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
-                    <option value="">Seleziona outlet</option>
+                    <option value="">Seleziona {labels.pointOfSaleLower}</option>
                     {metriche.map(m => (
                       <option key={m.nome} value={m.nome}>{m.nome}</option>
                     ))}

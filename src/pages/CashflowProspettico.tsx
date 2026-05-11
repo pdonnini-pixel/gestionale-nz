@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import PageHelp from '../components/PageHelp';
+import { useCompanyLabels } from '../hooks/useCompanyLabels';
 
 // Vista temporale Cashflow Prospettico — persistita in URL come ?view=
 type CashflowView = 'giornaliero' | 'settimanale' | 'mensile';
@@ -84,6 +85,7 @@ const getWeekStart = (date: Date): Date => {
 
 export default function CashflowProspettico() {
   const { profile } = useAuth();
+  const labels = useCompanyLabels();
   const COMPANY_ID = profile?.company_id;
   const { year, quarter, getDateRange } = usePeriod();
 
@@ -1139,7 +1141,7 @@ export default function CashflowProspettico() {
               onChange={(e) => setSelectedOutlet(e.target.value)}
               className="px-3 py-2 border border-slate-300 rounded-lg text-slate-900 bg-white hover:border-slate-400"
             >
-              <option value="all">Tutti gli outlet</option>
+              <option value="all">Tutti gli {labels.pointOfSalePluralLower}</option>
               {costCenters.map(cc => (
                 <option key={cc.code} value={cc.code}>{cc.label}</option>
               ))}

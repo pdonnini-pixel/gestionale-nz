@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, Suspense } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import PageHelp from '../components/PageHelp'
+import { useCompanyLabels } from '../hooks/useCompanyLabels'
 
 // Tipologia periodo ContoEconomico — persistita in URL come ?periodo=
 type ContoPeriod = 'annuale' | 'trimestrale' | 'mensile' | 'provvisorio'
@@ -342,6 +343,7 @@ function analyzeStrengthsWeaknesses(ce: Record<string, number | null | undefined
 // ===== MAIN PAGE =====
 export default function ContoEconomico() {
   const { profile } = useAuth()
+  const labels = useCompanyLabels()
   const COMPANY_ID = profile?.company_id
   const { year, quarter, getDateRange } = usePeriod()
   // periodType persistito in URL come ?periodo=… (default 'annuale')
@@ -1798,15 +1800,15 @@ export default function ContoEconomico() {
               <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                 <div className="px-5 py-4 border-b border-slate-100 flex items-center gap-2">
                   <Store size={18} className="text-blue-500" />
-                  <span className="text-sm font-semibold text-slate-900">Risultato Gestionale (per outlet)</span>
+                  <span className="text-sm font-semibold text-slate-900">Risultato Gestionale (per {labels.pointOfSaleLower})</span>
                 </div>
                 <div className="p-5 space-y-3">
                   <div className="flex justify-between items-center py-2">
-                    <span className="text-sm text-slate-600">Ricavi totali (tutti gli outlet)</span>
+                    <span className="text-sm text-slate-600">Ricavi totali (tutti gli {labels.pointOfSalePluralLower})</span>
                     <span className="text-sm font-semibold text-emerald-600 tabular-nums">+ {fmt(riconData.ricavi)} €</span>
                   </div>
                   <div className="flex justify-between items-center py-2">
-                    <span className="text-sm text-slate-600">Costi totali (tutti gli outlet)</span>
+                    <span className="text-sm text-slate-600">Costi totali (tutti gli {labels.pointOfSalePluralLower})</span>
                     <span className="text-sm font-semibold text-red-600 tabular-nums">- {fmt(Math.abs(riconData.costiOutlet))} €</span>
                   </div>
                   <div className="flex justify-between items-center py-2">

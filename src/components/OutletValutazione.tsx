@@ -5,6 +5,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
+import { useCompanyLabels } from '../hooks/useCompanyLabels'
 import {
   getCodeLevel, buildTree, sumMacros, applyEditsZero, applyEdits, fmt, fmtC,
   CETreeNode,
@@ -87,6 +88,7 @@ function SimBadge({ status }: { status: string }) {
 
 export default function OutletValutazione() {
   const { profile } = useAuth()
+  const labels = useCompanyLabels()
   const CID = profile?.company_id
 
   // CE data
@@ -296,7 +298,7 @@ export default function OutletValutazione() {
             <div className="flex-1 max-w-md">
               <label className="text-xs font-medium text-slate-600">Nome simulazione</label>
               <input value={simName} onChange={e => setSimName(e.target.value)}
-                className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" placeholder="Es. Outlet Milano City" />
+                className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" placeholder={`Es. ${labels.pointOfSale} Milano City`} />
             </div>
             <div className="flex items-center gap-2">
               {simulations.length > 0 && (

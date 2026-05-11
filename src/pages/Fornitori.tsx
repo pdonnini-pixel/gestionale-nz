@@ -5,6 +5,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 type FornitoriTab = 'anagrafica' | 'analytics';
 const VALID_FORNITORI_TABS: FornitoriTab[] = ['anagrafica', 'analytics'];
 import PageHelp from '../components/PageHelp';
+import { useCompanyLabels } from '../hooks/useCompanyLabels';
 import {
   Building2, Search, Plus, Edit3, Trash2, FileText, Phone, Mail, MapPin,
   CreditCard, Clock, AlertTriangle, CheckCircle, ChevronDown, ChevronUp,
@@ -81,6 +82,7 @@ const CATEGORIES = [
 export default function Fornitori() {
   const navigate = useNavigate();
   const { profile } = useAuth();
+  const labels = useCompanyLabels();
   const COMPANY_ID = profile?.company_id;
 
   // Data state
@@ -721,7 +723,7 @@ export default function Fornitori() {
                                   <Detail label="Termini pag." value={`${(s.payment_terms as number | null) || (s.default_payment_terms as number | null) || 30} giorni`} />
                                   <Detail label="Metodo pag." value={PAYMENT_LABEL[String(s.payment_method || s.default_payment_method || '')] || (s.payment_method as string | null) || (s.default_payment_method as string | null) || '—'} />
                                   <Detail label="Categoria" value={s.category as string | null | undefined} />
-                                  <Detail label="Centro costo" value={s.cost_center === 'all' ? 'Tutti gli outlet' : (s.cost_center as string | null | undefined)} />
+                                  <Detail label="Centro costo" value={s.cost_center === 'all' ? `Tutti gli ${labels.pointOfSalePluralLower}` : (s.cost_center as string | null | undefined)} />
                                   <Detail label="Stato" value={s.is_active !== false ? '✓ Attivo' : '✗ Disattivato'} />
                                   {(s.note || s.notes) ? (
                                     <>

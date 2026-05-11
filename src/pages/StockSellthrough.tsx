@@ -650,7 +650,7 @@ export default function StockSellthrough() {
         {/* Charts */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
           <div className="rounded-2xl p-6 shadow-lg" style={{ background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)', border: '1px solid rgba(99,102,241,0.08)' }}>
-            <h3 className="text-lg font-semibold text-slate-900 mb-4">Sell-Through % per Outlet</h3>
+            <h3 className="text-lg font-semibold text-slate-900 mb-4">Sell-Through % per {labels.pointOfSale}</h3>
             <ResponsiveContainer width="100%" height={300}>
               <BarChart data={sellthroughChartData}>
                 <defs>
@@ -763,7 +763,7 @@ export default function StockSellthrough() {
 
         {/* Outlets Accordion */}
         <div className="space-y-4">
-          <h3 className="text-lg font-semibold text-slate-900 mb-4">Dettaglio per Outlet</h3>
+          <h3 className="text-lg font-semibold text-slate-900 mb-4">Dettaglio per {labels.pointOfSale}</h3>
           {Object.entries(outletsData).map(([outletName, outletData]) => {
             const outletMetric = metrics.outletMetrics[outletName]
             const isExpanded = expandedOutlet === outletName

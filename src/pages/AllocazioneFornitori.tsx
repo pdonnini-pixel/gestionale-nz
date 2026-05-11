@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
+import { useCompanyLabels } from '../hooks/useCompanyLabels'
 import {
   Users, Search, Settings2, Store, Percent, DollarSign, Equal, ArrowRight,
   CheckCircle2, AlertCircle, X, Loader2, Plus, Trash2, Save
@@ -704,6 +705,7 @@ function SupplierSection({ title, suppliers, ruleBySupplier, outlets, onSelect, 
 /* ── Rule Summary (tiny inline) ── */
 
 function RuleSummary({ rule, outletName }: { rule: RuleWithDetails; outletName: (id: string | null) => string }) {
+  const labels = useCompanyLabels()
   if (!rule.details || rule.details.length === 0) return null
 
   if (rule.allocation_mode === 'DIRETTO') {
@@ -711,10 +713,10 @@ function RuleSummary({ rule, outletName }: { rule: RuleWithDetails; outletName: 
     return <span className="text-xs text-gray-500 hidden sm:inline">{outletName(d.outlet_id)}</span>
   }
   if (rule.allocation_mode === 'QUOTE_UGUALI') {
-    return <span className="text-xs text-gray-500 hidden sm:inline">{rule.details.length} outlet</span>
+    return <span className="text-xs text-gray-500 hidden sm:inline">{rule.details.length} {labels.pointOfSalePluralLower}</span>
   }
   if (rule.allocation_mode === 'SPLIT_PCT') {
-    return <span className="text-xs text-gray-500 hidden sm:inline">{rule.details.length} outlet</span>
+    return <span className="text-xs text-gray-500 hidden sm:inline">{rule.details.length} {labels.pointOfSalePluralLower}</span>
   }
   if (rule.allocation_mode === 'SPLIT_VALORE') {
     const total = rule.details.reduce((s, d) => s + (Number(d.fixed_value) || 0), 0)
@@ -729,6 +731,7 @@ function RuleSummary({ rule, outletName }: { rule: RuleWithDetails; outletName: 
 // TODO: tighten type
 function DirettoForm({ outlets, editDetails, setDetailField, outletName }: { outlets: OutletLite[]; editDetails: EditDetail[]; setDetailField: SetDetailField; outletName: (id: string | null) => string }) {
   void outletName;
+  const labels = useCompanyLabels()
   const selectedId = editDetails.find(d => d.selected)?.outlet_id || null
 
   const handleSelect = (outletId: string) => {
@@ -740,7 +743,7 @@ function DirettoForm({ outlets, editDetails, setDetailField, outletName }: { out
 
   return (
     <div>
-      <label className="block text-sm font-medium text-gray-700 mb-2">Seleziona l'outlet destinatario</label>
+      <label className="block text-sm font-medium text-gray-700 mb-2">Seleziona il {labels.pointOfSaleLower} destinatario</label>
       <div className="space-y-2">
         {outlets.map(o => {
           const active = selectedId === o.id
@@ -772,11 +775,12 @@ function DirettoForm({ outlets, editDetails, setDetailField, outletName }: { out
 // TODO: tighten type
 function SplitPctForm({ outlets, editDetails, setDetailField, outletName, pctTotal }: { outlets: OutletLite[]; editDetails: EditDetail[]; setDetailField: SetDetailField; outletName: (id: string | null) => string; pctTotal: number }) {
   void outletName;
+  const labels = useCompanyLabels()
   const isValid = Math.abs(pctTotal - 100) <= 0.01
 
   return (
     <div>
-      <label className="block text-sm font-medium text-gray-700 mb-2">Percentuali per outlet</label>
+      <label className="block text-sm font-medium text-gray-700 mb-2">Percentuali per {labels.pointOfSaleLower}</label>
       <div className="space-y-2">
         {outlets.map(o => {
           const det = editDetails.find(d => d.outlet_id === o.id)
@@ -816,9 +820,10 @@ function SplitPctForm({ outlets, editDetails, setDetailField, outletName, pctTot
 // TODO: tighten type
 function SplitValoreForm({ outlets, editDetails, setDetailField, outletName, valTotal }: { outlets: OutletLite[]; editDetails: EditDetail[]; setDetailField: SetDetailField; outletName: (id: string | null) => string; valTotal: number }) {
   void outletName;
+  const labels = useCompanyLabels()
   return (
     <div>
-      <label className="block text-sm font-medium text-gray-700 mb-2">Importo fisso per outlet (EUR)</label>
+      <label className="block text-sm font-medium text-gray-700 mb-2">Importo fisso per {labels.pointOfSaleLower} (EUR)</label>
       <div className="space-y-2">
         {outlets.map(o => {
           const det = editDetails.find(d => d.outlet_id === o.id)
@@ -855,9 +860,10 @@ function SplitValoreForm({ outlets, editDetails, setDetailField, outletName, val
 // TODO: tighten type
 function QuoteUgualiForm({ outlets, editDetails, setDetailField, outletName, selCount, equalShare }: { outlets: OutletLite[]; editDetails: EditDetail[]; setDetailField: SetDetailField; outletName: (id: string | null) => string; selCount: number; equalShare: number }) {
   void outletName;
+  const labels = useCompanyLabels()
   return (
     <div>
-      <label className="block text-sm font-medium text-gray-700 mb-2">Seleziona gli outlet (divisione uguale)</label>
+      <label className="block text-sm font-medium text-gray-700 mb-2">Seleziona gli {labels.pointOfSalePluralLower} (divisione uguale)</label>
       <div className="space-y-2">
         {outlets.map(o => {
           const det = editDetails.find(d => d.outlet_id === o.id)

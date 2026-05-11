@@ -785,7 +785,7 @@ export default function Dipendenti() {
           <p className="text-xs text-slate-500 mt-2">
             Allocati su outlet · Anagrafica: <span className="font-semibold text-slate-700">{employees.length}</span>
             {employees.length > totalEmployees2025 && (
-              <span className="text-amber-600 ml-1">({employees.length - totalEmployees2025} senza outlet)</span>
+              <span className="text-amber-600 ml-1">({employees.length - totalEmployees2025} senza {labels.pointOfSaleLower})</span>
             )}
           </p>
         </div>
@@ -957,7 +957,7 @@ export default function Dipendenti() {
           <p className="text-xs text-slate-500 mt-2">
             Allocati su outlet · Anagrafica: <span className="font-semibold text-slate-700">{employees.length}</span>
             {employees.length > totalEmployees2026 && (
-              <span className="text-amber-600 ml-1">({employees.length - totalEmployees2026} senza outlet)</span>
+              <span className="text-amber-600 ml-1">({employees.length - totalEmployees2026} senza {labels.pointOfSaleLower})</span>
             )}
           </p>
         </div>
@@ -1432,7 +1432,7 @@ export default function Dipendenti() {
                       setAllocEdits(updated);
                       setAllocErrors('');
                     }} className="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm">
-                      <option value="">Seleziona outlet...</option>
+                      <option value="">Seleziona {labels.pointOfSaleLower}...</option>
                       {OUTLETS_ORDER.map(o => <option key={o} value={o}>{o}</option>)}
                     </select>
                     <div className="flex items-center gap-1">
