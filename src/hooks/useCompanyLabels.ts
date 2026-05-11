@@ -42,7 +42,13 @@ function pluralize(singular: string): string {
   // Italiano: -o → -i (Punto → Punti, Negozio → Negozi)
   // Non applichiamo se la parola è troppo corta o sembra inglese
   let pluralLast: string
-  if (lower.endsWith('o') && lower.length > 2) {
+  if (lower.endsWith('io') && lower.length > 2) {
+    // -io → -i (Negozio → Negozi, Ufficio → Uffici, Esempio → Esempi).
+    // Rimuoviamo "io" e aggiungiamo "i" (NON "ii"). Caso speciale:
+    // senza questo branch, "Negozio" diventerebbe "Negozii" (bug).
+    pluralLast = last.slice(0, -2) + (isUpper(last.slice(-1)) ? 'I' : 'i')
+  } else if (lower.endsWith('o') && lower.length > 2) {
+    // -o → -i (Punto → Punti, Letto → Letti)
     pluralLast = last.slice(0, -1) + (isUpper(last.slice(-1)) ? 'I' : 'i')
   } else if (lower.endsWith('a') && lower.length > 2) {
     // -a → -e (Boutique è eccezione invariabile, ma "Boutique" finisce in "e" non "a")
