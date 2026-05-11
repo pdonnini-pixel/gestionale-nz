@@ -49,32 +49,18 @@ import { supabase } from '../lib/supabase';
 import { GlassTooltip, AXIS_STYLE, GRID_STYLE } from '../components/ChartTheme';
 import { useAuth } from '../hooks/useAuth';
 import { useCompanyLabels } from '../hooks/useCompanyLabels';
+import { useOutlets } from '../hooks/useOutlets';
+import { getOutletTailwindBg } from '../components/ChartTheme';
 
 // ============================================================================
 // CONSTANTS
 // ============================================================================
 
-const OUTLET_COLORS: Record<string, string> = {
-  'Valdichiana': 'bg-blue-600',
-  'Barberino': 'bg-emerald-600',
-  'Palmanova': 'bg-sky-600',
-  'Franciacorta': 'bg-rose-600',
-  'Ufficio/Magazzino': 'bg-amber-600',
-  'Brugnato': 'bg-orange-600',
-  'Valmontone': 'bg-purple-600',
-  'Torino': 'bg-indigo-600',
-};
-
-const OUTLETS_ORDER = [
-  'Valdichiana',
-  'Barberino',
-  'Palmanova',
-  'Franciacorta',
-  'Ufficio/Magazzino',
-  'Brugnato',
-  'Valmontone',
-  'Torino',
-];
+// Storicamente OUTLET_COLORS e OUTLETS_ORDER erano costanti hardcoded sui 7
+// outlet NZ (Valdichiana/Barberino/…). Adesso vengono ricavati dinamicamente
+// dalla tabella `outlets` del tenant attivo (vedi `useOutlets()` nel componente
+// principale). Il colore Tailwind background per ogni outlet è derivato
+// deterministicamente da `getOutletTailwindBg(name)` (hash → palette estesa).
 
 const MONTHS = [
   { num: 1, label: 'Gennaio' },
@@ -98,7 +84,22 @@ const MONTHS = [
 export default function Dipendenti() {
   const { profile } = useAuth();
   const labels = useCompanyLabels();
+  const { outlets: tenantOutlets } = useOutlets();
   const COMPANY_ID = profile?.company_id;
+
+  // Lista nomi outlet del tenant attivo, derivata dal DB (sostituisce la
+  // vecchia const OUTLETS_ORDER hardcoded sui 7 outlet NZ). I cost_centers
+  // e gli employees usano outlet.name come chiave; manteniamo lo stesso
+  // contract. Se il tenant è vergine, OUTLETS_ORDER è vuoto → empty state.
+  const OUTLETS_ORDER = useMemo(() => tenantOutlets.map((o) => o.name), [tenantOutlets]);
+
+  // Mappa nome outlet → classe Tailwind background. Generata
+  // deterministicamente via getOutletTailwindBg.
+  const OUTLET_COLORS = useMemo(() => {
+    const m: Record<string, string> = {};
+    tenantOutlets.forEach((o) => { m[o.name] = getOutletTailwindBg(o.name); });
+    return m;
+  }, [tenantOutlets]);
 
   // viewMode persistito in URL come ?view=… (default 'consuntivo')
   const [searchParams, setSearchParams] = useSearchParams();

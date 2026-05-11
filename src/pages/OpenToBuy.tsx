@@ -1,8 +1,9 @@
 import { useState, useMemo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ComposedChart } from 'recharts';
-import { Info, TrendingUp, Package, Percent } from 'lucide-react';
+import { Info, TrendingUp, Package, Percent, Store } from 'lucide-react';
 import { GlassTooltip, AXIS_STYLE, GRID_STYLE } from '../components/ChartTheme';
 import { useCompanyLabels } from '../hooks/useCompanyLabels';
+import { useOutlets } from '../hooks/useOutlets';
 
 function fmt(n: number, dec = 0): string {
   return new Intl.NumberFormat('it-IT', { minimumFractionDigits: dec, maximumFractionDigits: dec }).format(n);
@@ -126,12 +127,23 @@ const initialData: SeasonDataset = {
   },
 };
 
-const outlets = ['Valdichiana', 'Barberino', 'Franciacorta', 'Palmanova', 'Brugnato', 'Valmontone', 'Torino'];
+// outlets hardcoded sui 7 outlet NZ — la pagina è mock-data (vedi initialData).
+// Per tenant non-NZ mostriamo empty state. Soluzione strutturale (planning
+// OTB reale dal DB) è un task separato.
+const LEGACY_OUTLETS = ['Valdichiana', 'Barberino', 'Franciacorta', 'Palmanova', 'Brugnato', 'Valmontone', 'Torino'];
 
 export default function OpenToBuy() {
   const labels = useCompanyLabels();
+  const { outlets: tenantOutlets, loading: outletsLoading } = useOutlets();
   const [season, setSeason] = useState<'SS26' | 'FW26'>('SS26');
   const [data, setData] = useState(initialData);
+
+  const hasLegacyDemo = useMemo(() => {
+    return tenantOutlets.some((o) => {
+      const firstToken = (o.name || '').split(/\s+/)[0] || '';
+      return LEGACY_OUTLETS.includes(firstToken);
+    });
+  }, [tenantOutlets]);
 
   const handleInputChange = (outlet: string, field: string, value: string) => {
     setData((prev) => ({
@@ -157,7 +169,7 @@ export default function OpenToBuy() {
   };
 
   const chartData = useMemo(() => {
-    return outlets.map((outlet) => ({
+    return LEGACY_OUTLETS.map((outlet) => ({
       outlet: outlet.slice(0, 10),
       OTB: Math.round(calculateOTB(outlet)),
       vendite: Math.round(data[season][outlet].vendite_previste),
@@ -167,7 +179,7 @@ export default function OpenToBuy() {
   }, [season, data]);
 
   const summaryData = useMemo(() => {
-    return outlets.map((outlet) => ({
+    return LEGACY_OUTLETS.map((outlet) => ({
       outlet,
       ...data[season][outlet],
       otb: calculateOTB(outlet),
@@ -176,13 +188,39 @@ export default function OpenToBuy() {
 
   const kpis = useMemo(() => {
     const totalOTB = summaryData.reduce((sum, d) => sum + d.otb, 0);
-    const avgOTB = totalOTB / outlets.length;
+    const avgOTB = totalOTB / LEGACY_OUTLETS.length;
     const totalSales = summaryData.reduce((sum, d) => sum + d.vendite_previste, 0);
     const totalMarkdown = summaryData.reduce((sum, d) => sum + (d.vendite_previste * d.markdown_previsto) / 100, 0);
     const sellThrough = (totalSales / (totalSales + totalMarkdown)) * 100;
 
     return { totalOTB, avgOTB, sellThrough, totalMarkdown };
   }, [summaryData]);
+
+  if (outletsLoading) {
+    return (
+      <div className="min-h-screen bg-slate-50 p-6">
+        <div className="max-w-7xl mx-auto text-sm text-slate-400">Caricamento…</div>
+      </div>
+    );
+  }
+  if (!hasLegacyDemo) {
+    return (
+      <div className="min-h-screen bg-slate-50 p-6">
+        <div className="max-w-3xl mx-auto">
+          <h1 className="text-4xl font-bold text-slate-900 mb-2">Open-to-Buy Planner</h1>
+          <p className="text-slate-600 mb-8">Pianificazione stagionale acquisti</p>
+          <div className="bg-white rounded-2xl border border-slate-200 p-10 text-center">
+            <Store className="w-14 h-14 mx-auto mb-4 text-slate-300" />
+            <h2 className="text-lg font-semibold text-slate-700 mb-2">Nessun piano OTB disponibile</h2>
+            <p className="text-sm text-slate-500 max-w-md mx-auto">
+              Il planner Open-to-Buy verrà popolato quando saranno disponibili dati di vendita storici
+              per i {labels.pointOfSalePluralLower}.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-50 p-6">
@@ -268,7 +306,7 @@ export default function OpenToBuy() {
         <div className="mb-8">
           <h2 className="text-2xl font-bold text-slate-900 mb-4">Parametri per Outlet</h2>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {outlets.map((outlet) => {
+            {LEGACY_OUTLETS.map((outlet) => {
               const d = data[season][outlet];
               const otb = calculateOTB(outlet);
               return (

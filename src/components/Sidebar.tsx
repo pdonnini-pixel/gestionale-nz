@@ -3,6 +3,7 @@ import { NavLink, useLocation } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { useCompany } from '../hooks/useCompany'
 import { useCompanyLabels, type CompanyLabels } from '../hooks/useCompanyLabels'
+import { useOutlets } from '../hooks/useOutlets'
 import {
   LayoutDashboard, Store, FileText, Users, Settings, LogOut,
   ChevronDown, ChevronRight, Landmark, BarChart3, GitCompare, Target,
@@ -30,6 +31,15 @@ interface NavItem {
   label: string
   roles: string[]
   badgeKey?: string
+  /**
+   * Numero minimo di outlet operativi richiesto perché la voce sia
+   * visibile. Esempi:
+   *   - "Confronto {Plural}" → minOutlets: 2 (1 outlet → nulla da confrontare)
+   *   - "Divisione Fornitori" → minOutlets: 2 (l'allocazione fornitori ha senso
+   *     solo se ci sono più centri di costo operativi)
+   * Default: 0 (sempre visibile).
+   */
+  minOutlets?: number
 }
 
 interface NavSection {
@@ -67,7 +77,7 @@ function buildSections(labels: CompanyLabels): NavSection[] {
       label: `${posPlural} & Performance`,
       items: [
         { to: '/outlet', icon: Store, label: posSingular, roles: ['super_advisor', 'ceo', 'coo'] },
-        { to: '/confronto-outlet', icon: GitCompare, label: `Confronto ${posPlural}`, roles: ['super_advisor', 'ceo', 'cfo'] },
+        { to: '/confronto-outlet', icon: GitCompare, label: `Confronto ${posPlural}`, roles: ['super_advisor', 'ceo', 'cfo'], minOutlets: 2 },
         { to: '/budget', icon: Target, label: 'Budget & Controllo', roles: ['super_advisor', 'ceo', 'cfo'] },
       ],
     },
@@ -76,7 +86,7 @@ function buildSections(labels: CompanyLabels): NavSection[] {
       label: 'Ciclo Passivo',
       items: [
         { to: '/fornitori', icon: Users, label: 'Fornitori', roles: ['super_advisor', 'cfo', 'contabile'] },
-        { to: '/allocazione-fornitori', icon: Split, label: 'Divisione Fornitori', roles: ['super_advisor', 'cfo', 'contabile'] },
+        { to: '/allocazione-fornitori', icon: Split, label: 'Divisione Fornitori', roles: ['super_advisor', 'cfo', 'contabile'], minOutlets: 2 },
         { to: '/fatturazione', icon: FileText, label: 'Fatturazione', roles: ['super_advisor', 'cfo', 'contabile'] },
         { to: '/scadenzario', icon: CalendarClock, label: 'Scadenzario', badgeKey: 'scadenzario', roles: ['super_advisor', 'ceo', 'cfo', 'contabile'] },
       ],
@@ -190,16 +200,27 @@ export default function Sidebar({ mobileOpen, setMobileOpen, badges = {} }: Side
     budget_approver: 'Approvatore Budget',
   }
 
-  // Filter sections by role; sezioni rifatte ad ogni cambio terminologia.
+  // Outlet count del tenant attivo: serve per nascondere voci che hanno
+  // senso solo con >=2 punti vendita (Confronto, Divisione Fornitori).
+  // Su tenant con 0 outlet non si entra qui (l'OnboardingGate redirige al
+  // wizard prima di renderizzare Layout/Sidebar), quindi non gestiamo lo
+  // stato di loading.
+  const { outlets: tenantOutlets } = useOutlets()
+  const outletCount = tenantOutlets.length
+
+  // Filter sections by role + minOutlets; sezioni rifatte ad ogni cambio
+  // terminologia o count outlet.
   const allSections = useMemo(() => buildSections(labels), [labels])
   const sections = useMemo(() => {
     return allSections
       .map(section => ({
         ...section,
-        items: section.items.filter(item => item.roles.includes(role))
+        items: section.items.filter(item =>
+          item.roles.includes(role) && (item.minOutlets == null || outletCount >= item.minOutlets),
+        ),
       }))
       .filter(section => section.items.length > 0)
-  }, [role, allSections])
+  }, [role, allSections, outletCount])
 
   // Determine which section contains the active route
   const activeSectionKey = useMemo(() => {

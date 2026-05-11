@@ -11,6 +11,7 @@ import { supabase } from '../lib/supabase'
 import { useYapily } from '../hooks/useYapily'
 import { useCompany } from '../hooks/useCompany'
 import { useCompanyLabels } from '../hooks/useCompanyLabels'
+import { getCurrentTenant } from '../lib/tenants'
 import { usePeriod } from '../hooks/usePeriod'
 import { useTableSort } from '../hooks/useTableSort'
 import SortableTh from '../components/ui/SortableTh'
@@ -87,9 +88,23 @@ function KpiCard({ icon: Icon, label, value, sub, color = 'blue' }: { icon: Reac
 
 // ─── callFunction helper (same pattern as useYapily) ────────────────────
 
+// Errore semantico: l'Edge Function ha risposto in modo che indica che SDI
+// non è configurato per il tenant (401 reale, oppure response con
+// `code: 'SDI_NOT_CONFIGURED'`). Usato per disabilitare bottoni SDI
+// senza ritentare in loop.
+export class SdiNotConfiguredError extends Error {
+  constructor(message = 'SDI non configurato per questo tenant') {
+    super(message)
+    this.name = 'SdiNotConfiguredError'
+  }
+}
+
 async function callEdgeFunction(fnName: string, method = 'GET', body: Record<string, unknown> | null = null, params: Record<string, string> | null = null) {
-  const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhmdmZ4c3ZxcG5wdmliZ2VxcHFwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUxNDkwNDcsImV4cCI6MjA5MDcyNTA0N30.ohYziAXiOWS0TKU9HHuhUAbf5Geh10xbLGEoftOMJZA'
-  const baseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://xfvfxsvqpnpvibgeqpqp.supabase.co'
+  // URL e anon key del tenant attivo: vengono dalla config tenants.ts
+  // (selezionata via hostname). Niente più fallback hardcoded sul progetto NZ.
+  const tenant = getCurrentTenant()
+  const anonKey = tenant.supabaseAnonKey
+  const baseUrl = tenant.supabaseUrl
 
   let url = `${baseUrl}/functions/v1/${fnName}`
   if (params) {
@@ -109,18 +124,30 @@ async function callEdgeFunction(fnName: string, method = 'GET', body: Record<str
     })
   }
 
-  let { data: { session } } = await supabase.auth.getSession()
+  const { data: { session } } = await supabase.auth.getSession()
   if (!session) throw new Error('Non autenticato')
 
-  let res = await doFetch(session.access_token)
-  if (res.status === 401) {
-    const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession()
-    if (refreshError || !refreshData.session) throw new Error('Sessione scaduta')
-    res = await doFetch(refreshData.session.access_token)
+  // Singolo tentativo. Niente retry-on-401: per le Edge Function SDI il 401
+  // arriva quando il tenant non ha certificati SDI configurati nel Vault,
+  // e ritentare con un nuovo token NON cambia il risultato — anzi, il loop
+  // di refreshSession + re-fetch può scatenare ri-render cascata.
+  const res = await doFetch(session.access_token)
+  if (res.status === 401 || res.status === 403) {
+    throw new SdiNotConfiguredError(`Edge Function ${fnName} ha risposto ${res.status} — SDI probabilmente non configurato.`)
   }
-
-  const json = await res.json()
-  if (!res.ok) throw new Error(json.error || `Errore ${res.status}`)
+  let json: { error?: string } & Record<string, unknown>
+  try {
+    json = await res.json()
+  } catch {
+    throw new Error(`Edge Function ${fnName}: risposta non-JSON (status ${res.status})`)
+  }
+  if (!res.ok) {
+    const code = (json as { code?: string }).code
+    if (code === 'SDI_NOT_CONFIGURED' || code === 'CERTIFICATE_MISSING') {
+      throw new SdiNotConfiguredError(json.error || code)
+    }
+    throw new Error(json.error || `Errore ${res.status}`)
+  }
   return json
 }
 
@@ -1398,23 +1425,39 @@ export default function Fatturazione() {
     totalToday?: number
   } | null
   const [sdiStats, setSdiStats] = useState<SdiStats>(null)
-  // Conteggio diretto da electronic_invoices — fonte unica per il badge
-  // sul tab cosi' e' SEMPRE coerente con la tabella mostrata sotto. Prima
-  // il badge usava sdiStats (edge function SDI) e il KPI 'Fatture passive'
-  // usava la query DB — differivano di 4 unita'.
+  // Stato disponibilità SDI:
+  //  null    = non ancora controllato
+  //  true    = sdi-status-check ha risposto OK
+  //  false   = ha risposto 401/403/SDI_NOT_CONFIGURED → tenant senza
+  //            accreditamento. NON ritentare automaticamente.
+  const [sdiAvailable, setSdiAvailable] = useState<boolean | null>(null)
   const [invoiceCounts, setInvoiceCounts] = useState({ passive: 0, active: 0 })
   const [syncing, setSyncing] = useState(false)
   type SyncResult = { error?: string; fatture?: number; fattureSincronizzate?: number; corrispettivi?: number; corrispettiviSincronizzati?: number; durationMs?: number; errors?: string[] } | null
   const [syncResult, setSyncResult] = useState<SyncResult>(null)
   const [syncKey, setSyncKey] = useState(0) // increment to force child refresh
 
-  // Carica statistiche SDI globali (config + stato)
+  // Carica statistiche SDI globali (config + stato). Se l'Edge Function
+  // risponde 401/403 o con codice SDI_NOT_CONFIGURED, marchiamo il tenant
+  // come "senza SDI" e NON ritentiamo. L'utente vede un banner informativo
+  // e i bottoni SDI sono disabilitati.
   const loadStats = useCallback(async () => {
     try {
       const result = await callEdgeFunction('sdi-status-check', 'GET') as { data?: NonNullable<SdiStats> }
       setSdiStats(result.data ?? null)
+      setSdiAvailable(true)
     } catch (err: unknown) {
+      if (err instanceof SdiNotConfiguredError) {
+        setSdiAvailable(false)
+        setSdiStats(null)
+        // Niente console.error: questo è uno stato "atteso" per tenant senza
+        // accreditamento, non un errore.
+        return
+      }
       console.error('Errore caricamento statistiche SDI:', err)
+      // Errori di rete o altre eccezioni → trattiamo come "non disponibile"
+      // per coerenza UX (evitiamo loop di retry).
+      setSdiAvailable(false)
     }
   }, [])
 
@@ -1510,6 +1553,26 @@ export default function Fatturazione() {
 
   return (
     <div className="p-6 space-y-6">
+      {/* Banner informativo: SDI non configurato per questo tenant.
+          Mostrato quando sdi-status-check ha risposto 401/403/CODE non
+          configurato. NIENTE retry automatico: l'utente vede il banner e
+          sa che la sincronizzazione SDI non è disponibile finché EPPI non
+          completa l'accreditamento per il tenant. */}
+      {sdiAvailable === false && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 flex items-start gap-3">
+          <AlertTriangle size={18} className="shrink-0 mt-0.5 text-amber-600" />
+          <div className="text-sm text-amber-900">
+            <div className="font-semibold mb-0.5">Sincronizzazione SDI non disponibile</div>
+            <div className="text-amber-800">
+              L'accreditamento all'Agenzia delle Entrate per questo tenant non è
+              ancora configurato. Le fatture già presenti nel database restano
+              consultabili, ma la sincronizzazione automatica con il cassetto
+              fiscale è disattivata. Contattare EPPI per completare l'accreditamento.
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

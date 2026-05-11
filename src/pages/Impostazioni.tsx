@@ -1209,7 +1209,7 @@ function CentriDiCostoSection({ showToast, companyId: COMPANY_ID }: SectionProps
                 type="text"
                 value={form.label}
                 onChange={(e) => setForm(p => ({ ...p, label: e.target.value }))}
-                placeholder="ES: Valdichiana Village"
+                placeholder="es. Punto vendita Centro"
                 className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg"
               />
             </div>
