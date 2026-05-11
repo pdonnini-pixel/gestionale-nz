@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   BarChart,
   Bar,
@@ -27,20 +27,23 @@ import {
   Send,
   ShoppingCart,
   FileText,
+  Store,
 } from 'lucide-react';
+import { useOutlets } from '../hooks/useOutlets';
+import { useCompanyLabels } from '../hooks/useCompanyLabels';
 
 const StoreManager = () => {
-  const outlets = [
-    { id: 'vdc', label: 'Valdichiana (VDC)', city: 'Arezzo' },
-    { id: 'brb', label: 'Barberino (BRB)', city: 'Firenze' },
-    { id: 'plm', label: 'Palmanova (PLM)', city: 'Udine' },
-    { id: 'frc', label: 'Franciacorta (FRC)', city: 'Brescia' },
-    { id: 'brg', label: 'Brugnato (BRG)', city: 'La Spezia' },
-    { id: 'vlm', label: 'Valmontone (VLM)', city: 'Roma' },
-    { id: 'trn', label: 'Torino (TRN)', city: 'Torino' },
-  ];
+  const { outlets: tenantOutlets, loading: outletsLoading } = useOutlets();
+  const labels = useCompanyLabels();
+  // outlets ricavati dal DB del tenant attivo (in passato hardcoded sui 7 NZ).
+  // label nel formato "Nome (CODICE)" se code presente, altrimenti solo name.
+  const outlets = tenantOutlets.map((o) => ({
+    id: (o.code || o.name).toLowerCase(),
+    label: o.code ? `${o.name} (${o.code})` : o.name,
+    city: o.city || '',
+  }));
 
-  const [selectedOutlet, setSelectedOutlet] = useState('vdc');
+  const [selectedOutlet, setSelectedOutlet] = useState<string>('');
   const [checklist, setChecklist] = useState<{ id: number; label: string; completed: boolean }[]>([
     { id: 1, label: 'Riordino magazzino', completed: false },
     { id: 2, label: 'Verifica esposizione', completed: true },
@@ -131,7 +134,40 @@ const StoreManager = () => {
     );
   };
 
+  // Imposta selectedOutlet di default sul primo outlet del tenant quando caricato.
+  useEffect(() => {
+    if (!selectedOutlet && outlets.length > 0) {
+      setSelectedOutlet(outlets[0].id);
+    }
+  }, [outlets, selectedOutlet]);
+
   const currentOutlet = outlets.find((o) => o.id === selectedOutlet);
+
+  if (outletsLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50 p-6">
+        <div className="max-w-7xl mx-auto text-sm text-slate-400">Caricamento…</div>
+      </div>
+    );
+  }
+  if (outlets.length === 0) {
+    return (
+      <div className="min-h-screen bg-gray-50 p-6">
+        <div className="max-w-3xl mx-auto">
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">Dashboard Punto Vendita</h1>
+          <div className="bg-white rounded-2xl border border-gray-200 p-10 text-center mt-6">
+            <Store className="w-14 h-14 mx-auto mb-4 text-gray-300" />
+            <h2 className="text-lg font-semibold text-gray-700 mb-2">
+              Nessun {labels.pointOfSaleLower} configurato
+            </h2>
+            <p className="text-sm text-gray-500 max-w-md mx-auto">
+              Vai su Impostazioni per aggiungere i tuoi {labels.pointOfSalePluralLower}.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 p-6">

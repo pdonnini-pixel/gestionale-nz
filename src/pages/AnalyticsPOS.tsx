@@ -8,9 +8,10 @@ import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer
 } from 'recharts';
-import { TrendingUp, TrendingDown, ShoppingCart, DollarSign, Package, Eye } from 'lucide-react';
+import { TrendingUp, TrendingDown, ShoppingCart, DollarSign, Package, Eye, Store } from 'lucide-react';
 import { GlassTooltip, AXIS_STYLE, GRID_STYLE } from '../components/ChartTheme';
 import { useCompanyLabels } from '../hooks/useCompanyLabels';
+import { useOutlets } from '../hooks/useOutlets';
 
 // Formato numero italiano
 function fmt(n: number, dec = 0): string {
@@ -208,7 +209,22 @@ function getPerformers(posData: POSData) {
 
 export default function AnalyticsPOS() {
   const labels = useCompanyLabels();
+  const { outlets: tenantOutlets, loading: outletsLoading } = useOutlets();
   const [selectedOutlet, setSelectedOutlet] = useState<string | null>(null);
+
+  // OUTLETS è hardcoded sui 7 outlet NZ (Valdichiana/Barberino/…) e
+  // `generatePOSData()` produce mock data simulati. Per tenant non-NZ
+  // (Made/Zago/SaaS futuri) i dati simulati sarebbero fuorvianti.
+  // Mostriamo empty state finché il tenant non ha almeno un outlet il
+  // cui nome match con un id di OUTLETS. Soluzione strutturale (lettura
+  // POS reale dal DB) è un task separato.
+  const hasLegacyDemo = useMemo(() => {
+    const hardcodedIds = OUTLETS.map((o) => o.id.toLowerCase());
+    return tenantOutlets.some((o) => {
+      const firstToken = (o.name || '').split(/\s+/)[0]?.toLowerCase() || '';
+      return hardcodedIds.includes(firstToken) || hardcodedIds.includes((o.code || '').toLowerCase());
+    });
+  }, [tenantOutlets]);
   // viewMode persistito in URL come ?view=… (default 'annual')
   const [searchParams, setSearchParams] = useSearchParams();
   const viewParam = searchParams.get('view');
@@ -257,6 +273,32 @@ export default function AnalyticsPOS() {
       upt: pezzi_per_scontrino // Units per transaction
     };
   }).sort((a, b) => b.scontrini - a.scontrini);
+
+  if (outletsLoading) {
+    return (
+      <div className="min-h-screen bg-slate-50 p-8">
+        <div className="max-w-7xl mx-auto text-sm text-slate-400">Caricamento…</div>
+      </div>
+    );
+  }
+  if (!hasLegacyDemo) {
+    return (
+      <div className="min-h-screen bg-slate-50 p-8">
+        <div className="max-w-3xl mx-auto">
+          <h1 className="text-3xl font-bold text-slate-900 mb-2">Analytics POS</h1>
+          <p className="text-slate-600 mb-8">Analisi scontrini, ticket medi e composizione vendite</p>
+          <div className="bg-white rounded-2xl border border-slate-200 p-10 text-center">
+            <Store className="w-14 h-14 mx-auto mb-4 text-slate-300" />
+            <h2 className="text-lg font-semibold text-slate-700 mb-2">Nessun dato POS disponibile</h2>
+            <p className="text-sm text-slate-500 max-w-md mx-auto">
+              I dati POS verranno popolati automaticamente al collegamento del sistema cassa.
+              Per gestire l'elenco dei {labels.pointOfSalePluralLower} vai su Impostazioni.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-50 p-8">

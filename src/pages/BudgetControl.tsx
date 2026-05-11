@@ -709,7 +709,19 @@ export default function BudgetControl() {
   }
 
   // ─── TREES ─────────────────────────────────────────────────
-  const ops = useMemo(() => costCenters.filter(cc => cc.code !== HQ_CODE), [costCenters])
+  // `ops` = cost_centers che rappresentano punti vendita operativi, ESCLUSI:
+  //   - HQ_CODE ('sede_magazzino')  → sede centrale
+  //   - 'sede'                       → cost_center sede creato dal wizard onboarding
+  //   - 'spese_non_divise'           → riga gap bilancio NZ
+  //   - 'rettifica_bilancio'         → riga rettifica magazzino NZ
+  // Su Made/Zago appena onboardati il wizard crea 1 cost_center 'sede' +
+  // N cost_centers (uno per outlet). Senza l'esclusione di 'sede' il KPI
+  // mostrava "2 Outlet operativi" per tenant con 1 outlet reale.
+  const NON_OPERATIONAL_CODES = new Set(['sede', HQ_CODE, 'spese_non_divise', 'rettifica_bilancio'])
+  const ops = useMemo(
+    () => costCenters.filter(cc => !NON_OPERATIONAL_CODES.has(cc.code)),
+    [costCenters],
+  )
   const hq = useMemo(() => costCenters.find(cc => cc.code === HQ_CODE), [costCenters])
   const costiTree = useMemo(() => buildTree(ceRawCosti), [ceRawCosti])
   const ricaviTree = useMemo(() => buildTree(ceRawRicavi), [ceRawRicavi])

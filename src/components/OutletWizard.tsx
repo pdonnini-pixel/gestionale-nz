@@ -141,17 +141,17 @@ function StepLocation({ form, set }: { form: OutletForm; set: (k: string, v: unk
     <div className="space-y-4">
       <h3 className="text-base font-semibold text-slate-900">Ubicazione e centro commerciale</h3>
       <Field label="Centro commerciale" required>
-        <Input value={form.mall_name} onChange={v => set('mall_name', v)} placeholder="es. Torino Outlet Village" />
+        <Input value={form.mall_name} onChange={v => set('mall_name', v)} placeholder="es. Centro Commerciale" />
       </Field>
       <Field label="Societa concedente">
-        <Input value={form.concedente} onChange={v => set('concedente', v)} placeholder="es. Torino Fashion Village Srl" />
+        <Input value={form.concedente} onChange={v => set('concedente', v)} placeholder="es. Società di gestione" />
       </Field>
       <Field label="Indirizzo">
-        <Input value={form.address} onChange={v => set('address', v)} placeholder="Via Torino 162" />
+        <Input value={form.address} onChange={v => set('address', v)} placeholder="Via Roma 1" />
       </Field>
       <div className="grid grid-cols-3 gap-4">
         <Field label="Citta">
-          <Input value={form.city} onChange={v => set('city', v)} placeholder="Settimo Torinese" />
+          <Input value={form.city} onChange={v => set('city', v)} placeholder="Milano" />
         </Field>
         <Field label="Provincia">
           <Input value={form.province} onChange={v => set('province', v.toUpperCase())} placeholder="TO" style={{maxWidth: 80}} />

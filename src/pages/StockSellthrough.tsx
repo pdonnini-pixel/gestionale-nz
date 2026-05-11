@@ -1,8 +1,9 @@
 import { useState, useMemo } from 'react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line } from 'recharts'
-import { TrendingUp, AlertTriangle, Package, Calendar, DollarSign, ChevronDown, ChevronUp } from 'lucide-react'
+import { TrendingUp, AlertTriangle, Package, Calendar, DollarSign, ChevronDown, ChevronUp, Store } from 'lucide-react'
 import { GlassTooltip, AXIS_STYLE, GRID_STYLE } from '../components/ChartTheme'
 import { useCompanyLabels } from '../hooks/useCompanyLabels'
+import { useOutlets } from '../hooks/useOutlets'
 
 function fmt(n: number, dec = 0): string {
   return new Intl.NumberFormat('it-IT', { minimumFractionDigits: dec, maximumFractionDigits: dec }).format(n)
@@ -428,9 +429,47 @@ interface AlertEntry {
 
 export default function StockSellthrough() {
   const labels = useCompanyLabels()
+  const { outlets: tenantOutlets, loading: outletsLoading } = useOutlets()
   const [selectedOutlet, setSelectedOutlet] = useState<string | null>(null)
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
   const [expandedOutlet, setExpandedOutlet] = useState<string | null>(null)
+
+  // La pagina è interamente alimentata da `outletsData` mock-hardcoded sui
+  // 7 outlet NZ (Valdichiana/Barberino/…). Per tenant non-NZ (Made/Zago/SaaS
+  // futuri) i dati simulati sarebbero fuorvianti, quindi mostriamo un empty
+  // state finché non c'è almeno un outlet del tenant il cui name matcha una
+  // chiave di outletsData. Soluzione strutturale (lettura giacenze reali dal
+  // DB) è un task separato.
+  const hasLegacyDemo = useMemo(
+    () => tenantOutlets.some((o) => o.name in outletsData),
+    [tenantOutlets],
+  )
+
+  if (outletsLoading) {
+    return (
+      <div className="min-h-screen bg-slate-50 p-6">
+        <div className="max-w-7xl mx-auto text-sm text-slate-400">Caricamento…</div>
+      </div>
+    )
+  }
+  if (!hasLegacyDemo) {
+    return (
+      <div className="min-h-screen bg-slate-50 p-6">
+        <div className="max-w-3xl mx-auto">
+          <h1 className="text-3xl font-bold text-slate-900 mb-2">Analisi Sell-Through Magazzino</h1>
+          <p className="text-slate-600 mb-8">Monitoraggio giacenze e rotazione stock per i punti vendita</p>
+          <div className="bg-white rounded-2xl border border-slate-200 p-10 text-center">
+            <Store className="w-14 h-14 mx-auto mb-4 text-slate-300" />
+            <h2 className="text-lg font-semibold text-slate-700 mb-2">Nessun dato di stock disponibile</h2>
+            <p className="text-sm text-slate-500 max-w-md mx-auto">
+              I dati di sell-through verranno popolati automaticamente quando saranno disponibili.
+              Per gestire l'elenco dei {labels.pointOfSalePluralLower} vai su Impostazioni.
+            </p>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   // Calculate metrics
   const metrics = useMemo(() => {

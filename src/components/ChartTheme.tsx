@@ -21,6 +21,16 @@ export const PALETTE = [
   '#3b82f6', // blue
 ]
 
+/**
+ * Mappa legacy nome outlet → colore per i grafici. Originariamente
+ * hardcoded sui 7 punti vendita NZ; ora funge solo da retrocompat —
+ * per tenant nuovi (Made/Zago/futuri SaaS) il colore viene generato
+ * deterministicamente da `getOutletColor()` a partire dal nome.
+ *
+ * Il primo match cerca per chiave esatta (es. "Valdichiana"), poi per
+ * primo token (es. "Valdichiana Village" → "Valdichiana"). Se non matcha,
+ * `getOutletColor` ricade su una palette deterministica basata su hash.
+ */
 export const OUTLET_COLORS: Record<string, { main: string; light: string }> = {
   Valdichiana:  { main: '#6366f1', light: '#a5b4fc' },
   Barberino:    { main: '#06b6d4', light: '#67e8f9' },
@@ -30,6 +40,65 @@ export const OUTLET_COLORS: Record<string, { main: string; light: string }> = {
   Valmontone:   { main: '#8b5cf6', light: '#c4b5fd' },
   Torino:       { main: '#0ea5e9', light: '#7dd3fc' },
   'Ufficio/Magazzino': { main: '#eab308', light: '#fde047' },
+}
+
+// Palette estesa per generazione deterministica colori outlet (~16 colori
+// distinti, copre fino a 16 outlet senza collisioni evidenti).
+const OUTLET_PALETTE_MAIN: ReadonlyArray<string> = [
+  '#6366f1', '#06b6d4', '#10b981', '#f43f5e',
+  '#f97316', '#8b5cf6', '#0ea5e9', '#eab308',
+  '#ec4899', '#14b8a6', '#22c55e', '#f59e0b',
+  '#a855f7', '#3b82f6', '#ef4444', '#84cc16',
+]
+const OUTLET_PALETTE_LIGHT: ReadonlyArray<string> = [
+  '#a5b4fc', '#67e8f9', '#6ee7b7', '#fda4af',
+  '#fdba74', '#c4b5fd', '#7dd3fc', '#fde047',
+  '#f9a8d4', '#5eead4', '#86efac', '#fcd34d',
+  '#d8b4fe', '#93c5fd', '#fca5a5', '#bef264',
+]
+
+function hashString(s: string): number {
+  let h = 0
+  for (let i = 0; i < s.length; i++) {
+    h = (h * 31 + s.charCodeAt(i)) | 0
+  }
+  return Math.abs(h)
+}
+
+/**
+ * Restituisce il colore { main, light } per un outlet dato il suo nome
+ * (o codice). Pattern di fallback:
+ *   1. match esatto in OUTLET_COLORS (retrocompat NZ)
+ *   2. primo token del nome ("Valdichiana Village" → "Valdichiana")
+ *   3. hash deterministico del nome → palette estesa
+ */
+export function getOutletColor(name: string | null | undefined): { main: string; light: string } {
+  if (!name) return { main: OUTLET_PALETTE_MAIN[0], light: OUTLET_PALETTE_LIGHT[0] }
+  const trimmed = name.trim()
+  if (OUTLET_COLORS[trimmed]) return OUTLET_COLORS[trimmed]
+  const firstToken = trimmed.split(/\s+/)[0]
+  if (firstToken && OUTLET_COLORS[firstToken]) return OUTLET_COLORS[firstToken]
+  const idx = hashString(trimmed.toLowerCase()) % OUTLET_PALETTE_MAIN.length
+  return { main: OUTLET_PALETTE_MAIN[idx], light: OUTLET_PALETTE_LIGHT[idx] }
+}
+
+/**
+ * Helper React per ottenere il colore Tailwind background (bg-*) dato un
+ * nome outlet. Utile per badge/dot colorati nelle tabelle. Mappa a una
+ * classe statica (sfortunatamente non possiamo generare classi Tailwind
+ * dinamiche, quindi usiamo un set fisso). Determinismo come getOutletColor.
+ */
+const TAILWIND_BG_PALETTE: ReadonlyArray<string> = [
+  'bg-indigo-600', 'bg-cyan-600', 'bg-emerald-600', 'bg-rose-600',
+  'bg-orange-600', 'bg-violet-600', 'bg-sky-600', 'bg-amber-600',
+  'bg-pink-600', 'bg-teal-600', 'bg-green-600', 'bg-yellow-600',
+  'bg-purple-600', 'bg-blue-600', 'bg-red-600', 'bg-lime-600',
+]
+
+export function getOutletTailwindBg(name: string | null | undefined): string {
+  if (!name) return TAILWIND_BG_PALETTE[0]
+  const idx = hashString(name.trim().toLowerCase()) % TAILWIND_BG_PALETTE.length
+  return TAILWIND_BG_PALETTE[idx]
 }
 
 // ═══════════════════════════════════════

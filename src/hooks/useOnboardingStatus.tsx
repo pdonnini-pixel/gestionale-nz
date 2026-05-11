@@ -52,7 +52,12 @@ export function useOnboardingStatus(): OnboardingStatus {
       //  - se tenant vergine (0 companies) → ritorna NULL → wizard
       // Questo evita che un nuovo utente di un tenant già onboardato venga
       // erroneamente reindirizzato al wizard.
-      const { data, error } = await supabase.rpc('get_or_associate_tenant_company')
+      // I tipi DB auto-generati non includono la RPC `get_or_associate_tenant_company`
+      // (creata nella migrazione 013). Cast minimo finché non si rigenerano i tipi via CLI.
+      const rpcCall = (supabase.rpc as unknown as (
+        fn: string,
+      ) => Promise<{ data: string | null; error: { message: string } | null }>).bind(supabase)
+      const { data, error } = await rpcCall('get_or_associate_tenant_company')
       if (cancelled) return
       if (error) {
         setState({ loading: false, needsOnboarding: false, error: error.message })

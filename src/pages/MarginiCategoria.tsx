@@ -31,6 +31,7 @@ function getMonthLabel(dateStr: string) {
 // ═══ MAIN COMPONENT ═══
 export default function MarginiCategoria() {
   const { profile } = useAuth()
+  const labels = useCompanyLabels()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [tab, setTab] = useState<'outlet' | 'costi' | 'trend'>('outlet')
