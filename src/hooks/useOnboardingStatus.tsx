@@ -44,16 +44,21 @@ export function useOnboardingStatus(): OnboardingStatus {
     }
     setState((s) => ({ ...s, loading: true, error: null }))
     ;(async () => {
-      const { data, error } = await supabase
-        .from('companies')
-        .select('id')
-        .limit(1)
+      // Usa RPC `get_or_associate_tenant_company` (SECURITY DEFINER) invece
+      // di SELECT diretta su companies (che con RLS nasconde le righe a utenti
+      // senza company_id). La RPC:
+      //  - se utente ha già company_id → ritorna quello
+      //  - se utente senza company_id MA tenant ha company → auto-associa
+      //  - se tenant vergine (0 companies) → ritorna NULL → wizard
+      // Questo evita che un nuovo utente di un tenant già onboardato venga
+      // erroneamente reindirizzato al wizard.
+      const { data, error } = await supabase.rpc('get_or_associate_tenant_company')
       if (cancelled) return
       if (error) {
         setState({ loading: false, needsOnboarding: false, error: error.message })
         return
       }
-      const empty = !data || data.length === 0
+      const empty = data == null
       setState({ loading: false, needsOnboarding: empty, error: null })
     })()
     return () => {
