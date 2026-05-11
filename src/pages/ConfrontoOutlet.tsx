@@ -704,7 +704,7 @@ export default function ConfrontoOutlet() {
   function exportExcel(): void {
     const rows = outletMetrics.filter((o): o is OutletMetric & { calculatedMetrics: CalculatedMetrics } => o.calculatedMetrics !== null)
     if (!rows.length) return
-    const header = ['Outlet','Ricavi','Margine','Margine %','Dipendenti','€/Dipendente','Costo personale','Affitto','Servizi','Merci','Breakeven','Quota sede','Approvazione %']
+    const header = [labels.pointOfSale,'Ricavi','Margine','Margine %','Dipendenti','€/Dipendente','Costo personale','Affitto','Servizi','Merci','Breakeven','Quota sede','Approvazione %']
     const csvRows = [header.join(';')]
     rows.forEach(o => {
       const m = o.calculatedMetrics
@@ -818,7 +818,7 @@ export default function ConfrontoOutlet() {
                 };
               })}
             columns={[
-              { key: 'outlet', label: 'Outlet' },
+              { key: 'outlet', label: labels.pointOfSale },
               { key: 'ricavi', label: 'Ricavi', format: 'euro' },
               { key: 'margine', label: 'Margine', format: 'euro' },
               { key: 'margine_pct', label: 'Margine %', format: 'percent' },

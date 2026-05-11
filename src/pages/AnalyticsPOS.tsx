@@ -435,7 +435,7 @@ export default function AnalyticsPOS() {
 
         {/* Bar Chart - Scontrini per outlet */}
         <div className="rounded-2xl p-6 shadow-lg mb-8" style={{ background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)', border: '1px solid rgba(99,102,241,0.08)' }}>
-          <h3 className="text-lg font-bold text-slate-900 mb-6">Numero Scontrini per Outlet - Trend Mensile</h3>
+          <h3 className="text-lg font-bold text-slate-900 mb-6">Numero Scontrini per {labels.pointOfSalePlural} - Trend Mensile</h3>
           <ResponsiveContainer width="100%" height={400}>
             <BarChart data={chartData} margin={{ top: 20, right: 30, left: 0, bottom: 0 }}>
               <defs>
@@ -488,7 +488,7 @@ export default function AnalyticsPOS() {
 
         {/* Table - Outlet Comparison */}
         <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm mb-8">
-          <h3 className="text-lg font-bold text-slate-900 mb-6">Confronto Outlet - Metriche Annuali</h3>
+          <h3 className="text-lg font-bold text-slate-900 mb-6">Confronto {labels.pointOfSalePlural} - Metriche Annuali</h3>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>

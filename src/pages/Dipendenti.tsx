@@ -808,7 +808,7 @@ export default function Dipendenti() {
       <div className="rounded-2xl shadow-lg p-6 mb-8" style={{ background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)', border: '1px solid rgba(99,102,241,0.08)' }}>
         <div className="flex items-center gap-2 mb-4">
           <BarChart3 className="w-5 h-5 text-blue-600" />
-          <h2 className="text-lg font-semibold text-slate-900">Costo per Outlet - Consuntivo 2025</h2>
+          <h2 className="text-lg font-semibold text-slate-900">Costo per {labels.pointOfSalePlural} - Consuntivo 2025</h2>
         </div>
         <ResponsiveContainer width="100%" height={300}>
           <BarChart data={chart2025Data}>
@@ -1357,7 +1357,7 @@ export default function Dipendenti() {
               { key: 'nome', label: 'Nome' },
               { key: 'qualifica', label: 'Qualifica' },
               { key: 'contratto', label: 'Contratto' },
-              { key: 'outlet', label: 'Outlet' },
+              { key: 'outlet', label: labels.pointOfSale },
               { key: 'allocazione', label: 'Allocazione %' },
               { key: 'mese', label: 'Mese' },
               { key: 'retribuzione', label: 'Retribuzione', format: 'euro' },

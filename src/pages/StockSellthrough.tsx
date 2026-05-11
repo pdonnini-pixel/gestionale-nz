@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line } from 'recharts'
 import { TrendingUp, AlertTriangle, Package, Calendar, DollarSign, ChevronDown, ChevronUp } from 'lucide-react'
 import { GlassTooltip, AXIS_STYLE, GRID_STYLE } from '../components/ChartTheme'
+import { useCompanyLabels } from '../hooks/useCompanyLabels'
 
 function fmt(n: number, dec = 0): string {
   return new Intl.NumberFormat('it-IT', { minimumFractionDigits: dec, maximumFractionDigits: dec }).format(n)
@@ -426,6 +427,7 @@ interface AlertEntry {
 }
 
 export default function StockSellthrough() {
+  const labels = useCompanyLabels()
   const [selectedOutlet, setSelectedOutlet] = useState<string | null>(null)
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
   const [expandedOutlet, setExpandedOutlet] = useState<string | null>(null)
@@ -628,7 +630,7 @@ export default function StockSellthrough() {
           </div>
 
           <div className="rounded-2xl p-6 shadow-lg" style={{ background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)', border: '1px solid rgba(99,102,241,0.08)' }}>
-            <h3 className="text-lg font-semibold text-slate-900 mb-4">Valore Stock per Outlet (€)</h3>
+            <h3 className="text-lg font-semibold text-slate-900 mb-4">Valore Stock per {labels.pointOfSalePlural} (€)</h3>
             <ResponsiveContainer width="100%" height={300}>
               <BarChart data={stockValueChartData}>
                 <defs>
