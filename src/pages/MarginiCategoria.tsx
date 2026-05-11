@@ -325,7 +325,7 @@ export default function MarginiCategoria() {
           <ExportMenu
             data={outletData}
             columns={[
-              { key: 'name', label: 'Outlet' },
+              { key: 'name', label: labels.pointOfSale },
               { key: 'revenue', label: 'Ricavi', format: 'euro' },
               { key: 'costs', label: 'Costi', format: 'euro' },
               { key: 'margin', label: 'Margine', format: 'euro' },

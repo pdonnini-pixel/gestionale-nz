@@ -731,7 +731,7 @@ export default function Dashboard() {
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
           <h2 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
-            <Store size={15} className="text-indigo-500" /> Performance Outlet
+            <Store size={15} className="text-indigo-500" /> Performance {labels.pointOfSalePlural}
           </h2>
           <Link to="/confronto-outlet" className="text-xs text-blue-500 font-medium hover:text-blue-700 flex items-center gap-1">
             Confronto completo <ChevronRight size={12} />
