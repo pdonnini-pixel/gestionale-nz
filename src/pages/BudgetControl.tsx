@@ -17,7 +17,7 @@ import {
   Calculator, ChevronDown, ChevronUp,
   Store, Building2, Save, Trash2,
   AlertTriangle, CheckCircle2, TrendingUp, TrendingDown, Target,
-  BarChart3, Copy, Lock, Unlock, Info
+  BarChart3, Copy, Lock, Unlock, Info, RefreshCw
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 
@@ -269,6 +269,22 @@ function fmt(n: number | null | undefined, dec = 2) {
 }
 function fmtC(n: number | null | undefined) { return n == null || isNaN(n) ? '—' : `${fmt(n, 2)} €` }
 
+// Formatta tempo relativo per "ultimo aggiornamento consuntivo".
+// Pensato per Sabrina: stringhe brevi e parlanti, non timestamp ISO.
+function fmtRelativeTime(date: Date | null | undefined): string {
+  if (!date) return 'mai'
+  const diffMs = Date.now() - date.getTime()
+  if (diffMs < 0) return 'in arrivo'
+  const diffMin = Math.floor(diffMs / 60000)
+  if (diffMin < 1) return 'pochi secondi fa'
+  if (diffMin < 60) return `${diffMin} min fa`
+  const diffH = Math.floor(diffMin / 60)
+  if (diffH < 24) return `${diffH} ${diffH === 1 ? 'ora' : 'ore'} fa`
+  const diffD = Math.floor(diffH / 24)
+  if (diffD < 30) return `${diffD} ${diffD === 1 ? 'giorno' : 'giorni'} fa`
+  return date.toLocaleDateString('it-IT')
+}
+
 function getCodeLevel(code: string | null | undefined) {
   if (!code) return 0
   const len = code.replace(/\s/g, '').length
@@ -480,6 +496,8 @@ export default function BudgetControl() {
     is_approved?: boolean | null
     approved_at?: string | null; approved_by?: string | null
     unlocked_at?: string | null; unlocked_by?: string | null; unlock_reason?: string | null
+    actual_refreshed_at?: string | null
+    actual_breakdown?: Record<string, number> | null
     [k: string]: unknown
   }
   const [costCenters, setCostCenters] = useState<CostCenter[]>([])
@@ -492,6 +510,9 @@ export default function BudgetControl() {
   const [cashTotals, setCashTotals] = useState({ entrate: 0, uscite: 0, netto: 0, count: 0 })
   const [cashByMonth, setCashByMonth] = useState<CashByMonth>({})
   const [cashLoaded, setCashLoaded] = useState(false)
+
+  // Stato refresh consuntivo (chiamata RPC refresh_budget_consuntivo)
+  const [consuntivoRefreshing, setConsuntivoRefreshing] = useState(false)
 
   // BP edits: { outletCode: { accountCode: amount } }
   type EditMap = Record<string, Record<string, number>>
@@ -709,6 +730,64 @@ export default function BudgetControl() {
       await loadCashMovements()
     } catch (err: unknown) { console.error(err) } finally { setLoading(false) }
   }
+
+  // ─── REFRESH CONSUNTIVO (RPC refresh_budget_consuntivo) ───────
+  // Aggrega in tempo reale il consuntivo da fonti reali (daily_revenue,
+  // active_invoices, electronic_invoices) e popola budget_entries.actual_amount.
+  // Il bottone diventa giallo quando i trigger DB hanno invalidato
+  // actual_refreshed_at (es: nuova fattura caricata in Fatturazione).
+  const refreshConsuntivo = useCallback(async (outletId: string | null = null) => {
+    if (!CID) return
+    setConsuntivoRefreshing(true)
+    try {
+      const { data, error } = await supabase.rpc('refresh_budget_consuntivo', {
+        p_outlet_id: outletId,
+        p_year: year,
+      })
+      if (error) throw error
+      const result = (data ?? {}) as {
+        success?: boolean
+        error?: string
+        rows_updated?: number
+        total_ricavi_consuntivo?: number
+        total_costi_consuntivo?: number
+        risultato_consuntivo?: number
+      }
+      if (result.success === false) throw new Error(result.error || 'Errore aggiornamento consuntivo')
+      const rows = result.rows_updated ?? 0
+      const ricavi = result.total_ricavi_consuntivo ?? 0
+      const costi = result.total_costi_consuntivo ?? 0
+      show(`Consuntivo aggiornato — ${rows} righe · Ricavi ${fmtC(ricavi)} · Costi ${fmtC(costi)}`)
+      // Reload per riflettere actual_amount + actual_refreshed_at nello state
+      await loadAll()
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Errore sconosciuto'
+      show(`Errore aggiornamento consuntivo: ${msg}`, 'error')
+      console.error('[refreshConsuntivo]', err)
+    } finally {
+      setConsuntivoRefreshing(false)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [CID, year])
+
+  // Meta del consuntivo: timestamp dell'ultimo refresh + flag stale.
+  // Stale = qualche riga ha actual_refreshed_at NULL (trigger ha invalidato)
+  // OPPURE l'ultimo refresh è più vecchio di 24h.
+  const consuntivoMeta = useMemo(() => {
+    const relevant = budgetEntries.filter(e => e.cost_center !== 'rettifica_bilancio')
+    if (relevant.length === 0) {
+      return { lastRefresh: null as Date | null, isStale: false, neverRefreshed: true }
+    }
+    const withRefresh = relevant.filter(e => e.actual_refreshed_at)
+    const anyNull = relevant.some(e => !e.actual_refreshed_at)
+    if (withRefresh.length === 0) {
+      return { lastRefresh: null as Date | null, isStale: true, neverRefreshed: true }
+    }
+    const timestamps = withRefresh.map(e => new Date(e.actual_refreshed_at as string).getTime())
+    const lastRefresh = new Date(Math.max(...timestamps))
+    const olderThan24h = (Date.now() - lastRefresh.getTime()) > 24 * 60 * 60 * 1000
+    return { lastRefresh, isStale: anyNull || olderThan24h, neverRefreshed: false }
+  }, [budgetEntries])
 
   // ─── TREES ─────────────────────────────────────────────────
   // `ops` = cost_centers che rappresentano punti vendita operativi, ESCLUSI:
@@ -999,7 +1078,42 @@ export default function BudgetControl() {
           </h1>
           <p className="text-slate-500 mt-1 text-sm">Business Plan preventivo/consuntivo per {labels.pointOfSaleLower}</p>
         </div>
-        <span className="px-3 py-2 border border-slate-200 rounded-lg text-sm font-semibold bg-slate-50">{year}</span>
+        <div className="flex items-center gap-3">
+          <span className="px-3 py-2 border border-slate-200 rounded-lg text-sm font-semibold bg-slate-50">{year}</span>
+          {!hasRole('ceo') && (
+            <button
+              onClick={() => refreshConsuntivo(null)}
+              disabled={consuntivoRefreshing}
+              className={`px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 border transition shrink-0 ${
+                consuntivoMeta.isStale
+                  ? 'bg-amber-50 border-amber-300 text-amber-800 hover:bg-amber-100'
+                  : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
+              } ${consuntivoRefreshing ? 'opacity-50 cursor-not-allowed' : ''}`}
+              title="Aggrega il consuntivo da fatture passive, ricavi POS e fatture attive"
+            >
+              <RefreshCw size={14} className={consuntivoRefreshing ? 'animate-spin' : ''} />
+              {consuntivoRefreshing ? 'Aggiornamento…' : 'Aggiorna consuntivo'}
+            </button>
+          )}
+          <div className="text-xs text-slate-500 leading-tight min-w-[140px]">
+            {consuntivoMeta.neverRefreshed ? (
+              <span className="text-amber-700 font-medium">Consuntivo mai calcolato</span>
+            ) : consuntivoMeta.isStale ? (
+              <>
+                <span className="text-amber-700 font-medium">Consuntivo da rinfrescare</span>
+                {consuntivoMeta.lastRefresh && (
+                  <><br /><span className="text-slate-500">ultimo: {fmtRelativeTime(consuntivoMeta.lastRefresh)}</span></>
+                )}
+              </>
+            ) : (
+              <>
+                Ultimo aggiornamento:
+                <br />
+                <span className="font-medium text-slate-700">{fmtRelativeTime(consuntivoMeta.lastRefresh)}</span>
+              </>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* TABS */}
