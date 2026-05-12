@@ -2047,8 +2047,8 @@ export default function Outlet() {
       {!selectedOutlet && (
         <div className="flex gap-1 bg-slate-100 rounded-lg p-1 w-fit">
           {[
-            { key: 'operativi', label: 'Outlet operativi' },
-            { key: 'valutazione', label: 'Outlet in valutazione' },
+            { key: 'operativi', label: `${labels.pointOfSalePlural} operativi` },
+            { key: 'valutazione', label: `${labels.pointOfSalePlural} in valutazione` },
           ].map(t => (
             <button
               key={t.key}
@@ -2112,7 +2112,7 @@ export default function Outlet() {
                         className="flex items-center gap-2 px-4 py-2 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition"
                       >
                         <Plus size={16} />
-                        Nuovo outlet
+                        Nuovo {labels.pointOfSaleLower}
                       </button>
                     </>
                   )}
