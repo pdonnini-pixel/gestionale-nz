@@ -7836,6 +7836,10 @@ export type Database = {
       }
       get_yapily_credentials: { Args: never; Returns: Json }
       has_jwt_role: { Args: { role_name: string }; Returns: boolean }
+      refresh_budget_consuntivo: {
+        Args: { p_outlet_id?: string | null; p_year?: number | null }
+        Returns: Json
+      }
       has_outlet_access: { Args: { p_outlet_id: string }; Returns: boolean }
       has_outlet_write: { Args: { p_outlet_id: string }; Returns: boolean }
       http: {
