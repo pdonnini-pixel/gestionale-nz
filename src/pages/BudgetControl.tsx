@@ -17,12 +17,15 @@ const ALL_OUTLETS_CODE = '__all_outlets__'
 import { useRole } from '../hooks/useRole'
 import { usePeriod } from '../hooks/usePeriod'
 import { useCompanyLabels } from '../hooks/useCompanyLabels'
+import { useCompany } from '../hooks/useCompany'
 import PageHelp from '../components/PageHelp'
+import ExportBilancioDialog from '../components/ExportBilancioDialog'
+import { getCurrentTenant } from '../lib/tenants'
 import {
   Calculator, ChevronDown, ChevronUp,
   Store, Building2, Save, Trash2,
   AlertTriangle, CheckCircle2, TrendingUp, TrendingDown, Target,
-  BarChart3, Copy, Lock, Unlock, Info, RefreshCw
+  BarChart3, Copy, Lock, Unlock, Info, RefreshCw, FileSpreadsheet
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 
@@ -467,6 +470,7 @@ export default function BudgetControl() {
   const { profile } = useAuth()
   const { hasRole } = useRole()
   const labels = useCompanyLabels()
+  const { company } = useCompany()
   const canApproveBudget = hasRole('budget_approver')
   const CID = profile?.company_id
   const { year, quarter, getDateRange } = usePeriod()
@@ -518,6 +522,9 @@ export default function BudgetControl() {
 
   // Stato refresh consuntivo (chiamata RPC refresh_budget_consuntivo)
   const [consuntivoRefreshing, setConsuntivoRefreshing] = useState(false)
+
+  // Stato dialog "Esporta bilancio consuntivo" (Lavoro 3)
+  const [exportDialogOpen, setExportDialogOpen] = useState(false)
 
   // BP edits: { outletCode: { accountCode: amount } }
   type EditMap = Record<string, Record<string, number>>
@@ -1306,18 +1313,26 @@ export default function BudgetControl() {
                     </button>
                   ))}
                 </div>
-                {canApproveBudget && confOutlet !== ALL_OUTLETS_CODE && (
-                  <div className="ml-auto flex gap-2">
-                    <button onClick={() => confView === 'annuale' ? clearConfrontoAnnuale(confOutlet) : clearConfrontoMensile(confOutlet)}
-                      className="px-3 py-2 border border-red-200 text-red-600 rounded-lg text-sm font-medium hover:bg-red-50 flex items-center gap-1.5">
-                      <Trash2 size={14} /> Svuota {confView === 'annuale' ? 'annuale' : 'mensile'}
-                    </button>
-                    <button onClick={() => saveConfronto(confOutlet)} disabled={saving}
-                      className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 flex items-center gap-1.5">
-                      <Save size={14} /> {saving ? 'Salvo...' : 'Salva confronto'}
-                    </button>
-                  </div>
-                )}
+                <div className="ml-auto flex gap-2 flex-wrap">
+                  {/* Esporta bilancio: sempre visibile (anche per CEO read-only) */}
+                  <button onClick={() => setExportDialogOpen(true)}
+                    className="px-3 py-2 border border-emerald-200 text-emerald-700 bg-emerald-50 rounded-lg text-sm font-medium hover:bg-emerald-100 flex items-center gap-1.5"
+                    title="Genera file Excel con bilancio consuntivo per il periodo scelto">
+                    <FileSpreadsheet size={14} /> Esporta bilancio
+                  </button>
+                  {canApproveBudget && confOutlet !== ALL_OUTLETS_CODE && (
+                    <>
+                      <button onClick={() => confView === 'annuale' ? clearConfrontoAnnuale(confOutlet) : clearConfrontoMensile(confOutlet)}
+                        className="px-3 py-2 border border-red-200 text-red-600 rounded-lg text-sm font-medium hover:bg-red-50 flex items-center gap-1.5">
+                        <Trash2 size={14} /> Svuota {confView === 'annuale' ? 'annuale' : 'mensile'}
+                      </button>
+                      <button onClick={() => saveConfronto(confOutlet)} disabled={saving}
+                        className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 flex items-center gap-1.5">
+                        <Save size={14} /> {saving ? 'Salvo...' : 'Salva confronto'}
+                      </button>
+                    </>
+                  )}
+                </div>
               </div>
 
               {/* Banner informativo per vista aggregata "Tutti gli outlet" */}
@@ -1467,6 +1482,18 @@ export default function BudgetControl() {
           {toast.t==='error' ? <AlertTriangle size={16}/> : <CheckCircle2 size={16}/>} {toast.msg}
         </div>
       )}
+
+      {/* EXPORT BILANCIO DIALOG */}
+      <ExportBilancioDialog
+        open={exportDialogOpen}
+        onClose={() => setExportDialogOpen(false)}
+        budgetEntries={budgetEntries}
+        operativeOutlets={ops}
+        year={year}
+        tenantName={company?.name || 'Tenant'}
+        tenantCode={getCurrentTenant().alias}
+        userEmail={(profile as { email?: string } | null)?.email || ''}
+      />
     </div>
   )
 }
