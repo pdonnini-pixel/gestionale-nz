@@ -9,6 +9,11 @@ const VALID_BUDGET_TABS: BudgetTab[] = ['bp', 'confronto']
 // Vista confronto Preventivo vs Consuntivo — persistita come ?confView=
 type BudgetConfView = 'annuale' | 'mensile'
 const VALID_BUDGET_CONF_VIEWS: BudgetConfView[] = ['annuale', 'mensile']
+
+// Pseudo-codice per "vista aggregata di tutti gli outlet operativi" nel
+// selettore Confronto. Non e' un cost_center reale ma una vista UI che
+// somma per account_code i prevEdits/consEdits/rettEdits di tutti gli outlet.
+const ALL_OUTLETS_CODE = '__all_outlets__'
 import { useRole } from '../hooks/useRole'
 import { usePeriod } from '../hooks/usePeriod'
 import { useCompanyLabels } from '../hooks/useCompanyLabels'
@@ -808,6 +813,41 @@ export default function BudgetControl() {
   const ricaviTree = useMemo(() => buildTree(ceRawRicavi), [ceRawRicavi])
   const hasTree = ceRawCosti.length > 0 || ceRawRicavi.length > 0
 
+  // Aggrega bpEdits/consEdits/rettEdits sommando per account_code su tutti
+  // gli outlet operativi visibili al ruolo corrente. Usato per la vista
+  // "Tutti gli outlet" nel selettore Confronto (default per CEO).
+  const aggregatedConfrontoEdits = useMemo(() => {
+    const empty = { prev: {} as Record<string, number>, cons: {} as Record<string, number>, rett: {} as Record<string, number>, outletCount: 0 }
+    if (confOutlet !== ALL_OUTLETS_CODE) return empty
+    const operative = (canApproveBudget
+      ? ops
+      : ops.filter(cc => (workflow[cc.code]?.status ?? 'bozza') !== 'bozza')
+    )
+    if (operative.length === 0) return empty
+    const sumInto = (dst: Record<string, number>, src: Record<string, number> | undefined) => {
+      if (!src) return
+      for (const [ac, amt] of Object.entries(src)) {
+        dst[ac] = (dst[ac] || 0) + (amt || 0)
+      }
+    }
+    const prev: Record<string, number> = {}, cons: Record<string, number> = {}, rett: Record<string, number> = {}
+    for (const o of operative) {
+      sumInto(prev, bpEdits[o.code])
+      sumInto(cons, consEdits[o.code])
+      sumInto(rett, rettEdits[o.code])
+    }
+    return { prev, cons, rett, outletCount: operative.length }
+  }, [confOutlet, bpEdits, consEdits, rettEdits, ops, workflow, canApproveBudget])
+
+  // Default selettore Confronto: per CEO (read-only) parte sulla vista
+  // aggregata "Tutti gli outlet". Per altri ruoli rimane il primo outlet
+  // con preventivo (gia' impostato in loadAll).
+  useEffect(() => {
+    if (!loading && hasRole('ceo') && !confOutlet) {
+      setConfOutlet(ALL_OUTLETS_CODE)
+    }
+  }, [loading, hasRole, confOutlet])
+
   // ─── APPROVE / UNLOCK ──────────────────────────────────────
   const approveOutletYear = async (code: string) => {
     if (!CID) return
@@ -1254,6 +1294,7 @@ export default function BudgetControl() {
               <div className="flex items-center gap-3 flex-wrap">
                 <span className="text-sm text-slate-600 font-medium">{labels.pointOfSale}:</span>
                 <select value={confOutlet} onChange={e => setConfOutlet(e.target.value)} className="px-3 py-2 border border-slate-200 rounded-lg text-sm">
+                  <option value={ALL_OUTLETS_CODE}>📊 Tutti gli {labels.pointOfSalePluralLower} (vista aggregata)</option>
                   {(canApproveBudget ? outletsWithBP : outletsWithBP.filter(cc => (workflow[cc.code]?.status ?? 'bozza') !== 'bozza'))
                     .map(cc => <option key={cc.code} value={cc.code}>{prettyCenterLabel(cc)}</option>)}
                 </select>
@@ -1265,7 +1306,7 @@ export default function BudgetControl() {
                     </button>
                   ))}
                 </div>
-                {canApproveBudget && (
+                {canApproveBudget && confOutlet !== ALL_OUTLETS_CODE && (
                   <div className="ml-auto flex gap-2">
                     <button onClick={() => confView === 'annuale' ? clearConfrontoAnnuale(confOutlet) : clearConfrontoMensile(confOutlet)}
                       className="px-3 py-2 border border-red-200 text-red-600 rounded-lg text-sm font-medium hover:bg-red-50 flex items-center gap-1.5">
@@ -1278,7 +1319,49 @@ export default function BudgetControl() {
                   </div>
                 )}
               </div>
-              {confOutlet && confView === 'annuale' && (
+
+              {/* Banner informativo per vista aggregata "Tutti gli outlet" */}
+              {confOutlet === ALL_OUTLETS_CODE && (
+                <div className="flex items-start gap-3 bg-indigo-50 border border-indigo-200 rounded-xl p-4">
+                  <Info size={18} className="text-indigo-600 mt-0.5 shrink-0" />
+                  <div className="text-sm text-indigo-900 flex-1">
+                    <strong>Vista aggregata di tutti gli {labels.pointOfSalePluralLower}.</strong>
+                    {' '}I valori qui sotto sono la <strong>somma</strong> di preventivo, consuntivo e rettifica di {aggregatedConfrontoEdits.outletCount} {aggregatedConfrontoEdits.outletCount === 1 ? labels.pointOfSaleLower : labels.pointOfSalePluralLower}.
+                    {' '}Per modificare i valori di un singolo {labels.pointOfSaleLower}, selezionalo dal menu sopra.
+                  </div>
+                </div>
+              )}
+
+              {/* Vista aggregata: solo "annuale" supportata in v1 */}
+              {confOutlet === ALL_OUTLETS_CODE && confView === 'mensile' && (
+                <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl p-4">
+                  <AlertTriangle size={18} className="text-amber-600 mt-0.5 shrink-0" />
+                  <div className="text-sm text-amber-800">
+                    La vista mensile aggregata non è ancora disponibile. Seleziona un singolo {labels.pointOfSaleLower} per la vista mensile, oppure passa alla vista <strong>Annuale</strong>.
+                  </div>
+                </div>
+              )}
+
+              {/* Pannello annuale: vista aggregata "Tutti gli outlet" */}
+              {confOutlet === ALL_OUTLETS_CODE && confView === 'annuale' && (
+                <ConfrontoPanel
+                  outletCode={ALL_OUTLETS_CODE}
+                  outletLabel={`Tutti gli ${labels.pointOfSalePluralLower} (${aggregatedConfrontoEdits.outletCount})`}
+                  prevEdits={aggregatedConfrontoEdits.prev}
+                  consEdits={aggregatedConfrontoEdits.cons}
+                  onConsEdit={() => { /* read-only nella vista aggregata */ }}
+                  rettEdits={aggregatedConfrontoEdits.rett}
+                  onRettEdit={() => { /* read-only nella vista aggregata */ }}
+                  costiTree={costiTree}
+                  ricaviTree={ricaviTree}
+                  year={year}
+                  cashTotals={cashTotals}
+                  cashLoaded={cashLoaded}
+                />
+              )}
+
+              {/* Pannello annuale: vista singolo outlet (logica esistente) */}
+              {confOutlet && confOutlet !== ALL_OUTLETS_CODE && confView === 'annuale' && (
                 <ConfrontoPanel
                   outletCode={confOutlet}
                   outletLabel={prettyCenterLabel(costCenters.find(c => c.code === confOutlet)) || prettyCenterLabel({ code: confOutlet })}
@@ -1294,7 +1377,7 @@ export default function BudgetControl() {
                   cashLoaded={cashLoaded}
                 />
               )}
-              {confOutlet && confView === 'mensile' && (
+              {confOutlet && confOutlet !== ALL_OUTLETS_CODE && confView === 'mensile' && (
                 <ConfrontoMensile
                   outletCode={confOutlet}
                   outletLabel={prettyCenterLabel(costCenters.find(c => c.code === confOutlet)) || prettyCenterLabel({ code: confOutlet })}
