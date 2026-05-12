@@ -213,9 +213,15 @@ export default function ExportBilancioDialog({
       XLSX.utils.book_append_sheet(wb, ws2, 'Dettaglio')
 
       // ─── DOWNLOAD ────────────────────────────────────────────────────
-      const periodSlug = monthRange.label.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '')
+      // Nome file: bilancio_consuntivo_<tenant>_<outlet>_<periodo>_<YYYY-MM-DD>.xlsx
+      // Outlet = "tutti" se filtro su tutti, altrimenti slug del nome outlet scelto.
+      const slugify = (s: string) => s.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '')
+      const periodSlug = slugify(monthRange.label)
+      const outletSlug = outletFilter === '__all__'
+        ? 'tutti'
+        : slugify(outletLabel(outletFilter)) || outletFilter
       const ts = new Date().toISOString().slice(0, 10) // YYYY-MM-DD
-      const filename = `bilancio_consuntivo_${tenantCode.toLowerCase()}_${periodSlug}_${ts}.xlsx`
+      const filename = `bilancio_consuntivo_${slugify(tenantCode)}_${outletSlug}_${periodSlug}_${ts}.xlsx`
       XLSX.writeFile(wb, filename)
       onClose()
     } catch (err) {
