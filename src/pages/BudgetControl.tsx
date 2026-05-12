@@ -1080,41 +1080,65 @@ export default function BudgetControl() {
         </div>
         <div className="flex items-center gap-3">
           <span className="px-3 py-2 border border-slate-200 rounded-lg text-sm font-semibold bg-slate-50">{year}</span>
-          {!hasRole('ceo') && (
+          {!hasRole('ceo') && !consuntivoMeta.isStale && !consuntivoMeta.neverRefreshed && (
             <button
               onClick={() => refreshConsuntivo(null)}
               disabled={consuntivoRefreshing}
-              className={`px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 border transition shrink-0 ${
-                consuntivoMeta.isStale
-                  ? 'bg-amber-50 border-amber-300 text-amber-800 hover:bg-amber-100'
-                  : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
-              } ${consuntivoRefreshing ? 'opacity-50 cursor-not-allowed' : ''}`}
-              title="Aggrega il consuntivo da fatture passive, ricavi POS e fatture attive"
+              className={`px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 border transition shrink-0 bg-white border-slate-300 text-slate-700 hover:bg-slate-50 ${
+                consuntivoRefreshing ? 'opacity-50 cursor-not-allowed' : ''
+              }`}
+              title="Ricalcola il consuntivo dalle fatture passive, ricavi POS e fatture attive"
             >
               <RefreshCw size={14} className={consuntivoRefreshing ? 'animate-spin' : ''} />
               {consuntivoRefreshing ? 'Aggiornamento…' : 'Aggiorna consuntivo'}
             </button>
           )}
-          <div className="text-xs text-slate-500 leading-tight min-w-[140px]">
-            {consuntivoMeta.neverRefreshed ? (
-              <span className="text-amber-700 font-medium">Consuntivo mai calcolato</span>
-            ) : consuntivoMeta.isStale ? (
-              <>
-                <span className="text-amber-700 font-medium">Consuntivo da rinfrescare</span>
-                {consuntivoMeta.lastRefresh && (
-                  <><br /><span className="text-slate-500">ultimo: {fmtRelativeTime(consuntivoMeta.lastRefresh)}</span></>
-                )}
-              </>
-            ) : (
-              <>
-                Ultimo aggiornamento:
-                <br />
-                <span className="font-medium text-slate-700">{fmtRelativeTime(consuntivoMeta.lastRefresh)}</span>
-              </>
-            )}
-          </div>
+          {!consuntivoMeta.isStale && !consuntivoMeta.neverRefreshed && (
+            <div className="text-xs text-slate-500 leading-tight min-w-[140px]">
+              Ultimo aggiornamento:
+              <br />
+              <span className="font-medium text-slate-700">{fmtRelativeTime(consuntivoMeta.lastRefresh)}</span>
+            </div>
+          )}
         </div>
       </div>
+
+      {/* BANNER ALERT consuntivo da aggiornare — visibile e parlato per Sabrina/Lilian */}
+      {!hasRole('ceo') && (consuntivoMeta.isStale || consuntivoMeta.neverRefreshed) && (
+        <div className="bg-red-50 border-2 border-red-300 rounded-xl p-4 shadow-sm">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+            <div className="flex items-start gap-3 flex-1">
+              <div className="bg-red-100 rounded-full p-2 shrink-0">
+                <AlertTriangle size={22} className="text-red-600" />
+              </div>
+              <div className="flex-1">
+                <p className="text-base font-bold text-red-900">
+                  {consuntivoMeta.neverRefreshed
+                    ? 'Consuntivo mai calcolato'
+                    : 'Consuntivo da aggiornare'}
+                </p>
+                <p className="text-sm text-red-800 mt-1">
+                  {consuntivoMeta.neverRefreshed
+                    ? `I numeri di consuntivo che vedi qui sotto non sono ancora stati calcolati dai dati reali (fatture, ricavi POS). Premi "Aggiorna ora" per popolarli.`
+                    : `Sono state caricate nuove fatture o ricavi dopo l'ultimo aggiornamento${consuntivoMeta.lastRefresh ? ` (${fmtRelativeTime(consuntivoMeta.lastRefresh)})` : ''}. I numeri qui sotto possono non riflettere la realtà finché non rigeneri.`}
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => refreshConsuntivo(null)}
+              disabled={consuntivoRefreshing}
+              className={`px-6 py-3 rounded-lg text-sm font-bold flex items-center gap-2 border-2 shrink-0 shadow-sm transition ${
+                consuntivoRefreshing
+                  ? 'bg-red-200 border-red-300 text-red-700 cursor-not-allowed opacity-70'
+                  : 'bg-red-600 border-red-700 text-white hover:bg-red-700 hover:shadow-md'
+              }`}
+            >
+              <RefreshCw size={16} className={consuntivoRefreshing ? 'animate-spin' : ''} />
+              {consuntivoRefreshing ? 'Aggiornamento in corso…' : 'Aggiorna ora'}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* TABS */}
       <div className="flex gap-1 bg-slate-100 rounded-lg p-1 w-fit">
