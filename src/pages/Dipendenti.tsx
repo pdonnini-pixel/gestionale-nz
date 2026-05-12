@@ -3,8 +3,8 @@ import { useSearchParams } from 'react-router-dom';
 import type { Row } from '../types/business';
 
 // Vista Dipendenti — persistita in URL come ?view=
-type DipendentiView = 'consuntivo' | 'organico';
-const VALID_DIPENDENTI_VIEWS: DipendentiView[] = ['consuntivo', 'organico'];
+type DipendentiView = 'consuntivo' | 'organico' | 'per_outlet';
+const VALID_DIPENDENTI_VIEWS: DipendentiView[] = ['consuntivo', 'organico', 'per_outlet'];
 
 type Employee = Row<'employees'>;
 type EmployeeOutletAllocation = Row<'employee_outlet_allocations'>;
@@ -31,6 +31,8 @@ import {
   RefreshCw,
   FileUp,
   Sliders,
+  Store,
+  Users,
 } from 'lucide-react';
 
 const PdfViewer = lazy(() => import('../components/PdfViewer'));
@@ -1132,6 +1134,253 @@ export default function Dipendenti() {
     </div>
   );
 
+  // ========== VISTA PER OUTLET ==========
+  // Mostra i dipendenti raggruppati per outlet con allocazione %, FTE e
+  // costo annuo allocato. Pensata per Sabrina/Lilian: "chi lavora dove?"
+  // e per Massimo/Denise (CEO): "quanto mi costa il personale per outlet?".
+  //
+  // Costo allocato per outlet = somma costi annui dipendente × allocation_pct%.
+  // Se un dipendente è 70% Outlet A + 30% Outlet B, il suo costo è splittato.
+  //
+  // Replicabile sui 3 tenant + clienti SaaS futuri: usa OUTLETS_ORDER (dal
+  // DB) e allocazioni reali, nessun outlet hardcoded.
+
+  const renderPerOutlet = () => {
+    // Anno corrente del consuntivo (usa stesso pattern di consuntivo2025)
+    const year = selectedYear;
+    // Costo annuo totale per dipendente (somma 12 mesi)
+    const totalAnnualByEmployee: Record<string, number> = {};
+    employees.forEach((emp) => {
+      const yearCosts = costs.filter((c) => c.employee_id === emp.id && c.year === year);
+      totalAnnualByEmployee[emp.id || ''] = yearCosts.reduce(
+        (s, c) => s + (c.retribuzione || 0) + (c.contributi || 0) + (c.inail || 0) + (c.tfr || 0) + (c.altri_costi || 0),
+        0,
+      );
+    });
+
+    // Per ogni outlet: lista dipendenti con allocation_pct + costo allocato
+    type OutletDip = {
+      employee: Employee;
+      allocation_pct: number;
+      role_at_outlet: string | null;
+      annual_cost_allocated: number;
+      fte: number;
+    };
+    const grouped: Record<string, OutletDip[]> = {};
+    const unassigned: OutletDip[] = [];
+
+    employees.filter((e) => e.is_active !== false).forEach((emp) => {
+      const empAllocs = allocations.filter((a) => a.employee_id === emp.id);
+      const totalCost = totalAnnualByEmployee[emp.id || ''] || 0;
+      const fteRatio = Number(emp.fte_ratio || 1);
+      if (empAllocs.length === 0) {
+        unassigned.push({
+          employee: emp,
+          allocation_pct: 0,
+          role_at_outlet: null,
+          annual_cost_allocated: totalCost,
+          fte: fteRatio,
+        });
+        return;
+      }
+      empAllocs.forEach((a) => {
+        const pct = Number(a.allocation_pct || 0);
+        const code = a.outlet_code || '';
+        if (!grouped[code]) grouped[code] = [];
+        grouped[code].push({
+          employee: emp,
+          allocation_pct: pct,
+          role_at_outlet: a.role_at_outlet ?? null,
+          annual_cost_allocated: (totalCost * pct) / 100,
+          fte: (fteRatio * pct) / 100,
+        });
+      });
+    });
+
+    const totalAllOutlets = Object.values(grouped).reduce(
+      (s, arr) => s + arr.reduce((sa, d) => sa + d.annual_cost_allocated, 0),
+      0,
+    );
+    const totalUnassigned = unassigned.reduce((s, d) => s + d.annual_cost_allocated, 0);
+
+    return (
+      <div className="space-y-4 mb-8">
+        {/* Banner riassuntivo */}
+        <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl p-4 flex items-start gap-3">
+          <Users className="w-5 h-5 text-blue-700 mt-0.5 shrink-0" />
+          <div className="flex-1 text-sm text-slate-700">
+            <div className="font-semibold text-slate-900 mb-1">
+              Vista per {labels.pointOfSaleLower}: {employees.filter((e) => e.is_active !== false).length} dipendenti attivi
+              distribuiti su {Object.keys(grouped).length} {labels.pointOfSalePluralLower}
+            </div>
+            <div>
+              Costo totale allocato {year}: <strong>{totalAllOutlets.toLocaleString('it-IT', { minimumFractionDigits: 2 })} €</strong>
+              {unassigned.length > 0 && (
+                <span className="ml-2 text-amber-700">
+                  · {unassigned.length} dipendenti senza allocazione ({totalUnassigned.toLocaleString('it-IT', { minimumFractionDigits: 0 })} €)
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Card per ogni outlet */}
+        {OUTLETS_ORDER.map((outletName) => {
+          const dips = grouped[outletName] || [];
+          const totalOutlet = dips.reduce((s, d) => s + d.annual_cost_allocated, 0);
+          const fteOutlet = dips.reduce((s, d) => s + d.fte, 0);
+          const isExpanded = expandedOutlets[outletName] ?? true;
+          const bg = OUTLET_COLORS[outletName] || 'bg-slate-100';
+          return (
+            <div key={outletName} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+              <button
+                onClick={() => setExpandedOutlets((p) => ({ ...p, [outletName]: !isExpanded }))}
+                className="w-full flex items-center justify-between px-5 py-4 hover:bg-slate-50 transition"
+              >
+                <div className="flex items-center gap-3">
+                  <div className={`${bg} w-10 h-10 rounded-lg flex items-center justify-center`}>
+                    <Store className="w-5 h-5 text-white" />
+                  </div>
+                  <div className="text-left">
+                    <div className="font-semibold text-slate-900">{outletName}</div>
+                    <div className="text-xs text-slate-500">
+                      {dips.length} dipendenti · {fteOutlet.toFixed(2)} FTE totali
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-4">
+                  <div className="text-right">
+                    <div className="text-sm font-bold text-slate-900">
+                      {totalOutlet.toLocaleString('it-IT', { minimumFractionDigits: 2 })} €
+                    </div>
+                    <div className="text-xs text-slate-500">costo annuo {year}</div>
+                  </div>
+                  {isExpanded ? <ChevronUp className="w-5 h-5 text-slate-400" /> : <ChevronDown className="w-5 h-5 text-slate-400" />}
+                </div>
+              </button>
+              {isExpanded && (
+                <div className="border-t border-slate-200">
+                  {dips.length === 0 ? (
+                    <div className="px-5 py-6 text-center text-sm text-slate-400">
+                      Nessun dipendente assegnato a questo {labels.pointOfSaleLower}
+                    </div>
+                  ) : (
+                    <table className="w-full text-sm">
+                      <thead className="bg-slate-50">
+                        <tr>
+                          <th className="px-5 py-2 text-left font-semibold text-slate-600">Dipendente</th>
+                          <th className="px-5 py-2 text-left font-semibold text-slate-600">Ruolo</th>
+                          <th className="px-5 py-2 text-right font-semibold text-slate-600">Allocazione</th>
+                          <th className="px-5 py-2 text-right font-semibold text-slate-600">FTE</th>
+                          <th className="px-5 py-2 text-right font-semibold text-slate-600">Costo annuo allocato</th>
+                          <th className="px-5 py-2 text-center font-semibold text-slate-600">Azioni</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {dips.map((d) => {
+                          const empName = `${d.employee.cognome || d.employee.last_name || ''} ${d.employee.nome || d.employee.first_name || ''}`.trim();
+                          const ruolo = d.role_at_outlet || d.employee.role_description || String((d.employee as Record<string, unknown>).qualifica ?? '') || '—';
+                          return (
+                            <tr key={`${d.employee.id}-${outletName}`} className="border-t border-slate-100 hover:bg-slate-50">
+                              <td className="px-5 py-2 font-medium text-slate-900">{empName || 'Senza nome'}</td>
+                              <td className="px-5 py-2 text-slate-600">{ruolo}</td>
+                              <td className="px-5 py-2 text-right text-slate-700">{d.allocation_pct.toFixed(0)}%</td>
+                              <td className="px-5 py-2 text-right text-slate-700">{d.fte.toFixed(2)}</td>
+                              <td className="px-5 py-2 text-right font-semibold text-slate-900">
+                                {d.annual_cost_allocated.toLocaleString('it-IT', { minimumFractionDigits: 2 })} €
+                              </td>
+                              <td className="px-5 py-2 text-center">
+                                <button
+                                  onClick={() => {
+                                    if (d.employee.id) {
+                                      setShowAllocEditor(d.employee.id);
+                                      setAllocEdits(allocations.filter((a) => a.employee_id === d.employee.id));
+                                    }
+                                  }}
+                                  className="px-3 py-1 text-xs font-medium text-blue-700 hover:bg-blue-50 rounded"
+                                  title="Modifica allocazione del dipendente"
+                                >
+                                  Modifica
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+
+        {/* Card "Senza allocazione" se ci sono dipendenti orfani */}
+        {unassigned.length > 0 && (
+          <div className="bg-amber-50 rounded-xl border-2 border-amber-300 shadow-sm overflow-hidden">
+            <div className="px-5 py-4 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="bg-amber-200 w-10 h-10 rounded-lg flex items-center justify-center">
+                  <AlertCircle className="w-5 h-5 text-amber-800" />
+                </div>
+                <div>
+                  <div className="font-semibold text-amber-900">Dipendenti senza allocazione</div>
+                  <div className="text-xs text-amber-700">
+                    {unassigned.length} dipendenti attivi non assegnati a nessun {labels.pointOfSaleLower}
+                  </div>
+                </div>
+              </div>
+              <div className="text-right">
+                <div className="text-sm font-bold text-amber-900">
+                  {totalUnassigned.toLocaleString('it-IT', { minimumFractionDigits: 2 })} €
+                </div>
+                <div className="text-xs text-amber-700">costo annuo non allocato</div>
+              </div>
+            </div>
+            <table className="w-full text-sm border-t border-amber-200">
+              <thead className="bg-amber-100">
+                <tr>
+                  <th className="px-5 py-2 text-left font-semibold text-amber-900">Dipendente</th>
+                  <th className="px-5 py-2 text-left font-semibold text-amber-900">Ruolo</th>
+                  <th className="px-5 py-2 text-right font-semibold text-amber-900">Costo annuo</th>
+                  <th className="px-5 py-2 text-center font-semibold text-amber-900">Azioni</th>
+                </tr>
+              </thead>
+              <tbody>
+                {unassigned.map((d) => {
+                  const empName = `${d.employee.cognome || d.employee.last_name || ''} ${d.employee.nome || d.employee.first_name || ''}`.trim();
+                  const ruolo = d.employee.role_description || String((d.employee as Record<string, unknown>).qualifica ?? '') || '—';
+                  return (
+                    <tr key={d.employee.id} className="border-t border-amber-200 hover:bg-amber-100">
+                      <td className="px-5 py-2 font-medium text-amber-900">{empName || 'Senza nome'}</td>
+                      <td className="px-5 py-2 text-amber-800">{ruolo}</td>
+                      <td className="px-5 py-2 text-right font-semibold text-amber-900">
+                        {d.annual_cost_allocated.toLocaleString('it-IT', { minimumFractionDigits: 2 })} €
+                      </td>
+                      <td className="px-5 py-2 text-center">
+                        <button
+                          onClick={() => {
+                            if (d.employee.id) {
+                              setShowAllocEditor(d.employee.id);
+                              setAllocEdits([]);
+                            }
+                          }}
+                          className="px-3 py-1 text-xs font-medium text-amber-800 bg-amber-200 hover:bg-amber-300 rounded"
+                        >
+                          Assegna a {labels.pointOfSaleLower}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   // ========== SUMMARY TABLE ==========
 
   const renderSummaryTable = () => (
@@ -1301,6 +1550,16 @@ export default function Dipendenti() {
             >
               Organico 2026
             </button>
+            <button
+              onClick={() => setViewMode('per_outlet')}
+              className={`px-5 py-2 rounded-md text-sm font-medium transition flex items-center gap-2 ${
+                viewMode === 'per_outlet'
+                  ? 'bg-white text-blue-700 shadow-sm'
+                  : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              <Store className="w-4 h-4" /> Per {labels.pointOfSaleLower}
+            </button>
           </div>
           <button
             onClick={() => setShowEmployeeForm(true)}
@@ -1312,7 +1571,9 @@ export default function Dipendenti() {
         </div>
 
         {/* Content */}
-        {viewMode === 'consuntivo' ? renderConsuntivo2025() : renderOrganico2026()}
+        {viewMode === 'consuntivo' && renderConsuntivo2025()}
+        {viewMode === 'organico' && renderOrganico2026()}
+        {viewMode === 'per_outlet' && renderPerOutlet()}
 
         {/* Summary Table */}
         {renderSummaryTable()}
