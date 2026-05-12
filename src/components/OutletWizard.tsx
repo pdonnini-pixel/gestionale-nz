@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { useCompanyLabels } from '../hooks/useCompanyLabels'
 import {
   X, ChevronRight, ChevronLeft, Check, AlertCircle,
   Store, MapPin, FileText, DollarSign, Shield, Save, Paperclip, Upload, Sparkles
@@ -479,6 +480,7 @@ interface OutletWizardProps {
 }
 
 export default function OutletWizard({ onClose, onSaved, initialData, allegati, contractFileName, uploadedFiles: initialUploadedFiles, editId }: OutletWizardProps) {
+  const labels = useCompanyLabels()
   const hasAllegati = allegati && allegati.length > 0
   const STEPS = hasAllegati ? [...BASE_STEPS.slice(0, 5), ALLEGATI_STEP, BASE_STEPS[5]] : BASE_STEPS
   const riepilogoIndex = hasAllegati ? 6 : 5
@@ -640,7 +642,7 @@ export default function OutletWizard({ onClose, onSaved, initialData, allegati, 
         {/* Header */}
         <div className="flex items-center justify-between px-5 pt-5 pb-2">
           <h2 className="text-lg font-semibold text-slate-900">
-            {editId ? 'Modifica outlet' : initialData ? 'Nuovo outlet da contratto' : 'Nuovo outlet'}
+            {editId ? `Modifica ${labels.pointOfSaleLower}` : initialData ? `Nuovo ${labels.pointOfSaleLower} da contratto` : `Nuovo ${labels.pointOfSaleLower}`}
           </h2>
           <button onClick={onClose} className="p-1 hover:bg-slate-100 rounded-lg"><X size={20} /></button>
         </div>
