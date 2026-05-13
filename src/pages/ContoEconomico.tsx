@@ -15,7 +15,8 @@ import {
   ArrowUpRight, ArrowDownRight, ChevronDown, ChevronUp, AlertCircle,
   Building2, Users, Warehouse, Banknote, Calculator, ShieldCheck, Store, MapPin,
   FileUp, Download, Lock, CheckCircle, Clock, ThumbsUp, ThumbsDown,
-  Lightbulb, AlertTriangle, FileText, Save, X, Sparkles, LineChart as LineChartIcon, Loader2
+  Lightbulb, AlertTriangle, FileText, Save, X, Sparkles, LineChart as LineChartIcon, Loader2,
+  RefreshCw, Target, Info
 } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -24,6 +25,7 @@ import {
 } from 'recharts'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
+import { useRole } from '../hooks/useRole'
 import { usePeriod } from '../hooks/usePeriod'
 import { GlassTooltip, AXIS_STYLE, GRID_STYLE } from '../components/ChartTheme'
 
@@ -343,6 +345,7 @@ function analyzeStrengthsWeaknesses(ce: Record<string, number | null | undefined
 // ===== MAIN PAGE =====
 export default function ContoEconomico() {
   const { profile } = useAuth()
+  const { hasRole } = useRole()
   const labels = useCompanyLabels()
   const COMPANY_ID = profile?.company_id
   const { year, quarter, getDateRange } = usePeriod()
@@ -420,7 +423,23 @@ export default function ContoEconomico() {
   const [dirtyFields, setDirtyFields] = useState<Record<string, any>>({})
   const [saving, setSaving] = useState(false)
   const [saveMessage, setSaveMessage] = useState<any>(null)
-  const [availableYears, setAvailableYears] = useState([2023, 2024, 2025, 2026])
+  // Anni disponibili dal DB. Default: anno corrente come fallback minimo per
+  // tenant vergini (es. Made/Zago appena onboardati). Popolato in loadAvailableYears.
+  const [availableYears, setAvailableYears] = useState<number[]>([new Date().getFullYear()])
+
+  // ═══ STEP B2: Sincronia Competenza ↔ Budget e Controllo ═══
+  // Aggregazione totali da budget_entries: preventivo, consuntivo, scostamento.
+  // Mostrata in sezione "Confronto con Budget" della vista Competenza.
+  // Ricavi: account_code che inizia con '5' (convenzione standard piano dei
+  // conti italiano). Costi: tutto il resto, escluso cost_center='rettifica_bilancio'.
+  type BudgetSummary = {
+    ricaviPrev: number; ricaviCons: number;
+    costiPrev: number; costiCons: number;
+    lastRefresh: Date | null; anyStale: boolean;
+    rowsTotal: number; rowsBudgetCompiled: number;
+  }
+  const [budgetSummary, setBudgetSummary] = useState<BudgetSummary | null>(null)
+  const [budgetRefreshing, setBudgetRefreshing] = useState(false)
 
   // ═══ Load bilancio tree from Supabase (persists across page reloads) ═══
   type BilancioRow = { code: string; description: string; amount: number; level: number; isMacro: boolean }
@@ -708,8 +727,11 @@ export default function ContoEconomico() {
         .neq('section', 'nota_integrativa')
       if (data && data.length > 0) {
         const years = [...new Set(data.map(d => d.year))].sort((a, b) => b - a)
-        setAvailableYears(years.length > 0 ? years : [2023, 2024, 2025, 2026])
+        if (years.length > 0) setAvailableYears(years)
       }
+      // Se non ci sono righe in balance_sheet_data, lascia il default
+      // (anno corrente). Tenant vergini ottengono cosi' lo year selector con
+      // 1 sola voce invece di anni storici NZ-specifici.
     } catch (error) {
       console.error('Error loading available years:', error)
     }
@@ -797,7 +819,9 @@ export default function ContoEconomico() {
   // Feature 6: Trend multi-anno
   const loadTrendData = async () => {
     try {
-      const years = [2023, 2024, 2025, 2026]
+      // Anni dal DB (caricati in loadAvailableYears) invece di hardcoded NZ.
+      // Su tenant vergini availableYears = [annoCorrente] → trend vuoto, OK.
+      const years = availableYears.length > 0 ? availableYears : [new Date().getFullYear()]
       const { data } = await supabase
         .from('balance_sheet_data')
         .select('*')
@@ -973,12 +997,31 @@ export default function ContoEconomico() {
       const risultatoGestionale = ricavi - costiOutlet - speseNonDivise
       const risultatoConRettifica = risultatoGestionale + Math.abs(rettificheTotale)
 
-      // Dati bilancio civilistico (valori fissi dal bilancio ufficiale 2025)
-      const bilancioUfficiale = year === 2025 ? {
-        ebit: 47549.41,
-        proventiFinanziari: 86.94,
-        oneriFinanziari: -29662.74,
-        utileNetto: 17973.61,
+      // Bilancio civilistico ufficiale: letto da balance_sheet_data section='conto_economico'.
+      // Sostituisce hardcoding NZ 2025 (trappola multi-tenant). Funziona automaticamente
+      // su tutti i tenant: se non c'e' bilancio importato per l'anno, available=false e la
+      // sezione "Bilancio civilistico" della vista Riconciliazione resta nascosta.
+      const { data: bilancioCERows } = await supabase
+        .from('balance_sheet_data')
+        .select('account_code, amount')
+        .eq('company_id', COMPANY_ID)
+        .eq('year', year)
+        .eq('section', 'conto_economico')
+        .in('account_code', ['differenza_ab', 'oneri_finanziari', 'proventi_finanziari', 'utile_netto'])
+
+      const bilancioMap: Record<string, number> = {}
+      ;(bilancioCERows || []).forEach((r) => {
+        if (r.account_code) bilancioMap[r.account_code] = Number(r.amount) || 0
+      })
+
+      // EBIT = differenza_ab (label "Differenza A-B" del CE civilistico).
+      // Oneri finanziari sono salvati come positivi in DB ma vanno mostrati negativi.
+      const hasBilancio = (bilancioCERows || []).length > 0
+      const bilancioUfficiale = hasBilancio ? {
+        ebit: bilancioMap['differenza_ab'] ?? 0,
+        proventiFinanziari: bilancioMap['proventi_finanziari'] ?? 0,
+        oneriFinanziari: bilancioMap['oneri_finanziari'] !== undefined ? -Math.abs(bilancioMap['oneri_finanziari']) : 0,
+        utileNetto: bilancioMap['utile_netto'] ?? 0,
         available: true,
       } : { ebit: null, proventiFinanziari: null, oneriFinanziari: null, utileNetto: null, available: false }
 
@@ -1010,6 +1053,99 @@ export default function ContoEconomico() {
   useEffect(() => {
     if (viewMode === 'riconciliazione') loadRiconciliazione()
   }, [viewMode, year, loadRiconciliazione])
+
+  // ═══ STEP B2: Carica aggregato budget_entries per Competenza ═══
+  // Aggrega ricavi (account_code che inizia con '5') e costi (resto, escluso
+  // rettifica_bilancio) da budget_entries dell'anno corrente. Risultati:
+  // preventivo (budget_amount), consuntivo (actual_amount), freschezza refresh.
+  type BudgetEntryAgg = {
+    account_code?: string | null; cost_center?: string | null;
+    budget_amount?: number | null; actual_amount?: number | null;
+    actual_refreshed_at?: string | null
+  }
+  const loadBudgetSummary = useCallback(async () => {
+    if (!COMPANY_ID) return
+    try {
+      const { data } = await supabase
+        .from('budget_entries')
+        .select('account_code, cost_center, budget_amount, actual_amount, actual_refreshed_at')
+        .eq('company_id', COMPANY_ID)
+        .eq('year', year) as { data: BudgetEntryAgg[] | null }
+      const rows = data || []
+      let ricaviPrev = 0, ricaviCons = 0, costiPrev = 0, costiCons = 0
+      let anyStale = false
+      let lastTs = 0
+      let rowsBudgetCompiled = 0
+      rows.forEach((r) => {
+        if (r.cost_center === 'rettifica_bilancio') return
+        const ac = r.account_code || ''
+        const isRev = ac.startsWith('5')
+        const bp = Number(r.budget_amount || 0)
+        const ac2 = Number(r.actual_amount || 0)
+        if (isRev) {
+          ricaviPrev += bp
+          ricaviCons += ac2
+        } else {
+          costiPrev += bp
+          costiCons += ac2
+        }
+        if (bp !== 0) rowsBudgetCompiled++
+        if (!r.actual_refreshed_at) anyStale = true
+        else {
+          const t = new Date(r.actual_refreshed_at).getTime()
+          if (t > lastTs) lastTs = t
+        }
+      })
+      setBudgetSummary({
+        ricaviPrev, ricaviCons, costiPrev, costiCons,
+        lastRefresh: lastTs > 0 ? new Date(lastTs) : null,
+        anyStale,
+        rowsTotal: rows.length,
+        rowsBudgetCompiled,
+      })
+    } catch (err) {
+      console.error('[loadBudgetSummary]', err)
+      setBudgetSummary(null)
+    }
+  }, [COMPANY_ID, year])
+
+  useEffect(() => {
+    if (viewMode === 'competenza' && COMPANY_ID) loadBudgetSummary()
+  }, [viewMode, year, COMPANY_ID, loadBudgetSummary])
+
+  // Chiama RPC refresh_budget_consuntivo (riusa quella creata in Task A,
+  // Lavoro 1). Bypassata per ruolo 'ceo'. Dopo chiamata, ricarica summary.
+  const handleRefreshBudget = async () => {
+    if (!COMPANY_ID) return
+    setBudgetRefreshing(true)
+    try {
+      const { data, error } = await supabase.rpc('refresh_budget_consuntivo', {
+        p_outlet_id: null,
+        p_year: year,
+      })
+      if (error) throw error
+      const result = (data ?? {}) as { success?: boolean; error?: string }
+      if (result.success === false) throw new Error(result.error || 'Errore aggiornamento consuntivo')
+      await loadBudgetSummary()
+    } catch (err) {
+      console.error('[handleRefreshBudget]', err)
+    } finally {
+      setBudgetRefreshing(false)
+    }
+  }
+
+  // Helper formato relative time (riuso pattern Budget e Controllo)
+  const fmtRelTime = (d: Date | null): string => {
+    if (!d) return 'mai'
+    const diff = Date.now() - d.getTime()
+    const min = Math.floor(diff / 60000)
+    if (min < 1) return 'pochi secondi fa'
+    if (min < 60) return `${min} min fa`
+    const h = Math.floor(min / 60)
+    if (h < 24) return `${h} ${h === 1 ? 'ora' : 'ore'} fa`
+    const day = Math.floor(h / 24)
+    return `${day} ${day === 1 ? 'giorno' : 'giorni'} fa`
+  }
 
   // Feature 4: PDF parsing with pdfjs-dist
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -2005,6 +2141,117 @@ export default function ContoEconomico() {
           </div>
         </div>
       </Section>
+      )}
+
+      {/* ═══ STEP B2: Confronto con Budget e Controllo ═══
+          Mostra preventivo / consuntivo / scostamento aggregati per ricavi
+          e costi, leggendo direttamente da budget_entries (popolato da
+          RPC refresh_budget_consuntivo). Pensato per Massimo/Denise (CEO)
+          per vedere a colpo d'occhio quanto stiamo performando vs budget.
+          Replicato sui 3 tenant: non dipende da account_code specifici
+          di NZ, usa solo convenzione "5xxxxx = ricavi" del piano dei conti italiano. */}
+      {viewMode === 'competenza' && budgetSummary && (
+        <Section title="Confronto con Budget e Controllo" icon={Target}
+          badge={budgetSummary.rowsBudgetCompiled === 0
+            ? 'Preventivo non compilato'
+            : `${budgetSummary.rowsBudgetCompiled} righe preventivo`}>
+          <div className="p-5 space-y-4">
+            {/* Banner stato preventivo + bottone refresh */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="text-sm text-slate-600">
+                {budgetSummary.rowsBudgetCompiled === 0 ? (
+                  <span className="text-amber-700">
+                    <AlertTriangle size={14} className="inline mr-1" />
+                    Nessuna riga del preventivo {year} è stata ancora compilata.
+                    Vai su <strong>Budget e Controllo</strong> per popolare il business plan.
+                  </span>
+                ) : (
+                  <>
+                    Aggregato da <strong>{budgetSummary.rowsTotal}</strong> righe budget_entries · Consuntivo ultimo refresh: <strong>{fmtRelTime(budgetSummary.lastRefresh)}</strong>
+                    {budgetSummary.anyStale && (
+                      <span className="ml-2 text-amber-700">(alcune righe da rinfrescare)</span>
+                    )}
+                  </>
+                )}
+              </div>
+              {!hasRole('ceo') && (
+                <button
+                  onClick={handleRefreshBudget}
+                  disabled={budgetRefreshing}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 border transition shrink-0 ${
+                    budgetSummary.anyStale
+                      ? 'bg-amber-50 border-amber-300 text-amber-800 hover:bg-amber-100'
+                      : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
+                  } ${budgetRefreshing ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  title="Aggrega il consuntivo da fatture passive, ricavi POS e fatture attive"
+                >
+                  <RefreshCw size={14} className={budgetRefreshing ? 'animate-spin' : ''} />
+                  {budgetRefreshing ? 'Aggiornamento…' : 'Aggiorna consuntivo'}
+                </button>
+              )}
+            </div>
+
+            {/* Tabella confronto */}
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50">
+                  <tr>
+                    <th className="px-4 py-2 text-left font-semibold text-slate-700">Voce</th>
+                    <th className="px-4 py-2 text-right font-semibold text-slate-700">Preventivo</th>
+                    <th className="px-4 py-2 text-right font-semibold text-slate-700">Consuntivo</th>
+                    <th className="px-4 py-2 text-right font-semibold text-slate-700">Scostamento €</th>
+                    <th className="px-4 py-2 text-right font-semibold text-slate-700">Scostamento %</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(() => {
+                    const rows = [
+                      { label: 'Ricavi', prev: budgetSummary.ricaviPrev, cons: budgetSummary.ricaviCons, positive: true },
+                      { label: 'Costi', prev: budgetSummary.costiPrev, cons: budgetSummary.costiCons, positive: false },
+                      {
+                        label: 'Risultato gestionale (Ricavi − Costi)',
+                        prev: budgetSummary.ricaviPrev - Math.abs(budgetSummary.costiPrev),
+                        cons: budgetSummary.ricaviCons - Math.abs(budgetSummary.costiCons),
+                        positive: true, total: true,
+                      },
+                    ]
+                    return rows.map((r) => {
+                      const delta = r.cons - r.prev
+                      const deltaPct = r.prev !== 0 ? (delta / Math.abs(r.prev)) * 100 : 0
+                      // Per ricavi/utile: scostamento positivo è buono. Per costi: negativo è buono (meno costi).
+                      const isGood = r.positive ? delta >= 0 : delta <= 0
+                      const deltaColor = delta === 0 ? 'text-slate-500' : isGood ? 'text-emerald-700' : 'text-red-700'
+                      return (
+                        <tr key={r.label} className={`border-t border-slate-100 ${r.total ? 'bg-slate-50 font-semibold' : ''}`}>
+                          <td className="px-4 py-2 text-slate-800">{r.label}</td>
+                          <td className="px-4 py-2 text-right text-slate-700">
+                            {r.prev.toLocaleString('it-IT', { minimumFractionDigits: 2 })} €
+                          </td>
+                          <td className="px-4 py-2 text-right text-slate-700">
+                            {r.cons.toLocaleString('it-IT', { minimumFractionDigits: 2 })} €
+                          </td>
+                          <td className={`px-4 py-2 text-right ${deltaColor}`}>
+                            {delta >= 0 ? '+' : ''}{delta.toLocaleString('it-IT', { minimumFractionDigits: 2 })} €
+                          </td>
+                          <td className={`px-4 py-2 text-right ${deltaColor}`}>
+                            {r.prev === 0 ? '—' : `${delta >= 0 ? '+' : ''}${deltaPct.toFixed(1)}%`}
+                          </td>
+                        </tr>
+                      )
+                    })
+                  })()}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="text-xs text-slate-500">
+              <Info size={12} className="inline mr-1" />
+              I dati provengono da <strong>budget_entries</strong> (popolati in Budget e Controllo).
+              Il preventivo è il business plan annuo per outlet; il consuntivo è aggregato in tempo reale
+              da fatture, ricavi POS e fatture attive via RPC <code>refresh_budget_consuntivo</code>.
+            </div>
+          </div>
+        </Section>
       )}
 
       {/* ═══ YoY COMPARISON TABLE — Confronto Anno su Anno ═══ */}
