@@ -438,6 +438,7 @@ export default function ConfrontoOutlet() {
           .select('*')
           .eq('company_id', companyId)
           .eq('year', year)
+          .range(0, 9999)
 
         // Anche balance_sheet_data per confronto
         const { data: bsData } = await supabase

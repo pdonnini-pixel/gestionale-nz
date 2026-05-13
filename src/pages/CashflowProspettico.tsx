@@ -231,6 +231,7 @@ export default function CashflowProspettico() {
           .eq('company_id', companyId)
           .eq('year', year)
           .like('account_code', '5%')
+          .range(0, 9999)
       ]);
 
       // Store raw data for drill-down

@@ -62,6 +62,7 @@ export default function MarginiOutlet() {
           .from('budget_entries')
           .select('cost_center, account_code, budget_amount, month')
           .eq('year', year)
+          .range(0, 9999) // override default Supabase limit 1000
 
         if (companyId) {
           query = query.eq('company_id', companyId)

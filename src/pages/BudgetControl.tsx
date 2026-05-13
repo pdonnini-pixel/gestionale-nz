@@ -664,8 +664,8 @@ export default function BudgetControl() {
       const [ccR, bsR, buR, cfR] = await Promise.all([
         supabase.from('cost_centers').select('*').eq('company_id', cid).eq('is_active', true).order('sort_order'),
         supabase.from('balance_sheet_data').select('*').eq('company_id', cid).eq('year', 2025).in('section', ['ce_costi', 'ce_ricavi']).order('sort_order'),
-        supabase.from('budget_entries').select('*').eq('company_id', cid).eq('year', 2026),
-        supabase.from('budget_confronto').select('*').eq('company_id', cid).eq('year', year),
+        supabase.from('budget_entries').select('*').eq('company_id', cid).eq('year', 2026).range(0, 9999),
+        supabase.from('budget_confronto').select('*').eq('company_id', cid).eq('year', year).range(0, 9999),
       ])
       setCostCenters((ccR.data || []) as CostCenter[])
       const beAll = (buR.data || []) as BudgetEntry[]
@@ -896,6 +896,7 @@ export default function BudgetControl() {
       const { data: reloaded } = await supabase
         .from('budget_entries').select('*')
         .eq('company_id', CID).eq('year', 2026)
+        .range(0, 9999)
       const beAll = (reloaded || []) as BudgetEntry[]
       setBudgetEntries(beAll)
       setWorkflow(computeWorkflow(beAll))
@@ -919,6 +920,7 @@ export default function BudgetControl() {
       const { data: reloaded } = await supabase
         .from('budget_entries').select('*')
         .eq('company_id', CID).eq('year', 2026)
+        .range(0, 9999)
       const beAll = (reloaded || []) as BudgetEntry[]
       setBudgetEntries(beAll)
       setWorkflow(computeWorkflow(beAll))

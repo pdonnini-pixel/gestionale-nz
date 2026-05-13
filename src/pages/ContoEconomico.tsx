@@ -953,6 +953,7 @@ export default function ContoEconomico() {
         .select('account_code, account_name, budget_amount, actual_amount, cost_center, macro_group')
         .eq('company_id', COMPANY_ID!)
         .eq('year', year)
+        .range(0, 9999) // override default Supabase limit 1000
 
       if (error) throw error
       if (!data || data.length === 0) {
@@ -1070,7 +1071,8 @@ export default function ContoEconomico() {
         .from('budget_entries')
         .select('account_code, cost_center, budget_amount, actual_amount, actual_refreshed_at')
         .eq('company_id', COMPANY_ID)
-        .eq('year', year) as { data: BudgetEntryAgg[] | null }
+        .eq('year', year)
+        .range(0, 9999) as { data: BudgetEntryAgg[] | null } // override default Supabase limit 1000
       const rows = data || []
       let ricaviPrev = 0, ricaviCons = 0, costiPrev = 0, costiCons = 0
       let anyStale = false
