@@ -1399,8 +1399,13 @@ export default function BudgetControl() {
                 <select value={confOutlet} onChange={e => setConfOutlet(e.target.value)} className="px-3 py-2 border border-slate-200 rounded-lg text-sm">
                   <option value={ALL_OUTLETS_CODE}>📊 Tutti gli {labels.pointOfSalePluralLower} (vista aggregata)</option>
                   <option value="all">🏢 Sede / Costi generali (non allocati)</option>
-                  {(canApproveBudget ? outletsWithBP : outletsWithBP.filter(cc => (workflow[cc.code]?.status ?? 'bozza') !== 'bozza'))
-                    .map(cc => <option key={cc.code} value={cc.code}>{prettyCenterLabel(cc)}</option>)}
+                  {/* Tutti gli outlet operativi attivi (non solo quelli con preventivo
+                      gia' popolato in budget_entries). Outlet senza preventivo (es. Torino
+                      neoaperto 24/03/2026) appare comunque, pronto per data entry da Lilian. */}
+                  {(canApproveBudget
+                    ? ops
+                    : ops.filter(cc => (workflow[cc.code]?.status ?? 'bozza') !== 'bozza')
+                  ).map(cc => <option key={cc.code} value={cc.code}>{prettyCenterLabel(cc)}</option>)}
                 </select>
                 <div className="flex gap-1 bg-slate-100 rounded-lg p-0.5">
                   {([{k:'annuale',l:'Annuale'},{k:'mensile',l:'Mensile'}] as const).map(v => (
