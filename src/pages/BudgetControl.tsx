@@ -507,6 +507,11 @@ export default function BudgetControl() {
     unlocked_at?: string | null; unlocked_by?: string | null; unlock_reason?: string | null
     actual_refreshed_at?: string | null
     actual_breakdown?: Record<string, number> | null
+    // is_placeholder: TRUE se la riga è un preventivo provvisorio generato
+    // automaticamente (es. copia dal consuntivo dell'anno precedente).
+    // Diventa FALSE automaticamente quando l'utente modifica budget_amount
+    // (trigger DB trg_budget_entries_unflag_placeholder).
+    is_placeholder?: boolean
     [k: string]: unknown
   }
   const [costCenters, setCostCenters] = useState<CostCenter[]>([])
@@ -855,6 +860,29 @@ export default function BudgetControl() {
     }
   }, [loading, hasRole, confOutlet])
 
+  // Stato placeholder: quante righe del preventivo sono provvisorie (copia
+  // automatica dall'anno precedente, da confermare). Calcolato per anno
+  // corrente, raggruppato per outlet (per badge BPCard) e totale (per banner).
+  const placeholderStatus = useMemo(() => {
+    const relevant = budgetEntries.filter(
+      e => e.cost_center !== 'rettifica_bilancio'
+    )
+    if (relevant.length === 0) return { totale: 0, placeholder: 0, byOutlet: {} as Record<string, { tot: number; ph: number }> }
+    let tot = 0, ph = 0
+    const byOutlet: Record<string, { tot: number; ph: number }> = {}
+    for (const e of relevant) {
+      tot++
+      const cc = e.cost_center || 'all'
+      if (!byOutlet[cc]) byOutlet[cc] = { tot: 0, ph: 0 }
+      byOutlet[cc].tot++
+      if (e.is_placeholder) {
+        ph++
+        byOutlet[cc].ph++
+      }
+    }
+    return { totale: tot, placeholder: ph, byOutlet }
+  }, [budgetEntries])
+
   // ─── APPROVE / UNLOCK ──────────────────────────────────────
   const approveOutletYear = async (code: string) => {
     if (!CID) return
@@ -1195,6 +1223,24 @@ export default function BudgetControl() {
           </button>
         ))}
       </div>
+
+      {/* BANNER PREVENTIVO PROVVISORIO (placeholder) */}
+      {placeholderStatus.placeholder > 0 && (
+        <div className="bg-amber-50 border border-amber-300 rounded-xl p-4 flex items-start gap-3">
+          <AlertTriangle size={20} className="text-amber-700 mt-0.5 shrink-0" />
+          <div className="flex-1 text-sm text-amber-900">
+            <div className="font-semibold mb-1">
+              Preventivo {year} provvisorio: {placeholderStatus.placeholder} di {placeholderStatus.totale} righe da confermare
+            </div>
+            <p>
+              Il preventivo {year} è stato precompilato automaticamente con i valori del consuntivo {year - 1} (bilancio depositato).
+              Le righe contrassegnate <span className="bg-amber-200 text-amber-900 text-[10px] font-bold px-1.5 py-0.5 rounded">PROV</span> sono provvisorie:
+              modifica il <strong>Preventivo</strong> nel tab "Preventivo vs Consuntivo" per renderle definitive.
+              Una volta modificato un valore, il flag PROV viene rimosso automaticamente.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* ════════════════════════════════════════════════════
          TAB 1: BUSINESS PLAN
