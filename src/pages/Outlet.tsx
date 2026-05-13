@@ -28,7 +28,9 @@ const DOCUMENT_CATEGORIES = [
   { value: 'comunicazione', label: 'Comunicazione' }
 ]
 
-function fmt(n: number | null | undefined, decimals = 0) {
+// Default 2 decimali perché tutte le chiamate in questo file formatano importi €.
+// Per i contatori passare esplicitamente 0 (es. fmt(count, 0)).
+function fmt(n: number | null | undefined, decimals = 2) {
   if (n == null) return '—'
   return new Intl.NumberFormat('it-IT', {
     minimumFractionDigits: decimals,
