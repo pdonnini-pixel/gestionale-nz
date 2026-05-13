@@ -1548,6 +1548,7 @@ export type Database = {
       chart_of_accounts: {
         Row: {
           annual_amount: number | null
+          ce_section: string | null
           code: string
           company_id: string
           created_at: string | null
@@ -1556,6 +1557,8 @@ export type Database = {
           is_active: boolean | null
           is_fixed: boolean | null
           is_recurring: boolean | null
+          is_revenue: boolean | null
+          level: number | null
           macro_group: string
           name: string
           note: string | null
@@ -1565,6 +1568,7 @@ export type Database = {
         }
         Insert: {
           annual_amount?: number | null
+          ce_section?: string | null
           code: string
           company_id?: string
           created_at?: string | null
@@ -1573,6 +1577,8 @@ export type Database = {
           is_active?: boolean | null
           is_fixed?: boolean | null
           is_recurring?: boolean | null
+          is_revenue?: boolean | null
+          level?: number | null
           macro_group: string
           name: string
           note?: string | null
@@ -1582,6 +1588,7 @@ export type Database = {
         }
         Update: {
           annual_amount?: number | null
+          ce_section?: string | null
           code?: string
           company_id?: string
           created_at?: string | null
@@ -1590,6 +1597,8 @@ export type Database = {
           is_active?: boolean | null
           is_fixed?: boolean | null
           is_recurring?: boolean | null
+          is_revenue?: boolean | null
+          level?: number | null
           macro_group?: string
           name?: string
           note?: string | null
