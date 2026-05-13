@@ -1498,6 +1498,33 @@ export default function ContoEconomico() {
   const ricavi25 = ce25.ricavi_vendite || 0
   const ricaviPrev = cePrev.ricavi_vendite || 0
 
+  // ═══ DATA QUALITY CHECK ═══════════════════════════════════════════════
+  // Confronta valori chiave tra le 2 fonti del Conto Economico:
+  //  - balance_sheet_data (bilancio importato, alimenta vista Competenza)
+  //  - budget_entries (business plan operativo, alimenta Budget e Controllo)
+  // Se i totali divergono > 1 €, mostra un alert giallo strutturale. Utile
+  // su tutti i tenant + clienti SaaS futuri: rileva import bilanci sporchi
+  // o disallineamenti tra commercialista e gestionale operativo.
+  type CoherenceWarning = { voce: string; bilancio: number; budget: number; diff: number }
+  const coherenceWarnings = useMemo<CoherenceWarning[]>(() => {
+    if (!budgetSummary || !ce25 || Object.keys(ce25).length === 0) return []
+    const TOL = 1 // 1 euro di tolleranza per arrotondamenti
+    const warnings: CoherenceWarning[] = []
+    // Ricavi: bilancio "ricavi_vendite" vs SUM budget_entries con account_code che inizia per 5
+    const rb = Number(ce25.ricavi_vendite || 0)
+    const rbg = budgetSummary.ricaviCons || budgetSummary.ricaviPrev || 0
+    if (rb > 0 && rbg > 0 && Math.abs(rb - rbg) > TOL) {
+      warnings.push({ voce: 'Ricavi delle vendite', bilancio: rb, budget: rbg, diff: rb - rbg })
+    }
+    // Costi: bilancio "totale_costi_produzione" vs |SUM budget_entries non-ricavi|
+    const cb = Number(ce25.totale_costi_produzione || 0)
+    const cbg = Math.abs(budgetSummary.costiCons || budgetSummary.costiPrev || 0)
+    if (cb > 0 && cbg > 0 && Math.abs(cb - cbg) > TOL) {
+      warnings.push({ voce: 'Totale costi di produzione', bilancio: cb, budget: cbg, diff: cb - cbg })
+    }
+    return warnings
+  }, [budgetSummary, ce25])
+
   // Compute KPIs
   const margineLordo25 = ricavi25 - (ce25.materie_prime || 0) + (ce25.variazione_rimanenze || 0)
   const margineLordoPct25 = ricavi25 > 0 ? margineLordo25 / ricavi25 * 100 : 0
@@ -2141,6 +2168,44 @@ export default function ContoEconomico() {
           </div>
         </div>
       </Section>
+      )}
+
+      {/* ═══ DATA QUALITY ALERT — Incoerenza tra bilancio importato e budget operativo ═══
+          Strutturale e multi-tenant: rileva discrepanze > 1 € tra le 2 fonti del CE.
+          Compare solo se ci sono warnings reali (su tenant vergini Made/Zago, sempre vuoto). */}
+      {viewMode === 'competenza' && coherenceWarnings.length > 0 && (
+        <div className="bg-amber-50 border-2 border-amber-300 rounded-xl p-4 shadow-sm">
+          <div className="flex items-start gap-3">
+            <div className="bg-amber-100 rounded-full p-2 shrink-0">
+              <AlertTriangle size={20} className="text-amber-700" />
+            </div>
+            <div className="flex-1">
+              <div className="font-bold text-amber-900">Attenzione: incoerenza tra bilancio importato e business plan operativo</div>
+              <p className="text-sm text-amber-800 mt-1">
+                Alcuni totali del bilancio civilistico importato non coincidono con la somma
+                delle righe di Budget e Controllo. Verifica con il commercialista quale fonte è
+                autoritativa per l'anno {year}.
+              </p>
+              <ul className="mt-3 space-y-1 text-sm">
+                {coherenceWarnings.map((w) => (
+                  <li key={w.voce} className="bg-white rounded-md p-2 border border-amber-200">
+                    <strong className="text-amber-900">{w.voce}:</strong>
+                    <span className="ml-2 text-slate-700">
+                      bilancio importato <strong>{w.bilancio.toLocaleString('it-IT', { minimumFractionDigits: 2 })} €</strong>
+                      {' '} vs business plan <strong>{w.budget.toLocaleString('it-IT', { minimumFractionDigits: 2 })} €</strong>
+                      {' '} <span className="text-amber-700">(differenza {w.diff >= 0 ? '+' : ''}{w.diff.toLocaleString('it-IT', { minimumFractionDigits: 2 })} €)</span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              <p className="text-xs text-amber-700 mt-2">
+                <strong>Suggerimento:</strong> i valori in <strong>Budget e Controllo</strong> sono i dati operativi inseriti per outlet.
+                Quelli del <strong>bilancio importato</strong> arrivano dall'import del CE civilistico (CCIAA o commercialista).
+                Allineare le due fonti spesso significa reimportare un bilancio corretto.
+              </p>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ═══ STEP B2: Confronto con Budget e Controllo ═══
