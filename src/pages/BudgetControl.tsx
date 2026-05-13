@@ -854,6 +854,25 @@ export default function BudgetControl() {
   const ricaviTree = useMemo(() => buildTree(ceRawRicavi), [ceRawRicavi])
   const hasTree = ceRawCosti.length > 0 || ceRawRicavi.length > 0
 
+  // Alberi conti SPECIFICI per outlet (strategia C 13/05/2026):
+  // ogni outlet vede SOLO i suoi valori (es. Valdichiana = ricavi corrispettivi
+  // 510107 + costi specifici outlet). I costi non allocati a outlet stanno nel
+  // cost_center 'all' (visualizzato come "Sede / Costi generali").
+  // Per ALL_OUTLETS_CODE (vista aggregata) si usa l'albero globale.
+  const costiTreeForOutlet = useMemo(() => {
+    if (!confOutlet || confOutlet === ALL_OUTLETS_CODE) return costiTree
+    const edits = bpEdits[confOutlet] || {}
+    const filtered: CeRow[] = ceRawCosti.map(r => ({ ...r, amount: edits[r.code] || 0 }))
+    return buildTree(filtered)
+  }, [ceRawCosti, bpEdits, confOutlet, costiTree])
+
+  const ricaviTreeForOutlet = useMemo(() => {
+    if (!confOutlet || confOutlet === ALL_OUTLETS_CODE) return ricaviTree
+    const edits = bpEdits[confOutlet] || {}
+    const filtered: CeRow[] = ceRawRicavi.map(r => ({ ...r, amount: edits[r.code] || 0 }))
+    return buildTree(filtered)
+  }, [ceRawRicavi, bpEdits, confOutlet, ricaviTree])
+
   // Aggrega bpEdits/consEdits/rettEdits sommando per account_code su tutti
   // gli outlet operativi visibili al ruolo corrente. Usato per la vista
   // "Tutti gli outlet" nel selettore Confronto (default per CEO).
@@ -1379,8 +1398,16 @@ export default function BudgetControl() {
                 <span className="text-sm text-slate-600 font-medium">{labels.pointOfSale}:</span>
                 <select value={confOutlet} onChange={e => setConfOutlet(e.target.value)} className="px-3 py-2 border border-slate-200 rounded-lg text-sm">
                   <option value={ALL_OUTLETS_CODE}>📊 Tutti gli {labels.pointOfSalePluralLower} (vista aggregata)</option>
-                  {(canApproveBudget ? outletsWithBP : outletsWithBP.filter(cc => (workflow[cc.code]?.status ?? 'bozza') !== 'bozza'))
-                    .map(cc => <option key={cc.code} value={cc.code}>{prettyCenterLabel(cc)}</option>)}
+                  <option value="all">🏢 Sede / Costi generali (non allocati)</option>
+                  {/* Tutti gli outlet operativi attivi (non solo quelli con preventivo
+                      gia' popolato). Per super_advisor/budget_approver: tutti gli ops;
+                      per contabile: solo quelli con workflow approvato. Outlet senza
+                      preventivo (es. Torino neoaperto) appare con valori 0, pronto
+                      per data entry. */}
+                  {(canApproveBudget
+                    ? ops
+                    : ops.filter(cc => (workflow[cc.code]?.status ?? 'bozza') !== 'bozza')
+                  ).map(cc => <option key={cc.code} value={cc.code}>{prettyCenterLabel(cc)}</option>)}
                 </select>
                 <div className="flex gap-1 bg-slate-100 rounded-lg p-0.5">
                   {([{k:'annuale',l:'Annuale'},{k:'mensile',l:'Mensile'}] as const).map(v => (
@@ -1456,14 +1483,14 @@ export default function BudgetControl() {
               {confOutlet && confOutlet !== ALL_OUTLETS_CODE && confView === 'annuale' && (
                 <ConfrontoPanel
                   outletCode={confOutlet}
-                  outletLabel={prettyCenterLabel(costCenters.find(c => c.code === confOutlet)) || prettyCenterLabel({ code: confOutlet })}
+                  outletLabel={confOutlet === 'all' ? 'Sede / Costi generali' : (prettyCenterLabel(costCenters.find(c => c.code === confOutlet)) || prettyCenterLabel({ code: confOutlet }))}
                   prevEdits={bpEdits[confOutlet] || {}}
                   consEdits={consEdits[confOutlet] || {}}
                   onConsEdit={(code: string, val: number) => setConsEdits(prev => ({...prev, [confOutlet]: {...(prev[confOutlet]||{}), [code]: val}}))}
                   rettEdits={rettEdits[confOutlet] || {}}
                   onRettEdit={(code: string, val: number | string | undefined) => setRettEdits(prev => ({...prev, [confOutlet]: {...(prev[confOutlet]||{}), [code]: (typeof val === 'number' ? val : 0)}}))}
-                  costiTree={costiTree}
-                  ricaviTree={filterRicaviTree(ricaviTree, confOutlet)}
+                  costiTree={costiTreeForOutlet}
+                  ricaviTree={ricaviTreeForOutlet}
                   year={year}
                   cashTotals={cashTotals}
                   cashLoaded={cashLoaded}
@@ -1472,9 +1499,9 @@ export default function BudgetControl() {
               {confOutlet && confOutlet !== ALL_OUTLETS_CODE && confView === 'mensile' && (
                 <ConfrontoMensile
                   outletCode={confOutlet}
-                  outletLabel={prettyCenterLabel(costCenters.find(c => c.code === confOutlet)) || prettyCenterLabel({ code: confOutlet })}
-                  costiTree={costiTree}
-                  ricaviTree={filterRicaviTree(ricaviTree, confOutlet)}
+                  outletLabel={confOutlet === 'all' ? 'Sede / Costi generali' : (prettyCenterLabel(costCenters.find(c => c.code === confOutlet)) || prettyCenterLabel({ code: confOutlet }))}
+                  costiTree={costiTreeForOutlet}
+                  ricaviTree={ricaviTreeForOutlet}
                   readOnly={!canApproveBudget || (workflow[confOutlet]?.status === 'approvato')}
                   prevMonthly={prevMonthly[confOutlet] || {}}
                   onPrevMonthly={(code: string, month: number, val: number) => setPrevMonthly(prev => {
