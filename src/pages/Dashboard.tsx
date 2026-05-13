@@ -294,8 +294,9 @@ export default function Dashboard() {
                 .lte('date', yearEnd),
               supabase
                 .from('outlets')
-                .select('id, name')
+                .select('id, name, code, is_active')
                 .eq('company_id', COMPANY_ID)
+                .eq('is_active', true)
             ])
 
             interface OutletAggLocal { name: string; ricavi: number }
@@ -335,23 +336,38 @@ export default function Dashboard() {
                 .or('account_code.like.510%,account_code.like.RIC%')
                 .range(0, 9999)
 
-              if (budgetData && budgetData.length > 0) {
-                const bMap: Record<string, OutletAggLocal> = {}
-                budgetData.forEach(r => {
-                  const cc = r.cost_center
-                  if (!cc) return
-                  if (!bMap[cc]) bMap[cc] = { name: cc.charAt(0).toUpperCase() + cc.slice(1), ricavi: 0 }
-                  bMap[cc].ricavi += Number(r.budget_amount) || 0
+              // Aggrega ricavi per cost_center (chiave: stringa code/nome outlet)
+              const ricaviByCc: Record<string, number> = {}
+              ;(budgetData || []).forEach(r => {
+                const cc = (r.cost_center || '').toLowerCase()
+                if (!cc) return
+                ricaviByCc[cc] = (ricaviByCc[cc] || 0) + (Number(r.budget_amount) || 0)
+              })
+
+              // Anagrafica outlets (TUTTI quelli attivi, anche con ricavi 0).
+              // Lookup cost_center per outlet: prova in ordine code (lowercase),
+              // poi name (lowercase). Match con budget_entries.cost_center.
+              const outletsByCc: OutletAggLocal[] = (outletsList || [])
+                .filter(o => o.is_active !== false)
+                .map(o => {
+                  const codeKey = String(o.code || '').toLowerCase()
+                  const nameKey = String(o.name || '').toLowerCase()
+                  const ricavi = ricaviByCc[codeKey] ?? ricaviByCc[nameKey] ?? 0
+                  return { name: o.name || o.code || '?', ricavi }
                 })
-                const sorted = Object.values(bMap).sort((a, b) => b.ricavi - a.ricavi)
-                if (sorted.length > 0) {
-                  setOutletsData(sorted.map((o, i) => ({
-                    name: o.name,
-                    ricavi: o.ricavi,
-                    dip: 0,
-                    colore: OUTLET_COLORS[i % OUTLET_COLORS.length],
-                  })))
-                }
+
+              if (outletsByCc.length > 0) {
+                // Ordine: prima i top per ricavi (decrescente), poi alfabetico
+                const sorted = outletsByCc.sort((a, b) => {
+                  if (b.ricavi !== a.ricavi) return b.ricavi - a.ricavi
+                  return a.name.localeCompare(b.name)
+                })
+                setOutletsData(sorted.map((o, i) => ({
+                  name: o.name,
+                  ricavi: o.ricavi,
+                  dip: 0,
+                  colore: OUTLET_COLORS[i % OUTLET_COLORS.length],
+                })))
               }
 
               // Fallback 3b: try with RIC% pattern and actual_amount for previous or current year

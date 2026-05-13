@@ -61,7 +61,10 @@ const COST_CENTER_LABEL_OVERRIDES = {
   'sede_magazzino': 'Sede / Magazzino',
   'rettifica_bilancio': 'Rettifica bilancio',
   'spese_non_divise': 'Spese non divise',
-  'all': 'Tutti',
+  // 'all': cost_center generico per costi/ricavi non allocati a un outlet specifico
+  // (es. consulenze fiscali, ammortamenti, oneri finanziari, ricavi B2B Italia).
+  // Rinominato da "Tutti" a "Sede / Costi generali" per chiarezza UX (richiesta 13/05/2026).
+  'all': 'Sede / Costi generali',
 }
 
 /**
@@ -661,9 +664,14 @@ export default function BudgetControl() {
     try {
       if (!CID) return
       const cid = CID
-      const [ccR, bsR, buR, cfR] = await Promise.all([
+      // ce structure ora viene da chart_of_accounts (piano dei conti completo
+      // post-wipe). Sostituisce la vecchia query balance_sheet_data section
+      // IN ('ce_costi', 'ce_ricavi') che era diventata vuota dopo il wipe del
+      // 13/05/2026. Gli importi (amount) sono aggregati da budget_entries
+      // dell'anno corrente.
+      const [ccR, coaR, buR, cfR] = await Promise.all([
         supabase.from('cost_centers').select('*').eq('company_id', cid).eq('is_active', true).order('sort_order'),
-        supabase.from('balance_sheet_data').select('*').eq('company_id', cid).eq('year', 2025).in('section', ['ce_costi', 'ce_ricavi']).order('sort_order'),
+        supabase.from('chart_of_accounts').select('code, name, level, is_revenue, sort_order, macro_group').eq('company_id', cid).eq('is_active', true).order('sort_order'),
         supabase.from('budget_entries').select('*').eq('company_id', cid).eq('year', 2026).range(0, 9999),
         supabase.from('budget_confronto').select('*').eq('company_id', cid).eq('year', year).range(0, 9999),
       ])
@@ -672,12 +680,33 @@ export default function BudgetControl() {
       setBudgetEntries(beAll)
       setWorkflow(computeWorkflow(beAll))
 
-      const junk = /Azienda:|Cod\.\s*Fiscale|Partita\s*IVA|^VIA\s|PERIODO\s*DAL|Totali\s*fino|^Pag\.|Considera anche|movimenti provvisori/i
-      const clean = (bsR.data || []).filter(r => (r.account_code && r.account_code.trim()) && !junk.test(r.account_name || ''))
-      const co: CeRow[] = [], ri: CeRow[] = []
-      clean.forEach(r => {
-        const row: CeRow = { code: r.account_code||'', description: r.account_name||'', amount: r.amount||0, level: getCodeLevel(r.account_code), isMacro: (r.account_code||'').replace(/\s/g,'').length <= 2 }
-        if (r.section === 'ce_costi') co.push(row); else ri.push(row)
+      // Aggrega budget_amount annuo per account_code (somma su tutti i mesi e
+      // tutti i cost_center). Esclude rettifica_bilancio dalla vista per outlet.
+      const amountByCode: Record<string, number> = {}
+      beAll.forEach(e => {
+        if (e.cost_center === 'rettifica_bilancio') return
+        const code = e.account_code
+        if (!code) return
+        amountByCode[code] = (amountByCode[code] || 0) + (Number(e.budget_amount) || 0)
+      })
+
+      // Costruisci ceRawCosti/ceRawRicavi dal piano dei conti.
+      // - Tutti i livelli (1, 2, 3) vanno inclusi: buildTree() raggruppa via
+      //   gerarchia code-based, e i totali livello 1/2 saranno calcolati dai figli.
+      // - is_revenue=true → ricavi, altrimenti costi.
+      type CoaRow = { code: string; name: string | null; level: number | null; is_revenue: boolean | null }
+      const co: CeRow[] = []
+      const ri: CeRow[] = []
+      ;((coaR.data || []) as CoaRow[]).forEach(c => {
+        const row: CeRow = {
+          code: c.code,
+          description: c.name || '',
+          amount: amountByCode[c.code] || 0,
+          level: c.level ?? getCodeLevel(c.code),
+          isMacro: (c.level ?? getCodeLevel(c.code)) <= 1,
+        }
+        if (c.is_revenue) ri.push(row)
+        else co.push(row)
       })
       setCeRawCosti(co); setCeRawRicavi(ri)
 
