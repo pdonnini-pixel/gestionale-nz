@@ -50,7 +50,8 @@ export default function Produttivita() {
         let budgetQuery = supabase
           .from('budget_entries')
           .select('cost_center, account_code, budget_amount, month')
-          .eq('year', year);
+          .eq('year', year)
+          .range(0, 9999); // override default Supabase limit 1000
         if (companyId) budgetQuery = budgetQuery.eq('company_id', companyId);
 
         // Fetch employees

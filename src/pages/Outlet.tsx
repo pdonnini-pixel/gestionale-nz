@@ -1900,6 +1900,7 @@ export default function Outlet() {
           .select('cost_center, month, actual_amount, budget_amount, account_code')
           .eq('company_id', companyId)
           .eq('year', yr)
+          .range(0, 9999) // override default Supabase limit 1000 — necessario con piano dei conti completo (~1212 righe/anno)
 
         if (!budgetErr && data && data.length > 0) {
           budgetData = data

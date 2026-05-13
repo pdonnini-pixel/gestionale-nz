@@ -324,12 +324,16 @@ export default function Dashboard() {
 
             // Fallback 3: use budget_entries revenue data per cost_center
             if (!drAgg || drAgg.length === 0) {
+              // Query ricavi: tutti i conti corrispettivi outlet (510101..510199)
+              // + legacy RIC001/2/3. Prima era .in() con SOLO 2 codici hardcoded
+              // (510107 Valdichiana, 510108 Barberino) — mostrava solo 2 outlet.
               const { data: budgetData } = await supabase
                 .from('budget_entries')
                 .select('cost_center, budget_amount')
                 .eq('company_id', COMPANY_ID)
                 .eq('year', YEAR)
-                .in('account_code', ['510107', '51010101', '510108', 'RIC001', 'RIC002', 'RIC003'])
+                .or('account_code.like.510%,account_code.like.RIC%')
+                .range(0, 9999)
 
               if (budgetData && budgetData.length > 0) {
                 const bMap: Record<string, OutletAggLocal> = {}
@@ -357,6 +361,7 @@ export default function Dashboard() {
                   .select('cost_center, actual_amount, budget_amount')
                   .eq('company_id', COMPANY_ID)
                   .eq('year', YEAR)
+                  .range(0, 9999)
 
                 if (budgetRic && budgetRic.length > 0) {
                   const bMap: Record<string, OutletAggLocal> = {}
