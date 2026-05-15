@@ -86,14 +86,15 @@ export default function PrimaNota() {
         ? new Date(year, month, 0).toISOString().slice(0, 10)
         : `${year}-12-31`
 
+      // Embed payables tramite bank_transaction_id FK omesso: PostgREST non risolve auto.
+      // Si fa fetch separato dei payables collegati e join lato client (sotto).
       let q = supabase
         .from('bank_transactions')
         .select(`
           id, transaction_date, amount, currency, description, reference, category,
           counterpart, merchant_name, supplier_id, invoice_id, bank_account_id,
           bank_accounts!inner(id, bank_name, account_name, iban),
-          suppliers(id, ragione_sociale, name, partita_iva),
-          payables!bank_transaction_id(invoice_number, supplier_name, supplier_vat)
+          suppliers(id, ragione_sociale, name, partita_iva)
         `)
         .eq('company_id', companyId)
         .gte('transaction_date', dateStart)
@@ -107,7 +108,30 @@ export default function PrimaNota() {
 
       const { data, error: err } = await q
       if (err) throw err
-      setMovements((data as unknown as Movement[]) ?? [])
+      const baseMovs = (data as unknown as Movement[]) ?? []
+
+      // Fetch separato dei payables collegati. types Supabase stale per bank_transaction_id (colonna aggiunta in migration 028).
+      const btIds = baseMovs.map(m => m.id).filter(Boolean)
+      if (btIds.length > 0) {
+        const { data: payRows } = await (supabase
+          .from('payables') as unknown as { select: (s: string) => { in: (k: string, v: string[]) => Promise<{ data: Array<Record<string, unknown>> | null }> } })
+          .select('bank_transaction_id, invoice_number, supplier_name, supplier_vat')
+          .in('bank_transaction_id', btIds)
+        const payMap = new Map<string, { invoice_number: string | null; supplier_name: string | null; supplier_vat: string | null }>()
+        ;(payRows ?? []).forEach((p) => {
+          const btId = p.bank_transaction_id as string | null
+          if (btId) payMap.set(btId, {
+            invoice_number: (p.invoice_number as string | null) ?? null,
+            supplier_name: (p.supplier_name as string | null) ?? null,
+            supplier_vat: (p.supplier_vat as string | null) ?? null,
+          })
+        })
+        baseMovs.forEach(m => {
+          const p = payMap.get(m.id)
+          if (p) m.payables = p
+        })
+      }
+      setMovements(baseMovs)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
