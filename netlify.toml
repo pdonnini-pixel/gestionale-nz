@@ -9,13 +9,10 @@
   directory = "netlify/functions"
   node_bundler = "esbuild"
 
-# Netlify Functions — passthrough (prima dei redirect SPA)
-[[redirects]]
-  from = "/.netlify/functions/*"
-  to = "/.netlify/functions/:splat"
-  status = 200
-
 # Redirect tutte le route a index.html (SPA)
+# Nota: /.netlify/functions/* sono già accessibili nativamente da Netlify, non serve un redirect esplicito.
+# La regola pre-esistente `from = "/.netlify/functions/*" to = "/.netlify/functions/:splat"`
+# era marcata come invalid dal validator Netlify (prefisso /.netlify/* è riservato).
 [[redirects]]
   from = "/*"
   to = "/index.html"
