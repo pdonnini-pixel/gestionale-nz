@@ -79,9 +79,12 @@ Deno.serve(async (req: Request) => {
     if (!isServiceRole) {
       const { data: userData, error: userErr } = await supabase.auth.getUser(token);
       if (userErr || !userData?.user) return jsonError(401, "Invalid JWT");
-      const role = userData.user.app_metadata?.role ?? userData.user.user_metadata?.role;
-      if (!["super_advisor", "contabile"].includes(role)) {
-        return jsonError(403, `Role ${role} not allowed to send invoices`);
+      // role può essere stringa O array (es. ["super_advisor", "budget_approver"])
+      const roleData = userData.user.app_metadata?.role ?? userData.user.user_metadata?.role;
+      const userRoles: string[] = Array.isArray(roleData) ? roleData : (roleData ? [roleData] : []);
+      const allowedRoles = ["super_advisor", "contabile", "cfo"];
+      if (!userRoles.some((r) => allowedRoles.includes(r))) {
+        return jsonError(403, `Roles [${userRoles.join(", ")}] not allowed. Required one of: ${allowedRoles.join(", ")}`);
       }
     }
 
