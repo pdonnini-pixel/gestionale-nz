@@ -2049,11 +2049,56 @@ const ScadenzarioSmart = () => {
                           {/* AZIONI — Paga + Vedi fattura + Edit + Delete */}
                           <td className="py-2.5 px-3 text-right">
                             <div className="flex justify-end gap-0.5">
-                              {/* Paga — naviga a Banche con fattura pre-selezionata */}
+                              {/* Paga via A-Cube — crea distinta monouso + chiama Edge Function */}
                               {p.status !== 'pagato' && (
-                                <button onClick={() => window.location.href = `/banche?tab=pagamenti&select=${p.id}`}
-                                  className="p-1 rounded text-slate-400 hover:text-green-600 hover:bg-green-50"
-                                  title="Paga questa fattura">
+                                <button onClick={async (e) => {
+                                  e.stopPropagation()
+                                  if (!confirm(`Pagare ${p.invoice_number ?? 'questa fattura'} di € ${fmt(Number(p.gross_amount ?? 0))} via A-Cube sandbox?\n\nVerrà creata una distinta + chiamata A-Cube per generare URL autorizzazione PSD2.`)) return
+                                  try {
+                                    // Recupera 1° conto bancario A-Cube enabled (types stale per acube_account_uuid)
+                                    const { data: bankAccs } = await (supabase.from('bank_accounts') as unknown as { select: (s: string) => { eq: (k: string, v: string) => { not: (k: string, op: string, v: null) => { limit: (n: number) => Promise<{ data: Array<Record<string, unknown>> | null }> } } } })
+                                      .select('id, acube_account_uuid, current_balance')
+                                      .eq('company_id', p.company_id ?? '')
+                                      .not('acube_account_uuid', 'is', null)
+                                      .limit(1)
+                                    if (!bankAccs?.[0]) { alert('Nessun conto bancario A-Cube collegato. Vai su Banche → Conti per collegarlo.'); return }
+                                    const sourceAcc = bankAccs[0] as { id: string; current_balance: number | null }
+                                    // Crea payment_batch monouso
+                                    const batchNumber = `PAGA-${new Date().toISOString().slice(0,10).replace(/-/g,'')}-${String(Math.floor(Math.random()*1000)).padStart(3,'0')}`
+                                    const { data: batch, error: batchErr } = await supabase.from('payment_batches').insert({
+                                      company_id: p.company_id, bank_account_id: sourceAcc.id, batch_number: batchNumber,
+                                      status: 'draft', total_amount: p.gross_amount, payment_count: 1,
+                                      balance_before: Number(sourceAcc.current_balance) || 0,
+                                    } as never).select().single()
+                                    if (batchErr || !batch) { alert(`Errore creazione distinta: ${batchErr?.message}`); return }
+                                    const batchTyped = batch as { id: string }
+                                    // Insert item
+                                    await supabase.from('payment_batch_items').insert({
+                                      batch_id: batchTyped.id, company_id: p.company_id, payable_id: p.id,
+                                      beneficiary_name: p.suppliers?.ragione_sociale || p.supplier_name || '—',
+                                      beneficiary_iban: (p.iban as string) || '', amount: p.gross_amount, currency: 'EUR',
+                                      payment_reason: `Pag. fatt. ${p.invoice_number || ''}`.trim(),
+                                      invoice_number: p.invoice_number, invoice_date: p.invoice_date, due_date: p.due_date,
+                                      priority: 1, status: 'pending',
+                                    } as never)
+                                    // Chiama Edge Function
+                                    const { data, error: fnErr } = await supabase.functions.invoke('acube-payment-send', { body: { batch_id: batchTyped.id, stage: 'sandbox' } })
+                                    if (fnErr) { alert('Errore A-Cube: ' + fnErr.message); return }
+                                    const result = data as { initiated?: number; failed?: number; items?: Array<{ acube_authorize_url?: string; error?: string }> }
+                                    if ((result.failed ?? 0) > 0) {
+                                      alert(`Pagamento fallito:\n${result.items?.[0]?.error ?? 'errore sconosciuto'}`)
+                                    } else {
+                                      alert(`✅ Pagamento iniziato. Si apre la pagina A-Cube per autorizzare sulla banca.`)
+                                      result.items?.forEach(it => {
+                                        if (it.acube_authorize_url) window.open(it.acube_authorize_url, '_blank')
+                                      })
+                                    }
+                                  } catch (err) {
+                                    alert('Errore: ' + (err instanceof Error ? err.message : String(err)))
+                                  }
+                                }}
+                                  className="p-1 rounded text-slate-400 hover:text-emerald-600 hover:bg-emerald-50"
+                                  title="Paga via A-Cube (PSD2 sandbox)">
                                   <Wallet size={13} />
                                 </button>
                               )}
