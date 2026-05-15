@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams, Link } from 'react-router-dom'
 import PageHelp from '../components/PageHelp'
 
 // Tab principale Fatturazione — persistito in URL come ?tab=
@@ -818,6 +818,14 @@ function FattureAttive() {
             className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
           />
         </div>
+        <Link
+          to="/fatturazione/nuova-acube"
+          className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white text-sm rounded-lg hover:bg-emerald-700 transition"
+          title="Emetti via A-Cube SDI (sandbox/production)"
+        >
+          <Send size={16} />
+          Nuova via A-Cube
+        </Link>
         <button
           onClick={() => setShowForm(true)}
           className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition"
