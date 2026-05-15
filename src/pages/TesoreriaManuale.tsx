@@ -2224,6 +2224,32 @@ function TabDistinte({ batches, batchItems, accounts, companyId, onRefresh }: {
                       <CheckCircle2 size={16} /> Eseguita il {fmtDate(batch.executed_at)}
                     </div>
                   )}
+
+                  {/* Paga via A-Cube — disponibile per distinte non ancora eseguite */}
+                  {(batch.status === 'draft' || batch.status === 'pending' || batch.status === 'partial_error') && (
+                    <div className="px-5 py-3 bg-emerald-50/50 border-t border-emerald-100 flex items-center justify-between gap-3">
+                      <div className="text-xs text-emerald-800">
+                        <strong>Pagamento PSD2 via A-Cube</strong>: ogni bonifico richiede autorizzazione sulla tua app banca (1 SCA per item).
+                      </div>
+                      <button
+                        onClick={async () => {
+                          if (!confirm(`Lanciare ${items.length} bonifico/i via A-Cube sandbox?`)) return
+                          const { data, error } = await supabase.functions.invoke('acube-payment-send', { body: { batch_id: batch.id, stage: 'sandbox' } })
+                          if (error) { alert('Errore: ' + error.message); return }
+                          const result = data as { initiated?: number; failed?: number; items?: Array<{ acube_authorize_url?: string; error?: string }> }
+                          alert(`Risultato:\n• Iniziati: ${result.initiated ?? 0}\n• Falliti: ${result.failed ?? 0}\n\nApri ogni URL per autorizzare il bonifico sulla banca.`)
+                          // Apri tutti gli URL autorizzazione
+                          result.items?.forEach((it, i) => {
+                            if (it.acube_authorize_url) setTimeout(() => window.open(it.acube_authorize_url, '_blank'), i * 500)
+                          })
+                          onRefresh()
+                        }}
+                        className="inline-flex items-center gap-2 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium"
+                      >
+                        🚀 Paga via A-Cube ({items.length})
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
