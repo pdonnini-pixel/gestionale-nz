@@ -9,7 +9,7 @@ import {
   ChevronDown, ChevronRight, Landmark, BarChart3, GitCompare, Target,
   CalendarClock, UserCheck, PieChart, Sparkles, Activity, Sliders,
   Upload, FolderArchive, TrendingUp, ChevronsUpDown, Building,
-  Menu, X, ChevronsLeft, ChevronsRight, Split,
+  Menu, X, ChevronsLeft, ChevronsRight, Split, BookOpen,
   LucideIcon
 } from 'lucide-react'
 import { useState, useRef, useEffect, useMemo, createContext, useContext } from 'react'
@@ -89,6 +89,7 @@ function buildSections(labels: CompanyLabels): NavSection[] {
         { to: '/allocazione-fornitori', icon: Split, label: 'Divisione Fornitori', roles: ['super_advisor', 'cfo', 'contabile'], minOutlets: 2 },
         { to: '/fatturazione', icon: FileText, label: 'Fatturazione', roles: ['super_advisor', 'cfo', 'contabile'] },
         { to: '/scadenzario', icon: CalendarClock, label: 'Scadenzario', badgeKey: 'scadenzario', roles: ['super_advisor', 'ceo', 'cfo', 'contabile'] },
+        { to: '/prima-nota', icon: BookOpen, label: 'Prima Nota', roles: ['super_advisor', 'cfo', 'contabile'] },
       ],
     },
     {
@@ -140,6 +141,7 @@ export function buildBreadcrumbMap(
     '/allocazione-fornitori': { section: 'Ciclo Passivo', page: 'Divisione Fornitori' },
     '/fatturazione': { section: 'Ciclo Passivo', page: 'Fatturazione' },
     '/scadenzario': { section: 'Ciclo Passivo', page: 'Scadenzario' },
+    '/prima-nota': { section: 'Ciclo Passivo', page: 'Prima Nota' },
     '/scadenze-fiscali': { section: 'Ciclo Passivo', page: 'Scadenze Fiscali' },
     '/dipendenti': { section: 'Risorse', page: 'Dipendenti' },
     '/ai-categorie': { section: 'AI & Analytics', page: 'AI Categorie' },
