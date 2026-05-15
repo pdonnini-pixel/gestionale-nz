@@ -1421,7 +1421,7 @@ function SezioneRiconciliazione({ companyId, accounts }: { companyId: string; ac
   const handleConfirm = async (movementId: string, payableId: string) => {
     setActionLoading(movementId)
     try {
-      await applyReconciliation(movementId, payableId, 'confermato', '')
+      await applyReconciliation(movementId, payableId, 'manual', '')
       // Move from suggested to reconciled — use the CHOSEN payable (not necessarily the "best")
       setReconData(prev => {
         const suggestedItem = prev.suggested.find(s => s.movement?.id === movementId)
@@ -1535,7 +1535,7 @@ function SezioneRiconciliazione({ companyId, accounts }: { companyId: string; ac
   const handleManualMatch = async (movementId: string, payableId: string) => {
     setActionLoading(movementId)
     try {
-      await applyReconciliation(movementId, payableId, 'manuale', '')
+      await applyReconciliation(movementId, payableId, 'manual', '')
       setReconData(prev => {
         const item = prev.unmatched.find(u => u.id === movementId)
         const payable = unpaidPayables.find(p => p.id === payableId) || null
@@ -2613,7 +2613,9 @@ export default function Banche() {
               className="w-full pl-9 pr-4 py-2 text-sm border border-slate-200/80 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-400/40 focus:border-blue-300 bg-white placeholder:text-slate-300"
             />
           </div>
-          <SezioneImport accounts={accounts} onImportComplete={loadData} />
+          {/* Da maggio 2026: single source A-Cube. Import manuale CSV/TXT nascosto.
+              Per riattivare come fallback emergency: rimuovere il commento qui sotto. */}
+          {/* <SezioneImport accounts={accounts} onImportComplete={loadData} /> */}
           <SezioneMovimentiReali
             movements={cashMovements}
             setMovements={setCashMovements}
