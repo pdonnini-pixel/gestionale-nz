@@ -109,7 +109,12 @@ export default function PrimaNota() {
       if (err) throw err
       setMovements((data as unknown as Movement[]) ?? [])
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      // Estrae messaggio leggibile da Error, oggetti Supabase ({message,details,code}), o stringifica
+      let msg: string
+      if (e instanceof Error) msg = e.message
+      else if (e && typeof e === 'object' && 'message' in e) msg = String((e as { message: unknown }).message)
+      else { try { msg = JSON.stringify(e) } catch { msg = String(e) } }
+      setError(msg)
     } finally {
       setLoading(false)
     }
