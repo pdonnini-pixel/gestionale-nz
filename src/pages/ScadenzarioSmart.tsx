@@ -1151,6 +1151,174 @@ const ScadenzarioSmart = () => {
     }
   };
 
+  // Lancia bonifico reale via A-Cube PSD2: raggruppa per banca, crea distinta + items,
+  // chiama Edge Function acube-payment-send. Aggiorna payables come pagati e mostra
+  // URL autorizzazione PSD2 da aprire sulla banca beneficiaria.
+  const confirmPaymentsViaAcube = async () => {
+    if (hasNegativeBalance || selectedIds.size === 0) return;
+
+    // Raggruppa per banca; valida che ogni banca abbia acube_account_uuid
+    type AcubeGroup = { bank: AnyRow; items: Array<{ payableId: string; plan: typeof paymentPlan[string]; payable: AnyRow }> };
+    const groupsByBank = new Map<string, AcubeGroup>();
+    const skipped: Array<{ invoice: string; reason: string }> = [];
+
+    for (const id of selectedIds) {
+      const plan = paymentPlan[id];
+      const payable = payables.find(p => p.id === id);
+      if (!plan || !payable || !plan.bankId) continue;
+      const bank = bankAccounts.find(b => b.id === plan.bankId);
+      if (!bank) continue;
+      const acubeUuid = (bank as AnyRow & { acube_account_uuid?: string | null }).acube_account_uuid;
+      if (!acubeUuid) {
+        skipped.push({ invoice: payable.invoice_number || '—', reason: `Conto ${bank.bank_name} non collegato A-Cube` });
+        continue;
+      }
+      const beneficiaryIban = (payable.suppliers as AnyRow | undefined)?.iban || (payable as AnyRow).supplier_iban || '';
+      if (!beneficiaryIban) {
+        skipped.push({ invoice: payable.invoice_number || '—', reason: 'IBAN beneficiario mancante' });
+        continue;
+      }
+      const key = String(plan.bankId);
+      if (!groupsByBank.has(key)) groupsByBank.set(key, { bank, items: [] });
+      groupsByBank.get(key)!.items.push({ payableId: id, plan, payable });
+    }
+
+    if (groupsByBank.size === 0) {
+      alert('Nessun pagamento eseguibile via A-Cube.\n\n' + (skipped.length > 0
+        ? 'Motivi:\n' + skipped.map(s => `• ${s.invoice}: ${s.reason}`).join('\n')
+        : 'Seleziona fatture con banca A-Cube collegata e IBAN beneficiario.'));
+      return;
+    }
+
+    if (!confirm(`Lanciare ${Array.from(groupsByBank.values()).reduce((n, g) => n + g.items.length, 0)} bonifico/i via A-Cube su ${groupsByBank.size} banca/banche?\n\nVerrà generata 1 distinta per banca. Si apriranno gli URL di autorizzazione PSD2 da firmare sulla banca.`)) return;
+
+    setIsSaving(true);
+    const today_str = new Date().toISOString().split('T')[0];
+    const allAuthorizeUrls: Array<{ batchNumber: string; bankName: string; url: string }> = [];
+    const errors: string[] = [];
+
+    try {
+      for (const [, group] of groupsByBank) {
+        const bank = group.bank;
+        const totalGroup = group.items.reduce((s, it) => s + (it.plan.amount || 0), 0);
+        const balanceBefore = Number(bank.current_balance) || 0;
+        const batchNumber = `DIST-${today_str.replace(/-/g, '')}-${String(Math.floor(Math.random() * 1000)).padStart(3, '0')}`;
+
+        // 1) crea payment_batch
+        const { data: batch, error: batchErr } = await supabase.from('payment_batches').insert({
+          company_id: COMPANY_ID,
+          bank_account_id: bank.id,
+          batch_number: batchNumber,
+          status: 'draft',
+          total_amount: totalGroup,
+          payment_count: group.items.length,
+          balance_before: balanceBefore,
+        } as never).select().single();
+        if (batchErr || !batch) {
+          errors.push(`${bank.bank_name}: errore creazione distinta — ${batchErr?.message || 'sconosciuto'}`);
+          continue;
+        }
+        const batchId = (batch as { id: string }).id;
+
+        // 2) insert payment_batch_items (uno per fattura)
+        const itemsPayload = group.items.map((it, idx) => {
+          const beneficiaryIban = (it.payable.suppliers as AnyRow | undefined)?.iban || (it.payable as AnyRow).supplier_iban || '';
+          const beneficiaryName = (it.payable.suppliers as AnyRow | undefined)?.ragione_sociale || (it.payable.suppliers as AnyRow | undefined)?.name || (it.payable as AnyRow).supplier_name || '—';
+          return {
+            batch_id: batchId,
+            company_id: COMPANY_ID,
+            payable_id: it.payableId,
+            beneficiary_name: beneficiaryName,
+            beneficiary_iban: beneficiaryIban,
+            amount: it.plan.amount,
+            currency: 'EUR',
+            payment_reason: `Pag. fatt. ${it.payable.invoice_number || ''}`.trim(),
+            invoice_number: it.payable.invoice_number,
+            invoice_date: it.payable.invoice_date,
+            due_date: it.payable.due_date,
+            priority: idx + 1,
+            status: 'pending',
+          };
+        });
+        const { error: itemsErr } = await supabase.from('payment_batch_items').insert(itemsPayload as never);
+        if (itemsErr) {
+          errors.push(`${bank.bank_name}: errore inserimento righe — ${itemsErr.message}`);
+          continue;
+        }
+
+        // 3) UPDATE payable + audit (status pagato/parziale, banca per riconciliazione/prima nota)
+        for (const it of group.items) {
+          const newPaid = (Number(it.payable.amount_paid) || 0) + it.plan.amount;
+          const newStatus = it.plan.type === 'saldo' ? 'pagato' : 'parziale';
+          await supabase.from('payables').update({
+            amount_paid: newPaid,
+            amount_remaining: (Number(it.payable.gross_amount) ?? 0) - newPaid,
+            payment_date: today_str,
+            payment_bank_account_id: bank.id,
+            status: newStatus,
+          } as never).eq('id', it.payableId);
+          await supabase.from('payable_actions').insert({
+            payable_id: it.payableId,
+            action_type: newStatus === 'pagato' ? 'pagamento' : 'pagamento_parziale',
+            old_status: it.payable.status,
+            new_status: newStatus,
+            amount: it.plan.amount,
+            bank_account_id: bank.id,
+            note: `Pagamento via A-Cube PSD2 — distinta ${batchNumber}`,
+          } as never);
+        }
+
+        // 4) chiama Edge Function acube-payment-send
+        const { data: fnData, error: fnErr } = await supabase.functions.invoke('acube-payment-send', { body: { batch_id: batchId, stage: 'sandbox' } });
+        if (fnErr) {
+          errors.push(`${bank.bank_name} (distinta ${batchNumber}): A-Cube error — ${fnErr.message}`);
+          continue;
+        }
+        const fnResult = fnData as { initiated?: number; failed?: number; items?: Array<{ acube_authorize_url?: string; error?: string }> };
+        if ((fnResult.failed ?? 0) > 0) {
+          const itemErrs = (fnResult.items || []).filter(i => i.error).map(i => i.error).join('; ');
+          errors.push(`${bank.bank_name} (distinta ${batchNumber}): ${fnResult.failed} item falliti — ${itemErrs}`);
+        }
+        // raccogli URL autorizzazione PSD2
+        (fnResult.items || []).forEach(it => {
+          if (it.acube_authorize_url) allAuthorizeUrls.push({ batchNumber, bankName: bank.bank_name || '', url: it.acube_authorize_url });
+        });
+      }
+
+      // Apri tutte le URL autorizzazione PSD2 (1 tab per fattura)
+      allAuthorizeUrls.forEach(u => window.open(u.url, '_blank'));
+
+      // Recap finale
+      const recap =
+        `✅ Distinte create: ${groupsByBank.size}\n` +
+        `🔗 URL PSD2 aperti: ${allAuthorizeUrls.length}\n` +
+        (skipped.length > 0 ? `\n⚠️ Saltati ${skipped.length}:\n${skipped.map(s => `• ${s.invoice}: ${s.reason}`).join('\n')}\n` : '') +
+        (errors.length > 0 ? `\n❌ Errori:\n${errors.join('\n')}` : '');
+      alert(recap);
+
+      setSelectedIds(new Set());
+      setPaymentPlan({});
+      setIsSaving(false);
+      fetchData();
+    } catch (error) {
+      console.error('Error confirming payments via A-Cube:', error);
+      alert('Errore inatteso: ' + (error instanceof Error ? error.message : String(error)));
+      setIsSaving(false);
+    }
+  };
+
+  // Per il bottone "Paga via A-Cube" del bottom-sheet: serve almeno una banca selezionata
+  // con acube_account_uuid valorizzato.
+  const someSelectedBankIsAcube = useMemo(() => {
+    for (const id of selectedIds) {
+      const plan = paymentPlan[id];
+      if (!plan?.bankId) continue;
+      const bank = bankAccounts.find(b => b.id === plan.bankId);
+      if (bank && (bank as AnyRow & { acube_account_uuid?: string | null }).acube_account_uuid) return true;
+    }
+    return false;
+  }, [selectedIds, paymentPlan, bankAccounts]);
+
   // Sibill-style sub-tab counts
   const tabCounts = useMemo(() => {
     const all = payables || [];
@@ -2049,59 +2217,8 @@ const ScadenzarioSmart = () => {
                           {/* AZIONI — Paga + Vedi fattura + Edit + Delete */}
                           <td className="py-2.5 px-3 text-right">
                             <div className="flex justify-end gap-0.5">
-                              {/* Paga via A-Cube — crea distinta monouso + chiama Edge Function */}
-                              {p.status !== 'pagato' && (
-                                <button onClick={async (e) => {
-                                  e.stopPropagation()
-                                  if (!confirm(`Pagare ${p.invoice_number ?? 'questa fattura'} di € ${fmt(Number(p.gross_amount ?? 0))} via A-Cube sandbox?\n\nVerrà creata una distinta + chiamata A-Cube per generare URL autorizzazione PSD2.`)) return
-                                  try {
-                                    // Recupera 1° conto bancario A-Cube enabled (types stale per acube_account_uuid)
-                                    const { data: bankAccs } = await (supabase.from('bank_accounts') as unknown as { select: (s: string) => { eq: (k: string, v: string) => { not: (k: string, op: string, v: null) => { limit: (n: number) => Promise<{ data: Array<Record<string, unknown>> | null }> } } } })
-                                      .select('id, acube_account_uuid, current_balance')
-                                      .eq('company_id', p.company_id ?? '')
-                                      .not('acube_account_uuid', 'is', null)
-                                      .limit(1)
-                                    if (!bankAccs?.[0]) { alert('Nessun conto bancario A-Cube collegato. Vai su Banche → Conti per collegarlo.'); return }
-                                    const sourceAcc = bankAccs[0] as { id: string; current_balance: number | null }
-                                    // Crea payment_batch monouso
-                                    const batchNumber = `PAGA-${new Date().toISOString().slice(0,10).replace(/-/g,'')}-${String(Math.floor(Math.random()*1000)).padStart(3,'0')}`
-                                    const { data: batch, error: batchErr } = await supabase.from('payment_batches').insert({
-                                      company_id: p.company_id, bank_account_id: sourceAcc.id, batch_number: batchNumber,
-                                      status: 'draft', total_amount: p.gross_amount, payment_count: 1,
-                                      balance_before: Number(sourceAcc.current_balance) || 0,
-                                    } as never).select().single()
-                                    if (batchErr || !batch) { alert(`Errore creazione distinta: ${batchErr?.message}`); return }
-                                    const batchTyped = batch as { id: string }
-                                    // Insert item
-                                    await supabase.from('payment_batch_items').insert({
-                                      batch_id: batchTyped.id, company_id: p.company_id, payable_id: p.id,
-                                      beneficiary_name: p.suppliers?.ragione_sociale || p.supplier_name || '—',
-                                      beneficiary_iban: (p.iban as string) || '', amount: p.gross_amount, currency: 'EUR',
-                                      payment_reason: `Pag. fatt. ${p.invoice_number || ''}`.trim(),
-                                      invoice_number: p.invoice_number, invoice_date: p.invoice_date, due_date: p.due_date,
-                                      priority: 1, status: 'pending',
-                                    } as never)
-                                    // Chiama Edge Function
-                                    const { data, error: fnErr } = await supabase.functions.invoke('acube-payment-send', { body: { batch_id: batchTyped.id, stage: 'sandbox' } })
-                                    if (fnErr) { alert('Errore A-Cube: ' + fnErr.message); return }
-                                    const result = data as { initiated?: number; failed?: number; items?: Array<{ acube_authorize_url?: string; error?: string }> }
-                                    if ((result.failed ?? 0) > 0) {
-                                      alert(`Pagamento fallito:\n${result.items?.[0]?.error ?? 'errore sconosciuto'}`)
-                                    } else {
-                                      alert(`✅ Pagamento iniziato. Si apre la pagina A-Cube per autorizzare sulla banca.`)
-                                      result.items?.forEach(it => {
-                                        if (it.acube_authorize_url) window.open(it.acube_authorize_url, '_blank')
-                                      })
-                                    }
-                                  } catch (err) {
-                                    alert('Errore: ' + (err instanceof Error ? err.message : String(err)))
-                                  }
-                                }}
-                                  className="p-1 rounded text-slate-400 hover:text-emerald-600 hover:bg-emerald-50"
-                                  title="Paga via A-Cube (PSD2 sandbox)">
-                                  <Wallet size={13} />
-                                </button>
-                              )}
+                              {/* NB: pagamento via A-Cube si lancia dal bottom-sheet multi-checkbox.
+                                  Bottone singolo rimosso per evitare duplicato di TesoreriaManuale. */}
                               {/* Vedi fattura XML */}
                               {p.invoice_number && (
                                 <button onClick={async () => {
@@ -2415,8 +2532,16 @@ const ScadenzarioSmart = () => {
                       </div>
                     )}
                     <button onClick={confirmPayments} disabled={isSaving || hasNegativeBalance || Array.from(selectedIds).some(id => !paymentPlan[id]?.bankId)}
-                      className="px-6 py-2 bg-emerald-600 text-white hover:bg-emerald-700 rounded-lg text-sm font-bold disabled:opacity-50 disabled:cursor-not-allowed">
-                      {isSaving ? 'Elaborazione...' : 'Conferma'}
+                      className="px-6 py-2 bg-emerald-600 text-white hover:bg-emerald-700 rounded-lg text-sm font-bold disabled:opacity-50 disabled:cursor-not-allowed"
+                      title="Marca come pagato + invia email distinta alla commercialista (per pagamenti già fatti via home banking, F24, RID, ecc.)">
+                      {isSaving ? 'Elaborazione...' : 'Marca pagato'}
+                    </button>
+                    <button onClick={confirmPaymentsViaAcube}
+                      disabled={isSaving || hasNegativeBalance || Array.from(selectedIds).some(id => !paymentPlan[id]?.bankId) || !someSelectedBankIsAcube}
+                      className="px-6 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded-lg text-sm font-bold disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+                      title={someSelectedBankIsAcube ? 'Esegue bonifico SEPA reale via A-Cube PSD2 — apre tab autorizzazione su ogni banca' : 'Nessuna banca selezionata è collegata ad A-Cube'}>
+                      <Wallet size={14} />
+                      {isSaving ? 'Elaborazione...' : 'Paga via A-Cube'}
                     </button>
                   </div>
                 </div>
