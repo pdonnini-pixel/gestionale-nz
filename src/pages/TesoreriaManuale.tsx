@@ -4,7 +4,7 @@ import {
   Search, ChevronDown, ChevronUp, Banknote, Store, PiggyBank,
   Plus, Edit2, Trash2, Check, X, AlertCircle, Download, Upload,
   ArrowUpRight, ArrowDownLeft, Filter, Eye, EyeOff, RefreshCw,
-  Clock, ListOrdered, Link2, CheckCircle2, History, FileText,
+  Clock, ListOrdered, Link2, CheckCircle2, History, FileText, BookOpen,
   ChevronLeft, ChevronRight, ArrowRight, Send, Ban, Percent,
   Calendar, Info, MoreVertical, Copy, FileUp, Layers, Unlink,
   CircleDot, Sparkles, Receipt, ChevronsUpDown, AlertTriangle,
@@ -17,11 +17,12 @@ import {
 import { useSearchParams } from 'react-router-dom'
 
 // Tab principale TesoreriaManuale — persistito in URL come ?tab=
-type TesoreriaTab = 'panoramica' | 'conti' | 'movimenti' | 'riconciliazione'
-const VALID_TESORERIA_TABS: TesoreriaTab[] = ['panoramica', 'conti', 'movimenti', 'riconciliazione']
+type TesoreriaTab = 'panoramica' | 'conti' | 'movimenti' | 'riconciliazione' | 'prima_nota'
+const VALID_TESORERIA_TABS: TesoreriaTab[] = ['panoramica', 'conti', 'movimenti', 'riconciliazione', 'prima_nota']
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { useCompanyLabels } from '../hooks/useCompanyLabels'
+import PrimaNota from './PrimaNota'
 
 // ═══════════════════════════════════════════════════════════════════
 // ═══ HELPERS ═══
@@ -34,6 +35,7 @@ const TABS = [
   { key: 'conti', label: 'Conti Bancari', icon: Building2 },
   { key: 'movimenti', label: 'Movimenti', icon: ArrowUpRight },
   { key: 'riconciliazione', label: 'Riconciliazione', icon: Link2 },
+  { key: 'prima_nota', label: 'Prima Nota', icon: BookOpen },
 ] as const
 
 const ACCOUNT_TYPES = [
@@ -2840,6 +2842,9 @@ export default function TesoreriaManuale() {
       )}
       {activeTab === 'riconciliazione' && (
         <TabRiconciliazione transactions={transactions} payables={payables} accounts={accounts} companyId={companyId} onRefresh={refresh} />
+      )}
+      {activeTab === 'prima_nota' && (
+        <PrimaNota />
       )}
     </div>
   )
