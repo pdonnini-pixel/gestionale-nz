@@ -18,7 +18,12 @@ jobs:
           cache: 'npm'
 
       - name: Installa dipendenze
-        run: npm ci
+        # npm install (non npm ci) per tollerare dep platform-specific nel lockfile.
+        # Bug npm noto #4828: optional deps tipo @rollup/rollup-android-arm-eabi
+        # vengono registrate come required quando il lockfile è generato su ARM/Mac M
+        # → npm ci fallisce su Linux x64 con EBADPLATFORM.
+        # npm install rigenera/aggiorna il lockfile in modo platform-aware.
+        run: npm install --no-audit --no-fund
 
       - name: Build produzione
         run: npm run build
