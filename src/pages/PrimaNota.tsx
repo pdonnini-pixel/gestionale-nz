@@ -284,11 +284,11 @@ export default function PrimaNota() {
         </div>
       )}
 
-      {/* Tabella */}
+      {/* Tabella — max-height 70vh + sticky header per gestire bene 200+ movimenti */}
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-        <div className="overflow-x-auto">
+        <div className="overflow-auto max-h-[70vh]">
           <table className="w-full text-sm">
-            <thead className="bg-slate-50 text-xs uppercase text-slate-600">
+            <thead className="bg-slate-50 text-xs uppercase text-slate-600 sticky top-0 z-10 shadow-sm">
               <tr>
                 <th className="px-3 py-2 text-left">Data</th>
                 <th className="px-3 py-2 text-left">Conto Banca</th>
