@@ -365,9 +365,20 @@ const ScadenzarioSmart = () => {
     return spending;
   }, [paymentPlan]);
 
+  // Saldo insufficiente: controlla SOLO le banche effettivamente in uso nei pagamenti
+  // selezionati (non tutti i conti del tenant). Se un conto X è negativo ma non lo stai
+  // usando per pagare, non deve bloccare l'operazione.
   const hasNegativeBalance = useMemo(() => {
-    return Object.values(bankBalances).some(b => b < 0);
-  }, [bankBalances]);
+    const usedBankIds = new Set<string>();
+    for (const id of selectedIds) {
+      const plan = paymentPlan[id];
+      if (plan?.bankId) usedBankIds.add(plan.bankId);
+    }
+    for (const bid of usedBankIds) {
+      if ((bankBalances[bid] ?? 0) < 0) return true;
+    }
+    return false;
+  }, [bankBalances, selectedIds, paymentPlan]);
 
   const selectedTotal = useMemo(() => {
     return Array.from(selectedIds).reduce((sum, id) => {
