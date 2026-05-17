@@ -1423,6 +1423,7 @@ function Corrispettivi() {
 export default function Fatturazione() {
   const { company } = useCompany()
   const { year } = usePeriod()
+  const { toast } = useToast()
   // activeTab persistito in URL come ?tab=… (default 'passive')
   const [searchParams, setSearchParams] = useSearchParams()
   const tabParam = searchParams.get('tab')
@@ -1453,8 +1454,6 @@ export default function Fatturazione() {
   const [sdiAvailable, setSdiAvailable] = useState<boolean | null>(null)
   const [invoiceCounts, setInvoiceCounts] = useState({ passive: 0, active: 0 })
   const [syncing, setSyncing] = useState(false)
-  type SyncResult = { error?: string; inserted?: number; skipped?: number; failed?: number; total_found?: number; used_url?: string; errors?: string[] } | null
-  const [syncResult, setSyncResult] = useState<SyncResult>(null)
   const [syncKey, setSyncKey] = useState(0) // increment to force child refresh
 
   // Carica statistiche SDI globali (config + stato). Se l'Edge Function
@@ -1528,18 +1527,28 @@ export default function Fatturazione() {
   // Edge Function: acube-sdi-sync-inbound (deployed v1)
   const handleSyncAcubeSdi = async () => {
     setSyncing(true)
-    setSyncResult(null)
     try {
       const { data, error } = await supabase.functions.invoke('acube-sdi-sync-inbound', { body: { stage: 'sandbox' } })
       if (error) throw new Error(error.message)
-      setSyncResult(data as SyncResult)
+      const result = data as { inserted?: number; skipped?: number; failed?: number; total_found?: number; errors?: string[] }
+      const inserted = result.inserted ?? 0
+      const skipped = result.skipped ?? 0
+      const failed = result.failed ?? 0
+      const total = result.total_found ?? 0
+      const hasErrors = (result.errors?.length ?? 0) > 0 || failed > 0
+
+      const summary = `${inserted} nuove fatture, ${skipped} già presenti, ${failed} errori\n(trovate su A-Cube: ${total})`
+      const errLines = (result.errors || []).slice(0, 5).join('\n')
+      toast({
+        type: hasErrors ? 'warning' : 'success',
+        message: hasErrors ? `${summary}\n\n${errLines}` : summary,
+      })
       setSyncKey(prev => prev + 1)
       loadStats()
     } catch (err: unknown) {
-      setSyncResult({ error: (err as Error).message })
+      toast({ type: 'error', message: 'Errore sincronizzazione: ' + (err as Error).message })
     } finally {
       setSyncing(false)
-      setTimeout(() => setSyncResult(null), 8000)
     }
   }
 
@@ -1584,44 +1593,7 @@ export default function Fatturazione() {
         </button>
       </div>
 
-      {/* Sync result toast */}
-      {syncResult && (
-        <div className={`rounded-xl border p-4 flex items-start gap-3 ${
-          syncResult.error
-            ? 'bg-red-50 border-red-200 text-red-800'
-            : ((syncResult.errors?.length ?? 0) > 0)
-              ? 'bg-amber-50 border-amber-200 text-amber-800'
-              : 'bg-green-50 border-green-200 text-green-800'
-        }`}>
-          {syncResult.error ? (
-            <>
-              <XCircle size={18} className="shrink-0 mt-0.5" />
-              <div>
-                <p className="font-medium">Errore sincronizzazione</p>
-                <p className="text-sm mt-0.5">{syncResult.error}</p>
-              </div>
-            </>
-          ) : (
-            <>
-              <CheckCircle size={18} className="shrink-0 mt-0.5" />
-              <div>
-                <p className="font-medium">Sincronizzazione A-Cube SDI completata</p>
-                <p className="text-sm mt-0.5">
-                  <span className="font-semibold">{syncResult.inserted ?? 0}</span> nuove fatture passive,{' '}
-                  {syncResult.skipped ?? 0} già presenti, {syncResult.failed ?? 0} errori
-                  {syncResult.total_found != null && <span className="text-xs ml-1 text-slate-600">(trovate su A-Cube: {syncResult.total_found})</span>}
-                </p>
-                {syncResult.errors?.map((err: string, i: number) => (
-                  <p key={i} className="text-xs mt-1 text-amber-600">{err}</p>
-                ))}
-              </div>
-            </>
-          )}
-          <button onClick={() => setSyncResult(null)} className="ml-auto shrink-0">
-            <X size={14} />
-          </button>
-        </div>
-      )}
+      {/* Banner syncResult rimosso: il risultato della sync ora è mostrato via toast centrale globale. */}
 
       {/* Tabs */}
       <div className="border-b border-slate-200">
