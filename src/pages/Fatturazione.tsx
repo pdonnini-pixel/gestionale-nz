@@ -1529,7 +1529,19 @@ export default function Fatturazione() {
     setSyncing(true)
     try {
       const { data, error } = await supabase.functions.invoke('acube-sdi-sync-inbound', { body: { stage: 'sandbox' } })
-      if (error) throw new Error(error.message)
+      // Supabase functions-js wraps non-2xx in FunctionsHttpError con .context.json() che contiene il body
+      if (error) {
+        let detail = error.message
+        // Tenta di leggere il body JSON dell'errore Edge Function per messaggio specifico
+        try {
+          const errCtx = (error as unknown as { context?: { json?: () => Promise<{ error?: string }> } })?.context
+          if (errCtx?.json) {
+            const bodyJson = await errCtx.json()
+            if (bodyJson?.error) detail = bodyJson.error
+          }
+        } catch { /* swallow */ }
+        throw new Error(detail)
+      }
       const result = data as { inserted?: number; skipped?: number; failed?: number; total_found?: number; errors?: string[] }
       const inserted = result.inserted ?? 0
       const skipped = result.skipped ?? 0
@@ -1546,7 +1558,7 @@ export default function Fatturazione() {
       setSyncKey(prev => prev + 1)
       loadStats()
     } catch (err: unknown) {
-      toast({ type: 'error', message: 'Errore sincronizzazione: ' + (err as Error).message })
+      toast({ type: 'error', message: 'Errore sincronizzazione:\n' + (err as Error).message, duration: 20000 })
     } finally {
       setSyncing(false)
     }
