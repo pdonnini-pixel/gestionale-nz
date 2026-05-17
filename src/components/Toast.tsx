@@ -37,7 +37,7 @@ interface ToastProviderProps {
 export function ToastProvider({ children }: ToastProviderProps) {
   const [toasts, setToasts] = useState<ToastData[]>([])
 
-  const toast = useCallback(({ type = 'info', message, duration = 4000 }: ToastOptions) => {
+  const toast = useCallback(({ type = 'info', message, duration = 10000 }: ToastOptions) => {
     const id = Date.now()
 
     setToasts(prev => {
@@ -87,16 +87,27 @@ interface ToastContainerProps {
 
 function ToastContainer({ toasts, onRemove }: ToastContainerProps) {
   // Top-center: pattern Sibill/Linear. Non copre la sidebar.
+  // Backdrop invisibile: click ovunque fuori dal toast = chiude tutto.
+  const dismissAll = () => toasts.forEach(t => onRemove(t.id))
   return (
-    <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[100] flex flex-col gap-3 items-center pointer-events-none">
-      {toasts.map((toast) => (
-        <ToastItem
-          key={toast.id}
-          toast={toast}
-          onRemove={() => onRemove(toast.id)}
+    <>
+      {toasts.length > 0 && (
+        <div
+          className="fixed inset-0 z-[99] cursor-pointer"
+          onClick={dismissAll}
+          aria-hidden="true"
         />
-      ))}
-    </div>
+      )}
+      <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[100] flex flex-col gap-3 items-center pointer-events-none">
+        {toasts.map((toast) => (
+          <ToastItem
+            key={toast.id}
+            toast={toast}
+            onRemove={() => onRemove(toast.id)}
+          />
+        ))}
+      </div>
+    </>
   )
 }
 
@@ -116,7 +127,7 @@ function ToastItem({ toast, onRemove }: ToastItemProps) {
     setTimeout(onRemove, 300)
   }
 
-  // Type config: icon, colors, bg gradient
+  // Type config: icon, colors, bg gradient + colore bordo bold per tipo
   const typeConfig = {
     success: {
       icon: CheckCircle,
@@ -124,6 +135,7 @@ function ToastItem({ toast, onRemove }: ToastItemProps) {
       bgGradient: 'from-green-50 to-emerald-50',
       border: 'border-green-200',
       textColor: '#065f46',
+      borderColorBold: '#10b981', // emerald-500
     },
     error: {
       icon: XCircle,
@@ -131,6 +143,7 @@ function ToastItem({ toast, onRemove }: ToastItemProps) {
       bgGradient: 'from-red-50 to-rose-50',
       border: 'border-red-200',
       textColor: '#7f1d1d',
+      borderColorBold: '#ef4444', // red-500
     },
     warning: {
       icon: AlertTriangle,
@@ -138,6 +151,7 @@ function ToastItem({ toast, onRemove }: ToastItemProps) {
       bgGradient: 'from-amber-50 to-orange-50',
       border: 'border-amber-200',
       textColor: '#7c2d12',
+      borderColorBold: '#f59e0b', // amber-500
     },
     info: {
       icon: Info,
@@ -145,6 +159,7 @@ function ToastItem({ toast, onRemove }: ToastItemProps) {
       bgGradient: 'from-blue-50 to-cyan-50',
       border: 'border-blue-200',
       textColor: '#1e3a8a',
+      borderColorBold: '#3b82f6', // blue-500
     },
   }
 
@@ -162,17 +177,17 @@ function ToastItem({ toast, onRemove }: ToastItemProps) {
         className={`
           relative rounded-lg p-4 w-96 max-w-sm
           backdrop-blur-xl
-          border ${config.border}
           bg-gradient-to-br ${config.bgGradient}
           shadow-lg
           flex items-start gap-3
         `}
+        onClick={(e) => e.stopPropagation()}
         style={{
-          background: `rgba(255,255,255,0.85)`,
+          background: `rgba(255,255,255,0.92)`,
           backdropFilter: 'blur(12px)',
           WebkitBackdropFilter: 'blur(12px)',
-          border: `1px solid rgba(255,255,255,0.5)`,
-          boxShadow: '0 8px 32px rgba(0,0,0,0.12)',
+          border: `3px solid ${config.borderColorBold}`,
+          boxShadow: `0 8px 32px ${config.borderColorBold}33, 0 4px 16px rgba(0,0,0,0.08)`,
         }}
       >
         {/* Icon */}
