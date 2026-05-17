@@ -1453,7 +1453,7 @@ export default function Fatturazione() {
   const [sdiAvailable, setSdiAvailable] = useState<boolean | null>(null)
   const [invoiceCounts, setInvoiceCounts] = useState({ passive: 0, active: 0 })
   const [syncing, setSyncing] = useState(false)
-  type SyncResult = { error?: string; fatture?: number; fattureSincronizzate?: number; corrispettivi?: number; corrispettiviSincronizzati?: number; durationMs?: number; errors?: string[] } | null
+  type SyncResult = { error?: string; inserted?: number; skipped?: number; failed?: number; total_found?: number; used_url?: string; errors?: string[] } | null
   const [syncResult, setSyncResult] = useState<SyncResult>(null)
   const [syncKey, setSyncKey] = useState(0) // increment to force child refresh
 
@@ -1522,43 +1522,23 @@ export default function Fatturazione() {
 
   useEffect(() => { loadStats(); loadInvoiceCounts() }, [loadStats, loadInvoiceCounts])
 
-  // Sincronizza fatture + corrispettivi dal cassetto fiscale AdE
-  // Usa Netlify Function (Node.js) per supporto mTLS con certificati client
-  const handleSyncSdi = async () => {
+  // Sincronizza fatture passive da A-Cube SDI (pull manuale).
+  // Il webhook A-Cube è la fonte primaria push real-time; questo bottone serve
+  // come fallback se eventi webhook sono stati persi (ritardi sandbox, ecc.).
+  // Edge Function: acube-sdi-sync-inbound (deployed v1)
+  const handleSyncAcubeSdi = async () => {
     setSyncing(true)
     setSyncResult(null)
     try {
-      let { data: { session } } = await supabase.auth.getSession()
-      if (!session) {
-        const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession()
-        if (refreshError || !refreshData.session) throw new Error('Sessione scaduta')
-        session = refreshData.session
-      }
-
-      const res = await fetch('/.netlify/functions/sdi-sync', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({
-          dateFrom: new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-          dateTo: new Date().toISOString().split('T')[0],
-        }),
-      })
-
-      const result = await res.json()
-      if (!res.ok) throw new Error(result.error || `Errore ${res.status}`)
-
-      setSyncResult(result)
-      // Refresh tabs data
+      const { data, error } = await supabase.functions.invoke('acube-sdi-sync-inbound', { body: { stage: 'sandbox' } })
+      if (error) throw new Error(error.message)
+      setSyncResult(data as SyncResult)
       setSyncKey(prev => prev + 1)
       loadStats()
     } catch (err: unknown) {
       setSyncResult({ error: (err as Error).message })
     } finally {
       setSyncing(false)
-      // Auto-hide result after 8 seconds
       setTimeout(() => setSyncResult(null), 8000)
     }
   }
@@ -1573,25 +1553,9 @@ export default function Fatturazione() {
 
   return (
     <div className="p-6 space-y-6">
-      {/* Banner informativo: SDI non configurato per questo tenant.
-          Mostrato quando sdi-status-check ha risposto 401/403/CODE non
-          configurato. NIENTE retry automatico: l'utente vede il banner e
-          sa che la sincronizzazione SDI non è disponibile finché EPPI non
-          completa l'accreditamento per il tenant. */}
-      {sdiAvailable === false && (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 flex items-start gap-3">
-          <AlertTriangle size={18} className="shrink-0 mt-0.5 text-amber-600" />
-          <div className="text-sm text-amber-900">
-            <div className="font-semibold mb-0.5">Sincronizzazione SDI non disponibile</div>
-            <div className="text-amber-800">
-              L'accreditamento all'Agenzia delle Entrate per questo tenant non è
-              ancora configurato. Le fatture già presenti nel database restano
-              consultabili, ma la sincronizzazione automatica con il cassetto
-              fiscale è disattivata. Contattare EPPI per completare l'accreditamento.
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Banner EPPI rimosso: piano accreditamento diretto AdE abbandonato.
+          Le fatture SDI ora arrivano via webhook A-Cube real-time + pull manuale
+          on-demand col bottone "Sincronizza A-Cube SDI". */}
 
       {/* Header */}
       <div className="flex items-center justify-between">
@@ -1610,13 +1574,13 @@ export default function Fatturazione() {
           </p>
         </div>
         <button
-          onClick={handleSyncSdi}
-          disabled={true}
-          title="Sincronizzazione SDI non disponibile — accreditamento Agenzia delle Entrate ancora da completare. Contattare EPPI per maggiori informazioni."
-          className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-xl transition disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+          onClick={handleSyncAcubeSdi}
+          disabled={syncing}
+          title="Pull manuale fatture passive da A-Cube SDI. Webhook A-Cube già attivo in real-time; usa questo come fallback se sospetti eventi mancati."
+          className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl transition disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
         >
-          <RefreshCw size={16} />
-          Sincronizza SDI
+          <RefreshCw size={16} className={syncing ? 'animate-spin' : ''} />
+          {syncing ? 'Sincronizzazione...' : 'Sincronizza A-Cube SDI'}
         </button>
       </div>
 
@@ -1641,11 +1605,11 @@ export default function Fatturazione() {
             <>
               <CheckCircle size={18} className="shrink-0 mt-0.5" />
               <div>
-                <p className="font-medium">Sincronizzazione completata</p>
+                <p className="font-medium">Sincronizzazione A-Cube SDI completata</p>
                 <p className="text-sm mt-0.5">
-                  {syncResult.fatture ?? syncResult.fattureSincronizzate ?? 0} fatture e {syncResult.corrispettivi ?? syncResult.corrispettiviSincronizzati ?? 0} corrispettivi
-                  sincronizzati dal cassetto fiscale
-                  {syncResult.durationMs && <span className="text-xs ml-1">({Math.round(syncResult.durationMs / 1000)}s)</span>}
+                  <span className="font-semibold">{syncResult.inserted ?? 0}</span> nuove fatture passive,{' '}
+                  {syncResult.skipped ?? 0} già presenti, {syncResult.failed ?? 0} errori
+                  {syncResult.total_found != null && <span className="text-xs ml-1 text-slate-600">(trovate su A-Cube: {syncResult.total_found})</span>}
                 </p>
                 {syncResult.errors?.map((err: string, i: number) => (
                   <p key={i} className="text-xs mt-1 text-amber-600">{err}</p>
