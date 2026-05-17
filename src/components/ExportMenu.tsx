@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react'
 import { Download, FileText, Table, FileSpreadsheet } from 'lucide-react'
+import { useToast } from './Toast'
 
 interface ExportColumn {
   key: string
@@ -15,6 +16,7 @@ interface ExportMenuProps {
 }
 
 export default function ExportMenu({ data, columns, filename = 'export', title }: ExportMenuProps) {
+  const { toast } = useToast()
   const [open, setOpen] = useState(false)
   const [exporting, setExporting] = useState<string | null>(null)
   const ref = useRef<HTMLDivElement>(null)
@@ -91,7 +93,7 @@ export default function ExportMenu({ data, columns, filename = 'export', title }
     setExporting('pdf')
     try {
       const printWindow = window.open('', '_blank')
-      if (!printWindow) { alert('Abilita i popup per esportare in PDF'); return }
+      if (!printWindow) { toast({ type: 'warning', message: 'Abilita i popup per esportare in PDF' }); return }
 
       let html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${title || filename}</title>
       <style>

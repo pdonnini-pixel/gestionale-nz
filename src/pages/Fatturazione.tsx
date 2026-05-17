@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useSearchParams, Link } from 'react-router-dom'
 import PageHelp from '../components/PageHelp'
+import { useToast } from '../components/Toast'
 
 // Tab principale Fatturazione — persistito in URL come ?tab=
 type FatturazioneTab = 'passive' | 'active' | 'corrispettivi'
@@ -196,6 +197,7 @@ function FatturePassive() {
   // in alto). Quando l'utente cambia anno nell'header, qui si aggiorna
   // automaticamente. L'utente puo' comunque sovrascriverlo localmente col
   // select in pagina. Se arriva da Dashboard con ?year= ha la priorita'.
+  const { toast } = useToast()
   const { year: globalYear } = usePeriod()
   const { company } = useCompany()
   const [yearFilter, setYearFilter] = useState(() => {
@@ -240,16 +242,16 @@ function FatturePassive() {
     try {
       const xmlContent = await file.text()
       if (!xmlContent.includes('FatturaElettronica')) {
-        alert('Il file non sembra essere un XML FatturaPA valido.')
+        toast({ type: 'warning', message: 'Il file non sembra essere un XML FatturaPA valido.' })
         return
       }
       const result = await callEdgeFunction('sdi-receive', 'POST', { xmlContent }) as { data?: { action?: string; invoice?: { invoice_number?: string } } }
       if (result.data) {
-        alert(`Fattura ${result.data.action === 'created' ? 'importata' : 'aggiornata'}: ${result.data.invoice?.invoice_number}`)
+        toast({ type: 'success', message: `Fattura ${result.data.action === 'created' ? 'importata' : 'aggiornata'}: ${result.data.invoice?.invoice_number}` })
         loadInvoices()
       }
     } catch (err: unknown) {
-      alert('Errore upload: ' + (err as Error).message)
+      toast({ type: 'error', message: 'Errore upload: ' + (err as Error).message })
     } finally {
       setUploading(false)
       e.target.value = ''
@@ -683,6 +685,7 @@ function FattureAttive() {
     due_date?: string | null
     [key: string]: unknown
   }
+  const { toast } = useToast()
   const [invoices, setInvoices] = useState<ActiveInvoiceRow[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
@@ -715,10 +718,10 @@ function FattureAttive() {
   const handleGenerateXml = async (invoiceId: string) => {
     try {
       await callEdgeFunction('sdi-generate-xml', 'POST', { invoiceId })
-      alert('XML generato con successo')
+      toast({ type: 'success', message: 'XML generato con successo' })
       loadInvoices()
     } catch (err: unknown) {
-      alert('Errore generazione XML: ' + (err as Error).message)
+      toast({ type: 'error', message: 'Errore generazione XML: ' + (err as Error).message })
     }
   }
 
@@ -727,10 +730,10 @@ function FattureAttive() {
     setSending(invoiceId)
     try {
       const result = await callEdgeFunction('sdi-send', 'POST', { invoiceId }) as { data?: { sdiId?: string; environment?: string } }
-      alert(`Fattura inviata! SDI ID: ${result.data?.sdiId} (${result.data?.environment})`)
+      toast({ type: 'success', message: `Fattura inviata! SDI ID: ${result.data?.sdiId} (${result.data?.environment})` })
       loadInvoices()
     } catch (err: unknown) {
-      alert('Errore invio SDI: ' + (err as Error).message)
+      toast({ type: 'error', message: 'Errore invio SDI: ' + (err as Error).message })
     } finally {
       setSending(null)
     }
@@ -772,7 +775,7 @@ function FattureAttive() {
       setForm({ invoice_number: '', invoice_date: new Date().toISOString().split('T')[0], tipo_documento: 'TD01', client_name: '', client_vat: '', client_fiscal_code: '', codice_destinatario: '', total_amount: '', taxable_amount: '', vat_amount: '', vat_rate: '22.00', payment_method: 'MP05', due_date: '', description: '' })
       loadInvoices()
     } catch (err: unknown) {
-      alert('Errore creazione fattura: ' + (err as Error).message)
+      toast({ type: 'error', message: 'Errore creazione fattura: ' + (err as Error).message })
     }
   }
 

@@ -21,6 +21,7 @@
 import { useMemo, useState } from 'react'
 import * as XLSX from 'xlsx'
 import { X, FileSpreadsheet, Download } from 'lucide-react'
+import { useToast } from './Toast'
 
 type BudgetEntry = {
   cost_center?: string
@@ -60,6 +61,7 @@ const MESI_IT = ['Gennaio', 'Febbraio', 'Marzo', 'Aprile', 'Maggio', 'Giugno',
 export default function ExportBilancioDialog({
   open, onClose, budgetEntries, operativeOutlets, year, tenantName, tenantCode, userEmail,
 }: Props) {
+  const { toast } = useToast()
   const [periodType, setPeriodType] = useState<PeriodType>('annuale')
   const [singleMonth, setSingleMonth] = useState(new Date().getMonth() + 1)
   const [trimestre, setTrimestre] = useState<1 | 2 | 3 | 4>(1)
@@ -226,7 +228,7 @@ export default function ExportBilancioDialog({
       onClose()
     } catch (err) {
       console.error('[ExportBilancio]', err)
-      alert('Errore durante la generazione del file Excel. Vedi console per dettagli.')
+      toast({ type: 'error', message: 'Errore durante la generazione del file Excel. Vedi console per dettagli.' })
     } finally {
       setGenerating(false)
     }

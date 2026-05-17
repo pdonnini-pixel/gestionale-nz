@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import InvoiceViewer from '../components/InvoiceViewer';
 import StatusBadge from '../components/ui/StatusBadge';
+import { useToast } from '../components/Toast';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
 import type { Row } from '../types/business';
@@ -71,6 +72,7 @@ const paymentMethodLabels: Record<string, string> = {
 
 // ─── Component ─────────────────────────────────────────────────
 export default function SchedaContabileFornitore() {
+  const { toast } = useToast();
   const { supplierId } = useParams();
   const navigate = useNavigate();
   const { profile } = useAuth();
@@ -319,7 +321,7 @@ export default function SchedaContabileFornitore() {
     if (!COMPANY_ID) return;
     // Cerca XML su electronic_invoices per invoice_number
     const invoiceNumber = fattura.invoice_number || fattura.rate?.[0]?.invoice_number;
-    if (!invoiceNumber) { alert('XML non disponibile per questa fattura'); return; }
+    if (!invoiceNumber) { toast({ type: 'warning', message: 'XML non disponibile per questa fattura' }); return; }
 
     const { data } = await supabase
       .from('electronic_invoices')
@@ -333,7 +335,7 @@ export default function SchedaContabileFornitore() {
     if (data?.xml_content) {
       setViewingXml(data.xml_content);
     } else {
-      alert('XML non disponibile per questa fattura');
+      toast({ type: 'warning', message: 'XML non disponibile per questa fattura' });
     }
   };
 

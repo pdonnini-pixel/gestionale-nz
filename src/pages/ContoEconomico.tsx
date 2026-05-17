@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, Suspense } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import PageHelp from '../components/PageHelp'
+import { useToast } from '../components/Toast'
 import { useCompanyLabels } from '../hooks/useCompanyLabels'
 
 // Tipologia periodo ContoEconomico — persistita in URL come ?periodo=
@@ -344,6 +345,7 @@ function analyzeStrengthsWeaknesses(ce: Record<string, number | null | undefined
 
 // ===== MAIN PAGE =====
 export default function ContoEconomico() {
+  const { toast } = useToast()
   const { profile } = useAuth()
   const { hasRole } = useRole()
   const labels = useCompanyLabels()
@@ -1260,7 +1262,7 @@ export default function ContoEconomico() {
       loadImports()
     } catch (error) {
       console.error('Error uploading file:', error)
-      alert('Errore nel caricamento del file')
+      toast({ type: 'error', message: 'Errore nel caricamento del file' })
     } finally {
       setUploadingFile(false)
       setPdfParsing(false)
@@ -1331,7 +1333,7 @@ export default function ContoEconomico() {
       loadPeriodData()
     } catch (error) {
       console.error('Error saving imported data:', error)
-      alert('Errore nel salvataggio dei dati')
+      toast({ type: 'error', message: 'Errore nel salvataggio dei dati' })
     }
   }
 
@@ -1426,7 +1428,7 @@ export default function ContoEconomico() {
       loadAvailableYears()
     } catch (error) {
       console.error('Error saving bilancio:', error)
-      alert('Errore nel salvataggio: ' + ((error as Error)?.message || 'sconosciuto'))
+      toast({ type: 'error', message: 'Errore nel salvataggio: ' + ((error as Error)?.message || 'sconosciuto') })
     } finally {
       setBilancioSaving(false)
     }

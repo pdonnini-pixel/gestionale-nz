@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import PageHelp from '../components/PageHelp';
+import { useToast } from '../components/Toast';
 
 // Tab principale ScadenzarioSmart — persistito in URL come ?section=
 type ScadenzarioSection = 'situazione' | 'scadenze' | 'ricorrenti' | 'regole';
@@ -175,6 +176,7 @@ function Modal({ open, onClose, title, children, wide }: { open: boolean; onClos
 
 // Main component
 const ScadenzarioSmart = () => {
+  const { toast } = useToast();
   const { profile } = useAuth();
   const COMPANY_ID = profile?.company_id;
 
@@ -780,7 +782,7 @@ const ScadenzarioSmart = () => {
 
     const catName = categories.find(c => c.id === categoryId)?.name || 'categoria';
     const displayName = supplierName || 'fornitore';
-    alert(`Categoria "${catName}" applicata a ${displayName}${propagatedCount > 0 ? ` e propagata a ${propagatedCount} fatture` : ''}`);
+    toast({ type: 'info', message: `Categoria "${catName}" applicata a ${displayName}${propagatedCount > 0 ? ` e propagata a ${propagatedCount} fatture` : ''}` });
   };
 
   // Handler: update status inline
@@ -1195,9 +1197,9 @@ const ScadenzarioSmart = () => {
     }
 
     if (groupsByBank.size === 0) {
-      alert('Nessun pagamento eseguibile via A-Cube.\n\n' + (skipped.length > 0
+      toast({ type: 'warning', message: 'Nessun pagamento eseguibile via A-Cube.\n\n' + (skipped.length > 0
         ? 'Motivi:\n' + skipped.map(s => `• ${s.invoice}: ${s.reason}`).join('\n')
-        : 'Seleziona fatture con banca A-Cube collegata e IBAN beneficiario.'));
+        : 'Seleziona fatture con banca A-Cube collegata e IBAN beneficiario.') });
       return;
     }
 
@@ -1305,7 +1307,7 @@ const ScadenzarioSmart = () => {
         `🔗 URL PSD2 aperti: ${allAuthorizeUrls.length}\n` +
         (skipped.length > 0 ? `\n⚠️ Saltati ${skipped.length}:\n${skipped.map(s => `• ${s.invoice}: ${s.reason}`).join('\n')}\n` : '') +
         (errors.length > 0 ? `\n❌ Errori:\n${errors.join('\n')}` : '');
-      alert(recap);
+      toast({ type: 'info', message: recap });
 
       setSelectedIds(new Set());
       setPaymentPlan({});
@@ -1313,7 +1315,7 @@ const ScadenzarioSmart = () => {
       fetchData();
     } catch (error) {
       console.error('Error confirming payments via A-Cube:', error);
-      alert('Errore inatteso: ' + (error instanceof Error ? error.message : String(error)));
+      toast({ type: 'error', message: 'Errore inatteso: ' + (error instanceof Error ? error.message : String(error)) });
       setIsSaving(false);
     }
   };
@@ -2242,7 +2244,7 @@ const ScadenzarioSmart = () => {
                                   if (data?.xml_content) {
                                     setViewingXml(data.xml_content)
                                   } else {
-                                    alert('XML fattura non disponibile per questa scadenza')
+                                    toast({ type: 'warning', message: 'XML fattura non disponibile per questa scadenza' })
                                   }
                                 }}
                                   className="p-1 rounded text-slate-400 hover:text-indigo-600 hover:bg-indigo-50"

@@ -12,6 +12,7 @@ type EmployeeCost = Row<'employee_costs'>;
 type CostCenterRow = Row<'cost_centers'>;
 type EmployeeDocument = Row<'employee_documents'>;
 import PageHelp from '../components/PageHelp';
+import { useToast } from '../components/Toast';
 import {
   ChevronDown,
   ChevronUp,
@@ -84,6 +85,7 @@ const MONTHS = [
 // ============================================================================
 
 export default function Dipendenti() {
+  const { toast: globalToast } = useToast();
   const { profile } = useAuth();
   const labels = useCompanyLabels();
   const { outlets: tenantOutlets } = useOutlets();
@@ -727,11 +729,11 @@ export default function Dipendenti() {
         imported++;
       }
 
-      alert(`Importati ${imported} dipendenti`);
+      globalToast({ type: 'success', message: `Importati ${imported} dipendenti` });
       await loadAllData();
     } catch (err) {
       console.error('Batch import error:', err);
-      alert('Errore nell\'importazione');
+      globalToast({ type: 'error', message: 'Errore nell\'importazione' });
     } finally {
       setBatchImporting(false);
       if (batchFileRef.current) batchFileRef.current.value = '';

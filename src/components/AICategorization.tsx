@@ -5,6 +5,7 @@ import {
   AlertCircle,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import { useToast } from './Toast'
 
 interface CashMovement {
   id: string
@@ -137,6 +138,7 @@ interface AICategorizationProps {
 }
 
 export default function AICategorization({ companyId }: AICategorizationProps) {
+  const { toast } = useToast()
   // Data
   const [movements, setMovements] = useState<CashMovement[]>([])
   const [categories, setCategories] = useState<Category[]>([])
@@ -266,7 +268,7 @@ export default function AICategorization({ companyId }: AICategorizationProps) {
       ))
     } catch (e) {
       console.error('Confirm error:', e)
-      alert('Errore nella conferma: ' + (e instanceof Error ? e.message : 'errore'))
+      toast({ type: 'error', message: 'Errore nella conferma: ' + (e instanceof Error ? e.message : 'errore') })
     } finally {
       setConfirmingId(null)
     }
@@ -291,7 +293,7 @@ export default function AICategorization({ companyId }: AICategorizationProps) {
       setEditCategory('')
     } catch (e) {
       console.error('Correct error:', e)
-      alert('Errore nella correzione: ' + (e instanceof Error ? e.message : 'errore'))
+      toast({ type: 'error', message: 'Errore nella correzione: ' + (e instanceof Error ? e.message : 'errore') })
     } finally {
       setConfirmingId(null)
     }
@@ -305,7 +307,7 @@ export default function AICategorization({ companyId }: AICategorizationProps) {
       await loadData()
     } catch (e) {
       console.error('Anomaly detection error:', e)
-      alert('Errore: ' + (e instanceof Error ? e.message : 'errore'))
+      toast({ type: 'error', message: 'Errore: ' + (e instanceof Error ? e.message : 'errore') })
     } finally {
       setAnomalyRunning(false)
     }

@@ -7,6 +7,7 @@ import {
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
+import { useToast } from '../components/Toast'
 
 /* ───── helpers ───── */
 function fmt(n: number | null | undefined) {
@@ -210,6 +211,7 @@ function ModalDeadline({ isOpen, isEdit, deadline, onClose, onSave, saving }: { 
    ═══════════════════════════════════════ */
 export default function ScadenzeFiscali() {
   const { profile } = useAuth()
+  const { toast } = useToast()
   const COMPANY_ID = profile?.company_id
 
   // TODO: tighten type — Supabase rows
@@ -317,7 +319,7 @@ export default function ScadenzeFiscali() {
       await loadData()
     } catch (e: unknown) {
       console.error('Save error:', e)
-      alert('Errore nel salvataggio: ' + (e instanceof Error ? e.message : ''))
+      toast({ type: 'error', message: 'Errore nel salvataggio: ' + (e instanceof Error ? e.message : '') })
     } finally {
       setSaving(false)
     }

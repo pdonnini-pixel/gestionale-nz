@@ -4,6 +4,7 @@ import { CompanyProvider } from './hooks/useCompany'
 import { PeriodProvider } from './hooks/usePeriod'
 import { useOnboardingStatus } from './hooks/useOnboardingStatus'
 import { lazy, Suspense, type ReactNode } from 'react'
+import { ToastProvider } from './components/Toast'
 import Layout from './components/Layout'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
@@ -138,14 +139,16 @@ function AppRoutes() {
 
 export default function App() {
   return (
-    <AuthProvider>
-      <CompanyProvider>
-        <PeriodProvider>
-          <BrowserRouter>
-            <AppRoutes />
-          </BrowserRouter>
-        </PeriodProvider>
-      </CompanyProvider>
-    </AuthProvider>
+    <ToastProvider>
+      <AuthProvider>
+        <CompanyProvider>
+          <PeriodProvider>
+            <BrowserRouter>
+              <AppRoutes />
+            </BrowserRouter>
+          </PeriodProvider>
+        </CompanyProvider>
+      </AuthProvider>
+    </ToastProvider>
   )
 }
