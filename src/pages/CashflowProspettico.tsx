@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import PageHelp from '../components/PageHelp';
 import { useCompanyLabels } from '../hooks/useCompanyLabels';
+import { useToast } from '../components/Toast';
 
 // Vista temporale Cashflow Prospettico — persistita in URL come ?view=
 type CashflowView = 'giornaliero' | 'settimanale' | 'mensile';
@@ -86,6 +87,7 @@ const getWeekStart = (date: Date): Date => {
 export default function CashflowProspettico() {
   const { profile } = useAuth();
   const labels = useCompanyLabels();
+  const { toast } = useToast();
   const COMPANY_ID = profile?.company_id;
   const { year, quarter, getDateRange } = usePeriod();
 
@@ -1017,7 +1019,7 @@ export default function CashflowProspettico() {
     });
 
     navigator.clipboard.writeText(csv).then(() => {
-      alert('Dati copiati negli appunti');
+      toast({ type: 'success', message: 'Dati copiati negli appunti' });
     });
   };
 

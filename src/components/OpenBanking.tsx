@@ -7,6 +7,7 @@ import {
 } from 'lucide-react'
 import { useYapily } from '../hooks/useYapily'
 import AccountDetail from './AccountDetail'
+import { useToast } from './Toast'
 
 function fmt(n: number | null | undefined, dec = 2): string {
   if (n == null) return '—'
@@ -362,6 +363,7 @@ function AccountCard({ account, onSync, syncing, onClick }: { account: BankAccou
    Main Component: Open Banking Tab
    ═══════════════════════════════════════════ */
 export default function OpenBanking() {
+  const { toast } = useToast()
   const yapily = useYapily()
   const [accounts, setAccounts] = useState<BankAccount[]>([])
   const [consents, setConsents] = useState<BankConsent[]>([])
@@ -411,12 +413,12 @@ export default function OpenBanking() {
         window.location.href = result.authorisationUrl
       } else {
         console.error('Consent creato ma authorisationUrl mancante:', result)
-        alert('Errore: la banca non ha restituito un URL di autorizzazione. Riprova.')
+        toast({ type: 'error', message: 'Errore: la banca non ha restituito un URL di autorizzazione. Riprova.' })
       }
     } catch (err) {
       console.error('Consent creation failed:', err)
       const msg = err instanceof Error ? err.message : 'Riprova più tardi'
-      alert('Errore collegamento banca: ' + msg)
+      toast({ type: 'error', message: 'Errore collegamento banca: ' + msg })
     } finally {
       setConnecting(false)
     }

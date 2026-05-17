@@ -22,6 +22,7 @@ const VALID_TESORERIA_TABS: TesoreriaTab[] = ['panoramica', 'conti', 'movimenti'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { useCompanyLabels } from '../hooks/useCompanyLabels'
+import { useToast } from '../components/Toast'
 import PrimaNota from './PrimaNota'
 
 // ═══════════════════════════════════════════════════════════════════
@@ -1737,6 +1738,7 @@ function TabMovimenti({ transactions, accounts }: { transactions: TransactionT[]
 // ═══════════════════════════════════════════════════════════════════
 
 function TabPagamenti({ payables, accounts, companyId, onRefresh, preSelectId }: { payables: PayableT[]; accounts: AccountT[]; companyId: string; onRefresh: () => void; preSelectId?: string | null }) {
+  const { toast } = useToast()
   const [search, setSearch] = useState('')
   const [filterStatus, setFilterStatus] = useState('da_pagare')
   const [selected, setSelected] = useState<Record<string, boolean>>(() => {
@@ -1845,7 +1847,7 @@ function TabPagamenti({ payables, accounts, companyId, onRefresh, preSelectId }:
       onRefresh()
     } catch (err: unknown) {
       console.error('Create batch error:', err)
-      alert(`Errore: ${(err as Error).message}`)
+      toast({ type: 'error', message: `Errore: ${(err as Error).message}` })
     } finally {
       setCreating(false)
     }
@@ -2058,6 +2060,7 @@ function TabDistinte({ batches, batchItems, accounts, companyId, onRefresh }: {
   companyId: string
   onRefresh: () => void
 }) {
+  const { toast } = useToast()
   const [expandedBatch, setExpandedBatch] = useState<string | null>(null)
   const [confirmExec, setConfirmExec] = useState<BatchT | null>(null)
   const [confirmCancel, setConfirmCancel] = useState<BatchT | null>(null)
@@ -2108,7 +2111,7 @@ function TabDistinte({ batches, batchItems, accounts, companyId, onRefresh }: {
       onRefresh()
     } catch (err: unknown) {
       console.error('Execute batch error:', err)
-      alert(`Errore: ${(err as Error).message}`)
+      toast({ type: 'error', message: `Errore: ${(err as Error).message}` })
     } finally {
       setExecuting(false)
     }
@@ -2237,9 +2240,9 @@ function TabDistinte({ batches, batchItems, accounts, companyId, onRefresh }: {
                         onClick={async () => {
                           if (!confirm(`Lanciare ${items.length} bonifico/i via A-Cube sandbox?`)) return
                           const { data, error } = await supabase.functions.invoke('acube-payment-send', { body: { batch_id: batch.id, stage: 'sandbox' } })
-                          if (error) { alert('Errore: ' + error.message); return }
+                          if (error) { toast({ type: 'error', message: 'Errore: ' + error.message }); return }
                           const result = data as { initiated?: number; failed?: number; items?: Array<{ acube_authorize_url?: string; error?: string }> }
-                          alert(`Risultato:\n• Iniziati: ${result.initiated ?? 0}\n• Falliti: ${result.failed ?? 0}\n\nApri ogni URL per autorizzare il bonifico sulla banca.`)
+                          toast({ type: 'info', message: `Risultato:\n• Iniziati: ${result.initiated ?? 0}\n• Falliti: ${result.failed ?? 0}\n\nApri ogni URL per autorizzare il bonifico sulla banca.` })
                           // Apri tutti gli URL autorizzazione
                           result.items?.forEach((it, i) => {
                             if (it.acube_authorize_url) setTimeout(() => window.open(it.acube_authorize_url, '_blank'), i * 500)
@@ -2286,6 +2289,7 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
   companyId: string
   onRefresh: () => void
 }) {
+  const { toast } = useToast()
   const [filterAccount, setFilterAccount] = useState('all')
   const [search, setSearch] = useState('')
   const [selectedMovement, setSelectedMovement] = useState<TxT | null>(null)
@@ -2439,7 +2443,7 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
       onRefresh()
     } catch (err: unknown) {
       console.error('Reconcile error:', err)
-      alert(`Errore: ${(err as Error).message}`)
+      toast({ type: 'error', message: `Errore: ${(err as Error).message}` })
     } finally {
       setReconciling(false)
     }
@@ -2448,7 +2452,7 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
   const handleManualReconcile = async () => {
     if (!selectedMovement || !manualPayableId) return
     const payable = unpaidPayables.find((p) => p.id === manualPayableId)
-    if (!payable) { alert('Fattura non trovata'); return }
+    if (!payable) { toast({ type: 'warning', message: 'Fattura non trovata' }); return }
     await handleReconcile(selectedMovement, payable)
     setManualPayableId('')
   }

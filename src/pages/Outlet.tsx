@@ -1,5 +1,6 @@
 import { useState, useEffect, lazy, Suspense } from 'react'
 import PageHelp from '../components/PageHelp'
+import { useToast } from '../components/Toast'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { useCompanyLabels } from '../hooks/useCompanyLabels'
@@ -197,6 +198,7 @@ function DeleteConfirmModal({ title, message, onConfirm, onCancel, loading: delL
 
 // ====== DOCUMENT ARCHIVE ======
 function DocumentArchive({ outletId, companyId }: { outletId: string; companyId: string }) {
+  const { toast } = useToast()
   const { profile } = useAuth()
   type DocRow = Record<string, unknown> & { id: string }
   const [documents, setDocuments] = useState<DocRow[]>([])
@@ -268,7 +270,7 @@ function DocumentArchive({ outletId, companyId }: { outletId: string; companyId:
 
   async function handlePreview(doc: DocRow) {
     const filePath = String(doc.file_path || doc.file_name || '')
-    if (!filePath) { alert('File non trovato'); return }
+    if (!filePath) { toast({ type: 'warning', message: 'File non trovato' }); return }
     const bucket = String(doc.storage_bucket || UPLOAD_BUCKET)
     // Scarica il file come blob tramite Supabase client (no CORS issues)
     const { data: blob, error } = await supabase.storage
@@ -280,7 +282,7 @@ function DocumentArchive({ outletId, companyId }: { outletId: string; companyId:
       if (url) {
         setPreviewDoc({ ...doc, signedUrl: url, pdfData: null })
       } else {
-        alert('File non trovato nello storage')
+        toast({ type: 'warning', message: 'File non trovato nello storage' })
       }
       return
     }
@@ -297,7 +299,7 @@ function DocumentArchive({ outletId, companyId }: { outletId: string; companyId:
     if (url) {
       window.open(url, '_blank')
     } else {
-      alert('File non trovato nello storage')
+      toast({ type: 'warning', message: 'File non trovato nello storage' })
     }
   }
 
@@ -320,7 +322,7 @@ function DocumentArchive({ outletId, companyId }: { outletId: string; companyId:
       await loadDocuments()
     } catch (err: unknown) {
       console.error('Delete error:', err)
-      alert('Errore eliminazione: ' + ((err as Error)?.message || ''))
+      toast({ type: 'error', message: 'Errore eliminazione: ' + ((err as Error)?.message || '') })
     } finally {
       setDeleting(false)
     }
@@ -403,7 +405,7 @@ function DocumentArchive({ outletId, companyId }: { outletId: string; companyId:
       if (result.error) errors.push(result.error)
     }
     if (errors.length > 0) {
-      alert('Errori durante upload:\n' + errors.join('\n'))
+      toast({ type: 'error', message: 'Errori durante upload:\n' + errors.join('\n') })
     }
     await loadDocuments()
     setUploading(false)
@@ -896,6 +898,7 @@ function ExtractedContractData({ outlet }: { outlet: any }) {
 
 // ====== ALLEGATI OUTLET ======
 function OutletAllegati({ outletId, companyId }: { outletId: string; companyId: string }) {
+  const { toast } = useToast()
   type AttachRow = Record<string, unknown> & { id: string }
   const [attachments, setAttachments] = useState<AttachRow[]>([])
   const [loading, setLoading] = useState(true)
@@ -930,7 +933,7 @@ function OutletAllegati({ outletId, companyId }: { outletId: string; companyId: 
 
   async function handleFileUpload(attachment: AttachRow, file: File) {
     if (file.size > MAX_ATTACH_SIZE) {
-      alert(`Il file è troppo grande (${(file.size / 1024 / 1024).toFixed(1)} MB).\nDimensione massima consentita: 50 MB.`)
+      toast({ type: 'warning', message: `Il file è troppo grande (${(file.size / 1024 / 1024).toFixed(1)} MB).\nDimensione massima consentita: 50 MB.` })
       return
     }
     setUploading(String(attachment.id))
@@ -948,9 +951,9 @@ function OutletAllegati({ outletId, companyId }: { outletId: string; companyId: 
         console.error('Storage upload error:', uploadErr)
         const msg = uploadErr.message || ''
         if (msg.includes('maximum allowed size') || msg.includes('too large') || msg.includes('exceeded')) {
-          alert('Il file supera la dimensione massima consentita dal server.\nProva con un file più piccolo (max 50 MB).')
+          toast({ type: 'warning', message: 'Il file supera la dimensione massima consentita dal server.\nProva con un file più piccolo (max 50 MB).' })
         } else {
-          alert('Errore upload file: ' + msg)
+          toast({ type: 'error', message: 'Errore upload file: ' + msg })
         }
         return
       }
@@ -970,7 +973,7 @@ function OutletAllegati({ outletId, companyId }: { outletId: string; companyId: 
       await loadAttachments()
     } catch (err: unknown) {
       console.error('Upload error:', err)
-      alert('Errore: ' + ((err as Error)?.message || ''))
+      toast({ type: 'error', message: 'Errore: ' + ((err as Error)?.message || '') })
     } finally {
       setUploading(null)
     }
@@ -991,7 +994,7 @@ function OutletAllegati({ outletId, companyId }: { outletId: string; companyId: 
         is_uploaded: false,
       } as never)
     if (error) {
-      alert('Errore: ' + error.message)
+      toast({ type: 'error', message: 'Errore: ' + error.message })
     } else {
       setNewLabel('')
       setShowAddForm(false)
@@ -1011,7 +1014,7 @@ function OutletAllegati({ outletId, companyId }: { outletId: string; companyId: 
       await loadAttachments()
     } catch (err: unknown) {
       console.error('Delete attachment error:', err)
-      alert('Errore eliminazione: ' + ((err as Error)?.message || ''))
+      toast({ type: 'error', message: 'Errore eliminazione: ' + ((err as Error)?.message || '') })
     } finally {
       setDeleting(false)
     }
@@ -1019,7 +1022,7 @@ function OutletAllegati({ outletId, companyId }: { outletId: string; companyId: 
 
   async function handlePreviewAttachment(att: AttachRow) {
     const filePath = att.file_path ? String(att.file_path) : ''
-    if (!filePath) { alert('File non ancora caricato'); return }
+    if (!filePath) { toast({ type: 'warning', message: 'File non ancora caricato' }); return }
     // Scarica blob direttamente via Supabase client (no CORS)
     const { data: blob, error } = await supabase.storage
       .from('outlet-attachments')
@@ -1032,7 +1035,7 @@ function OutletAllegati({ outletId, companyId }: { outletId: string; companyId: 
       if (signedData?.signedUrl) {
         setPreviewAtt({ ...att, signedUrl: signedData.signedUrl, pdfData: null })
       } else {
-        alert('Impossibile caricare anteprima')
+        toast({ type: 'warning', message: 'Impossibile caricare anteprima' })
       }
       return
     }
@@ -1828,6 +1831,7 @@ function OutletDetail({ outlet, revenue, onBack, onEdit, onDelete }: { outlet: O
 
 // ====== MAIN PAGE ======
 export default function Outlet() {
+  const { toast } = useToast()
   const { profile } = useAuth()
   const labels = useCompanyLabels()
   const [loading, setLoading] = useState(true)
@@ -2006,14 +2010,14 @@ export default function Outlet() {
 
     if (err) {
       console.error('Delete error:', err)
-      alert('Errore eliminazione: ' + err.message)
+      toast({ type: 'error', message: 'Errore eliminazione: ' + err.message })
       setDeleting(false)
       setShowDeleteConfirm(null)
       return
     }
 
     if (!delData || delData.length === 0) {
-      alert('Non e\' stato possibile eliminare l\'outlet. Potrebbe essere un problema di permessi (RLS).')
+      toast({ type: 'error', message: 'Non e\' stato possibile eliminare l\'outlet. Potrebbe essere un problema di permessi (RLS).' })
       setDeleting(false)
       setShowDeleteConfirm(null)
       return

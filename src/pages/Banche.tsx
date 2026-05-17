@@ -5,6 +5,7 @@ import { useSearchParams } from 'react-router-dom'
 type BancheTab = 'conti' | 'movimenti' | 'riconciliazione'
 const VALID_BANCHE_TABS: BancheTab[] = ['conti', 'movimenti', 'riconciliazione']
 import PageHelp from '../components/PageHelp'
+import { useToast } from '../components/Toast'
 import {
   Landmark, Building2, Wallet, CreditCard, TrendingUp,
   Search, ChevronDown, ChevronUp, Banknote, Store,
@@ -1287,6 +1288,7 @@ type PayableLite = Record<string, unknown> & { id: string; suppliers?: { id?: st
 type ReconItem = { movement: MovementRow; payable: PayableLite | null; matchType: string; score: number; candidates?: ReconCandidate[]; details?: Record<string, unknown>; confidence?: number }
 type ReconData = { reconciled: ReconItem[]; suggested: ReconItem[]; unmatched: MovementRow[] }
 function SezioneRiconciliazione({ companyId, accounts }: { companyId: string; accounts: AccountRow[] }) {
+  const { toast } = useToast()
   const [reconData, setReconData] = useState<ReconData>({ reconciled: [], suggested: [], unmatched: [] })
   const [reconLog, setReconLog] = useState<Record<string, unknown>[]>([])
   const [loading, setLoading] = useState(false)
@@ -1443,7 +1445,7 @@ function SezioneRiconciliazione({ companyId, accounts }: { companyId: string; ac
       setExpandedMovement(null)
       setStats(prev => ({ ...prev, suggested: prev.suggested - 1, reconciled: prev.reconciled + 1 }))
     } catch (err: unknown) {
-      alert('Errore: ' + ((err as Error).message || 'Impossibile confermare'))
+      toast({ type: 'error', message: 'Errore: ' + ((err as Error).message || 'Impossibile confermare') })
     } finally {
       setActionLoading(null)
     }
@@ -1490,7 +1492,7 @@ function SezioneRiconciliazione({ companyId, accounts }: { companyId: string; ac
       })
       setStats(prev => ({ ...prev, suggested: prev.suggested - 1, unmatched: prev.unmatched + 1 }))
     } catch (err: unknown) {
-      alert('Errore: ' + ((err as Error).message || 'Impossibile rifiutare'))
+      toast({ type: 'error', message: 'Errore: ' + ((err as Error).message || 'Impossibile rifiutare') })
     } finally {
       setActionLoading(null)
     }
@@ -1526,7 +1528,7 @@ function SezioneRiconciliazione({ companyId, accounts }: { companyId: string; ac
       })
       setStats(prev => ({ ...prev, reconciled: prev.reconciled - 1, suggested: prev.suggested + 1 }))
     } catch (err: unknown) {
-      alert('Errore: ' + ((err as Error).message || 'Impossibile scollegare'))
+      toast({ type: 'error', message: 'Errore: ' + ((err as Error).message || 'Impossibile scollegare') })
     } finally {
       setActionLoading(null)
     }
@@ -1549,7 +1551,7 @@ function SezioneRiconciliazione({ companyId, accounts }: { companyId: string; ac
       setManualSearchOpen(null)
       setManualSearchQuery('')
     } catch (err: unknown) {
-      alert('Errore: ' + ((err as Error).message || 'Impossibile collegare'))
+      toast({ type: 'error', message: 'Errore: ' + ((err as Error).message || 'Impossibile collegare') })
     } finally {
       setActionLoading(null)
     }
@@ -2230,6 +2232,7 @@ function SezioneRiconciliazione({ companyId, accounts }: { companyId: string; ac
    PAGINA PRINCIPALE BANCHE
    ══════════════════════════════════════════ */
 export default function Banche() {
+  const { toast } = useToast();
   const { profile } = useAuth();
   const labels = useCompanyLabels();
   const COMPANY_ID = profile?.company_id;
@@ -2420,7 +2423,7 @@ export default function Banche() {
       await loadData()
     } catch (error) {
       console.error('Error saving account:', error)
-      alert('Errore nel salvataggio')
+      toast({ type: 'error', message: 'Errore nel salvataggio' })
     }
   }
 
@@ -2472,7 +2475,7 @@ export default function Banche() {
       await loadData()
     } catch (error) {
       console.error('Error saving loan:', error)
-      alert('Errore nel salvataggio del prestito')
+      toast({ type: 'error', message: 'Errore nel salvataggio del prestito' })
     }
   }
 

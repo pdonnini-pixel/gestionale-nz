@@ -86,8 +86,9 @@ interface ToastContainerProps {
 }
 
 function ToastContainer({ toasts, onRemove }: ToastContainerProps) {
+  // Top-center: pattern Sibill/Linear. Non copre la sidebar.
   return (
-    <div className="fixed top-6 right-6 z-50 flex flex-col gap-3 pointer-events-none">
+    <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[100] flex flex-col gap-3 items-center pointer-events-none">
       {toasts.map((toast) => (
         <ToastItem
           key={toast.id}
@@ -154,7 +155,7 @@ function ToastItem({ toast, onRemove }: ToastItemProps) {
     <div
       className={`
         pointer-events-auto transform transition-all duration-300 ease-out
-        ${isExiting ? 'opacity-0 translate-x-full' : 'opacity-100 translate-x-0'}
+        ${isExiting ? 'opacity-0 -translate-y-4' : 'opacity-100 translate-y-0'}
       `}
     >
       <div
@@ -181,8 +182,8 @@ function ToastItem({ toast, onRemove }: ToastItemProps) {
           className="flex-shrink-0 mt-0.5"
         />
 
-        {/* Message */}
-        <p className="flex-1 text-sm font-medium text-slate-700">
+        {/* Message — whitespace-pre-line per supportare \n nei recap */}
+        <p className="flex-1 text-sm font-medium text-slate-700 whitespace-pre-line">
           {toast.message}
         </p>
 
