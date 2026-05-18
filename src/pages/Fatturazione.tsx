@@ -62,6 +62,46 @@ function SdiStatusBadge({ status, configMap = SDI_STATUS_CONFIG as StatusConfigM
   )
 }
 
+// Legenda esplicativa stati SDI — per Sabrina/Veronica che non conoscono i termini
+const SDI_LEGEND_PASSIVE: Array<{ key: string; what: string }> = [
+  { key: 'RECEIVED', what: 'Arrivata dal fornitore via SDI. Visibile nel gestionale.' },
+  { key: 'PENDING', what: 'SDI sta ancora processando la fattura. Attendi esito.' },
+  { key: 'ACCEPTED', what: 'Validata dall’Agenzia delle Entrate. Registrabile in contabilità.' },
+  { key: 'REJECTED', what: 'Scartata dall’AdE per dati invalidi. NON contabilizzare. Chiedi nuova fattura al fornitore.' },
+]
+
+const SDI_LEGEND_ACTIVE: Array<{ key: string; what: string }> = [
+  { key: 'DRAFT', what: 'Bozza creata nel gestionale, non ancora inviata via SDI.' },
+  { key: 'SENT', what: 'Trasmessa all’AdE, in attesa di ricevuta SDI.' },
+  { key: 'DELIVERED', what: 'Consegnata al destinatario tramite SDI.' },
+  { key: 'ACCEPTED', what: 'Validata e accettata dall’AdE. Definitiva.' },
+  { key: 'REJECTED', what: 'Rifiutata. Rivedi XML, correggi e ritrasmetti.' },
+  { key: 'ERROR', what: 'Errore tecnico di invio. Chiama Patrizio o Lilian.' },
+]
+
+function SdiLegend({ tipo }: { tipo: 'passive' | 'active' }) {
+  const items = tipo === 'passive' ? SDI_LEGEND_PASSIVE : SDI_LEGEND_ACTIVE
+  return (
+    <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 flex flex-wrap items-center gap-x-4 gap-y-2">
+      <span className="text-xs font-semibold text-slate-700 uppercase tracking-wide">Legenda stato SDI:</span>
+      {items.map(it => {
+        const cfg = SDI_STATUS_CONFIG[it.key as keyof typeof SDI_STATUS_CONFIG]
+        if (!cfg) return null
+        const Icon = cfg.icon || Clock
+        return (
+          <div key={it.key} className="flex items-center gap-1.5" title={it.what}>
+            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${cfg.color}`}>
+              <Icon size={12} />
+              {cfg.label}
+            </span>
+            <span className="text-xs text-slate-600 hidden lg:inline max-w-[280px] truncate">{it.what}</span>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 type KpiColor = 'blue' | 'green' | 'red' | 'amber' | 'slate'
 function KpiCard({ icon: Icon, label, value, sub, color = 'blue' }: { icon: React.ComponentType<{ size?: number }>; label: string; value: string | number; sub?: string; color?: KpiColor }) {
   const colorMap: Record<KpiColor, string> = {
@@ -445,6 +485,9 @@ function FatturePassive() {
           </div>
         </div>
       )}
+
+      {/* Legenda stati SDI per operatore */}
+      <SdiLegend tipo="passive" />
 
       {/* Tabella */}
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
@@ -840,6 +883,9 @@ function FattureAttive() {
           <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
         </button>
       </div>
+
+      {/* Legenda stati SDI per operatore */}
+      <SdiLegend tipo="active" />
 
       {/* Tabella */}
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
