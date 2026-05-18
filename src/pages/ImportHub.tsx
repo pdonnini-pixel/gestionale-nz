@@ -5,6 +5,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 type ImportHubTab = 'sources' | 'overview' | 'history';
 const VALID_IMPORT_HUB_TABS: ImportHubTab[] = ['sources', 'overview', 'history'];
 import PageHelp from '../components/PageHelp';
+import PageHeader from '../components/PageHeader';
 import { useCompanyLabels } from '../hooks/useCompanyLabels';
 import {
   Upload,
@@ -880,22 +881,15 @@ export default function ImportHub() {
   return (
     <div className="min-h-screen bg-white">
       <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
-      {/* Header */}
-      <div className="bg-white border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-3xl font-bold text-gray-900">Hub Importazioni Dati</h1>
-              <p className="text-gray-500 mt-2">Gestione centralizzata delle integrazioni e dei flussi di importazione</p>
-            </div>
-            <Database className="w-12 h-12 text-blue-600" />
-          </div>
-        </div>
-      </div>
+      <PageHeader
+        title="Hub Importazioni Dati"
+        subtitle="Gestione centralizzata delle integrazioni e dei flussi di importazione"
+        noDivider
+      />
 
       {/* Navigation tabs */}
       <div className="bg-white border-b border-gray-200 sticky top-0 z-10">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="mx-auto">
           <nav className="flex space-x-8">
             {([
               { id: 'sources', label: 'Fonti di importazioni', icon: Database },
@@ -925,7 +919,7 @@ export default function ImportHub() {
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="py-8">
         {/* OVERVIEW TAB */}
         {activeTab === 'overview' && (
           <div className="space-y-8">

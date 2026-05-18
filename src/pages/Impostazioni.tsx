@@ -7,6 +7,7 @@ import {
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { useCompanyLabels } from '../hooks/useCompanyLabels'
+import PageHeader from '../components/PageHeader'
 
 // Role-based permissions
 const ROLE_PERMISSIONS: Record<string, string[]> = {
@@ -1603,10 +1604,7 @@ export default function Impostazioni() {
   return (
     <div className="min-h-screen bg-white">
       <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-900">Impostazioni</h1>
-        <p className="text-sm text-slate-500">Configurazione azienda, utenti e struttura costi</p>
-      </div>
+      <PageHeader title="Impostazioni" subtitle="Configurazione azienda, utenti e struttura costi" />
 
       {allowedSections.length === 0 && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-6 flex items-center gap-3">

@@ -9,6 +9,7 @@ import { useAuth } from '../hooks/useAuth'
 import { usePeriod } from '../hooks/usePeriod'
 import { useCompanyLabels } from '../hooks/useCompanyLabels'
 import ExportMenu from '../components/ExportMenu'
+import PageHeader from '../components/PageHeader'
 import {
   Store, TrendingUp, Users, DollarSign, RefreshCw, ChevronDown, ChevronUp,
   ArrowUpRight, ArrowDownRight, BarChart3, Target, Percent, Building2, AlertCircle,
@@ -773,13 +774,10 @@ export default function ConfrontoOutlet() {
   return (
     <div className="min-h-screen bg-white">
       <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
-      {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-slate-900">Confronto {labels.pointOfSalePlural}</h1>
-        <p className="text-sm text-slate-500">
-          Comparazione parallela P&L per {labels.pointOfSaleLower} — Anno {year}
-        </p>
-      </div>
+      <PageHeader
+        title={`Confronto ${labels.pointOfSalePlural}`}
+        subtitle={`Comparazione parallela P&L per ${labels.pointOfSaleLower} — Anno ${year}`}
+      />
 
       {/* Filtri: anno, periodo, vista, export */}
       <div className="flex flex-wrap gap-3 items-center">

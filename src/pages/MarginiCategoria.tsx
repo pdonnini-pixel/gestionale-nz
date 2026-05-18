@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import ExportMenu from '../components/ExportMenu'
+import PageHeader from '../components/PageHeader'
 import {
   BarChart, Bar, PieChart, Pie, Cell, LineChart, Line, Area, AreaChart,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
@@ -305,41 +306,39 @@ export default function MarginiCategoria() {
   return (
     <div className="min-h-screen bg-white">
       <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
-      {/* Header */}
-      <div className="flex items-center justify-between flex-wrap gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">Margini per {labels.pointOfSale}</h1>
-          <p className="text-sm text-slate-500 mt-1">Ricavi, costi e margini operativi per punto vendita</p>
-        </div>
-        <div className="flex items-center gap-3">
-          {/* Period selector */}
-          <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-1">
-            {([
-              { key: 'ytd', label: `YTD ${year}` },
-              { key: 'last12', label: 'Ultimi 12m' },
-            ] as const).map(p => (
-              <button key={p.key} onClick={() => setPeriod(p.key)}
-                className={`px-3 py-1.5 text-xs font-medium rounded-md transition ${period === p.key ? 'bg-white shadow text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}>
-                {p.label}
-              </button>
-            ))}
-          </div>
-          <ExportMenu
-            data={outletData}
-            columns={[
-              { key: 'name', label: labels.pointOfSale },
-              { key: 'revenue', label: 'Ricavi', format: 'euro' },
-              { key: 'costs', label: 'Costi', format: 'euro' },
-              { key: 'margin', label: 'Margine', format: 'euro' },
-              { key: 'marginPct', label: 'Margine %', format: 'percent' },
-              { key: 'budget', label: 'Budget', format: 'euro' },
-              { key: 'transactions', label: 'Transazioni' },
-            ]}
-            filename="margini_categoria"
-            title="Margini per Categoria"
-          />
-        </div>
-      </div>
+      <PageHeader
+        title={`Margini per ${labels.pointOfSale}`}
+        subtitle="Ricavi, costi e margini operativi per punto vendita"
+        actions={
+          <>
+            <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-1">
+              {([
+                { key: 'ytd', label: `YTD ${year}` },
+                { key: 'last12', label: 'Ultimi 12m' },
+              ] as const).map(p => (
+                <button key={p.key} onClick={() => setPeriod(p.key)}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-md transition ${period === p.key ? 'bg-white shadow text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}>
+                  {p.label}
+                </button>
+              ))}
+            </div>
+            <ExportMenu
+              data={outletData}
+              columns={[
+                { key: 'name', label: labels.pointOfSale },
+                { key: 'revenue', label: 'Ricavi', format: 'euro' },
+                { key: 'costs', label: 'Costi', format: 'euro' },
+                { key: 'margin', label: 'Margine', format: 'euro' },
+                { key: 'marginPct', label: 'Margine %', format: 'percent' },
+                { key: 'budget', label: 'Budget', format: 'euro' },
+                { key: 'transactions', label: 'Transazioni' },
+              ]}
+              filename="margini_categoria"
+              title="Margini per Categoria"
+            />
+          </>
+        }
+      />
 
       {/* KPI Row */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">

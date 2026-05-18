@@ -12,6 +12,7 @@ import { TrendingUp, TrendingDown, ShoppingCart, DollarSign, Package, Eye, Store
 import { GlassTooltip, AXIS_STYLE, GRID_STYLE } from '../components/ChartTheme';
 import { useCompanyLabels } from '../hooks/useCompanyLabels';
 import { useOutlets } from '../hooks/useOutlets';
+import PageHeader from '../components/PageHeader';
 
 // Formato numero italiano
 function fmt(n: number, dec = 0): string {
@@ -303,11 +304,10 @@ export default function AnalyticsPOS() {
   return (
     <div className="min-h-screen bg-white">
       <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-4xl font-bold text-slate-900 mb-2">Analytics POS</h1>
-          <p className="text-slate-600">Analisi dati transazioni - Anno 2026</p>
-        </div>
+        <PageHeader
+          title="Analytics POS"
+          subtitle="Analisi dati transazioni - Anno 2026"
+        />
 
         {/* Controls */}
         <div className="mb-8 flex flex-wrap gap-4 items-center">

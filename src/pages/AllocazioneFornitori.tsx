@@ -7,6 +7,7 @@ import {
   CheckCircle2, AlertCircle, X, Loader2, Plus, Trash2, Save
 } from 'lucide-react'
 import type { Row } from '../types/business'
+import PageHeader from '../components/PageHeader'
 
 type AllocationMode = 'DIRETTO' | 'SPLIT_PCT' | 'SPLIT_VALORE' | 'QUOTE_UGUALI'
 type ColorKey = 'blue' | 'purple' | 'amber' | 'emerald' | 'gray'
@@ -409,18 +410,10 @@ export default function AllocazioneFornitori() {
   return (
     <div className="min-h-screen bg-white">
       <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
-      {/* ── HEADER ── */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-3">
-            <div className="p-2.5 bg-indigo-50 rounded-xl"><Settings2 size={22} className="text-indigo-600" /></div>
-            Divisione Fornitori
-          </h1>
-          <p className="text-sm text-slate-500 mt-1">
-            Definisci come i costi di ogni fornitore vengono ripartiti tra gli outlet
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        title="Divisione Fornitori"
+        subtitle="Definisci come i costi di ogni fornitore vengono ripartiti tra gli outlet"
+      />
 
       {/* ── STATISTICS BAR ── */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">

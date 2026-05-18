@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { UserCircle, Lock, CheckCircle2, AlertCircle, Eye, EyeOff } from 'lucide-react'
+import PageHeader from '../components/PageHeader'
 
 /**
  * Pagina Profilo Utente — distinta da Impostazioni (profilo società).
@@ -113,18 +114,10 @@ export default function Profilo() {
         </div>
       )}
 
-      {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-slate-900">Il tuo profilo</h1>
-        <p className="text-sm text-slate-500">
-          Gestisci i tuoi dati personali e la tua password. Per modificare i dati
-          dell'azienda vai su{' '}
-          <a href="/impostazioni" className="text-blue-600 hover:underline">
-            Impostazioni
-          </a>
-          .
-        </p>
-      </div>
+      <PageHeader
+        title="Il tuo profilo"
+        subtitle="Gestisci i tuoi dati personali e la tua password. Per i dati dell'azienda vai su Impostazioni."
+      />
 
       {/* ─── DATI PERSONALI ─── */}
       <form

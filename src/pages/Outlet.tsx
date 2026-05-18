@@ -1,5 +1,6 @@
 import { useState, useEffect, lazy, Suspense } from 'react'
 import PageHelp from '../components/PageHelp'
+import PageHeader from '../components/PageHeader'
 import { useToast } from '../components/Toast'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
@@ -2091,41 +2092,40 @@ export default function Outlet() {
             />
           ) : (
             <>
-              <div className="flex items-center justify-between">
-                <div>
-                  <h1 className="text-2xl font-bold text-slate-900">{labels.pointOfSalePlural}</h1>
-                  <p className="text-sm text-slate-500">
-                    {outlets.length} {labels.pointOfSalePluralLower} — Fatturato catena {revenueYear || currentYear}: {fmt(totalRevenue)} €
-                  </p>
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={loadData}
-                    className="flex items-center gap-2 px-4 py-2 text-sm rounded-lg border border-slate-200 hover:bg-white transition"
-                  >
-                    <RefreshCw size={16} />
-                    Aggiorna
-                  </button>
-                  {canWrite && (
-                    <>
-                      <button
-                        onClick={() => setShowContractUploader(true)}
-                        className="flex items-center gap-2 px-4 py-2 text-sm rounded-lg border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 transition"
-                      >
-                        <Upload size={16} />
-                        Crea da contratto
-                      </button>
-                      <button
-                        onClick={() => { setWizardInitialData(null); setWizardAllegati(null); setShowWizard(true) }}
-                        className="flex items-center gap-2 px-4 py-2 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition"
-                      >
-                        <Plus size={16} />
-                        Nuovo {labels.pointOfSaleLower}
-                      </button>
-                    </>
-                  )}
-                </div>
-              </div>
+              <PageHeader
+                title={labels.pointOfSalePlural}
+                subtitle={`${outlets.length} ${labels.pointOfSalePluralLower} — Fatturato catena ${revenueYear || currentYear}: ${fmt(totalRevenue)} €`}
+                noDivider
+                actions={
+                  <>
+                    <button
+                      onClick={loadData}
+                      className="flex items-center gap-2 px-4 py-2 text-sm rounded-lg border border-slate-200 hover:bg-white transition"
+                    >
+                      <RefreshCw size={16} />
+                      Aggiorna
+                    </button>
+                    {canWrite && (
+                      <>
+                        <button
+                          onClick={() => setShowContractUploader(true)}
+                          className="flex items-center gap-2 px-4 py-2 text-sm rounded-lg border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 transition"
+                        >
+                          <Upload size={16} />
+                          Crea da contratto
+                        </button>
+                        <button
+                          onClick={() => { setWizardInitialData(null); setWizardAllegati(null); setShowWizard(true) }}
+                          className="flex items-center gap-2 px-4 py-2 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition"
+                        >
+                          <Plus size={16} />
+                          Nuovo {labels.pointOfSaleLower}
+                        </button>
+                      </>
+                    )}
+                  </>
+                }
+              />
 
               <div className="relative">
                 <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />

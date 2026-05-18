@@ -31,6 +31,7 @@ import {
 } from 'lucide-react';
 import { useOutlets } from '../hooks/useOutlets';
 import { useCompanyLabels } from '../hooks/useCompanyLabels';
+import PageHeader from '../components/PageHeader';
 
 const StoreManager = () => {
   const { outlets: tenantOutlets, loading: outletsLoading } = useOutlets();
@@ -172,16 +173,11 @@ const StoreManager = () => {
   return (
     <div className="min-h-screen bg-white">
       <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
-      {/* Header */}
-      <div className="mb-8">
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900">Dashboard Punto Vendita</h1>
-            <p className="text-sm text-gray-500 mt-1">{new Date().toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</p>
-          </div>
-
-          {/* Outlet Selector */}
-          <div className="relative">
+      <PageHeader
+        title="Dashboard Punto Vendita"
+        subtitle={new Date().toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+        actions={
+          <div className="relative group">
             <button
               onClick={() => setSelectedOutlet((current) => current)}
               className="flex items-center gap-3 bg-white border border-gray-300 rounded-lg px-4 py-3 hover:bg-gray-50 transition"
@@ -189,7 +185,6 @@ const StoreManager = () => {
               <span className="text-gray-900 font-medium">{currentOutlet?.label ?? ''}</span>
               <ChevronDown size={18} className="text-gray-500" />
             </button>
-
             {/* Dropdown menu */}
             <div className="absolute right-0 mt-2 w-48 bg-white border border-gray-200 rounded-lg shadow-lg z-10 hidden group-hover:block">
               {outlets.map((outlet) => (
@@ -207,8 +202,8 @@ const StoreManager = () => {
               ))}
             </div>
           </div>
-        </div>
-      </div>
+        }
+      />
 
       {/* Main Grid */}
       <div className="grid grid-cols-12 gap-6">

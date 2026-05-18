@@ -10,6 +10,7 @@ import { useAuth } from '../hooks/useAuth';
 import { useCompanyLabels } from '../hooks/useCompanyLabels';
 import { usePeriod } from '../hooks/usePeriod';
 import PageHelp from '../components/PageHelp';
+import PageHeader from '../components/PageHeader';
 
 function fmt(n: number | null | undefined, dec = 0): string {
   // null/undefined/NaN → 'N/D' cosi' non compaiono 'NaN €' nella UI e la
@@ -378,9 +379,9 @@ export default function Produttivita() {
 
   if (!metriche.length) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-8">
-        <div className="max-w-7xl mx-auto">
-          <h1 className="text-4xl font-bold text-slate-900 mb-2">Analisi Produttività</h1>
+      <div className="min-h-screen bg-white">
+        <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
+          <PageHeader title="Analisi Produttività" subtitle={`Analytics sulla performance per anno ${year}`} />
           <div className="bg-white rounded-xl border border-slate-200 p-12 text-center mt-8">
             <AlertCircle className="w-12 h-12 text-slate-400 mx-auto mb-4" />
             <p className="text-slate-600 text-lg">Nessun dato budget trovato per l'anno {year}</p>
@@ -394,25 +395,24 @@ export default function Produttivita() {
   return (
     <div className="min-h-screen bg-white">
       <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-8">
-          <div>
-            <h1 className="text-4xl font-bold text-slate-900 mb-2">Analisi Produttività</h1>
-            <p className="text-slate-600">Analytics sulla performance dei dipendenti per {labels.pointOfSaleLower} - Anno {year}</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <label className="text-sm font-medium text-slate-700">Anno:</label>
-            <select
-              value={year}
-              onChange={(e) => setYear(parseInt(e.target.value))}
-              className="px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-            >
-              {[2024, 2025, 2026, 2027].map(y => (
-                <option key={y} value={y}>{y}</option>
-              ))}
-            </select>
-          </div>
-        </div>
+        <PageHeader
+          title="Analisi Produttività"
+          subtitle={`Analytics sulla performance dei dipendenti per ${labels.pointOfSaleLower} - Anno ${year}`}
+          actions={
+            <div className="flex items-center gap-2">
+              <label className="text-sm font-medium text-slate-700">Anno:</label>
+              <select
+                value={year}
+                onChange={(e) => setYear(parseInt(e.target.value))}
+                className="px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+              >
+                {[2024, 2025, 2026, 2027].map(y => (
+                  <option key={y} value={y}>{y}</option>
+                ))}
+              </select>
+            </div>
+          }
+        />
 
         {/* Prominent KPI Card: Fatturato Medio per Dipendente */}
         {kpi && (

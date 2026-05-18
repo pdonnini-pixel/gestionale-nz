@@ -4,6 +4,7 @@ import { TrendingUp, AlertTriangle, Package, Calendar, DollarSign, ChevronDown, 
 import { GlassTooltip, AXIS_STYLE, GRID_STYLE } from '../components/ChartTheme'
 import { useCompanyLabels } from '../hooks/useCompanyLabels'
 import { useOutlets } from '../hooks/useOutlets'
+import PageHeader from '../components/PageHeader'
 
 function fmt(n: number, dec = 0): string {
   return new Intl.NumberFormat('it-IT', { minimumFractionDigits: dec, maximumFractionDigits: dec }).format(n)
@@ -598,11 +599,10 @@ export default function StockSellthrough() {
   return (
     <div className="min-h-screen bg-white">
       <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-slate-900 mb-2">Analisi Sell-Through Magazzino</h1>
-          <p className="text-slate-600">Monitoraggio giacenze e rotazione stock per i punti vendita</p>
-        </div>
+        <PageHeader
+          title="Analisi Sell-Through Magazzino"
+          subtitle="Monitoraggio giacenze e rotazione stock per i punti vendita"
+        />
 
         {/* KPI Cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">

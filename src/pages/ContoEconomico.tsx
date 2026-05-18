@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, Suspense } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import PageHelp from '../components/PageHelp'
+import PageHeader from '../components/PageHeader'
 import { useToast } from '../components/Toast'
 import { useCompanyLabels } from '../hooks/useCompanyLabels'
 
@@ -1558,20 +1559,13 @@ export default function ContoEconomico() {
   return (
     <div className="min-h-screen bg-white">
       <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
-      {/* Header with Period/Year Selector */}
-      <div className="flex items-start justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">Conto Economico & Bilancio</h1>
-          <p className="text-sm text-slate-500 mt-1">
-            {companyInfo?.denominazione || '—'}
-            {companyInfo?.cf_piva && <> — CF/P.IVA {companyInfo.cf_piva}</>}
-          </p>
-          {companyInfo?.sede && (
-            <p className="text-xs text-slate-400 mt-0.5">Sede: {companyInfo.sede}</p>
-          )}
-        </div>
+      <PageHeader
+        title="Conto Economico & Bilancio"
+        subtitle={`${companyInfo?.denominazione || '—'}${companyInfo?.cf_piva ? ` — CF/P.IVA ${companyInfo.cf_piva}` : ''}${companyInfo?.sede ? ` · ${companyInfo.sede}` : ''}`}
+      />
 
-        {/* Controls */}
+      {/* Controls row */}
+      <div className="flex items-start justify-end flex-wrap gap-3">
         <div className="flex gap-3 flex-wrap justify-end">
           <div className="flex gap-2">
             <select value={periodType} onChange={(e) => setPeriodType(e.target.value as ContoPeriod)}
