@@ -1445,7 +1445,8 @@ export default function Dipendenti() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-8">
+    <div className="min-h-screen bg-white">
+      <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
       {/* Toast inline (sostituisce alert() di sistema) */}
       {toast && (
         <div
@@ -1820,6 +1821,7 @@ export default function Dipendenti() {
         )}
       </div>
       <PageHelp page="dipendenti" />
+      </div>
     </div>
   );
 }

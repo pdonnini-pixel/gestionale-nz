@@ -93,7 +93,8 @@ export default function Profilo() {
 
   // ─── UI ──────────────────────────────────────────────────────
   return (
-    <div className="p-6 max-w-3xl mx-auto space-y-6">
+    <div className="min-h-screen bg-white">
+      <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
       {/* Toast */}
       {toast && (
         <div
@@ -270,6 +271,7 @@ export default function Profilo() {
           </button>
         </div>
       </form>
+      </div>
     </div>
   )
 }

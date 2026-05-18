@@ -7,9 +7,11 @@ export default function AICategoriePage() {
   const companyId = profile?.company_id
   if (!companyId) return null
   return (
-    <>
-      <AICategorization companyId={companyId} />
-      <PageHelp page="categorizzazione-ai" />
-    </>
+    <div className="min-h-screen bg-white">
+      <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
+        <AICategorization companyId={companyId} />
+        <PageHelp page="categorizzazione-ai" />
+      </div>
+    </div>
   )
 }

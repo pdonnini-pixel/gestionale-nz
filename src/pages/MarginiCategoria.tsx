@@ -303,7 +303,8 @@ export default function MarginiCategoria() {
   const noData = outletData.every(o => o.revenue === 0 && o.costs === 0)
 
   return (
-    <div className="p-6 space-y-6 max-w-[1400px] mx-auto">
+    <div className="min-h-screen bg-white">
+      <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
@@ -385,6 +386,7 @@ export default function MarginiCategoria() {
       {tab === 'outlet' && <OutletTab outletData={outletData} totals={totals} />}
       {tab === 'costi' && <CostiTab costBreakdown={costBreakdown} totalCosts={totals.costs} />}
       {tab === 'trend' && <TrendTab data={monthlyTrend} />}
+      </div>
     </div>
   )
 }

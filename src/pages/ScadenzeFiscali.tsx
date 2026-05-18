@@ -361,7 +361,8 @@ export default function ScadenzeFiscali() {
   ]
 
   return (
-    <div className="min-h-screen bg-slate-50/50">
+    <div className="min-h-screen bg-white">
+      <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
       {/* Sticky header */}
       <div className="sticky top-0 z-40 bg-white/95 backdrop-blur-sm border-b border-slate-200/60 px-6 py-3">
         <div className="max-w-[1400px] mx-auto">
@@ -561,6 +562,7 @@ export default function ScadenzeFiscali() {
         onSave={handleSave}
         saving={saving}
       />
+      </div>
     </div>
   )
 }

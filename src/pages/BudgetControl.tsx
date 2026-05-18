@@ -1194,7 +1194,8 @@ export default function BudgetControl() {
   const outletsWithBP = ops.filter(cc => bpEdits[cc.code] && Object.keys(bpEdits[cc.code]).length > 0)
 
   return (
-    <div className="p-6 space-y-6 max-w-[1600px] mx-auto">
+    <div className="min-h-screen bg-white">
+      <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
       {/* HEADER */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
@@ -1598,6 +1599,7 @@ export default function BudgetControl() {
         tenantCode={getCurrentTenant().alias}
         userEmail={(profile as { email?: string } | null)?.email || ''}
       />
+      </div>
     </div>
   )
 }

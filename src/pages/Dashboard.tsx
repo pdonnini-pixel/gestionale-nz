@@ -608,7 +608,8 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="p-4 sm:p-6 space-y-5 max-w-[1400px] mx-auto">
+    <div className="min-h-screen bg-white">
+      <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
       {/* ─── HEADER ─── */}
       <div>
         <h1 className="text-xl sm:text-2xl font-bold text-slate-900">
@@ -868,6 +869,7 @@ export default function Dashboard() {
         )}
       </div>
       <PageHelp page="dashboard" />
+      </div>
     </div>
   )
 }

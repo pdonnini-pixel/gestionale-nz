@@ -1556,7 +1556,8 @@ export default function ContoEconomico() {
   const periodi: ContoPeriod[] = ['annuale', 'trimestrale', 'mensile', 'provvisorio']
 
   return (
-    <div className="p-6 space-y-5 max-w-[1400px] mx-auto">
+    <div className="min-h-screen bg-white">
+      <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
       {/* Header with Period/Year Selector */}
       <div className="flex items-start justify-between flex-wrap gap-3">
         <div>
@@ -2783,6 +2784,7 @@ export default function ContoEconomico() {
         </div>
       )}
       <PageHelp page="conto-economico" />
+      </div>
     </div>
   )
 }
