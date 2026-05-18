@@ -22,6 +22,7 @@ import {
 import InvoiceViewer from '../components/InvoiceViewer';
 import StatusBadge from '../components/ui/StatusBadge';
 import { useToast } from '../components/Toast';
+import PageHeader from '../components/PageHeader';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
 import type { Row } from '../types/business';
@@ -576,18 +577,24 @@ export default function SchedaContabileFornitore() {
       {/* InvoiceViewer modal */}
       {viewingXml && <InvoiceViewer xmlContent={viewingXml} onClose={() => setViewingXml(null)} />}
 
-      {/* Breadcrumb + Back */}
-      <div className="flex items-center gap-3">
-        <button onClick={() => navigate('/fornitori')} className="p-2 rounded-lg hover:bg-slate-100 text-slate-500 transition">
-          <ArrowLeft size={18} />
-        </button>
-        <div className="text-sm text-slate-500">
-          <Link to="/fornitori" className="hover:text-blue-600 transition">Fornitori</Link>
-          <span className="mx-1.5">›</span>
-          <span className="text-slate-900 font-medium">{supplier.name || supplier.ragione_sociale}</span>
-          <span className="mx-1.5">›</span>
-          <span className="text-slate-700">Scheda Contabile</span>
-        </div>
+      {/* PageHeader uniforme — back button in actions, breadcrumb compatto sotto */}
+      <PageHeader
+        title="Scheda Contabile Fornitore"
+        subtitle={`${supplier.name || supplier.ragione_sociale || '—'} · Partitario, fatture, pagamenti`}
+        actions={
+          <button
+            onClick={() => navigate('/fornitori')}
+            className="flex items-center gap-1.5 px-3 py-2 text-sm text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-lg transition"
+          >
+            <ArrowLeft size={14} />
+            Torna ai fornitori
+          </button>
+        }
+      />
+      <div className="text-xs text-slate-500 -mt-3">
+        <Link to="/fornitori" className="hover:text-blue-600 transition">Fornitori</Link>
+        <span className="mx-1.5">›</span>
+        <span className="text-slate-700 font-medium">{supplier.name || supplier.ragione_sociale}</span>
       </div>
 
       {/* ─── INTESTAZIONE ─────────────────────────────────── */}
