@@ -122,12 +122,21 @@ export default function SchedaContabileFornitore() {
       const allPayables: Payable[] = [];
       const seen = new Set<string>();
 
+      // Skip se non abbiamo trovato il supplier (URL malformato)
+      if (!sup?.id) {
+        setPayables([]);
+        setLoading(false);
+        return;
+      }
+      const realSupplierId = sup.id;
+
       // 1. Per supplier_id (include tutti quelli collegati al fornitore)
+      // NB: usa sup.id (vero UUID), non supplierId dell'URL (che può essere uno slug)
       const { data: byId } = await supabase
         .from('payables')
         .select('*')
         .eq('company_id', COMPANY_ID)
-        .eq('supplier_id', supplierId)
+        .eq('supplier_id', realSupplierId)
         .order('invoice_date', { ascending: false });
       (byId || []).forEach(p => { if (!seen.has(p.id)) { seen.add(p.id); allPayables.push(p); } });
 
