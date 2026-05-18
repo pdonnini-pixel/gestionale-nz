@@ -12,6 +12,7 @@ type EmployeeCost = Row<'employee_costs'>;
 type CostCenterRow = Row<'cost_centers'>;
 type EmployeeDocument = Row<'employee_documents'>;
 import PageHelp from '../components/PageHelp';
+import PageHeader from '../components/PageHeader';
 import { useToast } from '../components/Toast';
 import {
   ChevronDown,
@@ -1470,18 +1471,16 @@ export default function Dipendenti() {
           </button>
         </div>
       )}
-      <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-4xl font-bold text-slate-900 mb-2">Gestione Dipendenti</h1>
-          <p className="text-slate-600">Costi Personale</p>
-          {lastUpdateTime && (
-            <div className="flex items-center gap-2 text-xs text-slate-500 mt-2">
-              <Clock className="w-3 h-3" />
-              Dati aggiornati: {lastUpdateTime}
-            </div>
-          )}
-        </div>
+      <PageHeader
+        title="Gestione Dipendenti"
+        subtitle="Costi Personale"
+        actions={lastUpdateTime ? (
+          <div className="flex items-center gap-2 text-xs text-slate-500">
+            <Clock className="w-3 h-3" />
+            Dati aggiornati: {lastUpdateTime}
+          </div>
+        ) : undefined}
+      />
 
         {/* Bilancio costo personale banner */}
         {employees.length === 0 && bilancioCostoPersonale != null && bilancioCostoPersonale > 0 && (
@@ -1819,7 +1818,6 @@ export default function Dipendenti() {
             </div>
           </div>
         )}
-      </div>
       <PageHelp page="dipendenti" />
       </div>
     </div>

@@ -14,6 +14,7 @@ import {
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
 import InvoiceViewer from '../components/InvoiceViewer';
+import PageHeader from '../components/PageHeader';
 
 // ─── HELPERS ───────────────────────────────────────────────────
 function formatDate(d: string | null | undefined) {
@@ -180,20 +181,11 @@ export default function ArchivioDocumenti() {
   return (
     <div className="min-h-screen bg-white">
       <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
-      {/* HEADER */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="p-2.5 bg-blue-100 rounded-xl">
-            <Archive className="w-7 h-7 text-blue-600" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold text-slate-900">Archivio Documenti</h1>
-            <p className="text-sm text-slate-500">
-              {activeTab === 'conservazione' ? 'Conservazione sostitutiva — 10 anni' : 'Fatture, bilanci ed estratti conto'}
-            </p>
-          </div>
-        </div>
-      </div>
+      <PageHeader
+        title="Archivio Documenti"
+        subtitle={activeTab === 'conservazione' ? 'Conservazione sostitutiva — 10 anni' : 'Fatture, bilanci ed estratti conto'}
+        noDivider
+      />
 
       {/* TABS */}
       <div className="flex gap-1 bg-white rounded-xl border border-slate-200 p-1 shadow-sm">

@@ -5,6 +5,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 type FornitoriTab = 'anagrafica' | 'analytics';
 const VALID_FORNITORI_TABS: FornitoriTab[] = ['anagrafica', 'analytics'];
 import PageHelp from '../components/PageHelp';
+import PageHeader from '../components/PageHeader';
 import { useCompanyLabels } from '../hooks/useCompanyLabels';
 import {
   Building2, Search, Plus, Edit3, Trash2, FileText, Phone, Mail, MapPin,
@@ -451,41 +452,36 @@ export default function Fornitori() {
   return (
     <div className="min-h-screen bg-white">
       <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
-      {/* HEADER */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-3">
-            <Building2 className="text-indigo-600" size={28} />
-            Anagrafica Fornitori
-          </h1>
-          <p className="text-slate-500 mt-1 text-sm">
-            Gestione fornitori, condizioni di pagamento, analisi spesa
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <ExportMenu
-            data={filteredSuppliers}
-            columns={[
-              { key: 'ragione_sociale', label: 'Ragione Sociale' },
-              { key: 'partita_iva', label: 'P.IVA' },
-              { key: 'codice_fiscale', label: 'Cod. Fiscale' },
-              { key: 'codice_sdi', label: 'SDI' },
-              { key: 'pec', label: 'PEC' },
-              { key: 'email', label: 'Email' },
-              { key: 'telefono', label: 'Telefono' },
-              { key: 'iban', label: 'IBAN' },
-              { key: 'category', label: 'Categoria' },
-              { key: 'payment_terms', label: 'Termini Pag.' },
-              { key: 'payment_method', label: 'Metodo Pag.' },
-            ]}
-            filename={`Fornitori_${new Date().toISOString().slice(0, 10)}`}
-            title="Anagrafica Fornitori"
-          />
-          <button onClick={openNew} className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 flex items-center gap-2 shadow-sm">
-            <Plus size={16} /> Nuovo Fornitore
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="Anagrafica Fornitori"
+        subtitle="Gestione fornitori, condizioni di pagamento, analisi spesa"
+        noDivider
+        actions={
+          <>
+            <ExportMenu
+              data={filteredSuppliers}
+              columns={[
+                { key: 'ragione_sociale', label: 'Ragione Sociale' },
+                { key: 'partita_iva', label: 'P.IVA' },
+                { key: 'codice_fiscale', label: 'Cod. Fiscale' },
+                { key: 'codice_sdi', label: 'SDI' },
+                { key: 'pec', label: 'PEC' },
+                { key: 'email', label: 'Email' },
+                { key: 'telefono', label: 'Telefono' },
+                { key: 'iban', label: 'IBAN' },
+                { key: 'category', label: 'Categoria' },
+                { key: 'payment_terms', label: 'Termini Pag.' },
+                { key: 'payment_method', label: 'Metodo Pag.' },
+              ]}
+              filename={`Fornitori_${new Date().toISOString().slice(0, 10)}`}
+              title="Anagrafica Fornitori"
+            />
+            <button onClick={openNew} className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 flex items-center gap-2 shadow-sm">
+              <Plus size={16} /> Nuovo Fornitore
+            </button>
+          </>
+        }
+      />
 
       {/* KPI CARDS */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">

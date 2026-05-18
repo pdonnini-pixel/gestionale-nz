@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import PageHelp from '../components/PageHelp';
+import PageHeader from '../components/PageHeader';
 import { useCompanyLabels } from '../hooks/useCompanyLabels';
 import { useToast } from '../components/Toast';
 
@@ -1098,13 +1099,8 @@ export default function CashflowProspettico() {
         </div>
       )}
 
-      {/* Header */}
+      <PageHeader title="Cashflow Prospettico" subtitle="Proiezione liquidità giornaliera, settimanale e mensile" />
       <div className="mb-8">
-        <div className="flex items-center gap-3 mb-6">
-          <Wallet className="w-8 h-8 text-indigo-600" />
-          <h1 className="text-3xl font-bold text-slate-900">Cashflow Prospettico</h1>
-        </div>
-
         {/* View Mode Selector */}
         <div className="flex gap-1 mb-4 bg-slate-200 rounded-lg p-1 w-fit">
           {([

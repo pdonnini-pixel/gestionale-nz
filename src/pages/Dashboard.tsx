@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useAuth } from '../hooks/useAuth'
 import { useCompanyLabels } from '../hooks/useCompanyLabels'
 import PageHelp from '../components/PageHelp'
+import PageHeader from '../components/PageHeader'
 import { usePeriod } from '../hooks/usePeriod'
 import { supabase } from '../lib/supabase'
 import { Link } from 'react-router-dom'
@@ -610,17 +611,11 @@ export default function Dashboard() {
   return (
     <div className="min-h-screen bg-white">
       <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
-      {/* ─── HEADER ─── */}
-      <div>
-        <h1 className="text-xl sm:text-2xl font-bold text-slate-900">
-          Buongiorno, {profile?.first_name || 'Patrizio'}
-        </h1>
-        <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-          Cruscotto direzionale — {periodRange.label}
-          {dataSource === 'bilancio' && <span className="text-blue-500 ml-2">· Dati da bilancio importato</span>}
-          {lastUpdate && <span className="ml-2"><DataFreshness lastUpdate={lastUpdate} source="Dati" /></span>}
-        </p>
-      </div>
+      <PageHeader
+        title={`Buongiorno, ${profile?.first_name || 'Patrizio'}`}
+        subtitle={`Cruscotto direzionale — ${periodRange.label}${dataSource === 'bilancio' ? ' · Dati da bilancio importato' : ''}`}
+        actions={lastUpdate ? <DataFreshness lastUpdate={lastUpdate} source="Dati" /> : undefined}
+      />
 
       {/* ─── 4 KPI PRINCIPALI ─── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">

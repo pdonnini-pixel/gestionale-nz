@@ -19,6 +19,7 @@ import { usePeriod } from '../hooks/usePeriod'
 import { useCompanyLabels } from '../hooks/useCompanyLabels'
 import { useCompany } from '../hooks/useCompany'
 import PageHelp from '../components/PageHelp'
+import PageHeader from '../components/PageHeader'
 import ExportBilancioDialog from '../components/ExportBilancioDialog'
 import { getCurrentTenant } from '../lib/tenants'
 import {
@@ -1196,38 +1197,35 @@ export default function BudgetControl() {
   return (
     <div className="min-h-screen bg-white">
       <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
-      {/* HEADER */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-3">
-            <Calculator className="text-indigo-600" size={28} /> Budget & Controllo
-          </h1>
-          <p className="text-slate-500 mt-1 text-sm">Business Plan preventivo/consuntivo per {labels.pointOfSaleLower}</p>
-        </div>
-        <div className="flex items-center gap-3">
-          <span className="px-3 py-2 border border-slate-200 rounded-lg text-sm font-semibold bg-slate-50">{year}</span>
-          {!hasRole('ceo') && !consuntivoMeta.isStale && !consuntivoMeta.neverRefreshed && (
-            <button
-              onClick={() => refreshConsuntivo(null)}
-              disabled={consuntivoRefreshing}
-              className={`px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 border transition shrink-0 bg-white border-slate-300 text-slate-700 hover:bg-slate-50 ${
-                consuntivoRefreshing ? 'opacity-50 cursor-not-allowed' : ''
-              }`}
-              title="Ricalcola il consuntivo dalle fatture passive, ricavi POS e fatture attive"
-            >
-              <RefreshCw size={14} className={consuntivoRefreshing ? 'animate-spin' : ''} />
-              {consuntivoRefreshing ? 'Aggiornamento…' : 'Aggiorna consuntivo'}
-            </button>
-          )}
-          {!consuntivoMeta.isStale && !consuntivoMeta.neverRefreshed && (
-            <div className="text-xs text-slate-500 leading-tight min-w-[140px]">
-              Ultimo aggiornamento:
-              <br />
-              <span className="font-medium text-slate-700">{fmtRelativeTime(consuntivoMeta.lastRefresh)}</span>
-            </div>
-          )}
-        </div>
-      </div>
+      <PageHeader
+        title="Budget & Controllo"
+        subtitle={`Business Plan preventivo/consuntivo per ${labels.pointOfSaleLower}`}
+        actions={
+          <>
+            <span className="px-3 py-2 border border-slate-200 rounded-lg text-sm font-semibold bg-slate-50">{year}</span>
+            {!hasRole('ceo') && !consuntivoMeta.isStale && !consuntivoMeta.neverRefreshed && (
+              <button
+                onClick={() => refreshConsuntivo(null)}
+                disabled={consuntivoRefreshing}
+                className={`px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 border transition shrink-0 bg-white border-slate-300 text-slate-700 hover:bg-slate-50 ${
+                  consuntivoRefreshing ? 'opacity-50 cursor-not-allowed' : ''
+                }`}
+                title="Ricalcola il consuntivo dalle fatture passive, ricavi POS e fatture attive"
+              >
+                <RefreshCw size={14} className={consuntivoRefreshing ? 'animate-spin' : ''} />
+                {consuntivoRefreshing ? 'Aggiornamento…' : 'Aggiorna consuntivo'}
+              </button>
+            )}
+            {!consuntivoMeta.isStale && !consuntivoMeta.neverRefreshed && (
+              <div className="text-xs text-slate-500 leading-tight min-w-[140px]">
+                Ultimo aggiornamento:
+                <br />
+                <span className="font-medium text-slate-700">{fmtRelativeTime(consuntivoMeta.lastRefresh)}</span>
+              </div>
+            )}
+          </>
+        }
+      />
 
       {/* BANNER ALERT consuntivo da aggiornare — visibile e parlato per Sabrina/Lilian */}
       {!hasRole('ceo') && (consuntivoMeta.isStale || consuntivoMeta.neverRefreshed) && (

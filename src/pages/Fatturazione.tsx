@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useSearchParams, Link } from 'react-router-dom'
 import PageHelp from '../components/PageHelp'
+import PageHeader from '../components/PageHeader'
 import { useToast } from '../components/Toast'
 
 // Tab principale Fatturazione — persistito in URL come ?tab=
@@ -1625,32 +1626,32 @@ export default function Fatturazione() {
           Le fatture SDI ora arrivano via webhook A-Cube real-time + pull manuale
           on-demand col bottone "Sincronizza A-Cube SDI". */}
 
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">Fatturazione Elettronica</h1>
-          <p className="text-sm text-slate-500 mt-1">
-            Gestione fatture SDI, emissione e corrispettivi telematici
+      <PageHeader
+        title="Fatturazione Elettronica"
+        subtitle="Gestione fatture SDI, emissione e corrispettivi telematici"
+        noDivider
+        actions={
+          <>
             {sdiStats?.config && (
-              <span className={`ml-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
+              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
                 sdiStats.config.environment === 'PRODUCTION' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'
               }`}>
                 {sdiStats.config.environment === 'PRODUCTION' ? 'Produzione' : 'Test'}
                 {' — '}{sdiStats.config.accreditation_status}
               </span>
             )}
-          </p>
-        </div>
-        <button
-          onClick={handleSyncAcubeSdi}
-          disabled={syncing}
-          title="Pull manuale fatture passive da A-Cube SDI. Webhook A-Cube già attivo in real-time; usa questo come fallback se sospetti eventi mancati."
-          className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl transition disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
-        >
-          <RefreshCw size={16} className={syncing ? 'animate-spin' : ''} />
-          {syncing ? 'Sincronizzazione...' : 'Sincronizza A-Cube SDI'}
-        </button>
-      </div>
+            <button
+              onClick={handleSyncAcubeSdi}
+              disabled={syncing}
+              title="Pull manuale fatture passive da A-Cube SDI. Webhook A-Cube già attivo in real-time; usa questo come fallback se sospetti eventi mancati."
+              className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl transition disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+            >
+              <RefreshCw size={16} className={syncing ? 'animate-spin' : ''} />
+              {syncing ? 'Sincronizzazione...' : 'Sincronizza A-Cube SDI'}
+            </button>
+          </>
+        }
+      />
 
       {/* Banner syncResult rimosso: il risultato della sync ora è mostrato via toast centrale globale. */}
 

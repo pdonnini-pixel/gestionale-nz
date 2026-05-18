@@ -11,6 +11,7 @@ import { useCompanyLabels } from '../hooks/useCompanyLabels'
 import { useTableSort } from '../hooks/useTableSort'
 import SortableTh from '../components/ui/SortableTh'
 import PageHelp from '../components/PageHelp'
+import PageHeader from '../components/PageHeader'
 import { formatOutletName } from '../lib/formatters'
 
 const fmt = (n: number | null | undefined): string => n == null ? '\u2014' : new Intl.NumberFormat('it-IT', { maximumFractionDigits: 0 }).format(n)
@@ -244,28 +245,24 @@ export default function MarginiOutlet() {
   return (
     <div className="min-h-screen bg-white">
       <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-8">
-          <div>
-            <h1 className="text-4xl font-bold text-slate-900 mb-2 flex items-center gap-3">
-              <TrendingUp className="w-10 h-10 text-blue-600" />
-              Analisi Margini per {labels.pointOfSale}
-            </h1>
-            <p className="text-slate-600">Confronto ricavi, costi e margini tra i {labels.pointOfSalePluralLower} — Anno {year}</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <label className="text-sm font-medium text-slate-700">Anno:</label>
-            <select
-              value={year}
-              onChange={(e) => setYear(parseInt(e.target.value))}
-              className="px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-            >
-              {[2024, 2025, 2026, 2027].map(y => (
-                <option key={y} value={y}>{y}</option>
-              ))}
-            </select>
-          </div>
-        </div>
+        <PageHeader
+          title={`Analisi Margini per ${labels.pointOfSale}`}
+          subtitle={`Confronto ricavi, costi e margini tra i ${labels.pointOfSalePluralLower} — Anno ${year}`}
+          actions={
+            <div className="flex items-center gap-2">
+              <label className="text-sm font-medium text-slate-700">Anno:</label>
+              <select
+                value={year}
+                onChange={(e) => setYear(parseInt(e.target.value))}
+                className="px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+              >
+                {[2024, 2025, 2026, 2027].map(y => (
+                  <option key={y} value={y}>{y}</option>
+                ))}
+              </select>
+            </div>
+          }
+        />
 
         {/* Alert Banner: critical margins */}
         {criticalOutlets.length > 0 && (

@@ -8,6 +8,7 @@ import {
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { useToast } from '../components/Toast'
+import PageHeader from '../components/PageHeader'
 
 /* ───── helpers ───── */
 function fmt(n: number | null | undefined) {
@@ -363,19 +364,20 @@ export default function ScadenzeFiscali() {
   return (
     <div className="min-h-screen bg-white">
       <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
-      {/* Sticky header */}
+      <PageHeader
+        title="Scadenze Fiscali & F24"
+        subtitle="Tracciamento F24, IVA, imposte e contributi"
+        noDivider
+        actions={
+          <button onClick={() => { setEditingDeadline(null); setModalOpen(true) }}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition shadow-sm">
+            <Plus size={15} /> Nuova scadenza
+          </button>
+        }
+      />
+      {/* Sticky KPI bar */}
       <div className="sticky top-0 z-40 bg-white/95 backdrop-blur-sm border-b border-slate-200/60 px-6 py-3">
-        <div className="max-w-[1400px] mx-auto">
-          <div className="flex items-center justify-between flex-wrap gap-3">
-            <h1 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
-              <CalendarClock size={20} className="text-blue-600" />
-              Scadenze Fiscali & F24
-            </h1>
-            <button onClick={() => { setEditingDeadline(null); setModalOpen(true) }}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition shadow-sm">
-              <Plus size={15} /> Nuova scadenza
-            </button>
-          </div>
+        <div className="mx-auto">
 
           {/* KPI bar */}
           <div className="flex items-center gap-6 mt-3 text-sm flex-wrap">
@@ -415,7 +417,7 @@ export default function ScadenzeFiscali() {
         </div>
       </div>
 
-      <div className="p-6 space-y-4 max-w-[1400px] mx-auto">
+      <div className="space-y-4">
         {/* Filter bar */}
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div className="flex gap-1 bg-slate-100/80 rounded-lg p-0.5">

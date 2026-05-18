@@ -7,6 +7,7 @@ import { useAuth } from '../hooks/useAuth';
 import { usePeriod } from '../hooks/usePeriod';
 import { useCompanyLabels } from '../hooks/useCompanyLabels';
 import PageHelp from '../components/PageHelp';
+import PageHeader from '../components/PageHeader';
 
 function fmt(n: number, dec = 0) {
   return new Intl.NumberFormat('it-IT', { minimumFractionDigits: dec, maximumFractionDigits: dec }).format(n);
@@ -239,41 +240,36 @@ export default function ScenarioPlanning() {
   return (
     <div className="min-h-screen bg-white">
       <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-8">
-          <div>
-            <h1 className="text-4xl font-bold text-slate-900 flex items-center gap-3">
-              <Target className="w-10 h-10 text-blue-600" />
-              Scenario Planning
-            </h1>
-            <p className="text-slate-600 mt-2">Simula variazioni di ricavi, costi e apertura nuovo {labels.pointOfSaleLower} - Anno {year}</p>
-          </div>
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2">
-              <label className="text-sm font-medium text-slate-700">Anno:</label>
-              <select
-                value={year}
-                onChange={(e) => setYear(parseInt(e.target.value))}
-                className="px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-              >
-                {[2024, 2025, 2026, 2027].map(y => (
-                  <option key={y} value={y}>{y}</option>
-                ))}
-              </select>
-            </div>
-            {/* Save button */}
-            {isModified && (
-              <button
-                onClick={handleSaveScenario}
-                disabled={saving}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
-              >
-                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                Salva Scenario
-              </button>
-            )}
-          </div>
-        </div>
+        <PageHeader
+          title="Scenario Planning"
+          subtitle={`Simula variazioni di ricavi, costi e apertura nuovo ${labels.pointOfSaleLower} - Anno ${year}`}
+          actions={
+            <>
+              <div className="flex items-center gap-2">
+                <label className="text-sm font-medium text-slate-700">Anno:</label>
+                <select
+                  value={year}
+                  onChange={(e) => setYear(parseInt(e.target.value))}
+                  className="px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                >
+                  {[2024, 2025, 2026, 2027].map(y => (
+                    <option key={y} value={y}>{y}</option>
+                  ))}
+                </select>
+              </div>
+              {isModified && (
+                <button
+                  onClick={handleSaveScenario}
+                  disabled={saving}
+                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+                >
+                  {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                  Salva Scenario
+                </button>
+              )}
+            </>
+          }
+        />
 
         {/* Save message */}
         {saveMessage && (

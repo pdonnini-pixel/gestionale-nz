@@ -4,6 +4,7 @@ import { Info, TrendingUp, Package, Percent, Store } from 'lucide-react';
 import { GlassTooltip, AXIS_STYLE, GRID_STYLE } from '../components/ChartTheme';
 import { useCompanyLabels } from '../hooks/useCompanyLabels';
 import { useOutlets } from '../hooks/useOutlets';
+import PageHeader from '../components/PageHeader';
 
 function fmt(n: number, dec = 0): string {
   return new Intl.NumberFormat('it-IT', { minimumFractionDigits: dec, maximumFractionDigits: dec }).format(n);
@@ -225,11 +226,10 @@ export default function OpenToBuy() {
   return (
     <div className="min-h-screen bg-white">
       <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-4xl font-bold text-slate-900 mb-2">Open-to-Buy Planner</h1>
-          <p className="text-slate-600">Pianificazione stagionale acquisti</p>
-        </div>
+        <PageHeader
+          title="Open-to-Buy Planner"
+          subtitle="Pianificazione stagionale acquisti"
+        />
 
         {/* Season Selector */}
         <div className="flex gap-3 mb-8">
