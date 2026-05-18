@@ -1572,10 +1572,15 @@ export default function Fatturazione() {
   // Il webhook A-Cube è la fonte primaria push real-time; questo bottone serve
   // come fallback se eventi webhook sono stati persi (ritardi sandbox, ecc.).
   // Edge Function: acube-sdi-sync-inbound (deployed v1)
+  // Stage A-Cube per il pull SDI inbound. Soft-launch: production di default
+  // per ricevere fatture passive REALI dal cassetto fiscale. Toggle a sandbox
+  // disponibile per test (mostrato accanto al bottone con badge ambra).
+  const [sdiStage, setSdiStage] = useState<'production' | 'sandbox'>('production')
+
   const handleSyncAcubeSdi = async () => {
     setSyncing(true)
     try {
-      const { data, error } = await supabase.functions.invoke('acube-sdi-sync-inbound', { body: { stage: 'sandbox' } })
+      const { data, error } = await supabase.functions.invoke('acube-sdi-sync-inbound', { body: { stage: sdiStage } })
       // Supabase functions-js wraps non-2xx in FunctionsHttpError con .context.json() che contiene il body
       if (error) {
         let detail = error.message
@@ -1640,14 +1645,27 @@ export default function Fatturazione() {
                 {' — '}{sdiStats.config.accreditation_status}
               </span>
             )}
+            <select
+              value={sdiStage}
+              onChange={(e) => setSdiStage(e.target.value as 'production' | 'sandbox')}
+              className={`px-3 py-2.5 text-sm border rounded-xl font-medium ${
+                sdiStage === 'production'
+                  ? 'bg-red-50 border-red-300 text-red-800'
+                  : 'bg-amber-50 border-amber-300 text-amber-800'
+              }`}
+              title="Ambiente A-Cube SDI: Produzione = fatture vere; Sandbox = test"
+            >
+              <option value="production">🔴 Produzione</option>
+              <option value="sandbox">🟡 Sandbox</option>
+            </select>
             <button
               onClick={handleSyncAcubeSdi}
               disabled={syncing}
-              title="Pull manuale fatture passive da A-Cube SDI. Webhook A-Cube già attivo in real-time; usa questo come fallback se sospetti eventi mancati."
+              title={`Pull manuale fatture passive da A-Cube SDI (${sdiStage}). Webhook A-Cube già attivo in real-time.`}
               className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl transition disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
             >
               <RefreshCw size={16} className={syncing ? 'animate-spin' : ''} />
-              {syncing ? 'Sincronizzazione...' : 'Sincronizza A-Cube SDI'}
+              {syncing ? 'Sincronizzazione...' : 'Sincronizza SDI'}
             </button>
           </>
         }
