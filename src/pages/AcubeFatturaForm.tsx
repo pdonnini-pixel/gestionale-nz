@@ -78,7 +78,8 @@ export default function AcubeFatturaForm() {
   }
 
   return (
-    <div className="p-6 max-w-4xl mx-auto">
+    <div className="min-h-screen bg-white">
+      <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
       <div className="mb-6">
         <Link to="/fatturazione?tab=active" className="inline-flex items-center gap-1 text-sm text-slate-600 hover:text-slate-900">
           <ArrowLeft size={16} /> Torna a Fatturazione
@@ -260,6 +261,7 @@ export default function AcubeFatturaForm() {
           </div>
         )}
       </form>
+      </div>
     </div>
   )
 }

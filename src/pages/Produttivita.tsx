@@ -392,8 +392,8 @@ export default function Produttivita() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-8">
-      <div className="max-w-7xl mx-auto">
+    <div className="min-h-screen bg-white">
+      <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
           <div>

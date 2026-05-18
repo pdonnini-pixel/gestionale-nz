@@ -1619,7 +1619,8 @@ export default function Fatturazione() {
   ]
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="min-h-screen bg-white">
+      <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
       {/* Banner EPPI rimosso: piano accreditamento diretto AdE abbandonato.
           Le fatture SDI ora arrivano via webhook A-Cube real-time + pull manuale
           on-demand col bottone "Sincronizza A-Cube SDI". */}
@@ -1681,6 +1682,7 @@ export default function Fatturazione() {
       {activeTab === 'active' && <FattureAttive key={`a-${syncKey}`} />}
       {activeTab === 'corrispettivi' && <Corrispettivi key={`c-${syncKey}`} />}
       <PageHelp page="fatturazione" />
+      </div>
     </div>
   )
 }

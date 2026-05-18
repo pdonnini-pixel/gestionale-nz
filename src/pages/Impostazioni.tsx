@@ -1601,7 +1601,8 @@ export default function Impostazioni() {
   const [openSection, setOpenSection] = useState<string | null>('company')
 
   return (
-    <div className="p-6 space-y-6 max-w-[1400px] mx-auto">
+    <div className="min-h-screen bg-white">
+      <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
       <div>
         <h1 className="text-2xl font-bold text-slate-900">Impostazioni</h1>
         <p className="text-sm text-slate-500">Configurazione azienda, utenti e struttura costi</p>
@@ -1651,6 +1652,7 @@ export default function Impostazioni() {
       </div>
 
       <ToastBar toast={toast} />
+      </div>
     </div>
   )
 }

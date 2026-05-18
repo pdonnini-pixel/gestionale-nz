@@ -2049,7 +2049,8 @@ export default function Outlet() {
   )
 
   return (
-    <div className="p-6 space-y-6 max-w-[1400px] mx-auto">
+    <div className="min-h-screen bg-white">
+      <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
       {/* ── Tab bar (hide when viewing outlet detail) ── */}
       {!selectedOutlet && (
         <div className="flex gap-1 bg-slate-100 rounded-lg p-1 w-fit">
@@ -2218,6 +2219,7 @@ export default function Outlet() {
         </div>
       )}
       <PageHelp page="outlet" />
+      </div>
     </div>
   )
 }

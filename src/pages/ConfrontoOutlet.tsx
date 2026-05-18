@@ -771,7 +771,8 @@ export default function ConfrontoOutlet() {
   }
 
   return (
-    <div className="p-6 space-y-6 max-w-[1600px] mx-auto">
+    <div className="min-h-screen bg-white">
+      <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold text-slate-900">Confronto {labels.pointOfSalePlural}</h1>
@@ -967,6 +968,7 @@ export default function ConfrontoOutlet() {
             {viewMode === 'variance' && ' Le variazioni mostrano consuntivo - preventivo.'}
           </div>
         </div>
+      </div>
       </div>
     </div>
   )

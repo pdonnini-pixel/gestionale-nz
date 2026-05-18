@@ -80,6 +80,7 @@ export default function SchedaContabileFornitore() {
 
   const [supplier, setSupplier] = useState<Supplier | null>(null);
   const [payables, setPayables] = useState<Payable[]>([]);
+  const [bankAccountById, setBankAccountById] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   // selectedYear persistito in URL come ?year=… (default 'latest')
   const [searchParams, setSearchParams] = useSearchParams();
@@ -144,6 +145,17 @@ export default function SchedaContabileFornitore() {
         .select('id, name')
         .eq('company_id', COMPANY_ID);
       setCategories(cats || []);
+
+      // Bank accounts lookup → per descrizione "Pagamento Banca XXX" nel partitario
+      const { data: banks } = await supabase
+        .from('bank_accounts')
+        .select('id, bank_name, account_name')
+        .eq('company_id', COMPANY_ID);
+      const bankMap: Record<string, string> = {};
+      (banks || []).forEach((b: { id: string; bank_name: string | null; account_name: string | null }) => {
+        bankMap[b.id] = b.bank_name || b.account_name || '—';
+      });
+      setBankAccountById(bankMap);
 
     } catch (err: unknown) {
       console.error('Errore caricamento scheda contabile:', err);
@@ -243,69 +255,145 @@ export default function SchedaContabileFornitore() {
     return tot;
   }, [fattureGrouped]);
 
-  // ─── Partitario ────────────────────────────────────────────
+  // ─── Partitario contabile stile gestionale tradizionale ───────────
+  // Convenzione contabile partitario fornitore:
+  //   AVERE = fatture ricevute (aumentano il debito verso il fornitore)
+  //   DARE  = pagamenti + note di credito (riducono il debito)
+  // Saldo positivo = debito aperto, saldo a zero = partite chiuse.
+  //
+  // Per ogni pagamento la riga DARE riporta:
+  //   - data emissione fattura (principale)
+  //   - data pagamento (sotto, in piccolo)
+  //   - descrizione: "Pagamento — Banca XXX — rif. Fatt. NNN"
+  // Per ogni nota credito: nessuna banca nella descrizione.
+  interface MovimentoPartitario {
+    data: string | null;           // data principale (fattura per pagamenti, data NC per note credito)
+    dataPagamento: string | null;  // valorizzata solo per pagamenti (mostrata sotto in piccolo)
+    numero: string;
+    dare: number;
+    avere: number;
+    descrizione: string;
+    aliquotaIVA: string;           // "22%", "10%", "mista", "—"
+    tipo: 'fattura' | 'pagamento' | 'nota_credito';
+  }
+
   const partitario = useMemo(() => {
-    // Raggruppare fatture per invoice_number
-    interface InvoiceMapEntry { date: string | null; amount: number; isNotaCredito: boolean }
-    const invoiceMap = new Map<string, InvoiceMapEntry>();
+    // Aggrega per invoice_number per evitare doppi conteggi quando una fattura è
+    // splittata su più rate (payables multipli con stesso invoice_number)
+    interface InvoiceAgg {
+      invoiceNumber: string;
+      invoiceDate: string | null;
+      grossTotal: number;          // somma gross_amount (negativo per NC)
+      netTotal: number;
+      vatTotal: number;
+      paymentDate: string | null;  // ultima data pagamento se status pagato
+      paymentBankId: string | null;
+      isPaid: boolean;
+      tipoDoc: string | null;
+    }
+    const map = new Map<string, InvoiceAgg>();
     for (const p of filteredPayables) {
       const key = p.invoice_number || p.id;
-      let entry = invoiceMap.get(key);
-      if (!entry) {
-        entry = { date: p.invoice_date, amount: 0, isNotaCredito: false };
-        invoiceMap.set(key, entry);
+      let agg = map.get(key);
+      if (!agg) {
+        agg = {
+          invoiceNumber: p.invoice_number || '—',
+          invoiceDate: p.invoice_date,
+          grossTotal: 0,
+          netTotal: 0,
+          vatTotal: 0,
+          paymentDate: null,
+          paymentBankId: null,
+          isPaid: false,
+          tipoDoc: (p as Payable & { tipo_documento?: string | null }).tipo_documento || null,
+        };
+        map.set(key, agg);
       }
-      entry.amount += Number(p.gross_amount || 0);
-      if (p.status === 'nota_credito' || Number(p.gross_amount || 0) < 0) {
-        entry.isNotaCredito = true;
+      agg.grossTotal += Number(p.gross_amount || 0);
+      agg.netTotal += Number(p.net_amount || 0);
+      agg.vatTotal += Number(p.vat_amount || 0);
+      if (p.status === 'pagato' && p.payment_date) {
+        agg.isPaid = true;
+        if (!agg.paymentDate || p.payment_date > agg.paymentDate) {
+          agg.paymentDate = p.payment_date;
+          agg.paymentBankId = p.payment_bank_account_id || null;
+        }
       }
     }
 
-    // DARE: fatture positive, AVERE: note credito
-    interface Movimento { data: string | null; tipo: 'dare' | 'avere'; descrizione: string; importo: number; isNotaCredito?: boolean }
-    const movimenti: Movimento[] = [];
-    for (const [invoiceNumber, entry] of invoiceMap) {
-      if (entry.isNotaCredito) {
+    const movimenti: MovimentoPartitario[] = [];
+    for (const agg of map.values()) {
+      const isNC = agg.grossTotal < 0;
+      // Aliquota IVA media (vat / net * 100). "mista" se diversi tassi presenti.
+      const aliq = agg.netTotal > 0
+        ? `${Math.round((agg.vatTotal / agg.netTotal) * 100)}%`
+        : '—';
+
+      if (isNC) {
+        // Nota di credito → riga DARE singola, niente banca nella descrizione
         movimenti.push({
-          data: entry.date,
-          tipo: 'avere',
-          descrizione: `N/C ${invoiceNumber}`,
-          importo: Math.abs(entry.amount),
-          isNotaCredito: true,
+          data: agg.invoiceDate,
+          dataPagamento: null,
+          numero: agg.invoiceNumber,
+          dare: Math.abs(agg.grossTotal),
+          avere: 0,
+          descrizione: `Nota di credito Nr ${agg.invoiceNumber}`,
+          aliquotaIVA: aliq,
+          tipo: 'nota_credito',
         });
       } else {
+        // Fattura ricevuta → riga AVERE (aumenta debito)
         movimenti.push({
-          data: entry.date,
-          tipo: 'dare',
-          descrizione: `Fatt. ${invoiceNumber}`,
-          importo: entry.amount,
+          data: agg.invoiceDate,
+          dataPagamento: null,
+          numero: agg.invoiceNumber,
+          dare: 0,
+          avere: agg.grossTotal,
+          descrizione: `Fattura ${agg.tipoDoc || ''} Nr ${agg.invoiceNumber}`.trim(),
+          aliquotaIVA: aliq,
+          tipo: 'fattura',
         });
+        // Se pagata → riga DARE pagamento con banca + data pagamento sotto data fattura
+        if (agg.isPaid && agg.paymentDate) {
+          const bankName = agg.paymentBankId ? (bankAccountById[agg.paymentBankId] || 'Banca non specificata') : 'Banca non specificata';
+          movimenti.push({
+            data: agg.invoiceDate,           // data principale = emissione fattura
+            dataPagamento: agg.paymentDate,  // mostrata sotto in piccolo
+            numero: agg.invoiceNumber,
+            dare: agg.grossTotal,
+            avere: 0,
+            descrizione: `Pagamento — ${bankName} — rif. Fatt. ${agg.invoiceNumber}`,
+            aliquotaIVA: '—',
+            tipo: 'pagamento',
+          });
+        }
       }
     }
 
-    // AVERE: pagamenti reali (payables con status='pagato' e payment_date)
-    filteredPayables
-      .filter(p => p.status === 'pagato' && p.payment_date)
-      .forEach(p => {
-        movimenti.push({
-          data: p.payment_date,
-          tipo: 'avere',
-          descrizione: `Pagamento — Fatt. ${p.invoice_number || '—'}`,
-          importo: Number(p.gross_amount || 0),
-        });
-      });
+    // Ordina per data emissione (chronologica), poi fattura prima del suo pagamento
+    movimenti.sort((a, b) => {
+      const da = new Date(a.data || 0).getTime();
+      const db = new Date(b.data || 0).getTime();
+      if (da !== db) return da - db;
+      // Stessa data: fattura prima del pagamento corrispondente
+      if (a.numero === b.numero) {
+        if (a.tipo === 'fattura' && b.tipo === 'pagamento') return -1;
+        if (a.tipo === 'pagamento' && b.tipo === 'fattura') return 1;
+      }
+      return 0;
+    });
 
-    // Sort cronologico
-    movimenti.sort((a, b) => new Date(a.data || 0).getTime() - new Date(b.data || 0).getTime());
-
-    // Saldo progressivo
+    // Saldo progressivo: AVERE aumenta, DARE riduce
     let saldo = 0;
-    return movimenti.map(m => {
-      if (m.tipo === 'dare') saldo += m.importo;
-      else saldo -= m.importo;
+    const totaliDare = movimenti.reduce((s, m) => s + m.dare, 0);
+    const totaliAvere = movimenti.reduce((s, m) => s + m.avere, 0);
+    const righeConSaldo = movimenti.map(m => {
+      saldo += m.avere - m.dare;
       return { ...m, saldo };
     });
-  }, [filteredPayables]);
+
+    return { righe: righeConSaldo, totaliDare, totaliAvere, saldoFinale: saldo };
+  }, [filteredPayables, bankAccountById]);
 
   // ─── Actions ───────────────────────────────────────────────
   const toggleExpand = (invoiceNumber: string) => {
@@ -363,15 +451,40 @@ export default function SchedaContabileFornitore() {
       </tr>`;
     }).join('');
 
-    const partitarioHTML = partitario.map(m => `
-      <tr style="background:${m.tipo === 'avere' ? '#f0fdf4' : 'white'}">
-        <td>${fmtDate(m.data)}</td>
-        <td>${m.descrizione}</td>
-        <td style="text-align:right">${m.tipo === 'dare' ? fmt(m.importo) : ''}</td>
-        <td style="text-align:right;color:green">${m.tipo === 'avere' ? fmt(m.importo) : ''}</td>
-        <td style="text-align:right;font-weight:bold;color:${m.saldo > 0 ? '#dc2626' : '#16a34a'}">${fmt(m.saldo)}</td>
+    const partitarioHTML = partitario.righe.map(m => {
+      const bg = m.tipo === 'nota_credito' ? '#f0fdf4'
+        : m.tipo === 'pagamento' ? '#eff6ff' : 'white';
+      const dataCell = m.dataPagamento
+        ? `${fmtDate(m.data)}<br><span style="font-size:7pt;color:#1d4ed8">pagato ${fmtDate(m.dataPagamento)}</span>`
+        : fmtDate(m.data);
+      const descrCell = m.aliquotaIVA !== '—'
+        ? `${m.descrizione} <span style="color:#64748b;font-size:7pt">(IVA ${m.aliquotaIVA})</span>`
+        : m.descrizione;
+      return `
+      <tr style="background:${bg}">
+        <td>${dataCell}</td>
+        <td>${m.numero}</td>
+        <td style="text-align:right;font-family:monospace">${m.dare > 0 ? fmt(m.dare) : ''}</td>
+        <td style="text-align:right;font-family:monospace">${m.avere > 0 ? fmt(m.avere) : ''}</td>
+        <td>${descrCell}</td>
+        <td style="text-align:right;font-weight:bold;font-family:monospace;color:${m.saldo > 0.01 ? '#dc2626' : '#16a34a'}">${fmt(m.saldo)}</td>
+      </tr>`;
+    }).join('');
+    const partitarioFooterHTML = partitario.righe.length > 0 ? `
+      <tr style="background:#f1f5f9;font-weight:bold;border-top:2px solid #94a3b8">
+        <td colspan="2" style="text-align:right">Totale Movimenti Selezionati:</td>
+        <td style="text-align:right;font-family:monospace">${fmt(partitario.totaliDare)}</td>
+        <td style="text-align:right;font-family:monospace">${fmt(partitario.totaliAvere)}</td>
+        <td>Saldo:</td>
+        <td style="text-align:right;font-family:monospace;color:${partitario.saldoFinale > 0.01 ? '#dc2626' : '#16a34a'}">${fmtEUR(partitario.saldoFinale)}</td>
       </tr>
-    `).join('');
+      <tr style="background:${partitario.saldoFinale > 0.01 ? '#fef2f2' : '#f0fdf4'};font-weight:bold">
+        <td colspan="2" style="text-align:right">Totale Corrente Scheda Contabile:</td>
+        <td style="text-align:right;font-family:monospace">${fmt(partitario.totaliDare)}</td>
+        <td style="text-align:right;font-family:monospace">${fmt(partitario.totaliAvere)}</td>
+        <td>${partitario.saldoFinale > 0.01 ? 'Saldo a debito:' : 'Saldo:'}</td>
+        <td style="text-align:right;font-family:monospace;color:${partitario.saldoFinale > 0.01 ? '#991b1b' : '#065f46'}">${fmtEUR(partitario.saldoFinale)}</td>
+      </tr>` : '';
 
     w.document.write(`<!DOCTYPE html><html><head>
       <title>Scheda Contabile — ${supplier?.name || supplier?.ragione_sociale || ''}</title>
@@ -409,10 +522,17 @@ export default function SchedaContabileFornitore() {
             <td style="text-align:right">${fmt(yearTotals.net)}</td><td style="text-align:right">${fmt(yearTotals.vat)}</td><td style="text-align:right">${fmt(yearTotals.gross)}</td><td></td></tr>
         </tbody>
       </table>
-      <h2>PARTITARIO</h2>
+      <h2>PARTITARIO — CONTO FORNITORE</h2>
       <table>
-        <thead><tr><th>Data</th><th>Descrizione</th><th style="text-align:right">Dare (Fatture)</th><th style="text-align:right">Avere (Pagamenti)</th><th style="text-align:right">Saldo</th></tr></thead>
-        <tbody>${partitarioHTML}</tbody>
+        <thead><tr>
+          <th>Data</th>
+          <th>Numero</th>
+          <th style="text-align:right">Dare / Imponibile</th>
+          <th style="text-align:right">Avere / Imposta</th>
+          <th>Descrizione Mov.to / Aliq. IVA</th>
+          <th style="text-align:right">Saldo</th>
+        </tr></thead>
+        <tbody>${partitarioHTML}${partitarioFooterHTML}</tbody>
       </table>
       <div class="footer">Generato il ${new Date().toLocaleDateString('it-IT')}</div>
       <script>window.onload = function() { window.print(); };</script>
@@ -442,7 +562,8 @@ export default function SchedaContabileFornitore() {
   const supplierCategory = categories.find(c => c.id === supplier.default_cost_category_id);
 
   return (
-    <div className="space-y-6">
+    <div className="min-h-screen bg-white">
+      <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
       {/* InvoiceViewer modal */}
       {viewingXml && <InvoiceViewer xmlContent={viewingXml} onClose={() => setViewingXml(null)} />}
 
@@ -688,44 +809,100 @@ export default function SchedaContabileFornitore() {
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100">
         <div className="px-5 pt-4 pb-2 border-b border-slate-100 flex items-center gap-2">
           <FileText size={16} className="text-blue-600" />
-          <span className="text-sm font-semibold text-slate-700">Partitario — Dare / Avere / Saldo</span>
+          <span className="text-sm font-semibold text-slate-700">Partitario — Conto Fornitore</span>
+          <span className="ml-auto text-xs text-slate-500">
+            AVERE = fatture ricevute · DARE = pagamenti + note di credito
+          </span>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-slate-50 text-xs text-slate-500 uppercase">
-                <th className="px-4 py-2.5 text-left">Data</th>
-                <th className="px-4 py-2.5 text-left">Descrizione</th>
-                <th className="px-4 py-2.5 text-right">Dare (Fatture)</th>
-                <th className="px-4 py-2.5 text-right">Avere (Pagamenti)</th>
-                <th className="px-4 py-2.5 text-right">Saldo</th>
+                <th className="px-4 py-2.5 text-left w-[110px]">Data</th>
+                <th className="px-4 py-2.5 text-left w-[120px]">Numero</th>
+                <th className="px-4 py-2.5 text-right w-[130px]">Dare / Imponibile</th>
+                <th className="px-4 py-2.5 text-right w-[130px]">Avere / Imposta</th>
+                <th className="px-4 py-2.5 text-left">Descrizione Mov.to / Aliq. IVA</th>
+                <th className="px-4 py-2.5 text-right w-[110px]">Saldo</th>
               </tr>
             </thead>
             <tbody>
-              {partitario.length === 0 && (
-                <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-400">Nessun movimento</td></tr>
+              {partitario.righe.length === 0 && (
+                <tr><td colSpan={6} className="px-4 py-8 text-center text-slate-400">Nessun movimento</td></tr>
               )}
-              {partitario.map((m, i) => (
-                <tr key={i} className={`border-b border-slate-50 ${m.isNotaCredito ? 'bg-emerald-50/40' : m.tipo === 'avere' ? 'bg-emerald-50/20' : i % 2 === 0 ? '' : 'bg-slate-25/50'}`}>
-                  <td className={`px-4 py-2 ${m.isNotaCredito ? 'text-emerald-600' : 'text-slate-600'}`}>{fmtDate(m.data)}</td>
-                  <td className={`px-4 py-2 ${m.isNotaCredito ? 'text-emerald-700 font-medium' : 'text-slate-800'}`}>{m.descrizione}</td>
-                  <td className="px-4 py-2 text-right text-slate-900">{m.tipo === 'dare' ? fmt(m.importo) : ''}</td>
-                  <td className="px-4 py-2 text-right text-emerald-700 font-medium">{m.tipo === 'avere' ? fmt(m.importo) : ''}</td>
-                  <td className={`px-4 py-2 text-right font-bold ${m.saldo > 0.01 ? 'text-red-700' : 'text-emerald-700'}`}>{fmt(m.saldo)}</td>
-                </tr>
-              ))}
-              {/* Riga saldo finale */}
-              {partitario.length > 0 && (
-                <tr className={`font-bold text-sm ${partitario[partitario.length - 1]?.saldo > 0.01 ? 'bg-red-50' : 'bg-emerald-50'}`}>
-                  <td className="px-4 py-3" colSpan={4}>SALDO PARTITE APERTE</td>
-                  <td className={`px-4 py-3 text-right text-lg ${partitario[partitario.length - 1]?.saldo > 0.01 ? 'text-red-800' : 'text-emerald-800'}`}>
-                    {fmtEUR(partitario[partitario.length - 1]?.saldo || 0)}
-                  </td>
-                </tr>
+              {partitario.righe.map((m, i) => {
+                const rowBg = m.tipo === 'nota_credito'
+                  ? 'bg-emerald-50/40'
+                  : m.tipo === 'pagamento'
+                    ? 'bg-blue-50/20'
+                    : i % 2 === 0 ? '' : 'bg-slate-50/40';
+                return (
+                  <tr key={i} className={`border-b border-slate-50 ${rowBg}`}>
+                    <td className="px-4 py-2 text-slate-600 align-top">
+                      <div>{fmtDate(m.data)}</div>
+                      {m.dataPagamento && (
+                        <div className="text-[11px] text-blue-600 mt-0.5" title="Data pagamento">
+                          pagato {fmtDate(m.dataPagamento)}
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-4 py-2 text-slate-700 font-mono text-xs align-top">{m.numero}</td>
+                    <td className="px-4 py-2 text-right align-top font-mono text-slate-900">
+                      {m.dare > 0 ? fmt(m.dare) : ''}
+                    </td>
+                    <td className="px-4 py-2 text-right align-top font-mono text-slate-900">
+                      {m.avere > 0 ? fmt(m.avere) : ''}
+                    </td>
+                    <td className={`px-4 py-2 align-top ${
+                      m.tipo === 'nota_credito' ? 'text-emerald-700 font-medium' :
+                      m.tipo === 'pagamento' ? 'text-blue-700' : 'text-slate-800'
+                    }`}>
+                      <div className="flex items-baseline justify-between gap-2">
+                        <span>{m.descrizione}</span>
+                        {m.aliquotaIVA !== '—' && (
+                          <span className="text-xs text-slate-500 shrink-0">IVA {m.aliquotaIVA}</span>
+                        )}
+                      </div>
+                    </td>
+                    <td className={`px-4 py-2 text-right font-bold align-top font-mono ${
+                      m.saldo > 0.01 ? 'text-red-700' : m.saldo < -0.01 ? 'text-emerald-700' : 'text-slate-500'
+                    }`}>{fmt(m.saldo)}</td>
+                  </tr>
+                );
+              })}
+              {/* Riga totali finali stile gestionale tradizionale */}
+              {partitario.righe.length > 0 && (
+                <>
+                  <tr className="font-bold text-sm border-t-2 border-slate-300 bg-slate-50">
+                    <td className="px-4 py-2.5 text-right text-slate-700" colSpan={2}>
+                      Totale Movimenti Selezionati:
+                    </td>
+                    <td className="px-4 py-2.5 text-right font-mono text-slate-900">{fmt(partitario.totaliDare)}</td>
+                    <td className="px-4 py-2.5 text-right font-mono text-slate-900">{fmt(partitario.totaliAvere)}</td>
+                    <td className="px-4 py-2.5 text-slate-600">Saldo:</td>
+                    <td className={`px-4 py-2.5 text-right font-mono ${partitario.saldoFinale > 0.01 ? 'text-red-700' : 'text-emerald-700'}`}>
+                      {fmtEUR(partitario.saldoFinale)}
+                    </td>
+                  </tr>
+                  <tr className={`font-bold text-sm ${partitario.saldoFinale > 0.01 ? 'bg-red-50' : 'bg-emerald-50'}`}>
+                    <td className="px-4 py-3 text-right" colSpan={2}>
+                      Totale Corrente Scheda Contabile:
+                    </td>
+                    <td className="px-4 py-3 text-right font-mono">{fmt(partitario.totaliDare)}</td>
+                    <td className="px-4 py-3 text-right font-mono">{fmt(partitario.totaliAvere)}</td>
+                    <td className="px-4 py-3">
+                      {partitario.saldoFinale > 0.01 ? 'Saldo a debito:' : 'Saldo:'}
+                    </td>
+                    <td className={`px-4 py-3 text-right font-mono text-base ${partitario.saldoFinale > 0.01 ? 'text-red-800' : 'text-emerald-800'}`}>
+                      {fmtEUR(partitario.saldoFinale)}
+                    </td>
+                  </tr>
+                </>
               )}
             </tbody>
           </table>
         </div>
+      </div>
       </div>
     </div>
   );

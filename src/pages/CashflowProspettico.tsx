@@ -1079,7 +1079,8 @@ export default function CashflowProspettico() {
       : 'Andamento Cashflow 12 Mesi';
 
   return (
-    <div className="p-8 bg-slate-50 min-h-screen">
+    <div className="min-h-screen bg-white">
+      <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
       {/* Negative Balance Alert */}
       {negativeAlert && (
         <div className="mb-6 bg-red-600 text-white rounded-xl p-4 shadow-lg sticky top-4 z-10">
@@ -1514,6 +1515,7 @@ export default function CashflowProspettico() {
             </p>
           </div>
         </div>
+      </div>
       </div>
     </div>
   );

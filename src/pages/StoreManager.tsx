@@ -170,7 +170,8 @@ const StoreManager = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
+    <div className="min-h-screen bg-white">
+      <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
       {/* Header */}
       <div className="mb-8">
         <div className="flex items-center justify-between mb-6">
@@ -550,6 +551,7 @@ const StoreManager = () => {
             </div>
           </div>
         </div>
+      </div>
       </div>
     </div>
   );
