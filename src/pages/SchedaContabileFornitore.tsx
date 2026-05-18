@@ -94,6 +94,8 @@ export default function SchedaContabileFornitore() {
   const [expandedInvoices, setExpandedInvoices] = useState<Set<string>>(new Set());
   const [viewingXml, setViewingXml] = useState<string | null>(null);
   const [categories, setCategories] = useState<CostCategoryLite[]>([]);
+  // Ordinamento partitario: per data emissione fattura o per data effettivo pagamento
+  const [partitarioSortBy, setPartitarioSortBy] = useState<'fattura' | 'pagamento'>('fattura');
 
   // ─── Fetch data ────────────────────────────────────────────
   const fetchData = useCallback(async () => {
@@ -370,12 +372,19 @@ export default function SchedaContabileFornitore() {
       }
     }
 
-    // Ordina per data emissione (chronologica), poi fattura prima del suo pagamento
+    // Ordina: 'fattura' = per data emissione (fattura prima del pagamento)
+    //         'pagamento' = pagamenti per data pagamento, fatture aperte/NC per data emissione
     movimenti.sort((a, b) => {
-      const da = new Date(a.data || 0).getTime();
-      const db = new Date(b.data || 0).getTime();
-      if (da !== db) return da - db;
-      // Stessa data: fattura prima del pagamento corrispondente
+      let keyA: number, keyB: number;
+      if (partitarioSortBy === 'pagamento') {
+        keyA = new Date((a.tipo === 'pagamento' ? a.dataPagamento : a.data) || 0).getTime();
+        keyB = new Date((b.tipo === 'pagamento' ? b.dataPagamento : b.data) || 0).getTime();
+      } else {
+        keyA = new Date(a.data || 0).getTime();
+        keyB = new Date(b.data || 0).getTime();
+      }
+      if (keyA !== keyB) return keyA - keyB;
+      // Stessa data + stesso numero: fattura prima del pagamento
       if (a.numero === b.numero) {
         if (a.tipo === 'fattura' && b.tipo === 'pagamento') return -1;
         if (a.tipo === 'pagamento' && b.tipo === 'fattura') return 1;
@@ -393,7 +402,7 @@ export default function SchedaContabileFornitore() {
     });
 
     return { righe: righeConSaldo, totaliDare, totaliAvere, saldoFinale: saldo };
-  }, [filteredPayables, bankAccountById]);
+  }, [filteredPayables, bankAccountById, partitarioSortBy]);
 
   // ─── Actions ───────────────────────────────────────────────
   const toggleExpand = (invoiceNumber: string) => {
@@ -454,8 +463,8 @@ export default function SchedaContabileFornitore() {
     const partitarioHTML = partitario.righe.map(m => {
       const bg = m.tipo === 'nota_credito' ? '#f0fdf4'
         : m.tipo === 'pagamento' ? '#eff6ff' : 'white';
-      const dataCell = m.dataPagamento
-        ? `${fmtDate(m.data)}<br><span style="font-size:7pt;color:#1d4ed8">pagato ${fmtDate(m.dataPagamento)}</span>`
+      const dataCell = m.tipo === 'pagamento' && m.dataPagamento
+        ? `<span style="color:#1d4ed8;font-weight:600">${fmtDate(m.dataPagamento)}</span>`
         : fmtDate(m.data);
       const descrCell = m.aliquotaIVA !== '—'
         ? `${m.descrizione} <span style="color:#64748b;font-size:7pt">(IVA ${m.aliquotaIVA})</span>`
@@ -807,12 +816,25 @@ export default function SchedaContabileFornitore() {
 
       {/* ─── PARTITARIO ───────────────────────────────────── */}
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100">
-        <div className="px-5 pt-4 pb-2 border-b border-slate-100 flex items-center gap-2">
+        <div className="px-5 pt-4 pb-3 border-b border-slate-100 flex flex-wrap items-center gap-3">
           <FileText size={16} className="text-blue-600" />
           <span className="text-sm font-semibold text-slate-700">Partitario — Conto Fornitore</span>
-          <span className="ml-auto text-xs text-slate-500">
+          <span className="text-xs text-slate-500 hidden md:inline">
             AVERE = fatture ricevute · DARE = pagamenti + note di credito
           </span>
+          {/* Selettore ordinamento */}
+          <div className="ml-auto flex items-center gap-2">
+            <label htmlFor="partitario-sort" className="text-xs text-slate-600 font-medium">Ordina per:</label>
+            <select
+              id="partitario-sort"
+              value={partitarioSortBy}
+              onChange={(e) => setPartitarioSortBy(e.target.value as 'fattura' | 'pagamento')}
+              className="px-2.5 py-1 border border-slate-300 rounded-lg text-xs bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            >
+              <option value="fattura">Data fattura</option>
+              <option value="pagamento">Data pagamento</option>
+            </select>
+          </div>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -838,12 +860,13 @@ export default function SchedaContabileFornitore() {
                     : i % 2 === 0 ? '' : 'bg-slate-50/40';
                 return (
                   <tr key={i} className={`border-b border-slate-50 ${rowBg}`}>
-                    <td className="px-4 py-2 text-slate-600 align-top">
-                      <div>{fmtDate(m.data)}</div>
-                      {m.dataPagamento && (
-                        <div className="text-[11px] text-blue-600 mt-0.5" title="Data pagamento">
-                          pagato {fmtDate(m.dataPagamento)}
+                    <td className="px-4 py-2 align-top">
+                      {m.tipo === 'pagamento' && m.dataPagamento ? (
+                        <div className="text-blue-700 font-medium" title="Data effettiva pagamento">
+                          {fmtDate(m.dataPagamento)}
                         </div>
+                      ) : (
+                        <div className="text-slate-600">{fmtDate(m.data)}</div>
                       )}
                     </td>
                     <td className="px-4 py-2 text-slate-700 font-mono text-xs align-top">{m.numero}</td>
