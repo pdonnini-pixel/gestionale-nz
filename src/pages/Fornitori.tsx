@@ -666,7 +666,7 @@ export default function Fornitori() {
                         </td>
                         <td className="px-2 py-2.5 text-center">
                           <div className="flex items-center justify-center gap-0.5">
-                            <button onClick={(e) => { e.stopPropagation(); navigate(`/fornitori/${s.id}/scheda-contabile`); }} className="p-1 rounded hover:bg-blue-50 text-slate-400 hover:text-blue-600 transition" title="Scheda contabile">
+                            <button onClick={(e) => { e.stopPropagation(); navigate(`/fornitori/${(s as { slug?: string }).slug || s.id}/scheda-contabile`); }} className="p-1 rounded hover:bg-blue-50 text-slate-400 hover:text-blue-600 transition" title="Scheda contabile">
                               <BookOpen size={14} />
                             </button>
                             <button onClick={(e) => { e.stopPropagation(); openEdit(s); }} className="p-1 rounded hover:bg-indigo-50 text-slate-400 hover:text-indigo-600 transition" title="Modifica">
