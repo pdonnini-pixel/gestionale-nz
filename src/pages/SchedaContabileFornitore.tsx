@@ -103,12 +103,18 @@ export default function SchedaContabileFornitore() {
     if (!COMPANY_ID || !supplierId) return;
     setLoading(true);
     try {
-      // Supplier info
-      const { data: sup } = await supabase
-        .from('suppliers')
+      // Supplier info: accetta sia UUID sia slug nell'URL (backward compat)
+      // 1° tentativo: by slug (URL leggibile)
+      let { data: sup } = await (supabase.from('suppliers') as unknown as { select: (s: string) => { eq: (k: string, v: string) => { eq: (k2: string, v2: string) => { maybeSingle: () => Promise<{ data: Supplier | null }> } } } })
         .select('*')
-        .eq('id', supplierId)
-        .single();
+        .eq('company_id', COMPANY_ID)
+        .eq('slug', supplierId || '')
+        .maybeSingle();
+      // 2° tentativo: by UUID (vecchi link)
+      if (!sup) {
+        const r = await supabase.from('suppliers').select('*').eq('id', supplierId).maybeSingle();
+        sup = r.data;
+      }
       setSupplier(sup);
 
       // Payables — SOLO da payables, NESSUN join con electronic_invoices
