@@ -857,10 +857,9 @@ const ScadenzarioSmart = () => {
       // Escludi annullati per default — visibili SOLO se utente filtra esplicitamente 'annullato'
       if (p.status === 'annullato' && selectedStatus !== 'annullato') return false;
 
-      // Escludi pagate per default — visibili SOLO se utente filtra 'pagato' o sta sulla tab "saldate"
-      // Logica Sibill: scadenzario mostra cose DA FARE (scadute + da pagare + in scadenza).
-      // Pagate sono "fatte", spariscono dalla vista principale.
-      if (p.status === 'pagato' && selectedStatus !== 'pagato' && sibillTab !== 'saldate') return false;
+      // NB: l'esclusione delle pagate per default è applicata in displayPayables
+      // (sotto), NON qui, perché sibillTab è dichiarato dopo questo useMemo
+      // (problema temporal dead zone se usato qui).
 
       const matchOutlet = !selectedOutlet || p.outlet_id === selectedOutlet;
       const matchStatus = !selectedStatus
@@ -1472,8 +1471,14 @@ const ScadenzarioSmart = () => {
     if (sibillTab === 'scadute') list = list.filter(p => p.status === 'scaduto');
     else if (sibillTab === 'da_saldare') list = list.filter(p => p.status !== 'pagato' && p.status !== 'annullato' && (p.gross_amount || 0) >= 0);
     else if (sibillTab === 'saldate') list = list.filter(p => p.status === 'pagato');
+    else {
+      // Tab "tutte" o default: logica Sibill — nascondi pagate dalla vista principale.
+      // Visibili SOLO se utente filtra esplicitamente 'pagato' dal dropdown stati o tab "saldate".
+      // Pagate sono "fatte", non sono cose da fare → spariscono dallo scadenzario.
+      list = list.filter(p => p.status !== 'pagato' || selectedStatus === 'pagato');
+    }
     return list;
-  }, [filteredPayables, sibillTab]);
+  }, [filteredPayables, sibillTab, selectedStatus]);
 
   // Ordinamento tabella scadenze (modello standard SortableTh + useTableSort).
   // Default: scadenza piu' vecchia in cima. Persistente tra refresh per
