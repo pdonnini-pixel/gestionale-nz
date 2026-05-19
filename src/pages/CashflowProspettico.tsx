@@ -109,6 +109,55 @@ export default function CashflowProspettico() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Modal "Aggiungi previsione uscita" (alimenta cashflow prospettico)
+  const [showForecastModal, setShowForecastModal] = useState(false);
+  const [forecastDate, setForecastDate] = useState<string>('');
+  const [forecastAmount, setForecastAmount] = useState<string>('');
+  const [forecastDescription, setForecastDescription] = useState<string>('');
+  const [forecastSaving, setForecastSaving] = useState(false);
+
+  const handleSaveForecast = async () => {
+    if (!COMPANY_ID || !forecastDate || !forecastDescription.trim() || !forecastAmount) {
+      toast({ type: 'warning', message: 'Compila tutti i campi obbligatori (data, descrizione, importo)' });
+      return;
+    }
+    const amount = parseFloat(forecastAmount.replace(',', '.'));
+    if (isNaN(amount) || amount <= 0) {
+      toast({ type: 'error', message: 'Importo non valido' });
+      return;
+    }
+    setForecastSaving(true);
+    try {
+      const { error } = await supabase.from('payables').insert({
+        company_id: COMPANY_ID,
+        is_forecast: true,
+        invoice_number: '[PREV] ' + forecastDescription.trim().slice(0, 40),
+        invoice_date: forecastDate,
+        due_date: forecastDate,
+        original_due_date: forecastDate,
+        gross_amount: amount,
+        amount_paid: 0,
+        amount_remaining: amount,
+        status: 'da_pagare',
+        payment_method: 'bonifico_ordinario',
+        supplier_name: '[Previsione manuale]',
+        notes: forecastDescription.trim(),
+      } as never);
+      if (error) throw new Error(error.message);
+      toast({ type: 'success', message: `Previsione aggiunta: € ${amount.toLocaleString('it-IT', { minimumFractionDigits: 2 })} il ${new Date(forecastDate).toLocaleDateString('it-IT')}` });
+      setShowForecastModal(false);
+      setForecastDate('');
+      setForecastAmount('');
+      setForecastDescription('');
+      // Trigger refresh: cashflow ricalcolerà includendo la nuova previsione
+      window.location.reload();
+    } catch (err) {
+      toast({ type: 'error', message: 'Errore: ' + (err instanceof Error ? err.message : String(err)) });
+    } finally {
+      setForecastSaving(false);
+    }
+  };
+
   // Data state
   const [initialBalance, setInitialBalance] = useState(0);
   // TODO: tighten type
@@ -1099,7 +1148,61 @@ export default function CashflowProspettico() {
         </div>
       )}
 
-      <PageHeader title="Cashflow Prospettico" subtitle="Proiezione liquidità giornaliera, settimanale e mensile" />
+      <PageHeader
+        title="Cashflow Prospettico"
+        subtitle="Proiezione liquidità giornaliera, settimanale e mensile"
+        actions={
+          <button
+            onClick={() => {
+              setForecastDate(new Date().toISOString().slice(0, 10));
+              setShowForecastModal(true);
+            }}
+            className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition"
+            title="Crea una previsione di uscita futura (es. 'Pagherò 5000€ il 15/06 per ristrutturazione')"
+          >
+            <span className="text-lg leading-none">+</span> Previsione uscita
+          </button>
+        }
+      />
+
+      {/* Modal Previsione uscita inline */}
+      {showForecastModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => !forecastSaving && setShowForecastModal(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6" onClick={(e) => e.stopPropagation()}>
+            <h2 className="text-lg font-bold text-slate-900 mb-1">Aggiungi previsione uscita</h2>
+            <p className="text-xs text-slate-500 mb-4">Entra solo nel cashflow prospettico, NON nel Conto Economico</p>
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs font-medium text-slate-600 block mb-1">Data prevista *</label>
+                <input type="date" value={forecastDate} onChange={(e) => setForecastDate(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500" />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-slate-600 block mb-1">Importo (€) *</label>
+                <input type="number" step="0.01" min="0" value={forecastAmount} onChange={(e) => setForecastAmount(e.target.value)}
+                  placeholder="5000.00" autoFocus
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500" />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-slate-600 block mb-1">Descrizione *</label>
+                <input type="text" value={forecastDescription} onChange={(e) => setForecastDescription(e.target.value)}
+                  placeholder="es. Ristrutturazione outlet Valdichiana"
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500" />
+              </div>
+            </div>
+            <div className="flex gap-2 mt-5">
+              <button onClick={() => setShowForecastModal(false)} disabled={forecastSaving}
+                className="flex-1 py-2 text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg disabled:opacity-50">
+                Annulla
+              </button>
+              <button onClick={handleSaveForecast} disabled={forecastSaving}
+                className="flex-1 py-2 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg disabled:opacity-50">
+                {forecastSaving ? 'Salvataggio...' : 'Aggiungi previsione'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="mb-8">
         {/* View Mode Selector */}
         <div className="flex gap-1 mb-4 bg-slate-200 rounded-lg p-1 w-fit">
