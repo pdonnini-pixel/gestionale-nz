@@ -296,6 +296,12 @@ const ScadenzarioSmart = () => {
   const [inlineEditAmountId, setInlineEditAmountId] = useState<string | null>(null);
   const [inlineEditAmountValue, setInlineEditAmountValue] = useState<string>('');
 
+  // Modal Rimanda scadenza (cambia due_date) — quick action +7/+15/+30 gg o data custom
+  const [rinviaModal, setRinviaModal] = useState<{ open: boolean; scheduleId: string | null; currentDueDate: string | null; invoiceNumber: string | null }>(
+    { open: false, scheduleId: null, currentDueDate: null, invoiceNumber: null }
+  );
+  const [rinviaCustomDate, setRinviaCustomDate] = useState<string>('');
+
   // Selection helpers
   const toggleSelect = (id: string, payable: AnyRow) => {
     const next = new Set(selectedIds);
@@ -851,6 +857,11 @@ const ScadenzarioSmart = () => {
       // Escludi annullati per default — visibili SOLO se utente filtra esplicitamente 'annullato'
       if (p.status === 'annullato' && selectedStatus !== 'annullato') return false;
 
+      // Escludi pagate per default — visibili SOLO se utente filtra 'pagato' o sta sulla tab "saldate"
+      // Logica Sibill: scadenzario mostra cose DA FARE (scadute + da pagare + in scadenza).
+      // Pagate sono "fatte", spariscono dalla vista principale.
+      if (p.status === 'pagato' && selectedStatus !== 'pagato' && sibillTab !== 'saldate') return false;
+
       const matchOutlet = !selectedOutlet || p.outlet_id === selectedOutlet;
       const matchStatus = !selectedStatus
         || (selectedStatus === 'da_saldare' && p.status !== 'pagato')
@@ -1093,6 +1104,37 @@ const ScadenzarioSmart = () => {
       setIsSaving(false);
     }
   }, [modals, fetchData, toast]);
+
+  // Rimanda scadenza: aggiorna due_date e resetta status a 'da_pagare' (se era scaduto)
+  // Dispatch fiscal_deadlines vs payables
+  const handleRinviaSchedule = useCallback(async (scheduleId: string, newDueDate: string) => {
+    if (!newDueDate) return;
+    setIsSaving(true);
+    try {
+      if (scheduleId.startsWith('fiscal_')) {
+        const realId = scheduleId.substring('fiscal_'.length);
+        const { error } = await supabase.from('fiscal_deadlines').update({
+          due_date: newDueDate,
+          status: 'pending',
+        } as never).eq('id', realId);
+        if (error) throw new Error(error.message);
+      } else {
+        const { error } = await supabase.from('payables').update({
+          due_date: newDueDate,
+          status: 'da_pagare',
+        } as never).eq('id', scheduleId);
+        if (error) throw new Error(error.message);
+      }
+      toast({ type: 'success', message: `Scadenza rimandata al ${new Date(newDueDate).toLocaleDateString('it-IT')}` });
+      setRinviaModal({ open: false, scheduleId: null, currentDueDate: null, invoiceNumber: null });
+      setRinviaCustomDate('');
+      fetchData();
+    } catch (err) {
+      toast({ type: 'error', message: 'Errore rimando: ' + (err instanceof Error ? err.message : String(err)) });
+    } finally {
+      setIsSaving(false);
+    }
+  }, [toast, fetchData]);
 
   const handleDeleteSchedule = useCallback(async (scheduleId: string) => {
     setIsSaving(true);
@@ -2362,6 +2404,14 @@ const ScadenzarioSmart = () => {
                                   <Eye size={13} />
                                 </button>
                               )}
+                              {/* Rimanda scadenza (cambia due_date) — visibile su tutte le non pagate */}
+                              {p.status !== 'pagato' && (
+                                <button onClick={() => setRinviaModal({ open: true, scheduleId: p.id || null, currentDueDate: p.due_date || null, invoiceNumber: p.invoice_number || null })}
+                                  className="p-1 rounded text-slate-400 hover:text-amber-600 hover:bg-amber-50"
+                                  title="Rimanda scadenza (+7/+15/+30gg o data custom)">
+                                  <Calendar size={12} />
+                                </button>
+                              )}
                               <button onClick={() => setModals({ ...modals, editSchedule: { open: true, schedule: p } })}
                                 className="p-1 rounded text-slate-400 hover:text-blue-600 hover:bg-blue-50"
                                 title="Modifica">
@@ -2723,6 +2773,50 @@ const ScadenzarioSmart = () => {
               <div>
                 <div className="text-xs text-slate-500 uppercase">Telefono</div>
                 <div className="text-sm text-slate-800 mt-0.5">{supplierDetail.telefono || '—'}</div>
+              </div>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Rimanda Scadenza Modal — quick action +7/+15/+30gg o data custom */}
+      {rinviaModal.open && (
+        <Modal open={true} onClose={() => { setRinviaModal({ open: false, scheduleId: null, currentDueDate: null, invoiceNumber: null }); setRinviaCustomDate(''); }}
+          title={`Rimanda: ${rinviaModal.invoiceNumber || 'scadenza'}`}>
+          <div className="space-y-4">
+            <p className="text-sm text-slate-600">
+              Scadenza attuale: <span className="font-medium text-slate-900">{rinviaModal.currentDueDate ? new Date(rinviaModal.currentDueDate).toLocaleDateString('it-IT') : '—'}</span>
+            </p>
+            <div>
+              <label className="text-xs font-semibold text-slate-700 mb-2 block uppercase tracking-wide">Rimanda rapido</label>
+              <div className="grid grid-cols-3 gap-2">
+                {[7, 15, 30].map(days => {
+                  const newDate = new Date();
+                  newDate.setDate(newDate.getDate() + days);
+                  const newDateStr = newDate.toISOString().slice(0, 10);
+                  return (
+                    <button key={days}
+                      onClick={() => rinviaModal.scheduleId && handleRinviaSchedule(rinviaModal.scheduleId, newDateStr)}
+                      disabled={isSaving}
+                      className="px-3 py-2.5 bg-amber-50 hover:bg-amber-100 text-amber-800 rounded-lg text-sm font-medium border border-amber-200 transition disabled:opacity-50">
+                      +{days} giorni
+                      <div className="text-[10px] text-amber-600 font-normal mt-0.5">{newDate.toLocaleDateString('it-IT')}</div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-slate-700 mb-2 block uppercase tracking-wide">Oppure data custom</label>
+              <div className="flex gap-2">
+                <input type="date" value={rinviaCustomDate} onChange={(e) => setRinviaCustomDate(e.target.value)}
+                  min={new Date().toISOString().slice(0, 10)}
+                  className="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-amber-500" />
+                <button onClick={() => rinviaModal.scheduleId && rinviaCustomDate && handleRinviaSchedule(rinviaModal.scheduleId, rinviaCustomDate)}
+                  disabled={isSaving || !rinviaCustomDate}
+                  className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-sm font-medium disabled:opacity-50">
+                  Rimanda
+                </button>
               </div>
             </div>
           </div>
