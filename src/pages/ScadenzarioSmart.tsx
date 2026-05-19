@@ -292,6 +292,9 @@ const ScadenzarioSmart = () => {
   const [categoryDropdownId, setCategoryDropdownId] = useState<any>(null);
   const [categorySearch, setCategorySearch] = useState('');
   const [statusDropdownId, setStatusDropdownId] = useState<any>(null);
+  // Inline edit dell'importo: click su cella importo → input numerico
+  const [inlineEditAmountId, setInlineEditAmountId] = useState<string | null>(null);
+  const [inlineEditAmountValue, setInlineEditAmountValue] = useState<string>('');
 
   // Selection helpers
   const toggleSelect = (id: string, payable: AnyRow) => {
@@ -1042,19 +1045,44 @@ const ScadenzarioSmart = () => {
   }, [suppliers, modals, COMPANY_ID]);
 
   type ScheduleData = { id: string; amount?: number; due_date?: string; status?: string; amount_paid?: number }
+  // Mapping bidirezionale status payables <-> fiscal_deadlines
+  const mapStatusToFiscal = (payableStatus?: string): string => {
+    switch (payableStatus) {
+      case 'pagato': return 'paid';
+      case 'parziale': return 'pending';
+      case 'scaduto': return 'overdue';
+      case 'in_scadenza': return 'upcoming';
+      case 'annullato': return 'cancelled';
+      default: return 'pending';
+    }
+  };
+
   const handleEditSchedule = useCallback(async (scheduleData: ScheduleData) => {
     setIsSaving(true);
     try {
       const newAmount = Number(scheduleData.amount) || 0;
       const newPaid = Number(scheduleData.amount_paid) || 0;
-      const { error } = await supabase.from('payables').update({
-        gross_amount: newAmount,
-        due_date: scheduleData.due_date,
-        status: scheduleData.status,
-        amount_remaining: Math.max(0, newAmount - newPaid),
-        amount_paid: newPaid,
-      } as never).eq('id', scheduleData.id);
-      if (error) throw new Error(error.message);
+      // Dispatch: scadenza fiscale (id fiscal_xxx) → tabella fiscal_deadlines
+      //          scadenza normale (uuid) → tabella payables
+      if (scheduleData.id.startsWith('fiscal_')) {
+        const realId = scheduleData.id.substring('fiscal_'.length);
+        const { error } = await supabase.from('fiscal_deadlines').update({
+          amount: newAmount,
+          due_date: scheduleData.due_date,
+          status: mapStatusToFiscal(scheduleData.status),
+          amount_paid: newPaid,
+        } as never).eq('id', realId);
+        if (error) throw new Error(error.message);
+      } else {
+        const { error } = await supabase.from('payables').update({
+          gross_amount: newAmount,
+          due_date: scheduleData.due_date,
+          status: scheduleData.status,
+          amount_remaining: Math.max(0, newAmount - newPaid),
+          amount_paid: newPaid,
+        } as never).eq('id', scheduleData.id);
+        if (error) throw new Error(error.message);
+      }
       setModals({ ...modals, editSchedule: { open: false, schedule: null } });
       toast({ type: 'success', message: `Scadenza aggiornata: € ${newAmount.toLocaleString('it-IT', { minimumFractionDigits: 2 })}` });
       fetchData();
@@ -1069,8 +1097,15 @@ const ScadenzarioSmart = () => {
   const handleDeleteSchedule = useCallback(async (scheduleId: string) => {
     setIsSaving(true);
     try {
-      const { error } = await supabase.from('payables').update({ status: 'annullato' } as never).eq('id', scheduleId);
-      if (error) throw new Error(error.message);
+      // Dispatch fiscal vs payable
+      if (scheduleId.startsWith('fiscal_')) {
+        const realId = scheduleId.substring('fiscal_'.length);
+        const { error } = await supabase.from('fiscal_deadlines').update({ status: 'cancelled' } as never).eq('id', realId);
+        if (error) throw new Error(error.message);
+      } else {
+        const { error } = await supabase.from('payables').update({ status: 'annullato' } as never).eq('id', scheduleId);
+        if (error) throw new Error(error.message);
+      }
       setModals({ ...modals, deleteConfirm: { open: false, scheduleId: null, invoiceNumber: null } });
       toast({ type: 'success', message: 'Scadenza annullata' });
       fetchData();
@@ -1081,6 +1116,37 @@ const ScadenzarioSmart = () => {
       setIsSaving(false);
     }
   }, [modals, fetchData]);
+
+  // Inline-edit importo: dispatch fiscal_deadlines vs payables
+  const handleInlineSaveAmount = useCallback(async (payableId: string, newValue: string) => {
+    const newAmount = parseFloat(newValue.replace(',', '.'));
+    if (isNaN(newAmount) || newAmount < 0) {
+      toast({ type: 'error', message: 'Importo non valido' });
+      setInlineEditAmountId(null);
+      return;
+    }
+    try {
+      if (payableId.startsWith('fiscal_')) {
+        const realId = payableId.substring('fiscal_'.length);
+        const { error } = await supabase.from('fiscal_deadlines').update({ amount: newAmount } as never).eq('id', realId);
+        if (error) throw new Error(error.message);
+      } else {
+        const p = payables.find(x => x.id === payableId);
+        const currentPaid = Number(p?.amount_paid) || 0;
+        const { error } = await supabase.from('payables').update({
+          gross_amount: newAmount,
+          amount_remaining: Math.max(0, newAmount - currentPaid),
+        } as never).eq('id', payableId);
+        if (error) throw new Error(error.message);
+      }
+      toast({ type: 'success', message: `Importo aggiornato a € ${newAmount.toLocaleString('it-IT', { minimumFractionDigits: 2 })}` });
+      setInlineEditAmountId(null);
+      fetchData();
+    } catch (err) {
+      toast({ type: 'error', message: 'Errore aggiornamento importo: ' + (err instanceof Error ? err.message : String(err)) });
+      setInlineEditAmountId(null);
+    }
+  }, [payables, toast, fetchData]);
 
   const confirmPayments = async () => {
     if (hasNegativeBalance || selectedIds.size === 0) return;
@@ -2158,14 +2224,45 @@ const ScadenzarioSmart = () => {
                               </div>
                             </button>
                           </td>
-                          {/* IMPORTO */}
+                          {/* IMPORTO — click per editare inline (anche scadenze fiscali via dispatch) */}
                           <td className={`py-2.5 px-3 text-right text-[13px] font-medium whitespace-nowrap ${
                             p.status === 'pagato' ? 'text-slate-400' : p.status === 'scaduto' ? 'text-red-600' : 'text-slate-800'
                           }`}>
-                            {(p.amount_remaining ?? 0) > 0 && p.amount_remaining !== p.gross_amount
-                              ? <><span className="text-slate-300 line-through text-[11px] mr-1">{fmt(p.gross_amount)}</span>{fmt(p.amount_remaining)} €</>
-                              : <>{fmt(p.gross_amount)} €</>
-                            }
+                            {inlineEditAmountId === p.id ? (
+                              <input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                autoFocus
+                                value={inlineEditAmountValue}
+                                onChange={(e) => setInlineEditAmountValue(e.target.value)}
+                                onBlur={() => p.id && handleInlineSaveAmount(p.id, inlineEditAmountValue)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') e.currentTarget.blur()
+                                  if (e.key === 'Escape') setInlineEditAmountId(null)
+                                }}
+                                onClick={(e) => e.stopPropagation()}
+                                className="w-24 px-1.5 py-0.5 text-right border-2 border-blue-500 rounded text-sm font-mono focus:outline-none"
+                              />
+                            ) : (
+                              <span
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (p.status === 'pagato') return;
+                                  setInlineEditAmountId(p.id || null);
+                                  setInlineEditAmountValue(String(p.gross_amount ?? 0));
+                                }}
+                                className={`cursor-pointer hover:bg-blue-50 rounded px-1 -mx-1 transition ${
+                                  (Number(p.gross_amount) || 0) === 0 ? 'bg-amber-50 text-amber-700 border border-amber-300 font-medium' : ''
+                                }`}
+                                title={p.status === 'pagato' ? 'Scadenza pagata' : 'Click per modificare importo'}
+                              >
+                                {(p.amount_remaining ?? 0) > 0 && p.amount_remaining !== p.gross_amount
+                                  ? <><span className="text-slate-300 line-through text-[11px] mr-1">{fmt(p.gross_amount)}</span>{fmt(p.amount_remaining)} €</>
+                                  : (Number(p.gross_amount) || 0) === 0 ? <>Importo da definire</> : <>{fmt(p.gross_amount)} €</>
+                                }
+                              </span>
+                            )}
                           </td>
                           {/* STATO — dropdown editabile Sibill */}
                           <td className="py-2.5 px-3 text-center relative">
