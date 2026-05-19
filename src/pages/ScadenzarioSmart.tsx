@@ -292,6 +292,9 @@ const ScadenzarioSmart = () => {
   const [categoryDropdownId, setCategoryDropdownId] = useState<any>(null);
   const [categorySearch, setCategorySearch] = useState('');
   const [statusDropdownId, setStatusDropdownId] = useState<any>(null);
+  // Inline edit dell'importo (gross_amount): quando user clicca sull'importo della riga
+  const [inlineEditAmountId, setInlineEditAmountId] = useState<string | null>(null);
+  const [inlineEditAmountValue, setInlineEditAmountValue] = useState<string>('');
 
   // Selection helpers
   const toggleSelect = (id: string, payable: AnyRow) => {
@@ -1056,6 +1059,32 @@ const ScadenzarioSmart = () => {
       setIsSaving(false);
     }
   }, [modals, fetchData]);
+
+  // Salva importo inline (gross_amount + amount_remaining ricalcolato)
+  const handleInlineSaveAmount = useCallback(async (payableId: string, newValue: string) => {
+    const newAmount = parseFloat(newValue.replace(',', '.'));
+    if (isNaN(newAmount) || newAmount < 0) {
+      toast({ type: 'error', message: 'Importo non valido' });
+      setInlineEditAmountId(null);
+      return;
+    }
+    try {
+      const p = payables.find(x => x.id === payableId);
+      const currentPaid = Number(p?.amount_paid) || 0;
+      const newRemaining = Math.max(0, newAmount - currentPaid);
+      const { error } = await supabase.from('payables').update({
+        gross_amount: newAmount,
+        amount_remaining: newRemaining,
+      } as never).eq('id', payableId);
+      if (error) throw new Error(error.message);
+      toast({ type: 'success', message: `Importo aggiornato a € ${newAmount.toLocaleString('it-IT', { minimumFractionDigits: 2 })}` });
+      setInlineEditAmountId(null);
+      fetchData();
+    } catch (err) {
+      toast({ type: 'error', message: 'Errore aggiornamento importo: ' + (err instanceof Error ? err.message : String(err)) });
+      setInlineEditAmountId(null);
+    }
+  }, [payables, toast, fetchData]);
 
   const handleDeleteSchedule = useCallback(async (scheduleId: string) => {
     setIsSaving(true);
@@ -2153,10 +2182,41 @@ const ScadenzarioSmart = () => {
                           <td className={`py-2.5 px-3 text-right text-[13px] font-medium whitespace-nowrap ${
                             p.status === 'pagato' ? 'text-slate-400' : p.status === 'scaduto' ? 'text-red-600' : 'text-slate-800'
                           }`}>
-                            {(p.amount_remaining ?? 0) > 0 && p.amount_remaining !== p.gross_amount
-                              ? <><span className="text-slate-300 line-through text-[11px] mr-1">{fmt(p.gross_amount)}</span>{fmt(p.amount_remaining)} €</>
-                              : <>{fmt(p.gross_amount)} €</>
-                            }
+                            {inlineEditAmountId === p.id ? (
+                              <input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                autoFocus
+                                value={inlineEditAmountValue}
+                                onChange={(e) => setInlineEditAmountValue(e.target.value)}
+                                onBlur={() => p.id && handleInlineSaveAmount(p.id, inlineEditAmountValue)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') { e.currentTarget.blur() }
+                                  if (e.key === 'Escape') { setInlineEditAmountId(null) }
+                                }}
+                                onClick={(e) => e.stopPropagation()}
+                                className="w-24 px-1.5 py-0.5 text-right border-2 border-blue-500 rounded text-sm font-mono focus:outline-none"
+                              />
+                            ) : (
+                              <span
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (p.status === 'pagato') return;
+                                  setInlineEditAmountId(p.id || null);
+                                  setInlineEditAmountValue(String(p.gross_amount ?? 0));
+                                }}
+                                className={`cursor-pointer hover:bg-blue-50 rounded px-1 -mx-1 transition ${
+                                  (Number(p.gross_amount) || 0) === 0 ? 'bg-amber-50 text-amber-700 border border-amber-300 font-medium' : ''
+                                }`}
+                                title={p.status === 'pagato' ? 'Scadenza già pagata' : 'Click per modificare importo'}
+                              >
+                                {(p.amount_remaining ?? 0) > 0 && p.amount_remaining !== p.gross_amount
+                                  ? <><span className="text-slate-300 line-through text-[11px] mr-1">{fmt(p.gross_amount)}</span>{fmt(p.amount_remaining)} €</>
+                                  : (Number(p.gross_amount) || 0) === 0 ? <>Importo da definire</> : <>{fmt(p.gross_amount)} €</>
+                                }
+                              </span>
+                            )}
                           </td>
                           {/* STATO — dropdown editabile Sibill */}
                           <td className="py-2.5 px-3 text-center relative">
