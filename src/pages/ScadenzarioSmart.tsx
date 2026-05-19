@@ -1058,13 +1058,17 @@ const ScadenzarioSmart = () => {
   }, [modals, fetchData]);
 
   const handleDeleteSchedule = useCallback(async (scheduleId: string) => {
+    setIsSaving(true);
     try {
-      setIsSaving(true);
-      await supabase.from('payables').update({ status: 'annullato' }).eq('id', scheduleId);
+      const { error } = await supabase.from('payables').update({ status: 'annullato' } as never).eq('id', scheduleId);
+      if (error) throw new Error(error.message);
       setModals({ ...modals, deleteConfirm: { open: false, scheduleId: null, invoiceNumber: null } });
+      toast({ type: 'success', message: 'Scadenza annullata' });
       fetchData();
     } catch (error) {
       console.error('Error deleting schedule:', error);
+      toast({ type: 'error', message: 'Errore cancellazione: ' + (error instanceof Error ? error.message : String(error)) });
+    } finally {
       setIsSaving(false);
     }
   }, [modals, fetchData]);
