@@ -149,8 +149,9 @@ export default function CashflowProspettico() {
       setForecastDate('');
       setForecastAmount('');
       setForecastDescription('');
-      // Trigger refresh: cashflow ricalcolerà includendo la nuova previsione
-      window.location.reload();
+      // Invalidation elegante: re-fetch solo i dati cashflow (no full reload).
+      // Mantiene filtri, scroll, tab attiva. Nuova previsione appare in ~300ms.
+      await fetchAllData();
     } catch (err) {
       toast({ type: 'error', message: 'Errore: ' + (err instanceof Error ? err.message : String(err)) });
     } finally {
