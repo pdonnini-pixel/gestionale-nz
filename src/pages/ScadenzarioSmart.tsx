@@ -845,6 +845,9 @@ const ScadenzarioSmart = () => {
       // Escludi note credito dallo Scadenzario (importi negativi o status nota_credito)
       if (p.status === 'nota_credito' || (Number(p.gross_amount) || 0) < 0) return false;
 
+      // Escludi annullati per default — visibili SOLO se utente filtra esplicitamente 'annullato'
+      if (p.status === 'annullato' && selectedStatus !== 'annullato') return false;
+
       const matchOutlet = !selectedOutlet || p.outlet_id === selectedOutlet;
       const matchStatus = !selectedStatus
         || (selectedStatus === 'da_saldare' && p.status !== 'pagato')
@@ -1040,22 +1043,28 @@ const ScadenzarioSmart = () => {
 
   type ScheduleData = { id: string; amount?: number; due_date?: string; status?: string; amount_paid?: number }
   const handleEditSchedule = useCallback(async (scheduleData: ScheduleData) => {
+    setIsSaving(true);
     try {
-      setIsSaving(true);
-      await supabase.from('payables').update({
-        gross_amount: scheduleData.amount,
+      const newAmount = Number(scheduleData.amount) || 0;
+      const newPaid = Number(scheduleData.amount_paid) || 0;
+      const { error } = await supabase.from('payables').update({
+        gross_amount: newAmount,
         due_date: scheduleData.due_date,
         status: scheduleData.status,
-        amount_remaining: (scheduleData.amount || 0) - (scheduleData.amount_paid || 0),
+        amount_remaining: Math.max(0, newAmount - newPaid),
+        amount_paid: newPaid,
       } as never).eq('id', scheduleData.id);
-
+      if (error) throw new Error(error.message);
       setModals({ ...modals, editSchedule: { open: false, schedule: null } });
+      toast({ type: 'success', message: `Scadenza aggiornata: € ${newAmount.toLocaleString('it-IT', { minimumFractionDigits: 2 })}` });
       fetchData();
     } catch (error) {
       console.error('Error updating schedule:', error);
+      toast({ type: 'error', message: 'Errore salvataggio: ' + (error instanceof Error ? error.message : String(error)) });
+    } finally {
       setIsSaving(false);
     }
-  }, [modals, fetchData]);
+  }, [modals, fetchData, toast]);
 
   const handleDeleteSchedule = useCallback(async (scheduleId: string) => {
     setIsSaving(true);
@@ -1418,7 +1427,7 @@ const ScadenzarioSmart = () => {
 
   if (loading) {
     return (
-      <div className="p-6 max-w-[1400px] mx-auto flex items-center justify-center min-h-screen">
+      <div className="p-6 max-w-[1600px] mx-auto flex items-center justify-center min-h-screen">
         <div className="text-center">
           <RefreshCw size={20} className="animate-spin text-slate-400 mx-auto mb-3" />
           <p className="text-sm text-slate-500">Caricamento scadenzario...</p>
@@ -1431,7 +1440,7 @@ const ScadenzarioSmart = () => {
     <div className="min-h-screen bg-white">
       {/* ===== TOP BAR — Logo + 4 Tab principali Sibill ===== */}
       <div className="border-b border-slate-200">
-        <div className="max-w-[1400px] mx-auto px-6 py-3 flex items-center justify-between">
+        <div className="max-w-[1600px] mx-auto px-6 py-3 flex items-center justify-between">
           <div className="flex items-center gap-8">
             <h1 className="text-base font-bold text-slate-800 tracking-tight">Scadenze</h1>
             {/* 4 tab principali come Sibill: Situazione | Scadenzario | Ricorrenze | Regole.
@@ -1513,7 +1522,7 @@ const ScadenzarioSmart = () => {
         </div>
       </div>
 
-      <div className="max-w-[1400px] mx-auto px-6 py-5 space-y-4">
+      <div className="max-w-[1600px] mx-auto px-6 py-5 space-y-4">
 
       {/* ===== TAB SITUAZIONE — riepilogo come Sibill ===== */}
       {section === 'situazione' && (
