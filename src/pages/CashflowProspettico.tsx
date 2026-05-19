@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import PageHelp from '../components/PageHelp';
 import PageHeader from '../components/PageHeader';
@@ -115,6 +115,21 @@ export default function CashflowProspettico() {
   const [forecastAmount, setForecastAmount] = useState<string>('');
   const [forecastDescription, setForecastDescription] = useState<string>('');
   const [forecastSaving, setForecastSaving] = useState(false);
+  const [editingForecastId, setEditingForecastId] = useState<string | null>(null); // null = creazione, valore = modifica
+  // Lista previsioni manuali (is_forecast=true) per gestione inline
+  type ForecastRow = { id: string; due_date: string | null; gross_amount: number | null; notes: string | null; invoice_number: string | null; status: string | null };
+  const [forecasts, setForecasts] = useState<ForecastRow[]>([]);
+  const [showForecastList, setShowForecastList] = useState(false);
+
+  const fetchForecasts = useCallback(async () => {
+    if (!COMPANY_ID) return;
+    const { data } = await (supabase.from('payables') as unknown as { select: (s: string) => { eq: (k: string, v: string) => { eq: (k2: string, v2: boolean) => { order: (k3: string, opts: { ascending: boolean }) => Promise<{ data: ForecastRow[] | null }> } } } })
+      .select('id, due_date, gross_amount, notes, invoice_number, status')
+      .eq('company_id', COMPANY_ID)
+      .eq('is_forecast', true)
+      .order('due_date', { ascending: true });
+    setForecasts((data || []).filter(f => f.status !== 'annullato'));
+  }, [COMPANY_ID]);
 
   const handleSaveForecast = async () => {
     if (!COMPANY_ID || !forecastDate || !forecastDescription.trim() || !forecastAmount) {
@@ -128,29 +143,45 @@ export default function CashflowProspettico() {
     }
     setForecastSaving(true);
     try {
-      const { error } = await supabase.from('payables').insert({
-        company_id: COMPANY_ID,
-        is_forecast: true,
-        invoice_number: '[PREV] ' + forecastDescription.trim().slice(0, 40),
-        invoice_date: forecastDate,
-        due_date: forecastDate,
-        original_due_date: forecastDate,
-        gross_amount: amount,
-        amount_paid: 0,
-        amount_remaining: amount,
-        status: 'da_pagare',
-        payment_method: 'bonifico_ordinario',
-        supplier_name: '[Previsione manuale]',
-        notes: forecastDescription.trim(),
-      } as never);
-      if (error) throw new Error(error.message);
-      toast({ type: 'success', message: `Previsione aggiunta: € ${amount.toLocaleString('it-IT', { minimumFractionDigits: 2 })} il ${new Date(forecastDate).toLocaleDateString('it-IT')}` });
+      if (editingForecastId) {
+        // MODIFICA previsione esistente
+        const { error } = await supabase.from('payables').update({
+          invoice_number: '[PREV] ' + forecastDescription.trim().slice(0, 40),
+          invoice_date: forecastDate,
+          due_date: forecastDate,
+          original_due_date: forecastDate,
+          gross_amount: amount,
+          amount_remaining: amount,
+          notes: forecastDescription.trim(),
+        } as never).eq('id', editingForecastId);
+        if (error) throw new Error(error.message);
+        toast({ type: 'success', message: 'Previsione aggiornata' });
+      } else {
+        // INSERT nuova previsione
+        const { error } = await supabase.from('payables').insert({
+          company_id: COMPANY_ID,
+          is_forecast: true,
+          invoice_number: '[PREV] ' + forecastDescription.trim().slice(0, 40),
+          invoice_date: forecastDate,
+          due_date: forecastDate,
+          original_due_date: forecastDate,
+          gross_amount: amount,
+          amount_paid: 0,
+          amount_remaining: amount,
+          status: 'da_pagare',
+          payment_method: 'bonifico_ordinario',
+          supplier_name: '[Previsione manuale]',
+          notes: forecastDescription.trim(),
+        } as never);
+        if (error) throw new Error(error.message);
+        toast({ type: 'success', message: `Previsione aggiunta: € ${amount.toLocaleString('it-IT', { minimumFractionDigits: 2 })} il ${new Date(forecastDate).toLocaleDateString('it-IT')}` });
+      }
       setShowForecastModal(false);
+      setEditingForecastId(null);
       setForecastDate('');
       setForecastAmount('');
       setForecastDescription('');
-      // Invalidation elegante: re-fetch solo i dati cashflow (no full reload).
-      // Mantiene filtri, scroll, tab attiva. Nuova previsione appare in ~300ms.
+      await fetchForecasts();
       await fetchAllData();
     } catch (err) {
       toast({ type: 'error', message: 'Errore: ' + (err instanceof Error ? err.message : String(err)) });
@@ -158,6 +189,32 @@ export default function CashflowProspettico() {
       setForecastSaving(false);
     }
   };
+
+  // Apri modal in modalità MODIFICA su una previsione esistente
+  const handleEditForecast = (f: ForecastRow) => {
+    setEditingForecastId(f.id);
+    setForecastDate(f.due_date || new Date().toISOString().slice(0, 10));
+    setForecastAmount(String(f.gross_amount ?? 0));
+    setForecastDescription(f.notes || (f.invoice_number || '').replace('[PREV] ', ''));
+    setShowForecastModal(true);
+  };
+
+  // Cancella previsione (soft delete: status=annullato)
+  const handleDeleteForecast = async (id: string) => {
+    if (!confirm('Eliminare questa previsione?')) return;
+    try {
+      const { error } = await supabase.from('payables').update({ status: 'annullato' } as never).eq('id', id);
+      if (error) throw new Error(error.message);
+      toast({ type: 'success', message: 'Previsione eliminata' });
+      await fetchForecasts();
+      await fetchAllData();
+    } catch (err) {
+      toast({ type: 'error', message: 'Errore eliminazione: ' + (err instanceof Error ? err.message : String(err)) });
+    }
+  };
+
+  // Carica previsioni all'avvio + ad ogni refresh dei dati cashflow
+  useEffect(() => { fetchForecasts(); }, [fetchForecasts]);
 
   // Data state
   const [initialBalance, setInitialBalance] = useState(0);
@@ -1166,11 +1223,58 @@ export default function CashflowProspettico() {
         }
       />
 
-      {/* Modal Previsione uscita inline */}
+      {/* Lista previsioni manuali — sezione collassabile */}
+      {forecasts.length > 0 && (
+        <div className="bg-white rounded-2xl border border-indigo-200 shadow-sm">
+          <button onClick={() => setShowForecastList(!showForecastList)}
+            className="w-full px-5 py-3 flex items-center justify-between hover:bg-indigo-50/50 transition">
+            <div className="flex items-center gap-2">
+              <span className="text-indigo-600 font-semibold text-sm">📋 Previsioni manuali ({forecasts.length})</span>
+              <span className="text-xs text-slate-500">— totale € {forecasts.reduce((s, f) => s + (Number(f.gross_amount) || 0), 0).toLocaleString('it-IT', { minimumFractionDigits: 2 })}</span>
+            </div>
+            <span className="text-indigo-500 text-sm">{showForecastList ? '▼ Nascondi' : '▶ Mostra'}</span>
+          </button>
+          {showForecastList && (
+            <div className="border-t border-indigo-100 max-h-[400px] overflow-y-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-indigo-50/50 text-xs text-indigo-700 uppercase">
+                  <tr>
+                    <th className="px-4 py-2 text-left">Data</th>
+                    <th className="px-4 py-2 text-left">Descrizione</th>
+                    <th className="px-4 py-2 text-right">Importo</th>
+                    <th className="px-4 py-2 text-center w-24">Azioni</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {forecasts.map(f => (
+                    <tr key={f.id} className="border-t border-slate-50 hover:bg-indigo-50/20">
+                      <td className="px-4 py-2 text-slate-700 font-mono text-xs">{f.due_date ? new Date(f.due_date).toLocaleDateString('it-IT') : '—'}</td>
+                      <td className="px-4 py-2 text-slate-800">{f.notes || (f.invoice_number || '').replace('[PREV] ', '')}</td>
+                      <td className="px-4 py-2 text-right font-mono font-medium text-slate-900">€ {Number(f.gross_amount ?? 0).toLocaleString('it-IT', { minimumFractionDigits: 2 })}</td>
+                      <td className="px-4 py-2 text-center">
+                        <div className="flex justify-center gap-1">
+                          <button onClick={() => handleEditForecast(f)} className="p-1 rounded hover:bg-blue-50 text-slate-400 hover:text-blue-600" title="Modifica">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                          </button>
+                          <button onClick={() => handleDeleteForecast(f.id)} className="p-1 rounded hover:bg-red-50 text-slate-400 hover:text-red-600" title="Elimina">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/></svg>
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Modal Previsione uscita inline (creazione o modifica) */}
       {showForecastModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => !forecastSaving && setShowForecastModal(false)}>
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6" onClick={(e) => e.stopPropagation()}>
-            <h2 className="text-lg font-bold text-slate-900 mb-1">Aggiungi previsione uscita</h2>
+            <h2 className="text-lg font-bold text-slate-900 mb-1">{editingForecastId ? 'Modifica previsione' : 'Aggiungi previsione uscita'}</h2>
             <p className="text-xs text-slate-500 mb-4">Entra solo nel cashflow prospettico, NON nel Conto Economico</p>
             <div className="space-y-3">
               <div>
