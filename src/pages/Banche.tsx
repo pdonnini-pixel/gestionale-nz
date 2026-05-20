@@ -20,7 +20,7 @@ import { supabase } from '../lib/supabase'
 import { GlassTooltip, AXIS_STYLE, GRID_STYLE } from '../components/ChartTheme'
 import { useAuth } from '../hooks/useAuth'
 import { useCompanyLabels } from '../hooks/useCompanyLabels'
-import OpenBanking from '../components/OpenBanking'
+import OpenBankingAcube from '../components/OpenBankingAcube'
 import AICategorization from '../components/AICategorization'
 
 /* ───── reconciliation engine ───── */
@@ -2645,8 +2645,8 @@ export default function Banche() {
       {/* Tab: Conti & Saldi */}
       {activeTab === 'conti' && <>
 
-      {/* Open Banking integrato */}
-      <OpenBanking />
+      {/* Open Banking integrato (A-Cube) */}
+      <OpenBankingAcube />
 
       {/* Composizione + Riepilogo */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
