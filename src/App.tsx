@@ -35,7 +35,6 @@ const Fatturazione = lazy(() => import('./pages/Fatturazione'))
 const AcubeFatturaForm = lazy(() => import('./pages/AcubeFatturaForm'))
 const ScadenzeFiscali = lazy(() => import('./pages/ScadenzeFiscali'))
 const AICategoriePage = lazy(() => import('./pages/AICategoriePage'))
-const BankingCallback = lazy(() => import('./pages/BankingCallback'))
 const AllocazioneFornitori = lazy(() => import('./pages/AllocazioneFornitori'))
 const SchedaContabileFornitore = lazy(() => import('./pages/SchedaContabileFornitore'))
 const Profilo = lazy(() => import('./pages/Profilo'))
@@ -98,7 +97,6 @@ function AppRoutes() {
       <Routes>
         <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
         <Route path="/onboarding" element={<ProtectedRoute><Onboarding /></ProtectedRoute>} />
-        <Route path="/banking/callback" element={<ProtectedRoute><BankingCallback /></ProtectedRoute>} />
         <Route element={<ProtectedRoute><OnboardingGate><Layout /></OnboardingGate></ProtectedRoute>}>
           <Route index element={<Dashboard />} />
           <Route path="outlet" element={<Outlet />} />

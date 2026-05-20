@@ -10,7 +10,6 @@ const VALID_FATTURAZIONE_TABS: FatturazioneTab[] = ['passive', 'active', 'corris
 import InvoiceViewer from '../components/InvoiceViewer'
 import StatusBadge from '../components/ui/StatusBadge'
 import { supabase } from '../lib/supabase'
-import { useYapily } from '../hooks/useYapily'
 import { useCompany } from '../hooks/useCompany'
 import { useCompanyLabels } from '../hooks/useCompanyLabels'
 import { getCurrentTenant } from '../lib/tenants'
