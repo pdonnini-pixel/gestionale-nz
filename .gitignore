@@ -6,6 +6,11 @@ dist-new
 .DS_Store
 deploy-*.zip
 
+# Cache TypeScript / Vite incremental
+tsconfig.tsbuildinfo
+.tsbuildinfo
+.vite
+
 # Local Netlify folder
 .netlify
 
