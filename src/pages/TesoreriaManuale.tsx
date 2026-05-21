@@ -1448,15 +1448,11 @@ function TabContiBancari({ accounts, companyId, onRefresh }: { accounts: Account
           <h3 className="text-sm text-slate-500">Totale disponibilita</h3>
           <div className="text-3xl font-bold text-slate-900">{fmt(totalBalance)} &euro;</div>
         </div>
-        <button onClick={() => { setEditAccount(null); setShowAdd(true) }}
-          className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition">
-          <Plus size={16} /> Nuovo conto
-        </button>
+        {/* Bottone "Nuovo conto" manuale rimosso — i conti si collegano via A-Cube Open Banking nel riquadro sopra */}
       </div>
 
       {activeAccounts.length === 0 ? (
-        <EmptyState icon={Building2} title="Nessun conto bancario" description="Aggiungi il primo conto bancario per iniziare."
-          action={<button onClick={() => setShowAdd(true)} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700">Aggiungi conto</button>} />
+        <EmptyState icon={Building2} title="Nessun conto bancario" description="Usa il riquadro Open Banking sopra per collegare la tua banca via PSD2." />
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {activeAccounts.map((acct, idx) => (
@@ -1518,16 +1514,7 @@ function TabContiBancari({ accounts, companyId, onRefresh }: { accounts: Account
                   </div>
                 )}
 
-                <div className="flex gap-2">
-                  <button onClick={() => setBalanceAccount(acct)}
-                    className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-700 transition">
-                    <RefreshCw size={12} /> Aggiorna saldo
-                  </button>
-                  <button onClick={() => setUploadAccount(acct)}
-                    className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium border border-blue-200 rounded-lg hover:bg-blue-50 text-blue-700 transition">
-                    <Upload size={12} /> Importa EC
-                  </button>
-                </div>
+                {/* Bottoni "Aggiorna saldo" e "Importa EC" rimossi: saldo + movimenti arrivano via A-Cube automatico */}
               </div>
             </div>
           ))}
