@@ -68,7 +68,9 @@ export default function OpenBankingAcube() {
   const companyId = profile?.company_id ?? ''
   const isSuperAdvisor = profile?.role === 'super_advisor'
 
-  const [stage, setStage] = useState<AcubeStage>('sandbox')
+  // Stage hardcoded a 'production' — sandbox rimosso per evitare confusione
+  const stage: AcubeStage = 'production'
+  const setStage = (_: AcubeStage) => { /* no-op, sandbox disabilitato */ }
   const [br, setBr] = useState<BusinessRegistry | null>(null)
   const [accounts, setAccounts] = useState<BankAccountRow[]>([])
   const [consents, setConsents] = useState<ConsentRow[]>([])
@@ -195,20 +197,7 @@ export default function OpenBankingAcube() {
             I movimenti vengono importati automaticamente nel gestionale.
           </p>
         </div>
-        {isSuperAdvisor && (
-          <div className="flex items-center gap-1 text-xs">
-            <Settings size={12} className="text-slate-400" />
-            <select
-              value={stage}
-              onChange={(e) => setStage(e.target.value as AcubeStage)}
-              className="text-xs border border-slate-200 rounded px-2 py-1 bg-white"
-              title="Ambiente A-Cube (solo super_advisor)"
-            >
-              <option value="sandbox">Sandbox (test)</option>
-              <option value="production">Production (vero)</option>
-            </select>
-          </div>
-        )}
+        {/* Dropdown stage rimosso — production hardcoded */}
       </div>
 
       {/* Stato BR + Consent */}
@@ -310,7 +299,6 @@ export default function OpenBankingAcube() {
             <h2 className="text-lg font-bold text-slate-900 mb-1">Collega banca via A-Cube</h2>
             <p className="text-xs text-slate-500 mb-4">
               Compila i dati dell'azienda. Successivamente si aprirà una pagina sicura A-Cube dove sceglierai la banca e darai il consenso PSD2.
-              {stage === 'sandbox' && <span className="block mt-1 text-amber-600">⚠️ Stai usando l'ambiente Sandbox (test, banca finta).</span>}
             </p>
             <div className="space-y-3">
               <div>
