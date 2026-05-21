@@ -24,6 +24,7 @@ import { useAuth } from '../hooks/useAuth'
 import { useCompanyLabels } from '../hooks/useCompanyLabels'
 import { useToast } from '../components/Toast'
 import PrimaNota from './PrimaNota'
+import OpenBankingAcube from '../components/OpenBankingAcube'
 
 // ═══════════════════════════════════════════════════════════════════
 // ═══ HELPERS ═══
@@ -1439,6 +1440,9 @@ function TabContiBancari({ accounts, companyId, onRefresh }: { accounts: Account
 
   return (
     <div className="space-y-6">
+      {/* Open Banking A-Cube — collegamento banche via PSD2 */}
+      <OpenBankingAcube />
+
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-sm text-slate-500">Totale disponibilita</h3>
