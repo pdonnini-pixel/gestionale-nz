@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
+// Build bust 2026-05-20T20:50 — forza rigenerazione hash chunk Banche dopo refactor OpenBankingAcube
 // Tab principale Banche — persistito in URL come ?tab=
 type BancheTab = 'conti' | 'movimenti' | 'riconciliazione'
 const VALID_BANCHE_TABS: BancheTab[] = ['conti', 'movimenti', 'riconciliazione']
