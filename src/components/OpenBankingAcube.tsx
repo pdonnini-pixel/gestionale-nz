@@ -179,8 +179,10 @@ export default function OpenBankingAcube() {
   const latestConsent = consents[0]
   const consentBadge = useMemo(() => {
     if (!latestConsent) return null
-    if (latestConsent.status === 'granted') return { label: 'Consenso attivo', color: 'text-emerald-700 bg-emerald-50 border-emerald-200', icon: CheckCircle2 }
+    if (latestConsent.status === 'granted' || latestConsent.status === 'active') return { label: 'Consenso attivo', color: 'text-emerald-700 bg-emerald-50 border-emerald-200', icon: CheckCircle2 }
     if (latestConsent.status === 'pending') return { label: 'Consenso in attesa', color: 'text-amber-700 bg-amber-50 border-amber-200', icon: Clock }
+    if (latestConsent.status === 'expired' || latestConsent.status === 'reconnect_required') return { label: 'Consenso scaduto — rinnova', color: 'text-orange-700 bg-orange-50 border-orange-200', icon: AlertCircle }
+    if (latestConsent.status === 'revoked') return { label: 'Consenso revocato', color: 'text-red-700 bg-red-50 border-red-200', icon: AlertCircle }
     return { label: latestConsent.status, color: 'text-slate-600 bg-slate-50 border-slate-200', icon: AlertCircle }
   }, [latestConsent])
 

@@ -1465,12 +1465,20 @@ function TabContiBancari({ accounts, companyId, onRefresh }: { accounts: Account
                     <div className="text-xs text-slate-400">{acct.bank_name}{acct.outlet_code ? ` \u2022 ${acct.outlet_code}` : ''}</div>
                   </div>
                   <div className="flex gap-1">
-                    <button onClick={() => { setEditAccount(acct as unknown as AccountFormT); setShowAdd(true) }} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600" title="Modifica">
-                      <Edit2 size={14} />
-                    </button>
-                    <button onClick={() => setDeleteConfirm(acct)} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500" title="Disattiva">
-                      <Trash2 size={14} />
-                    </button>
+                    {acct.acube_account_uuid ? (
+                      <span className="px-2 py-0.5 text-[10px] font-medium rounded-full bg-blue-50 text-blue-700 border border-blue-200" title="Conto sincronizzato via A-Cube Open Banking — read-only">
+                        A-Cube
+                      </span>
+                    ) : (
+                      <>
+                        <button onClick={() => { setEditAccount(acct as unknown as AccountFormT); setShowAdd(true) }} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600" title="Modifica">
+                          <Edit2 size={14} />
+                        </button>
+                        <button onClick={() => setDeleteConfirm(acct)} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500" title="Disattiva">
+                          <Trash2 size={14} />
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
 
