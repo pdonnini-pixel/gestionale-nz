@@ -318,7 +318,7 @@ export default function PrimaNota() {
               ) : movements.map(m => (
                 <tr key={m.id} className="border-t border-slate-100 hover:bg-slate-50/50">
                   <td className="px-3 py-2 text-slate-700">{fmtDate(m.transaction_date)}</td>
-                  <td className="px-3 py-2 text-slate-600 text-xs">
+                  <td className="px-3 py-2 text-slate-600 text-xs" title={`${m.bank_accounts?.bank_name ?? ''}${m.bank_accounts?.account_name ? ' — ' + m.bank_accounts.account_name : ''}${m.bank_accounts?.iban ? ' · ' + m.bank_accounts.iban : ''}`}>
                     {m.bank_accounts?.bank_name ?? '—'}
                     {m.bank_accounts?.iban && <span className="block text-slate-400">***{m.bank_accounts.iban.slice(-6)}</span>}
                   </td>
@@ -330,10 +330,10 @@ export default function PrimaNota() {
                   <td className={`px-3 py-2 text-right font-mono ${m.amount > 0 ? 'text-emerald-700' : 'text-red-700'}`}>
                     € {fmt(Math.abs(m.amount))}
                   </td>
-                  <td className="px-3 py-2 text-slate-700">{getCounterpart(m)}</td>
-                  <td className="px-3 py-2 text-slate-500 text-xs font-mono">{m.suppliers?.partita_iva ?? m.payables?.supplier_vat ?? '—'}</td>
+                  <td className="px-3 py-2 text-slate-700" title={getCounterpart(m)}>{getCounterpart(m)}</td>
+                  <td className="px-3 py-2 text-slate-500 text-xs font-mono" title={m.suppliers?.partita_iva ?? m.payables?.supplier_vat ?? ''}>{m.suppliers?.partita_iva ?? m.payables?.supplier_vat ?? '—'}</td>
                   <td className="px-3 py-2 text-slate-600 text-xs max-w-md truncate" title={getCausale(m)}>{getCausale(m)}</td>
-                  <td className="px-3 py-2 text-slate-500 text-xs">{m.category ?? '—'}</td>
+                  <td className="px-3 py-2 text-slate-500 text-xs" title={m.category ?? ''}>{m.category ?? '—'}</td>
                 </tr>
               ))}
             </tbody>
