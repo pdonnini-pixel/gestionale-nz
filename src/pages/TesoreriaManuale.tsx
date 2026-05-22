@@ -1465,12 +1465,20 @@ function TabContiBancari({ accounts, companyId, onRefresh }: { accounts: Account
                     <div className="text-xs text-slate-400">{acct.bank_name}{acct.outlet_code ? ` \u2022 ${acct.outlet_code}` : ''}</div>
                   </div>
                   <div className="flex gap-1">
-                    <button onClick={() => { setEditAccount(acct as unknown as AccountFormT); setShowAdd(true) }} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600" title="Modifica">
-                      <Edit2 size={14} />
-                    </button>
-                    <button onClick={() => setDeleteConfirm(acct)} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500" title="Disattiva">
-                      <Trash2 size={14} />
-                    </button>
+                    {acct.acube_account_uuid ? (
+                      <span className="px-2 py-0.5 text-[10px] font-medium rounded-full bg-blue-50 text-blue-700 border border-blue-200" title="Conto sincronizzato via A-Cube Open Banking — read-only">
+                        A-Cube
+                      </span>
+                    ) : (
+                      <>
+                        <button onClick={() => { setEditAccount(acct as unknown as AccountFormT); setShowAdd(true) }} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600" title="Modifica">
+                          <Edit2 size={14} />
+                        </button>
+                        <button onClick={() => setDeleteConfirm(acct)} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500" title="Disattiva">
+                          <Trash2 size={14} />
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
 
@@ -1693,8 +1701,16 @@ function TabMovimenti({ transactions, accounts }: { transactions: TransactionT[]
                         </div>
                       </td>
                       <td className="px-4 py-3 text-slate-900 max-w-[300px]">
-                        <div className="truncate" title={t.description ?? undefined}>{t.description || '\u2014'}</div>
-                        {Boolean(t.counterpart_name) && <div className="text-xs text-slate-400 truncate">{String(t.counterpart_name)}</div>}
+                        {/* Hover description \u2192 tooltip ricco immediato con full text */}
+                        <div className="relative group">
+                          <div className="truncate cursor-help">{t.description || '\u2014'}</div>
+                          {Boolean(t.description) && String(t.description).length > 40 && (
+                            <div className="pointer-events-none absolute left-0 top-full mt-1 z-20 hidden group-hover:block bg-slate-900 text-white text-xs rounded-lg px-3 py-2 shadow-xl max-w-md w-max whitespace-normal break-words">
+                              {String(t.description)}
+                            </div>
+                          )}
+                        </div>
+                        {Boolean(t.counterpart_name) && <div className="text-xs text-slate-400 truncate" title={String(t.counterpart_name)}>{String(t.counterpart_name)}</div>}
                       </td>
                       <td className={classNames('px-4 py-3 text-right font-semibold whitespace-nowrap', (Number(t.amount) || 0) >= 0 ? 'text-emerald-600' : 'text-red-600')}>
                         {(Number(t.amount) || 0) >= 0 ? '+' : ''}{fmt(t.amount)}
