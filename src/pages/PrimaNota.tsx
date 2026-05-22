@@ -50,7 +50,7 @@ function getCounterpart(m: Movement): string {
 function getCausale(m: Movement): string {
   if (m.payables?.invoice_number) return `Fatt. ${m.payables.invoice_number}`
   if (m.reference) return m.reference
-  if (m.description) return m.description.length > 60 ? m.description.slice(0, 60) + '…' : m.description
+  if (m.description) return m.description
   return '—'
 }
 
@@ -327,13 +327,40 @@ export default function PrimaNota() {
                       {m.amount > 0 ? 'Entrata' : 'Uscita'}
                     </span>
                   </td>
-                  <td className={`px-3 py-2 text-right font-mono ${m.amount > 0 ? 'text-emerald-700' : 'text-red-700'}`}>
+                  <td className={`px-3 py-2 text-right font-semibold whitespace-nowrap ${m.amount > 0 ? 'text-emerald-700' : 'text-red-700'}`}>
                     € {fmt(Math.abs(m.amount))}
                   </td>
-                  <td className="px-3 py-2 text-slate-700" title={getCounterpart(m)}>{getCounterpart(m)}</td>
-                  <td className="px-3 py-2 text-slate-500 text-xs font-mono" title={m.suppliers?.partita_iva ?? m.payables?.supplier_vat ?? ''}>{m.suppliers?.partita_iva ?? m.payables?.supplier_vat ?? '—'}</td>
-                  <td className="px-3 py-2 text-slate-600 text-xs max-w-md truncate" title={getCausale(m)}>{getCausale(m)}</td>
-                  <td className="px-3 py-2 text-slate-500 text-xs" title={m.category ?? ''}>{m.category ?? '—'}</td>
+                  <td className="px-3 py-2 text-slate-700 max-w-[200px]">
+                    <div className="relative group">
+                      <div className="truncate cursor-help">{getCounterpart(m)}</div>
+                      {getCounterpart(m).length > 24 && (
+                        <div className="pointer-events-none absolute left-0 top-full mt-1 z-20 hidden group-hover:block bg-slate-900 text-white text-xs rounded-lg px-3 py-2 shadow-xl max-w-md w-max whitespace-normal break-words">
+                          {getCounterpart(m)}
+                        </div>
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-3 py-2 text-slate-500 text-xs" title={m.suppliers?.partita_iva ?? m.payables?.supplier_vat ?? ''}>{m.suppliers?.partita_iva ?? m.payables?.supplier_vat ?? '—'}</td>
+                  <td className="px-3 py-2 text-slate-600 text-xs max-w-md">
+                    <div className="relative group">
+                      <div className="truncate cursor-help">{getCausale(m)}</div>
+                      {getCausale(m).length > 40 && (
+                        <div className="pointer-events-none absolute left-0 top-full mt-1 z-20 hidden group-hover:block bg-slate-900 text-white text-xs rounded-lg px-3 py-2 shadow-xl max-w-md w-max whitespace-normal break-words">
+                          {getCausale(m)}
+                        </div>
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-3 py-2 text-slate-500 text-xs max-w-[160px]">
+                    <div className="relative group">
+                      <div className="truncate cursor-help">{m.category ?? '—'}</div>
+                      {m.category && m.category.length > 20 && (
+                        <div className="pointer-events-none absolute left-0 top-full mt-1 z-20 hidden group-hover:block bg-slate-900 text-white text-xs rounded-lg px-3 py-2 shadow-xl max-w-md w-max whitespace-normal break-words">
+                          {m.category}
+                        </div>
+                      )}
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>
