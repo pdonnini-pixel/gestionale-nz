@@ -1763,7 +1763,7 @@ function SezioneRiconciliazione({ companyId, accounts }: { companyId: string; ac
                           {fmtDate(item.movement?.date || (item.movement?.transaction_date as string | null | undefined))}
                         </td>
                         <td className="py-2 px-4 text-slate-900 max-w-[280px] relative group">
-                          <span className="block truncate cursor-help">{item.movement?.description || '—'}</span>
+                          <span className="block truncate cursor-help" title={item.movement?.description || '—'}>{item.movement?.description || '—'}</span>
                           {item.movement?.description && (
                             <div className="hidden group-hover:block absolute z-50 left-0 top-full mt-1 p-3 bg-slate-800 text-white text-xs rounded-lg shadow-xl max-w-md whitespace-pre-wrap leading-relaxed border border-slate-600">
                               <div className="font-semibold text-slate-300 mb-1">Descrizione completa:</div>
@@ -1860,7 +1860,7 @@ function SezioneRiconciliazione({ companyId, accounts }: { companyId: string; ac
 
                           {/* Description with tooltip */}
                           <div className="flex-1 min-w-0 relative group">
-                            <div className="text-sm font-medium text-slate-900 truncate">{item.movement?.description || '—'}</div>
+                            <div className="text-sm font-medium text-slate-900 truncate" title={item.movement?.description || '—'}>{item.movement?.description || '—'}</div>
                             {item.movement?.description && (
                               <div className="hidden group-hover:block absolute z-50 left-0 top-full mt-1 p-3 bg-slate-800 text-white text-xs rounded-lg shadow-xl max-w-md whitespace-pre-wrap leading-relaxed border border-slate-600">
                                 <div className="font-semibold text-slate-300 mb-1">Descrizione completa:</div>
@@ -2065,7 +2065,7 @@ function SezioneRiconciliazione({ companyId, accounts }: { companyId: string; ac
                           {fmtDate(mov.date || (mov.transaction_date as string | null | undefined))}
                         </td>
                         <td className="py-2 px-4 text-slate-900 max-w-[280px] relative group">
-                          <span className="block truncate cursor-help">{mov.description || '—'}</span>
+                          <span className="block truncate cursor-help" title={mov.description || '—'}>{mov.description || '—'}</span>
                           {Boolean(mov.description) && (
                             <div className="hidden group-hover:block absolute z-50 left-0 top-full mt-1 p-3 bg-slate-800 text-white text-xs rounded-lg shadow-xl max-w-md whitespace-pre-wrap leading-relaxed border border-slate-600">
                               <div className="font-semibold text-slate-300 mb-1">Descrizione completa:</div>

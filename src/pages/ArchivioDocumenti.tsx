@@ -810,7 +810,7 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
                     : <div className="w-7 h-7 bg-indigo-100 text-indigo-700 rounded font-semibold text-xs flex items-center justify-center">{MONTH_LABELS[new Date(group.invoices[0].invoice_date || '').getMonth()]}</div>
                   }
                   <div className="flex-1 min-w-0">
-                    <div className="font-medium text-slate-800 truncate">{group.label}</div>
+                    <div className="font-medium text-slate-800 truncate" title={group.label}>{group.label}</div>
                     <div className="text-xs text-slate-500">{group.invoices.length} fattur{group.invoices.length === 1 ? 'a' : 'e'}</div>
                   </div>
                   <div className="text-right shrink-0">
@@ -1308,7 +1308,7 @@ function ConservazioneTab({ docs, stats, loading, filter, setFilter, search, set
                               {isInvoice ? <Receipt size={16} className="text-violet-500" /> : <FileText size={16} className="text-slate-500" />}
                             </div>
                             <div className="min-w-0">
-                              <div className="text-sm font-medium text-slate-800 truncate max-w-xs">{name}</div>
+                              <div className="text-sm font-medium text-slate-800 truncate max-w-xs" title={name}>{name}</div>
                               {isInvoice && (
                                 <div className="text-xs text-slate-400 truncate">
                                   {doc.direction === 'inbound' ? doc.supplier_name : doc.customer_name}

@@ -209,8 +209,8 @@ export default function GlobalSearch({ open: openProp, onClose }: GlobalSearchPr
                     >
                       <CatIcon size={16} className={`text-${cat.color}-500 shrink-0`} />
                       <div className="min-w-0 flex-1">
-                        <div className="text-sm font-medium text-slate-800 truncate">{item.title}</div>
-                        {item.subtitle && <div className="text-xs text-slate-400 truncate">{item.subtitle}</div>}
+                        <div className="text-sm font-medium text-slate-800 truncate" title={item.title}>{item.title}</div>
+                        {item.subtitle && <div className="text-xs text-slate-400 truncate" title={item.subtitle}>{item.subtitle}</div>}
                       </div>
                       {isSelected && <ArrowRight size={14} className="text-blue-500 shrink-0" />}
                     </button>

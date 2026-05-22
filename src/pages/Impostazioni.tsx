@@ -599,7 +599,7 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
                   <span className="font-medium text-sm text-slate-900">{u.nome} {u.cognome}</span>
                   {!u.is_active && <span className="text-[10px] text-slate-400 uppercase tracking-wide">inattivo</span>}
                 </div>
-                <div className="text-xs text-slate-400 truncate">{u.email}</div>
+                <div className="text-xs text-slate-400 truncate" title={u.email}>{u.email}</div>
                 <div className="flex flex-wrap gap-1 mt-1">
                   {u.outlet_access && u.outlet_access.map((o: string) => (
                     <span key={o} className="inline-block text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">
@@ -1016,7 +1016,7 @@ function CostSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
                                 ))}
                               </div>
                             </td>
-                            <td className="px-4 py-2.5 text-xs text-slate-400 max-w-[150px] truncate">{c.note || '—'}</td>
+                            <td className="px-4 py-2.5 text-xs text-slate-400 max-w-[150px] truncate" title={c.note || '—'}>{c.note || '—'}</td>
                             <td className="px-4 py-2.5 text-center">
                               <div className="flex justify-center gap-1">
                                 <button onClick={(e) => { e.stopPropagation(); handleEdit(c) }}

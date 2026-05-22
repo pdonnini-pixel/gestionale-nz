@@ -30,7 +30,7 @@ function TenantBadge() {
     >
       <Building2 size={14} className="opacity-90 shrink-0" />
       <span className="opacity-90">Tenant attivo:</span>
-      <span className="font-bold tracking-wide truncate">{tenant.displayName}</span>
+      <span className="font-bold tracking-wide truncate" title={tenant.displayName}>{tenant.displayName}</span>
       <span className="ml-auto opacity-80 hidden md:inline truncate">
         Per cambiare tenant, apri una nuova tab.
       </span>
@@ -186,7 +186,7 @@ function ProfileMenu() {
               {fullName || 'Utente'}
             </div>
             {profile?.email && (
-              <div className="text-xs text-slate-500 truncate">{profile.email}</div>
+              <div className="text-xs text-slate-500 truncate" title={profile.email}>{profile.email}</div>
             )}
           </div>
           <button

@@ -314,7 +314,7 @@ export default function Sidebar({ mobileOpen, setMobileOpen, badges = {} }: Side
         }
       >
         <item.icon size={18} className="shrink-0" />
-        <span className="truncate flex-1">{item.label}</span>
+        <span className="truncate flex-1" title={item.label}>{item.label}</span>
         {badge != null && badge > 0 && (
           <span className="min-w-[20px] h-5 px-1.5 flex items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white leading-none shrink-0">
             {badge > 99 ? '99+' : badge}
@@ -375,9 +375,9 @@ export default function Sidebar({ mobileOpen, setMobileOpen, badges = {} }: Side
                 {companyAbbrev}
               </div>
               <div className="min-w-0 flex-1">
-                <div className="font-semibold text-sm truncate">{company?.name || 'Caricamento...'}</div>
+                <div className="font-semibold text-sm truncate" title={company?.name || 'Caricamento...'}>{company?.name || 'Caricamento...'}</div>
                 {company?.vat_number && (
-                  <div className="text-[10px] text-slate-400 truncate">P.IVA {company.vat_number}</div>
+                  <div className="text-[10px] text-slate-400 truncate" title={`P.IVA ${company.vat_number}`}>P.IVA {company.vat_number}</div>
                 )}
               </div>
               {companies.length > 1 && (
@@ -396,7 +396,7 @@ export default function Sidebar({ mobileOpen, setMobileOpen, badges = {} }: Side
                     }`}
                   >
                     <Building size={14} />
-                    <span className="truncate">{c.name}</span>
+                    <span className="truncate" title={c.name}>{c.name}</span>
                   </button>
                 ))}
               </div>

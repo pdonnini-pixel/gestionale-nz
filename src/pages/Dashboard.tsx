@@ -846,7 +846,7 @@ export default function Dashboard() {
                     </span>
                     <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: o.colore }} />
                     <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium text-slate-900 truncate">{formatOutletName(o.name)}</div>
+                      <div className="text-sm font-medium text-slate-900 truncate" title={formatOutletName(o.name)}>{formatOutletName(o.name)}</div>
                       <div className="text-xs text-slate-400">{fmt(o.ricavi)} €</div>
                     </div>
                     {dailyRev && (

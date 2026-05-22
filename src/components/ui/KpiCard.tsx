@@ -87,8 +87,8 @@ export default function KpiCard({
       )}
 
       <div className="flex-1 min-w-0">
-        <p className="text-sm text-slate-500 truncate">{title}</p>
-        <p className="text-2xl font-bold text-slate-900 truncate">{value}</p>
+        <p className="text-sm text-slate-500 truncate" title={title}>{title}</p>
+        <p className="text-2xl font-bold text-slate-900 truncate" title={value}>{value}</p>
       </div>
 
       {trendValue && (

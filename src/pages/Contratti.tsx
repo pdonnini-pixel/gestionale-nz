@@ -281,7 +281,7 @@ function ModalNuovoContratto({ outlets, onClose, onSave, editingContract = null,
               <div className="mt-2 space-y-1">
                 {attachments.map((f, i) => (
                   <div key={i} className="flex items-center justify-between text-xs p-1.5 bg-slate-50 rounded-lg">
-                    <span className="text-slate-600 truncate">{f.name}</span>
+                    <span className="text-slate-600 truncate" title={f.name}>{f.name}</span>
                     <button onClick={() => setAttachments(prev => prev.filter((_, j) => j !== i))} className="text-slate-400 hover:text-red-500"><X size={14} /></button>
                   </div>
                 ))}
@@ -374,7 +374,7 @@ function PdfUploader({ contractId, files, loading: filesLoading, onUploadDone, o
           <div className="flex items-center gap-2.5 min-w-0">
             <div className="p-1.5 rounded-lg bg-red-50"><FileText size={16} className="text-red-500" /></div>
             <div className="min-w-0">
-              <div className="text-sm font-medium text-slate-700 truncate">{f.file_name}</div>
+              <div className="text-sm font-medium text-slate-700 truncate" title={f.file_name}>{f.file_name}</div>
               <div className="text-xs text-slate-400">
                 {f.file_size ? `${(f.file_size / 1024).toFixed(0)} KB` : ''} — {new Date(f.uploaded_at).toLocaleDateString('it-IT')}
               </div>

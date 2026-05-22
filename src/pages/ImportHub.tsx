@@ -1296,7 +1296,7 @@ export default function ImportHub() {
                               <FileText size={16} className={isPdf ? 'text-red-500' : 'text-blue-500'} />
                             </div>
                             <div className="min-w-0">
-                              <div className="text-sm font-medium text-slate-700 truncate">{f.file_name}</div>
+                              <div className="text-sm font-medium text-slate-700 truncate" title={f.file_name}>{f.file_name}</div>
                               <div className="text-xs text-slate-400">
                                 {f.file_size ? `${((Number(f.file_size)) / 1024).toFixed(0)} KB` : ''} — {new Date(String(f.created_at || f.uploaded_at || '')).toLocaleString('it-IT')}
                               </div>

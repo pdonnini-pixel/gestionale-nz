@@ -783,7 +783,7 @@ function SplitPctForm({ outlets, editDetails, setDetailField, outletName, pctTot
           return (
             <div key={o.id} className="flex items-center gap-3">
               <Store className="w-4 h-4 text-gray-400 flex-shrink-0" />
-              <span className="text-sm text-gray-700 w-40 truncate">{o.code} — {o.name}</span>
+              <span className="text-sm text-gray-700 w-40 truncate" title={`${o.code} — ${o.name}`}>{o.code} — {o.name}</span>
               <div className="relative flex-1 max-w-[140px]">
                 <input
                   type="number"
@@ -826,7 +826,7 @@ function SplitValoreForm({ outlets, editDetails, setDetailField, outletName, val
           return (
             <div key={o.id} className="flex items-center gap-3">
               <Store className="w-4 h-4 text-gray-400 flex-shrink-0" />
-              <span className="text-sm text-gray-700 w-40 truncate">{o.code} — {o.name}</span>
+              <span className="text-sm text-gray-700 w-40 truncate" title={`${o.code} — ${o.name}`}>{o.code} — {o.name}</span>
               <div className="relative flex-1 max-w-[140px]">
                 <input
                   type="number"
