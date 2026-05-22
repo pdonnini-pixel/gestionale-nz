@@ -535,6 +535,21 @@ function Pagination({ page, totalPages, onPageChange }: { page: number; totalPag
 
 type AccountT = Record<string, unknown> & { id: string; bank_name?: string | null; account_name?: string | null; current_balance?: number | null; credit_line?: number | null; iban?: string | null; account_type?: string | null; last_balance_update?: string | null }
 type TransactionT = Record<string, unknown> & { id: string; transaction_date?: string | null; amount?: number | null; type?: string | null; description?: string | null; bank_account_id?: string | null; reconciliation_status?: string | null; counterpart_name?: string | null; is_reconciled?: boolean | null; note?: string | null; reconciled_at?: string | null; reconciled_invoice_id?: string | null }
+
+// Estrae la "causale" da un movimento: usa raw_data.category A-Cube se presente e diversa da 'uncategorized',
+// altrimenti prende le prime 2-3 parole significative dalla descrizione (utile come raggruppamento).
+function deriveCausale(t: TransactionT): string {
+  const raw = (t as { raw_data?: { category?: string } }).raw_data
+  const cat = raw?.category
+  if (cat && cat !== 'uncategorized' && cat !== 'other') return cat.toUpperCase()
+  const desc = String(t.description || '').trim()
+  if (!desc) return '—'
+  // Prendi prima parola "significativa" (alfanumerica, lunghezza >=3)
+  const parts = desc.split(/[\s.,;:]+/).filter(p => p.length >= 3 && !/^\d+$/.test(p))
+  if (parts.length === 0) return desc.split(' ')[0].toUpperCase()
+  // Restituisci primo blocco "tipo causale" comune: es 'VERS.SPORT.AUT' o 'BEU INTERN BANK' o 'PAGAMENTO POS'
+  return parts.slice(0, Math.min(2, parts.length)).join(' ').toUpperCase()
+}
 type PayableT = Record<string, unknown> & { id: string; due_date?: string | null; amount?: number | null; gross_amount?: number | null; amount_paid?: number | null; amount_remaining?: number | null; supplier_name?: string | null; invoice_number?: string | null; status?: string | null; suppliers?: { ragione_sociale?: string | null; name?: string | null; iban?: string | null } | null }
 function TabPanoramica({ accounts, transactions, payables, onNavigate }: { accounts: AccountT[]; transactions: TransactionT[]; payables: PayableT[]; onNavigate: (tab: string) => void }) {
   const totalBalance = useMemo(() =>
@@ -1544,9 +1559,11 @@ function TabContiBancari({ accounts, companyId, onRefresh }: { accounts: Account
 // ═══════════════════════════════════════════════════════════════════
 
 function TabMovimenti({ transactions, accounts }: { transactions: TransactionT[]; accounts: AccountT[] }) {
-  const [search, setSearch] = useState('')
+  const [searchInput, setSearchInput] = useState('') // input non applicato
+  const [search, setSearch] = useState('')           // valore applicato (premuto Cerca o Enter)
   const [filterAccount, setFilterAccount] = useState('all')
   const [filterType, setFilterType] = useState('all') // all, entrata, uscita
+  const [filterCausale, setFilterCausale] = useState('all') // causale A-Cube (category) o prefix descrizione
   const [filterReconciled, setFilterReconciled] = useState('all') // all, yes, no
   // Default: dal primo del mese a oggi (modificabile)
   const [dateFrom, setDateFrom] = useState(() => {
@@ -1574,6 +1591,7 @@ function TabMovimenti({ transactions, accounts }: { transactions: TransactionT[]
     if (filterType === 'uscita') items = items.filter(t => (t.amount || 0) < 0)
     if (filterReconciled === 'yes') items = items.filter(t => t.is_reconciled)
     if (filterReconciled === 'no') items = items.filter(t => !t.is_reconciled)
+    if (filterCausale !== 'all') items = items.filter(t => deriveCausale(t) === filterCausale)
     if (dateFrom) items = items.filter(t => (t.transaction_date || '') >= dateFrom)
     if (dateTo) items = items.filter(t => (t.transaction_date || '') <= dateTo)
 
@@ -1588,7 +1606,7 @@ function TabMovimenti({ transactions, accounts }: { transactions: TransactionT[]
       return 0
     })
     return items
-  }, [transactions, search, filterAccount, filterType, filterReconciled, dateFrom, dateTo, sortField, sortDir])
+  }, [transactions, search, filterAccount, filterType, filterCausale, filterReconciled, dateFrom, dateTo, sortField, sortDir])
 
   const totalPages = Math.ceil(filtered.length / PER_PAGE) || 1
   const pageItems = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE)
@@ -1605,7 +1623,19 @@ function TabMovimenti({ transactions, accounts }: { transactions: TransactionT[]
     return sortDir === 'asc' ? <ChevronUp size={12} className="text-blue-600" /> : <ChevronDown size={12} className="text-blue-600" />
   }
 
-  useEffect(() => { setPage(1) }, [search, filterAccount, filterType, filterReconciled, dateFrom, dateTo])
+  useEffect(() => { setPage(1) }, [search, filterAccount, filterType, filterCausale, filterReconciled, dateFrom, dateTo])
+
+  // Causali distinte presenti nei dati (da raw_data.category A-Cube, altrimenti prima parola descrizione)
+  const causaliDisponibili = useMemo(() => {
+    const set = new Set<string>()
+    for (const t of transactions) set.add(deriveCausale(t))
+    return Array.from(set).filter(c => c).sort()
+  }, [transactions])
+
+  const handleCerca = () => {
+    setSearch(searchInput.trim())
+    setPage(1)
+  }
 
   // Helper: build rows array per export (riusabile da CSV / XLSX / PDF)
   const buildExportRows = () => {
@@ -1685,7 +1715,10 @@ function TabMovimenti({ transactions, accounts }: { transactions: TransactionT[]
         <div className="flex flex-wrap gap-3">
           <div className="flex-1 min-w-[200px] relative">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Cerca descrizione, controparte..."
+            <input type="text" value={searchInput}
+              onChange={e => setSearchInput(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') handleCerca(); }}
+              placeholder="Cerca descrizione, controparte… (Invio per filtrare)"
               className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
           </div>
           <select value={filterAccount} onChange={e => setFilterAccount(e.target.value)}
@@ -1707,9 +1740,14 @@ function TabMovimenti({ transactions, accounts }: { transactions: TransactionT[]
             <option value="yes">Riconciliati</option>
             <option value="no">Non riconciliati</option>
           </select>
+          <select value={filterCausale} onChange={e => setFilterCausale(e.target.value)} title="Filtra per causale"
+            className="px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 max-w-[200px]">
+            <option value="all">Tutte le causali</option>
+            {causaliDisponibili.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
           <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" title="Da data" />
           <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" title="A data" />
-          <button onClick={() => setPage(1)} className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white">
+          <button onClick={handleCerca} className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white">
             <Search size={14} /> Cerca
           </button>
           <button onClick={handleExportPDF} className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-50" title="Esporta in PDF">
