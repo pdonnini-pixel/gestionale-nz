@@ -1701,8 +1701,16 @@ function TabMovimenti({ transactions, accounts }: { transactions: TransactionT[]
                         </div>
                       </td>
                       <td className="px-4 py-3 text-slate-900 max-w-[300px]">
-                        <div className="truncate" title={t.description ?? undefined}>{t.description || '\u2014'}</div>
-                        {Boolean(t.counterpart_name) && <div className="text-xs text-slate-400 truncate">{String(t.counterpart_name)}</div>}
+                        {/* Hover description \u2192 tooltip ricco immediato con full text */}
+                        <div className="relative group">
+                          <div className="truncate cursor-help">{t.description || '\u2014'}</div>
+                          {Boolean(t.description) && String(t.description).length > 40 && (
+                            <div className="pointer-events-none absolute left-0 top-full mt-1 z-20 hidden group-hover:block bg-slate-900 text-white text-xs rounded-lg px-3 py-2 shadow-xl max-w-md w-max whitespace-normal break-words">
+                              {String(t.description)}
+                            </div>
+                          )}
+                        </div>
+                        {Boolean(t.counterpart_name) && <div className="text-xs text-slate-400 truncate" title={String(t.counterpart_name)}>{String(t.counterpart_name)}</div>}
                       </td>
                       <td className={classNames('px-4 py-3 text-right font-semibold whitespace-nowrap', (Number(t.amount) || 0) >= 0 ? 'text-emerald-600' : 'text-red-600')}>
                         {(Number(t.amount) || 0) >= 0 ? '+' : ''}{fmt(t.amount)}
