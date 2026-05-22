@@ -1572,9 +1572,9 @@ function TabMovimenti({ transactions, accounts }: { transactions: TransactionT[]
   })
   const [dateTo, setDateTo] = useState(() => new Date().toISOString().slice(0, 10))
   const [page, setPage] = useState(1)
+  const [perPage, setPerPage] = useState(50) // 50/100/250 selezionabile (default 50)
   const [sortField, setSortField] = useState<keyof TransactionT | string>('transaction_date')
   const [sortDir, setSortDir] = useState('desc')
-  const PER_PAGE = 25
 
   const filtered = useMemo<TransactionT[]>(() => {
     let items = [...transactions]
@@ -1608,9 +1608,13 @@ function TabMovimenti({ transactions, accounts }: { transactions: TransactionT[]
     return items
   }, [transactions, search, filterAccount, filterType, filterCausale, filterReconciled, dateFrom, dateTo, sortField, sortDir])
 
-  const totalPages = Math.ceil(filtered.length / PER_PAGE) || 1
-  const pageItems = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE)
+  const totalPages = Math.ceil(filtered.length / perPage) || 1
+  const pageItems = filtered.slice((page - 1) * perPage, page * perPage)
+  const rangeStart = filtered.length === 0 ? 0 : (page - 1) * perPage + 1
+  const rangeEnd = Math.min(page * perPage, filtered.length)
 
+  const totalEntrate = useMemo(() => filtered.reduce<number>((s, t) => s + ((t.amount || 0) > 0 ? (t.amount || 0) : 0), 0), [filtered])
+  const totalUscite = useMemo(() => filtered.reduce<number>((s, t) => s + ((t.amount || 0) < 0 ? Math.abs(t.amount || 0) : 0), 0), [filtered])
   const totalFiltered = useMemo(() => filtered.reduce<number>((s, t) => s + (t.amount || 0), 0), [filtered])
 
   const handleSort = (field: string) => {
@@ -1623,7 +1627,21 @@ function TabMovimenti({ transactions, accounts }: { transactions: TransactionT[]
     return sortDir === 'asc' ? <ChevronUp size={12} className="text-blue-600" /> : <ChevronDown size={12} className="text-blue-600" />
   }
 
-  useEffect(() => { setPage(1) }, [search, filterAccount, filterType, filterCausale, filterReconciled, dateFrom, dateTo])
+  useEffect(() => { setPage(1) }, [search, filterAccount, filterType, filterCausale, filterReconciled, dateFrom, dateTo, perPage])
+
+  // Reset di TUTTI i filtri ai valori di default (utile quando i numeri non tornano)
+  const handleResetFilters = () => {
+    setSearchInput('')
+    setSearch('')
+    setFilterAccount('all')
+    setFilterType('all')
+    setFilterCausale('all')
+    setFilterReconciled('all')
+    const d = new Date()
+    setDateFrom(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`)
+    setDateTo(new Date().toISOString().slice(0, 10))
+    setPage(1)
+  }
 
   // Causali distinte presenti nei dati (da raw_data.category A-Cube, altrimenti prima parola descrizione)
   const causaliDisponibili = useMemo(() => {
@@ -1750,6 +1768,9 @@ function TabMovimenti({ transactions, accounts }: { transactions: TransactionT[]
           <button onClick={handleCerca} className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white">
             <Search size={14} /> Cerca
           </button>
+          <button onClick={handleResetFilters} title="Ripristina tutti i filtri al default (mese corrente, tutti i conti)" className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-50">
+            Pulisci filtri
+          </button>
           <button onClick={handleExportPDF} className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-50" title="Esporta in PDF">
             <Download size={14} /> PDF
           </button>
@@ -1760,10 +1781,33 @@ function TabMovimenti({ transactions, accounts }: { transactions: TransactionT[]
             <Download size={14} /> Excel
           </button>
         </div>
-        <div className="flex items-center gap-4 mt-3 text-xs text-slate-500">
-          <span><strong className="text-slate-900">{filtered.length}</strong> movimenti totali</span>
-          <span>Saldo netto filtrato: <strong className={totalFiltered >= 0 ? 'text-emerald-600' : 'text-red-600'}>{fmt(totalFiltered)} &euro;</strong></span>
+        {/* Riga 1: riepilogo numeri (sempre dei filtri attivi) */}
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-1 mt-3 text-xs">
+          <span className="text-slate-600"><strong className="text-slate-900">{filtered.length.toLocaleString('it-IT')}</strong> movimenti dal <strong>{fmtDate(dateFrom) || '—'}</strong> al <strong>{fmtDate(dateTo) || '—'}</strong></span>
+          <span className="text-slate-400">·</span>
+          <span className="text-slate-600">Entrate <strong className="text-emerald-600">+{fmt(totalEntrate)} €</strong></span>
+          <span className="text-slate-600">Uscite <strong className="text-red-600">−{fmt(totalUscite)} €</strong></span>
+          <span className="text-slate-600">Netto <strong className={totalFiltered >= 0 ? 'text-emerald-600' : 'text-red-600'}>{totalFiltered >= 0 ? '+' : ''}{fmt(totalFiltered)} €</strong></span>
         </div>
+        {/* Riga 2: paginazione + per-page selector */}
+        <div className="flex flex-wrap items-center justify-between gap-3 mt-2 text-xs text-slate-500">
+          <span>
+            {filtered.length === 0 ? 'Nessun risultato' : <>Mostrati <strong className="text-slate-900">{rangeStart.toLocaleString('it-IT')}–{rangeEnd.toLocaleString('it-IT')}</strong> di <strong className="text-slate-900">{filtered.length.toLocaleString('it-IT')}</strong></>}
+          </span>
+          <div className="flex items-center gap-2">
+            <label className="text-slate-500">Per pagina</label>
+            <select value={perPage} onChange={e => setPerPage(Number(e.target.value))} className="px-2 py-1 border border-slate-200 rounded-md text-xs focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <option value={50}>50</option>
+              <option value={100}>100</option>
+              <option value={250}>250</option>
+            </select>
+          </div>
+        </div>
+        {transactions.length >= 10000 && (
+          <div className="mt-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
+            Stai vedendo i 10.000 movimenti più recenti. Restringi il periodo per non perdere dati storici.
+          </div>
+        )}
       </div>
 
       {/* Table */}
@@ -2843,7 +2887,7 @@ export default function TesoreriaManuale() {
       try {
         const [acctRes, txRes, payRes, batchRes, itemsRes] = await Promise.all([
           supabase.from('bank_accounts').select('*').eq('company_id', companyId).order('bank_name'),
-          supabase.from('bank_transactions').select('*').eq('company_id', companyId).order('transaction_date', { ascending: false }).limit(2000),
+          supabase.from('bank_transactions').select('*').eq('company_id', companyId).order('transaction_date', { ascending: false }).limit(10000),
           supabase.from('payables').select('*, suppliers(id, name, ragione_sociale, iban)').eq('company_id', companyId).order('due_date'),
           supabase.from('payment_batches').select('*').eq('company_id', companyId).order('created_at', { ascending: false }),
           supabase.from('payment_batch_items').select('*').eq('company_id', companyId).order('priority'),
