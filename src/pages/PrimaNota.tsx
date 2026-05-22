@@ -111,13 +111,19 @@ export default function PrimaNota() {
       const baseMovs = (data as unknown as Movement[]) ?? []
 
       // Fetch separato payables collegati. types stale per bank_transaction_id (col aggiunta in 028).
+      // CHUNKED: PostgREST IN() ha limite ~16KB URL → spacchetta in batch da 200 UUID
       const btIds = baseMovs.map(m => m.id).filter(Boolean)
+      const payMap = new Map<string, { invoice_number: string | null; supplier_name: string | null; supplier_vat: string | null }>()
       if (btIds.length > 0) {
-        const { data: payRows } = await (supabase
+        const CHUNK = 200
+        const chunks: string[][] = []
+        for (let i = 0; i < btIds.length; i += CHUNK) chunks.push(btIds.slice(i, i + CHUNK))
+        const results = await Promise.all(chunks.map(chunk => (supabase
           .from('payables') as unknown as { select: (s: string) => { in: (k: string, v: string[]) => Promise<{ data: Array<Record<string, unknown>> | null }> } })
           .select('bank_transaction_id, invoice_number, supplier_name, supplier_vat')
-          .in('bank_transaction_id', btIds)
-        const payMap = new Map<string, { invoice_number: string | null; supplier_name: string | null; supplier_vat: string | null }>()
+          .in('bank_transaction_id', chunk)
+        ))
+        const payRows = results.flatMap(r => r.data ?? [])
         ;(payRows ?? []).forEach((p) => {
           const btId = p.bank_transaction_id as string | null
           if (btId) payMap.set(btId, {
