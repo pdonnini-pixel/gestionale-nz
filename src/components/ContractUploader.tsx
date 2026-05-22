@@ -186,7 +186,7 @@ function AllegatiChecklist({ allegati, uploadedFiles, onFileUpload }: { allegati
                   Allegato {a.code} — {a.description || defaultLabels[a.code] || 'Documento'}
                 </div>
                 {file && (
-                  <div className="text-xs text-emerald-600 truncate">{file.name}</div>
+                  <div className="text-xs text-emerald-600 truncate" title={file.name}>{file.name}</div>
                 )}
               </div>
               {!file && (

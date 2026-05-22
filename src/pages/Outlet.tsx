@@ -649,7 +649,7 @@ function DocumentArchive({ outletId, companyId }: { outletId: string; companyId:
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-5xl overflow-hidden flex flex-col" style={{ height: '90vh' }} onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between p-4 border-b border-slate-200 shrink-0">
               <div className="flex-1 min-w-0">
-                <h3 className="text-lg font-semibold text-slate-900 truncate">{String(previewDoc.file_name || '')}</h3>
+                <h3 className="text-lg font-semibold text-slate-900 truncate" title={String(previewDoc.file_name || '')}>{String(previewDoc.file_name || '')}</h3>
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 <button
@@ -730,7 +730,7 @@ function DocumentArchive({ outletId, companyId }: { outletId: string; companyId:
                   <div key={v.id} className="flex items-center gap-3 p-3 rounded-lg border border-slate-200 text-sm">
                     <div className="p-1.5 rounded bg-slate-100 text-slate-500 text-xs font-mono">v{String(v.version_number || '')}</div>
                     <div className="flex-1 min-w-0">
-                      <div className="text-slate-700 truncate">{String(v.file_name || '')}</div>
+                      <div className="text-slate-700 truncate" title={String(v.file_name || '')}>{String(v.file_name || '')}</div>
                       <div className="text-xs text-slate-400">
                         {v.created_at ? new Date(String(v.created_at)).toLocaleString('it-IT') : ''}
                         {v.uploaded_by_name ? ` — ${String(v.uploaded_by_name)}` : ''}
@@ -1148,7 +1148,7 @@ function OutletAllegati({ outletId, companyId }: { outletId: string; companyId: 
               <div className="flex-1 min-w-0">
                 <div className="text-sm font-medium text-slate-900">{String(att.label || '')}</div>
                 {att.is_uploaded && att.file_name ? (
-                  <div className="text-xs text-emerald-600 truncate">{String(att.file_name)}</div>
+                  <div className="text-xs text-emerald-600 truncate" title={String(att.file_name)}>{String(att.file_name)}</div>
                 ) : uploading === att.id ? (
                   <div className="text-xs text-blue-600">Caricamento in corso...</div>
                 ) : (
@@ -1204,8 +1204,8 @@ function OutletAllegati({ outletId, companyId }: { outletId: string; companyId: 
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-5xl overflow-hidden flex flex-col" style={{ height: '90vh' }} onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between p-4 border-b border-slate-200 shrink-0">
               <div className="flex-1 min-w-0">
-                <h3 className="text-lg font-semibold text-slate-900 truncate">{String(previewAtt.label || '')}</h3>
-                {Boolean(previewAtt.file_name) && <p className="text-xs text-slate-500 truncate">{String(previewAtt.file_name)}</p>}
+                <h3 className="text-lg font-semibold text-slate-900 truncate" title={String(previewAtt.label || '')}>{String(previewAtt.label || '')}</h3>
+                {Boolean(previewAtt.file_name) && <p className="text-xs text-slate-500 truncate" title={String(previewAtt.file_name)}>{String(previewAtt.file_name)}</p>}
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 <button
@@ -1667,7 +1667,7 @@ function OutletDetail({ outlet, revenue, onBack, onEdit, onDelete }: { outlet: O
         </button>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-3">
-            <h2 className="text-xl sm:text-2xl font-bold text-slate-900 truncate">{formatOutletName(outlet.name)}</h2>
+            <h2 className="text-xl sm:text-2xl font-bold text-slate-900 truncate" title={formatOutletName(outlet.name)}>{formatOutletName(outlet.name)}</h2>
             <StatusBadge outlet={outlet} isActive={outlet.is_active ?? undefined} />
           </div>
           <p className="text-xs sm:text-sm text-slate-500">

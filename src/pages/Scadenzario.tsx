@@ -1442,7 +1442,7 @@ export default function Scadenzario() {
                           <td className="py-2 px-3 text-right font-medium">{fmt(a.amount as number | null | undefined)} €</td>
                           <td className="py-2 px-3 text-xs">{paymentMethodLabels[String(a.payment_method ?? '')] || '—'}</td>
                           <td className="py-2 px-3 text-xs">{bankName || '—'}</td>
-                          <td className="py-2 px-3 text-xs text-slate-500 max-w-48 truncate">{String(a.note || '—')}</td>
+                          <td className="py-2 px-3 text-xs text-slate-500 max-w-48 truncate" title={String(a.note || '—')}>{String(a.note || '—')}</td>
                           <td className="py-2 px-3 text-center">
                             {isReconciled
                               ? <CheckCircle2 size={16} className="text-green-600 mx-auto" />

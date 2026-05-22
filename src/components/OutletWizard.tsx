@@ -445,7 +445,7 @@ function StepAllegati({ allegati, contractFileName, uploadedFiles, onFileUpload 
                     Allegato {a.code} — {a.description || defaultLabels[a.code] || 'Documento'}
                   </div>
                   {file ? (
-                    <div className="text-xs text-emerald-600 truncate">{file.name} ({(file.size / 1024).toFixed(0)} KB)</div>
+                    <div className="text-xs text-emerald-600 truncate" title={`${file.name} (${(file.size / 1024).toFixed(0)} KB)`}>{file.name} ({(file.size / 1024).toFixed(0)} KB)</div>
                   ) : (
                     <div className="text-xs text-amber-600 mt-0.5">Clicca per caricare</div>
                   )}

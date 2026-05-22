@@ -457,7 +457,7 @@ function Kpi({ icon: Icon, label, value, sub, color = 'indigo', alert }: { icon:
       <div className="flex items-center gap-3">
         <div className={`p-2 rounded-lg ${cm[color]||cm.indigo}`}><Icon size={18} /></div>
         <div className="min-w-0">
-          <div className="text-lg font-bold text-slate-900 truncate">{value}</div>
+          <div className="text-lg font-bold text-slate-900 truncate" title={value}>{value}</div>
           <div className="text-xs text-slate-500">{label}</div>
           {sub && <div className="text-xs text-slate-400">{sub}</div>}
         </div>
@@ -2234,7 +2234,7 @@ function ConfrontoRow({ prevNode, consNode, rettNode, depth = 0, consEdits, onCo
           <span className="w-3 shrink-0 text-[10px] text-slate-400">{hasKids ? (open ? '▾' : '▸') : ''}</span>
           <span className={`font-mono text-slate-400 shrink-0 ${isMacro ? 'text-[11px] font-bold' : 'text-[10px]'}`}
             style={{ width: prevNode.code?.length > 4 ? '46px' : '24px' }}>{prevNode.code}</span>
-          <span className={`truncate ${isMacro ? 'text-[11px] font-bold text-slate-900' : 'text-[10px] text-slate-600'}`}>{prevNode.description}</span>
+          <span className={`truncate ${isMacro ? 'text-[11px] font-bold text-slate-900' : 'text-[10px] text-slate-600'}`} title={prevNode.description}>{prevNode.description}</span>
         </div>
         {/* Preventivo (bloccato) */}
         <span className={`tabular-nums text-right text-[10px] ${isMacro ? 'font-bold text-indigo-700' : 'text-indigo-500'}`}>{fmt(pv)}</span>

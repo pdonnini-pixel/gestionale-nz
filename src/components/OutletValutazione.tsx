@@ -53,7 +53,7 @@ function TreeNodeEdit({ node, depth = 0, edits, onEdit }: { node: CETreeNode; de
         <span className="w-4 shrink-0 text-center text-[10px] text-slate-400">{hasKids ? (open ? '▾' : '▸') : ''}</span>
         <span className={`font-mono text-slate-400 shrink-0 ml-0.5 ${isMacro ? 'text-[11px] font-bold' : 'text-[10px]'}`}
           style={{ width: node.code && node.code.length > 4 ? '50px' : '26px' }}>{node.code}</span>
-        <span className={`truncate ml-1 flex-1 ${isMacro ? 'text-[11px] font-bold text-slate-900' : 'text-[11px] text-slate-600'}`}>{description}</span>
+        <span className={`truncate ml-1 flex-1 ${isMacro ? 'text-[11px] font-bold text-slate-900' : 'text-[11px] text-slate-600'}`} title={description}>{description}</span>
         {isLeaf ? (
           <input type="text" inputMode="numeric"
             value={isEdited ? val : (val || '')}
