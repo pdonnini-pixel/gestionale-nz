@@ -1548,8 +1548,12 @@ function TabMovimenti({ transactions, accounts }: { transactions: TransactionT[]
   const [filterAccount, setFilterAccount] = useState('all')
   const [filterType, setFilterType] = useState('all') // all, entrata, uscita
   const [filterReconciled, setFilterReconciled] = useState('all') // all, yes, no
-  const [dateFrom, setDateFrom] = useState('')
-  const [dateTo, setDateTo] = useState('')
+  // Default: dal primo del mese a oggi (modificabile)
+  const [dateFrom, setDateFrom] = useState(() => {
+    const d = new Date()
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`
+  })
+  const [dateTo, setDateTo] = useState(() => new Date().toISOString().slice(0, 10))
   const [page, setPage] = useState(1)
   const [sortField, setSortField] = useState<keyof TransactionT | string>('transaction_date')
   const [sortDir, setSortDir] = useState('desc')
@@ -1603,25 +1607,75 @@ function TabMovimenti({ transactions, accounts }: { transactions: TransactionT[]
 
   useEffect(() => { setPage(1) }, [search, filterAccount, filterType, filterReconciled, dateFrom, dateTo])
 
-  const handleExportCSV = () => {
-    const headers = ['Data', 'Descrizione', 'Importo', 'Saldo', 'Conto', 'Riconciliato']
+  // Helper: build rows array per export (riusabile da CSV / XLSX / PDF)
+  const buildExportRows = () => {
+    const headers = ['Data', 'Banca', 'Descrizione', 'Importo', 'Saldo', 'Riconciliato']
     const rows = filtered.map(t => {
       const acct = accounts.find(a => a.id === t.bank_account_id)
       return [
         fmtDate(t.transaction_date),
-        `"${(t.description || '').replace(/"/g, '""')}"`,
-        (t.amount || 0).toFixed(2).replace('.', ','),
-        (t.running_balance != null ? Number(t.running_balance).toFixed(2).replace('.', ',') : ''),
-        acct?.account_name || acct?.bank_name || '',
-        t.is_reconciled ? 'Si' : 'No',
-      ].join(';')
+        (acct?.bank_name as string | undefined) || (acct?.account_name as string | undefined) || '',
+        String(t.description || ''),
+        Number(t.amount) || 0,
+        t.running_balance != null ? Number(t.running_balance) : '',
+        t.is_reconciled ? 'S\u00EC' : 'No',
+      ]
     })
-    const csv = [headers.join(';'), ...rows].join('\n')
+    return { headers, rows }
+  }
+
+  const handleExportCSV = () => {
+    const { headers, rows } = buildExportRows()
+    const csvRows = rows.map(r => r.map((v, i) => {
+      if (i === 3 || i === 4) return typeof v === 'number' ? v.toFixed(2).replace('.', ',') : v
+      return `"${String(v).replace(/"/g, '""')}"`
+    }).join(';'))
+    const csv = [headers.join(';'), ...csvRows].join('\n')
     const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
-    a.href = url; a.download = `movimenti_${new Date().toISOString().split('T')[0]}.csv`
+    a.href = url; a.download = `movimenti_${new Date().toISOString().slice(0,10)}.csv`
     a.click(); URL.revokeObjectURL(url)
+  }
+
+  const handleExportXLSX = async () => {
+    const XLSX = await import('xlsx')
+    const { headers, rows } = buildExportRows()
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...rows])
+    ws['!cols'] = [{ wch: 12 }, { wch: 28 }, { wch: 60 }, { wch: 12 }, { wch: 12 }, { wch: 12 }]
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Movimenti')
+    XLSX.writeFile(wb, `movimenti_${new Date().toISOString().slice(0,10)}.xlsx`)
+  }
+
+  // PDF via browser print (utente sceglie "Salva come PDF" nel dialog di stampa)
+  const handleExportPDF = () => {
+    const { headers, rows } = buildExportRows()
+    const w = window.open('', '_blank', 'width=900,height=700')
+    if (!w) return
+    const escape = (s: string | number) => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] || c))
+    const trs = rows.map(r => `<tr>${r.map((v, i) => {
+      const cls = (i === 3 || i === 4) ? 'num' : ''
+      const display = (i === 3 || i === 4) && typeof v === 'number' ? v.toFixed(2).replace('.', ',') : String(v)
+      return `<td class="${cls}">${escape(display)}</td>`
+    }).join('')}</tr>`).join('')
+    w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Movimenti bancari</title>
+      <style>
+        body { font-family: -apple-system, system-ui, sans-serif; padding: 20px; color: #111827; }
+        h1 { font-size: 16px; margin: 0 0 4px; }
+        .meta { font-size: 10px; color: #6b7280; margin-bottom: 14px; }
+        table { width: 100%; border-collapse: collapse; font-size: 9px; }
+        th { background: #2563eb; color: white; padding: 6px; text-align: left; font-weight: 600; }
+        td { padding: 5px 6px; border-bottom: 1px solid #e5e7eb; }
+        td.num { text-align: right; white-space: nowrap; }
+        @media print { @page { size: A4 landscape; margin: 10mm; } }
+      </style></head><body>
+      <h1>Movimenti bancari</h1>
+      <div class="meta">Periodo: ${escape(fmtDate(dateFrom) || '\u2014')} \u2192 ${escape(fmtDate(dateTo) || '\u2014')} \u2022 ${filtered.length} movimenti \u2022 Saldo netto: ${escape(fmt(totalFiltered))} \u20AC</div>
+      <table><thead><tr>${headers.map(h => `<th>${escape(h)}</th>`).join('')}</tr></thead><tbody>${trs}</tbody></table>
+      <script>setTimeout(() => window.print(), 250);</script>
+      </body></html>`)
+    w.document.close()
   }
 
   return (
@@ -1638,7 +1692,7 @@ function TabMovimenti({ transactions, accounts }: { transactions: TransactionT[]
             className="px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
             <option value="all">Tutti i conti</option>
             {accounts.filter(a => a.is_active !== false).map(a => (
-              <option key={a.id} value={a.id}>{a.account_name || a.bank_name}</option>
+              <option key={a.id} value={a.id}>{(a.bank_name as string | undefined) || (a.account_name as string | undefined) || 'Conto'}</option>
             ))}
           </select>
           <select value={filterType} onChange={e => setFilterType(e.target.value)}
@@ -1655,12 +1709,21 @@ function TabMovimenti({ transactions, accounts }: { transactions: TransactionT[]
           </select>
           <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" title="Da data" />
           <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" title="A data" />
-          <button onClick={handleExportCSV} className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-50">
+          <button onClick={() => setPage(1)} className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white">
+            <Search size={14} /> Cerca
+          </button>
+          <button onClick={handleExportPDF} className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-50" title="Esporta in PDF">
+            <Download size={14} /> PDF
+          </button>
+          <button onClick={handleExportCSV} className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-50" title="Esporta in CSV">
             <Download size={14} /> CSV
+          </button>
+          <button onClick={handleExportXLSX} className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-50" title="Esporta in Excel">
+            <Download size={14} /> Excel
           </button>
         </div>
         <div className="flex items-center gap-4 mt-3 text-xs text-slate-500">
-          <span>{filtered.length} movimenti</span>
+          <span><strong className="text-slate-900">{filtered.length}</strong> movimenti totali</span>
           <span>Saldo netto filtrato: <strong className={totalFiltered >= 0 ? 'text-emerald-600' : 'text-red-600'}>{fmt(totalFiltered)} &euro;</strong></span>
         </div>
       </div>
@@ -1697,7 +1760,7 @@ function TabMovimenti({ transactions, accounts }: { transactions: TransactionT[]
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
                           <div className="w-2 h-2 rounded-full" style={{ backgroundColor: (acct?.color as string | undefined) || '#94a3b8' }} />
-                          <span className="text-slate-600 text-xs truncate max-w-[100px]">{acct?.account_name || acct?.bank_name || '\u2014'}</span>
+                          <span className="text-slate-600 text-xs truncate max-w-[160px]" title={String(acct?.account_name || acct?.iban || '')}>{(acct?.bank_name as string | undefined) || (acct?.account_name as string | undefined) || '\u2014'}</span>
                         </div>
                       </td>
                       <td className="px-4 py-3 text-slate-900 max-w-[300px]">
