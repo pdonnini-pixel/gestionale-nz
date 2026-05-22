@@ -94,7 +94,7 @@ function SdiLegend({ tipo }: { tipo: 'passive' | 'active' }) {
               <Icon size={12} />
               {cfg.label}
             </span>
-            <span className="text-xs text-slate-600 hidden lg:inline max-w-[280px] truncate">{it.what}</span>
+            <span className="text-xs text-slate-600 hidden lg:inline max-w-[280px] truncate" title={it.what}>{it.what}</span>
           </div>
         )
       })}

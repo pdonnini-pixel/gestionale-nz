@@ -738,8 +738,8 @@ function TabPanoramica({ accounts, transactions, payables, onNavigate }: { accou
                       {days === 0 ? 'Oggi' : days === 1 ? 'Domani' : `${days}gg`}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium text-slate-900 truncate">{getSupplierName(p)}</div>
-                      <div className="text-xs text-slate-400">{String(p.invoice_number || '')} - Scadenza {fmtDate(p.due_date)}</div>
+                      <div className="text-sm font-medium text-slate-900 truncate" title={getSupplierName(p)}>{getSupplierName(p)}</div>
+                      <div className="text-xs text-slate-400" title={String(p.invoice_number || '')}>{String(p.invoice_number || '')} - Scadenza {fmtDate(p.due_date)}</div>
                     </div>
                     <div className="text-sm font-semibold text-slate-900 whitespace-nowrap">{fmt(remaining)} &euro;</div>
                   </div>
@@ -773,7 +773,7 @@ function TabPanoramica({ accounts, transactions, payables, onNavigate }: { accou
                       {amt >= 0 ? <ArrowDownLeft size={14} className="text-emerald-600" /> : <ArrowUpRight size={14} className="text-red-500" />}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium text-slate-900 truncate">{(m.description as string | null) || (m.counterpart_name as string | null) || 'Movimento'}</div>
+                      <div className="text-sm font-medium text-slate-900 truncate" title={(m.description as string | null) || (m.counterpart_name as string | null) || 'Movimento'}>{(m.description as string | null) || (m.counterpart_name as string | null) || 'Movimento'}</div>
                       <div className="text-xs text-slate-400">{fmtDate(m.transaction_date)} {acct ? `\u2022 ${acct.account_name || acct.bank_name}` : ''}</div>
                     </div>
                     <div className={classNames('text-sm font-semibold whitespace-nowrap', amt >= 0 ? 'text-emerald-600' : 'text-red-600')}>
@@ -1333,7 +1333,7 @@ function UploadStatementModal({ isOpen, onClose, account, companyId, onImported 
                 {preview.map((row, i) => (
                   <tr key={i} className="hover:bg-slate-50">
                     <td className="px-3 py-2 text-slate-700">{fmtDate(row.date)}</td>
-                    <td className="px-3 py-2 text-slate-700 max-w-[250px] truncate">{row.description}</td>
+                    <td className="px-3 py-2 text-slate-700 max-w-[250px] truncate" title={row.description}>{row.description}</td>
                     <td className={classNames('px-3 py-2 text-right font-medium', row.amount >= 0 ? 'text-emerald-600' : 'text-red-600')}>
                       {row.amount >= 0 ? '+' : ''}{fmt(row.amount)}
                     </td>
@@ -2027,7 +2027,7 @@ function TabPagamenti({ payables, accounts, companyId, onRefresh, preSelectId }:
                           <input type="checkbox" checked={!!selected[p.id]} onChange={() => toggleSelect(p.id)} className="rounded border-slate-300" />
                         </td>
                         <td className="px-4 py-3">
-                          <div className="font-medium text-slate-900 truncate max-w-[180px]">{getSupplierName(p)}</div>
+                          <div className="font-medium text-slate-900 truncate max-w-[180px]" title={getSupplierName(p)}>{getSupplierName(p)}</div>
                         </td>
                         <td className="px-4 py-3 text-slate-600 text-xs">{String(p.invoice_number || '\u2014')}</td>
                         <td className="px-4 py-3">
@@ -2072,8 +2072,8 @@ function TabPagamenti({ payables, accounts, companyId, onRefresh, preSelectId }:
                   return (
                     <div key={p.id} className="flex items-center justify-between py-2 px-3 bg-blue-50 rounded-lg">
                       <div className="min-w-0 flex-1">
-                        <div className="text-sm font-medium text-slate-800 truncate">{getSupplierName(p)}</div>
-                        <div className="text-xs text-slate-400">{String(p.invoice_number || '')}</div>
+                        <div className="text-sm font-medium text-slate-800 truncate" title={getSupplierName(p)}>{getSupplierName(p)}</div>
+                        <div className="text-xs text-slate-400" title={String(p.invoice_number || '')}>{String(p.invoice_number || '')}</div>
                       </div>
                       <div className="text-sm font-semibold text-slate-900 whitespace-nowrap ml-2">{fmt(remaining)} &euro;</div>
                       <button onClick={() => toggleSelect(p.id)} className="ml-2 p-1 hover:bg-red-100 rounded text-slate-400 hover:text-red-500">
@@ -2648,7 +2648,7 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
                       <ArrowUpRight size={14} className="text-red-500" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium text-slate-900 truncate">{m.description || 'Movimento'}</div>
+                      <div className="text-sm font-medium text-slate-900 truncate" title={String(m.description || 'Movimento')}>{m.description || 'Movimento'}</div>
                       <div className="text-xs text-slate-400">
                         {fmtDate(m.transaction_date)} {acct ? `\u2022 ${acct.account_name || acct.bank_name}` : ''}
                         {m.counterpart_name && ` \u2022 ${m.counterpart_name}`}
@@ -2779,7 +2779,7 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
                         className={`w-full text-left px-3 py-2 hover:bg-slate-50 flex items-center justify-between gap-3 ${isSelected ? 'bg-blue-50 ring-2 ring-blue-400' : ''}`}
                       >
                         <div className="min-w-0 flex-1">
-                          <div className="text-sm font-medium text-slate-900 truncate">{getSupplierName(p)}</div>
+                          <div className="text-sm font-medium text-slate-900 truncate" title={getSupplierName(p)}>{getSupplierName(p)}</div>
                           <div className="text-[11px] text-slate-500">
                             Fatt. {p.invoice_number || '—'} · Scad. {fmtDate ? fmtDate(p.due_date) : p.due_date}
                             {p.status && <span className="ml-2 text-slate-400">· {p.status}</span>}
