@@ -1,0 +1,1077 @@
+// ═══════════════════════════════════════════════════════════════════
+// Segnalazioni — modulo di ticket per Sabrina/Veronica
+//
+// Cosa fa:
+// - Permette di aprire una segnalazione (bug o nuova funzione) con
+//   titolo, descrizione, modulo coinvolto, priorità e (opz.) screenshot.
+// - Mostra la lista delle segnalazioni con stat cards + filtri.
+// - Vista dettaglio con stepper di stato, commenti AI/utente, azioni
+//   ("Prendi in carico", "Risolvi", "Riapri", "Chiudi").
+//
+// AutoFix:
+// - Un task scheduled Cowork legge i ticket aperti ogni ora, applica
+//   fix banali al codice e chiude il ticket lasciando un commento
+//   semplice per Sabrina + note_fix tecniche per Patrizio.
+// - Vedi `system_deploy_config` (Supabase) per la configurazione di
+//   deploy del task scheduled.
+//
+// Pattern NZ:
+// - Niente alert/confirm nativi: tutte le conferme via Modal custom.
+// - Toast via `useToast()` (vedi components/Toast.tsx).
+// - Solo Tailwind utility classes (no CSS custom).
+// ═══════════════════════════════════════════════════════════════════
+
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useNavigate, useParams, useLocation } from 'react-router-dom'
+import {
+  AlertCircle, ArrowLeft, Bug, Check, Clock, Eye, Filter, Image as ImageIcon,
+  MessageSquare, Plus, RefreshCw, Send, Sparkles, X,
+} from 'lucide-react'
+import { supabase } from '../lib/supabase'
+import { useToast } from '../components/Toast'
+import { useAuth } from '../hooks/useAuth'
+import { errorMessage } from '../types/business'
+import {
+  type Ticket, type TicketCommento, type TicketPriorita, type TicketStato,
+  type TicketTipo,
+  TICKET_MODULI, TICKET_PRIORITA_LABEL, TICKET_STATO_LABEL, TICKET_TIPO_LABEL,
+} from '../types/ticket'
+
+// ─────────────────────────────────────────────────────────────────
+// Utilities
+// ─────────────────────────────────────────────────────────────────
+
+function formatDate(iso: string | null): string {
+  if (!iso) return '—'
+  try {
+    const d = new Date(iso)
+    return d.toLocaleString('it-IT', {
+      day: '2-digit', month: '2-digit', year: 'numeric',
+      hour: '2-digit', minute: '2-digit',
+    })
+  } catch {
+    return iso
+  }
+}
+
+function shortId(id: string): string {
+  return id.slice(0, 8)
+}
+
+function priorityClasses(p: TicketPriorita): string {
+  switch (p) {
+    case 'alto':  return 'bg-red-100 text-red-800 border-red-200'
+    case 'medio': return 'bg-amber-100 text-amber-800 border-amber-200'
+    case 'basso': return 'bg-slate-100 text-slate-700 border-slate-200'
+  }
+}
+
+function statoClasses(s: TicketStato): string {
+  switch (s) {
+    case 'aperto':   return 'bg-blue-100 text-blue-800 border-blue-200'
+    case 'in_corso': return 'bg-amber-100 text-amber-800 border-amber-200'
+    case 'risolto':  return 'bg-emerald-100 text-emerald-800 border-emerald-200'
+    case 'chiuso':   return 'bg-slate-100 text-slate-700 border-slate-200'
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────
+// PhaseStepper — stepper visuale 3 step (in attesa → in corso → risolto)
+// ─────────────────────────────────────────────────────────────────
+
+function PhaseStepper({ stato }: { stato: TicketStato }) {
+  if (stato === 'chiuso') {
+    return (
+      <div className="flex items-center gap-2 text-slate-500 text-sm">
+        <div className="w-3 h-3 rounded-full bg-slate-400" />
+        <span>Chiuso</span>
+      </div>
+    )
+  }
+  const steps: { key: TicketStato; label: string }[] = [
+    { key: 'aperto',   label: 'In attesa' },
+    { key: 'in_corso', label: 'In corso' },
+    { key: 'risolto',  label: 'Risolto' },
+  ]
+  const currentIdx = steps.findIndex(s => s.key === stato)
+  return (
+    <div className="flex items-center gap-1.5 text-xs">
+      {steps.map((step, idx) => {
+        const active = idx === currentIdx
+        const done = idx < currentIdx
+        const dotClass = done
+          ? 'bg-emerald-500'
+          : active
+            ? 'bg-blue-500 animate-pulse'
+            : 'bg-slate-300'
+        const lineClass = done ? 'bg-emerald-500' : 'bg-slate-200'
+        return (
+          <div key={step.key} className="flex items-center gap-1.5">
+            <div className={`w-2.5 h-2.5 rounded-full ${dotClass}`} title={step.label} />
+            {idx < steps.length - 1 && <div className={`w-6 h-0.5 ${lineClass}`} />}
+          </div>
+        )
+      })}
+      <span className="ml-2 text-slate-600 font-medium">{TICKET_STATO_LABEL[stato]}</span>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────
+// ConfirmModal — conferma azione distruttiva senza dialog nativi
+// ─────────────────────────────────────────────────────────────────
+
+interface ConfirmModalProps {
+  open: boolean
+  title: string
+  message: string
+  confirmLabel?: string
+  cancelLabel?: string
+  destructive?: boolean
+  onConfirm: () => void
+  onCancel: () => void
+}
+
+function ConfirmModal({
+  open, title, message,
+  confirmLabel = 'Conferma', cancelLabel = 'Annulla',
+  destructive, onConfirm, onCancel,
+}: ConfirmModalProps) {
+  if (!open) return null
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 px-4">
+      <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6">
+        <h3 className="text-lg font-semibold text-slate-900 mb-2">{title}</h3>
+        <p className="text-sm text-slate-600 mb-6">{message}</p>
+        <div className="flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg"
+          >
+            {cancelLabel}
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            className={`px-4 py-2 text-sm font-medium text-white rounded-lg ${
+              destructive ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700'
+            }`}
+          >
+            {confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Lightbox — preview screenshot full-size
+// ─────────────────────────────────────────────────────────────────
+
+function Lightbox({ url, onClose }: { url: string; onClose: () => void }) {
+  useEffect(() => {
+    const onEsc = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
+    window.addEventListener('keydown', onEsc)
+    return () => window.removeEventListener('keydown', onEsc)
+  }, [onClose])
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+      onClick={onClose}
+    >
+      <button
+        type="button"
+        onClick={onClose}
+        className="absolute top-4 right-4 text-white bg-white/10 hover:bg-white/20 rounded-full p-2"
+        aria-label="Chiudi anteprima"
+      >
+        <X className="w-6 h-6" />
+      </button>
+      <img
+        src={url}
+        alt="Screenshot segnalazione"
+        className="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      />
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────
+// CreateTicketModal — form apertura nuova segnalazione
+// ─────────────────────────────────────────────────────────────────
+
+interface CreateTicketModalProps {
+  open: boolean
+  onClose: () => void
+  onCreated: (t: Ticket) => void
+}
+
+function CreateTicketModal({ open, onClose, onCreated }: CreateTicketModalProps) {
+  const { toast } = useToast()
+  const { profile, session } = useAuth()
+  const [tipo, setTipo] = useState<TicketTipo>('bug')
+  const [modulo, setModulo] = useState<string>('Altro')
+  const [titolo, setTitolo] = useState('')
+  const [descrizione, setDescrizione] = useState('')
+  const [priorita, setPriorita] = useState<TicketPriorita>('medio')
+  const [screenshot, setScreenshot] = useState<File | null>(null)
+  const [submitting, setSubmitting] = useState(false)
+
+  useEffect(() => {
+    if (!open) {
+      setTipo('bug'); setModulo('Altro'); setTitolo(''); setDescrizione('')
+      setPriorita('medio'); setScreenshot(null); setSubmitting(false)
+    }
+  }, [open])
+
+  if (!open) return null
+
+  const autoreLabel: string =
+    (profile?.full_name as string | undefined) ??
+    (session?.user?.email as string | undefined) ??
+    'Utente'
+  const autoreId = session?.user?.id ?? null
+
+  const submit = async () => {
+    const titoloTrim = titolo.trim()
+    if (titoloTrim.length < 3) {
+      toast({ type: 'warning', message: 'Inserisci un titolo (min. 3 caratteri)' })
+      return
+    }
+    setSubmitting(true)
+    try {
+      const { data: inserted, error: insertErr } = await supabase
+        .from('tickets' as never)
+        .insert({
+          tipo, modulo, titolo: titoloTrim,
+          descrizione: descrizione.trim() || null,
+          priorita, autore: autoreLabel, autore_id: autoreId,
+        } as never)
+        .select('*')
+        .single()
+
+      if (insertErr || !inserted) {
+        throw new Error(errorMessage(insertErr, 'Impossibile salvare la segnalazione'))
+      }
+      let ticket = inserted as unknown as Ticket
+
+      // Upload screenshot (se presente)
+      if (screenshot) {
+        const path = `tickets/${ticket.id}.webp`
+        const { error: upErr } = await supabase.storage
+          .from('media')
+          .upload(path, screenshot, { upsert: true, contentType: screenshot.type })
+        if (upErr) {
+          toast({
+            type: 'warning',
+            message: `Segnalazione creata, ma upload screenshot fallito: ${upErr.message}`,
+          })
+        } else {
+          const { data: pub } = supabase.storage.from('media').getPublicUrl(path)
+          const url = pub.publicUrl
+          const { data: updated } = await supabase
+            .from('tickets' as never)
+            .update({ screenshot_url: url } as never)
+            .eq('id', ticket.id)
+            .select('*')
+            .single()
+          if (updated) ticket = updated as unknown as Ticket
+        }
+      }
+
+      toast({ type: 'success', message: 'Segnalazione aperta correttamente' })
+      onCreated(ticket)
+      onClose()
+    } catch (e) {
+      toast({ type: 'error', message: errorMessage(e, 'Errore durante la creazione') })
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 overflow-y-auto">
+      <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full my-8">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
+          <h3 className="text-lg font-semibold text-slate-900">Nuova segnalazione</h3>
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-1 text-slate-400 hover:text-slate-700 rounded-lg"
+            aria-label="Chiudi"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="p-6 space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Tipo</label>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setTipo('bug')}
+                  className={`flex-1 px-3 py-2 text-sm rounded-lg border flex items-center justify-center gap-2 ${
+                    tipo === 'bug'
+                      ? 'bg-red-50 border-red-300 text-red-800'
+                      : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  <Bug className="w-4 h-4" /> Bug
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTipo('funzione')}
+                  className={`flex-1 px-3 py-2 text-sm rounded-lg border flex items-center justify-center gap-2 ${
+                    tipo === 'funzione'
+                      ? 'bg-blue-50 border-blue-300 text-blue-800'
+                      : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  <Sparkles className="w-4 h-4" /> Nuova funzione
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Modulo</label>
+              <select
+                value={modulo}
+                onChange={e => setModulo(e.target.value)}
+                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-200"
+              >
+                {TICKET_MODULI.map(m => (
+                  <option key={m} value={m}>{m}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">
+              Titolo <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              value={titolo}
+              onChange={e => setTitolo(e.target.value)}
+              maxLength={200}
+              placeholder="Es: il pulsante Salva non si vede in Banche"
+              className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-200"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">
+              Descrizione <span className="text-slate-400 font-normal">(opzionale)</span>
+            </label>
+            <textarea
+              value={descrizione}
+              onChange={e => setDescrizione(e.target.value)}
+              rows={4}
+              placeholder="Spiega cosa è successo o cosa vorresti aggiungere..."
+              className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-200"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Priorità</label>
+            <div className="flex gap-2">
+              {(['basso','medio','alto'] as TicketPriorita[]).map(p => (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => setPriorita(p)}
+                  className={`flex-1 px-3 py-2 text-sm rounded-lg border ${
+                    priorita === p
+                      ? `${priorityClasses(p)} border-current font-medium`
+                      : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  {TICKET_PRIORITA_LABEL[p]}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">
+              Screenshot <span className="text-slate-400 font-normal">(opzionale)</span>
+            </label>
+            <input
+              type="file"
+              accept="image/*"
+              onChange={e => setScreenshot(e.target.files?.[0] ?? null)}
+              className="w-full text-sm text-slate-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-sm file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+            />
+            {screenshot && (
+              <p className="text-xs text-slate-500 mt-1">
+                Selezionato: {screenshot.name} ({Math.round(screenshot.size / 1024)} KB)
+              </p>
+            )}
+          </div>
+        </div>
+
+        <div className="px-6 py-4 border-t border-slate-200 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={submitting}
+            className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg disabled:opacity-50"
+          >
+            Annulla
+          </button>
+          <button
+            type="button"
+            onClick={submit}
+            disabled={submitting}
+            className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg disabled:opacity-50 flex items-center gap-2"
+          >
+            {submitting && <RefreshCw className="w-4 h-4 animate-spin" />}
+            {submitting ? 'Salvataggio…' : 'Apri segnalazione'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────
+// StatCard
+// ─────────────────────────────────────────────────────────────────
+
+function StatCard({
+  label, value, icon, accent,
+}: {
+  label: string
+  value: number
+  icon: React.ReactNode
+  accent: string
+}) {
+  return (
+    <div className="bg-white border border-slate-200 rounded-xl p-4">
+      <div className="flex items-center gap-3">
+        <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${accent}`}>
+          {icon}
+        </div>
+        <div>
+          <div className="text-2xl font-semibold text-slate-900 leading-none">{value}</div>
+          <div className="text-xs text-slate-500 mt-1">{label}</div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────
+// TicketList — vista principale
+// ─────────────────────────────────────────────────────────────────
+
+interface TicketListProps {
+  tickets: Ticket[]
+  loading: boolean
+  onRefresh: () => void
+  onOpenDetail: (id: string) => void
+  onCreate: () => void
+  initialStato?: TicketStato | 'tutti'
+}
+
+function TicketList({
+  tickets, loading, onRefresh, onOpenDetail, onCreate, initialStato,
+}: TicketListProps) {
+  const [filtroStato, setFiltroStato] = useState<TicketStato | 'tutti'>(initialStato ?? 'tutti')
+  const [filtroTipo, setFiltroTipo] = useState<TicketTipo | 'tutti'>('tutti')
+  const [filtroModulo, setFiltroModulo] = useState<string>('tutti')
+
+  // Reagisce a navigation con state.initialStato (es. da banner "ticket risolti")
+  useEffect(() => {
+    if (initialStato) setFiltroStato(initialStato)
+  }, [initialStato])
+
+  const stats = useMemo(() => {
+    const s = { aperti: 0, in_corso: 0, risolti: 0, chiusi: 0, bug: 0, funzioni: 0 }
+    for (const t of tickets) {
+      if (t.stato === 'aperto') s.aperti++
+      else if (t.stato === 'in_corso') s.in_corso++
+      else if (t.stato === 'risolto') s.risolti++
+      else if (t.stato === 'chiuso') s.chiusi++
+      if (t.tipo === 'bug') s.bug++
+      else s.funzioni++
+    }
+    return s
+  }, [tickets])
+
+  const filtered = useMemo(() => {
+    return tickets.filter(t => {
+      if (filtroStato !== 'tutti' && t.stato !== filtroStato) return false
+      if (filtroTipo !== 'tutti' && t.tipo !== filtroTipo) return false
+      if (filtroModulo !== 'tutti' && t.modulo !== filtroModulo) return false
+      return true
+    })
+  }, [tickets, filtroStato, filtroTipo, filtroModulo])
+
+  return (
+    <div className="space-y-5">
+      {/* Header */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold text-slate-900">Segnalazioni</h1>
+          <p className="text-sm text-slate-500 mt-1">
+            Apri una segnalazione per bug riscontrati o nuove funzionalità desiderate.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onRefresh}
+            disabled={loading}
+            className="p-2 text-slate-600 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg disabled:opacity-50"
+            aria-label="Aggiorna"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+          </button>
+          <button
+            type="button"
+            onClick={onCreate}
+            className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg flex items-center gap-2"
+          >
+            <Plus className="w-4 h-4" /> Apri segnalazione
+          </button>
+        </div>
+      </div>
+
+      {/* Stat cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        <StatCard label="In attesa"   value={stats.aperti}   icon={<AlertCircle className="w-5 h-5 text-blue-700" />}    accent="bg-blue-100" />
+        <StatCard label="In corso"    value={stats.in_corso} icon={<Clock className="w-5 h-5 text-amber-700" />}        accent="bg-amber-100" />
+        <StatCard label="Risolti"     value={stats.risolti}  icon={<Check className="w-5 h-5 text-emerald-700" />}      accent="bg-emerald-100" />
+        <StatCard label="Chiusi"      value={stats.chiusi}   icon={<X className="w-5 h-5 text-slate-500" />}            accent="bg-slate-100" />
+        <StatCard label="Bug"         value={stats.bug}      icon={<Bug className="w-5 h-5 text-red-700" />}            accent="bg-red-100" />
+        <StatCard label="Funzionalità" value={stats.funzioni} icon={<Sparkles className="w-5 h-5 text-violet-700" />}   accent="bg-violet-100" />
+      </div>
+
+      {/* Filtri */}
+      <div className="bg-white border border-slate-200 rounded-xl p-3 flex flex-wrap items-center gap-2">
+        <div className="flex items-center gap-1.5 text-slate-500 text-sm">
+          <Filter className="w-4 h-4" /> Filtri:
+        </div>
+        <FilterChip
+          label={`Stato: ${filtroStato === 'tutti' ? 'tutti' : TICKET_STATO_LABEL[filtroStato]}`}
+          options={[
+            { value: 'tutti', label: 'Tutti gli stati' },
+            { value: 'aperto', label: TICKET_STATO_LABEL.aperto },
+            { value: 'in_corso', label: TICKET_STATO_LABEL.in_corso },
+            { value: 'risolto', label: TICKET_STATO_LABEL.risolto },
+            { value: 'chiuso', label: TICKET_STATO_LABEL.chiuso },
+          ]}
+          value={filtroStato}
+          onChange={(v) => setFiltroStato(v as TicketStato | 'tutti')}
+        />
+        <FilterChip
+          label={`Tipo: ${filtroTipo === 'tutti' ? 'tutti' : TICKET_TIPO_LABEL[filtroTipo]}`}
+          options={[
+            { value: 'tutti', label: 'Tutti i tipi' },
+            { value: 'bug', label: 'Bug' },
+            { value: 'funzione', label: 'Funzione' },
+          ]}
+          value={filtroTipo}
+          onChange={(v) => setFiltroTipo(v as TicketTipo | 'tutti')}
+        />
+        <FilterChip
+          label={`Modulo: ${filtroModulo === 'tutti' ? 'tutti' : filtroModulo}`}
+          options={[
+            { value: 'tutti', label: 'Tutti i moduli' },
+            ...TICKET_MODULI.map(m => ({ value: m, label: m })),
+          ]}
+          value={filtroModulo}
+          onChange={(v) => setFiltroModulo(v)}
+        />
+        <div className="ml-auto text-xs text-slate-500">
+          {filtered.length} su {tickets.length}
+        </div>
+      </div>
+
+      {/* Tabella */}
+      <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+        {loading && tickets.length === 0 ? (
+          <div className="py-16 text-center text-slate-500 text-sm">
+            <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-slate-400" />
+            Caricamento segnalazioni…
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="py-16 text-center text-slate-500 text-sm">
+            <MessageSquare className="w-8 h-8 mx-auto mb-2 text-slate-300" />
+            Nessuna segnalazione corrisponde ai filtri.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead className="bg-slate-50 text-slate-600 text-xs uppercase tracking-wide">
+                <tr>
+                  <th className="px-3 py-2 text-left w-8"></th>
+                  <th className="px-3 py-2 text-left">Titolo</th>
+                  <th className="px-3 py-2 text-left">Priorità</th>
+                  <th className="px-3 py-2 text-left">Modulo</th>
+                  <th className="px-3 py-2 text-left">Autore</th>
+                  <th className="px-3 py-2 text-left">Creato</th>
+                  <th className="px-3 py-2 text-left">Fase</th>
+                  <th className="px-3 py-2 text-left">Risolto</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {filtered.map(t => (
+                  <tr
+                    key={t.id}
+                    onClick={() => onOpenDetail(t.id)}
+                    className="hover:bg-slate-50 cursor-pointer"
+                  >
+                    <td className="px-3 py-2.5">
+                      {t.tipo === 'bug'
+                        ? <Bug className="w-4 h-4 text-red-500" />
+                        : <Sparkles className="w-4 h-4 text-violet-500" />}
+                    </td>
+                    <td className="px-3 py-2.5 text-slate-900 font-medium max-w-md truncate">
+                      {t.titolo}
+                    </td>
+                    <td className="px-3 py-2.5">
+                      <span className={`px-2 py-0.5 text-xs rounded-full border ${priorityClasses(t.priorita)}`}>
+                        {TICKET_PRIORITA_LABEL[t.priorita]}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2.5 text-slate-700">{t.modulo}</td>
+                    <td className="px-3 py-2.5 text-slate-700">{t.autore}</td>
+                    <td className="px-3 py-2.5 text-slate-600 text-xs">{formatDate(t.creato_il)}</td>
+                    <td className="px-3 py-2.5"><PhaseStepper stato={t.stato} /></td>
+                    <td className="px-3 py-2.5 text-slate-600 text-xs">
+                      {t.risolto_il ? formatDate(t.risolto_il) : '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────
+// FilterChip — dropdown filtro compatto
+// ─────────────────────────────────────────────────────────────────
+
+interface FilterChipProps {
+  label: string
+  options: { value: string; label: string }[]
+  value: string
+  onChange: (v: string) => void
+}
+
+function FilterChip({ label, options, value, onChange }: FilterChipProps) {
+  return (
+    <div className="relative">
+      <select
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        className="appearance-none pl-3 pr-8 py-1.5 text-xs font-medium text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-full cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-200"
+        aria-label={label}
+      >
+        {options.map(o => (
+          <option key={o.value} value={o.value}>{o.label}</option>
+        ))}
+      </select>
+      <svg className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-500" viewBox="0 0 12 12">
+        <path d="M2 4l4 4 4-4" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────
+// TicketDetail — vista singolo ticket
+// ─────────────────────────────────────────────────────────────────
+
+interface TicketDetailProps {
+  ticket: Ticket
+  onBack: () => void
+  onUpdated: (t: Ticket) => void
+}
+
+function TicketDetail({ ticket, onBack, onUpdated }: TicketDetailProps) {
+  const { toast } = useToast()
+  const { profile, session } = useAuth()
+  const [lightboxOpen, setLightboxOpen] = useState(false)
+  const [nuovoCommento, setNuovoCommento] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [confirm, setConfirm] = useState<null | {
+    title: string; message: string; confirmLabel?: string;
+    destructive?: boolean; onConfirm: () => void;
+  }>(null)
+
+  const autoreLabel: string =
+    (profile?.full_name as string | undefined) ??
+    (session?.user?.email as string | undefined) ??
+    'Utente'
+
+  const aggiornaStato = useCallback(async (nuovoStato: TicketStato) => {
+    setBusy(true)
+    try {
+      const patch: Record<string, unknown> = { stato: nuovoStato }
+      if (nuovoStato === 'risolto') patch.risolto_il = new Date().toISOString()
+      if (nuovoStato === 'aperto' || nuovoStato === 'in_corso') patch.risolto_il = null
+
+      const { data, error } = await supabase
+        .from('tickets' as never)
+        .update(patch as never)
+        .eq('id', ticket.id)
+        .select('*')
+        .single()
+      if (error || !data) throw new Error(errorMessage(error, 'Aggiornamento fallito'))
+
+      onUpdated(data as unknown as Ticket)
+      toast({ type: 'success', message: `Segnalazione aggiornata: ${TICKET_STATO_LABEL[nuovoStato]}` })
+    } catch (e) {
+      toast({ type: 'error', message: errorMessage(e) })
+    } finally {
+      setBusy(false)
+    }
+  }, [onUpdated, ticket.id, toast])
+
+  const aggiungiCommento = useCallback(async () => {
+    const testo = nuovoCommento.trim()
+    if (testo.length === 0) return
+    setBusy(true)
+    try {
+      const commento: TicketCommento = {
+        id: `c_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        autore: autoreLabel,
+        origine: 'utente',
+        testo,
+        creato_il: new Date().toISOString(),
+      }
+      const nuoviCommenti = [...(ticket.commenti ?? []), commento]
+      const { data, error } = await supabase
+        .from('tickets' as never)
+        .update({ commenti: nuoviCommenti } as never)
+        .eq('id', ticket.id)
+        .select('*')
+        .single()
+      if (error || !data) throw new Error(errorMessage(error, 'Salvataggio commento fallito'))
+
+      onUpdated(data as unknown as Ticket)
+      setNuovoCommento('')
+      toast({ type: 'success', message: 'Commento aggiunto' })
+    } catch (e) {
+      toast({ type: 'error', message: errorMessage(e) })
+    } finally {
+      setBusy(false)
+    }
+  }, [autoreLabel, nuovoCommento, onUpdated, ticket.commenti, ticket.id, toast])
+
+  const azioniDisponibili = useMemo(() => {
+    const actions: Array<{ label: string; stato: TicketStato; primary?: boolean; destructive?: boolean }> = []
+    if (ticket.stato === 'aperto') {
+      actions.push({ label: 'Prendi in carico', stato: 'in_corso', primary: true })
+      actions.push({ label: 'Risolvi', stato: 'risolto' })
+      actions.push({ label: 'Chiudi', stato: 'chiuso', destructive: true })
+    } else if (ticket.stato === 'in_corso') {
+      actions.push({ label: 'Risolvi', stato: 'risolto', primary: true })
+      actions.push({ label: 'Riapri', stato: 'aperto' })
+      actions.push({ label: 'Chiudi', stato: 'chiuso', destructive: true })
+    } else if (ticket.stato === 'risolto') {
+      actions.push({ label: 'Chiudi', stato: 'chiuso', primary: true })
+      actions.push({ label: 'Riapri', stato: 'aperto' })
+    } else if (ticket.stato === 'chiuso') {
+      actions.push({ label: 'Riapri', stato: 'aperto', primary: true })
+    }
+    return actions
+  }, [ticket.stato])
+
+  return (
+    <div className="space-y-5">
+      <button
+        type="button"
+        onClick={onBack}
+        className="flex items-center gap-1.5 text-sm text-slate-600 hover:text-slate-900"
+      >
+        <ArrowLeft className="w-4 h-4" /> Torna alla lista
+      </button>
+
+      <div className="bg-white border border-slate-200 rounded-xl p-6">
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 text-xs text-slate-500 mb-1">
+              <span>#{shortId(ticket.id)}</span>
+              <span>·</span>
+              <span>{ticket.tipo === 'bug' ? 'Bug' : 'Nuova funzionalità'}</span>
+              <span>·</span>
+              <span>{ticket.modulo}</span>
+            </div>
+            <h2 className="text-xl font-semibold text-slate-900">{ticket.titolo}</h2>
+            <div className="flex items-center gap-2 mt-2">
+              <span className={`px-2 py-0.5 text-xs rounded-full border ${priorityClasses(ticket.priorita)}`}>
+                Priorità {TICKET_PRIORITA_LABEL[ticket.priorita]}
+              </span>
+              <span className={`px-2 py-0.5 text-xs rounded-full border ${statoClasses(ticket.stato)}`}>
+                {TICKET_STATO_LABEL[ticket.stato]}
+              </span>
+            </div>
+          </div>
+          <div className="text-right text-xs text-slate-500">
+            <div>Aperto da <span className="font-medium text-slate-700">{ticket.autore}</span></div>
+            <div>{formatDate(ticket.creato_il)}</div>
+            {ticket.risolto_il && (
+              <div className="mt-1 text-emerald-600">Risolto il {formatDate(ticket.risolto_il)}</div>
+            )}
+          </div>
+        </div>
+
+        <div className="mt-4">
+          <PhaseStepper stato={ticket.stato} />
+        </div>
+
+        <div className="mt-5 flex flex-wrap gap-2">
+          {azioniDisponibili.map(a => (
+            <button
+              key={a.label}
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                if (a.destructive) {
+                  setConfirm({
+                    title: 'Chiudere la segnalazione?',
+                    message: 'Le segnalazioni chiuse non vengono più processate da AutoFix. Puoi sempre riaprirla in seguito.',
+                    confirmLabel: 'Chiudi',
+                    destructive: true,
+                    onConfirm: () => { setConfirm(null); aggiornaStato(a.stato) },
+                  })
+                } else {
+                  aggiornaStato(a.stato)
+                }
+              }}
+              className={`px-3 py-1.5 text-sm rounded-lg disabled:opacity-50 ${
+                a.primary
+                  ? 'bg-blue-600 hover:bg-blue-700 text-white'
+                  : a.destructive
+                    ? 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
+                    : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
+              }`}
+            >
+              {a.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Descrizione + screenshot */}
+      {(ticket.descrizione || ticket.screenshot_url) && (
+        <div className="bg-white border border-slate-200 rounded-xl p-6 space-y-4">
+          {ticket.descrizione && (
+            <div>
+              <h3 className="text-sm font-semibold text-slate-900 mb-2">Descrizione</h3>
+              <p className="text-sm text-slate-700 whitespace-pre-wrap">{ticket.descrizione}</p>
+            </div>
+          )}
+          {ticket.screenshot_url && (
+            <div>
+              <h3 className="text-sm font-semibold text-slate-900 mb-2 flex items-center gap-1.5">
+                <ImageIcon className="w-4 h-4" /> Screenshot
+              </h3>
+              <button
+                type="button"
+                onClick={() => setLightboxOpen(true)}
+                className="block group relative"
+              >
+                <img
+                  src={ticket.screenshot_url}
+                  alt="Screenshot segnalazione"
+                  className="max-h-72 rounded-lg border border-slate-200"
+                />
+                <div className="absolute inset-0 flex items-center justify-center bg-slate-900/0 group-hover:bg-slate-900/30 rounded-lg transition-colors">
+                  <Eye className="w-6 h-6 text-white opacity-0 group-hover:opacity-100" />
+                </div>
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Note fix tecniche */}
+      {ticket.note_fix && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+          <h3 className="text-sm font-semibold text-amber-900 mb-1">Note tecniche AutoFix</h3>
+          <pre className="text-xs text-amber-900 whitespace-pre-wrap font-mono">{ticket.note_fix}</pre>
+        </div>
+      )}
+
+      {/* Commenti */}
+      <div className="bg-white border border-slate-200 rounded-xl p-6">
+        <h3 className="text-sm font-semibold text-slate-900 mb-3 flex items-center gap-1.5">
+          <MessageSquare className="w-4 h-4" /> Commenti
+          {ticket.commenti.length > 0 && (
+            <span className="text-xs text-slate-500 font-normal">({ticket.commenti.length})</span>
+          )}
+        </h3>
+
+        {ticket.commenti.length === 0 ? (
+          <p className="text-sm text-slate-500">Nessun commento ancora.</p>
+        ) : (
+          <ul className="space-y-3">
+            {ticket.commenti.map(c => (
+              <li
+                key={c.id}
+                className={`p-3 rounded-lg border ${
+                  c.origine === 'ai'
+                    ? 'bg-emerald-50 border-emerald-200'
+                    : 'bg-blue-50 border-blue-200'
+                }`}
+              >
+                <div className="flex items-center justify-between text-xs mb-1">
+                  <span className={`font-medium ${c.origine === 'ai' ? 'text-emerald-800' : 'text-blue-800'}`}>
+                    {c.origine === 'ai' ? '🤖 ' : ''}{c.autore}
+                  </span>
+                  <span className="text-slate-500">{formatDate(c.creato_il)}</span>
+                </div>
+                <p className="text-sm text-slate-800 whitespace-pre-wrap">{c.testo}</p>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        <div className="mt-4 flex gap-2">
+          <textarea
+            value={nuovoCommento}
+            onChange={e => setNuovoCommento(e.target.value)}
+            rows={2}
+            placeholder="Scrivi un commento…"
+            className="flex-1 px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-200 resize-none"
+          />
+          <button
+            type="button"
+            onClick={aggiungiCommento}
+            disabled={busy || nuovoCommento.trim().length === 0}
+            className="px-3 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg disabled:opacity-50 self-end flex items-center gap-1"
+          >
+            <Send className="w-4 h-4" /> Invia
+          </button>
+        </div>
+      </div>
+
+      {lightboxOpen && ticket.screenshot_url && (
+        <Lightbox url={ticket.screenshot_url} onClose={() => setLightboxOpen(false)} />
+      )}
+
+      <ConfirmModal
+        open={confirm !== null}
+        title={confirm?.title ?? ''}
+        message={confirm?.message ?? ''}
+        confirmLabel={confirm?.confirmLabel}
+        destructive={confirm?.destructive}
+        onCancel={() => setConfirm(null)}
+        onConfirm={() => confirm?.onConfirm()}
+      />
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────
+// TicketPage — root component (default export)
+// ─────────────────────────────────────────────────────────────────
+
+export default function TicketPage() {
+  const { ticketId } = useParams<{ ticketId?: string }>()
+  const navigate = useNavigate()
+  const location = useLocation()
+  const { toast } = useToast()
+  const initialStato = (location.state as { initialStato?: TicketStato } | null)?.initialStato
+
+  const [tickets, setTickets] = useState<Ticket[]>([])
+  const [loading, setLoading] = useState(true)
+  const [createOpen, setCreateOpen] = useState(false)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      const { data, error } = await supabase
+        .from('tickets' as never)
+        .select('*')
+        .order('creato_il', { ascending: false })
+      if (error) throw error
+      setTickets((data ?? []) as unknown as Ticket[])
+    } catch (e) {
+      toast({ type: 'error', message: errorMessage(e, 'Errore nel caricamento segnalazioni') })
+    } finally {
+      setLoading(false)
+    }
+  }, [toast])
+
+  useEffect(() => { load() }, [load])
+
+  const onCreated = useCallback((t: Ticket) => {
+    setTickets(prev => [t, ...prev])
+  }, [])
+
+  const onUpdated = useCallback((t: Ticket) => {
+    setTickets(prev => prev.map(x => x.id === t.id ? t : x))
+  }, [])
+
+  const detailTicket = ticketId ? tickets.find(t => t.id === ticketId) : null
+
+  if (ticketId) {
+    if (loading && !detailTicket) {
+      return (
+        <div className="py-16 text-center text-slate-500 text-sm">
+          <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-slate-400" />
+          Caricamento…
+        </div>
+      )
+    }
+    if (!detailTicket) {
+      return (
+        <div className="bg-white border border-slate-200 rounded-xl p-8 text-center">
+          <AlertCircle className="w-8 h-8 text-amber-500 mx-auto mb-2" />
+          <h2 className="text-lg font-semibold text-slate-900">Segnalazione non trovata</h2>
+          <p className="text-sm text-slate-500 mt-1">
+            La segnalazione richiesta non esiste o è stata cancellata.
+          </p>
+          <button
+            type="button"
+            onClick={() => navigate('/ticket')}
+            className="mt-4 px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg"
+          >
+            Torna alla lista
+          </button>
+        </div>
+      )
+    }
+    return (
+      <TicketDetail
+        ticket={detailTicket}
+        onBack={() => navigate('/ticket')}
+        onUpdated={onUpdated}
+      />
+    )
+  }
+
+  return (
+    <>
+      <TicketList
+        tickets={tickets}
+        loading={loading}
+        onRefresh={load}
+        onOpenDetail={(id) => navigate(`/ticket/${id}`)}
+        onCreate={() => setCreateOpen(true)}
+        initialStato={initialStato}
+      />
+      <CreateTicketModal
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+        onCreated={onCreated}
+      />
+    </>
+  )
+}

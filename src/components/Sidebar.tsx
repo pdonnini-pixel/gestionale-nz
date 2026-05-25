@@ -10,6 +10,7 @@ import {
   CalendarClock, UserCheck, PieChart, Sparkles, Activity, Sliders,
   Upload, FolderArchive, TrendingUp, ChevronsUpDown, Building,
   Menu, X, ChevronsLeft, ChevronsRight, Split,
+  MessageSquare,
   LucideIcon
 } from 'lucide-react'
 import { useState, useRef, useEffect, useMemo, createContext, useContext } from 'react'
@@ -117,6 +118,16 @@ function buildSections(labels: CompanyLabels): NavSection[] {
         { to: '/impostazioni', icon: Settings, label: 'Impostazioni', roles: ['super_advisor'] },
       ],
     },
+    {
+      key: 'supporto',
+      label: 'Supporto',
+      items: [
+        // Segnalazioni: Sabrina/Veronica aprono ticket per bug o nuove funzioni.
+        // Visibile a TUTTI i ruoli operativi — chiunque incontri un problema
+        // deve poter aprire una segnalazione senza chiedere permesso.
+        { to: '/ticket', icon: MessageSquare, label: 'Segnalazioni', roles: ['super_advisor', 'ceo', 'cfo', 'coo', 'contabile', 'budget_approver'] },
+      ],
+    },
   ]
 }
 
@@ -149,6 +160,7 @@ export function buildBreadcrumbMap(
     '/import-hub': { section: 'Sistema', page: 'Import Hub' },
     '/archivio': { section: 'Sistema', page: 'Archivio Documenti' },
     '/impostazioni': { section: 'Sistema', page: 'Impostazioni' },
+    '/ticket': { section: 'Supporto', page: 'Segnalazioni' },
   }
 }
 
