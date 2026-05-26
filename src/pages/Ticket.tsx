@@ -949,6 +949,20 @@ function TicketDetail({ ticket, onBack, onUpdated }: TicketDetailProps) {
     destructive?: boolean; onConfirm: () => void;
   }>(null)
 
+  // Mark seen: aggiorna last_seen_by_author_at sul DB. Serve per il badge
+  // sidebar 'Segnalazioni' che mostra il numero di ticket dell'autore con
+  // aggiornamenti dopo l'ultima visita. RPC mark_ticket_seen e' SECURITY
+  // INVOKER e fa l'UPDATE solo se ticket.autore_id = auth.uid() -> non
+  // tocca nulla se ad aprire e' Patrizio su un ticket di Sabrina.
+  useEffect(() => {
+    if (!ticket?.id) return
+    supabase.rpc('mark_ticket_seen' as never, { p_ticket_id: ticket.id } as never).then(({ error }) => {
+      if (error) console.warn('[mark_ticket_seen]', error.message)
+      // Notifica la sidebar che il count badge va ricalcolato
+      window.dispatchEvent(new CustomEvent('ticket-seen'))
+    })
+  }, [ticket?.id])
+
   // Unifico vecchio screenshot_url (deprecato) e nuovo array allegati.
   // I ticket pre-2026-05-26 hanno solo screenshot_url; quelli nuovi hanno
   // allegati[] (gia' inclusivo del backfill della migration 047).

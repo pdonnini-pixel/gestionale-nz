@@ -23,7 +23,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  ArrowLeft, Clock, Download, MessageSquare, RefreshCw, Shield, Trash2, XCircle,
+  ArrowLeft, Clock, Download, MessageSquare, RefreshCw, Shield, Sparkles, Trash2, XCircle,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useToast } from '../components/Toast'
@@ -124,7 +124,7 @@ export default function TicketAdminPage() {
     (session?.user?.email as string | undefined) ??
     'Admin'
 
-  // Bulk update stato (per "Prendi in carico", "Risolvi", "Riapri")
+  // Bulk update stato (per "Prendi in carico", "Riapri")
   const bulkUpdateStato = async (ids: string[], nuovoStato: TicketStato, clear: () => void) => {
     if (ids.length === 0) return
     setBusy(true)
@@ -142,6 +142,53 @@ export default function TicketAdminPage() {
       await load()
     } catch (e) {
       toast({ type: 'error', message: errorMessage(e, 'Aggiornamento fallito') })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // Risolvi via AI: invoca Edge Function ticket-resolve-now su ogni ticket
+  // selezionato. L'edge function chiama Claude API, analizza il file del
+  // modulo, apre PR su GitHub e aggiunge commenti AI nel ticket.
+  // Per N ticket: chiamate seriali (no parallel) per non saturare Anthropic
+  // rate limit e per dare feedback progressivo all'utente.
+  const bulkResolveViaAI = async (ids: string[], clear: () => void) => {
+    if (ids.length === 0) return
+    setBusy(true)
+    let fixed = 0
+    let cantFix = 0
+    let failed = 0
+    const errors: string[] = []
+    try {
+      for (const ticketId of ids) {
+        try {
+          const { data, error } = await supabase.functions.invoke('ticket-resolve-now', {
+            body: { ticketId },
+          })
+          if (error) {
+            failed++
+            errors.push(`${ticketId.slice(0, 8)}: ${error.message}`)
+            continue
+          }
+          if (data?.action === 'fix') fixed++
+          else if (data?.action === 'cant_fix') cantFix++
+          else { failed++; errors.push(`${ticketId.slice(0, 8)}: risposta inattesa`) }
+        } catch (e) {
+          failed++
+          errors.push(`${ticketId.slice(0, 8)}: ${errorMessage(e)}`)
+        }
+      }
+      const parts: string[] = []
+      if (fixed > 0) parts.push(`${fixed} risolt${fixed === 1 ? 'o con PR' : 'i con PR'}`)
+      if (cantFix > 0) parts.push(`${cantFix} non risolvibil${cantFix === 1 ? 'e' : 'i'} (commento AI)`)
+      if (failed > 0) parts.push(`${failed} error${failed === 1 ? 'e' : 'i'}`)
+      toast({
+        type: failed > 0 ? 'warning' : 'success',
+        message: parts.join(', ') || 'Nessuna azione',
+      })
+      if (errors.length > 0) console.warn('[ticket-resolve-now] errori:', errors)
+      clear()
+      await load()
     } finally {
       setBusy(false)
     }
@@ -324,10 +371,12 @@ export default function TicketAdminPage() {
             <button
               type="button"
               disabled={busy}
-              onClick={() => bulkUpdateStato(selectedIds, 'risolto', clear)}
-              className="px-3 py-1.5 text-xs font-medium text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg disabled:opacity-50"
+              onClick={() => bulkResolveViaAI(selectedIds, clear)}
+              title="Invoca AI che analizza il ticket, applica fix al codice e apre PR su GitHub. Aggiunge commento AI nel ticket per Sabrina/Veronica."
+              className="px-3 py-1.5 text-xs font-medium text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg disabled:opacity-50 flex items-center gap-1"
             >
-              Risolvi
+              {busy ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+              Risolvi con AI
             </button>
             <button
               type="button"

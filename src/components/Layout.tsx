@@ -227,6 +227,10 @@ function ProfileMenu() {
 export default function Layout() {
   const [mobileOpen, setMobileOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
+  // Badge sidebar: numero ticket dell'autore con aggiornamenti non visti.
+  // Si ricarica all'avvio, e ogni volta che il dettaglio ticket emette
+  // l'evento 'ticket-seen' (dopo che l'autore l'ha aperto).
+  const [ticketUnseen, setTicketUnseen] = useState(0)
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -239,9 +243,28 @@ export default function Layout() {
     return () => document.removeEventListener('keydown', onKeyDown)
   }, [])
 
+  useEffect(() => {
+    async function fetchUnseen() {
+      try {
+        const { supabase } = await import('../lib/supabase')
+        const { data, error } = await supabase.rpc('get_unseen_ticket_updates_count' as never)
+        if (!error && typeof data === 'number') setTicketUnseen(data)
+      } catch (e) {
+        console.warn('[ticket-unseen]', e)
+      }
+    }
+    void fetchUnseen()
+    // Ricalcola dopo che l'autore ha aperto un ticket (mark_ticket_seen)
+    function onSeen() { void fetchUnseen() }
+    window.addEventListener('ticket-seen', onSeen)
+    // Refresh periodico ogni 60s (per nuovi commenti AI mentre l'app è aperta)
+    const t = setInterval(fetchUnseen, 60_000)
+    return () => { window.removeEventListener('ticket-seen', onSeen); clearInterval(t) }
+  }, [])
+
   return (
     <div className="flex h-screen overflow-hidden">
-      <Sidebar mobileOpen={mobileOpen} setMobileOpen={setMobileOpen} />
+      <Sidebar mobileOpen={mobileOpen} setMobileOpen={setMobileOpen} badges={{ 'ticket-unseen': ticketUnseen }} />
 
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
         {/* Tenant badge (banda colorata) */}
