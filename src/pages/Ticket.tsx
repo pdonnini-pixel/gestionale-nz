@@ -21,18 +21,18 @@
 // - Solo Tailwind utility classes (no CSS custom).
 // ═══════════════════════════════════════════════════════════════════
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, useLocation } from 'react-router-dom'
 import {
-  AlertCircle, ArrowLeft, Bug, Check, Clock, Eye, Filter, Image as ImageIcon,
-  MessageSquare, Plus, RefreshCw, Send, Sparkles, X,
+  AlertCircle, ArrowLeft, Bug, Check, Clock, Eye, Filter, FileText, Image as ImageIcon,
+  MessageSquare, Paperclip, Plus, RefreshCw, Send, Sparkles, Trash2, Upload, X,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useToast } from '../components/Toast'
 import { useAuth } from '../hooks/useAuth'
 import { errorMessage } from '../types/business'
 import {
-  type Ticket, type TicketCommento, type TicketPriorita, type TicketStato,
+  type Ticket, type TicketAllegato, type TicketCommento, type TicketPriorita, type TicketStato,
   type TicketTipo,
   TICKET_MODULI, TICKET_PRIORITA_LABEL, TICKET_STATO_LABEL, TICKET_TIPO_LABEL,
 } from '../types/ticket'
@@ -200,6 +200,128 @@ function Lightbox({ url, onClose }: { url: string; onClose: () => void }) {
 }
 
 // ─────────────────────────────────────────────────────────────────
+// DropZone — area drag&drop allegati multipli con paste-screenshot
+// ─────────────────────────────────────────────────────────────────
+// - Drag&drop di più file insieme (immagini + PDF)
+// - Click per aprire selettore file
+// - Paste con Cmd+V / Ctrl+V degli screenshot dalla clipboard
+//   (gestito dal genitore via window.addEventListener)
+// - Lista file con preview thumbnail + rimozione singola
+// ─────────────────────────────────────────────────────────────────
+
+const ALLOWED_ATTACHMENT_TYPES = [
+  'image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/gif',
+  'application/pdf',
+]
+const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024 // 10 MB
+
+function DropZone({ files, onChange }: { files: File[]; onChange: (next: File[]) => void }) {
+  const inputRef = useRef<HTMLInputElement>(null)
+  const [dragging, setDragging] = useState(false)
+  const { toast } = useToast()
+
+  const validateAndAdd = (incoming: FileList | File[]) => {
+    const accepted: File[] = []
+    const rejected: string[] = []
+    for (const f of Array.from(incoming)) {
+      if (!ALLOWED_ATTACHMENT_TYPES.includes(f.type)) {
+        rejected.push(`${f.name} (tipo non supportato)`)
+        continue
+      }
+      if (f.size > MAX_ATTACHMENT_BYTES) {
+        rejected.push(`${f.name} (oltre 10 MB)`)
+        continue
+      }
+      accepted.push(f)
+    }
+    if (rejected.length > 0) {
+      toast({ type: 'warning', message: `Saltati: ${rejected.join(', ')}` })
+    }
+    if (accepted.length > 0) {
+      onChange([...files, ...accepted])
+    }
+  }
+
+  const removeAt = (idx: number) => {
+    onChange(files.filter((_, i) => i !== idx))
+  }
+
+  return (
+    <div>
+      <div
+        onClick={() => inputRef.current?.click()}
+        onDragOver={(e) => { e.preventDefault(); setDragging(true) }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={(e) => {
+          e.preventDefault()
+          setDragging(false)
+          if (e.dataTransfer.files?.length) validateAndAdd(e.dataTransfer.files)
+        }}
+        className={`border-2 border-dashed rounded-lg p-5 text-center cursor-pointer transition ${
+          dragging
+            ? 'border-blue-400 bg-blue-50'
+            : 'border-slate-300 hover:border-slate-400 bg-slate-50/50'
+        }`}
+      >
+        <Upload className="w-6 h-6 text-slate-400 mx-auto mb-2" />
+        <p className="text-sm text-slate-700 font-medium">
+          Trascina qui i file o <span className="text-blue-600 underline">clicca per selezionare</span>
+        </p>
+        <p className="text-xs text-slate-500 mt-1">
+          Puoi anche incollare uno screenshot con <kbd className="px-1 py-0.5 bg-white border border-slate-300 rounded text-[10px] font-mono">⌘V</kbd> /{' '}
+          <kbd className="px-1 py-0.5 bg-white border border-slate-300 rounded text-[10px] font-mono">Ctrl+V</kbd>
+        </p>
+        <p className="text-[10px] text-slate-400 mt-1">PNG, JPG, WEBP, GIF, PDF — max 10 MB ciascuno</p>
+      </div>
+      <input
+        ref={inputRef}
+        type="file"
+        accept={ALLOWED_ATTACHMENT_TYPES.join(',')}
+        multiple
+        className="hidden"
+        onChange={(e) => {
+          if (e.target.files) validateAndAdd(e.target.files)
+          e.target.value = ''  // reset così re-selezionare stesso file riemette change
+        }}
+      />
+
+      {files.length > 0 && (
+        <ul className="mt-3 space-y-2">
+          {files.map((f, idx) => (
+            <li
+              key={`${f.name}-${idx}`}
+              className="flex items-center gap-3 px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm"
+            >
+              {f.type.startsWith('image/') ? (
+                <img
+                  src={URL.createObjectURL(f)}
+                  alt={f.name}
+                  className="w-10 h-10 object-cover rounded border border-slate-200 shrink-0"
+                />
+              ) : (
+                <FileText className="w-8 h-8 text-slate-400 shrink-0" />
+              )}
+              <div className="flex-1 min-w-0">
+                <div className="truncate text-slate-800" title={f.name}>{f.name}</div>
+                <div className="text-xs text-slate-500">{Math.round(f.size / 1024)} KB · {f.type || 'file'}</div>
+              </div>
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); removeAt(idx) }}
+                className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded"
+                aria-label={`Rimuovi ${f.name}`}
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────
 // CreateTicketModal — form apertura nuova segnalazione
 // ─────────────────────────────────────────────────────────────────
 
@@ -217,14 +339,43 @@ function CreateTicketModal({ open, onClose, onCreated }: CreateTicketModalProps)
   const [titolo, setTitolo] = useState('')
   const [descrizione, setDescrizione] = useState('')
   const [priorita, setPriorita] = useState<TicketPriorita>('medio')
-  const [screenshot, setScreenshot] = useState<File | null>(null)
+  const [files, setFiles] = useState<File[]>([])
   const [submitting, setSubmitting] = useState(false)
 
   useEffect(() => {
     if (!open) {
       setTipo('bug'); setModulo('Altro'); setTitolo(''); setDescrizione('')
-      setPriorita('medio'); setScreenshot(null); setSubmitting(false)
+      setPriorita('medio'); setFiles([]); setSubmitting(false)
     }
+  }, [open])
+
+  // Paste-screenshot: quando il modal è aperto, intercetta Cmd+V / Ctrl+V e
+  // aggiunge eventuali immagini dalla clipboard alla lista allegati.
+  useEffect(() => {
+    if (!open) return
+    const handlePaste = (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items
+      if (!items) return
+      const pasted: File[] = []
+      for (let i = 0; i < items.length; i++) {
+        const it = items[i]
+        if (it.kind === 'file') {
+          const f = it.getAsFile()
+          if (f) {
+            // Rinomina file con timestamp leggibile
+            const ext = f.type.split('/')[1] || 'png'
+            const stamp = new Date().toISOString().slice(0, 19).replace(/[:.]/g, '-')
+            pasted.push(new File([f], `screenshot-${stamp}.${ext}`, { type: f.type }))
+          }
+        }
+      }
+      if (pasted.length > 0) {
+        e.preventDefault()
+        setFiles(prev => [...prev, ...pasted])
+      }
+    }
+    window.addEventListener('paste', handlePaste)
+    return () => window.removeEventListener('paste', handlePaste)
   }, [open])
 
   if (!open) return null
@@ -258,27 +409,39 @@ function CreateTicketModal({ open, onClose, onCreated }: CreateTicketModalProps)
       }
       let ticket = inserted as unknown as Ticket
 
-      // Upload screenshot (se presente)
-      if (screenshot) {
-        const path = `tickets/${ticket.id}.webp`
-        const { error: upErr } = await supabase.storage
-          .from('media')
-          .upload(path, screenshot, { upsert: true, contentType: screenshot.type })
-        if (upErr) {
-          toast({
-            type: 'warning',
-            message: `Segnalazione creata, ma upload screenshot fallito: ${upErr.message}`,
-          })
-        } else {
+      // Upload allegati (se presenti) — supporta multipli
+      if (files.length > 0) {
+        const uploaded: TicketAllegato[] = []
+        const failures: string[] = []
+        for (let i = 0; i < files.length; i++) {
+          const f = files[i]
+          // Path: tickets/<ticket.id>/<idx>_<safe-name>
+          const safeName = f.name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 80)
+          const path = `tickets/${ticket.id}/${String(i).padStart(2, '0')}_${safeName}`
+          const { error: upErr } = await supabase.storage
+            .from('media')
+            .upload(path, f, { upsert: true, contentType: f.type })
+          if (upErr) {
+            failures.push(f.name)
+            continue
+          }
           const { data: pub } = supabase.storage.from('media').getPublicUrl(path)
-          const url = pub.publicUrl
+          uploaded.push({ url: pub.publicUrl, name: f.name, size: f.size, type: f.type })
+        }
+        if (uploaded.length > 0) {
           const { data: updated } = await supabase
             .from('tickets' as never)
-            .update({ screenshot_url: url } as never)
+            .update({ allegati: uploaded } as never)
             .eq('id', ticket.id)
             .select('*')
             .single()
           if (updated) ticket = updated as unknown as Ticket
+        }
+        if (failures.length > 0) {
+          toast({
+            type: 'warning',
+            message: `Segnalazione creata, ma ${failures.length} allegat${failures.length === 1 ? 'o' : 'i'} non caricat${failures.length === 1 ? 'o' : 'i'}: ${failures.join(', ')}`,
+          })
         }
       }
 
@@ -400,19 +563,9 @@ function CreateTicketModal({ open, onClose, onCreated }: CreateTicketModalProps)
 
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">
-              Screenshot <span className="text-slate-400 font-normal">(opzionale)</span>
+              Allegati <span className="text-slate-400 font-normal">(opzionale)</span>
             </label>
-            <input
-              type="file"
-              accept="image/*"
-              onChange={e => setScreenshot(e.target.files?.[0] ?? null)}
-              className="w-full text-sm text-slate-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-sm file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
-            />
-            {screenshot && (
-              <p className="text-xs text-slate-500 mt-1">
-                Selezionato: {screenshot.name} ({Math.round(screenshot.size / 1024)} KB)
-              </p>
-            )}
+            <DropZone files={files} onChange={setFiles} />
           </div>
         </div>
 
@@ -704,13 +857,26 @@ interface TicketDetailProps {
 function TicketDetail({ ticket, onBack, onUpdated }: TicketDetailProps) {
   const { toast } = useToast()
   const { profile, session } = useAuth()
-  const [lightboxOpen, setLightboxOpen] = useState(false)
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
   const [nuovoCommento, setNuovoCommento] = useState('')
   const [busy, setBusy] = useState(false)
   const [confirm, setConfirm] = useState<null | {
     title: string; message: string; confirmLabel?: string;
     destructive?: boolean; onConfirm: () => void;
   }>(null)
+
+  // Unifico vecchio screenshot_url (deprecato) e nuovo array allegati.
+  // I ticket pre-2026-05-26 hanno solo screenshot_url; quelli nuovi hanno
+  // allegati[] (gia' inclusivo del backfill della migration 047).
+  const allegatiVisualizzati: TicketAllegato[] = useMemo(() => {
+    if (Array.isArray(ticket.allegati) && ticket.allegati.length > 0) {
+      return ticket.allegati
+    }
+    if (ticket.screenshot_url) {
+      return [{ url: ticket.screenshot_url, name: 'Screenshot', size: 0, type: 'image/webp' }]
+    }
+    return []
+  }, [ticket.allegati, ticket.screenshot_url])
 
   const autoreLabel: string =
     (profile?.full_name as string | undefined) ??
@@ -867,8 +1033,8 @@ function TicketDetail({ ticket, onBack, onUpdated }: TicketDetailProps) {
         </div>
       </div>
 
-      {/* Descrizione + screenshot */}
-      {(ticket.descrizione || ticket.screenshot_url) && (
+      {/* Descrizione + allegati (gallery) */}
+      {(ticket.descrizione || allegatiVisualizzati.length > 0) && (
         <div className="bg-white border border-slate-200 rounded-xl p-6 space-y-4">
           {ticket.descrizione && (
             <div>
@@ -876,25 +1042,50 @@ function TicketDetail({ ticket, onBack, onUpdated }: TicketDetailProps) {
               <p className="text-sm text-slate-700 whitespace-pre-wrap">{ticket.descrizione}</p>
             </div>
           )}
-          {ticket.screenshot_url && (
+          {allegatiVisualizzati.length > 0 && (
             <div>
               <h3 className="text-sm font-semibold text-slate-900 mb-2 flex items-center gap-1.5">
-                <ImageIcon className="w-4 h-4" /> Screenshot
+                <Paperclip className="w-4 h-4" /> Allegati
+                <span className="text-xs text-slate-500 font-normal">({allegatiVisualizzati.length})</span>
               </h3>
-              <button
-                type="button"
-                onClick={() => setLightboxOpen(true)}
-                className="block group relative"
-              >
-                <img
-                  src={ticket.screenshot_url}
-                  alt="Screenshot segnalazione"
-                  className="max-h-72 rounded-lg border border-slate-200"
-                />
-                <div className="absolute inset-0 flex items-center justify-center bg-slate-900/0 group-hover:bg-slate-900/30 rounded-lg transition-colors">
-                  <Eye className="w-6 h-6 text-white opacity-0 group-hover:opacity-100" />
-                </div>
-              </button>
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                {allegatiVisualizzati.map((att, idx) => {
+                  const isImage = att.type.startsWith('image/')
+                  if (isImage) {
+                    return (
+                      <button
+                        key={`${att.url}-${idx}`}
+                        type="button"
+                        onClick={() => setLightboxUrl(att.url)}
+                        className="block group relative aspect-video bg-slate-100 rounded-lg overflow-hidden border border-slate-200"
+                        title={att.name}
+                      >
+                        <img
+                          src={att.url}
+                          alt={att.name}
+                          className="w-full h-full object-cover"
+                        />
+                        <div className="absolute inset-0 flex items-center justify-center bg-slate-900/0 group-hover:bg-slate-900/30 transition-colors">
+                          <Eye className="w-5 h-5 text-white opacity-0 group-hover:opacity-100" />
+                        </div>
+                      </button>
+                    )
+                  }
+                  return (
+                    <a
+                      key={`${att.url}-${idx}`}
+                      href={att.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-2 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg hover:bg-slate-100 text-sm text-slate-700"
+                      title={att.name}
+                    >
+                      <FileText className="w-5 h-5 text-slate-400 shrink-0" />
+                      <span className="truncate">{att.name}</span>
+                    </a>
+                  )
+                })}
+              </div>
             </div>
           )}
         </div>
@@ -961,8 +1152,8 @@ function TicketDetail({ ticket, onBack, onUpdated }: TicketDetailProps) {
         </div>
       </div>
 
-      {lightboxOpen && ticket.screenshot_url && (
-        <Lightbox url={ticket.screenshot_url} onClose={() => setLightboxOpen(false)} />
+      {lightboxUrl && (
+        <Lightbox url={lightboxUrl} onClose={() => setLightboxUrl(null)} />
       )}
 
       <ConfirmModal
@@ -1024,41 +1215,47 @@ export default function TicketPage() {
   if (ticketId) {
     if (loading && !detailTicket) {
       return (
-        <div className="py-16 text-center text-slate-500 text-sm">
-          <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-slate-400" />
-          Caricamento…
-        </div>
+        <PageShell>
+          <div className="py-16 text-center text-slate-500 text-sm">
+            <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-slate-400" />
+            Caricamento…
+          </div>
+        </PageShell>
       )
     }
     if (!detailTicket) {
       return (
-        <div className="bg-white border border-slate-200 rounded-xl p-8 text-center">
-          <AlertCircle className="w-8 h-8 text-amber-500 mx-auto mb-2" />
-          <h2 className="text-lg font-semibold text-slate-900">Segnalazione non trovata</h2>
-          <p className="text-sm text-slate-500 mt-1">
-            La segnalazione richiesta non esiste o è stata cancellata.
-          </p>
-          <button
-            type="button"
-            onClick={() => navigate('/ticket')}
-            className="mt-4 px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg"
-          >
-            Torna alla lista
-          </button>
-        </div>
+        <PageShell>
+          <div className="bg-white border border-slate-200 rounded-xl p-8 text-center">
+            <AlertCircle className="w-8 h-8 text-amber-500 mx-auto mb-2" />
+            <h2 className="text-lg font-semibold text-slate-900">Segnalazione non trovata</h2>
+            <p className="text-sm text-slate-500 mt-1">
+              La segnalazione richiesta non esiste o è stata cancellata.
+            </p>
+            <button
+              type="button"
+              onClick={() => navigate('/ticket')}
+              className="mt-4 px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg"
+            >
+              Torna alla lista
+            </button>
+          </div>
+        </PageShell>
       )
     }
     return (
-      <TicketDetail
-        ticket={detailTicket}
-        onBack={() => navigate('/ticket')}
-        onUpdated={onUpdated}
-      />
+      <PageShell>
+        <TicketDetail
+          ticket={detailTicket}
+          onBack={() => navigate('/ticket')}
+          onUpdated={onUpdated}
+        />
+      </PageShell>
     )
   }
 
   return (
-    <>
+    <PageShell>
       <TicketList
         tickets={tickets}
         loading={loading}
@@ -1072,6 +1269,17 @@ export default function TicketPage() {
         onClose={() => setCreateOpen(false)}
         onCreated={onCreated}
       />
-    </>
+    </PageShell>
+  )
+}
+
+// Container coerente con tutte le altre pagine (pattern: vedi Fatturazione,
+// Banche, Cashflow, ecc). max-w-[1600px] + padding responsive, niente
+// scroll interno: il main del Layout gestisce lo scroll.
+function PageShell({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
+      {children}
+    </div>
   )
 }

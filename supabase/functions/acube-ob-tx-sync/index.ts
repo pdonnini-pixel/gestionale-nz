@@ -227,7 +227,20 @@ Deno.serve(async (req: Request) => {
       if (!be) bankIns++;
     }
 
-    return jsonOk({ fetched: txs.length, acube_inserted: acubeIns, bank_inserted: bankIns, duplicates: dups, since, account_filter: accountUuidFilter });
+    // Aggiorna balance_updated_at sui bank_accounts toccati (anche con 0 nuove tx).
+    // Questo rappresenta "ultima volta che abbiamo verificato i dati con A-Cube".
+    // Senza questo update, la UI mostra sempre il timestamp dell'ultimo accounts-sync
+    // e l'utente vede "4h fa" anche dopo aver cliccato "Aggiorna movimenti".
+    const touchedBankIds = accountUuidFilter
+      ? (acubeToBankId.get(accountUuidFilter) ? [acubeToBankId.get(accountUuidFilter)!] : [])
+      : Array.from(acubeToBankId.values());
+    if (touchedBankIds.length > 0) {
+      await supabase.from("bank_accounts")
+        .update({ balance_updated_at: new Date().toISOString() })
+        .in("id", touchedBankIds);
+    }
+
+    return jsonOk({ fetched: txs.length, acube_inserted: acubeIns, bank_inserted: bankIns, duplicates: dups, since, account_filter: accountUuidFilter, bank_accounts_touched: touchedBankIds.length });
   } catch (e) {
     return jsonError(500, `Internal error: ${e instanceof Error ? e.message : String(e)}`);
   }
