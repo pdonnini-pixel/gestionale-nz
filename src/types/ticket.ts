@@ -23,6 +23,13 @@ export interface TicketCommento {
   creato_il: string  // ISO 8601 UTC
 }
 
+export interface TicketAllegato {
+  url: string
+  name: string
+  size: number
+  type: string  // MIME, es. 'image/png', 'application/pdf'
+}
+
 export interface Ticket {
   id: string
   tipo: TicketTipo
@@ -33,7 +40,9 @@ export interface Ticket {
   stato: TicketStato
   autore: string
   autore_id: string | null
+  /** @deprecated Usa `allegati`. Mantenuto solo per ticket pre-2026-05-26. */
   screenshot_url: string | null
+  allegati: TicketAllegato[]
   commenti: TicketCommento[]
   note_fix: string | null
   creato_il: string  // ISO 8601 UTC

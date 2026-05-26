@@ -10,7 +10,7 @@ import {
   CalendarClock, UserCheck, PieChart, Sparkles, Activity, Sliders,
   Upload, FolderArchive, TrendingUp, ChevronsUpDown, Building,
   Menu, X, ChevronsLeft, ChevronsRight, Split,
-  MessageSquare,
+  MessageSquare, Shield,
   LucideIcon
 } from 'lucide-react'
 import { useState, useRef, useEffect, useMemo, createContext, useContext } from 'react'
@@ -126,6 +126,9 @@ function buildSections(labels: CompanyLabels): NavSection[] {
         // Visibile a TUTTI i ruoli operativi — chiunque incontri un problema
         // deve poter aprire una segnalazione senza chiedere permesso.
         { to: '/ticket', icon: MessageSquare, label: 'Segnalazioni', roles: ['super_advisor', 'ceo', 'cfo', 'coo', 'contabile', 'budget_approver'] },
+        // Cruscotto Admin: solo super_advisor (Patrizio + Lilian).
+        // Vista gestione con bulk actions, esport CSV, SLA, commenti AutoFix.
+        { to: '/ticket/admin', icon: Shield, label: 'Admin Segnalazioni', roles: ['super_advisor'] },
       ],
     },
   ]
@@ -161,6 +164,7 @@ export function buildBreadcrumbMap(
     '/archivio': { section: 'Sistema', page: 'Archivio Documenti' },
     '/impostazioni': { section: 'Sistema', page: 'Impostazioni' },
     '/ticket': { section: 'Supporto', page: 'Segnalazioni' },
+    '/ticket/admin': { section: 'Supporto', page: 'Admin Segnalazioni' },
   }
 }
 
