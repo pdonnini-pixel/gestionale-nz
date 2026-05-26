@@ -1184,15 +1184,38 @@ function UploadStatementModal({ isOpen, onClose, account, companyId, onImported 
         seenKeys.add(k)
         return true
       })
-      const skipped = transactions.length - toInsert.length
+      let skipped = transactions.length - toInsert.length
 
-      // Insert in batches of 100
+      // Insert in batches of 100. Doppia rete di sicurezza:
+      // 1) Dedup client-side gia' applicato sopra
+      // 2) Il DB ha UNIQUE INDEX (company_id, import_dedup_hash) — se per qualche
+      //    motivo (race condition, normalizzazione differente) un duplicato
+      //    sfugge al check client, l'insert batch fallisce con code 23505.
+      //    In quel caso facciamo fallback row-by-row e contiamo i rifiuti DB.
       let inserted = 0
       for (let i = 0; i < toInsert.length; i += 100) {
         const batch = toInsert.slice(i, i + 100)
         const { error: txErr } = await supabase.from('bank_transactions').insert(batch as never)
-        if (txErr) throw txErr
-        inserted += batch.length
+        if (!txErr) {
+          inserted += batch.length
+          continue
+        }
+        const code = (txErr as { code?: string }).code
+        if (code !== '23505') throw txErr
+        // Fallback row-by-row: il batch conteneva almeno un duplicato che il DB ha rigettato
+        for (const row of batch) {
+          const { error: rowErr } = await supabase.from('bank_transactions').insert([row] as never)
+          if (!rowErr) {
+            inserted++
+            continue
+          }
+          const rowCode = (rowErr as { code?: string }).code
+          if (rowCode === '23505') {
+            skipped++
+            continue
+          }
+          throw rowErr
+        }
       }
 
       // Update statement status
