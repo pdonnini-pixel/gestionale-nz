@@ -181,7 +181,9 @@ Deno.serve(async (req: Request) => {
       if (items.length === 0) break;
     }
 
-    // Upsert in public.electronic_invoices con dedup_key = sdi_file_id o invoice_uuid A-Cube
+    // Upsert in public.acube_sdi_invoices (tabella unificata fatture A-Cube)
+    // Dedup su acube_uuid. Da acube_sdi_invoices i ponti trigger esistenti
+    // (vedi migration 029) propagano in electronic_invoices + payables.
     let inserted = 0;
     let duplicates = 0;
     let failed = 0;
@@ -190,39 +192,49 @@ Deno.serve(async (req: Request) => {
       const invoiceUuid: string = inv.uuid ?? inv.id ?? inv["@id"]?.split("/").pop() ?? "";
       if (!invoiceUuid) { failed++; continue; }
 
-      // Check existing by acube_invoice_uuid o sdi_file_id
-      const sdiFileId: string | null = inv.sdi_file_id ?? inv.sdiFileId ?? null;
-      const existingQ = supabase.from("electronic_invoices" as never).select("id").eq("company_id" as never, companyId as never);
-      const { data: existing } = sdiFileId
-        ? await existingQ.eq("sdi_file_id" as never, sdiFileId as never).maybeSingle()
-        : await existingQ.eq("acube_invoice_uuid" as never, invoiceUuid as never).maybeSingle();
-
+      // Check existing by acube_uuid
+      const { data: existing } = await supabase
+        .from("acube_sdi_invoices" as never)
+        .select("id")
+        .eq("acube_uuid" as never, invoiceUuid as never)
+        .maybeSingle();
       if (existing) { duplicates++; continue; }
 
-      // Determina type passive/active dal flag A-Cube
-      const direction: string = inv.type ?? inv.direction ?? "passive";
-      const isPassive = direction === "passive" || direction === "received";
+      const direction: string = inv.direction ?? inv.type ?? "passive";
+      const marking: string = inv.marking ?? (direction === "active" ? "sent" : "received");
 
       const payload: Record<string, unknown> = {
-        company_id: companyId,
+        acube_uuid: invoiceUuid,
+        business_fiscal_id: config.fiscal_id,
+        direction,
+        marking,
+        sdi_file_id: inv.sdi_file_id ?? inv.sdiFileId ?? null,
+        sdi_file_name: inv.sdi_file_name ?? inv.sdiFileName ?? null,
+        transmission_format: inv.transmission_format ?? null,
+        document_type: inv.document_type ?? inv.tipo_documento ?? null,
         invoice_number: inv.invoice_number ?? inv.number ?? null,
         invoice_date: inv.invoice_date ?? inv.date ?? null,
-        supplier_name: isPassive ? (inv.supplier?.name ?? inv.cedente?.denominazione ?? null) : null,
-        supplier_fiscal_id: isPassive ? (inv.supplier?.fiscal_id ?? inv.cedente?.id_codice ?? null) : null,
-        customer_name: !isPassive ? (inv.customer?.name ?? inv.cessionario?.denominazione ?? null) : null,
-        customer_fiscal_id: !isPassive ? (inv.customer?.fiscal_id ?? inv.cessionario?.id_codice ?? null) : null,
-        total_amount: inv.total_amount ?? inv.totale ?? null,
         currency: inv.currency ?? "EUR",
-        direction: isPassive ? "passive" : "active",
-        sdi_file_id: sdiFileId,
-        acube_invoice_uuid: invoiceUuid,
-        source: "acube_cassetto_fiscale",
-        status: inv.status ?? "received",
-        raw_data: inv,
-        created_at: new Date().toISOString(),
+        total_amount: inv.total_amount ?? inv.totale ?? null,
+        to_pa: inv.to_pa ?? false,
+        sender_vat: inv.sender?.vat ?? inv.sender_vat ?? null,
+        sender_country: inv.sender?.country ?? inv.sender_country ?? "IT",
+        sender_name: inv.sender?.name ?? inv.sender_name ?? null,
+        recipient_vat: inv.recipient?.vat ?? inv.recipient_vat ?? null,
+        recipient_name: inv.recipient?.name ?? inv.recipient_name ?? null,
+        recipient_code: inv.recipient?.code ?? inv.recipient_code ?? null,
+        signed: inv.signed ?? false,
+        legally_stored: inv.legally_stored ?? false,
+        downloaded: true,
+        downloaded_at: new Date().toISOString(),
+        notifications: inv.notifications ?? null,
+        payload: inv,
+        xml_content: inv.xml_content ?? null,
+        acube_created_at: inv.created_at ?? inv.createdAt ?? null,
+        fetched_at: new Date().toISOString(),
       };
 
-      const { error: insErr } = await supabase.from("electronic_invoices" as never).insert(payload as never);
+      const { error: insErr } = await supabase.from("acube_sdi_invoices" as never).insert(payload as never);
       if (insErr) {
         failed++;
         console.warn("insert failed", invoiceUuid, insErr.message);
