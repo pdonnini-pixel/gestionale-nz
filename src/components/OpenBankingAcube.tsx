@@ -168,11 +168,16 @@ export default function OpenBankingAcube() {
   const handleSyncTx = async () => {
     if (!br?.fiscal_id) return toast({ type: 'warning', message: 'Nessun Business Registry attivo.' })
     try {
+      // Step 1: aggiorna saldi (current_balance + balance_updated_at)
+      // Step 2: aggiorna movimenti (bank_transactions + ri-update balance_updated_at)
+      // In questo modo "Agg. ora" mostrato in UI rappresenta dati realmente freschi
+      // (saldo + movimenti), non solo timestamp.
+      await acube.syncAccounts(stage, br.fiscal_id, companyId)
       const r = await acube.syncTransactions(stage, br.fiscal_id, companyId)
-      toast({ type: 'success', message: `Aggiornati ${r.bank_inserted ?? 0} nuovi movimenti${r.duplicates ? ` (${r.duplicates} già presenti)` : ''}.` })
+      toast({ type: 'success', message: `Aggiornati saldi e ${r.bank_inserted ?? 0} nuovi movimenti${r.duplicates ? ` (${r.duplicates} già presenti)` : ''}.` })
       await loadData()
     } catch (err) {
-      toast({ type: 'error', message: err instanceof Error ? err.message : 'Errore sync movimenti' })
+      toast({ type: 'error', message: err instanceof Error ? err.message : 'Errore sync banche' })
     }
   }
 
@@ -255,7 +260,7 @@ export default function OpenBankingAcube() {
               className="text-xs font-medium px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center gap-1.5 disabled:opacity-50"
             >
               {acube.loading ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
-              Aggiorna movimenti
+              Aggiorna conti e movimenti
             </button>
           )}
         </div>
@@ -287,7 +292,12 @@ export default function OpenBankingAcube() {
               </div>
               <div className="text-xs text-slate-400 flex items-center justify-between">
                 <span className="truncate" title={a.iban || ''}>{a.iban || '—'}</span>
-                <span className="flex items-center gap-1"><Clock size={10} />{timeAgo(a.balance_updated_at)}</span>
+                <span
+                  className="flex items-center gap-1"
+                  title={a.balance_updated_at ? `Ultima sincronizzazione da A-Cube: ${new Date(a.balance_updated_at).toLocaleString('it-IT', { dateStyle: 'medium', timeStyle: 'short' })}` : 'Mai sincronizzato'}
+                >
+                  <Clock size={10} />{timeAgo(a.balance_updated_at)}
+                </span>
               </div>
             </div>
           ))}
