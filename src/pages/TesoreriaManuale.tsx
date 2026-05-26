@@ -969,7 +969,7 @@ function UpdateBalanceModal({ isOpen, onClose, account, onSave }: { isOpen: bool
 function UploadStatementModal({ isOpen, onClose, account, companyId, onImported }: { isOpen: boolean; onClose: () => void; account: AccountT | null; companyId: string; onImported: () => void }) {
   type ParsedT = { headers: string[]; rows: string[][]; separator?: string; sheetNames?: string[]; skippedRows?: number }
   type PreviewRow = { date: string | null; description: string; amount: number; balance: number | null }
-  type ImportResultT = { success: boolean; count?: number; error?: string } | null
+  type ImportResultT = { success: boolean; count?: number; skipped?: number; error?: string } | null
   const [file, setFile] = useState<File | null>(null)
   const [parsed, setParsed] = useState<ParsedT | null>(null)
   const [columnMap, setColumnMap] = useState<ColMap>({ date: -1, description: -1, amount: -1, dare: -1, avere: -1, balance: -1 })
@@ -1144,10 +1144,52 @@ function UploadStatementModal({ isOpen, onClose, account, companyId, onImported 
         }
       }).filter(t => t.amount !== 0)
 
+      // ─────────────────────────────────────────────────────────────
+      // DEDUP: evita raddoppio movimenti se l'utente reimporta
+      // un CSV già caricato (anche parzialmente sovrapposto).
+      // Chiave dedup: bank_account_id|transaction_date|amount|description trimmed.
+      // Filtra sia contro i movimenti esistenti su DB nello stesso range
+      // di date sia contro duplicati interni al CSV stesso.
+      // ─────────────────────────────────────────────────────────────
+      const makeKey = (date: string, amount: number, desc: string) =>
+        `${date}|${Number(amount).toFixed(2)}|${(desc || '').trim().toLowerCase()}`
+
+      const dates = transactions
+        .map(t => t.transaction_date)
+        .filter((d): d is string => Boolean(d))
+        .sort()
+      const minDate = dates[0]
+      const maxDate = dates[dates.length - 1]
+
+      const existingKeys = new Set<string>()
+      if (minDate && maxDate) {
+        const { data: existingRows, error: existingErr } = await supabase
+          .from('bank_transactions')
+          .select('transaction_date, amount, description')
+          .eq('company_id', companyId)
+          .eq('bank_account_id', account.id)
+          .gte('transaction_date', minDate)
+          .lte('transaction_date', maxDate)
+          .limit(50000)
+        if (existingErr) throw existingErr
+        for (const r of (existingRows ?? []) as Array<{ transaction_date: string; amount: number | string; description: string | null }>) {
+          existingKeys.add(makeKey(r.transaction_date, Number(r.amount), r.description ?? ''))
+        }
+      }
+
+      const seenKeys = new Set<string>()
+      const toInsert = transactions.filter(t => {
+        const k = makeKey(t.transaction_date ?? '', t.amount, t.description ?? '')
+        if (existingKeys.has(k) || seenKeys.has(k)) return false
+        seenKeys.add(k)
+        return true
+      })
+      const skipped = transactions.length - toInsert.length
+
       // Insert in batches of 100
       let inserted = 0
-      for (let i = 0; i < transactions.length; i += 100) {
-        const batch = transactions.slice(i, i + 100)
+      for (let i = 0; i < toInsert.length; i += 100) {
+        const batch = toInsert.slice(i, i + 100)
         const { error: txErr } = await supabase.from('bank_transactions').insert(batch as never)
         if (txErr) throw txErr
         inserted += batch.length
@@ -1170,7 +1212,7 @@ function UploadStatementModal({ isOpen, onClose, account, companyId, onImported 
         }
       }
 
-      setImportResult({ success: true, count: inserted })
+      setImportResult({ success: true, count: inserted, skipped })
       setStep('done')
       onImported()
     } catch (err: unknown) {
@@ -1345,7 +1387,7 @@ function UploadStatementModal({ isOpen, onClose, account, companyId, onImported 
           </div>
           <div className="bg-amber-50 rounded-lg p-3 text-sm text-amber-700">
             <AlertTriangle size={14} className="inline mr-1" />
-            Verranno importate <strong>{parsed?.rows?.length || 0}</strong> righe (escluse quelle con importo zero).
+            Verranno analizzate <strong>{parsed?.rows?.length || 0}</strong> righe. Le righe con importo zero e i duplicati gi&agrave; presenti per questo conto saranno saltati automaticamente.
           </div>
           <div className="flex gap-3 pt-2">
             <button onClick={() => setStep('map')} className="flex-1 px-4 py-2.5 border border-slate-200 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50">
@@ -1368,6 +1410,12 @@ function UploadStatementModal({ isOpen, onClose, account, companyId, onImported 
               </div>
               <h3 className="text-lg font-semibold text-slate-900">Importazione completata</h3>
               <p className="text-sm text-slate-500 mt-1">{importResult.count} movimenti importati correttamente.</p>
+              {(importResult.skipped ?? 0) > 0 && (
+                <p className="text-xs text-amber-700 mt-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 inline-block">
+                  <AlertTriangle size={12} className="inline mr-1" />
+                  {importResult.skipped} riga{importResult.skipped === 1 ? '' : 'he'} duplicat{importResult.skipped === 1 ? 'a' : 'e'} salt{importResult.skipped === 1 ? 'ata' : 'ate'} (gi&agrave; presenti per questo conto nel periodo).
+                </p>
+              )}
             </>
           ) : (
             <>
