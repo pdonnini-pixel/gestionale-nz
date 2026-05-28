@@ -4,6 +4,28 @@
 
 ---
 
+## ⚠️ REGOLA #0 — PARITÀ TENANT (NON NEGOZIABILE)
+
+**OGNI modifica/fix/deploy va applicato a TUTTI E 3 i tenant: NZ + Made + Zago. Sempre. Senza eccezioni.**
+
+Concretamente, per ogni intervento:
+- **Migration SQL** → applicata via MCP su NZ + Made + Zago (3 project_id distinti)
+- **Edge Function deploy** → deployata su NZ + Made + Zago (3 project_id distinti)
+- **Vault secret / RPC** → replicata su NZ + Made + Zago
+- **Frontend** → automatico via Netlify (3 deploy dalla stessa branch main)
+- **Storage bucket / RLS policy** → replicato su NZ + Made + Zago
+
+Tenant project_id:
+- **NZ** = `xfvfxsvqpnpvibgeqpqp` (gestionale-nz)
+- **Made** = `wdgoebzvosspjqttitra` (gestionale-made-retail)
+- **Zago** = `jxlwvzjreukscnswkbjx` (gestionale-zago)
+
+**Patrizio ha già ripetuto questa regola più volte. Se mi dimentico di replicare anche solo una volta, è un mio errore grave, non un dimenticanza accettabile.**
+
+Test mentale prima di chiudere ogni task: "Ho fatto X anche su Made? Su Zago?". Se la risposta è no, non ho finito.
+
+---
+
 ## Identità e Ruolo
 
 Sei l'esecutore autonomo del progetto **Gestionale NZ v2.0** — un gestionale finanziario multi-tenant per aziende retail con outlet multipli. Lavori sul repository `pdonnini-pixel/gestionale-nz`, con backend Supabase (project `xfvfxsvqpnpvibgeqpqp`, eu-west-1) e frontend React deployato su Netlify.
