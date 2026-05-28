@@ -20,11 +20,12 @@
 // Accesso: solo role === 'super_advisor'.
 // ═══════════════════════════════════════════════════════════════════
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  ArrowLeft, Clock, Download, MessageSquare, RefreshCw, Shield, Sparkles, Trash2, XCircle,
+  ArrowLeft, Clock, Download, MessageSquare, RefreshCw, Shield, Sparkles, Trash2, Upload, X, XCircle,
 } from 'lucide-react'
+import * as XLSX from 'xlsx'
 import { supabase } from '../lib/supabase'
 import { useToast } from '../components/Toast'
 import { useAuth } from '../hooks/useAuth'
@@ -70,6 +71,14 @@ export default function TicketAdminPage() {
     ids: string[]; clearSelection: () => void;
   } | null>(null)
   const [closeMotivo, setCloseMotivo] = useState('')
+  // Import ticket batch da CSV/XLSX
+  type ImportRow = {
+    titolo: string; descrizione: string; modulo: string;
+    priorita: 'basso' | 'medio' | 'alto'; tipo: 'bug' | 'funzione';
+    _errors?: string[];
+  }
+  const [importModal, setImportModal] = useState<{ rows: ImportRow[]; fileName: string } | null>(null)
+  const importInputRef = useRef<HTMLInputElement | null>(null)
   const [confirm, setConfirm] = useState<null | {
     title: string; message: string; confirmLabel?: string; destructive?: boolean;
     onConfirm: () => void;
@@ -268,6 +277,91 @@ export default function TicketAdminPage() {
     }
   }
 
+  // ────────── Import ticket batch da CSV/XLSX ──────────
+  // Colonne attese: titolo, descrizione, modulo, priorita (basso|medio|alto),
+  // tipo (bug|funzione). Header riga 1, dalla 2 in poi i dati.
+  // Validazione: titolo richiesto >= 3 char, modulo fallback "Altro",
+  // priorita fallback "medio", tipo fallback "bug".
+  const VALID_PRIORITA = ['basso', 'medio', 'alto'] as const
+  const VALID_TIPO = ['bug', 'funzione'] as const
+
+  const handleImportFile = (file: File) => {
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      try {
+        const data = ev.target?.result
+        if (!data || typeof data === 'string') return
+        const wb = XLSX.read(data, { type: 'array' })
+        const sheet = wb.Sheets[wb.SheetNames[0]]
+        const raw = XLSX.utils.sheet_to_json(sheet, { defval: '' }) as Array<Record<string, unknown>>
+        const rows: ImportRow[] = raw.map((r: Record<string, unknown>) => {
+          const titolo = String(r.titolo ?? r.Titolo ?? r.title ?? '').trim()
+          const descrizione = String(r.descrizione ?? r.Descrizione ?? r.description ?? '').trim()
+          const moduloRaw = String(r.modulo ?? r.Modulo ?? r.module ?? 'Altro').trim()
+          const prioritaRaw = String(r.priorita ?? r.priorità ?? r.Priorita ?? 'medio').trim().toLowerCase()
+          const tipoRaw = String(r.tipo ?? r.Tipo ?? r.type ?? 'bug').trim().toLowerCase()
+          const errors: string[] = []
+          if (titolo.length < 3) errors.push('titolo mancante o < 3 char')
+          const priorita = (VALID_PRIORITA as readonly string[]).includes(prioritaRaw) ? prioritaRaw : 'medio'
+          const tipo = (VALID_TIPO as readonly string[]).includes(tipoRaw) ? tipoRaw : 'bug'
+          return {
+            titolo, descrizione,
+            modulo: moduloRaw || 'Altro',
+            priorita: priorita as 'basso' | 'medio' | 'alto',
+            tipo: tipo as 'bug' | 'funzione',
+            _errors: errors.length > 0 ? errors : undefined,
+          }
+        })
+        if (rows.length === 0) {
+          toast({ type: 'warning', message: 'File vuoto o nessuna riga valida.' })
+          return
+        }
+        setImportModal({ rows, fileName: file.name })
+      } catch (e) {
+        toast({ type: 'error', message: `Errore parsing file: ${errorMessage(e)}` })
+      }
+    }
+    reader.onerror = () => toast({ type: 'error', message: 'Errore lettura file.' })
+    reader.readAsArrayBuffer(file)
+  }
+
+  const handleImportFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0]
+    if (f) handleImportFile(f)
+    e.target.value = ''  // reset così si può rifare lo stesso file
+  }
+
+  const confermaImport = async () => {
+    if (!importModal) return
+    const valide = importModal.rows.filter((r) => !r._errors)
+    if (valide.length === 0) {
+      toast({ type: 'warning', message: 'Nessuna riga valida da importare.' })
+      return
+    }
+    setBusy(true)
+    try {
+      const autoreLabel = (profile?.full_name as string | undefined)
+        ?? (session?.user?.email as string | undefined)
+        ?? 'Admin (import)'
+      const autoreId = session?.user?.id ?? null
+      const payload = valide.map((r) => ({
+        tipo: r.tipo, modulo: r.modulo, titolo: r.titolo,
+        descrizione: r.descrizione || null,
+        priorita: r.priorita, stato: 'aperto',
+        autore: autoreLabel, autore_id: autoreId,
+      }))
+      const { error } = await supabase.from('tickets' as never).insert(payload as never)
+      if (error) throw new Error(error.message)
+      toast({ type: 'success', message: `${valide.length} ticket importati con successo.` })
+      setImportModal(null)
+      await load()
+    } catch (e) {
+      toast({ type: 'error', message: errorMessage(e, 'Import fallito') })
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const exportCsv = () => {
     const headers = [
       'id', 'creato_il', 'autore', 'tipo', 'modulo', 'priorita', 'stato',
@@ -348,14 +442,31 @@ export default function TicketAdminPage() {
         onCreate={() => navigate('/ticket')}  // crea passa dalla vista standard
         adminMode
         renderAdminHeaderExtras={() => (
-          <button
-            type="button"
-            onClick={exportCsv}
-            disabled={tickets.length === 0}
-            className="px-3 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg flex items-center gap-2 disabled:opacity-50"
-          >
-            <Download className="w-4 h-4" /> Esporta CSV
-          </button>
+          <>
+            <button
+              type="button"
+              onClick={() => importInputRef.current?.click()}
+              className="px-3 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg flex items-center gap-2"
+              title="Importa ticket batch da CSV o Excel. Colonne: titolo, descrizione, modulo, priorita, tipo."
+            >
+              <Upload className="w-4 h-4" /> Importa
+            </button>
+            <input
+              ref={importInputRef}
+              type="file"
+              accept=".csv,.xlsx,.xls"
+              className="hidden"
+              onChange={handleImportFileChange}
+            />
+            <button
+              type="button"
+              onClick={exportCsv}
+              disabled={tickets.length === 0}
+              className="px-3 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg flex items-center gap-2 disabled:opacity-50"
+            >
+              <Download className="w-4 h-4" /> Esporta CSV
+            </button>
+          </>
         )}
         renderAdminBulkBar={(selectedIds, clear) => (
           <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 flex flex-wrap items-center gap-2">
@@ -444,6 +555,85 @@ export default function TicketAdminPage() {
               </li>
             ))}
           </ul>
+        </div>
+      )}
+
+      {/* Modal import ticket batch (preview + conferma) */}
+      {importModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 px-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-4xl w-full p-6 max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-lg font-semibold text-slate-900 flex items-center gap-2">
+                <Upload className="w-5 h-5 text-blue-600" />
+                Importa ticket — anteprima
+                <span className="text-xs text-slate-500 font-normal">({importModal.fileName})</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setImportModal(null)}
+                className="p-1 text-slate-400 hover:text-slate-700"
+                aria-label="Chiudi"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <p className="text-sm text-slate-600 mb-3">
+              <strong>{importModal.rows.length}</strong> righe totali, di cui{' '}
+              <strong className="text-emerald-700">{importModal.rows.filter(r => !r._errors).length}</strong> valide,{' '}
+              <strong className="text-red-700">{importModal.rows.filter(r => r._errors).length}</strong> con errori (saranno saltate).
+            </p>
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-2 text-xs text-amber-800 mb-3">
+              Colonne attese: <code className="font-mono">titolo</code> (obbligatorio, min 3 char),{' '}
+              <code className="font-mono">descrizione</code>, <code className="font-mono">modulo</code>,{' '}
+              <code className="font-mono">priorita</code> (basso/medio/alto),{' '}
+              <code className="font-mono">tipo</code> (bug/funzione).
+            </div>
+            <div className="flex-1 overflow-auto border border-slate-200 rounded-lg">
+              <table className="min-w-full text-xs">
+                <thead className="bg-slate-50 text-slate-600 uppercase">
+                  <tr>
+                    <th className="px-2 py-1.5 text-left">#</th>
+                    <th className="px-2 py-1.5 text-left">Titolo</th>
+                    <th className="px-2 py-1.5 text-left">Modulo</th>
+                    <th className="px-2 py-1.5 text-left">Priorità</th>
+                    <th className="px-2 py-1.5 text-left">Tipo</th>
+                    <th className="px-2 py-1.5 text-left">Errori</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {importModal.rows.map((r, i) => (
+                    <tr key={i} className={r._errors ? 'bg-red-50' : ''}>
+                      <td className="px-2 py-1.5 text-slate-500">{i + 1}</td>
+                      <td className="px-2 py-1.5 text-slate-900 max-w-md truncate" title={r.titolo}>{r.titolo || <em className="text-slate-400">vuoto</em>}</td>
+                      <td className="px-2 py-1.5 text-slate-700">{r.modulo}</td>
+                      <td className="px-2 py-1.5 text-slate-700">{r.priorita}</td>
+                      <td className="px-2 py-1.5 text-slate-700">{r.tipo}</td>
+                      <td className="px-2 py-1.5 text-red-700">{r._errors?.join(', ') ?? ''}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="flex justify-end gap-2 mt-4">
+              <button
+                type="button"
+                onClick={() => setImportModal(null)}
+                disabled={busy}
+                className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg disabled:opacity-50"
+              >
+                Annulla
+              </button>
+              <button
+                type="button"
+                onClick={confermaImport}
+                disabled={busy || importModal.rows.filter(r => !r._errors).length === 0}
+                className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg disabled:opacity-50 flex items-center gap-2"
+              >
+                {busy && <RefreshCw className="w-4 h-4 animate-spin" />}
+                Importa {importModal.rows.filter(r => !r._errors).length} ticket
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

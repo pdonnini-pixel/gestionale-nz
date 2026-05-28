@@ -1082,14 +1082,38 @@ function TicketDetail({ ticket, onBack, onUpdated }: TicketDetailProps) {
     }
   }, [autoreLabel, nuovoCommento, onUpdated, ticket.commenti, ticket.id, toast])
 
+  // Calcola se ultimo commento AI e' < 60s fa: in tal caso bottone disabled
+  // (protezione click duplicati come fa anche l'edge function lato server)
+  const lastAiCommentAgeSec = useMemo(() => {
+    const last = (ticket.commenti ?? [])
+      .filter((c) => c.origine === 'ai' && c.creato_il)
+      .sort((a, b) => (b.creato_il || '').localeCompare(a.creato_il || ''))[0]
+    if (!last) return Infinity
+    return (Date.now() - new Date(last.creato_il).getTime()) / 1000
+  }, [ticket.commenti])
+  const aiOnCooldown = lastAiCommentAgeSec < 60
+
   // Admin-only: invoca Edge Function ticket-resolve-now per fix on-demand
   const risolviConAI = useCallback(async () => {
+    if (aiOnCooldown) {
+      toast({ type: 'warning', message: `AutoFix gia' invocato ${Math.round(lastAiCommentAgeSec)}s fa. Attendi 60s prima di riprovare.` })
+      return
+    }
     setBusy(true)
     try {
       const { data, error } = await supabase.functions.invoke('ticket-resolve-now', {
         body: { ticketId: ticket.id },
       })
-      if (error) throw new Error(error.message)
+      if (error) {
+        // Edge function ritorna 429 con messaggio leggibile per rate-limit
+        const msg = (error as { message?: string }).message ?? 'Errore Risolvi con AI'
+        if (msg.includes('429') || msg.toLowerCase().includes('attendi')) {
+          toast({ type: 'warning', message: 'AutoFix gia\' in elaborazione o appena completato. Attendi 60s e riprova.' })
+        } else {
+          toast({ type: 'error', message: msg })
+        }
+        return
+      }
       if (data?.action === 'fix') {
         toast({
           type: 'success',
@@ -1112,7 +1136,7 @@ function TicketDetail({ ticket, onBack, onUpdated }: TicketDetailProps) {
     } finally {
       setBusy(false)
     }
-  }, [ticket.id, onUpdated, toast])
+  }, [ticket.id, onUpdated, toast, aiOnCooldown, lastAiCommentAgeSec])
 
   // Admin-only: cancella ticket (solo per ticket di prova o aperti per errore)
   const cancellaTicket = useCallback(async () => {
@@ -1228,13 +1252,15 @@ function TicketDetail({ ticket, onBack, onUpdated }: TicketDetailProps) {
           {profile?.role === 'super_advisor' && (ticket.stato === 'aperto' || ticket.stato === 'in_corso') && (
             <button
               type="button"
-              disabled={busy}
+              disabled={busy || aiOnCooldown}
               onClick={() => risolviConAI()}
-              title="Invoca AI che analizza il ticket, applica fix al codice del modulo e apre PR su GitHub."
-              className="px-3 py-1.5 text-sm rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-50 flex items-center gap-1.5"
+              title={aiOnCooldown
+                ? `AutoFix invocato ${Math.round(lastAiCommentAgeSec)}s fa. Attendi 60s.`
+                : "Invoca AI che analizza il ticket, applica fix al codice del modulo e apre PR su GitHub."}
+              className="px-3 py-1.5 text-sm rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
             >
               {busy ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
-              Risolvi con AI
+              {aiOnCooldown ? `Attendi ${Math.max(1, 60 - Math.round(lastAiCommentAgeSec))}s` : 'Risolvi con AI'}
             </button>
           )}
 
