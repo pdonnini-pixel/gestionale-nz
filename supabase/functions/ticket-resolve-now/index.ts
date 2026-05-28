@@ -270,10 +270,18 @@ Deno.serve(async (req: Request) => {
     if (!isServiceRole) {
       const { data: userData, error: userErr } = await supabase.auth.getUser(token);
       if (userErr || !userData?.user) return jsonError(401, "Invalid JWT");
-      const roleData = userData.user.app_metadata?.role ?? userData.user.user_metadata?.role;
-      const userRoles: string[] = Array.isArray(roleData) ? roleData : (roleData ? [roleData] : []);
-      if (!userRoles.includes("super_advisor")) {
-        return jsonError(403, `Solo super_advisor puo' invocare ticket-resolve-now (ruoli: ${userRoles.join(", ")})`);
+      // Lettura ruolo da public.user_profiles (campo testo pulito) invece
+      // che dai metadata JWT: su NZ raw_app_meta_data.role e' salvato come
+      // stringa JSON-encoded (es. "[\"super_advisor\", ...]") che rompe il check.
+      // Fix: query DB diretta che ritorna sempre stringa.
+      const { data: profile } = await supabase
+        .from("user_profiles")
+        .select("role")
+        .eq("id", userData.user.id)
+        .maybeSingle();
+      const userRole = (profile as { role?: string } | null)?.role ?? null;
+      if (userRole !== "super_advisor") {
+        return jsonError(403, `Solo super_advisor puo' invocare ticket-resolve-now (ruolo: ${userRole ?? "nessuno"})`);
       }
     }
 

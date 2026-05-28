@@ -645,7 +645,10 @@ export function TicketList({
   tickets, loading, onRefresh, onOpenDetail, onCreate, initialStato,
   adminMode = false, renderAdminBulkBar, renderAdminHeaderExtras,
 }: TicketListProps) {
-  const [filtroStato, setFiltroStato] = useState<TicketStato | 'tutti'>(initialStato ?? 'tutti')
+  // Default: 'da_lavorare' = aperti + in_corso (no chiusi/risolti).
+  // Sia utente sia admin all'apertura vedono solo i ticket attivi.
+  // Filtri 'risolto'/'chiuso' restano disponibili manualmente.
+  const [filtroStato, setFiltroStato] = useState<TicketStato | 'tutti' | 'da_lavorare'>(initialStato ?? 'da_lavorare')
   const [filtroTipo, setFiltroTipo] = useState<TicketTipo | 'tutti'>('tutti')
   const [filtroModulo, setFiltroModulo] = useState<string>('tutti')
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
@@ -670,7 +673,10 @@ export function TicketList({
 
   const filtered = useMemo(() => {
     return tickets.filter(t => {
-      if (filtroStato !== 'tutti' && t.stato !== filtroStato) return false
+      // 'da_lavorare' = aperti + in_corso (default vista, no chiusi/risolti)
+      if (filtroStato === 'da_lavorare') {
+        if (t.stato !== 'aperto' && t.stato !== 'in_corso') return false
+      } else if (filtroStato !== 'tutti' && t.stato !== filtroStato) return false
       if (filtroTipo !== 'tutti' && t.tipo !== filtroTipo) return false
       if (filtroModulo !== 'tutti' && t.modulo !== filtroModulo) return false
       return true
@@ -702,6 +708,7 @@ export function TicketList({
           <p className="text-sm text-slate-500 mt-1">
             Bug, richieste di funzioni e segnalazioni. I ticket &quot;facili&quot; possono essere risolti automaticamente dall&apos;AutoFix.
           </p>
+          <AutoFixCountdown />
         </div>
         <div className="flex items-center gap-2">
           {renderAdminHeaderExtras?.()}
@@ -742,11 +749,12 @@ export function TicketList({
         </div>
         {/* Pillole stato */}
         <div className="flex flex-wrap items-center gap-1">
-          <PillButton active={filtroStato === 'aperto'}   onClick={() => setFiltroStato('aperto')}>In attesa</PillButton>
-          <PillButton active={filtroStato === 'in_corso'} onClick={() => setFiltroStato('in_corso')}>In corso</PillButton>
-          <PillButton active={filtroStato === 'risolto'}  onClick={() => setFiltroStato('risolto')}>Risolto</PillButton>
-          <PillButton active={filtroStato === 'chiuso'}   onClick={() => setFiltroStato('chiuso')}>Chiuso</PillButton>
-          <PillButton active={filtroStato === 'tutti'}    onClick={() => setFiltroStato('tutti')}>Tutti</PillButton>
+          <PillButton active={filtroStato === 'da_lavorare'} onClick={() => setFiltroStato('da_lavorare')}>Da lavorare</PillButton>
+          <PillButton active={filtroStato === 'aperto'}    onClick={() => setFiltroStato('aperto')}>In attesa</PillButton>
+          <PillButton active={filtroStato === 'in_corso'}  onClick={() => setFiltroStato('in_corso')}>In corso</PillButton>
+          <PillButton active={filtroStato === 'risolto'}   onClick={() => setFiltroStato('risolto')}>Risolto</PillButton>
+          <PillButton active={filtroStato === 'chiuso'}    onClick={() => setFiltroStato('chiuso')}>Chiuso</PillButton>
+          <PillButton active={filtroStato === 'tutti'}     onClick={() => setFiltroStato('tutti')}>Tutti</PillButton>
         </div>
         <div className="mx-1 h-5 w-px bg-slate-200" />
         {/* Pillole tipo */}
@@ -870,6 +878,44 @@ export function TicketList({
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+// AutoFixCountdown — countdown al prossimo run AutoFix scheduled.
+// Cron NZ: ogni ora al :07 (vedi memoria ticket_autofix_system).
+// Mostrato in header per dare attesa visiva all'utente.
+function AutoFixCountdown() {
+  const [now, setNow] = useState<Date>(new Date())
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 1000)
+    return () => clearInterval(t)
+  }, [])
+
+  // Prossimo run = prossima ora alle :07 (UTC del cron, ma mostriamo in locale)
+  const next = useMemo(() => {
+    const n = new Date(now)
+    n.setSeconds(0, 0)
+    n.setMinutes(7)
+    if (n.getTime() <= now.getTime()) {
+      n.setHours(n.getHours() + 1)
+    }
+    return n
+  }, [now])
+
+  const diffMs = next.getTime() - now.getTime()
+  const diffMin = Math.max(0, Math.floor(diffMs / 60000))
+  const diffSec = Math.max(0, Math.floor((diffMs % 60000) / 1000))
+  const timeStr = next.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })
+
+  return (
+    <div className="mt-2 inline-flex items-center gap-1.5 text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2.5 py-1">
+      <Clock className="w-3 h-3" />
+      <span>
+        Prossimo AutoFix automatico alle <strong className="font-semibold">{timeStr}</strong>
+        {' '}(tra {diffMin}m {String(diffSec).padStart(2, '0')}s).
+        Admin: usa "Risolvi con AI" per non aspettare.
+      </span>
     </div>
   )
 }
