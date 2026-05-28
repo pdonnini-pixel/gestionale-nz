@@ -1036,6 +1036,55 @@ function TicketDetail({ ticket, onBack, onUpdated }: TicketDetailProps) {
     }
   }, [autoreLabel, nuovoCommento, onUpdated, ticket.commenti, ticket.id, toast])
 
+  // Admin-only: invoca Edge Function ticket-resolve-now per fix on-demand
+  const risolviConAI = useCallback(async () => {
+    setBusy(true)
+    try {
+      const { data, error } = await supabase.functions.invoke('ticket-resolve-now', {
+        body: { ticketId: ticket.id },
+      })
+      if (error) throw new Error(error.message)
+      if (data?.action === 'fix') {
+        toast({
+          type: 'success',
+          message: `Fix proposto in PR ${data.pr_url ? `#${data.pr_number}` : ''}. ${data.message ?? ''}`.slice(0, 200),
+        })
+      } else if (data?.action === 'cant_fix') {
+        toast({ type: 'warning', message: data.message ?? 'AI non puo risolvere automaticamente.' })
+      } else {
+        toast({ type: 'warning', message: 'Risposta AI inattesa.' })
+      }
+      // Ricarica ticket aggiornato (commenti AI + stato)
+      const { data: refreshed } = await supabase
+        .from('tickets' as never)
+        .select('*')
+        .eq('id', ticket.id)
+        .single()
+      if (refreshed) onUpdated(refreshed as unknown as Ticket)
+    } catch (e) {
+      toast({ type: 'error', message: errorMessage(e, 'Errore Risolvi con AI') })
+    } finally {
+      setBusy(false)
+    }
+  }, [ticket.id, onUpdated, toast])
+
+  // Admin-only: cancella ticket (solo per ticket di prova o aperti per errore)
+  const cancellaTicket = useCallback(async () => {
+    setBusy(true)
+    try {
+      const { error } = await supabase
+        .from('tickets' as never)
+        .delete()
+        .eq('id', ticket.id)
+      if (error) throw new Error(error.message)
+      toast({ type: 'success', message: 'Ticket cancellato' })
+      onBack()
+    } catch (e) {
+      toast({ type: 'error', message: errorMessage(e, 'Cancellazione fallita') })
+      setBusy(false)
+    }
+  }, [ticket.id, onBack, toast])
+
   const azioniDisponibili = useMemo(() => {
     const actions: Array<{ label: string; stato: TicketStato; primary?: boolean; destructive?: boolean }> = []
     if (ticket.stato === 'aperto') {
@@ -1128,6 +1177,38 @@ function TicketDetail({ ticket, onBack, onUpdated }: TicketDetailProps) {
               {a.label}
             </button>
           ))}
+
+          {/* Azioni admin-only (super_advisor): Risolvi con AI on-demand + Cancella */}
+          {profile?.role === 'super_advisor' && (ticket.stato === 'aperto' || ticket.stato === 'in_corso') && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => risolviConAI()}
+              title="Invoca AI che analizza il ticket, applica fix al codice del modulo e apre PR su GitHub."
+              className="px-3 py-1.5 text-sm rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-50 flex items-center gap-1.5"
+            >
+              {busy ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+              Risolvi con AI
+            </button>
+          )}
+
+          {profile?.role === 'super_advisor' && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => setConfirm({
+                title: 'Cancellare definitivamente questo ticket?',
+                message: 'L’operazione cancella il ticket dal database. Non e’ reversibile. Usalo solo per ticket di prova o errori di apertura.',
+                confirmLabel: 'Cancella',
+                destructive: true,
+                onConfirm: () => { setConfirm(null); cancellaTicket() },
+              })}
+              title="Cancella ticket (solo super_advisor). Per ticket di prova o aperti per errore."
+              className="ml-auto px-3 py-1.5 text-sm rounded-lg bg-red-600 hover:bg-red-700 text-white disabled:opacity-50 flex items-center gap-1.5"
+            >
+              <Trash2 className="w-3.5 h-3.5" /> Cancella
+            </button>
+          )}
         </div>
       </div>
 
