@@ -77,6 +77,55 @@ type TicketRow = {
   creato_il: string;
 };
 
+// Pre-flight: data un ticket con modulo "Altro" o non mappato, chiede a
+// Claude di analizzare titolo+descrizione e scegliere uno dei file di
+// MODULE_TO_PATH (o null se non e' identificabile). Usa Haiku per velocita'
+// (~1-2 sec). Risposta forzata a essere un path o "null".
+async function pickFilePathViaClaude(apiKey: string, ticket: TicketRow): Promise<string | null> {
+  const moduleList = Object.entries(MODULE_TO_PATH)
+    .map(([m, p]) => `- ${m} → ${p}`)
+    .join("\n");
+
+  const systemPrompt = `Sei un router. Data una richiesta utente per il gestionale-nz, devi scegliere quale singolo file React e' il piu' probabile candidato a contenere il bug o la feature richiesta. Se non riesci a deciderlo con confidenza >= 70%, restituisci "null".`;
+
+  const userMessage = `# Ticket
+- Modulo dichiarato: ${ticket.modulo}
+- Titolo: ${ticket.titolo}
+- Descrizione: ${ticket.descrizione ?? "(nessuna)"}
+
+# File disponibili (mapping modulo → path)
+${moduleList}
+
+# Compito
+Restituisci SOLO un JSON {"file": "<path o null>"}. Nessun altro testo.`;
+
+  try {
+    const r = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 200,
+        system: systemPrompt,
+        messages: [{ role: "user", content: userMessage }],
+      }),
+    });
+    if (!r.ok) return null;
+    const data = await r.json() as { content?: Array<{ type: string; text?: string }> };
+    const text = data.content?.find((c) => c.type === "text")?.text ?? "";
+    // Estrae JSON dal testo (Claude a volte aggiunge prefisso/postfisso)
+    const match = text.match(/\{[\s\S]*?"file"[\s\S]*?\}/);
+    if (!match) return null;
+    const parsed = JSON.parse(match[0]) as { file?: string | null };
+    if (!parsed.file || parsed.file === "null") return null;
+    // Verifica che il file sia uno di quelli noti (anti-hallucination)
+    if (Object.values(MODULE_TO_PATH).includes(parsed.file)) return parsed.file;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 async function getSecret(supabase: SupabaseClient, rpcName: string, key: string): Promise<string> {
   const { data, error } = await supabase.rpc(rpcName);
   if (error || !data || !data[0] || !data[0][key]) {
@@ -298,21 +347,39 @@ Deno.serve(async (req: Request) => {
     if (tErr || !ticketData) return jsonError(404, `Ticket ${ticketId} non trovato: ${tErr?.message ?? "no row"}`);
     const ticket = ticketData as unknown as TicketRow;
 
-    // Determina file path target
-    const filePath = MODULE_TO_PATH[ticket.modulo];
-    if (!filePath) {
-      // Modulo "Altro" o non mappato: chiudi con commento cant_fix senza chiamare Claude
-      await appendCommentToTicket(supabase, ticket, {
-        autore: "AutoFix",
-        origine: "ai",
-        testo: `Non posso lavorare automaticamente su questo ticket: il modulo "${ticket.modulo}" non è mappato a un file specifico. Patrizio deve risolverlo manualmente.`,
-      });
-      return jsonOk({ ok: true, action: "cant_fix", message: `Modulo ${ticket.modulo} non mappato` });
+    // ─────────── Rate-limit anti-click-duplicato ───────────
+    // Se l'ultimo commento AI e' < 60s fa, rifiuta con 429.
+    // Previene il caso Lilian che clicca 'Risolvi con AI' 3 volte di fila
+    // e genera 3 commenti identici.
+    const lastAiComment = (ticket.commenti ?? [])
+      .filter((c) => c?.origine === "ai" && c?.creato_il)
+      .sort((a, b) => (b.creato_il ?? "").localeCompare(a.creato_il ?? ""))[0];
+    if (lastAiComment) {
+      const ageSec = (Date.now() - new Date(lastAiComment.creato_il).getTime()) / 1000;
+      if (ageSec < 60) {
+        return jsonError(429, `Risolvi con AI gia' invocato ${Math.round(ageSec)}s fa. Attendi almeno 60s prima di riprovare.`);
+      }
     }
 
     // Carica secrets
     const ghToken = await getSecret(supabase, "get_github_token", "token");
     const anthropicKey = await getSecret(supabase, "get_anthropic_api_key", "api_key");
+
+    // ─────────── Determina file path target ───────────
+    // Se modulo e' mappato (es. "Banche") -> usa direttamente.
+    // Se modulo = "Altro" o non mappato -> Claude pre-flight: leggi titolo
+    // + descrizione e scegli il file piu' probabile tra quelli noti.
+    let filePath = MODULE_TO_PATH[ticket.modulo];
+    if (!filePath) {
+      filePath = await pickFilePathViaClaude(anthropicKey, ticket);
+      if (!filePath) {
+        await appendCommentToTicket(supabase, ticket, {
+          autore: "AutoFix", origine: "ai",
+          testo: `🤖 Non riesco a capire automaticamente quale file modificare per questo ticket. Il modulo dichiarato e' "${ticket.modulo}" e dal titolo/descrizione non emerge un riferimento chiaro a una pagina specifica. Patrizio deve risolverlo manualmente.`,
+        });
+        return jsonOk({ ok: true, action: "cant_fix", message: `Non e' stato possibile identificare il file da modificare (modulo: ${ticket.modulo})` });
+      }
+    }
 
     // Scarica file dal main
     const { content: fileContent, sha: fileSha } = await getFileFromMain(ghToken, filePath);
