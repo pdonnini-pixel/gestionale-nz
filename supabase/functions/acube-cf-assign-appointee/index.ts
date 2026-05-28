@@ -2,13 +2,18 @@
 //
 // Assegna un Business Registry Configuration (BRC) di un tenant all'Appointee
 // EPPI (persona fisica Patrizio Donnini) sulla piattaforma A-Cube.
-// Prerequisito: il legale rappresentante del tenant deve aver gia' nominato
-// Patrizio come Appointee su Fisconline AdE (azione manuale, una tantum).
+// Prerequisiti:
+// 1. Il legale rappresentante del tenant ha gia' nominato Patrizio come
+//    Appointee su Fisconline AdE (azione manuale, una tantum).
+// 2. Il BRC del tenant ha receipts_enabled=true (dalla doc OpenAPI).
 //
 // Doc: https://docs.acubeapi.com/documentation/italy/gov-it/cassettofiscale
-// Endpoint A-Cube: POST /business-registry-configurations/{fiscal_id}/appointee
+// Endpoint A-Cube CONFERMATO OpenAPI:
+//   POST /ade-appointees/{appointee_fiscal_id}/assign
+//   - path param = CF dell'APPOINTEE (Patrizio), NON del cliente
+//   - body: schema AdeAppointee (riferimento al BRC, da verificare al primo test)
 //
-// Body: { tenantFiscalId, appointeeFiscalId, stage?: 'sandbox'|'production' }
+// Body input edge function: { tenantFiscalId, appointeeFiscalId, stage?, companyId }
 // Auth: solo super_advisor
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
@@ -113,8 +118,12 @@ Deno.serve(async (req: Request) => {
 
     let jwt = await getCachedJwt(supabase, stage);
 
-    // POST /business-registry-configurations/{fiscal_id}/appointee con body {fiscal_id: appointee_cf}
-    const assignUrl = `${baseUrl}/business-registry-configurations/${encodeURIComponent(tenantFiscalId)}/appointee`;
+    // CORRETTO OpenAPI (audit 2026-05-26):
+    // POST /ade-appointees/{appointee_fiscal_id}/assign
+    // path param = CF APPOINTEE (Patrizio), NON cliente
+    // body schema AdeAppointee: assumiamo riferimento al BRC tramite fiscal_id
+    // del cliente (da verificare al primo test sandbox).
+    const assignUrl = `${baseUrl}/ade-appointees/${encodeURIComponent(appointeeFiscalId)}/assign`;
     const doPost = async (j: string) => fetch(assignUrl, {
       method: "POST",
       headers: {
@@ -122,7 +131,9 @@ Deno.serve(async (req: Request) => {
         "Content-Type": "application/json",
         Accept: "application/json",
       },
-      body: JSON.stringify({ fiscal_id: appointeeFiscalId }),
+      // Body: in attesa di test sandbox per validare lo schema esatto.
+      // Tentativo iniziale: passiamo il fiscal_id del tenant come riferimento BRC.
+      body: JSON.stringify({ fiscal_id: tenantFiscalId }),
     });
 
     let resp = await doPost(jwt);
