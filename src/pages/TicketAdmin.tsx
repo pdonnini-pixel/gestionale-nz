@@ -102,21 +102,23 @@ export default function TicketAdminPage() {
   }, [tickets])
 
   // Commenti AutoFix recenti (ultimi 15)
+  // NOTA: commenti vecchi possono avere creato_il=undefined o testo=null,
+  // serve fallback safe in localeCompare per non crashare la pagina.
   const commentiAutoFixRecenti = useMemo(() => {
     const items: Array<{ ticketId: string; ticketTitolo: string; testo: string; creato_il: string }> = []
     for (const t of tickets) {
       for (const c of (t.commenti ?? [])) {
-        if (c.origine === 'ai') {
+        if (c?.origine === 'ai') {
           items.push({
             ticketId: t.id,
-            ticketTitolo: t.titolo,
-            testo: c.testo,
-            creato_il: c.creato_il,
+            ticketTitolo: t.titolo ?? '(senza titolo)',
+            testo: c.testo ?? '',
+            creato_il: c.creato_il ?? '',
           })
         }
       }
     }
-    return items.sort((a, b) => b.creato_il.localeCompare(a.creato_il)).slice(0, 15)
+    return items.sort((a, b) => (b.creato_il || '').localeCompare(a.creato_il || '')).slice(0, 15)
   }, [tickets])
 
   const autoreAdminLabel: string =
