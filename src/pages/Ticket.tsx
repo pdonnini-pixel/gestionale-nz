@@ -24,8 +24,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, useLocation } from 'react-router-dom'
 import {
-  AlertCircle, ArrowLeft, Bug, Check, Clock, Eye, Filter, FileText, Image as ImageIcon,
-  MessageSquare, Paperclip, Plus, RefreshCw, Send, Sparkles, Trash2, Upload, X,
+  AlertCircle, ArrowLeft, Bug, Check, CheckSquare, Clock, Eye, Filter, FileText, Image as ImageIcon,
+  MessageSquare, Paperclip, Plus, RefreshCw, Send, Sparkles, Square, Trash2, Upload, X,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useToast } from '../components/Toast'
@@ -631,14 +631,24 @@ interface TicketListProps {
   onOpenDetail: (id: string) => void
   onCreate: () => void
   initialStato?: TicketStato | 'tutti'
+  /** Modalita' admin: mostra checkbox per selezione + barra bulk actions. */
+  adminMode?: boolean
+  /** Render della barra bulk visibile sopra la tabella quando ci sono selezionati.
+   *  Riceve gli id selezionati e una funzione per pulire la selezione. */
+  renderAdminBulkBar?: (selectedIds: string[], clear: () => void) => React.ReactNode
+  /** Render extra in header destra (es. bottone esporta CSV). */
+  renderAdminHeaderExtras?: () => React.ReactNode
 }
 
-function TicketList({
+// Esportata per riuso in TicketAdmin (stessa vista, layout uniforme).
+export function TicketList({
   tickets, loading, onRefresh, onOpenDetail, onCreate, initialStato,
+  adminMode = false, renderAdminBulkBar, renderAdminHeaderExtras,
 }: TicketListProps) {
   const [filtroStato, setFiltroStato] = useState<TicketStato | 'tutti'>(initialStato ?? 'tutti')
   const [filtroTipo, setFiltroTipo] = useState<TicketTipo | 'tutti'>('tutti')
   const [filtroModulo, setFiltroModulo] = useState<string>('tutti')
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
 
   // Reagisce a navigation con state.initialStato (es. da banner "ticket risolti")
   useEffect(() => {
@@ -646,7 +656,7 @@ function TicketList({
   }, [initialStato])
 
   const stats = useMemo(() => {
-    const s = { aperti: 0, in_corso: 0, risolti: 0, chiusi: 0, bug: 0, funzioni: 0 }
+    const s = { aperti: 0, in_corso: 0, risolti: 0, chiusi: 0, bug: 0, funzioni: 0, totali: tickets.length }
     for (const t of tickets) {
       if (t.stato === 'aperto') s.aperti++
       else if (t.stato === 'in_corso') s.in_corso++
@@ -667,86 +677,102 @@ function TicketList({
     })
   }, [tickets, filtroStato, filtroTipo, filtroModulo])
 
+  const toggleSelect = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+  const toggleSelectAll = () => {
+    setSelectedIds(prev => {
+      if (prev.size === filtered.length && filtered.length > 0) return new Set()
+      return new Set(filtered.map(t => t.id))
+    })
+  }
+  const clearSelection = () => setSelectedIds(new Set())
+
   return (
     <div className="space-y-5">
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-semibold text-slate-900">Segnalazioni</h1>
+          <h1 className="text-2xl font-semibold text-slate-900">Ticket &amp; Segnalazioni</h1>
           <p className="text-sm text-slate-500 mt-1">
-            Apri una segnalazione per bug riscontrati o nuove funzionalità desiderate.
+            Bug, richieste di funzioni e segnalazioni. I ticket &quot;facili&quot; possono essere risolti automaticamente dall&apos;AutoFix.
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {renderAdminHeaderExtras?.()}
           <button
             type="button"
             onClick={onRefresh}
             disabled={loading}
-            className="p-2 text-slate-600 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg disabled:opacity-50"
+            className="px-3 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg flex items-center gap-2 disabled:opacity-50"
             aria-label="Aggiorna"
           >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> Aggiorna
           </button>
           <button
             type="button"
             onClick={onCreate}
             className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg flex items-center gap-2"
           >
-            <Plus className="w-4 h-4" /> Apri segnalazione
+            <Plus className="w-4 h-4" /> Apri ticket
           </button>
         </div>
       </div>
 
-      {/* Stat cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-        <StatCard label="In attesa"   value={stats.aperti}   icon={<AlertCircle className="w-5 h-5 text-blue-700" />}    accent="bg-blue-100" />
+      {/* Stat cards (7 colonne: stati + tipi + totali) */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3">
+        <StatCard label="Aperti"      value={stats.aperti}   icon={<AlertCircle className="w-5 h-5 text-blue-700" />}    accent="bg-blue-100" />
         <StatCard label="In corso"    value={stats.in_corso} icon={<Clock className="w-5 h-5 text-amber-700" />}        accent="bg-amber-100" />
         <StatCard label="Risolti"     value={stats.risolti}  icon={<Check className="w-5 h-5 text-emerald-700" />}      accent="bg-emerald-100" />
         <StatCard label="Chiusi"      value={stats.chiusi}   icon={<X className="w-5 h-5 text-slate-500" />}            accent="bg-slate-100" />
         <StatCard label="Bug"         value={stats.bug}      icon={<Bug className="w-5 h-5 text-red-700" />}            accent="bg-red-100" />
-        <StatCard label="Funzionalità" value={stats.funzioni} icon={<Sparkles className="w-5 h-5 text-violet-700" />}   accent="bg-violet-100" />
+        <StatCard label="Funzioni"    value={stats.funzioni} icon={<Sparkles className="w-5 h-5 text-violet-700" />}    accent="bg-violet-100" />
+        <StatCard label="Totali"      value={stats.totali}   icon={<MessageSquare className="w-5 h-5 text-slate-700" />} accent="bg-slate-100" />
       </div>
 
-      {/* Filtri */}
+      {/* Filtri a pillole */}
       <div className="bg-white border border-slate-200 rounded-xl p-3 flex flex-wrap items-center gap-2">
-        <div className="flex items-center gap-1.5 text-slate-500 text-sm">
+        <div className="flex items-center gap-1.5 text-slate-500 text-sm mr-2">
           <Filter className="w-4 h-4" /> Filtri:
         </div>
-        <FilterChip
-          label={`Stato: ${filtroStato === 'tutti' ? 'tutti' : TICKET_STATO_LABEL[filtroStato]}`}
-          options={[
-            { value: 'tutti', label: 'Tutti gli stati' },
-            { value: 'aperto', label: TICKET_STATO_LABEL.aperto },
-            { value: 'in_corso', label: TICKET_STATO_LABEL.in_corso },
-            { value: 'risolto', label: TICKET_STATO_LABEL.risolto },
-            { value: 'chiuso', label: TICKET_STATO_LABEL.chiuso },
-          ]}
-          value={filtroStato}
-          onChange={(v) => setFiltroStato(v as TicketStato | 'tutti')}
-        />
-        <FilterChip
-          label={`Tipo: ${filtroTipo === 'tutti' ? 'tutti' : TICKET_TIPO_LABEL[filtroTipo]}`}
-          options={[
-            { value: 'tutti', label: 'Tutti i tipi' },
-            { value: 'bug', label: 'Bug' },
-            { value: 'funzione', label: 'Funzione' },
-          ]}
-          value={filtroTipo}
-          onChange={(v) => setFiltroTipo(v as TicketTipo | 'tutti')}
-        />
-        <FilterChip
-          label={`Modulo: ${filtroModulo === 'tutti' ? 'tutti' : filtroModulo}`}
-          options={[
-            { value: 'tutti', label: 'Tutti i moduli' },
-            ...TICKET_MODULI.map(m => ({ value: m, label: m })),
-          ]}
+        {/* Pillole stato */}
+        <div className="flex flex-wrap items-center gap-1">
+          <PillButton active={filtroStato === 'aperto'}   onClick={() => setFiltroStato('aperto')}>In attesa</PillButton>
+          <PillButton active={filtroStato === 'in_corso'} onClick={() => setFiltroStato('in_corso')}>In corso</PillButton>
+          <PillButton active={filtroStato === 'risolto'}  onClick={() => setFiltroStato('risolto')}>Risolto</PillButton>
+          <PillButton active={filtroStato === 'chiuso'}   onClick={() => setFiltroStato('chiuso')}>Chiuso</PillButton>
+          <PillButton active={filtroStato === 'tutti'}    onClick={() => setFiltroStato('tutti')}>Tutti</PillButton>
+        </div>
+        <div className="mx-1 h-5 w-px bg-slate-200" />
+        {/* Pillole tipo */}
+        <div className="flex flex-wrap items-center gap-1">
+          <PillButton active={filtroTipo === 'tutti'}    onClick={() => setFiltroTipo('tutti')}>Tutti</PillButton>
+          <PillButton active={filtroTipo === 'bug'}      onClick={() => setFiltroTipo('bug')}>Bug</PillButton>
+          <PillButton active={filtroTipo === 'funzione'} onClick={() => setFiltroTipo('funzione')}>Funzioni</PillButton>
+        </div>
+        <div className="mx-1 h-5 w-px bg-slate-200" />
+        {/* Modulo come select (lungo) */}
+        <select
           value={filtroModulo}
-          onChange={(v) => setFiltroModulo(v)}
-        />
+          onChange={(e) => setFiltroModulo(e.target.value)}
+          className="px-3 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-200"
+          aria-label="Modulo"
+        >
+          <option value="tutti">Tutti i moduli</option>
+          {TICKET_MODULI.map(m => <option key={m} value={m}>{m}</option>)}
+        </select>
         <div className="ml-auto text-xs text-slate-500">
           {filtered.length} su {tickets.length}
         </div>
       </div>
+
+      {/* Bulk action bar (solo admin con selezione attiva) */}
+      {adminMode && selectedIds.size > 0 && renderAdminBulkBar?.(Array.from(selectedIds), clearSelection)}
 
       {/* Tabella */}
       <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
@@ -758,13 +784,27 @@ function TicketList({
         ) : filtered.length === 0 ? (
           <div className="py-16 text-center text-slate-500 text-sm">
             <MessageSquare className="w-8 h-8 mx-auto mb-2 text-slate-300" />
-            Nessuna segnalazione corrisponde ai filtri.
+            Nessun ticket corrisponde ai filtri.
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="min-w-full text-sm">
               <thead className="bg-slate-50 text-slate-600 text-xs uppercase tracking-wide">
                 <tr>
+                  {adminMode && (
+                    <th className="px-3 py-2 w-8">
+                      <button
+                        type="button"
+                        onClick={toggleSelectAll}
+                        aria-label="Seleziona tutti"
+                        className="p-0.5 text-slate-500 hover:text-slate-900"
+                      >
+                        {selectedIds.size === filtered.length && filtered.length > 0
+                          ? <CheckSquare className="w-4 h-4 text-blue-600" />
+                          : <Square className="w-4 h-4" />}
+                      </button>
+                    </th>
+                  )}
                   <th className="px-3 py-2 text-left w-8"></th>
                   <th className="px-3 py-2 text-left">Titolo</th>
                   <th className="px-3 py-2 text-left">Priorità</th>
@@ -776,40 +816,84 @@ function TicketList({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filtered.map(t => (
-                  <tr
-                    key={t.id}
-                    onClick={() => onOpenDetail(t.id)}
-                    className="hover:bg-slate-50 cursor-pointer"
-                  >
-                    <td className="px-3 py-2.5">
-                      {t.tipo === 'bug'
-                        ? <Bug className="w-4 h-4 text-red-500" />
-                        : <Sparkles className="w-4 h-4 text-violet-500" />}
-                    </td>
-                    <td className="px-3 py-2.5 text-slate-900 font-medium max-w-md truncate">
-                      {t.titolo}
-                    </td>
-                    <td className="px-3 py-2.5">
-                      <span className={`px-2 py-0.5 text-xs rounded-full border ${priorityClasses(t.priorita)}`}>
-                        {TICKET_PRIORITA_LABEL[t.priorita]}
-                      </span>
-                    </td>
-                    <td className="px-3 py-2.5 text-slate-700">{t.modulo}</td>
-                    <td className="px-3 py-2.5 text-slate-700">{t.autore}</td>
-                    <td className="px-3 py-2.5 text-slate-600 text-xs">{formatDate(t.creato_il)}</td>
-                    <td className="px-3 py-2.5"><PhaseStepper stato={t.stato} /></td>
-                    <td className="px-3 py-2.5 text-slate-600 text-xs">
-                      {t.risolto_il ? formatDate(t.risolto_il) : '—'}
-                    </td>
-                  </tr>
-                ))}
+                {filtered.map(t => {
+                  const isSel = selectedIds.has(t.id)
+                  return (
+                    <tr
+                      key={t.id}
+                      onClick={(e) => {
+                        // In admin mode, click sulla checkbox non apre il dettaglio
+                        if (adminMode && (e.target as HTMLElement).closest('[data-select-cell]')) return
+                        onOpenDetail(t.id)
+                      }}
+                      className={`hover:bg-slate-50 cursor-pointer ${isSel ? 'bg-blue-50/40' : ''}`}
+                    >
+                      {adminMode && (
+                        <td className="px-3 py-2.5" data-select-cell>
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); toggleSelect(t.id) }}
+                            aria-label={`Seleziona ${t.titolo}`}
+                            className="p-0.5"
+                          >
+                            {isSel
+                              ? <CheckSquare className="w-4 h-4 text-blue-600" />
+                              : <Square className="w-4 h-4 text-slate-400 hover:text-slate-700" />}
+                          </button>
+                        </td>
+                      )}
+                      <td className="px-3 py-2.5">
+                        {t.tipo === 'bug'
+                          ? <Bug className="w-4 h-4 text-red-500" />
+                          : <Sparkles className="w-4 h-4 text-violet-500" />}
+                      </td>
+                      <td className="px-3 py-2.5 text-slate-900 font-medium max-w-md truncate" title={t.titolo}>
+                        {t.titolo}
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <span className={`px-2 py-0.5 text-xs rounded-full border ${priorityClasses(t.priorita)}`}>
+                          {TICKET_PRIORITA_LABEL[t.priorita]}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2.5 text-slate-700">{t.modulo}</td>
+                      <td className="px-3 py-2.5 text-slate-700">{t.autore}</td>
+                      <td className="px-3 py-2.5 text-slate-600 text-xs">{formatDate(t.creato_il)}</td>
+                      <td className="px-3 py-2.5"><PhaseStepper stato={t.stato} /></td>
+                      <td className="px-3 py-2.5 text-slate-600 text-xs">
+                        {t.risolto_il ? formatDate(t.risolto_il) : '—'}
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
         )}
       </div>
     </div>
+  )
+}
+
+// PillButton — bottone "pillola" usato per filtri stato/tipo (vedi screenshot)
+function PillButton({
+  active, onClick, children,
+}: {
+  active: boolean
+  onClick: () => void
+  children: React.ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`px-3 py-1.5 text-xs font-medium rounded-lg transition ${
+        active
+          ? 'bg-slate-900 text-white'
+          : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50'
+      }`}
+    >
+      {children}
+    </button>
   )
 }
 
@@ -864,6 +948,20 @@ function TicketDetail({ ticket, onBack, onUpdated }: TicketDetailProps) {
     title: string; message: string; confirmLabel?: string;
     destructive?: boolean; onConfirm: () => void;
   }>(null)
+
+  // Mark seen: aggiorna last_seen_by_author_at sul DB. Serve per il badge
+  // sidebar 'Segnalazioni' che mostra il numero di ticket dell'autore con
+  // aggiornamenti dopo l'ultima visita. RPC mark_ticket_seen e' SECURITY
+  // INVOKER e fa l'UPDATE solo se ticket.autore_id = auth.uid() -> non
+  // tocca nulla se ad aprire e' Patrizio su un ticket di Sabrina.
+  useEffect(() => {
+    if (!ticket?.id) return
+    supabase.rpc('mark_ticket_seen' as never, { p_ticket_id: ticket.id } as never).then(({ error }) => {
+      if (error) console.warn('[mark_ticket_seen]', error.message)
+      // Notifica la sidebar che il count badge va ricalcolato
+      window.dispatchEvent(new CustomEvent('ticket-seen'))
+    })
+  }, [ticket?.id])
 
   // Unifico vecchio screenshot_url (deprecato) e nuovo array allegati.
   // I ticket pre-2026-05-26 hanno solo screenshot_url; quelli nuovi hanno

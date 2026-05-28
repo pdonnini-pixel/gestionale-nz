@@ -125,7 +125,7 @@ function buildSections(labels: CompanyLabels): NavSection[] {
         // Segnalazioni: Sabrina/Veronica aprono ticket per bug o nuove funzioni.
         // Visibile a TUTTI i ruoli operativi — chiunque incontri un problema
         // deve poter aprire una segnalazione senza chiedere permesso.
-        { to: '/ticket', icon: MessageSquare, label: 'Segnalazioni', roles: ['super_advisor', 'ceo', 'cfo', 'coo', 'contabile', 'budget_approver'] },
+        { to: '/ticket', icon: MessageSquare, label: 'Segnalazioni', badgeKey: 'ticket-unseen', roles: ['super_advisor', 'ceo', 'cfo', 'coo', 'contabile', 'budget_approver'] },
         // Cruscotto Admin: solo super_advisor (Patrizio + Lilian).
         // Vista gestione con bulk actions, esport CSV, SLA, commenti AutoFix.
         { to: '/ticket/admin', icon: Shield, label: 'Admin Segnalazioni', roles: ['super_advisor'] },
