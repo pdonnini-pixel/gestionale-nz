@@ -36,29 +36,32 @@ const GITHUB_BASE_BRANCH = "main";
 
 // Mappa modulo -> path file dal repo. I moduli "Altro" o non mappati
 // vengono trattati come "non lo so dove guardare" -> cant_fix.
+// NOTA: il repo GitHub `pdonnini-pixel/gestionale-nz` ha la directory
+// `frontend/` locale come ROOT del repo. I path quindi sono `src/pages/...`
+// SENZA prefisso `frontend/` (altrimenti GitHub Contents API torna 404).
 const MODULE_TO_PATH: Record<string, string> = {
-  "Dashboard": "frontend/src/pages/Dashboard.tsx",
-  "Banche": "frontend/src/pages/TesoreriaManuale.tsx",
-  "Cashflow": "frontend/src/pages/CashflowProspettico.tsx",
-  "Conto Economico": "frontend/src/pages/ContoEconomico.tsx",
-  "Outlet": "frontend/src/pages/Outlet.tsx",
-  "Confronto Outlet": "frontend/src/pages/ConfrontoOutlet.tsx",
-  "Budget & Controllo": "frontend/src/pages/BudgetControl.tsx",
-  "Fornitori": "frontend/src/pages/Fornitori.tsx",
-  "Divisione Fornitori": "frontend/src/pages/AllocazioneFornitori.tsx",
-  "Fatturazione": "frontend/src/pages/Fatturazione.tsx",
-  "Scadenzario": "frontend/src/pages/Scadenzario.tsx",
-  "Scadenze Fiscali": "frontend/src/pages/ScadenzeFiscali.tsx",
-  "Dipendenti": "frontend/src/pages/Dipendenti.tsx",
-  "AI Categorie": "frontend/src/pages/AICategoriePage.tsx",
-  "Margini": "frontend/src/pages/MarginiOutlet.tsx",
-  "Produttività": "frontend/src/pages/Produttivita.tsx",
-  "Scenario Planning": "frontend/src/pages/ScenarioPlanning.tsx",
-  "Import Hub": "frontend/src/pages/ImportHub.tsx",
-  "Archivio Documenti": "frontend/src/pages/ArchivioDocumenti.tsx",
-  "Impostazioni": "frontend/src/pages/Impostazioni.tsx",
-  "Profilo": "frontend/src/pages/Profilo.tsx",
-  "Segnalazioni": "frontend/src/pages/Ticket.tsx",
+  "Dashboard": "src/pages/Dashboard.tsx",
+  "Banche": "src/pages/TesoreriaManuale.tsx",
+  "Cashflow": "src/pages/CashflowProspettico.tsx",
+  "Conto Economico": "src/pages/ContoEconomico.tsx",
+  "Outlet": "src/pages/Outlet.tsx",
+  "Confronto Outlet": "src/pages/ConfrontoOutlet.tsx",
+  "Budget & Controllo": "src/pages/BudgetControl.tsx",
+  "Fornitori": "src/pages/Fornitori.tsx",
+  "Divisione Fornitori": "src/pages/AllocazioneFornitori.tsx",
+  "Fatturazione": "src/pages/Fatturazione.tsx",
+  "Scadenzario": "src/pages/Scadenzario.tsx",
+  "Scadenze Fiscali": "src/pages/ScadenzeFiscali.tsx",
+  "Dipendenti": "src/pages/Dipendenti.tsx",
+  "AI Categorie": "src/pages/AICategoriePage.tsx",
+  "Margini": "src/pages/MarginiOutlet.tsx",
+  "Produttività": "src/pages/Produttivita.tsx",
+  "Scenario Planning": "src/pages/ScenarioPlanning.tsx",
+  "Import Hub": "src/pages/ImportHub.tsx",
+  "Archivio Documenti": "src/pages/ArchivioDocumenti.tsx",
+  "Impostazioni": "src/pages/Impostazioni.tsx",
+  "Profilo": "src/pages/Profilo.tsx",
+  "Segnalazioni": "src/pages/Ticket.tsx",
 };
 
 type TicketRow = {
@@ -466,6 +469,13 @@ async function appendCommentToTicket(
 function jsonOk(p: unknown): Response {
   return new Response(JSON.stringify(p), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 }
+// v4 DEBUG: torna 200 anche su errore con ok=false, cosi' il client supabase
+// (che ignora body quando status != 2xx) puo' mostrare il messaggio reale.
+// Logga in console.error per debug nei log Supabase via get_logs.
 function jsonError(status: number, message: string): Response {
-  return new Response(JSON.stringify({ error: message }), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  console.error(`[ticket-resolve-now] HTTP_${status}: ${message}`);
+  return new Response(
+    JSON.stringify({ ok: false, error: message, http_status_intended: status }),
+    { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+  );
 }
