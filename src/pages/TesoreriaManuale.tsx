@@ -1,3 +1,4 @@
+// SMOKE TEST AutoFix 2026-05-28 - rimuovere dopo verifica
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import {
   Landmark, Building2, Wallet, CreditCard, TrendingUp, TrendingDown,
