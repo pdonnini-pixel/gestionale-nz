@@ -1101,17 +1101,40 @@ function TicketDetail({ ticket, onBack, onUpdated }: TicketDetailProps) {
     }
     setBusy(true)
     try {
-      const { data, error } = await supabase.functions.invoke('ticket-resolve-now', {
-        body: { ticketId: ticket.id },
+      // Chiamo via fetch raw invece di supabase.functions.invoke perche'
+      // quest'ultimo nasconde il body errore quando status != 2xx.
+      // Cosi' invece vediamo SEMPRE il messaggio reale dal server.
+      const { data: sessionData } = await supabase.auth.getSession()
+      const sessionToken = sessionData?.session?.access_token
+      if (!sessionToken) {
+        toast({ type: 'error', message: 'Sessione scaduta, ricarica la pagina' })
+        return
+      }
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
+      const resp = await fetch(`${supabaseUrl}/functions/v1/ticket-resolve-now`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${sessionToken}`,
+        },
+        body: JSON.stringify({ ticketId: ticket.id }),
       })
-      if (error) {
-        // Edge function ritorna 429 con messaggio leggibile per rate-limit
-        const msg = (error as { message?: string }).message ?? 'Errore Risolvi con AI'
-        if (msg.includes('429') || msg.toLowerCase().includes('attendi')) {
-          toast({ type: 'warning', message: 'AutoFix gia\' in elaborazione o appena completato. Attendi 60s e riprova.' })
+      const respText = await resp.text()
+      let data: { ok?: boolean; action?: string; error?: string; message?: string; pr_url?: string; pr_number?: number } | null = null
+      try { data = JSON.parse(respText) } catch { /* fallback sotto */ }
+
+      if (!resp.ok) {
+        const errMsg = data?.error ?? respText.slice(0, 300) ?? `HTTP ${resp.status}`
+        if (resp.status === 429 || errMsg.toLowerCase().includes('attendi')) {
+          toast({ type: 'warning', message: errMsg })
         } else {
-          toast({ type: 'error', message: msg })
+          toast({ type: 'error', message: `Errore ${resp.status}: ${errMsg}` })
         }
+        return
+      }
+      if (data?.ok === false) {
+        const errMsg = data.error ?? 'Errore sconosciuto'
+        toast({ type: 'error', message: errMsg })
         return
       }
       if (data?.action === 'fix') {
