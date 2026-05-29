@@ -1517,7 +1517,20 @@ export default function BudgetControl() {
               )}
 
               {/* Pannello annuale: vista aggregata "Tutti gli outlet" */}
-              {confOutlet === ALL_OUTLETS_CODE && confView === 'annuale' && (
+              {confOutlet === ALL_OUTLETS_CODE && confView === 'annuale' && (() => {
+                // Aggrega revMonthly e consMonthly su tutti gli outlet (code -> 12 mesi sommati)
+                const aggMonthly = (src: typeof revMonthly): Record<string, number[]> => {
+                  const out: Record<string, number[]> = {}
+                  Object.values(src).forEach(byCode => {
+                    if (!byCode) return
+                    Object.entries(byCode).forEach(([code, arr]) => {
+                      if (!out[code]) out[code] = Array(12).fill(0) as number[]
+                      ;(arr || []).forEach((v, i) => { out[code][i] += (typeof v === 'number' ? v : 0) })
+                    })
+                  })
+                  return out
+                }
+                return (
                 <ConfrontoPanel
                   outletCode={ALL_OUTLETS_CODE}
                   outletLabel={`Tutti gli ${labels.pointOfSalePluralLower} (${aggregatedConfrontoEdits.outletCount})`}
@@ -1531,8 +1544,11 @@ export default function BudgetControl() {
                   year={year}
                   cashTotals={cashTotals}
                   cashLoaded={cashLoaded}
+                  revMonthlyOutlet={aggMonthly(revMonthly)}
+                  consMonthlyOutlet={aggMonthly(consMonthly)}
                 />
-              )}
+                )
+              })()}
 
               {/* Pannello annuale: vista singolo outlet o "Sede / Costi generali" (cost_center='all').
                   Usa costiTreeForOutlet/ricaviTreeForOutlet per mostrare SOLO i valori
@@ -1551,6 +1567,8 @@ export default function BudgetControl() {
                   year={year}
                   cashTotals={cashTotals}
                   cashLoaded={cashLoaded}
+                  revMonthlyOutlet={revMonthly[confOutlet]}
+                  consMonthlyOutlet={consMonthly[confOutlet]}
                 />
               )}
               {confOutlet && confOutlet !== ALL_OUTLETS_CODE && confView === 'mensile' && (
@@ -2375,12 +2393,61 @@ function ConfrontoRow({ prevNode, consNode, rettNode, depth = 0, consEdits, onCo
    Scostamento = Consuntivo + Rettifica - Preventivo
    ═══════════════════════════════════════════════════════════ */
 type CashTotalsT = { entrate: number; uscite: number; netto: number; count: number }
-type ConfrontoPanelProps = { outletCode: string; outletLabel: string; prevEdits: Record<string, number>; consEdits: Record<string, number>; onConsEdit: (code: string, val: number) => void; rettEdits: Record<string, number>; onRettEdit: (code: string, val: number | string | undefined) => void; costiTree: TreeNodeT[]; ricaviTree: TreeNodeT[]; year: number; cashTotals: CashTotalsT; cashLoaded: boolean }
-function ConfrontoPanel({ outletCode, outletLabel, prevEdits, consEdits, onConsEdit, rettEdits, onRettEdit, costiTree, ricaviTree, year, cashTotals, cashLoaded }: ConfrontoPanelProps) {
+type ConfrontoPanelProps = {
+  outletCode: string; outletLabel: string
+  prevEdits: Record<string, number>
+  consEdits: Record<string, number>; onConsEdit: (code: string, val: number) => void
+  rettEdits: Record<string, number>; onRettEdit: (code: string, val: number | string | undefined) => void
+  costiTree: TreeNodeT[]; ricaviTree: TreeNodeT[]
+  year: number; cashTotals: CashTotalsT; cashLoaded: boolean
+  // Mensili (per account_code -> array di 12 valori). Servono per popolare
+  // le colonne PREVENTIVO e CONSUNTIVO dei ricavi: il bilancio NON viene
+  // piu' usato come default; i ricavi si popolano solo dalla somma del mensile.
+  revMonthlyOutlet?: Record<string, number[]>
+  consMonthlyOutlet?: Record<string, number[]>
+}
+function ConfrontoPanel({ outletCode, outletLabel, prevEdits, consEdits, onConsEdit, rettEdits, onRettEdit, costiTree, ricaviTree, year, cashTotals, cashLoaded, revMonthlyOutlet, consMonthlyOutlet }: ConfrontoPanelProps) {
+  // Somma annuale (per code) dei mensili gia' caricati da budget_confronto.
+  // Patrizio (29/05/2026): "il numero si popola solo dalla somma dei mensili
+  // per i preventivi e dalla somma dei mensili per i consuntivi". Quindi NO
+  // fallback al bilancio: foglia senza edit ne' mensile -> 0.
+  const sumMonthlyByCode = (m?: Record<string, number[]>): Record<string, number> => {
+    if (!m) return {}
+    const r: Record<string, number> = {}
+    Object.entries(m).forEach(([k, arr]) => {
+      const s = (arr || []).reduce<number>((acc, v) => acc + (typeof v === 'number' ? v : 0), 0)
+      if (s !== 0) r[k] = s
+    })
+    return r
+  }
+  const revYearly = sumMonthlyByCode(revMonthlyOutlet)
+  const consYearly = sumMonthlyByCode(consMonthlyOutlet)
+
+  // applyZeroWithMonthly: foglie 0 di default, popolate per priorita':
+  //   edits[code] > monthlySum[code] > 0
+  // Nodi intermedi = somma figli (mai bilancio).
+  const applyZeroWithMonthly = (tree: TreeNodeT[], edits: Record<string, number>, monthlySum: Record<string, number>): TreeNodeT[] => {
+    if (!tree || !tree.length) return []
+    return tree.map(node => {
+      const children = node.children?.length ? applyZeroWithMonthly(node.children, edits, monthlySum) : []
+      let amount: number
+      if (children.length > 0) {
+        amount = children.reduce<number>((s, c) => s + (c.amount || 0), 0)
+      } else {
+        if (edits[node.code] != null) amount = edits[node.code]
+        else if (monthlySum[node.code] != null) amount = monthlySum[node.code]
+        else amount = 0
+      }
+      return { ...node, amount, children }
+    })
+  }
+
   const prevC = applyEdits(costiTree, prevEdits)
-  const prevR = applyEdits(ricaviTree, prevEdits)
+  // RICAVI preventivo: NO bilancio. Popolato da edit annuale BPCard o somma mensile.
+  const prevR = applyZeroWithMonthly(ricaviTree, prevEdits, revYearly)
   const consC = applyEditsZero(costiTree, consEdits)
-  const consR = applyEditsZero(ricaviTree, consEdits)
+  // RICAVI consuntivo: NO bilancio. Popolato da edit annuale Confronto o somma mensile.
+  const consR = applyZeroWithMonthly(ricaviTree, consEdits, consYearly)
   const rettC = applyEditsZero(costiTree, rettEdits)
   const rettR = applyEditsZero(ricaviTree, rettEdits)
 
