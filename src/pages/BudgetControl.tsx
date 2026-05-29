@@ -372,45 +372,79 @@ function flattenLeaves(tree: TreeNodeT[]): Record<string, number> {
 // Mostra il draft raw quando l'utente sta digitando.
 // Patrizio (29/05/2026): "nei campi che popolo non mi fa mettere la , !!!
 // e ricorda che se sono migliaia devi mettere il punto esempio 9.000,00 ecc".
-function NumberInputIt({ value, onChange, className, placeholder, edited, onClickStop }: {
+function NumberInputIt({ value, onChange, onCommit, className, placeholder, edited, onClickStop }: {
   value: number
   onChange: (n: number) => void
+  // Chiamato on blur con il valore finale, SOLO se diverso dal valore d'apertura.
+  // Usato per autosave per-cella (Patrizio 29/05/2026): evita perdita dati se
+  // l'utente cambia outlet senza cliccare Salva. Dopo successo, mostra '✓' 2s.
+  onCommit?: (n: number) => Promise<void>
   className?: string
   placeholder?: string
   edited?: boolean
-  onClickStop?: boolean // se true, blocca propagazione click (per row-cliccabili)
+  onClickStop?: boolean
 }) {
   const [focused, setFocused] = useState(false)
   const [draft, setDraft] = useState<string>('')
+  const [openValue, setOpenValue] = useState<number>(0) // valore al focus, per detect change
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const display = focused
     ? draft
     : (value !== 0 || edited)
       ? value.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
       : ''
+  const handleBlur = async () => {
+    setFocused(false)
+    if (onCommit && value !== openValue) {
+      try {
+        setSaveStatus('saving')
+        await onCommit(value)
+        setSaveStatus('saved')
+        setTimeout(() => setSaveStatus('idle'), 1800)
+      } catch {
+        setSaveStatus('error')
+        setTimeout(() => setSaveStatus('idle'), 3000)
+      }
+    }
+  }
+  // Border colorato come feedback: verde=salvato, giallo=saving, rosso=errore
+  const statusClass =
+    saveStatus === 'saving' ? 'ring-1 ring-amber-300' :
+    saveStatus === 'saved' ? 'ring-1 ring-emerald-400 bg-emerald-50/50' :
+    saveStatus === 'error' ? 'ring-1 ring-red-400 bg-red-50/50' : ''
   return (
-    <input
-      type="text"
-      inputMode="decimal"
-      value={display}
-      onClick={onClickStop ? (e => e.stopPropagation()) : undefined}
-      onFocus={() => {
-        // Quando entra in focus, mostra il valore come stringa "user-friendly" da editare:
-        // 1000.5 -> "1000,5" (virgola decimale)
-        setDraft(value !== 0 ? String(value).replace('.', ',') : '')
-        setFocused(true)
-      }}
-      onChange={e => {
-        const v = e.target.value
-        setDraft(v)
-        // Parsing: rimuovi punti migliaia, sostituisci virgola decimale con punto
-        const cleaned = v.replace(/\s/g, '').replace(/\./g, '').replace(',', '.')
-        const num = parseFloat(cleaned)
-        onChange(isNaN(num) ? 0 : num)
-      }}
-      onBlur={() => setFocused(false)}
-      className={className}
-      placeholder={placeholder}
-    />
+    <span className="relative inline-block">
+      <input
+        type="text"
+        inputMode="decimal"
+        value={display}
+        onClick={onClickStop ? (e => e.stopPropagation()) : undefined}
+        onFocus={() => {
+          setDraft(value !== 0 ? String(value).replace('.', ',') : '')
+          setOpenValue(value)
+          setFocused(true)
+        }}
+        onChange={e => {
+          const v = e.target.value
+          setDraft(v)
+          const cleaned = v.replace(/\s/g, '').replace(/\./g, '').replace(',', '.')
+          const num = parseFloat(cleaned)
+          onChange(isNaN(num) ? 0 : num)
+        }}
+        onBlur={handleBlur}
+        className={`${className || ''} ${statusClass}`}
+        placeholder={placeholder}
+      />
+      {saveStatus === 'saved' && (
+        <span className="absolute -right-3 top-1/2 -translate-y-1/2 text-emerald-600 text-[10px] font-bold pointer-events-none" title="Salvato">✓</span>
+      )}
+      {saveStatus === 'saving' && (
+        <span className="absolute -right-3 top-1/2 -translate-y-1/2 text-amber-600 text-[9px] pointer-events-none animate-pulse">…</span>
+      )}
+      {saveStatus === 'error' && (
+        <span className="absolute -right-3 top-1/2 -translate-y-1/2 text-red-600 text-[10px] font-bold pointer-events-none" title="Errore salvataggio">✕</span>
+      )}
+    </span>
   )
 }
 
@@ -1096,6 +1130,38 @@ export default function BudgetControl() {
   }
 
   // ─── SAVE CONFRONTO (annuale + mensile) ────────────────────
+  // ─── SAVE PER-CELLA (autosave on blur, no Click 'Salva confronto' necessario) ───
+  // Patrizio 29/05/2026: Lilian inserisce Barberino, cambia outlet senza Salva,
+  // dati persi. Fix: ogni cella salva da sola al blur. Indicatore '✓' inline.
+  const saveCellMonthly = async (
+    outletCode: string,
+    accCode: string,
+    monthIdx: number,
+    value: number,
+    entryType: 'prev_monthly' | 'rev_monthly' | 'cons_monthly',
+  ) => {
+    if (!CID) throw new Error('CID mancante')
+    // DELETE riga vecchia (idempotente)
+    await supabase.from('budget_confronto').delete()
+      .eq('company_id', CID).eq('cost_center', outletCode)
+      .eq('account_code', accCode).eq('year', year)
+      .eq('month', monthIdx + 1).eq('entry_type', entryType)
+    // INSERT solo se valore non zero (mantiene tabella pulita)
+    if (value !== 0) {
+      const { error } = await supabase.from('budget_confronto').insert({
+        company_id: CID,
+        cost_center: outletCode,
+        account_code: accCode,
+        year,
+        month: monthIdx + 1,
+        entry_type: entryType,
+        amount: value,
+        updated_at: new Date().toISOString(),
+      } as never)
+      if (error) throw error
+    }
+  }
+
   const saveConfronto = async (outletCode: string) => {
     setSaving(true)
     try {
@@ -1667,6 +1733,28 @@ export default function BudgetControl() {
                     })
                   }}
                   year={year}
+                  // Autosave per-cella: ogni input mensile (prev/rev/cons/rett)
+                  // salva su DB on blur. No click 'Salva confronto' necessario.
+                  onCommitPrev={async (code, mi, val) => { await saveCellMonthly(confOutlet, code, mi, val, 'prev_monthly') }}
+                  onCommitRev={async (code, mi, val) => { await saveCellMonthly(confOutlet, code, mi, val, 'rev_monthly') }}
+                  onCommitCons={async (code, mi, val) => { await saveCellMonthly(confOutlet, code, mi, val, 'cons_monthly') }}
+                  onCommitRett={async (code, mi, val) => {
+                    if (!CID) return
+                    await supabase.from('budget_confronto').delete()
+                      .eq('company_id', CID).eq('cost_center', confOutlet)
+                      .eq('account_code', code).eq('year', year)
+                      .eq('month', mi + 1).eq('entry_type', 'rett_monthly')
+                    if (val !== 0) {
+                      const pvNow = (prevMonthly[confOutlet]?.[code] || [])[mi] || 0
+                      const pct = pvNow !== 0 ? (val / pvNow) * 100 : null
+                      await supabase.from('budget_confronto').insert({
+                        company_id: CID, cost_center: confOutlet, account_code: code, year,
+                        month: mi + 1, entry_type: 'rett_monthly', amount: val,
+                        rettifica_amount: val, rettifica_pct: pct,
+                        updated_at: new Date().toISOString(),
+                      } as never)
+                    }
+                  }}
                 />
               )}
             </>
@@ -1983,11 +2071,17 @@ type MonthlyTreeNodeProps = {
   monthly: MonthlyMap
   onCopyToMonths: (code: string, mi: number, val: number) => void
   readOnly?: boolean
+  // Autosave per-cella (Patrizio 29/05/2026): on blur ogni input chiama queste
+  // funzioni che fanno save su budget_confronto per la singola cella.
+  // Se assenti, no autosave (modalita' Anno o readOnly).
+  onCommitPrev?: (code: string, mi: number, val: number) => Promise<void>
+  onCommitCons?: (code: string, mi: number, val: number) => Promise<void>
+  onCommitRett?: (code: string, mi: number, val: number) => Promise<void>
 }
 // Props grid: code | descrizione | Prev | Cons | Rett € | Rett % | Scost | %dev | (copy)
 const MONTHLY_COLS = '20px 60px 1fr 80px 80px 70px 60px 70px 55px 24px'
 
-function MonthlyTreeNode({ node, depth = 0, prevByCode, consByCode, rettAmtByCode, rettPctByCode, onPrev, onCons, onRett, mese, monthly, onCopyToMonths, readOnly }: MonthlyTreeNodeProps) {
+function MonthlyTreeNode({ node, depth = 0, prevByCode, consByCode, rettAmtByCode, rettPctByCode, onPrev, onCons, onRett, mese, monthly, onCopyToMonths, readOnly, onCommitPrev, onCommitCons, onCommitRett }: MonthlyTreeNodeProps) {
   const [open, setOpen] = useState(false)
   const [showCopy, setShowCopy] = useState(false)
   const hasKids = node.children?.length > 0
@@ -2041,6 +2135,7 @@ function MonthlyTreeNode({ node, depth = 0, prevByCode, consByCode, rettAmtByCod
           <NumberInputIt
             value={pv}
             onChange={n => onPrev(node.code, n)}
+            onCommit={onCommitPrev ? (n => onCommitPrev(node.code, mese, n)) : undefined}
             onClickStop
             className="text-right px-1 py-0.5 text-[10px] border rounded tabular-nums focus:outline-none focus:ring-1 focus:ring-indigo-400 border-slate-200"
             placeholder="0" />
@@ -2052,6 +2147,7 @@ function MonthlyTreeNode({ node, depth = 0, prevByCode, consByCode, rettAmtByCod
           <NumberInputIt
             value={cv}
             onChange={n => onCons(node.code, n)}
+            onCommit={onCommitCons ? (n => onCommitCons(node.code, mese, n)) : undefined}
             onClickStop
             className="text-right px-1 py-0.5 text-[10px] border rounded tabular-nums focus:outline-none focus:ring-1 focus:ring-emerald-400 border-slate-200"
             placeholder="0" />
@@ -2067,6 +2163,7 @@ function MonthlyTreeNode({ node, depth = 0, prevByCode, consByCode, rettAmtByCod
               const pct = pv !== 0 ? (amount / pv) * 100 : 0
               onRett(node.code, amount, pct)
             }}
+            onCommit={onCommitRett ? (n => onCommitRett(node.code, mese, n)) : undefined}
             onClickStop
             className="text-right px-1 py-0.5 text-[10px] border rounded tabular-nums focus:outline-none focus:ring-1 focus:ring-purple-400 border-slate-200"
             placeholder="±0" />
@@ -2116,6 +2213,7 @@ function MonthlyTreeNode({ node, depth = 0, prevByCode, consByCode, rettAmtByCod
           onPrev={onPrev} onCons={onCons} onRett={onRett}
           mese={mese} monthly={monthly} onCopyToMonths={onCopyToMonths}
           readOnly={readOnly}
+          onCommitPrev={onCommitPrev} onCommitCons={onCommitCons} onCommitRett={onCommitRett}
         />
       ))}
     </div>
@@ -2139,6 +2237,11 @@ type ConfrontoMensileProps = {
   rettMonthly: MonthlyMap; rettMonthlyPct: MonthlyMap
   onRettMonthly: (code: string, month: number, amount: number, pct: number) => void
   year: number
+  // Autosave per-cella (Patrizio 29/05/2026)
+  onCommitPrev?: (code: string, mi: number, val: number) => Promise<void>
+  onCommitRev?: (code: string, mi: number, val: number) => Promise<void>
+  onCommitCons?: (code: string, mi: number, val: number) => Promise<void>
+  onCommitRett?: (code: string, mi: number, val: number) => Promise<void>
 }
 function ConfrontoMensile({
   outletCode: _outletCode, outletLabel,
@@ -2150,6 +2253,7 @@ function ConfrontoMensile({
   rettMonthly, rettMonthlyPct,
   onRettMonthly,
   year,
+  onCommitPrev, onCommitRev, onCommitCons, onCommitRett,
 }: ConfrontoMensileProps) {
   // mese: -1 = Anno (somma 12 mesi), 0..11 = mese specifico
   const [mese, setMese] = useState<number>(0)
@@ -2286,6 +2390,9 @@ function ConfrontoMensile({
                 onRett={(code, amount, pct) => !isAnnualView && onRettMonthly(code, mese, amount, pct)}
                 mese={mese} monthly={prevMonthly} onCopyToMonths={onPrevMonthly}
                 readOnly={readOnly}
+                onCommitPrev={onCommitPrev}
+                onCommitCons={onCommitCons}
+                onCommitRett={onCommitRett}
               />
             ))}
           </div>
@@ -2317,6 +2424,9 @@ function ConfrontoMensile({
                 onRett={(code, amount, pct) => !isAnnualView && onRettMonthly(code, mese, amount, pct)}
                 mese={mese} monthly={revMonthly} onCopyToMonths={onRevMonthly}
                 readOnly={readOnly}
+                onCommitPrev={onCommitRev}
+                onCommitCons={onCommitCons}
+                onCommitRett={onCommitRett}
               />
             ))}
           </div>
