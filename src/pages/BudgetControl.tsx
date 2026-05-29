@@ -987,12 +987,13 @@ export default function BudgetControl() {
     setSaving(true)
     try {
       const costEdits = bpEdits[code] || {}
-      if (!Object.keys(costEdits).length) { show('Inserisci almeno un costo', 'error'); setSaving(false); return }
+      if (!Object.keys(costEdits).length) { show('Inserisci almeno un costo o un ricavo', 'error'); setSaving(false); return }
 
       // Unisci: costi editati + ricavi (dal bilancio + eventuali override Lilian/Sabrina sulle foglie VdP)
       const filteredRicavi = filterRicaviTree(ricaviTree, code)
       const filteredRicaviWithEdits = applyEdits(filteredRicavi, costEdits)
       const ricaviLeaves = flattenLeaves(filteredRicaviWithEdits)
+      const ricaviCodes = new Set(Object.keys(ricaviLeaves))
       const allEntries = { ...costEdits }
       Object.entries(ricaviLeaves).forEach(([ac, amt]) => { allEntries[ac] = amt })
 
@@ -1005,7 +1006,46 @@ export default function BudgetControl() {
       ).flat()
       const { error } = await supabase.from('budget_entries').upsert(entries as never, { onConflict: 'company_id,account_code,cost_center,year,month' })
       if (error) throw error
-      show(`Preventivo ${code} salvato ✓ (${Object.keys(costEdits).length} costi + ${Object.keys(ricaviLeaves).length} ricavi)`)
+
+      // ─── SPALMA EDIT RICAVI ANNUALI SU 12 MESI in budget_confronto.rev_monthly ───
+      // Cosi' la vista Confronto Mensile (PrevVsCons) vede subito le previsioni di ricavo
+      // come distribuite uniformemente; l'utente puo' poi affinarle mese per mese.
+      // ATTENZIONE: questo SOVRASCRIVE eventuali distribuzioni non uniformi gia' inserite.
+      const ricaviAnnualEdits: Record<string, number> = {}
+      Object.entries(costEdits).forEach(([ac, val]) => {
+        if (ricaviCodes.has(ac)) ricaviAnnualEdits[ac] = val
+      })
+      if (Object.keys(ricaviAnnualEdits).length > 0 && CID) {
+        // Delete vecchio rev_monthly per i codici ricavo toccati
+        for (const ac of Object.keys(ricaviAnnualEdits)) {
+          await supabase.from('budget_confronto').delete()
+            .eq('company_id', CID).eq('cost_center', code).eq('account_code', ac)
+            .eq('year', year).eq('entry_type', 'rev_monthly')
+        }
+        // Insert 12 righe spalmate per ogni codice ricavo
+        const monthlyRows = Object.entries(ricaviAnnualEdits).flatMap(([ac, val]) =>
+          Array.from({ length: 12 }, (_, mi) => ({
+            company_id: CID, cost_center: code, account_code: ac, year,
+            month: mi + 1, entry_type: 'rev_monthly',
+            amount: Math.round(val / 12),
+            updated_at: new Date().toISOString(),
+          }))
+        )
+        await supabase.from('budget_confronto').insert(monthlyRows as never)
+        // Aggiorna lo state revMonthly cosi' la UI mostra subito i nuovi valori mensili
+        setRevMonthly(prev => {
+          const next = { ...prev }
+          if (!next[code]) next[code] = {}
+          Object.entries(ricaviAnnualEdits).forEach(([ac, val]) => {
+            next[code][ac] = Array(12).fill(Math.round(val / 12))
+          })
+          return next
+        })
+      }
+
+      const nCosti = Object.keys(costEdits).filter(k => !ricaviCodes.has(k)).length
+      const nRicaviEdit = Object.keys(ricaviAnnualEdits).length
+      show(`Preventivo ${code} salvato ✓ (${nCosti} costi + ${Object.keys(ricaviLeaves).length} ricavi${nRicaviEdit > 0 ? `, ${nRicaviEdit} mensilizzati` : ''})`)
     } catch (e: unknown) { show((e as Error).message, 'error') } finally { setSaving(false) }
   }
 
@@ -1195,6 +1235,21 @@ export default function BudgetControl() {
   // Outlets that have saved BP data
   const outletsWithBP = ops.filter(cc => bpEdits[cc.code] && Object.keys(bpEdits[cc.code]).length > 0)
 
+  // Calcola somma annuale dei ricavi mensili (revMonthly) per outlet+account_code.
+  // Usato da BPCard per mostrare il "Totale Valore Produzione" coerente con quello
+  // inserito mese per mese nel pannello Confronto Mensile (PrevVsCons).
+  const revYearlyByOutlet: Record<string, Record<string, number>> = {}
+  Object.entries(revMonthly).forEach(([outletCode, byCode]) => {
+    if (!byCode) return
+    Object.entries(byCode).forEach(([accCode, months]) => {
+      const sum = (months || []).reduce<number>((s, v) => s + (typeof v === 'number' ? v : 0), 0)
+      if (sum !== 0) {
+        if (!revYearlyByOutlet[outletCode]) revYearlyByOutlet[outletCode] = {}
+        revYearlyByOutlet[outletCode][accCode] = sum
+      }
+    })
+  })
+
   return (
     <div className="min-h-screen bg-white">
       <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
@@ -1349,7 +1404,8 @@ export default function BudgetControl() {
                 workflowStatus={status} workflowMeta={meta}
                 canApprove={canApproveBudget}
                 onApprove={() => setApproveDialog({ code: HQ_CODE, label: hq.label || HQ_CODE })}
-                onUnlock={() => setUnlockDialog({ code: HQ_CODE, label: hq.label || HQ_CODE })} />
+                onUnlock={() => setUnlockDialog({ code: HQ_CODE, label: hq.label || HQ_CODE })}
+                revYearlyFromMonthly={revYearlyByOutlet[HQ_CODE]} />
             )
           })()}
 
@@ -1367,7 +1423,8 @@ export default function BudgetControl() {
                 workflowStatus={status} workflowMeta={meta}
                 canApprove={canApproveBudget}
                 onApprove={() => setApproveDialog({ code: cc.code, label: prettyCenterLabel(cc) })}
-                onUnlock={() => setUnlockDialog({ code: cc.code, label: prettyCenterLabel(cc) })} />
+                onUnlock={() => setUnlockDialog({ code: cc.code, label: prettyCenterLabel(cc) })}
+                revYearlyFromMonthly={revYearlyByOutlet[cc.code]} />
             )
           })}
         </div>
@@ -1617,8 +1674,12 @@ type BPCardProps = {
   canApprove: boolean
   onApprove: () => void
   onUnlock: () => void
+  // Somma annuale dei ricavi mensili (da budget_confronto.rev_monthly per questo outlet).
+  // Se presente per un codice ricavo, sovrascrive il valore del bilancio come default.
+  // L'edit utente in edits[code] ha sempre priorita' (applyEdits lo gestisce).
+  revYearlyFromMonthly?: Record<string, number>
 }
-function BPCard({ label, code, isHQ, numOps: _numOps, costiTree, ricaviTree, edits, setEdits, onClear, onSave, saving, color, year, workflowStatus, workflowMeta, canApprove, onApprove, onUnlock }: BPCardProps) {
+function BPCard({ label, code, isHQ, numOps: _numOps, costiTree, ricaviTree, edits, setEdits, onClear, onSave, saving, color, year, workflowStatus, workflowMeta, canApprove, onApprove, onUnlock, revYearlyFromMonthly }: BPCardProps) {
   const [open, setOpen] = useState(false)
 
   const isLocked = workflowStatus === 'approvato'
@@ -1627,15 +1688,31 @@ function BPCard({ label, code, isHQ, numOps: _numOps, costiTree, ricaviTree, edi
 
   // COSTI: partono da ZERO, l'operatore compila manualmente
   const editedC = applyEditsZero(costiTree, edits)
-  // RICAVI: partono dal bilancio (filtrati per outlet), editabili foglia per foglia.
-  // applyEdits mantiene il valore originale del bilancio se non c'e' override utente.
-  // Cosi' Lilian/Sabrina possono modificare il Valore della Produzione direttamente
-  // qui (granularita' annuale per voce). Per granularita' mensile vedi Confronto Mensile.
-  const editedR = applyEdits(ricaviTree, edits)
+  // RICAVI: priorita' del valore di partenza:
+  //   1. edits[code] (override esplicito dell'utente in questo pannello annuale) -> gestito da applyEdits
+  //   2. revYearlyFromMonthly[code] (somma 12 mesi inseriti nel Confronto Mensile in PrevVsCons)
+  //   3. amount del nodo (bilancio anno-1 caricato all'avvio)
+  // Cosi' se Lilian compila il mensile, qui vede subito la somma annuale aggiornata.
+  // Se preferisce digitare direttamente il totale annuo qui, l'edit annuale viene
+  // spalmato su 12 mesi in budget_confronto.rev_monthly al salvataggio (vedi saveBP).
+  const ricaviWithMonthly = (() => {
+    if (!revYearlyFromMonthly || Object.keys(revYearlyFromMonthly).length === 0) return ricaviTree
+    const apply = (nodes: TreeNodeT[]): TreeNodeT[] => nodes.map(n => {
+      const kids = n.children?.length ? apply(n.children) : []
+      let amt: number
+      if (kids.length > 0) amt = kids.reduce<number>((s, c) => s + (c.amount || 0), 0)
+      else amt = revYearlyFromMonthly[n.code] != null ? revYearlyFromMonthly[n.code] : (n.amount || 0)
+      return { ...n, children: kids, amount: amt }
+    })
+    return apply(ricaviTree)
+  })()
+  const editedR = applyEdits(ricaviWithMonthly, edits)
   const totC = sumMacros(editedC)
   const totR = sumMacros(editedR)
   const ris = totR - totC
   const hasEdits = Object.keys(edits).length > 0
+  // Flag: ricavi annuali = somma del mensile (usato per UI label)
+  const hasMonthlySum = revYearlyFromMonthly && Object.keys(revYearlyFromMonthly).length > 0
 
   const onEdit = (ac: string, val: number | null) => {
     if (readOnly) return
@@ -1736,7 +1813,13 @@ function BPCard({ label, code, isHQ, numOps: _numOps, costiTree, ricaviTree, edi
             {/* RICAVI / Valore della Produzione — editabili (o lockati se readOnly) */}
             <div>
               <div className="text-xs font-semibold text-emerald-500 uppercase tracking-wider mb-2 flex items-center gap-2">
-                Valore della Produzione {readOnly ? <Lock size={11} className="text-slate-400" /> : <span className="text-emerald-400 normal-case font-normal text-[10px]">(precompilato dal bilancio {year - 1}, modificabile)</span>}
+                Valore della Produzione {readOnly ? <Lock size={11} className="text-slate-400" /> : (
+                  <span className="text-emerald-400 normal-case font-normal text-[10px]">
+                    {hasMonthlySum
+                      ? `(somma mensile da PrevVsCons — modificabile qui spalmando /12)`
+                      : `(precompilato dal bilancio ${year - 1} — modificabile)`}
+                  </span>
+                )}
               </div>
               <div className={`border rounded-lg p-1.5 max-h-[500px] overflow-y-auto ${readOnly ? 'border-emerald-100 bg-emerald-50/30' : 'border-emerald-200 bg-white'}`}>
                 {readOnly
