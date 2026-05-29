@@ -2263,17 +2263,31 @@ function ConfrontoMensile({
   year,
   onCommitPrev, onCommitRev, onCommitCons, onCommitRett,
 }: ConfrontoMensileProps) {
-  // mese: -1 = Anno (somma 12 mesi), 0..11 = mese specifico
+  // mese: -1 = Anno (12 mesi), 0..11 = mese singolo, 12..15 = Q1..Q4 (trimestri)
+  // Q1 = mesi [0,1,2], Q2 = [3,4,5], Q3 = [6,7,8], Q4 = [9,10,11].
+  // Patrizio 29/05/2026: 'fare confronto preventivo vs consuntivo scegliendo
+  // un periodo, gennaio su gennaio o a gruppi di mesi'.
   const [mese, setMese] = useState<number>(0)
-  const isAnnualView = mese === -1
+  const monthsForPeriod = (m: number): number[] => {
+    if (m === -1) return [0,1,2,3,4,5,6,7,8,9,10,11]
+    if (m >= 12 && m <= 15) {
+      const q = m - 12 // 0..3
+      return [q*3, q*3+1, q*3+2]
+    }
+    if (m >= 0 && m <= 11) return [m]
+    return []
+  }
+  const periodMonths = monthsForPeriod(mese)
+  const isAggregateView = periodMonths.length > 1
+  const isAnnualView = mese === -1 || isAggregateView // disabilita edit single-cell in tutte le viste aggregate
 
-  // Estrae i dati per il mese selezionato (o somma annuale)
+  // Estrae i dati per il periodo selezionato (singolo mese o somma di piu' mesi)
   const pickByMonth = (m: MonthlyMap): Record<string, number> => {
     const out: Record<string, number> = {}
     Object.entries(m).forEach(([code, arr]) => {
       if (!arr) return
-      if (isAnnualView) out[code] = arr.reduce((s, v) => s + (typeof v === 'number' ? v : 0), 0)
-      else if (arr[mese]) out[code] = arr[mese]
+      const sum = periodMonths.reduce<number>((s, mi) => s + (typeof arr[mi] === 'number' ? arr[mi] : 0), 0)
+      if (sum !== 0) out[code] = sum
     })
     return out
   }
@@ -2282,7 +2296,7 @@ function ConfrontoMensile({
     Object.keys(m).forEach(code => {
       const arr = m[code]
       if (!arr) return
-      if (isAnnualView) {
+      if (isAggregateView) {
         const pv = prevs[code] ?? 0
         const ra = amounts[code] ?? 0
         out[code] = pv !== 0 ? (ra / pv) * 100 : 0
@@ -2317,7 +2331,11 @@ function ConfrontoMensile({
   const annualC = (() => { let t = 0; Object.values(prevMonthly).forEach(arr => arr?.forEach(v => { t += (typeof v === 'number' ? v : 0) })); return t })()
   const annualR = (() => { let t = 0; Object.values(revMonthly).forEach(arr => arr?.forEach(v => { t += (typeof v === 'number' ? v : 0) })); return t })()
 
-  const labelMese = isAnnualView ? `Anno ${year}` : MESI[mese]
+  const labelMese = mese === -1
+    ? `Anno ${year}`
+    : (mese >= 12 && mese <= 15)
+      ? `Q${mese - 11} ${year}` // Q1/Q2/Q3/Q4
+      : MESI[mese]
 
   return (
     <div className="space-y-6">
@@ -2338,15 +2356,31 @@ function ConfrontoMensile({
           </div>
         </div>
 
-        {/* MONTH SELECTOR + Anno solare */}
+        {/* MONTH SELECTOR + Anno solare + Trimestri Q1-Q4 */}
         <div className="px-5 py-3 border-b border-slate-100">
           <div className="flex gap-1 flex-wrap items-center">
             <button onClick={() => setMese(-1)}
               className={`px-3 py-1.5 text-xs font-bold rounded-md transition ${
-                isAnnualView ? 'bg-indigo-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                mese === -1 ? 'bg-indigo-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
               }`}>
-              Anno solare
+              Anno
             </button>
+            <span className="text-slate-300 mx-1">|</span>
+            {/* Trimestri: Q1=gen-mar (mese=12), Q2=apr-giu (13), Q3=lug-set (14), Q4=ott-dic (15) */}
+            {[12, 13, 14, 15].map((qm) => {
+              const qIdx = qm - 12
+              const qLabel = ['Q1','Q2','Q3','Q4'][qIdx]
+              const qRange = ['gen-mar','apr-giu','lug-set','ott-dic'][qIdx]
+              return (
+                <button key={qm} onClick={() => setMese(qm)}
+                  title={`Trimestre ${qRange}`}
+                  className={`px-3 py-1.5 text-xs font-bold rounded-md transition ${
+                    mese === qm ? 'bg-purple-600 text-white shadow-sm' : 'bg-purple-50 text-purple-700 hover:bg-purple-100'
+                  }`}>
+                  {qLabel}
+                </button>
+              )
+            })}
             <span className="text-slate-300 mx-1">|</span>
             {MESI.map((m, i) => {
               const hasCData = Object.values(prevMonthly).some(arr => arr && arr[i])
@@ -2365,8 +2399,10 @@ function ConfrontoMensile({
               )
             })}
           </div>
-          {isAnnualView && (
-            <p className="text-[11px] text-slate-500 mt-2 italic">Vista annuale: somma dei 12 mesi. Per modificare i valori passa al singolo mese.</p>
+          {isAggregateView && (
+            <p className="text-[11px] text-slate-500 mt-2 italic">
+              Vista aggregata {labelMese}: somma dei mesi {periodMonths.map(mi => MESI[mi]).join(', ')}. Per modificare i valori passa al singolo mese.
+            </p>
           )}
         </div>
 
