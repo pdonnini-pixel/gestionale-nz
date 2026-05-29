@@ -225,7 +225,7 @@ export default function OpenBankingAcube() {
           )}
         </div>
 
-        <div className="flex flex-wrap gap-2 pt-1">
+        <div className="flex flex-wrap gap-2 pt-1 items-center">
           <button
             onClick={openOnboardModal}
             disabled={acube.loading}
@@ -263,6 +263,25 @@ export default function OpenBankingAcube() {
               Aggiorna conti e movimenti
             </button>
           )}
+          {/* KPI Totale disponibilita' — accanto ai bottoni come richiesto da Patrizio.
+              Spinge a destra (ml-auto) e mostra somma di tutti i saldi correnti. */}
+          {accounts.length > 0 && (() => {
+            const totale = accounts.reduce<number>((s, a) => s + (Number(a.current_balance) || 0), 0)
+            const currency = accounts[0]?.currency || 'EUR'
+            return (
+              <div className="ml-auto bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-1.5 flex items-center gap-3">
+                <div>
+                  <div className="text-[9px] font-semibold uppercase tracking-wider text-emerald-700">Totale disponibilità</div>
+                  <div className="text-base font-bold text-emerald-900 tabular-nums leading-tight">
+                    {fmt(totale, currency)}
+                  </div>
+                </div>
+                <div className="text-[10px] text-emerald-600 border-l border-emerald-300 pl-3">
+                  {accounts.length} {accounts.length === 1 ? 'conto' : 'conti'}
+                </div>
+              </div>
+            )
+          })()}
         </div>
       </div>
 

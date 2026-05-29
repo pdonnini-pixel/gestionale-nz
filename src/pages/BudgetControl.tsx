@@ -2481,45 +2481,52 @@ function ConfrontoMensile({
             })}
           </div>
           {/* Range custom Da/A: utile per "preventivo vs consuntivo per i mesi gia' chiusi"
-              (es. Gen-Apr). Patrizio 29/05/2026: 'oggi ho i dati consuntivi da gennaio
-              ad aprile e vorrei confrontarli con quanto avevo previsto'. */}
-          <div className="mt-3 pt-3 border-t border-slate-100 flex items-center gap-2 flex-wrap">
-            <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Periodo custom:</span>
-            <span className="text-xs text-slate-500">da</span>
-            <select
-              value={customRange ? customRange[0] : 0}
-              onChange={e => {
-                const from = parseInt(e.target.value)
-                setCustomRange([from, customRange ? customRange[1] : 3])
-                setMese(-2)
-              }}
-              className="text-xs px-2 py-1 border border-slate-200 rounded bg-white">
-              {MESI.map((m, i) => <option key={i} value={i}>{m}</option>)}
-            </select>
-            <span className="text-xs text-slate-500">a</span>
-            <select
-              value={customRange ? customRange[1] : 3}
-              onChange={e => {
-                const to = parseInt(e.target.value)
-                setCustomRange([customRange ? customRange[0] : 0, to])
-                setMese(-2)
-              }}
-              className="text-xs px-2 py-1 border border-slate-200 rounded bg-white">
-              {MESI.map((m, i) => <option key={i} value={i}>{m}</option>)}
-            </select>
-            {customRange && (
-              <button
-                onClick={() => { setCustomRange(null); setMese(-1) }}
-                className="text-[10px] px-2 py-1 rounded bg-slate-100 text-slate-500 hover:bg-slate-200">
-                Azzera range
-              </button>
-            )}
-            {customRange && (
-              <span className="text-[10px] px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200">
-                Attivo: {labelMese}
-              </span>
-            )}
-          </div>
+              (es. Gen-Apr). I dropdown sono SINCRONIZZATI col periodo selezionato:
+              se sei in Q1 mostrano Gen/Mar, se sei in Q2 mostrano Apr/Giu, etc.
+              Cosi' non vedi mai un disallineamento Q1=gen-mar ma dropdown=gen-apr. */}
+          {(() => {
+            const currentFrom = customRange ? customRange[0] : (periodMonths.length > 0 ? Math.min(...periodMonths) : 0)
+            const currentTo = customRange ? customRange[1] : (periodMonths.length > 0 ? Math.max(...periodMonths) : 11)
+            return (
+              <div className="mt-3 pt-3 border-t border-slate-100 flex items-center gap-2 flex-wrap">
+                <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Periodo custom:</span>
+                <span className="text-xs text-slate-500">da</span>
+                <select
+                  value={currentFrom}
+                  onChange={e => {
+                    const from = parseInt(e.target.value)
+                    setCustomRange([from, currentTo])
+                    setMese(-2)
+                  }}
+                  className="text-xs px-2 py-1 border border-slate-200 rounded bg-white">
+                  {MESI.map((m, i) => <option key={i} value={i}>{m}</option>)}
+                </select>
+                <span className="text-xs text-slate-500">a</span>
+                <select
+                  value={currentTo}
+                  onChange={e => {
+                    const to = parseInt(e.target.value)
+                    setCustomRange([currentFrom, to])
+                    setMese(-2)
+                  }}
+                  className="text-xs px-2 py-1 border border-slate-200 rounded bg-white">
+                  {MESI.map((m, i) => <option key={i} value={i}>{m}</option>)}
+                </select>
+                {customRange && (
+                  <button
+                    onClick={() => { setCustomRange(null); setMese(-1) }}
+                    className="text-[10px] px-2 py-1 rounded bg-slate-100 text-slate-500 hover:bg-slate-200">
+                    Azzera range
+                  </button>
+                )}
+                {customRange && (
+                  <span className="text-[10px] px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200">
+                    Attivo: {labelMese}
+                  </span>
+                )}
+              </div>
+            )
+          })()}
           {isAggregateView && (
             <p className="text-[11px] text-slate-500 mt-2 italic">
               Vista aggregata {labelMese}: somma dei mesi {periodMonths.map(mi => MESI[mi]).join(', ')}. Per modificare i valori passa al singolo mese.
