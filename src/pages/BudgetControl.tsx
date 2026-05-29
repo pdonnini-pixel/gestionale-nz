@@ -407,44 +407,40 @@ function NumberInputIt({ value, onChange, onCommit, className, placeholder, edit
       }
     }
   }
-  // Border colorato come feedback: verde=salvato, giallo=saving, rosso=errore
+  // Feedback save via border colorato + background dell'input stesso (no wrapper
+  // span che rompeva l'allineamento delle colonne grid).
+  // Patrizio 29/05/2026: "le celle dove scrive sono spostate".
   const statusClass =
-    saveStatus === 'saving' ? 'ring-1 ring-amber-300' :
-    saveStatus === 'saved' ? 'ring-1 ring-emerald-400 bg-emerald-50/50' :
-    saveStatus === 'error' ? 'ring-1 ring-red-400 bg-red-50/50' : ''
+    saveStatus === 'saving' ? '!ring-2 !ring-amber-300 !bg-amber-50' :
+    saveStatus === 'saved' ? '!ring-2 !ring-emerald-400 !bg-emerald-50' :
+    saveStatus === 'error' ? '!ring-2 !ring-red-400 !bg-red-50' : ''
   return (
-    <span className="relative inline-block">
-      <input
-        type="text"
-        inputMode="decimal"
-        value={display}
-        onClick={onClickStop ? (e => e.stopPropagation()) : undefined}
-        onFocus={() => {
-          setDraft(value !== 0 ? String(value).replace('.', ',') : '')
-          setOpenValue(value)
-          setFocused(true)
-        }}
-        onChange={e => {
-          const v = e.target.value
-          setDraft(v)
-          const cleaned = v.replace(/\s/g, '').replace(/\./g, '').replace(',', '.')
-          const num = parseFloat(cleaned)
-          onChange(isNaN(num) ? 0 : num)
-        }}
-        onBlur={handleBlur}
-        className={`${className || ''} ${statusClass}`}
-        placeholder={placeholder}
-      />
-      {saveStatus === 'saved' && (
-        <span className="absolute -right-3 top-1/2 -translate-y-1/2 text-emerald-600 text-[10px] font-bold pointer-events-none" title="Salvato">✓</span>
-      )}
-      {saveStatus === 'saving' && (
-        <span className="absolute -right-3 top-1/2 -translate-y-1/2 text-amber-600 text-[9px] pointer-events-none animate-pulse">…</span>
-      )}
-      {saveStatus === 'error' && (
-        <span className="absolute -right-3 top-1/2 -translate-y-1/2 text-red-600 text-[10px] font-bold pointer-events-none" title="Errore salvataggio">✕</span>
-      )}
-    </span>
+    <input
+      type="text"
+      inputMode="decimal"
+      value={display}
+      onClick={onClickStop ? (e => e.stopPropagation()) : undefined}
+      onFocus={() => {
+        setDraft(value !== 0 ? String(value).replace('.', ',') : '')
+        setOpenValue(value)
+        setFocused(true)
+      }}
+      onChange={e => {
+        const v = e.target.value
+        setDraft(v)
+        const cleaned = v.replace(/\s/g, '').replace(/\./g, '').replace(',', '.')
+        const num = parseFloat(cleaned)
+        onChange(isNaN(num) ? 0 : num)
+      }}
+      onBlur={handleBlur}
+      className={`${className || ''} ${statusClass}`}
+      placeholder={placeholder}
+      title={
+        saveStatus === 'saving' ? 'Salvataggio in corso...' :
+        saveStatus === 'saved' ? 'Salvato ✓' :
+        saveStatus === 'error' ? 'Errore: riprova' : undefined
+      }
+    />
   )
 }
 
@@ -2267,17 +2263,41 @@ function ConfrontoMensile({
   year,
   onCommitPrev, onCommitRev, onCommitCons, onCommitRett,
 }: ConfrontoMensileProps) {
-  // mese: -1 = Anno (somma 12 mesi), 0..11 = mese specifico
+  // mese: -1 = Anno (12 mesi), 0..11 = mese singolo, 12..15 = Q1..Q4 (trimestri)
+  // Q1 = mesi [0,1,2], Q2 = [3,4,5], Q3 = [6,7,8], Q4 = [9,10,11].
+  // customRange: se settato (e mese=-2), usa quel range invece dei preset.
+  // Patrizio 29/05/2026: 'fare confronto preventivo vs consuntivo scegliendo
+  // un periodo, gennaio su gennaio o a gruppi di mesi' + range custom 'es. ho
+  // i dati consuntivi da gennaio ad aprile e vorrei confrontarli con quanto
+  // avevo previsto per lo stesso periodo'.
   const [mese, setMese] = useState<number>(0)
-  const isAnnualView = mese === -1
+  const [customRange, setCustomRange] = useState<[number, number] | null>(null) // null = usa mese preset
+  const monthsForPeriod = (m: number, range: [number, number] | null): number[] => {
+    if (range) {
+      const [from, to] = range
+      const arr: number[] = []
+      for (let i = Math.min(from, to); i <= Math.max(from, to); i++) arr.push(i)
+      return arr
+    }
+    if (m === -1) return [0,1,2,3,4,5,6,7,8,9,10,11]
+    if (m >= 12 && m <= 15) {
+      const q = m - 12
+      return [q*3, q*3+1, q*3+2]
+    }
+    if (m >= 0 && m <= 11) return [m]
+    return []
+  }
+  const periodMonths = monthsForPeriod(mese, customRange)
+  const isAggregateView = periodMonths.length > 1
+  const isAnnualView = mese === -1 || isAggregateView
 
-  // Estrae i dati per il mese selezionato (o somma annuale)
+  // Estrae i dati per il periodo selezionato (singolo mese o somma di piu' mesi)
   const pickByMonth = (m: MonthlyMap): Record<string, number> => {
     const out: Record<string, number> = {}
     Object.entries(m).forEach(([code, arr]) => {
       if (!arr) return
-      if (isAnnualView) out[code] = arr.reduce((s, v) => s + (typeof v === 'number' ? v : 0), 0)
-      else if (arr[mese]) out[code] = arr[mese]
+      const sum = periodMonths.reduce<number>((s, mi) => s + (typeof arr[mi] === 'number' ? arr[mi] : 0), 0)
+      if (sum !== 0) out[code] = sum
     })
     return out
   }
@@ -2286,7 +2306,7 @@ function ConfrontoMensile({
     Object.keys(m).forEach(code => {
       const arr = m[code]
       if (!arr) return
-      if (isAnnualView) {
+      if (isAggregateView) {
         const pv = prevs[code] ?? 0
         const ra = amounts[code] ?? 0
         out[code] = pv !== 0 ? (ra / pv) * 100 : 0
@@ -2321,7 +2341,45 @@ function ConfrontoMensile({
   const annualC = (() => { let t = 0; Object.values(prevMonthly).forEach(arr => arr?.forEach(v => { t += (typeof v === 'number' ? v : 0) })); return t })()
   const annualR = (() => { let t = 0; Object.values(revMonthly).forEach(arr => arr?.forEach(v => { t += (typeof v === 'number' ? v : 0) })); return t })()
 
-  const labelMese = isAnnualView ? `Anno ${year}` : MESI[mese]
+  // ROLLING FORECAST / Anno proiettato. Patrizio 29/05/2026: 'sommare ai dati
+  // consuntivi fino ad aprile i valori di preventivo dei mesi successivi
+  // per vedere quale sarebbe il nuovo risultato d esercizio'.
+  // Per ogni mese, per ogni voce CE: se c'e' consuntivo > 0 -> usa quello,
+  // altrimenti usa preventivo. Somma sui 12 mesi -> proiezione annua.
+  const proietta = (consM: MonthlyMap, prevM: MonthlyMap, tree: TreeNodeT[]): number => {
+    let t = 0
+    const codes = new Set([...Object.keys(consM), ...Object.keys(prevM)])
+    codes.forEach(code => {
+      if (!isLeafCode(code, tree)) return
+      for (let mi = 0; mi < 12; mi++) {
+        const c = consM[code]?.[mi] || 0
+        const p = prevM[code]?.[mi] || 0
+        t += c > 0 ? c : p
+      }
+    })
+    return t
+  }
+  const projRicavi = proietta(consMonthly, revMonthly, ricaviTree)
+  const projCosti = proietta(consMonthly, prevMonthly, costiTree)
+  const projResult = projRicavi - projCosti
+  const annualResult = annualR - annualC
+  const projDelta = projResult - annualResult
+  // Conta i mesi che hanno dati consuntivi (ricavi o costi)
+  const mesiConsuntivi = (() => {
+    const set = new Set<number>()
+    Object.values(consMonthly).forEach(arr => {
+      arr?.forEach((v, mi) => { if (typeof v === 'number' && v > 0) set.add(mi) })
+    })
+    return Array.from(set).sort((a, b) => a - b)
+  })()
+
+  const labelMese = customRange
+    ? `${MESI[customRange[0]]}-${MESI[customRange[1]]} ${year}`
+    : mese === -1
+      ? `Anno ${year}`
+      : (mese >= 12 && mese <= 15)
+        ? `Q${mese - 11} ${year}`
+        : MESI[mese]
 
   return (
     <div className="space-y-6">
@@ -2334,6 +2392,43 @@ function ConfrontoMensile({
         <Kpi icon={Target} label="Δ Risultato" value={fmtC(scostTot)} color={scostTot >= 0 ? 'green' : 'red'} alert={Math.abs(scostTot) > Math.abs(ris) * 0.15} />
       </div>
 
+      {/* ROLLING FORECAST - Anno proiettato (cons fino oggi + prev futuro).
+          Si attiva solo se ci sono mesi con consuntivo. */}
+      {mesiConsuntivi.length > 0 && (
+        <div className="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-xl p-4">
+          <div className="flex items-start gap-4 flex-wrap">
+            <div className="flex items-center gap-2 shrink-0">
+              <TrendingUp size={18} className="text-amber-600" />
+              <div>
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-amber-700">Anno proiettato {year}</div>
+                <div className="text-[10px] text-amber-600">consuntivo {MESI[mesiConsuntivi[0]]}-{MESI[mesiConsuntivi[mesiConsuntivi.length - 1]]} + preventivo mesi rimanenti</div>
+              </div>
+            </div>
+            <div className="flex items-center gap-6 flex-wrap text-sm">
+              <div>
+                <div className="text-[10px] uppercase tracking-wider text-slate-500">Ricavi proiettati</div>
+                <div className="font-bold text-emerald-700 tabular-nums">{fmtC(projRicavi)}</div>
+              </div>
+              <div>
+                <div className="text-[10px] uppercase tracking-wider text-slate-500">Costi proiettati</div>
+                <div className="font-bold text-red-700 tabular-nums">{fmtC(projCosti)}</div>
+              </div>
+              <div className="border-l border-amber-300 pl-6">
+                <div className="text-[10px] uppercase tracking-wider text-slate-500">Risultato anno (proiettato)</div>
+                <div className={`font-bold text-lg tabular-nums ${projResult >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>{fmtC(projResult)}</div>
+              </div>
+              <div className="border-l border-amber-300 pl-6">
+                <div className="text-[10px] uppercase tracking-wider text-slate-500">vs Preventivo anno</div>
+                <div className={`font-bold tabular-nums ${projDelta >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                  {projDelta >= 0 ? '+' : ''}{fmtC(projDelta)}
+                </div>
+                <div className="text-[10px] text-slate-400">budget {fmtC(annualResult)}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="px-5 py-3 bg-slate-50 border-b flex items-center justify-between flex-wrap gap-2">
           <h3 className="text-sm font-semibold text-slate-700">{outletLabel} — Vista Mensile {year}</h3>
@@ -2342,15 +2437,31 @@ function ConfrontoMensile({
           </div>
         </div>
 
-        {/* MONTH SELECTOR + Anno solare */}
+        {/* MONTH SELECTOR + Anno solare + Trimestri Q1-Q4 */}
         <div className="px-5 py-3 border-b border-slate-100">
           <div className="flex gap-1 flex-wrap items-center">
-            <button onClick={() => setMese(-1)}
+            <button onClick={() => { setMese(-1); setCustomRange(null) }}
               className={`px-3 py-1.5 text-xs font-bold rounded-md transition ${
-                isAnnualView ? 'bg-indigo-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                mese === -1 && !customRange ? 'bg-indigo-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
               }`}>
-              Anno solare
+              Anno
             </button>
+            <span className="text-slate-300 mx-1">|</span>
+            {/* Trimestri: Q1=gen-mar (mese=12), Q2=apr-giu (13), Q3=lug-set (14), Q4=ott-dic (15) */}
+            {[12, 13, 14, 15].map((qm) => {
+              const qIdx = qm - 12
+              const qLabel = ['Q1','Q2','Q3','Q4'][qIdx]
+              const qRange = ['gen-mar','apr-giu','lug-set','ott-dic'][qIdx]
+              return (
+                <button key={qm} onClick={() => { setMese(qm); setCustomRange(null) }}
+                  title={`Trimestre ${qRange}`}
+                  className={`px-3 py-1.5 text-xs font-bold rounded-md transition ${
+                    mese === qm && !customRange ? 'bg-purple-600 text-white shadow-sm' : 'bg-purple-50 text-purple-700 hover:bg-purple-100'
+                  }`}>
+                  {qLabel}
+                </button>
+              )
+            })}
             <span className="text-slate-300 mx-1">|</span>
             {MESI.map((m, i) => {
               const hasCData = Object.values(prevMonthly).some(arr => arr && arr[i])
@@ -2359,18 +2470,60 @@ function ConfrontoMensile({
               const hasRett = Object.values(rettMonthly).some(arr => arr && arr[i])
               const hasData = hasCData || hasRData || hasCons || hasRett
               return (
-                <button key={i} onClick={() => setMese(i)}
+                <button key={i} onClick={() => { setMese(i); setCustomRange(null) }}
                   className={`px-3 py-1.5 text-xs font-medium rounded-md transition relative ${
-                    mese === i ? 'bg-indigo-600 text-white shadow-sm' : hasData ? 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                    mese === i && !customRange ? 'bg-indigo-600 text-white shadow-sm' : hasData ? 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
                   }`}>
                   {m}
-                  {hasData && mese !== i && <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-indigo-500" />}
+                  {hasData && (mese !== i || customRange) && <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-indigo-500" />}
                 </button>
               )
             })}
           </div>
-          {isAnnualView && (
-            <p className="text-[11px] text-slate-500 mt-2 italic">Vista annuale: somma dei 12 mesi. Per modificare i valori passa al singolo mese.</p>
+          {/* Range custom Da/A: utile per "preventivo vs consuntivo per i mesi gia' chiusi"
+              (es. Gen-Apr). Patrizio 29/05/2026: 'oggi ho i dati consuntivi da gennaio
+              ad aprile e vorrei confrontarli con quanto avevo previsto'. */}
+          <div className="mt-3 pt-3 border-t border-slate-100 flex items-center gap-2 flex-wrap">
+            <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Periodo custom:</span>
+            <span className="text-xs text-slate-500">da</span>
+            <select
+              value={customRange ? customRange[0] : 0}
+              onChange={e => {
+                const from = parseInt(e.target.value)
+                setCustomRange([from, customRange ? customRange[1] : 3])
+                setMese(-2)
+              }}
+              className="text-xs px-2 py-1 border border-slate-200 rounded bg-white">
+              {MESI.map((m, i) => <option key={i} value={i}>{m}</option>)}
+            </select>
+            <span className="text-xs text-slate-500">a</span>
+            <select
+              value={customRange ? customRange[1] : 3}
+              onChange={e => {
+                const to = parseInt(e.target.value)
+                setCustomRange([customRange ? customRange[0] : 0, to])
+                setMese(-2)
+              }}
+              className="text-xs px-2 py-1 border border-slate-200 rounded bg-white">
+              {MESI.map((m, i) => <option key={i} value={i}>{m}</option>)}
+            </select>
+            {customRange && (
+              <button
+                onClick={() => { setCustomRange(null); setMese(-1) }}
+                className="text-[10px] px-2 py-1 rounded bg-slate-100 text-slate-500 hover:bg-slate-200">
+                Azzera range
+              </button>
+            )}
+            {customRange && (
+              <span className="text-[10px] px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200">
+                Attivo: {labelMese}
+              </span>
+            )}
+          </div>
+          {isAggregateView && (
+            <p className="text-[11px] text-slate-500 mt-2 italic">
+              Vista aggregata {labelMese}: somma dei mesi {periodMonths.map(mi => MESI[mi]).join(', ')}. Per modificare i valori passa al singolo mese.
+            </p>
           )}
         </div>
 
