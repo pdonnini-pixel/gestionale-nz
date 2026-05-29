@@ -1170,6 +1170,7 @@ export default function BudgetControl() {
     '510112': 'palmanova',
     '510114': 'brugnato',
     '510122': 'valmontone',
+    '510124': 'torino', // Torino Outlet Village (TRN) - aperto 29/05/2026
   }
 
   // Codici corrispettivi outlet (da escludere per gli altri)
