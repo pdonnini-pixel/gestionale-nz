@@ -982,9 +982,10 @@ interface TicketDetailProps {
   ticket: Ticket
   onBack: () => void
   onUpdated: (t: Ticket) => void
+  onDeleted: (id: string) => void
 }
 
-function TicketDetail({ ticket, onBack, onUpdated }: TicketDetailProps) {
+function TicketDetail({ ticket, onBack, onUpdated, onDeleted }: TicketDetailProps) {
   const { toast } = useToast()
   const { profile, session } = useAuth()
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
@@ -1171,12 +1172,13 @@ function TicketDetail({ ticket, onBack, onUpdated }: TicketDetailProps) {
         .eq('id', ticket.id)
       if (error) throw new Error(error.message)
       toast({ type: 'success', message: 'Ticket cancellato' })
+      onDeleted(ticket.id)
       onBack()
     } catch (e) {
       toast({ type: 'error', message: errorMessage(e, 'Cancellazione fallita') })
       setBusy(false)
     }
-  }, [ticket.id, onBack, toast])
+  }, [ticket.id, onBack, onDeleted, toast])
 
   const azioniDisponibili = useMemo(() => {
     const actions: Array<{ label: string; stato: TicketStato; primary?: boolean; destructive?: boolean }> = []
@@ -1484,6 +1486,10 @@ export default function TicketPage() {
     setTickets(prev => prev.map(x => x.id === t.id ? t : x))
   }, [])
 
+  const onDeleted = useCallback((id: string) => {
+    setTickets(prev => prev.filter(x => x.id !== id))
+  }, [])
+
   const detailTicket = ticketId ? tickets.find(t => t.id === ticketId) : null
 
   if (ticketId) {
@@ -1523,6 +1529,7 @@ export default function TicketPage() {
           ticket={detailTicket}
           onBack={() => navigate('/ticket')}
           onUpdated={onUpdated}
+          onDeleted={onDeleted}
         />
       </PageShell>
     )
