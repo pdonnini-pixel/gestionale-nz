@@ -282,9 +282,17 @@ export default function OpenBankingAcube() {
           {accounts.map((a) => (
             <div key={a.id} className="border border-slate-200/80 rounded-lg p-3 bg-white hover:shadow-sm transition">
               <div className="flex items-start justify-between mb-2">
-                <div>
-                  <div className="text-sm font-semibold text-slate-900">{a.account_name || 'Conto'}</div>
-                  <div className="text-xs text-slate-500">{a.bank_name}</div>
+                <div className="min-w-0 flex-1 pr-2">
+                  {/* Titolo principale = nome banca (sempre presente, parlante).
+                      L'IBAN va sotto come riferimento, non in alto. */}
+                  <div className="text-sm font-semibold text-slate-900 truncate" title={a.bank_name || ''}>
+                    {a.bank_name || 'Banca'}
+                  </div>
+                  {/* Sottotitolo solo se account_name e' un alias significativo,
+                      non l'IBAN (fallback A-Cube) o lo stesso bank_name */}
+                  {a.account_name && a.account_name !== a.bank_name && a.account_name !== a.iban ? (
+                    <div className="text-xs text-slate-500 truncate" title={a.account_name}>{a.account_name}</div>
+                  ) : null}
                 </div>
                 <div className={`text-sm font-bold ${(a.current_balance ?? 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
                   {fmt(a.current_balance, a.currency || 'EUR')}

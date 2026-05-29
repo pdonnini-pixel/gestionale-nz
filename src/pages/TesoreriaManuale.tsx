@@ -1515,17 +1515,12 @@ function TabContiBancari({ accounts, companyId, onRefresh }: { accounts: Account
       {/* Open Banking A-Cube — collegamento banche via PSD2 */}
       <OpenBankingAcube />
 
-      <div className="flex items-center justify-between">
-        <div>
-          <h3 className="text-sm text-slate-500">Totale disponibilita</h3>
-          <div className="text-3xl font-bold text-slate-900">{fmt(totalBalance)} &euro;</div>
-        </div>
-        {/* Bottone "Nuovo conto" manuale rimosso — i conti si collegano via A-Cube Open Banking nel riquadro sopra */}
-      </div>
-
-      {activeAccounts.length === 0 ? (
-        <EmptyState icon={Building2} title="Nessun conto bancario" description="Usa il riquadro Open Banking sopra per collegare la tua banca via PSD2." />
-      ) : (
+      {/* "Totale disponibilita" + griglia 3 KPI ridondante rimossa: gli stessi
+          conti, saldi, IBAN e timestamp di sincronizzazione sono gia' mostrati
+          nel riquadro Open Banking A-Cube sopra. Patrizio (29/05/2026): "ci sono
+          2 volte i totali e 2 volte i singoli, usa solo quelli piu in alto e leva
+          il totale e i tre kpi che sono ridondanti". */}
+      {false && (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {activeAccounts.map((acct, idx) => (
             <div key={acct.id} className="bg-white rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition overflow-hidden">
