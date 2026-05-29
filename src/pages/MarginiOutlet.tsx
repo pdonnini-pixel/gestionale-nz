@@ -72,40 +72,11 @@ export default function MarginiOutlet() {
         const { data, error: fetchError } = await query
 
         if (fetchError) throw fetchError
-
-        // Sprint 2 (Patrizio 29/05/2026): se Lilian ha consuntivo in budget_confronto.cons_monthly,
-        // lo aggrego per (cost_center, account_code) e SOSTITUISCO budget_amount nelle righe relative.
-        // Cosi' i margini outlet riflettono i numeri reali, non solo il preventivo.
-        if (companyId) {
-          const { data: cfData } = await supabase
-            .from('budget_confronto')
-            .select('cost_center, account_code, amount')
-            .eq('company_id', companyId)
-            .eq('year', year)
-            .eq('entry_type', 'cons_monthly')
-            .range(0, 9999)
-          if (cfData && cfData.length > 0) {
-            type Cf = { cost_center: string; account_code: string; amount: number }
-            const consMap: Record<string, Record<string, number>> = {}
-            ;(cfData as Cf[]).forEach(r => {
-              if (!consMap[r.cost_center]) consMap[r.cost_center] = {}
-              consMap[r.cost_center][r.account_code] = (consMap[r.cost_center][r.account_code] || 0) + (Number(r.amount) || 0)
-            })
-            // Override budget_amount con cons quando presente (chiave: cost_center+account_code)
-            const overridden = (data || []).map(row => {
-              const cc = row.cost_center
-              const ac = row.account_code
-              if (cc && ac && consMap[cc]?.[ac] != null) {
-                // Distribuisco /12 se la riga e' mensile, altrimenti totale
-                const original = row.month ? consMap[cc][ac] / 12 : consMap[cc][ac]
-                return { ...row, budget_amount: original }
-              }
-              return row
-            })
-            setRawData(overridden)
-            return
-          }
-        }
+        // Sprint 2 hotfix (29/05/2026 sera): rollback override budget_confronto.
+        // Il fix per-riga /12 produceva numeri esplosi quando il numero di righe per
+        // (cost_center, account_code) non era 12. Pagina torna a mostrare budget_entries
+        // come prima dello Sprint 2. Il fix corretto richiede aggregazione a livello di
+        // outletMargins (post-reduce) - rinviato a sprint dedicato dopo audit ulteriore.
         setRawData(data || [])
       } catch (err: unknown) {
         console.error('[MarginiOutlet] fetch error:', err)
