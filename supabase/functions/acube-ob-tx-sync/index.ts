@@ -16,6 +16,7 @@
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient, SupabaseClient } from "jsr:@supabase/supabase-js@2";
+import { createHash } from "node:crypto";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -69,8 +70,19 @@ async function getCachedJwt(supabase: SupabaseClient, stage: string): Promise<st
   return refresh.jwt;
 }
 
+// Hash per acube_transactions (deduplica chiamate identiche all'API A-Cube).
 function dedupHash(accountUuid: string, txid: string, madeOn: string, amount: number): string {
   return `${accountUuid}|${txid}|${madeOn}|${amount.toFixed(2)}`;
+}
+
+// Hash canonical per bank_transactions (deve essere IDENTICO a public.bank_transaction_canonical_hash
+// in Postgres - migration 051). Indipendente da txid (A-Cube lo ribatte tra paginate) e da source
+// (uniforme per edge function + cron RPC). MD5 esadecimale.
+function canonicalBankHash(bankAccountId: string, date: string, amount: number, description: string): string {
+  const amountStr = amount.toFixed(2); // FM999999990.00 in PG, 2 decimali sempre
+  const descTrunc = (description || "").slice(0, 40);
+  const input = `${bankAccountId}|${date}|${amountStr}|${descTrunc}`;
+  return createHash("md5").update(input).digest("hex");
 }
 
 Deno.serve(async (req: Request) => {
@@ -200,12 +212,12 @@ Deno.serve(async (req: Request) => {
       if (ae) continue;
       acubeIns++;
 
-      // Bridge: insert in bank_transactions se esiste bank_account corrispondente
+      // Bridge: insert in bank_transactions se esiste bank_account corrispondente.
+      // Usa canonical hash (migration 051): indipendente da txid che A-Cube ribatte tra paginate,
+      // identico al hash di cron RPC acube_ob_sync_all_production, protetto da UNIQUE INDEX.
       const bankAccountId = acubeToBankId.get(accountUuid);
       if (!bankAccountId) continue;
-      // Skip se già esiste un bank_transactions con stesso acube_dedup_hash
-      const { data: bex } = await supabase.from("bank_transactions").select("id").eq("acube_dedup_hash", hash).maybeSingle();
-      if (bex) continue;
+      const bankHash = canonicalBankHash(bankAccountId, madeOn, amount, description);
       const { error: be } = await supabase.from("bank_transactions").insert({
         company_id: companyId,
         bank_account_id: bankAccountId,
@@ -220,11 +232,15 @@ Deno.serve(async (req: Request) => {
         category: t.category ?? null,
         status: status === "BOOKED" ? "booked" : status.toLowerCase(),
         source: "acube_ob",
-        acube_dedup_hash: hash,
+        acube_dedup_hash: bankHash,
         raw_data: t,
         is_reconciled: false,
       });
+      // Codice 23505 = unique_violation: significa che il movimento esiste gia' (canonical hash collide)
+      // -> non e' un errore, e' la protezione anti-dup. Tutti gli altri errori vengono ignorati silenziosamente
+      // come prima (consistente con comportamento legacy).
       if (!be) bankIns++;
+      else if (be.code === "23505") dups++;
     }
 
     // Aggiorna balance_updated_at sui bank_accounts toccati (anche con 0 nuove tx).
