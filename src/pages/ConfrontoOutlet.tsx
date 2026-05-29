@@ -548,50 +548,64 @@ export default function ConfrontoOutlet() {
         return { name: outlet.label || '', outletData: outlet, calculatedMetrics: null } as OutletMetric
       }
 
-      // Sprint 2: overlay Lilian per questo outlet. Mappa account_code -> somma annua.
-      // Per 'actual_amount' usa cons_monthly se presente, altrimenti fallback al campo.
-      // Per 'budget_amount' usa rev_monthly se presente, altrimenti fallback al campo.
+      // Sprint 2 hotfix (Patrizio 29/05/2026 sera): override AGGREGATO, non per-riga.
+      // Bug precedente: ritornavo consMap[code] per OGNI riga budget_entries -> se ci
+      // sono 12 righe mensili per stesso codice, il totale era 12 × consuntivo = numero
+      // esplosivo. Fix: il calcMetrics somma normalmente budget_entries; poi se l'overlay
+      // ha valori per quei codici, SOSTITUISCE il totale aggregato una volta sola.
       const consMapOutlet = consOverlay[matchingCC] || consOverlay[outletCode] || {}
       const prevMapOutlet = prevOverlay[matchingCC] || prevOverlay[outletCode] || {}
 
-      const getAmt = (b: BudgetEntryRow, field: 'budget_amount' | 'actual_amount'): number => {
-        const ac = b.account_code || ''
-        if (field === 'actual_amount' && consMapOutlet[ac] != null) {
-          // periodo: se selectedMonths e' valorizzato, il valore mensile non si puo' separare
-          // dall'aggregato annuale -> per ora prendiamo full year se overlay presente, altrimenti
-          // il campo. Caveat noto, da raffinare in Sprint 6.
-          return consMapOutlet[ac]
-        }
-        if (field === 'budget_amount' && prevMapOutlet[ac] != null) {
-          return prevMapOutlet[ac]
-        }
-        return Number(b[field]) || 0
+      const hasConsForCodes = (codes: Set<string>): number | null => {
+        const sum = Array.from(codes).reduce((s, c) => s + (consMapOutlet[c] || 0), 0)
+        return sum > 0 ? sum : null
+      }
+      const hasPrevForCodes = (codes: Set<string>): number | null => {
+        const sum = Array.from(codes).reduce((s, c) => s + (prevMapOutlet[c] || 0), 0)
+        return sum > 0 ? sum : null
       }
 
       // Calcola sia budget che actual per confronto
       function calcMetrics(field: 'budget_amount' | 'actual_amount') {
+        const overlay = field === 'actual_amount' ? hasConsForCodes : hasPrevForCodes
+
         // Revenue: account_code starts with '5', or macro_group contains 'Ricavi'
-        const ricavi = outletBudget
-          .filter(b => b.account_code?.startsWith('5') || b.macro_group?.includes('Ricavi'))
-          .reduce((sum, b) => sum + getAmt(b, field), 0)
+        const ricaviRows = outletBudget.filter(b => b.account_code?.startsWith('5') || b.macro_group?.includes('Ricavi'))
+        const ricaviCodes = new Set(ricaviRows.map(b => b.account_code || '').filter(Boolean))
+        const overlayRicavi = overlay(ricaviCodes)
+        const ricavi = overlayRicavi != null
+          ? overlayRicavi
+          : ricaviRows.reduce((sum, b) => sum + (Number(b[field]) || 0), 0)
 
-        // Costo personale: account_code starts with '6' (personale), or name matches
-        const costoPersonale = outletBudget
-          .filter(b => b.account_code?.startsWith('6') || b.account_name?.toLowerCase().match(/personal|dipendent|retrib|stipend/))
-          .reduce((sum, b) => sum + Math.abs(getAmt(b, field)), 0)
+        // Costo personale: account_code starts with '6', or name matches
+        const personaleRows = outletBudget.filter(b => b.account_code?.startsWith('6') || b.account_name?.toLowerCase().match(/personal|dipendent|retrib|stipend/))
+        const personaleCodes = new Set(personaleRows.map(b => b.account_code || '').filter(Boolean))
+        const overlayPersonale = overlay(personaleCodes)
+        const costoPersonale = overlayPersonale != null
+          ? Math.abs(overlayPersonale)
+          : personaleRows.reduce((sum, b) => sum + Math.abs(Number(b[field]) || 0), 0)
 
-        const affitto = outletBudget
-          .filter(b => b.account_name?.toLowerCase().match(/affitto|godimento|locazion/))
-          .reduce((sum, b) => sum + Math.abs(getAmt(b, field)), 0)
+        const affittoRows = outletBudget.filter(b => b.account_name?.toLowerCase().match(/affitto|godimento|locazion/))
+        const affittoCodes = new Set(affittoRows.map(b => b.account_code || '').filter(Boolean))
+        const overlayAffitto = overlay(affittoCodes)
+        const affitto = overlayAffitto != null
+          ? Math.abs(overlayAffitto)
+          : affittoRows.reduce((sum, b) => sum + Math.abs(Number(b[field]) || 0), 0)
 
-        const servizi = outletBudget
-          .filter(b => (b.account_name?.toLowerCase().includes('servizi') || b.account_name?.toLowerCase().includes('manut')))
-          .reduce((sum, b) => sum + Math.abs(getAmt(b, field)), 0)
+        const serviziRows = outletBudget.filter(b => (b.account_name?.toLowerCase().includes('servizi') || b.account_name?.toLowerCase().includes('manut')))
+        const serviziCodes = new Set(serviziRows.map(b => b.account_code || '').filter(Boolean))
+        const overlayServizi = overlay(serviziCodes)
+        const servizi = overlayServizi != null
+          ? Math.abs(overlayServizi)
+          : serviziRows.reduce((sum, b) => sum + Math.abs(Number(b[field]) || 0), 0)
 
         // Merci: account_code starts with '7', or macro_group contains Acquisti/Merci
-        const merci = outletBudget
-          .filter(b => b.account_code?.startsWith('7') || b.macro_group?.includes('Acquisti') || b.macro_group?.includes('Merci'))
-          .reduce((sum, b) => sum + Math.abs(getAmt(b, field)), 0)
+        const merciRows = outletBudget.filter(b => b.account_code?.startsWith('7') || b.macro_group?.includes('Acquisti') || b.macro_group?.includes('Merci'))
+        const merciCodes = new Set(merciRows.map(b => b.account_code || '').filter(Boolean))
+        const overlayMerci = overlay(merciCodes)
+        const merci = overlayMerci != null
+          ? Math.abs(overlayMerci)
+          : merciRows.reduce((sum, b) => sum + Math.abs(Number(b[field]) || 0), 0)
 
         return { ricavi, costoPersonale, affitto, servizi, merci }
       }
