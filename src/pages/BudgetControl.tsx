@@ -407,44 +407,40 @@ function NumberInputIt({ value, onChange, onCommit, className, placeholder, edit
       }
     }
   }
-  // Border colorato come feedback: verde=salvato, giallo=saving, rosso=errore
+  // Feedback save via border colorato + background dell'input stesso (no wrapper
+  // span che rompeva l'allineamento delle colonne grid).
+  // Patrizio 29/05/2026: "le celle dove scrive sono spostate".
   const statusClass =
-    saveStatus === 'saving' ? 'ring-1 ring-amber-300' :
-    saveStatus === 'saved' ? 'ring-1 ring-emerald-400 bg-emerald-50/50' :
-    saveStatus === 'error' ? 'ring-1 ring-red-400 bg-red-50/50' : ''
+    saveStatus === 'saving' ? '!ring-2 !ring-amber-300 !bg-amber-50' :
+    saveStatus === 'saved' ? '!ring-2 !ring-emerald-400 !bg-emerald-50' :
+    saveStatus === 'error' ? '!ring-2 !ring-red-400 !bg-red-50' : ''
   return (
-    <span className="relative inline-block">
-      <input
-        type="text"
-        inputMode="decimal"
-        value={display}
-        onClick={onClickStop ? (e => e.stopPropagation()) : undefined}
-        onFocus={() => {
-          setDraft(value !== 0 ? String(value).replace('.', ',') : '')
-          setOpenValue(value)
-          setFocused(true)
-        }}
-        onChange={e => {
-          const v = e.target.value
-          setDraft(v)
-          const cleaned = v.replace(/\s/g, '').replace(/\./g, '').replace(',', '.')
-          const num = parseFloat(cleaned)
-          onChange(isNaN(num) ? 0 : num)
-        }}
-        onBlur={handleBlur}
-        className={`${className || ''} ${statusClass}`}
-        placeholder={placeholder}
-      />
-      {saveStatus === 'saved' && (
-        <span className="absolute -right-3 top-1/2 -translate-y-1/2 text-emerald-600 text-[10px] font-bold pointer-events-none" title="Salvato">✓</span>
-      )}
-      {saveStatus === 'saving' && (
-        <span className="absolute -right-3 top-1/2 -translate-y-1/2 text-amber-600 text-[9px] pointer-events-none animate-pulse">…</span>
-      )}
-      {saveStatus === 'error' && (
-        <span className="absolute -right-3 top-1/2 -translate-y-1/2 text-red-600 text-[10px] font-bold pointer-events-none" title="Errore salvataggio">✕</span>
-      )}
-    </span>
+    <input
+      type="text"
+      inputMode="decimal"
+      value={display}
+      onClick={onClickStop ? (e => e.stopPropagation()) : undefined}
+      onFocus={() => {
+        setDraft(value !== 0 ? String(value).replace('.', ',') : '')
+        setOpenValue(value)
+        setFocused(true)
+      }}
+      onChange={e => {
+        const v = e.target.value
+        setDraft(v)
+        const cleaned = v.replace(/\s/g, '').replace(/\./g, '').replace(',', '.')
+        const num = parseFloat(cleaned)
+        onChange(isNaN(num) ? 0 : num)
+      }}
+      onBlur={handleBlur}
+      className={`${className || ''} ${statusClass}`}
+      placeholder={placeholder}
+      title={
+        saveStatus === 'saving' ? 'Salvataggio in corso...' :
+        saveStatus === 'saved' ? 'Salvato ✓' :
+        saveStatus === 'error' ? 'Errore: riprova' : undefined
+      }
+    />
   )
 }
 
