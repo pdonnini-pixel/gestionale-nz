@@ -1763,13 +1763,25 @@ export default function BudgetControl() {
       )}
 
       {/* ════════════════════════════════════════════════════
-         TAB 3: INSERIMENTO RAPIDO — stub (work in progress)
+         TAB 3: INSERIMENTO RAPIDO — matrice 7 outlet x 2 righe (prev/cons)
+         per il mese selezionato. SOLO input. Niente scostamenti / percentuali
+         (quelli stanno nelle altre tab). Save on blur su budget_confronto.
          ════════════════════════════════════════════════════ */}
-      {tab === 'rapido' && (
-        <div className="bg-amber-50 border border-amber-200 rounded-xl p-6 text-sm text-amber-900">
-          <div className="font-semibold mb-2 flex items-center gap-2"><Zap size={16} /> Inserimento Rapido in arrivo</div>
-          <p className="text-amber-800">Matrice 7×12 con keyboard navigation in sviluppo. Per ora usa la tab <strong>Preventivo vs Consuntivo</strong> {'>'} vista mensile per inserire i corrispettivi.</p>
-        </div>
+      {tab === 'rapido' && CID && (
+        <InserimentoRapidoMatrice
+          year={year}
+          companyId={CID}
+          outlets={Object.entries(RICAVI_OUTLET_MAP)
+            .filter(([, outletCode]) => outletCode !== 'sede_magazzino')
+            .map(([accCode, outletCode]) => {
+              const cc = costCenters.find(c => c.code === outletCode)
+              return {
+                code: outletCode,
+                label: cc ? prettyCenterLabel(cc) : outletCode,
+                accountCode: accCode,
+              }
+            })}
+        />
       )}
 
       {/* CONFIRM DIALOG */}
@@ -2817,6 +2829,177 @@ function ConfrontoPanel({ outletCode, outletLabel, prevEdits, consEdits, onConsE
         )}
       </div>
       <PageHelp page="budget" />
+    </div>
+  )
+}
+
+/* ═══════════════════════════════════════════════════════════
+   INSERIMENTO RAPIDO MATRICE — 7 outlet x 2 righe (prev/cons)
+   per il mese selezionato. SOLO input. Save on blur.
+   Patrizio 29/05/2026: "crea una sezione semplice nuova dove lilian ha
+   per orizzontale la lista dei 7 outlet e per verticale 2 campi, uno
+   preventivo produzione e quello accanto consuntivo, questi campi
+   scriveranno a sua volta in automatico nella parte del bilancio".
+   ═══════════════════════════════════════════════════════════ */
+type OutletForRapido = { code: string; label: string; accountCode: string }
+function InserimentoRapidoMatrice({ year, companyId, outlets }: {
+  year: number; companyId: string; outlets: OutletForRapido[]
+}) {
+  const MESI_NOMI = ['Gennaio','Febbraio','Marzo','Aprile','Maggio','Giugno','Luglio','Agosto','Settembre','Ottobre','Novembre','Dicembre']
+  const [mese, setMese] = useState<number>(new Date().getMonth()) // mese corrente di default
+  const [matrix, setMatrix] = useState<Record<string, { prev: number; cons: number }>>({})
+  const [loading, setLoading] = useState(true)
+
+  // Carica dati per il mese selezionato
+  useEffect(() => {
+    let alive = true
+    const load = async () => {
+      setLoading(true)
+      const accCodes = outlets.map(o => o.accountCode)
+      const { data } = await supabase.from('budget_confronto')
+        .select('cost_center, account_code, amount, entry_type')
+        .eq('company_id', companyId)
+        .eq('year', year)
+        .eq('month', mese + 1)
+        .in('entry_type', ['rev_monthly', 'cons_monthly'])
+        .in('account_code', accCodes)
+      if (!alive) return
+      const m: Record<string, { prev: number; cons: number }> = {}
+      outlets.forEach(o => { m[o.code] = { prev: 0, cons: 0 } })
+      ;(data || []).forEach(r => {
+        const o = outlets.find(x => x.accountCode === r.account_code)
+        if (!o) return
+        const amt = Number(r.amount) || 0
+        if (r.entry_type === 'rev_monthly') m[o.code].prev = amt
+        else if (r.entry_type === 'cons_monthly') m[o.code].cons = amt
+      })
+      setMatrix(m)
+      setLoading(false)
+    }
+    load()
+    return () => { alive = false }
+  }, [companyId, year, mese, outlets])
+
+  // Save on blur per singola cella (entry_type rev_monthly o cons_monthly)
+  const saveCell = async (outlet: OutletForRapido, kind: 'prev' | 'cons', value: number) => {
+    const entryType = kind === 'prev' ? 'rev_monthly' : 'cons_monthly'
+    // DELETE riga esistente (idempotente), poi INSERT se valore non zero
+    await supabase.from('budget_confronto').delete()
+      .eq('company_id', companyId).eq('cost_center', outlet.code)
+      .eq('account_code', outlet.accountCode).eq('year', year)
+      .eq('month', mese + 1).eq('entry_type', entryType)
+    if (value !== 0) {
+      const { error } = await supabase.from('budget_confronto').insert({
+        company_id: companyId, cost_center: outlet.code, account_code: outlet.accountCode,
+        year, month: mese + 1, entry_type: entryType, amount: value,
+        updated_at: new Date().toISOString(),
+      } as never)
+      if (error) throw error
+    }
+  }
+
+  const totalePrev = outlets.reduce((s, o) => s + (matrix[o.code]?.prev || 0), 0)
+  const totaleCons = outlets.reduce((s, o) => s + (matrix[o.code]?.cons || 0), 0)
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-start gap-3">
+        <Zap size={18} className="text-blue-600 mt-0.5 shrink-0" />
+        <div className="text-sm text-blue-900">
+          <div className="font-semibold mb-1">Inserimento Rapido Corrispettivi</div>
+          <p className="text-blue-700 text-xs">
+            Scegli il mese, inserisci preventivo e consuntivo per ogni outlet. Salvataggio automatico (vedi ✓ verde). I numeri popolano direttamente il bilancio e le viste Preventivo vs Consuntivo / Business Plan.
+          </p>
+        </div>
+      </div>
+
+      {/* Selettore mese */}
+      <div className="bg-white border border-slate-200 rounded-xl p-3 flex items-center gap-2 flex-wrap">
+        <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider mr-2">Mese {year}:</span>
+        {MESI_NOMI.map((nome, idx) => (
+          <button key={idx}
+            onClick={() => setMese(idx)}
+            className={`px-3 py-1.5 rounded-md text-sm font-medium transition ${
+              mese === idx
+                ? 'bg-indigo-600 text-white shadow-sm'
+                : 'bg-slate-50 text-slate-600 hover:bg-slate-100'
+            }`}>
+            {nome.slice(0, 3)}
+          </button>
+        ))}
+      </div>
+
+      {/* Matrice */}
+      <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+        <div className="px-5 py-3 bg-slate-50 border-b">
+          <h3 className="text-sm font-semibold text-slate-700">Corrispettivi outlet — {MESI_NOMI[mese]} {year}</h3>
+        </div>
+        {loading ? (
+          <div className="p-8 text-center text-slate-400 text-sm">Caricamento…</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50/50 border-b border-slate-100">
+                <tr>
+                  <th className="text-left py-3 px-4 text-[10px] font-semibold text-slate-400 uppercase tracking-wider w-32">Tipologia</th>
+                  {outlets.map(o => (
+                    <th key={o.code} className="text-right py-3 px-3 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">
+                      <div className="truncate" title={o.label}>{o.label.split('(')[0].trim()}</div>
+                    </th>
+                  ))}
+                  <th className="text-right py-3 px-4 text-[10px] font-semibold text-indigo-500 uppercase tracking-wider">Totale mese</th>
+                </tr>
+              </thead>
+              <tbody>
+                {/* PREVENTIVO */}
+                <tr className="border-b border-slate-100">
+                  <td className="py-3 px-4 text-sm font-semibold text-indigo-700 bg-indigo-50/40">
+                    <div className="flex items-center gap-1.5"><Lock size={12} />Preventivo</div>
+                  </td>
+                  {outlets.map(o => (
+                    <td key={o.code} className="py-2 px-3">
+                      <NumberInputIt
+                        value={matrix[o.code]?.prev || 0}
+                        onChange={n => setMatrix(prev => ({ ...prev, [o.code]: { ...(prev[o.code] || { prev: 0, cons: 0 }), prev: n } }))}
+                        onCommit={async n => { await saveCell(o, 'prev', n) }}
+                        className="w-full text-right px-2 py-1.5 text-sm border rounded tabular-nums focus:outline-none focus:ring-2 focus:ring-indigo-400 border-slate-200"
+                        placeholder="0"
+                      />
+                    </td>
+                  ))}
+                  <td className="py-3 px-4 text-right text-sm font-bold text-indigo-700 tabular-nums bg-indigo-50/40">
+                    {totalePrev.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </td>
+                </tr>
+                {/* CONSUNTIVO */}
+                <tr>
+                  <td className="py-3 px-4 text-sm font-semibold text-emerald-700 bg-emerald-50/40">
+                    <div className="flex items-center gap-1.5"><Unlock size={12} />Consuntivo</div>
+                  </td>
+                  {outlets.map(o => (
+                    <td key={o.code} className="py-2 px-3">
+                      <NumberInputIt
+                        value={matrix[o.code]?.cons || 0}
+                        onChange={n => setMatrix(prev => ({ ...prev, [o.code]: { ...(prev[o.code] || { prev: 0, cons: 0 }), cons: n } }))}
+                        onCommit={async n => { await saveCell(o, 'cons', n) }}
+                        className="w-full text-right px-2 py-1.5 text-sm border rounded tabular-nums focus:outline-none focus:ring-2 focus:ring-emerald-400 border-slate-200"
+                        placeholder="0"
+                      />
+                    </td>
+                  ))}
+                  <td className="py-3 px-4 text-right text-sm font-bold text-emerald-700 tabular-nums bg-emerald-50/40">
+                    {totaleCons.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      <div className="text-xs text-slate-400 px-2">
+        Esci dal campo per salvare (Tab oppure click fuori). Cambiare mese non perde i dati: ogni cella e' gia' sul DB. Scostamenti, percentuali e dettagli per voce di bilancio sono nella tab <strong>Preventivo vs Consuntivo</strong>.
+      </div>
     </div>
   )
 }
