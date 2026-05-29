@@ -3,8 +3,8 @@ import { useSearchParams } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 
 // Tab principale BudgetControl — persistito in URL come ?tab=
-type BudgetTab = 'bp' | 'confronto'
-const VALID_BUDGET_TABS: BudgetTab[] = ['bp', 'confronto']
+type BudgetTab = 'bp' | 'confronto' | 'rapido'
+const VALID_BUDGET_TABS: BudgetTab[] = ['bp', 'confronto', 'rapido']
 
 // Vista confronto Preventivo vs Consuntivo — persistita come ?confView=
 type BudgetConfView = 'annuale' | 'mensile'
@@ -26,7 +26,7 @@ import {
   Calculator, ChevronDown, ChevronUp,
   Store, Building2, Save, Trash2,
   AlertTriangle, CheckCircle2, TrendingUp, TrendingDown, Target,
-  BarChart3, Copy, Lock, Unlock, Info, RefreshCw, FileSpreadsheet
+  BarChart3, Copy, Lock, Unlock, Info, RefreshCw, FileSpreadsheet, Zap
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 
@@ -1369,7 +1369,11 @@ export default function BudgetControl() {
 
       {/* TABS */}
       <div className="flex gap-1 bg-slate-100 rounded-lg p-1 w-fit">
-        {([{ id:'bp', label:'Business Plan', icon:Target }, { id:'confronto', label:'Preventivo vs Consuntivo', icon:BarChart3 }] as const).map(t => (
+        {([
+          { id:'bp', label:'Business Plan', icon:Target },
+          { id:'confronto', label:'Preventivo vs Consuntivo', icon:BarChart3 },
+          { id:'rapido', label:'Inserimento Rapido', icon:Zap },
+        ] as const).map(t => (
           <button key={t.id} onClick={() => setTab(t.id)} className={`px-4 py-2 rounded-md text-sm font-medium flex items-center gap-2 transition ${tab===t.id?'bg-white text-indigo-700 shadow-sm':'text-slate-500 hover:text-slate-700'}`}>
             <t.icon size={16} /> {t.label}
           </button>
@@ -1670,6 +1674,16 @@ export default function BudgetControl() {
         </div>
       )}
 
+      {/* ════════════════════════════════════════════════════
+         TAB 3: INSERIMENTO RAPIDO — stub (work in progress)
+         ════════════════════════════════════════════════════ */}
+      {tab === 'rapido' && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-6 text-sm text-amber-900">
+          <div className="font-semibold mb-2 flex items-center gap-2"><Zap size={16} /> Inserimento Rapido in arrivo</div>
+          <p className="text-amber-800">Matrice 7×12 con keyboard navigation in sviluppo. Per ora usa la tab <strong>Preventivo vs Consuntivo</strong> {'>'} vista mensile per inserire i corrispettivi.</p>
+        </div>
+      )}
+
       {/* CONFIRM DIALOG */}
       {confirmAction && (
         <ConfirmDialog
@@ -1753,21 +1767,30 @@ function BPCard({ label, code, isHQ, numOps: _numOps, costiTree, ricaviTree, edi
 
   // COSTI: partono da ZERO, l'operatore compila manualmente
   const editedC = applyEditsZero(costiTree, edits)
-  // RICAVI / Valore della Produzione: PARTONO DA ZERO. Si popolano SOLO da:
-  //   1. revYearlyFromMonthly[code] (somma 12 mesi inseriti nel Confronto Mensile in PrevVsCons)
-  //   2. edits[code] (override esplicito dell'utente in questo pannello annuale)
-  // Il bilancio anno-1 NON viene piu' usato come default: l'utente deve compilare
-  // attivamente il preventivo, cosi' il numero che vede e' sempre quello che ha inserito.
-  // Edit annuale qui -> spalmato /12 in budget_confronto.rev_monthly al salvataggio (vedi saveBP).
+  // RICAVI / Valore della Produzione: PARTONO DA ZERO. Si popolano per priorita':
+  //   1. revYearlyFromMonthly[code] (somma 12 mesi salvati in budget_confronto.rev_monthly)
+  //   2. edits[code] (override esplicito digitato in questo BPCard, NON ancora salvato)
+  //   3. 0
+  // Il mensile VINCE sull'edit annuale BPCard se entrambi presenti, per coerenza
+  // con ConfrontoPanel. Bug 29/05/2026: prima edits[code] vinceva e Lilian
+  // dopo aver salvato nel Confronto Mensile (-> budget_confronto) vedeva ancora
+  // il vecchio bpEdits (budget_entries placeholder) -> pensava "non si e' salvato".
+  // Edit annuale qui -> spalmato /12 in budget_confronto.rev_monthly al saveBP.
   const apply = (nodes: TreeNodeT[]): TreeNodeT[] => nodes.map(n => {
     const kids = n.children?.length ? apply(n.children) : []
     let amt: number
-    if (kids.length > 0) amt = kids.reduce<number>((s, c) => s + (c.amount || 0), 0)
-    else amt = (revYearlyFromMonthly && revYearlyFromMonthly[n.code] != null) ? revYearlyFromMonthly[n.code] : 0
+    if (kids.length > 0) {
+      amt = kids.reduce<number>((s, c) => s + (c.amount || 0), 0)
+    } else if (revYearlyFromMonthly && revYearlyFromMonthly[n.code] != null) {
+      amt = revYearlyFromMonthly[n.code]
+    } else if (edits[n.code] != null) {
+      amt = edits[n.code]
+    } else {
+      amt = 0
+    }
     return { ...n, children: kids, amount: amt }
   })
-  const ricaviZeroed = apply(ricaviTree)
-  const editedR = applyEdits(ricaviZeroed, edits)
+  const editedR = apply(ricaviTree)
   const totC = sumMacros(editedC)
   const totR = sumMacros(editedR)
   const ris = totR - totC
@@ -2472,7 +2495,14 @@ function ConfrontoPanel({ outletCode, outletLabel, prevEdits, consEdits, onConsE
   const consYearly = sumMonthlyByCode(consMonthlyOutlet)
 
   // applyZeroWithMonthly: foglie 0 di default, popolate per priorita':
-  //   edits[code] > monthlySum[code] > 0
+  //   monthlySum[code] > edits[code] > 0
+  // Il mensile VINCE sull'edit annuale BPCard perche':
+  //  - e' piu' granulare (12 valori vs 1)
+  //  - e' la fonte autorevole quando Lilian compila il mensile in PrevVsCons
+  //  - bug 29/05/2026: l'annuale BPCard (=bpEdits) bloccava la visualizzazione
+  //    del mensile salvato. Lilian salvava in budget_confronto rev_monthly,
+  //    poi al refresh vedeva il vecchio numero di budget_entries e pensava
+  //    "non si e' salvato".
   // Nodi intermedi = somma figli (mai bilancio).
   const applyZeroWithMonthly = (tree: TreeNodeT[], edits: Record<string, number>, monthlySum: Record<string, number>): TreeNodeT[] => {
     if (!tree || !tree.length) return []
@@ -2482,8 +2512,8 @@ function ConfrontoPanel({ outletCode, outletLabel, prevEdits, consEdits, onConsE
       if (children.length > 0) {
         amount = children.reduce<number>((s, c) => s + (c.amount || 0), 0)
       } else {
-        if (edits[node.code] != null) amount = edits[node.code]
-        else if (monthlySum[node.code] != null) amount = monthlySum[node.code]
+        if (monthlySum[node.code] != null) amount = monthlySum[node.code]
+        else if (edits[node.code] != null) amount = edits[node.code]
         else amount = 0
       }
       return { ...node, amount, children }
