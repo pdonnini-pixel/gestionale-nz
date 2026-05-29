@@ -989,9 +989,10 @@ export default function BudgetControl() {
       const costEdits = bpEdits[code] || {}
       if (!Object.keys(costEdits).length) { show('Inserisci almeno un costo', 'error'); setSaving(false); return }
 
-      // Unisci: costi editati + ricavi dal bilancio (filtrati per outlet)
+      // Unisci: costi editati + ricavi (dal bilancio + eventuali override Lilian/Sabrina sulle foglie VdP)
       const filteredRicavi = filterRicaviTree(ricaviTree, code)
-      const ricaviLeaves = flattenLeaves(filteredRicavi)
+      const filteredRicaviWithEdits = applyEdits(filteredRicavi, costEdits)
+      const ricaviLeaves = flattenLeaves(filteredRicaviWithEdits)
       const allEntries = { ...costEdits }
       Object.entries(ricaviLeaves).forEach(([ac, amt]) => { allEntries[ac] = amt })
 
@@ -1626,9 +1627,13 @@ function BPCard({ label, code, isHQ, numOps: _numOps, costiTree, ricaviTree, edi
 
   // COSTI: partono da ZERO, l'operatore compila manualmente
   const editedC = applyEditsZero(costiTree, edits)
-  // RICAVI: dal bilancio, read-only (già filtrati per outlet)
+  // RICAVI: partono dal bilancio (filtrati per outlet), editabili foglia per foglia.
+  // applyEdits mantiene il valore originale del bilancio se non c'e' override utente.
+  // Cosi' Lilian/Sabrina possono modificare il Valore della Produzione direttamente
+  // qui (granularita' annuale per voce). Per granularita' mensile vedi Confronto Mensile.
+  const editedR = applyEdits(ricaviTree, edits)
   const totC = sumMacros(editedC)
-  const totR = sumMacros(ricaviTree)
+  const totR = sumMacros(editedR)
   const ris = totR - totC
   const hasEdits = Object.keys(edits).length > 0
 
@@ -1728,11 +1733,15 @@ function BPCard({ label, code, isHQ, numOps: _numOps, costiTree, ricaviTree, edi
                 <span className="text-sm font-bold text-red-600">{fmtC(totC)}</span>
               </div>
             </div>
-            {/* RICAVI — read-only dal bilancio */}
+            {/* RICAVI / Valore della Produzione — editabili (o lockati se readOnly) */}
             <div>
-              <div className="text-xs font-semibold text-emerald-500 uppercase tracking-wider mb-2">Componenti Positive (da bilancio)</div>
-              <div className="border border-emerald-100 bg-emerald-50/30 rounded-lg p-1.5 max-h-[500px] overflow-y-auto">
-                {ricaviTree.map((n, i) => <TreeNodeView key={`${n.code}-${i}`} node={n} />)}
+              <div className="text-xs font-semibold text-emerald-500 uppercase tracking-wider mb-2 flex items-center gap-2">
+                Valore della Produzione {readOnly ? <Lock size={11} className="text-slate-400" /> : <span className="text-emerald-400 normal-case font-normal text-[10px]">(precompilato dal bilancio {year - 1}, modificabile)</span>}
+              </div>
+              <div className={`border rounded-lg p-1.5 max-h-[500px] overflow-y-auto ${readOnly ? 'border-emerald-100 bg-emerald-50/30' : 'border-emerald-200 bg-white'}`}>
+                {readOnly
+                  ? editedR.map((n, i) => <TreeNodeView key={`${n.code}-${i}`} node={n} />)
+                  : editedR.map((n, i) => <TreeNodeEdit key={`${n.code}-${i}`} node={n} edits={edits} onEdit={onEdit} />)}
               </div>
               <div className="mt-2 pt-2 border-t-2 border-slate-300 flex justify-between px-2">
                 <span className="text-sm font-bold">TOTALE RICAVI</span>
