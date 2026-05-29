@@ -324,6 +324,46 @@ export default function Dashboard() {
               })))
             }
 
+            // Sprint 2 (Patrizio 29/05/2026): PRIORITA' assoluta = dati Lilian
+            // budget_confronto.cons_monthly (consuntivo reale, aggregato per outlet).
+            // Se ci sono, vincono su budget_entries e drAgg.
+            if (!drAgg || drAgg.length === 0) {
+              const { data: cfData } = await supabase
+                .from('budget_confronto')
+                .select('cost_center, account_code, amount')
+                .eq('company_id', COMPANY_ID)
+                .eq('year', YEAR)
+                .eq('entry_type', 'cons_monthly')
+                .like('account_code', '5%')
+                .range(0, 9999)
+              if (cfData && cfData.length > 0) {
+                const ricaviByCc: Record<string, number> = {}
+                cfData.forEach(r => {
+                  const cc = (r.cost_center || '').toLowerCase()
+                  if (!cc || cc === 'rettifica_bilancio' || cc === 'spese_non_divise') return
+                  ricaviByCc[cc] = (ricaviByCc[cc] || 0) + (Number(r.amount) || 0)
+                })
+                const outletsByCc: OutletAggLocal[] = (outletsList || [])
+                  .filter(o => o.is_active !== false)
+                  .map(o => {
+                    const codeKey = String(o.code || '').toLowerCase()
+                    const nameKey = String(o.name || '').toLowerCase()
+                    const ricavi = ricaviByCc[codeKey] ?? ricaviByCc[nameKey] ?? 0
+                    return { name: o.name || o.code || '?', ricavi }
+                  })
+                if (outletsByCc.some(o => o.ricavi > 0)) {
+                  const sorted = outletsByCc.sort((a, b) => b.ricavi - a.ricavi)
+                  setOutletsData(sorted.map((o, i) => ({
+                    name: o.name,
+                    ricavi: o.ricavi,
+                    dip: 0,
+                    colore: OUTLET_COLORS[i % OUTLET_COLORS.length],
+                  })))
+                  return // dati Lilian usati, salta fallback successivi
+                }
+              }
+            }
+
             // Fallback 3: use budget_entries revenue data per cost_center
             if (!drAgg || drAgg.length === 0) {
               // Query ricavi: tutti i conti corrispettivi outlet (510101..510199)

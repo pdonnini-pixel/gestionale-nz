@@ -396,6 +396,10 @@ export default function ConfrontoOutlet() {
   const [budgetData, setBudgetData] = useState<BudgetEntryRow[]>([])
   const [employeeCosts, setEmployeeCosts] = useState<EmployeeCostRow[]>([])
   const [balanceData, setBalanceData] = useState<BalanceRow[]>([])
+  // Sprint 2: consuntivo + preventivo mensile da budget_confronto (Lilian), aggregati
+  // per (cost_center, account_code). Vincono su budget_entries.actual_amount nei calcoli.
+  const [consOverlay, setConsOverlay] = useState<Record<string, Record<string, number>>>({})
+  const [prevOverlay, setPrevOverlay] = useState<Record<string, Record<string, number>>>({})
   const [loading, setLoading] = useState(true)
   // viewMode persistito in URL come ?view=… (default 'budget')
   const [searchParams, setSearchParams] = useSearchParams()
@@ -453,11 +457,31 @@ export default function ConfrontoOutlet() {
           .select('*')
           .eq('year', year)
 
+        // Sprint 2 (Patrizio 29/05/2026): aggiungi consuntivo Lilian (budget_confronto.cons_monthly)
+        // Aggrego per (cost_center, account_code) e lo memorizzo come overlay che vincera'
+        // su budget_entries.actual_amount nei calcoli.
+        const { data: cfData } = await supabase
+          .from('budget_confronto')
+          .select('cost_center, account_code, amount, entry_type')
+          .eq('company_id', companyId)
+          .eq('year', year)
+          .in('entry_type', ['cons_monthly', 'rev_monthly'])
+        type CfRow = { cost_center: string; account_code: string; amount: number; entry_type: string }
+        const consOverlay: Record<string, Record<string, number>> = {}
+        const prevOverlay: Record<string, Record<string, number>> = {}
+        ;((cfData || []) as CfRow[]).forEach(r => {
+          const target = r.entry_type === 'cons_monthly' ? consOverlay : prevOverlay
+          if (!target[r.cost_center]) target[r.cost_center] = {}
+          target[r.cost_center][r.account_code] = (target[r.cost_center][r.account_code] || 0) + (Number(r.amount) || 0)
+        })
+
         setOutlets((costCenters || []) as CostCenterRow[])
         setBudgetData((budgetEntries || []) as BudgetEntryRow[])
         setBalanceData((bsData || []) as BalanceRow[])
         setEmployeeCosts((empCosts || []) as EmployeeCostRow[])
-        setHasData((budgetEntries?.length || 0) > 0 || (bsData?.length || 0) > 0)
+        setConsOverlay(consOverlay)
+        setPrevOverlay(prevOverlay)
+        setHasData((budgetEntries?.length || 0) > 0 || (bsData?.length || 0) > 0 || (cfData?.length || 0) > 0)
       } catch (err: unknown) {
         console.error('Error loading data:', err)
       } finally {
@@ -524,30 +548,50 @@ export default function ConfrontoOutlet() {
         return { name: outlet.label || '', outletData: outlet, calculatedMetrics: null } as OutletMetric
       }
 
+      // Sprint 2: overlay Lilian per questo outlet. Mappa account_code -> somma annua.
+      // Per 'actual_amount' usa cons_monthly se presente, altrimenti fallback al campo.
+      // Per 'budget_amount' usa rev_monthly se presente, altrimenti fallback al campo.
+      const consMapOutlet = consOverlay[matchingCC] || consOverlay[outletCode] || {}
+      const prevMapOutlet = prevOverlay[matchingCC] || prevOverlay[outletCode] || {}
+
+      const getAmt = (b: BudgetEntryRow, field: 'budget_amount' | 'actual_amount'): number => {
+        const ac = b.account_code || ''
+        if (field === 'actual_amount' && consMapOutlet[ac] != null) {
+          // periodo: se selectedMonths e' valorizzato, il valore mensile non si puo' separare
+          // dall'aggregato annuale -> per ora prendiamo full year se overlay presente, altrimenti
+          // il campo. Caveat noto, da raffinare in Sprint 6.
+          return consMapOutlet[ac]
+        }
+        if (field === 'budget_amount' && prevMapOutlet[ac] != null) {
+          return prevMapOutlet[ac]
+        }
+        return Number(b[field]) || 0
+      }
+
       // Calcola sia budget che actual per confronto
       function calcMetrics(field: 'budget_amount' | 'actual_amount') {
         // Revenue: account_code starts with '5', or macro_group contains 'Ricavi'
         const ricavi = outletBudget
           .filter(b => b.account_code?.startsWith('5') || b.macro_group?.includes('Ricavi'))
-          .reduce((sum, b) => sum + (Number(b[field]) || 0), 0)
+          .reduce((sum, b) => sum + getAmt(b, field), 0)
 
         // Costo personale: account_code starts with '6' (personale), or name matches
         const costoPersonale = outletBudget
           .filter(b => b.account_code?.startsWith('6') || b.account_name?.toLowerCase().match(/personal|dipendent|retrib|stipend/))
-          .reduce((sum, b) => sum + Math.abs(Number(b[field]) || 0), 0)
+          .reduce((sum, b) => sum + Math.abs(getAmt(b, field)), 0)
 
         const affitto = outletBudget
           .filter(b => b.account_name?.toLowerCase().match(/affitto|godimento|locazion/))
-          .reduce((sum, b) => sum + Math.abs(Number(b[field]) || 0), 0)
+          .reduce((sum, b) => sum + Math.abs(getAmt(b, field)), 0)
 
         const servizi = outletBudget
           .filter(b => (b.account_name?.toLowerCase().includes('servizi') || b.account_name?.toLowerCase().includes('manut')))
-          .reduce((sum, b) => sum + Math.abs(Number(b[field]) || 0), 0)
+          .reduce((sum, b) => sum + Math.abs(getAmt(b, field)), 0)
 
         // Merci: account_code starts with '7', or macro_group contains Acquisti/Merci
         const merci = outletBudget
           .filter(b => b.account_code?.startsWith('7') || b.macro_group?.includes('Acquisti') || b.macro_group?.includes('Merci'))
-          .reduce((sum, b) => sum + Math.abs(Number(b[field]) || 0), 0)
+          .reduce((sum, b) => sum + Math.abs(getAmt(b, field)), 0)
 
         return { ricavi, costoPersonale, affitto, servizi, merci }
       }
@@ -660,7 +704,7 @@ export default function ConfrontoOutlet() {
         },
       } as OutletMetric
     })
-  }, [outlets, budgetData, balanceData, employeeCosts, selectedMonths, viewMode, quotaSedePerOutlet])
+  }, [outlets, budgetData, balanceData, employeeCosts, selectedMonths, viewMode, quotaSedePerOutlet, consOverlay, prevOverlay])
 
   // Rankings
   const rankings = useMemo<Record<string, number>>(() => {

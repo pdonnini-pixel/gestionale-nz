@@ -24,7 +24,13 @@ function fmt(n: number, dec = 0): string {
 
 interface OutletConfig { id: string; label: string; annual_revenue: number; color: string }
 
-// Outlet configuration
+// ⚠️  HARDCODED NZ (Sprint 4 — refactor in corso, work-in-progress)
+// Questi 6 outlet NZ con annual_revenue 2025 hardcoded sono il "seed" del POS
+// simulato. Su Made/Zago la pagina mostra dati NZ - BUG.
+// Refactor pianificato: derivare OUTLETS da useOutlets() + balance_sheet_data
+// (year-1 SUM revenue per cost_center) come baseline annual_revenue. I colori
+// possono restare hardcoded come pool di rotazione (non e' business data).
+// Tracciato nel SPRINT_PLAN.md. Patrizio 29/05/2026.
 const OUTLETS: OutletConfig[] = [
   { id: 'valdichiana', label: 'Valdichiana Village', annual_revenue: 815000, color: '#3b82f6' },
   { id: 'barberino', label: 'Barberino Outlet', annual_revenue: 355000, color: '#10b981' },
