@@ -366,6 +366,54 @@ function flattenLeaves(tree: TreeNodeT[]): Record<string, number> {
 /* ═══════════════════════════════════════════════════════════
    EDITABLE TREE NODE — always shows input on leaves
    ═══════════════════════════════════════════════════════════ */
+// ─── INPUT NUMERICO FORMATO ITALIANO ────────────────────────────
+// Accetta virgola decimale e punto migliaia in input.
+// Mostra formato italiano (9.000,00 / 90.000,00 / 900.000,00) quando NON in focus.
+// Mostra il draft raw quando l'utente sta digitando.
+// Patrizio (29/05/2026): "nei campi che popolo non mi fa mettere la , !!!
+// e ricorda che se sono migliaia devi mettere il punto esempio 9.000,00 ecc".
+function NumberInputIt({ value, onChange, className, placeholder, edited, onClickStop }: {
+  value: number
+  onChange: (n: number) => void
+  className?: string
+  placeholder?: string
+  edited?: boolean
+  onClickStop?: boolean // se true, blocca propagazione click (per row-cliccabili)
+}) {
+  const [focused, setFocused] = useState(false)
+  const [draft, setDraft] = useState<string>('')
+  const display = focused
+    ? draft
+    : (value !== 0 || edited)
+      ? value.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+      : ''
+  return (
+    <input
+      type="text"
+      inputMode="decimal"
+      value={display}
+      onClick={onClickStop ? (e => e.stopPropagation()) : undefined}
+      onFocus={() => {
+        // Quando entra in focus, mostra il valore come stringa "user-friendly" da editare:
+        // 1000.5 -> "1000,5" (virgola decimale)
+        setDraft(value !== 0 ? String(value).replace('.', ',') : '')
+        setFocused(true)
+      }}
+      onChange={e => {
+        const v = e.target.value
+        setDraft(v)
+        // Parsing: rimuovi punti migliaia, sostituisci virgola decimale con punto
+        const cleaned = v.replace(/\s/g, '').replace(/\./g, '').replace(',', '.')
+        const num = parseFloat(cleaned)
+        onChange(isNaN(num) ? 0 : num)
+      }}
+      onBlur={() => setFocused(false)}
+      className={className}
+      placeholder={placeholder}
+    />
+  )
+}
+
 function TreeNodeEdit({ node, depth = 0, edits, onEdit }: { node: TreeNodeT; depth?: number; edits: Record<string, number>; onEdit: (code: string, value: number | null) => void }) {
   const [open, setOpen] = useState(false) // start collapsed
   const hasKids = node.children?.length > 0
@@ -392,13 +440,11 @@ function TreeNodeEdit({ node, depth = 0, edits, onEdit }: { node: TreeNodeT; dep
           {prettifyAccountName(node.description)}
         </span>
         {isLeaf ? (
-          <input type="text" inputMode="numeric"
-            value={isEdited ? val : (val || '')}
-            onClick={e => e.stopPropagation()}
-            onChange={e => {
-              const raw = e.target.value.replace(/\./g, '').replace(',', '.')
-              onEdit(node.code, parseFloat(raw) || 0)
-            }}
+          <NumberInputIt
+            value={val}
+            edited={isEdited}
+            onChange={n => onEdit(node.code, n)}
+            onClickStop
             className={`w-24 text-right px-1 py-0.5 text-[11px] border rounded ml-1 tabular-nums focus:outline-none focus:ring-1 focus:ring-indigo-400 ${
               isEdited ? 'bg-indigo-50 border-indigo-300' : 'border-slate-200'
             }`}
@@ -1968,10 +2014,10 @@ function MonthlyTreeNode({ node, depth = 0, prevByCode, consByCode, rettAmtByCod
         </span>
         {/* Preventivo */}
         {isLeaf && !readOnly && !isAnnualView ? (
-          <input type="text" inputMode="numeric"
-            value={pv || ''}
-            onClick={e => e.stopPropagation()}
-            onChange={e => { const raw = e.target.value.replace(/\./g, '').replace(',', '.'); onPrev(node.code, parseFloat(raw) || 0) }}
+          <NumberInputIt
+            value={pv}
+            onChange={n => onPrev(node.code, n)}
+            onClickStop
             className="text-right px-1 py-0.5 text-[10px] border rounded tabular-nums focus:outline-none focus:ring-1 focus:ring-indigo-400 border-slate-200"
             placeholder="0" />
         ) : (
@@ -1979,10 +2025,10 @@ function MonthlyTreeNode({ node, depth = 0, prevByCode, consByCode, rettAmtByCod
         )}
         {/* Consuntivo */}
         {isLeaf && !readOnly && !isAnnualView ? (
-          <input type="text" inputMode="numeric"
-            value={cv || ''}
-            onClick={e => e.stopPropagation()}
-            onChange={e => { const raw = e.target.value.replace(/\./g, '').replace(',', '.'); onCons(node.code, parseFloat(raw) || 0) }}
+          <NumberInputIt
+            value={cv}
+            onChange={n => onCons(node.code, n)}
+            onClickStop
             className="text-right px-1 py-0.5 text-[10px] border rounded tabular-nums focus:outline-none focus:ring-1 focus:ring-emerald-400 border-slate-200"
             placeholder="0" />
         ) : (
@@ -1990,15 +2036,14 @@ function MonthlyTreeNode({ node, depth = 0, prevByCode, consByCode, rettAmtByCod
         )}
         {/* Rettifica € (bidirezionale: scrivendo € ricalcola %) */}
         {isLeaf && !readOnly && !isAnnualView ? (
-          <input type="text" inputMode="numeric"
-            value={ra || ''}
-            onClick={e => e.stopPropagation()}
-            onChange={e => {
-              const raw = e.target.value.replace(/\./g, '').replace(',', '.')
-              const amount = parseFloat(raw) || 0
+          <NumberInputIt
+            value={ra}
+            onChange={n => {
+              const amount = n
               const pct = pv !== 0 ? (amount / pv) * 100 : 0
               onRett(node.code, amount, pct)
             }}
+            onClickStop
             className="text-right px-1 py-0.5 text-[10px] border rounded tabular-nums focus:outline-none focus:ring-1 focus:ring-purple-400 border-slate-200"
             placeholder="±0" />
         ) : (
@@ -2346,11 +2391,13 @@ function ConfrontoRow({ prevNode, consNode, rettNode, depth = 0, consEdits, onCo
         <span className={`tabular-nums text-right text-[10px] ${isMacro ? 'font-bold text-indigo-700' : 'text-indigo-500'}`}>{fmt(pv)}</span>
         {/* Consuntivo — input for leaves */}
         {isLeaf ? (
-          <input type="text" inputMode="numeric"
-            value={consIsEdited ? consVal : (consVal || '')}
-            onClick={e => e.stopPropagation()}
-            onChange={e => { const raw = e.target.value.replace(/\./g, '').replace(',', '.'); onConsEdit(prevNode.code, parseFloat(raw) || 0) }}
-            className={`w-full text-right px-1 py-0.5 text-[10px] border rounded tabular-nums focus:outline-none focus:ring-1 focus:ring-emerald-400 ${consIsEdited ? 'bg-emerald-50 border-emerald-300' : 'border-slate-200'}`} placeholder="0" />
+          <NumberInputIt
+            value={consVal}
+            edited={consIsEdited}
+            onChange={n => onConsEdit(prevNode.code, n)}
+            onClickStop
+            className={`w-full text-right px-1 py-0.5 text-[10px] border rounded tabular-nums focus:outline-none focus:ring-1 focus:ring-emerald-400 ${consIsEdited ? 'bg-emerald-50 border-emerald-300' : 'border-slate-200'}`}
+            placeholder="0" />
         ) : (
           <span className={`tabular-nums text-right text-[10px] ${isMacro ? 'font-bold text-emerald-700' : 'text-emerald-600'}`}>{fmt(cv)}</span>
         )}
