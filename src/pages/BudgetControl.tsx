@@ -1688,30 +1688,26 @@ function BPCard({ label, code, isHQ, numOps: _numOps, costiTree, ricaviTree, edi
 
   // COSTI: partono da ZERO, l'operatore compila manualmente
   const editedC = applyEditsZero(costiTree, edits)
-  // RICAVI: priorita' del valore di partenza:
-  //   1. edits[code] (override esplicito dell'utente in questo pannello annuale) -> gestito da applyEdits
-  //   2. revYearlyFromMonthly[code] (somma 12 mesi inseriti nel Confronto Mensile in PrevVsCons)
-  //   3. amount del nodo (bilancio anno-1 caricato all'avvio)
-  // Cosi' se Lilian compila il mensile, qui vede subito la somma annuale aggiornata.
-  // Se preferisce digitare direttamente il totale annuo qui, l'edit annuale viene
-  // spalmato su 12 mesi in budget_confronto.rev_monthly al salvataggio (vedi saveBP).
-  const ricaviWithMonthly = (() => {
-    if (!revYearlyFromMonthly || Object.keys(revYearlyFromMonthly).length === 0) return ricaviTree
-    const apply = (nodes: TreeNodeT[]): TreeNodeT[] => nodes.map(n => {
-      const kids = n.children?.length ? apply(n.children) : []
-      let amt: number
-      if (kids.length > 0) amt = kids.reduce<number>((s, c) => s + (c.amount || 0), 0)
-      else amt = revYearlyFromMonthly[n.code] != null ? revYearlyFromMonthly[n.code] : (n.amount || 0)
-      return { ...n, children: kids, amount: amt }
-    })
-    return apply(ricaviTree)
-  })()
-  const editedR = applyEdits(ricaviWithMonthly, edits)
+  // RICAVI / Valore della Produzione: PARTONO DA ZERO. Si popolano SOLO da:
+  //   1. revYearlyFromMonthly[code] (somma 12 mesi inseriti nel Confronto Mensile in PrevVsCons)
+  //   2. edits[code] (override esplicito dell'utente in questo pannello annuale)
+  // Il bilancio anno-1 NON viene piu' usato come default: l'utente deve compilare
+  // attivamente il preventivo, cosi' il numero che vede e' sempre quello che ha inserito.
+  // Edit annuale qui -> spalmato /12 in budget_confronto.rev_monthly al salvataggio (vedi saveBP).
+  const apply = (nodes: TreeNodeT[]): TreeNodeT[] => nodes.map(n => {
+    const kids = n.children?.length ? apply(n.children) : []
+    let amt: number
+    if (kids.length > 0) amt = kids.reduce<number>((s, c) => s + (c.amount || 0), 0)
+    else amt = (revYearlyFromMonthly && revYearlyFromMonthly[n.code] != null) ? revYearlyFromMonthly[n.code] : 0
+    return { ...n, children: kids, amount: amt }
+  })
+  const ricaviZeroed = apply(ricaviTree)
+  const editedR = applyEdits(ricaviZeroed, edits)
   const totC = sumMacros(editedC)
   const totR = sumMacros(editedR)
   const ris = totR - totC
   const hasEdits = Object.keys(edits).length > 0
-  // Flag: ricavi annuali = somma del mensile (usato per UI label)
+  // Flag: c'e' almeno un valore da mensile -> ridenominazione label
   const hasMonthlySum = revYearlyFromMonthly && Object.keys(revYearlyFromMonthly).length > 0
 
   const onEdit = (ac: string, val: number | null) => {
@@ -1816,8 +1812,8 @@ function BPCard({ label, code, isHQ, numOps: _numOps, costiTree, ricaviTree, edi
                 Valore della Produzione {readOnly ? <Lock size={11} className="text-slate-400" /> : (
                   <span className="text-emerald-400 normal-case font-normal text-[10px]">
                     {hasMonthlySum
-                      ? `(somma mensile da PrevVsCons — modificabile qui spalmando /12)`
-                      : `(precompilato dal bilancio ${year - 1} — modificabile)`}
+                      ? `(somma dei mesi inseriti in PrevVsCons — modificabile qui spalmando /12)`
+                      : `(da compilare — inserisci i mesi in PrevVsCons o il totale annuo qui)`}
                   </span>
                 )}
               </div>
