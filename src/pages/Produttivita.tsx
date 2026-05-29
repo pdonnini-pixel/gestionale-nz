@@ -70,7 +70,39 @@ export default function Produttivita() {
         const [budgetRes, empRes, allocRes] = await Promise.all([budgetQuery, empQuery, allocQuery]);
 
         if (budgetRes.error) throw budgetRes.error;
-        setRawEntries(budgetRes.data || []);
+
+        // Sprint 2 (Patrizio 29/05/2026): override con cons_monthly Lilian se presente.
+        if (companyId) {
+          const { data: cfData } = await supabase
+            .from('budget_confronto')
+            .select('cost_center, account_code, amount')
+            .eq('company_id', companyId)
+            .eq('year', year)
+            .eq('entry_type', 'cons_monthly')
+            .range(0, 9999)
+          if (cfData && cfData.length > 0) {
+            type Cf = { cost_center: string; account_code: string; amount: number }
+            const consMap: Record<string, Record<string, number>> = {}
+            ;(cfData as Cf[]).forEach(r => {
+              if (!consMap[r.cost_center]) consMap[r.cost_center] = {}
+              consMap[r.cost_center][r.account_code] = (consMap[r.cost_center][r.account_code] || 0) + (Number(r.amount) || 0)
+            })
+            const overridden = (budgetRes.data || []).map(row => {
+              const cc = row.cost_center
+              const ac = row.account_code
+              if (cc && ac && consMap[cc]?.[ac] != null) {
+                const original = row.month ? consMap[cc][ac] / 12 : consMap[cc][ac]
+                return { ...row, budget_amount: original }
+              }
+              return row
+            })
+            setRawEntries(overridden);
+          } else {
+            setRawEntries(budgetRes.data || []);
+          }
+        } else {
+          setRawEntries(budgetRes.data || []);
+        }
 
         // Employees may not exist as a table - graceful fallback
         if (!empRes.error && empRes.data) {

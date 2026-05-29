@@ -54,7 +54,8 @@ interface ApprovalLogRow {
 
 const MESI = ['Gennaio','Febbraio','Marzo','Aprile','Maggio','Giugno','Luglio','Agosto','Settembre','Ottobre','Novembre','Dicembre']
 const MESI_SHORT = ['Gen','Feb','Mar','Apr','Mag','Giu','Lug','Ago','Set','Ott','Nov','Dic']
-const HQ_CODE = 'sede_magazzino'
+// HQ_CODE rimosso dal top-level (Sprint 3): ora e' dinamico dal DB via
+// cost_centers.role='hq'. Vedi sotto nel componente BudgetControl.
 
 // Mappa override per code raw -> label leggibile.
 // Estendere qui per future label tecniche che non vogliamo mostrare.
@@ -578,7 +579,7 @@ export default function BudgetControl() {
 
   // Data
   type CostCenter = { code: string; label?: string; name?: string; sort_order?: number; [k: string]: unknown }
-  type CeRow = TreeRow & { account_code?: string; account_name?: string; macro_group?: string }
+  type CeRow = TreeRow & { account_code?: string; account_name?: string; macro_group?: string; outlet_link?: string | null }
   type BudgetEntry = {
     cost_center?: string; account_code?: string; account_name?: string
     budget_amount?: number; actual_amount?: number; month?: number; year?: number; macro_group?: string
@@ -748,8 +749,8 @@ export default function BudgetControl() {
       // dell'anno corrente.
       const [ccR, coaR, buR, cfR] = await Promise.all([
         supabase.from('cost_centers').select('*').eq('company_id', cid).eq('is_active', true).order('sort_order'),
-        supabase.from('chart_of_accounts').select('code, name, level, is_revenue, sort_order, macro_group').eq('company_id', cid).eq('is_active', true).order('sort_order'),
-        supabase.from('budget_entries').select('*').eq('company_id', cid).eq('year', 2026).range(0, 9999),
+        supabase.from('chart_of_accounts').select('code, name, level, is_revenue, sort_order, macro_group, outlet_link').eq('company_id', cid).eq('is_active', true).order('sort_order'),
+        supabase.from('budget_entries').select('*').eq('company_id', cid).eq('year', year).range(0, 9999),
         supabase.from('budget_confronto').select('*').eq('company_id', cid).eq('year', year).range(0, 9999),
       ])
       setCostCenters((ccR.data || []) as CostCenter[])
@@ -771,7 +772,7 @@ export default function BudgetControl() {
       // - Tutti i livelli (1, 2, 3) vanno inclusi: buildTree() raggruppa via
       //   gerarchia code-based, e i totali livello 1/2 saranno calcolati dai figli.
       // - is_revenue=true → ricavi, altrimenti costi.
-      type CoaRow = { code: string; name: string | null; level: number | null; is_revenue: boolean | null }
+      type CoaRow = { code: string; name: string | null; level: number | null; is_revenue: boolean | null; outlet_link?: string | null }
       const co: CeRow[] = []
       const ri: CeRow[] = []
       ;((coaR.data || []) as CoaRow[]).forEach(c => {
@@ -781,6 +782,7 @@ export default function BudgetControl() {
           amount: amountByCode[c.code] || 0,
           level: c.level ?? getCodeLevel(c.code),
           isMacro: (c.level ?? getCodeLevel(c.code)) <= 1,
+          outlet_link: c.outlet_link ?? null,
         }
         if (c.is_revenue) ri.push(row)
         else co.push(row)
@@ -918,15 +920,21 @@ export default function BudgetControl() {
   //   - 'sede'                       → cost_center sede creato dal wizard onboarding
   //   - 'spese_non_divise'           → riga gap bilancio NZ
   //   - 'rettifica_bilancio'         → riga rettifica magazzino NZ
-  // Su Made/Zago appena onboardati il wizard crea 1 cost_center 'sede' +
-  // N cost_centers (uno per outlet). Senza l'esclusione di 'sede' il KPI
-  // mostrava "2 Outlet operativi" per tenant con 1 outlet reale.
-  const NON_OPERATIONAL_CODES = new Set(['sede', HQ_CODE, 'spese_non_divise', 'rettifica_bilancio'])
+  // Sprint 3 (Patrizio 29/05/2026): cost_centers.role e' la fonte di verita'.
+  //   - role='hq'              → sede/magazzino (1 per tenant)
+  //   - role='outlet'          → punto vendita operativo
+  //   - role='non_operational' → spese non divise, rettifiche
+  // HQ_CODE diventa dinamico dal DB (vedi sopra). Fallback 'sede_magazzino' per
+  // retro-compatibilita' con tenant non ancora migrati.
+  const HQ_CODE = useMemo(() => {
+    const hq = costCenters.find(cc => (cc as { role?: string }).role === 'hq')
+    return hq?.code || 'sede_magazzino'
+  }, [costCenters])
   const ops = useMemo(
-    () => costCenters.filter(cc => !NON_OPERATIONAL_CODES.has(cc.code)),
+    () => costCenters.filter(cc => (cc as { role?: string }).role !== 'hq' && (cc as { role?: string }).role !== 'non_operational' && cc.code !== 'sede'),
     [costCenters],
   )
-  const hq = useMemo(() => costCenters.find(cc => cc.code === HQ_CODE), [costCenters])
+  const hq = useMemo(() => costCenters.find(cc => (cc as { role?: string }).role === 'hq') || costCenters.find(cc => cc.code === HQ_CODE), [costCenters, HQ_CODE])
   const costiTree = useMemo(() => buildTree(ceRawCosti), [ceRawCosti])
   const ricaviTree = useMemo(() => buildTree(ceRawRicavi), [ceRawRicavi])
   const hasTree = ceRawCosti.length > 0 || ceRawRicavi.length > 0
@@ -1013,14 +1021,14 @@ export default function BudgetControl() {
     if (!CID) return
     setWorkflowBusy(true)
     try {
-      const { data, error } = await supabase.rpc('approve_budget_outlet_year', { p_cost_center: code, p_year: 2026 })
+      const { data, error } = await supabase.rpc('approve_budget_outlet_year', { p_cost_center: code, p_year: year })
       if (error) throw error
       const n = typeof data === 'number' ? data : 0
       show(n > 0 ? `Preventivo ${code} approvato (${n} righe lockate)` : `Preventivo ${code} già approvato`)
       // Reload entries per riallineare workflow
       const { data: reloaded } = await supabase
         .from('budget_entries').select('*')
-        .eq('company_id', CID).eq('year', 2026)
+        .eq('company_id', CID).eq('year', year)
         .range(0, 9999)
       const beAll = (reloaded || []) as BudgetEntry[]
       setBudgetEntries(beAll)
@@ -1044,7 +1052,7 @@ export default function BudgetControl() {
       show(n > 0 ? `Preventivo ${code} sbloccato (${n} righe)` : `Preventivo ${code} già sbloccato`)
       const { data: reloaded } = await supabase
         .from('budget_entries').select('*')
-        .eq('company_id', CID).eq('year', 2026)
+        .eq('company_id', CID).eq('year', year)
         .range(0, 9999)
       const beAll = (reloaded || []) as BudgetEntry[]
       setBudgetEntries(beAll)
@@ -1076,7 +1084,7 @@ export default function BudgetControl() {
       const entries = Object.entries(allEntries).map(([ac, amt]) =>
         Array.from({ length: 12 }, (_, i) => ({
           company_id: CID, account_code: ac, account_name: ac, macro_group: 'CE',
-          cost_center: code, year: 2026, month: i + 1,
+          cost_center: code, year, month: i + 1,
           budget_amount: Math.round((amt as number) / 12), is_approved: false,
         }))
       ).flat()
@@ -1222,21 +1230,19 @@ export default function BudgetControl() {
   }
 
   // ─── MAPPA RICAVI → OUTLET ─────────────────────────────────
-  // I sottoconti del Valore della Produzione sono già per outlet:
-  // 51010101 "Ricavi vendite Italia" → magazzino, 510107 "Corrispettivi Valdichiana" → valdichiana, ecc.
-  const RICAVI_OUTLET_MAP = {
-    '51010101': 'sede_magazzino',
-    '510107': 'valdichiana',
-    '510108': 'barberino',
-    '510110': 'franciacorta',
-    '510112': 'palmanova',
-    '510114': 'brugnato',
-    '510122': 'valmontone',
-    '510124': 'torino', // Torino Outlet Village (TRN) - aperto 29/05/2026
-  }
+  // Sprint 3 (Patrizio 29/05/2026): mappa DINAMICA da chart_of_accounts.outlet_link.
+  // Caricata da DB nella useEffect principale (vedi `coaR.data` con field `outlet_link`).
+  // Su NZ: 8 codici mappati (51010101, 510107..510124). Su Made/Zago: vuoto finche'
+  // non vengono popolati i propri corrispettivi outlet.
+  const RICAVI_OUTLET_MAP = useMemo<Record<string, string>>(() => {
+    const m: Record<string, string> = {}
+    ;(ceRawCosti.concat(ceRawRicavi) as Array<{ code?: string; outlet_link?: string | null }>)
+      .forEach(c => { if (c.code && c.outlet_link) m[c.code] = c.outlet_link })
+    return m
+  }, [ceRawCosti, ceRawRicavi])
 
   // Codici corrispettivi outlet (da escludere per gli altri)
-  const OUTLET_CORRISP_CODES = new Set(Object.keys(RICAVI_OUTLET_MAP))
+  const OUTLET_CORRISP_CODES = useMemo(() => new Set(Object.keys(RICAVI_OUTLET_MAP)), [RICAVI_OUTLET_MAP])
 
   // Filtra l'albero ricavi per outlet:
   // - Outlet: vede SOLO il suo corrispettivo (es. 510107 per Valdichiana). Nient'altro.
