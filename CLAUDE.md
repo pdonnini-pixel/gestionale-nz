@@ -4,6 +4,24 @@
 
 ---
 
+## 🚫 REGOLA GRANITICA — NO DATA LOSS (NON NEGOZIABILE, PRECEDE TUTTO)
+
+**Dal 2026-05-28 (go-live Lilian) il sistema e' LIVE. Ogni numero, riga, ticket, allegato gia' presente nel DB e' DATO REALE e NON deve essere perso o cambiato senza esplicita richiesta dell'utente.**
+
+Regole operative:
+- **MAI fare DELETE bulk** su tabelle vive (budget_entries, budget_confronto, bank_transactions, tickets, payables, electronic_invoices, balance_sheet_data, suppliers, customers, fiscal_deadlines) senza:
+  1. SELECT * con tutti i campi PRIMA della modifica, salvato come backup nella stessa sessione
+  2. Conferma binaria di Patrizio PRIMA di eseguire ("procedo con DELETE X o preferisci fermarti?")
+  3. Preferire UPDATE/flag (is_active=false, is_placeholder=true) a DELETE
+- **MAI migration distruttive** (DROP COLUMN, DROP TABLE, TRUNCATE) senza pg_dump esplicito o conferma binaria Patrizio
+- **Pattern "azzera/svuota" lato UI**: tutta la logica di visualizzazione/fallback resta lato frontend (BPCard, ConfrontoPanel). Il DB resta intoccato.
+- **Default fail-safe**: in dubbio NON cancellare, NON modificare. Domandare in modo binario.
+- **Vale anche per i ticket AI**: la edge function `ticket-resolve-now` non deve mai proporre fix che cancellino dati esistenti via SQL. Solo modifiche UI/frontend.
+
+Quando l'utente chiede "azzera/svuota/cancella": prima di toccare il DB, capire se vuole davvero DELETE o solo "non mostrare". Quasi sempre e' la seconda.
+
+---
+
 ## ⚠️ REGOLA #0 — PARITÀ TENANT (NON NEGOZIABILE)
 
 **OGNI modifica/fix/deploy va applicato a TUTTI E 3 i tenant: NZ + Made + Zago. Sempre. Senza eccezioni.**
