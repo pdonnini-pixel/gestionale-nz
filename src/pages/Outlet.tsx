@@ -1607,9 +1607,11 @@ function StaffTab({ outletId, companyId }: { outletId: string; companyId: string
 // ====== DETTAGLIO OUTLET — HUB CON TAB ======
 // TODO: tighten type
 type OutletEntity = Record<string, unknown> & { id: string; company_id?: string; name?: string | null; code?: string | null; mall_name?: string | null; rent_monthly?: number | null; condo_marketing_monthly?: number | null; is_active?: boolean | null }
-function OutletDetail({ outlet, revenue, onBack, onEdit, onDelete }: { outlet: OutletEntity; revenue: Record<string, Record<number, number>>; onBack: () => void; onEdit: (o: OutletEntity) => void; onDelete: (o: OutletEntity) => void }) {
+function OutletDetail({ outlet, revenue, revenueYear, onBack, onEdit, onDelete }: { outlet: OutletEntity; revenue: Record<string, Record<number, number>>; revenueYear: number | null; onBack: () => void; onEdit: (o: OutletEntity) => void; onDelete: (o: OutletEntity) => void }) {
   const { profile: _profile } = useAuth()
   const currentYear = new Date().getFullYear()
+  // Anno effettivo dei dati mostrati (quello caricato in budget_entries), non hardcoded.
+  const displayYear = revenueYear ?? currentYear
   const yearData: Record<number, number> = revenue[outlet.id] || {}
   const [detailTab, setDetailTab] = useState('overview')
 
@@ -1707,7 +1709,7 @@ function OutletDetail({ outlet, revenue, onBack, onEdit, onDelete }: { outlet: O
             <div className="bg-white rounded-xl border border-slate-200 p-4">
               <div className="p-2 rounded-lg bg-blue-50 text-blue-600 inline-flex mb-2"><DollarSign size={18} /></div>
               <div className="text-xl font-bold text-slate-900">{fmt(ytd)} €</div>
-              <div className="text-xs text-slate-500">Fatturato YTD {currentYear - 1}</div>
+              <div className="text-xs text-slate-500">Fatturato YTD {displayYear}</div>
             </div>
             <div className="bg-white rounded-xl border border-slate-200 p-4">
               <div className="p-2 rounded-lg bg-emerald-50 text-emerald-600 inline-flex mb-2"><TrendingUp size={18} /></div>
@@ -1751,7 +1753,7 @@ function OutletDetail({ outlet, revenue, onBack, onEdit, onDelete }: { outlet: O
 
           {/* Revenue Chart */}
           <div className="bg-white rounded-xl border border-slate-200 p-4">
-            <h3 className="text-sm font-semibold text-slate-900 mb-3">Fatturato mensile — {currentYear - 1}</h3>
+            <h3 className="text-sm font-semibold text-slate-900 mb-3">Fatturato mensile — {displayYear}</h3>
             <ResponsiveContainer width="100%" height={250}>
               <BarChart data={chartData}>
                 <defs>
@@ -2086,6 +2088,7 @@ export default function Outlet() {
             <OutletDetail
               outlet={selectedOutlet}
               revenue={revenue}
+              revenueYear={revenueYear}
               onBack={() => setSelectedOutlet(null)}
               onEdit={handleEdit}
               onDelete={handleDelete}
