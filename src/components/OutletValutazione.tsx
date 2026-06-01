@@ -6,6 +6,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { useCompanyLabels } from '../hooks/useCompanyLabels'
+import { usePeriod } from '../hooks/usePeriod'
 import {
   getCodeLevel, buildTree, sumMacros, applyEditsZero, applyEdits, fmt, fmtC,
   CETreeNode,
@@ -36,6 +37,14 @@ interface Simulation {
 }
 
 type ToastType = 'ok' | 'error'
+
+// Classificazione CE su balance_sheet_data.section='conto_economico'.
+// I codici sono semantici (niente flag is_revenue sul DB): ricavi = questo set,
+// tutto il resto di DETTAGLIO = costi. Le righe di subtotale/risultato sono
+// ESCLUSE da entrambi gli insiemi per non duplicare gli importi.
+const CE_REVENUE_CODES = ['ricavi_vendite', 'altri_ricavi', 'proventi_finanziari', 'proventi_straordinari']
+const isCeSubtotal = (code: string) =>
+  code.startsWith('totale_') || code === 'differenza_ab' || code === 'utile_netto'
 
 function TreeNodeEdit({ node, depth = 0, edits, onEdit }: { node: CETreeNode; depth?: number; edits: Record<string, number>; onEdit: (code: string, value: number) => void }) {
   const [open, setOpen] = useState(false)
@@ -89,6 +98,7 @@ function SimBadge({ status }: { status: string }) {
 export default function OutletValutazione() {
   const { profile } = useAuth()
   const labels = useCompanyLabels()
+  const { year: periodYear } = usePeriod()
   const CID = profile?.company_id
 
   // CE data
@@ -109,26 +119,39 @@ export default function OutletValutazione() {
   const show = (msg: string, t: ToastType = 'ok') => { setToast({ msg, t }); setTimeout(() => setToast(null), 3000) }
 
   // Load CE tree + simulations
-  useEffect(() => { if (CID) loadAll() }, [CID])
+  useEffect(() => { if (CID) loadAll() }, [CID, periodYear])
 
   async function loadAll() {
     if (!CID) return
     setLoading(true)
     try {
+      // Anno dinamico: ultimo anno con conto_economico in balance_sheet_data;
+      // fallback all'anno selezionato (usePeriod). Nessun anno fisso.
+      const { data: yrRows } = await supabase
+        .from('balance_sheet_data')
+        .select('year')
+        .eq('company_id', CID)
+        .eq('section', 'conto_economico')
+        .order('year', { ascending: false })
+        .limit(1)
+      const ceYear = (yrRows && yrRows.length > 0 ? yrRows[0].year : periodYear)
+
       const [bsR, simR] = await Promise.all([
-        supabase.from('balance_sheet_data').select('*').eq('company_id', CID).eq('year', 2025).in('section', ['ce_costi', 'ce_ricavi']).order('sort_order'),
+        supabase.from('balance_sheet_data').select('*').eq('company_id', CID).eq('year', ceYear).eq('section', 'conto_economico').order('sort_order'),
         supabase.from('outlet_simulations').select('*').eq('company_id', CID).order('created_at', { ascending: false }),
       ])
 
-      // Parse CE
+      // Parse CE — split ricavi/costi sui codici semantici, escludendo subtotali/risultato.
       const junk = /Azienda:|Cod\.\s*Fiscale|Partita\s*IVA|^VIA\s|PERIODO\s*DAL|Totali\s*fino|^Pag\.|Considera anche|movimenti provvisori/i
       const clean = (bsR.data || []).filter(r => (r.account_code && r.account_code.trim()) && !junk.test(r.account_name || ''))
       const co: CeRow[] = []
       const ri: CeRow[] = []
       clean.forEach(r => {
-        const row: CeRow = { code: r.account_code || '', description: r.account_name || '', amount: r.amount || 0, level: getCodeLevel(r.account_code), isMacro: (r.account_code || '').replace(/\s/g, '').length <= 2 }
-        if (r.section === 'ce_costi') co.push(row)
-        else ri.push(row)
+        const code = r.account_code || ''
+        if (isCeSubtotal(code)) return // subtotali/risultato esclusi: non sono né ricavo né costo di dettaglio
+        const row: CeRow = { code, description: r.account_name || '', amount: r.amount || 0, level: getCodeLevel(code), isMacro: code.replace(/\s/g, '').length <= 2 }
+        if (CE_REVENUE_CODES.includes(code)) ri.push(row)
+        else co.push(row)
       })
       setCeRawCosti(co)
       setCeRawRicavi(ri)
