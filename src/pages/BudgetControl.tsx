@@ -373,6 +373,23 @@ function flattenLeaves(tree: TreeNodeT[]): Record<string, number> {
 // Mostra il draft raw quando l'utente sta digitando.
 // Patrizio (29/05/2026): "nei campi che popolo non mi fa mettere la , !!!
 // e ricorda che se sono migliaia devi mettere il punto esempio 9.000,00 ecc".
+/**
+ * Distribuisce un importo annuale su 12 mesi in modo che la SOMMA dei 12 mesi
+ * sia ESATTAMENTE uguale all'annuale (al centesimo). Risolve il bug di
+ * arrotondamento: 149.000 / 12 = 12.416,67 → ×12 = 149.004.
+ * Lavora in centesimi (la colonna budget_amount è numeric(14,2)) e assegna il
+ * resto ai primi mesi, gestendo anche importi negativi (rettifiche).
+ * (Patrizio 01/06/2026)
+ */
+function splitMonthly(annual: number): number[] {
+  const cents = Math.round((annual || 0) * 100)
+  const base = Math.trunc(cents / 12)
+  const rem = cents - base * 12 // può essere negativo
+  const step = rem >= 0 ? 1 : -1
+  const r = Math.abs(rem)
+  return Array.from({ length: 12 }, (_, i) => (base + (i < r ? step : 0)) / 100)
+}
+
 function NumberInputIt({ value, onChange, onCommit, className, placeholder, edited, onClickStop }: {
   value: number
   onChange: (n: number) => void
@@ -445,7 +462,7 @@ function NumberInputIt({ value, onChange, onCommit, className, placeholder, edit
   )
 }
 
-function TreeNodeEdit({ node, depth = 0, edits, onEdit }: { node: TreeNodeT; depth?: number; edits: Record<string, number>; onEdit: (code: string, value: number | null) => void }) {
+function TreeNodeEdit({ node, depth = 0, edits, onEdit, onCommitAccount }: { node: TreeNodeT; depth?: number; edits: Record<string, number>; onEdit: (code: string, value: number | null) => void; onCommitAccount?: (code: string, value: number) => Promise<void> }) {
   const [open, setOpen] = useState(false) // start collapsed
   const hasKids = node.children?.length > 0
   const isMacro = node.level === 0
@@ -475,6 +492,7 @@ function TreeNodeEdit({ node, depth = 0, edits, onEdit }: { node: TreeNodeT; dep
             value={val}
             edited={isEdited}
             onChange={n => onEdit(node.code, n)}
+            onCommit={onCommitAccount ? (n => onCommitAccount(node.code, n)) : undefined}
             onClickStop
             className={`w-24 text-right px-1 py-0.5 text-[11px] border rounded ml-1 tabular-nums focus:outline-none focus:ring-1 focus:ring-indigo-400 ${
               isEdited ? 'bg-indigo-50 border-indigo-300' : 'border-slate-200'
@@ -488,7 +506,7 @@ function TreeNodeEdit({ node, depth = 0, edits, onEdit }: { node: TreeNodeT; dep
         )}
       </div>
       {open && hasKids && node.children.map((c, i) => (
-        <TreeNodeEdit key={`${c.code}-${i}`} node={c} depth={depth + 1} edits={edits} onEdit={onEdit} />
+        <TreeNodeEdit key={`${c.code}-${i}`} node={c} depth={depth + 1} edits={edits} onEdit={onEdit} onCommitAccount={onCommitAccount} />
       ))}
     </div>
   )
@@ -1046,7 +1064,7 @@ export default function BudgetControl() {
     if (!CID) return
     setWorkflowBusy(true)
     try {
-      const { data, error } = await supabase.rpc('unlock_budget_outlet_year', { p_cost_center: code, p_year: 2026, p_reason: reason })
+      const { data, error } = await supabase.rpc('unlock_budget_outlet_year', { p_cost_center: code, p_year: year, p_reason: reason })
       if (error) throw error
       const n = typeof data === 'number' ? data : 0
       show(n > 0 ? `Preventivo ${code} sbloccato (${n} righe)` : `Preventivo ${code} già sbloccato`)
@@ -1081,13 +1099,14 @@ export default function BudgetControl() {
       const allEntries = { ...costEdits }
       Object.entries(ricaviLeaves).forEach(([ac, amt]) => { allEntries[ac] = amt })
 
-      const entries = Object.entries(allEntries).map(([ac, amt]) =>
-        Array.from({ length: 12 }, (_, i) => ({
+      const entries = Object.entries(allEntries).map(([ac, amt]) => {
+        const months = splitMonthly(amt as number)
+        return Array.from({ length: 12 }, (_, i) => ({
           company_id: CID, account_code: ac, account_name: ac, macro_group: 'CE',
           cost_center: code, year, month: i + 1,
-          budget_amount: Math.round((amt as number) / 12), is_approved: false,
+          budget_amount: months[i], is_approved: false,
         }))
-      ).flat()
+      }).flat()
       const { error } = await supabase.from('budget_entries').upsert(entries as never, { onConflict: 'company_id,account_code,cost_center,year,month' })
       if (error) throw error
 
@@ -1107,21 +1126,22 @@ export default function BudgetControl() {
             .eq('year', year).eq('entry_type', 'rev_monthly')
         }
         // Insert 12 righe spalmate per ogni codice ricavo
-        const monthlyRows = Object.entries(ricaviAnnualEdits).flatMap(([ac, val]) =>
-          Array.from({ length: 12 }, (_, mi) => ({
+        const monthlyRows = Object.entries(ricaviAnnualEdits).flatMap(([ac, val]) => {
+          const months = splitMonthly(val)
+          return Array.from({ length: 12 }, (_, mi) => ({
             company_id: CID, cost_center: code, account_code: ac, year,
             month: mi + 1, entry_type: 'rev_monthly',
-            amount: Math.round(val / 12),
+            amount: months[mi],
             updated_at: new Date().toISOString(),
           }))
-        )
+        })
         await supabase.from('budget_confronto').insert(monthlyRows as never)
         // Aggiorna lo state revMonthly cosi' la UI mostra subito i nuovi valori mensili
         setRevMonthly(prev => {
           const next = { ...prev }
           if (!next[code]) next[code] = {}
           Object.entries(ricaviAnnualEdits).forEach(([ac, val]) => {
-            next[code][ac] = Array(12).fill(Math.round(val / 12))
+            next[code][ac] = splitMonthly(val)
           })
           return next
         })
@@ -1131,6 +1151,25 @@ export default function BudgetControl() {
       const nRicaviEdit = Object.keys(ricaviAnnualEdits).length
       show(`Preventivo ${code} salvato ✓ (${nCosti} costi + ${Object.keys(ricaviLeaves).length} ricavi${nRicaviEdit > 0 ? `, ${nRicaviEdit} mensilizzati` : ''})`)
     } catch (e: unknown) { show((e as Error).message, 'error') } finally { setSaving(false) }
+  }
+
+  // ─── AUTOSAVE PER-CONTO ANNUALE (on blur, card preventivo) ──────────
+  // Patrizio 01/06/2026: nella card annuale i costi si salvavano solo col
+  // bottone "Salva" → se l'utente cambiava outlet/pagina perdeva i dati.
+  // Ora ogni cella costo salva da sola al blur, persistendo SOLO quel conto
+  // (12 righe budget_entries spalmate con splitMonthly). NON tocca i ricavi
+  // né rev_monthly (quelli restano gestiti dal bottone Salva, che avvisa che
+  // sovrascrive le distribuzioni mensili manuali).
+  const saveAnnualCostAccount = async (outletCode: string, accountCode: string, value: number) => {
+    if (!CID) throw new Error('CID mancante')
+    const months = splitMonthly(value)
+    const rows = Array.from({ length: 12 }, (_, i) => ({
+      company_id: CID, account_code: accountCode, account_name: accountCode, macro_group: 'CE',
+      cost_center: outletCode, year, month: i + 1,
+      budget_amount: months[i], is_approved: false,
+    }))
+    const { error } = await supabase.from('budget_entries').upsert(rows as never, { onConflict: 'company_id,account_code,cost_center,year,month' })
+    if (error) throw error
   }
 
   // ─── SAVE CONFRONTO (annuale + mensile) ────────────────────
@@ -1524,6 +1563,7 @@ export default function BudgetControl() {
                 canApprove={canApproveBudget}
                 onApprove={() => setApproveDialog({ code: HQ_CODE, label: hq.label || HQ_CODE })}
                 onUnlock={() => setUnlockDialog({ code: HQ_CODE, label: hq.label || HQ_CODE })}
+                onSaveAccount={(ac, v) => saveAnnualCostAccount(HQ_CODE, ac, v)}
                 revYearlyFromMonthly={revYearlyByOutlet[HQ_CODE]} />
             )
           })()}
@@ -1543,6 +1583,7 @@ export default function BudgetControl() {
                 canApprove={canApproveBudget}
                 onApprove={() => setApproveDialog({ code: cc.code, label: prettyCenterLabel(cc) })}
                 onUnlock={() => setUnlockDialog({ code: cc.code, label: prettyCenterLabel(cc) })}
+                onSaveAccount={(ac, v) => saveAnnualCostAccount(cc.code, ac, v)}
                 revYearlyFromMonthly={revYearlyByOutlet[cc.code]} />
             )
           })}
@@ -1800,7 +1841,7 @@ export default function BudgetControl() {
       {approveDialog && (
         <ApproveDialog
           outletLabel={approveDialog.label}
-          year={2026}
+          year={year}
           working={workflowBusy}
           onCancel={() => { if (!workflowBusy) setApproveDialog(null) }}
           onConfirm={() => approveOutletYear(approveDialog.code)}
@@ -1811,7 +1852,7 @@ export default function BudgetControl() {
       {unlockDialog && (
         <UnlockDialog
           outletLabel={unlockDialog.label}
-          year={2026}
+          year={year}
           working={workflowBusy}
           onCancel={() => { if (!workflowBusy) setUnlockDialog(null) }}
           onConfirm={(reason) => unlockOutletYear(unlockDialog.code, reason)}
@@ -1855,12 +1896,16 @@ type BPCardProps = {
   canApprove: boolean
   onApprove: () => void
   onUnlock: () => void
+  // Autosave on-blur per singolo conto costo annuale (budget_entries), senza
+  // attendere il bottone Salva. Evita perdita dati se l'utente cambia outlet/
+  // pagina dopo aver digitato. (Patrizio 01/06/2026)
+  onSaveAccount?: (accountCode: string, value: number) => Promise<void>
   // Somma annuale dei ricavi mensili (da budget_confronto.rev_monthly per questo outlet).
   // Se presente per un codice ricavo, sovrascrive il valore del bilancio come default.
   // L'edit utente in edits[code] ha sempre priorita' (applyEdits lo gestisce).
   revYearlyFromMonthly?: Record<string, number>
 }
-function BPCard({ label, code, isHQ, numOps: _numOps, costiTree, ricaviTree, edits, setEdits, onClear, onSave, saving, color, year, workflowStatus, workflowMeta, canApprove, onApprove, onUnlock, revYearlyFromMonthly }: BPCardProps) {
+function BPCard({ label, code, isHQ, numOps: _numOps, costiTree, ricaviTree, edits, setEdits, onClear, onSave, saving, color, year, workflowStatus, workflowMeta, canApprove, onApprove, onUnlock, onSaveAccount, revYearlyFromMonthly }: BPCardProps) {
   const [open, setOpen] = useState(false)
 
   const isLocked = workflowStatus === 'approvato'
@@ -1989,7 +2034,7 @@ function BPCard({ label, code, isHQ, numOps: _numOps, costiTree, ricaviTree, edi
               <div className={`border border-slate-200 rounded-lg p-1.5 max-h-[500px] overflow-y-auto ${readOnly ? 'bg-slate-50/40' : ''}`}>
                 {readOnly
                   ? editedC.map((n, i) => <TreeNodeView key={`${n.code}-${i}`} node={n} />)
-                  : editedC.map((n, i) => <TreeNodeEdit key={`${n.code}-${i}`} node={n} edits={edits} onEdit={onEdit} />)}
+                  : editedC.map((n, i) => <TreeNodeEdit key={`${n.code}-${i}`} node={n} edits={edits} onEdit={onEdit} onCommitAccount={onSaveAccount} />)}
               </div>
               <div className="mt-2 pt-2 border-t-2 border-slate-300 flex justify-between px-2">
                 <span className="text-sm font-bold">TOTALE COSTI</span>
