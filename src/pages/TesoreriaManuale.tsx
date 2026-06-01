@@ -24,6 +24,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { useCompanyLabels } from '../hooks/useCompanyLabels'
 import { useToast } from '../components/Toast'
+import { BANK_CATEGORY_OPTIONS, bankCategoryLabel } from '../lib/bankCategories'
 import PrimaNota from './PrimaNota'
 import OpenBankingAcube from '../components/OpenBankingAcube'
 
@@ -535,7 +536,7 @@ function Pagination({ page, totalPages, onPageChange }: { page: number; totalPag
 // ═══════════════════════════════════════════════════════════════════
 
 type AccountT = Record<string, unknown> & { id: string; bank_name?: string | null; account_name?: string | null; current_balance?: number | null; credit_line?: number | null; iban?: string | null; account_type?: string | null; last_balance_update?: string | null }
-type TransactionT = Record<string, unknown> & { id: string; transaction_date?: string | null; amount?: number | null; type?: string | null; description?: string | null; bank_account_id?: string | null; reconciliation_status?: string | null; counterpart_name?: string | null; is_reconciled?: boolean | null; note?: string | null; reconciled_at?: string | null; reconciled_invoice_id?: string | null }
+type TransactionT = Record<string, unknown> & { id: string; transaction_date?: string | null; amount?: number | null; type?: string | null; description?: string | null; bank_account_id?: string | null; reconciliation_status?: string | null; counterpart_name?: string | null; is_reconciled?: boolean | null; note?: string | null; reconciled_at?: string | null; reconciled_invoice_id?: string | null; category?: string | null }
 type PayableT = Record<string, unknown> & { id: string; due_date?: string | null; amount?: number | null; gross_amount?: number | null; amount_paid?: number | null; amount_remaining?: number | null; supplier_name?: string | null; invoice_number?: string | null; status?: string | null; suppliers?: { ragione_sociale?: string | null; name?: string | null; iban?: string | null } | null }
 function TabPanoramica({ accounts, transactions, payables, onNavigate }: { accounts: AccountT[]; transactions: TransactionT[]; payables: PayableT[]; onNavigate: (tab: string) => void }) {
   const totalBalance = useMemo(() =>
@@ -1610,22 +1611,38 @@ function TabContiBancari({ accounts, companyId, onRefresh }: { accounts: Account
 // ═══ TAB 3: MOVIMENTI ═══
 // ═══════════════════════════════════════════════════════════════════
 
-function TabMovimenti({ transactions, accounts }: { transactions: TransactionT[]; accounts: AccountT[] }) {
+function TabMovimenti({ transactions, accounts, onAssignCategory, initialCategoryFilter }: { transactions: TransactionT[]; accounts: AccountT[]; onAssignCategory: (t: TransactionT, category: string) => void | Promise<void>; initialCategoryFilter?: string }) {
+  // Deep-link Dashboard: ?filter=senza-categoria preseleziona il filtro categoria
+  // e azzera il range date (default = mese corrente) per mostrare TUTTI i movimenti
+  // senza categoria, non solo quelli del mese.
+  const wantsUncat = initialCategoryFilter === 'senza_categoria'
   const [searchInput, setSearchInput] = useState('') // input non applicato
   const [search, setSearch] = useState('')           // valore applicato (premuto Cerca o Enter)
   const [filterAccount, setFilterAccount] = useState('all')
   const [filterType, setFilterType] = useState('all') // all, entrata, uscita
   const [filterReconciled, setFilterReconciled] = useState('all') // all, yes, no
-  // Default: dal primo del mese a oggi (modificabile)
+  const [filterCategory, setFilterCategory] = useState(() => wantsUncat ? 'senza_categoria' : 'all') // all, senza_categoria, <slug>
+  // Default: dal primo del mese a oggi (modificabile). Col deep-link senza-categoria: vuoto.
   const [dateFrom, setDateFrom] = useState(() => {
+    if (wantsUncat) return ''
     const d = new Date()
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`
   })
-  const [dateTo, setDateTo] = useState(() => new Date().toISOString().slice(0, 10))
+  const [dateTo, setDateTo] = useState(() => wantsUncat ? '' : new Date().toISOString().slice(0, 10))
   const [page, setPage] = useState(1)
   const [perPage, setPerPage] = useState(50) // 50/100/250 selezionabile (default 50)
   const [sortField, setSortField] = useState<keyof TransactionT | string>('transaction_date')
   const [sortDir, setSortDir] = useState('desc')
+  const [assigningId, setAssigningId] = useState<string | null>(null)
+
+  // Se il deep-link cambia dopo il mount (navigazione da Dashboard con Banche già aperta)
+  useEffect(() => {
+    if (initialCategoryFilter === 'senza_categoria') {
+      setFilterCategory('senza_categoria'); setDateFrom(''); setDateTo('')
+    }
+  }, [initialCategoryFilter])
+
+  const uncategorizedCount = useMemo(() => transactions.filter(t => t.category == null).length, [transactions])
 
   const filtered = useMemo<TransactionT[]>(() => {
     let items = [...transactions]
@@ -1642,6 +1659,8 @@ function TabMovimenti({ transactions, accounts }: { transactions: TransactionT[]
     if (filterType === 'uscita') items = items.filter(t => (t.amount || 0) < 0)
     if (filterReconciled === 'yes') items = items.filter(t => t.is_reconciled)
     if (filterReconciled === 'no') items = items.filter(t => !t.is_reconciled)
+    if (filterCategory === 'senza_categoria') items = items.filter(t => t.category == null)
+    else if (filterCategory !== 'all') items = items.filter(t => t.category === filterCategory)
     if (dateFrom) items = items.filter(t => (t.transaction_date || '') >= dateFrom)
     if (dateTo) items = items.filter(t => (t.transaction_date || '') <= dateTo)
 
@@ -1656,7 +1675,7 @@ function TabMovimenti({ transactions, accounts }: { transactions: TransactionT[]
       return 0
     })
     return items
-  }, [transactions, search, filterAccount, filterType, filterReconciled, dateFrom, dateTo, sortField, sortDir])
+  }, [transactions, search, filterAccount, filterType, filterReconciled, filterCategory, dateFrom, dateTo, sortField, sortDir])
 
   const totalPages = Math.ceil(filtered.length / perPage) || 1
   const pageItems = filtered.slice((page - 1) * perPage, page * perPage)
@@ -1677,7 +1696,17 @@ function TabMovimenti({ transactions, accounts }: { transactions: TransactionT[]
     return sortDir === 'asc' ? <ChevronUp size={12} className="text-blue-600" /> : <ChevronDown size={12} className="text-blue-600" />
   }
 
-  useEffect(() => { setPage(1) }, [search, filterAccount, filterType, filterReconciled, dateFrom, dateTo, perPage])
+  useEffect(() => { setPage(1) }, [search, filterAccount, filterType, filterReconciled, filterCategory, dateFrom, dateTo, perPage])
+
+  // Assegna/azzera la categoria contabile reale (bank_transactions.category).
+  const handleCategoryChange = async (t: TransactionT, value: string) => {
+    setAssigningId(t.id)
+    try {
+      await onAssignCategory(t, value)
+    } finally {
+      setAssigningId(null)
+    }
+  }
 
   // Reset di TUTTI i filtri ai valori di default (utile quando i numeri non tornano)
   const handleResetFilters = () => {
@@ -1800,6 +1829,18 @@ function TabMovimenti({ transactions, accounts }: { transactions: TransactionT[]
             <option value="yes">Riconciliati</option>
             <option value="no">Non riconciliati</option>
           </select>
+          <select value={filterCategory} onChange={e => setFilterCategory(e.target.value)}
+            title="Filtra per categoria contabile"
+            className={classNames(
+              'px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500',
+              filterCategory === 'senza_categoria' ? 'border-amber-300 bg-amber-50 text-amber-700' : 'border-slate-200'
+            )}>
+            <option value="all">Tutte le categorie</option>
+            <option value="senza_categoria">Senza categoria{uncategorizedCount > 0 ? ` (${uncategorizedCount})` : ''}</option>
+            {BANK_CATEGORY_OPTIONS.map(o => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
           <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" title="Da data" />
           <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" title="A data" />
           <button onClick={handleCerca} className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white">
@@ -1850,7 +1891,11 @@ function TabMovimenti({ transactions, accounts }: { transactions: TransactionT[]
       {/* Table */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         {pageItems.length === 0 ? (
-          <EmptyState icon={ArrowUpRight} title="Nessun movimento" description="Importa un estratto conto o collega una banca per vedere i movimenti." />
+          <EmptyState icon={ArrowUpRight}
+            title={filterCategory === 'senza_categoria' ? 'Nessun movimento senza categoria' : 'Nessun movimento'}
+            description={filterCategory === 'senza_categoria'
+              ? 'Tutti i movimenti nel periodo/filtro selezionato hanno già una categoria contabile.'
+              : 'Importa un estratto conto o collega una banca per vedere i movimenti.'} />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -1867,6 +1912,7 @@ function TabMovimenti({ transactions, accounts }: { transactions: TransactionT[]
                     <div className="flex items-center justify-end gap-1">Importo <SortIcon field="amount" /></div>
                   </th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-slate-500">Saldo</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-slate-500">Categoria contabile</th>
                   <th className="px-4 py-3 text-center text-xs font-medium text-slate-500">Stato</th>
                 </tr>
               </thead>
@@ -1899,6 +1945,28 @@ function TabMovimenti({ transactions, accounts }: { transactions: TransactionT[]
                       </td>
                       <td className="px-4 py-3 text-right text-slate-500 whitespace-nowrap">
                         {t.running_balance != null ? fmt(Number(t.running_balance)) : '\u2014'}
+                      </td>
+                      <td className="px-4 py-3">
+                        <select
+                          value={t.category || ''}
+                          disabled={assigningId === t.id}
+                          onChange={e => handleCategoryChange(t, e.target.value)}
+                          title={bankCategoryLabel(t.category) || 'Nessuna categoria'}
+                          className={classNames(
+                            'max-w-[180px] px-2 py-1 rounded-md text-xs border focus:outline-none focus:ring-2 focus:ring-blue-500/30 transition',
+                            t.category ? 'border-slate-200 bg-white text-slate-700' : 'border-amber-200 bg-amber-50 text-amber-700',
+                            assigningId === t.id ? 'opacity-50 cursor-wait' : 'cursor-pointer'
+                          )}
+                        >
+                          <option value="">\u2014 Senza categoria \u2014</option>
+                          {/* Slug legacy non in lista (es. "taxi"): mostralo comunque leggibile */}
+                          {t.category && !BANK_CATEGORY_OPTIONS.some(o => o.value === t.category) && (
+                            <option value={String(t.category)}>{bankCategoryLabel(t.category)}</option>
+                          )}
+                          {BANK_CATEGORY_OPTIONS.map(o => (
+                            <option key={o.value} value={o.value}>{o.label}</option>
+                          ))}
+                        </select>
                       </td>
                       <td className="px-4 py-3 text-center">
                         {t.is_reconciled ? (
@@ -2889,6 +2957,7 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
 
 export default function TesoreriaManuale() {
   const { session } = useAuth()
+  const { toast } = useToast()
   const companyId = session?.user?.app_metadata?.company_id || '00000000-0000-0000-0000-000000000001'
 
   // activeTab persistito in URL come ?tab=… (default 'panoramica')
@@ -2915,6 +2984,30 @@ export default function TesoreriaManuale() {
   const [batchItems, setBatchItems] = useState<any[]>([])
 
   const refresh = useCallback(() => setRefreshKey(k => k + 1), [])
+
+  // Assegna/azzera la categoria contabile reale su bank_transactions, scoped a
+  // company_id (RLS). Update ottimistico + rollback su errore + toast custom.
+  const handleAssignCategory = useCallback(async (t: TransactionT, category: string) => {
+    if (!companyId) return
+    const newCat = category || null
+    const prevCat = (t.category ?? null) as string | null
+    if (newCat === prevCat) return
+    setTransactions(prev => prev.map(x => x.id === t.id ? { ...x, category: newCat } : x))
+    const { error } = await supabase
+      .from('bank_transactions')
+      .update({ category: newCat } as never)
+      .eq('id', t.id)
+      .eq('company_id', companyId)
+    if (error) {
+      setTransactions(prev => prev.map(x => x.id === t.id ? { ...x, category: prevCat } : x))
+      toast({ type: 'error', message: 'Impossibile salvare la categoria: ' + (error.message || 'errore') })
+      return
+    }
+    toast({
+      type: 'success',
+      message: newCat ? `Categoria assegnata: ${bankCategoryLabel(newCat)}` : 'Categoria rimossa dal movimento',
+    })
+  }, [companyId, toast])
 
   // Fetch all data
   useEffect(() => {
@@ -3031,7 +3124,12 @@ export default function TesoreriaManuale() {
         <TabContiBancari accounts={accounts} companyId={companyId} onRefresh={refresh} />
       )}
       {activeTab === 'movimenti' && (
-        <TabMovimenti transactions={transactions} accounts={accounts} />
+        <TabMovimenti
+          transactions={transactions}
+          accounts={accounts}
+          onAssignCategory={handleAssignCategory}
+          initialCategoryFilter={searchParams.get('filter') === 'senza-categoria' ? 'senza_categoria' : undefined}
+        />
       )}
       {activeTab === 'riconciliazione' && (
         <TabRiconciliazione transactions={transactions} payables={payables} accounts={accounts} companyId={companyId} onRefresh={refresh} />
