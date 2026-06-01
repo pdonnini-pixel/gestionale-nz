@@ -1,4 +1,4 @@
-import { useState, useEffect, createContext, useContext, type ReactNode } from 'react'
+import { useState, useEffect, useRef, createContext, useContext, type ReactNode } from 'react'
 import { supabase } from '../lib/supabase'
 import type { Session } from '@supabase/supabase-js'
 
@@ -27,6 +27,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null)
   const [profile, setProfile] = useState<UserProfile | null>(null)
   const [loading, setLoading] = useState(true)
+  // Id dell'utente per cui il profilo è già stato caricato. Serve a NON
+  // rifare la fetch del profilo (e quindi evitare re-render a cascata) sugli
+  // eventi di puro refresh token che Supabase emette al ritorno sul tab del
+  // browser. (Patrizio 01/06/2026 — fix reset sotto-pagina)
+  const loadedProfileId = useRef<string | null>(null)
 
   useEffect(() => {
     // Recupera sessione corrente
@@ -39,8 +44,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Ascolta cambi autenticazione
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session)
-      if (session) fetchProfile(session.user.id)
-      else {
+      const uid = session?.user?.id ?? null
+      if (uid) {
+        // Solo se cambia davvero l'utente ricarichiamo il profilo. Sugli eventi
+        // TOKEN_REFRESHED/SIGNED_IN con stesso utente (focus sul tab) evitiamo
+        // la refetch che innescava lo smontaggio della pagina attiva.
+        if (uid !== loadedProfileId.current) fetchProfile(uid)
+        else setLoading(false)
+      } else {
+        loadedProfileId.current = null
         setProfile(null)
         setLoading(false)
       }
@@ -56,7 +68,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .eq('id', userId)
       .single()
 
-    if (!error && data) setProfile(data as unknown as UserProfile)
+    if (!error && data) {
+      setProfile(data as unknown as UserProfile)
+      loadedProfileId.current = userId
+    }
     setLoading(false)
   }
 
