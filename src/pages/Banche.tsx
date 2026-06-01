@@ -7,7 +7,6 @@ type BancheTab = 'conti' | 'movimenti' | 'riconciliazione'
 const VALID_BANCHE_TABS: BancheTab[] = ['conti', 'movimenti', 'riconciliazione']
 import PageHelp from '../components/PageHelp'
 import { useToast } from '../components/Toast'
-import { BANK_CATEGORY_OPTIONS, bankCategoryLabel } from '../lib/bankCategories'
 import {
   Landmark, Building2, Wallet, CreditCard, TrendingUp,
   Search, ChevronDown, ChevronUp, Banknote, Store,
@@ -831,18 +830,10 @@ function SezioneComposizione({ accounts, totalLiquidity }: { accounts: AccountRo
 /* ────────────────────────────────────────
    Sezione: Movimenti Reali (cash_movements)
    ──────────────────────────────────────── */
-type MovementRow = Record<string, unknown> & { id: string; date?: string | null; description?: string | null; counterpart?: string | null; type?: string | null; amount?: number | null; verified?: boolean | null; verified_at?: string | null; bank_account_id?: string | null; running_balance?: number | null; cost_category_id?: string | null; category?: string | null }
-function SezioneMovimentiReali({ movements, setMovements, accounts, search, loading, onLoadMore, hasMore, selectedAccountId, onSelectAccount, initialFilter, onAssignCategory }: { movements: MovementRow[]; setMovements: React.Dispatch<React.SetStateAction<MovementRow[]>>; accounts: AccountRow[]; search: string; loading: boolean; onLoadMore: () => void; hasMore: boolean; selectedAccountId: string | null; onSelectAccount: (id: string | null) => void; initialFilter?: string; onAssignCategory: (movement: MovementRow, category: string) => void | Promise<void> }) {
-  // Sub-tab: tutti, entrate, uscite, da_verificare, senza_categoria.
-  // Il deep-link della Dashboard (?filter=senza-categoria) preseleziona "senza_categoria".
-  const [subTab, setSubTab] = useState(() => initialFilter === 'senza_categoria' ? 'senza_categoria' : 'tutti')
+type MovementRow = Record<string, unknown> & { id: string; date?: string | null; description?: string | null; counterpart?: string | null; type?: string | null; amount?: number | null; verified?: boolean | null; verified_at?: string | null; bank_account_id?: string | null; running_balance?: number | null; cost_category_id?: string | null }
+function SezioneMovimentiReali({ movements, setMovements, accounts, search, loading, onLoadMore, hasMore, selectedAccountId, onSelectAccount }: { movements: MovementRow[]; setMovements: React.Dispatch<React.SetStateAction<MovementRow[]>>; accounts: AccountRow[]; search: string; loading: boolean; onLoadMore: () => void; hasMore: boolean; selectedAccountId: string | null; onSelectAccount: (id: string | null) => void }) {
+  const [subTab, setSubTab] = useState('tutti') // tutti, entrate, uscite, da_verificare
   const [togglingId, setTogglingId] = useState<string | null>(null)
-  const [assigningId, setAssigningId] = useState<string | null>(null)
-
-  // Se il deep-link cambia dopo il mount (navigazione da Dashboard a Banche già aperta)
-  useEffect(() => {
-    if (initialFilter === 'senza_categoria') setSubTab('senza_categoria')
-  }, [initialFilter])
 
   const filtered = useMemo<MovementRow[]>(() => {
     let list: MovementRow[] = movements || []
@@ -857,18 +848,8 @@ function SezioneMovimentiReali({ movements, setMovements, accounts, search, load
     if (subTab === 'entrate') list = list.filter(m => m.type === 'entrata')
     else if (subTab === 'uscite') list = list.filter(m => m.type === 'uscita')
     else if (subTab === 'da_verificare') list = list.filter(m => !m.verified)
-    else if (subTab === 'senza_categoria') list = list.filter(m => m.category == null)
     return list
   }, [movements, search, subTab])
-
-  const handleCategoryChange = async (movement: MovementRow, value: string) => {
-    setAssigningId(movement.id)
-    try {
-      await onAssignCategory(movement, value)
-    } finally {
-      setAssigningId(null)
-    }
-  }
 
   // Sort movimenti — modello standard
   const { sorted: sortedFiltered, sortBy: mvSortBy, onSort: mvOnSort, reset: mvResetSort } = useTableSort(
@@ -923,7 +904,6 @@ function SezioneMovimentiReali({ movements, setMovements, accounts, search, load
     { key: 'entrate', label: 'Entrate', count: (movements || []).filter(m => m.type === 'entrata').length },
     { key: 'uscite', label: 'Uscite', count: (movements || []).filter(m => m.type === 'uscita').length },
     { key: 'da_verificare', label: 'Da verificare', count: kpi.nonVerificati },
-    { key: 'senza_categoria', label: 'Senza categoria', count: (movements || []).filter(m => m.category == null).length },
   ]
 
   return (
@@ -982,8 +962,6 @@ function SezioneMovimentiReali({ movements, setMovements, accounts, search, load
           <div className="p-12 text-center text-slate-400 text-sm">
             {subTab === 'da_verificare'
               ? 'Tutti i movimenti sono stati verificati.'
-              : subTab === 'senza_categoria'
-              ? 'Nessun movimento senza categoria — tutti i movimenti caricati sono classificati.'
               : 'Nessun movimento trovato. Importare un estratto conto per visualizzare i movimenti.'}
           </div>
         ) : (
@@ -1003,7 +981,6 @@ function SezioneMovimentiReali({ movements, setMovements, accounts, search, load
                     <SortableTh sortKey="counterpart" sortBy={mvSortBy} onSort={mvOnSort}>Controparte</SortableTh>
                     <SortableTh sortKey="amount" sortBy={mvSortBy} onSort={mvOnSort} align="right">Importo</SortableTh>
                     <SortableTh sortKey="balance_after" sortBy={mvSortBy} onSort={mvOnSort} align="right">Saldo</SortableTh>
-                    <SortableTh sortKey="category" sortBy={mvSortBy} onSort={mvOnSort}>Categoria contabile</SortableTh>
                     <SortableTh sortKey="verified" sortBy={mvSortBy} onSort={mvOnSort} align="center">Verificato</SortableTh>
                     <SortableTh sortKey="is_reconciled" sortBy={mvSortBy} onSort={mvOnSort} align="center">Riconc.</SortableTh>
                   </tr>
@@ -1029,29 +1006,6 @@ function SezioneMovimentiReali({ movements, setMovements, accounts, search, load
                         </td>
                         <td className="py-2.5 px-4 text-right text-xs text-slate-400 whitespace-nowrap">
                           {m.balance_after != null ? `${fmt(Number(m.balance_after) || 0)} €` : '—'}
-                        </td>
-                        <td className="py-2.5 px-4">
-                          <select
-                            value={m.category || ''}
-                            disabled={assigningId === m.id}
-                            onChange={e => handleCategoryChange(m, e.target.value)}
-                            title={bankCategoryLabel(m.category) || 'Nessuna categoria'}
-                            className={`max-w-[180px] px-2 py-1 rounded-md text-xs border focus:outline-none focus:ring-2 focus:ring-blue-500/30 transition ${
-                              m.category
-                                ? 'border-slate-200 bg-white text-slate-700'
-                                : 'border-amber-200 bg-amber-50 text-amber-700'
-                            } ${assigningId === m.id ? 'opacity-50 cursor-wait' : 'cursor-pointer'}`}
-                          >
-                            <option value="">— Senza categoria —</option>
-                            {/* Se il valore corrente è uno slug legacy non in lista (es. "taxi"),
-                                mostralo comunque come opzione selezionata e leggibile */}
-                            {m.category && !BANK_CATEGORY_OPTIONS.some(o => o.value === m.category) && (
-                              <option value={m.category}>{bankCategoryLabel(m.category)}</option>
-                            )}
-                            {BANK_CATEGORY_OPTIONS.map(o => (
-                              <option key={o.value} value={o.value}>{o.label}</option>
-                            ))}
-                          </select>
                         </td>
                         <td className="py-2.5 px-4 text-center">
                           <button
@@ -2290,11 +2244,7 @@ export default function Banche() {
   const [cashMovements, setCashMovements] = useState<MovementRow[]>([])
   const [cashMovementsLoading, setCashMovementsLoading] = useState(false)
   const [cashMovementsHasMore, setCashMovementsHasMore] = useState(true)
-  // Deep-link "?filter=senza-categoria" (alert Dashboard): carica un batch ampio
-  // così la lista filtrata mostra TUTTI i movimenti senza categoria, non solo i 50 recenti.
-  const [cashMovementsLimit, setCashMovementsLimit] = useState(
-    () => new URLSearchParams(window.location.search).get('filter') === 'senza-categoria' ? 1000 : 50
-  )
+  const [cashMovementsLimit, setCashMovementsLimit] = useState(50)
   const [cashMovementsAccountFilter, setCashMovementsAccountFilter] = useState<string | null>(null)
   const [payableActions, setPayableActions] = useState<Record<string, unknown>[]>([])
   const [search, setSearch] = useState('')
@@ -2411,34 +2361,6 @@ export default function Banche() {
   const handleCashMovementsAccountFilter = (accountId: string | null) => {
     setCashMovementsAccountFilter(accountId)
     setCashMovementsLimit(50) // reset pagination on filter change
-  }
-
-  // Assegna/azzera la categoria contabile reale (bank_transactions.category).
-  // cash_movements è una vista 1:1 su bank_transactions (stesso id) -> aggiorno la
-  // tabella base, scoped a company_id (RLS). Update ottimistico + toast custom.
-  const handleAssignCategory = async (movement: MovementRow, category: string) => {
-    if (!COMPANY_ID) return
-    const newCat = category || null
-    const prevCat = movement.category ?? null
-    if (newCat === prevCat) return
-    setCashMovements(prev => prev.map(m => m.id === movement.id ? { ...m, category: newCat } : m))
-    const { error } = await supabase
-      .from('bank_transactions')
-      .update({ category: newCat } as never)
-      .eq('id', movement.id)
-      .eq('company_id', COMPANY_ID)
-    if (error) {
-      // rollback in caso di errore
-      setCashMovements(prev => prev.map(m => m.id === movement.id ? { ...m, category: prevCat } : m))
-      toast({ type: 'error', message: 'Impossibile salvare la categoria: ' + (error.message || 'errore') })
-      return
-    }
-    toast({
-      type: 'success',
-      message: newCat
-        ? `Categoria assegnata: ${bankCategoryLabel(newCat)}`
-        : 'Categoria rimossa dal movimento',
-    })
   }
 
   const handleAddEditAccount = (account: AccountRow | null) => {
@@ -2638,8 +2560,6 @@ export default function Banche() {
             hasMore={cashMovementsHasMore}
             selectedAccountId={cashMovementsAccountFilter}
             onSelectAccount={handleCashMovementsAccountFilter}
-            initialFilter={searchParams.get('filter') === 'senza-categoria' ? 'senza_categoria' : undefined}
-            onAssignCategory={handleAssignCategory}
           />
           {/* Legacy bank_transactions — shown only if cash_movements is empty and bank_transactions has data */}
           {cashMovements.length === 0 && transactions.length > 0 && (
