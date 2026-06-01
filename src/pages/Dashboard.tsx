@@ -326,7 +326,10 @@ export default function Dashboard() {
 
             // Sprint 2 (Patrizio 29/05/2026): PRIORITA' assoluta = dati Lilian
             // budget_confronto.cons_monthly (consuntivo reale, aggregato per outlet).
-            // Se ci sono, vincono su budget_entries e drAgg.
+            // Hotfix 29/05 sera: NO 'return' dentro questa funzione (rompeva il
+            // setLoading(false) successivo -> 'Cruscotto in caricamento' infinito).
+            // Uso un flag boolean per saltare il Fallback 3 se ho gia' caricato.
+            let lilianDataLoaded = false
             if (!drAgg || drAgg.length === 0) {
               const { data: cfData } = await supabase
                 .from('budget_confronto')
@@ -359,13 +362,13 @@ export default function Dashboard() {
                     dip: 0,
                     colore: OUTLET_COLORS[i % OUTLET_COLORS.length],
                   })))
-                  return // dati Lilian usati, salta fallback successivi
+                  lilianDataLoaded = true
                 }
               }
             }
 
             // Fallback 3: use budget_entries revenue data per cost_center
-            if (!drAgg || drAgg.length === 0) {
+            if (!lilianDataLoaded && (!drAgg || drAgg.length === 0)) {
               // Query ricavi: tutti i conti corrispettivi outlet (510101..510199)
               // + legacy RIC001/2/3. Prima era .in() con SOLO 2 codici hardcoded
               // (510107 Valdichiana, 510108 Barberino) — mostrava solo 2 outlet.
