@@ -544,17 +544,31 @@ export default function ConfrontoOutlet() {
         })
         .filter(b => selectedMonths ? (b.month != null && selectedMonths.includes(b.month)) : true)
 
-      if (!outletBudget.length) {
-        return { name: outlet.label || '', outletData: outlet, calculatedMetrics: null } as OutletMetric
-      }
-
       // Sprint 2 hotfix (Patrizio 29/05/2026 sera): override AGGREGATO, non per-riga.
       // Bug precedente: ritornavo consMap[code] per OGNI riga budget_entries -> se ci
       // sono 12 righe mensili per stesso codice, il totale era 12 × consuntivo = numero
       // esplosivo. Fix: il calcMetrics somma normalmente budget_entries; poi se l'overlay
       // ha valori per quei codici, SOSTITUISCE il totale aggregato una volta sola.
-      const consMapOutlet = consOverlay[matchingCC] || consOverlay[outletCode] || {}
-      const prevMapOutlet = prevOverlay[matchingCC] || prevOverlay[outletCode] || {}
+      // NB: definiti PRIMA del guard sotto: un outlet puo' avere SOLO dati overlay
+      // (consuntivo/preventivo Lilian) e nessuna riga in budget_entries (es. Torino),
+      // e in quel caso deve comunque comparire nel confronto.
+      const consMapOutlet = (matchingCC ? consOverlay[matchingCC] : undefined) || consOverlay[outletCode] || {}
+      const prevMapOutlet = (matchingCC ? prevOverlay[matchingCC] : undefined) || prevOverlay[outletCode] || {}
+
+      // Codici presenti nell'overlay (consuntivo + preventivo). Servono a classificare
+      // ricavi/costi quando l'outlet NON ha righe budget_entries: senza questo i set di
+      // codici per categoria sarebbero vuoti e l'overlay non verrebbe mai applicato.
+      // Per gli outlet che hanno gia' budget_entries questi codici sono gia' nei set,
+      // quindi l'aggiunta e' un no-op (nessuna regressione sugli outlet esistenti).
+      const overlayCodes = [...new Set([...Object.keys(consMapOutlet), ...Object.keys(prevMapOutlet)])]
+      const hasOverlayData = overlayCodes.length > 0
+
+      // Mostra l'outlet se ha righe budget_entries OPPURE dati overlay Lilian.
+      // Bug "manca Torino": un outlet con solo consuntivo spariva da card, tabella
+      // benchmark, grafici e aggregati perche' qui si tornava sempre null.
+      if (!outletBudget.length && !hasOverlayData) {
+        return { name: outlet.label || '', outletData: outlet, calculatedMetrics: null } as OutletMetric
+      }
 
       const hasConsForCodes = (codes: Set<string>): number | null => {
         const sum = Array.from(codes).reduce((s, c) => s + (consMapOutlet[c] || 0), 0)
@@ -571,7 +585,7 @@ export default function ConfrontoOutlet() {
 
         // Revenue: account_code starts with '5', or macro_group contains 'Ricavi'
         const ricaviRows = outletBudget.filter(b => b.account_code?.startsWith('5') || b.macro_group?.includes('Ricavi'))
-        const ricaviCodes = new Set(ricaviRows.map(b => b.account_code || '').filter(Boolean))
+        const ricaviCodes = new Set([...ricaviRows.map(b => b.account_code || '').filter(Boolean), ...overlayCodes.filter(c => c.startsWith('5'))])
         const overlayRicavi = overlay(ricaviCodes)
         const ricavi = overlayRicavi != null
           ? overlayRicavi
@@ -579,7 +593,7 @@ export default function ConfrontoOutlet() {
 
         // Costo personale: account_code starts with '6', or name matches
         const personaleRows = outletBudget.filter(b => b.account_code?.startsWith('6') || b.account_name?.toLowerCase().match(/personal|dipendent|retrib|stipend/))
-        const personaleCodes = new Set(personaleRows.map(b => b.account_code || '').filter(Boolean))
+        const personaleCodes = new Set([...personaleRows.map(b => b.account_code || '').filter(Boolean), ...overlayCodes.filter(c => c.startsWith('6'))])
         const overlayPersonale = overlay(personaleCodes)
         const costoPersonale = overlayPersonale != null
           ? Math.abs(overlayPersonale)
@@ -601,7 +615,7 @@ export default function ConfrontoOutlet() {
 
         // Merci: account_code starts with '7', or macro_group contains Acquisti/Merci
         const merciRows = outletBudget.filter(b => b.account_code?.startsWith('7') || b.macro_group?.includes('Acquisti') || b.macro_group?.includes('Merci'))
-        const merciCodes = new Set(merciRows.map(b => b.account_code || '').filter(Boolean))
+        const merciCodes = new Set([...merciRows.map(b => b.account_code || '').filter(Boolean), ...overlayCodes.filter(c => c.startsWith('7'))])
         const overlayMerci = overlay(merciCodes)
         const merci = overlayMerci != null
           ? Math.abs(overlayMerci)
