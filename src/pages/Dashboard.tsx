@@ -10,7 +10,7 @@ import {
   TrendingUp, TrendingDown, DollarSign, Store, Wallet,
   ArrowUpRight, ArrowRight, Receipt, Percent,
   AlertTriangle, CheckCircle2, Target, Loader, Info,
-  Clock, CreditCard, BarChart3, Sparkles, ChevronRight
+  Clock, CreditCard, BarChart3, ChevronRight
 } from 'lucide-react'
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid
@@ -164,6 +164,12 @@ export default function Dashboard() {
   // TODO: tighten type — Supabase data
   const [dailyRevenue, setDailyRevenue] = useState<any[]>([])
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
+  // Anno di gestione (budget_confronto): previsto fine anno + presenza costi + mesi chiusi
+  const [ricaviPrevisto, setRicaviPrevisto] = useState(0)
+  const [costiPresent, setCostiPresent] = useState(false)
+  const [mesiConsuntivo, setMesiConsuntivo] = useState(0)
+  // Timestamp saldo liquidità (v_cash_position.last_updated_at)
+  const [liquiditaUpdatedAt, setLiquiditaUpdatedAt] = useState<string | null>(null)
 
   useEffect(() => {
     if (!COMPANY_ID) return
@@ -182,6 +188,9 @@ export default function Dashboard() {
         setTotalCosti(0)
         setStaffCosts(0)
         setDataSource(null)
+        setRicaviPrevisto(0)
+        setCostiPresent(false)
+        setMesiConsuntivo(0)
 
         // 1. Financial data — try views first, then bilancio, then fatture
         let hasViewData = false
@@ -220,6 +229,61 @@ export default function Dashboard() {
             setStaffCosts(bs.totale_personale || 0)
             hasViewData = true
             setDataSource('bilancio')
+          }
+        }
+
+        // 1b. Anno di gestione SENZA bilancio depositato (es. 2026): consuntivo + previsionale
+        // dalle STESSE fonti di "Budget e Controllo" (budget_confronto), per non divergere.
+        // Ricavi = conti che iniziano con '5' (stesso criterio di ContoEconomico/BudgetControl).
+        //  - cons_monthly = CONSUNTIVO granitico (mesi chiusi)
+        //  - rev_monthly  = PREVISIONALE/revisione full-year
+        //  - prev_monthly = preventivo COSTI (può non esistere ancora: in tal caso margine = "—")
+        if (!hasViewData) {
+          const { data: cf } = await supabase
+            .from('budget_confronto')
+            .select('account_code, entry_type, amount, cost_center, month')
+            .eq('company_id', COMPANY_ID)
+            .eq('year', YEAR)
+            .in('entry_type', ['cons_monthly', 'rev_monthly', 'prev_monthly'])
+            .range(0, 9999)
+
+          if (cf && cf.length > 0) {
+            const isExcludedCc = (cc: string | null | undefined) => {
+              const x = (cc || '').toLowerCase()
+              return x === 'rettifica_bilancio' || x === 'spese_non_divise'
+            }
+            const isRevenue = (ac: string | null | undefined) => (ac || '').startsWith('5')
+            let consRev = 0, prevRev = 0, consCost = 0, prevCost = 0
+            let hasCost = false
+            const consMonths = new Set<number>()
+            cf.forEach(r => {
+              if (isExcludedCc(r.cost_center)) return
+              const amt = Number(r.amount) || 0
+              const rev = isRevenue(r.account_code)
+              if (!rev) hasCost = true
+              if (r.entry_type === 'cons_monthly') {
+                if (rev) { consRev += amt; if (r.month) consMonths.add(Number(r.month)) }
+                else consCost += amt
+              } else if (r.entry_type === 'rev_monthly') {
+                if (rev) prevRev += amt; else prevCost += amt
+              } else if (r.entry_type === 'prev_monthly') {
+                if (!rev) prevCost += amt
+              }
+            })
+            // prevCost/consCost usati solo quando i costi esistono davvero (hasCost)
+            void prevCost
+            if (consRev > 0 || prevRev > 0) {
+              setRicavi(consRev)
+              setRicaviPrevisto(prevRev)
+              setMesiConsuntivo(consMonths.size)
+              setCostiPresent(hasCost)
+              if (hasCost) {
+                setTotalCosti(consCost)
+                setUtile(consRev - consCost)
+              }
+              hasViewData = true
+              setDataSource('gestione')
+            }
           }
         }
 
@@ -453,9 +517,16 @@ export default function Dashboard() {
         try {
           const { data: cashData } = await supabase
             .from('v_cash_position')
-            .select('current_balance')
+            .select('current_balance, last_updated_at')
             .eq('company_id', COMPANY_ID)
-          setLiquidita((cashData || []).reduce((s, c) => s + (c.current_balance || 0), 0))
+          // last_updated_at non è ancora nei tipi generati della vista -> cast esplicito
+          const cashRows = (cashData || []) as unknown as Array<{ current_balance?: number | null; last_updated_at?: string | null }>
+          setLiquidita(cashRows.reduce((s, c) => s + (c.current_balance || 0), 0))
+          const maxTs = cashRows.reduce<string | null>((m, c) => {
+            const ts = c.last_updated_at
+            return ts && (!m || ts > m) ? ts : m
+          }, null)
+          setLiquiditaUpdatedAt(maxTs)
         } catch (e) {}
 
         // 5. Loans
@@ -526,14 +597,16 @@ export default function Dashboard() {
           setProssimeCount(prossRes.count || 0)
         } catch (e) {}
 
-        // 8. Uncategorized movements
+        // 8. Movimenti bancari senza categoria contabile (campo reale 'category').
+        // NB: nella vista cash_movements le colonne cost_category_id/ai_category_id sono
+        // SEMPRE NULL (non sono dati reali) -> la vecchia query contava TUTTI i movimenti.
+        // Si conta il campo reale 'category' IS NULL.
         try {
           const { count } = await supabase
             .from('cash_movements')
             .select('id', { count: 'exact' })
             .eq('company_id', COMPANY_ID)
-            .is('cost_category_id', null)
-            .is('ai_category_id', null)
+            .is('category', null)
           setUncategorizedMov(count || 0)
         } catch (e) {}
 
@@ -578,6 +651,16 @@ export default function Dashboard() {
   const pfn = liquidita - debtiFin
   const marginePct = ricavi > 0 ? (utile / ricavi * 100) : 0
   const cashFlowNetto = cashFlowTotals.entrate - cashFlowTotals.uscite
+  // Modalità "anno di gestione" (consuntivo/previsionale da budget_confronto, no bilancio)
+  const isGestione = dataSource === 'gestione'
+  // Il margine è calcolabile solo se i costi esistono (bilancio depositato, oppure
+  // costi presenti in budget_confronto). Per l'anno di gestione senza costi -> "—".
+  const margineAvailable = dataSource === 'fatture' ? false : (isGestione ? costiPresent : ricavi > 0)
+  // Data/ora del saldo liquidità da v_cash_position.last_updated_at
+  const liquiditaTs = liquiditaUpdatedAt ? new Date(liquiditaUpdatedAt) : null
+  const liquiditaTsLabel = liquiditaTs
+    ? liquiditaTs.toLocaleString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+    : null
 
   // Loading
   if (loading) {
@@ -634,12 +717,12 @@ export default function Dashboard() {
   }
   if (uncategorizedMov > 0) {
     alerts.push({
-      icon: Sparkles,
+      icon: CreditCard,
       color: 'bg-blue-50 border-blue-200 text-blue-700',
-      title: `${uncategorizedMov} movimenti da classificare`,
-      description: 'Usa l\'AI per categorizzare automaticamente',
-      link: '/ai-categorie',
-      linkLabel: 'Classifica',
+      title: `${uncategorizedMov} movimenti bancari senza categoria contabile`,
+      description: 'Assegna la categoria dalla lista movimenti bancari',
+      link: '/banche?tab=movimenti&filter=senza-categoria',
+      linkLabel: 'Vai ai movimenti',
     })
   }
   if (utile > 0) {
@@ -664,26 +747,49 @@ export default function Dashboard() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         <KpiCard
           icon={DollarSign} title="Ricavi" color={dataSource === 'fatture' ? 'amber' : 'blue'}
-          value={ricavi > 0 ? `${fmtCompact(ricavi)} €` : 'N/D'}
-          trend={ricavi > 0 ? deltaRicaviPct : null}
-          subtitle={ricavi > 0 ? (ricaviPrevYear > 0 ? `vs ${fmtCompact(ricaviPrevYear)} € anno prec.` : periodRange.label) : 'Importa bilancio per i ricavi'}
-          link="/conto-economico"
+          value={ricavi > 0 ? `${fmt(ricavi, 0)} €` : '—'}
+          trend={!isGestione && ricavi > 0 ? deltaRicaviPct : null}
+          subtitle={
+            isGestione ? (
+              <span className="block space-y-1">
+                <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded-full">
+                  Consuntivo {mesiConsuntivo > 0 ? `${mesiConsuntivo} mesi chiusi` : 'ad oggi'} · granitico
+                </span>
+                <span className="block text-slate-500">
+                  Previsto fine anno: <strong className="text-slate-700">{fmt(ricaviPrevisto, 0)} €</strong>
+                  <span className="ml-1 text-[10px] font-medium text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded-full">previsionale</span>
+                </span>
+              </span>
+            ) : ricavi > 0 ? (
+              ricaviPrevYear > 0 ? `vs ${fmt(ricaviPrevYear, 0)} € anno prec.` : periodRange.label
+            ) : (
+              `Nessun dato per il ${year} — inseriscili in Budget e Controllo`
+            )
+          }
+          link={isGestione ? '/budget' : '/conto-economico'}
         />
         <KpiCard
           icon={Percent} title={dataSource === 'fatture' ? 'Costi' : 'Margine netto'} helpTerm="margine"
-          color={dataSource === 'fatture' ? 'blue' : utile >= 0 ? 'green' : 'red'}
-          value={dataSource === 'fatture' ? `${fmtCompact(totalCosti)} €` : `${marginePct.toFixed(1)}%`}
-          subtitle={dataSource === 'fatture' ? `Totale fatture passive ${year}` : `Utile: ${fmtCompact(utile)} €`}
-          link={dataSource === 'fatture' ? `/fatturazione?year=${year}` : '/conto-economico'}
-          alert={dataSource !== 'fatture' && utile < 0}
+          color={dataSource === 'fatture' ? 'blue' : !margineAvailable ? 'amber' : utile >= 0 ? 'green' : 'red'}
+          value={
+            dataSource === 'fatture' ? `${fmt(totalCosti, 0)} €`
+            : margineAvailable ? `${marginePct.toFixed(1)}%`
+            : '—'
+          }
+          subtitle={
+            dataSource === 'fatture' ? `Totale fatture passive ${year}`
+            : margineAvailable ? `Utile: ${fmt(utile, 0)} €`
+            : 'Margine disponibile dopo l\'inserimento dei costi'
+          }
+          link={dataSource === 'fatture' ? `/fatturazione?year=${year}` : isGestione ? '/budget' : '/conto-economico'}
+          alert={margineAvailable && dataSource !== 'fatture' && utile < 0}
         />
         <KpiCard
           icon={Wallet} title="Liquidità" color={liquidita >= 0 ? 'cyan' : 'red'}
-          value={`${fmtCompact(liquidita)} €`}
-          subtitle={`PFN: ${fmtCompact(pfn)} €`}
-          helpTerm="pfn"
+          value={`${fmt(liquidita, 2)} €`}
+          subtitle={liquiditaTsLabel ? `Saldo conti correnti al ${liquiditaTsLabel}` : 'Saldo conti correnti'}
           link="/banche"
-          alert={pfn < 0}
+          alert={liquidita < 0}
         />
         <KpiCard
           icon={Receipt} title="Scadenze aperte" color={scaduteCount > 0 ? 'red' : 'amber'}
@@ -746,16 +852,16 @@ export default function Dashboard() {
               <div className="flex items-center gap-4 mb-3">
                 <div>
                   <span className="text-xs text-slate-400">Entrate</span>
-                  <div className="text-sm font-bold text-emerald-600">+{fmtCompact(cashFlowTotals.entrate)} €</div>
+                  <div className="text-sm font-bold text-emerald-600">+{fmt(cashFlowTotals.entrate, 2)} €</div>
                 </div>
                 <div>
                   <span className="text-xs text-slate-400">Uscite</span>
-                  <div className="text-sm font-bold text-red-500">-{fmtCompact(cashFlowTotals.uscite)} €</div>
+                  <div className="text-sm font-bold text-red-500">-{fmt(cashFlowTotals.uscite, 2)} €</div>
                 </div>
                 <div className="ml-auto">
                   <span className="text-xs text-slate-400">Netto</span>
                   <div className={`text-sm font-bold ${cashFlowNetto >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
-                    {cashFlowNetto >= 0 ? '+' : ''}{fmtCompact(cashFlowNetto)} €
+                    {cashFlowNetto >= 0 ? '+' : ''}{fmt(cashFlowNetto, 2)} €
                   </div>
                 </div>
               </div>
