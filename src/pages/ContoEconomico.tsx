@@ -64,10 +64,14 @@ interface RiconData {
 }
 
 // ===== HELPERS =====
-function fmt(n: number | null | undefined, decimals = 0): string {
+// Formatter euro UNICO della pagina: separatore migliaia + 2 decimali (es. "1.234.567,89").
+// NB: usa la locale de-DE, che produce ESATTAMENTE il formato italiano (punto per le
+// migliaia, virgola per i decimali) MA raggruppa anche i numeri a 4 cifre. La locale it-IT
+// ha minimumGroupingDigits=2 e quindi NON raggrupperebbe 1.000–9.999 (2000 -> "2000,00").
+function fmt(n: number | null | undefined, decimals = 2): string {
   if (n == null) return '—'
   const rounded = Math.round(n * 100) / 100
-  return new Intl.NumberFormat('it-IT', { minimumFractionDigits: decimals, maximumFractionDigits: decimals }).format(rounded)
+  return new Intl.NumberFormat('de-DE', { minimumFractionDigits: decimals, maximumFractionDigits: decimals }).format(rounded)
 }
 function pct(v: number, total: number | null | undefined): string {
   if (!total || total === 0) return '—'
@@ -2861,14 +2865,12 @@ function TreeNode({ node, depth = 0, prevByCode, showYoY, isCost }: { node: Tree
   // For costs: negative delta = improvement. For revenues: positive delta = improvement
   const isPositiveImprovement = isCost ? (delta != null && delta < 0) : (delta != null && delta > 0)
 
+  // Riusa il formatter euro unico della pagina (fmt): separatore migliaia + 2 decimali.
+  // Mantiene il guard anti "-0,00" per valori arrotondati a zero ma leggermente negativi.
   const fmtAmount = (n: number | null | undefined) => {
     if (n == null) return '\u2014'
-    const abs = Math.abs(n)
-    const formatted = new Intl.NumberFormat('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(abs)
-    // Fix 12.3: evita "-0,00" quando il valore arrotondato e' zero ma il
-    // numero originale era leggermente negativo (-0.001 \u2192 -0,00)
-    if (formatted === '0,00' || abs < 0.005) return '0,00'
-    return n < 0 ? `-${formatted}` : formatted
+    if (Math.abs(n) < 0.005) return '0,00'
+    return fmt(n)
   }
 
   return (
