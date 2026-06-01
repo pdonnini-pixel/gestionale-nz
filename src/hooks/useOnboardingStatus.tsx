@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from './useAuth'
 
@@ -29,20 +29,32 @@ export interface OnboardingStatus {
 
 export function useOnboardingStatus(): OnboardingStatus {
   const { session, loading: authLoading } = useAuth()
+  // Dipendiamo dallo userId (stringa stabile) e NON dall'oggetto session:
+  // al refresh token Supabase crea un nuovo oggetto session ma lo userId resta
+  // identico, quindi l'effetto non si ri-esegue e la UI non si smonta.
+  const userId = session?.user?.id ?? null
   const [state, setState] = useState<OnboardingStatus>({
     loading: true,
     needsOnboarding: false,
     error: null,
   })
+  // Utente per cui il check è già andato a buon fine: evita di rimettere
+  // loading=true (e quindi smontare Layout, perdendo tab/sotto-pagina attiva)
+  // quando si torna sul tab del browser. (Patrizio 01/06/2026)
+  const resolvedForUser = useRef<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
     if (authLoading) return
-    if (!session) {
+    if (!userId) {
+      resolvedForUser.current = null
       setState({ loading: false, needsOnboarding: false, error: null })
       return
     }
-    setState((s) => ({ ...s, loading: true, error: null }))
+    // Spinner full-screen SOLO la prima volta per questo utente.
+    if (resolvedForUser.current !== userId) {
+      setState((s) => ({ ...s, loading: true, error: null }))
+    }
     ;(async () => {
       // Usa RPC `get_or_associate_tenant_company` (SECURITY DEFINER) invece
       // di SELECT diretta su companies (che con RLS nasconde le righe a utenti
@@ -63,13 +75,14 @@ export function useOnboardingStatus(): OnboardingStatus {
         setState({ loading: false, needsOnboarding: false, error: error.message })
         return
       }
+      resolvedForUser.current = userId
       const empty = data == null
       setState({ loading: false, needsOnboarding: empty, error: null })
     })()
     return () => {
       cancelled = true
     }
-  }, [authLoading, session])
+  }, [authLoading, userId])
 
   return state
 }
