@@ -6,6 +6,7 @@ import {
 import { AlertTriangle, TrendingDown, TrendingUp, Wallet, CheckCircle, Clock } from 'lucide-react';
 import { GlassTooltip, AXIS_STYLE, GRID_STYLE, BAR_RADIUS, ModernLegend, fmtEuro, fmtK } from '../components/ChartTheme';
 import { useAuth } from '../hooks/useAuth';
+import { usePeriod } from '../hooks/usePeriod';
 import { supabase } from '../lib/supabase';
 
 // Formatting utility
@@ -27,6 +28,7 @@ interface WeekRow { week: string; entrate: number; uscite: number; netto: number
 export default function CashFlow() {
   const { profile } = useAuth();
   const COMPANY_ID = profile?.company_id;
+  const { year } = usePeriod();
 
   const [scenario, setScenario] = useState('base'); // 'base', 'pessimistic', 'optimistic'
   const [loading, setLoading] = useState(true);
@@ -34,7 +36,10 @@ export default function CashFlow() {
 
   // State for fetched data
   const [initialBalance, setInitialBalance] = useState(0);
-  const [annualSales, setAnnualSales] = useState(2324000); // Default fallback
+  // Nessun fallback hardcoded: 0 finché il dato non arriva dal DB.
+  const [annualSales, setAnnualSales] = useState(0);
+  // true quando non esistono ricavi per l'anno selezionato (mostra empty-state)
+  const [revenueMissing, setRevenueMissing] = useState(false);
   // TODO: tighten type
   const [fixedCosts, setFixedCosts] = useState<Record<string, number>>({});
   const [loanPayment, setLoanPayment] = useState(0);
@@ -63,19 +68,47 @@ export default function CashFlow() {
         const totalBalance = (cashData || []).reduce((sum, acc) => sum + (acc.current_balance || 0), 0);
         setInitialBalance(totalBalance);
 
-        // 2. Fetch annual budget for current year
-        const currentYear = new Date().getFullYear();
-        const { data: budgetData, error: budgetError } = await supabase
-          .from('annual_budgets')
-          .select('revenue_target')
-          .eq('company_id', COMPANY_ID)
-          .eq('year', currentYear)
-          .single();
+        // 2. Ricavi annui dell'anno selezionato (usePeriod) — NIENTE valori hardcoded.
+        //    Ordine (primo non-vuoto vince):
+        //    a) somma budget_amount dei conti ricavo (chart_of_accounts.is_revenue=true),
+        //       su TUTTI i cost center;
+        //    b) ricavi del conto_economico (balance_sheet_data);
+        //    c) altrimenti 0 + messaggio empty-state.
+        let resolvedRevenue = 0;
 
-        if (budgetError && budgetError.code !== 'PGRST116') throw budgetError;
-        if (budgetData?.revenue_target) {
-          setAnnualSales(budgetData.revenue_target);
+        // a) budget_entries: somma budget_amount dei conti ricavo
+        const { data: revAccts } = await supabase
+          .from('chart_of_accounts')
+          .select('code')
+          .eq('company_id', COMPANY_ID)
+          .eq('is_revenue', true);
+        const revenueCodes = (revAccts || []).map(r => r.code).filter(Boolean);
+        if (revenueCodes.length > 0) {
+          const { data: revBudget } = await supabase
+            .from('budget_entries')
+            .select('budget_amount')
+            .eq('company_id', COMPANY_ID)
+            .eq('year', year)
+            .in('account_code', revenueCodes)
+            .range(0, 9999);
+          resolvedRevenue = (revBudget || []).reduce((s, r) => s + (Number(r.budget_amount) || 0), 0);
         }
+
+        // b) fallback: ricavi dal conto_economico (balance_sheet_data)
+        if (resolvedRevenue === 0) {
+          const { data: ceRev } = await supabase
+            .from('balance_sheet_data')
+            .select('amount')
+            .eq('company_id', COMPANY_ID)
+            .eq('year', year)
+            .eq('section', 'conto_economico')
+            .in('account_code', ['ricavi_vendite', 'altri_ricavi', 'proventi_finanziari', 'proventi_straordinari']);
+          resolvedRevenue = (ceRev || []).reduce((s, r) => s + (Number(r.amount) || 0), 0);
+        }
+
+        // c) nessuna fonte disponibile: 0 + empty-state
+        setAnnualSales(resolvedRevenue);
+        setRevenueMissing(resolvedRevenue === 0);
 
         // 3. Fetch fixed costs from cost_categories (is_fixed=true)
         const { data: costsData, error: costsError } = await supabase
@@ -110,7 +143,7 @@ export default function CashFlow() {
         setLoanPayment(estimatedQuarterlyPayment);
 
         // 5. Fetch historical monthly revenue to derive seasonal factors
-        const lastYear = currentYear - 1;
+        const lastYear = year - 1;
         const { data: pnlData, error: pnlError } = await supabase
           .from('v_pnl_monthly')
           .select('month, revenue')
@@ -214,7 +247,7 @@ export default function CashFlow() {
     };
 
     fetchData();
-  }, [COMPANY_ID]);
+  }, [COMPANY_ID, year]);
 
   // Generate 13-week forecast from April 2026
   const weeklyData = useMemo(() => {
@@ -224,8 +257,8 @@ export default function CashFlow() {
     let saldo_precedente = initialBalance;
     const WEEKLY_BASE = annualSales / 52;
 
-    // April 2026 starts on week 1 (Thursday)
-    const startDate = new Date(2026, 3, 1); // April 1, 2026
+    // Forecast rolling: parte dall'inizio della settimana corrente (nessuna data hardcoded)
+    const startDate = new Date();
 
     for (let week = 0; week < 13; week++) {
       const week_start = new Date(startDate);
@@ -258,6 +291,7 @@ export default function CashFlow() {
       data.push({
         week: week + 1,
         month,
+        year: week_start.getFullYear(),
         weekStart: week_start.toLocaleDateString('it-IT', { month: 'short', day: 'numeric' }),
         saldo_iniziale: Math.round(saldo_precedente),
         entrate_previste: Math.round(sales),
@@ -292,13 +326,14 @@ export default function CashFlow() {
   }, [weeklyData]);
 
   // Monthly summary
-  interface MonthSummary { month: number; entrate: number; uscite: number; saldo_finale: number }
+  interface MonthSummary { month: number; year: number; entrate: number; uscite: number; saldo_finale: number }
   const monthlySummary = useMemo<MonthSummary[]>(() => {
     const summary: Record<number, MonthSummary> = {};
     weeklyData.forEach(week => {
       if (!summary[week.month]) {
         summary[week.month] = {
           month: week.month,
+          year: week.year,
           entrate: 0,
           uscite: 0,
           saldo_finale: 0
@@ -350,7 +385,7 @@ export default function CashFlow() {
       entrate_previste: w.entrate_previste,
       uscite_previste: w.uscite_totali,
       saldo_finale: w.saldo_finale,
-      sortKey: `2026-${String(w.month).padStart(2, '0')}-${String(w.week).padStart(2, '0')}`
+      sortKey: `${w.year}-${String(w.month).padStart(2, '0')}-${String(w.week).padStart(2, '0')}`
     }));
 
     return [...actualFormatted, ...forecastFormatted];
@@ -399,9 +434,13 @@ export default function CashFlow() {
         {/* Header */}
         <div className="mb-8">
           <h1 className="text-4xl font-bold text-slate-900 mb-2">Cash Flow Forecast</h1>
-          <p className="text-slate-600">Previsione di liquidità rolling 13 settimane (Aprile-Giugno 2026)</p>
+          <p className="text-slate-600">Previsione di liquidità rolling 13 settimane</p>
           <p className="text-xs text-slate-500 mt-1">
-            Ricavi annui: {fmt(annualSales)} | Saldo iniziale: {fmt(initialBalance)}
+            {revenueMissing ? (
+              <span className="text-amber-600">Dato ricavi non disponibile per l'anno {year}</span>
+            ) : (
+              <>Ricavi annui {year}: {fmt(annualSales)}</>
+            )} | Saldo iniziale: {fmt(initialBalance)}
           </p>
         </div>
 
@@ -740,7 +779,7 @@ export default function CashFlow() {
                   return (
                     <tr key={idx} className="border-b border-slate-100 hover:bg-slate-50">
                       <td className="px-4 py-3 font-medium text-slate-900">
-                        {new Date(2026, month.month - 1).toLocaleDateString('it-IT', { month: 'long', year: 'numeric' })}
+                        {new Date(month.year, month.month - 1).toLocaleDateString('it-IT', { month: 'long', year: 'numeric' })}
                       </td>
                       <td className="px-4 py-3 text-right text-green-600 font-medium">{fmt(month.entrate)}</td>
                       <td className="px-4 py-3 text-right text-slate-600">{fmt(month.uscite)}</td>

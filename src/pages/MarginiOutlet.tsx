@@ -46,11 +46,27 @@ export default function MarginiOutlet() {
   const { year: globalYear } = usePeriod()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [year, setYear] = useState(globalYear || 2026)
+  const [year, setYear] = useState(globalYear)
   useEffect(() => { if (globalYear) setYear(globalYear) }, [globalYear])
+  // Anni selezionabili: derivati dagli anni realmente presenti in budget_entries (nessuna lista fissa)
+  const [availableYears, setAvailableYears] = useState<number[]>([])
   // TODO: tighten type — Supabase data
   const [rawData, setRawData] = useState<any[]>([])
   const [expandedOutlet, setExpandedOutlet] = useState<string | null>(null)
+
+  // Carica gli anni disponibili da budget_entries per popolare il dropdown
+  useEffect(() => {
+    async function loadYears() {
+      let q = supabase.from('budget_entries').select('year').range(0, 9999)
+      if (profile?.company_id) q = q.eq('company_id', profile.company_id)
+      const { data } = await q
+      const years = Array.from(
+        new Set((data || []).map(r => r.year).filter((y): y is number => typeof y === 'number'))
+      ).sort((a, b) => b - a)
+      setAvailableYears(years)
+    }
+    loadYears()
+  }, [profile?.company_id])
 
   // Fetch budget_entries for all outlets, selected year (including month for heatmap)
   useEffect(() => {
@@ -261,7 +277,10 @@ export default function MarginiOutlet() {
                 onChange={(e) => setYear(parseInt(e.target.value))}
                 className="px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
               >
-                {[2024, 2025, 2026, 2027].map(y => (
+                {(availableYears.length > 0
+                  ? Array.from(new Set([...availableYears, year])).sort((a, b) => b - a)
+                  : [year]
+                ).map(y => (
                   <option key={y} value={y}>{y}</option>
                 ))}
               </select>
