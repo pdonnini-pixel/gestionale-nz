@@ -309,13 +309,25 @@ type TreeNodeT = TreeRow & { children: TreeNodeT[] }
 
 function buildTree(rows: TreeRow[] | null | undefined): TreeNodeT[] {
   if (!rows || !rows.length) return []
+  // Gerarchia PREFIX-BASED (non piu adiacenza per livello).
+  // Bug fix (ticket 01/06/2026): con sort_order non perfettamente ordinato i
+  // sottoconti finivano sotto il conto sbagliato (es. 630336 del mastro 6303
+  // assegnato a "Viaggi e Trasferte" 6305), gonfiando il totale. Ora ogni nodo
+  // viene agganciato al nodo esistente il cui codice e il prefisso piu lungo,
+  // a prescindere dall'ordine: 6305 contiene SOLO i codici che iniziano per 6305.
+  const norm = (c: string | null | undefined) => (c || '').replace(/\s/g, '')
+  const nodes: TreeNodeT[] = rows.map(row => ({ ...row, children: [] }))
+  const byCode = new Map<string, TreeNodeT>()
+  nodes.forEach(n => { const k = norm(n.code); if (k && !byCode.has(k)) byCode.set(k, n) })
   const tree: TreeNodeT[] = []
-  const stack: { node: TreeNodeT; level: number }[] = []
-  for (const row of rows) {
-    const node: TreeNodeT = { ...row, children: [] }
-    while (stack.length > 0 && stack[stack.length - 1].level >= node.level) stack.pop()
-    if (stack.length === 0) tree.push(node); else stack[stack.length - 1].node.children.push(node)
-    stack.push({ node, level: node.level })
+  for (const node of nodes) {
+    const nc = norm(node.code)
+    let parent: TreeNodeT | null = null
+    for (let l = nc.length - 1; l >= 1; l--) {
+      const cand = byCode.get(nc.slice(0, l))
+      if (cand && cand !== node) { parent = cand; break }
+    }
+    if (parent) parent.children.push(node); else tree.push(node)
   }
   return tree
 }
