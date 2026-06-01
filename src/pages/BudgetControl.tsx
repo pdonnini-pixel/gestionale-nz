@@ -1046,7 +1046,7 @@ export default function BudgetControl() {
     if (!CID) return
     setWorkflowBusy(true)
     try {
-      const { data, error } = await supabase.rpc('unlock_budget_outlet_year', { p_cost_center: code, p_year: 2026, p_reason: reason })
+      const { data, error } = await supabase.rpc('unlock_budget_outlet_year', { p_cost_center: code, p_year: year, p_reason: reason })
       if (error) throw error
       const n = typeof data === 'number' ? data : 0
       show(n > 0 ? `Preventivo ${code} sbloccato (${n} righe)` : `Preventivo ${code} già sbloccato`)
@@ -1800,7 +1800,7 @@ export default function BudgetControl() {
       {approveDialog && (
         <ApproveDialog
           outletLabel={approveDialog.label}
-          year={2026}
+          year={year}
           working={workflowBusy}
           onCancel={() => { if (!workflowBusy) setApproveDialog(null) }}
           onConfirm={() => approveOutletYear(approveDialog.code)}
@@ -1811,7 +1811,7 @@ export default function BudgetControl() {
       {unlockDialog && (
         <UnlockDialog
           outletLabel={unlockDialog.label}
-          year={2026}
+          year={year}
           working={workflowBusy}
           onCancel={() => { if (!workflowBusy) setUnlockDialog(null) }}
           onConfirm={(reason) => unlockOutletYear(unlockDialog.code, reason)}
