@@ -1072,11 +1072,13 @@ export default function ContoEconomico() {
   type BudgetEntryAgg = {
     account_code?: string | null; cost_center?: string | null;
     budget_amount?: number | null; actual_amount?: number | null;
-    actual_refreshed_at?: string | null; is_placeholder?: boolean | null
+    actual_refreshed_at?: string | null; is_placeholder?: boolean | null;
+    month?: number | null
   }
-  // Righe budget_confronto (fonte ricavi di Lilian, inserimento rapido mensile).
-  // entry_type 'rev_monthly' = preventivo ricavi mese; 'cons_monthly' = consuntivo
-  // (granitico) ricavi mese. account_code dei ricavi inizia per '5' (es. 510100).
+  // Righe budget_confronto (fonte preventivo/consuntivo di Lilian, mensile).
+  // RICAVI (account '5'): 'rev_monthly' = preventivo, 'cons_monthly' = consuntivo
+  //   granitico. COSTI (account non '5'): 'prev_monthly' = preventivo mensile,
+  //   'cons_monthly' = consuntivo granitico mensile.
   type BudgetConfrontoAgg = {
     cost_center?: string | null; account_code?: string | null;
     amount?: number | null; entry_type?: string | null; month?: number | null
@@ -1084,10 +1086,10 @@ export default function ContoEconomico() {
   const loadBudgetSummary = useCallback(async () => {
     if (!COMPANY_ID) return
     try {
-      // ─── COSTI (e fallback ricavi) da budget_entries ─────────────────────
+      // ─── budget_entries: preventivo costi (BP) + fallback storico ─────────
       const { data } = await supabase
         .from('budget_entries')
-        .select('account_code, cost_center, budget_amount, actual_amount, actual_refreshed_at, is_placeholder')
+        .select('account_code, cost_center, budget_amount, actual_amount, actual_refreshed_at, is_placeholder, month')
         .eq('company_id', COMPANY_ID)
         .eq('year', year)
         .range(0, 9999) as { data: BudgetEntryAgg[] | null } // override default Supabase limit 1000
@@ -1095,10 +1097,14 @@ export default function ContoEconomico() {
       // database.ts è stale): sul 2026 le righe segnaposto sono cloni del 2025 e
       // non vanno conteggiate; sul 2025 sono tutte non-placeholder → invariato.
       const rows = (data || []).filter((r) => r.is_placeholder !== true)
-      let ricaviPrevBE = 0, ricaviConsBE = 0, costiPrev = 0, costiCons = 0
+      let ricaviPrevBE = 0, ricaviConsBE = 0, costiPrev = 0, costiConsBE = 0
       let anyStale = false
       let lastTs = 0
       let rowsBudgetCompiled = 0
+      // Quota mensile preventivo costi per (outlet|conto) da budget_entries.
+      // È la base del consuntivo costi quando manca il granitico (regola Opzione A):
+      // il preventivo costi vive nel tab BP (budget_entries), non in budget_confronto.
+      const bePrevMonthly: Record<string, number[]> = {}
       rows.forEach((r) => {
         if (r.cost_center === 'rettifica_bilancio') return
         const ac = r.account_code || ''
@@ -1110,7 +1116,13 @@ export default function ContoEconomico() {
           ricaviConsBE += ac2
         } else {
           costiPrev += bp
-          costiCons += ac2
+          costiConsBE += ac2
+          const m = Number(r.month || 0)
+          if (m >= 1 && m <= 12) {
+            const key = `${r.cost_center || ''}|${ac}`
+            if (!bePrevMonthly[key]) bePrevMonthly[key] = Array(12).fill(0)
+            bePrevMonthly[key][m - 1] += bp
+          }
         }
         if (bp !== 0) rowsBudgetCompiled++
         if (!r.actual_refreshed_at) anyStale = true
@@ -1120,13 +1132,11 @@ export default function ContoEconomico() {
         }
       })
 
-      // ─── RICAVI da budget_confronto (fonte di Lilian) se presenti ─────────
-      // I ricavi previsionali/granitici che Lilian inserisce nell'inserimento
-      // rapido vivono in budget_confronto, NON in budget_entries. Se per l'anno
-      // selezionato esistono righe in budget_confronto, usalo come fonte ricavi
-      // (coerente con Budget & Controllo). Altrimenti fallback a budget_entries
-      // ('5', no placeholder) = comportamento storico (es. 2025). Nessun anno
-      // hardcoded: la scelta dipende SOLO dalla presenza di righe budget_confronto.
+      // ─── budget_confronto (fonte di Lilian) se presente per l'anno ────────
+      // Sia ricavi sia costi (preventivo E consuntivo) provengono da qui quando
+      // l'anno ha righe budget_confronto (coerente con Budget & Controllo).
+      // Altrimenti fallback a budget_entries (comportamento storico, es. 2025).
+      // Nessun anno hardcoded: dipende SOLO dalla presenza di righe.
       const { data: cfData } = await supabase
         .from('budget_confronto')
         .select('cost_center, account_code, amount, entry_type, month')
@@ -1137,41 +1147,68 @@ export default function ContoEconomico() {
 
       let ricaviPrev = ricaviPrevBE
       let ricaviCons = ricaviConsBE
+      let costiCons = costiConsBE
       if (cfRows.length > 0) {
-        // Ricostruisci le matrici mensili (per outlet+conto) di preventivo e
-        // consuntivo ricavi, poi:
-        //  - preventivo ricavi = somma rev_monthly (≈ revYearlyByOutlet/annualR di BudgetControl)
-        //  - consuntivo ricavi = proiezione "granitico se presente, altrimenti
-        //    preventivo" per ogni mese (stessa logica di proietta()/projRicavi).
-        const revM: Record<string, number[]> = {}
-        const consM: Record<string, number[]> = {}
+        // Matrici mensili (outlet|conto → 12 mesi). Ricavi e costi separati per
+        // prefisso account ('5' = ricavi). Preventivo ricavi = rev_monthly;
+        // preventivo costi mensile = prev_monthly; consuntivo (entrambi) = cons_monthly.
+        const revM: Record<string, number[]> = {}      // ricavi preventivo
+        const consMrev: Record<string, number[]> = {}   // ricavi consuntivo (granitico)
+        const prevMcost: Record<string, number[]> = {}  // costi preventivo mensile
+        const consMcost: Record<string, number[]> = {}  // costi consuntivo (granitico)
+        const ensure = (m: Record<string, number[]>, k: string) => {
+          if (!m[k]) m[k] = Array(12).fill(0)
+          return m[k]
+        }
         cfRows.forEach((r) => {
           const ac = r.account_code || ''
-          if (!ac.startsWith('5')) return // solo ricavi
           const m = Number(r.month || 0)
           if (m < 1 || m > 12) return
           const key = `${r.cost_center || ''}|${ac}`
           const amt = Number(r.amount || 0)
-          if (r.entry_type === 'rev_monthly') {
-            if (!revM[key]) revM[key] = Array(12).fill(0)
-            revM[key][m - 1] = amt
-          } else if (r.entry_type === 'cons_monthly') {
-            if (!consM[key]) consM[key] = Array(12).fill(0)
-            consM[key][m - 1] = amt
+          if (ac.startsWith('5')) {
+            if (r.entry_type === 'rev_monthly') ensure(revM, key)[m - 1] = amt
+            else if (r.entry_type === 'cons_monthly') ensure(consMrev, key)[m - 1] = amt
+          } else {
+            if (r.entry_type === 'prev_monthly') ensure(prevMcost, key)[m - 1] = amt
+            else if (r.entry_type === 'cons_monthly') ensure(consMcost, key)[m - 1] = amt
           }
         })
-        let prevSum = 0, consSum = 0
-        const keys = new Set([...Object.keys(revM), ...Object.keys(consM)])
-        keys.forEach((key) => {
+
+        // RICAVI: preventivo = somma rev_monthly; consuntivo = proiezione
+        // "granitico (cons_monthly) se presente, altrimenti preventivo (rev_monthly)".
+        let ricaviPrevSum = 0, ricaviConsSum = 0
+        const revKeys = new Set([...Object.keys(revM), ...Object.keys(consMrev)])
+        revKeys.forEach((key) => {
           for (let mi = 0; mi < 12; mi++) {
             const p = revM[key]?.[mi] || 0
-            const c = consM[key]?.[mi] || 0
-            prevSum += p
-            consSum += c > 0 ? c : p // granitico se presente, altrimenti preventivo
+            const c = consMrev[key]?.[mi] || 0
+            ricaviPrevSum += p
+            ricaviConsSum += c > 0 ? c : p
           }
         })
-        ricaviPrev = prevSum
-        ricaviCons = consSum
+        ricaviPrev = ricaviPrevSum
+        ricaviCons = ricaviConsSum
+
+        // COSTI: preventivo resta da budget_entries (= TOTALE COSTI Preventivo del
+        // tab confronto, vista annuale). Consuntivo = STESSA regola dei ricavi:
+        // granitico (cons_monthly) se presente, altrimenti il preventivo reale del
+        // mese — prev_monthly se inserito, altrimenti la quota mensile budget_entries
+        // (Opzione A). Anni senza granitico → costiCons ≈ costiPrev (non gonfiato).
+        let costiConsSum = 0
+        const costKeys = new Set([
+          ...Object.keys(bePrevMonthly),
+          ...Object.keys(prevMcost),
+          ...Object.keys(consMcost),
+        ])
+        costKeys.forEach((key) => {
+          for (let mi = 0; mi < 12; mi++) {
+            const granitico = consMcost[key]?.[mi] || 0
+            const prevMese = (prevMcost[key]?.[mi] || 0) || (bePrevMonthly[key]?.[mi] || 0)
+            costiConsSum += granitico > 0 ? granitico : prevMese
+          }
+        })
+        costiCons = costiConsSum
       }
 
       setBudgetSummary({
