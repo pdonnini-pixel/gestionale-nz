@@ -19,20 +19,35 @@ const PeriodContext = createContext<PeriodContextValue | null>(null)
 
 const CURRENT_YEAR = new Date().getFullYear()
 
+const YEAR_STORAGE_KEY = 'nz_period_year'
+
+function readStoredYear(): number | null {
+  try {
+    const v = parseInt(localStorage.getItem(YEAR_STORAGE_KEY) || '')
+    return Number.isInteger(v) && v >= 2000 && v <= 2100 ? v : null
+  } catch { return null }
+}
+
 export function PeriodProvider({ children }: { children: ReactNode }) {
   // L'anno selezionato vive nell'URL (?anno=2026): unica fonte di verità,
   // così è condivisibile via link e sopravvive al refresh (come ?periodo= e ?view=).
   const [searchParams, setSearchParams] = useSearchParams()
 
-  // Deriva l'anno dal parametro URL `anno`, con fallback all'anno corrente.
+  // Deriva l'anno con catena di fallback: URL `?anno=` → localStorage → anno corrente.
+  // La sidebar naviga con <NavLink to="/path"> a path puri (senza query string): React
+  // Router scarta i parametri esistenti e ?anno si perde a ogni click di menu. Il fallback
+  // su localStorage (scritto da updateYear) fa sopravvivere l'anno selezionato a quelle
+  // navigazioni, finché un nuovo ?anno nell'URL non torna a essere fonte di verità.
   const yearParam = parseInt(searchParams.get('anno') || '')
   const year = Number.isInteger(yearParam) && yearParam >= 2000 && yearParam <= 2100
     ? yearParam
-    : CURRENT_YEAR
+    : (readStoredYear() ?? CURRENT_YEAR)
 
   const [quarter, setQuarter] = useState('year')
 
   const updateYear = useCallback((y: number) => {
+    // Persisti l'anno: sopravvive alle navigazioni via menu che perdono ?anno (vedi sopra).
+    try { localStorage.setItem(YEAR_STORAGE_KEY, String(y)) } catch { /* ignore */ }
     // Aggiorna `anno` preservando gli altri parametri (periodo, view, ...)
     const params = new URLSearchParams(searchParams)
     params.set('anno', String(y))
