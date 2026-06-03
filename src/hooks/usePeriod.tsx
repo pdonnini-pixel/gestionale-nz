@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useCallback, type ReactNode } from 'react'
+import { useSearchParams } from 'react-router-dom'
 
 interface DateRange {
   from: string
@@ -18,15 +19,40 @@ const PeriodContext = createContext<PeriodContextValue | null>(null)
 
 const CURRENT_YEAR = new Date().getFullYear()
 
+const YEAR_STORAGE_KEY = 'nz_period_year'
+
+function readStoredYear(): number | null {
+  try {
+    const v = parseInt(localStorage.getItem(YEAR_STORAGE_KEY) || '')
+    return Number.isInteger(v) && v >= 2000 && v <= 2100 ? v : null
+  } catch { return null }
+}
+
 export function PeriodProvider({ children }: { children: ReactNode }) {
-  // Al refresh: SEMPRE anno corrente e vista anno intero (no localStorage)
-  const [year, setYear] = useState(CURRENT_YEAR)
+  // L'anno selezionato vive nell'URL (?anno=2026): unica fonte di verità,
+  // così è condivisibile via link e sopravvive al refresh (come ?periodo= e ?view=).
+  const [searchParams, setSearchParams] = useSearchParams()
+
+  // Deriva l'anno con catena di fallback: URL `?anno=` → localStorage → anno corrente.
+  // La sidebar naviga con <NavLink to="/path"> a path puri (senza query string): React
+  // Router scarta i parametri esistenti e ?anno si perde a ogni click di menu. Il fallback
+  // su localStorage (scritto da updateYear) fa sopravvivere l'anno selezionato a quelle
+  // navigazioni, finché un nuovo ?anno nell'URL non torna a essere fonte di verità.
+  const yearParam = parseInt(searchParams.get('anno') || '')
+  const year = Number.isInteger(yearParam) && yearParam >= 2000 && yearParam <= 2100
+    ? yearParam
+    : (readStoredYear() ?? CURRENT_YEAR)
+
   const [quarter, setQuarter] = useState('year')
 
   const updateYear = useCallback((y: number) => {
-    setYear(y)
-    try { localStorage.setItem('nz_period_year', String(y)) } catch { /* ignore */ }
-  }, [])
+    // Persisti l'anno: sopravvive alle navigazioni via menu che perdono ?anno (vedi sopra).
+    try { localStorage.setItem(YEAR_STORAGE_KEY, String(y)) } catch { /* ignore */ }
+    // Aggiorna `anno` preservando gli altri parametri (periodo, view, ...)
+    const params = new URLSearchParams(searchParams)
+    params.set('anno', String(y))
+    setSearchParams(params)
+  }, [searchParams, setSearchParams])
 
   const updateQuarter = useCallback((q: string) => {
     setQuarter(q)
