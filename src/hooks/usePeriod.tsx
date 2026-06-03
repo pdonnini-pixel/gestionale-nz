@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useCallback, type ReactNode } from 'react'
+import { useSearchParams } from 'react-router-dom'
 
 interface DateRange {
   from: string
@@ -19,14 +20,24 @@ const PeriodContext = createContext<PeriodContextValue | null>(null)
 const CURRENT_YEAR = new Date().getFullYear()
 
 export function PeriodProvider({ children }: { children: ReactNode }) {
-  // Al refresh: SEMPRE anno corrente e vista anno intero (no localStorage)
-  const [year, setYear] = useState(CURRENT_YEAR)
+  // L'anno selezionato vive nell'URL (?anno=2026): unica fonte di verità,
+  // così è condivisibile via link e sopravvive al refresh (come ?periodo= e ?view=).
+  const [searchParams, setSearchParams] = useSearchParams()
+
+  // Deriva l'anno dal parametro URL `anno`, con fallback all'anno corrente.
+  const yearParam = parseInt(searchParams.get('anno') || '')
+  const year = Number.isInteger(yearParam) && yearParam >= 2000 && yearParam <= 2100
+    ? yearParam
+    : CURRENT_YEAR
+
   const [quarter, setQuarter] = useState('year')
 
   const updateYear = useCallback((y: number) => {
-    setYear(y)
-    try { localStorage.setItem('nz_period_year', String(y)) } catch { /* ignore */ }
-  }, [])
+    // Aggiorna `anno` preservando gli altri parametri (periodo, view, ...)
+    const params = new URLSearchParams(searchParams)
+    params.set('anno', String(y))
+    setSearchParams(params)
+  }, [searchParams, setSearchParams])
 
   const updateQuarter = useCallback((q: string) => {
     setQuarter(q)
