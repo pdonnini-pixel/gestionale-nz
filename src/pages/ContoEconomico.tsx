@@ -18,7 +18,7 @@ import {
   Building2, Users, Warehouse, Banknote, Calculator, ShieldCheck, Store, MapPin,
   FileUp, Download, Lock, CheckCircle, Clock, ThumbsUp, ThumbsDown,
   Lightbulb, AlertTriangle, FileText, Save, X, Sparkles, LineChart as LineChartIcon, Loader2,
-  RefreshCw, Target, Info
+  Target, Info
 } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -2319,11 +2319,12 @@ export default function ContoEconomico() {
 
       {/* ═══ STEP B2: Confronto con Budget e Controllo ═══
           Mostra preventivo / consuntivo / scostamento aggregati per ricavi
-          e costi, leggendo direttamente da budget_entries (popolato da
-          RPC refresh_budget_consuntivo). Pensato per Massimo/Denise (CEO)
-          per vedere a colpo d'occhio quanto stiamo performando vs budget.
-          Replicato sui 3 tenant: non dipende da account_code specifici
-          di NZ, usa solo convenzione "5xxxxx = ricavi" del piano dei conti italiano. */}
+          e costi. Fonte: Budget & Controllo (budget_confronto, inserito da
+          Lilian) con fallback a budget_entries; il consuntivo è ciò che viene
+          compilato nel tab "Preventivo vs Consuntivo", NON la RPC dalle fatture.
+          Pensato per Massimo/Denise (CEO) per vedere a colpo d'occhio quanto
+          stiamo performando vs budget. Replicato sui 3 tenant: non dipende da
+          account_code specifici di NZ, usa solo convenzione "5xxxxx = ricavi". */}
       {viewMode === 'competenza' && budgetSummary && (
         <Section title="Confronto con Budget e Controllo" icon={Target}
           badge={budgetSummary.rowsBudgetCompiled === 0
@@ -2341,28 +2342,14 @@ export default function ContoEconomico() {
                   </span>
                 ) : (
                   <>
-                    Aggregato da <strong>{budgetSummary.rowsTotal}</strong> righe budget_entries · Consuntivo ultimo refresh: <strong>{fmtRelTime(budgetSummary.lastRefresh)}</strong>
-                    {budgetSummary.anyStale && (
-                      <span className="ml-2 text-amber-700">(alcune righe da rinfrescare)</span>
-                    )}
+                    Aggregato da <strong>{budgetSummary.rowsTotal}</strong> righe da <strong>Budget &amp; Controllo</strong>
                   </>
                 )}
               </div>
-              {!hasRole('ceo') && (
-                <button
-                  onClick={handleRefreshBudget}
-                  disabled={budgetRefreshing}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 border transition shrink-0 ${
-                    budgetSummary.anyStale
-                      ? 'bg-amber-50 border-amber-300 text-amber-800 hover:bg-amber-100'
-                      : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
-                  } ${budgetRefreshing ? 'opacity-50 cursor-not-allowed' : ''}`}
-                  title="Aggrega il consuntivo da fatture passive, ricavi POS e fatture attive"
-                >
-                  <RefreshCw size={14} className={budgetRefreshing ? 'animate-spin' : ''} />
-                  {budgetRefreshing ? 'Aggiornamento…' : 'Aggiorna consuntivo'}
-                </button>
-              )}
+              {/* Bottone "Aggiorna consuntivo" RIMOSSO: il consuntivo (ricavi e
+                  costi) viene da Budget & Controllo (budget_confronto, inserito da
+                  Lilian), non più dalla RPC refresh_budget_consuntivo (fatture/POS).
+                  handleRefreshBudget e la RPC restano definiti ma non più invocati qui. */}
             </div>
 
             {/* Tabella confronto */}
@@ -2420,9 +2407,10 @@ export default function ContoEconomico() {
 
             <div className="text-xs text-slate-500">
               <Info size={12} className="inline mr-1" />
-              I dati provengono da <strong>budget_entries</strong> (popolati in Budget e Controllo).
-              Il preventivo è il business plan annuo per outlet; il consuntivo è aggregato in tempo reale
-              da fatture, ricavi POS e fatture attive via RPC <code>refresh_budget_consuntivo</code>.
+              Preventivo e consuntivo provengono da <strong>Budget &amp; Controllo</strong>, inseriti per outlet.
+              Il consuntivo è quello compilato nel tab <strong>«Preventivo vs Consuntivo»</strong> (granitico per i
+              mesi chiusi); dove non è ancora inserito, viene mostrato il preventivo.
+              Le fatture e lo scadenzario non sono la fonte del consuntivo.
             </div>
           </div>
         </Section>
