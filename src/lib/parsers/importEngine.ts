@@ -574,6 +574,33 @@ async function processBalanceSheetPDF(pdfData: string | ArrayBuffer, context: Im
 
     onProgress(60, `Pulizia dati precedenti anno ${year}...`);
 
+    // ─── SNAPSHOT PRE-DELETE (NO DATA LOSS, ticket 9bf52ecc) ──────────────────
+    // Prima di cancellare in blocco le righe esistenti, ne salvo una copia
+    // integrale in financial_snapshots. Se lo snapshot fallisce NON procedo col
+    // delete (fail-safe): meglio un import non eseguito che dati persi senza copia.
+    const { data: toSnapshot, error: snapSelErr } = await supabase
+      .from('balance_sheet_data')
+      .select('*')
+      .eq('company_id', context.company_id)
+      .eq('year', year)
+      .range(0, 99999);
+    if (snapSelErr) {
+      return { imported: 0, errors: [{ message: `Snapshot pre-import fallito (lettura): ${snapSelErr.message}` }] };
+    }
+    if ((toSnapshot || []).length > 0) {
+      const { error: snapInsErr } = await supabase.from('financial_snapshots').insert({
+        company_id: context.company_id,
+        source_table: 'balance_sheet_data',
+        year,
+        payload: toSnapshot,
+        rows_count: (toSnapshot || []).length,
+        created_by: 'importEngine:processBalanceSheetPDF',
+      } as never);
+      if (snapInsErr) {
+        return { imported: 0, errors: [{ message: `Snapshot pre-import fallito (scrittura): ${snapInsErr.message}` }] };
+      }
+    }
+
     // Delete existing records for this company/year to allow re-import
     await supabase
       .from('balance_sheet_data')
