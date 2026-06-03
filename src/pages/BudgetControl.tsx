@@ -1122,46 +1122,13 @@ export default function BudgetControl() {
       const { error } = await supabase.from('budget_entries').upsert(entries as never, { onConflict: 'company_id,account_code,cost_center,year,month' })
       if (error) throw error
 
-      // ─── SPALMA EDIT RICAVI ANNUALI SU 12 MESI in budget_confronto.rev_monthly ───
-      // Cosi' la vista Confronto Mensile (PrevVsCons) vede subito le previsioni di ricavo
-      // come distribuite uniformemente; l'utente puo' poi affinarle mese per mese.
-      // ATTENZIONE: questo SOVRASCRIVE eventuali distribuzioni non uniformi gia' inserite.
-      const ricaviAnnualEdits: Record<string, number> = {}
-      Object.entries(costEdits).forEach(([ac, val]) => {
-        if (ricaviCodes.has(ac)) ricaviAnnualEdits[ac] = val
-      })
-      if (Object.keys(ricaviAnnualEdits).length > 0 && CID) {
-        // Delete vecchio rev_monthly per i codici ricavo toccati
-        for (const ac of Object.keys(ricaviAnnualEdits)) {
-          await supabase.from('budget_confronto').delete()
-            .eq('company_id', CID).eq('cost_center', code).eq('account_code', ac)
-            .eq('year', year).eq('entry_type', 'rev_monthly')
-        }
-        // Insert 12 righe spalmate per ogni codice ricavo
-        const monthlyRows = Object.entries(ricaviAnnualEdits).flatMap(([ac, val]) => {
-          const months = splitMonthly(val)
-          return Array.from({ length: 12 }, (_, mi) => ({
-            company_id: CID, cost_center: code, account_code: ac, year,
-            month: mi + 1, entry_type: 'rev_monthly',
-            amount: months[mi],
-            updated_at: new Date().toISOString(),
-          }))
-        })
-        await supabase.from('budget_confronto').insert(monthlyRows as never)
-        // Aggiorna lo state revMonthly cosi' la UI mostra subito i nuovi valori mensili
-        setRevMonthly(prev => {
-          const next = { ...prev }
-          if (!next[code]) next[code] = {}
-          Object.entries(ricaviAnnualEdits).forEach(([ac, val]) => {
-            next[code][ac] = splitMonthly(val)
-          })
-          return next
-        })
-      }
-
+      // NB: i RICAVI mensili (budget_confronto.rev_monthly/cons_monthly) NON vengono
+      // più toccati da questo salvataggio. Lilian li inserisce a mano mese per mese in
+      // PrevVsCons / Inserimento Rapido; nessuno spalma /12 automatico li sovrascrive.
+      // In particolare i valori GRANITICI (cons_monthly) restano intoccati: si
+      // modificano solo per azione esplicita dell'utente.
       const nCosti = Object.keys(costEdits).filter(k => !ricaviCodes.has(k)).length
-      const nRicaviEdit = Object.keys(ricaviAnnualEdits).length
-      show(`Preventivo ${code} salvato ✓ (${nCosti} costi + ${Object.keys(ricaviLeaves).length} ricavi${nRicaviEdit > 0 ? `, ${nRicaviEdit} mensilizzati` : ''})`)
+      show(`Preventivo ${code} salvato ✓ (${nCosti} costi + ${Object.keys(ricaviLeaves).length} ricavi)`)
     } catch (e: unknown) { show((e as Error).message, 'error') } finally { setSaving(false) }
   }
 
@@ -1211,6 +1178,8 @@ export default function BudgetControl() {
         month: monthIdx + 1,
         entry_type: entryType,
         amount: value,
+        // cons_monthly = consuntivo reale del mese chiuso = granitico; il resto è preventivo
+        stato: entryType === 'cons_monthly' ? 'granitico' : 'preventivo',
         updated_at: new Date().toISOString(),
       } as never)
       if (error) throw error
@@ -1220,7 +1189,7 @@ export default function BudgetControl() {
   const saveConfronto = async (outletCode: string) => {
     setSaving(true)
     try {
-      type CfInsertRow = { company_id: string; cost_center: string; account_code: string; year: number; month: number; entry_type: string; amount: number; rettifica_amount?: number | null; rettifica_pct?: number | null; updated_at: string }
+      type CfInsertRow = { company_id: string; cost_center: string; account_code: string; year: number; month: number; entry_type: string; amount: number; rettifica_amount?: number | null; rettifica_pct?: number | null; stato?: string; updated_at: string }
       const rows: CfInsertRow[] = []
       // Annuale: consuntivo
       Object.entries(consEdits[outletCode] || {}).forEach(([ac, amt]) => {
@@ -1250,7 +1219,7 @@ export default function BudgetControl() {
       // Mensile: consuntivo
       Object.entries(consMonthly[outletCode] || {}).forEach(([ac, arr]) => {
         (arr as number[] || []).forEach((v, mi) => {
-          if (typeof v === 'number' && v !== 0 && CID) rows.push({ company_id: CID, cost_center: outletCode, account_code: ac, year, month: mi + 1, entry_type: 'cons_monthly', amount: v, updated_at: new Date().toISOString() })
+          if (typeof v === 'number' && v !== 0 && CID) rows.push({ company_id: CID, cost_center: outletCode, account_code: ac, year, month: mi + 1, entry_type: 'cons_monthly', amount: v, stato: 'granitico', updated_at: new Date().toISOString() })
         })
       })
       // Mensile: rettifica (€ + %)
@@ -1401,14 +1370,26 @@ export default function BudgetControl() {
   // Outlets that have saved BP data
   const outletsWithBP = ops.filter(cc => bpEdits[cc.code] && Object.keys(bpEdits[cc.code]).length > 0)
 
-  // Calcola somma annuale dei ricavi mensili (revMonthly) per outlet+account_code.
-  // Usato da BPCard per mostrare il "Totale Valore Produzione" coerente con quello
-  // inserito mese per mese nel pannello Confronto Mensile (PrevVsCons).
+  // Somma annuale ricavi per outlet+account_code, REGOLA GRANITICO/PREVENTIVO:
+  // per ogni mese usa il valore GRANITICO (consuntivo reale, consMonthly) se presente,
+  // altrimenti il PREVENTIVO (revMonthly). Coerente con budget_confronto.stato.
+  // Usato da BPCard per il "Totale Valore Produzione".
   const revYearlyByOutlet: Record<string, Record<string, number>> = {}
-  Object.entries(revMonthly).forEach(([outletCode, byCode]) => {
-    if (!byCode) return
-    Object.entries(byCode).forEach(([accCode, months]) => {
-      const sum = (months || []).reduce<number>((s, v) => s + (typeof v === 'number' ? v : 0), 0)
+  const outletCodesRicavi = new Set<string>([...Object.keys(revMonthly), ...Object.keys(consMonthly)])
+  outletCodesRicavi.forEach(outletCode => {
+    const prevByCode = revMonthly[outletCode] || {}
+    const consByCode = consMonthly[outletCode] || {}
+    const accCodes = new Set<string>([...Object.keys(prevByCode), ...Object.keys(consByCode)])
+    accCodes.forEach(accCode => {
+      const prevArr = prevByCode[accCode] || []
+      const consArr = consByCode[accCode] || []
+      let sum = 0
+      for (let mi = 0; mi < 12; mi++) {
+        const cons = typeof consArr[mi] === 'number' ? consArr[mi] : 0
+        const prev = typeof prevArr[mi] === 'number' ? prevArr[mi] : 0
+        // granitico (consuntivo del mese chiuso) vince sul preventivo quando presente
+        sum += cons !== 0 ? cons : prev
+      }
       if (sum !== 0) {
         if (!revYearlyByOutlet[outletCode]) revYearlyByOutlet[outletCode] = {}
         revYearlyByOutlet[outletCode][accCode] = sum
@@ -1978,7 +1959,7 @@ function BPCard({ label, code, isHQ, numOps: _numOps, costiTree, ricaviTree, edi
           </div>
         </div>
         <div className="flex items-center gap-5">
-          <div className="text-right"><div className="text-xs text-slate-400">Ricavi (bilancio)</div><div className="font-semibold text-emerald-600">{fmtC(totR)}</div></div>
+          <div className="text-right"><div className="text-xs text-slate-400">Ricavi (da PrevVsCons)</div><div className="font-semibold text-emerald-600">{fmtC(totR)}</div></div>
           <div className="text-right"><div className="text-xs text-slate-400">Costi (preventivo)</div><div className="font-semibold text-red-600">{fmtC(totC)}</div></div>
           {!isHQ && <div className="text-right"><div className="text-xs text-slate-400">Risultato</div><div className={`font-bold ${ris>=0?'text-emerald-700':'text-red-700'}`}>{fmtC(ris)}</div></div>}
           {open ? <ChevronUp size={18} className="text-slate-400"/> : <ChevronDown size={18} className="text-slate-400"/>}
@@ -2004,7 +1985,7 @@ function BPCard({ label, code, isHQ, numOps: _numOps, costiTree, ricaviTree, edi
           )}
           <div className="flex items-center justify-between mb-3">
             <p className="text-xs text-slate-500">
-              {readOnly ? 'Visualizzazione preventivo' : 'Compila i costi previsti'} — i ricavi vengono dal bilancio {year - 1}
+              {readOnly ? 'Visualizzazione preventivo' : 'Compila i costi previsti'} — i ricavi vengono dall'inserimento rapido (PrevVsCons), inseriti mese per mese
             </p>
             <div className="flex items-center gap-2">
               {/* Bottoni di edit visibili solo se l'utente può approvare E il preventivo non è lockato */}
@@ -2053,21 +2034,20 @@ function BPCard({ label, code, isHQ, numOps: _numOps, costiTree, ricaviTree, edi
                 <span className="text-sm font-bold text-red-600">{fmtC(totC)}</span>
               </div>
             </div>
-            {/* RICAVI / Valore della Produzione — editabili (o lockati se readOnly) */}
+            {/* RICAVI / Valore della Produzione — SEMPRE sola lettura: i ricavi
+                arrivano dall'inserimento rapido mese per mese (PrevVsCons),
+                granitico-se-presente-altrimenti-preventivo. Nessun edit/spalma qui. */}
             <div>
               <div className="text-xs font-semibold text-emerald-500 uppercase tracking-wider mb-2 flex items-center gap-2">
-                Valore della Produzione {readOnly ? <Lock size={11} className="text-slate-400" /> : (
-                  <span className="text-emerald-400 normal-case font-normal text-[10px]">
-                    {hasMonthlySum
-                      ? `(somma dei mesi inseriti in PrevVsCons — modificabile qui spalmando /12)`
-                      : `(da compilare — inserisci i mesi in PrevVsCons o il totale annuo qui)`}
-                  </span>
-                )}
+                Valore della Produzione <Lock size={11} className="text-slate-400" />
+                <span className="text-emerald-400 normal-case font-normal text-[10px]">
+                  {hasMonthlySum
+                    ? `(somma dei mesi inseriti in PrevVsCons)`
+                    : `(da compilare — inserisci i mesi in PrevVsCons)`}
+                </span>
               </div>
-              <div className={`border rounded-lg p-1.5 max-h-[500px] overflow-y-auto ${readOnly ? 'border-emerald-100 bg-emerald-50/30' : 'border-emerald-200 bg-white'}`}>
-                {readOnly
-                  ? editedR.map((n, i) => <TreeNodeView key={`${n.code}-${i}`} node={n} />)
-                  : editedR.map((n, i) => <TreeNodeEdit key={`${n.code}-${i}`} node={n} edits={edits} onEdit={onEdit} />)}
+              <div className="border rounded-lg p-1.5 max-h-[500px] overflow-y-auto border-emerald-100 bg-emerald-50/30">
+                {editedR.map((n, i) => <TreeNodeView key={`${n.code}-${i}`} node={n} />)}
               </div>
               <div className="mt-2 pt-2 border-t-2 border-slate-300 flex justify-between px-2">
                 <span className="text-sm font-bold">TOTALE RICAVI</span>
@@ -3115,6 +3095,8 @@ function InserimentoRapidoMatrice({ year, companyId, outlets }: {
       const { error } = await supabase.from('budget_confronto').insert({
         company_id: companyId, cost_center: outlet.code, account_code: outlet.accountCode,
         year, month: mese + 1, entry_type: entryType, amount: value,
+        // riga Consuntivo = granitico (mese chiuso reale); riga Preventivo = preventivo
+        stato: kind === 'cons' ? 'granitico' : 'preventivo',
         updated_at: new Date().toISOString(),
       } as never)
       if (error) throw error
@@ -3131,7 +3113,7 @@ function InserimentoRapidoMatrice({ year, companyId, outlets }: {
         <div className="text-sm text-blue-900">
           <div className="font-semibold mb-1">Inserimento Rapido Corrispettivi</div>
           <p className="text-blue-700 text-xs">
-            Scegli il mese, inserisci preventivo e consuntivo per ogni outlet. Salvataggio automatico (vedi ✓ verde). I numeri popolano direttamente il bilancio e le viste Preventivo vs Consuntivo / Business Plan.
+            Scegli il mese, inserisci preventivo e consuntivo per ogni outlet. Il <strong>Consuntivo</strong> è il dato <strong>granitico</strong> (corrispettivi reali dei mesi chiusi); il <strong>Preventivo</strong> è previsionale. Salvataggio automatico (vedi ✓ verde). I numeri popolano direttamente il bilancio e le viste Preventivo vs Consuntivo / Business Plan.
           </p>
         </div>
       </div>
@@ -3178,6 +3160,7 @@ function InserimentoRapidoMatrice({ year, companyId, outlets }: {
                 <tr className="border-b border-slate-100">
                   <td className="py-3 px-4 text-sm font-semibold text-indigo-700 bg-indigo-50/40">
                     <div className="flex items-center gap-1.5"><Lock size={12} />Preventivo</div>
+                    <span className="mt-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-semibold uppercase tracking-wide bg-slate-100 text-slate-500">Preventivo</span>
                   </td>
                   {outlets.map(o => (
                     <td key={o.code} className="py-2 px-3">
@@ -3198,6 +3181,7 @@ function InserimentoRapidoMatrice({ year, companyId, outlets }: {
                 <tr>
                   <td className="py-3 px-4 text-sm font-semibold text-emerald-700 bg-emerald-50/40">
                     <div className="flex items-center gap-1.5"><Unlock size={12} />Consuntivo</div>
+                    <span className="mt-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-semibold uppercase tracking-wide bg-emerald-100 text-emerald-700">Granitico</span>
                   </td>
                   {outlets.map(o => (
                     <td key={o.code} className="py-2 px-3">
