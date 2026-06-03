@@ -89,10 +89,11 @@ export default function Fornitori() {
   // Data state
   type SupplierRow = Record<string, unknown> & { id: string }
   type PayableRow = Record<string, unknown> & { id: string }
-  type InvoiceRowF = Record<string, unknown> & { id: string }
+  type KpiRow = Record<string, unknown> & { supplier_id: string }
   const [suppliers, setSuppliers] = useState<SupplierRow[]>([]);
-  const [payables, setPayables] = useState<PayableRow[]>([]);
-  const [invoices, setInvoices] = useState<InvoiceRowF[]>([]);
+  const [kpiRows, setKpiRows] = useState<KpiRow[]>([]);
+  const [invoiceCount, setInvoiceCount] = useState(0);
+  const [expandedPays, setExpandedPays] = useState<PayableRow[]>([]);
   const [loading, setLoading] = useState(true);
 
   // UI state
@@ -141,26 +142,29 @@ export default function Fornitori() {
       setLoading(false);
     }, 15000);
     try {
-      const [suppRes, payRes, invRes] = await Promise.all([
+      const [suppRes, kpiRes, invCountRes] = await Promise.all([
         supabase.from('suppliers').select('*')
           .eq('company_id', COMPANY_ID)
           .or('is_deleted.is.null,is_deleted.eq.false')
           .order('ragione_sociale', { ascending: true }),
-        supabase.from('payables').select('*')
-          .eq('company_id', COMPANY_ID)
-          .limit(5000),
-        supabase.from('electronic_invoices').select('*')
-          .eq('company_id', COMPANY_ID)
-          .limit(5000),
+        // Aggregati per-fornitore calcolati lato DB (view v_fornitori_kpi): un record
+        // per fornitore. Evita di scaricare tutte le payables/fatture lato client
+        // (causa del timeout 15s dopo il backfill: 769 e-invoices con xml_content).
+        supabase.from('v_fornitori_kpi').select('*')
+          .eq('company_id', COMPANY_ID),
+        // Solo il CONTEGGIO fatture (head=true): nessun download di xml_content.
+        supabase.from('electronic_invoices')
+          .select('id', { count: 'exact', head: true })
+          .eq('company_id', COMPANY_ID),
       ]);
 
       if (suppRes.error) console.warn('suppliers load:', suppRes.error.message);
-      if (payRes.error) console.warn('payables load:', payRes.error.message);
-      if (invRes.error) console.warn('invoices load:', invRes.error.message);
+      if (kpiRes.error) console.warn('kpi load:', kpiRes.error.message);
+      if (invCountRes.error) console.warn('invoice count load:', invCountRes.error.message);
 
       setSuppliers((suppRes.data || []) as unknown as SupplierRow[]);
-      setPayables((payRes.data || []) as unknown as PayableRow[]);
-      setInvoices((invRes.data || []) as unknown as InvoiceRowF[]);
+      setKpiRows((kpiRes.data || []) as unknown as KpiRow[]);
+      setInvoiceCount(invCountRes.count || 0);
     } catch (err) {
       console.error('Load error:', err);
     } finally {
@@ -169,62 +173,49 @@ export default function Fornitori() {
     }
   }
 
+  // Scadenze del fornitore espanso: caricate on-demand (lazy) per non tenere
+  // in memoria tutte le payables della company.
+  useEffect(() => {
+    if (!expandedId || !COMPANY_ID) { setExpandedPays([]); return; }
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase.from('payables')
+        .select('id, invoice_number, invoice_date, created_at, gross_amount, amount_remaining, status, due_date')
+        .eq('company_id', COMPANY_ID)
+        .eq('supplier_id', expandedId)
+        .order('invoice_date', { ascending: false })
+        .limit(500);
+      if (!cancelled) setExpandedPays((data || []) as unknown as PayableRow[]);
+    })();
+    return () => { cancelled = true; };
+  }, [expandedId, COMPANY_ID]);
+
   // ─── COMPUTED DATA ────────────────────────────────────────────
 
-  // Aggregate payable data per supplier — keyed by supplier_id
+  // Aggregate payable data per supplier — keyed by supplier_id.
+  // Fonte: view DB v_fornitori_kpi (un record aggregato per fornitore). Sostituisce
+  // il vecchio loop client su tutte le payables (non scalava: timeout dopo il backfill).
   interface SupplierStat { total: number; paid: number; pending: number; overdue: number; count: number; lastDate: string | null; grossTotal: number; methods: Set<string>; paidCount: number; reconciledCount: number }
   const supplierStats = useMemo<Record<string, SupplierStat>>(() => {
     const stats: Record<string, SupplierStat> = {};
-    payables.forEach(p => {
-      const key = p.supplier_id as string | null
+    kpiRows.forEach(r => {
+      const key = r.supplier_id as string | null;
       if (!key) return;
-      if (!stats[key]) stats[key] = { total: 0, paid: 0, pending: 0, overdue: 0, count: 0, lastDate: null, grossTotal: 0, methods: new Set(), paidCount: 0, reconciledCount: 0 };
-      const gross = Number(p.gross_amount) || 0;
-      const remaining = Number(p.amount_remaining) || 0;
-      stats[key].grossTotal += gross;
-      stats[key].count++;
-      if (p.payment_method) stats[key].methods.add(String(p.payment_method));
-      if (p.status === 'pagato') {
-        stats[key].paid += gross;
-        stats[key].paidCount++;
-        if (p.cash_movement_id) stats[key].reconciledCount++;
-      } else if (p.status === 'scaduto') {
-        stats[key].overdue += remaining;
-        stats[key].pending += remaining;
-      } else if (p.status !== 'annullato' && p.status !== 'bloccato') {
-        stats[key].pending += remaining;
-      }
-      // Track last invoice date
-      const inv = p.invoice_date as string | null
-      if (inv && (!stats[key].lastDate || inv > stats[key].lastDate)) {
-        stats[key].lastDate = inv;
-      }
+      stats[key] = {
+        total: 0,
+        grossTotal: Number(r.gross_total) || 0,
+        paid: Number(r.paid) || 0,
+        pending: Number(r.pending) || 0,
+        overdue: Number(r.overdue) || 0,
+        count: Number(r.pay_count) || 0,
+        lastDate: (r.last_date as string | null) || null,
+        methods: new Set(((r.methods as string[] | null) || []).map(String)),
+        paidCount: Number(r.paid_count) || 0,
+        reconciledCount: Number(r.reconciled_count) || 0,
+      };
     });
     return stats;
-  }, [payables]);
-
-  // Invoice totals per supplier — keyed by supplier_id
-  interface InvoiceStat { totalGross: number; totalNet: number; count: number }
-  const invoiceStats = useMemo<Record<string, InvoiceStat>>(() => {
-    const stats: Record<string, InvoiceStat> = {};
-    invoices.forEach(inv => {
-      // Try supplier_id first, fallback to vat match
-      let key = inv.supplier_id as string | null | undefined
-      if (!key) {
-        const match = suppliers.find(s =>
-          (inv.supplier_vat && (s.partita_iva === inv.supplier_vat || s.vat_number === inv.supplier_vat)) ||
-          (inv.supplier_name && (s.ragione_sociale === inv.supplier_name || s.name === inv.supplier_name))
-        );
-        key = match?.id;
-      }
-      if (!key) return;
-      if (!stats[key]) stats[key] = { totalGross: 0, totalNet: 0, count: 0 };
-      stats[key].totalGross += Number(inv.gross_amount) || 0;
-      stats[key].totalNet += Number(inv.net_amount) || 0;
-      stats[key].count++;
-    });
-    return stats;
-  }, [invoices, suppliers]);
+  }, [kpiRows]);
 
   // Filtered & sorted suppliers
   const filteredSuppliers = useMemo(() => {
@@ -271,21 +262,16 @@ export default function Fornitori() {
   // - totalPending: somma amount_remaining di fatture non chiuse.
   const kpis = useMemo(() => {
     const active = suppliers.filter(s => s.is_active !== false).length;
-    const totalPending = payables
-      .filter(p => p.status !== 'pagato' && p.status !== 'annullato' && p.status !== 'bloccato' && p.status !== 'nota_credito')
-      .reduce((s, p) => s + (Number(p.amount_remaining) || 0), 0);
-    const overdue = payables
-      .filter(p => p.status === 'scaduto')
-      .reduce((s, p) => s + (Number(p.amount_remaining) || 0), 0);
-    const totalFatturato = payables
-      .filter(p => p.status !== 'nota_credito' && (Number(p.gross_amount) || 0) > 0)
-      .reduce((s, p) => s + (Number(p.gross_amount) || 0), 0);
-    const totalCrediti = payables
-      .filter(p => p.status === 'nota_credito' || (Number(p.gross_amount) || 0) < 0)
-      .reduce((s, p) => s + Math.abs(Number(p.gross_amount) || 0), 0);
-    const withPayables = new Set(payables.map(p => p.supplier_id as string | null).filter(Boolean)).size;
+    let totalPending = 0, overdue = 0, totalFatturato = 0, totalCrediti = 0;
+    kpiRows.forEach(r => {
+      totalPending += Number(r.pending_excl_nc) || 0;  // remaining escluse pagate/annullate/bloccate/NC
+      overdue += Number(r.overdue) || 0;                // remaining scadute
+      totalFatturato += Number(r.gross_positive) || 0;  // gross positivi, escluse NC
+      totalCrediti += Number(r.credito) || 0;           // abs note credito / gross negativi
+    });
+    const withPayables = kpiRows.length;                 // un record per fornitore con payables
     return { active, total: suppliers.length, totalPending, overdue, totalFatturato, totalCrediti, withPayables };
-  }, [suppliers, payables]);
+  }, [suppliers, kpiRows]);
 
   // Charts data
   interface CatBucket { name: string; value: number; count: number }
@@ -489,7 +475,7 @@ export default function Fornitori() {
         <KpiCard icon={Banknote} label="Tot. fatturato" value={`€ ${kpis.totalFatturato.toLocaleString('it-IT', { minimumFractionDigits: 0 })}`} color="blue" />
         <KpiCard icon={Clock} label="Da pagare" value={`€ ${kpis.totalPending.toLocaleString('it-IT', { minimumFractionDigits: 0 })}`} color="amber" />
         <KpiCard icon={AlertTriangle} label="Scaduto" value={`€ ${kpis.overdue.toLocaleString('it-IT', { minimumFractionDigits: 0 })}`} color={kpis.overdue > 0 ? 'red' : 'green'} />
-        <KpiCard icon={FileText} label="Fatture importate" value={invoices.length} color="purple" />
+        <KpiCard icon={FileText} label="Fatture importate" value={invoiceCount} color="purple" />
       </div>
 
       {/* TAB NAV */}
@@ -682,9 +668,9 @@ export default function Fornitori() {
 
                       {/* Expanded detail */}
                       {isExpanded && (() => {
-                        // Find payables for this supplier by ID
-                        const supplierPays = payables.filter(p => p.supplier_id === s.id)
-                          .sort((a, b) => new Date(String(b.invoice_date || b.created_at || '')).getTime() - new Date(String(a.invoice_date || a.created_at || '')).getTime());
+                        // Scadenze del fornitore caricate on-demand all'espansione
+                        // (vedi useEffect su expandedId) — gia' ordinate per data desc dal DB.
+                        const supplierPays = expandedPays;
                         const avgAmount = supplierPays.length > 0
                           ? supplierPays.reduce((acc, p) => acc + (Number(p.gross_amount) || 0), 0) / supplierPays.length
                           : 0;
