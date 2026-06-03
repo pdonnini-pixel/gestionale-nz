@@ -6790,6 +6790,25 @@ export type Database = {
           },
         ]
       }
+      v_fornitori_kpi: {
+        Row: {
+          company_id: string | null
+          supplier_id: string | null
+          pay_count: number | null
+          gross_total: number | null
+          paid: number | null
+          paid_count: number | null
+          reconciled_count: number | null
+          overdue: number | null
+          pending: number | null
+          last_date: string | null
+          gross_positive: number | null
+          credito: number | null
+          pending_excl_nc: number | null
+          methods: string[] | null
+        }
+        Relationships: []
+      }
       v_cash_position: {
         Row: {
           bank_account_id: string | null
