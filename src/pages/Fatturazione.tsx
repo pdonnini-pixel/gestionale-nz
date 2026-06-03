@@ -17,7 +17,7 @@ import { usePeriod } from '../hooks/usePeriod'
 import { useTableSort } from '../hooks/useTableSort'
 import SortableTh from '../components/ui/SortableTh'
 import { useSdiEmission } from '../hooks/useSdiEmission'
-import { tipoDocumentoLabel, invoiceTotalsFromXml } from '../lib/invoiceDocType'
+import { tipoDocumentoLabel } from '../lib/invoiceDocType'
 import {
   FileText, Upload, Send, RefreshCw, Search, Filter, ChevronDown, ChevronUp,
   CheckCircle, XCircle, Clock, AlertTriangle, Eye, Download, Plus, X,
@@ -64,45 +64,7 @@ function SdiStatusBadge({ status, configMap = SDI_STATUS_CONFIG as StatusConfigM
   )
 }
 
-// Legenda esplicativa stati SDI — per Sabrina/Veronica che non conoscono i termini
-const SDI_LEGEND_PASSIVE: Array<{ key: string; what: string }> = [
-  { key: 'RECEIVED', what: 'Arrivata dal fornitore via SDI. Visibile nel gestionale.' },
-  { key: 'PENDING', what: 'SDI sta ancora processando la fattura. Attendi esito.' },
-  { key: 'ACCEPTED', what: 'Validata dall’Agenzia delle Entrate. Registrabile in contabilità.' },
-  { key: 'REJECTED', what: 'Scartata dall’AdE per dati invalidi. NON contabilizzare. Chiedi nuova fattura al fornitore.' },
-]
-
-const SDI_LEGEND_ACTIVE: Array<{ key: string; what: string }> = [
-  { key: 'DRAFT', what: 'Bozza creata nel gestionale, non ancora inviata via SDI.' },
-  { key: 'SENT', what: 'Trasmessa all’AdE, in attesa di ricevuta SDI.' },
-  { key: 'DELIVERED', what: 'Consegnata al destinatario tramite SDI.' },
-  { key: 'ACCEPTED', what: 'Validata e accettata dall’AdE. Definitiva.' },
-  { key: 'REJECTED', what: 'Rifiutata. Rivedi XML, correggi e ritrasmetti.' },
-  { key: 'ERROR', what: 'Errore tecnico di invio. Chiama Patrizio o Lilian.' },
-]
-
-function SdiLegend({ tipo }: { tipo: 'passive' | 'active' }) {
-  const items = tipo === 'passive' ? SDI_LEGEND_PASSIVE : SDI_LEGEND_ACTIVE
-  return (
-    <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 flex flex-wrap items-center gap-x-4 gap-y-2">
-      <span className="text-xs font-semibold text-slate-700 uppercase tracking-wide">Legenda stato SDI:</span>
-      {items.map(it => {
-        const cfg = SDI_STATUS_CONFIG[it.key as keyof typeof SDI_STATUS_CONFIG]
-        if (!cfg) return null
-        const Icon = cfg.icon || Clock
-        return (
-          <div key={it.key} className="flex items-center gap-1.5" title={it.what}>
-            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${cfg.color}`}>
-              <Icon size={12} />
-              {cfg.label}
-            </span>
-            <span className="text-xs text-slate-600 hidden lg:inline max-w-[280px] truncate" title={it.what}>{it.what}</span>
-          </div>
-        )
-      })}
-    </div>
-  )
-}
+// Legenda stati SDI rimossa: la pagina e' un archivio di consultazione.
 
 type KpiColor = 'blue' | 'green' | 'red' | 'amber' | 'slate'
 function KpiCard({ icon: Icon, label, value, sub, color = 'blue' }: { icon: React.ComponentType<{ size?: number }>; label: string; value: string | number; sub?: string; color?: KpiColor }) {
@@ -265,7 +227,7 @@ function FatturePassive() {
         .from('electronic_invoices')
         .select('*')
         .order('invoice_date', { ascending: false })
-        .limit(500)
+        .limit(10000)
       if (error) throw error
       setInvoices(data || [])
     } catch (err: unknown) {
@@ -276,6 +238,19 @@ function FatturePassive() {
   }, [])
 
   useEffect(() => { loadInvoices() }, [loadInvoices])
+
+  // Conteggio reale (head count) per il KPI, indipendente dal limite della tabella.
+  const [dbTotalCount, setDbTotalCount] = useState<number | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      let q = supabase.from('electronic_invoices').select('id', { count: 'exact', head: true })
+      if (yearFilter !== 'ALL') q = q.gte('invoice_date', `${yearFilter}-01-01`).lte('invoice_date', `${yearFilter}-12-31`)
+      const { count } = await q
+      if (!cancelled) setDbTotalCount(count ?? null)
+    })()
+    return () => { cancelled = true }
+  }, [yearFilter])
 
   // Upload XML FatturaPA
   const handleXmlUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -410,7 +385,7 @@ function FatturePassive() {
             <KpiCard
               icon={FileText}
               label="Fatture passive"
-              value={stats.total}
+              value={dbTotalCount ?? stats.total}
               sub={notCrediti > 0 ? `${fattureNormali} fatture + ${notCrediti} note credito` : undefined}
               color="blue"
             />
@@ -495,8 +470,6 @@ function FatturePassive() {
         </div>
       )}
 
-      {/* Legenda stati SDI per operatore (solo se invio attivo) */}
-      {sdiEmissionEnabled && <SdiLegend tipo="passive" />}
 
       {/* Tabella */}
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
@@ -517,15 +490,14 @@ function FatturePassive() {
                 <SortableTh sortKey="net_amount" sortBy={ftSortBy} onSort={ftOnSort} align="right" className="min-w-[100px]">Imponibile</SortableTh>
                 <SortableTh sortKey="vat_amount" sortBy={ftSortBy} onSort={ftOnSort} align="right" className="min-w-[100px]">IVA</SortableTh>
                 <SortableTh sortKey="gross_amount" sortBy={ftSortBy} onSort={ftOnSort} align="right" className="min-w-[100px]">Totale</SortableTh>
-                {sdiEmissionEnabled && <SortableTh sortKey="sdi_status" sortBy={ftSortBy} onSort={ftOnSort} align="center">Stato SDI</SortableTh>}
                 <th className="text-center px-4 py-3 font-medium text-slate-600 text-[11px] uppercase tracking-wider">Azioni</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={sdiEmissionEnabled ? 9 : 8} className="text-center py-12 text-slate-400"><Loader2 size={24} className="animate-spin mx-auto mb-2" />Caricamento fatture...</td></tr>
+                <tr><td colSpan={8} className="text-center py-12 text-slate-400"><Loader2 size={24} className="animate-spin mx-auto mb-2" />Caricamento fatture...</td></tr>
               ) : sortedFiltered.length === 0 ? (
-                <tr><td colSpan={sdiEmissionEnabled ? 9 : 8} className="text-center py-12 text-slate-400">Nessuna fattura trovata</td></tr>
+                <tr><td colSpan={8} className="text-center py-12 text-slate-400">Nessuna fattura trovata</td></tr>
               ) : sortedFiltered.map((inv, idx) => (
                 <tr key={inv.id} onClick={() => { setSelectedInvoice(inv); setShowXml(false) }} className={`border-b border-slate-100 hover:bg-blue-50/50 transition-colors cursor-pointer ${idx % 2 === 1 ? 'bg-slate-50/50' : ''}`}>
                   <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{fmtDate(inv.invoice_date)}</td>
@@ -538,11 +510,6 @@ function FatturePassive() {
                   <td className="px-4 py-3 text-right text-slate-700 min-w-[100px] whitespace-nowrap">{fmt(inv.net_amount)}</td>
                   <td className="px-4 py-3 text-right text-slate-500 min-w-[100px] whitespace-nowrap">{fmt(inv.vat_amount)}</td>
                   <td className="px-4 py-3 text-right font-semibold text-slate-900 min-w-[100px] whitespace-nowrap">{fmt(inv.gross_amount)}</td>
-                  {sdiEmissionEnabled && (
-                    <td className="px-4 py-3 text-center">
-                      <StatusBadge status={inv.sdi_status || 'RECEIVED'} />
-                    </td>
-                  )}
                   <td className="px-4 py-3 text-center">
                     <div className="flex items-center justify-center gap-1">
                       {inv.xml_content && (
@@ -768,7 +735,7 @@ function FattureAttive() {
         .from('active_invoices')
         .select('*')
         .order('invoice_date', { ascending: false })
-        .limit(500)
+        .limit(10000)
       if (error) throw error
       setInvoices((data || []) as ActiveInvoiceRow[])
     } catch (err: unknown) {
@@ -780,21 +747,16 @@ function FattureAttive() {
 
   useEffect(() => { loadInvoices() }, [loadInvoices])
 
-  // Imponibile/IVA: dalle colonne DB se presenti, altrimenti derivati dall'XML
-  // FatturaPA (le fatture scaricate dal Cassetto hanno taxable/vat a null).
-  const totalsById = useMemo<Record<string, { taxable: number | null; vat: number | null }>>(() => {
-    const m: Record<string, { taxable: number | null; vat: number | null }> = {}
-    for (const inv of invoices) {
-      let taxable = inv.taxable_amount != null ? Number(inv.taxable_amount) : null
-      let vat = inv.vat_amount != null ? Number(inv.vat_amount) : null
-      if ((taxable === null || vat === null) && inv.xml_content) {
-        const t = invoiceTotalsFromXml(inv.xml_content)
-        if (t) { if (taxable === null) taxable = t.taxable; if (vat === null) vat = t.vat }
-      }
-      m[inv.id] = { taxable, vat }
-    }
-    return m
-  }, [invoices])
+  // Conteggio reale (head count) per il KPI, indipendente dal limite della tabella.
+  const [dbTotalCount, setDbTotalCount] = useState<number | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      const { count } = await supabase.from('active_invoices').select('id', { count: 'exact', head: true })
+      if (!cancelled) setDbTotalCount(count ?? null)
+    })()
+    return () => { cancelled = true }
+  }, [])
 
   // Genera XML per una fattura
   const handleGenerateXml = async (invoiceId: string) => {
@@ -885,7 +847,7 @@ function FattureAttive() {
     <div className="space-y-4">
       {/* KPI */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <KpiCard icon={FileText} label="Fatture attive" value={stats.total} color="blue" />
+        <KpiCard icon={FileText} label="Fatture attive" value={dbTotalCount ?? stats.total} color="blue" />
         <KpiCard icon={Euro} label="Totale" value={`€ ${fmt(stats.totalAmount)}`} color="green" />
         {sdiEmissionEnabled && (
           <>
@@ -932,7 +894,6 @@ function FattureAttive() {
       </div>
 
       {/* Legenda stati SDI per operatore */}
-      {sdiEmissionEnabled && <SdiLegend tipo="active" />}
 
       {/* Tabella */}
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
@@ -974,8 +935,8 @@ function FattureAttive() {
                     {inv.client_vat && <div className="text-xs text-slate-400">P.IVA {inv.client_vat}</div>}
                   </td>
                   <td className="px-4 py-3 text-slate-600" title={inv.tipo_documento || undefined}>{tipoDocumentoLabel(inv.tipo_documento)}</td>
-                  <td className="px-4 py-3 text-right text-slate-700 min-w-[100px] whitespace-nowrap">{fmt(totalsById[inv.id]?.taxable)}</td>
-                  <td className="px-4 py-3 text-right text-slate-500 min-w-[100px] whitespace-nowrap">{fmt(totalsById[inv.id]?.vat)}</td>
+                  <td className="px-4 py-3 text-right text-slate-700 min-w-[100px] whitespace-nowrap">{fmt(inv.taxable_amount)}</td>
+                  <td className="px-4 py-3 text-right text-slate-500 min-w-[100px] whitespace-nowrap">{fmt(inv.vat_amount)}</td>
                   <td className="px-4 py-3 text-right font-semibold text-slate-900">{fmt(inv.total_amount)}</td>
                   {sdiEmissionEnabled && <td className="px-4 py-3 text-center"><StatusBadge status={inv.sdi_status || 'DRAFT'} /></td>}
                   <td className="px-4 py-3 text-center">

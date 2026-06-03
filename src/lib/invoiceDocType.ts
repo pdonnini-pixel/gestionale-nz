@@ -1,8 +1,6 @@
-// Helper riusabile per la fatturazione (consultazione archivio).
-// 1) Mappa Tipo Documento FatturaPA (TDxx) -> etichetta in chiaro.
-// 2) Deriva imponibile/IVA dall'XML FatturaPA quando le colonne DB sono vuote.
-
-import { parseFatturaPA } from './parsers/xmlInvoiceParser'
+// Helper riusabile per la fatturazione: mappa Tipo Documento FatturaPA (TDxx)
+// -> etichetta in chiaro. Imponibile/IVA sono ora persistiti in colonna (backfill
+// + trigger), quindi la derivazione runtime dall'XML e' stata rimossa.
 
 const TD_LABELS: Record<string, string> = {
   TD01: 'Fattura',
@@ -31,20 +29,4 @@ export function tipoDocumentoLabel(code: string | null | undefined): string {
   if (!code) return '—'
   const c = String(code).toUpperCase().trim()
   return TD_LABELS[c] ?? `Altro documento (${c})`
-}
-
-/** Imponibile/IVA derivati dai DatiRiepilogo dell'XML FatturaPA. null se non estraibile. */
-export function invoiceTotalsFromXml(
-  xml: string | null | undefined,
-): { taxable: number; vat: number } | null {
-  if (!xml || !xml.includes('FatturaElettronica')) return null
-  try {
-    const { invoices } = parseFatturaPA(xml)
-    if (!invoices || invoices.length === 0) return null
-    const taxable = invoices.reduce((s, i) => s + (Number(i.net_amount) || 0), 0)
-    const vat = invoices.reduce((s, i) => s + (Number(i.vat_amount) || 0), 0)
-    return { taxable, vat }
-  } catch {
-    return null
-  }
 }
