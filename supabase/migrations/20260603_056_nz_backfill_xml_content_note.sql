@@ -1,0 +1,11 @@
+-- 20260603_056_nz_backfill_xml_content_note.sql
+-- PARTE 2 — Nota (NON ri-eseguibile come SQL puro: richiede chiamate A-Cube).
+-- Problema: xml_content conteneva il JSON A-Cube (non l'XML FatturaPA) -> InvoiceViewer (DOMParser su XML) non rendeva.
+-- Soluzione applicata il 2026-06-03 (SOLO NZ, additiva, nessuna delete):
+--   Per le 796 fatture NZ si e' recuperato l'XML reale via GET /invoices/{uuid} (Accept: application/xml),
+--   strip del BOM UTF-8, e ripopolato xml_content su acube_sdi_invoices + electronic_invoices + active_invoices
+--   (loop resiliente riga-per-riga, dedup su WHERE xml_content IS NULL, 0 fallimenti).
+-- Pipeline futura: la edge function acube-cf-sync-invoices ora chiama fetchInvoiceXml() per ogni nuova
+--   fattura e salva l'XML reale in acube_sdi_invoices.xml_content (i trigger lo propagano ai downstream).
+-- Deployata su NZ + Made + Zago (verify_jwt=true).
+SELECT 'see acube-cf-sync-invoices/index.ts (fetchInvoiceXml)' AS note;
