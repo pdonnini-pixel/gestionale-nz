@@ -1027,25 +1027,8 @@ export default function BudgetControl() {
   // Stato placeholder: quante righe del preventivo sono provvisorie (copia
   // automatica dall'anno precedente, da confermare). Calcolato per anno
   // corrente, raggruppato per outlet (per badge BPCard) e totale (per banner).
-  const placeholderStatus = useMemo(() => {
-    const relevant = budgetEntries.filter(
-      e => e.cost_center !== 'rettifica_bilancio'
-    )
-    if (relevant.length === 0) return { totale: 0, placeholder: 0, byOutlet: {} as Record<string, { tot: number; ph: number }> }
-    let tot = 0, ph = 0
-    const byOutlet: Record<string, { tot: number; ph: number }> = {}
-    for (const e of relevant) {
-      tot++
-      const cc = e.cost_center || 'all'
-      if (!byOutlet[cc]) byOutlet[cc] = { tot: 0, ph: 0 }
-      byOutlet[cc].tot++
-      if (e.is_placeholder) {
-        ph++
-        byOutlet[cc].ph++
-      }
-    }
-    return { totale: tot, placeholder: ph, byOutlet }
-  }, [budgetEntries])
+  // placeholderStatus RIMOSSO: alimentava solo il banner "Preventivo provvisorio
+  // / PROV", ora rimosso (il preventivo non è più precompilato dal bilancio).
 
   // ─── APPROVE / UNLOCK ──────────────────────────────────────
   const approveOutletYear = async (code: string) => {
@@ -1351,18 +1334,9 @@ export default function BudgetControl() {
     })
   }
 
-  const clearAll = () => {
-    setConfirmAction({
-      title: 'Svuota tutti i Business Plan',
-      message: 'Tutti i dati di tutti gli outlet verranno cancellati da memoria e database.',
-      action: async () => {
-        if (!CID) return
-        setBpEdits({})
-        await supabase.from('budget_entries').delete().eq('company_id', CID).eq('year', year)
-        show('Tutti i dati cancellati da memoria e database')
-      }
-    })
-  }
+  // clearAll() RIMOSSA: faceva un DELETE in blocco di tutti i budget_entries di
+  // tutti gli outlet dell'anno (rischio data-loss). Lo svuotamento per-outlet
+  // resta disponibile sulle singole card.
 
   // Svuota confronto annuale (consuntivo + rettifica) per outlet — anche da DB
   const clearConfrontoAnnuale = (outletCode: string) => {
@@ -1478,23 +1452,9 @@ export default function BudgetControl() {
         ))}
       </div>
 
-      {/* BANNER PREVENTIVO PROVVISORIO (placeholder) */}
-      {placeholderStatus.placeholder > 0 && (
-        <div className="bg-amber-50 border border-amber-300 rounded-xl p-4 flex items-start gap-3">
-          <AlertTriangle size={20} className="text-amber-700 mt-0.5 shrink-0" />
-          <div className="flex-1 text-sm text-amber-900">
-            <div className="font-semibold mb-1">
-              Preventivo {year} provvisorio: {placeholderStatus.placeholder} di {placeholderStatus.totale} righe da confermare
-            </div>
-            <p>
-              Il preventivo {year} è stato precompilato automaticamente con i valori del consuntivo {year - 1} (bilancio depositato).
-              Le righe contrassegnate <span className="bg-amber-200 text-amber-900 text-[10px] font-bold px-1.5 py-0.5 rounded">PROV</span> sono provvisorie:
-              modifica il <strong>Preventivo</strong> nel tab "Preventivo vs Consuntivo" per renderle definitive.
-              Una volta modificato un valore, il flag PROV viene rimosso automaticamente.
-            </p>
-          </div>
-        </div>
-      )}
+      {/* Banner "Preventivo provvisorio / PROV" RIMOSSO: il preventivo non è più
+          precompilato dal bilancio anno precedente; ricavi e consuntivo vengono
+          da Budget & Controllo (tab "Preventivo vs Consuntivo"). */}
 
       {/* ════════════════════════════════════════════════════
          TAB 1: BUSINESS PLAN
@@ -1511,7 +1471,7 @@ export default function BudgetControl() {
           )}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             <Kpi icon={Store} label={`${labels.pointOfSalePlural} operativi`} value={ops.length} sub={labels.pointOfSalePluralLower} color="indigo" />
-            <Kpi icon={TrendingUp} label="Bilancio 2025" value={hasTree ? `${ceRawCosti.length+ceRawRicavi.length} voci` : 'Non trovato'} color={hasTree?'green':'amber'} />
+            <Kpi icon={TrendingUp} label="Voci piano dei conti" value={hasTree ? `${ceRawCosti.length+ceRawRicavi.length} voci` : 'Non trovato'} color={hasTree?'green':'amber'} />
             <Kpi icon={BarChart3} label="Budget salvati" value={budgetEntries.length} color="blue" />
             <Kpi icon={Target} label="Anno" value={year} color="purple" />
           </div>
@@ -1519,24 +1479,15 @@ export default function BudgetControl() {
           {!hasTree && (
             <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl p-4">
               <AlertTriangle size={18} className="text-amber-600 mt-0.5 shrink-0" />
-              <div className="text-sm text-amber-800"><strong>Bilancio 2025 non trovato.</strong> Importa dal Conto Economico per la struttura conti.</div>
+              <div className="text-sm text-amber-800"><strong>Struttura del piano dei conti non trovata.</strong> Importa dal Conto Economico per la struttura conti.</div>
             </div>
           )}
 
-          {/* Info — visibile solo a chi può approvare/editare */}
-          {hasTree && canApproveBudget && (
-            <div className="flex items-center gap-3 bg-indigo-50 border border-indigo-200 rounded-xl p-4">
-              <div className="flex-1">
-                <p className="text-sm font-medium text-indigo-800">Compila i costi previsti per ogni {labels.pointOfSaleLower}</p>
-                <p className="text-xs text-indigo-600 mt-0.5">I ricavi sono assegnati automaticamente dal bilancio {year - 1}. Inserisci i costi previsti, poi salva e approva il preventivo per lockarlo.</p>
-              </div>
-              {Object.keys(bpEdits).length > 0 && (
-                <button onClick={clearAll} className="px-4 py-2 border border-red-200 text-red-600 rounded-lg text-sm font-medium hover:bg-red-50 flex items-center gap-2 shrink-0">
-                  <Trash2 size={14} /> Cancella tutti
-                </button>
-              )}
-            </div>
-          )}
+          {/* Banner "Compila i costi previsti" + bottone "Cancella tutti" RIMOSSI:
+              il testo sui ricavi dal bilancio anno precedente era ormai falso
+              (ricavi e consuntivo vengono da Budget & Controllo), e "Cancella tutti"
+              faceva un DELETE in blocco di tutti gli outlet (rischio data-loss).
+              Il bottone per-outlet "Cancella costi" sulle card resta invariato. */}
 
           {/* Sede card */}
           {hq && hasTree && (() => {
