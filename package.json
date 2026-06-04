@@ -8,7 +8,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "typecheck:watch": "tsc --noEmit --watch"
+    "typecheck:watch": "tsc --noEmit --watch",
+    "test": "npx --yes vitest run"
   },
   "dependencies": {
     "@netlify/functions": "^5.2.0",
@@ -32,6 +33,7 @@
     "@vitejs/plugin-react": "^4.5.2",
     "tailwindcss": "^4.2.2",
     "typescript": "^6.0.3",
-    "vite": "^6.3.5"
+    "vite": "^6.3.5",
+    "vitest": "^3.2.4"
   }
 }

@@ -508,6 +508,39 @@ export type Database = {
         }
         Relationships: []
       }
+      financial_snapshots: {
+        Row: {
+          company_id: string | null
+          created_at: string | null
+          created_by: string | null
+          id: string
+          payload: Json | null
+          rows_count: number | null
+          source_table: string | null
+          year: number | null
+        }
+        Insert: {
+          company_id?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          id?: string
+          payload?: Json | null
+          rows_count?: number | null
+          source_table?: string | null
+          year?: number | null
+        }
+        Update: {
+          company_id?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          id?: string
+          payload?: Json | null
+          rows_count?: number | null
+          source_table?: string | null
+          year?: number | null
+        }
+        Relationships: []
+      }
       balance_sheet_imports: {
         Row: {
           approved_at: string | null

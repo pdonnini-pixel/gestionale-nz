@@ -430,6 +430,10 @@ export default function ContoEconomico() {
   const [dirtyFields, setDirtyFields] = useState<Record<string, any>>({})
   const [saving, setSaving] = useState(false)
   const [saveMessage, setSaveMessage] = useState<any>(null)
+  // Modale di conferma sovrascrittura (NO DATA LOSS): mai dialog nativi.
+  // Mostra righe/totale prima→dopo prima di qualsiasi delete in blocco.
+  type SaveConfirmT = { title: string; message: string; confirmLabel?: string; onConfirm: () => void | Promise<void> } | null
+  const [saveConfirm, setSaveConfirm] = useState<SaveConfirmT>(null)
   // Anni disponibili dal DB. Default: anno corrente come fallback minimo per
   // tenant vergini (es. Made/Zago appena onboardati). Popolato in loadAvailableYears.
   const [availableYears, setAvailableYears] = useState<number[]>([new Date().getFullYear()])
@@ -1404,25 +1408,11 @@ export default function ContoEconomico() {
     return !hasErrors
   }
 
-  const handleSaveImportedData = async () => {
-    if (!validateFormData()) return
-
+  // Esegue il salvataggio dei dati del form import. Il delete resta limitato a
+  // section='conto_economico' per questo anno/periodo (mai altre sezioni).
+  const commitImportedData = async (records: Array<Record<string, unknown>>) => {
     try {
       if (!COMPANY_ID) return
-      const records = Object.entries(formData)
-        .filter(([, value]) => value !== '' && value !== undefined && value !== null)
-        .map(([key, value]) => ({
-          company_id: COMPANY_ID,
-          year: year,
-          period_type: periodType,
-          section: 'conto_economico',
-          account_code: key,
-          account_name: CE_FIELDS.find(f => f.key === key)?.label || key.replace(/_/g, ' '),
-          amount: Number(value) || 0,
-          sort_order: CE_FIELDS.findIndex(f => f.key === key),
-        }))
-
-      // Delete existing data for same year/period before inserting
       await supabase
         .from('balance_sheet_data')
         .delete()
@@ -1433,7 +1423,7 @@ export default function ContoEconomico() {
 
       const { error } = await supabase
         .from('balance_sheet_data')
-        .insert(records)
+        .insert(records as never)
 
       if (error) throw error
 
@@ -1446,6 +1436,52 @@ export default function ContoEconomico() {
       console.error('Error saving imported data:', error)
       toast({ type: 'error', message: 'Errore nel salvataggio dei dati' })
     }
+  }
+
+  const handleSaveImportedData = async () => {
+    if (!validateFormData()) return
+    if (!COMPANY_ID) return
+    const records = Object.entries(formData)
+      .filter(([, value]) => value !== '' && value !== undefined && value !== null)
+      .map(([key, value]) => ({
+        company_id: COMPANY_ID,
+        year: year,
+        period_type: periodType,
+        section: 'conto_economico',
+        account_code: key,
+        account_name: CE_FIELDS.find(f => f.key === key)?.label || key.replace(/_/g, ' '),
+        amount: Number(value) || 0,
+        sort_order: CE_FIELDS.findIndex(f => f.key === key),
+      }))
+
+    // NO DATA LOSS (ticket 9bf52ecc): se esistono già dati conto_economico per
+    // questo anno/periodo, chiedi conferma con riepilogo righe/totale prima→dopo
+    // prima di sovrascriverli.
+    try {
+      const { data: existing } = await supabase
+        .from('balance_sheet_data')
+        .select('amount')
+        .eq('company_id', COMPANY_ID!)
+        .eq('year', year)
+        .eq('period_type', periodType)
+        .eq('section', 'conto_economico')
+      const existRows = existing || []
+      if (existRows.length > 0) {
+        const totBefore = existRows.reduce((s: number, r: { amount?: number | null }) => s + (Number(r.amount) || 0), 0)
+        const totAfter = records.reduce((s, r) => s + (Number(r.amount) || 0), 0)
+        setSaveConfirm({
+          title: `Sovrascrivi Conto Economico ${year} (${periodType})`,
+          message: `Esistono già dati per questo periodo. Righe ${existRows.length} → ${records.length} · Totale € ${fmt(totBefore)} → € ${fmt(totAfter)}. Sovrascrivere?`,
+          confirmLabel: 'Sovrascrivi',
+          onConfirm: () => commitImportedData(records),
+        })
+        return
+      }
+    } catch (e) {
+      console.error('Errore verifica dati esistenti:', e)
+    }
+    // Nessun dato esistente → salvataggio diretto.
+    await commitImportedData(records)
   }
 
   // NEW: Save manually edited fields
@@ -1509,15 +1545,14 @@ export default function ContoEconomico() {
   }
 
   // Feature 7: Save full bilancio data (all accounts)
-  const handleSaveBilancio = async () => {
-    if (!bilancioData || !COMPANY_ID) return
+  // Esegue il salvataggio del bilancio. Cancella SOLO le sezioni che stiamo per
+  // riscrivere (sectionsToWrite) — mai una sezione a 0 righe (= stato non
+  // caricato), che resta intatta a DB. Poi insert in batch.
+  const commitBilancio = async (records: Array<Record<string, unknown>>, sectionsToWrite: string[]) => {
+    if (!COMPANY_ID) return
     setBilancioSaving(true)
     try {
-      const records = toSupabaseRecords(bilancioData, COMPANY_ID, year, periodType)
-
-      // Delete existing data for this year/period (all sections)
-      const sections = ['sp_attivita', 'sp_passivita', 'ce_costi', 'ce_ricavi', 'conto_economico']
-      for (const section of sections) {
+      for (const section of sectionsToWrite) {
         await supabase
           .from('balance_sheet_data')
           .delete()
@@ -1543,6 +1578,48 @@ export default function ContoEconomico() {
     } finally {
       setBilancioSaving(false)
     }
+  }
+
+  const handleSaveBilancio = async () => {
+    if (!bilancioData || !COMPANY_ID) return
+    const records = toSupabaseRecords(bilancioData, COMPANY_ID, year, periodType) as Array<Record<string, unknown>>
+
+    // NO DATA LOSS (ticket 9bf52ecc): tocca SOLO le sezioni che hanno dati nuovi.
+    // Una sezione a 0 righe = stato non caricato, NON "cancella": resta intatta.
+    const sectionsToWrite = Array.from(
+      new Set(records.map(r => r.section as string).filter(Boolean)),
+    )
+    if (records.length === 0 || sectionsToWrite.length === 0) {
+      toast({ type: 'error', message: 'Nessun dato di bilancio da salvare' })
+      return
+    }
+
+    // Riepilogo righe/totale prima→dopo prima di qualsiasi delete in blocco.
+    try {
+      const { data: existing } = await supabase
+        .from('balance_sheet_data')
+        .select('amount, section')
+        .eq('company_id', COMPANY_ID!)
+        .eq('year', year)
+        .eq('period_type', periodType)
+        .in('section', sectionsToWrite)
+      const existRows = existing || []
+      if (existRows.length > 0) {
+        const totBefore = existRows.reduce((s: number, r: { amount?: number | null }) => s + (Number(r.amount) || 0), 0)
+        const totAfter = records.reduce((s, r) => s + (Number(r.amount) || 0), 0)
+        setSaveConfirm({
+          title: `Sovrascrivi Bilancio ${year} (${periodType})`,
+          message: `Sezioni: ${sectionsToWrite.join(', ')}. Righe ${existRows.length} → ${records.length} · Totale € ${fmt(totBefore)} → € ${fmt(totAfter)}. Le altre sezioni restano intatte. Sovrascrivere?`,
+          confirmLabel: 'Sovrascrivi',
+          onConfirm: () => commitBilancio(records, sectionsToWrite),
+        })
+        return
+      }
+    } catch (e) {
+      console.error('Errore verifica bilancio esistente:', e)
+    }
+    // Nessun dato esistente nelle sezioni interessate → salva direttamente.
+    await commitBilancio(records, sectionsToWrite)
   }
 
   // Feature 2: Approval workflow
@@ -2862,6 +2939,32 @@ export default function ContoEconomico() {
               <button onClick={() => handleApproveImport(showApproveConfirm)}
                 className="px-4 py-2 rounded-lg text-sm bg-green-600 text-white hover:bg-green-700 font-medium flex items-center gap-1">
                 <CheckCircle size={14} /> Approva bilancio
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modale conferma sovrascrittura (NO DATA LOSS) */}
+      {saveConfirm && (
+        <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50 p-4" onClick={() => setSaveConfirm(null)}>
+          <div className="bg-white rounded-xl shadow-xl p-6 max-w-md w-full mx-4" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-bold text-slate-900 mb-2">{saveConfirm.title}</h3>
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4">
+              <p className="text-xs text-amber-800 flex items-start gap-1.5">
+                <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+                <span>{saveConfirm.message}</span>
+              </p>
+            </div>
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => setSaveConfirm(null)}
+                className="px-4 py-2 rounded-lg text-sm border border-slate-300 text-slate-700 hover:bg-slate-50">
+                Annulla
+              </button>
+              <button
+                onClick={() => { const cb = saveConfirm.onConfirm; setSaveConfirm(null); cb() }}
+                className="px-4 py-2 rounded-lg text-sm bg-red-600 text-white hover:bg-red-700 font-medium">
+                {saveConfirm.confirmLabel || 'Sovrascrivi'}
               </button>
             </div>
           </div>

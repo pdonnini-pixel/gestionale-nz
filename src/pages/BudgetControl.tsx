@@ -29,6 +29,7 @@ import {
   BarChart3, Copy, Lock, Unlock, Info, RefreshCw, FileSpreadsheet, Zap
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import { computeConfrontoDiff, type ConfrontoRow, type ExistingConfrontoRow, type ConfrontoDiff } from './budgetConfrontoDiff'
 
 // Workflow approvazione preventivo per outlet x anno
 type WorkflowStatus = 'bozza' | 'approvato' | 'sbloccato'
@@ -1238,14 +1239,57 @@ export default function BudgetControl() {
         })
       })
 
-      if (rows.length === 0) { show('Nessun dato da salvare', 'error'); setSaving(false); return }
-
-      // Delete old data for this outlet/year, then insert fresh
       if (!CID) return
-      await supabase.from('budget_confronto').delete().eq('company_id', CID).eq('cost_center', outletCode).eq('year', year)
-      const { error } = await supabase.from('budget_confronto').insert(rows as never)
-      if (error) throw error
-      show(`Confronto ${outletCode} salvato ✓ (${rows.length} righe)`)
+      // ─── SALVATAGGIO NON DISTRUTTIVO (NO DATA LOSS, ticket 9bf52ecc) ──────
+      // Il vecchio codice faceva delete(company+cost_center+year) + insert(stato):
+      // se lo stato React era parziale cancellava in silenzio i dati MANUALI di
+      // Lilian. Ora leggo lo stato attuale del DB e applico SOLO il diff:
+      //  • upsert mirato delle celle nuove/cambiate (onConflict sulla unique key);
+      //  • cancellazione delle SOLE chiavi che l'utente ha svuotato, e solo dopo
+      //    conferma esplicita (modale con riepilogo righe/totale prima→dopo).
+      // Mai più un delete in blocco di righe non toccate dall'utente.
+      const { data: existingData, error: exErr } = await supabase
+        .from('budget_confronto')
+        .select('id, entry_type, account_code, month, amount, rettifica_amount, rettifica_pct')
+        .eq('company_id', CID).eq('cost_center', outletCode).eq('year', year)
+        .range(0, 9999)
+      if (exErr) throw exErr
+      const diff = computeConfrontoDiff(rows as ConfrontoRow[], (existingData || []) as ExistingConfrontoRow[])
+
+      if (diff.toUpsert.length === 0 && diff.toDeleteIds.length === 0) {
+        show('Nessuna modifica da salvare'); setSaving(false); return
+      }
+      if (diff.toDeleteIds.length > 0) {
+        // Conferma esplicita prima di rimuovere qualsiasi cella esistente.
+        setConfirmAction({
+          title: `Sovrascrivi Confronto — ${outletCode}`,
+          message: `Righe ${diff.countBefore} → ${diff.countAfter} · Totale € ${fmt(diff.totalBefore)} → € ${fmt(diff.totalAfter)}. Verranno rimosse ${diff.toDeleteIds.length} righe svuotate${diff.toUpsert.length ? ` e aggiornate ${diff.toUpsert.length}` : ''}. Confermi?`,
+          confirmLabel: 'Sovrascrivi',
+          action: () => commitConfronto(outletCode, diff),
+        })
+        setSaving(false); return
+      }
+      // Solo aggiunte/modifiche → upsert mirato, nessuna cancellazione.
+      await commitConfronto(outletCode, diff)
+    } catch (e: unknown) { show((e as Error).message, 'error') } finally { setSaving(false) }
+  }
+
+  // Esegue il diff calcolato da saveConfronto: upsert mirato (onConflict sulla
+  // unique key) + cancellazione SOLO delle chiavi esplicitamente confermate.
+  const commitConfronto = async (outletCode: string, diff: ConfrontoDiff) => {
+    if (!CID) return
+    setSaving(true)
+    try {
+      if (diff.toDeleteIds.length > 0) {
+        const { error: delErr } = await supabase.from('budget_confronto').delete().in('id', diff.toDeleteIds)
+        if (delErr) throw delErr
+      }
+      if (diff.toUpsert.length > 0) {
+        const { error: upErr } = await supabase.from('budget_confronto')
+          .upsert(diff.toUpsert as never, { onConflict: 'company_id,cost_center,account_code,year,month,entry_type' })
+        if (upErr) throw upErr
+      }
+      show(`Confronto ${outletCode} salvato ✓ (${diff.toUpsert.length} agg., ${diff.toDeleteIds.length} rim.)`)
     } catch (e: unknown) { show((e as Error).message, 'error') } finally { setSaving(false) }
   }
 
@@ -1291,7 +1335,7 @@ export default function BudgetControl() {
   // I ricavi vengono dal bilancio filtrato per outlet (read-only, auto-salvati con saveBP)
 
   // ─── CONFIRM DIALOG STATE ────────────────────────────────
-  type ConfirmActionT = { title: string; message: string; action: () => void | Promise<void> } | null
+  type ConfirmActionT = { title: string; message: string; action: () => void | Promise<void>; confirmLabel?: string } | null
   const [confirmAction, setConfirmAction] = useState<ConfirmActionT>(null)
 
   const clearOutlet = (code: string) => {
@@ -1779,6 +1823,7 @@ export default function BudgetControl() {
         <ConfirmDialog
           title={confirmAction.title}
           message={confirmAction.message}
+          confirmLabel={confirmAction.confirmLabel}
           onConfirm={() => { confirmAction.action(); setConfirmAction(null) }}
           onCancel={() => setConfirmAction(null)}
         />
