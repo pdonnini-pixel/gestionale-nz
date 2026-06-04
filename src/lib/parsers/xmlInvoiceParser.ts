@@ -427,13 +427,20 @@ export function transformInvoiceToRecords(
   // Create payable records from payment details
   const payableRecords: Record<string, unknown>[] = [];
   invoices.forEach((inv) => {
+    // FIX note di credito (TD04 - segnalazione Lilian 04/06/2026): una nota di
+    // credito riduce il debito verso il fornitore. Va registrata con importo di
+    // segno OPPOSTO (negativo) e status 'nota_credito', così da finire in DARE
+    // nella scheda fornitore e diminuire il totale da pagare. Senza questo una NC
+    // veniva importata come una normale fattura 'da_pagare' positiva.
+    const isNotaCredito = inv.tipo_documento === 'TD04';
+    const ncSign = isNotaCredito ? -1 : 1;
     if (inv.payment_details.length > 0) {
       inv.payment_details.forEach((pd, idx) => {
         const modKey = pd.modalita ?? '';
         const dbEnum = MODALITA_TO_DB_ENUM[modKey] || 'altro';
         const label = MODALITA_PAGAMENTO_MAP[modKey] || modKey;
-        const grossAmt = pd.importo || inv.gross_amount;
-        const isAlreadyPaid = ALREADY_PAID_METHODS.has(dbEnum);
+        const grossAmt = ncSign * Math.abs(pd.importo || inv.gross_amount);
+        const isAlreadyPaid = !isNotaCredito && ALREADY_PAID_METHODS.has(dbEnum);
         payableRecords.push({
           company_id,
           invoice_number: inv.invoice_number,
@@ -441,15 +448,15 @@ export function transformInvoiceToRecords(
           supplier_name: inv.supplier_name,
           supplier_vat: inv.supplier_vat,
           gross_amount: grossAmt,
-          amount_paid: isAlreadyPaid ? grossAmt : 0,
-          amount_remaining: isAlreadyPaid ? 0 : grossAmt,
+          amount_paid: isNotaCredito ? 0 : (isAlreadyPaid ? grossAmt : 0),
+          amount_remaining: isNotaCredito ? grossAmt : (isAlreadyPaid ? 0 : grossAmt),
           due_date: pd.data_scadenza || inv.invoice_date,
           payment_date: isAlreadyPaid ? inv.invoice_date : null,
           payment_method: dbEnum,
           payment_method_code: pd.modalita,       // codice SDI originale (MP05, MP12, ecc.)
           payment_method_label: label,             // etichetta leggibile
           iban: pd.iban,
-          status: isAlreadyPaid ? 'pagato' : 'da_pagare',
+          status: isNotaCredito ? 'nota_credito' : (isAlreadyPaid ? 'pagato' : 'da_pagare'),
           // Se ci sono più rate, indica il numero rata
           ...(inv.payment_details.length > 1 ? { installment_number: idx + 1, installment_total: inv.payment_details.length } : {}),
         });
@@ -462,11 +469,11 @@ export function transformInvoiceToRecords(
         invoice_date: inv.invoice_date,
         supplier_name: inv.supplier_name,
         supplier_vat: inv.supplier_vat,
-        gross_amount: inv.gross_amount,
-        amount_remaining: inv.gross_amount,
+        gross_amount: ncSign * Math.abs(inv.gross_amount),
+        amount_remaining: ncSign * Math.abs(inv.gross_amount),
         due_date: inv.invoice_date,
         payment_method: 'bonifico_ordinario',
-        status: 'da_pagare',
+        status: isNotaCredito ? 'nota_credito' : 'da_pagare',
       });
     }
   });
