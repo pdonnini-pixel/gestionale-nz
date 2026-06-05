@@ -440,6 +440,8 @@ export function transformInvoiceToRecords(
         const dbEnum = MODALITA_TO_DB_ENUM[modKey] || 'altro';
         const label = MODALITA_PAGAMENTO_MAP[modKey] || modKey;
         const grossAmt = ncSign * Math.abs(pd.importo || inv.gross_amount);
+        // Quota imponibile/IVA proporzionale all'importo della riga (gestisce rate e segno NC)
+        const ratio = inv.gross_amount ? (grossAmt / inv.gross_amount) : ncSign;
         const isAlreadyPaid = !isNotaCredito && ALREADY_PAID_METHODS.has(dbEnum);
         payableRecords.push({
           company_id,
@@ -447,6 +449,8 @@ export function transformInvoiceToRecords(
           invoice_date: inv.invoice_date,
           supplier_name: inv.supplier_name,
           supplier_vat: inv.supplier_vat,
+          net_amount: Math.round(inv.net_amount * ratio * 100) / 100,
+          vat_amount: Math.round(inv.vat_amount * ratio * 100) / 100,
           gross_amount: grossAmt,
           amount_paid: isNotaCredito ? 0 : (isAlreadyPaid ? grossAmt : 0),
           amount_remaining: isNotaCredito ? grossAmt : (isAlreadyPaid ? 0 : grossAmt),
@@ -469,6 +473,8 @@ export function transformInvoiceToRecords(
         invoice_date: inv.invoice_date,
         supplier_name: inv.supplier_name,
         supplier_vat: inv.supplier_vat,
+        net_amount: ncSign * inv.net_amount,
+        vat_amount: ncSign * inv.vat_amount,
         gross_amount: ncSign * Math.abs(inv.gross_amount),
         amount_remaining: ncSign * Math.abs(inv.gross_amount),
         due_date: inv.invoice_date,
