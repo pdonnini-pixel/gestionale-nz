@@ -22,6 +22,7 @@ import PageHelp from '../components/PageHelp'
 import PageHeader from '../components/PageHeader'
 import ExportBilancioDialog from '../components/ExportBilancioDialog'
 import { getCurrentTenant } from '../lib/tenants'
+import { RICAVI_SOURCE_LABEL } from '../lib/outletRevenue'
 import {
   Calculator, ChevronDown, ChevronUp,
   Store, Building2, Save, Trash2,
@@ -1015,6 +1016,13 @@ export default function BudgetControl() {
     return { prev, cons, rett, outletCount: operative.length }
   }, [confOutlet, bpEdits, consEdits, rettEdits, ops, workflow, canApproveBudget])
 
+  // I3 — deep-link da "Confronto Outlet": /budget?tab=confronto&outlet=<code>.
+  // Preseleziona l'outlet richiesto (ha priorità sui default sotto).
+  const outletParam = searchParams.get('outlet')
+  useEffect(() => {
+    if (outletParam) setConfOutlet(outletParam)
+  }, [outletParam])
+
   // Default selettore Confronto: per CEO (read-only) parte sulla vista
   // aggregata "Tutti gli outlet". Per altri ruoli rimane il primo outlet
   // con preventivo (gia' impostato in loadAll).
@@ -1909,7 +1917,7 @@ function BPCard({ label, code, isHQ, numOps: _numOps, costiTree, ricaviTree, edi
           </div>
         </div>
         <div className="flex items-center gap-5">
-          <div className="text-right"><div className="text-xs text-slate-400">Ricavi (da PrevVsCons)</div><div className="font-semibold text-emerald-600">{fmtC(totR)}</div></div>
+          <div className="text-right"><div className="text-xs text-slate-400">{RICAVI_SOURCE_LABEL}</div><div className="font-semibold text-emerald-600">{fmtC(totR)}</div></div>
           <div className="text-right"><div className="text-xs text-slate-400">Costi (preventivo)</div><div className="font-semibold text-red-600">{fmtC(totC)}</div></div>
           {!isHQ && <div className="text-right"><div className="text-xs text-slate-400">Risultato</div><div className={`font-bold ${ris>=0?'text-emerald-700':'text-red-700'}`}>{fmtC(ris)}</div></div>}
           {open ? <ChevronUp size={18} className="text-slate-400"/> : <ChevronDown size={18} className="text-slate-400"/>}
