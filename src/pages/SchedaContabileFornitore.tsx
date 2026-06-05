@@ -71,6 +71,8 @@ const paymentMethodLabels: Record<string, string> = {
   contanti: 'Contanti', compensazione: 'Compensazione', mav: 'MAV', altro: 'Altro',
 };
 
+type OpeningRow = { id: string; company_id: string; supplier_id: string; fiscal_year: number; opening_balance: number; as_of_date: string | null; note: string | null; source: string | null };
+
 // ─── Component ─────────────────────────────────────────────────
 export default function SchedaContabileFornitore() {
   const { toast } = useToast();
@@ -97,6 +99,10 @@ export default function SchedaContabileFornitore() {
   const [categories, setCategories] = useState<CostCategoryLite[]>([]);
   // Ordinamento partitario: per data emissione fattura o per data effettivo pagamento
   const [partitarioSortBy, setPartitarioSortBy] = useState<'fattura' | 'pagamento'>('fattura');
+  // Ripresa saldo (saldo apertura) per anno
+  const [openingRows, setOpeningRows] = useState<OpeningRow[]>([]);
+  const [editingOpening, setEditingOpening] = useState(false);
+  const [openingDraft, setOpeningDraft] = useState<{ amount: string; date: string }>({ amount: '', date: '' });
 
   // ─── Fetch data ────────────────────────────────────────────
   const fetchData = useCallback(async () => {
@@ -175,6 +181,14 @@ export default function SchedaContabileFornitore() {
       });
       setBankAccountById(bankMap);
 
+      // Ripresa saldo (saldo apertura) del fornitore
+      const { data: ob } = await (supabase as unknown as { from: (t: string) => { select: (s: string) => { eq: (k: string, v: string) => { eq: (k2: string, v2: string) => Promise<{ data: OpeningRow[] | null }> } } } })
+        .from('supplier_opening_balances')
+        .select('*')
+        .eq('company_id', COMPANY_ID)
+        .eq('supplier_id', realSupplierId);
+      setOpeningRows(ob || []);
+
     } catch (err: unknown) {
       console.error('Errore caricamento scheda contabile:', err);
     } finally {
@@ -201,6 +215,11 @@ export default function SchedaContabileFornitore() {
     if (selectedYear === 'all') return payables;
     return payables.filter(p => new Date(p.invoice_date || p.created_at || '').getFullYear() === selectedYear);
   }, [payables, selectedYear]);
+
+  // Anno fiscale di riferimento per la ripresa saldo (numerico; 'all'/'latest' → ultimo anno)
+  const fiscalYear = typeof selectedYear === 'number' ? selectedYear : (anni[0] || new Date().getFullYear());
+  const openingRowCur = useMemo(() => openingRows.find(o => o.fiscal_year === fiscalYear) || null, [openingRows, fiscalYear]);
+  const openingBalance = openingRowCur ? Number(openingRowCur.opening_balance) : 0;
 
   // Group by invoice_number for rate
   interface FatturaAggregate {
@@ -292,7 +311,7 @@ export default function SchedaContabileFornitore() {
     avere: number;
     descrizione: string;
     aliquotaIVA: string;           // "22%", "10%", "mista", "—"
-    tipo: 'fattura' | 'pagamento' | 'nota_credito';
+    tipo: 'fattura' | 'pagamento' | 'nota_credito' | 'ripresa';
   }
 
   const partitario = useMemo(() => {
@@ -408,17 +427,27 @@ export default function SchedaContabileFornitore() {
       return 0;
     });
 
-    // Saldo progressivo: AVERE aumenta, DARE riduce
-    let saldo = 0;
+    // Saldo progressivo in SEGNO CONTABILE (= Dare − Avere): debito NEGATIVO.
+    // Parte dalla RIPRESA SALDO (saldo apertura) come la contabilità.
     const totaliDare = movimenti.reduce((s, m) => s + m.dare, 0);
     const totaliAvere = movimenti.reduce((s, m) => s + m.avere, 0);
-    const righeConSaldo = movimenti.map(m => {
-      saldo += m.avere - m.dare;
-      return { ...m, saldo };
-    });
+    const startSaldo = selectedYear === 'all' ? 0 : openingBalance;
+    let saldo = startSaldo;
+    const righeConSaldo: (MovimentoPartitario & { saldo: number })[] = [];
+    if (selectedYear !== 'all') {
+      righeConSaldo.push({
+        data: `${fiscalYear}-01-01`, dataPagamento: null, numero: '',
+        dare: 0, avere: 0, descrizione: 'RIPRESA SALDO', aliquotaIVA: '—',
+        tipo: 'ripresa', saldo: startSaldo,
+      });
+    }
+    for (const m of movimenti) {
+      saldo += m.dare - m.avere;
+      righeConSaldo.push({ ...m, saldo });
+    }
 
     return { righe: righeConSaldo, totaliDare, totaliAvere, saldoFinale: saldo };
-  }, [filteredPayables, bankAccountById, partitarioSortBy]);
+  }, [filteredPayables, bankAccountById, partitarioSortBy, openingBalance, fiscalYear, selectedYear]);
 
   // ─── Actions ───────────────────────────────────────────────
   const toggleExpand = (invoiceNumber: string) => {
@@ -457,6 +486,28 @@ export default function SchedaContabileFornitore() {
     navigate(`/scadenzario?supplier=${supplierId}&search=${encodeURIComponent(name)}`);
   };
 
+  const saveOpening = async () => {
+    if (!COMPANY_ID || !supplier?.id) return;
+    const raw = openingDraft.amount.trim().replace(/\./g, '').replace(',', '.');
+    const amount = parseFloat(raw);
+    if (isNaN(amount)) { toast({ type: 'warning', message: 'Importo non valido' }); return; }
+    const { error } = await (supabase as unknown as { from: (t: string) => { upsert: (v: Record<string, unknown>, o: { onConflict: string }) => Promise<{ error: unknown }> } })
+      .from('supplier_opening_balances')
+      .upsert({
+        company_id: COMPANY_ID,
+        supplier_id: supplier.id,
+        fiscal_year: fiscalYear,
+        opening_balance: amount,
+        as_of_date: openingDraft.date || null,
+        source: 'manuale',
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'company_id,supplier_id,fiscal_year' });
+    if (error) { toast({ type: 'error', message: 'Errore salvataggio ripresa saldo' }); return; }
+    toast({ type: 'success', message: 'Ripresa saldo salvata' });
+    setEditingOpening(false);
+    fetchData();
+  };
+
   const handlePrintScheda = () => {
     const w = window.open('', '_blank');
     if (!w) return;
@@ -477,7 +528,8 @@ export default function SchedaContabileFornitore() {
     }).join('');
 
     const partitarioHTML = partitario.righe.map(m => {
-      const bg = m.tipo === 'nota_credito' ? '#f0fdf4'
+      const bg = m.tipo === 'ripresa' ? '#fffbeb'
+        : m.tipo === 'nota_credito' ? '#f0fdf4'
         : m.tipo === 'pagamento' ? '#eff6ff' : 'white';
       const dataCell = m.tipo === 'pagamento' && m.dataPagamento
         ? `<span style="color:#1d4ed8;font-weight:600">${fmtDate(m.dataPagamento)}</span>`
@@ -492,7 +544,7 @@ export default function SchedaContabileFornitore() {
         <td style="text-align:right;font-family:monospace">${m.dare > 0 ? fmt(m.dare) : ''}</td>
         <td style="text-align:right;font-family:monospace">${m.avere > 0 ? fmt(m.avere) : ''}</td>
         <td>${descrCell}</td>
-        <td style="text-align:right;font-weight:bold;font-family:monospace;color:${m.saldo > 0.01 ? '#dc2626' : '#16a34a'}">${fmt(m.saldo)}</td>
+        <td style="text-align:right;font-weight:bold;font-family:monospace;color:${m.saldo < -0.01 ? '#dc2626' : '#0f172a'}">${fmt(m.saldo)}</td>
       </tr>`;
     }).join('');
     const partitarioFooterHTML = partitario.righe.length > 0 ? `
@@ -501,14 +553,14 @@ export default function SchedaContabileFornitore() {
         <td style="text-align:right;font-family:monospace">${fmt(partitario.totaliDare)}</td>
         <td style="text-align:right;font-family:monospace">${fmt(partitario.totaliAvere)}</td>
         <td>Saldo:</td>
-        <td style="text-align:right;font-family:monospace;color:${partitario.saldoFinale > 0.01 ? '#dc2626' : '#16a34a'}">${fmtEUR(partitario.saldoFinale)}</td>
+        <td style="text-align:right;font-family:monospace;color:${partitario.saldoFinale < -0.01 ? '#dc2626' : '#0f172a'}">${fmtEUR(partitario.saldoFinale)}</td>
       </tr>
-      <tr style="background:${partitario.saldoFinale > 0.01 ? '#fef2f2' : '#f0fdf4'};font-weight:bold">
+      <tr style="background:${partitario.saldoFinale < -0.01 ? '#fef2f2' : '#f8fafc'};font-weight:bold">
         <td colspan="2" style="text-align:right">Totale Corrente Scheda Contabile:</td>
         <td style="text-align:right;font-family:monospace">${fmt(partitario.totaliDare)}</td>
         <td style="text-align:right;font-family:monospace">${fmt(partitario.totaliAvere)}</td>
-        <td>${partitario.saldoFinale > 0.01 ? 'Saldo a debito:' : 'Saldo:'}</td>
-        <td style="text-align:right;font-family:monospace;color:${partitario.saldoFinale > 0.01 ? '#991b1b' : '#065f46'}">${fmtEUR(partitario.saldoFinale)}</td>
+        <td>${partitario.saldoFinale < -0.01 ? 'Saldo a debito:' : 'Saldo:'}</td>
+        <td style="text-align:right;font-family:monospace;color:${partitario.saldoFinale < -0.01 ? '#991b1b' : '#0f172a'}">${fmtEUR(partitario.saldoFinale)}</td>
       </tr>` : '';
 
     w.document.write(`<!DOCTYPE html><html><head>
@@ -683,9 +735,9 @@ export default function SchedaContabileFornitore() {
               <div className="text-lg font-bold text-violet-900 mt-1">{fmtEUR(kpis.totCrediti)}</div>
             </div>
           )}
-          <div className={`rounded-xl p-4 text-center ${kpis.esposto > 0 ? 'bg-red-50' : 'bg-slate-50'}`}>
-            <div className={`text-xs uppercase font-semibold ${kpis.esposto > 0 ? 'text-red-600' : 'text-slate-500'}`}>Esposto</div>
-            <div className={`text-lg font-bold mt-1 ${kpis.esposto > 0 ? 'text-red-900' : 'text-slate-700'}`}>{fmtEUR(kpis.esposto)}</div>
+          <div className={`rounded-xl p-4 text-center ${partitario.saldoFinale < -0.01 ? 'bg-red-50' : 'bg-slate-50'}`}>
+            <div className={`text-xs uppercase font-semibold ${partitario.saldoFinale < -0.01 ? 'text-red-600' : 'text-slate-500'}`}>Saldo contabile</div>
+            <div className={`text-lg font-bold mt-1 ${partitario.saldoFinale < -0.01 ? 'text-red-900' : 'text-slate-700'}`}>{fmtEUR(partitario.saldoFinale)}</div>
           </div>
           <div className={`rounded-xl p-4 text-center ${kpis.scadute > 0 ? 'bg-amber-50' : 'bg-slate-50'}`}>
             <div className={`text-xs uppercase font-semibold ${kpis.scadute > 0 ? 'text-amber-600' : 'text-slate-500'}`}>Scadute</div>
@@ -693,6 +745,40 @@ export default function SchedaContabileFornitore() {
           </div>
         </div>
       </div>
+
+      {/* ─── RIPRESA SALDO (saldo apertura) ───────────────── */}
+      {selectedYear !== 'all' && (
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-semibold text-slate-700">Ripresa saldo {fiscalYear}</span>
+            <span className="text-xs text-slate-400">(saldo al 31/12/{fiscalYear - 1})</span>
+          </div>
+          {!editingOpening ? (
+            <div className="flex items-center gap-4">
+              <span className={`text-base font-bold font-mono ${openingBalance < -0.01 ? 'text-red-700' : 'text-slate-900'}`}>{fmtEUR(openingBalance)}</span>
+              {openingRowCur?.as_of_date && <span className="text-xs text-slate-500">al {fmtDate(openingRowCur.as_of_date)}</span>}
+              {openingRowCur?.source && <span className="text-[10px] uppercase tracking-wide text-slate-400">{openingRowCur.source}</span>}
+              <button onClick={() => { setOpeningDraft({ amount: String(openingBalance).replace('.', ','), date: openingRowCur?.as_of_date || `${fiscalYear - 1}-12-31` }); setEditingOpening(true); }} className="px-3 py-1.5 text-xs bg-slate-100 hover:bg-slate-200 rounded-lg transition">Modifica</button>
+            </div>
+          ) : (
+            <div className="flex flex-wrap items-end gap-3">
+              <div>
+                <label className="block text-[10px] uppercase text-slate-500 mb-1">Importo (− = debito)</label>
+                <input value={openingDraft.amount} onChange={e => setOpeningDraft(d => ({ ...d, amount: e.target.value }))} placeholder="-1.234,56" className="w-32 px-2 py-1.5 border border-slate-300 rounded-lg text-sm font-mono text-right focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label className="block text-[10px] uppercase text-slate-500 mb-1">Data</label>
+                <input type="date" value={openingDraft.date} onChange={e => setOpeningDraft(d => ({ ...d, date: e.target.value }))} className="px-2 py-1.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <button onClick={saveOpening} className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">Salva</button>
+              <button onClick={() => setEditingOpening(false)} className="px-3 py-1.5 text-xs bg-slate-100 hover:bg-slate-200 rounded-lg transition">Annulla</button>
+            </div>
+          )}
+        </div>
+        <p className="text-[11px] text-slate-400 mt-2">Segno contabile: <b>negativo = debito</b> (quanto dobbiamo noi), positivo = credito a nostro favore.</p>
+      </div>
+      )}
 
       {/* ─── TAB ANNI + TABELLA FATTURE ───────────────────── */}
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100">
@@ -875,7 +961,9 @@ export default function SchedaContabileFornitore() {
                 <tr><td colSpan={6} className="px-4 py-8 text-center text-slate-400">Nessun movimento</td></tr>
               )}
               {partitario.righe.map((m, i) => {
-                const rowBg = m.tipo === 'nota_credito'
+                const rowBg = m.tipo === 'ripresa'
+                  ? 'bg-amber-50 font-semibold'
+                  : m.tipo === 'nota_credito'
                   ? 'bg-emerald-50/40'
                   : m.tipo === 'pagamento'
                     ? 'bg-blue-50/20'
@@ -910,7 +998,7 @@ export default function SchedaContabileFornitore() {
                       </div>
                     </td>
                     <td className={`px-4 py-2 text-right font-bold align-top font-mono ${
-                      m.saldo > 0.01 ? 'text-red-700' : m.saldo < -0.01 ? 'text-emerald-700' : 'text-slate-500'
+                      m.saldo < -0.01 ? 'text-red-700' : 'text-slate-900'
                     }`}>{fmt(m.saldo)}</td>
                   </tr>
                 );
@@ -925,20 +1013,20 @@ export default function SchedaContabileFornitore() {
                     <td className="px-4 py-2.5 text-right font-mono text-slate-900">{fmt(partitario.totaliDare)}</td>
                     <td className="px-4 py-2.5 text-right font-mono text-slate-900">{fmt(partitario.totaliAvere)}</td>
                     <td className="px-4 py-2.5 text-slate-600">Saldo:</td>
-                    <td className={`px-4 py-2.5 text-right font-mono ${partitario.saldoFinale > 0.01 ? 'text-red-700' : 'text-emerald-700'}`}>
+                    <td className={`px-4 py-2.5 text-right font-mono ${partitario.saldoFinale < -0.01 ? 'text-red-700' : 'text-slate-900'}`}>
                       {fmtEUR(partitario.saldoFinale)}
                     </td>
                   </tr>
-                  <tr className={`font-bold text-sm ${partitario.saldoFinale > 0.01 ? 'bg-red-50' : 'bg-emerald-50'}`}>
+                  <tr className={`font-bold text-sm ${partitario.saldoFinale < -0.01 ? 'bg-red-50' : 'bg-slate-50'}`}>
                     <td className="px-4 py-3 text-right" colSpan={2}>
                       Totale Corrente Scheda Contabile:
                     </td>
                     <td className="px-4 py-3 text-right font-mono">{fmt(partitario.totaliDare)}</td>
                     <td className="px-4 py-3 text-right font-mono">{fmt(partitario.totaliAvere)}</td>
                     <td className="px-4 py-3">
-                      {partitario.saldoFinale > 0.01 ? 'Saldo a debito:' : 'Saldo:'}
+                      {partitario.saldoFinale < -0.01 ? 'Saldo a debito:' : 'Saldo:'}
                     </td>
-                    <td className={`px-4 py-3 text-right font-mono text-base ${partitario.saldoFinale > 0.01 ? 'text-red-800' : 'text-emerald-800'}`}>
+                    <td className={`px-4 py-3 text-right font-mono text-base ${partitario.saldoFinale < -0.01 ? 'text-red-800' : 'text-slate-900'}`}>
                       {fmtEUR(partitario.saldoFinale)}
                     </td>
                   </tr>
