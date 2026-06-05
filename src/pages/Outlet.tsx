@@ -1900,23 +1900,38 @@ export default function Outlet() {
       // chart_of_accounts.is_revenue (mai via macro_group, che nel 2026 vale
       // 'CE' su tutte le righe). Importo = budget_amount (il budget di Lilian),
       // letto per mese così com'è nel DB: nessuna divisione per 12, nessuna
-      // spalmatura lato frontend. cost_center 'all' e 'rettifica_bilancio'
-      // sono esclusi (non sono punti vendita).
-      // Mappa bidirezionale: codice outlet (BRB) ↔ codice cost_center (barberino)
-      const COST_CENTER_MAP: Record<string, string> = {
-        'barberino': 'BRB', 'brugnato': 'BRG', 'franciacorta': 'FRC',
-        'palmanova': 'PLM', 'torino': 'TRN', 'valdichiana': 'VDC',
-        'valmontone': 'VLM', 'sede_magazzino': 'SEDE',
-      }
-      const NON_OUTLET_COST_CENTERS = new Set(['all', 'rettifica_bilancio'])
+      // spalmatura lato frontend.
+      // Quali cost_center sono punti vendita lo decide cost_centers.role
+      // (fonte di verità, come BudgetControl — Sprint 3 29/05/2026): solo
+      // role='outlet'. Così hq (sede_magazzino), non_operational
+      // (spese_non_divise), rettifica e qualsiasi bucket non-outlet restano
+      // automaticamente fuori da card e totale, senza liste hardcoded.
 
-      // Also map outlet name (lowercase) → outlet id
+      // Mappa code/nome cost_center → outlet id. I code dei cost_center
+      // role='outlet' coincidono col nome outlet in minuscolo (valdichiana…);
+      // codeToId resta come fallback.
       const codeToId: Record<string, string> = {}
       const nameToId: Record<string, string> = {}
       ;(outData || []).forEach(o => {
         if (o.code) codeToId[o.code] = o.id
         nameToId[(o.name || '').toLowerCase()] = o.id
       })
+
+      // 0) Cost center che sono punti vendita (cost_centers.role = 'outlet').
+      // select('*') + cast come BudgetControl: la colonna `role` non è ancora
+      // nei tipi DB generati (aggiunta Sprint 3, tipi non rigenerati).
+      const { data: ccData, error: ccErr } = await supabase
+        .from('cost_centers')
+        .select('*')
+        .eq('company_id', companyId)
+        .eq('is_active', true)
+      if (ccErr) console.error('cost_centers error:', ccErr)
+      const outletCostCenters = new Set(
+        ((ccData || []) as Array<{ code?: string | null; role?: string | null }>)
+          .filter(c => c.role === 'outlet')
+          .map(c => c.code)
+          .filter((code): code is string => !!code)
+      )
 
       // 1) Codici conto che sono RICAVI (piano dei conti dell'azienda)
       const { data: coaData, error: coaErr } = await supabase
@@ -1940,16 +1955,14 @@ export default function Outlet() {
       const grouped: Record<string, Record<number, number>> = {}
       ;((budgetData || [])).forEach(r => {
         const cc = r.cost_center || ''
-        if (NON_OUTLET_COST_CENTERS.has(cc)) return
+        // Solo cost_center con role='outlet' (scarta hq, non_operational,
+        // rettifica_bilancio e qualunque bucket non-outlet)
+        if (!outletCostCenters.has(cc)) return
         // Solo righe di ricavo (join is_revenue via chart_of_accounts)
         if (!r.account_code || !revenueCodes.has(r.account_code)) return
-        // Prova match diretto con code, poi con mappa, poi con nome outlet
-        let outletId = codeToId[cc]
-        if (!outletId) {
-          const mappedCode = COST_CENTER_MAP[cc]
-          if (mappedCode) outletId = codeToId[mappedCode]
-        }
-        if (!outletId) outletId = nameToId[cc.toLowerCase()]
+        // Match cost_center → outlet: nome in minuscolo, code come fallback
+        let outletId = nameToId[cc.toLowerCase()]
+        if (!outletId) outletId = codeToId[cc]
         if (!outletId) return
         const amount = Number(r.budget_amount) || 0
         if (amount === 0) return
