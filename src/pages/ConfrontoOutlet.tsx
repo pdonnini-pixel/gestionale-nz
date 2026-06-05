@@ -21,10 +21,21 @@ import {
 } from 'recharts'
 import { GlassTooltip, ChartGradients, AXIS_STYLE, GRID_STYLE, BAR_RADIUS, ModernLegend, fmtEuro, fmtK } from '../components/ChartTheme'
 import { formatOutletName, shortOutletName } from '../lib/formatters'
+import {
+  RICAVI_SOURCE_LABEL, buildOutletRevenue, outletRevenueMetrics,
+  type OutletConfrontoMap, type Provenance, type ConfrontoRow,
+} from '../lib/outletRevenue'
 
 function fmt(n: number | null | undefined, dec = 0): string {
   if (n == null) return '—'
   return new Intl.NumberFormat('it-IT', { minimumFractionDigits: dec, maximumFractionDigits: dec }).format(n)
+}
+
+// Scostamento con segno contabile: '-X €' se negativo (rosso a cura del chiamante),
+// '+X €' se positivo/zero. Niente colore "verde=buono".
+function scostamentoSegno(n: number | null | undefined): string {
+  if (n == null) return '—'
+  return `${n < 0 ? '-' : '+'}${fmt(Math.abs(n))} €`
 }
 
 /* ═══════════════════════════════════════
@@ -53,12 +64,13 @@ function KpiBadge({ label, value, sub, color = 'blue' }: { label: string; value:
    ═══════════════════════════════════════ */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type CalcMetricsT = any
-function OutletCard({ name, outletData, calculatedMetrics, ranking, onNavigate }: {
+function OutletCard({ name, outletData, calculatedMetrics, ranking, onNavigate, onOpenBudget }: {
   name: string
   outletData: { color?: string | null }
   calculatedMetrics: CalcMetricsT | null | undefined
   ranking?: number | null
   onNavigate: () => void
+  onOpenBudget: () => void
 }) {
   const [open, setOpen] = useState(false)
 
@@ -87,7 +99,15 @@ function OutletCard({ name, outletData, calculatedMetrics, ranking, onNavigate }
 
   const { ricavi, margine, marginePct, costoPersonale, affitto, servizi, personaleCount,
     ricavoPerDip, incidenzaPersonale, incidenzaAffitto, breakeven, merci, costiDiretti, costiTotali,
-    isVariance } = calculatedMetrics
+    isVariance, scostamento, scostamentoPct, mesiPresi, mediaMensile, provenance } = calculatedMetrics
+
+  // I1 — badge provenienza dato (consuntivo granitico vs preventivo).
+  const provBadge: Record<Provenance, { label: string; cls: string }> = {
+    granitico: { label: 'Granitico', cls: 'bg-emerald-100 text-emerald-700' },
+    misto: { label: 'Misto', cls: 'bg-amber-100 text-amber-700' },
+    preventivo: { label: 'Preventivo', cls: 'bg-slate-100 text-slate-500' },
+  }
+  const prov = provBadge[(provenance as Provenance) || 'preventivo']
 
   const isPositive = margine >= 0
   // null = non calcolabile (0 dipendenti). La UI mostra 'N/D'. Prima
@@ -107,6 +127,9 @@ function OutletCard({ name, outletData, calculatedMetrics, ranking, onNavigate }
             </button>
           </div>
           <div className="flex items-center gap-1.5">
+            <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${prov.cls}`} title="Provenienza ricavi (budget_confronto)">
+              {prov.label}
+            </span>
             {ranking && (
               <span className={`text-xs px-2 py-0.5 rounded-full font-bold ${
                 ranking === 1 ? 'bg-yellow-100 text-yellow-700' :
@@ -122,16 +145,30 @@ function OutletCard({ name, outletData, calculatedMetrics, ranking, onNavigate }
         <div className="text-xs text-slate-400 mt-0.5">{formatOutletName(name)}</div>
       </div>
 
-      {/* Ricavi - Hero KPI + varianza */}
+      {/* Ricavi - Hero KPI + scostamento */}
       <div className="px-4 pt-4 pb-2">
-        <div className="text-xs text-slate-400">{isVariance ? 'Δ Ricavi (Cons. − Prev.)' : 'Ricavi'}</div>
-        <div className={`text-2xl font-bold ${isVariance ? (ricavi >= 0 ? 'text-emerald-600' : 'text-red-600') : 'text-slate-900'}`}>
-          {isVariance && ricavi > 0 ? '+' : ''}{fmt(ricavi)} €
+        {/* In modalità Scostamento il valore hero È già lo scostamento sui mesi
+            presi (consuntivo − preventivo): convenzione contabile (nero se ≥0,
+            rosso col meno se <0), niente verde. */}
+        <div className="text-xs text-slate-400">{isVariance ? 'Δ Ricavi (Cons. − Prev., mesi presi)' : RICAVI_SOURCE_LABEL}</div>
+        <div className={`text-2xl font-bold ${isVariance ? (ricavi < 0 ? 'text-red-600' : 'text-slate-900') : 'text-slate-900'}`}>
+          {isVariance ? scostamentoSegno(scostamento) : `${fmt(ricavi)} €`}
         </div>
-        {/* Banner "vs budget" nascosto in modalità Scostamento: sarebbe duplicato del valore stesso */}
-        {!isVariance && calculatedMetrics.variance && calculatedMetrics.budgetRicavi > 0 && (
-          <div className={`text-xs font-medium ${calculatedMetrics.variance.ricavi >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
-            {calculatedMetrics.variance.ricavi >= 0 ? '+' : ''}{fmt(calculatedMetrics.variance.ricavi)} € ({calculatedMetrics.variance.ricaviPct >= 0 ? '+' : ''}{calculatedMetrics.variance.ricaviPct.toFixed(1)}%) vs budget
+        {/* I4 — media mensile (consuntivo ÷ mesi presi): normalizza aperture diverse. */}
+        {!isVariance && (
+          <div className="text-xs text-slate-400 mt-0.5">
+            {mesiPresi > 0
+              ? <>Media mensile: <span className="font-medium text-slate-600">{fmt(mediaMensile)} €</span> · {mesiPresi} mes{mesiPresi === 1 ? 'e' : 'i'} presi</>
+              : 'Nessun mese consuntivato'}
+          </div>
+        )}
+        {/* I2/R1 — scostamento sui mesi presi (consuntivo − preventivo), € e %,
+            segno contabile (rosso col meno se sotto, nero se sopra), niente verde. */}
+        {!isVariance && mesiPresi > 0 && (
+          <div className="text-xs font-medium mt-0.5 text-slate-700">
+            Scostamento: <span className={scostamento < 0 ? 'text-red-600' : 'text-slate-900'}>
+              {scostamentoSegno(scostamento)} ({scostamento < 0 ? '' : '+'}{scostamentoPct.toFixed(1)}%)
+            </span> <span className="text-slate-400">vs preventivo (stessi mesi)</span>
           </div>
         )}
         {calculatedMetrics.approvalPct > 0 && (
@@ -140,6 +177,13 @@ function OutletCard({ name, outletData, calculatedMetrics, ranking, onNavigate }
             <span className="text-xs text-slate-400">Approvato: {calculatedMetrics.approvalPct}%</span>
           </div>
         )}
+        {/* I3 — apri questo outlet in Budget & Controllo, già filtrato. */}
+        <button
+          onClick={onOpenBudget}
+          className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-700 transition"
+        >
+          <ArrowUpRight size={12} /> Apri in Budget &amp; Controllo
+        </button>
       </div>
 
       {/* KPI Grid — in variance i delta sono colorati per significato:
@@ -256,6 +300,12 @@ type CalculatedMetrics = {
   budgetRicavi: number
   actualRicavi: number
   isVariance: boolean
+  outletCode: string
+  scostamento: number
+  scostamentoPct: number
+  mesiPresi: number
+  mediaMensile: number
+  provenance: Provenance
 }
 type OutletDataLite = {
   id?: string
@@ -400,6 +450,10 @@ export default function ConfrontoOutlet() {
   // per (cost_center, account_code). Vincono su budget_entries.actual_amount nei calcoli.
   const [consOverlay, setConsOverlay] = useState<Record<string, Record<string, number>>>({})
   const [prevOverlay, setPrevOverlay] = useState<Record<string, Record<string, number>>>({})
+  // Ricavi per outlet/mese da budget_confronto (fonte condivisa con B&C, T2/T3).
+  const [revenueMap, setRevenueMap] = useState<OutletConfrontoMap>({})
+  // Esiste consuntivo di COSTO per l'anno? (I5 empty-state). Oggi vuoto.
+  const [hasCostConsuntivo, setHasCostConsuntivo] = useState(false)
   const [loading, setLoading] = useState(true)
   // viewMode persistito in URL come ?view=… (default 'budget')
   const [searchParams, setSearchParams] = useSearchParams()
@@ -457,19 +511,46 @@ export default function ConfrontoOutlet() {
           .select('*')
           .eq('year', year)
 
-        // Sprint 2 (Patrizio 29/05/2026): aggiungi consuntivo Lilian (budget_confronto.cons_monthly)
-        // Aggrego per (cost_center, account_code) e lo memorizzo come overlay che vincera'
-        // su budget_entries.actual_amount nei calcoli.
+        // Conti ricavo dal piano dei conti (classificazione SEMPRE via
+        // chart_of_accounts.is_revenue — mai macro_group, T3).
+        const { data: coaData } = await supabase
+          .from('chart_of_accounts')
+          .select('code, is_revenue')
+          .eq('company_id', companyId)
+          .eq('is_active', true)
+        const revenueCodes = new Set(
+          ((coaData || []) as Array<{ code: string; is_revenue: boolean | null }>)
+            .filter(c => c.is_revenue).map(c => c.code)
+        )
+
+        // Outlet = cost_centers.role='outlet' (fonte di verità, no hardcoded).
+        const outletCC = new Set(
+          ((costCenters || []) as Array<{ code?: string | null; role?: string | null }>)
+            .filter(c => c.role === 'outlet' && c.code).map(c => c.code as string)
+        )
+
+        // Ricavi mensili da budget_confronto (preventivo rev_monthly + consuntivo
+        // granitico cons_monthly). Stessa fonte/regola di B&C (modulo condiviso).
         const { data: cfData } = await supabase
           .from('budget_confronto')
-          .select('cost_center, account_code, amount, entry_type')
+          .select('cost_center, account_code, month, amount, entry_type, stato')
           .eq('company_id', companyId)
           .eq('year', year)
           .in('entry_type', ['cons_monthly', 'rev_monthly'])
+          .range(0, 9999)
+        // Cast: la colonna `stato` non è ancora nei tipi DB generati.
+        const cfRows = (cfData || []) as unknown as ConfrontoRow[]
+        const revMap = buildOutletRevenue(cfRows, revenueCodes, outletCC)
+
+        // Overlay legacy per i COSTI (oggi vuoto: Lilian non ha inserito i costi
+        // consuntivo). Solo conti NON ricavo, così non interferisce con revMap.
         type CfRow = { cost_center: string; account_code: string; amount: number; entry_type: string }
         const consOverlay: Record<string, Record<string, number>> = {}
         const prevOverlay: Record<string, Record<string, number>> = {}
-        ;((cfData || []) as CfRow[]).forEach(r => {
+        let costCons = false
+        ;(cfRows as unknown as CfRow[]).forEach(r => {
+          if (revenueCodes.has(r.account_code)) return // i ricavi passano da revMap
+          if (r.entry_type === 'cons_monthly') costCons = true
           const target = r.entry_type === 'cons_monthly' ? consOverlay : prevOverlay
           if (!target[r.cost_center]) target[r.cost_center] = {}
           target[r.cost_center][r.account_code] = (target[r.cost_center][r.account_code] || 0) + (Number(r.amount) || 0)
@@ -481,6 +562,8 @@ export default function ConfrontoOutlet() {
         setEmployeeCosts((empCosts || []) as EmployeeCostRow[])
         setConsOverlay(consOverlay)
         setPrevOverlay(prevOverlay)
+        setRevenueMap(revMap)
+        setHasCostConsuntivo(costCons)
         setHasData((budgetEntries?.length || 0) > 0 || (bsData?.length || 0) > 0 || (cfData?.length || 0) > 0)
       } catch (err: unknown) {
         console.error('Error loading data:', err)
@@ -505,7 +588,7 @@ export default function ConfrontoOutlet() {
     })
     const amountField: 'actual_amount' | 'budget_amount' = viewMode === 'actual' ? 'actual_amount' : 'budget_amount'
     const totalSede = sedeEntries.reduce((s, b) => s + Math.abs(Number(b[amountField]) || 0), 0)
-    const activeOutlets = outlets.filter(o => o.code !== 'SEDE' && o.code !== 'sede_magazzino').length
+    const activeOutlets = outlets.filter(o => (o as { role?: string }).role === 'outlet').length
     return activeOutlets > 0 ? totalSede / activeOutlets : 0
   }, [budgetData, outlets, selectedMonths, viewMode])
 
@@ -522,7 +605,9 @@ export default function ConfrontoOutlet() {
     const allBudgetCCs = [...new Set(budgetData.map(b => b.cost_center).filter((cc): cc is string => Boolean(cc)))]
 
     return outlets
-      .filter(o => o.code !== 'SEDE' && o.code !== 'sede_magazzino') // escludi sede dalla comparazione
+      // Solo punti vendita: cost_centers.role='outlet' (esclude hq e
+      // non_operational, es. sede_magazzino / spese_non_divise). T3, no hardcoded.
+      .filter(o => (o as { role?: string }).role === 'outlet')
       .map(outlet => {
       // Match budget_entries cost_center to this outlet flexibly:
       // Try exact match, then case-insensitive match on code, then on label first word
@@ -563,10 +648,15 @@ export default function ConfrontoOutlet() {
       const overlayCodes = [...new Set([...Object.keys(consMapOutlet), ...Object.keys(prevMapOutlet)])]
       const hasOverlayData = overlayCodes.length > 0
 
-      // Mostra l'outlet se ha righe budget_entries OPPURE dati overlay Lilian.
+      // Ricavi per outlet — STESSA logica di Budget & Controllo (modulo condiviso):
+      // granitico-else-preventivo per mese, conti is_revenue, da budget_confronto.
+      const revM = outletRevenueMetrics(revenueMap[outlet.code || ''], selectedMonths)
+      const hasRevenue = revM.preventivo !== 0 || revM.consuntivoEff !== 0
+
+      // Mostra l'outlet se ha righe budget_entries OPPURE dati overlay/ricavi Lilian.
       // Bug "manca Torino": un outlet con solo consuntivo spariva da card, tabella
       // benchmark, grafici e aggregati perche' qui si tornava sempre null.
-      if (!outletBudget.length && !hasOverlayData) {
+      if (!outletBudget.length && !hasOverlayData && !hasRevenue) {
         return { name: outlet.label || '', outletData: outlet, calculatedMetrics: null } as OutletMetric
       }
 
@@ -583,13 +673,10 @@ export default function ConfrontoOutlet() {
       function calcMetrics(field: 'budget_amount' | 'actual_amount') {
         const overlay = field === 'actual_amount' ? hasConsForCodes : hasPrevForCodes
 
-        // Revenue: account_code starts with '5', or macro_group contains 'Ricavi'
-        const ricaviRows = outletBudget.filter(b => b.account_code?.startsWith('5') || b.macro_group?.includes('Ricavi'))
-        const ricaviCodes = new Set([...ricaviRows.map(b => b.account_code || '').filter(Boolean), ...overlayCodes.filter(c => c.startsWith('5'))])
-        const overlayRicavi = overlay(ricaviCodes)
-        const ricavi = overlayRicavi != null
-          ? overlayRicavi
-          : ricaviRows.reduce((sum, b) => sum + (Number(b[field]) || 0), 0)
+        // Ricavi: SEMPRE da budget_confronto via modulo condiviso (is_revenue,
+        // mai macro_group/startsWith). Preventivo per la vista budget,
+        // consuntivo effettivo (granitico-else-preventivo per mese) per actual.
+        const ricavi = field === 'actual_amount' ? revM.consuntivoEff : revM.preventivo
 
         // Costo personale: account_code starts with '6', or name matches
         const personaleRows = outletBudget.filter(b => b.account_code?.startsWith('6') || b.account_name?.toLowerCase().match(/personal|dipendent|retrib|stipend/))
@@ -729,10 +816,18 @@ export default function ConfrontoOutlet() {
           budgetRicavi: budget.ricavi,
           actualRicavi: actual.ricavi,
           isVariance, // 8.2: per la UI distinguere modalità Scostamento
+          // Ricavi da budget_confronto (modulo condiviso): scostamento sui mesi
+          // presi (R1/I2), media mensile (I4), provenienza per badge (I1).
+          outletCode: outlet.code || '',
+          scostamento: revM.scostamento,
+          scostamentoPct: revM.scostamentoPct,
+          mesiPresi: revM.mesiPresi,
+          mediaMensile: revM.mediaMensile,
+          provenance: revM.provenance,
         },
       } as OutletMetric
     })
-  }, [outlets, budgetData, balanceData, employeeCosts, selectedMonths, viewMode, quotaSedePerOutlet, consOverlay, prevOverlay])
+  }, [outlets, budgetData, balanceData, employeeCosts, selectedMonths, viewMode, quotaSedePerOutlet, consOverlay, prevOverlay, revenueMap])
 
   // Rankings
   const rankings = useMemo<Record<string, number>>(() => {
@@ -773,6 +868,10 @@ export default function ConfrontoOutlet() {
   const avgRicavi = outletMetrics.filter(o => o.calculatedMetrics).length > 0
     ? totRicavi / outletMetrics.filter(o => o.calculatedMetrics).length
     : 0
+  // I2 — scostamento di catena = somma degli scostamenti dei singoli outlet
+  // (consuntivo − preventivo sui mesi presi). Coincide con la somma in card.
+  const totScostamento = outletMetrics.reduce((s, o) => s + (o.calculatedMetrics?.scostamento || 0), 0)
+  const totMesiPresi = outletMetrics.reduce((s, o) => s + (o.calculatedMetrics?.mesiPresi || 0), 0)
 
   // Export Excel (CSV come fallback leggero)
   function exportExcel(): void {
@@ -921,7 +1020,13 @@ export default function ConfrontoOutlet() {
           <div className="p-2.5 rounded-lg bg-emerald-50 text-emerald-600 inline-flex mb-3"><TrendingUp size={20} /></div>
           <div className="text-2xl font-bold text-slate-900">{fmt(totRicavi)} €</div>
           <div className="text-sm text-slate-500">Ricavi totali {labels.pointOfSalePluralLower}</div>
-          <div className="text-xs text-slate-400">Media: {fmt(avgRicavi)} €</div>
+          {totMesiPresi > 0 ? (
+            <div className="text-xs text-slate-400">
+              Scostamento catena: <span className={totScostamento < 0 ? 'text-red-600 font-medium' : 'text-slate-700 font-medium'}>{scostamentoSegno(totScostamento)}</span>
+            </div>
+          ) : (
+            <div className="text-xs text-slate-400">Media: {fmt(avgRicavi)} €</div>
+          )}
         </div>
         <div className="rounded-2xl p-5 shadow-lg" style={{ background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)', border: '1px solid rgba(99,102,241,0.08)' }}>
           <div className="p-2.5 rounded-lg bg-amber-50 text-amber-600 inline-flex mb-3"><Users size={20} /></div>
@@ -1017,6 +1122,7 @@ export default function ConfrontoOutlet() {
               calculatedMetrics={o.calculatedMetrics}
               ranking={rankings[o.name]}
               onNavigate={() => navigate(`/outlet?id=${o.outletData.id}`)}
+              onOpenBudget={() => navigate(`/budget?tab=confronto&outlet=${encodeURIComponent(o.calculatedMetrics?.outletCode || o.outletData.code || '')}&anno=${year}`)}
             />
           ))}
         </div>
@@ -1033,10 +1139,19 @@ export default function ConfrontoOutlet() {
             {viewMode === 'variance' && ' (Scostamento)'}
           </span>
           <div className="text-xs text-blue-600 mt-1">
-            Dati da budget_entries + balance_sheet_data + employee_costs_by_outlet.
+            Ricavi: {RICAVI_SOURCE_LABEL} (budget_confronto — preventivo rev_monthly,
+            consuntivo granitico cons_monthly), regola granitico-else-preventivo per mese,
+            stessa fonte di Budget &amp; Controllo. Costi: budget_entries + employee_costs_by_outlet.
             Quota sede ({fmt(quotaSedePerOutlet)} €) ripartita equamente tra outlet.
-            {viewMode === 'variance' && ' Le variazioni mostrano consuntivo - preventivo.'}
+            {viewMode === 'variance' && ' Lo scostamento ricavi è consuntivo − preventivo sui soli mesi presi.'}
           </div>
+          {/* I5 — distingue "0 vero" da "non inserito": consuntivo costi assente. */}
+          {viewMode !== 'budget' && !hasCostConsuntivo && (
+            <div className="text-xs text-amber-700 mt-2 flex items-start gap-1.5">
+              <AlertCircle size={13} className="mt-0.5 shrink-0" />
+              <span>Consuntivo costi non ancora inserito da Lilian: i costi mostrati restano da preventivo, non sono uno «0» reale.</span>
+            </div>
+          )}
         </div>
       </div>
       </div>
