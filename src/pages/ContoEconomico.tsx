@@ -951,21 +951,24 @@ export default function ContoEconomico() {
     if (!COMPANY_ID) return
     setRiconLoading(true)
     try {
-      const { data, error } = await supabase
+      const { data: rawData, error } = await supabase
         .from('budget_entries')
-        .select('account_code, account_name, budget_amount, actual_amount, cost_center, macro_group')
+        .select('account_code, account_name, budget_amount, actual_amount, cost_center, macro_group, is_placeholder')
         .eq('company_id', COMPANY_ID!)
         .eq('year', year)
         .range(0, 9999) // override default Supabase limit 1000
 
       if (error) throw error
-      if (!data || data.length === 0) {
+      // Helper: prende actual_amount se disponibile, altrimenti budget_amount
+      type BudgetRowLite = { account_code?: string | null; account_name?: string | null; budget_amount?: number | null; actual_amount?: number | null; cost_center?: string | null; macro_group?: string | null; is_placeholder?: boolean | null }
+      // Escludi righe segnaposto (is_placeholder, cloni anno prec.) dai totali
+      // operativi. Lato client perché la colonna non è nei tipi generati (stale).
+      const data = ((rawData || []) as BudgetRowLite[]).filter(e => e.is_placeholder !== true)
+      if (data.length === 0) {
         setRiconData(null)
         return
       }
 
-      // Helper: prende actual_amount se disponibile, altrimenti budget_amount
-      type BudgetRowLite = { account_code?: string | null; account_name?: string | null; budget_amount?: number | null; actual_amount?: number | null; cost_center?: string | null; macro_group?: string | null }
       const getAmount = (e: BudgetRowLite) => Number(e.actual_amount) || Number(e.budget_amount) || 0
 
       // Ricavi: account_code inizia con '5', esclusa rettifica
@@ -1065,19 +1068,30 @@ export default function ContoEconomico() {
   type BudgetEntryAgg = {
     account_code?: string | null; cost_center?: string | null;
     budget_amount?: number | null; actual_amount?: number | null;
-    actual_refreshed_at?: string | null
+    actual_refreshed_at?: string | null; is_placeholder?: boolean | null
+  }
+  // Righe budget_confronto (fonte ricavi di Lilian, inserimento rapido mensile).
+  // entry_type 'rev_monthly' = preventivo ricavi mese; 'cons_monthly' = consuntivo
+  // (granitico) ricavi mese. account_code dei ricavi inizia per '5' (es. 510100).
+  type BudgetConfrontoAgg = {
+    cost_center?: string | null; account_code?: string | null;
+    amount?: number | null; entry_type?: string | null; month?: number | null
   }
   const loadBudgetSummary = useCallback(async () => {
     if (!COMPANY_ID) return
     try {
+      // ─── COSTI (e fallback ricavi) da budget_entries ─────────────────────
       const { data } = await supabase
         .from('budget_entries')
-        .select('account_code, cost_center, budget_amount, actual_amount, actual_refreshed_at')
+        .select('account_code, cost_center, budget_amount, actual_amount, actual_refreshed_at, is_placeholder')
         .eq('company_id', COMPANY_ID)
         .eq('year', year)
         .range(0, 9999) as { data: BudgetEntryAgg[] | null } // override default Supabase limit 1000
-      const rows = data || []
-      let ricaviPrev = 0, ricaviCons = 0, costiPrev = 0, costiCons = 0
+      // Esclude is_placeholder=true lato client (la colonna non è nei tipi generati,
+      // database.ts è stale): sul 2026 le righe segnaposto sono cloni del 2025 e
+      // non vanno conteggiate; sul 2025 sono tutte non-placeholder → invariato.
+      const rows = (data || []).filter((r) => r.is_placeholder !== true)
+      let ricaviPrevBE = 0, ricaviConsBE = 0, costiPrev = 0, costiCons = 0
       let anyStale = false
       let lastTs = 0
       let rowsBudgetCompiled = 0
@@ -1088,8 +1102,8 @@ export default function ContoEconomico() {
         const bp = Number(r.budget_amount || 0)
         const ac2 = Number(r.actual_amount || 0)
         if (isRev) {
-          ricaviPrev += bp
-          ricaviCons += ac2
+          ricaviPrevBE += bp
+          ricaviConsBE += ac2
         } else {
           costiPrev += bp
           costiCons += ac2
@@ -1101,6 +1115,61 @@ export default function ContoEconomico() {
           if (t > lastTs) lastTs = t
         }
       })
+
+      // ─── RICAVI da budget_confronto (fonte di Lilian) se presenti ─────────
+      // I ricavi previsionali/granitici che Lilian inserisce nell'inserimento
+      // rapido vivono in budget_confronto, NON in budget_entries. Se per l'anno
+      // selezionato esistono righe in budget_confronto, usalo come fonte ricavi
+      // (coerente con Budget & Controllo). Altrimenti fallback a budget_entries
+      // ('5', no placeholder) = comportamento storico (es. 2025). Nessun anno
+      // hardcoded: la scelta dipende SOLO dalla presenza di righe budget_confronto.
+      const { data: cfData } = await supabase
+        .from('budget_confronto')
+        .select('cost_center, account_code, amount, entry_type, month')
+        .eq('company_id', COMPANY_ID)
+        .eq('year', year)
+        .range(0, 9999) as { data: BudgetConfrontoAgg[] | null }
+      const cfRows = cfData || []
+
+      let ricaviPrev = ricaviPrevBE
+      let ricaviCons = ricaviConsBE
+      if (cfRows.length > 0) {
+        // Ricostruisci le matrici mensili (per outlet+conto) di preventivo e
+        // consuntivo ricavi, poi:
+        //  - preventivo ricavi = somma rev_monthly (≈ revYearlyByOutlet/annualR di BudgetControl)
+        //  - consuntivo ricavi = proiezione "granitico se presente, altrimenti
+        //    preventivo" per ogni mese (stessa logica di proietta()/projRicavi).
+        const revM: Record<string, number[]> = {}
+        const consM: Record<string, number[]> = {}
+        cfRows.forEach((r) => {
+          const ac = r.account_code || ''
+          if (!ac.startsWith('5')) return // solo ricavi
+          const m = Number(r.month || 0)
+          if (m < 1 || m > 12) return
+          const key = `${r.cost_center || ''}|${ac}`
+          const amt = Number(r.amount || 0)
+          if (r.entry_type === 'rev_monthly') {
+            if (!revM[key]) revM[key] = Array(12).fill(0)
+            revM[key][m - 1] = amt
+          } else if (r.entry_type === 'cons_monthly') {
+            if (!consM[key]) consM[key] = Array(12).fill(0)
+            consM[key][m - 1] = amt
+          }
+        })
+        let prevSum = 0, consSum = 0
+        const keys = new Set([...Object.keys(revM), ...Object.keys(consM)])
+        keys.forEach((key) => {
+          for (let mi = 0; mi < 12; mi++) {
+            const p = revM[key]?.[mi] || 0
+            const c = consM[key]?.[mi] || 0
+            prevSum += p
+            consSum += c > 0 ? c : p // granitico se presente, altrimenti preventivo
+          }
+        })
+        ricaviPrev = prevSum
+        ricaviCons = consSum
+      }
+
       setBudgetSummary({
         ricaviPrev, ricaviCons, costiPrev, costiCons,
         lastRefresh: lastTs > 0 ? new Date(lastTs) : null,

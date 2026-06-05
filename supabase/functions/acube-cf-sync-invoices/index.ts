@@ -2,7 +2,7 @@
 //
 // Scarica le fatture (passive e attive) gia' depositate da A-Cube su
 // Cassetto Fiscale via GET /invoices (con paginazione hydra:view).
-// Upsert su public.electronic_invoices (gia' usata da SDI webhook).
+// Importa su public.acube_sdi_invoices (dedup su acube_uuid).
 //
 // A-Cube fa il download fisico dal Cassetto Fiscale tramite il job
 // /jobs/invoice-download o il schedule giornaliero /schedule/invoice-download/{fid}.
@@ -65,6 +65,21 @@ async function getCachedJwt(supabase: SupabaseClient, stage: string): Promise<st
   const refresh = await refreshAcubeJwt(supabase, stage);
   if (refresh.error || !refresh.jwt) throw new Error(`JWT refresh failed: ${refresh.error}`);
   return refresh.jwt;
+}
+
+// Recupera l'XML FatturaPA REALE della singola fattura (GET /invoices/{uuid} Accept xml).
+// Serve a salvare in xml_content l'XML vero (non il JSON A-Cube) cosi' InvoiceViewer renda.
+// Ritorna null se non disponibile (il trigger fara' fallback al payload JSON).
+async function fetchInvoiceXml(baseUrl: string, jwt: string, uuid: string): Promise<string | null> {
+  try {
+    const resp = await fetch(`${baseUrl}/invoices/${uuid}`, {
+      headers: { Authorization: `Bearer ${jwt}`, Accept: "application/xml" },
+    });
+    if (!resp.ok) return null;
+    let xml = await resp.text();
+    if (xml.charCodeAt(0) === 0xFEFF) xml = xml.slice(1); // strip BOM UTF-8
+    return xml.includes("<FatturaElettronica") ? xml : null;
+  } catch { return null; }
 }
 
 Deno.serve(async (req: Request) => {
@@ -138,15 +153,13 @@ Deno.serve(async (req: Request) => {
 
     let jwt = await getCachedJwt(supabase, stage);
 
-    // GET /invoices con paginazione hydra. Filtri: type=passive|active|all, updated_after=since
+    // GET /invoices con paginazione hydra.
+    // NB: 'updated_after'/'type'/'fiscal_id' NON sono query param validi su /invoices
+    // (verificato su OpenAPI gov-it): l'account vede solo le BRC di sua competenza,
+    // quindi si recupera tutto e si fa dedup su acube_uuid lato DB.
     const params = new URLSearchParams();
     params.set("itemsPerPage", "100");
     params.set("page", "1");
-    if (since) params.set("updated_after", since);
-    if (invoiceType === "received") params.set("type", "passive");
-    else if (invoiceType === "sent") params.set("type", "active");
-    // Filtro per fiscal_id del tenant
-    params.set("fiscal_id", config.fiscal_id);
 
     const buildUrl = (relPath?: string | null) => {
       if (relPath) return relPath.startsWith("http") ? relPath : `${baseUrl}${relPath}`;
@@ -200,37 +213,59 @@ Deno.serve(async (req: Request) => {
         .maybeSingle();
       if (existing) { duplicates++; continue; }
 
-      const direction: string = inv.direction ?? inv.type ?? "passive";
+      // XML FatturaPA reale per questa fattura -> popola xml_content (per InvoiceViewer).
+      const realXml = await fetchInvoiceXml(baseUrl, jwt, invoiceUuid);
+
+      // Struttura reale di GET /invoices (verificata in production 2026-06-03):
+      // i campi sintetici sono top-level; data/numero/totale/divisa/tipo stanno
+      // dentro inv.payload (STRINGA JSON della FatturaPA). Le P.IVA controparte
+      // sono in inv.sender/recipient.business_vat_number_code (BusinessRegistry).
+      let feBody: any = null;
+      try {
+        const plParsed = typeof inv.payload === "string" ? JSON.parse(inv.payload) : inv.payload;
+        feBody = plParsed?.fattura_elettronica_body?.[0] ?? null;
+      } catch { feBody = null; }
+      const ddg = feBody?.dati_generali?.dati_generali_documento ?? {};
+
+      // direction: attiva se NZ e' il cedente (sender), passiva se NZ e' il
+      // cessionario (recipient); fallback su marking. Rispetta il CHECK (active|passive).
+      const nzFid = config.fiscal_id;
+      const recIsNz = inv.recipient?.business_vat_number_code === nzFid || inv.recipient?.business_fiscal_code === nzFid;
+      const sndIsNz = inv.sender?.business_vat_number_code === nzFid || inv.sender?.business_fiscal_code === nzFid;
+      const direction: string = recIsNz ? "passive" : (sndIsNz ? "active" : (inv.marking === "sent" ? "active" : "passive"));
       const marking: string = inv.marking ?? (direction === "active" ? "sent" : "received");
 
       const payload: Record<string, unknown> = {
         acube_uuid: invoiceUuid,
-        business_fiscal_id: config.fiscal_id,
+        business_fiscal_id: nzFid,
         direction,
+        type: typeof inv.type === "number" ? inv.type : null,
         marking,
-        sdi_file_id: inv.sdi_file_id ?? inv.sdiFileId ?? null,
-        sdi_file_name: inv.sdi_file_name ?? inv.sdiFileName ?? null,
+        sdi_file_id: inv.sdi_file_id ?? null,
+        sdi_file_name: inv.sdi_file_name ?? null,
         transmission_format: inv.transmission_format ?? null,
-        document_type: inv.document_type ?? inv.tipo_documento ?? null,
-        invoice_number: inv.invoice_number ?? inv.number ?? null,
-        invoice_date: inv.invoice_date ?? inv.date ?? null,
-        currency: inv.currency ?? "EUR",
-        total_amount: inv.total_amount ?? inv.totale ?? null,
+        document_type: inv.document_type ?? ddg.tipo_documento ?? null,
+        invoice_number: ddg.numero ?? null,
+        invoice_date: ddg.data ?? null,
+        currency: ddg.divisa ?? "EUR",
+        total_amount: ddg.importo_totale_documento != null ? Number(ddg.importo_totale_documento) : null,
         to_pa: inv.to_pa ?? false,
-        sender_vat: inv.sender?.vat ?? inv.sender_vat ?? null,
-        sender_country: inv.sender?.country ?? inv.sender_country ?? "IT",
-        sender_name: inv.sender?.name ?? inv.sender_name ?? null,
-        recipient_vat: inv.recipient?.vat ?? inv.recipient_vat ?? null,
-        recipient_name: inv.recipient?.name ?? inv.recipient_name ?? null,
-        recipient_code: inv.recipient?.code ?? inv.recipient_code ?? null,
+        sender_vat: inv.sender?.business_vat_number_code ?? null,
+        sender_country: inv.sender?.business_vat_number_country ?? null,
+        sender_name: inv.sender?.business_name ?? null,
+        sender_uuid: inv.sender?.uuid ?? null,
+        recipient_vat: inv.recipient?.business_vat_number_code ?? null,
+        recipient_name: inv.recipient?.business_name ?? null,
+        recipient_uuid: inv.recipient?.uuid ?? null,
+        recipient_code: inv.recipient?.recipient_code ?? null,
         signed: inv.signed ?? false,
         legally_stored: inv.legally_stored ?? false,
-        downloaded: true,
-        downloaded_at: new Date().toISOString(),
+        downloaded: inv.downloaded ?? false,
+        downloaded_at: inv.downloaded ? new Date().toISOString() : null,
         notifications: inv.notifications ?? null,
         payload: inv,
-        xml_content: inv.xml_content ?? null,
-        acube_created_at: inv.created_at ?? inv.createdAt ?? null,
+        xml_content: realXml,
+        acube_created_at: inv.created_at ?? null,
         fetched_at: new Date().toISOString(),
       };
 

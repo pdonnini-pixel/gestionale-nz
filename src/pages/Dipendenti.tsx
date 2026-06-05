@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef, lazy, Suspense } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import type { Row } from '../types/business';
+import { usePeriod } from '../hooks/usePeriod';
 
 // Vista Dipendenti — persistita in URL come ?view=
 type DipendentiView = 'consuntivo' | 'organico' | 'per_outlet';
@@ -117,7 +118,12 @@ export default function Dipendenti() {
     params.set('view', next);
     setSearchParams(params);
   };
-  const [selectedYear, setSelectedYear] = useState(2025);
+  const { year: globalYear } = usePeriod();
+  // Default = anno selezionato globale (usePeriod), niente anno hardcoded.
+  const [selectedYear, setSelectedYear] = useState(globalYear);
+  // Anno consuntivo = anno selezionato; anno organico/preventivo = anno+1.
+  const consuntivoYear = selectedYear;
+  const organicoYear = selectedYear + 1;
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
 
   // Data state
@@ -376,12 +382,12 @@ export default function Dipendenti() {
   // ========== 2025 CONSUNTIVO MEMOIZED DATA ==========
 
   const consuntivo2025ByOutlet = useMemo(() => {
-    return getEmployeesGroupedByOutlet(2025, selectedMonth);
-  }, [employees, allocations, costs, selectedMonth]);
+    return getEmployeesGroupedByOutlet(consuntivoYear, selectedMonth);
+  }, [employees, allocations, costs, consuntivoYear, selectedMonth]);
 
   const consuntivo2025Totals = useMemo(() => {
-    return calculateOutletTotals(2025, selectedMonth);
-  }, [employees, allocations, costs, selectedMonth]);
+    return calculateOutletTotals(consuntivoYear, selectedMonth);
+  }, [employees, allocations, costs, consuntivoYear, selectedMonth]);
 
   const totalEmployees2025 = useMemo(() => {
     return Object.values(consuntivo2025ByOutlet).reduce(
@@ -397,12 +403,12 @@ export default function Dipendenti() {
   // ========== 2026 ORGANICO MEMOIZED DATA ==========
 
   const organico2026ByOutlet = useMemo(() => {
-    return getEmployeesGroupedByOutlet(2026, selectedMonth);
-  }, [employees, allocations, costs, selectedMonth]);
+    return getEmployeesGroupedByOutlet(organicoYear, selectedMonth);
+  }, [employees, allocations, costs, organicoYear, selectedMonth]);
 
   const organico2026Totals = useMemo(() => {
-    return calculateOutletTotals(2026, selectedMonth);
-  }, [employees, allocations, costs, selectedMonth]);
+    return calculateOutletTotals(organicoYear, selectedMonth);
+  }, [employees, allocations, costs, organicoYear, selectedMonth]);
 
   const totalEmployees2026 = useMemo(() => {
     return Object.values(organico2026ByOutlet).reduce(
@@ -429,8 +435,8 @@ export default function Dipendenti() {
 
   const chartComparison = OUTLETS_ORDER.map(outlet => ({
     outlet,
-    '2025': consuntivo2025Totals[outlet]?.totale || 0,
-    '2026': organico2026Totals[outlet]?.totale || 0,
+    [String(consuntivoYear)]: consuntivo2025Totals[outlet]?.totale || 0,
+    [String(organicoYear)]: organico2026Totals[outlet]?.totale || 0,
   }));
 
   // ========== EMPLOYEE FORM HANDLERS ==========
@@ -814,7 +820,7 @@ export default function Dipendenti() {
       <div className="rounded-2xl shadow-lg p-6 mb-8" style={{ background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)', border: '1px solid rgba(99,102,241,0.08)' }}>
         <div className="flex items-center gap-2 mb-4">
           <BarChart3 className="w-5 h-5 text-blue-600" />
-          <h2 className="text-lg font-semibold text-slate-900">Costo per {labels.pointOfSalePlural} - Consuntivo 2025</h2>
+          <h2 className="text-lg font-semibold text-slate-900">Costo per {labels.pointOfSalePlural} - Consuntivo {consuntivoYear}</h2>
         </div>
         <ResponsiveContainer width="100%" height={300}>
           <BarChart data={chart2025Data}>
@@ -957,7 +963,7 @@ export default function Dipendenti() {
       {/* KPI Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
         <div className="rounded-lg shadow-lg p-6" style={{ background: "linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)" }}>
-          <p className="text-sm font-medium text-slate-600 mb-1">Dipendenti 2026</p>
+          <p className="text-sm font-medium text-slate-600 mb-1">Dipendenti {organicoYear}</p>
           <p className="text-3xl font-bold text-slate-900">{totalEmployees2026}</p>
           <p className="text-xs text-slate-500 mt-2">
             Allocati su outlet · Anagrafica: <span className="font-semibold text-slate-700">{employees.length}</span>
@@ -968,13 +974,13 @@ export default function Dipendenti() {
         </div>
 
         <div className="rounded-lg shadow-lg p-6" style={{ background: "linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)" }}>
-          <p className="text-sm font-medium text-slate-600 mb-1">Costo Stimato 2026</p>
+          <p className="text-sm font-medium text-slate-600 mb-1">Costo Stimato {organicoYear}</p>
           <p className="text-2xl font-bold text-slate-900">{formatCurrency(totalCosto2026)}</p>
           <p className="text-xs text-slate-500 mt-2">Totale organico</p>
         </div>
 
         <div className="rounded-lg shadow-lg p-6" style={{ background: "linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)" }}>
-          <p className="text-sm font-medium text-slate-600 mb-1">Delta vs 2025</p>
+          <p className="text-sm font-medium text-slate-600 mb-1">Delta vs {consuntivoYear}</p>
           <p className={`text-2xl font-bold ${deltaCosto >= 0 ? 'text-rose-600' : 'text-green-600'}`}>
             {formatCurrency(deltaCosto)}
           </p>
@@ -994,7 +1000,7 @@ export default function Dipendenti() {
       <div className="rounded-2xl shadow-lg p-6 mb-8" style={{ background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)', border: '1px solid rgba(99,102,241,0.08)' }}>
         <div className="flex items-center gap-2 mb-4">
           <BarChart3 className="w-5 h-5 text-blue-600" />
-          <h2 className="text-lg font-semibold text-slate-900">Confronto 2025 vs 2026</h2>
+          <h2 className="text-lg font-semibold text-slate-900">Confronto {consuntivoYear} vs {organicoYear}</h2>
         </div>
         <ResponsiveContainer width="100%" height={350}>
           <BarChart data={chartComparison}>
@@ -1017,8 +1023,8 @@ export default function Dipendenti() {
             />
             <Tooltip content={<GlassTooltip />} cursor={{ fill: 'rgba(99,102,241,0.04)', radius: 8 }} />
             <Legend />
-            <Bar dataKey="2025" fill="url(#grad-2025)" radius={[8, 8, 0, 0]} animationDuration={800} />
-            <Bar dataKey="2026" fill="url(#grad-2026)" radius={[8, 8, 0, 0]} animationDuration={800} />
+            <Bar dataKey={String(consuntivoYear)} fill="url(#grad-2025)" radius={[8, 8, 0, 0]} animationDuration={800} />
+            <Bar dataKey={String(organicoYear)} fill="url(#grad-2026)" radius={[8, 8, 0, 0]} animationDuration={800} />
           </BarChart>
         </ResponsiveContainer>
       </div>
@@ -1390,7 +1396,7 @@ export default function Dipendenti() {
     <div className="rounded-2xl shadow-lg overflow-hidden mb-8" style={{ background: "linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)", border: "1px solid rgba(99,102,241,0.08)" }}>
       <div className="px-6 py-4 border-b border-slate-200">
         <h2 className="text-lg font-semibold text-slate-900">
-          Riepilogo {viewMode === 'consuntivo' ? 'Consuntivo 2025' : 'Organico 2026'}
+          Riepilogo {viewMode === 'consuntivo' ? `Consuntivo ${consuntivoYear}` : `Organico ${organicoYear}`}
         </h2>
       </div>
       <div className="overflow-x-auto">
@@ -1509,8 +1515,12 @@ export default function Dipendenti() {
               onChange={(e) => setSelectedYear(parseInt(e.target.value))}
               className="px-4 py-2 border border-slate-300 rounded-lg bg-white"
             >
-              <option>2025</option>
-              <option>2026</option>
+              {Array.from(new Set([
+                ...costs.map(c => c.year).filter((y): y is number => typeof y === 'number'),
+                selectedYear,
+              ])).sort((a, b) => a - b).map(y => (
+                <option key={y} value={y}>{y}</option>
+              ))}
             </select>
           </div>
           <div className="flex gap-2">
@@ -1540,7 +1550,7 @@ export default function Dipendenti() {
                   : 'text-slate-500 hover:text-slate-700'
               }`}
             >
-              Consuntivo 2025
+              Consuntivo {consuntivoYear}
             </button>
             <button
               onClick={() => setViewMode('organico')}
@@ -1550,7 +1560,7 @@ export default function Dipendenti() {
                   : 'text-slate-500 hover:text-slate-700'
               }`}
             >
-              Organico 2026
+              Organico {organicoYear}
             </button>
             <button
               onClick={() => setViewMode('per_outlet')}
@@ -1589,7 +1599,7 @@ export default function Dipendenti() {
           </label>
           <ExportMenu
             data={(() => {
-              const year = viewMode === 'consuntivo' ? 2025 : 2026;
+              const year = viewMode === 'consuntivo' ? consuntivoYear : organicoYear;
               const yearCosts = costs.filter(c => c.year === year);
               type ExportRow = { cognome: string | null; nome: string | null; qualifica: string; contratto: string; outlet: string; allocazione: number | string; mese: number | string; retribuzione: number; contributi: number; inail: number; tfr: number; totale: number };
               const rows: ExportRow[] = [];
@@ -1630,7 +1640,7 @@ export default function Dipendenti() {
               { key: 'tfr', label: 'TFR', format: 'euro' },
               { key: 'totale', label: 'Totale', format: 'euro' },
             ]}
-            filename={`dipendenti_${viewMode === 'consuntivo' ? 2025 : 2026}`}
+            filename={`dipendenti_${viewMode === 'consuntivo' ? consuntivoYear : organicoYear}`}
             title="Dipendenti — Costi del Personale"
           />
         </div>

@@ -145,11 +145,11 @@ export default function App() {
     <ToastProvider>
       <AuthProvider>
         <CompanyProvider>
-          <PeriodProvider>
-            <BrowserRouter>
+          <BrowserRouter>
+            <PeriodProvider>
               <AppRoutes />
-            </BrowserRouter>
-          </PeriodProvider>
+            </PeriodProvider>
+          </BrowserRouter>
         </CompanyProvider>
       </AuthProvider>
     </ToastProvider>
