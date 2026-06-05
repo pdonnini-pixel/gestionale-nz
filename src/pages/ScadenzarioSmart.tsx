@@ -650,11 +650,9 @@ const ScadenzarioSmart = () => {
   useEffect(() => {
     if (!urlSupplier || !COMPANY_ID) return;
     (async () => {
-      const { data: sup } = await supabase
-        .from('suppliers')
-        .select('name, ragione_sociale')
-        .eq('id', urlSupplier)
-        .single();
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(urlSupplier);
+      const supQuery = supabase.from('suppliers').select('name, ragione_sociale') as unknown as { eq: (k: string, v: string) => { maybeSingle: () => Promise<{ data: { name?: string | null; ragione_sociale?: string | null } | null }> } };
+      const { data: sup } = await supQuery.eq(isUuid ? 'id' : 'slug', urlSupplier).maybeSingle();
       if (sup) {
         const supLite = sup as { name?: string | null; ragione_sociale?: string | null };
         const name = supLite.name || supLite.ragione_sociale || '';
