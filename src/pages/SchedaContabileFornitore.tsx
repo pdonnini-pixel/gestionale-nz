@@ -483,7 +483,7 @@ export default function SchedaContabileFornitore() {
 
   const handlePayAll = () => {
     const name = supplier?.name || supplier?.ragione_sociale || '';
-    navigate(`/scadenzario?supplier=${supplierId}&search=${encodeURIComponent(name)}`);
+    navigate(`/scadenzario?supplier=${supplier?.id || supplierId}&search=${encodeURIComponent(name)}`);
   };
 
   const saveOpening = async () => {
@@ -508,7 +508,7 @@ export default function SchedaContabileFornitore() {
     fetchData();
   };
 
-  const handlePrintScheda = () => {
+  const handlePrintScheda = (mode: 'full' | 'fatture' | 'partitario' = 'full') => {
     const w = window.open('', '_blank');
     if (!w) return;
 
@@ -588,18 +588,18 @@ export default function SchedaContabileFornitore() {
         <div class="kpi-card"><div class="kpi-label">Fatturato</div><div class="kpi-value">${fmtEUR(kpis.totFatturato)}</div></div>
         <div class="kpi-card"><div class="kpi-label">Pagato</div><div class="kpi-value" style="color:#16a34a">${fmtEUR(kpis.totPagato)}</div></div>
         ${kpis.totCrediti > 0 ? `<div class="kpi-card"><div class="kpi-label">Note credito</div><div class="kpi-value" style="color:#7c3aed">${fmtEUR(kpis.totCrediti)}</div></div>` : ''}
-        <div class="kpi-card"><div class="kpi-label">Esposto</div><div class="kpi-value" style="color:#dc2626">${fmtEUR(kpis.esposto)}</div></div>
+        <div class="kpi-card"><div class="kpi-label">Saldo contabile</div><div class="kpi-value" style="color:${partitario.saldoFinale < -0.01 ? '#dc2626' : '#0f172a'}">${fmtEUR(partitario.saldoFinale)}</div></div>
         <div class="kpi-card"><div class="kpi-label">Scadute</div><div class="kpi-value" style="color:#d97706">${kpis.scadute}/${kpis.totali}</div></div>
       </div>
-      <h2>FATTURE ${selectedYear === 'all' ? '— TUTTI GLI ANNI' : selectedYear}</h2>
+${mode !== 'partitario' ? `      <h2>FATTURE ${selectedYear === 'all' ? '— TUTTI GLI ANNI' : selectedYear}</h2>
       <table>
         <thead><tr><th>N. Fattura</th><th>Data</th><th>Scadenza</th><th style="text-align:right">Imponibile</th><th style="text-align:right">IVA</th><th style="text-align:right">Totale</th><th>Stato</th></tr></thead>
         <tbody>${righeHTML}
           <tr style="background:#eff6ff;font-weight:bold"><td colspan="3">TOTALE ${selectedYear === 'all' ? '' : selectedYear} — ${yearTotals.count} fatture</td>
             <td style="text-align:right">${fmt(yearTotals.net)}</td><td style="text-align:right">${fmt(yearTotals.vat)}</td><td style="text-align:right">${fmt(yearTotals.gross)}</td><td></td></tr>
         </tbody>
-      </table>
-      <h2>PARTITARIO — CONTO FORNITORE</h2>
+      </table>` : ''}
+${mode !== 'fatture' ? `      <h2>PARTITARIO — CONTO FORNITORE</h2>
       <table>
         <thead><tr>
           <th>Data</th>
@@ -610,7 +610,7 @@ export default function SchedaContabileFornitore() {
           <th style="text-align:right">Saldo</th>
         </tr></thead>
         <tbody>${partitarioHTML}${partitarioFooterHTML}</tbody>
-      </table>
+      </table>` : ''}
       <div class="footer">Generato il ${new Date().toLocaleDateString('it-IT')}</div>
       <script>window.onload = function() { window.print(); };</script>
     </body></html>`);
@@ -707,8 +707,14 @@ export default function SchedaContabileFornitore() {
             </div>
           </div>
           <div className="flex gap-2">
-            <button onClick={handlePrintScheda} className="flex items-center gap-1.5 px-3 py-2 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">
-              <Printer size={14} /> Stampa PDF
+            <button onClick={() => handlePrintScheda('full')} className="flex items-center gap-1.5 px-3 py-2 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">
+              <Printer size={14} /> Stampa
+            </button>
+            <button onClick={() => handlePrintScheda('fatture')} className="flex items-center gap-1.5 px-3 py-2 text-xs bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition">
+              <Printer size={14} /> Solo fatture
+            </button>
+            <button onClick={() => handlePrintScheda('partitario')} className="flex items-center gap-1.5 px-3 py-2 text-xs bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition">
+              <Printer size={14} /> Solo partitario
             </button>
             {kpis.scadute > 0 && (
               <button onClick={handlePayAll} className="flex items-center gap-1.5 px-3 py-2 text-xs bg-red-600 text-white rounded-lg hover:bg-red-700 transition">
