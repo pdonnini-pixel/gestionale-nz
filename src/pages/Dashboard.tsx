@@ -766,7 +766,7 @@ export default function Dashboard() {
               `Nessun dato per il ${year} — inseriscili in Budget e Controllo`
             )
           }
-          link={isGestione ? '/budget' : '/conto-economico'}
+          link="/outlet"
         />
         <KpiCard
           icon={Percent} title={dataSource === 'fatture' ? 'Costi' : 'Margine netto'} helpTerm="margine"
@@ -971,7 +971,7 @@ export default function Dashboard() {
                           {o.dip > 0 ? `${fmt(Math.round(o.ricavi / o.dip))} €` : '—'}
                         </td>
                         <td className="py-2.5 px-4">
-                          <Link to="/outlet" className="opacity-0 group-hover:opacity-100 transition">
+                          <Link to="/confronto-outlet" className="opacity-0 group-hover:opacity-100 transition">
                             <ChevronRight size={14} className="text-slate-400" />
                           </Link>
                         </td>
@@ -987,7 +987,7 @@ export default function Dashboard() {
               {outletsData.map((o, i) => {
                 const dailyRev = dailyRevenue.find(d => d.outlet === o.name)
                 return (
-                  <Link key={o.name} to="/outlet" className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50 transition">
+                  <Link key={o.name} to="/confronto-outlet" className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50 transition">
                     <span className={`text-xs font-bold w-6 text-center ${
                       i === 0 ? 'text-amber-600' : 'text-slate-400'
                     }`}>
