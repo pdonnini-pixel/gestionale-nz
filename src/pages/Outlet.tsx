@@ -68,28 +68,6 @@ const OUTLET_STATUS_STYLE = {
   chiuso: { label: 'Chiuso', cls: 'bg-slate-100 text-slate-500' },
 }
 
-// Conta i mesi in cui l'outlet è operativo nell'anno dato, derivandoli da
-// opening_date / closing_date (mai da valori inventati). Un mese è attivo se
-// l'apertura è ≤ fine di quel mese e, se presente la chiusura, questa è ≥ inizio
-// mese. Senza opening_date né closing_date si assume operativo tutto l'anno (12).
-// Es.: Torino (apertura 2026-03-24) → 10 mesi nel 2026, 0 nel 2025.
-// TODO: tighten type
-function activeMonthsCount(outlet: any, year: number): number {
-  if (!outlet) return 0
-  const opening = outlet.opening_date ? new Date(String(outlet.opening_date)) : null
-  const closing = outlet.closing_date ? new Date(String(outlet.closing_date)) : null
-  if (!opening && !closing) return 12
-  let count = 0
-  for (let m = 1; m <= 12; m++) {
-    const monthStart = new Date(year, m - 1, 1)
-    const monthEnd = new Date(year, m, 0)
-    if (opening && opening > monthEnd) continue   // apertura successiva alla fine del mese
-    if (closing && closing < monthStart) continue // chiusura precedente all'inizio del mese
-    count++
-  }
-  return count
-}
-
 // TODO: tighten type
 function StatusBadge({ isActive, outlet }: { isActive?: boolean; outlet?: any }) {
   // Se viene passato l'outlet completo, usa il calcolo dinamico
@@ -120,8 +98,9 @@ function OutletGrid({ outlets, revenue, year, onSelect }: { outlets: any[]; reve
       {outlets.map(outlet => {
         const outletRev = revenue[outlet.id] || {}
         const ytd = Object.values(outletRev).reduce((s: number, v: any) => s + v, 0)
-        // Mesi attivi derivati dal contratto (opening/closing), non dai dati di ricavo.
-        const months = activeMonthsCount(outlet, year)
+        // "Mesi presi" = mesi distinti con dato di ricavo (consuntivo granitico
+        // per gli anni con budget_confronto; mesi presenti nel fallback 2025).
+        const months = Object.keys(outletRev).length
 
         return (
           <div
@@ -166,7 +145,7 @@ function OutletGrid({ outlets, revenue, year, onSelect }: { outlets: any[]; reve
                 <div className="text-lg font-bold text-slate-900">{ytd > 0 ? `${fmt(ytd)} €` : '—'}</div>
               </div>
               <div className="text-right">
-                <div className="text-xs text-slate-400">Mesi attivi</div>
+                <div className="text-xs text-slate-400">Mesi presi</div>
                 <div className="text-lg font-bold text-slate-600">{fmt(months, 0)}</div>
               </div>
               <ChevronRight size={20} className="text-slate-300 group-hover:text-blue-400 transition" />
@@ -1623,7 +1602,7 @@ function StaffTab({ outletId, companyId }: { outletId: string; companyId: string
 // ====== DETTAGLIO OUTLET — HUB CON TAB ======
 // TODO: tighten type
 type OutletEntity = Record<string, unknown> & { id: string; company_id?: string; name?: string | null; code?: string | null; mall_name?: string | null; rent_monthly?: number | null; condo_marketing_monthly?: number | null; is_active?: boolean | null }
-function OutletDetail({ outlet, revenue, year, onBack, onEdit, onDelete }: { outlet: OutletEntity; revenue: Record<string, Record<number, number>>; year: number; onBack: () => void; onEdit: (o: OutletEntity) => void; onDelete: (o: OutletEntity) => void }) {
+function OutletDetail({ outlet, revenue, confronto, year, onBack, onEdit, onDelete }: { outlet: OutletEntity; revenue: Record<string, Record<number, number>>; confronto: Record<string, { prev: Record<number, number>; cons: Record<number, number> }>; year: number; onBack: () => void; onEdit: (o: OutletEntity) => void; onDelete: (o: OutletEntity) => void }) {
   const { profile: _profile } = useAuth()
   const yearData: Record<number, number> = revenue[outlet.id] || {}
   const [detailTab, setDetailTab] = useState('overview')
@@ -1651,6 +1630,24 @@ function OutletDetail({ outlet, revenue, year, onBack, onEdit, onDelete }: { out
     month: name,
     ricavi: yearData[i + 1] || 0,
   }))
+
+  // ─── Grafico preventivo (rosso) vs consuntivo (verde), mese per mese ───
+  // Preventivo = budget_confronto.rev_monthly; consuntivo = cons_monthly.
+  // Per gli anni senza budget_confronto (fallback budget_entries) non c'è
+  // preventivo: mostro il granito disponibile (yearData) come consuntivo.
+  const conf = confronto[outlet.id] || { prev: {}, cons: {} }
+  const confEmpty = Object.keys(conf.prev).length === 0 && Object.keys(conf.cons).length === 0
+  const confrontoChart = MONTHS
+    .map((name, i) => {
+      const m = i + 1
+      const preventivo = conf.prev[m] ?? null
+      const consuntivo = conf.cons[m] ?? (confEmpty ? (yearData[m] ?? null) : null)
+      return { month: name, preventivo, consuntivo }
+    })
+    // Mostra solo i mesi che hanno almeno un dato (gen→dic / dall'apertura).
+    .filter(d => d.preventivo != null || d.consuntivo != null)
+  const totPreventivo = confrontoChart.reduce((s, d) => s + (d.preventivo || 0), 0)
+  const totConsuntivo = confrontoChart.reduce((s, d) => s + (d.consuntivo || 0), 0)
 
   const ytd = Object.values(yearData).reduce<number>((s, v) => s + (Number(v) || 0), 0)
   const avgMonth = Object.keys(yearData).length > 0 ? ytd / Object.keys(yearData).length : 0
@@ -1764,24 +1761,32 @@ function OutletDetail({ outlet, revenue, year, onBack, onEdit, onDelete }: { out
           {/* Contract alerts */}
           <ContractAlerts outlet={outlet} />
 
-          {/* Revenue Chart */}
+          {/* Preventivo (rosso) vs Consuntivo (verde) — mese per mese */}
           <div className="bg-white rounded-xl border border-slate-200 p-4">
-            <h3 className="text-sm font-semibold text-slate-900 mb-3">Ricavi mensili — {year}</h3>
-            <ResponsiveContainer width="100%" height={250}>
-              <BarChart data={chartData}>
-                <defs>
-                  <linearGradient id="grad-ricavi-outlet" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#0ea5e9" stopOpacity={1} />
-                    <stop offset="100%" stopColor="#0ea5e9" stopOpacity={0.5} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid {...GRID_STYLE} />
-                <XAxis dataKey="month" {...AXIS_STYLE} />
-                <YAxis {...AXIS_STYLE} tickFormatter={v => `${(v/1000).toFixed(0)}k`} />
-                <Tooltip content={<GlassTooltip formatter={v => `${fmt(v)} €`} suffix="" />} />
-                <Bar dataKey="ricavi" fill="url(#grad-ricavi-outlet)" radius={[6, 6, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+            <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+              <h3 className="text-sm font-semibold text-slate-900">Preventivo vs Consuntivo — {year}</h3>
+              <div className="flex items-center gap-4 text-xs">
+                <span className="text-slate-500">Preventivo: <span className="font-semibold text-rose-600">{fmt(totPreventivo)} €</span></span>
+                <span className="text-slate-500">Consuntivo: <span className="font-semibold text-emerald-600">{fmt(totConsuntivo)} €</span></span>
+              </div>
+            </div>
+            {confrontoChart.length === 0 ? (
+              <div className="text-sm text-slate-400 text-center py-10">
+                Nessun dato di preventivo/consuntivo per il {year}.
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height={260}>
+                <BarChart data={confrontoChart} barGap={2} barCategoryGap="22%">
+                  <CartesianGrid {...GRID_STYLE} />
+                  <XAxis dataKey="month" {...AXIS_STYLE} />
+                  <YAxis {...AXIS_STYLE} tickFormatter={v => `${(v/1000).toFixed(0)}k`} />
+                  <Tooltip content={<GlassTooltip formatter={v => `${fmt(v)} €`} suffix="" />} />
+                  <Legend iconType="circle" wrapperStyle={{ fontSize: 12 }} />
+                  <Bar dataKey="preventivo" name="Preventivo" fill="#ef4444" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="consuntivo" name="Consuntivo" fill="#10b981" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
           </div>
 
           {/* Anagrafica compatta */}
@@ -1858,6 +1863,10 @@ export default function Outlet() {
   // TODO: tighten type — Supabase rows
   const [outlets, setOutlets] = useState<OutletEntity[]>([])
   const [revenue, setRevenue] = useState<Record<string, Record<number, number>>>({})
+  // Preventivo (rev_monthly) e consuntivo (cons_monthly) per outlet/mese, da
+  // budget_confronto — usati dal grafico di dettaglio preventivo vs consuntivo.
+  type ConfrontoMap = Record<string, { prev: Record<number, number>; cons: Record<number, number> }>
+  const [confronto, setConfronto] = useState<ConfrontoMap>({})
   // TODO: tighten type
   const [selectedOutlet, setSelectedOutlet] = useState<OutletEntity | null>(null)
   const [search, setSearch] = useState('')
@@ -1895,12 +1904,14 @@ export default function Outlet() {
         setOutlets((outData || []) as OutletEntity[])
       }
 
-      // ─── Ricavi per outlet — STESSA logica di "Budget e Controllo" ──────────
-      // Classificazione SEMPRE via join budget_entries.account_code →
+      // ─── Ricavi per outlet ──────────────────────────────────────────────
+      // Il ricavo mostrato è il CONSUNTIVO GRANITICO (mesi chiusi reali) che
+      // Lilian gestisce in budget_confronto.cons_monthly. Per gli anni senza
+      // budget_confronto (es. 2025, chiuso) si ripiega su budget_entries.
+      // Classificazione ricavo SEMPRE via join account_code →
       // chart_of_accounts.is_revenue (mai via macro_group, che nel 2026 vale
-      // 'CE' su tutte le righe). Importo = budget_amount (il budget di Lilian),
-      // letto per mese così com'è nel DB: nessuna divisione per 12, nessuna
-      // spalmatura lato frontend.
+      // 'CE' su tutte le righe). Importi letti per mese così come stanno nel DB:
+      // nessuna divisione per 12, nessuna spalmatura lato frontend.
       // Quali cost_center sono punti vendita lo decide cost_centers.role
       // (fonte di verità, come BudgetControl — Sprint 3 29/05/2026): solo
       // role='outlet'. Così hq (sede_magazzino), non_operational
@@ -1943,7 +1954,45 @@ export default function Outlet() {
       if (coaErr) console.error('chart_of_accounts error:', coaErr)
       const revenueCodes = new Set((coaData || []).map(c => c.code))
 
-      // 2) Righe budget dell'anno selezionato
+      // Match cost_center → outlet: nome in minuscolo, code come fallback
+      const matchOutletId = (cc: string): string | undefined =>
+        nameToId[cc.toLowerCase()] || codeToId[cc]
+
+      // 2) Preventivo/consuntivo da budget_confronto (la fonte che gestisce
+      //    Lilian). rev_monthly = preventivo rivisto; cons_monthly = consuntivo
+      //    GRANITICO (mesi chiusi reali). Solo conti is_revenue e cost_center
+      //    role='outlet'.
+      const { data: confData, error: confErr } = await supabase
+        .from('budget_confronto')
+        .select('cost_center, account_code, month, entry_type, amount')
+        .eq('company_id', companyId)
+        .eq('year', year)
+        .in('entry_type', ['rev_monthly', 'cons_monthly'])
+        .range(0, 9999)
+      if (confErr) console.error('budget_confronto error:', confErr)
+
+      const confronto: ConfrontoMap = {}
+      let hasConsuntivo = false
+      ;((confData || []) as Array<{ cost_center?: string | null; account_code?: string | null; month?: number | null; entry_type?: string | null; amount?: number | null }>).forEach(r => {
+        const cc = r.cost_center || ''
+        if (!outletCostCenters.has(cc)) return
+        if (!r.account_code || !revenueCodes.has(r.account_code)) return
+        const outletId = matchOutletId(cc)
+        if (!outletId) return
+        const m = r.month ?? 0
+        if (m < 1) return
+        const amt = Number(r.amount) || 0
+        if (!confronto[outletId]) confronto[outletId] = { prev: {}, cons: {} }
+        if (r.entry_type === 'rev_monthly') {
+          confronto[outletId].prev[m] = (confronto[outletId].prev[m] || 0) + amt
+        } else if (r.entry_type === 'cons_monthly') {
+          confronto[outletId].cons[m] = (confronto[outletId].cons[m] || 0) + amt
+          hasConsuntivo = true
+        }
+      })
+      setConfronto(confronto)
+
+      // 3) budget_entries dell'anno — fallback per anni senza budget_confronto
       const { data: budgetData, error: budgetErr } = await supabase
         .from('budget_entries')
         .select('cost_center, month, budget_amount, account_code')
@@ -1952,24 +2001,32 @@ export default function Outlet() {
         .range(0, 9999) // override default Supabase limit 1000 — piano dei conti completo (~1212 righe/anno)
       if (budgetErr) console.error('budget_entries error:', budgetErr)
 
+      // Ricavo card per outlet/mese:
+      //  - anni con budget_confronto → CONSUNTIVO GRANITICO (cons_monthly)
+      //  - anni senza (es. 2025, chiuso) → fallback budget_entries.budget_amount
       const grouped: Record<string, Record<number, number>> = {}
-      ;((budgetData || [])).forEach(r => {
-        const cc = r.cost_center || ''
-        // Solo cost_center con role='outlet' (scarta hq, non_operational,
-        // rettifica_bilancio e qualunque bucket non-outlet)
-        if (!outletCostCenters.has(cc)) return
-        // Solo righe di ricavo (join is_revenue via chart_of_accounts)
-        if (!r.account_code || !revenueCodes.has(r.account_code)) return
-        // Match cost_center → outlet: nome in minuscolo, code come fallback
-        let outletId = nameToId[cc.toLowerCase()]
-        if (!outletId) outletId = codeToId[cc]
-        if (!outletId) return
-        const amount = Number(r.budget_amount) || 0
-        if (amount === 0) return
-        if (!grouped[outletId]) grouped[outletId] = {}
-        const m = r.month ?? 0
-        grouped[outletId][m] = (grouped[outletId][m] || 0) + amount
-      })
+      if (hasConsuntivo) {
+        for (const [oid, c] of Object.entries(confronto)) {
+          for (const [m, v] of Object.entries(c.cons)) {
+            if (!v) continue
+            if (!grouped[oid]) grouped[oid] = {}
+            grouped[oid][Number(m)] = v
+          }
+        }
+      } else {
+        ;((budgetData || [])).forEach(r => {
+          const cc = r.cost_center || ''
+          if (!outletCostCenters.has(cc)) return
+          if (!r.account_code || !revenueCodes.has(r.account_code)) return
+          const outletId = matchOutletId(cc)
+          if (!outletId) return
+          const amount = Number(r.budget_amount) || 0
+          if (amount === 0) return
+          if (!grouped[outletId]) grouped[outletId] = {}
+          const m = r.month ?? 0
+          grouped[outletId][m] = (grouped[outletId][m] || 0) + amount
+        })
+      }
       setRevenue(grouped)
     } catch (err) {
       console.error('Errore caricamento dati:', err)
@@ -2119,6 +2176,7 @@ export default function Outlet() {
             <OutletDetail
               outlet={selectedOutlet}
               revenue={revenue}
+              confronto={confronto}
               year={year}
               onBack={() => setSelectedOutlet(null)}
               onEdit={handleEdit}
