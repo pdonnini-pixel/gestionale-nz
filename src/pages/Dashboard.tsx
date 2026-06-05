@@ -339,6 +339,7 @@ export default function Dashboard() {
 
           if (outletsRaw && outletsRaw.length > 0) {
             setOutletsData(outletsRaw.map((o, i) => ({
+              id: o.outlet_id ?? undefined,
               name: o.outlet_name ?? '',
               ricavi: o.ytd_revenue || 0,
               dip: ((o as { staff_count?: number | null }).staff_count) ?? 0,
@@ -364,7 +365,7 @@ export default function Dashboard() {
                 .eq('is_active', true)
             ])
 
-            interface OutletAggLocal { name: string; ricavi: number }
+            interface OutletAggLocal { id?: string; name: string; ricavi: number }
             const outletNameMap: Record<string, string> = {}
             ;(outletsList || []).forEach(o => { outletNameMap[o.id] = o.name })
 
@@ -375,12 +376,13 @@ export default function Dashboard() {
                 const oid = r.outlet_id
                 if (!oid) return
                 if (!outletMap[oid]) {
-                  outletMap[oid] = { name: outletNameMap[oid] || '?', ricavi: 0 }
+                  outletMap[oid] = { id: oid, name: outletNameMap[oid] || '?', ricavi: 0 }
                 }
                 outletMap[oid].ricavi += Number(r.gross_revenue) || 0
               })
               const sorted = Object.values(outletMap).sort((a, b) => b.ricavi - a.ricavi)
               setOutletsData(sorted.map((o, i) => ({
+                id: o.id,
                 name: o.name,
                 ricavi: o.ricavi,
                 dip: 0,
@@ -416,11 +418,12 @@ export default function Dashboard() {
                     const codeKey = String(o.code || '').toLowerCase()
                     const nameKey = String(o.name || '').toLowerCase()
                     const ricavi = ricaviByCc[codeKey] ?? ricaviByCc[nameKey] ?? 0
-                    return { name: o.name || o.code || '?', ricavi }
+                    return { id: o.id, name: o.name || o.code || '?', ricavi }
                   })
                 if (outletsByCc.some(o => o.ricavi > 0)) {
                   const sorted = outletsByCc.sort((a, b) => b.ricavi - a.ricavi)
                   setOutletsData(sorted.map((o, i) => ({
+                    id: o.id,
                     name: o.name,
                     ricavi: o.ricavi,
                     dip: 0,
@@ -471,6 +474,7 @@ export default function Dashboard() {
                   return a.name.localeCompare(b.name)
                 })
                 setOutletsData(sorted.map((o, i) => ({
+                  id: o.id,
                   name: o.name,
                   ricavi: o.ricavi,
                   dip: 0,
@@ -653,6 +657,12 @@ export default function Dashboard() {
   const cashFlowNetto = cashFlowTotals.entrate - cashFlowTotals.uscite
   // Modalità "anno di gestione" (consuntivo/previsionale da budget_confronto, no bilancio)
   const isGestione = dataSource === 'gestione'
+  // URL diretta al dettaglio del singolo outlet (/outlet/:outletId). Si preferisce
+  // l'id quando disponibile; in mancanza si usa il nome (la pagina Outlet risolve
+  // sia per id sia per nome). Le righe del ranking aprono così la scheda del
+  // punto vendita specifico, non la pagina generale.
+  const outletHref = (o: { id?: string; name?: string }) =>
+    o.id ? `/outlet/${o.id}` : `/outlet/${encodeURIComponent((o.name || '').toLowerCase())}`
   // Il margine è calcolabile solo se i costi esistono (bilancio depositato, oppure
   // costi presenti in budget_confronto). Per l'anno di gestione senza costi -> "—".
   const margineAvailable = dataSource === 'fatture' ? false : (isGestione ? costiPresent : ricavi > 0)
@@ -766,7 +776,7 @@ export default function Dashboard() {
               `Nessun dato per il ${year} — inseriscili in Budget e Controllo`
             )
           }
-          link={isGestione ? '/budget' : '/conto-economico'}
+          link="/outlet"
         />
         <KpiCard
           icon={Percent} title={dataSource === 'fatture' ? 'Costi' : 'Margine netto'} helpTerm="margine"
@@ -971,7 +981,7 @@ export default function Dashboard() {
                           {o.dip > 0 ? `${fmt(Math.round(o.ricavi / o.dip))} €` : '—'}
                         </td>
                         <td className="py-2.5 px-4">
-                          <Link to="/outlet" className="opacity-0 group-hover:opacity-100 transition">
+                          <Link to={outletHref(o)} className="opacity-0 group-hover:opacity-100 transition">
                             <ChevronRight size={14} className="text-slate-400" />
                           </Link>
                         </td>
@@ -987,7 +997,7 @@ export default function Dashboard() {
               {outletsData.map((o, i) => {
                 const dailyRev = dailyRevenue.find(d => d.outlet === o.name)
                 return (
-                  <Link key={o.name} to="/outlet" className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50 transition">
+                  <Link key={o.name} to={outletHref(o)} className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50 transition">
                     <span className={`text-xs font-bold w-6 text-center ${
                       i === 0 ? 'text-amber-600' : 'text-slate-400'
                     }`}>

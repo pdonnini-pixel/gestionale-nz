@@ -102,6 +102,7 @@ function AppRoutes() {
         <Route element={<ProtectedRoute><OnboardingGate><Layout /></OnboardingGate></ProtectedRoute>}>
           <Route index element={<Dashboard />} />
           <Route path="outlet" element={<Outlet />} />
+          <Route path="outlet/:outletId" element={<Outlet />} />
           <Route path="scadenzario" element={<Scadenzario />} />
           <Route path="banche" element={<Banche />} />
           <Route path="dipendenti" element={<Dipendenti />} />

@@ -1,4 +1,5 @@
 import { useState, useEffect, lazy, Suspense } from 'react'
+import { useParams, useNavigate } from 'react-router-dom'
 import PageHelp from '../components/PageHelp'
 import PageHeader from '../components/PageHeader'
 import { useToast } from '../components/Toast'
@@ -1867,8 +1868,21 @@ export default function Outlet() {
   // budget_confronto — usati dal grafico di dettaglio preventivo vs consuntivo.
   type ConfrontoMap = Record<string, { prev: Record<number, number>; cons: Record<number, number> }>
   const [confronto, setConfronto] = useState<ConfrontoMap>({})
-  // TODO: tighten type
-  const [selectedOutlet, setSelectedOutlet] = useState<OutletEntity | null>(null)
+  // Outlet selezionato pilotato dall'URL (/outlet/:outletId), così il dettaglio
+  // ha una sua URL diretta e linkabile (es. dal ranking in Dashboard), invece di
+  // essere solo stato interno sotto la pagina principale /outlet. L'identificatore
+  // è risolto in ordine: id esatto → nome (case-insensitive) → code, per accettare
+  // sia link per id (griglia) sia link per nome provenienti da altre pagine.
+  const { outletId } = useParams()
+  const navigate = useNavigate()
+  const selectedOutlet: OutletEntity | null = outletId
+    ? (outlets.find(o => {
+        const key = decodeURIComponent(outletId).toLowerCase()
+        return o.id === outletId
+          || (o.name || '').toLowerCase() === key
+          || (o.code || '').toLowerCase() === key
+      }) || null)
+    : null
   const [search, setSearch] = useState('')
   const [showWizard, setShowWizard] = useState(false)
   const [showContractUploader, setShowContractUploader] = useState(false)
@@ -2114,7 +2128,7 @@ export default function Outlet() {
       return
     }
 
-    setSelectedOutlet(null)
+    navigate('/outlet')
     setShowDeleteConfirm(null)
     setDeleting(false)
     loadData()
@@ -2178,7 +2192,7 @@ export default function Outlet() {
               revenue={revenue}
               confronto={confronto}
               year={year}
-              onBack={() => setSelectedOutlet(null)}
+              onBack={() => navigate('/outlet')}
               onEdit={handleEdit}
               onDelete={handleDelete}
             />
@@ -2243,7 +2257,7 @@ export default function Outlet() {
                   outlets={filtered}
                   revenue={revenue}
                   year={year}
-                  onSelect={setSelectedOutlet}
+                  onSelect={(o) => navigate(`/outlet/${o.id}`)}
                 />
               )}
             </>
@@ -2268,7 +2282,7 @@ export default function Outlet() {
       {showWizard && (
         <OutletWizard
           onClose={() => { setShowWizard(false); setWizardInitialData(null); setWizardAllegati(null); setWizardUploadedFiles(null); setEditOutlet(null) }}
-          onSaved={() => { setShowWizard(false); setWizardInitialData(null); setWizardAllegati(null); setWizardUploadedFiles(null); setEditOutlet(null); setSelectedOutlet(null); loadData() }}
+          onSaved={() => { setShowWizard(false); setWizardInitialData(null); setWizardAllegati(null); setWizardUploadedFiles(null); setEditOutlet(null); navigate('/outlet'); loadData() }}
           initialData={wizardInitialData}
           allegati={wizardAllegati}
           contractFileName={wizardContractFile}
