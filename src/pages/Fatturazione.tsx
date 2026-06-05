@@ -226,7 +226,7 @@ function FatturePassive() {
     payment_terms?: string | null
     codice_destinatario?: string | null
     due_date?: string | null
-    xml_content?: string | null
+    has_xml?: boolean | null
     notification_history?: Array<{ tipo?: string; data?: string; codice?: string; descrizione?: string }> | null
   }
   const [invoices, setInvoices] = useState<InvoiceRow[]>([])
@@ -254,17 +254,38 @@ function FatturePassive() {
   const [showXml, setShowXml] = useState(false)
   const [viewingXml, setViewingXml] = useState<string | null>(null) // XML content for InvoiceViewer
   const [uploading, setUploading] = useState(false)
+  // XML caricato lazy per la fattura selezionata (non scaricato in lista).
+  const [detailXml, setDetailXml] = useState<string | null>(null)
+  const [xmlLoading, setXmlLoading] = useState(false)
+
+  // Scarica xml_content della singola fattura on-demand (per-id). Evita di
+  // tenere i 54 MB di XML in memoria sulla lista. Restituisce null in errore.
+  const fetchXmlFor = useCallback(async (id: string): Promise<string | null> => {
+    const { data, error } = await supabase
+      .from('electronic_invoices')
+      .select('xml_content')
+      .eq('id', id)
+      .single()
+    if (error) {
+      toast({ type: 'error', message: 'Errore caricamento XML: ' + error.message })
+      return null
+    }
+    return (data?.xml_content as string | null) ?? null
+  }, [toast])
 
   const loadInvoices = useCallback(async () => {
     setLoading(true)
     try {
+      // Lista da v_electronic_invoices_list: tutte le colonne TRANNE xml_content
+      // (54 MB complessivi, causa del timeout 15s) + flag has_xml. L'XML si
+      // carica lazy per-id solo al click "Visualizza" (vedi fetchXmlFor).
       const { data, error } = await supabase
-        .from('electronic_invoices')
+        .from('v_electronic_invoices_list')
         .select('*')
         .order('invoice_date', { ascending: false })
         .limit(500)
       if (error) throw error
-      setInvoices(data || [])
+      setInvoices((data || []) as InvoiceRow[])
     } catch (err: unknown) {
       console.error('Errore caricamento fatture passive:', err)
     } finally {
@@ -273,6 +294,9 @@ function FatturePassive() {
   }, [])
 
   useEffect(() => { loadInvoices() }, [loadInvoices])
+
+  // Reset dell'XML lazy quando cambia (o si chiude) la fattura selezionata.
+  useEffect(() => { setDetailXml(null); setShowXml(false) }, [selectedInvoice])
 
   // Upload XML FatturaPA
   const handleXmlUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -661,26 +685,47 @@ function FatturePassive() {
                 </div>
               )}
 
-              {/* Visualizza fattura formattata */}
-              {selectedInvoice.xml_content && (
+              {/* Visualizza fattura formattata — XML caricato lazy per-id */}
+              {selectedInvoice.has_xml && (
                 <div className="space-y-2">
                   <button
-                    onClick={() => setViewingXml(selectedInvoice.xml_content ?? null)}
-                    className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition"
+                    disabled={xmlLoading}
+                    onClick={async () => {
+                      const xml = detailXml ?? await (async () => {
+                        setXmlLoading(true)
+                        const r = await fetchXmlFor(selectedInvoice.id)
+                        setXmlLoading(false)
+                        if (r) setDetailXml(r)
+                        return r
+                      })()
+                      if (xml) setViewingXml(xml)
+                      else if (!xmlLoading) toast({ type: 'warning', message: 'XML non disponibile per questa fattura' })
+                    }}
+                    className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition disabled:opacity-60 disabled:cursor-not-allowed"
                   >
-                    <Eye size={14} />
+                    {xmlLoading ? <Loader2 size={14} className="animate-spin" /> : <Eye size={14} />}
                     Visualizza fattura formattata
                   </button>
                   <button
-                    onClick={() => setShowXml(!showXml)}
-                    className="flex items-center gap-2 text-xs text-slate-500 hover:text-slate-700 transition"
+                    disabled={xmlLoading}
+                    onClick={async () => {
+                      if (!showXml && !detailXml) {
+                        setXmlLoading(true)
+                        const r = await fetchXmlFor(selectedInvoice.id)
+                        setXmlLoading(false)
+                        if (r) setDetailXml(r)
+                        else return
+                      }
+                      setShowXml(!showXml)
+                    }}
+                    className="flex items-center gap-2 text-xs text-slate-500 hover:text-slate-700 transition disabled:opacity-60"
                   >
                     <FileCode size={12} />
                     {showXml ? 'Nascondi XML grezzo' : 'Mostra XML grezzo'}
                   </button>
-                  {showXml && (
+                  {showXml && detailXml && (
                     <pre className="p-3 bg-slate-900 text-green-400 rounded-lg text-xs overflow-x-auto max-h-72 border border-slate-700 font-mono leading-relaxed">
-                      {selectedInvoice.xml_content}
+                      {detailXml}
                     </pre>
                   )}
                 </div>

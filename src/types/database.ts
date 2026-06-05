@@ -6842,6 +6842,45 @@ export type Database = {
         }
         Relationships: []
       }
+      v_electronic_invoices_list: {
+        Row: {
+          cash_movement_id: string | null
+          codice_destinatario: string | null
+          company_id: string | null
+          cost_category_id: string | null
+          created_at: string | null
+          description: string | null
+          due_date: string | null
+          gross_amount: number | null
+          has_xml: boolean | null
+          id: string | null
+          import_batch_id: string | null
+          invoice_date: string | null
+          invoice_number: string | null
+          is_reconciled: boolean | null
+          monthly_cost_line_id: string | null
+          net_amount: number | null
+          notes: string | null
+          outlet_id: string | null
+          payment_method: string | null
+          payment_terms: string | null
+          retention_end: string | null
+          retention_start: string | null
+          retention_status: string | null
+          sdi_id: string | null
+          sdi_status: string | null
+          source: Database["public"]["Enums"]["import_source"] | null
+          storage_path: string | null
+          supplier_fiscal_code: string | null
+          supplier_name: string | null
+          supplier_vat: string | null
+          tipo_documento: string | null
+          updated_at: string | null
+          vat_amount: number | null
+          xml_file_path: string | null
+        }
+        Relationships: []
+      }
       v_cash_position: {
         Row: {
           bank_account_id: string | null
