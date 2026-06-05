@@ -5,6 +5,7 @@ import { useToast } from '../components/Toast'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { useCompanyLabels } from '../hooks/useCompanyLabels'
+import { usePeriod } from '../hooks/usePeriod'
 import {
   Store, RefreshCw, MapPin, Calendar, Target, TrendingUp,
   ChevronRight, ArrowLeft, DollarSign, Users, FileText, X, Search, Plus,
@@ -67,6 +68,28 @@ const OUTLET_STATUS_STYLE = {
   chiuso: { label: 'Chiuso', cls: 'bg-slate-100 text-slate-500' },
 }
 
+// Conta i mesi in cui l'outlet è operativo nell'anno dato, derivandoli da
+// opening_date / closing_date (mai da valori inventati). Un mese è attivo se
+// l'apertura è ≤ fine di quel mese e, se presente la chiusura, questa è ≥ inizio
+// mese. Senza opening_date né closing_date si assume operativo tutto l'anno (12).
+// Es.: Torino (apertura 2026-03-24) → 10 mesi nel 2026, 0 nel 2025.
+// TODO: tighten type
+function activeMonthsCount(outlet: any, year: number): number {
+  if (!outlet) return 0
+  const opening = outlet.opening_date ? new Date(String(outlet.opening_date)) : null
+  const closing = outlet.closing_date ? new Date(String(outlet.closing_date)) : null
+  if (!opening && !closing) return 12
+  let count = 0
+  for (let m = 1; m <= 12; m++) {
+    const monthStart = new Date(year, m - 1, 1)
+    const monthEnd = new Date(year, m, 0)
+    if (opening && opening > monthEnd) continue   // apertura successiva alla fine del mese
+    if (closing && closing < monthStart) continue // chiusura precedente all'inizio del mese
+    count++
+  }
+  return count
+}
+
 // TODO: tighten type
 function StatusBadge({ isActive, outlet }: { isActive?: boolean; outlet?: any }) {
   // Se viene passato l'outlet completo, usa il calcolo dinamico
@@ -91,13 +114,14 @@ function StatusBadge({ isActive, outlet }: { isActive?: boolean; outlet?: any })
 
 // ====== GRIGLIA OUTLET ======
 // TODO: tighten type
-function OutletGrid({ outlets, revenue, onSelect }: { outlets: any[]; revenue: Record<string, any>; onSelect: (outlet: any) => void }) {
+function OutletGrid({ outlets, revenue, year, onSelect }: { outlets: any[]; revenue: Record<string, any>; year: number; onSelect: (outlet: any) => void }) {
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
       {outlets.map(outlet => {
         const outletRev = revenue[outlet.id] || {}
         const ytd = Object.values(outletRev).reduce((s: number, v: any) => s + v, 0)
-        const months = Object.keys(outletRev).length
+        // Mesi attivi derivati dal contratto (opening/closing), non dai dati di ricavo.
+        const months = activeMonthsCount(outlet, year)
 
         return (
           <div
@@ -138,23 +162,15 @@ function OutletGrid({ outlets, revenue, onSelect }: { outlets: any[]; revenue: R
 
             <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
               <div>
-                <div className="text-xs text-slate-400">Fatturato YTD</div>
-                <div className="text-lg font-bold text-slate-900">{fmt(ytd)} €</div>
+                <div className="text-xs text-slate-400">Ricavi {year}</div>
+                <div className="text-lg font-bold text-slate-900">{ytd > 0 ? `${fmt(ytd)} €` : '—'}</div>
               </div>
               <div className="text-right">
                 <div className="text-xs text-slate-400">Mesi attivi</div>
-                <div className="text-lg font-bold text-slate-600">{months}</div>
+                <div className="text-lg font-bold text-slate-600">{fmt(months, 0)}</div>
               </div>
               <ChevronRight size={20} className="text-slate-300 group-hover:text-blue-400 transition" />
             </div>
-
-            {outlet.min_revenue_target && (
-              <div className="mt-2 text-xs text-slate-400">
-                <Target size={12} className="inline mr-1" />
-                Target: {fmt(outlet.min_revenue_target)} €
-                {outlet.min_revenue_period && ` / ${outlet.min_revenue_period}`}
-              </div>
-            )}
           </div>
         )
       })}
@@ -1607,11 +1623,8 @@ function StaffTab({ outletId, companyId }: { outletId: string; companyId: string
 // ====== DETTAGLIO OUTLET — HUB CON TAB ======
 // TODO: tighten type
 type OutletEntity = Record<string, unknown> & { id: string; company_id?: string; name?: string | null; code?: string | null; mall_name?: string | null; rent_monthly?: number | null; condo_marketing_monthly?: number | null; is_active?: boolean | null }
-function OutletDetail({ outlet, revenue, revenueYear, onBack, onEdit, onDelete }: { outlet: OutletEntity; revenue: Record<string, Record<number, number>>; revenueYear: number | null; onBack: () => void; onEdit: (o: OutletEntity) => void; onDelete: (o: OutletEntity) => void }) {
+function OutletDetail({ outlet, revenue, year, onBack, onEdit, onDelete }: { outlet: OutletEntity; revenue: Record<string, Record<number, number>>; year: number; onBack: () => void; onEdit: (o: OutletEntity) => void; onDelete: (o: OutletEntity) => void }) {
   const { profile: _profile } = useAuth()
-  const currentYear = new Date().getFullYear()
-  // Anno effettivo dei dati mostrati (quello caricato in budget_entries), non hardcoded.
-  const displayYear = revenueYear ?? currentYear
   const yearData: Record<number, number> = revenue[outlet.id] || {}
   const [detailTab, setDetailTab] = useState('overview')
 
@@ -1708,8 +1721,8 @@ function OutletDetail({ outlet, revenue, revenueYear, onBack, onEdit, onDelete }
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
             <div className="bg-white rounded-xl border border-slate-200 p-4">
               <div className="p-2 rounded-lg bg-blue-50 text-blue-600 inline-flex mb-2"><DollarSign size={18} /></div>
-              <div className="text-xl font-bold text-slate-900">{fmt(ytd)} €</div>
-              <div className="text-xs text-slate-500">Fatturato YTD {displayYear}</div>
+              <div className="text-xl font-bold text-slate-900">{ytd > 0 ? `${fmt(ytd)} €` : '—'}</div>
+              <div className="text-xs text-slate-500">Ricavi {year}</div>
             </div>
             <div className="bg-white rounded-xl border border-slate-200 p-4">
               <div className="p-2 rounded-lg bg-emerald-50 text-emerald-600 inline-flex mb-2"><TrendingUp size={18} /></div>
@@ -1753,7 +1766,7 @@ function OutletDetail({ outlet, revenue, revenueYear, onBack, onEdit, onDelete }
 
           {/* Revenue Chart */}
           <div className="bg-white rounded-xl border border-slate-200 p-4">
-            <h3 className="text-sm font-semibold text-slate-900 mb-3">Fatturato mensile — {displayYear}</h3>
+            <h3 className="text-sm font-semibold text-slate-900 mb-3">Ricavi mensili — {year}</h3>
             <ResponsiveContainer width="100%" height={250}>
               <BarChart data={chartData}>
                 <defs>
@@ -1809,7 +1822,7 @@ function OutletDetail({ outlet, revenue, revenueYear, onBack, onEdit, onDelete }
                 <XAxis dataKey="month" {...AXIS_STYLE} />
                 <YAxis {...AXIS_STYLE} tickFormatter={v => `${(v/1000).toFixed(0)}k`} />
                 <Tooltip content={<GlassTooltip formatter={v => `${fmt(v)} €`} suffix="" />} />
-                <Bar dataKey="ricavi" name="Consuntivo" fill="#6366f1" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="ricavi" name="Ricavi (budget)" fill="#6366f1" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -1837,14 +1850,14 @@ export default function Outlet() {
   const { toast } = useToast()
   const { profile } = useAuth()
   const labels = useCompanyLabels()
+  // Anno selezionato dal selettore globale (Layout → usePeriod, salvato in ?anno=).
+  // Stessa fonte di verità di "Budget e Controllo": cambiando anno qui la pagina
+  // si ricarica per lo stesso anno e i numeri coincidono con quella pagina.
+  const { year } = usePeriod()
   const [loading, setLoading] = useState(true)
   // TODO: tighten type — Supabase rows
   const [outlets, setOutlets] = useState<OutletEntity[]>([])
   const [revenue, setRevenue] = useState<Record<string, Record<number, number>>>({})
-  // Anno effettivamente usato per caricare i dati di fatturato (quello
-  // in cui sono state trovate righe in budget_entries). Serve a mostrare
-  // nel titolo l'anno CORRETTO invece dell'hardcoded 'currentYear - 1'.
-  const [revenueYear, setRevenueYear] = useState<number | null>(null)
   // TODO: tighten type
   const [selectedOutlet, setSelectedOutlet] = useState<OutletEntity | null>(null)
   const [search, setSearch] = useState('')
@@ -1860,9 +1873,9 @@ export default function Outlet() {
   const [deleting, setDeleting] = useState(false)
   const [tab, setTab] = useState('operativi')
   const canWrite = profile?.role === 'super_advisor'
-  const currentYear = new Date().getFullYear()
 
-  useEffect(() => { loadData() }, [])
+  // Ricarica i ricavi ad ogni cambio anno (selettore globale) o di azienda.
+  useEffect(() => { loadData() }, [profile?.company_id, year])
 
   async function loadData() {
     setLoading(true)
@@ -1882,13 +1895,20 @@ export default function Outlet() {
         setOutlets((outData || []) as OutletEntity[])
       }
 
-      // Carica ricavi da budget_entries (ricavi consuntivo per outlet)
+      // ─── Ricavi per outlet — STESSA logica di "Budget e Controllo" ──────────
+      // Classificazione SEMPRE via join budget_entries.account_code →
+      // chart_of_accounts.is_revenue (mai via macro_group, che nel 2026 vale
+      // 'CE' su tutte le righe). Importo = budget_amount (il budget di Lilian),
+      // letto per mese così com'è nel DB: nessuna divisione per 12, nessuna
+      // spalmatura lato frontend. cost_center 'all' e 'rettifica_bilancio'
+      // sono esclusi (non sono punti vendita).
       // Mappa bidirezionale: codice outlet (BRB) ↔ codice cost_center (barberino)
       const COST_CENTER_MAP: Record<string, string> = {
         'barberino': 'BRB', 'brugnato': 'BRG', 'franciacorta': 'FRC',
         'palmanova': 'PLM', 'torino': 'TRN', 'valdichiana': 'VDC',
         'valmontone': 'VLM', 'sede_magazzino': 'SEDE',
       }
+      const NON_OUTLET_COST_CENTERS = new Set(['all', 'rettifica_bilancio'])
 
       // Also map outlet name (lowercase) → outlet id
       const codeToId: Record<string, string> = {}
@@ -1898,48 +1918,46 @@ export default function Outlet() {
         nameToId[(o.name || '').toLowerCase()] = o.id
       })
 
-      // Try current year first, then previous year
-      let budgetData: Array<{ cost_center?: string | null; month?: number | null; actual_amount?: number | null; budget_amount?: number | null; account_code?: string | null }> | null = null
-      let budgetDataYear: number | null = null
-      for (const yr of [currentYear, currentYear - 1]) {
-        const { data, error: budgetErr } = await supabase
-          .from('budget_entries')
-          .select('cost_center, month, actual_amount, budget_amount, account_code')
-          .eq('company_id', companyId)
-          .eq('year', yr)
-          .range(0, 9999) // override default Supabase limit 1000 — necessario con piano dei conti completo (~1212 righe/anno)
+      // 1) Codici conto che sono RICAVI (piano dei conti dell'azienda)
+      const { data: coaData, error: coaErr } = await supabase
+        .from('chart_of_accounts')
+        .select('code')
+        .eq('company_id', companyId)
+        .eq('is_active', true)
+        .eq('is_revenue', true)
+      if (coaErr) console.error('chart_of_accounts error:', coaErr)
+      const revenueCodes = new Set((coaData || []).map(c => c.code))
 
-        if (!budgetErr && data && data.length > 0) {
-          budgetData = data
-          budgetDataYear = yr
-          break
+      // 2) Righe budget dell'anno selezionato
+      const { data: budgetData, error: budgetErr } = await supabase
+        .from('budget_entries')
+        .select('cost_center, month, budget_amount, account_code')
+        .eq('company_id', companyId)
+        .eq('year', year)
+        .range(0, 9999) // override default Supabase limit 1000 — piano dei conti completo (~1212 righe/anno)
+      if (budgetErr) console.error('budget_entries error:', budgetErr)
+
+      const grouped: Record<string, Record<number, number>> = {}
+      ;((budgetData || [])).forEach(r => {
+        const cc = r.cost_center || ''
+        if (NON_OUTLET_COST_CENTERS.has(cc)) return
+        // Solo righe di ricavo (join is_revenue via chart_of_accounts)
+        if (!r.account_code || !revenueCodes.has(r.account_code)) return
+        // Prova match diretto con code, poi con mappa, poi con nome outlet
+        let outletId = codeToId[cc]
+        if (!outletId) {
+          const mappedCode = COST_CENTER_MAP[cc]
+          if (mappedCode) outletId = codeToId[mappedCode]
         }
-      }
-      // Memorizzo l'anno effettivo per il titolo "Fatturato catena {anno}"
-      setRevenueYear(budgetDataYear)
-
-      if (budgetData && budgetData.length > 0) {
-        const grouped: Record<string, Record<number, number>> = {}
-        budgetData.forEach(r => {
-          const cc = r.cost_center || ''
-          // Prova match diretto con code, poi con mappa, poi con nome outlet
-          let outletId = codeToId[cc]
-          if (!outletId) {
-            const mappedCode = COST_CENTER_MAP[cc]
-            if (mappedCode) outletId = codeToId[mappedCode]
-          }
-          if (!outletId) {
-            outletId = nameToId[cc.toLowerCase()]
-          }
-          if (!outletId) return
-          const amount = Number(r.actual_amount) || Number(r.budget_amount) || 0
-          if (amount === 0) return
-          if (!grouped[outletId]) grouped[outletId] = {}
-          const m = r.month ?? 0
-          grouped[outletId][m] = (grouped[outletId][m] || 0) + amount
-        })
-        setRevenue(grouped)
-      }
+        if (!outletId) outletId = nameToId[cc.toLowerCase()]
+        if (!outletId) return
+        const amount = Number(r.budget_amount) || 0
+        if (amount === 0) return
+        if (!grouped[outletId]) grouped[outletId] = {}
+        const m = r.month ?? 0
+        grouped[outletId][m] = (grouped[outletId][m] || 0) + amount
+      })
+      setRevenue(grouped)
     } catch (err) {
       console.error('Errore caricamento dati:', err)
     } finally {
@@ -2088,7 +2106,7 @@ export default function Outlet() {
             <OutletDetail
               outlet={selectedOutlet}
               revenue={revenue}
-              revenueYear={revenueYear}
+              year={year}
               onBack={() => setSelectedOutlet(null)}
               onEdit={handleEdit}
               onDelete={handleDelete}
@@ -2097,7 +2115,7 @@ export default function Outlet() {
             <>
               <PageHeader
                 title={labels.pointOfSalePlural}
-                subtitle={`${outlets.length} ${labels.pointOfSalePluralLower} — Fatturato catena ${revenueYear || currentYear}: ${fmt(totalRevenue)} €`}
+                subtitle={`${outlets.length} ${labels.pointOfSalePluralLower} — Ricavi catena ${year}: ${fmt(totalRevenue)} €`}
                 noDivider
                 actions={
                   <>
@@ -2153,6 +2171,7 @@ export default function Outlet() {
                 <OutletGrid
                   outlets={filtered}
                   revenue={revenue}
+                  year={year}
                   onSelect={setSelectedOutlet}
                 />
               )}
