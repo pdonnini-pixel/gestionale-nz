@@ -23,7 +23,9 @@ import { GlassTooltip, ChartGradients, AXIS_STYLE, GRID_STYLE, BAR_RADIUS, Moder
 import { formatOutletName, shortOutletName } from '../lib/formatters'
 import {
   RICAVI_SOURCE_LABEL, buildOutletRevenue, outletRevenueMetrics,
+  aggregateCostsByMacro, orderedCostCategories,
   type OutletConfrontoMap, type Provenance, type ConfrontoRow,
+  type CoaMeta, type CostCategory,
 } from '../lib/outletRevenue'
 
 function fmt(n: number | null | undefined, dec = 0): string {
@@ -99,7 +101,7 @@ function OutletCard({ name, outletData, calculatedMetrics, ranking, onNavigate, 
 
   const { ricavi, margine, marginePct, costoPersonale, affitto, servizi, personaleCount,
     ricavoPerDip, incidenzaPersonale, incidenzaAffitto, breakeven, merci, costiDiretti, costiTotali,
-    isVariance, scostamento, scostamentoPct, mesiPresi, mediaMensile, provenance } = calculatedMetrics
+    costiCategorie, isVariance, scostamento, scostamentoPct, mesiPresi, mediaMensile, provenance } = calculatedMetrics
 
   // I1 — badge provenienza dato (consuntivo granitico vs preventivo).
   const provBadge: Record<Provenance, { label: string; cls: string }> = {
@@ -223,11 +225,15 @@ function OutletCard({ name, outletData, calculatedMetrics, ranking, onNavigate, 
       {open && (
         <div className="border-t border-slate-100 px-4 py-3 space-y-1.5 text-sm bg-slate-50/30">
           {[
-            { label: 'Ricavi vendite', val: ricavi, pct: 100, bold: true },
-            { label: 'Merci/materie', val: -merci, pct: -(merci / (ricavi || 1) * 100) },
-            { label: 'Personale', val: -costoPersonale, pct: -incidenzaPersonale },
-            { label: 'Affitto/godimento', val: -affitto, pct: -incidenzaAffitto },
-            { label: 'Servizi', val: -servizi, pct: -(servizi / (ricavi || 1) * 100) },
+            // Ricavi in testa, poi UNA riga per categoria di costo nell'ordine di
+            // bilancio (sort_order), classificate via chart_of_accounts.macro_group.
+            { label: `${RICAVI_SOURCE_LABEL}`, val: ricavi, pct: 100, bold: true },
+            ...((costiCategorie || []) as CostCategory[]).map(c => ({
+              label: c.ceSection ? `${c.ceSection} ${c.label}` : c.label,
+              val: -c.value,
+              pct: -(c.value / (ricavi || 1) * 100),
+              bold: false,
+            })),
           ].map(r => (
             <div key={r.label} className={`flex items-center justify-between ${r.bold ? 'font-semibold text-slate-900 pb-1 border-b border-slate-100' : 'text-slate-600'}`}>
               <span>{r.label}</span>
@@ -243,7 +249,7 @@ function OutletCard({ name, outletData, calculatedMetrics, ranking, onNavigate, 
           ))}
           <div className="flex items-center justify-between pt-2 border-t border-slate-200 font-bold">
             <span className="text-slate-900">MARGINE OUTLET</span>
-            <span className={isPositive ? 'text-emerald-600' : 'text-red-600'}>
+            <span className={isPositive ? 'text-slate-900' : 'text-red-600'}>
               {fmt(margine)} € ({marginePct.toFixed(1)}%)
             </span>
           </div>
@@ -289,6 +295,7 @@ type CalculatedMetrics = {
   merci: number
   costiDiretti: number
   costiTotali: number
+  costiCategorie: CostCategory[]
   personaleCount: number
   ricavoPerDip: number | null
   incidenzaPersonale: number
@@ -452,6 +459,10 @@ export default function ConfrontoOutlet() {
   const [prevOverlay, setPrevOverlay] = useState<Record<string, Record<string, number>>>({})
   // Ricavi per outlet/mese da budget_confronto (fonte condivisa con B&C, T2/T3).
   const [revenueMap, setRevenueMap] = useState<OutletConfrontoMap>({})
+  // Piano dei conti: classificazione costi (macro_group/ce_section/sort_order)
+  // per account_code, + meta per macro_group. Mai prefissi/nomi hardcoded.
+  const [coaByCode, setCoaByCode] = useState<Record<string, CoaMeta>>({})
+  const [macroMeta, setMacroMeta] = useState<Record<string, { ceSection: string | null; sortOrder: number }>>({})
   // Esiste consuntivo di COSTO per l'anno? (I5 empty-state). Oggi vuoto.
   const [hasCostConsuntivo, setHasCostConsuntivo] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -511,17 +522,28 @@ export default function ConfrontoOutlet() {
           .select('*')
           .eq('year', year)
 
-        // Conti ricavo dal piano dei conti (classificazione SEMPRE via
-        // chart_of_accounts.is_revenue — mai macro_group, T3).
+        // Piano dei conti: ricavi (is_revenue) + classificazione costi
+        // (macro_group/ce_section/sort_order). Mai prefissi/nomi/sezioni hardcoded.
         const { data: coaData } = await supabase
           .from('chart_of_accounts')
-          .select('code, is_revenue')
+          .select('code, is_revenue, macro_group, ce_section, sort_order')
           .eq('company_id', companyId)
           .eq('is_active', true)
-        const revenueCodes = new Set(
-          ((coaData || []) as Array<{ code: string; is_revenue: boolean | null }>)
-            .filter(c => c.is_revenue).map(c => c.code)
-        )
+        type CoaFull = { code: string; is_revenue: boolean | null; macro_group: string | null; ce_section: string | null; sort_order: number | null }
+        const coaRows = (coaData || []) as unknown as CoaFull[]
+        const revenueCodes = new Set(coaRows.filter(c => c.is_revenue).map(c => c.code))
+        const coaMap: Record<string, CoaMeta> = {}
+        const macroMetaMap: Record<string, { ceSection: string | null; sortOrder: number }> = {}
+        for (const c of coaRows) {
+          const macro = c.macro_group || 'altro'
+          const sort = c.sort_order ?? Number.MAX_SAFE_INTEGER
+          coaMap[c.code] = { macroGroup: macro, ceSection: c.ce_section, sortOrder: sort, isRevenue: c.is_revenue === true }
+          // meta per macro_group = ce_section + sort_order minimo (ordine bilancio)
+          if (c.is_revenue !== true) {
+            const prev = macroMetaMap[macro]
+            if (!prev || sort < prev.sortOrder) macroMetaMap[macro] = { ceSection: c.ce_section, sortOrder: sort }
+          }
+        }
 
         // Outlet = cost_centers.role='outlet' (fonte di verità, no hardcoded).
         const outletCC = new Set(
@@ -563,6 +585,8 @@ export default function ConfrontoOutlet() {
         setConsOverlay(consOverlay)
         setPrevOverlay(prevOverlay)
         setRevenueMap(revMap)
+        setCoaByCode(coaMap)
+        setMacroMeta(macroMetaMap)
         setHasCostConsuntivo(costCons)
         setHasData((budgetEntries?.length || 0) > 0 || (bsData?.length || 0) > 0 || (cfData?.length || 0) > 0)
       } catch (err: unknown) {
@@ -678,37 +702,19 @@ export default function ConfrontoOutlet() {
         // consuntivo effettivo (granitico-else-preventivo per mese) per actual.
         const ricavi = field === 'actual_amount' ? revM.consuntivoEff : revM.preventivo
 
-        // Costo personale: account_code starts with '6', or name matches
-        const personaleRows = outletBudget.filter(b => b.account_code?.startsWith('6') || b.account_name?.toLowerCase().match(/personal|dipendent|retrib|stipend/))
-        const personaleCodes = new Set([...personaleRows.map(b => b.account_code || '').filter(Boolean), ...overlayCodes.filter(c => c.startsWith('6'))])
-        const overlayPersonale = overlay(personaleCodes)
-        const costoPersonale = overlayPersonale != null
-          ? Math.abs(overlayPersonale)
-          : personaleRows.reduce((sum, b) => sum + Math.abs(Number(b[field]) || 0), 0)
+        // Costi classificati SEMPRE via chart_of_accounts.macro_group (mai
+        // prefissi di account_code né nomi). Una riga per macro_group reale:
+        // personale=B.9, godimento_beni_terzi=B.8, costi_produzione=B.6,
+        // servizi=B.7, ecc. Niente doppio conteggio.
+        const costiByMacro = aggregateCostsByMacro(outletBudget, field, coaByCode)
+        const costiTotali = Object.values(costiByMacro).reduce((s, v) => s + v, 0)
+        // Voci nominate per KPI/benchmark, dal macro_group corretto.
+        const costoPersonale = costiByMacro['personale'] || 0
+        const affitto = costiByMacro['godimento_beni_terzi'] || 0
+        const servizi = costiByMacro['servizi'] || 0
+        const merci = costiByMacro['costi_produzione'] || 0
 
-        const affittoRows = outletBudget.filter(b => b.account_name?.toLowerCase().match(/affitto|godimento|locazion/))
-        const affittoCodes = new Set(affittoRows.map(b => b.account_code || '').filter(Boolean))
-        const overlayAffitto = overlay(affittoCodes)
-        const affitto = overlayAffitto != null
-          ? Math.abs(overlayAffitto)
-          : affittoRows.reduce((sum, b) => sum + Math.abs(Number(b[field]) || 0), 0)
-
-        const serviziRows = outletBudget.filter(b => (b.account_name?.toLowerCase().includes('servizi') || b.account_name?.toLowerCase().includes('manut')))
-        const serviziCodes = new Set(serviziRows.map(b => b.account_code || '').filter(Boolean))
-        const overlayServizi = overlay(serviziCodes)
-        const servizi = overlayServizi != null
-          ? Math.abs(overlayServizi)
-          : serviziRows.reduce((sum, b) => sum + Math.abs(Number(b[field]) || 0), 0)
-
-        // Merci: account_code starts with '7', or macro_group contains Acquisti/Merci
-        const merciRows = outletBudget.filter(b => b.account_code?.startsWith('7') || b.macro_group?.includes('Acquisti') || b.macro_group?.includes('Merci'))
-        const merciCodes = new Set([...merciRows.map(b => b.account_code || '').filter(Boolean), ...overlayCodes.filter(c => c.startsWith('7'))])
-        const overlayMerci = overlay(merciCodes)
-        const merci = overlayMerci != null
-          ? Math.abs(overlayMerci)
-          : merciRows.reduce((sum, b) => sum + Math.abs(Number(b[field]) || 0), 0)
-
-        return { ricavi, costoPersonale, affitto, servizi, merci }
+        return { ricavi, costoPersonale, affitto, servizi, merci, costiByMacro, costiTotali }
       }
 
       const budget = calcMetrics(amtBudget)
@@ -719,6 +725,11 @@ export default function ConfrontoOutlet() {
       // (delta per ogni voce). Senza questo ramo, il tab Scostamento ricadeva
       // su `budget` mostrando dati identici a Preventivo (bug 8.2).
       const isVariance = viewMode === 'variance'
+      // Delta per macro_group (scostamento) su unione delle categorie presenti.
+      const varCostiByMacro: Record<string, number> = {}
+      for (const k of new Set([...Object.keys(actual.costiByMacro), ...Object.keys(budget.costiByMacro)])) {
+        varCostiByMacro[k] = (actual.costiByMacro[k] || 0) - (budget.costiByMacro[k] || 0)
+      }
       const data = viewMode === 'actual'
         ? actual
         : isVariance
@@ -728,6 +739,8 @@ export default function ConfrontoOutlet() {
               affitto: actual.affitto - budget.affitto,
               servizi: actual.servizi - budget.servizi,
               merci: actual.merci - budget.merci,
+              costiByMacro: varCostiByMacro,
+              costiTotali: actual.costiTotali - budget.costiTotali,
             }
           : budget
 
@@ -738,28 +751,32 @@ export default function ConfrontoOutlet() {
       const personaleCount = new Set(empRows.map(e => e.employee_id).filter((id): id is string => Boolean(id))).size
       const costoPersonaleFromDb = empRows.reduce((sum, e) => sum + (e.totale_allocato || 0), 0)
 
-      // In variance non sostituiamo con il dato DB (che è solo actual):
-      // il delta sul costo personale deve restare actual-budget.
-      const finalCostoPersonale = isVariance
-        ? data.costoPersonale
-        : (costoPersonaleFromDb || data.costoPersonale)
+      // Personale = B.9 dal piano dei conti (NON l'allocazione dipendenti, che
+      // è un consuntivo a parte): così il preventivo mostra il dato di Lilian.
+      const finalCostoPersonale = data.costoPersonale
       const { ricavi, affitto, servizi, merci } = data
 
-      const costiDiretti = merci + finalCostoPersonale + affitto + servizi
+      // Margine = ricavi − somma di TUTTE le categorie di costo (una volta sola,
+      // via macro_group). NON include la quota sede (allocazione, non costo
+      // proprio dell'outlet) né l'override dipendenti: niente doppi conteggi.
+      const costiTotali = data.costiTotali
+      const costiDiretti = costiTotali
       const quotaSede = isVariance ? 0 : quotaSedePerOutlet
-      const costiTotali = costiDiretti + quotaSede
+      // Categorie di costo ordinate per sort_order (ordine di bilancio), mai per
+      // importo né per stringa ce_section.
+      const costiCategorie: CostCategory[] = orderedCostCategories(data.costiByMacro, macroMeta)
 
       const margine = ricavi - costiTotali
       // In variance le percentuali sono "delta in punti percentuali"
       // (incidenza_actual - incidenza_budget); altrimenti calcolo classico.
       let marginePct: number, incidenzaPersonale: number, incidenzaAffitto: number
       if (isVariance) {
-        const aPersonale = costoPersonaleFromDb || actual.costoPersonale
-        const aMargine = actual.ricavi - actual.merci - aPersonale - actual.affitto - actual.servizi - quotaSedePerOutlet
-        const bMargine = budget.ricavi - budget.merci - budget.costoPersonale - budget.affitto - budget.servizi - quotaSedePerOutlet
+        // Margine = ricavi − TUTTI i costi (macro), senza quota sede né override.
+        const aMargine = actual.ricavi - actual.costiTotali
+        const bMargine = budget.ricavi - budget.costiTotali
         const aMargPct = actual.ricavi > 0 ? (aMargine / actual.ricavi * 100) : 0
         const bMargPct = budget.ricavi > 0 ? (bMargine / budget.ricavi * 100) : 0
-        const aIncP = actual.ricavi > 0 ? (aPersonale / actual.ricavi * 100) : 0
+        const aIncP = actual.ricavi > 0 ? (actual.costoPersonale / actual.ricavi * 100) : 0
         const bIncP = budget.ricavi > 0 ? (budget.costoPersonale / budget.ricavi * 100) : 0
         const aIncA = actual.ricavi > 0 ? (actual.affitto / actual.ricavi * 100) : 0
         const bIncA = budget.ricavi > 0 ? (budget.affitto / budget.ricavi * 100) : 0
@@ -791,8 +808,7 @@ export default function ConfrontoOutlet() {
       // indipendente dal viewMode → uso quotaSedePerOutlet originale)
       const variance = {
         ricavi: actual.ricavi - budget.ricavi,
-        margine: (actual.ricavi - actual.merci - (costoPersonaleFromDb || actual.costoPersonale) - actual.affitto - actual.servizi - quotaSedePerOutlet)
-                - (budget.ricavi - budget.merci - (costoPersonaleFromDb || budget.costoPersonale) - budget.affitto - budget.servizi - quotaSedePerOutlet),
+        margine: (actual.ricavi - actual.costiTotali) - (budget.ricavi - budget.costiTotali),
         ricaviPct: budget.ricavi > 0 ? ((actual.ricavi - budget.ricavi) / budget.ricavi * 100) : 0,
       }
 
@@ -809,6 +825,7 @@ export default function ConfrontoOutlet() {
           costoPersonale: finalCostoPersonale,
           affitto, servizi, merci,
           costiDiretti, costiTotali,
+          costiCategorie, // costi per macro_group, ordinati per sort_order (bilancio)
           personaleCount, ricavoPerDip,
           incidenzaPersonale, incidenzaAffitto,
           breakeven, quotaSede,
@@ -827,7 +844,7 @@ export default function ConfrontoOutlet() {
         },
       } as OutletMetric
     })
-  }, [outlets, budgetData, balanceData, employeeCosts, selectedMonths, viewMode, quotaSedePerOutlet, consOverlay, prevOverlay, revenueMap])
+  }, [outlets, budgetData, balanceData, employeeCosts, selectedMonths, viewMode, quotaSedePerOutlet, consOverlay, prevOverlay, revenueMap, coaByCode, macroMeta])
 
   // Rankings
   const rankings = useMemo<Record<string, number>>(() => {
