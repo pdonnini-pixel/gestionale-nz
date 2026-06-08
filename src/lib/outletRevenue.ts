@@ -135,6 +135,18 @@ export function orderedCostCategories(
     .sort((a, b) => a.sortOrder - b.sortOrder)
 }
 
+// ─── Quota sede pro-quota netta ────────────────────────────────────────────
+// La sede/magazzino (cost_centers.role='hq') non ha conto economico proprio:
+// il suo NETTO (costi − ricavi) va ripartito sugli outlet in proporzione al
+// fatturato. Ripartire costi e ricavi con la stessa chiave = ripartire il netto.
+//
+// quota_sede(outlet) = netto_sede × (fatturato_outlet / fatturato_tot)
+// Guardia: fatturato_tot = 0 → quota 0 (niente NaN/Infinity).
+export function sedeQuota(nettoSede: number, fatturatoOutlet: number, fatturatoTot: number): number {
+  if (!fatturatoTot) return 0
+  return nettoSede * (fatturatoOutlet / fatturatoTot)
+}
+
 const ALL_MONTHS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
 
 /** Metriche ricavo per un singolo outlet. months=null → tutti i 12 mesi. */
