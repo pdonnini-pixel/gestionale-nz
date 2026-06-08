@@ -16,6 +16,8 @@ import { getCurrentTenant } from '../lib/tenants'
 import { usePeriod } from '../hooks/usePeriod'
 import { useTableSort } from '../hooks/useTableSort'
 import SortableTh from '../components/ui/SortableTh'
+import { useSdiEmission } from '../hooks/useSdiEmission'
+import { tipoDocumentoLabel, invoiceTotalsFromXml } from '../lib/invoiceDocType'
 import {
   FileText, Upload, Send, RefreshCw, Search, Filter, ChevronDown, ChevronUp,
   CheckCircle, XCircle, Clock, AlertTriangle, Eye, Download, Plus, X,
@@ -240,6 +242,7 @@ function FatturePassive() {
   const { toast } = useToast()
   const { year: globalYear } = usePeriod()
   const { company } = useCompany()
+  const { sdiEmissionEnabled } = useSdiEmission()
   const [yearFilter, setYearFilter] = useState(() => {
     if (typeof window === 'undefined') return String(globalYear || new Date().getFullYear())
     const p = new URLSearchParams(window.location.search).get('year')
@@ -436,8 +439,12 @@ function FatturePassive() {
               color="blue"
             />
             <KpiCard icon={Euro} label="Totale lordo" value={`€ ${fmt(stats.totalAmount)}`} color="green" />
-            <KpiCard icon={Zap} label="Con ID SDI" value={stats.withSdi} sub={`${stats.total - stats.withSdi} senza`} color="amber" />
-            <KpiCard icon={CheckCircle} label="Accettate" value={stats.byStatus.ACCEPTED || 0} sub={`${stats.byStatus.REJECTED || 0} scartate`} color="green" />
+            {sdiEmissionEnabled && (
+              <>
+                <KpiCard icon={Zap} label="Con ID SDI" value={stats.withSdi} sub={`${stats.total - stats.withSdi} senza`} color="amber" />
+                <KpiCard icon={CheckCircle} label="Accettate" value={stats.byStatus.ACCEPTED || 0} sub={`${stats.byStatus.REJECTED || 0} scartate`} color="green" />
+              </>
+            )}
           </div>
         );
       })()}
@@ -463,17 +470,19 @@ function FatturePassive() {
           <option value="ALL">Tutti gli anni</option>
           {availableYears.map(y => <option key={y} value={y}>Anno {y}</option>)}
         </select>
-        <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          className="px-3 py-2 text-sm border border-slate-200 rounded-lg"
-        >
-          <option value="ALL">Tutti gli stati</option>
-          <option value="RECEIVED">Ricevute</option>
-          <option value="ACCEPTED">Accettate</option>
-          <option value="REJECTED">Scartate</option>
-          <option value="PENDING">In attesa</option>
-        </select>
+        {sdiEmissionEnabled && (
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="px-3 py-2 text-sm border border-slate-200 rounded-lg"
+          >
+            <option value="ALL">Tutti gli stati</option>
+            <option value="RECEIVED">Ricevute</option>
+            <option value="ACCEPTED">Accettate</option>
+            <option value="REJECTED">Scartate</option>
+            <option value="PENDING">In attesa</option>
+          </select>
+        )}
         <label className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 cursor-pointer transition">
           <Upload size={16} />
           {uploading ? 'Importazione...' : 'Importa XML'}
@@ -510,8 +519,8 @@ function FatturePassive() {
         </div>
       )}
 
-      {/* Legenda stati SDI per operatore */}
-      <SdiLegend tipo="passive" />
+      {/* Legenda stati SDI per operatore (solo se invio attivo) */}
+      {sdiEmissionEnabled && <SdiLegend tipo="passive" />}
 
       {/* Tabella */}
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
@@ -532,15 +541,15 @@ function FatturePassive() {
                 <SortableTh sortKey="net_amount" sortBy={ftSortBy} onSort={ftOnSort} align="right" className="min-w-[100px]">Imponibile</SortableTh>
                 <SortableTh sortKey="vat_amount" sortBy={ftSortBy} onSort={ftOnSort} align="right" className="min-w-[100px]">IVA</SortableTh>
                 <SortableTh sortKey="gross_amount" sortBy={ftSortBy} onSort={ftOnSort} align="right" className="min-w-[100px]">Totale</SortableTh>
-                <SortableTh sortKey="sdi_status" sortBy={ftSortBy} onSort={ftOnSort} align="center">Stato SDI</SortableTh>
+                {sdiEmissionEnabled && <SortableTh sortKey="sdi_status" sortBy={ftSortBy} onSort={ftOnSort} align="center">Stato SDI</SortableTh>}
                 <th className="text-center px-4 py-3 font-medium text-slate-600 text-[11px] uppercase tracking-wider">Azioni</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={9} className="text-center py-12 text-slate-400"><Loader2 size={24} className="animate-spin mx-auto mb-2" />Caricamento fatture...</td></tr>
+                <tr><td colSpan={sdiEmissionEnabled ? 9 : 8} className="text-center py-12 text-slate-400"><Loader2 size={24} className="animate-spin mx-auto mb-2" />Caricamento fatture...</td></tr>
               ) : sortedFiltered.length === 0 ? (
-                <tr><td colSpan={9} className="text-center py-12 text-slate-400">Nessuna fattura trovata</td></tr>
+                <tr><td colSpan={sdiEmissionEnabled ? 9 : 8} className="text-center py-12 text-slate-400">Nessuna fattura trovata</td></tr>
               ) : sortedFiltered.map((inv, idx) => (
                 <tr key={inv.id} onClick={() => { setSelectedInvoice(inv); setShowXml(false) }} className={`border-b border-slate-100 hover:bg-blue-50/50 transition-colors cursor-pointer ${idx % 2 === 1 ? 'bg-slate-50/50' : ''}`}>
                   <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{fmtDate(inv.invoice_date)}</td>
@@ -549,21 +558,34 @@ function FatturePassive() {
                     <div className="font-medium text-slate-800 truncate max-w-[280px]" title={inv.supplier_name ?? undefined}>{inv.supplier_name || '—'}</div>
                     {inv.supplier_vat && <div className="text-xs text-slate-400">P.IVA {inv.supplier_vat}</div>}
                   </td>
-                  <td className="px-4 py-3 text-slate-600">{inv.tipo_documento || '—'}</td>
+                  <td className="px-4 py-3 text-slate-600" title={inv.tipo_documento || undefined}>{tipoDocumentoLabel(inv.tipo_documento)}</td>
                   <td className="px-4 py-3 text-right text-slate-700 min-w-[100px] whitespace-nowrap">{fmt(inv.net_amount)}</td>
                   <td className="px-4 py-3 text-right text-slate-500 min-w-[100px] whitespace-nowrap">{fmt(inv.vat_amount)}</td>
                   <td className="px-4 py-3 text-right font-semibold text-slate-900 min-w-[100px] whitespace-nowrap">{fmt(inv.gross_amount)}</td>
+                  {sdiEmissionEnabled && (
+                    <td className="px-4 py-3 text-center">
+                      <StatusBadge status={inv.sdi_status || 'RECEIVED'} />
+                    </td>
+                  )}
                   <td className="px-4 py-3 text-center">
-                    <StatusBadge status={inv.sdi_status || 'RECEIVED'} />
-                  </td>
-                  <td className="px-4 py-3 text-center">
-                    <button
-                      onClick={(e) => { e.stopPropagation(); setSelectedInvoice(inv); setShowXml(false) }}
-                      className="p-1.5 text-slate-400 hover:text-blue-600 rounded transition"
-                      title="Dettaglio"
-                    >
-                      <Eye size={16} />
-                    </button>
+                    <div className="flex items-center justify-center gap-1">
+                      {inv.xml_content && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setViewingXml(inv.xml_content ?? null) }}
+                          className="p-1.5 text-slate-400 hover:text-blue-600 rounded transition"
+                          title="Apri PDF"
+                        >
+                          <FileText size={16} />
+                        </button>
+                      )}
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setSelectedInvoice(inv); setShowXml(false) }}
+                        className="p-1.5 text-slate-400 hover:text-blue-600 rounded transition"
+                        title="Dettaglio"
+                      >
+                        <Eye size={16} />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -774,6 +796,7 @@ function FattureAttive() {
     [key: string]: unknown
   }
   const { toast } = useToast()
+  const { sdiEmissionEnabled } = useSdiEmission()
   const [invoices, setInvoices] = useState<ActiveInvoiceRow[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
@@ -801,6 +824,22 @@ function FattureAttive() {
   }, [])
 
   useEffect(() => { loadInvoices() }, [loadInvoices])
+
+  // Imponibile/IVA: dalle colonne DB se presenti, altrimenti derivati dall'XML
+  // FatturaPA (le fatture scaricate dal Cassetto hanno taxable/vat a null).
+  const totalsById = useMemo<Record<string, { taxable: number | null; vat: number | null }>>(() => {
+    const m: Record<string, { taxable: number | null; vat: number | null }> = {}
+    for (const inv of invoices) {
+      let taxable = inv.taxable_amount != null ? Number(inv.taxable_amount) : null
+      let vat = inv.vat_amount != null ? Number(inv.vat_amount) : null
+      if ((taxable === null || vat === null) && inv.xml_content) {
+        const t = invoiceTotalsFromXml(inv.xml_content)
+        if (t) { if (taxable === null) taxable = t.taxable; if (vat === null) vat = t.vat }
+      }
+      m[inv.id] = { taxable, vat }
+    }
+    return m
+  }, [invoices])
 
   // Genera XML per una fattura
   const handleGenerateXml = async (invoiceId: string) => {
@@ -891,10 +930,14 @@ function FattureAttive() {
     <div className="space-y-4">
       {/* KPI */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <KpiCard icon={FileText} label="Fatture emesse" value={stats.total} color="blue" />
-        <KpiCard icon={Euro} label="Totale emesso" value={`€ ${fmt(stats.totalAmount)}`} color="green" />
-        <KpiCard icon={Clock} label="Bozze" value={stats.draft} color="amber" />
-        <KpiCard icon={Send} label="Inviate SDI" value={stats.sent} color="green" />
+        <KpiCard icon={FileText} label="Fatture attive" value={stats.total} color="blue" />
+        <KpiCard icon={Euro} label="Totale" value={`€ ${fmt(stats.totalAmount)}`} color="green" />
+        {sdiEmissionEnabled && (
+          <>
+            <KpiCard icon={Clock} label="Bozze" value={stats.draft} color="amber" />
+            <KpiCard icon={Send} label="Inviate SDI" value={stats.sent} color="green" />
+          </>
+        )}
       </div>
 
       {/* Toolbar */}
@@ -909,28 +952,32 @@ function FattureAttive() {
             className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
           />
         </div>
-        <Link
-          to="/fatturazione/nuova-acube"
-          className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white text-sm rounded-lg hover:bg-emerald-700 transition"
-          title="Emetti via A-Cube SDI (sandbox/production)"
-        >
-          <Send size={16} />
-          Nuova via A-Cube
-        </Link>
-        <button
-          onClick={() => setShowForm(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition"
-        >
-          <Plus size={16} />
-          Nuova fattura
-        </button>
+        {sdiEmissionEnabled && (
+          <>
+            <Link
+              to="/fatturazione/nuova-acube"
+              className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white text-sm rounded-lg hover:bg-emerald-700 transition"
+              title="Emetti via A-Cube SDI (sandbox/production)"
+            >
+              <Send size={16} />
+              Nuova via A-Cube
+            </Link>
+            <button
+              onClick={() => setShowForm(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition"
+            >
+              <Plus size={16} />
+              Nuova fattura
+            </button>
+          </>
+        )}
         <button onClick={loadInvoices} className="p-2 text-slate-500 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition">
           <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
         </button>
       </div>
 
       {/* Legenda stati SDI per operatore */}
-      <SdiLegend tipo="active" />
+      {sdiEmissionEnabled && <SdiLegend tipo="active" />}
 
       {/* Tabella */}
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
@@ -948,16 +995,18 @@ function FattureAttive() {
                 <SortableTh sortKey="invoice_number" sortBy={faSortBy} onSort={faOnSort}>Numero</SortableTh>
                 <SortableTh sortKey="client_name" sortBy={faSortBy} onSort={faOnSort}>Cliente</SortableTh>
                 <SortableTh sortKey="tipo_documento" sortBy={faSortBy} onSort={faOnSort}>Tipo</SortableTh>
+                <th className="text-right px-4 py-3 font-medium text-slate-600 text-[11px] uppercase tracking-wider min-w-[100px]">Imponibile</th>
+                <th className="text-right px-4 py-3 font-medium text-slate-600 text-[11px] uppercase tracking-wider min-w-[100px]">IVA</th>
                 <SortableTh sortKey="total_amount" sortBy={faSortBy} onSort={faOnSort} align="right">Totale</SortableTh>
-                <SortableTh sortKey="sdi_status" sortBy={faSortBy} onSort={faOnSort} align="center">Stato SDI</SortableTh>
+                {sdiEmissionEnabled && <SortableTh sortKey="sdi_status" sortBy={faSortBy} onSort={faOnSort} align="center">Stato SDI</SortableTh>}
                 <th className="text-center px-4 py-3 font-medium text-slate-600 text-[11px] uppercase tracking-wider">Azioni</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={7} className="text-center py-12 text-slate-400"><Loader2 size={24} className="animate-spin mx-auto mb-2" />Caricamento...</td></tr>
+                <tr><td colSpan={sdiEmissionEnabled ? 9 : 8} className="text-center py-12 text-slate-400"><Loader2 size={24} className="animate-spin mx-auto mb-2" />Caricamento...</td></tr>
               ) : sortedFiltered.length === 0 ? (
-                <tr><td colSpan={7} className="text-center py-12 text-slate-400">
+                <tr><td colSpan={sdiEmissionEnabled ? 9 : 8} className="text-center py-12 text-slate-400">
                   <FileText size={32} className="mx-auto mb-2 text-slate-300" />
                   Nessuna fattura attiva. Crea la prima!
                 </td></tr>
@@ -969,17 +1018,24 @@ function FattureAttive() {
                     <div className="font-medium text-slate-800">{inv.client_name}</div>
                     {inv.client_vat && <div className="text-xs text-slate-400">P.IVA {inv.client_vat}</div>}
                   </td>
-                  <td className="px-4 py-3 text-slate-600">{inv.tipo_documento}</td>
+                  <td className="px-4 py-3 text-slate-600" title={inv.tipo_documento || undefined}>{tipoDocumentoLabel(inv.tipo_documento)}</td>
+                  <td className="px-4 py-3 text-right text-slate-700 min-w-[100px] whitespace-nowrap">{fmt(totalsById[inv.id]?.taxable)}</td>
+                  <td className="px-4 py-3 text-right text-slate-500 min-w-[100px] whitespace-nowrap">{fmt(totalsById[inv.id]?.vat)}</td>
                   <td className="px-4 py-3 text-right font-semibold text-slate-900">{fmt(inv.total_amount)}</td>
-                  <td className="px-4 py-3 text-center"><StatusBadge status={inv.sdi_status || 'DRAFT'} /></td>
+                  {sdiEmissionEnabled && <td className="px-4 py-3 text-center"><StatusBadge status={inv.sdi_status || 'DRAFT'} /></td>}
                   <td className="px-4 py-3 text-center">
                     <div className="flex items-center justify-center gap-1">
-                      {inv.sdi_status === 'DRAFT' && !inv.xml_content && (
+                      {inv.xml_content && (
+                        <button onClick={(e) => { e.stopPropagation(); setViewingXml(inv.xml_content ?? null) }} className="p-1.5 text-slate-400 hover:text-blue-600 rounded transition" title="Apri PDF">
+                          <FileText size={16} />
+                        </button>
+                      )}
+                      {sdiEmissionEnabled && inv.sdi_status === 'DRAFT' && !inv.xml_content && (
                         <button onClick={(e) => { e.stopPropagation(); handleGenerateXml(inv.id) }} className="p-1.5 text-slate-400 hover:text-blue-600 rounded transition" title="Genera XML">
                           <FileCode size={16} />
                         </button>
                       )}
-                      {(inv.sdi_status === 'DRAFT' || inv.sdi_status === 'ERROR') && inv.xml_content && (
+                      {sdiEmissionEnabled && (inv.sdi_status === 'DRAFT' || inv.sdi_status === 'ERROR') && inv.xml_content && (
                         <button
                           onClick={(e) => { e.stopPropagation(); handleSend(inv.id) }}
                           disabled={sending === inv.id}
@@ -989,7 +1045,7 @@ function FattureAttive() {
                           {sending === inv.id ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
                         </button>
                       )}
-                      {inv.sdi_id && (
+                      {sdiEmissionEnabled && inv.sdi_id && (
                         <span className="text-xs text-slate-400 font-mono ml-1">{inv.sdi_id.substring(0, 12)}</span>
                       )}
                     </div>
@@ -1185,8 +1241,8 @@ function FattureAttive() {
                 </div>
               </div>
 
-              {/* Timeline notifiche SDI */}
-              {selectedInvoice.sdi_notifications && Array.isArray(selectedInvoice.sdi_notifications) && selectedInvoice.sdi_notifications.length > 0 && (
+              {/* Timeline notifiche SDI (solo se invio attivo) */}
+              {sdiEmissionEnabled && selectedInvoice.sdi_notifications && Array.isArray(selectedInvoice.sdi_notifications) && selectedInvoice.sdi_notifications.length > 0 && (
                 <div className="space-y-2">
                   <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Timeline SDI</h4>
                   <div className="relative pl-4 border-l-2 border-slate-200 space-y-3">
@@ -1213,7 +1269,8 @@ function FattureAttive() {
                 </div>
               )}
 
-              {/* Azioni */}
+              {/* Azioni emissione SDI (solo se invio attivo) */}
+              {sdiEmissionEnabled && (
               <div className="space-y-2">
                 <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Azioni</h4>
                 <div className="flex flex-wrap gap-2">
@@ -1231,6 +1288,7 @@ function FattureAttive() {
                   )}
                 </div>
               </div>
+              )}
 
               {/* XML */}
               {selectedInvoice.xml_content && (
@@ -1515,6 +1573,8 @@ export default function Fatturazione() {
   const { company } = useCompany()
   const { year } = usePeriod()
   const { toast } = useToast()
+  // Flag "invio attivo" SDI: con OFF la pagina e' un archivio di consultazione.
+  const { sdiEmissionEnabled } = useSdiEmission()
   // activeTab persistito in URL come ?tab=… (default 'passive')
   const [searchParams, setSearchParams] = useSearchParams()
   const tabParam = searchParams.get('tab')
@@ -1677,9 +1737,11 @@ export default function Fatturazione() {
 
       <PageHeader
         title="Fatturazione Elettronica"
-        subtitle="Gestione fatture SDI, emissione e corrispettivi telematici"
+        subtitle={sdiEmissionEnabled
+          ? "Gestione fatture SDI, emissione e corrispettivi telematici"
+          : "Archivio fatture elettroniche scaricate dal Cassetto Fiscale"}
         noDivider
-        actions={
+        actions={sdiEmissionEnabled ? (
           <>
             {sdiStats?.config && (
               <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
@@ -1712,7 +1774,7 @@ export default function Fatturazione() {
               {syncing ? 'Sincronizzazione...' : 'Sincronizza SDI'}
             </button>
           </>
-        }
+        ) : undefined}
       />
 
       {/* Banner syncResult rimosso: il risultato della sync ora è mostrato via toast centrale globale. */}
