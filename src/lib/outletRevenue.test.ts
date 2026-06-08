@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  buildOutletRevenue, outletRevenueMetrics, aggregateCostsByMacro, orderedCostCategories,
+  buildOutletRevenue, outletRevenueMetrics, aggregateCostsByMacro, orderedCostCategories, sedeQuota,
   type ConfrontoRow, type CoaMeta,
 } from './outletRevenue'
 
@@ -118,5 +118,37 @@ describe('classificazione costi benchmark — Valdichiana 2026 (NZ)', () => {
     const cats = orderedCostCategories(costiByMacro, macroMeta)
     expect(cats.map(c => c.ceSection)).toEqual(['B.6', 'B.7', 'B.8', 'B.9', 'B.11', 'B.14', 'C.17'])
     expect(cats.find(c => c.ceSection === 'B.11')?.value).toBe(0) // categoria a 0 presente
+  })
+})
+
+describe('quota sede pro-quota netta — NZ 2026 (Preventivo)', () => {
+  const NETTO_SEDE = 197400 - 49040.40 // costi_sede − ricavi_sede (role='hq')
+  // Fatturato preventivo (Σ rev_monthly) per outlet — dati reali NZ.
+  const fatt: Record<string, number> = {
+    valdichiana: 821584.58, valmontone: 743917.08, franciacorta: 574284.60,
+    barberino: 436314.76, torino: 415123.61, palmanova: 390229.24, brugnato: 333420.75,
+  }
+  const fatturatoTot = Object.values(fatt).reduce((s, v) => s + v, 0)
+  const marginePreSede: Record<string, number> = { valdichiana: 28514.01 }
+
+  it('netto_sede e aliquota implicita', () => {
+    expect(NETTO_SEDE).toBeCloseTo(148359.60, 2)
+    expect((NETTO_SEDE / fatturatoTot) * 100).toBeCloseTo(3.99, 2)
+  })
+
+  it('quota Valdichiana e margine dopo sede', () => {
+    const quota = sedeQuota(NETTO_SEDE, fatt.valdichiana, fatturatoTot)
+    expect(quota).toBeCloseTo(32811.33, 0)
+    expect(marginePreSede.valdichiana - quota).toBeCloseTo(-4297, 0)
+  })
+
+  it('Σ delle quote dei 7 outlet = netto_sede (niente perso)', () => {
+    const sommaQuote = Object.values(fatt).reduce((s, f) => s + sedeQuota(NETTO_SEDE, f, fatturatoTot), 0)
+    expect(sommaQuote).toBeCloseTo(NETTO_SEDE, 2)
+  })
+
+  it('guardia divisione per zero: 0 outlet → quota 0', () => {
+    expect(sedeQuota(NETTO_SEDE, 0, 0)).toBe(0)
+    expect(Number.isFinite(sedeQuota(NETTO_SEDE, 100, 0))).toBe(true)
   })
 })
