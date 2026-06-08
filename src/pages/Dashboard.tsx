@@ -328,194 +328,114 @@ export default function Dashboard() {
         }
         setRicaviPrevYear(prevRicavi)
 
-        // 3. Outlet ranking — try view first, fallback to daily_revenue aggregation
+        // 3. Ranking outlet — metriche da budget_confronto (consuntivo "granitico"
+        //    di Lilian) classificate via chart_of_accounts.is_revenue, per
+        //    cost_center role='outlet'. Niente hardcoded: codici ricavo, outlet e
+        //    cost center arrivano tutti dal DB. Per ogni outlet:
+        //      ricavi (cons_ytd) = Σ amount cons_monthly su conti is_revenue
+        //      ult_mese          = max(mese) con cons_monthly != 0 (derivato dai dati)
+        //      budget_ytd        = Σ amount rev_monthly sui mesi <= ult_mese
+        //      budget_anno       = Σ amount rev_monthly su tutti i mesi
+        //      vs_budget_pct     = cons_ytd / budget_ytd * 100 (null se budget_ytd 0)
+        //      pct_gruppo        = cons_ytd / Σ cons_ytd di tutti gli outlet
         try {
-          const { data: outletsRaw } = await supabase
-            .from('v_outlet_ranking')
-            .select('*')
+          const [{ data: outletsList }, { data: ccRows }, { data: coaRows }] = await Promise.all([
+            supabase.from('outlets').select('id, name, code, is_active').eq('company_id', COMPANY_ID),
+            supabase.from('cost_centers').select('code, role, is_active').eq('company_id', COMPANY_ID),
+            supabase.from('chart_of_accounts').select('code').eq('company_id', COMPANY_ID).eq('is_active', true).eq('is_revenue', true),
+          ])
+
+          const activeOutlets = (outletsList || []).filter(o => o.is_active !== false)
+          const revenueCodes = new Set((coaRows || []).map(c => c.code))
+          const outletCcSet = new Set(
+            ((ccRows || []) as Array<{ code?: string | null; role?: string | null; is_active?: boolean | null }>)
+              .filter(c => c.role === 'outlet' && c.is_active !== false)
+              .map(c => String(c.code || '').toLowerCase())
+              .filter(Boolean)
+          )
+
+          // budget_confronto: consuntivo (cons_monthly) + preventivo (rev_monthly)
+          // mensile, solo conti is_revenue. Mai sommare i due entry_type insieme.
+          const { data: bcRows } = await supabase
+            .from('budget_confronto')
+            .select('cost_center, account_code, month, amount, entry_type')
             .eq('company_id', COMPANY_ID)
             .eq('year', YEAR)
-            .order('rank_revenue', { ascending: true })
+            .in('entry_type', ['cons_monthly', 'rev_monthly'])
+            .range(0, 9999)
 
-          if (outletsRaw && outletsRaw.length > 0) {
-            setOutletsData(outletsRaw.map((o, i) => ({
-              id: o.outlet_id ?? undefined,
-              name: o.outlet_name ?? '',
-              ricavi: o.ytd_revenue || 0,
-              dip: ((o as { staff_count?: number | null }).staff_count) ?? 0,
+          type MonthMap = { cons: Record<number, number>; rev: Record<number, number> }
+          const byCc: Record<string, MonthMap> = {}
+          ;((bcRows || []) as Array<{ cost_center?: string | null; account_code?: string | null; month?: number | null; amount?: number | null; entry_type?: string | null }>).forEach(r => {
+            const cc = String(r.cost_center || '').toLowerCase()
+            if (!cc) return
+            if (outletCcSet.size > 0 && !outletCcSet.has(cc)) return
+            if (!r.account_code || !revenueCodes.has(r.account_code)) return
+            const m = r.month ?? 0
+            if (m < 1) return
+            const amt = Number(r.amount) || 0
+            if (!byCc[cc]) byCc[cc] = { cons: {}, rev: {} }
+            if (r.entry_type === 'cons_monthly') byCc[cc].cons[m] = (byCc[cc].cons[m] || 0) + amt
+            else if (r.entry_type === 'rev_monthly') byCc[cc].rev[m] = (byCc[cc].rev[m] || 0) + amt
+          })
+
+          // Fallback (anni/tenant senza budget_confronto, es. annate chiuse):
+          // ricavo da budget_entries sui conti is_revenue. In questa modalità non
+          // c'è split consuntivo/preventivo → vs Budget resta "—".
+          const hasConfronto = Object.keys(byCc).length > 0
+          const entriesByCc: Record<string, number> = {}
+          if (!hasConfronto) {
+            const { data: beRows } = await supabase
+              .from('budget_entries')
+              .select('cost_center, account_code, budget_amount')
+              .eq('company_id', COMPANY_ID)
+              .eq('year', YEAR)
+              .range(0, 9999)
+            ;((beRows || []) as Array<{ cost_center?: string | null; account_code?: string | null; budget_amount?: number | null }>).forEach(r => {
+              const cc = String(r.cost_center || '').toLowerCase()
+              if (!cc) return
+              if (outletCcSet.size > 0 && !outletCcSet.has(cc)) return
+              if (!r.account_code || !revenueCodes.has(r.account_code)) return
+              entriesByCc[cc] = (entriesByCc[cc] || 0) + (Number(r.budget_amount) || 0)
+            })
+          }
+
+          // Una riga per ogni outlet anagrafico (anche a 0): mai outlet "fantasma",
+          // mai crash, mai divisione per 0.
+          const rows = activeOutlets.map(o => {
+            const nameKey = String(o.name || '').toLowerCase()
+            const codeKey = String(o.code || '').toLowerCase()
+            const mm = byCc[nameKey] || byCc[codeKey] || { cons: {}, rev: {} }
+            const consYtd = Object.values(mm.cons).reduce((s, v) => s + v, 0)
+            const consMonths = Object.entries(mm.cons).filter(([, v]) => v !== 0).map(([k]) => Number(k))
+            const ultMese = consMonths.length ? Math.max(...consMonths) : 0
+            const budgetYtd = ultMese > 0
+              ? Object.entries(mm.rev).reduce((s, [k, v]) => (Number(k) <= ultMese ? s + v : s), 0)
+              : 0
+            const budgetAnno = Object.values(mm.rev).reduce((s, v) => s + v, 0)
+            const fallbackRev = hasConfronto ? 0 : (entriesByCc[nameKey] ?? entriesByCc[codeKey] ?? 0)
+            return {
+              id: o.id,
+              name: o.name || o.code || '?',
+              ricavi: consYtd || fallbackRev,
+              ult_mese: ultMese,
+              budget_ytd: budgetYtd,
+              budget_anno: budgetAnno || fallbackRev,
+              vs_budget_pct: budgetYtd > 0 ? (consYtd / budgetYtd * 100) : null,
+            }
+          })
+
+          const totaleCons = rows.reduce((s, r) => s + r.ricavi, 0)
+          rows.sort((a, b) => (b.ricavi - a.ricavi) || a.name.localeCompare(b.name))
+
+          if (rows.some(r => r.ricavi !== 0 || r.budget_anno !== 0)) {
+            setOutletsData(rows.map((o, i) => ({
+              ...o,
+              pct_gruppo: totaleCons > 0 ? (o.ricavi / totaleCons * 100) : null,
               colore: OUTLET_COLORS[i % OUTLET_COLORS.length],
             })))
-          } else {
-            // Fallback 2: aggregate daily_revenue per outlet for the year
-            const yearStart = `${YEAR}-01-01`
-            const yearEnd = `${YEAR}-12-31`
-
-            // Fetch daily_revenue without FK join (may fail), and outlets separately
-            const [{ data: drAgg }, { data: outletsList }] = await Promise.all([
-              supabase
-                .from('daily_revenue')
-                .select('outlet_id, gross_revenue')
-                .eq('company_id', COMPANY_ID)
-                .gte('date', yearStart)
-                .lte('date', yearEnd),
-              supabase
-                .from('outlets')
-                .select('id, name, code, is_active')
-                .eq('company_id', COMPANY_ID)
-                .eq('is_active', true)
-            ])
-
-            interface OutletAggLocal { id?: string; name: string; ricavi: number }
-            const outletNameMap: Record<string, string> = {}
-            ;(outletsList || []).forEach(o => { outletNameMap[o.id] = o.name })
-
-            if (drAgg && drAgg.length > 0) {
-              // Group by outlet_id and sum gross_revenue
-              const outletMap: Record<string, OutletAggLocal> = {}
-              drAgg.forEach(r => {
-                const oid = r.outlet_id
-                if (!oid) return
-                if (!outletMap[oid]) {
-                  outletMap[oid] = { id: oid, name: outletNameMap[oid] || '?', ricavi: 0 }
-                }
-                outletMap[oid].ricavi += Number(r.gross_revenue) || 0
-              })
-              const sorted = Object.values(outletMap).sort((a, b) => b.ricavi - a.ricavi)
-              setOutletsData(sorted.map((o, i) => ({
-                id: o.id,
-                name: o.name,
-                ricavi: o.ricavi,
-                dip: 0,
-                colore: OUTLET_COLORS[i % OUTLET_COLORS.length],
-              })))
-            }
-
-            // Sprint 2 (Patrizio 29/05/2026): PRIORITA' assoluta = dati Lilian
-            // budget_confronto.cons_monthly (consuntivo reale, aggregato per outlet).
-            // Hotfix 29/05 sera: NO 'return' dentro questa funzione (rompeva il
-            // setLoading(false) successivo -> 'Cruscotto in caricamento' infinito).
-            // Uso un flag boolean per saltare il Fallback 3 se ho gia' caricato.
-            let lilianDataLoaded = false
-            if (!drAgg || drAgg.length === 0) {
-              const { data: cfData } = await supabase
-                .from('budget_confronto')
-                .select('cost_center, account_code, amount')
-                .eq('company_id', COMPANY_ID)
-                .eq('year', YEAR)
-                .eq('entry_type', 'cons_monthly')
-                .like('account_code', '5%')
-                .range(0, 9999)
-              if (cfData && cfData.length > 0) {
-                const ricaviByCc: Record<string, number> = {}
-                cfData.forEach(r => {
-                  const cc = (r.cost_center || '').toLowerCase()
-                  if (!cc || cc === 'rettifica_bilancio' || cc === 'spese_non_divise') return
-                  ricaviByCc[cc] = (ricaviByCc[cc] || 0) + (Number(r.amount) || 0)
-                })
-                const outletsByCc: OutletAggLocal[] = (outletsList || [])
-                  .filter(o => o.is_active !== false)
-                  .map(o => {
-                    const codeKey = String(o.code || '').toLowerCase()
-                    const nameKey = String(o.name || '').toLowerCase()
-                    const ricavi = ricaviByCc[codeKey] ?? ricaviByCc[nameKey] ?? 0
-                    return { id: o.id, name: o.name || o.code || '?', ricavi }
-                  })
-                if (outletsByCc.some(o => o.ricavi > 0)) {
-                  const sorted = outletsByCc.sort((a, b) => b.ricavi - a.ricavi)
-                  setOutletsData(sorted.map((o, i) => ({
-                    id: o.id,
-                    name: o.name,
-                    ricavi: o.ricavi,
-                    dip: 0,
-                    colore: OUTLET_COLORS[i % OUTLET_COLORS.length],
-                  })))
-                  lilianDataLoaded = true
-                }
-              }
-            }
-
-            // Fallback 3: use budget_entries revenue data per cost_center
-            if (!lilianDataLoaded && (!drAgg || drAgg.length === 0)) {
-              // Query ricavi: tutti i conti corrispettivi outlet (510101..510199)
-              // + legacy RIC001/2/3. Prima era .in() con SOLO 2 codici hardcoded
-              // (510107 Valdichiana, 510108 Barberino) — mostrava solo 2 outlet.
-              const { data: budgetData } = await supabase
-                .from('budget_entries')
-                .select('cost_center, budget_amount')
-                .eq('company_id', COMPANY_ID)
-                .eq('year', YEAR)
-                .or('account_code.like.510%,account_code.like.RIC%')
-                .range(0, 9999)
-
-              // Aggrega ricavi per cost_center (chiave: stringa code/nome outlet)
-              const ricaviByCc: Record<string, number> = {}
-              ;(budgetData || []).forEach(r => {
-                const cc = (r.cost_center || '').toLowerCase()
-                if (!cc) return
-                ricaviByCc[cc] = (ricaviByCc[cc] || 0) + (Number(r.budget_amount) || 0)
-              })
-
-              // Anagrafica outlets (TUTTI quelli attivi, anche con ricavi 0).
-              // Lookup cost_center per outlet: prova in ordine code (lowercase),
-              // poi name (lowercase). Match con budget_entries.cost_center.
-              const outletsByCc: OutletAggLocal[] = (outletsList || [])
-                .filter(o => o.is_active !== false)
-                .map(o => {
-                  const codeKey = String(o.code || '').toLowerCase()
-                  const nameKey = String(o.name || '').toLowerCase()
-                  const ricavi = ricaviByCc[codeKey] ?? ricaviByCc[nameKey] ?? 0
-                  return { name: o.name || o.code || '?', ricavi }
-                })
-
-              if (outletsByCc.length > 0) {
-                // Ordine: prima i top per ricavi (decrescente), poi alfabetico
-                const sorted = outletsByCc.sort((a, b) => {
-                  if (b.ricavi !== a.ricavi) return b.ricavi - a.ricavi
-                  return a.name.localeCompare(b.name)
-                })
-                setOutletsData(sorted.map((o, i) => ({
-                  id: o.id,
-                  name: o.name,
-                  ricavi: o.ricavi,
-                  dip: 0,
-                  colore: OUTLET_COLORS[i % OUTLET_COLORS.length],
-                })))
-              }
-
-              // Fallback 3b: try with RIC% pattern and actual_amount for previous or current year
-              if (!budgetData || budgetData.length === 0) {
-                const { data: budgetRic } = await supabase
-                  .from('budget_entries')
-                  .select('cost_center, actual_amount, budget_amount')
-                  .eq('company_id', COMPANY_ID)
-                  .eq('year', YEAR)
-                  .range(0, 9999)
-
-                if (budgetRic && budgetRic.length > 0) {
-                  const bMap: Record<string, OutletAggLocal> = {}
-                  budgetRic.forEach(r => {
-                    const cc = r.cost_center
-                    if (!cc) return
-                    // Escludi rettifiche bilancio e spese non divise dalla vista outlet
-                    if (cc === 'rettifica_bilancio' || cc === 'spese_non_divise') return
-                    const amt = Number(r.actual_amount) || Number(r.budget_amount) || 0
-                    if (!bMap[cc]) bMap[cc] = { name: cc.charAt(0).toUpperCase() + cc.slice(1), ricavi: 0 }
-                    bMap[cc].ricavi += amt
-                  })
-                  const sorted = Object.values(bMap).sort((a, b) => b.ricavi - a.ricavi)
-                  if (sorted.length > 0) {
-                    setOutletsData(sorted.map((o, i) => ({
-                      name: o.name,
-                      ricavi: o.ricavi,
-                      dip: 0,
-                      colore: OUTLET_COLORS[i % OUTLET_COLORS.length],
-                    })))
-                  }
-                }
-              }
-            }
           }
-        } catch (e) { console.warn('Outlet ranking fallback error:', e) }
+        } catch (e) { console.warn('Outlet ranking error:', e) }
 
         // 4. Cash position
         try {
@@ -663,6 +583,16 @@ export default function Dashboard() {
   // punto vendita specifico, non la pagina generale.
   const outletHref = (o: { id?: string; name?: string }) =>
     o.id ? `/outlet/${o.id}` : `/outlet/${encodeURIComponent((o.name || '').toLowerCase())}`
+  // Colore "vs Budget" (convenzione progetto): >=100% a target/sopra → nero;
+  // sotto target → rosso; nessun dato → grigio. NIENTE verde.
+  const vsBudgetColor = (pct: number | null | undefined) =>
+    pct == null ? 'text-slate-400' : pct >= 100 ? 'text-slate-900' : 'text-red-600'
+  // Totali gruppo per la riga in fondo al ranking (somma ricavi YTD, budget anno,
+  // e vs Budget aggregato Σcons/Σbudget_ytd).
+  const rankTotRicavi = outletsData.reduce((s, o) => s + (Number(o.ricavi) || 0), 0)
+  const rankTotBudgetAnno = outletsData.reduce((s, o) => s + (Number(o.budget_anno) || 0), 0)
+  const rankTotBudgetYtd = outletsData.reduce((s, o) => s + (Number(o.budget_ytd) || 0), 0)
+  const rankTotVsBudget = rankTotBudgetYtd > 0 ? (rankTotRicavi / rankTotBudgetYtd * 100) : null
   // Il margine è calcolabile solo se i costi esistono (bilancio depositato, oppure
   // costi presenti in budget_confronto). Per l'anno di gestione senza costi -> "—".
   const margineAvailable = dataSource === 'fatture' ? false : (isGestione ? costiPresent : ricavi > 0)
@@ -935,19 +865,17 @@ export default function Dashboard() {
                   <tr className="text-[11px] text-slate-500 uppercase tracking-wider">
                     <th className="py-2 px-4 text-left font-medium w-10">#</th>
                     <th className="py-2 px-4 text-left font-medium">{labels.pointOfSale}</th>
-                    <th className="py-2 px-4 text-right font-medium">Ricavi {year}</th>
-                    <th className="py-2 px-4 text-right font-medium">% Tot</th>
-                    <th className="py-2 px-4 text-right font-medium">Ultimo</th>
-                    <th className="py-2 px-4 text-right font-medium">Staff</th>
-                    <th className="py-2 px-4 text-right font-medium">€/Dip</th>
+                    <th className="py-2 px-4 text-right font-medium">Ricavi YTD</th>
+                    <th className="py-2 px-4 text-right font-medium">% sul gruppo</th>
+                    <th className="py-2 px-4 text-right font-medium">vs Budget (YTD)</th>
+                    <th className="py-2 px-4 text-right font-medium">Budget anno</th>
                     <th className="py-2 px-4 w-10"></th>
                   </tr>
                 </thead>
                 <tbody>
                   {outletsData.map((o, i) => {
-                    const dailyRev = dailyRevenue.find(d => d.outlet === o.name)
                     const maxRicavi = outletsData[0]?.ricavi || 1
-                    const barWidth = Math.round((o.ricavi / maxRicavi) * 100)
+                    const barWidth = Math.max(0, Math.round((o.ricavi / maxRicavi) * 100))
                     return (
                       <tr key={o.name} className="border-t border-slate-50 hover:bg-slate-50/50 transition text-sm group">
                         <td className="py-2.5 px-4">
@@ -968,18 +896,11 @@ export default function Dashboard() {
                           </div>
                         </td>
                         <td className="py-2.5 px-4 text-right font-semibold text-slate-900">{fmt(o.ricavi)} €</td>
-                        <td className="py-2.5 px-4 text-right text-slate-500 text-xs">{ricavi > 0 ? (o.ricavi / ricavi * 100).toFixed(1) : '—'}%</td>
-                        <td className="py-2.5 px-4 text-right">
-                          {dailyRev ? (
-                            <span className="text-emerald-600 font-medium">{fmt(dailyRev.revenue)} €</span>
-                          ) : (
-                            <span className="text-slate-300 text-xs">—</span>
-                          )}
+                        <td className="py-2.5 px-4 text-right text-slate-500 text-xs">{o.pct_gruppo != null ? `${fmt(o.pct_gruppo, 1)}%` : '—'}</td>
+                        <td className={`py-2.5 px-4 text-right font-semibold ${vsBudgetColor(o.vs_budget_pct)}`}>
+                          {o.vs_budget_pct != null ? `${fmt(o.vs_budget_pct, 1)}%` : '—'}
                         </td>
-                        <td className="py-2.5 px-4 text-right text-slate-600">{o.dip || '—'}</td>
-                        <td className="py-2.5 px-4 text-right text-blue-600 font-medium text-xs">
-                          {o.dip > 0 ? `${fmt(Math.round(o.ricavi / o.dip))} €` : '—'}
-                        </td>
+                        <td className="py-2.5 px-4 text-right text-slate-600">{o.budget_anno ? `${fmt(o.budget_anno)} €` : '—'}</td>
                         <td className="py-2.5 px-4">
                           <Link to={outletHref(o)} className="opacity-0 group-hover:opacity-100 transition">
                             <ChevronRight size={14} className="text-slate-400" />
@@ -989,35 +910,59 @@ export default function Dashboard() {
                     )
                   })}
                 </tbody>
+                <tfoot>
+                  <tr className="border-t-2 border-slate-200 bg-slate-50/60 text-sm font-semibold text-slate-900">
+                    <td className="py-2.5 px-4"></td>
+                    <td className="py-2.5 px-4">Totale gruppo</td>
+                    <td className="py-2.5 px-4 text-right">{fmt(rankTotRicavi)} €</td>
+                    <td className="py-2.5 px-4 text-right text-slate-500 text-xs">100%</td>
+                    <td className={`py-2.5 px-4 text-right ${vsBudgetColor(rankTotVsBudget)}`}>
+                      {rankTotVsBudget != null ? `${fmt(rankTotVsBudget, 1)}%` : '—'}
+                    </td>
+                    <td className="py-2.5 px-4 text-right text-slate-600">{rankTotBudgetAnno ? `${fmt(rankTotBudgetAnno)} €` : '—'}</td>
+                    <td className="py-2.5 px-4"></td>
+                  </tr>
+                </tfoot>
               </table>
             </div>
 
             {/* Mobile cards */}
             <div className="sm:hidden divide-y divide-slate-50">
-              {outletsData.map((o, i) => {
-                const dailyRev = dailyRevenue.find(d => d.outlet === o.name)
-                return (
-                  <Link key={o.name} to={outletHref(o)} className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50 transition">
-                    <span className={`text-xs font-bold w-6 text-center ${
-                      i === 0 ? 'text-amber-600' : 'text-slate-400'
-                    }`}>
-                      #{i + 1}
-                    </span>
-                    <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: o.colore }} />
-                    <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium text-slate-900 truncate" title={formatOutletName(o.name)}>{formatOutletName(o.name)}</div>
-                      <div className="text-xs text-slate-400">{fmt(o.ricavi)} €</div>
+              {outletsData.map((o, i) => (
+                <Link key={o.name} to={outletHref(o)} className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50 transition">
+                  <span className={`text-xs font-bold w-6 text-center ${
+                    i === 0 ? 'text-amber-600' : 'text-slate-400'
+                  }`}>
+                    #{i + 1}
+                  </span>
+                  <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: o.colore }} />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium text-slate-900 truncate" title={formatOutletName(o.name)}>{formatOutletName(o.name)}</div>
+                    <div className="text-xs text-slate-400">Ricavi YTD {fmt(o.ricavi)} €</div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <div className="text-xs text-slate-400">vs Budget</div>
+                    <div className={`text-sm font-semibold ${vsBudgetColor(o.vs_budget_pct)}`}>
+                      {o.vs_budget_pct != null ? `${fmt(o.vs_budget_pct, 1)}%` : '—'}
                     </div>
-                    {dailyRev && (
-                      <div className="text-right shrink-0">
-                        <div className="text-xs text-slate-400">Ultimo</div>
-                        <div className="text-sm font-semibold text-emerald-600">{fmt(dailyRev.revenue)} €</div>
-                      </div>
-                    )}
-                    <ChevronRight size={14} className="text-slate-300 shrink-0" />
-                  </Link>
-                )
-              })}
+                  </div>
+                  <ChevronRight size={14} className="text-slate-300 shrink-0" />
+                </Link>
+              ))}
+              <div className="flex items-center gap-3 px-4 py-3 bg-slate-50/60 font-semibold text-slate-900">
+                <span className="w-6" />
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm">Totale gruppo</div>
+                  <div className="text-xs text-slate-500">Ricavi YTD {fmt(rankTotRicavi)} €</div>
+                </div>
+                <div className="text-right shrink-0">
+                  <div className="text-xs text-slate-400">vs Budget</div>
+                  <div className={`text-sm font-semibold ${vsBudgetColor(rankTotVsBudget)}`}>
+                    {rankTotVsBudget != null ? `${fmt(rankTotVsBudget, 1)}%` : '—'}
+                  </div>
+                </div>
+                <span className="w-3.5 shrink-0" />
+              </div>
             </div>
           </>
         )}
