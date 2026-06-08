@@ -23,7 +23,7 @@ import { GlassTooltip, ChartGradients, AXIS_STYLE, GRID_STYLE, BAR_RADIUS, Moder
 import { formatOutletName, shortOutletName } from '../lib/formatters'
 import {
   RICAVI_SOURCE_LABEL, buildOutletRevenue, outletRevenueMetrics,
-  aggregateCostsByMacro, orderedCostCategories,
+  aggregateCostsByMacro, orderedCostCategories, sedeQuota,
   type OutletConfrontoMap, type Provenance, type ConfrontoRow,
   type CoaMeta, type CostCategory,
 } from '../lib/outletRevenue'
@@ -101,7 +101,8 @@ function OutletCard({ name, outletData, calculatedMetrics, ranking, onNavigate, 
 
   const { ricavi, margine, marginePct, costoPersonale, affitto, servizi, personaleCount,
     ricavoPerDip, incidenzaPersonale, incidenzaAffitto, breakeven, merci, costiDiretti, costiTotali,
-    costiCategorie, isVariance, scostamento, scostamentoPct, mesiPresi, mediaMensile, provenance } = calculatedMetrics
+    costiCategorie, isVariance, scostamento, scostamentoPct, mesiPresi, mediaMensile, provenance,
+    quotaSedePro, margineFinale } = calculatedMetrics
 
   // I1 — badge provenienza dato (consuntivo granitico vs preventivo).
   const provBadge: Record<Provenance, { label: string; cls: string }> = {
@@ -211,6 +212,24 @@ function OutletCard({ name, outletData, calculatedMetrics, ranking, onNavigate, 
           color={isVariance ? (affitto > 0 ? 'red' : affitto < 0 ? 'green' : 'purple') : 'purple'} />
       </div>
 
+      {/* Margine outlet → quota sede → margine dopo sede (sempre visibile) */}
+      {!isVariance && quotaSedePro != null && (
+        <div className="px-4 pb-1 space-y-1 text-sm">
+          <div className="flex items-center justify-between">
+            <span className="text-slate-500">Margine outlet</span>
+            <span className={`font-medium ${margine < 0 ? 'text-red-600' : 'text-slate-900'}`}>{fmt(margine)} €</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-slate-500">Quota sede</span>
+            <span className={`font-medium ${quotaSedePro > 0 ? 'text-red-600' : 'text-slate-900'}`}>{quotaSedePro > 0 ? '-' : ''}{fmt(Math.abs(quotaSedePro))} €</span>
+          </div>
+          <div className="flex items-center justify-between pt-1 border-t border-slate-100">
+            <span className="font-semibold text-slate-700">Margine dopo sede</span>
+            <span className={`font-bold ${(margineFinale ?? 0) < 0 ? 'text-red-600' : 'text-slate-900'}`}>{fmt(margineFinale ?? 0)} €</span>
+          </div>
+        </div>
+      )}
+
       {/* Dettaglio costi espandibile */}
       <div className="px-4 pb-3">
         <button
@@ -247,12 +266,31 @@ function OutletCard({ name, outletData, calculatedMetrics, ranking, onNavigate, 
               </div>
             </div>
           ))}
-          <div className="flex items-center justify-between pt-2 border-t border-slate-200 font-bold">
-            <span className="text-slate-900">MARGINE OUTLET</span>
+          <div className="flex items-center justify-between pt-2 border-t border-slate-200 font-semibold">
+            <span className="text-slate-900">Margine outlet</span>
             <span className={isPositive ? 'text-slate-900' : 'text-red-600'}>
               {fmt(margine)} € ({marginePct.toFixed(1)}%)
             </span>
           </div>
+          {/* Quota sede (pro-quota sul fatturato, netta dei ricavi sede) e
+              margine dopo sede. Nascosti in modalità Scostamento. */}
+          {!isVariance && quotaSedePro != null && (
+            <>
+              <div className="flex items-center justify-between text-slate-600">
+                <span>Quota sede</span>
+                <span className={quotaSedePro > 0 ? 'text-red-600 font-medium' : 'text-slate-900 font-medium'}>
+                  {quotaSedePro > 0 ? '-' : ''}{fmt(Math.abs(quotaSedePro))} €
+                </span>
+              </div>
+              <div className="flex items-center justify-between pt-2 border-t border-slate-200 font-bold">
+                <span className="text-slate-900">Margine dopo sede</span>
+                <span className={(margineFinale ?? 0) < 0 ? 'text-red-600' : 'text-slate-900'}>
+                  {fmt(margineFinale ?? 0)} €
+                  {ricavi > 0 && ` (${(((margineFinale ?? 0) / ricavi) * 100).toFixed(1)}%)`}
+                </span>
+              </div>
+            </>
+          )}
           <div className="flex items-center justify-between text-xs text-slate-400 pt-1">
             <span>Costo medio per dipendente</span>
             <span>{costoPerDip != null ? `${fmt(costoPerDip)} €/anno` : 'N/D'}</span>
@@ -296,6 +334,8 @@ type CalculatedMetrics = {
   costiDiretti: number
   costiTotali: number
   costiCategorie: CostCategory[]
+  quotaSedePro?: number
+  margineFinale?: number
   personaleCount: number
   ricavoPerDip: number | null
   incidenzaPersonale: number
@@ -463,6 +503,9 @@ export default function ConfrontoOutlet() {
   // per account_code, + meta per macro_group. Mai prefissi/nomi hardcoded.
   const [coaByCode, setCoaByCode] = useState<Record<string, CoaMeta>>({})
   const [macroMeta, setMacroMeta] = useState<Record<string, { ceSection: string | null; sortOrder: number }>>({})
+  // Codici cost_center della sede/magazzino (cost_centers.role='hq'), per
+  // calcolare il netto sede da ripartire pro-quota sul fatturato.
+  const [hqCodes, setHqCodes] = useState<Set<string>>(new Set())
   // Esiste consuntivo di COSTO per l'anno? (I5 empty-state). Oggi vuoto.
   const [hasCostConsuntivo, setHasCostConsuntivo] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -545,11 +588,10 @@ export default function ConfrontoOutlet() {
           }
         }
 
-        // Outlet = cost_centers.role='outlet' (fonte di verità, no hardcoded).
-        const outletCC = new Set(
-          ((costCenters || []) as Array<{ code?: string | null; role?: string | null }>)
-            .filter(c => c.role === 'outlet' && c.code).map(c => c.code as string)
-        )
+        // Outlet = cost_centers.role='outlet'; sede = role='hq' (no hardcoded).
+        const ccRows = (costCenters || []) as Array<{ code?: string | null; role?: string | null }>
+        const outletCC = new Set(ccRows.filter(c => c.role === 'outlet' && c.code).map(c => c.code as string))
+        const hqCC = new Set(ccRows.filter(c => c.role === 'hq' && c.code).map(c => c.code as string))
 
         // Ricavi mensili da budget_confronto (preventivo rev_monthly + consuntivo
         // granitico cons_monthly). Stessa fonte/regola di B&C (modulo condiviso).
@@ -587,6 +629,7 @@ export default function ConfrontoOutlet() {
         setRevenueMap(revMap)
         setCoaByCode(coaMap)
         setMacroMeta(macroMetaMap)
+        setHqCodes(hqCC)
         setHasCostConsuntivo(costCons)
         setHasData((budgetEntries?.length || 0) > 0 || (bsData?.length || 0) > 0 || (cfData?.length || 0) > 0)
       } catch (err: unknown) {
@@ -616,8 +659,24 @@ export default function ConfrontoOutlet() {
     return activeOutlets > 0 ? totalSede / activeOutlets : 0
   }, [budgetData, outlets, selectedMonths, viewMode])
 
-  // Calculate metrics for each outlet
-  const outletMetrics = useMemo(() => {
+  // Netto sede da ripartire: costi − ricavi dei cost_center role='hq'
+  // (budget_entries, period-aware), split via chart_of_accounts.is_revenue.
+  const nettoSede = useMemo(() => {
+    let costi = 0, ricavi = 0
+    for (const b of budgetData) {
+      if (!hqCodes.has(b.cost_center || '')) continue
+      if (selectedMonths && !(b.month != null && selectedMonths.includes(b.month))) continue
+      const meta = coaByCode[b.account_code || '']
+      if (!meta) continue
+      const amt = Number(b.budget_amount) || 0
+      if (meta.isRevenue) ricavi += amt
+      else costi += amt
+    }
+    return costi - ricavi
+  }, [budgetData, hqCodes, coaByCode, selectedMonths])
+
+  // Calculate metrics for each outlet (pre-sede)
+  const outletMetricsBase = useMemo(() => {
     if (!outlets.length) return []
 
     const amtBudget = 'budget_amount'
@@ -845,6 +904,19 @@ export default function ConfrontoOutlet() {
       } as OutletMetric
     })
   }, [outlets, budgetData, balanceData, employeeCosts, selectedMonths, viewMode, quotaSedePerOutlet, consOverlay, prevOverlay, revenueMap, coaByCode, macroMeta])
+
+  // Quota sede pro-quota netta: il netto sede ripartito sugli outlet in
+  // proporzione al fatturato preventivo (budgetRicavi). Aggiunge alla scheda
+  // di ogni outlet quotaSedePro (negativa) e margineFinale = margine − quota.
+  const fatturatoTot = useMemo(
+    () => outletMetricsBase.reduce((s, o) => s + (o.calculatedMetrics?.budgetRicavi || 0), 0),
+    [outletMetricsBase],
+  )
+  const outletMetrics = useMemo(() => outletMetricsBase.map(o => {
+    if (!o.calculatedMetrics) return o
+    const quota = sedeQuota(nettoSede, o.calculatedMetrics.budgetRicavi || 0, fatturatoTot)
+    return { ...o, calculatedMetrics: { ...o.calculatedMetrics, quotaSedePro: quota, margineFinale: o.calculatedMetrics.margine - quota } }
+  }), [outletMetricsBase, nettoSede, fatturatoTot])
 
   // Rankings
   const rankings = useMemo<Record<string, number>>(() => {
@@ -1159,7 +1231,8 @@ export default function ConfrontoOutlet() {
             Ricavi: {RICAVI_SOURCE_LABEL} (budget_confronto — preventivo rev_monthly,
             consuntivo granitico cons_monthly), regola granitico-else-preventivo per mese,
             stessa fonte di Budget &amp; Controllo. Costi: budget_entries + employee_costs_by_outlet.
-            Quota sede ({fmt(quotaSedePerOutlet)} €) ripartita equamente tra outlet.
+            Quota sede: netto sede (costi − ricavi, {fmt(nettoSede)} €) ripartito sugli outlet
+            in proporzione al fatturato preventivo.
             {viewMode === 'variance' && ' Lo scostamento ricavi è consuntivo − preventivo sui soli mesi presi.'}
           </div>
           {/* I5 — distingue "0 vero" da "non inserito": consuntivo costi assente. */}
