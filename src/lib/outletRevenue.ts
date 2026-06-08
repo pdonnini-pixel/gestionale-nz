@@ -70,6 +70,71 @@ export type OutletRevenueMetrics = {
   provenance: Provenance // I1: granitico se tutti i mesi presi sono cons; misto se restano preventivi; preventivo se 0 cons
 }
 
+// ─── Classificazione COSTI per macro_group (da chart_of_accounts) ──────────
+// La classificazione dei costi NON usa prefissi di account_code né i nomi:
+// SEMPRE il join account_code → chart_of_accounts (macro_group, ce_section,
+// sort_order). Vale per Confronto Outlet (benchmark/margine) e altrove.
+
+export type CoaMeta = { macroGroup: string; ceSection: string | null; sortOrder: number; isRevenue: boolean }
+
+/** Somma i costi (campo budget_amount/actual_amount) per macro_group, escludendo
+ *  i conti ricavo. Le righe a 0 mantengono comunque la chiave del loro macro_group
+ *  (così le categorie a 0 restano visibili nell'ordine di bilancio). */
+export function aggregateCostsByMacro(
+  rows: Array<{ account_code?: string | null; budget_amount?: number | null; actual_amount?: number | null }>,
+  field: 'budget_amount' | 'actual_amount',
+  coaByCode: Record<string, CoaMeta>,
+): Record<string, number> {
+  const out: Record<string, number> = {}
+  for (const r of rows) {
+    const meta = coaByCode[r.account_code || '']
+    if (!meta || meta.isRevenue) continue
+    const amt = Number(r[field]) || 0
+    out[meta.macroGroup] = (out[meta.macroGroup] || 0) + amt
+  }
+  return out
+}
+
+export type CostCategory = { macroGroup: string; ceSection: string | null; sortOrder: number; label: string; value: number }
+
+// Etichette amichevoli per i macro_group più comuni (solo presentazione, non
+// classificazione). Fallback: ce_section + macro_group "umanizzato".
+const MACRO_LABELS: Record<string, string> = {
+  costi_produzione: 'Costi produzione',
+  servizi: 'Servizi',
+  godimento_beni_terzi: 'Affitto/godimento',
+  personale: 'Personale',
+  ammortamenti: 'Ammortamenti',
+  variazione_rimanenze: 'Variazione rimanenze',
+  oneri_diversi: 'Oneri diversi',
+  finanziarie: 'Oneri finanziari',
+}
+function humanizeMacro(macro: string): string {
+  if (MACRO_LABELS[macro]) return MACRO_LABELS[macro]
+  const s = macro.replace(/_/g, ' ')
+  return s.charAt(0).toUpperCase() + s.slice(1)
+}
+
+/** Ordina i costi-per-macro in categorie nell'ordine di bilancio (sort_order del
+ *  piano dei conti). Mai per importo, mai per ce_section come stringa. */
+export function orderedCostCategories(
+  costiByMacro: Record<string, number>,
+  macroMeta: Record<string, { ceSection: string | null; sortOrder: number }>,
+): CostCategory[] {
+  return Object.entries(costiByMacro)
+    .map(([macroGroup, value]) => {
+      const meta = macroMeta[macroGroup]
+      return {
+        macroGroup,
+        ceSection: meta?.ceSection ?? null,
+        sortOrder: meta?.sortOrder ?? Number.MAX_SAFE_INTEGER,
+        label: humanizeMacro(macroGroup),
+        value,
+      }
+    })
+    .sort((a, b) => a.sortOrder - b.sortOrder)
+}
+
 const ALL_MONTHS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
 
 /** Metriche ricavo per un singolo outlet. months=null → tutti i 12 mesi. */
