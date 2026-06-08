@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { buildOutletRevenue, outletRevenueMetrics, type ConfrontoRow } from './outletRevenue'
+import {
+  buildOutletRevenue, outletRevenueMetrics, aggregateCostsByMacro, orderedCostCategories,
+  type ConfrontoRow, type CoaMeta,
+} from './outletRevenue'
 
 // Dati reali Barberino 2026 (NZ), conto ricavo 510xxx (is_revenue).
 // Preventivo (rev_monthly) su 12 mesi; consuntivo granitico (cons_monthly) gen–mag.
@@ -63,5 +66,57 @@ describe('outletRevenue — riconciliazione Confronto Outlet ↔ Budget & Contro
       revenueCodes, outletCC,
     )
     expect(outletRevenueMetrics(soloCons.barberino, [1, 2, 3]).provenance).toBe('granitico')
+  })
+})
+
+describe('classificazione costi benchmark — Valdichiana 2026 (NZ)', () => {
+  // Piano dei conti: un conto per macro_group con il suo ce_section/sort_order.
+  const coa: Record<string, CoaMeta> = {
+    '510107': { macroGroup: 'ricavi', ceSection: 'A.1', sortOrder: 100, isRevenue: true },
+    C_PROD: { macroGroup: 'costi_produzione', ceSection: 'B.6', sortOrder: 311, isRevenue: false },
+    C_SERV: { macroGroup: 'servizi', ceSection: 'B.7', sortOrder: 411, isRevenue: false },
+    C_GOD: { macroGroup: 'godimento_beni_terzi', ceSection: 'B.8', sortOrder: 511, isRevenue: false },
+    C_PERS: { macroGroup: 'personale', ceSection: 'B.9', sortOrder: 611, isRevenue: false },
+    C_RIM: { macroGroup: 'variazione_rimanenze', ceSection: 'B.11', sortOrder: 911, isRevenue: false },
+    C_ONERI: { macroGroup: 'oneri_diversi', ceSection: 'B.14', sortOrder: 1011, isRevenue: false },
+    C_FIN: { macroGroup: 'finanziarie', ceSection: 'C.17', sortOrder: 1211, isRevenue: false },
+  }
+  const macroMeta = Object.fromEntries(
+    Object.values(coa).filter(m => !m.isRevenue).map(m => [m.macroGroup, { ceSection: m.ceSection, sortOrder: m.sortOrder }]),
+  )
+  // budget_entries (preventivo) Valdichiana — anche righe ricavo e a 0 come rumore.
+  const rows = [
+    { account_code: '510107', budget_amount: 821584.58 }, // ricavo → escluso dai costi
+    { account_code: 'C_PROD', budget_amount: 413430.90 },
+    { account_code: 'C_SERV', budget_amount: 75896.34 },
+    { account_code: 'C_GOD', budget_amount: 124307.96 },
+    { account_code: 'C_PERS', budget_amount: 170422.27 },
+    { account_code: 'C_RIM', budget_amount: 0 },
+    { account_code: 'C_ONERI', budget_amount: 5084.67 },
+    { account_code: 'C_FIN', budget_amount: 3928.43 },
+  ]
+  const costiByMacro = aggregateCostsByMacro(rows, 'budget_amount', coa)
+  const RICAVI = 821584.58
+
+  it('personale e affitto veri (non gonfiati)', () => {
+    expect(costiByMacro['personale']).toBeCloseTo(170422.27, 2)
+    expect(costiByMacro['godimento_beni_terzi']).toBeCloseTo(124307.96, 2)
+    expect(costiByMacro['costi_produzione']).toBeCloseTo(413430.90, 2)
+  })
+
+  it('totale costi = somma delle categorie, una volta sola (≈ 793.071)', () => {
+    const tot = Object.values(costiByMacro).reduce((s, v) => s + v, 0)
+    expect(tot).toBeCloseTo(793070.57, 2)
+  })
+
+  it('margine = ricavi − costi (senza quota sede né override) ≈ +28.514', () => {
+    const tot = Object.values(costiByMacro).reduce((s, v) => s + v, 0)
+    expect(RICAVI - tot).toBeCloseTo(28514.01, 2)
+  })
+
+  it('categorie ordinate per sort_order (bilancio), non per importo; 0 visibili', () => {
+    const cats = orderedCostCategories(costiByMacro, macroMeta)
+    expect(cats.map(c => c.ceSection)).toEqual(['B.6', 'B.7', 'B.8', 'B.9', 'B.11', 'B.14', 'C.17'])
+    expect(cats.find(c => c.ceSection === 'B.11')?.value).toBe(0) // categoria a 0 presente
   })
 })
