@@ -64,7 +64,8 @@ export type OutletRevenueMetrics = {
   consuntivoEff: number // Σ granitico-else-preventivo (cons[m] ?? prev[m]) — ricavo canonico B&C
   scostamento: number // Σ(cons − prev) sui SOLI mesi con consuntivo (R1)
   scostamentoPct: number // scostamento / Σ prev(mesi con consuntivo) * 100
-  mesiPresi: number // n. mesi selezionati con consuntivo
+  mesiPresi: number // n. mesi selezionati con consuntivo (reali/granitici)
+  mesiTotali: number // n. mesi selezionati con un dato (cons o prev): reali + previsti
   consuntivoMesiPresi: number // Σ cons sui mesi presi
   mediaMensile: number // consuntivoMesiPresi / mesiPresi (I4) — mai /12
   provenance: Provenance // I1: granitico se tutti i mesi presi sono cons; misto se restano preventivi; preventivo se 0 cons
@@ -182,5 +183,5 @@ export function outletRevenueMetrics(m: OutletMonthly | undefined, months: numbe
   const mediaMensile = mesiPresi > 0 ? consMesiPresi / mesiPresi : 0
   const provenance: Provenance =
     mesiPresi === 0 ? 'preventivo' : mesiPresi === mesiConDato ? 'granitico' : 'misto'
-  return { preventivo, consuntivoEff, scostamento, scostamentoPct, mesiPresi, consuntivoMesiPresi: consMesiPresi, mediaMensile, provenance }
+  return { preventivo, consuntivoEff, scostamento, scostamentoPct, mesiPresi, mesiTotali: mesiConDato, consuntivoMesiPresi: consMesiPresi, mediaMensile, provenance }
 }
