@@ -101,13 +101,16 @@ function OutletCard({ name, outletData, calculatedMetrics, ranking, onNavigate, 
 
   const { ricavi, margine, marginePct, costoPersonale, affitto, servizi, personaleCount,
     ricavoPerDip, incidenzaPersonale, incidenzaAffitto, breakeven, merci, costiDiretti, costiTotali,
-    costiCategorie, isVariance, scostamento, scostamentoPct, mesiPresi, mediaMensile, provenance,
+    costiCategorie, isVariance, scostamento, scostamentoPct, mesiPresi, mesiTotali, mediaMensile, provenance,
     quotaSedePro, margineFinale } = calculatedMetrics
 
-  // I1 — badge provenienza dato (consuntivo granitico vs preventivo).
+  // I1 — badge provenienza dato. Nel caso "misto" il testo dettaglia i mesi:
+  // "{mesi reali (consuntivo)} reali + {mesi previsti} previsti" (dai dati, no hardcoded).
+  const nReali = mesiPresi || 0
+  const nPrev = Math.max(0, (mesiTotali || 0) - nReali)
   const provBadge: Record<Provenance, { label: string; cls: string }> = {
     granitico: { label: 'Granitico', cls: 'bg-emerald-100 text-emerald-700' },
-    misto: { label: 'Misto', cls: 'bg-amber-100 text-amber-700' },
+    misto: { label: `${nReali} reali + ${nPrev} previsti`, cls: 'bg-amber-100 text-amber-700' },
     preventivo: { label: 'Preventivo', cls: 'bg-slate-100 text-slate-500' },
   }
   const prov = provBadge[(provenance as Provenance) || 'preventivo']
@@ -134,14 +137,15 @@ function OutletCard({ name, outletData, calculatedMetrics, ranking, onNavigate, 
               {prov.label}
             </span>
             {ranking && (
-              <span className={`text-xs px-2 py-0.5 rounded-full font-bold ${
-                ranking === 1 ? 'bg-yellow-100 text-yellow-700' :
-                ranking === 2 ? 'bg-slate-100 text-slate-600' :
-                ranking === 3 ? 'bg-amber-100 text-amber-700' :
-                'bg-slate-50 text-slate-400'
-              }`}>
-                #{ranking}
-              </span>
+              ranking <= 3 ? (
+                <span className="text-base leading-none" title="Posizione per fatturato" aria-label={`Posizione ${ranking} per fatturato`}>
+                  {ranking === 1 ? '🥇' : ranking === 2 ? '🥈' : '🥉'}
+                </span>
+              ) : (
+                <span className="text-xs px-2 py-0.5 rounded-full font-bold bg-slate-50 text-slate-400" title="Posizione per fatturato">
+                  #{ranking}
+                </span>
+              )
             )}
           </div>
         </div>
@@ -299,21 +303,9 @@ function OutletCard({ name, outletData, calculatedMetrics, ranking, onNavigate, 
             <span>Ricavo per dipendente</span>
             <span className="font-medium text-blue-600">{ricavoPerDip != null ? `${fmt(ricavoPerDip)} €/anno` : 'N/D'}</span>
           </div>
-          {/* Breakeven non significativo sui delta → nascosto in modalità Scostamento */}
-          {!isVariance && (
-            <>
-              <div className="flex items-center justify-between text-xs pt-2 border-t border-amber-200 mt-1">
-                <span className="text-amber-700 font-semibold">Breakeven</span>
-                <span className="font-bold text-amber-600">{fmt(breakeven)} €/anno — {fmt(breakeven / 12)} €/mese</span>
-              </div>
-              {ricavi > 0 && (
-                <div className={`flex items-center justify-between text-xs ${ricavi >= breakeven ? 'text-emerald-600' : 'text-red-600'}`}>
-                  <span>{ricavi >= breakeven ? 'Sopra breakeven' : 'Sotto breakeven'}</span>
-                  <span className="font-medium">{ricavi >= breakeven ? '+' : ''}{fmt(ricavi - breakeven)} € ({((ricavi - breakeven) / (breakeven || 1) * 100).toFixed(1)}%)</span>
-                </div>
-              )}
-            </>
-          )}
+          {/* breakeven nascosto: incoerente col margine, da rivedere
+              (lo schema costi fissi/variabili + quota sede non si riconcilia col
+              margine reale ricavi − costi totali). Logica lasciata nel codice. */}
         </div>
       )}
     </div>
@@ -351,6 +343,7 @@ type CalculatedMetrics = {
   scostamento: number
   scostamentoPct: number
   mesiPresi: number
+  mesiTotali: number
   mediaMensile: number
   provenance: Provenance
 }
@@ -391,8 +384,7 @@ function TabellaBenchmark({ outletMetrics }: { outletMetrics: OutletMetric[] }) 
     { label: isVariance ? 'Δ Affitto' : 'Affitto', key: 'affitto', fn: r => r.calculatedMetrics.affitto || 0, best: 'min' },
     { label: isVariance ? 'Δ Inc. personale %' : 'Inc. personale %', key: 'incPers', fn: r => r.calculatedMetrics.incidenzaPersonale || 0, best: 'min', pct: true },
     { label: isVariance ? 'Δ Inc. affitto %' : 'Inc. affitto %', key: 'incAff', fn: r => r.calculatedMetrics.incidenzaAffitto || 0, best: 'min', pct: true },
-    // Breakeven sui delta non è significativo: rimosso in modalità Scostamento
-    ...(isVariance ? [] : [{ label: 'Breakeven', key: 'breakeven', fn: (r: typeof rows[number]) => r.calculatedMetrics.breakeven || 0, best: 'min' as MetricBest }]),
+    // breakeven nascosto: incoerente col margine, da rivedere (metrica rimossa dal benchmark).
   ]
 
   return (
@@ -898,6 +890,7 @@ export default function ConfrontoOutlet() {
           scostamento: revM.scostamento,
           scostamentoPct: revM.scostamentoPct,
           mesiPresi: revM.mesiPresi,
+          mesiTotali: revM.mesiTotali,
           mediaMensile: revM.mediaMensile,
           provenance: revM.provenance,
         },
@@ -966,7 +959,7 @@ export default function ConfrontoOutlet() {
   function exportExcel(): void {
     const rows = outletMetrics.filter((o): o is OutletMetric & { calculatedMetrics: CalculatedMetrics } => o.calculatedMetrics !== null)
     if (!rows.length) return
-    const header = [labels.pointOfSale,'Ricavi','Margine','Margine %','Dipendenti','€/Dipendente','Costo personale','Affitto','Servizi','Merci','Breakeven','Quota sede','Approvazione %']
+    const header = [labels.pointOfSale,'Ricavi','Margine','Margine %','Dipendenti','€/Dipendente','Costo personale','Affitto','Servizi','Merci','Quota sede','Approvazione %']
     const csvRows = [header.join(';')]
     rows.forEach(o => {
       const m = o.calculatedMetrics
@@ -976,7 +969,7 @@ export default function ConfrontoOutlet() {
         m.personaleCount, (m.ricavoPerDip ?? 0).toFixed(2),
         m.costoPersonale.toFixed(2), m.affitto.toFixed(2),
         m.servizi.toFixed(2), m.merci.toFixed(2),
-        m.breakeven.toFixed(2), m.quotaSede.toFixed(2),
+        m.quotaSede.toFixed(2),
         m.approvalPct,
       ].join(';'))
     })
@@ -1074,7 +1067,7 @@ export default function ConfrontoOutlet() {
                   margine_pct: m.marginePct, dipendenti: m.personaleCount,
                   per_dipendente: m.ricavoPerDip ?? 0, costo_personale: m.costoPersonale,
                   affitto: m.affitto, servizi: m.servizi, merci: m.merci,
-                  breakeven: m.breakeven, quota_sede: m.quotaSede,
+                  quota_sede: m.quotaSede,
                 };
               })}
             columns={[
@@ -1088,7 +1081,6 @@ export default function ConfrontoOutlet() {
               { key: 'affitto', label: 'Affitto', format: 'euro' },
               { key: 'servizi', label: 'Servizi', format: 'euro' },
               { key: 'merci', label: 'Merci', format: 'euro' },
-              { key: 'breakeven', label: 'Breakeven', format: 'euro' },
               { key: 'quota_sede', label: 'Quota Sede', format: 'euro' },
             ]}
             filename="confronto_outlet"
