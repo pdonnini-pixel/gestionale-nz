@@ -472,9 +472,9 @@ export default function Fornitori() {
       {/* KPI CARDS */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         <KpiCard icon={Building2} label="Fornitori attivi" value={kpis.active} sub={`${kpis.withPayables} con fatture`} color="indigo" />
-        <KpiCard icon={Banknote} label="Tot. fatturato" value={`€ ${kpis.totalFatturato.toLocaleString('it-IT', { minimumFractionDigits: 0 })}`} color="blue" />
-        <KpiCard icon={Clock} label="Da pagare" value={`€ ${kpis.totalPending.toLocaleString('it-IT', { minimumFractionDigits: 0 })}`} color="amber" />
-        <KpiCard icon={AlertTriangle} label="Scaduto" value={`€ ${kpis.overdue.toLocaleString('it-IT', { minimumFractionDigits: 0 })}`} color={kpis.overdue > 0 ? 'red' : 'green'} />
+        <KpiCard icon={Banknote} label="Tot. fatturato" value={`€ ${kpis.totalFatturato.toLocaleString('de-DE', { minimumFractionDigits: 0 })}`} color="blue" />
+        <KpiCard icon={Clock} label="Da pagare" value={`€ ${kpis.totalPending.toLocaleString('de-DE', { minimumFractionDigits: 0 })}`} color="amber" />
+        <KpiCard icon={AlertTriangle} label="Scaduto" value={`€ ${kpis.overdue.toLocaleString('de-DE', { minimumFractionDigits: 0 })}`} color={kpis.overdue > 0 ? 'red' : 'green'} />
         <KpiCard icon={FileText} label="Fatture importate" value={invoiceCount} color="purple" />
       </div>
 
@@ -612,7 +612,7 @@ export default function Fornitori() {
                         <td className="px-3 py-2.5 text-right">
                           {stats.grossTotal > 0 ? (
                             <div>
-                              <div className="font-medium text-slate-700">€ {stats.grossTotal.toLocaleString('it-IT', { minimumFractionDigits: 0 })}</div>
+                              <div className="font-medium text-slate-700">€ {stats.grossTotal.toLocaleString('de-DE', { minimumFractionDigits: 0 })}</div>
                               <div className="text-xs text-slate-400">{stats.count} fatt.</div>
                             </div>
                           ) : <span className="text-xs text-slate-300">—</span>}
@@ -620,11 +620,11 @@ export default function Fornitori() {
                         <td className="px-3 py-2.5 text-right">
                           {stats.overdue > 0 ? (
                             <div>
-                              <div className="font-semibold text-red-600">€ {stats.pending.toLocaleString('it-IT', { minimumFractionDigits: 0 })}</div>
-                              <div className="text-xs text-red-500">{stats.overdue.toLocaleString('it-IT', { minimumFractionDigits: 0 })} scaduto</div>
+                              <div className="font-semibold text-red-600">€ {stats.pending.toLocaleString('de-DE', { minimumFractionDigits: 0 })}</div>
+                              <div className="text-xs text-red-500">{stats.overdue.toLocaleString('de-DE', { minimumFractionDigits: 0 })} scaduto</div>
                             </div>
                           ) : stats.pending > 0 ? (
-                            <div className="font-medium text-amber-600">€ {stats.pending.toLocaleString('it-IT', { minimumFractionDigits: 0 })}</div>
+                            <div className="font-medium text-amber-600">€ {stats.pending.toLocaleString('de-DE', { minimumFractionDigits: 0 })}</div>
                           ) : stats.grossTotal > 0 ? (
                             <span className="text-xs text-emerald-500 font-medium">Saldato</span>
                           ) : <span className="text-xs text-slate-300">—</span>}
@@ -723,20 +723,20 @@ export default function Fornitori() {
                                 </h4>
                                 <div className="bg-white rounded-lg border border-slate-200 p-3 space-y-1.5 text-sm">
                                   <Detail label="Tot. fatture" value={stats.count || 0} />
-                                  <Detail label="Tot. fatturato" value={stats.grossTotal > 0 ? `€ ${stats.grossTotal.toLocaleString('it-IT', { minimumFractionDigits: 2 })}` : '—'} />
-                                  <Detail label="Già pagato" value={stats.paid > 0 ? `€ ${stats.paid.toLocaleString('it-IT', { minimumFractionDigits: 2 })}` : '—'} />
+                                  <Detail label="Tot. fatturato" value={stats.grossTotal > 0 ? `€ ${stats.grossTotal.toLocaleString('de-DE', { minimumFractionDigits: 2 })}` : '—'} />
+                                  <Detail label="Già pagato" value={stats.paid > 0 ? `€ ${stats.paid.toLocaleString('de-DE', { minimumFractionDigits: 2 })}` : '—'} />
                                   {stats.paidCount > 0 && (
                                     <Detail label="Riconciliati" value={`${stats.reconciledCount}/${stats.paidCount} in banca`} />
                                   )}
-                                  <Detail label="Da pagare" value={stats.pending > 0 ? `€ ${stats.pending.toLocaleString('it-IT', { minimumFractionDigits: 2 })}` : '—'} />
+                                  <Detail label="Da pagare" value={stats.pending > 0 ? `€ ${stats.pending.toLocaleString('de-DE', { minimumFractionDigits: 2 })}` : '—'} />
                                   {stats.overdue > 0 && (
                                     <div className="flex">
                                       <span className="text-red-500 w-28 shrink-0 text-xs font-medium">Scaduto</span>
-                                      <span className="text-red-600 text-xs font-semibold">€ {stats.overdue.toLocaleString('it-IT', { minimumFractionDigits: 2 })}</span>
+                                      <span className="text-red-600 text-xs font-semibold">€ {stats.overdue.toLocaleString('de-DE', { minimumFractionDigits: 2 })}</span>
                                     </div>
                                   )}
                                   {avgAmount > 0 && (
-                                    <Detail label="Media fattura" value={`€ ${avgAmount.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} />
+                                    <Detail label="Media fattura" value={`€ ${avgAmount.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} />
                                   )}
                                   {stats.lastDate && (
                                     <Detail label="Ultima fattura" value={new Date(stats.lastDate).toLocaleDateString('it-IT')} />
@@ -756,7 +756,7 @@ export default function Fornitori() {
                                             <span className="font-medium text-slate-700 truncate" title={String(pay.invoice_number || '')}>{String(pay.invoice_number || '')}</span>
                                             <span className="text-slate-400">{pay.due_date ? new Date(String(pay.due_date)).toLocaleDateString('it-IT') : ''}</span>
                                           </div>
-                                          <span className="font-semibold text-slate-700 shrink-0 ml-2">€ {(Number(pay.gross_amount) || 0).toLocaleString('it-IT', { minimumFractionDigits: 2 })}</span>
+                                          <span className="font-semibold text-slate-700 shrink-0 ml-2">€ {(Number(pay.gross_amount) || 0).toLocaleString('de-DE', { minimumFractionDigits: 2 })}</span>
                                         </div>
                                       ))}
                                       {supplierPays.length > 5 && (
@@ -807,7 +807,7 @@ export default function Fornitori() {
                       <CartesianGrid {...GRID_STYLE} horizontal={false} />
                       <XAxis type="number" {...AXIS_STYLE} tickFormatter={v => `€${(v / 1000).toFixed(0)}k`} />
                       <YAxis type="category" dataKey="name" {...AXIS_STYLE} width={120} tick={{ fontSize: 11 }} />
-                      <Tooltip content={<GlassTooltip />} formatter={(v: unknown) => [`€ ${Number(v).toLocaleString('it-IT')}`, 'Spesa']} />
+                      <Tooltip content={<GlassTooltip />} formatter={(v: unknown) => [`€ ${Number(v).toLocaleString('de-DE')}`, 'Spesa']} />
                       <Bar dataKey="value" fill="#6366f1" radius={[0, 6, 6, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
@@ -857,7 +857,7 @@ export default function Fornitori() {
                           <Cell key={i} fill={COLORS[i % COLORS.length]} />
                         ))}
                       </Pie>
-                      <Tooltip formatter={(v: unknown) => `€ ${Number(v).toLocaleString('it-IT')}`} />
+                      <Tooltip formatter={(v: unknown) => `€ ${Number(v).toLocaleString('de-DE')}`} />
                       <Legend />
                     </PieChart>
                   </ResponsiveContainer>
@@ -893,10 +893,10 @@ export default function Fornitori() {
                         .map((s, idx) => (
                           <tr key={s.id} className={`hover:bg-blue-50/50 transition-colors ${idx % 2 === 1 ? 'bg-slate-50/50' : ''}`}>
                             <td className="py-2 px-3 font-medium text-slate-700 min-w-[200px]">{s.displayName}</td>
-                            <td className="py-2 px-3 text-right font-semibold min-w-[100px] whitespace-nowrap">€ {s.grossTotal.toLocaleString('it-IT', { minimumFractionDigits: 0 })}</td>
-                            <td className="py-2 px-3 text-right text-emerald-600 min-w-[100px] whitespace-nowrap">€ {s.paid.toLocaleString('it-IT', { minimumFractionDigits: 0 })}</td>
-                            <td className="py-2 px-3 text-right text-amber-600 min-w-[100px] whitespace-nowrap">€ {s.pending.toLocaleString('it-IT', { minimumFractionDigits: 0 })}</td>
-                            <td className="py-2 px-3 text-right text-red-600 font-semibold">{s.overdue > 0 ? `€ ${s.overdue.toLocaleString('it-IT', { minimumFractionDigits: 0 })}` : '—'}</td>
+                            <td className="py-2 px-3 text-right font-semibold min-w-[100px] whitespace-nowrap">€ {s.grossTotal.toLocaleString('de-DE', { minimumFractionDigits: 0 })}</td>
+                            <td className="py-2 px-3 text-right text-emerald-600 min-w-[100px] whitespace-nowrap">€ {s.paid.toLocaleString('de-DE', { minimumFractionDigits: 0 })}</td>
+                            <td className="py-2 px-3 text-right text-amber-600 min-w-[100px] whitespace-nowrap">€ {s.pending.toLocaleString('de-DE', { minimumFractionDigits: 0 })}</td>
+                            <td className="py-2 px-3 text-right text-red-600 font-semibold">{s.overdue > 0 ? `€ ${s.overdue.toLocaleString('de-DE', { minimumFractionDigits: 0 })}` : '—'}</td>
                             <td className="py-2 px-3 text-right text-slate-500">{s.count}</td>
                           </tr>
                         ))}

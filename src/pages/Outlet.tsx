@@ -36,7 +36,7 @@ const DOCUMENT_CATEGORIES = [
 // Per i contatori passare esplicitamente 0 (es. fmt(count, 0)).
 function fmt(n: number | null | undefined, decimals = 2) {
   if (n == null) return '—'
-  return new Intl.NumberFormat('it-IT', {
+  return new Intl.NumberFormat('de-DE', {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals
   }).format(n)

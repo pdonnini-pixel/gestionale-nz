@@ -9,7 +9,7 @@ import {
 
 function fmt(n: number | null | undefined): string {
   if (n == null) return '—'
-  return new Intl.NumberFormat('it-IT').format(n)
+  return new Intl.NumberFormat('de-DE').format(n)
 }
 
 const SOURCE_LABELS: Record<string, string> = {

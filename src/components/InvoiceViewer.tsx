@@ -28,7 +28,7 @@ function fmtNum(val: string | number | null | undefined): string {
   if (val == null || val === '') return '—'
   const n = parseFloat(String(val).replace(',', '.'))
   if (isNaN(n)) return String(val)
-  return new Intl.NumberFormat('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)
+  return new Intl.NumberFormat('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)
 }
 
 function fmtDate(val: string | null | undefined): string {

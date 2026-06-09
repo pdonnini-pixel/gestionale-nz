@@ -313,7 +313,7 @@ export default function Dipendenti() {
   // ========== HELPER FUNCTIONS ==========
 
   const formatCurrency = (value: number) =>
-    new Intl.NumberFormat('it-IT', {
+    new Intl.NumberFormat('de-DE', {
       style: 'currency',
       currency: 'EUR',
       minimumFractionDigits: 2,
@@ -1223,10 +1223,10 @@ export default function Dipendenti() {
               distribuiti su {Object.keys(grouped).length} {labels.pointOfSalePluralLower}
             </div>
             <div>
-              Costo totale allocato {year}: <strong>{totalAllOutlets.toLocaleString('it-IT', { minimumFractionDigits: 2 })} €</strong>
+              Costo totale allocato {year}: <strong>{totalAllOutlets.toLocaleString('de-DE', { minimumFractionDigits: 2 })} €</strong>
               {unassigned.length > 0 && (
                 <span className="ml-2 text-amber-700">
-                  · {unassigned.length} dipendenti senza allocazione ({totalUnassigned.toLocaleString('it-IT', { minimumFractionDigits: 0 })} €)
+                  · {unassigned.length} dipendenti senza allocazione ({totalUnassigned.toLocaleString('de-DE', { minimumFractionDigits: 0 })} €)
                 </span>
               )}
             </div>
@@ -1260,7 +1260,7 @@ export default function Dipendenti() {
                 <div className="flex items-center gap-4">
                   <div className="text-right">
                     <div className="text-sm font-bold text-slate-900">
-                      {totalOutlet.toLocaleString('it-IT', { minimumFractionDigits: 2 })} €
+                      {totalOutlet.toLocaleString('de-DE', { minimumFractionDigits: 2 })} €
                     </div>
                     <div className="text-xs text-slate-500">costo annuo {year}</div>
                   </div>
@@ -1296,7 +1296,7 @@ export default function Dipendenti() {
                               <td className="px-5 py-2 text-right text-slate-700">{d.allocation_pct.toFixed(0)}%</td>
                               <td className="px-5 py-2 text-right text-slate-700">{d.fte.toFixed(2)}</td>
                               <td className="px-5 py-2 text-right font-semibold text-slate-900">
-                                {d.annual_cost_allocated.toLocaleString('it-IT', { minimumFractionDigits: 2 })} €
+                                {d.annual_cost_allocated.toLocaleString('de-DE', { minimumFractionDigits: 2 })} €
                               </td>
                               <td className="px-5 py-2 text-center">
                                 <button
@@ -1341,7 +1341,7 @@ export default function Dipendenti() {
               </div>
               <div className="text-right">
                 <div className="text-sm font-bold text-amber-900">
-                  {totalUnassigned.toLocaleString('it-IT', { minimumFractionDigits: 2 })} €
+                  {totalUnassigned.toLocaleString('de-DE', { minimumFractionDigits: 2 })} €
                 </div>
                 <div className="text-xs text-amber-700">costo annuo non allocato</div>
               </div>
@@ -1364,7 +1364,7 @@ export default function Dipendenti() {
                       <td className="px-5 py-2 font-medium text-amber-900">{empName || 'Senza nome'}</td>
                       <td className="px-5 py-2 text-amber-800">{ruolo}</td>
                       <td className="px-5 py-2 text-right font-semibold text-amber-900">
-                        {d.annual_cost_allocated.toLocaleString('it-IT', { minimumFractionDigits: 2 })} €
+                        {d.annual_cost_allocated.toLocaleString('de-DE', { minimumFractionDigits: 2 })} €
                       </td>
                       <td className="px-5 py-2 text-center">
                         <button
@@ -2041,7 +2041,7 @@ function CostFormInner({ initial, employees, selectedYear, selectedMonth, onSave
         </div>
       </div>
       <div className="bg-blue-50 rounded-lg p-3">
-        <p className="text-xs text-blue-700">Totale costo: <strong>{new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' }).format(form.totale_costo)}</strong></p>
+        <p className="text-xs text-blue-700">Totale costo: <strong>{new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' }).format(form.totale_costo)}</strong></p>
       </div>
       <div className="flex gap-2 pt-2">
         <button type="button" onClick={onCancel} className="flex-1 py-2.5 rounded-lg border border-slate-200 text-sm font-medium hover:bg-slate-50">Annulla</button>

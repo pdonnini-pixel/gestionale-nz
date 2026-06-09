@@ -19,7 +19,7 @@ const ALLEGATI_STEP = { id: 'allegati', label: 'Allegati', icon: Paperclip }
 
 function fmt(n: number | string | boolean | null | undefined): string {
   if (n == null || n === '' || typeof n === 'boolean') return '—'
-  return new Intl.NumberFormat('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(n))
+  return new Intl.NumberFormat('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(n))
 }
 
 type OutletForm = Record<string, string | number | boolean | null | undefined>

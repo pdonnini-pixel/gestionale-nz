@@ -58,7 +58,7 @@ const macroGroupLabels: Record<string, string> = {
 
 const formatCurrency = (value: number | null | undefined): string => {
   if (!value && value !== 0) return '€ 0,00';
-  return new Intl.NumberFormat('it-IT', {
+  return new Intl.NumberFormat('de-DE', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(value) + ' €';

@@ -32,7 +32,7 @@ export default function ExportMenu({ data, columns, filename = 'export', title }
   function formatValue(row: Record<string, unknown>, col: ExportColumn): string {
     const val = row[col.key]
     if (val == null) return ''
-    if (col.format === 'euro') return `\u20AC ${Number(val).toLocaleString('it-IT', { minimumFractionDigits: 2 })}`
+    if (col.format === 'euro') return `\u20AC ${Number(val).toLocaleString('de-DE', { minimumFractionDigits: 2 })}`
     if (col.format === 'date') return val ? new Date(val as string).toLocaleDateString('it-IT') : ''
     if (col.format === 'percent') return `${Number(val).toFixed(1)}%`
     return String(val)

@@ -30,7 +30,7 @@ import {
 
 function fmt(n: number | null | undefined, dec = 0): string {
   if (n == null) return '—'
-  return new Intl.NumberFormat('it-IT', { minimumFractionDigits: dec, maximumFractionDigits: dec }).format(n)
+  return new Intl.NumberFormat('de-DE', { minimumFractionDigits: dec, maximumFractionDigits: dec }).format(n)
 }
 
 // Scostamento con segno contabile: '-X €' se negativo (rosso a cura del chiamante),

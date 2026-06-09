@@ -26,7 +26,7 @@ const OUTLET_COLORS = ['#6366f1', '#f43f5e', '#06b6d4', '#10b981', '#8b5cf6', '#
 
 function fmt(n: number | null | undefined, dec = 0): string {
   if (n == null) return '—'
-  return new Intl.NumberFormat('it-IT', { minimumFractionDigits: dec, maximumFractionDigits: dec }).format(n)
+  return new Intl.NumberFormat('de-DE', { minimumFractionDigits: dec, maximumFractionDigits: dec }).format(n)
 }
 
 function fmtCompact(n: number | null | undefined): string {

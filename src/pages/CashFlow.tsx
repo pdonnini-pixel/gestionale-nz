@@ -11,7 +11,7 @@ import { supabase } from '../lib/supabase';
 
 // Formatting utility
 function fmt(n: number, dec = 0) {
-  return new Intl.NumberFormat('it-IT', {
+  return new Intl.NumberFormat('de-DE', {
     minimumFractionDigits: dec,
     maximumFractionDigits: dec
   }).format(n);

@@ -25,7 +25,7 @@ function formatDate(d: string | null | undefined) {
 
 function formatCurrency(n: number | null | undefined) {
   if (n == null) return '-';
-  return `€ ${Number(n).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return `€ ${Number(n).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 function formatSize(bytes: number | null | undefined) {
@@ -1001,7 +1001,7 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
                     <div className="text-xs text-slate-500 flex flex-wrap gap-x-3 gap-y-1">
                       <span className="font-medium text-slate-700">{bankLabel}</span>
                       {txCount != null && (
-                        <span>{Number(txCount).toLocaleString('it-IT')} movimenti</span>
+                        <span>{Number(txCount).toLocaleString('de-DE')} movimenti</span>
                       )}
                       <span>{formatDate(createdAt)}</span>
                       {ec.status && <span className={statusColor}>· {String(ec.status)}</span>}
@@ -1062,7 +1062,7 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
                   <h3 className="font-semibold text-slate-900 text-sm">{ecPreview.ec?.filename || 'Estratto Conto'}</h3>
                   <p className="text-xs text-slate-500">
                     {ecPreview.ec?.bank_accounts?.bank_name || 'Banca'}
-                    {ecPreview.ec?.transaction_count != null && ` · ${ecPreview.ec.transaction_count.toLocaleString('it-IT')} movimenti`}
+                    {ecPreview.ec?.transaction_count != null && ` · ${ecPreview.ec.transaction_count.toLocaleString('de-DE')} movimenti`}
                   </p>
                 </div>
               </div>

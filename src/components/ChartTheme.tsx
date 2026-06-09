@@ -146,7 +146,7 @@ export function GlassTooltip({ active, payload, label, formatter, suffix = '\u20
             {entry.name || entry.dataKey}
           </span>
           <span style={{ fontSize: 13, fontWeight: 600, color: '#0f172a', marginLeft: 'auto' }}>
-            {formatter ? formatter(entry.value) : `${new Intl.NumberFormat('it-IT').format(entry.value)} ${suffix}`}
+            {formatter ? formatter(entry.value) : `${new Intl.NumberFormat('de-DE').format(entry.value)} ${suffix}`}
           </span>
         </div>
       ))}
@@ -275,11 +275,11 @@ export function ModernPieLabel({ cx, cy, midAngle, innerRadius, outerRadius, per
 export function fmtK(n: number): string {
   if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`
   if (n >= 1000) return `${(n / 1000).toFixed(0)}k`
-  return new Intl.NumberFormat('it-IT').format(n)
+  return new Intl.NumberFormat('de-DE').format(n)
 }
 
 export function fmtEuro(n: number): string {
-  return new Intl.NumberFormat('it-IT', { maximumFractionDigits: 0 }).format(n) + ' \u20AC'
+  return new Intl.NumberFormat('de-DE', { maximumFractionDigits: 0 }).format(n) + ' \u20AC'
 }
 
 // ═══════════════════════════════════════

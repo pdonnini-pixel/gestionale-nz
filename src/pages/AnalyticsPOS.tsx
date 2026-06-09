@@ -16,7 +16,7 @@ import PageHeader from '../components/PageHeader';
 
 // Formato numero italiano
 function fmt(n: number, dec = 0): string {
-  return new Intl.NumberFormat('it-IT', {
+  return new Intl.NumberFormat('de-DE', {
     minimumFractionDigits: dec,
     maximumFractionDigits: dec
   }).format(n);

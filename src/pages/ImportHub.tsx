@@ -1407,7 +1407,7 @@ export default function ImportHub() {
                     {processResult.details.totalParsed != null && <div>Righe parsate: {processResult.details.totalParsed}</div>}
                     {processResult.details.anno != null && (
                       <div>Bilancio {processResult.details.anno}: {processResult.details.attivita} attività, {processResult.details.passivita} passività, {processResult.details.costi} costi, {processResult.details.ricavi} ricavi
-                        {processResult.details.risultato != null && <span className="font-semibold"> | Risultato: {processResult.details.risultato >= 0 ? '+' : ''}{processResult.details.risultato.toLocaleString('it-IT')} €</span>}
+                        {processResult.details.risultato != null && <span className="font-semibold"> | Risultato: {processResult.details.risultato >= 0 ? '+' : ''}{processResult.details.risultato.toLocaleString('de-DE')} €</span>}
                       </div>
                     )}
                     {processResult.details.dipendentiTrovati != null && (
@@ -1477,10 +1477,10 @@ export default function ImportHub() {
                       <div key={i} className="p-2 bg-white rounded-lg border border-amber-200 text-xs">
                         <div className="flex justify-between">
                           <span className="font-semibold text-slate-700">{inv.tipo_label} n. {inv.invoice_number}</span>
-                          <span className="font-bold text-slate-900">{'\u20AC'} {inv.gross_amount?.toLocaleString('it-IT', { minimumFractionDigits: 2 })}</span>
+                          <span className="font-bold text-slate-900">{'\u20AC'} {inv.gross_amount?.toLocaleString('de-DE', { minimumFractionDigits: 2 })}</span>
                         </div>
                         <div className="text-slate-500 mt-0.5">
-                          {inv.supplier_name} | {inv.invoice_date} | Netto: {'\u20AC'}{inv.net_amount?.toLocaleString('it-IT', { minimumFractionDigits: 2 })} + IVA: {'\u20AC'}{inv.vat_amount?.toLocaleString('it-IT', { minimumFractionDigits: 2 })}
+                          {inv.supplier_name} | {inv.invoice_date} | Netto: {'\u20AC'}{inv.net_amount?.toLocaleString('de-DE', { minimumFractionDigits: 2 })} + IVA: {'\u20AC'}{inv.vat_amount?.toLocaleString('de-DE', { minimumFractionDigits: 2 })}
                         </div>
                       </div>
                     ))}
@@ -1659,7 +1659,7 @@ export default function ImportHub() {
                             </div>
                             <div className="ml-3 text-right shrink-0">
                               <div className="font-semibold text-slate-900">
-                                {(m.details?.movementAmount || 0).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
+                                {(m.details?.movementAmount || 0).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
                               </div>
                               <div className="text-[10px] text-emerald-600">score {m.score}</div>
                             </div>

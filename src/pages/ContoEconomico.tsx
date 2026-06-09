@@ -99,7 +99,7 @@ function fmtInput(n: number | string | null | undefined): string {
   if (n == null || n === '') return ''
   const num = typeof n === 'string' ? parseFloat(n) : n
   if (isNaN(num)) return ''
-  return new Intl.NumberFormat('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(num)
+  return new Intl.NumberFormat('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(num)
 }
 function parseInputNumber(str: string | null | undefined): number | string {
   if (!str || typeof str !== 'string') return ''
@@ -2377,9 +2377,9 @@ export default function ContoEconomico() {
                   <li key={w.voce} className="bg-white rounded-md p-2 border border-amber-200">
                     <strong className="text-amber-900">{w.voce}:</strong>
                     <span className="ml-2 text-slate-700">
-                      bilancio importato <strong>{w.bilancio.toLocaleString('it-IT', { minimumFractionDigits: 2 })} €</strong>
-                      {' '} vs business plan <strong>{w.budget.toLocaleString('it-IT', { minimumFractionDigits: 2 })} €</strong>
-                      {' '} <span className="text-amber-700">(differenza {w.diff >= 0 ? '+' : ''}{w.diff.toLocaleString('it-IT', { minimumFractionDigits: 2 })} €)</span>
+                      bilancio importato <strong>{w.bilancio.toLocaleString('de-DE', { minimumFractionDigits: 2 })} €</strong>
+                      {' '} vs business plan <strong>{w.budget.toLocaleString('de-DE', { minimumFractionDigits: 2 })} €</strong>
+                      {' '} <span className="text-amber-700">(differenza {w.diff >= 0 ? '+' : ''}{w.diff.toLocaleString('de-DE', { minimumFractionDigits: 2 })} €)</span>
                     </span>
                   </li>
                 ))}
@@ -2463,13 +2463,13 @@ export default function ContoEconomico() {
                         <tr key={r.label} className={`border-t border-slate-100 ${r.total ? 'bg-slate-50 font-semibold' : ''}`}>
                           <td className="px-4 py-2 text-slate-800">{r.label}</td>
                           <td className="px-4 py-2 text-right text-slate-700">
-                            {r.prev.toLocaleString('it-IT', { minimumFractionDigits: 2 })} €
+                            {r.prev.toLocaleString('de-DE', { minimumFractionDigits: 2 })} €
                           </td>
                           <td className="px-4 py-2 text-right text-slate-700">
-                            {r.cons.toLocaleString('it-IT', { minimumFractionDigits: 2 })} €
+                            {r.cons.toLocaleString('de-DE', { minimumFractionDigits: 2 })} €
                           </td>
                           <td className={`px-4 py-2 text-right ${deltaColor}`}>
-                            {delta >= 0 ? '+' : ''}{delta.toLocaleString('it-IT', { minimumFractionDigits: 2 })} €
+                            {delta >= 0 ? '+' : ''}{delta.toLocaleString('de-DE', { minimumFractionDigits: 2 })} €
                           </td>
                           <td className={`px-4 py-2 text-right ${deltaColor}`}>
                             {r.prev === 0 ? '—' : `${delta >= 0 ? '+' : ''}${deltaPct.toFixed(1)}%`}

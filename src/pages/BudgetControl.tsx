@@ -280,7 +280,7 @@ function ConfirmDialog({ title, message, onConfirm, onCancel, confirmLabel = 'Sv
 
 function fmt(n: number | null | undefined, dec = 2) {
   if (n == null || isNaN(n)) return '—'
-  return new Intl.NumberFormat('it-IT', { minimumFractionDigits: dec, maximumFractionDigits: dec }).format(n)
+  return new Intl.NumberFormat('de-DE', { minimumFractionDigits: dec, maximumFractionDigits: dec }).format(n)
 }
 function fmtC(n: number | null | undefined) { return n == null || isNaN(n) ? '—' : `${fmt(n, 2)} €` }
 
@@ -423,7 +423,7 @@ function NumberInputIt({ value, onChange, onCommit, className, placeholder, edit
   const display = focused
     ? draft
     : (value !== 0 || edited)
-      ? value.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+      ? value.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
       : ''
   const handleBlur = async () => {
     setFocused(false)
@@ -3132,7 +3132,7 @@ function InserimentoRapidoMatrice({ year, companyId, outlets }: {
                     </td>
                   ))}
                   <td className="py-3 px-4 text-right text-sm font-bold text-indigo-700 tabular-nums bg-indigo-50/40">
-                    {totalePrev.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    {totalePrev.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </td>
                 </tr>
                 {/* CONSUNTIVO */}
@@ -3153,7 +3153,7 @@ function InserimentoRapidoMatrice({ year, companyId, outlets }: {
                     </td>
                   ))}
                   <td className="py-3 px-4 text-right text-sm font-bold text-emerald-700 tabular-nums bg-emerald-50/40">
-                    {totaleCons.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    {totaleCons.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </td>
                 </tr>
               </tbody>

@@ -60,7 +60,7 @@ function calculatePayableStatus(p: any): string {
  */
 function formatCurrency(n: number | null | undefined): string {
   if (n == null || isNaN(Number(n))) return '—';
-  return new Intl.NumberFormat('it-IT', {
+  return new Intl.NumberFormat('de-DE', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(Number(n)) + ' €';
@@ -89,7 +89,7 @@ function fmt(n: number | null | undefined): string {
     }
   }
   if (!isFinite(num)) return '—'
-  return new Intl.NumberFormat('it-IT', {
+  return new Intl.NumberFormat('de-DE', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
     useGrouping: true,
@@ -1092,7 +1092,7 @@ const ScadenzarioSmart = () => {
         if (error) throw new Error(error.message);
       }
       setModals({ ...modals, editSchedule: { open: false, schedule: null } });
-      toast({ type: 'success', message: `Scadenza aggiornata: € ${newAmount.toLocaleString('it-IT', { minimumFractionDigits: 2 })}` });
+      toast({ type: 'success', message: `Scadenza aggiornata: € ${newAmount.toLocaleString('de-DE', { minimumFractionDigits: 2 })}` });
       fetchData();
     } catch (error) {
       console.error('Error updating schedule:', error);
@@ -1178,7 +1178,7 @@ const ScadenzarioSmart = () => {
         } as never).eq('id', payableId);
         if (error) throw new Error(error.message);
       }
-      toast({ type: 'success', message: `Importo aggiornato a € ${newAmount.toLocaleString('it-IT', { minimumFractionDigits: 2 })}` });
+      toast({ type: 'success', message: `Importo aggiornato a € ${newAmount.toLocaleString('de-DE', { minimumFractionDigits: 2 })}` });
       setInlineEditAmountId(null);
       fetchData();
     } catch (err) {

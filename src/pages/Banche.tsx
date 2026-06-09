@@ -33,7 +33,7 @@ const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ef4444', '#06b6d4'
 /* ───── helpers ───── */
 function fmt(n: number | null | undefined, dec = 2) {
   if (n == null) return '—'
-  return new Intl.NumberFormat('it-IT', { minimumFractionDigits: dec, maximumFractionDigits: dec }).format(n)
+  return new Intl.NumberFormat('de-DE', { minimumFractionDigits: dec, maximumFractionDigits: dec }).format(n)
 }
 
 type KpiColor = 'blue' | 'green' | 'amber' | 'purple' | 'red' | 'cyan'

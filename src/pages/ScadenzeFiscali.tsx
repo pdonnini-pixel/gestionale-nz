@@ -13,7 +13,7 @@ import PageHeader from '../components/PageHeader'
 /* ───── helpers ───── */
 function fmt(n: number | null | undefined) {
   if (n == null) return '—'
-  return new Intl.NumberFormat('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)
+  return new Intl.NumberFormat('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)
 }
 const fmtDate = (d: string | null | undefined) => d ? new Date(d).toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '—'
 const daysUntil = (d: string | null | undefined) => {

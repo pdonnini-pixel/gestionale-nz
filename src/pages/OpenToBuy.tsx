@@ -7,7 +7,7 @@ import { useOutlets } from '../hooks/useOutlets';
 import PageHeader from '../components/PageHeader';
 
 function fmt(n: number, dec = 0): string {
-  return new Intl.NumberFormat('it-IT', { minimumFractionDigits: dec, maximumFractionDigits: dec }).format(n);
+  return new Intl.NumberFormat('de-DE', { minimumFractionDigits: dec, maximumFractionDigits: dec }).format(n);
 }
 
 type Season = 'SS26' | 'FW26'
