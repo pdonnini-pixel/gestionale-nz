@@ -26,7 +26,7 @@ import {
 // --- Utilità ---
 function fmt(n: number | null | undefined): string {
   if (n == null) return '—'
-  return new Intl.NumberFormat('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)
+  return new Intl.NumberFormat('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)
 }
 
 function fmtDate(d: string | null | undefined): string {

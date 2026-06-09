@@ -63,7 +63,7 @@ const MACRO_GROUPS = [
 // ========================
 function fmt(n: number | null | undefined | string) {
   if (n == null || n === '') return '—'
-  return new Intl.NumberFormat('it-IT', { maximumFractionDigits: 0 }).format(Number(n))
+  return new Intl.NumberFormat('de-DE', { maximumFractionDigits: 0 }).format(Number(n))
 }
 
 interface CostCenterLite { id?: string; code: string; label: string }

@@ -45,7 +45,7 @@ const DAYS_SHORT = ['Dom', 'Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab'];
 
 const formatCurrency = (value: number | null | undefined): string => {
   if (value === null || value === undefined) return '€ 0';
-  return new Intl.NumberFormat('it-IT', {
+  return new Intl.NumberFormat('de-DE', {
     minimumFractionDigits: 0,
     maximumFractionDigits: 0
   }).format(value) + ' €';
@@ -174,7 +174,7 @@ export default function CashflowProspettico() {
           notes: forecastDescription.trim(),
         } as never);
         if (error) throw new Error(error.message);
-        toast({ type: 'success', message: `Previsione aggiunta: € ${amount.toLocaleString('it-IT', { minimumFractionDigits: 2 })} il ${new Date(forecastDate).toLocaleDateString('it-IT')}` });
+        toast({ type: 'success', message: `Previsione aggiunta: € ${amount.toLocaleString('de-DE', { minimumFractionDigits: 2 })} il ${new Date(forecastDate).toLocaleDateString('it-IT')}` });
       }
       setShowForecastModal(false);
       setEditingForecastId(null);
@@ -1233,7 +1233,7 @@ export default function CashflowProspettico() {
             className="w-full px-5 py-3 flex items-center justify-between hover:bg-indigo-50/50 transition">
             <div className="flex items-center gap-2">
               <span className="text-indigo-600 font-semibold text-sm">📋 Previsioni manuali ({forecasts.length})</span>
-              <span className="text-xs text-slate-500">— totale € {forecasts.reduce((s, f) => s + (Number(f.gross_amount) || 0), 0).toLocaleString('it-IT', { minimumFractionDigits: 2 })}</span>
+              <span className="text-xs text-slate-500">— totale € {forecasts.reduce((s, f) => s + (Number(f.gross_amount) || 0), 0).toLocaleString('de-DE', { minimumFractionDigits: 2 })}</span>
             </div>
             <span className="text-indigo-500 text-sm">{showForecastList ? '▼ Nascondi' : '▶ Mostra'}</span>
           </button>
@@ -1253,7 +1253,7 @@ export default function CashflowProspettico() {
                     <tr key={f.id} className="border-t border-slate-50 hover:bg-indigo-50/20">
                       <td className="px-4 py-2 text-slate-700 font-mono text-xs">{f.due_date ? new Date(f.due_date).toLocaleDateString('it-IT') : '—'}</td>
                       <td className="px-4 py-2 text-slate-800">{f.notes || (f.invoice_number || '').replace('[PREV] ', '')}</td>
-                      <td className="px-4 py-2 text-right font-mono font-medium text-slate-900">€ {Number(f.gross_amount ?? 0).toLocaleString('it-IT', { minimumFractionDigits: 2 })}</td>
+                      <td className="px-4 py-2 text-right font-mono font-medium text-slate-900">€ {Number(f.gross_amount ?? 0).toLocaleString('de-DE', { minimumFractionDigits: 2 })}</td>
                       <td className="px-4 py-2 text-center">
                         <div className="flex justify-center gap-1">
                           <button onClick={() => handleEditForecast(f)} className="p-1 rounded hover:bg-blue-50 text-slate-400 hover:text-blue-600" title="Modifica">

@@ -10,7 +10,7 @@ import {
 
 function fmt(n: number | null | undefined, decimals = 0) {
   if (n == null) return '—'
-  return new Intl.NumberFormat('it-IT', {
+  return new Intl.NumberFormat('de-DE', {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals
   }).format(n)

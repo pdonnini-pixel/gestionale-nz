@@ -57,7 +57,7 @@ function timeAgo(dateStr: string | null | undefined): string {
 
 function fmt(n: number | null | undefined, ccy = 'EUR'): string {
   if (n == null) return '—'
-  return new Intl.NumberFormat('it-IT', { style: 'currency', currency: ccy, minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)
+  return new Intl.NumberFormat('de-DE', { style: 'currency', currency: ccy, minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)
 }
 
 export default function OpenBankingAcube() {

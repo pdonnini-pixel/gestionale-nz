@@ -14,7 +14,7 @@ import PageHelp from '../components/PageHelp'
 import PageHeader from '../components/PageHeader'
 import { formatOutletName } from '../lib/formatters'
 
-const fmt = (n: number | null | undefined): string => n == null ? '\u2014' : new Intl.NumberFormat('it-IT', { maximumFractionDigits: 0 }).format(n)
+const fmt = (n: number | null | undefined): string => n == null ? '\u2014' : new Intl.NumberFormat('de-DE', { maximumFractionDigits: 0 }).format(n)
 const fmtPct = (n: number | null | undefined): string => n == null ? '\u2014' : `${n.toFixed(1)}%`
 
 const MONTHS = ['Gen', 'Feb', 'Mar', 'Apr', 'Mag', 'Giu', 'Lug', 'Ago', 'Set', 'Ott', 'Nov', 'Dic']

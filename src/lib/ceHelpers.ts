@@ -72,7 +72,7 @@ export function flattenLeaves(tree: CETreeNode[]): Record<string, number> {
 
 export function fmt(n: number | null | undefined): string {
   if (n == null || isNaN(n)) return '—'
-  return new Intl.NumberFormat('it-IT', { maximumFractionDigits: 0 }).format(n)
+  return new Intl.NumberFormat('de-DE', { maximumFractionDigits: 0 }).format(n)
 }
 
 export function fmtC(n: number | null | undefined): string {

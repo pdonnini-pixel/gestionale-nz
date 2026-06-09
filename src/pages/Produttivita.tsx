@@ -17,7 +17,7 @@ function fmt(n: number | null | undefined, dec = 0): string {
   // pagina non crasha su valori assenti (metriche per-dipendente senza
   // dato dipendenti).
   if (n == null || (typeof n === 'number' && !isFinite(n))) return 'N/D';
-  return new Intl.NumberFormat('it-IT', { minimumFractionDigits: dec, maximumFractionDigits: dec }).format(n);
+  return new Intl.NumberFormat('de-DE', { minimumFractionDigits: dec, maximumFractionDigits: dec }).format(n);
 }
 
 const MONTHS = ['Gen', 'Feb', 'Mar', 'Apr', 'Mag', 'Giu', 'Lug', 'Ago', 'Set', 'Ott', 'Nov', 'Dic'];

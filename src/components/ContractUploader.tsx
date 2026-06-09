@@ -8,7 +8,7 @@ import {
 
 function fmt(n: number | string | null | undefined): string {
   if (n == null || n === '') return '—'
-  return new Intl.NumberFormat('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(n))
+  return new Intl.NumberFormat('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(n))
 }
 
 // TODO: tighten type

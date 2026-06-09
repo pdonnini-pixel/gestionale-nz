@@ -52,7 +52,7 @@ const ACCOUNT_TYPES = [
 
 function fmt(n: number | null | undefined, dec = 2) {
   if (n == null || isNaN(n)) return '\u2014'
-  return new Intl.NumberFormat('it-IT', {
+  return new Intl.NumberFormat('de-DE', {
     minimumFractionDigits: dec,
     maximumFractionDigits: dec,
   }).format(n)
@@ -1861,7 +1861,7 @@ function TabMovimenti({ transactions, accounts, onAssignCategory, initialCategor
         </div>
         {/* Riga 1: riepilogo numeri (sempre dei filtri attivi) */}
         <div className="flex flex-wrap items-center gap-x-5 gap-y-1 mt-3 text-xs">
-          <span className="text-slate-600"><strong className="text-slate-900">{filtered.length.toLocaleString('it-IT')}</strong> movimenti dal <strong>{fmtDate(dateFrom) || '—'}</strong> al <strong>{fmtDate(dateTo) || '—'}</strong></span>
+          <span className="text-slate-600"><strong className="text-slate-900">{filtered.length.toLocaleString('de-DE')}</strong> movimenti dal <strong>{fmtDate(dateFrom) || '—'}</strong> al <strong>{fmtDate(dateTo) || '—'}</strong></span>
           <span className="text-slate-400">·</span>
           <span className="text-slate-600">Entrate <strong className="text-emerald-600">+{fmt(totalEntrate)} €</strong></span>
           <span className="text-slate-600">Uscite <strong className="text-red-600">−{fmt(totalUscite)} €</strong></span>
@@ -1870,7 +1870,7 @@ function TabMovimenti({ transactions, accounts, onAssignCategory, initialCategor
         {/* Riga 2: paginazione + per-page selector */}
         <div className="flex flex-wrap items-center justify-between gap-3 mt-2 text-xs text-slate-500">
           <span>
-            {filtered.length === 0 ? 'Nessun risultato' : <>Mostrati <strong className="text-slate-900">{rangeStart.toLocaleString('it-IT')}–{rangeEnd.toLocaleString('it-IT')}</strong> di <strong className="text-slate-900">{filtered.length.toLocaleString('it-IT')}</strong></>}
+            {filtered.length === 0 ? 'Nessun risultato' : <>Mostrati <strong className="text-slate-900">{rangeStart.toLocaleString('de-DE')}–{rangeEnd.toLocaleString('de-DE')}</strong> di <strong className="text-slate-900">{filtered.length.toLocaleString('de-DE')}</strong></>}
           </span>
           <div className="flex items-center gap-2">
             <label className="text-slate-500">Per pagina</label>

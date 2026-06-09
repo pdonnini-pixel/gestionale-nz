@@ -124,8 +124,8 @@ export default function GlobalSearch({ open: openProp, onClose }: GlobalSearchPr
         subtitle: s.partita_iva || s.vat_number || '',
         url: `/fornitori/${s.id}/scheda-contabile`,
       }))
-      if (invoices.data?.length) res.invoices = invoices.data.map(i => ({ id: i.id, title: `${i.invoice_number || 'Fattura'}`, subtitle: `${i.supplier_name || ''} — €${Number(i.gross_amount || 0).toLocaleString('it-IT')}`, url: '/fatturazione' }))
-      if (movements.data?.length) res.movements = movements.data.map(m => ({ id: m.id, title: m.counterpart || m.description?.slice(0, 50) || '—', subtitle: `€${Number(m.amount || 0).toLocaleString('it-IT')} — ${m.date}`, url: '/banche' }))
+      if (invoices.data?.length) res.invoices = invoices.data.map(i => ({ id: i.id, title: `${i.invoice_number || 'Fattura'}`, subtitle: `${i.supplier_name || ''} — €${Number(i.gross_amount || 0).toLocaleString('de-DE')}`, url: '/fatturazione' }))
+      if (movements.data?.length) res.movements = movements.data.map(m => ({ id: m.id, title: m.counterpart || m.description?.slice(0, 50) || '—', subtitle: `€${Number(m.amount || 0).toLocaleString('de-DE')} — ${m.date}`, url: '/banche' }))
       if (employees.data?.length) res.employees = employees.data.map(e => ({ id: e.id, title: `${e.first_name ?? ''} ${e.last_name ?? ''}`.trim(), subtitle: e.role, url: '/dipendenti' }))
     } catch (err: unknown) {
       console.warn('Search error:', err)

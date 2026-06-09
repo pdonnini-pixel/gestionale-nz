@@ -55,7 +55,7 @@ interface AIStats {
 /* ───── helpers ───── */
 function fmt(n: number | null | undefined, dec = 2): string {
   if (n == null) return '—'
-  return new Intl.NumberFormat('it-IT', { minimumFractionDigits: dec, maximumFractionDigits: dec }).format(n)
+  return new Intl.NumberFormat('de-DE', { minimumFractionDigits: dec, maximumFractionDigits: dec }).format(n)
 }
 const fmtDate = (d: string | null | undefined) => d ? new Date(d).toLocaleDateString('it-IT') : '—'
 

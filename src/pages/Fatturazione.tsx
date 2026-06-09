@@ -25,7 +25,7 @@ import {
 
 // ─── Helpers ────────────────────────────────────────────────────────────
 
-const fmt = (n: number | null | undefined): string => n != null ? Number(n).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'
+const fmt = (n: number | null | undefined): string => n != null ? Number(n).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'
 const fmtDate = (d: string | null | undefined): string => d ? new Date(d).toLocaleDateString('it-IT') : '—'
 
 const SDI_STATUS_CONFIG = {
@@ -1372,7 +1372,7 @@ function Corrispettivi() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <KpiCard icon={Store} label="Giorni registrati" value={stats.total} sub={`${new Set(dailyRevenue.map(r => r.outlet_id)).size} outlet`} color="blue" />
         <KpiCard icon={Euro} label="Incasso lordo totale" value={`${fmt(stats.totalGross)}`} color="green" />
-        <KpiCard icon={Hash} label="Transazioni totali" value={stats.totalTransactions.toLocaleString('it-IT')} color="amber" />
+        <KpiCard icon={Hash} label="Transazioni totali" value={stats.totalTransactions.toLocaleString('de-DE')} color="amber" />
         <KpiCard icon={BarChart3} label="Scontrino medio" value={`${fmt(stats.avgTicket)}`} color="slate" />
       </div>
 
@@ -1488,7 +1488,7 @@ function Corrispettivi() {
                     <td className="px-4 py-3 font-medium text-slate-800">{fmtMonth(row.month)}</td>
                     <td className="px-4 py-3 text-slate-700">{row.outlet}</td>
                     <td className="px-4 py-3 text-right font-semibold text-slate-900">{fmt(row.grossRevenue)}</td>
-                    <td className="px-4 py-3 text-right text-slate-700">{row.transactions.toLocaleString('it-IT')}</td>
+                    <td className="px-4 py-3 text-right text-slate-700">{row.transactions.toLocaleString('de-DE')}</td>
                     <td className="px-4 py-3 text-right text-slate-600">{fmt(avgTicket)}</td>
                     <td className="px-4 py-3 text-right text-slate-500">{row.days}</td>
                   </tr>

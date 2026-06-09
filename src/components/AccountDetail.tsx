@@ -44,7 +44,7 @@ const PAGE_SIZE = 50
 
 function fmt(n: number | null | undefined, dec = 2): string {
   if (n == null) return '—'
-  return new Intl.NumberFormat('it-IT', {
+  return new Intl.NumberFormat('de-DE', {
     minimumFractionDigits: dec,
     maximumFractionDigits: dec
   }).format(n)

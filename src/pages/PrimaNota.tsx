@@ -35,7 +35,7 @@ const MONTHS = [
   { v: 9, l: 'Settembre' }, { v: 10, l: 'Ottobre' }, { v: 11, l: 'Novembre' }, { v: 12, l: 'Dicembre' },
 ]
 
-const fmt = (n: number) => Number(n).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+const fmt = (n: number) => Number(n).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const fmtDate = (d: string | null) => d ? new Date(d).toLocaleDateString('it-IT') : '—'
 
 function getCounterpart(m: Movement): string {

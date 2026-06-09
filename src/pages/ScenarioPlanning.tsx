@@ -10,7 +10,7 @@ import PageHelp from '../components/PageHelp';
 import PageHeader from '../components/PageHeader';
 
 function fmt(n: number, dec = 0) {
-  return new Intl.NumberFormat('it-IT', { minimumFractionDigits: dec, maximumFractionDigits: dec }).format(n);
+  return new Intl.NumberFormat('de-DE', { minimumFractionDigits: dec, maximumFractionDigits: dec }).format(n);
 }
 
 export default function ScenarioPlanning() {
