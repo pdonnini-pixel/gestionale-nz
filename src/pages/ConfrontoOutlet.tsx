@@ -43,7 +43,7 @@ function scostamentoSegno(n: number | null | undefined): string {
 /* ═══════════════════════════════════════
    KPI Badge small
    ═══════════════════════════════════════ */
-type BadgeColor = 'blue' | 'green' | 'amber' | 'purple' | 'red'
+type BadgeColor = 'blue' | 'green' | 'amber' | 'purple' | 'red' | 'teal'
 function KpiBadge({ label, value, sub, color = 'blue' }: { label: string; value: string | number; sub?: string; color?: BadgeColor }) {
   const colors: Record<BadgeColor, string> = {
     blue: 'bg-blue-50 text-blue-600 border-blue-100',
@@ -51,6 +51,7 @@ function KpiBadge({ label, value, sub, color = 'blue' }: { label: string; value:
     amber: 'bg-amber-50 text-amber-600 border-amber-100',
     purple: 'bg-purple-50 text-purple-600 border-purple-100',
     red: 'bg-red-50 text-red-600 border-red-100',
+    teal: 'bg-teal-50 text-teal-600 border-teal-100',
   }
   return (
     <div className={`rounded-lg border p-3 ${colors[color]}`}>
@@ -206,21 +207,11 @@ function OutletCard({ name, outletData, calculatedMetrics, ranking, onNavigate, 
         </button>
       </div>
 
-      {/* Margine — tile full-width sotto la riga ricavi+badge.
-          Convenzione: positivo nero senza segno, negativo rosso col meno. */}
-      <div className="px-4 pt-1">
-        <div className={`rounded-lg border p-3 flex items-center justify-between ${margine >= 0 ? 'bg-slate-50 border-slate-200' : 'bg-red-50 border-red-100'}`}>
-          <span className="text-xs font-medium text-slate-500">{isVariance ? 'Δ Margine' : 'Margine'}</span>
-          <span className={`text-base font-bold ${margine >= 0 ? 'text-slate-900' : 'text-red-600'}`}>
-            {isVariance && margine > 0 ? '+' : ''}{fmt(margine)} €
-            <span className="text-xs font-medium ml-1">({isVariance && marginePct > 0 ? '+' : ''}{marginePct.toFixed(1)}{isVariance ? ' p.p.' : '%'})</span>
-          </span>
-        </div>
-      </div>
-
-      {/* KPI Grid 3 tile: Acquisto merci (B.6), Costo personale (B.9), Affitto (B.8).
+      {/* KPI Grid 4 tile (2x2): Acquisto merci (B.6), Costo personale (B.9),
+          Costo locazioni (B.8), Costo per servizi (B.7). Classificazione SEMPRE
+          via chart_of_accounts (macro_group), mai hardcoded.
           In variance i delta-costo: positivo=rosso (peggio), negativo=verde (meglio). */}
-      <div className="px-4 py-3 grid grid-cols-3 gap-2">
+      <div className="px-4 py-3 grid grid-cols-2 gap-2">
         <KpiBadge
           label={isVariance ? 'Δ Acquisto merci' : 'Acquisto merci'}
           value={`${isVariance && merci > 0 ? '+' : ''}${fmt(merci)} €`}
@@ -232,10 +223,28 @@ function OutletCard({ name, outletData, calculatedMetrics, ranking, onNavigate, 
           sub={`${isVariance && incidenzaPersonale > 0 ? '+' : ''}${incidenzaPersonale.toFixed(1)}${isVariance ? ' p.p.' : '% ricavi'}`}
           color={isVariance ? (costoPersonale > 0 ? 'red' : costoPersonale < 0 ? 'green' : 'amber') : 'amber'} />
         <KpiBadge
-          label={isVariance ? 'Δ Affitto' : 'Affitto'}
+          label={isVariance ? 'Δ Costo locazioni' : 'Costo locazioni'}
           value={`${isVariance && affitto > 0 ? '+' : ''}${fmt(affitto)} €`}
           sub={`${isVariance && incidenzaAffitto > 0 ? '+' : ''}${incidenzaAffitto.toFixed(1)}${isVariance ? ' p.p.' : '% ricavi'}`}
           color={isVariance ? (affitto > 0 ? 'red' : affitto < 0 ? 'green' : 'purple') : 'purple'} />
+        <KpiBadge
+          label={isVariance ? 'Δ Costo per servizi' : 'Costo per servizi'}
+          value={`${isVariance && servizi > 0 ? '+' : ''}${fmt(servizi)} €`}
+          sub={`${isVariance && (ricavi ? servizi / ricavi * 100 : 0) > 0 ? '+' : ''}${(ricavi ? servizi / ricavi * 100 : 0).toFixed(1)}${isVariance ? ' p.p.' : '% ricavi'}`}
+          color={isVariance ? (servizi > 0 ? 'red' : servizi < 0 ? 'green' : 'teal') : 'teal'} />
+      </div>
+
+      {/* Margine — tile full-width sotto la griglia 2x2, prima del blocco
+          margine outlet/quota sede/margine dopo sede.
+          Convenzione: positivo nero senza segno, negativo rosso col meno. */}
+      <div className="px-4 pt-1">
+        <div className={`rounded-lg border p-3 flex items-center justify-between ${margine >= 0 ? 'bg-slate-50 border-slate-200' : 'bg-red-50 border-red-100'}`}>
+          <span className="text-xs font-medium text-slate-500">{isVariance ? 'Δ Margine' : 'Margine'}</span>
+          <span className={`text-base font-bold ${margine >= 0 ? 'text-slate-900' : 'text-red-600'}`}>
+            {isVariance && margine > 0 ? '+' : ''}{fmt(margine)} €
+            <span className="text-xs font-medium ml-1">({isVariance && marginePct > 0 ? '+' : ''}{marginePct.toFixed(1)}{isVariance ? ' p.p.' : '%'})</span>
+          </span>
+        </div>
       </div>
 
       {/* Margine outlet → quota sede → margine dopo sede (sempre visibile) */}
