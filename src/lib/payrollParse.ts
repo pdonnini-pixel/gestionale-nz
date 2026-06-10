@@ -5,9 +5,10 @@ export interface PreviewRow {
   matricola: string; cognome: string; nome: string; outlet: string;
   netto: number | null; retribuzione: number | null; contributi: number | null; inail: number | null; tfr: number | null; altri: number | null;
   isNew: boolean; matchedId: string | null;
+  warn?: boolean; // filiale che non quadra (somma netti ≠ totale di ripartizione)
 }
 export type ParsedImport = { rows: PreviewRow[]; fileTotal: number | null };
-export type ParserOutlet = { name: string; cost_center_key: string | null };
+export type ParserOutlet = { name: string; cost_center_key: string | null; mall_name?: string | null; city?: string | null };
 
 // Parsing numero italiano: "1.234,56" → 1234.56 ; gestisce anche "1234.56".
 export function parseItNum(v: unknown): number | null {
@@ -30,17 +31,21 @@ export const norm = (s: unknown) => String(s ?? '').trim().toLowerCase().replace
 export function matchOutletName(text: string, outlets: ParserOutlet[]): string {
   const t = norm(text);
   if (!t) return '';
+  const contains = (a: string, b: string) => a !== '' && b !== '' && (a === b || a.includes(b) || b.includes(a));
+  // 1) nome / mall_name / city (campi runtime dell'outlet — alias data-driven, no hardcoded)
   for (const o of outlets) {
-    const n = norm(o.name);
-    if (n && (n === t || t.includes(n) || n.includes(t))) return o.name;
+    const cands = [o.name, o.mall_name, o.city].map(norm).filter(Boolean);
+    if (cands.some((c) => contains(t, c))) return o.name;
   }
+  // 2) cost_center_key (es. "valdichiana")
   for (const o of outlets) {
     const k = norm((o.cost_center_key || '').replace(/_/g, ' '));
-    if (k && (t.includes(k) || k.includes(t))) return o.name;
+    if (contains(t, k)) return o.name;
   }
+  // 3) prima parola significativa (es. "VALDICHIANA VILLAGE" → "valdichiana")
   const firstWord = t.split(' ')[0];
   for (const o of outlets) {
-    if (firstWord && norm(o.name).startsWith(firstWord)) return o.name;
+    if (firstWord && [o.name, o.mall_name, o.city].some((c) => norm(c).startsWith(firstWord))) return o.name;
   }
   return '';
 }
@@ -73,7 +78,67 @@ export const LORDI_FIELDS: { key: 'retribuzione' | 'contributi' | 'inail' | 'tfr
 export const rowLordo = (r: PreviewRow) => LORDI_FIELDS.reduce((s, f) => s + Number((r as any)[f.key] || 0), 0);
 export const rowHasLordo = (r: PreviewRow) => LORDI_FIELDS.some((f) => (r as any)[f.key] != null);
 
-// PDF "Elenco netti" Infinity: sezioni per Filiale, righe `matricola COGNOME NOME importo`.
+// Collassa i caratteri raddoppiati del grassetto PDF ("NNrr" → "Nr"). Solo per keyword.
+const deDouble = (s: string) => s.replace(/(.)\1/g, '$1');
+const RE_MATRICOLA = /\b\d{7}\b/g;
+const RE_MONEY_G = /\d{1,3}(?:\.\d{3})*,\d{2}/g;
+const NAME_LABELS = /^(filiale|cod|dip|cognome|nome|importo|importi|totale|totali|di|del|della|ripartizione|aziendale|nr|n|dipendenti|dipendente|progressivo|coordinate|bancarie|iban|villaggio|village|outlet|udine|mensilita|normale|elenco|netti|netto|pag|pagina|data|periodo|azienda|ditta)$/i;
+
+// Estrazione nomi best-effort: la colonna "Cognome e nome" è un blocco unico non
+// splittabile in modo affidabile. Se il numero di parole-nome è esattamente 2×N le
+// abbino a coppie (cognome, nome); altrimenti ritorno null (nome provvisorio = matricola).
+function extractNames(page: string, filialeMatch: string | null, n: number): { cognome: string; nome: string }[] | null {
+  let t = page;
+  if (filialeMatch) t = t.replace(filialeMatch, ' ');
+  t = t
+    .replace(/\bIT[0-9A-Z]{10,}\b/gi, ' ') // IBAN
+    .replace(RE_MONEY_G, ' ')              // importi
+    .replace(/\d+/g, ' ');                 // qualsiasi cifra (matricole, nr, ecc.)
+  const words = t.split(/\s+/)
+    .map((w) => w.replace(/[.,;:()]/g, ''))
+    .filter((w) => /^[A-Za-zÀ-ÿ'’]{2,}$/.test(w) && !NAME_LABELS.test(w));
+  if (words.length !== 2 * n || n === 0) return null;
+  const out: { cognome: string; nome: string }[] = [];
+  for (let i = 0; i < n; i++) out.push({ cognome: words[2 * i], nome: words[2 * i + 1] });
+  return out;
+}
+
+// PDF "Elenco netti" — abbinamento per COLONNA (ordine di stream). Una filiale = una pagina.
+// 1 filiale, N matricole, N netti (primi N token money), poi i totali (da ignorare).
+// Validazione per filiale: somma(netti) == totale di ripartizione e N == Nr dipendenti.
+export function parseInfinityNettiPages(pages: string[], outlets: ParserOutlet[]): ParsedImport {
+  const rows: PreviewRow[] = [];
+  for (const page of pages) {
+    const mf = page.match(/Filiale:\s*\d+\s*-\s*(.+?)\s*;/i);
+    if (!mf) continue;
+    const outlet = matchOutletName(mf[1], outlets);
+    const mats = page.match(RE_MATRICOLA) || [];
+    if (!mats.length) continue;
+    const amts = (page.match(RE_MONEY_G) || []).map((a) => parseItNum(a));
+    const N = mats.length;
+    const netti = amts.slice(0, N);
+    const totRip = amts.length > N ? amts[N] : null;
+    const sum = netti.reduce<number>((s, v) => s + (v || 0), 0);
+    const dd = deDouble(page);
+    const nrm = dd.match(/nr\s+dipendenti\s+(\d+)/i);
+    const nrDip = nrm ? parseInt(nrm[1], 10) : null;
+    const quadra = (totRip == null || Math.abs(sum - totRip) < 0.01) && (nrDip == null || nrDip === N);
+    const names = extractNames(page, mf[0], N);
+    for (let i = 0; i < N; i++) {
+      const r = blankRow();
+      r.matricola = mats[i];
+      r.outlet = outlet;
+      r.netto = netti[i] ?? null;
+      if (names) { r.cognome = names[i].cognome; r.nome = names[i].nome; }
+      if (!quadra) r.warn = true;
+      rows.push(r);
+    }
+  }
+  const fileTotal = rows.reduce<number>((s, r) => s + (r.netto || 0), 0);
+  return { rows, fileTotal: rows.length ? fileTotal : null };
+}
+
+// PDF "Elenco netti" Infinity (versione riga-based, fallback): sezioni per Filiale, righe `matricola COGNOME NOME importo`.
 // Il totale di controllo si calcola sommando i netti letti (il "Totale aziendale" del PDF
 // esce con caratteri raddoppiati e non è affidabile). Mapping filiale→outlet a runtime.
 export function parseInfinityNetti(lines: string[], outlets: ParserOutlet[]): ParsedImport {

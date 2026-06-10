@@ -37,10 +37,10 @@ import { supabase } from '../lib/supabase';
 import { GlassTooltip, AXIS_STYLE, GRID_STYLE, PALETTE, getOutletColor, fmtEuro } from '../components/ChartTheme';
 import { useAuth } from '../hooks/useAuth';
 import { useCompany } from '../hooks/useCompany';
-import { extractPdfLines } from '../lib/pdfText';
+import { extractPdfLines, extractPdfPages } from '../lib/pdfText';
 import {
   parseItNum, norm,
-  parseInfinityNetti, parsePdfLordi, parseSpreadsheet,
+  parseInfinityNettiPages, parsePdfLordi, parseSpreadsheet,
   LORDI_FIELDS, rowLordo, rowHasLordo,
   type PreviewRow, type ParsedImport,
 } from '../lib/payrollParse';
@@ -62,6 +62,8 @@ interface OutletRow {
   code: string | null;
   cost_center_key: string | null;
   is_active: boolean | null;
+  mall_name: string | null;
+  city: string | null;
 }
 
 // Vista persistita in URL come ?view=
@@ -284,7 +286,7 @@ export default function Dipendenti() {
         supabase.from('employee_outlet_allocations').select('*').eq('company_id', COMPANY_ID),
         supabase.from('employee_costs').select('*').eq('company_id', COMPANY_ID),
         supabase.from('cost_centers').select('*').eq('company_id', COMPANY_ID).eq('is_active', true).order('sort_order', { nullsFirst: false }),
-        supabase.from('outlets').select('id, name, code, cost_center_key, is_active').eq('company_id', COMPANY_ID).eq('is_active', true).order('name'),
+        supabase.from('outlets').select('id, name, code, cost_center_key, is_active, mall_name, city').eq('company_id', COMPANY_ID).eq('is_active', true).order('name'),
         supabase.from('employee_documents').select('*').eq('company_id', COMPANY_ID).order('created_at', { ascending: false }),
       ]);
       setEmployees((empRes.data as Employee[]) || []);
@@ -1642,8 +1644,15 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
       let parsed: ParsedImport;
       let rawLines: string[] = [];
       if (isPdf) {
-        rawLines = await extractPdfLines(file);
-        parsed = isNetto ? parseInfinityNetti(rawLines, outlets) : parsePdfLordi(rawLines, outlets);
+        if (isNetto) {
+          // Abbinamento per colonna (ordine di stream), una filiale per pagina.
+          const pages = await extractPdfPages(file);
+          rawLines = pages.flatMap((p, i) => [`— pagina ${i + 1} —`, p]);
+          parsed = parseInfinityNettiPages(pages, outlets);
+        } else {
+          rawLines = await extractPdfLines(file);
+          parsed = parsePdfLordi(rawLines, outlets);
+        }
       } else {
         const buf = await file.arrayBuffer();
         const wb = XLSX.read(buf, { type: 'array' });
@@ -1688,6 +1697,7 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
   const newCount = rows ? rows.filter((r) => r.isNew).length : 0;
   const scostamento = fileTotal != null ? total - fileTotal : null;
   const quadra = scostamento == null || Math.abs(scostamento) < 0.01;
+  const warnOutlets = rows ? Array.from(new Set(rows.filter((r) => r.warn).map((r) => r.outlet || '—'))) : [];
   const reset = () => { setRows(null); setFileName(''); setFileTotal(null); setOverwriteAck(false); setRawPreview(null); };
 
   const doImport = async () => {
@@ -1709,10 +1719,12 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
       for (const row of rows) {
         let empId = row.matchedId;
         if (!empId) {
+          // Nome provvisorio = matricola se lo split nomi non è affidabile (editabile dalla scheda).
+          const prov = row.matricola || '—';
           const { data: newEmp, error: empErr } = await supabase.from('employees').insert([{
             company_id: companyId, matricola: row.matricola || null,
-            nome: row.nome || null, cognome: row.cognome || null,
-            first_name: row.nome || row.cognome || '—', last_name: row.cognome || row.nome || '—',
+            nome: row.nome || null, cognome: row.cognome || (row.nome ? null : prov),
+            first_name: row.nome || row.cognome || prov, last_name: row.cognome || row.nome || prov,
             is_active: true,
           }]).select('id').single();
           if (empErr) { console.error('Errore creazione dipendente', empErr); continue; }
@@ -1818,6 +1830,12 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
             </div>
           )}
 
+          {warnOutlets.length > 0 && (
+            <div className="px-4 py-2 text-sm flex items-center gap-2 bg-amber-50 text-amber-800">
+              <AlertCircle size={15} /> Filiali da verificare (somma netti ≠ totale di ripartizione): <strong>{warnOutlets.join(', ')}</strong>
+            </div>
+          )}
+
           <div className="max-h-72 overflow-y-auto">
             <table className="w-full text-sm">
               <thead className="sticky top-0 bg-white">
@@ -1837,9 +1855,11 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
                     <td className="px-3 py-2 text-slate-500">{r.outlet || <span className="text-amber-600">filiale non mappata</span>}</td>
                     <td className="px-3 py-2 text-right"><Money v={amountOf(r)} /></td>
                     <td className="px-3 py-2 text-center">
-                      {r.isNew
-                        ? <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700">Nuovo</span>
-                        : <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">Esistente</span>}
+                      {r.warn
+                        ? <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">da verificare</span>
+                        : r.isNew
+                          ? <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700">Nuovo</span>
+                          : <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">Esistente</span>}
                     </td>
                   </tr>
                 ))}

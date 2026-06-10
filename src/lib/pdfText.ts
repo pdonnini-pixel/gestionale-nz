@@ -29,6 +29,29 @@ function pageLines(items: It[]): string[] {
 }
 
 /**
+ * Estrae il testo per PAGINA nell'ordine NATIVO di stream di pdfjs (NON riordinato).
+ * Serve all'"Elenco netti", dove pdfjs restituisce ogni colonna come blocco unico
+ * (tutte le matricole, poi tutti i nomi, poi tutti gli importi): l'abbinamento si fa
+ * per posizione nelle colonne, non per riga. Ritorna una stringa per pagina.
+ */
+export async function extractPdfPages(file: File): Promise<string[]> {
+  const buf = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise;
+  const pages: string[] = [];
+  for (let p = 1; p <= pdf.numPages; p++) {
+    const page = await pdf.getPage(p);
+    const tc = await page.getTextContent();
+    const text = (tc.items as any[])
+      .map((i) => (typeof i.str === 'string' ? i.str : ''))
+      .join(' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    pages.push(text);
+  }
+  return pages;
+}
+
+/**
  * Estrae il testo di un PDF ricostruendo le righe per GEOMETRIA (Y con tolleranza, X crescente).
  * Ritorna un array di righe pulite, nell'ordine del documento.
  */
