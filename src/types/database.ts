@@ -2938,6 +2938,7 @@ export type Database = {
           import_id: string | null
           inail: number | null
           month: number
+          netto: number | null
           note: string | null
           retribuzione: number | null
           source: string | null
@@ -2954,6 +2955,7 @@ export type Database = {
           import_id?: string | null
           inail?: number | null
           month: number
+          netto?: number | null
           note?: string | null
           retribuzione?: number | null
           source?: string | null
@@ -2970,10 +2972,59 @@ export type Database = {
           import_id?: string | null
           inail?: number | null
           month?: number
+          netto?: number | null
           note?: string | null
           retribuzione?: number | null
           source?: string | null
           tfr?: number | null
+          year?: number
+        }
+        Relationships: []
+      }
+      employee_cost_imports: {
+        Row: {
+          company_id: string
+          file_name: string | null
+          file_total: number | null
+          id: string
+          imported_at: string | null
+          imported_by: string | null
+          month: number
+          note: string | null
+          rows_new_employees: number | null
+          rows_total: number | null
+          scostamento: number | null
+          total_netto: number | null
+          year: number
+        }
+        Insert: {
+          company_id: string
+          file_name?: string | null
+          file_total?: number | null
+          id?: string
+          imported_at?: string | null
+          imported_by?: string | null
+          month: number
+          note?: string | null
+          rows_new_employees?: number | null
+          rows_total?: number | null
+          scostamento?: number | null
+          total_netto?: number | null
+          year: number
+        }
+        Update: {
+          company_id?: string
+          file_name?: string | null
+          file_total?: number | null
+          id?: string
+          imported_at?: string | null
+          imported_by?: string | null
+          month?: number
+          note?: string | null
+          rows_new_employees?: number | null
+          rows_total?: number | null
+          scostamento?: number | null
+          total_netto?: number | null
           year?: number
         }
         Relationships: []
@@ -4407,6 +4458,7 @@ export type Database = {
           company_id: string
           concedente: string | null
           condo_marketing_monthly: number | null
+          cost_center_key: string | null
           contract_duration_months: number | null
           contract_end: string | null
           contract_min_months: number | null
@@ -4462,6 +4514,7 @@ export type Database = {
           company_id: string
           concedente?: string | null
           condo_marketing_monthly?: number | null
+          cost_center_key?: string | null
           contract_duration_months?: number | null
           contract_end?: string | null
           contract_min_months?: number | null
@@ -4517,6 +4570,7 @@ export type Database = {
           company_id?: string
           concedente?: string | null
           condo_marketing_monthly?: number | null
+          cost_center_key?: string | null
           contract_duration_months?: number | null
           contract_end?: string | null
           contract_min_months?: number | null

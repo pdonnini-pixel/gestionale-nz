@@ -1,44 +1,28 @@
 import React, { useState, useEffect, useMemo, useRef, lazy, Suspense } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import * as XLSX from 'xlsx';
 import type { Row } from '../types/business';
 import { usePeriod } from '../hooks/usePeriod';
-
-// Vista Dipendenti — persistita in URL come ?view=
-type DipendentiView = 'consuntivo' | 'organico' | 'per_outlet';
-const VALID_DIPENDENTI_VIEWS: DipendentiView[] = ['consuntivo', 'organico', 'per_outlet'];
-
-type Employee = Row<'employees'>;
-type EmployeeOutletAllocation = Row<'employee_outlet_allocations'>;
-type EmployeeCost = Row<'employee_costs'>;
-type CostCenterRow = Row<'cost_centers'>;
-type EmployeeDocument = Row<'employee_documents'>;
-import PageHelp from '../components/PageHelp';
 import PageHeader from '../components/PageHeader';
 import { useToast } from '../components/Toast';
 import {
-  ChevronDown,
-  ChevronUp,
   BarChart3,
-  Download,
   Plus,
   Trash2,
   Edit2,
   Save,
   X,
   Upload,
-  Clock,
   FileText,
   Eye,
   AlertCircle,
   Percent,
   RefreshCw,
   FileUp,
-  Sliders,
   Store,
   Users,
+  CheckCircle2,
 } from 'lucide-react';
-
-const PdfViewer = lazy(() => import('../components/PdfViewer'));
 import {
   BarChart,
   Bar,
@@ -49,81 +33,155 @@ import {
   Legend,
   ResponsiveContainer,
 } from 'recharts';
-import ExportMenu from '../components/ExportMenu';
 import { supabase } from '../lib/supabase';
-import { GlassTooltip, AXIS_STYLE, GRID_STYLE } from '../components/ChartTheme';
+import { GlassTooltip, AXIS_STYLE, GRID_STYLE, PALETTE, getOutletColor, fmtEuro } from '../components/ChartTheme';
 import { useAuth } from '../hooks/useAuth';
-import { useCompanyLabels } from '../hooks/useCompanyLabels';
-import { useOutlets } from '../hooks/useOutlets';
-import { getOutletTailwindBg } from '../components/ChartTheme';
+
+const PdfViewer = lazy(() => import('../components/PdfViewer'));
 
 // ============================================================================
-// CONSTANTS
+// TYPES
 // ============================================================================
+type Employee = Row<'employees'>;
+type EmployeeOutletAllocation = Row<'employee_outlet_allocations'>;
+type EmployeeCost = Row<'employee_costs'>;
+type CostCenterRow = Row<'cost_centers'>;
+type EmployeeDocument = Row<'employee_documents'>;
 
-// Storicamente OUTLET_COLORS e OUTLETS_ORDER erano costanti hardcoded sui 7
-// outlet NZ (Valdichiana/Barberino/…). Adesso vengono ricavati dinamicamente
-// dalla tabella `outlets` del tenant attivo (vedi `useOutlets()` nel componente
-// principale). Il colore Tailwind background per ogni outlet è derivato
-// deterministicamente da `getOutletTailwindBg(name)` (hash → palette estesa).
+interface OutletRow {
+  id: string;
+  name: string;
+  code: string | null;
+  cost_center_key: string | null;
+  is_active: boolean | null;
+}
+
+// Vista persistita in URL come ?view=
+type PersonaleView = 'panoramica' | 'per_outlet' | 'organico' | 'costi';
+const VALID_VIEWS: PersonaleView[] = ['panoramica', 'per_outlet', 'organico', 'costi'];
 
 const MONTHS = [
-  { num: 1, label: 'Gennaio' },
-  { num: 2, label: 'Febbraio' },
-  { num: 3, label: 'Marzo' },
-  { num: 4, label: 'Aprile' },
-  { num: 5, label: 'Maggio' },
-  { num: 6, label: 'Giugno' },
-  { num: 7, label: 'Luglio' },
-  { num: 8, label: 'Agosto' },
-  { num: 9, label: 'Settembre' },
-  { num: 10, label: 'Ottobre' },
-  { num: 11, label: 'Novembre' },
-  { num: 12, label: 'Dicembre' },
+  { num: 1, label: 'Gennaio' }, { num: 2, label: 'Febbraio' }, { num: 3, label: 'Marzo' },
+  { num: 4, label: 'Aprile' }, { num: 5, label: 'Maggio' }, { num: 6, label: 'Giugno' },
+  { num: 7, label: 'Luglio' }, { num: 8, label: 'Agosto' }, { num: 9, label: 'Settembre' },
+  { num: 10, label: 'Ottobre' }, { num: 11, label: 'Novembre' }, { num: 12, label: 'Dicembre' },
 ];
+
+// Conti 67xx del personale → colonna employee_costs corrispondente.
+const COSTO_CONTI = [
+  { code: '670103', label: 'Retribuzioni', field: 'retribuzione' as const },
+  { code: '670303', label: 'Contributi INPS', field: 'contributi' as const },
+  { code: '670307', label: 'INAIL', field: 'inail' as const },
+  { code: '670501', label: 'Accantonamento TFR', field: 'tfr' as const },
+  { code: '670909', label: 'Altri costi personale', field: 'altri_costi' as const },
+];
+
+// ============================================================================
+// HELPERS
+// ============================================================================
+const eurFmt = new Intl.NumberFormat('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+// Render valuta: positivo nero senza segno, negativo rosso con il meno.
+function Money({ v, className = '', strong = false }: { v: number | null | undefined; className?: string; strong?: boolean }) {
+  const n = Number(v || 0);
+  const neg = n < 0;
+  return (
+    <span className={`tabular-nums ${neg ? 'text-red-600' : 'text-slate-900'} ${strong ? 'font-semibold' : ''} ${className}`}>
+      {eurFmt.format(n)}&nbsp;€
+    </span>
+  );
+}
+
+// Parsing numero italiano: "1.234,56" → 1234.56 ; gestisce anche "1234.56".
+function parseItNum(v: unknown): number | null {
+  if (v == null) return null;
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+  let s = String(v).trim().replace(/[€\s]/g, '');
+  if (!s || s === '-') return null;
+  const hasComma = s.includes(',');
+  const hasDot = s.includes('.');
+  if (hasComma && hasDot) s = s.replace(/\./g, '').replace(',', '.');
+  else if (hasComma) s = s.replace(',', '.');
+  const n = parseFloat(s);
+  return Number.isFinite(n) ? n : null;
+}
+
+const norm = (s: unknown) => String(s ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+
+// Un dipendente è "Amministratore" se la qualifica lo indica (data-driven, niente nome hardcoded).
+const isAdminRole = (e: Employee) =>
+  /amministrat/i.test(e.role_description || '') || /amministrat/i.test((e as any).note || e.notes || '');
+
+const empName = (e: Employee) =>
+  `${e.cognome || e.last_name || ''} ${e.nome || e.first_name || ''}`.trim() || '—';
+
+// ============================================================================
+// UI SHELLS (Modal custom — mai dialog nativi)
+// ============================================================================
+function Modal({ title, onClose, children, maxW = 'max-w-lg' }: { title: string; onClose: () => void; children: React.ReactNode; maxW?: string }) {
+  return (
+    <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm" onClick={onClose}>
+      <div className={`bg-white rounded-2xl shadow-2xl w-full ${maxW} max-h-[90vh] overflow-y-auto`} onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 sticky top-0 bg-white rounded-t-2xl z-10">
+          <h3 className="font-semibold text-slate-900">{title}</h3>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 transition-colors" aria-label="Chiudi"><X size={18} /></button>
+        </div>
+        <div className="p-5">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function ConfirmModal({ open, title, message, confirmLabel = 'Conferma', danger = false, onConfirm, onCancel }: {
+  open: boolean; title: string; message: React.ReactNode; confirmLabel?: string; danger?: boolean; onConfirm: () => void; onCancel: () => void;
+}) {
+  if (!open) return null;
+  return (
+    <Modal title={title} onClose={onCancel} maxW="max-w-md">
+      <div className="text-sm text-slate-600 mb-5 whitespace-pre-line">{message}</div>
+      <div className="flex justify-end gap-2">
+        <button onClick={onCancel} className="px-4 py-2 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100">Annulla</button>
+        <button onClick={onConfirm} className={`px-4 py-2 rounded-lg text-sm font-medium text-white ${danger ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700'}`}>{confirmLabel}</button>
+      </div>
+    </Modal>
+  );
+}
+
+// KPI card gradient — stile pattern delle altre pagine.
+function Kpi({ label, value, sub, icon: Icon, gradient }: { label: string; value: React.ReactNode; sub?: React.ReactNode; icon: React.ComponentType<{ size?: number; className?: string }>; gradient: string }) {
+  return (
+    <div className={`rounded-2xl shadow-lg p-5 text-white bg-gradient-to-br ${gradient}`}>
+      <div className="flex items-center justify-between mb-3">
+        <span className="text-xs font-medium uppercase tracking-wide text-white/80">{label}</span>
+        <Icon size={18} className="text-white/80" />
+      </div>
+      <div className="text-2xl font-bold tabular-nums leading-tight">{value}</div>
+      {sub && <div className="text-xs text-white/80 mt-1">{sub}</div>}
+    </div>
+  );
+}
 
 // ============================================================================
 // MAIN COMPONENT
 // ============================================================================
-
 export default function Dipendenti() {
-  const { toast: globalToast } = useToast();
+  const { toast } = useToast();
   const { profile } = useAuth();
-  const labels = useCompanyLabels();
-  const { outlets: tenantOutlets } = useOutlets();
-  const COMPANY_ID = profile?.company_id;
+  const COMPANY_ID = profile?.company_id || undefined;
+  const USER_ID = profile?.id || null;
+  const { year: globalYear } = usePeriod();
 
-  // Lista nomi outlet del tenant attivo, derivata dal DB (sostituisce la
-  // vecchia const OUTLETS_ORDER hardcoded sui 7 outlet NZ). I cost_centers
-  // e gli employees usano outlet.name come chiave; manteniamo lo stesso
-  // contract. Se il tenant è vergine, OUTLETS_ORDER è vuoto → empty state.
-  const OUTLETS_ORDER = useMemo(() => tenantOutlets.map((o) => o.name), [tenantOutlets]);
-
-  // Mappa nome outlet → classe Tailwind background. Generata
-  // deterministicamente via getOutletTailwindBg.
-  const OUTLET_COLORS = useMemo(() => {
-    const m: Record<string, string> = {};
-    tenantOutlets.forEach((o) => { m[o.name] = getOutletTailwindBg(o.name); });
-    return m;
-  }, [tenantOutlets]);
-
-  // viewMode persistito in URL come ?view=… (default 'consuntivo')
+  // view persistita in URL
   const [searchParams, setSearchParams] = useSearchParams();
   const viewParam = searchParams.get('view');
-  const viewMode: DipendentiView = VALID_DIPENDENTI_VIEWS.includes(viewParam as DipendentiView)
-    ? (viewParam as DipendentiView)
-    : 'consuntivo';
-  const setViewMode = (next: DipendentiView) => {
-    const params = new URLSearchParams(searchParams);
-    params.set('view', next);
-    setSearchParams(params);
+  const view: PersonaleView = VALID_VIEWS.includes(viewParam as PersonaleView) ? (viewParam as PersonaleView) : 'panoramica';
+  const setView = (next: PersonaleView) => {
+    const p = new URLSearchParams(searchParams);
+    p.set('view', next);
+    setSearchParams(p);
   };
-  const { year: globalYear } = usePeriod();
-  // Default = anno selezionato globale (usePeriod), niente anno hardcoded.
+
   const [selectedYear, setSelectedYear] = useState(globalYear);
-  // Anno consuntivo = anno selezionato; anno organico/preventivo = anno+1.
-  const consuntivoYear = selectedYear;
-  const organicoYear = selectedYear + 1;
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
 
   // Data state
@@ -131,1925 +189,1388 @@ export default function Dipendenti() {
   const [allocations, setAllocations] = useState<EmployeeOutletAllocation[]>([]);
   const [costs, setCosts] = useState<EmployeeCost[]>([]);
   const [costCenters, setCostCenters] = useState<CostCenterRow[]>([]);
-  const [lastUpdateTime, setLastUpdateTime] = useState<string | null>(null);
+  const [outlets, setOutlets] = useState<OutletRow[]>([]);
+  const [employeeDocs, setEmployeeDocs] = useState<EmployeeDocument[]>([]);
+  const [bcByCenter, setBcByCenter] = useState<Record<string, number>>({});
+  const [bilancioPersonale, setBilancioPersonale] = useState<number | null>(null);
+  const [revenueYear, setRevenueYear] = useState<number>(0);
+  const [loading, setLoading] = useState(true);
 
   // UI state
-  const [expandedOutlets, setExpandedOutlets] = useState<Record<string, boolean>>({});
-  const [expandedEmployees, setExpandedEmployees] = useState<Record<string, boolean>>({});
-  const [loading, setLoading] = useState(true);
   const [showEmployeeForm, setShowEmployeeForm] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
   const [showCostForm, setShowCostForm] = useState(false);
   const [editingCost, setEditingCost] = useState<EmployeeCost | null>(null);
-  const [showDocumentUpload, setShowDocumentUpload] = useState<string | false>(false);
-  const [uploadingEmployee, setUploadingEmployee] = useState<string | null>(null);
-
-  // New features state
+  const [costFormEmp, setCostFormEmp] = useState<string | null>(null);
   const [showAllocEditor, setShowAllocEditor] = useState<string | null>(null);
-  // allocEdits: editing rows con allocation_pct sempre number per UI
-  const [allocEdits, setAllocEdits] = useState<EmployeeOutletAllocation[]>([]);
+  const [allocEdits, setAllocEdits] = useState<{ outlet_code: string; allocation_pct: number }[]>([]);
   const [allocErrors, setAllocErrors] = useState('');
-  const [employeeDocs, setEmployeeDocs] = useState<EmployeeDocument[]>([]);
+  const [uploadingEmployee, setUploadingEmployee] = useState<string | null>(null);
   const [showDocViewer, setShowDocViewer] = useState<EmployeeDocument | null>(null);
   const [docPdfData, setDocPdfData] = useState<ArrayBuffer | null>(null);
-  const [batchImporting, setBatchImporting] = useState(false);
-  const batchFileRef = useRef<HTMLInputElement>(null);
-  const [bilancioCostoPersonale, setBilancioCostoPersonale] = useState<number | null>(null);
+  const [confirmState, setConfirmState] = useState<{ title: string; message: React.ReactNode; confirmLabel?: string; danger?: boolean; onConfirm: () => void } | null>(null);
+  const cedolinoRef = useRef<HTMLInputElement>(null);
+  const cedolinoEmpRef = useRef<string | null>(null);
 
-  // Toast inline (sostituisce alert() di sistema)
-  const [toast, setToast] = useState<{ type: string; msg: string } | null>(null);
-  const showToast = (msg: string, type = 'info') => {
-    setToast({ type, msg });
-    setTimeout(() => setToast(null), 4500);
-  };
+  // Filtri organico
+  const [orgOutletFilter, setOrgOutletFilter] = useState('');
+  const [orgSearch, setOrgSearch] = useState('');
 
-  // Mappa i nomi dei campi del form ai nomi reali delle colonne in DB.
-  // Lo schema employees ha colonne MISTE italiano + inglese. Le colonne
-  // inglesi (first_name, last_name) sono NOT NULL, quelle italiane
-  // (nome, cognome) sono nullable. Per garantire compatibilita' con
-  // entrambe le viste, popoliamo SEMPRE entrambe le coppie.
-  // TODO: tighten type
-  const mapFormToDb = (formData: any) => {
-    const out = { ...formData };
-
-    // Coppie italiane <-> inglesi: popola entrambe per soddisfare
-    // i NOT NULL su lato inglese e mantenere la lettura lato italiano.
-    if ('nome' in out)            out.first_name = out.nome;
-    if ('cognome' in out)         out.last_name = out.cognome;
-    if ('codice_fiscale' in out)  out.fiscal_code = out.codice_fiscale || null;
-    if ('data_assunzione' in out) out.hire_date = out.data_assunzione || null;
-    if ('data_cessazione' in out) out.termination_date = out.data_cessazione || null;
-    if ('livello' in out)         out.level = out.livello || null;
-    if ('note' in out)            out.notes = out.note || null;
-
-    // 'contratto' nel form -> 'contratto_tipo' in DB
-    if ('contratto' in out) {
-      out.contratto_tipo = out.contratto;
-      delete out.contratto;
-    }
-    // 'qualifica' nel form -> 'role_description' in DB
-    if ('qualifica' in out) {
-      out.role_description = out.qualifica;
-      delete out.qualifica;
-    }
-
-    // Normalizza stringhe vuote a null sui campi date (Postgres
-    // rifiuta '' su tipo date) e su tutti i nullable.
-    ['hire_date', 'termination_date', 'data_assunzione', 'data_cessazione'].forEach(k => {
-      if (out[k] === '') out[k] = null;
-    });
-
-    // Default cessazione per contratto indeterminato: data sentinella
-    // a 99 anni (9999-12-31 e' supportato da Postgres date type) cosi'
-    // non compare in nessuna scadenza imminente. Per contratti a termine
-    // la data resta quella dell'utente (gia' validata come obbligatoria).
-    if (out.contratto_tipo === 'indeterminato' && !out.data_cessazione) {
-      out.data_cessazione = '9999-12-31';
-      out.termination_date = '9999-12-31';
-    }
-
-    return out;
-  };
-
-  // ========== LOAD DATA FROM SUPABASE ==========
+  // ========== LOAD ==========
+  useEffect(() => {
+    if (!COMPANY_ID) return;
+    loadStatic();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [COMPANY_ID]);
 
   useEffect(() => {
     if (!COMPANY_ID) return;
-    loadAllData();
-  }, [COMPANY_ID]);
+    loadYearScoped(COMPANY_ID, selectedYear);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [COMPANY_ID, selectedYear]);
 
-  // Load bilancio costo personale from balance_sheet_data
-  useEffect(() => {
-    if (!COMPANY_ID) return;
-    const cid = COMPANY_ID; // narrowing per la closure async
-    async function loadBilancio() {
-      const currentYear = new Date().getFullYear();
-      const { data } = await supabase
-        .from('balance_sheet_data')
-        .select('amount')
-        .eq('company_id', cid)
-        .eq('account_code', 'totale_personale')
-        .eq('section', 'conto_economico')
-        .eq('period_type', 'annuale')
-        .eq('year', currentYear)
-        .maybeSingle();
-      if (data?.amount) {
-        setBilancioCostoPersonale(data.amount);
-      }
-    }
-    loadBilancio();
-  }, [COMPANY_ID]);
-
-  const loadAllData = async () => {
+  const loadStatic = async () => {
     if (!COMPANY_ID) return;
     try {
       setLoading(true);
-
-      // Load employees (filtered by company)
-      const { data: empData, error: empError } = await supabase
-        .from('employees')
-        .select('*')
-        .eq('company_id', COMPANY_ID)
-        .or('is_active.is.null,is_active.eq.true')
-        .order('cognome');
-
-      if (empError) throw empError;
-      setEmployees(empData || []);
-
-      // Load allocations (for company employees)
-      const empIds = (empData || []).map(e => e.id);
-      let allocData: EmployeeOutletAllocation[] = [];
-      if (empIds.length > 0) {
-        const { data, error: allocError } = await supabase
-          .from('employee_outlet_allocations')
-          .select('*')
-          .in('employee_id', empIds)
-          .order('employee_id');
-        if (allocError) throw allocError;
-        allocData = (data || []) as EmployeeOutletAllocation[];
-      }
-      setAllocations(allocData);
-
-      // Load costs (for company employees)
-      let costData: EmployeeCost[] = [];
-      if (empIds.length > 0) {
-        const { data, error: costError } = await supabase
-          .from('employee_costs')
-          .select('*')
-          .in('employee_id', empIds)
-          .order('employee_id');
-        if (costError) throw costError;
-        costData = (data || []) as EmployeeCost[];
-      }
-      setCosts(costData);
-
-      // Load cost centers (company-scoped)
-      const { data: ccData, error: ccError } = await supabase
-        .from('cost_centers')
-        .select('*')
-        .eq('company_id', COMPANY_ID)
-        .eq('is_active', true)
-        .order('label');
-
-      if (ccError) throw ccError;
-      setCostCenters(ccData || []);
-
-      // Load employee documents (company-scoped)
-      const { data: docsData } = await supabase
-        .from('employee_documents')
-        .select('*')
-        .eq('company_id', COMPANY_ID)
-        .order('created_at', { ascending: false });
-      setEmployeeDocs(docsData || []);
-
-      setLastUpdateTime(new Date().toLocaleString('it-IT'));
+      const [empRes, allocRes, costRes, ccRes, outRes, docRes] = await Promise.all([
+        supabase.from('employees').select('*').eq('company_id', COMPANY_ID).or('is_active.is.null,is_active.eq.true').order('cognome', { nullsFirst: false }),
+        supabase.from('employee_outlet_allocations').select('*').eq('company_id', COMPANY_ID),
+        supabase.from('employee_costs').select('*').eq('company_id', COMPANY_ID),
+        supabase.from('cost_centers').select('*').eq('company_id', COMPANY_ID).eq('is_active', true).order('sort_order', { nullsFirst: false }),
+        supabase.from('outlets').select('id, name, code, cost_center_key, is_active').eq('company_id', COMPANY_ID).eq('is_active', true).order('name'),
+        supabase.from('employee_documents').select('*').eq('company_id', COMPANY_ID).order('created_at', { ascending: false }),
+      ]);
+      setEmployees((empRes.data as Employee[]) || []);
+      setAllocations((allocRes.data as EmployeeOutletAllocation[]) || []);
+      setCosts((costRes.data as EmployeeCost[]) || []);
+      setCostCenters((ccRes.data as CostCenterRow[]) || []);
+      setOutlets((outRes.data as OutletRow[]) || []);
+      setEmployeeDocs((docRes.data as EmployeeDocument[]) || []);
     } catch (err) {
-      console.error('Errore nel caricamento dati:', err);
+      console.error('Errore caricamento Personale:', err);
+      toast({ type: 'error', message: 'Errore nel caricamento dei dati' });
     } finally {
       setLoading(false);
     }
   };
 
-  // ========== HELPER FUNCTIONS ==========
+  // Budget B&C (conti 67xx), bilancio totale personale, ricavi — dipendono dall'anno.
+  const loadYearScoped = async (cid: string, year: number) => {
+    try {
+      // Costo personale = budget_entries 67xx, raggruppati per cost_center (SOLA LETTURA)
+      const { data: be } = await supabase
+        .from('budget_entries')
+        .select('account_code, cost_center, budget_amount, actual_amount')
+        .eq('company_id', cid)
+        .eq('year', year)
+        .like('account_code', '67%');
+      const byCenter: Record<string, number> = {};
+      (be || []).forEach((r) => {
+        if (r.cost_center === 'all') return; // 'all' è il roll-up: evita doppio conteggio
+        const v = Number(r.budget_amount) || 0;
+        byCenter[r.cost_center] = (byCenter[r.cost_center] || 0) + v;
+      });
+      setBcByCenter(byCenter);
 
-  const formatCurrency = (value: number) =>
-    new Intl.NumberFormat('de-DE', {
-      style: 'currency',
-      currency: 'EUR',
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(value || 0);
+      // Bilancio: totale personale a CE
+      const { data: bil } = await supabase
+        .from('balance_sheet_data')
+        .select('amount')
+        .eq('company_id', cid)
+        .eq('account_code', 'totale_personale')
+        .eq('section', 'conto_economico')
+        .eq('year', year)
+        .maybeSingle();
+      setBilancioPersonale(bil?.amount != null ? Number(bil.amount) : null);
 
-  const getEmployeeAllocations = (employeeId: string) => {
-    return allocations.filter(a => a.employee_id === employeeId);
+      // Ricavi (per incidenza) — sempre via chart_of_accounts.is_revenue, MAI macro_group
+      const { data: revAccts } = await supabase
+        .from('chart_of_accounts')
+        .select('code')
+        .eq('company_id', cid)
+        .eq('is_revenue', true);
+      const codes = (revAccts || []).map((r) => r.code);
+      let revenue = 0;
+      if (codes.length) {
+        const { data: rev } = await supabase
+          .from('budget_entries')
+          .select('budget_amount, actual_amount')
+          .eq('company_id', cid)
+          .eq('year', year)
+          .in('account_code', codes);
+        revenue = (rev || []).reduce((s, r) => s + (Number(r.actual_amount) || Number(r.budget_amount) || 0), 0);
+      }
+      setRevenueYear(revenue);
+    } catch (err) {
+      console.error('Errore year-scoped Personale:', err);
+    }
   };
 
-  const getEmployeeCosts = (employeeId: string, year: number, month: number) => {
-    return costs.find(
-      c => c.employee_id === employeeId && c.year === year && c.month === month
-    );
+  const reloadAll = async () => {
+    if (!COMPANY_ID) return;
+    await Promise.all([loadStatic(), loadYearScoped(COMPANY_ID, selectedYear)]);
   };
 
-  const getEmployeesGroupedByOutlet = (year: number, month: number) => {
-    const grouped: Record<string, any[]> = {};
-    OUTLETS_ORDER.forEach(outlet => {
-      grouped[outlet] = [];
-    });
+  // ========== DERIVED ==========
+  const activeEmployees = useMemo(() => employees.filter((e) => e.is_active !== false), [employees]);
+  const headcountEmployees = useMemo(() => activeEmployees.filter((e) => !isAdminRole(e)), [activeEmployees]);
 
-    employees.forEach(emp => {
-      const empsAllocations = getEmployeeAllocations(emp.id);
-      const empCost = getEmployeeCosts(emp.id, year, month);
+  const allocByEmp = useMemo(() => {
+    const m: Record<string, EmployeeOutletAllocation[]> = {};
+    allocations.forEach((a) => { (m[a.employee_id] ||= []).push(a); });
+    return m;
+  }, [allocations]);
 
-      if (empsAllocations.length === 0) return;
+  const costForMonth = (empId: string) =>
+    costs.find((c) => c.employee_id === empId && c.year === selectedYear && c.month === selectedMonth);
 
-      empsAllocations.forEach(alloc => {
-        if (!grouped[alloc.outlet_code]) {
-          grouped[alloc.outlet_code] = [];
-        }
-        grouped[alloc.outlet_code].push({
-          ...emp,
-          allocation: alloc,
-          cost: empCost,
-        });
+  // Netto mensile per dipendente
+  const nettoOf = (empId: string) => Number(costForMonth(empId)?.netto || 0);
+
+  // Netto mensile per outlet (via allocazioni, outlet_code == outlet.name)
+  const nettoByOutlet = useMemo(() => {
+    const m: Record<string, number> = {};
+    activeEmployees.forEach((e) => {
+      const netto = nettoOf(e.id);
+      if (!netto) return;
+      const allocs = allocByEmp[e.id] || [];
+      if (allocs.length === 0) return;
+      allocs.forEach((a) => {
+        const pct = Number(a.allocation_pct || 100) / 100;
+        m[a.outlet_code] = (m[a.outlet_code] || 0) + netto * pct;
       });
     });
+    return m;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeEmployees, allocByEmp, costs, selectedYear, selectedMonth]);
 
-    return grouped;
-  };
-
-  const calculateOutletTotals = (year: number, month: number) => {
-    const grouped = getEmployeesGroupedByOutlet(year, month);
-    const totals: Record<string, { count: number; totale: number }> = {};
-
-    OUTLETS_ORDER.forEach(outlet => {
-      const emps = grouped[outlet];
-      const costTotal = emps.reduce((sum, emp) => {
-        if (!emp.cost) return sum;
-        const allocPct = (emp.allocation?.allocation_pct || 100) / 100;
-        const costValue = emp.cost.totale_costo || 0;
-        return sum + costValue * allocPct;
-      }, 0);
-
-      totals[outlet] = {
-        count: emps.length,
-        totale: costTotal,
-      };
+  const headcountByOutlet = useMemo(() => {
+    const m: Record<string, Set<string>> = {};
+    activeEmployees.forEach((e) => {
+      if (isAdminRole(e)) return;
+      (allocByEmp[e.id] || []).forEach((a) => {
+        (m[a.outlet_code] ||= new Set()).add(e.id);
+      });
     });
+    return m;
+  }, [activeEmployees, allocByEmp]);
 
-    return totals;
-  };
+  const bcByOutlet = (o: OutletRow) => (o.cost_center_key ? bcByCenter[o.cost_center_key] || 0 : 0);
 
-  // ========== 2025 CONSUNTIVO MEMOIZED DATA ==========
+  // KPI
+  const totalNettoMese = useMemo(
+    () => activeEmployees.reduce((s, e) => s + nettoOf(e.id), 0),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [activeEmployees, costs, selectedYear, selectedMonth]
+  );
+  const nettoYear = useMemo(
+    () => costs.filter((c) => c.year === selectedYear).reduce((s, c) => s + Number(c.netto || 0), 0),
+    [costs, selectedYear]
+  );
+  const totalBC = useMemo(() => Object.values(bcByCenter).reduce((s, v) => s + v, 0), [bcByCenter]);
+  const incidenza = revenueYear > 0 ? (totalBC / revenueYear) * 100 : null;
+  const costoMedio = headcountEmployees.length > 0 ? totalBC / headcountEmployees.length : 0;
 
-  const consuntivo2025ByOutlet = useMemo(() => {
-    return getEmployeesGroupedByOutlet(consuntivoYear, selectedMonth);
-  }, [employees, allocations, costs, consuntivoYear, selectedMonth]);
+  // Chart costo per outlet (B&C) + netto×12 in trasparenza
+  const chartData = useMemo(
+    () => outlets.map((o) => ({
+      name: o.name,
+      bc: bcByOutlet(o),
+      nettoX12: (nettoByOutlet[o.name] || 0) * 12,
+    })).filter((d) => d.bc > 0 || d.nettoX12 > 0),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [outlets, bcByCenter, nettoByOutlet]
+  );
 
-  const consuntivo2025Totals = useMemo(() => {
-    return calculateOutletTotals(consuntivoYear, selectedMonth);
-  }, [employees, allocations, costs, consuntivoYear, selectedMonth]);
+  // Cost centers non agganciati ad alcun outlet (es. spese_non_divise) → "Non attribuito"
+  const outletKeys = useMemo(() => new Set(outlets.map((o) => o.cost_center_key).filter(Boolean)), [outlets]);
+  const nonAttribuito = useMemo(
+    () => Object.entries(bcByCenter).filter(([k]) => !outletKeys.has(k)).reduce((s, [, v]) => s + v, 0),
+    [bcByCenter, outletKeys]
+  );
 
-  const totalEmployees2025 = useMemo(() => {
-    return Object.values(consuntivo2025ByOutlet).reduce(
-      (sum, emps) => sum + new Set(emps.map(e => e.id)).size,
-      0
-    );
-  }, [consuntivo2025ByOutlet]);
-
-  const totalCosto2025 = useMemo(() => {
-    return Object.values(consuntivo2025Totals).reduce((sum, t) => sum + t.totale, 0);
-  }, [consuntivo2025Totals]);
-
-  // ========== 2026 ORGANICO MEMOIZED DATA ==========
-
-  const organico2026ByOutlet = useMemo(() => {
-    return getEmployeesGroupedByOutlet(organicoYear, selectedMonth);
-  }, [employees, allocations, costs, organicoYear, selectedMonth]);
-
-  const organico2026Totals = useMemo(() => {
-    return calculateOutletTotals(organicoYear, selectedMonth);
-  }, [employees, allocations, costs, organicoYear, selectedMonth]);
-
-  const totalEmployees2026 = useMemo(() => {
-    return Object.values(organico2026ByOutlet).reduce(
-      (sum, emps) => sum + new Set(emps.map(e => e.id)).size,
-      0
-    );
-  }, [organico2026ByOutlet]);
-
-  const totalCosto2026 = useMemo(() => {
-    return Object.values(organico2026Totals).reduce((sum, t) => sum + t.totale, 0);
-  }, [organico2026Totals]);
-
-  const deltaCosto = totalCosto2026 - totalCosto2025;
-  const deltaPercent = totalCosto2025 > 0 ? ((deltaCosto / totalCosto2025) * 100).toFixed(1) : 0;
-
-  // ========== CHART DATA ==========
-
-  const chart2025Data = OUTLETS_ORDER
-    .filter(outlet => consuntivo2025Totals[outlet]?.totale > 0)
-    .map(outlet => ({
-      name: outlet,
-      costo: consuntivo2025Totals[outlet].totale,
+  // Componenti del mese per conto (da employee_costs)
+  const contiMese = useMemo(() => {
+    const monthCosts = costs.filter((c) => c.year === selectedYear && c.month === selectedMonth);
+    return COSTO_CONTI.map((cc) => ({
+      ...cc,
+      amount: monthCosts.reduce((s, c) => s + Number((c as any)[cc.field] || 0), 0),
     }));
+  }, [costs, selectedYear, selectedMonth]);
+  const totaleConti = contiMese.reduce((s, c) => s + c.amount, 0);
 
-  const chartComparison = OUTLETS_ORDER.map(outlet => ({
-    outlet,
-    [String(consuntivoYear)]: consuntivo2025Totals[outlet]?.totale || 0,
-    [String(organicoYear)]: organico2026Totals[outlet]?.totale || 0,
-  }));
+  const yearOptions = useMemo(() => {
+    const ys = new Set<number>(costs.map((c) => c.year));
+    const cur = new Date().getFullYear();
+    [cur - 2, cur - 1, cur, cur + 1, selectedYear, globalYear].forEach((y) => ys.add(y));
+    return Array.from(ys).sort((a, b) => b - a);
+  }, [costs, selectedYear, globalYear]);
 
-  // ========== EMPLOYEE FORM HANDLERS ==========
+  // ========== MUTATIONS ==========
+  const mapFormToDb = (formData: any) => {
+    const out: any = { ...formData };
+    if ('nome' in out) out.first_name = out.nome;
+    if ('cognome' in out) out.last_name = out.cognome;
+    if ('codice_fiscale' in out) out.fiscal_code = out.codice_fiscale || null;
+    if ('data_assunzione' in out) out.hire_date = out.data_assunzione || null;
+    if ('data_cessazione' in out) out.termination_date = out.data_cessazione || null;
+    if ('livello' in out) out.level = out.livello || null;
+    if ('note' in out) out.notes = out.note || null;
+    if ('contratto' in out) { out.contratto_tipo = out.contratto; delete out.contratto; }
+    if ('qualifica' in out) { out.role_description = out.qualifica; delete out.qualifica; }
+    ['hire_date', 'termination_date', 'data_assunzione', 'data_cessazione'].forEach((k) => { if (out[k] === '') out[k] = null; });
+    if (out.contratto_tipo === 'indeterminato' && !out.data_cessazione) {
+      out.data_cessazione = '9999-12-31'; out.termination_date = '9999-12-31';
+    }
+    return out;
+  };
 
-  // TODO: tighten type
   const handleSaveEmployee = async (formData: any) => {
-    // Validazioni — campi obbligatori
-    if (!formData.nome?.trim() || !formData.cognome?.trim()) {
-      showToast('Nome e cognome sono obbligatori', 'error'); return;
-    }
-    if (!formData.data_assunzione) {
-      showToast('La data di assunzione è obbligatoria', 'error'); return;
-    }
-    if (!formData.contratto) {
-      showToast('Il tipo di contratto è obbligatorio', 'error'); return;
-    }
-    // Per contratti diversi da indeterminato, la data di cessazione e' obbligatoria
-    if (formData.contratto !== 'indeterminato' && !formData.data_cessazione) {
-      showToast(`Per contratto "${formData.contratto}" la data di cessazione è obbligatoria`, 'error'); return;
-    }
-    if (formData.codice_fiscale && formData.codice_fiscale.length > 0 && formData.codice_fiscale.length !== 16) {
-      showToast('Il codice fiscale deve avere 16 caratteri', 'error'); return;
-    }
-    // Duplicate check
+    if (!formData.nome?.trim() || !formData.cognome?.trim()) { toast({ type: 'error', message: 'Nome e cognome sono obbligatori' }); return; }
+    if (!COMPANY_ID) return;
+    const doSave = async () => {
+      try {
+        const dbPayload = mapFormToDb(formData);
+        if (editingEmployee) {
+          const { error } = await supabase.from('employees').update(dbPayload).eq('id', editingEmployee.id);
+          if (error) throw error;
+          toast({ type: 'success', message: 'Dipendente aggiornato' });
+        } else {
+          const { error } = await supabase.from('employees').insert([{ ...dbPayload, company_id: COMPANY_ID, is_active: true }]);
+          if (error) throw error;
+          toast({ type: 'success', message: 'Dipendente creato. Assegnagli un outlet (icona %) per vederlo nei consuntivi.' });
+        }
+        setShowEmployeeForm(false); setEditingEmployee(null);
+        await reloadAll();
+      } catch (err: any) {
+        toast({ type: 'error', message: 'Errore nel salvataggio: ' + (err?.message || '') });
+      }
+    };
     if (!editingEmployee) {
-      const dup = employees.find(e =>
-        e.cognome?.toLowerCase() === formData.cognome?.toLowerCase() &&
-        e.nome?.toLowerCase() === formData.nome?.toLowerCase()
-      );
+      const dup = employees.find((e) => norm(e.cognome) === norm(formData.cognome) && norm(e.nome) === norm(formData.nome));
       if (dup) {
-        if (!confirm(`Dipendente "${formData.cognome} ${formData.nome}" esiste già. Creare comunque?`)) return;
+        setConfirmState({
+          title: 'Dipendente già esistente',
+          message: `"${formData.cognome} ${formData.nome}" risulta già presente. Vuoi crearlo comunque?`,
+          confirmLabel: 'Crea comunque',
+          onConfirm: () => { setConfirmState(null); doSave(); },
+        });
+        return;
       }
     }
-    try {
-      // Mappa i campi del form ai nomi colonna effettivi del DB
-      const dbPayload = mapFormToDb(formData);
-      if (editingEmployee) {
-        const { error } = await supabase
-          .from('employees')
-          .update(dbPayload)
-          .eq('id', editingEmployee.id);
-        if (error) throw error;
-        showToast('Dipendente aggiornato', 'success');
-      } else {
-        const { error } = await supabase
-          .from('employees')
-          .insert([{ ...dbPayload, company_id: COMPANY_ID, is_active: true }]);
-        if (error) throw error;
-        showToast(
-          'Dipendente creato. Per vederlo nei consuntivi assegnagli un outlet (icona allocazione %).',
-          'success'
-        );
-      }
-      await loadAllData();
-      setShowEmployeeForm(false);
-      setEditingEmployee(null);
-    } catch (err: unknown) {
-      console.error('Errore nel salvataggio dipendente:', err);
-      showToast('Errore nel salvataggio: ' + (err instanceof Error ? err.message : ''), 'error');
-    }
+    await doSave();
   };
 
-  const handleDeleteEmployee = async (empId: string) => {
+  const handleDeleteEmployee = (empId: string) => {
+    const e = employees.find((x) => x.id === empId);
+    setConfirmState({
+      title: 'Disattiva dipendente',
+      message: `Vuoi disattivare "${e ? empName(e) : ''}"? Resterà nello storico ma non comparirà nell'organico attivo.`,
+      confirmLabel: 'Disattiva', danger: true,
+      onConfirm: async () => {
+        setConfirmState(null);
+        const { error } = await supabase.from('employees').update({ is_active: false }).eq('id', empId);
+        if (error) { toast({ type: 'error', message: 'Errore' }); return; }
+        toast({ type: 'success', message: 'Dipendente disattivato' });
+        await reloadAll();
+      },
+    });
+  };
+
+  // Salvataggio costo — SOLO colonne reali (niente totale_costo). Total calcolato a runtime.
+  const handleSaveCost = async (payload: {
+    employee_id: string; year: number; month: number;
+    retribuzione: number; contributi: number; inail: number; tfr: number; altri_costi: number; netto: number;
+  }) => {
+    if (!COMPANY_ID) return;
+    if (!payload.employee_id) { toast({ type: 'error', message: 'Seleziona un dipendente' }); return; }
     try {
-      const { error } = await supabase
-        .from('employees')
-        .update({ is_active: false })
-        .eq('id', empId);
+      const realCols = {
+        employee_id: payload.employee_id,
+        company_id: COMPANY_ID,
+        year: payload.year,
+        month: payload.month,
+        retribuzione: payload.retribuzione,
+        contributi: payload.contributi,
+        inail: payload.inail,
+        tfr: payload.tfr,
+        altri_costi: payload.altri_costi,
+        netto: payload.netto,
+      };
+      const { error } = await supabase.from('employee_costs').upsert(realCols, { onConflict: 'employee_id,year,month' });
       if (error) throw error;
-      await loadAllData();
-    } catch (err) {
-      console.error('Errore nella cancellazione:', err);
+      toast({ type: 'success', message: 'Costo salvato' });
+      setShowCostForm(false); setEditingCost(null); setCostFormEmp(null);
+      await reloadAll();
+    } catch (err: any) {
+      toast({ type: 'error', message: 'Errore nel salvataggio costo: ' + (err?.message || '') });
     }
   };
 
-  // ========== COST FORM HANDLERS ==========
-
-  // TODO: tighten type
-  const handleSaveCost = async (costData: any) => {
-    try {
-      if (editingCost) {
-        const { error } = await supabase
-          .from('employee_costs')
-          .update(costData)
-          .eq('id', editingCost.id);
-        if (error) throw error;
-      } else {
-        const { error } = await supabase
-          .from('employee_costs')
-          .insert([costData]);
-        if (error) throw error;
-      }
-      await loadAllData();
-      setShowCostForm(false);
-      setEditingCost(null);
-    } catch (err) {
-      console.error('Errore nel salvataggio costo:', err);
-    }
+  const handleDeleteCost = (costId: string) => {
+    setConfirmState({
+      title: 'Elimina costo',
+      message: 'Vuoi eliminare questa riga di costo mensile?',
+      confirmLabel: 'Elimina', danger: true,
+      onConfirm: async () => {
+        setConfirmState(null);
+        const { error } = await supabase.from('employee_costs').delete().eq('id', costId);
+        if (error) { toast({ type: 'error', message: 'Errore' }); return; }
+        toast({ type: 'success', message: 'Costo eliminato' });
+        await reloadAll();
+      },
+    });
   };
 
-  const handleDeleteCost = async (costId: string) => {
-    try {
-      const { error } = await supabase
-        .from('employee_costs')
-        .delete()
-        .eq('id', costId);
-      if (error) throw error;
-      await loadAllData();
-    } catch (err) {
-      console.error('Errore nella cancellazione costo:', err);
-    }
-  };
-
-  // ========== FILE UPLOAD HANDLER ==========
-
-  const handleFileUpload = async (file: File, employeeId: string, docType: string) => {
-    try {
-      setUploadingEmployee(employeeId);
-
-      const fileExt = file.name.split('.').pop();
-      const fileName = `${employeeId}_${Date.now()}.${fileExt}`;
-      const filePath = `employee-documents/${fileName}`;
-
-      const { error: uploadError } = await supabase.storage
-        .from('employee-documents')
-        .upload(filePath, file);
-
-      if (uploadError) throw uploadError;
-
-      // Create document record
-      const { error: docError } = await supabase
-        .from('employee_documents')
-        .insert([
-          {
-            employee_id: employeeId,
-            doc_type: docType,
-            year: selectedYear,
-            month: selectedMonth,
-            file_name: file.name,
-            file_path: filePath,
-            file_size: file.size,
-            status: 'uploaded',
-          },
-        ]);
-
-      if (docError) throw docError;
-
-      await loadAllData();
-      setShowDocumentUpload(false);
-    } catch (err) {
-      console.error('Errore nel caricamento file:', err);
-    } finally {
-      setUploadingEmployee(null);
-    }
-  };
-
-  // ========== ALLOCATION EDITOR ==========
-
+  // Allocazioni
   const openAllocEditor = (empId: string) => {
-    const empAllocs = allocations.filter(a => a.employee_id === empId);
-    if (empAllocs.length > 0) {
-      setAllocEdits(empAllocs.map(a => ({ ...a })));
-    } else {
-      // Stub iniziale: i campi richiesti dal DB schema (id, company_id, ecc.)
-      // verranno valorizzati da Supabase su insert.
-      setAllocEdits([{
-        id: '', company_id: COMPANY_ID || '', employee_id: empId, outlet_code: '',
-        allocation_pct: 100, role_at_outlet: null, is_primary: null,
-        valid_from: null, valid_to: null, created_at: null,
-      }]);
-    }
+    const cur = (allocByEmp[empId] || []).map((a) => ({ outlet_code: a.outlet_code, allocation_pct: Number(a.allocation_pct || 0) }));
+    setAllocEdits(cur.length ? cur : [{ outlet_code: '', allocation_pct: 100 }]);
     setAllocErrors('');
     setShowAllocEditor(empId);
   };
 
   const handleSaveAllocations = async () => {
-    // Validate total doesn't exceed 100%
+    if (!COMPANY_ID || !showAllocEditor) return;
     const total = allocEdits.reduce((s, a) => s + (Number(a.allocation_pct) || 0), 0);
-    if (total > 100.01) {
-      setAllocErrors(`Le allocazioni sommano ${total.toFixed(1)}% — il massimo è 100%`);
-      return;
-    }
-    if (allocEdits.some(a => !a.outlet_code)) {
-      setAllocErrors('Selezionare un outlet per ogni allocazione');
-      return;
-    }
-
+    if (total > 100.01) { setAllocErrors(`Le allocazioni sommano ${total.toFixed(1)}% — il massimo è 100%`); return; }
+    if (allocEdits.some((a) => !a.outlet_code)) { setAllocErrors('Seleziona un outlet per ogni riga'); return; }
     try {
       const empId = showAllocEditor;
-      if (!empId) return;
-      // Delete existing allocations
       await supabase.from('employee_outlet_allocations').delete().eq('employee_id', empId);
-      // Insert new — solo campi richiesti per insert.
       const rows = allocEdits
-        .filter(a => a.outlet_code && Number(a.allocation_pct) > 0)
-        .map(a => ({
-          employee_id: empId,
-          company_id: a.company_id || COMPANY_ID || '',
-          outlet_code: a.outlet_code,
-          allocation_pct: Number(a.allocation_pct) || 0,
-        }));
-      if (rows.length > 0) {
-        await supabase.from('employee_outlet_allocations').insert(rows);
+        .filter((a) => a.outlet_code && Number(a.allocation_pct) > 0)
+        .map((a) => ({ employee_id: empId, company_id: COMPANY_ID, outlet_code: a.outlet_code, allocation_pct: Number(a.allocation_pct) || 0 }));
+      if (rows.length) {
+        const { error } = await supabase.from('employee_outlet_allocations').insert(rows);
+        if (error) throw error;
       }
       setShowAllocEditor(null);
-      await loadAllData();
-    } catch (err) {
-      console.error('Error saving allocations:', err);
-      setAllocErrors('Errore nel salvataggio');
+      toast({ type: 'success', message: 'Allocazioni salvate' });
+      await reloadAll();
+    } catch (err: any) {
+      setAllocErrors('Errore nel salvataggio: ' + (err?.message || ''));
     }
   };
 
-  // ========== BATCH IMPORT FROM EXCEL/CSV ==========
-
-  const handleBatchImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Cedolino upload/view
+  const triggerCedolino = (empId: string) => { cedolinoEmpRef.current = empId; cedolinoRef.current?.click(); };
+  const onCedolinoSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
-    setBatchImporting(true);
+    const empId = cedolinoEmpRef.current;
+    if (!file || !empId || !COMPANY_ID) return;
     try {
-      const text = await file.text();
-      const lines = text.split('\n').filter(l => l.trim());
-      const header = lines[0].split(';').map(h => h.trim().toLowerCase().replace(/^"|"$/g, ''));
-      let imported = 0;
-
-      for (let i = 1; i < lines.length; i++) {
-        const cols = lines[i].split(';').map(c => c.trim().replace(/^"|"$/g, ''));
-        if (cols.length < 3) continue;
-
-        const getValue = (key: string) => {
-          const idx = header.indexOf(key);
-          return idx >= 0 ? cols[idx] : '';
-        };
-        const getNum = (key: string) => {
-          const v = getValue(key);
-          return parseFloat(v?.replace('.', '').replace(',', '.')) || 0;
-        };
-
-        const cognome = getValue('cognome') || getValue('surname') || cols[0];
-        const nome = getValue('nome') || getValue('name') || cols[1];
-        if (!cognome) continue;
-
-        // Find or create employee
-        let empId;
-        const { data: existing } = await supabase.from('employees')
-          .select('id').eq('cognome', cognome).eq('nome', nome).maybeSingle();
-        if (existing) {
-          empId = existing.id;
-        } else {
-          if (!COMPANY_ID) continue;
-          // Schema vuole first_name/last_name come campi NOT NULL — duplichiamo
-          // da nome/cognome per compat (legacy field IT vs default EN).
-          const { data: newEmp } = await supabase.from('employees')
-            .insert({ company_id: COMPANY_ID, cognome, nome, first_name: nome, last_name: cognome, is_active: true })
-            .select('id').single();
-          empId = newEmp?.id;
-        }
-
-        if (!empId || !COMPANY_ID) continue;
-
-        // Import cost data
-        const retrib = getNum('retribuzione') || getNum('lordo');
-        const contributi = getNum('contributi');
-        const inail = getNum('inail');
-        const tfr = getNum('tfr');
-        const totale = retrib + contributi + inail + tfr;
-
-        if (totale > 0) {
-          const month = parseInt(getValue('mese')) || selectedMonth;
-          const year = parseInt(getValue('anno')) || selectedYear;
-
-          // NOTE: il campo totale_costo NON esiste nello schema impostato —
-          // si calcola lato view/render. void totale per evitare warning unused.
-          void totale;
-          await supabase.from('employee_costs').upsert({
-            employee_id: empId,
-            company_id: COMPANY_ID,
-            year,
-            month,
-            retribuzione: retrib,
-            contributi,
-            inail,
-            tfr,
-          }, { onConflict: 'employee_id,year,month' });
-        }
-
-        // Import allocation if present
-        const outlet = getValue('outlet') || getValue('punto_vendita');
-        const allocPct = getNum('allocazione') || getNum('percentuale') || 100;
-        if (outlet) {
-          await supabase.from('employee_outlet_allocations').upsert({
-            employee_id: empId,
-            outlet_code: outlet,
-            allocation_pct: allocPct,
-          }, { onConflict: 'employee_id,outlet_code' });
-        }
-
-        imported++;
-      }
-
-      globalToast({ type: 'success', message: `Importati ${imported} dipendenti` });
-      await loadAllData();
-    } catch (err) {
-      console.error('Batch import error:', err);
-      globalToast({ type: 'error', message: 'Errore nell\'importazione' });
+      setUploadingEmployee(empId);
+      const ext = file.name.split('.').pop();
+      const path = `employee-documents/${empId}_${selectedYear}_${selectedMonth}_${Date.now()}.${ext}`;
+      const { error: upErr } = await supabase.storage.from('employee-documents').upload(path, file);
+      if (upErr) throw upErr;
+      const { error: docErr } = await supabase.from('employee_documents').insert([{
+        employee_id: empId, company_id: COMPANY_ID, doc_type: 'cedolino', year: selectedYear, month: selectedMonth,
+        file_name: file.name, file_path: path, file_size: file.size, status: 'uploaded',
+      }]);
+      if (docErr) throw docErr;
+      toast({ type: 'success', message: 'Cedolino caricato' });
+      await reloadAll();
+    } catch (err: any) {
+      toast({ type: 'error', message: 'Errore upload cedolino: ' + (err?.message || '') });
     } finally {
-      setBatchImporting(false);
-      if (batchFileRef.current) batchFileRef.current.value = '';
+      setUploadingEmployee(null);
+      if (cedolinoRef.current) cedolinoRef.current.value = '';
     }
   };
 
-  // ========== PDF CEDOLINO VIEWER ==========
-
-  // TODO: tighten type
-  const handleViewDoc = async (doc: any) => {
+  const handleViewDoc = async (doc: EmployeeDocument) => {
     try {
-      const { data, error } = await supabase.storage
-        .from('employee-documents')
-        .download(doc.file_path);
+      if (!doc.file_path) return;
+      const { data, error } = await supabase.storage.from('employee-documents').download(doc.file_path);
       if (error) throw error;
-      const arrayBuffer = await data.arrayBuffer();
-      setDocPdfData(arrayBuffer);
+      setDocPdfData(await data.arrayBuffer());
       setShowDocViewer(doc);
     } catch (err) {
-      console.error('Error loading doc:', err);
+      toast({ type: 'error', message: 'Impossibile aprire il documento' });
     }
   };
+  const docsForEmp = (empId: string) => employeeDocs.filter((d) => d.employee_id === empId);
 
-  const getEmployeeDocs = (empId: string) => {
-    return employeeDocs.filter(d => d.employee_id === empId);
-  };
+  // ========== EMPTY / LOADING ==========
+  if (!COMPANY_ID) {
+    return <div className="p-8 text-slate-500">Nessuna azienda selezionata.</div>;
+  }
 
-  // ========== TOGGLE HANDLERS ==========
+  const monthLabel = MONTHS.find((m) => m.num === selectedMonth)?.label || '';
 
-  const toggleOutlet = (outlet: string) => {
-    setExpandedOutlets(prev => ({
-      ...prev,
-      [outlet]: !prev[outlet],
-    }));
-  };
+  // ========== RENDER ==========
+  return (
+    <div className="p-6 space-y-6">
+      <PageHeader
+        title="Personale"
+        subtitle="Organico e costo del personale per punto vendita"
+        actions={
+          <div className="flex items-center gap-2">
+            <select value={selectedYear} onChange={(e) => setSelectedYear(Number(e.target.value))} className="px-3 py-2 text-sm rounded-lg border border-slate-200 bg-white">
+              {yearOptions.map((y) => <option key={y} value={y}>{y}</option>)}
+            </select>
+            <select value={selectedMonth} onChange={(e) => setSelectedMonth(Number(e.target.value))} className="px-3 py-2 text-sm rounded-lg border border-slate-200 bg-white">
+              {MONTHS.map((m) => <option key={m.num} value={m.num}>{m.label}</option>)}
+            </select>
+            <button onClick={reloadAll} className="p-2 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50" title="Ricarica"><RefreshCw size={16} /></button>
+          </div>
+        }
+      />
 
-  const toggleEmployee = (key: string) => {
-    setExpandedEmployees(prev => ({
-      ...prev,
-      [key]: !prev[key],
-    }));
-  };
-
-  // ========== RENDER CONSUNTIVO 2025 VIEW ==========
-
-  const renderConsuntivo2025 = () => (
-    <div>
-      {/* KPI Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-        <div className="rounded-lg shadow-lg p-6" style={{ background: "linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)" }}>
-          <p className="text-sm font-medium text-slate-600 mb-1">Totale Dipendenti</p>
-          <p className="text-3xl font-bold text-slate-900">{totalEmployees2025}</p>
-          <p className="text-xs text-slate-500 mt-2">
-            Allocati su outlet · Anagrafica: <span className="font-semibold text-slate-700">{employees.length}</span>
-            {employees.length > totalEmployees2025 && (
-              <span className="text-amber-600 ml-1">({employees.length - totalEmployees2025} senza {labels.pointOfSaleLower})</span>
-            )}
-          </p>
-        </div>
-
-        <div className="rounded-lg shadow-lg p-6" style={{ background: "linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)" }}>
-          <p className="text-sm font-medium text-slate-600 mb-1">Costo Totale</p>
-          <p className="text-2xl font-bold text-slate-900">{formatCurrency(totalCosto2025)}</p>
-          <p className="text-xs text-slate-500 mt-2">Retrib. + Contrib. + INAIL</p>
-        </div>
-
-        <div className="rounded-lg shadow-lg p-6" style={{ background: "linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)" }}>
-          <p className="text-sm font-medium text-slate-600 mb-1">Costo Medio</p>
-          <p className="text-2xl font-bold text-slate-900">
-            {formatCurrency(totalEmployees2025 > 0 ? totalCosto2025 / totalEmployees2025 : 0)}
-          </p>
-          <p className="text-xs text-slate-500 mt-2">Per dipendente</p>
-        </div>
-      </div>
-
-      {/* Chart */}
-      <div className="rounded-2xl shadow-lg p-6 mb-8" style={{ background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)', border: '1px solid rgba(99,102,241,0.08)' }}>
-        <div className="flex items-center gap-2 mb-4">
-          <BarChart3 className="w-5 h-5 text-blue-600" />
-          <h2 className="text-lg font-semibold text-slate-900">Costo per {labels.pointOfSalePlural} - Consuntivo {consuntivoYear}</h2>
-        </div>
-        <ResponsiveContainer width="100%" height={300}>
-          <BarChart data={chart2025Data}>
-            <defs>
-              <linearGradient id="grad-costo-2025" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#2563eb" stopOpacity={1} />
-                <stop offset="100%" stopColor="#2563eb" stopOpacity={0.5} />
-              </linearGradient>
-            </defs>
-            <CartesianGrid {...GRID_STYLE} />
-            <XAxis dataKey="name" angle={-45} textAnchor="end" height={80} {...AXIS_STYLE} />
-            <YAxis
-              {...AXIS_STYLE}
-              tickFormatter={(v) => v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v}
-              label={{ value: 'Costo (EUR)', angle: -90, position: 'insideLeft', style: { fontSize: 11, fill: '#64748b' } }}
-            />
-            <Tooltip content={<GlassTooltip />} cursor={{ fill: 'rgba(99,102,241,0.04)', radius: 8 }} />
-            <Bar dataKey="costo" fill="url(#grad-costo-2025)" radius={[8, 8, 0, 0]} animationDuration={800} />
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
-
-      {/* Outlets Accordion */}
-      <div className="space-y-4 mb-8">
-        {OUTLETS_ORDER.map(outlet => {
-          const emps = consuntivo2025ByOutlet[outlet] || [];
-          if (emps.length === 0) return null;
-          const totals = consuntivo2025Totals[outlet];
-
+      {/* Sub-tab pill */}
+      <div className="inline-flex bg-slate-100 rounded-lg p-0.5">
+        {([
+          { k: 'panoramica', label: 'Panoramica', icon: BarChart3 },
+          { k: 'per_outlet', label: 'Per outlet', icon: Store },
+          { k: 'organico', label: 'Organico', icon: Users },
+          { k: 'costi', label: 'Costi & cedolini', icon: FileText },
+        ] as { k: PersonaleView; label: string; icon: any }[]).map((t) => {
+          const Icon = t.icon;
           return (
-            <div key={outlet} className="bg-white rounded-lg shadow overflow-hidden">
-              <button
-                onClick={() => toggleOutlet(outlet)}
-                className="w-full px-6 py-4 flex items-center justify-between hover:bg-slate-50 transition"
-              >
-                <div className="flex items-center gap-4 text-left">
-                  <div className={`w-4 h-4 rounded ${OUTLET_COLORS[outlet]}`} />
-                  <h3 className="font-semibold text-slate-900">{outlet}</h3>
-                </div>
-                <div className="flex items-center gap-6">
-                  <div className="text-right">
-                    <p className="text-sm font-medium text-slate-900">{totals.count} dipendenti</p>
-                    <p className="text-sm text-slate-600">{formatCurrency(totals.totale)}</p>
-                  </div>
-                  {expandedOutlets[outlet] ? (
-                    <ChevronUp className="w-5 h-5 text-slate-400" />
-                  ) : (
-                    <ChevronDown className="w-5 h-5 text-slate-400" />
-                  )}
-                </div>
-              </button>
-
-              {expandedOutlets[outlet] && (
-                <div className="border-t border-slate-200 p-6 bg-slate-50 space-y-3">
-                  {emps.map((emp, idx) => {
-                    const empKey = `cons-${outlet}-${emp.id}`;
-                    const totale = emp.cost?.totale_costo || 0;
-                    const allocPct = (emp.allocation?.allocation_pct || 100) / 100;
-
-                    return (
-                      <div key={idx} className="bg-white rounded border border-slate-200 overflow-hidden">
-                        <button
-                          onClick={() => toggleEmployee(empKey)}
-                          className="w-full px-4 py-3 flex items-center justify-between hover:bg-slate-50 transition"
-                        >
-                          <div className="text-left flex-1">
-                            <p className="font-medium text-slate-900">
-                              {emp.cognome} {emp.nome}
-                            </p>
-                            {allocPct < 1 && (
-                              <p className="text-xs text-slate-500">{(allocPct * 100).toFixed(0)}% allocato</p>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-6">
-                            <p className="text-sm font-medium text-slate-900">{formatCurrency(totale * allocPct)}</p>
-                            {expandedEmployees[empKey] ? (
-                              <ChevronUp className="w-4 h-4 text-slate-400" />
-                            ) : (
-                              <ChevronDown className="w-4 h-4 text-slate-400" />
-                            )}
-                          </div>
-                        </button>
-
-                        {expandedEmployees[empKey] && (
-                          <div className="border-t border-slate-200 px-4 py-4 bg-slate-50 space-y-3">
-                            {emp.cost ? (
-                              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                                <div>
-                                  <p className="text-xs text-slate-600 font-medium mb-1">Retribuzione</p>
-                                  <p className="text-sm font-semibold text-slate-900">{formatCurrency(emp.cost.retribuzione)}</p>
-                                </div>
-                                <div>
-                                  <p className="text-xs text-slate-600 font-medium mb-1">Contributi</p>
-                                  <p className="text-sm font-semibold text-slate-900">{formatCurrency(emp.cost.contributi)}</p>
-                                </div>
-                                <div>
-                                  <p className="text-xs text-slate-600 font-medium mb-1">INAIL</p>
-                                  <p className="text-sm font-semibold text-slate-900">{formatCurrency(emp.cost.inail)}</p>
-                                </div>
-                                <div className="bg-blue-50 rounded p-2">
-                                  <p className="text-xs text-blue-700 font-medium mb-1">Totale</p>
-                                  <p className="text-sm font-bold text-blue-900">{formatCurrency(totale * allocPct)}</p>
-                                </div>
-                              </div>
-                            ) : (
-                              <p className="text-xs text-slate-400">Nessun dato di costo per questo mese</p>
-                            )}
-                            <div className="flex items-center gap-2">
-                              <button onClick={() => openAllocEditor(emp.id)}
-                                className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-indigo-600 hover:bg-indigo-50 rounded border border-indigo-200">
-                                <Sliders className="w-3 h-3" /> Allocazioni
-                              </button>
-                              <button onClick={() => setShowDocumentUpload(emp.id)}
-                                className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-blue-600 hover:bg-blue-50 rounded border border-blue-200">
-                                <FileText className="w-3 h-3" /> Cedolini ({getEmployeeDocs(emp.id).length})
-                              </button>
-                              <button onClick={() => { setEditingCost(emp.cost); setShowCostForm(true) }}
-                                className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded border border-slate-200">
-                                <Edit2 className="w-3 h-3" /> {emp.cost ? 'Modifica costo' : 'Aggiungi costo'}
-                              </button>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
+            <button key={t.k} onClick={() => setView(t.k)}
+              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-md text-sm font-medium transition-all ${view === t.k ? 'bg-white shadow text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}>
+              <Icon size={15} />{t.label}
+            </button>
           );
         })}
       </div>
-    </div>
-  );
 
-  // ========== RENDER ORGANICO 2026 VIEW ==========
-
-  const renderOrganico2026 = () => (
-    <div>
-      {/* KPI Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-        <div className="rounded-lg shadow-lg p-6" style={{ background: "linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)" }}>
-          <p className="text-sm font-medium text-slate-600 mb-1">Dipendenti {organicoYear}</p>
-          <p className="text-3xl font-bold text-slate-900">{totalEmployees2026}</p>
-          <p className="text-xs text-slate-500 mt-2">
-            Allocati su outlet · Anagrafica: <span className="font-semibold text-slate-700">{employees.length}</span>
-            {employees.length > totalEmployees2026 && (
-              <span className="text-amber-600 ml-1">({employees.length - totalEmployees2026} senza {labels.pointOfSaleLower})</span>
-            )}
-          </p>
-        </div>
-
-        <div className="rounded-lg shadow-lg p-6" style={{ background: "linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)" }}>
-          <p className="text-sm font-medium text-slate-600 mb-1">Costo Stimato {organicoYear}</p>
-          <p className="text-2xl font-bold text-slate-900">{formatCurrency(totalCosto2026)}</p>
-          <p className="text-xs text-slate-500 mt-2">Totale organico</p>
-        </div>
-
-        <div className="rounded-lg shadow-lg p-6" style={{ background: "linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)" }}>
-          <p className="text-sm font-medium text-slate-600 mb-1">Delta vs {consuntivoYear}</p>
-          <p className={`text-2xl font-bold ${deltaCosto >= 0 ? 'text-rose-600' : 'text-green-600'}`}>
-            {formatCurrency(deltaCosto)}
-          </p>
-          <p className="text-xs text-slate-500 mt-2">{deltaPercent}%</p>
-        </div>
-
-        <div className="rounded-lg shadow-lg p-6" style={{ background: "linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)" }}>
-          <p className="text-sm font-medium text-slate-600 mb-1">Costo Medio</p>
-          <p className="text-2xl font-bold text-slate-900">
-            {formatCurrency(totalEmployees2026 > 0 ? totalCosto2026 / totalEmployees2026 : 0)}
-          </p>
-          <p className="text-xs text-slate-500 mt-2">Per dipendente</p>
-        </div>
-      </div>
-
-      {/* Comparison Chart */}
-      <div className="rounded-2xl shadow-lg p-6 mb-8" style={{ background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)', border: '1px solid rgba(99,102,241,0.08)' }}>
-        <div className="flex items-center gap-2 mb-4">
-          <BarChart3 className="w-5 h-5 text-blue-600" />
-          <h2 className="text-lg font-semibold text-slate-900">Confronto {consuntivoYear} vs {organicoYear}</h2>
-        </div>
-        <ResponsiveContainer width="100%" height={350}>
-          <BarChart data={chartComparison}>
-            <defs>
-              <linearGradient id="grad-2025" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#2563eb" stopOpacity={1} />
-                <stop offset="100%" stopColor="#2563eb" stopOpacity={0.5} />
-              </linearGradient>
-              <linearGradient id="grad-2026" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#059669" stopOpacity={1} />
-                <stop offset="100%" stopColor="#059669" stopOpacity={0.5} />
-              </linearGradient>
-            </defs>
-            <CartesianGrid {...GRID_STYLE} />
-            <XAxis dataKey="outlet" angle={-45} textAnchor="end" height={100} {...AXIS_STYLE} />
-            <YAxis
-              {...AXIS_STYLE}
-              tickFormatter={(v) => v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v}
-              label={{ value: 'Costo (EUR)', angle: -90, position: 'insideLeft', style: { fontSize: 11, fill: '#64748b' } }}
+      {loading ? (
+        <div className="text-slate-400 py-12 text-center">Caricamento…</div>
+      ) : (
+        <>
+          {view === 'panoramica' && (
+            <PanoramicaTab
+              headcount={headcountEmployees.length}
+              totalBC={totalBC}
+              totalNettoMese={totalNettoMese}
+              nettoYear={nettoYear}
+              incidenza={incidenza}
+              costoMedio={costoMedio}
+              monthLabel={monthLabel}
+              chartData={chartData}
+              bilancioPersonale={bilancioPersonale}
+              nonAttribuito={nonAttribuito}
+              year={selectedYear}
             />
-            <Tooltip content={<GlassTooltip />} cursor={{ fill: 'rgba(99,102,241,0.04)', radius: 8 }} />
-            <Legend />
-            <Bar dataKey={String(consuntivoYear)} fill="url(#grad-2025)" radius={[8, 8, 0, 0]} animationDuration={800} />
-            <Bar dataKey={String(organicoYear)} fill="url(#grad-2026)" radius={[8, 8, 0, 0]} animationDuration={800} />
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
+          )}
 
-      {/* Outlets Accordion */}
-      <div className="space-y-4 mb-8">
-        {OUTLETS_ORDER.map(outlet => {
-          const emps = organico2026ByOutlet[outlet] || [];
-          if (emps.length === 0) return null;
-          const totals = organico2026Totals[outlet];
+          {view === 'per_outlet' && (
+            <PerOutletTab
+              outlets={outlets}
+              activeEmployees={activeEmployees}
+              allocByEmp={allocByEmp}
+              nettoOf={nettoOf}
+              nettoByOutlet={nettoByOutlet}
+              headcountByOutlet={headcountByOutlet}
+              bcByOutlet={bcByOutlet}
+              monthLabel={monthLabel}
+              nonAttribuito={nonAttribuito}
+            />
+          )}
 
-          return (
-            <div key={outlet} className="bg-white rounded-lg shadow overflow-hidden">
-              <button
-                onClick={() => toggleOutlet(outlet)}
-                className="w-full px-6 py-4 flex items-center justify-between hover:bg-slate-50 transition"
-              >
-                <div className="flex items-center gap-4 text-left">
-                  <div className={`w-4 h-4 rounded ${OUTLET_COLORS[outlet]}`} />
-                  <h3 className="font-semibold text-slate-900">{outlet}</h3>
+          {view === 'organico' && (
+            <OrganicoTab
+              employees={activeEmployees}
+              allocByEmp={allocByEmp}
+              nettoOf={nettoOf}
+              outlets={outlets}
+              outletFilter={orgOutletFilter}
+              setOutletFilter={setOrgOutletFilter}
+              search={orgSearch}
+              setSearch={setOrgSearch}
+              onAdd={() => { setEditingEmployee(null); setShowEmployeeForm(true); }}
+              onEdit={(e) => { setEditingEmployee(e); setShowEmployeeForm(true); }}
+              onAlloc={openAllocEditor}
+              onCedolino={triggerCedolino}
+              onDelete={handleDeleteEmployee}
+              docsForEmp={docsForEmp}
+              uploadingEmployee={uploadingEmployee}
+            />
+          )}
+
+          {view === 'costi' && (
+            <CostiTab
+              contiMese={contiMese}
+              totaleConti={totaleConti}
+              monthLabel={monthLabel}
+              year={selectedYear}
+              employees={activeEmployees}
+              costForMonth={costForMonth}
+              docsForEmp={docsForEmp}
+              onAddCost={(empId) => { setEditingCost(costForMonth(empId) || null); setCostFormEmp(empId); setShowCostForm(true); }}
+              onEditCost={(c) => { setEditingCost(c); setCostFormEmp(c.employee_id); setShowCostForm(true); }}
+              onDeleteCost={handleDeleteCost}
+              onCedolino={triggerCedolino}
+              onViewDoc={handleViewDoc}
+              uploadingEmployee={uploadingEmployee}
+              importPanel={
+                <ImportMensile
+                  companyId={COMPANY_ID}
+                  userId={USER_ID}
+                  outlets={outlets}
+                  employees={employees}
+                  existingCosts={costs}
+                  defaultYear={selectedYear}
+                  defaultMonth={selectedMonth}
+                  onDone={reloadAll}
+                />
+              }
+            />
+          )}
+        </>
+      )}
+
+      {/* Hidden cedolino input */}
+      <input ref={cedolinoRef} type="file" accept=".pdf" className="hidden" onChange={onCedolinoSelected} />
+
+      {/* Modals */}
+      {showEmployeeForm && (
+        <EmployeeFormModal
+          initial={editingEmployee}
+          onCancel={() => { setShowEmployeeForm(false); setEditingEmployee(null); }}
+          onSave={handleSaveEmployee}
+        />
+      )}
+
+      {showCostForm && (
+        <CostFormModal
+          initial={editingCost}
+          employeeId={costFormEmp}
+          employees={employees}
+          year={selectedYear}
+          month={selectedMonth}
+          onCancel={() => { setShowCostForm(false); setEditingCost(null); setCostFormEmp(null); }}
+          onSave={handleSaveCost}
+        />
+      )}
+
+      {showAllocEditor && (
+        <Modal title="Allocazione per outlet" onClose={() => setShowAllocEditor(null)}>
+          <div className="space-y-3">
+            {allocEdits.map((a, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <select value={a.outlet_code} onChange={(e) => setAllocEdits((prev) => prev.map((x, j) => j === i ? { ...x, outlet_code: e.target.value } : x))}
+                  className="flex-1 px-3 py-2 text-sm rounded-lg border border-slate-200">
+                  <option value="">— outlet —</option>
+                  {outlets.map((o) => <option key={o.id} value={o.name}>{o.name}</option>)}
+                </select>
+                <div className="relative w-28">
+                  <input type="number" value={a.allocation_pct} min={0} max={100}
+                    onChange={(e) => setAllocEdits((prev) => prev.map((x, j) => j === i ? { ...x, allocation_pct: Number(e.target.value) } : x))}
+                    className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 pr-7 tabular-nums" />
+                  <Percent size={13} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400" />
                 </div>
-                <div className="flex items-center gap-6">
-                  <div className="text-right">
-                    <p className="text-sm font-medium text-slate-900">{totals.count} dipendenti</p>
-                    <p className="text-sm text-slate-600">{formatCurrency(totals.totale)}</p>
-                  </div>
-                  {expandedOutlets[outlet] ? (
-                    <ChevronUp className="w-5 h-5 text-slate-400" />
-                  ) : (
-                    <ChevronDown className="w-5 h-5 text-slate-400" />
-                  )}
-                </div>
-              </button>
-
-              {expandedOutlets[outlet] && (
-                <div className="border-t border-slate-200 p-6 bg-slate-50 space-y-3">
-                  {emps.map((emp, idx) => {
-                    const empKey = `org-${outlet}-${emp.id}`;
-                    const totale = emp.cost?.totale_costo || 0;
-                    const allocPct = (emp.allocation?.allocation_pct || 100) / 100;
-
-                    return (
-                      <div key={idx} className="bg-white rounded border border-slate-200 overflow-hidden">
-                        <button
-                          onClick={() => toggleEmployee(empKey)}
-                          className="w-full px-4 py-3 flex items-center justify-between hover:bg-slate-50 transition"
-                        >
-                          <div className="text-left flex-1">
-                            <p className="font-medium text-slate-900">
-                              {emp.cognome} {emp.nome}
-                            </p>
-                            {allocPct < 1 && (
-                              <p className="text-xs text-slate-500">{(allocPct * 100).toFixed(0)}% allocato</p>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-4">
-                            <p className="text-sm font-medium text-slate-900 w-32 text-right">
-                              {formatCurrency(totale * allocPct)}
-                            </p>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setEditingCost(emp.cost);
-                                setShowCostForm(true);
-                              }}
-                              className="text-slate-400 hover:text-blue-600 transition"
-                            >
-                              <Edit2 className="w-4 h-4" />
-                            </button>
-                            {expandedEmployees[empKey] ? (
-                              <ChevronUp className="w-4 h-4 text-slate-400" />
-                            ) : (
-                              <ChevronDown className="w-4 h-4 text-slate-400" />
-                            )}
-                          </div>
-                        </button>
-
-                        {expandedEmployees[empKey] && emp.cost && (
-                          <div className="border-t border-slate-200 px-4 py-4 bg-slate-50 space-y-4">
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                              <div>
-                                <p className="text-xs text-slate-600 font-medium mb-1">Retribuzione</p>
-                                <p className="text-sm font-semibold text-slate-900">{formatCurrency(emp.cost.retribuzione)}</p>
-                              </div>
-                              <div>
-                                <p className="text-xs text-slate-600 font-medium mb-1">Contributi</p>
-                                <p className="text-sm font-semibold text-slate-900">{formatCurrency(emp.cost.contributi)}</p>
-                              </div>
-                              <div>
-                                <p className="text-xs text-slate-600 font-medium mb-1">INAIL</p>
-                                <p className="text-sm font-semibold text-slate-900">{formatCurrency(emp.cost.inail)}</p>
-                              </div>
-                              <div>
-                                <p className="text-xs text-slate-600 font-medium mb-1">TFR</p>
-                                <p className="text-sm font-semibold text-slate-900">{formatCurrency(emp.cost.tfr)}</p>
-                              </div>
-                            </div>
-                            <button
-                              onClick={() => setShowDocumentUpload(emp.id)}
-                              className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-blue-600 hover:bg-blue-50 rounded border border-blue-300"
-                            >
-                              <Upload className="w-4 h-4" />
-                              Carica cedolino
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-
-  // ========== VISTA PER OUTLET ==========
-  // Mostra i dipendenti raggruppati per outlet con allocazione %, FTE e
-  // costo annuo allocato. Pensata per Sabrina/Lilian: "chi lavora dove?"
-  // e per Massimo/Denise (CEO): "quanto mi costa il personale per outlet?".
-  //
-  // Costo allocato per outlet = somma costi annui dipendente × allocation_pct%.
-  // Se un dipendente è 70% Outlet A + 30% Outlet B, il suo costo è splittato.
-  //
-  // Replicabile sui 3 tenant + clienti SaaS futuri: usa OUTLETS_ORDER (dal
-  // DB) e allocazioni reali, nessun outlet hardcoded.
-
-  const renderPerOutlet = () => {
-    // Anno corrente del consuntivo (usa stesso pattern di consuntivo2025)
-    const year = selectedYear;
-    // Costo annuo totale per dipendente (somma 12 mesi)
-    const totalAnnualByEmployee: Record<string, number> = {};
-    employees.forEach((emp) => {
-      const yearCosts = costs.filter((c) => c.employee_id === emp.id && c.year === year);
-      totalAnnualByEmployee[emp.id || ''] = yearCosts.reduce(
-        (s, c) => s + (c.retribuzione || 0) + (c.contributi || 0) + (c.inail || 0) + (c.tfr || 0) + (c.altri_costi || 0),
-        0,
-      );
-    });
-
-    // Per ogni outlet: lista dipendenti con allocation_pct + costo allocato
-    type OutletDip = {
-      employee: Employee;
-      allocation_pct: number;
-      role_at_outlet: string | null;
-      annual_cost_allocated: number;
-      fte: number;
-    };
-    const grouped: Record<string, OutletDip[]> = {};
-    const unassigned: OutletDip[] = [];
-
-    employees.filter((e) => e.is_active !== false).forEach((emp) => {
-      const empAllocs = allocations.filter((a) => a.employee_id === emp.id);
-      const totalCost = totalAnnualByEmployee[emp.id || ''] || 0;
-      const fteRatio = Number(emp.fte_ratio || 1);
-      if (empAllocs.length === 0) {
-        unassigned.push({
-          employee: emp,
-          allocation_pct: 0,
-          role_at_outlet: null,
-          annual_cost_allocated: totalCost,
-          fte: fteRatio,
-        });
-        return;
-      }
-      empAllocs.forEach((a) => {
-        const pct = Number(a.allocation_pct || 0);
-        const code = a.outlet_code || '';
-        if (!grouped[code]) grouped[code] = [];
-        grouped[code].push({
-          employee: emp,
-          allocation_pct: pct,
-          role_at_outlet: a.role_at_outlet ?? null,
-          annual_cost_allocated: (totalCost * pct) / 100,
-          fte: (fteRatio * pct) / 100,
-        });
-      });
-    });
-
-    const totalAllOutlets = Object.values(grouped).reduce(
-      (s, arr) => s + arr.reduce((sa, d) => sa + d.annual_cost_allocated, 0),
-      0,
-    );
-    const totalUnassigned = unassigned.reduce((s, d) => s + d.annual_cost_allocated, 0);
-
-    return (
-      <div className="space-y-4 mb-8">
-        {/* Banner riassuntivo */}
-        <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl p-4 flex items-start gap-3">
-          <Users className="w-5 h-5 text-blue-700 mt-0.5 shrink-0" />
-          <div className="flex-1 text-sm text-slate-700">
-            <div className="font-semibold text-slate-900 mb-1">
-              Vista per {labels.pointOfSaleLower}: {employees.filter((e) => e.is_active !== false).length} dipendenti attivi
-              distribuiti su {Object.keys(grouped).length} {labels.pointOfSalePluralLower}
-            </div>
-            <div>
-              Costo totale allocato {year}: <strong>{totalAllOutlets.toLocaleString('de-DE', { minimumFractionDigits: 2 })} €</strong>
-              {unassigned.length > 0 && (
-                <span className="ml-2 text-amber-700">
-                  · {unassigned.length} dipendenti senza allocazione ({totalUnassigned.toLocaleString('de-DE', { minimumFractionDigits: 0 })} €)
-                </span>
-              )}
+                <button onClick={() => setAllocEdits((prev) => prev.filter((_, j) => j !== i))} className="text-slate-400 hover:text-red-600"><Trash2 size={16} /></button>
+              </div>
+            ))}
+            <button onClick={() => setAllocEdits((prev) => [...prev, { outlet_code: '', allocation_pct: 0 }])} className="text-sm text-blue-600 hover:text-blue-700 flex items-center gap-1"><Plus size={14} /> Aggiungi outlet</button>
+            {allocErrors && <div className="text-sm text-red-600 flex items-center gap-1"><AlertCircle size={14} />{allocErrors}</div>}
+            <div className="flex justify-end gap-2 pt-2">
+              <button onClick={() => setShowAllocEditor(null)} className="px-4 py-2 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100">Annulla</button>
+              <button onClick={handleSaveAllocations} className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 flex items-center gap-1.5"><Save size={15} /> Salva</button>
             </div>
           </div>
+        </Modal>
+      )}
+
+      {showDocViewer && (
+        <Modal title={showDocViewer.file_name || 'Documento'} onClose={() => { setShowDocViewer(null); setDocPdfData(null); }} maxW="max-w-3xl">
+          <Suspense fallback={<div className="text-slate-400 py-8 text-center">Caricamento documento…</div>}>
+            <PdfViewer pdfData={docPdfData} />
+          </Suspense>
+        </Modal>
+      )}
+
+      <ConfirmModal
+        open={!!confirmState}
+        title={confirmState?.title || ''}
+        message={confirmState?.message || ''}
+        confirmLabel={confirmState?.confirmLabel}
+        danger={confirmState?.danger}
+        onConfirm={() => confirmState?.onConfirm()}
+        onCancel={() => setConfirmState(null)}
+      />
+    </div>
+  );
+}
+
+// ============================================================================
+// TAB 1 — PANORAMICA
+// ============================================================================
+function PanoramicaTab(props: {
+  headcount: number; totalBC: number; totalNettoMese: number; nettoYear: number;
+  incidenza: number | null; costoMedio: number; monthLabel: string;
+  chartData: { name: string; bc: number; nettoX12: number }[];
+  bilancioPersonale: number | null; nonAttribuito: number; year: number;
+}) {
+  const { headcount, totalBC, totalNettoMese, incidenza, costoMedio, monthLabel, chartData, bilancioPersonale, nonAttribuito, year } = props;
+  const nettoAnnualizzato = totalNettoMese * 12;
+  const empty = headcount === 0 && totalBC === 0 && totalNettoMese === 0;
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+        <Kpi label="Organico attivo" value={headcount} sub="escl. amministratori" icon={Users} gradient="from-blue-500 to-indigo-600" />
+        <Kpi label={`Costo personale ${year}`} value={<><span>{eurFmt.format(totalBC)}</span>&nbsp;€</>} sub="budget B&C (67xx)" icon={BarChart3} gradient="from-violet-500 to-purple-600" />
+        <Kpi label={`Netto ${monthLabel}`} value={<><span>{eurFmt.format(totalNettoMese)}</span>&nbsp;€</>} sub="cassa del mese" icon={FileText} gradient="from-emerald-500 to-teal-600" />
+        <Kpi label="Incidenza su ricavi" value={incidenza != null ? `${incidenza.toFixed(1)}%` : '—'} sub="costo personale / ricavi" icon={Percent} gradient="from-amber-500 to-orange-600" />
+        <Kpi label="Costo medio/addetto" value={<><span>{eurFmt.format(costoMedio)}</span>&nbsp;€</>} sub="annuo B&C" icon={Users} gradient="from-rose-500 to-pink-600" />
+      </div>
+
+      {empty ? (
+        <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center text-slate-400">
+          Nessun dato di personale per il {year}. Importa i netti mensili dalla tab “Costi &amp; cedolini”.
         </div>
+      ) : (
+        <>
+          <div className="bg-white rounded-2xl shadow-lg p-5">
+            <h3 className="font-semibold text-slate-900 mb-4">Costo personale per outlet ({year})</h3>
+            <ResponsiveContainer width="100%" height={320}>
+              <BarChart data={chartData} margin={{ top: 8, right: 12, left: 0, bottom: 8 }}>
+                <CartesianGrid {...GRID_STYLE} />
+                <XAxis dataKey="name" {...AXIS_STYLE} interval={0} angle={-20} textAnchor="end" height={60} />
+                <YAxis {...AXIS_STYLE} tickFormatter={fmtEuro} />
+                <Tooltip content={<GlassTooltip />} />
+                <Legend />
+                <Bar dataKey="bc" name="Costo budget B&C" fill={PALETTE[0]} radius={[6, 6, 0, 0]} />
+                <Bar dataKey="nettoX12" name="Netto ×12 (proiezione)" fill={PALETTE[1]} fillOpacity={0.35} radius={[6, 6, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
 
-        {/* Card per ogni outlet */}
-        {OUTLETS_ORDER.map((outletName) => {
-          const dips = grouped[outletName] || [];
-          const totalOutlet = dips.reduce((s, d) => s + d.annual_cost_allocated, 0);
-          const fteOutlet = dips.reduce((s, d) => s + d.fte, 0);
-          const isExpanded = expandedOutlets[outletName] ?? true;
-          const bg = OUTLET_COLORS[outletName] || 'bg-slate-100';
-          return (
-            <div key={outletName} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-              <button
-                onClick={() => setExpandedOutlets((p) => ({ ...p, [outletName]: !isExpanded }))}
-                className="w-full flex items-center justify-between px-5 py-4 hover:bg-slate-50 transition"
-              >
-                <div className="flex items-center gap-3">
-                  <div className={`${bg} w-10 h-10 rounded-lg flex items-center justify-center`}>
-                    <Store className="w-5 h-5 text-white" />
-                  </div>
-                  <div className="text-left">
-                    <div className="font-semibold text-slate-900">{outletName}</div>
-                    <div className="text-xs text-slate-500">
-                      {dips.length} dipendenti · {fteOutlet.toFixed(2)} FTE totali
-                    </div>
-                  </div>
-                </div>
-                <div className="flex items-center gap-4">
-                  <div className="text-right">
-                    <div className="text-sm font-bold text-slate-900">
-                      {totalOutlet.toLocaleString('de-DE', { minimumFractionDigits: 2 })} €
-                    </div>
-                    <div className="text-xs text-slate-500">costo annuo {year}</div>
-                  </div>
-                  {isExpanded ? <ChevronUp className="w-5 h-5 text-slate-400" /> : <ChevronDown className="w-5 h-5 text-slate-400" />}
-                </div>
-              </button>
-              {isExpanded && (
-                <div className="border-t border-slate-200">
-                  {dips.length === 0 ? (
-                    <div className="px-5 py-6 text-center text-sm text-slate-400">
-                      Nessun dipendente assegnato a questo {labels.pointOfSaleLower}
-                    </div>
-                  ) : (
-                    <table className="w-full text-sm">
-                      <thead className="bg-slate-50">
-                        <tr>
-                          <th className="px-5 py-2 text-left font-semibold text-slate-600">Dipendente</th>
-                          <th className="px-5 py-2 text-left font-semibold text-slate-600">Ruolo</th>
-                          <th className="px-5 py-2 text-right font-semibold text-slate-600">Allocazione</th>
-                          <th className="px-5 py-2 text-right font-semibold text-slate-600">FTE</th>
-                          <th className="px-5 py-2 text-right font-semibold text-slate-600">Costo annuo allocato</th>
-                          <th className="px-5 py-2 text-center font-semibold text-slate-600">Azioni</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {dips.map((d) => {
-                          const empName = `${d.employee.cognome || d.employee.last_name || ''} ${d.employee.nome || d.employee.first_name || ''}`.trim();
-                          const ruolo = d.role_at_outlet || d.employee.role_description || String((d.employee as Record<string, unknown>).qualifica ?? '') || '—';
-                          return (
-                            <tr key={`${d.employee.id}-${outletName}`} className="border-t border-slate-100 hover:bg-slate-50">
-                              <td className="px-5 py-2 font-medium text-slate-900">{empName || 'Senza nome'}</td>
-                              <td className="px-5 py-2 text-slate-600">{ruolo}</td>
-                              <td className="px-5 py-2 text-right text-slate-700">{d.allocation_pct.toFixed(0)}%</td>
-                              <td className="px-5 py-2 text-right text-slate-700">{d.fte.toFixed(2)}</td>
-                              <td className="px-5 py-2 text-right font-semibold text-slate-900">
-                                {d.annual_cost_allocated.toLocaleString('de-DE', { minimumFractionDigits: 2 })} €
-                              </td>
-                              <td className="px-5 py-2 text-center">
-                                <button
-                                  onClick={() => {
-                                    if (d.employee.id) {
-                                      setShowAllocEditor(d.employee.id);
-                                      setAllocEdits(allocations.filter((a) => a.employee_id === d.employee.id));
-                                    }
-                                  }}
-                                  className="px-3 py-1 text-xs font-medium text-blue-700 hover:bg-blue-50 rounded"
-                                  title="Modifica allocazione del dipendente"
-                                >
-                                  Modifica
-                                </button>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  )}
-                </div>
-              )}
+          {/* Quadratura */}
+          <div className="bg-white rounded-2xl shadow-lg p-5">
+            <h3 className="font-semibold text-slate-900 mb-1">Quadratura costo personale</h3>
+            <p className="text-xs text-slate-500 mb-4">Confronto tra cassa (netti), controllo (budget B&amp;C) e competenza (bilancio).</p>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <QuadCard label="Netto annualizzato (mese ×12)" value={nettoAnnualizzato} hint="cassa" />
+              <QuadCard label="Costo budget B&C (67xx)" value={totalBC} hint="controllo" />
+              <QuadCard label="Costo bilancio (CE)" value={bilancioPersonale ?? 0} hint={bilancioPersonale == null ? 'non disponibile' : 'competenza'} muted={bilancioPersonale == null} />
             </div>
-          );
-        })}
+            {nonAttribuito > 0 && (
+              <div className="mt-4 text-xs text-slate-500 flex items-center gap-1.5">
+                <AlertCircle size={13} /> Costi non attribuiti ad alcun outlet: <Money v={nonAttribuito} />
+              </div>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
 
-        {/* Card "Senza allocazione" se ci sono dipendenti orfani */}
-        {unassigned.length > 0 && (
-          <div className="bg-amber-50 rounded-xl border-2 border-amber-300 shadow-sm overflow-hidden">
-            <div className="px-5 py-4 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="bg-amber-200 w-10 h-10 rounded-lg flex items-center justify-center">
-                  <AlertCircle className="w-5 h-5 text-amber-800" />
+function QuadCard({ label, value, hint, muted = false }: { label: string; value: number; hint: string; muted?: boolean }) {
+  return (
+    <div className={`rounded-xl border p-4 ${muted ? 'border-slate-200 bg-slate-50' : 'border-slate-200 bg-white'}`}>
+      <div className="text-xs text-slate-500 mb-1">{label}</div>
+      <div className="text-xl font-bold"><Money v={value} strong /></div>
+      <div className="text-[11px] uppercase tracking-wide text-slate-400 mt-1">{hint}</div>
+    </div>
+  );
+}
+
+// ============================================================================
+// TAB 2 — PER OUTLET
+// ============================================================================
+function PerOutletTab(props: {
+  outlets: OutletRow[];
+  activeEmployees: Employee[];
+  allocByEmp: Record<string, EmployeeOutletAllocation[]>;
+  nettoOf: (id: string) => number;
+  nettoByOutlet: Record<string, number>;
+  headcountByOutlet: Record<string, Set<string>>;
+  bcByOutlet: (o: OutletRow) => number;
+  monthLabel: string;
+  nonAttribuito: number;
+}) {
+  const { outlets, activeEmployees, allocByEmp, nettoOf, nettoByOutlet, headcountByOutlet, bcByOutlet, monthLabel, nonAttribuito } = props;
+  if (outlets.length === 0) {
+    return <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center text-slate-400">Nessun outlet configurato per questo tenant.</div>;
+  }
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+      {outlets.map((o) => {
+        const color = getOutletColor(o.name);
+        const persone = activeEmployees.filter((e) => (allocByEmp[e.id] || []).some((a) => a.outlet_code === o.name));
+        return (
+          <div key={o.id} className="bg-white rounded-2xl shadow-lg overflow-hidden">
+            <div className="px-5 py-3 flex items-center justify-between" style={{ background: color.light }}>
+              <div className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full" style={{ background: color.main }} />
+                <span className="font-semibold text-slate-900">{o.name}</span>
+              </div>
+              <span className="text-xs text-slate-500">{(headcountByOutlet[o.name]?.size || 0)} addetti</span>
+            </div>
+            <div className="p-5 space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <div className="text-xs text-slate-500">Netto {monthLabel}</div>
+                  <div className="text-lg font-bold"><Money v={nettoByOutlet[o.name] || 0} strong /></div>
                 </div>
                 <div>
-                  <div className="font-semibold text-amber-900">Dipendenti senza allocazione</div>
-                  <div className="text-xs text-amber-700">
-                    {unassigned.length} dipendenti attivi non assegnati a nessun {labels.pointOfSaleLower}
-                  </div>
+                  <div className="text-xs text-slate-500">Costo annuo B&C</div>
+                  <div className="text-lg font-bold"><Money v={bcByOutlet(o)} strong /></div>
                 </div>
               </div>
-              <div className="text-right">
-                <div className="text-sm font-bold text-amber-900">
-                  {totalUnassigned.toLocaleString('de-DE', { minimumFractionDigits: 2 })} €
-                </div>
-                <div className="text-xs text-amber-700">costo annuo non allocato</div>
+              <div className="border-t border-slate-100 pt-3">
+                {persone.length === 0 ? (
+                  <div className="text-xs text-slate-400">Nessun addetto allocato.</div>
+                ) : (
+                  <ul className="space-y-1.5">
+                    {persone.map((e) => (
+                      <li key={e.id} className="flex items-center justify-between text-sm">
+                        <span className="text-slate-700 truncate">{empName(e)}{isAdminRole(e) && <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">Amministratore</span>}</span>
+                        <Money v={nettoOf(e.id)} />
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </div>
             </div>
-            <table className="w-full text-sm border-t border-amber-200">
-              <thead className="bg-amber-100">
-                <tr>
-                  <th className="px-5 py-2 text-left font-semibold text-amber-900">Dipendente</th>
-                  <th className="px-5 py-2 text-left font-semibold text-amber-900">Ruolo</th>
-                  <th className="px-5 py-2 text-right font-semibold text-amber-900">Costo annuo</th>
-                  <th className="px-5 py-2 text-center font-semibold text-amber-900">Azioni</th>
-                </tr>
-              </thead>
-              <tbody>
-                {unassigned.map((d) => {
-                  const empName = `${d.employee.cognome || d.employee.last_name || ''} ${d.employee.nome || d.employee.first_name || ''}`.trim();
-                  const ruolo = d.employee.role_description || String((d.employee as Record<string, unknown>).qualifica ?? '') || '—';
-                  return (
-                    <tr key={d.employee.id} className="border-t border-amber-200 hover:bg-amber-100">
-                      <td className="px-5 py-2 font-medium text-amber-900">{empName || 'Senza nome'}</td>
-                      <td className="px-5 py-2 text-amber-800">{ruolo}</td>
-                      <td className="px-5 py-2 text-right font-semibold text-amber-900">
-                        {d.annual_cost_allocated.toLocaleString('de-DE', { minimumFractionDigits: 2 })} €
-                      </td>
-                      <td className="px-5 py-2 text-center">
-                        <button
-                          onClick={() => {
-                            if (d.employee.id) {
-                              setShowAllocEditor(d.employee.id);
-                              setAllocEdits([]);
-                            }
-                          }}
-                          className="px-3 py-1 text-xs font-medium text-amber-800 bg-amber-200 hover:bg-amber-300 rounded"
-                        >
-                          Assegna a {labels.pointOfSaleLower}
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
           </div>
-        )}
-      </div>
-    );
-  };
+        );
+      })}
+      {nonAttribuito > 0 && (
+        <div className="bg-white rounded-2xl shadow-lg overflow-hidden">
+          <div className="px-5 py-3 bg-slate-100">
+            <span className="font-semibold text-slate-600">Non attribuito</span>
+          </div>
+          <div className="p-5">
+            <div className="text-xs text-slate-500">Costo annuo B&C senza outlet</div>
+            <div className="text-lg font-bold"><Money v={nonAttribuito} strong /></div>
+            <p className="text-xs text-slate-400 mt-2">Centri di costo non agganciati a un punto vendita (es. spese da ripartire).</p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
-  // ========== SUMMARY TABLE ==========
-
-  const renderSummaryTable = () => (
-    <div className="rounded-2xl shadow-lg overflow-hidden mb-8" style={{ background: "linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)", border: "1px solid rgba(99,102,241,0.08)" }}>
-      <div className="px-6 py-4 border-b border-slate-200">
-        <h2 className="text-lg font-semibold text-slate-900">
-          Riepilogo {viewMode === 'consuntivo' ? `Consuntivo ${consuntivoYear}` : `Organico ${organicoYear}`}
-        </h2>
+// ============================================================================
+// TAB 3 — ORGANICO
+// ============================================================================
+function OrganicoTab(props: {
+  employees: Employee[];
+  allocByEmp: Record<string, EmployeeOutletAllocation[]>;
+  nettoOf: (id: string) => number;
+  outlets: OutletRow[];
+  outletFilter: string; setOutletFilter: (s: string) => void;
+  search: string; setSearch: (s: string) => void;
+  onAdd: () => void;
+  onEdit: (e: Employee) => void;
+  onAlloc: (id: string) => void;
+  onCedolino: (id: string) => void;
+  onDelete: (id: string) => void;
+  docsForEmp: (id: string) => EmployeeDocument[];
+  uploadingEmployee: string | null;
+}) {
+  const { employees, allocByEmp, nettoOf, outlets, outletFilter, setOutletFilter, search, setSearch, onAdd, onEdit, onAlloc, onCedolino, onDelete, docsForEmp, uploadingEmployee } = props;
+  const filtered = employees.filter((e) => {
+    if (search && !empName(e).toLowerCase().includes(search.toLowerCase()) && !(e.matricola || '').toLowerCase().includes(search.toLowerCase())) return false;
+    if (outletFilter && !(allocByEmp[e.id] || []).some((a) => a.outlet_code === outletFilter)) return false;
+    return true;
+  });
+  return (
+    <div className="bg-white rounded-2xl shadow-lg overflow-hidden">
+      <div className="p-4 flex flex-wrap items-center gap-2 border-b border-slate-100">
+        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Cerca nome o matricola…" className="px-3 py-2 text-sm rounded-lg border border-slate-200 flex-1 min-w-[180px]" />
+        <select value={outletFilter} onChange={(e) => setOutletFilter(e.target.value)} className="px-3 py-2 text-sm rounded-lg border border-slate-200">
+          <option value="">Tutti gli outlet</option>
+          {outlets.map((o) => <option key={o.id} value={o.name}>{o.name}</option>)}
+        </select>
+        <button onClick={onAdd} className="ml-auto px-3 py-2 rounded-lg text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 flex items-center gap-1.5"><Plus size={15} /> Nuovo</button>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-slate-200 bg-slate-50">
-              <th className="px-6 py-3 text-left font-semibold text-slate-900">{labels.pointOfSale}</th>
-              <th className="px-6 py-3 text-right font-semibold text-slate-900">Dipendenti</th>
-              <th className="px-6 py-3 text-right font-semibold text-slate-900">Totale Costo</th>
+            <tr className="text-left text-xs uppercase tracking-wide text-slate-400 border-b border-slate-100">
+              <th className="px-4 py-2 font-medium">Matricola</th>
+              <th className="px-4 py-2 font-medium">Nome</th>
+              <th className="px-4 py-2 font-medium">Sede</th>
+              <th className="px-4 py-2 font-medium">Contratto</th>
+              <th className="px-4 py-2 font-medium text-right">Netto</th>
+              <th className="px-4 py-2 font-medium text-right">Azioni</th>
             </tr>
           </thead>
           <tbody>
-            {OUTLETS_ORDER.map((outlet, idx) => {
-              const totals = viewMode === 'consuntivo' ? consuntivo2025Totals[outlet] : organico2026Totals[outlet];
-              if (!totals) return null;
-
+            {filtered.length === 0 ? (
+              <tr><td colSpan={6} className="px-4 py-10 text-center text-slate-400">Nessun dipendente.</td></tr>
+            ) : filtered.map((e) => {
+              const allocs = allocByEmp[e.id] || [];
+              const docs = docsForEmp(e.id);
               return (
-                <tr key={idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
-                  <td className="px-6 py-3 font-medium text-slate-900">{outlet}</td>
-                  <td className="px-6 py-3 text-right text-slate-600">{totals.count}</td>
-                  <td className="px-6 py-3 text-right font-semibold text-slate-900">
-                    {formatCurrency(totals.totale)}
+                <tr key={e.id} className="border-b border-slate-50 hover:bg-slate-50/50">
+                  <td className="px-4 py-2.5 text-slate-500 tabular-nums">{e.matricola || '—'}</td>
+                  <td className="px-4 py-2.5">
+                    <span className="text-slate-800">{empName(e)}</span>
+                    {isAdminRole(e) && <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">Amministratore</span>}
+                  </td>
+                  <td className="px-4 py-2.5 text-slate-500">{allocs.length ? allocs.map((a) => a.outlet_code).join(', ') : <span className="text-slate-300">—</span>}</td>
+                  <td className="px-4 py-2.5 text-slate-500">{e.contratto_tipo || e.contract_type || '—'}</td>
+                  <td className="px-4 py-2.5 text-right"><Money v={nettoOf(e.id)} /></td>
+                  <td className="px-4 py-2.5">
+                    <div className="flex items-center justify-end gap-1.5">
+                      <button onClick={() => onEdit(e)} className="p-1.5 rounded text-slate-400 hover:text-blue-600 hover:bg-blue-50" title="Modifica"><Edit2 size={15} /></button>
+                      <button onClick={() => onAlloc(e.id)} className="p-1.5 rounded text-slate-400 hover:text-violet-600 hover:bg-violet-50" title="Allocazione"><Percent size={15} /></button>
+                      <button onClick={() => onCedolino(e.id)} disabled={uploadingEmployee === e.id} className="p-1.5 rounded text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 relative" title="Carica cedolino">
+                        <Upload size={15} />
+                        {docs.length > 0 && <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-emerald-500 text-white text-[8px] flex items-center justify-center">{docs.length}</span>}
+                      </button>
+                      <button onClick={() => onDelete(e.id)} className="p-1.5 rounded text-slate-400 hover:text-red-600 hover:bg-red-50" title="Disattiva"><Trash2 size={15} /></button>
+                    </div>
                   </td>
                 </tr>
               );
             })}
-            <tr className="border-t-2 border-slate-300 bg-slate-100 font-bold">
-              <td className="px-6 py-3 text-slate-900">TOTALE GENERALE</td>
-              <td className="px-6 py-3 text-right text-slate-900">
-                {viewMode === 'consuntivo' ? totalEmployees2025 : totalEmployees2026}
-              </td>
-              <td className="px-6 py-3 text-right text-slate-900">
-                {formatCurrency(viewMode === 'consuntivo' ? totalCosto2025 : totalCosto2026)}
-              </td>
-            </tr>
           </tbody>
         </table>
       </div>
     </div>
   );
+}
 
-  // ========== MAIN RENDER ==========
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-8 flex items-center justify-center">
-        <div className="text-center">
-          <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4"></div>
-          <p className="text-slate-600">Caricamento dati...</p>
-        </div>
-      </div>
-    );
-  }
-
+// ============================================================================
+// TAB 4 — COSTI & CEDOLINI
+// ============================================================================
+function CostiTab(props: {
+  contiMese: { code: string; label: string; field: string; amount: number }[];
+  totaleConti: number;
+  monthLabel: string;
+  year: number;
+  employees: Employee[];
+  costForMonth: (id: string) => EmployeeCost | undefined;
+  docsForEmp: (id: string) => EmployeeDocument[];
+  onAddCost: (empId: string) => void;
+  onEditCost: (c: EmployeeCost) => void;
+  onDeleteCost: (id: string) => void;
+  onCedolino: (id: string) => void;
+  onViewDoc: (d: EmployeeDocument) => void;
+  uploadingEmployee: string | null;
+  importPanel: React.ReactNode;
+}) {
+  const { contiMese, totaleConti, monthLabel, year, employees, costForMonth, docsForEmp, onAddCost, onEditCost, onDeleteCost, onCedolino, onViewDoc, uploadingEmployee, importPanel } = props;
   return (
-    <div className="min-h-screen bg-white">
-      <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
-      {/* Toast inline (sostituisce alert() di sistema) */}
-      {toast && (
-        <div
-          className={`fixed top-4 right-4 z-[100] max-w-md px-4 py-3 rounded-lg shadow-lg border text-sm flex items-start gap-2 animate-in slide-in-from-top-2 ${
-            toast.type === 'error'
-              ? 'bg-red-50 border-red-200 text-red-800'
-              : toast.type === 'success'
-              ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
-              : 'bg-blue-50 border-blue-200 text-blue-800'
-          }`}
-          role="alert"
-        >
-          <AlertCircle size={16} className="shrink-0 mt-0.5" />
-          <span className="flex-1">{toast.msg}</span>
-          <button
-            onClick={() => setToast(null)}
-            className="text-current opacity-60 hover:opacity-100 shrink-0"
-            aria-label="Chiudi"
-          >
-            <X size={14} />
-          </button>
-        </div>
-      )}
-      <PageHeader
-        title="Gestione Dipendenti"
-        subtitle="Costi Personale"
-        actions={lastUpdateTime ? (
-          <div className="flex items-center gap-2 text-xs text-slate-500">
-            <Clock className="w-3 h-3" />
-            Dati aggiornati: {lastUpdateTime}
-          </div>
-        ) : undefined}
-      />
-
-        {/* Bilancio costo personale banner */}
-        {employees.length === 0 && bilancioCostoPersonale != null && bilancioCostoPersonale > 0 && (
-          <div className="mb-8 rounded-lg border border-blue-200 bg-blue-50 p-5 flex items-start gap-4">
-            <AlertCircle className="w-6 h-6 text-blue-600 flex-shrink-0 mt-0.5" />
-            <div>
-              <p className="text-sm font-semibold text-blue-900 mb-1">
-                Dal bilancio importato risultano {formatCurrency(bilancioCostoPersonale)} di costo personale.
-              </p>
-              <p className="text-sm text-blue-700">
-                Importa i cedolini per vedere il dettaglio per dipendente.{' '}
-                <a href="/import-hub" className="font-medium underline hover:text-blue-900">
-                  Vai a Import Hub &rarr;
-                </a>
-              </p>
-            </div>
-          </div>
-        )}
-
-        {/* Period Selector */}
-        <div className="flex gap-4 mb-8 flex-wrap">
-          <div className="flex gap-2">
-            <label className="text-sm font-medium text-slate-600 pt-2">Anno:</label>
-            <select
-              value={selectedYear}
-              onChange={(e) => setSelectedYear(parseInt(e.target.value))}
-              className="px-4 py-2 border border-slate-300 rounded-lg bg-white"
-            >
-              {Array.from(new Set([
-                ...costs.map(c => c.year).filter((y): y is number => typeof y === 'number'),
-                selectedYear,
-              ])).sort((a, b) => a - b).map(y => (
-                <option key={y} value={y}>{y}</option>
+    <div className="space-y-6">
+      {/* Costo per conto del mese */}
+      <div className="bg-white rounded-2xl shadow-lg p-5">
+        <h3 className="font-semibold text-slate-900 mb-4">Costo per conto — {monthLabel} {year}</h3>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-xs uppercase tracking-wide text-slate-400 border-b border-slate-100">
+                <th className="px-3 py-2 font-medium">Conto</th>
+                <th className="px-3 py-2 font-medium">Voce</th>
+                <th className="px-3 py-2 font-medium text-right">Importo</th>
+              </tr>
+            </thead>
+            <tbody>
+              {contiMese.map((c) => (
+                <tr key={c.code} className="border-b border-slate-50">
+                  <td className="px-3 py-2.5 text-slate-500 tabular-nums">{c.code}</td>
+                  <td className="px-3 py-2.5 text-slate-700">{c.label}</td>
+                  <td className="px-3 py-2.5 text-right"><Money v={c.amount} /></td>
+                </tr>
               ))}
-            </select>
-          </div>
-          <div className="flex gap-2">
-            <label className="text-sm font-medium text-slate-600 pt-2">Mese:</label>
-            <select
-              value={selectedMonth}
-              onChange={(e) => setSelectedMonth(parseInt(e.target.value))}
-              className="px-4 py-2 border border-slate-300 rounded-lg bg-white"
-            >
-              {MONTHS.map(m => (
-                <option key={m.num} value={m.num}>{m.label}</option>
-              ))}
-            </select>
-          </div>
+              <tr className="font-semibold">
+                <td className="px-3 py-2.5" colSpan={2}>Totale</td>
+                <td className="px-3 py-2.5 text-right"><Money v={totaleConti} strong /></td>
+              </tr>
+            </tbody>
+          </table>
         </div>
-
-        {/* View Toggle — Fix 10.2: stesso stile delle tab Conto Economico
-            (pattern "blu attivo / grigio inattivo" su sfondo slate-100), niente
-            piu' colori diversi per tab (blue vs emerald) */}
-        <div className="flex items-center gap-3 mb-8">
-          <div className="flex gap-0.5 bg-slate-100 rounded-lg p-0.5">
-            <button
-              onClick={() => setViewMode('consuntivo')}
-              className={`px-5 py-2 rounded-md text-sm font-medium transition ${
-                viewMode === 'consuntivo'
-                  ? 'bg-white text-blue-700 shadow-sm'
-                  : 'text-slate-500 hover:text-slate-700'
-              }`}
-            >
-              Consuntivo {consuntivoYear}
-            </button>
-            <button
-              onClick={() => setViewMode('organico')}
-              className={`px-5 py-2 rounded-md text-sm font-medium transition ${
-                viewMode === 'organico'
-                  ? 'bg-white text-blue-700 shadow-sm'
-                  : 'text-slate-500 hover:text-slate-700'
-              }`}
-            >
-              Organico {organicoYear}
-            </button>
-            <button
-              onClick={() => setViewMode('per_outlet')}
-              className={`px-5 py-2 rounded-md text-sm font-medium transition flex items-center gap-2 ${
-                viewMode === 'per_outlet'
-                  ? 'bg-white text-blue-700 shadow-sm'
-                  : 'text-slate-500 hover:text-slate-700'
-              }`}
-            >
-              <Store className="w-4 h-4" /> Per {labels.pointOfSaleLower}
-            </button>
-          </div>
-          <button
-            onClick={() => setShowEmployeeForm(true)}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-white text-slate-700 border border-slate-300 hover:bg-slate-50 transition ml-auto"
-          >
-            <Plus className="w-4 h-4" />
-            Nuovo dipendente
-          </button>
-        </div>
-
-        {/* Content */}
-        {viewMode === 'consuntivo' && renderConsuntivo2025()}
-        {viewMode === 'organico' && renderOrganico2026()}
-        {viewMode === 'per_outlet' && renderPerOutlet()}
-
-        {/* Summary Table */}
-        {renderSummaryTable()}
-
-        {/* Export & Actions */}
-        <div className="flex justify-end gap-3">
-          <label className="flex items-center gap-2 px-4 py-2 bg-indigo-100 text-indigo-700 rounded-lg hover:bg-indigo-200 transition font-medium cursor-pointer border border-indigo-200">
-            <FileUp className="w-4 h-4" />
-            {batchImporting ? 'Importazione...' : 'Import batch CSV'}
-            <input ref={batchFileRef} type="file" accept=".csv,.txt,.xlsx" onChange={handleBatchImport} className="hidden" disabled={batchImporting} />
-          </label>
-          <ExportMenu
-            data={(() => {
-              const year = viewMode === 'consuntivo' ? consuntivoYear : organicoYear;
-              const yearCosts = costs.filter(c => c.year === year);
-              type ExportRow = { cognome: string | null; nome: string | null; qualifica: string; contratto: string; outlet: string; allocazione: number | string; mese: number | string; retribuzione: number; contributi: number; inail: number; tfr: number; totale: number };
-              const rows: ExportRow[] = [];
-              // NOTE: empAllocs[0].cost_center_id è un nome legacy. Lo schema
-              // reale ha outlet_code; cerco il cost center per code per matchare.
-              employees.forEach(emp => {
-                const empCosts = yearCosts.filter(c => c.employee_id === emp.id);
-                const empAllocs = allocations.filter(a => a.employee_id === emp.id);
-                const outletName = empAllocs.length > 0
-                  ? costCenters.find(cc => cc.code === empAllocs[0].outlet_code)?.label || '-' : '-';
-                const allocPct = empAllocs.length > 0 ? empAllocs[0].allocation_pct : 100;
-                // qualifica/contratto sono campi non presenti nello schema reale —
-                // li manteniamo vuoti per backward compat dell'export.
-                const qualifica = String((emp as Record<string, unknown>).qualifica ?? emp.role_description ?? emp.livello ?? '');
-                const contratto = String((emp as Record<string, unknown>).contratto ?? emp.contratto_tipo ?? emp.contract_type ?? '');
-                if (empCosts.length === 0) {
-                  rows.push({ cognome: emp.cognome, nome: emp.nome, qualifica, contratto, outlet: outletName, allocazione: allocPct, mese: '-', retribuzione: 0, contributi: 0, inail: 0, tfr: 0, totale: 0 });
-                } else {
-                  empCosts.forEach(c => {
-                    const tot = (c.retribuzione || 0) + (c.contributi || 0) + (c.inail || 0) + (c.tfr || 0);
-                    rows.push({ cognome: emp.cognome, nome: emp.nome, qualifica, contratto, outlet: outletName, allocazione: allocPct, mese: c.month, retribuzione: c.retribuzione || 0, contributi: c.contributi || 0, inail: c.inail || 0, tfr: c.tfr || 0, totale: tot });
-                  });
-                }
-              });
-              return rows;
-            })()}
-            columns={[
-              { key: 'cognome', label: 'Cognome' },
-              { key: 'nome', label: 'Nome' },
-              { key: 'qualifica', label: 'Qualifica' },
-              { key: 'contratto', label: 'Contratto' },
-              { key: 'outlet', label: labels.pointOfSale },
-              { key: 'allocazione', label: 'Allocazione %' },
-              { key: 'mese', label: 'Mese' },
-              { key: 'retribuzione', label: 'Retribuzione', format: 'euro' },
-              { key: 'contributi', label: 'Contributi', format: 'euro' },
-              { key: 'inail', label: 'INAIL', format: 'euro' },
-              { key: 'tfr', label: 'TFR', format: 'euro' },
-              { key: 'totale', label: 'Totale', format: 'euro' },
-            ]}
-            filename={`dipendenti_${viewMode === 'consuntivo' ? consuntivoYear : organicoYear}`}
-            title="Dipendenti — Costi del Personale"
-          />
-        </div>
-
-        {/* ===== MODAL: EMPLOYEE FORM ===== */}
-        {showEmployeeForm && (
-          <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={() => { setShowEmployeeForm(false); setEditingEmployee(null) }}>
-            <div className="bg-white rounded-2xl shadow-xl p-6 max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-bold text-slate-900">{editingEmployee ? 'Modifica dipendente' : 'Nuovo dipendente'}</h3>
-                <button onClick={() => { setShowEmployeeForm(false); setEditingEmployee(null) }} className="text-slate-400 hover:text-slate-600"><X size={20} /></button>
-              </div>
-              <EmployeeFormInner
-                initial={editingEmployee}
-                onSave={handleSaveEmployee}
-                onCancel={() => { setShowEmployeeForm(false); setEditingEmployee(null) }}
-              />
-            </div>
-          </div>
-        )}
-
-        {/* ===== MODAL: COST FORM ===== */}
-        {showCostForm && (
-          <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={() => { setShowCostForm(false); setEditingCost(null) }}>
-            <div className="bg-white rounded-2xl shadow-xl p-6 max-w-lg w-full mx-4" onClick={e => e.stopPropagation()}>
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-bold text-slate-900">{editingCost ? 'Modifica costo' : 'Nuovo costo'}</h3>
-                <button onClick={() => { setShowCostForm(false); setEditingCost(null) }} className="text-slate-400 hover:text-slate-600"><X size={20} /></button>
-              </div>
-              <CostFormInner
-                initial={editingCost}
-                employees={employees}
-                selectedYear={selectedYear}
-                selectedMonth={selectedMonth}
-                onSave={handleSaveCost}
-                onCancel={() => { setShowCostForm(false); setEditingCost(null) }}
-              />
-            </div>
-          </div>
-        )}
-
-        {/* ===== MODAL: ALLOCATION EDITOR ===== */}
-        {showAllocEditor && (
-          <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={() => setShowAllocEditor(null)}>
-            <div className="bg-white rounded-2xl shadow-xl p-6 max-w-lg w-full mx-4" onClick={e => e.stopPropagation()}>
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-                  <Sliders size={18} /> Allocazione outlet
-                </h3>
-                <button onClick={() => setShowAllocEditor(null)} className="text-slate-400 hover:text-slate-600"><X size={20} /></button>
-              </div>
-              <p className="text-xs text-slate-500 mb-3">
-                {employees.find(e => e.id === showAllocEditor)?.cognome} {employees.find(e => e.id === showAllocEditor)?.nome}
-              </p>
-
-              <div className="space-y-2 mb-3">
-                {allocEdits.map((alloc, i) => (
-                  <div key={i} className="flex items-center gap-2">
-                    <select value={alloc.outlet_code} onChange={e => {
-                      const updated = [...allocEdits];
-                      updated[i] = { ...updated[i], outlet_code: e.target.value };
-                      setAllocEdits(updated);
-                      setAllocErrors('');
-                    }} className="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm">
-                      <option value="">Seleziona {labels.pointOfSaleLower}...</option>
-                      {OUTLETS_ORDER.map(o => <option key={o} value={o}>{o}</option>)}
-                    </select>
-                    <div className="flex items-center gap-1">
-                      <input type="number" min="0" max="100" step="5"
-                        value={alloc.allocation_pct}
-                        onChange={e => {
-                          const updated = [...allocEdits];
-                          updated[i] = { ...updated[i], allocation_pct: parseFloat(e.target.value) || 0 };
-                          setAllocEdits(updated);
-                          setAllocErrors('');
-                        }}
-                        className="w-20 px-2 py-2 border border-slate-300 rounded-lg text-sm text-right" />
-                      <Percent size={14} className="text-slate-400" />
-                    </div>
-                    {allocEdits.length > 1 && (
-                      <button onClick={() => setAllocEdits(allocEdits.filter((_, j) => j !== i))}
-                        className="p-1 text-red-400 hover:text-red-600"><Trash2 size={14} /></button>
-                    )}
-                  </div>
-                ))}
-              </div>
-
-              {/* Total bar */}
-              {(() => {
-                const total = allocEdits.reduce((s, a) => s + (Number(a.allocation_pct) || 0), 0);
-                return (
-                  <div className={`mb-3 p-2 rounded-lg text-xs font-medium flex items-center justify-between ${
-                    total > 100.01 ? 'bg-red-50 text-red-700 border border-red-200' :
-                    total === 100 ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' :
-                    'bg-amber-50 text-amber-700 border border-amber-200'
-                  }`}>
-                    <span>Totale allocazione: {total.toFixed(0)}%</span>
-                    {total > 100.01 && <AlertCircle size={14} />}
-                  </div>
-                );
-              })()}
-
-              {allocErrors && <p className="text-xs text-red-600 mb-3 flex items-center gap-1"><AlertCircle size={12} /> {allocErrors}</p>}
-
-              <button onClick={() => {
-                if (!showAllocEditor) return;
-                setAllocEdits([...allocEdits, {
-                  id: '', company_id: COMPANY_ID || '', employee_id: showAllocEditor, outlet_code: '',
-                  allocation_pct: 0, role_at_outlet: null, is_primary: null,
-                  valid_from: null, valid_to: null, created_at: null,
-                }])
-              }}
-                className="text-sm text-blue-600 hover:text-blue-800 mb-4 flex items-center gap-1">
-                <Plus size={14} /> Aggiungi outlet
-              </button>
-
-              <div className="flex gap-2">
-                <button onClick={() => setShowAllocEditor(null)}
-                  className="flex-1 py-2.5 rounded-lg border border-slate-200 text-sm font-medium hover:bg-slate-50">Annulla</button>
-                <button onClick={handleSaveAllocations}
-                  className="flex-1 py-2.5 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 flex items-center justify-center gap-1">
-                  <Save size={14} /> Salva allocazioni
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ===== MODAL: DOCUMENT VIEWER ===== */}
-        {showDocViewer && (
-          <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={() => { setShowDocViewer(null); setDocPdfData(null) }}>
-            <div className="bg-white rounded-2xl shadow-xl p-4 max-w-3xl w-full mx-4 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-sm font-bold text-slate-900">{showDocViewer.file_name}</h3>
-                <button onClick={() => { setShowDocViewer(null); setDocPdfData(null) }} className="text-slate-400 hover:text-slate-600"><X size={20} /></button>
-              </div>
-              {docPdfData ? (
-                <Suspense fallback={<div className="p-8 text-center text-slate-400">Caricamento...</div>}>
-                  <PdfViewer pdfData={docPdfData} />
-                </Suspense>
-              ) : (
-                <div className="p-8 text-center text-slate-400">Caricamento documento...</div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* ===== MODAL: DOCUMENT UPLOAD ===== */}
-        {showDocumentUpload && (
-          <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={() => setShowDocumentUpload(false)}>
-            <div className="bg-white rounded-2xl shadow-xl p-6 max-w-md w-full mx-4" onClick={e => e.stopPropagation()}>
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-bold text-slate-900">Carica cedolino</h3>
-                <button onClick={() => setShowDocumentUpload(false)} className="text-slate-400 hover:text-slate-600"><X size={20} /></button>
-              </div>
-              <p className="text-sm text-slate-500 mb-3">
-                {employees.find(e => e.id === showDocumentUpload)?.cognome} {employees.find(e => e.id === showDocumentUpload)?.nome} — {MONTHS.find(m => m.num === selectedMonth)?.label} {selectedYear}
-              </p>
-
-              {/* List existing docs */}
-              {getEmployeeDocs(showDocumentUpload).length > 0 && (
-                <div className="mb-4 space-y-1">
-                  <p className="text-xs text-slate-600 font-medium">Cedolini caricati:</p>
-                  {getEmployeeDocs(showDocumentUpload).map(d => (
-                    <div key={d.id} className="flex items-center justify-between p-2 bg-slate-50 rounded border border-slate-200 text-xs">
-                      <span className="text-slate-700">{d.file_name} — {d.year}/{d.month}</span>
-                      <button onClick={() => handleViewDoc(d)} className="text-blue-600 hover:text-blue-800 flex items-center gap-1">
-                        <Eye size={12} /> Vedi
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              <label className="flex items-center justify-center gap-2 p-6 border-2 border-dashed border-slate-300 rounded-lg text-sm text-slate-600 hover:bg-slate-50 cursor-pointer transition">
-                <Upload size={18} />
-                {uploadingEmployee === showDocumentUpload ? 'Caricamento...' : 'Seleziona file PDF o Excel'}
-                <input type="file" accept=".pdf,.xlsx,.xls,.csv" className="hidden"
-                  onChange={e => {
-                    const f = e.target.files?.[0];
-                    if (f) handleFileUpload(f, showDocumentUpload, 'cedolino');
-                  }}
-                  disabled={uploadingEmployee === showDocumentUpload} />
-              </label>
-            </div>
-          </div>
-        )}
-      <PageHelp page="dipendenti" />
       </div>
+
+      {/* Netti per dipendente */}
+      <div className="bg-white rounded-2xl shadow-lg p-5">
+        <h3 className="font-semibold text-slate-900 mb-4">Netti per dipendente — {monthLabel} {year}</h3>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-xs uppercase tracking-wide text-slate-400 border-b border-slate-100">
+                <th className="px-3 py-2 font-medium">Dipendente</th>
+                <th className="px-3 py-2 font-medium text-right">Netto</th>
+                <th className="px-3 py-2 font-medium text-right">Componenti</th>
+                <th className="px-3 py-2 font-medium text-right">Cedolino</th>
+                <th className="px-3 py-2 font-medium text-right">Azioni</th>
+              </tr>
+            </thead>
+            <tbody>
+              {employees.length === 0 ? (
+                <tr><td colSpan={5} className="px-3 py-10 text-center text-slate-400">Nessun dipendente. Usa l’import mensile qui sotto.</td></tr>
+              ) : employees.map((e) => {
+                const c = costForMonth(e.id);
+                const docs = docsForEmp(e.id).filter((d) => d.year === year);
+                const tot = c ? (Number(c.retribuzione || 0) + Number(c.contributi || 0) + Number(c.inail || 0) + Number(c.tfr || 0) + Number(c.altri_costi || 0)) : 0;
+                return (
+                  <tr key={e.id} className="border-b border-slate-50 hover:bg-slate-50/50">
+                    <td className="px-3 py-2.5 text-slate-800">{empName(e)}</td>
+                    <td className="px-3 py-2.5 text-right"><Money v={c?.netto || 0} /></td>
+                    <td className="px-3 py-2.5 text-right text-slate-500"><Money v={tot} /></td>
+                    <td className="px-3 py-2.5 text-right">
+                      {docs.length > 0 ? (
+                        <button onClick={() => onViewDoc(docs[0])} className="text-blue-600 hover:text-blue-700 inline-flex items-center gap-1"><Eye size={14} /> Vedi</button>
+                      ) : (
+                        <button onClick={() => onCedolino(e.id)} disabled={uploadingEmployee === e.id} className="text-slate-400 hover:text-emerald-600 inline-flex items-center gap-1"><Upload size={14} /> Carica</button>
+                      )}
+                    </td>
+                    <td className="px-3 py-2.5">
+                      <div className="flex items-center justify-end gap-1.5">
+                        {c ? (
+                          <>
+                            <button onClick={() => onEditCost(c)} className="p-1.5 rounded text-slate-400 hover:text-blue-600 hover:bg-blue-50" title="Modifica costo"><Edit2 size={15} /></button>
+                            <button onClick={() => onDeleteCost(c.id)} className="p-1.5 rounded text-slate-400 hover:text-red-600 hover:bg-red-50" title="Elimina costo"><Trash2 size={15} /></button>
+                          </>
+                        ) : (
+                          <button onClick={() => onAddCost(e.id)} className="p-1.5 rounded text-slate-400 hover:text-blue-600 hover:bg-blue-50" title="Aggiungi costo"><Plus size={15} /></button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {importPanel}
     </div>
   );
 }
 
 // ============================================================================
-// FORM COMPONENTS (rendered inline as modals)
+// EMPLOYEE FORM MODAL
 // ============================================================================
-
-// TODO: tighten type
-function EmployeeFormInner({ initial, onSave, onCancel }: { initial: any; onSave: (data: any) => Promise<void>; onCancel: () => void }) {
+function EmployeeFormModal({ initial, onCancel, onSave }: { initial: Employee | null; onCancel: () => void; onSave: (data: any) => Promise<void> }) {
   const [form, setForm] = useState({
-    nome: '', cognome: '', codice_fiscale: '',
-    data_assunzione: '', data_cessazione: '', qualifica: '', livello: '',
-    contratto: 'indeterminato', note: '',
+    nome: initial?.nome || initial?.first_name || '',
+    cognome: initial?.cognome || initial?.last_name || '',
+    matricola: initial?.matricola || '',
+    codice_fiscale: initial?.codice_fiscale || initial?.fiscal_code || '',
+    data_assunzione: initial?.data_assunzione || initial?.hire_date || '',
+    contratto: initial?.contratto_tipo || initial?.contract_type || 'indeterminato',
+    data_cessazione: (initial?.data_cessazione === '9999-12-31' ? '' : (initial?.data_cessazione || '')) || '',
+    livello: initial?.livello || initial?.level || '',
+    qualifica: initial?.role_description || '',
+    note: initial?.note || initial?.notes || '',
   });
+  const set = (k: string, v: string) => setForm((f) => ({ ...f, [k]: v }));
   const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    if (initial) {
-      // Mapping inverso DB -> form: in DB le colonne reali sono
-      // contratto_tipo / role_description, ma il form ragiona in
-      // contratto / qualifica. Fallback alle vecchie chiavi se presenti.
-      setForm({
-        nome: initial.nome || initial.first_name || '',
-        cognome: initial.cognome || initial.last_name || '',
-        codice_fiscale: initial.codice_fiscale || initial.fiscal_code || '',
-        data_assunzione: initial.data_assunzione || initial.hire_date || '',
-        data_cessazione: initial.data_cessazione || initial.termination_date || '',
-        qualifica: initial.qualifica || initial.role_description || '',
-        livello: initial.livello || initial.level || '',
-        contratto: initial.contratto || initial.contratto_tipo || initial.contract_type || 'indeterminato',
-        note: initial.note || initial.notes || '',
-      });
-    }
-  }, [initial]);
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setSaving(true);
-    await onSave(form);
-    setSaving(false);
-  }
-
+  const submit = async () => { setSaving(true); await onSave({ ...form, id: initial?.id }); setSaving(false); };
   return (
-    <form onSubmit={handleSubmit} className="space-y-3">
+    <Modal title={initial ? 'Modifica dipendente' : 'Nuovo dipendente'} onClose={onCancel}>
       <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="block text-xs font-medium text-slate-600 mb-1">Cognome *</label>
-          <input type="text" required value={form.cognome} onChange={e => setForm({ ...form, cognome: e.target.value })}
-            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" />
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-slate-600 mb-1">Nome *</label>
-          <input type="text" required value={form.nome} onChange={e => setForm({ ...form, nome: e.target.value })}
-            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" />
-        </div>
-      </div>
-      <div>
-        <label className="block text-xs font-medium text-slate-600 mb-1">Codice Fiscale</label>
-        <input type="text" value={form.codice_fiscale} onChange={e => setForm({ ...form, codice_fiscale: e.target.value })} maxLength={16}
-          className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono uppercase" />
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="block text-xs font-medium text-slate-600 mb-1">Data assunzione *</label>
-          <input type="date" required value={form.data_assunzione} onChange={e => setForm({ ...form, data_assunzione: e.target.value })}
-            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" />
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-slate-600 mb-1">
-            Data cessazione
-            {form.contratto !== 'indeterminato' && form.contratto && <span className="text-red-500"> *</span>}
-          </label>
-          <input
-            type="date"
-            value={form.data_cessazione}
-            onChange={e => setForm({ ...form, data_cessazione: e.target.value })}
-            required={!!form.contratto && form.contratto !== 'indeterminato'}
-            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
-          />
-          {form.contratto === 'indeterminato' && (
-            <p className="text-[10px] text-slate-400 mt-1">Lasciare vuoto per contratto a tempo indeterminato</p>
-          )}
-        </div>
-      </div>
-      <div className="grid grid-cols-3 gap-3">
-        <div>
-          <label className="block text-xs font-medium text-slate-600 mb-1">Qualifica</label>
-          <input type="text" value={form.qualifica} onChange={e => setForm({ ...form, qualifica: e.target.value })}
-            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" placeholder="Commessa" />
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-slate-600 mb-1">Livello</label>
-          <input type="text" value={form.livello} onChange={e => setForm({ ...form, livello: e.target.value })}
-            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" placeholder="4°" />
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-slate-600 mb-1">Contratto *</label>
-          <select required value={form.contratto} onChange={e => setForm({ ...form, contratto: e.target.value })}
-            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
+        <Field label="Cognome *"><input value={form.cognome} onChange={(e) => set('cognome', e.target.value)} className="inp" /></Field>
+        <Field label="Nome *"><input value={form.nome} onChange={(e) => set('nome', e.target.value)} className="inp" /></Field>
+        <Field label="Matricola"><input value={form.matricola} onChange={(e) => set('matricola', e.target.value)} className="inp" /></Field>
+        <Field label="Codice fiscale"><input value={form.codice_fiscale} onChange={(e) => set('codice_fiscale', e.target.value)} className="inp" /></Field>
+        <Field label="Data assunzione"><input type="date" value={form.data_assunzione || ''} onChange={(e) => set('data_assunzione', e.target.value)} className="inp" /></Field>
+        <Field label="Contratto">
+          <select value={form.contratto} onChange={(e) => set('contratto', e.target.value)} className="inp">
             <option value="indeterminato">Indeterminato</option>
             <option value="determinato">Determinato</option>
             <option value="apprendistato">Apprendistato</option>
-            <option value="stagionale">Stagionale</option>
+            <option value="stage">Stage</option>
+            <option value="somministrazione">Somministrazione</option>
           </select>
-        </div>
+        </Field>
+        {form.contratto !== 'indeterminato' && (
+          <Field label="Data cessazione"><input type="date" value={form.data_cessazione || ''} onChange={(e) => set('data_cessazione', e.target.value)} className="inp" /></Field>
+        )}
+        <Field label="Livello"><input value={form.livello} onChange={(e) => set('livello', e.target.value)} className="inp" /></Field>
+        <Field label="Qualifica / ruolo"><input value={form.qualifica} onChange={(e) => set('qualifica', e.target.value)} placeholder="es. Store manager, Amministratore" className="inp" /></Field>
+        <Field label="Note" full><input value={form.note} onChange={(e) => set('note', e.target.value)} className="inp" /></Field>
       </div>
-      <div>
-        <label className="block text-xs font-medium text-slate-600 mb-1">Note</label>
-        <textarea value={form.note} onChange={e => setForm({ ...form, note: e.target.value })} rows={2}
-          className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm resize-none" />
+      <div className="flex justify-end gap-2 mt-5">
+        <button onClick={onCancel} className="px-4 py-2 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100">Annulla</button>
+        <button onClick={submit} disabled={saving} className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 flex items-center gap-1.5"><Save size={15} /> {saving ? 'Salvataggio…' : 'Salva'}</button>
       </div>
-      <div className="flex gap-2 pt-2">
-        <button type="button" onClick={onCancel} className="flex-1 py-2.5 rounded-lg border border-slate-200 text-sm font-medium hover:bg-slate-50">Annulla</button>
-        <button type="submit" disabled={saving}
-          className="flex-1 py-2.5 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50">
-          {saving ? 'Salvataggio...' : initial ? 'Aggiorna' : 'Crea dipendente'}
-        </button>
-      </div>
-    </form>
+      <style>{`.inp{width:100%;padding:0.5rem 0.75rem;font-size:0.875rem;border-radius:0.5rem;border:1px solid rgb(226 232 240)}`}</style>
+    </Modal>
   );
 }
 
-interface CostFormState { employee_id: string; year: number; month: number; retribuzione: number; contributi: number; inail: number; tfr: number; totale_costo: number }
+function Field({ label, children, full = false }: { label: string; children: React.ReactNode; full?: boolean }) {
+  return (
+    <label className={`block ${full ? 'col-span-2' : ''}`}>
+      <span className="text-xs text-slate-500 mb-1 block">{label}</span>
+      {children}
+    </label>
+  );
+}
 
-function CostFormInner({ initial, employees, selectedYear, selectedMonth, onSave, onCancel }: { initial: EmployeeCost | null; employees: Employee[]; selectedYear: number; selectedMonth: number; onSave: (data: CostFormState) => Promise<void>; onCancel: () => void }) {
-  const [form, setForm] = useState<CostFormState>({
-    employee_id: '', year: selectedYear, month: selectedMonth,
-    retribuzione: 0, contributi: 0, inail: 0, tfr: 0, totale_costo: 0,
+// ============================================================================
+// COST FORM MODAL — solo colonne reali (fix totale_costo)
+// ============================================================================
+function CostFormModal({ initial, employeeId, employees, year, month, onCancel, onSave }: {
+  initial: EmployeeCost | null; employeeId: string | null; employees: Employee[]; year: number; month: number;
+  onCancel: () => void;
+  onSave: (p: { employee_id: string; year: number; month: number; retribuzione: number; contributi: number; inail: number; tfr: number; altri_costi: number; netto: number }) => Promise<void>;
+}) {
+  const [empId, setEmpId] = useState(employeeId || initial?.employee_id || '');
+  const [vals, setVals] = useState({
+    retribuzione: Number(initial?.retribuzione || 0),
+    contributi: Number(initial?.contributi || 0),
+    inail: Number(initial?.inail || 0),
+    tfr: Number(initial?.tfr || 0),
+    altri_costi: Number(initial?.altri_costi || 0),
+    netto: Number(initial?.netto || 0),
   });
+  const set = (k: keyof typeof vals, v: string) => setVals((s) => ({ ...s, [k]: Number(v) || 0 }));
+  // Totale costo aziendale = somma componenti reali (NON una colonna DB).
+  const totale = vals.retribuzione + vals.contributi + vals.inail + vals.tfr + vals.altri_costi;
   const [saving, setSaving] = useState(false);
+  const submit = async () => { setSaving(true); await onSave({ employee_id: empId, year, month, ...vals }); setSaving(false); };
+  const fields: { k: keyof typeof vals; label: string }[] = [
+    { k: 'retribuzione', label: 'Retribuzione (670103)' },
+    { k: 'contributi', label: 'Contributi INPS (670303)' },
+    { k: 'inail', label: 'INAIL (670307)' },
+    { k: 'tfr', label: 'TFR (670501)' },
+    { k: 'altri_costi', label: 'Altri costi (670909)' },
+    { k: 'netto', label: 'Netto in busta' },
+  ];
+  return (
+    <Modal title={initial ? 'Modifica costo mensile' : 'Nuovo costo mensile'} onClose={onCancel}>
+      <div className="mb-3 text-xs text-slate-500">Periodo: {MONTHS.find((m) => m.num === month)?.label} {year}</div>
+      <Field label="Dipendente">
+        <select value={empId} onChange={(e) => setEmpId(e.target.value)} disabled={!!employeeId} className="inp">
+          <option value="">— seleziona —</option>
+          {employees.map((e) => <option key={e.id} value={e.id}>{empName(e)}</option>)}
+        </select>
+      </Field>
+      <div className="grid grid-cols-2 gap-3 mt-3">
+        {fields.map((f) => (
+          <Field key={f.k} label={f.label}>
+            <input type="number" step="0.01" value={vals[f.k]} onChange={(e) => set(f.k, e.target.value)} className="inp tabular-nums" />
+          </Field>
+        ))}
+      </div>
+      <div className="mt-4 p-3 rounded-lg bg-blue-50 text-sm text-blue-800 flex items-center justify-between">
+        <span>Totale costo aziendale</span>
+        <strong className="tabular-nums">{eurFmt.format(totale)}&nbsp;€</strong>
+      </div>
+      <div className="flex justify-end gap-2 mt-5">
+        <button onClick={onCancel} className="px-4 py-2 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100">Annulla</button>
+        <button onClick={submit} disabled={saving} className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 flex items-center gap-1.5"><Save size={15} /> {saving ? 'Salvataggio…' : 'Salva'}</button>
+      </div>
+      <style>{`.inp{width:100%;padding:0.5rem 0.75rem;font-size:0.875rem;border-radius:0.5rem;border:1px solid rgb(226 232 240)}`}</style>
+    </Modal>
+  );
+}
 
-  useEffect(() => {
-    if (initial) {
-      setForm({
-        employee_id: initial.employee_id || '',
-        year: initial.year || selectedYear,
-        month: initial.month || selectedMonth,
-        retribuzione: initial.retribuzione || 0,
-        contributi: initial.contributi || 0,
-        inail: initial.inail || 0,
-        tfr: initial.tfr || 0,
-        // totale_costo non è in schema reale: calcolato lato render.
-        totale_costo: (initial.retribuzione || 0) + (initial.contributi || 0) + (initial.inail || 0) + (initial.tfr || 0),
-      });
+// ============================================================================
+// IMPORT MENSILE (employee_costs) — mapping-driven, anteprima, upsert
+// ============================================================================
+const FIELD_SYNS: Record<string, string[]> = {
+  matricola: ['matricola', 'cod dip', 'cod. dip', 'coddip', 'cod.dip', 'cod dipendente', 'codice', 'id dip', 'cod'],
+  cognome: ['cognome', 'surname'],
+  nome: ['nome', 'name'],
+  nominativo: ['nominativo', 'dipendente', 'cognome e nome', 'cognome nome', 'cognome/nome'],
+  outlet: ['filiale', 'outlet', 'punto vendita', 'sede', 'negozio', 'store', 'ramo', 'punto'],
+  netto: ['netto', 'netto in busta', 'netto a pagare', 'netto busta', 'netto mese', 'netto del mese'],
+  retribuzione: ['lordo', 'retribuzione', 'stipendio', 'competenze', 'totale competenze', 'imponibile'],
+  contributi: ['contributi', 'inps', 'oneri sociali', 'contributi inps'],
+  inail: ['inail'],
+  tfr: ['tfr', 'quota tfr', 'acc tfr', 'accantonamento tfr', 'acc.to tfr'],
+  altri: ['altri', 'altri costi', 'altro', 'altre voci'],
+};
+
+interface PreviewRow {
+  matricola: string; cognome: string; nome: string; outlet: string;
+  netto: number | null; retribuzione: number | null; contributi: number | null; inail: number | null; tfr: number | null; altri: number | null;
+  isNew: boolean; matchedId: string | null;
+}
+
+function ImportMensile({ companyId, userId, outlets, employees, existingCosts, defaultYear, defaultMonth, onDone }: {
+  companyId: string; userId: string | null; outlets: OutletRow[]; employees: Employee[]; existingCosts: EmployeeCost[];
+  defaultYear: number; defaultMonth: number; onDone: () => Promise<void>;
+}) {
+  const { toast } = useToast();
+  const [impYear, setImpYear] = useState(defaultYear);
+  const [impMonth, setImpMonth] = useState(defaultMonth);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [fileName, setFileName] = useState('');
+  const [rows, setRows] = useState<PreviewRow[] | null>(null);
+  const [fileTotal, setFileTotal] = useState<number | null>(null);
+  const [hasComponents, setHasComponents] = useState(false);
+  const [parsing, setParsing] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [overwriteAck, setOverwriteAck] = useState(false);
+
+  const monthHasData = existingCosts.some((c) => c.year === impYear && c.month === impMonth && (c.netto != null || c.retribuzione != null));
+
+  const matchEmployee = (matricola: string, cognome: string, nome: string): string | null => {
+    if (matricola) {
+      const byMat = employees.find((e) => norm(e.matricola) === norm(matricola));
+      if (byMat) return byMat.id;
     }
-  }, [initial, selectedYear, selectedMonth]);
+    const byName = employees.find((e) => norm(e.cognome || e.last_name) === norm(cognome) && norm(e.nome || e.first_name) === norm(nome));
+    return byName ? byName.id : null;
+  };
 
-  // Auto-calculate total
-  useEffect(() => {
-    const total = (Number(form.retribuzione) || 0) + (Number(form.contributi) || 0) +
-      (Number(form.inail) || 0) + (Number(form.tfr) || 0);
-    setForm(f => ({ ...f, totale_costo: total }));
-  }, [form.retribuzione, form.contributi, form.inail, form.tfr]);
+  const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setParsing(true);
+    setFileName(file.name);
+    setRows(null); setFileTotal(null); setOverwriteAck(false);
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: 'array' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const matrix: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, blankrows: false, raw: false });
+      if (!matrix.length) { toast({ type: 'error', message: 'File vuoto' }); setParsing(false); return; }
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setSaving(true);
-    await onSave(form);
-    setSaving(false);
-  }
+      // Trova la riga di intestazione (entro le prime 12 righe)
+      let headerIdx = -1;
+      for (let i = 0; i < Math.min(12, matrix.length); i++) {
+        const cells = matrix[i].map(norm);
+        if (cells.some((c) => c === 'netto' || c.includes('matricola') || c === 'cognome' || c.includes('retribuzione') || c.includes('nominativo'))) { headerIdx = i; break; }
+      }
+      if (headerIdx === -1) { toast({ type: 'error', message: 'Intestazioni non riconosciute (attese: matricola, cognome/nome, netto…)' }); setParsing(false); return; }
+
+      const header = matrix[headerIdx].map(norm);
+      const findCol = (field: string): number => {
+        const syns = FIELD_SYNS[field];
+        // exact match first
+        for (const s of syns) { const idx = header.indexOf(s); if (idx >= 0) return idx; }
+        // includes fallback
+        for (let i = 0; i < header.length; i++) { if (syns.some((s) => header[i].includes(s))) return i; }
+        return -1;
+      };
+      const cols: Record<string, number> = {};
+      Object.keys(FIELD_SYNS).forEach((f) => { cols[f] = findCol(f); });
+
+      const componentsPresent = ['retribuzione', 'contributi', 'inail', 'tfr', 'altri'].some((f) => cols[f] >= 0);
+      setHasComponents(componentsPresent);
+
+      const get = (r: any[], field: string) => (cols[field] >= 0 ? r[cols[field]] : undefined);
+      const out: PreviewRow[] = [];
+      let detectedTotal: number | null = null;
+
+      for (let i = headerIdx + 1; i < matrix.length; i++) {
+        const r = matrix[i];
+        if (!r || r.every((c) => c == null || String(c).trim() === '')) continue;
+
+        let matricola = String(get(r, 'matricola') ?? '').trim().replace(/\.0$/, '');
+        let cognome = String(get(r, 'cognome') ?? '').trim();
+        let nome = String(get(r, 'nome') ?? '').trim();
+        if (!cognome && cols.nominativo >= 0) {
+          const full = String(get(r, 'nominativo') ?? '').trim();
+          const parts = full.split(/\s+/);
+          cognome = parts[0] || '';
+          nome = parts.slice(1).join(' ');
+        }
+        const outlet = String(get(r, 'outlet') ?? '').trim();
+        const netto = parseItNum(get(r, 'netto'));
+
+        // Riga "Totale aziendale" → estrai totale, non importare
+        const labelBlob = norm(`${matricola} ${cognome} ${nome} ${outlet}`);
+        if (!matricola && /totale|totali|tot\.|t o t a l e/.test(labelBlob)) {
+          if (netto != null) detectedTotal = netto;
+          continue;
+        }
+        if (!cognome && !matricola && netto == null) continue;
+
+        out.push({
+          matricola, cognome, nome, outlet,
+          netto,
+          retribuzione: parseItNum(get(r, 'retribuzione')),
+          contributi: parseItNum(get(r, 'contributi')),
+          inail: parseItNum(get(r, 'inail')),
+          tfr: parseItNum(get(r, 'tfr')),
+          altri: parseItNum(get(r, 'altri')),
+          isNew: false, matchedId: null,
+        });
+      }
+
+      // match dipendenti
+      out.forEach((row) => {
+        const id = matchEmployee(row.matricola, row.cognome, row.nome);
+        row.matchedId = id; row.isNew = !id;
+      });
+
+      if (!out.length) { toast({ type: 'error', message: 'Nessuna riga dipendente riconosciuta' }); setParsing(false); return; }
+      setRows(out);
+      setFileTotal(detectedTotal);
+    } catch (err: any) {
+      toast({ type: 'error', message: 'Errore parsing file: ' + (err?.message || '') });
+    } finally {
+      setParsing(false);
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  };
+
+  const totalNetto = rows ? rows.reduce((s, r) => s + (r.netto || 0), 0) : 0;
+  const newCount = rows ? rows.filter((r) => r.isNew).length : 0;
+  const scostamento = fileTotal != null ? totalNetto - fileTotal : null;
+  const quadra = scostamento == null || Math.abs(scostamento) < 0.01;
+
+  const reset = () => { setRows(null); setFileName(''); setFileTotal(null); setOverwriteAck(false); };
+
+  const doImport = async () => {
+    if (!rows) return;
+    setImporting(true);
+    try {
+      // mappa nome outlet (case-insensitive) → nome esatto in DB
+      const outletByNorm: Record<string, string> = {};
+      outlets.forEach((o) => { outletByNorm[norm(o.name)] = o.name; });
+
+      // log import (header) per ottenere import_id
+      const { data: logRow, error: logErr } = await supabase.from('employee_cost_imports').insert([{
+        company_id: companyId, year: impYear, month: impMonth, file_name: fileName,
+        rows_total: rows.length, rows_new_employees: newCount, total_netto: totalNetto,
+        file_total: fileTotal, scostamento: scostamento, imported_by: userId,
+      }]).select('id').single();
+      if (logErr) throw logErr;
+      const importId = logRow?.id || null;
+
+      const costPayloads: any[] = [];
+      for (const row of rows) {
+        let empId = row.matchedId;
+        if (!empId) {
+          const { data: newEmp, error: empErr } = await supabase.from('employees').insert([{
+            company_id: companyId, matricola: row.matricola || null,
+            nome: row.nome || null, cognome: row.cognome || null,
+            first_name: row.nome || row.cognome || '—', last_name: row.cognome || row.nome || '—',
+            is_active: true,
+          }]).select('id').single();
+          if (empErr) { console.error('Errore creazione dipendente', empErr); continue; }
+          empId = newEmp?.id || null;
+          // allocazione 100% sull'outlet (match per nome)
+          if (empId && row.outlet) {
+            const exact = outletByNorm[norm(row.outlet)];
+            if (exact) {
+              await supabase.from('employee_outlet_allocations').insert([{ employee_id: empId, company_id: companyId, outlet_code: exact, allocation_pct: 100, is_primary: true }]);
+            }
+          }
+        }
+        if (!empId) continue;
+
+        // payload: solo i campi presenti nel file (netti-only NON azzera i componenti)
+        const payload: any = { employee_id: empId, company_id: companyId, year: impYear, month: impMonth, source: 'import_mensile', import_id: importId };
+        if (row.netto != null) payload.netto = row.netto;
+        if (row.retribuzione != null) payload.retribuzione = row.retribuzione;
+        if (row.contributi != null) payload.contributi = row.contributi;
+        if (row.inail != null) payload.inail = row.inail;
+        if (row.tfr != null) payload.tfr = row.tfr;
+        if (row.altri != null) payload.altri_costi = row.altri;
+        costPayloads.push(payload);
+      }
+
+      if (costPayloads.length) {
+        const { error: upErr } = await supabase.from('employee_costs').upsert(costPayloads, { onConflict: 'employee_id,year,month' });
+        if (upErr) throw upErr;
+      }
+
+      toast({ type: 'success', message: `Import completato: ${costPayloads.length} righe, ${newCount} nuovi dipendenti.` });
+      reset();
+      await onDone();
+    } catch (err: any) {
+      toast({ type: 'error', message: 'Errore import: ' + (err?.message || '') });
+    } finally {
+      setImporting(false);
+    }
+  };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-3">
-      {!initial && (
-        <div>
-          <label className="block text-xs font-medium text-slate-600 mb-1">Dipendente *</label>
-          <select required value={form.employee_id} onChange={e => setForm({ ...form, employee_id: e.target.value })}
-            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
-            <option value="">Seleziona...</option>
-            {employees.map(emp => (
-              <option key={emp.id} value={emp.id}>{emp.cognome} {emp.nome}</option>
-            ))}
-          </select>
-        </div>
-      )}
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="block text-xs font-medium text-slate-600 mb-1">Anno</label>
-          <input type="number" value={form.year} onChange={e => setForm({ ...form, year: parseInt(e.target.value) })}
-            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" />
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-slate-600 mb-1">Mese</label>
-          <input type="number" min={1} max={12} value={form.month} onChange={e => setForm({ ...form, month: parseInt(e.target.value) })}
-            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" />
-        </div>
+    <div className="bg-white rounded-2xl shadow-lg p-5">
+      <div className="flex items-center gap-2 mb-4">
+        <FileUp size={18} className="text-blue-600" />
+        <h3 className="font-semibold text-slate-900">Import mensile netti / costi</h3>
       </div>
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="block text-xs font-medium text-slate-600 mb-1">Retribuzione</label>
-          <input type="number" step="0.01" value={form.retribuzione} onChange={e => setForm({ ...form, retribuzione: parseFloat(e.target.value) || 0 })}
-            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" />
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-slate-600 mb-1">Contributi</label>
-          <input type="number" step="0.01" value={form.contributi} onChange={e => setForm({ ...form, contributi: parseFloat(e.target.value) || 0 })}
-            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" />
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-slate-600 mb-1">INAIL</label>
-          <input type="number" step="0.01" value={form.inail} onChange={e => setForm({ ...form, inail: parseFloat(e.target.value) || 0 })}
-            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" />
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-slate-600 mb-1">TFR</label>
-          <input type="number" step="0.01" value={form.tfr} onChange={e => setForm({ ...form, tfr: parseFloat(e.target.value) || 0 })}
-            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" />
-        </div>
-      </div>
-      <div className="bg-blue-50 rounded-lg p-3">
-        <p className="text-xs text-blue-700">Totale costo: <strong>{new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' }).format(form.totale_costo)}</strong></p>
-      </div>
-      <div className="flex gap-2 pt-2">
-        <button type="button" onClick={onCancel} className="flex-1 py-2.5 rounded-lg border border-slate-200 text-sm font-medium hover:bg-slate-50">Annulla</button>
-        <button type="submit" disabled={saving}
-          className="flex-1 py-2.5 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50">
-          {saving ? 'Salvataggio...' : initial ? 'Aggiorna' : 'Salva costo'}
+      <p className="text-xs text-slate-500 mb-4">Carica un file CSV o Excel. Le intestazioni vengono riconosciute automaticamente (matricola, cognome, nome, filiale, netto, retribuzione, contributi, INAIL, TFR, altri).</p>
+
+      <div className="flex flex-wrap items-center gap-2 mb-4">
+        <select value={impYear} onChange={(e) => setImpYear(Number(e.target.value))} className="px-3 py-2 text-sm rounded-lg border border-slate-200">
+          {[defaultYear + 1, defaultYear, defaultYear - 1, defaultYear - 2].map((y) => <option key={y} value={y}>{y}</option>)}
+        </select>
+        <select value={impMonth} onChange={(e) => setImpMonth(Number(e.target.value))} className="px-3 py-2 text-sm rounded-lg border border-slate-200">
+          {MONTHS.map((m) => <option key={m.num} value={m.num}>{m.label}</option>)}
+        </select>
+        <input ref={fileRef} type="file" accept=".csv,.txt,.xlsx,.xls" className="hidden" onChange={handleFile} />
+        <button onClick={() => fileRef.current?.click()} disabled={parsing} className="px-3 py-2 rounded-lg text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 flex items-center gap-1.5">
+          <Upload size={15} /> {parsing ? 'Lettura…' : 'Scegli file'}
         </button>
       </div>
-    </form>
+
+      {monthHasData && (
+        <div className="mb-4 p-3 rounded-lg bg-amber-50 border border-amber-200 text-sm text-amber-800 flex items-start gap-2">
+          <AlertCircle size={16} className="mt-0.5 shrink-0" />
+          <span>Il mese {MONTHS.find((m) => m.num === impMonth)?.label} {impYear} contiene già dati. Confermando, <strong>sovrascriverai solo questo mese</strong> (gli altri mesi non vengono toccati).</span>
+        </div>
+      )}
+
+      {/* Anteprima */}
+      {rows && (
+        <div className="border border-slate-200 rounded-xl overflow-hidden">
+          <div className="px-4 py-3 bg-slate-50 grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+            <div><div className="text-xs text-slate-500">Righe riconosciute</div><div className="font-semibold">{rows.length}</div></div>
+            <div><div className="text-xs text-slate-500">Nuovi dipendenti</div><div className="font-semibold">{newCount}</div></div>
+            <div><div className="text-xs text-slate-500">Totale netto calcolato</div><div className="font-semibold"><Money v={totalNetto} /></div></div>
+            <div>
+              <div className="text-xs text-slate-500">Totale file</div>
+              <div className="font-semibold">{fileTotal != null ? <Money v={fileTotal} /> : <span className="text-slate-400">—</span>}</div>
+            </div>
+          </div>
+
+          {scostamento != null && (
+            <div className={`px-4 py-2 text-sm flex items-center gap-2 ${quadra ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>
+              {quadra ? <CheckCircle2 size={15} /> : <AlertCircle size={15} />}
+              {quadra ? 'Quadratura OK con il totale del file.' : <>Scostamento dal totale file: <Money v={scostamento} /></>}
+            </div>
+          )}
+
+          <div className="max-h-72 overflow-y-auto">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 bg-white">
+                <tr className="text-left text-xs uppercase tracking-wide text-slate-400 border-b border-slate-100">
+                  <th className="px-3 py-2 font-medium">Matr.</th>
+                  <th className="px-3 py-2 font-medium">Dipendente</th>
+                  <th className="px-3 py-2 font-medium">Outlet</th>
+                  <th className="px-3 py-2 font-medium text-right">Netto</th>
+                  {hasComponents && <th className="px-3 py-2 font-medium text-right">Retrib.</th>}
+                  <th className="px-3 py-2 font-medium text-center">Stato</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r, i) => (
+                  <tr key={i} className="border-b border-slate-50">
+                    <td className="px-3 py-2 text-slate-500 tabular-nums">{r.matricola || '—'}</td>
+                    <td className="px-3 py-2 text-slate-700">{`${r.cognome} ${r.nome}`.trim() || '—'}</td>
+                    <td className="px-3 py-2 text-slate-500">{r.outlet || '—'}</td>
+                    <td className="px-3 py-2 text-right"><Money v={r.netto || 0} /></td>
+                    {hasComponents && <td className="px-3 py-2 text-right text-slate-500"><Money v={r.retribuzione || 0} /></td>}
+                    <td className="px-3 py-2 text-center">
+                      {r.isNew
+                        ? <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700">Nuovo</span>
+                        : <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">Esistente</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="px-4 py-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3">
+            {monthHasData ? (
+              <label className="flex items-center gap-2 text-sm text-slate-600">
+                <input type="checkbox" checked={overwriteAck} onChange={(e) => setOverwriteAck(e.target.checked)} />
+                Confermo la sovrascrittura del mese già presente
+              </label>
+            ) : <span />}
+            <div className="flex items-center gap-2 ml-auto">
+              <button onClick={reset} className="px-4 py-2 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100">Annulla</button>
+              <button onClick={doImport} disabled={importing || (monthHasData && !overwriteAck)} className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 flex items-center gap-1.5">
+                <Save size={15} /> {importing ? 'Import in corso…' : 'Conferma import'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
