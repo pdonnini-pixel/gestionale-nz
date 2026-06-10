@@ -105,7 +105,7 @@ function compactEur(v: number): string {
   if (Math.abs(n) >= 1_000_000) {
     return `${(n / 1_000_000).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} M€`;
   }
-  return `${eurInt.format(n)} €`;
+  return `${eurFmt.format(n)} €`;
 }
 
 // Render valuta: positivo nero senza segno, negativo rosso con il meno.
@@ -720,7 +720,6 @@ export default function Dipendenti() {
             <select value={selectedMonth} onChange={(e) => setSelectedMonth(Number(e.target.value))} className="px-3 py-2 text-sm rounded-lg border border-slate-200 bg-white">
               {MONTHS.map((m) => <option key={m.num} value={m.num}>{m.label}</option>)}
             </select>
-            <button onClick={() => setView('costi')} className="px-3 py-2 rounded-lg border border-slate-200 text-sm font-medium text-slate-600 hover:bg-slate-50 flex items-center gap-1.5"><FileUp size={15} /> Importa cedolini</button>
             <button onClick={() => { setEditingEmployee(null); setShowEmployeeForm(true); }} className="px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium flex items-center gap-1.5"><Plus size={15} /> Dipendente</button>
             <button onClick={reloadAll} className="p-2 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50" title="Ricarica"><RefreshCw size={16} /></button>
           </div>
@@ -961,24 +960,16 @@ function PanoramicaTab(props: {
   const nettoAnnualizzato = totalNettoMese * 12;
   const empty = headcount === 0 && totalBC === 0 && totalNettoMese === 0;
   const mm = String(month).padStart(2, '0');
-  const avgPerOutlet = sedi > 0 ? (headcount / sedi).toLocaleString('it-IT', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : '0';
+  const avgPerOutlet = sedi > 0 ? (headcount / sedi).toLocaleString('it-IT', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : '—';
   const maxVal = Math.max(1, ...chartData.map((d) => d.bc + d.nettoX12));
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         <Kpi label="Organico attivo" value={headcount} sub={`su ${sedi} sedi · ${avgPerOutlet} addetti/outlet`} icon={Users} accent="none" />
-        <Kpi label="Costo personale" value={compactEur(totalBC)} sub="budget annuo · da Budget&Controllo" icon={BarChart3} accent="cost" chip="costo" />
-        <Kpi label="Netto mensile" value={compactEur(totalNettoMese)} sub={`bonifici stipendi · da cedolini ${mm}/${year}`} icon={FileText} accent="cash" chip="cassa" />
+        <Kpi label="Costo personale" value={`${eurFmt.format(totalBC)} €`} sub="budget annuo · da Budget&Controllo" icon={BarChart3} accent="cost" chip="costo" />
+        <Kpi label="Netto mensile" value={`${eurFmt.format(totalNettoMese)} €`} sub={`bonifici stipendi · da cedolini ${mm}/${year}`} icon={FileText} accent="cash" chip="cassa" />
         <Kpi label="Incidenza su ricavi" value={incidenza != null ? `${incidenza.toFixed(1).replace('.', ',')}%` : '—'} sub={`costo personale / ricavi ${year}`} icon={Percent} accent="emerald" />
-        <Kpi label="Costo medio / addetto" value={compactEur(costoMedio)} sub="annuo lordo aziendale" icon={Users} accent="none" />
-      </div>
-
-      {/* Fascia-nota: le due grane (costo vs netto) non vanno mai confuse */}
-      <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
-        <AlertCircle size={18} className="text-amber-500 mt-0.5 shrink-0" />
-        <p className="text-sm text-amber-800 leading-relaxed">
-          <strong>Due grane diverse, mai confuse.</strong> Il <strong style={{ color: '#7c3aed' }}>Costo</strong> (viola) è il dato di controllo che carica Lilian in B&amp;C — lordo + contributi + INAIL + TFR. Il <strong style={{ color: '#2563eb' }}>Netto</strong> (blu) è l'uscita di cassa reale dei bonifici. Il netto ≈ metà del costo: non vanno mai sommati né sovrapposti.
-        </p>
+        <Kpi label="Costo medio / addetto" value={headcount > 0 ? `${eurFmt.format(costoMedio)} €` : '—'} sub="annuo lordo aziendale" icon={Users} accent="none" />
       </div>
 
       {empty ? (
@@ -996,23 +987,26 @@ function PanoramicaTab(props: {
             {chartData.length === 0 ? (
               <div className="text-sm text-slate-400 py-8 text-center">Nessun costo per outlet disponibile.</div>
             ) : (
-              <div className="space-y-3">
-                {chartData.map((d) => {
-                  const color = getOutletColor(d.name);
-                  return (
-                    <div key={d.name} className="flex items-center gap-3">
-                      <div className="w-28 shrink-0 text-sm text-slate-600 truncate" title={d.name}>{d.name}</div>
-                      <div className="flex-1 h-5 rounded-full bg-slate-100 overflow-hidden flex">
-                        <div className="h-full" style={{ width: `${(d.bc / maxVal) * 100}%`, background: color.main }} />
-                        <div className="h-full" style={{ width: `${(d.nettoX12 / maxVal) * 100}%`, background: color.light }} />
+              <div className="space-y-4">
+                {chartData.map((d) => (
+                  <div key={d.name} className="flex items-center gap-3">
+                    <div className="w-28 shrink-0 text-sm text-slate-600 truncate" title={d.name}>{d.name}</div>
+                    <div className="flex-1 space-y-1">
+                      {/* Costo budget (viola) — tutte le barre stesso colore e stessa forma */}
+                      <div className="h-3.5 rounded-full bg-slate-100">
+                        <div className="h-full rounded-full" style={{ width: `${(d.bc / maxVal) * 100}%`, background: '#7c3aed' }} />
                       </div>
-                      <div className="w-24 shrink-0 text-right text-sm font-semibold tabular-nums" style={{ color: color.main }}>{eurInt.format(d.bc)}&nbsp;€</div>
+                      {/* Netto ×12 (blu) */}
+                      <div className="h-3.5 rounded-full bg-slate-100">
+                        <div className="h-full rounded-full" style={{ width: `${(d.nettoX12 / maxVal) * 100}%`, background: '#2563eb' }} />
+                      </div>
                     </div>
-                  );
-                })}
+                    <div className="w-28 shrink-0 text-right text-sm font-semibold tabular-nums" style={{ color: '#7c3aed' }}>{eurFmt.format(d.bc)}&nbsp;€</div>
+                  </div>
+                ))}
                 <div className="flex items-center gap-4 pt-3 mt-1 border-t border-slate-100 text-xs text-slate-500">
-                  <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm" style={{ background: '#6366f1' }} /> Costo budget annuo (B&amp;C)</span>
-                  <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm" style={{ background: '#c7d2fe' }} /> Netto ×12 (payroll)</span>
+                  <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm" style={{ background: '#7c3aed' }} /> Costo budget annuo (B&amp;C)</span>
+                  <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm" style={{ background: '#2563eb' }} /> Netto ×12 (payroll)</span>
                 </div>
               </div>
             )}
@@ -1050,7 +1044,7 @@ function QuadCard({ label, value, sub, muted = false, color }: { label: string; 
   return (
     <div className="flex-1 rounded-xl border border-slate-200 p-4 text-center" style={{ background: '#f8fafc' }}>
       <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 mb-1">{label}</div>
-      <div className="text-2xl font-bold tabular-nums" style={{ color: muted ? '#0f172a' : (color || '#0f172a') }}>{eurInt.format(value)}&nbsp;€</div>
+      <div className="text-2xl font-bold tabular-nums" style={{ color: muted ? '#0f172a' : (color || '#0f172a') }}>{eurFmt.format(value)}&nbsp;€</div>
       <div className="text-[11px] text-slate-400 mt-1">{sub}</div>
     </div>
   );
@@ -1101,7 +1095,7 @@ function PerOutletTab(props: {
                 <div className="text-xs text-slate-500">{(headcountByOutlet[o.name]?.size || 0)} dipendenti · netto {eurFmt.format(nettoByOutlet[o.name] || 0)} €/mese</div>
               </div>
               <div className="text-right shrink-0">
-                <div className="font-extrabold tabular-nums" style={{ color: color.main }}>{eurInt.format(bcByOutlet(o))}&nbsp;€</div>
+                <div className="font-extrabold tabular-nums" style={{ color: color.main }}>{eurFmt.format(bcByOutlet(o))}&nbsp;€</div>
                 <div className="text-xs text-slate-500">costo annuo (B&amp;C)</div>
               </div>
             </div>
@@ -1141,7 +1135,7 @@ function PerOutletTab(props: {
             <div className="font-bold text-slate-600">Non attribuito</div>
             <div className="text-xs text-slate-400">Centri di costo non agganciati a un punto vendita (es. spese da ripartire).</div>
           </div>
-          <div className="text-right"><div className="font-extrabold tabular-nums text-slate-600">{eurInt.format(nonAttribuito)}&nbsp;€</div><div className="text-xs text-slate-500">costo annuo (B&amp;C)</div></div>
+          <div className="text-right"><div className="font-extrabold tabular-nums text-slate-600">{eurFmt.format(nonAttribuito)}&nbsp;€</div><div className="text-xs text-slate-500">costo annuo (B&amp;C)</div></div>
         </div>
       )}
     </div>
@@ -1552,9 +1546,17 @@ interface PreviewRow {
 
 type ParsedImport = { rows: PreviewRow[]; fileTotal: number | null };
 
-const RE_FILIALE = /^filiale[:\s]+[\d]+\s*[-–]\s*(.+?)\s*;?\s*$/i;
+// La riga filiale può avere testo prima (es. "Progressivo ripartizione n.2: Filiale: 0000000001 - VALDICHIANA VILLAGE ;")
+// quindi NON ancorare a inizio riga; il nome termina al ';' (o a fine riga).
+const RE_FILIALE = /filiale[:\s]*\d+\s*[-–]\s*([^;]+?)\s*(?:;|$)/i;
 const RE_TOT_AZIENDALE = /totale aziendale\s+(-?[\d.]+,\d{2})/i;
 const blankRow = (): PreviewRow => ({ matricola: '', cognome: '', nome: '', outlet: '', netto: null, retribuzione: null, contributi: null, inail: null, tfr: null, altri: null, isNew: false, matchedId: null });
+
+// Collassa i caratteri raddoppiati dei testi in grassetto del PDF ("TToottaallee" → "Totale").
+// Usato SOLO per riconoscere le keyword dei totali, mai per estrarre gli importi
+// (collassare i doppioni corromperebbe cifre come "1.333,00").
+const deDouble = (s: string) => s.replace(/(.)\1/g, '$1');
+const RE_IMPORTO_IT = /\d{1,3}(?:\.\d{3})*,\d{2}/;
 
 // PDF "Elenco netti" Infinity: sezioni per Filiale, righe `matricola COGNOME NOME importo`,
 // chiusura `Totale aziendale <importo>`. Mapping filiale→outlet a runtime.
@@ -1562,13 +1564,17 @@ function parseInfinityNetti(lines: string[], outlets: OutletRow[]): ParsedImport
   const rows: PreviewRow[] = [];
   let fileTotal: number | null = null;
   let currentOutlet = '';
-  const reEmp = /^(\d{6,7})\s+(.+?)\s+(-?[\d.]+,\d{2})\s*$/;
+  // matricola(6-7) + nome completo + importo it; tollera testo dopo l'importo
+  const reEmp = /^(\d{6,7})\s+(.+?)\s+(\d{1,3}(?:\.\d{3})*,\d{2})(?:\s|$)/;
   for (const ln of lines) {
     const mf = ln.match(RE_FILIALE);
     if (mf) { currentOutlet = matchOutletName(mf[1], outlets); continue; }
-    const ta = ln.match(RE_TOT_AZIENDALE);
-    if (ta) { fileTotal = parseItNum(ta[1]); continue; }
-    if (/totale di ripartizione/i.test(ln)) continue;
+    const dd = deDouble(ln);
+    // Totale aziendale (anche con caratteri raddoppiati): importo estratto dalla riga ORIGINALE
+    if (/totale\s+aziendale/i.test(dd)) { const m = ln.match(RE_IMPORTO_IT); if (m) fileTotal = parseItNum(m[0]); continue; }
+    if (/totale\s+di\s+ripartizione/i.test(dd)) continue;
+    // Salta righe non-record (coordinate bancarie, IBAN, intestazioni colonne)
+    if (/coordinate bancarie|\biban\b|cod\.?\s*dip|cognome e nome/i.test(dd)) continue;
     const me = ln.match(reEmp);
     if (me) {
       const parts = me[2].trim().split(/\s+/);
@@ -1696,6 +1702,8 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
   const [parsing, setParsing] = useState(false);
   const [importing, setImporting] = useState(false);
   const [overwriteAck, setOverwriteAck] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+  const [rawPreview, setRawPreview] = useState<string[] | null>(null);
 
   const monthHasData = existingCosts.some((c) => c.year === impYear && c.month === impMonth && (isNetto ? c.netto != null : (c.retribuzione != null || c.contributi != null || c.inail != null || c.tfr != null || c.altri_costi != null)));
 
@@ -1710,31 +1718,33 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
 
   const amountOf = (r: PreviewRow) => (isNetto ? Number(r.netto || 0) : rowLordo(r));
 
-  const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const processFile = async (file: File) => {
     setParsing(true); setFileName(file.name);
-    setRows(null); setFileTotal(null); setOverwriteAck(false);
+    setRows(null); setFileTotal(null); setOverwriteAck(false); setRawPreview(null);
     try {
       const isPdf = /\.pdf$/i.test(file.name) || file.type === 'application/pdf';
       let parsed: ParsedImport;
+      let rawLines: string[] = [];
       if (isPdf) {
-        const lines = await extractPdfLines(file);
-        parsed = isNetto ? parseInfinityNetti(lines, outlets) : parsePdfLordi(lines, outlets);
+        rawLines = await extractPdfLines(file);
+        parsed = isNetto ? parseInfinityNetti(rawLines, outlets) : parsePdfLordi(rawLines, outlets);
       } else {
         const buf = await file.arrayBuffer();
         const wb = XLSX.read(buf, { type: 'array' });
         const ws = wb.Sheets[wb.SheetNames[0]];
         const matrix: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, blankrows: false, raw: false });
+        rawLines = matrix.slice(0, 25).map((r) => r.join(' | '));
         parsed = parseSpreadsheet(matrix);
       }
       // tieni solo le righe pertinenti alla corsia
       const relevant = parsed.rows.filter((r) => (isNetto ? r.netto != null : rowHasLordo(r)));
       if (!relevant.length) {
+        // mostra un estratto del testo grezzo per capire il formato
+        setRawPreview(rawLines.slice(0, 25));
         toast({ type: 'error', message: isNetto
-          ? 'Nessun netto riconosciuto. Attesi: PDF “Elenco netti”, oppure CSV/Excel con colonna netto.'
-          : 'Nessun componente di costo riconosciuto. Usa CSV/Excel con colonne lordo/contributi/INAIL/TFR (il tracciato PDF definitivo arriva domani).' });
-        setParsing(false); if (fileRef.current) fileRef.current.value = ''; return;
+          ? 'Nessun netto riconosciuto: vedi l’estratto del file in anteprima.'
+          : 'Nessun componente di costo riconosciuto: vedi l’estratto del file (tracciato PDF lordi definitivo in arrivo).' });
+        return;
       }
       relevant.forEach((row) => { const id = matchEmployee(row.matricola, row.cognome, row.nome); row.matchedId = id; row.isNew = !id; });
       setRows(relevant); setFileTotal(parsed.fileTotal);
@@ -1746,13 +1756,23 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
     }
   };
 
+  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) processFile(file);
+  };
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault(); setDragOver(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) processFile(file);
+  };
+
   // campi lordi effettivamente presenti nel file (per payload uniforme nel batch)
   const lordiPresent = useMemo(() => (rows ? LORDI_FIELDS.filter((f) => rows.some((r) => (r as any)[f.key] != null)) : []), [rows]);
   const total = rows ? rows.reduce((s, r) => s + amountOf(r), 0) : 0;
   const newCount = rows ? rows.filter((r) => r.isNew).length : 0;
   const scostamento = fileTotal != null ? total - fileTotal : null;
   const quadra = scostamento == null || Math.abs(scostamento) < 0.01;
-  const reset = () => { setRows(null); setFileName(''); setFileTotal(null); setOverwriteAck(false); };
+  const reset = () => { setRows(null); setFileName(''); setFileTotal(null); setOverwriteAck(false); setRawPreview(null); };
 
   const doImport = async () => {
     if (!rows) return;
@@ -1829,18 +1849,35 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
           : 'Costo lordo aziendale (retribuzione lorda + contributi + INAIL + TFR + altri) → scrive i componenti, non il netto. Accetta PDF, CSV/Excel mapping-driven (tracciato definitivo in arrivo).'}
       </p>
 
-      <div className="flex flex-wrap items-center gap-2 mb-4">
+      <div className="flex flex-wrap items-center gap-2 mb-3">
         <select value={impYear} onChange={(e) => setImpYear(Number(e.target.value))} className="px-3 py-2 text-sm rounded-lg border border-slate-300">
           {[defaultYear + 1, defaultYear, defaultYear - 1, defaultYear - 2].map((y) => <option key={y} value={y}>Anno {y}</option>)}
         </select>
         <select value={impMonth} onChange={(e) => setImpMonth(Number(e.target.value))} className="px-3 py-2 text-sm rounded-lg border border-slate-300">
           {MONTHS.map((m) => <option key={m.num} value={m.num}>{m.label}</option>)}
         </select>
-        <input ref={fileRef} type="file" accept=".pdf,.csv,.txt,.xlsx,.xls" className="hidden" onChange={handleFile} />
-        <button onClick={() => fileRef.current?.click()} disabled={parsing} className={`px-3 py-2 rounded-lg text-sm font-medium text-white ${isNetto ? 'bg-blue-600 hover:bg-blue-700' : 'bg-violet-600 hover:bg-violet-700'} flex items-center gap-1.5`}>
-          <Upload size={15} /> {parsing ? 'Lettura…' : 'Scegli file (PDF / CSV / Excel)'}
-        </button>
       </div>
+
+      {/* Zona drag & drop */}
+      <input ref={fileRef} type="file" accept=".pdf,.csv,.txt,.xlsx,.xls" className="hidden" onChange={handleFile} />
+      <div
+        onClick={() => fileRef.current?.click()}
+        onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={handleDrop}
+        className={`mb-4 rounded-xl border-2 border-dashed p-6 text-center cursor-pointer transition-colors ${dragOver ? (isNetto ? 'border-blue-400 bg-blue-50' : 'border-violet-400 bg-violet-50') : 'border-slate-300 hover:border-slate-400 bg-slate-50'}`}
+      >
+        <Upload size={22} className={`mx-auto mb-2 ${isNetto ? 'text-blue-500' : 'text-violet-500'}`} />
+        <div className="text-sm font-medium text-slate-700">{parsing ? 'Lettura del file…' : 'Trascina qui il file PDF / CSV / Excel'}</div>
+        <div className="text-xs text-slate-400 mt-0.5">oppure clicca per sceglierlo {fileName && !parsing ? `· ${fileName}` : ''}</div>
+      </div>
+
+      {rawPreview && (
+        <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
+          <div className="text-xs font-semibold text-slate-500 mb-1.5">Estratto del file (per diagnosticare il formato):</div>
+          <pre className="text-[11px] text-slate-600 whitespace-pre-wrap max-h-48 overflow-y-auto font-mono">{rawPreview.join('\n')}</pre>
+        </div>
+      )}
 
       {monthHasData && (
         <div className="mb-4 p-3 rounded-lg bg-amber-50 border border-amber-200 text-sm text-amber-800 flex items-start gap-2">
