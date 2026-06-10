@@ -2389,14 +2389,36 @@ const ScadenzarioSmart = () => {
                               {/* Vedi fattura XML */}
                               {p.invoice_number && (
                                 <button onClick={async () => {
-                                  const { data } = await supabase.from('electronic_invoices')
-                                    .select('xml_content')
-                                    .eq('invoice_number', p.invoice_number || '')
-                                    .not('xml_content', 'is', null)
-                                    .limit(1)
-                                    .maybeSingle()
-                                  if (data?.xml_content) {
-                                    setViewingXml(data.xml_content)
+                                  // Fix ticket "CT INDUSTRIE / MICHELE FISCO": il numero fattura NON e'
+                                  // univoco tra fornitori. 1) match esatto via electronic_invoice_id del
+                                  // payable; 2) fallback numero + azienda + P.IVA fornitore.
+                                  let xml: string | null = null
+                                  if (p.id) {
+                                    const { data: pay } = await supabase.from('payables')
+                                      .select('electronic_invoice_id')
+                                      .eq('id', p.id)
+                                      .maybeSingle()
+                                    if (pay?.electronic_invoice_id) {
+                                      const { data } = await supabase.from('electronic_invoices')
+                                        .select('xml_content')
+                                        .eq('id', pay.electronic_invoice_id)
+                                        .not('xml_content', 'is', null)
+                                        .maybeSingle()
+                                      xml = data?.xml_content || null
+                                    }
+                                  }
+                                  if (!xml && COMPANY_ID) {
+                                    let q = supabase.from('electronic_invoices')
+                                      .select('xml_content')
+                                      .eq('invoice_number', p.invoice_number || '')
+                                      .eq('company_id', COMPANY_ID)
+                                      .not('xml_content', 'is', null)
+                                    if (p.supplier_vat) q = q.eq('supplier_vat', p.supplier_vat)
+                                    const { data } = await q.limit(1).maybeSingle()
+                                    xml = data?.xml_content || null
+                                  }
+                                  if (xml) {
+                                    setViewingXml(xml)
                                   } else {
                                     toast({ type: 'warning', message: 'XML fattura non disponibile per questa scadenza' })
                                   }

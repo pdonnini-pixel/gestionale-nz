@@ -461,18 +461,36 @@ export default function SchedaContabileFornitore() {
 
   const handleViewInvoice = async (fattura: { invoice_number: string | null; rate?: Payable[] }) => {
     if (!COMPANY_ID) return;
-    // Cerca XML su electronic_invoices per invoice_number
+    // Fix ticket "CT INDUSTRIE / MICHELE FISCO": il numero fattura NON e' univoco
+    // tra fornitori diversi (es. due fornitori con fattura n.4). Match in 2 step:
+    // 1) electronic_invoice_id del payable (univoco); 2) fallback numero+azienda+P.IVA.
+    const eInvoiceId = fattura.rate?.find(r => r.electronic_invoice_id)?.electronic_invoice_id;
+    if (eInvoiceId) {
+      const { data } = await supabase
+        .from('electronic_invoices')
+        .select('xml_content')
+        .eq('id', eInvoiceId)
+        .not('xml_content', 'is', null)
+        .maybeSingle();
+      if (data?.xml_content) { setViewingXml(data.xml_content); return; }
+    }
+
     const invoiceNumber = fattura.invoice_number || fattura.rate?.[0]?.invoice_number;
     if (!invoiceNumber) { toast({ type: 'warning', message: 'XML non disponibile per questa fattura' }); return; }
 
-    const { data } = await supabase
+    let query = supabase
       .from('electronic_invoices')
       .select('xml_content')
       .eq('invoice_number', invoiceNumber)
       .eq('company_id', COMPANY_ID)
-      .not('xml_content', 'is', null)
-      .limit(1)
-      .maybeSingle();
+      .not('xml_content', 'is', null);
+    const supplierVat = supplier?.partita_iva || supplier?.vat_number || fattura.rate?.[0]?.supplier_vat;
+    if (supplierVat) {
+      query = query.eq('supplier_vat', supplierVat);
+    } else if (supplier?.name || supplier?.ragione_sociale) {
+      query = query.eq('supplier_name', (supplier.name || supplier.ragione_sociale) as string);
+    }
+    const { data } = await query.limit(1).maybeSingle();
 
     if (data?.xml_content) {
       setViewingXml(data.xml_content);
