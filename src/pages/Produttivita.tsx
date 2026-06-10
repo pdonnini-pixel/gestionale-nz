@@ -36,6 +36,7 @@ export default function Produttivita() {
   const [rawEntries, setRawEntries] = useState<any[]>([]);
   const [employees, setEmployees] = useState<any[]>([]);
   const [allocations, setAllocations] = useState<any[]>([]);
+  const [outletMap, setOutletMap] = useState<Record<string, string>>({});
   const [simulazioneAttiva, setSimulazioneAttiva] = useState(false);
   const [moved, setMoved] = useState<{ from: string | null; to: string | null; count: number }>({ from: null, to: null, count: 1 });
 
@@ -55,19 +56,27 @@ export default function Produttivita() {
           .range(0, 9999); // override default Supabase limit 1000
         if (companyId) budgetQuery = budgetQuery.eq('company_id', companyId);
 
-        // Fetch employees
+        // Fetch employees (outlet name risolto via outletMap: lo schema reale
+        // post-PR #150 non ha piu' outlet_name/cost_center, solo outlet_id).
         let empQuery = supabase
           .from('employees')
-          .select('id, outlet_name, cost_center');
+          .select('id, outlet_id');
         if (companyId) empQuery = empQuery.eq('company_id', companyId);
 
-        // Fetch employee_outlet_allocations for per-outlet headcount
+        // Fetch employee_outlet_allocations for per-outlet headcount.
+        // PR #150: outlet_code = NOME outlet, allocation_pct = percentuale.
         let allocQuery = supabase
           .from('employee_outlet_allocations')
-          .select('employee_id, outlet_id, cost_center, allocation_percentage');
+          .select('employee_id, outlet_code, allocation_pct');
         if (companyId) allocQuery = allocQuery.eq('company_id', companyId);
 
-        const [budgetRes, empRes, allocRes] = await Promise.all([budgetQuery, empQuery, allocQuery]);
+        // Mappa outlet_id -> nome per il fallback employees.
+        let outletsQuery = supabase
+          .from('outlets')
+          .select('id, name');
+        if (companyId) outletsQuery = outletsQuery.eq('company_id', companyId);
+
+        const [budgetRes, empRes, allocRes, outletsRes] = await Promise.all([budgetQuery, empQuery, allocQuery, outletsQuery]);
 
         if (budgetRes.error) throw budgetRes.error;
         // Sprint 2 hotfix (29/05/2026 sera): rollback override budget_confronto.
@@ -83,6 +92,13 @@ export default function Produttivita() {
         // Allocations may not exist
         if (!allocRes.error && allocRes.data) {
           setAllocations(allocRes.data);
+        }
+
+        // Outlet id -> name map (per fallback employees)
+        if (!outletsRes.error && outletsRes.data) {
+          const map: Record<string, string> = {};
+          outletsRes.data.forEach((o: any) => { if (o.id) map[o.id] = o.name; });
+          setOutletMap(map);
         }
       } catch (err: unknown) {
         console.error('[Produttivita] fetch error:', err);
@@ -101,21 +117,21 @@ export default function Produttivita() {
     // Prefer allocations (FTE-weighted)
     if (allocations.length > 0) {
       allocations.forEach(a => {
-        const outlet = a.cost_center || 'Sconosciuto';
-        const pct = parseFloat(a.allocation_percentage) || 100;
+        const outlet = a.outlet_code || 'Sconosciuto';
+        const pct = parseFloat(a.allocation_pct) || 100;
         counts[outlet] = (counts[outlet] || 0) + (pct / 100);
       });
     } else if (employees.length > 0) {
-      // Fallback to employee table
+      // Fallback to employee table (outlet name via outletMap)
       employees.forEach(emp => {
-        const outlet = emp.cost_center || emp.outlet_name || 'Sconosciuto';
+        const outlet = outletMap[emp.outlet_id] || 'Sconosciuto';
         counts[outlet] = (counts[outlet] || 0) + 1;
       });
     }
     // If no employee data at all, returns empty - will use fallback of 4
 
     return counts;
-  }, [allocations, employees]);
+  }, [allocations, employees, outletMap]);
 
   // Compute per-outlet productivity metrics from budget_entries
   interface OutletAggregate { ricavi: number; costo_personale: number; costi_totali: number }
