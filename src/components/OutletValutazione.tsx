@@ -39,18 +39,15 @@ interface Simulation {
 
 type ToastType = 'ok' | 'error'
 
-// Classificazione CE su balance_sheet_data.section='conto_economico'.
-// I codici sono semantici (niente flag is_revenue sul DB): ricavi = questo set,
-// tutto il resto di DETTAGLIO = costi. Le righe di subtotale/risultato sono
-// ESCLUSE da entrambi gli insiemi per non duplicare gli importi.
-const CE_REVENUE_CODES = ['ricavi_vendite', 'altri_ricavi', 'proventi_finanziari', 'proventi_straordinari']
-const isCeSubtotal = (code: string) =>
-  code.startsWith('totale_') || code === 'differenza_ab' || code === 'utile_netto'
+// La struttura CE viene dal piano dei conti (chart_of_accounts), classificata
+// via is_revenue — stessa fonte/gerarchia di Budget & Controllo. Niente codici
+// semantici di bilancio: ogni macro-voce ha i suoi sottoconti, tutto collassabile.
 
 function TreeNodeEdit({ node, depth = 0, edits, onEdit }: { node: CETreeNode; depth?: number; edits: Record<string, number>; onEdit: (code: string, value: number) => void }) {
   const [open, setOpen] = useState(false)
   const hasKids = (node.children?.length ?? 0) > 0
-  const isMacro = node.level === 0
+  // Macro = livello 1 del piano dei conti (es. 61, 63, 67…). Stile in grassetto.
+  const isMacro = node.level <= 1
   const isLeaf = !hasKids
   const val = edits[node.code] != null ? edits[node.code] : (node.amount || 0)
   const isEdited = edits[node.code] != null
@@ -152,32 +149,25 @@ export default function OutletValutazione() {
     if (!CID) return
     setLoading(true)
     try {
-      // Anno dinamico: ultimo anno con conto_economico in balance_sheet_data;
-      // fallback all'anno selezionato (usePeriod). Nessun anno fisso.
-      const { data: yrRows } = await supabase
-        .from('balance_sheet_data')
-        .select('year')
-        .eq('company_id', CID)
-        .eq('section', 'conto_economico')
-        .order('year', { ascending: false })
-        .limit(1)
-      const ceYear = (yrRows && yrRows.length > 0 ? yrRows[0].year : periodYear)
-
-      const [bsR, simR] = await Promise.all([
-        supabase.from('balance_sheet_data').select('*').eq('company_id', CID).eq('year', ceYear).eq('section', 'conto_economico').order('sort_order'),
+      // Struttura CE dal piano dei conti (chart_of_accounts), STESSA fonte e
+      // gerarchia di Budget & Controllo: macro (livello 1) → sottoconti (2) →
+      // conti di dettaglio (3). Ogni macro è quindi un nodo collassabile.
+      // is_revenue separa ricavi/costi. Importi a 0: la simulazione parte da
+      // base ZERO, i valori stanno negli edits.
+      const [coaR, simR] = await Promise.all([
+        supabase.from('chart_of_accounts')
+          .select('code, name, level, is_revenue, sort_order')
+          .eq('company_id', CID).eq('is_active', true).order('sort_order'),
         supabase.from('outlet_simulations').select('*').eq('company_id', CID).order('created_at', { ascending: false }),
       ])
 
-      // Parse CE — split ricavi/costi sui codici semantici, escludendo subtotali/risultato.
-      const junk = /Azienda:|Cod\.\s*Fiscale|Partita\s*IVA|^VIA\s|PERIODO\s*DAL|Totali\s*fino|^Pag\.|Considera anche|movimenti provvisori/i
-      const clean = (bsR.data || []).filter(r => (r.account_code && r.account_code.trim()) && !junk.test(r.account_name || ''))
+      type CoaRow = { code: string; name: string | null; level: number | null; is_revenue: boolean | null }
       const co: CeRow[] = []
       const ri: CeRow[] = []
-      clean.forEach(r => {
-        const code = r.account_code || ''
-        if (isCeSubtotal(code)) return // subtotali/risultato esclusi: non sono né ricavo né costo di dettaglio
-        const row: CeRow = { code, description: r.account_name || '', amount: r.amount || 0, level: getCodeLevel(code), isMacro: code.replace(/\s/g, '').length <= 2 }
-        if (CE_REVENUE_CODES.includes(code)) ri.push(row)
+      ;((coaR.data || []) as CoaRow[]).forEach(c => {
+        const lvl = c.level ?? getCodeLevel(c.code)
+        const row: CeRow = { code: c.code, description: c.name || '', amount: 0, level: lvl, isMacro: lvl <= 1 }
+        if (c.is_revenue) ri.push(row)
         else co.push(row)
       })
       setCeRawCosti(co)
