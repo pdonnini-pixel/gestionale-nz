@@ -147,16 +147,36 @@ function ConfirmModal({ open, title, message, confirmLabel = 'Conferma', danger 
   );
 }
 
-// KPI card gradient — stile pattern delle altre pagine.
-function Kpi({ label, value, sub, icon: Icon, gradient }: { label: string; value: React.ReactNode; sub?: React.ReactNode; icon: React.ComponentType<{ size?: number; className?: string }>; gradient: string }) {
+// KPI card pulita — stesso stile delle altre pagine (ConfrontoOutlet / Conto Economico):
+// fondo bianco→slate, bordo tenue, accento solo sul numero. Niente tessere a gradiente pieno.
+const KPI_ACCENT: Record<'cost' | 'cash' | 'emerald' | 'none', string> = {
+  cost: '#7c3aed',
+  cash: '#2563eb',
+  emerald: '#059669',
+  none: '#0f172a',
+};
+const KPI_CHIP: Record<'costo' | 'cassa', { bg: string; color: string }> = {
+  costo: { bg: '#f5f3ff', color: '#7c3aed' },
+  cassa: { bg: '#eff6ff', color: '#2563eb' },
+};
+function Kpi({ label, value, sub, icon: Icon, accent = 'none', chip }: {
+  label: string; value: React.ReactNode; sub?: React.ReactNode;
+  icon: React.ComponentType<{ size?: number; className?: string }>;
+  accent?: 'cost' | 'cash' | 'emerald' | 'none'; chip?: 'costo' | 'cassa';
+}) {
   return (
-    <div className={`rounded-2xl shadow-lg p-5 text-white bg-gradient-to-br ${gradient}`}>
+    <div className="rounded-2xl shadow-lg p-5" style={{ background: 'linear-gradient(135deg,#ffffff 0%,#f8fafc 100%)', border: '1px solid rgba(99,102,241,0.08)' }}>
       <div className="flex items-center justify-between mb-3">
-        <span className="text-xs font-medium uppercase tracking-wide text-white/80">{label}</span>
-        <Icon size={18} className="text-white/80" />
+        <div className="flex items-center gap-2 min-w-0">
+          {chip && (
+            <span className="text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded shrink-0" style={{ background: KPI_CHIP[chip].bg, color: KPI_CHIP[chip].color }}>{chip}</span>
+          )}
+          <span className="text-xs font-medium text-slate-500 truncate">{label}</span>
+        </div>
+        <Icon size={16} className="text-slate-400 shrink-0" />
       </div>
-      <div className="text-2xl font-bold tabular-nums leading-tight">{value}</div>
-      {sub && <div className="text-xs text-white/80 mt-1">{sub}</div>}
+      <div className="text-2xl font-bold tabular-nums leading-tight" style={{ color: KPI_ACCENT[accent] }}>{value}</div>
+      {sub && <div className="text-xs text-slate-400 mt-1">{sub}</div>}
     </div>
   );
 }
@@ -631,7 +651,7 @@ export default function Dipendenti() {
           const Icon = t.icon;
           return (
             <button key={t.k} onClick={() => setView(t.k)}
-              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-md text-sm font-medium transition-all ${view === t.k ? 'bg-white shadow text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}>
+              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-md text-sm font-medium transition-all ${view === t.k ? 'bg-white shadow text-blue-700' : 'text-slate-500 hover:text-slate-700'}`}>
               <Icon size={15} />{t.label}
             </button>
           );
@@ -812,12 +832,20 @@ function PanoramicaTab(props: {
   const empty = headcount === 0 && totalBC === 0 && totalNettoMese === 0;
   return (
     <div className="space-y-6">
+      {/* Fascia-nota: le due grane (costo vs netto) non vanno mai confuse */}
+      <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
+        <AlertCircle size={18} className="text-amber-500 mt-0.5 shrink-0" />
+        <p className="text-sm text-amber-800 leading-relaxed">
+          <strong>Due grane diverse, mai confuse.</strong> Il <strong style={{ color: '#7c3aed' }}>Costo</strong> (viola) è il dato di controllo che carica Lilian in B&amp;C — lordo + contributi + INAIL + TFR. Il <strong style={{ color: '#2563eb' }}>Netto</strong> (blu) è l'uscita di cassa reale dei bonifici. Il netto ≈ metà del costo: non vanno mai sommati né sovrapposti.
+        </p>
+      </div>
+
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-        <Kpi label="Organico attivo" value={headcount} sub="escl. amministratori" icon={Users} gradient="from-blue-500 to-indigo-600" />
-        <Kpi label={`Costo personale ${year}`} value={<><span>{eurFmt.format(totalBC)}</span>&nbsp;€</>} sub="budget B&C (67xx)" icon={BarChart3} gradient="from-violet-500 to-purple-600" />
-        <Kpi label={`Netto ${monthLabel}`} value={<><span>{eurFmt.format(totalNettoMese)}</span>&nbsp;€</>} sub="cassa del mese" icon={FileText} gradient="from-emerald-500 to-teal-600" />
-        <Kpi label="Incidenza su ricavi" value={incidenza != null ? `${incidenza.toFixed(1)}%` : '—'} sub="costo personale / ricavi" icon={Percent} gradient="from-amber-500 to-orange-600" />
-        <Kpi label="Costo medio/addetto" value={<><span>{eurFmt.format(costoMedio)}</span>&nbsp;€</>} sub="annuo B&C" icon={Users} gradient="from-rose-500 to-pink-600" />
+        <Kpi label="Organico attivo" value={headcount} sub="escl. amministratori" icon={Users} accent="none" />
+        <Kpi label={`Costo personale ${year}`} value={<><span>{eurFmt.format(totalBC)}</span>&nbsp;€</>} sub="budget B&C (67xx)" icon={BarChart3} accent="cost" chip="costo" />
+        <Kpi label={`Netto ${monthLabel}`} value={<><span>{eurFmt.format(totalNettoMese)}</span>&nbsp;€</>} sub="cassa del mese" icon={FileText} accent="cash" chip="cassa" />
+        <Kpi label="Incidenza su ricavi" value={incidenza != null ? `${incidenza.toFixed(1)}%` : '—'} sub="costo personale / ricavi" icon={Percent} accent="emerald" />
+        <Kpi label="Costo medio/addetto" value={<><span>{eurFmt.format(costoMedio)}</span>&nbsp;€</>} sub="annuo B&C" icon={Users} accent="none" />
       </div>
 
       {empty ? (
@@ -846,12 +874,15 @@ function PanoramicaTab(props: {
             <h3 className="font-semibold text-slate-900 mb-1">Quadratura costo personale</h3>
             <p className="text-xs text-slate-500 mb-4">Confronto tra cassa (netti), controllo (budget B&amp;C) e competenza (bilancio).</p>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <QuadCard label="Netto annualizzato (mese ×12)" value={nettoAnnualizzato} hint="cassa" />
-              <QuadCard label="Costo budget B&C (67xx)" value={totalBC} hint="controllo" />
+              <QuadCard label="Netto annualizzato (mese ×12)" value={nettoAnnualizzato} hint="cassa" color="#2563eb" />
+              <QuadCard label="Costo budget B&C (67xx)" value={totalBC} hint="controllo" color="#7c3aed" />
               <QuadCard label="Costo bilancio (CE)" value={bilancioPersonale ?? 0} hint={bilancioPersonale == null ? 'non disponibile' : 'competenza'} muted={bilancioPersonale == null} />
             </div>
+            <div className="mt-4 text-xs text-blue-800 bg-blue-50 border border-blue-200 rounded-lg p-3 leading-relaxed">
+              Se il netto annualizzato supera il costo a bilancio, il costo personale a gestionale è incompleto: la spia serve proprio a renderlo visibile.
+            </div>
             {nonAttribuito > 0 && (
-              <div className="mt-4 text-xs text-slate-500 flex items-center gap-1.5">
+              <div className="mt-3 text-xs text-slate-500 flex items-center gap-1.5">
                 <AlertCircle size={13} /> Costi non attribuiti ad alcun outlet: <Money v={nonAttribuito} />
               </div>
             )}
@@ -862,11 +893,13 @@ function PanoramicaTab(props: {
   );
 }
 
-function QuadCard({ label, value, hint, muted = false }: { label: string; value: number; hint: string; muted?: boolean }) {
+function QuadCard({ label, value, hint, muted = false, color }: { label: string; value: number; hint: string; muted?: boolean; color?: string }) {
   return (
     <div className={`rounded-xl border p-4 ${muted ? 'border-slate-200 bg-slate-50' : 'border-slate-200 bg-white'}`}>
       <div className="text-xs text-slate-500 mb-1">{label}</div>
-      <div className="text-xl font-bold"><Money v={value} strong /></div>
+      <div className="text-xl font-bold tabular-nums" style={color && !muted ? { color } : undefined}>
+        {color && !muted ? <>{eurFmt.format(value)}&nbsp;€</> : <Money v={value} strong />}
+      </div>
       <div className="text-[11px] uppercase tracking-wide text-slate-400 mt-1">{hint}</div>
     </div>
   );
@@ -1056,13 +1089,15 @@ function CostiTab(props: {
     <div className="space-y-6">
       {/* Costo per conto del mese */}
       <div className="bg-white rounded-2xl shadow-lg p-5">
-        <h3 className="font-semibold text-slate-900 mb-4">Costo per conto — {monthLabel} {year}</h3>
+        <h3 className="font-semibold text-slate-900 mb-1">Costo per conto — {monthLabel} {year}</h3>
+        <p className="text-xs text-slate-400 mb-4">Obiettivo: i cedolini alimentano l'aggregato e la riga costo smette di essere digitata a mano (fase 2).</p>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-xs uppercase tracking-wide text-slate-400 border-b border-slate-100">
                 <th className="px-3 py-2 font-medium">Conto</th>
                 <th className="px-3 py-2 font-medium">Voce</th>
+                <th className="px-3 py-2 font-medium">Fonte</th>
                 <th className="px-3 py-2 font-medium text-right">Importo</th>
               </tr>
             </thead>
@@ -1071,11 +1106,12 @@ function CostiTab(props: {
                 <tr key={c.code} className="border-b border-slate-50">
                   <td className="px-3 py-2.5 text-slate-500 tabular-nums">{c.code}</td>
                   <td className="px-3 py-2.5 text-slate-700">{c.label}</td>
+                  <td className="px-3 py-2.5"><span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-amber-50 text-amber-700">manuale oggi</span></td>
                   <td className="px-3 py-2.5 text-right"><Money v={c.amount} /></td>
                 </tr>
               ))}
               <tr className="font-semibold">
-                <td className="px-3 py-2.5" colSpan={2}>Totale</td>
+                <td className="px-3 py-2.5" colSpan={3}>Totale</td>
                 <td className="px-3 py-2.5 text-right"><Money v={totaleConti} strong /></td>
               </tr>
             </tbody>
