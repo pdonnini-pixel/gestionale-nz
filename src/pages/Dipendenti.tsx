@@ -36,6 +36,7 @@ import {
 import { supabase } from '../lib/supabase';
 import { GlassTooltip, AXIS_STYLE, GRID_STYLE, PALETTE, getOutletColor, fmtEuro } from '../components/ChartTheme';
 import { useAuth } from '../hooks/useAuth';
+import { useCompany } from '../hooks/useCompany';
 
 const PdfViewer = lazy(() => import('../components/PdfViewer'));
 
@@ -80,6 +81,16 @@ const COSTO_CONTI = [
 // HELPERS
 // ============================================================================
 const eurFmt = new Intl.NumberFormat('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const eurInt = new Intl.NumberFormat('de-DE', { maximumFractionDigits: 0 });
+
+// Valuta compatta: ≥1M → "1,21 M€", altrimenti intero "60.926 €".
+function compactEur(v: number): string {
+  const n = Number(v || 0);
+  if (Math.abs(n) >= 1_000_000) {
+    return `${(n / 1_000_000).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} M€`;
+  }
+  return `${eurInt.format(n)} €`;
+}
 
 // Render valuta: positivo nero senza segno, negativo rosso con il meno.
 function Money({ v, className = '', strong = false }: { v: number | null | undefined; className?: string; strong?: boolean }) {
@@ -187,6 +198,8 @@ function Kpi({ label, value, sub, icon: Icon, accent = 'none', chip }: {
 export default function Dipendenti() {
   const { toast } = useToast();
   const { profile } = useAuth();
+  const { company } = useCompany();
+  const companyName = company?.name || '';
   const COMPANY_ID = profile?.company_id || undefined;
   const USER_ID = profile?.id || null;
   const { year: globalYear } = usePeriod();
@@ -626,15 +639,17 @@ export default function Dipendenti() {
     <div className="p-6 space-y-6">
       <PageHeader
         title="Personale"
-        subtitle="Organico e costo del personale per punto vendita"
+        subtitle={`Organico e costo del personale per outlet${companyName ? ` · ${companyName}` : ''}`}
         actions={
           <div className="flex items-center gap-2">
             <select value={selectedYear} onChange={(e) => setSelectedYear(Number(e.target.value))} className="px-3 py-2 text-sm rounded-lg border border-slate-200 bg-white">
-              {yearOptions.map((y) => <option key={y} value={y}>{y}</option>)}
+              {yearOptions.map((y) => <option key={y} value={y}>Anno {y}</option>)}
             </select>
             <select value={selectedMonth} onChange={(e) => setSelectedMonth(Number(e.target.value))} className="px-3 py-2 text-sm rounded-lg border border-slate-200 bg-white">
               {MONTHS.map((m) => <option key={m.num} value={m.num}>{m.label}</option>)}
             </select>
+            <button onClick={() => setView('costi')} className="px-3 py-2 rounded-lg border border-slate-200 text-sm font-medium text-slate-600 hover:bg-slate-50 flex items-center gap-1.5"><FileUp size={15} /> Importa cedolini</button>
+            <button onClick={() => { setEditingEmployee(null); setShowEmployeeForm(true); }} className="px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium flex items-center gap-1.5"><Plus size={15} /> Dipendente</button>
             <button onClick={reloadAll} className="p-2 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50" title="Ricarica"><RefreshCw size={16} /></button>
           </div>
         }
@@ -665,12 +680,14 @@ export default function Dipendenti() {
           {view === 'panoramica' && (
             <PanoramicaTab
               headcount={headcountEmployees.length}
+              sedi={outlets.length}
               totalBC={totalBC}
               totalNettoMese={totalNettoMese}
               nettoYear={nettoYear}
               incidenza={incidenza}
               costoMedio={costoMedio}
               monthLabel={monthLabel}
+              month={selectedMonth}
               chartData={chartData}
               bilancioPersonale={bilancioPersonale}
               nonAttribuito={nonAttribuito}
@@ -822,16 +839,27 @@ export default function Dipendenti() {
 // TAB 1 — PANORAMICA
 // ============================================================================
 function PanoramicaTab(props: {
-  headcount: number; totalBC: number; totalNettoMese: number; nettoYear: number;
-  incidenza: number | null; costoMedio: number; monthLabel: string;
+  headcount: number; sedi: number; totalBC: number; totalNettoMese: number; nettoYear: number;
+  incidenza: number | null; costoMedio: number; monthLabel: string; month: number;
   chartData: { name: string; bc: number; nettoX12: number }[];
   bilancioPersonale: number | null; nonAttribuito: number; year: number;
 }) {
-  const { headcount, totalBC, totalNettoMese, incidenza, costoMedio, monthLabel, chartData, bilancioPersonale, nonAttribuito, year } = props;
+  const { headcount, sedi, totalBC, totalNettoMese, incidenza, costoMedio, month, chartData, bilancioPersonale, nonAttribuito, year } = props;
   const nettoAnnualizzato = totalNettoMese * 12;
   const empty = headcount === 0 && totalBC === 0 && totalNettoMese === 0;
+  const mm = String(month).padStart(2, '0');
+  const avgPerOutlet = sedi > 0 ? (headcount / sedi).toLocaleString('it-IT', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : '0';
+  const maxVal = Math.max(1, ...chartData.map((d) => d.bc + d.nettoX12));
   return (
     <div className="space-y-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+        <Kpi label="Organico attivo" value={headcount} sub={`su ${sedi} sedi · ${avgPerOutlet} addetti/outlet`} icon={Users} accent="none" />
+        <Kpi label="Costo personale" value={compactEur(totalBC)} sub="budget annuo · da Budget&Controllo" icon={BarChart3} accent="cost" chip="costo" />
+        <Kpi label="Netto mensile" value={compactEur(totalNettoMese)} sub={`bonifici stipendi · da cedolini ${mm}/${year}`} icon={FileText} accent="cash" chip="cassa" />
+        <Kpi label="Incidenza su ricavi" value={incidenza != null ? `${incidenza.toFixed(1).replace('.', ',')}%` : '—'} sub={`costo personale / ricavi ${year}`} icon={Percent} accent="emerald" />
+        <Kpi label="Costo medio / addetto" value={compactEur(costoMedio)} sub="annuo lordo aziendale" icon={Users} accent="none" />
+      </div>
+
       {/* Fascia-nota: le due grane (costo vs netto) non vanno mai confuse */}
       <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
         <AlertCircle size={18} className="text-amber-500 mt-0.5 shrink-0" />
@@ -840,43 +868,55 @@ function PanoramicaTab(props: {
         </p>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-        <Kpi label="Organico attivo" value={headcount} sub="escl. amministratori" icon={Users} accent="none" />
-        <Kpi label={`Costo personale ${year}`} value={<><span>{eurFmt.format(totalBC)}</span>&nbsp;€</>} sub="budget B&C (67xx)" icon={BarChart3} accent="cost" chip="costo" />
-        <Kpi label={`Netto ${monthLabel}`} value={<><span>{eurFmt.format(totalNettoMese)}</span>&nbsp;€</>} sub="cassa del mese" icon={FileText} accent="cash" chip="cassa" />
-        <Kpi label="Incidenza su ricavi" value={incidenza != null ? `${incidenza.toFixed(1)}%` : '—'} sub="costo personale / ricavi" icon={Percent} accent="emerald" />
-        <Kpi label="Costo medio/addetto" value={<><span>{eurFmt.format(costoMedio)}</span>&nbsp;€</>} sub="annuo B&C" icon={Users} accent="none" />
-      </div>
-
       {empty ? (
         <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center text-slate-400">
           Nessun dato di personale per il {year}. Importa i netti mensili dalla tab “Costi &amp; cedolini”.
         </div>
       ) : (
         <>
+          {/* Costo per outlet — barre orizzontali, una per outlet col suo colore */}
           <div className="bg-white rounded-2xl shadow-lg p-5">
-            <h3 className="font-semibold text-slate-900 mb-4">Costo personale per outlet ({year})</h3>
-            <ResponsiveContainer width="100%" height={320}>
-              <BarChart data={chartData} margin={{ top: 8, right: 12, left: 0, bottom: 8 }}>
-                <CartesianGrid {...GRID_STYLE} />
-                <XAxis dataKey="name" {...AXIS_STYLE} interval={0} angle={-20} textAnchor="end" height={60} />
-                <YAxis {...AXIS_STYLE} tickFormatter={fmtEuro} />
-                <Tooltip content={<GlassTooltip />} />
-                <Legend />
-                <Bar dataKey="bc" name="Costo budget B&C" fill={PALETTE[0]} radius={[6, 6, 0, 0]} />
-                <Bar dataKey="nettoX12" name="Netto ×12 (proiezione)" fill={PALETTE[1]} fillOpacity={0.35} radius={[6, 6, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+            <div className="flex items-baseline justify-between mb-5">
+              <h3 className="font-semibold text-slate-900">Costo personale per outlet — {year}</h3>
+              <span className="text-xs text-slate-400">budget annuo (B&amp;C) vs netto mensile ×12 (payroll)</span>
+            </div>
+            {chartData.length === 0 ? (
+              <div className="text-sm text-slate-400 py-8 text-center">Nessun costo per outlet disponibile.</div>
+            ) : (
+              <div className="space-y-3">
+                {chartData.map((d) => {
+                  const color = getOutletColor(d.name);
+                  return (
+                    <div key={d.name} className="flex items-center gap-3">
+                      <div className="w-28 shrink-0 text-sm text-slate-600 truncate" title={d.name}>{d.name}</div>
+                      <div className="flex-1 h-5 rounded-full bg-slate-100 overflow-hidden flex">
+                        <div className="h-full" style={{ width: `${(d.bc / maxVal) * 100}%`, background: color.main }} />
+                        <div className="h-full" style={{ width: `${(d.nettoX12 / maxVal) * 100}%`, background: color.light }} />
+                      </div>
+                      <div className="w-24 shrink-0 text-right text-sm font-semibold tabular-nums" style={{ color: color.main }}>{eurInt.format(d.bc)}&nbsp;€</div>
+                    </div>
+                  );
+                })}
+                <div className="flex items-center gap-4 pt-3 mt-1 border-t border-slate-100 text-xs text-slate-500">
+                  <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm" style={{ background: '#6366f1' }} /> Costo budget annuo (B&amp;C)</span>
+                  <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm" style={{ background: '#c7d2fe' }} /> Netto ×12 (payroll)</span>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Quadratura */}
           <div className="bg-white rounded-2xl shadow-lg p-5">
-            <h3 className="font-semibold text-slate-900 mb-1">Quadratura costo personale</h3>
-            <p className="text-xs text-slate-500 mb-4">Confronto tra cassa (netti), controllo (budget B&amp;C) e competenza (bilancio).</p>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <QuadCard label="Netto annualizzato (mese ×12)" value={nettoAnnualizzato} hint="cassa" color="#2563eb" />
-              <QuadCard label="Costo budget B&C (67xx)" value={totalBC} hint="controllo" color="#7c3aed" />
-              <QuadCard label="Costo bilancio (CE)" value={bilancioPersonale ?? 0} hint={bilancioPersonale == null ? 'non disponibile' : 'competenza'} muted={bilancioPersonale == null} />
+            <div className="flex items-baseline justify-between mb-4">
+              <h3 className="font-semibold text-slate-900 flex items-center gap-2"><span aria-hidden>🔍</span> Quadratura del personale</h3>
+              <span className="text-xs text-slate-400">spia di controllo — le tre fonti devono avvicinarsi</span>
+            </div>
+            <div className="flex flex-col sm:flex-row items-stretch gap-3">
+              <QuadCard label="Netto annualizzato" value={nettoAnnualizzato} sub="payroll ×12 (Gallo incl.)" color="#2563eb" />
+              <div className="flex items-center justify-center text-xs font-semibold text-slate-300">VS</div>
+              <QuadCard label="Costo budget B&C" value={totalBC} sub="conti 6701/6703/6705" color="#7c3aed" />
+              <div className="flex items-center justify-center text-xs font-semibold text-slate-300">VS</div>
+              <QuadCard label={`Costo bilancio ${year}`} value={bilancioPersonale ?? 0} sub={bilancioPersonale == null ? 'non disponibile' : 'consuntivo depositato'} muted={bilancioPersonale == null} />
             </div>
             <div className="mt-4 text-xs text-blue-800 bg-blue-50 border border-blue-200 rounded-lg p-3 leading-relaxed">
               Se il netto annualizzato supera il costo a bilancio, il costo personale a gestionale è incompleto: la spia serve proprio a renderlo visibile.
@@ -893,14 +933,12 @@ function PanoramicaTab(props: {
   );
 }
 
-function QuadCard({ label, value, hint, muted = false, color }: { label: string; value: number; hint: string; muted?: boolean; color?: string }) {
+function QuadCard({ label, value, sub, muted = false, color }: { label: string; value: number; sub: string; muted?: boolean; color?: string }) {
   return (
-    <div className={`rounded-xl border p-4 ${muted ? 'border-slate-200 bg-slate-50' : 'border-slate-200 bg-white'}`}>
-      <div className="text-xs text-slate-500 mb-1">{label}</div>
-      <div className="text-xl font-bold tabular-nums" style={color && !muted ? { color } : undefined}>
-        {color && !muted ? <>{eurFmt.format(value)}&nbsp;€</> : <Money v={value} strong />}
-      </div>
-      <div className="text-[11px] uppercase tracking-wide text-slate-400 mt-1">{hint}</div>
+    <div className="flex-1 rounded-xl border border-slate-200 p-4 text-center" style={{ background: '#f8fafc' }}>
+      <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 mb-1">{label}</div>
+      <div className="text-2xl font-bold tabular-nums" style={{ color: muted ? '#0f172a' : (color || '#0f172a') }}>{eurInt.format(value)}&nbsp;€</div>
+      <div className="text-[11px] text-slate-400 mt-1">{sub}</div>
     </div>
   );
 }
