@@ -157,9 +157,22 @@ function OutletCard({ name, outletData, calculatedMetrics, ranking, onNavigate, 
         {/* In modalità Scostamento il valore hero È già lo scostamento sui mesi
             presi (consuntivo − preventivo): convenzione contabile (nero se ≥0,
             rosso col meno se <0), niente verde. */}
-        <div className="text-xs text-slate-400">{isVariance ? 'Δ Ricavi (Cons. − Prev., mesi presi)' : RICAVI_SOURCE_LABEL}</div>
-        <div className={`text-2xl font-bold ${isVariance ? (ricavi < 0 ? 'text-red-600' : 'text-slate-900') : 'text-slate-900'}`}>
-          {isVariance ? scostamentoSegno(scostamento) : `${fmt(ricavi)} €`}
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-xs text-slate-400">{isVariance ? 'Δ Ricavi (Cons. − Prev., mesi presi)' : RICAVI_SOURCE_LABEL}</div>
+            <div className={`text-2xl font-bold ${isVariance ? (ricavi < 0 ? 'text-red-600' : 'text-slate-900') : 'text-slate-900'}`}>
+              {isVariance ? scostamentoSegno(scostamento) : `${fmt(ricavi)} €`}
+            </div>
+          </div>
+          {/* Badge dipendenti dell'outlet (stessa fonte del vecchio tile). */}
+          <div
+            className="shrink-0 flex flex-col items-center justify-center rounded-xl border-2 border-indigo-200 bg-indigo-50 text-indigo-700 px-3 py-1.5 min-w-[64px]"
+            title={`${personaleCount || 0} dipendenti assegnati`}
+          >
+            <Users size={16} />
+            <span className="text-xl font-bold leading-none mt-0.5">{personaleCount || 0}</span>
+            <span className="text-[9px] uppercase tracking-wide text-indigo-400 mt-0.5">dipendenti</span>
+          </div>
         </div>
         {/* I4 — media mensile (consuntivo ÷ mesi presi): normalizza aperture diverse. */}
         {!isVariance && (
@@ -193,17 +206,26 @@ function OutletCard({ name, outletData, calculatedMetrics, ranking, onNavigate, 
         </button>
       </div>
 
-      {/* KPI Grid — in variance i delta sono colorati per significato:
-          ricavi/margini: positivo=verde (meglio); costi: positivo=rosso (peggio).
-          Il prefisso '+' viene aggiunto ai delta positivi per leggibilità. */}
-      <div className="px-4 py-3 grid grid-cols-2 gap-2">
+      {/* Margine — tile full-width sotto la riga ricavi+badge.
+          Convenzione: positivo nero senza segno, negativo rosso col meno. */}
+      <div className="px-4 pt-1">
+        <div className={`rounded-lg border p-3 flex items-center justify-between ${margine >= 0 ? 'bg-slate-50 border-slate-200' : 'bg-red-50 border-red-100'}`}>
+          <span className="text-xs font-medium text-slate-500">{isVariance ? 'Δ Margine' : 'Margine'}</span>
+          <span className={`text-base font-bold ${margine >= 0 ? 'text-slate-900' : 'text-red-600'}`}>
+            {isVariance && margine > 0 ? '+' : ''}{fmt(margine)} €
+            <span className="text-xs font-medium ml-1">({isVariance && marginePct > 0 ? '+' : ''}{marginePct.toFixed(1)}{isVariance ? ' p.p.' : '%'})</span>
+          </span>
+        </div>
+      </div>
+
+      {/* KPI Grid 3 tile: Acquisto merci (B.6), Costo personale (B.9), Affitto (B.8).
+          In variance i delta-costo: positivo=rosso (peggio), negativo=verde (meglio). */}
+      <div className="px-4 py-3 grid grid-cols-3 gap-2">
         <KpiBadge
-          label={isVariance ? 'Δ Margine' : 'Margine'}
-          value={`${isVariance && margine > 0 ? '+' : ''}${fmt(margine)} €`}
-          sub={`${isVariance && marginePct > 0 ? '+' : ''}${marginePct.toFixed(1)}${isVariance ? ' p.p.' : '%'}`}
-          color={margine >= 0 ? 'green' : 'red'} />
-        <KpiBadge label="Dipendenti" value={personaleCount || 0}
-          sub={ricavoPerDip != null ? `${isVariance && ricavoPerDip > 0 ? '+' : ''}${fmt(ricavoPerDip)} €/dip` : 'N/D'} color="blue" />
+          label={isVariance ? 'Δ Acquisto merci' : 'Acquisto merci'}
+          value={`${isVariance && merci > 0 ? '+' : ''}${fmt(merci)} €`}
+          sub={`${isVariance && (ricavi ? merci / ricavi * 100 : 0) > 0 ? '+' : ''}${(ricavi ? merci / ricavi * 100 : 0).toFixed(1)}${isVariance ? ' p.p.' : '% ricavi'}`}
+          color={isVariance ? (merci > 0 ? 'red' : merci < 0 ? 'green' : 'blue') : 'blue'} />
         <KpiBadge
           label={isVariance ? 'Δ Costo personale' : 'Costo personale'}
           value={`${isVariance && costoPersonale > 0 ? '+' : ''}${fmt(costoPersonale)} €`}
