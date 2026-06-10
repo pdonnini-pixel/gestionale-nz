@@ -6,11 +6,30 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
   import.meta.url
 ).toString();
 
+type It = { s: string; x: number; y: number };
+
+// Ricostruisce le righe di UNA pagina dagli item di testo pdfjs.
+// pdfjs restituisce gli item nell'ordine di stream (su alcuni PDF è column-major):
+// vanno raggruppati per Y (con tolleranza) e ordinati per X, altrimenti gli importi
+// escono tutti insieme e si staccano da matricole/nomi.
+function pageLines(items: It[]): string[] {
+  const TOL = 2;
+  const lines: { y: number; items: It[] }[] = [];
+  for (const it of items) {
+    // cerca una riga esistente entro la tolleranza (qualsiasi, non solo l'ultima)
+    let line = lines.find((l) => Math.abs(l.y - it.y) <= TOL);
+    if (!line) { line = { y: it.y, items: [] }; lines.push(line); }
+    line.items.push(it);
+  }
+  // in pdfjs Y cresce verso l'ALTO → ordine riga = Y decrescente
+  lines.sort((a, b) => b.y - a.y);
+  return lines.map((l) =>
+    l.items.sort((a, b) => a.x - b.x).map((i) => i.s).join(' ').replace(/\s+/g, ' ').trim()
+  ).filter((s) => s);
+}
+
 /**
- * Estrae il testo di un PDF ricostruendo le righe per coordinata verticale.
- * pdfjs restituisce gli item di testo senza concetto di "riga": vanno raggruppati
- * per Y (transform[5], con tolleranza) e ordinati per X (transform[4]), altrimenti
- * gli importi si attaccano alla matricola successiva e il parsing fallisce.
+ * Estrae il testo di un PDF ricostruendo le righe per GEOMETRIA (Y con tolleranza, X crescente).
  * Ritorna un array di righe pulite, nell'ordine del documento.
  */
 export async function extractPdfLines(file: File): Promise<string[]> {
@@ -20,26 +39,10 @@ export async function extractPdfLines(file: File): Promise<string[]> {
   for (let p = 1; p <= pdf.numPages; p++) {
     const page = await pdf.getPage(p);
     const tc = await page.getTextContent();
-    const items: { x: number; y: number; str: string }[] = [];
-    for (const it of tc.items as any[]) {
-      if (typeof it.str !== 'string' || it.str === '') continue;
-      items.push({ x: it.transform[4], y: it.transform[5], str: it.str });
-    }
-    // alto → basso, poi sinistra → destra
-    items.sort((a, b) => (b.y - a.y) || (a.x - b.x));
-    // raggruppa per Y con tolleranza (sub-pixel / baseline)
-    const TOL = 2.5;
-    const lines: { x: number; y: number; str: string }[][] = [];
-    for (const it of items) {
-      const last = lines[lines.length - 1];
-      if (last && Math.abs(last[0].y - it.y) <= TOL) last.push(it);
-      else lines.push([it]);
-    }
-    for (const ln of lines) {
-      ln.sort((a, b) => a.x - b.x);
-      const s = ln.map((i) => i.str).join(' ').replace(/\s+/g, ' ').trim();
-      if (s) out.push(s);
-    }
+    const items: It[] = (tc.items as any[])
+      .map((i) => ({ s: i.str, x: i.transform[4], y: i.transform[5] }))
+      .filter((it) => typeof it.s === 'string' && it.s.trim() !== '');
+    out.push(...pageLines(items));
   }
   return out;
 }

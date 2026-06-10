@@ -38,6 +38,12 @@ import { GlassTooltip, AXIS_STYLE, GRID_STYLE, PALETTE, getOutletColor, fmtEuro 
 import { useAuth } from '../hooks/useAuth';
 import { useCompany } from '../hooks/useCompany';
 import { extractPdfLines } from '../lib/pdfText';
+import {
+  parseItNum, norm,
+  parseInfinityNetti, parsePdfLordi, parseSpreadsheet,
+  LORDI_FIELDS, rowLordo, rowHasLordo,
+  type PreviewRow, type ParsedImport,
+} from '../lib/payrollParse';
 
 const PdfViewer = lazy(() => import('../components/PdfViewer'));
 
@@ -119,51 +125,12 @@ function Money({ v, className = '', strong = false }: { v: number | null | undef
   );
 }
 
-// Parsing numero italiano: "1.234,56" → 1234.56 ; gestisce anche "1234.56".
-function parseItNum(v: unknown): number | null {
-  if (v == null) return null;
-  if (typeof v === 'number') return Number.isFinite(v) ? v : null;
-  let s = String(v).trim().replace(/[€\s]/g, '');
-  if (!s || s === '-') return null;
-  const hasComma = s.includes(',');
-  const hasDot = s.includes('.');
-  if (hasComma && hasDot) s = s.replace(/\./g, '').replace(',', '.');
-  else if (hasComma) s = s.replace(',', '.');
-  const n = parseFloat(s);
-  return Number.isFinite(n) ? n : null;
-}
-
-const norm = (s: unknown) => String(s ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
-
 // Un dipendente è "Amministratore" se la qualifica lo indica (data-driven, niente nome hardcoded).
 const isAdminRole = (e: Employee) =>
   /amministrat/i.test(e.role_description || '') || /amministrat/i.test((e as any).note || e.notes || '');
 
 const empName = (e: Employee) =>
   `${e.cognome || e.last_name || ''} ${e.nome || e.first_name || ''}`.trim() || '—';
-
-// Mapping filiale→outlet a RUNTIME (niente tabella hardcoded): confronta il testo
-// della filiale con outlets.name (normalizzato), fallback su cost_center_key.
-function matchOutletName(text: string, outlets: OutletRow[]): string {
-  const t = norm(text);
-  if (!t) return '';
-  // 1) match esatto / inclusione sul nome
-  for (const o of outlets) {
-    const n = norm(o.name);
-    if (n && (n === t || t.includes(n) || n.includes(t))) return o.name;
-  }
-  // 2) fallback: cost_center_key contenuto nel testo (es. "valdichiana")
-  for (const o of outlets) {
-    const k = norm((o.cost_center_key || '').replace(/_/g, ' '));
-    if (k && (t.includes(k) || k.includes(t))) return o.name;
-  }
-  // 3) match per prima parola significativa (es. "VALDICHIANA VILLAGE" → "valdichiana")
-  const firstWord = t.split(' ')[0];
-  for (const o of outlets) {
-    if (firstWord && norm(o.name).startsWith(firstWord)) return o.name;
-  }
-  return '';
-}
 
 // ============================================================================
 // UI SHELLS (Modal custom — mai dialog nativi)
@@ -1634,167 +1601,6 @@ function CostFormModal({ initial, employeeId, employees, year, month, onCancel, 
 // ============================================================================
 // IMPORT MENSILE (employee_costs) — mapping-driven, anteprima, upsert
 // ============================================================================
-const FIELD_SYNS: Record<string, string[]> = {
-  matricola: ['matricola', 'cod dip', 'cod. dip', 'coddip', 'cod.dip', 'cod dipendente', 'codice', 'id dip', 'cod'],
-  cognome: ['cognome', 'surname'],
-  nome: ['nome', 'name'],
-  nominativo: ['nominativo', 'dipendente', 'cognome e nome', 'cognome nome', 'cognome/nome'],
-  outlet: ['filiale', 'outlet', 'punto vendita', 'sede', 'negozio', 'store', 'ramo', 'punto'],
-  netto: ['netto', 'netto in busta', 'netto a pagare', 'netto busta', 'netto mese', 'netto del mese'],
-  retribuzione: ['lordo', 'retribuzione', 'stipendio', 'competenze', 'totale competenze', 'imponibile'],
-  contributi: ['contributi', 'inps', 'oneri sociali', 'contributi inps'],
-  inail: ['inail'],
-  tfr: ['tfr', 'quota tfr', 'acc tfr', 'accantonamento tfr', 'acc.to tfr'],
-  altri: ['altri', 'altri costi', 'altro', 'altre voci'],
-};
-
-interface PreviewRow {
-  matricola: string; cognome: string; nome: string; outlet: string;
-  netto: number | null; retribuzione: number | null; contributi: number | null; inail: number | null; tfr: number | null; altri: number | null;
-  isNew: boolean; matchedId: string | null;
-}
-
-type ParsedImport = { rows: PreviewRow[]; fileTotal: number | null };
-
-// La riga filiale può avere testo prima (es. "Progressivo ripartizione n.2: Filiale: 0000000001 - VALDICHIANA VILLAGE ;")
-// quindi NON ancorare a inizio riga; il nome termina al ';' (o a fine riga).
-const RE_FILIALE = /filiale[:\s]*\d+\s*[-–]\s*([^;]+?)\s*(?:;|$)/i;
-const RE_TOT_AZIENDALE = /totale aziendale\s+(-?[\d.]+,\d{2})/i;
-const blankRow = (): PreviewRow => ({ matricola: '', cognome: '', nome: '', outlet: '', netto: null, retribuzione: null, contributi: null, inail: null, tfr: null, altri: null, isNew: false, matchedId: null });
-
-// Collassa i caratteri raddoppiati dei testi in grassetto del PDF ("TToottaallee" → "Totale").
-// Usato SOLO per riconoscere le keyword dei totali, mai per estrarre gli importi
-// (collassare i doppioni corromperebbe cifre come "1.333,00").
-const deDouble = (s: string) => s.replace(/(.)\1/g, '$1');
-const RE_IMPORTO_IT = /\d{1,3}(?:\.\d{3})*,\d{2}/;
-
-// PDF "Elenco netti" Infinity: sezioni per Filiale, righe `matricola COGNOME NOME importo`,
-// chiusura `Totale aziendale <importo>`. Mapping filiale→outlet a runtime.
-function parseInfinityNetti(lines: string[], outlets: OutletRow[]): ParsedImport {
-  const rows: PreviewRow[] = [];
-  let fileTotal: number | null = null;
-  let currentOutlet = '';
-  // matricola(6-7) + nome completo + importo it; tollera testo dopo l'importo
-  const reEmp = /^(\d{6,7})\s+(.+?)\s+(\d{1,3}(?:\.\d{3})*,\d{2})(?:\s|$)/;
-  for (const ln of lines) {
-    const mf = ln.match(RE_FILIALE);
-    if (mf) { currentOutlet = matchOutletName(mf[1], outlets); continue; }
-    const dd = deDouble(ln);
-    // Totale aziendale (anche con caratteri raddoppiati): importo estratto dalla riga ORIGINALE
-    if (/totale\s+aziendale/i.test(dd)) { const m = ln.match(RE_IMPORTO_IT); if (m) fileTotal = parseItNum(m[0]); continue; }
-    if (/totale\s+di\s+ripartizione/i.test(dd)) continue;
-    // Salta righe non-record (coordinate bancarie, IBAN, intestazioni colonne)
-    if (/coordinate bancarie|\biban\b|cod\.?\s*dip|cognome e nome/i.test(dd)) continue;
-    const me = ln.match(reEmp);
-    if (me) {
-      const parts = me[2].trim().split(/\s+/);
-      const r = blankRow();
-      r.matricola = me[1]; r.cognome = parts[0] || ''; r.nome = parts.slice(1).join(' ');
-      r.outlet = currentOutlet; r.netto = parseItNum(me[3]);
-      rows.push(r);
-    }
-  }
-  return { rows, fileTotal };
-}
-
-// PDF costi lordi — best-effort finché non arriva il tracciato definitivo:
-// cerca una riga intestazione con ≥2 etichette note, poi mappa i numeri per ordine.
-function parsePdfLordi(lines: string[], outlets: OutletRow[]): ParsedImport {
-  const LABELS: { field: 'retribuzione' | 'contributi' | 'inail' | 'tfr' | 'altri'; re: RegExp }[] = [
-    { field: 'retribuzione', re: /lord|retribuz|compet|imponibile/i },
-    { field: 'contributi', re: /contrib|inps|oneri/i },
-    { field: 'inail', re: /inail/i },
-    { field: 'tfr', re: /tfr/i },
-    { field: 'altri', re: /altri|altro/i },
-  ];
-  let order: ('retribuzione' | 'contributi' | 'inail' | 'tfr' | 'altri')[] | null = null;
-  let currentOutlet = '';
-  let fileTotal: number | null = null;
-  const rows: PreviewRow[] = [];
-  for (const ln of lines) {
-    const mf = ln.match(RE_FILIALE);
-    if (mf) { currentOutlet = matchOutletName(mf[1], outlets); continue; }
-    const ta = ln.match(RE_TOT_AZIENDALE);
-    if (ta) { fileTotal = parseItNum(ta[1]); continue; }
-    if (!order) {
-      const present = LABELS.filter((l) => l.re.test(ln));
-      if (present.length >= 2) {
-        order = present.map((l) => ({ field: l.field, idx: ln.toLowerCase().search(l.re) })).sort((a, b) => a.idx - b.idx).map((x) => x.field);
-        continue;
-      }
-    }
-    const m = ln.match(/^(\d{6,7})\s+(.+)$/);
-    if (m && order) {
-      const rest = m[2];
-      const nums = (rest.match(/-?[\d.]+,\d{2}/g) || []).map((x) => parseItNum(x));
-      const parts = rest.replace(/-?[\d.]+,\d{2}/g, '').trim().split(/\s+/);
-      const r = blankRow();
-      r.matricola = m[1]; r.cognome = parts[0] || ''; r.nome = parts.slice(1).join(' '); r.outlet = currentOutlet;
-      order.forEach((f, i) => { if (nums[i] != null) (r as any)[f] = nums[i]; });
-      rows.push(r);
-    }
-  }
-  return { rows, fileTotal };
-}
-
-// CSV/Excel mapping-driven sugli header (entrambe le corsie).
-function parseSpreadsheet(matrix: any[][]): ParsedImport {
-  let headerIdx = -1;
-  for (let i = 0; i < Math.min(12, matrix.length); i++) {
-    const cells = matrix[i].map(norm);
-    if (cells.some((c) => c === 'netto' || c.includes('matricola') || c === 'cognome' || c.includes('retribuzione') || c.includes('lordo') || c.includes('nominativo'))) { headerIdx = i; break; }
-  }
-  if (headerIdx === -1) return { rows: [], fileTotal: null };
-  const header = matrix[headerIdx].map(norm);
-  const findCol = (field: string): number => {
-    const syns = FIELD_SYNS[field];
-    for (const s of syns) { const idx = header.indexOf(s); if (idx >= 0) return idx; }
-    for (let i = 0; i < header.length; i++) { if (syns.some((s) => header[i].includes(s))) return i; }
-    return -1;
-  };
-  const cols: Record<string, number> = {};
-  Object.keys(FIELD_SYNS).forEach((f) => { cols[f] = findCol(f); });
-  const get = (r: any[], field: string) => (cols[field] >= 0 ? r[cols[field]] : undefined);
-  const rows: PreviewRow[] = [];
-  let fileTotal: number | null = null;
-  for (let i = headerIdx + 1; i < matrix.length; i++) {
-    const r = matrix[i];
-    if (!r || r.every((c) => c == null || String(c).trim() === '')) continue;
-    const matricola = String(get(r, 'matricola') ?? '').trim().replace(/\.0$/, '');
-    let cognome = String(get(r, 'cognome') ?? '').trim();
-    let nome = String(get(r, 'nome') ?? '').trim();
-    if (!cognome && cols.nominativo >= 0) {
-      const full = String(get(r, 'nominativo') ?? '').trim();
-      const parts = full.split(/\s+/);
-      cognome = parts[0] || ''; nome = parts.slice(1).join(' ');
-    }
-    const netto = parseItNum(get(r, 'netto'));
-    const retribuzione = parseItNum(get(r, 'retribuzione'));
-    const labelBlob = norm(`${matricola} ${cognome} ${nome}`);
-    if (!matricola && /totale|totali|tot\./.test(labelBlob)) {
-      if (netto != null) fileTotal = netto; else if (retribuzione != null) fileTotal = retribuzione;
-      continue;
-    }
-    if (!cognome && !matricola && netto == null && retribuzione == null) continue;
-    const row = blankRow();
-    row.matricola = matricola; row.cognome = cognome; row.nome = nome;
-    row.outlet = String(get(r, 'outlet') ?? '').trim();
-    row.netto = netto; row.retribuzione = retribuzione;
-    row.contributi = parseItNum(get(r, 'contributi'));
-    row.inail = parseItNum(get(r, 'inail'));
-    row.tfr = parseItNum(get(r, 'tfr'));
-    row.altri = parseItNum(get(r, 'altri'));
-    rows.push(row);
-  }
-  return { rows, fileTotal };
-}
-
-const LORDI_FIELDS: { key: 'retribuzione' | 'contributi' | 'inail' | 'tfr' | 'altri'; col: string }[] = [
-  { key: 'retribuzione', col: 'retribuzione' }, { key: 'contributi', col: 'contributi' },
-  { key: 'inail', col: 'inail' }, { key: 'tfr', col: 'tfr' }, { key: 'altri', col: 'altri_costi' },
-];
-const rowLordo = (r: PreviewRow) => LORDI_FIELDS.reduce((s, f) => s + Number((r as any)[f.key] || 0), 0);
-const rowHasLordo = (r: PreviewRow) => LORDI_FIELDS.some((f) => (r as any)[f.key] != null);
 
 // Una corsia di import: mode='netto' (busta paga) | 'lordi' (costo aziendale). Entrambe PDF + CSV/Excel.
 function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts, defaultYear, defaultMonth, onDone }: {
