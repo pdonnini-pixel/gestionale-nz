@@ -70,12 +70,27 @@ const MONTHS = [
 
 // Conti 67xx del personale → colonna employee_costs corrispondente.
 const COSTO_CONTI = [
-  { code: '670103', label: 'Retribuzioni', field: 'retribuzione' as const },
+  { code: '670103', label: 'Salari e stipendi (lordo)', field: 'retribuzione' as const },
   { code: '670303', label: 'Contributi INPS', field: 'contributi' as const },
   { code: '670307', label: 'INAIL', field: 'inail' as const },
-  { code: '670501', label: 'Accantonamento TFR', field: 'tfr' as const },
+  { code: '670501', label: 'TFR', field: 'tfr' as const },
   { code: '670909', label: 'Altri costi personale', field: 'altri_costi' as const },
 ];
+
+// Cella "sede" con pallino colore outlet (usata in Organico e Cedolini).
+function SedeCell({ allocs }: { allocs: EmployeeOutletAllocation[] }) {
+  if (!allocs.length) return <span className="text-slate-300">—</span>;
+  return (
+    <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
+      {allocs.map((a, i) => (
+        <span key={i} className="inline-flex items-center gap-1.5">
+          <span className="w-2.5 h-2.5 rounded-sm" style={{ background: getOutletColor(a.outlet_code).main }} />
+          <span className="text-slate-600">{a.outlet_code}</span>
+        </span>
+      ))}
+    </span>
+  );
+}
 
 // ============================================================================
 // HELPERS
@@ -705,6 +720,8 @@ export default function Dipendenti() {
               headcountByOutlet={headcountByOutlet}
               bcByOutlet={bcByOutlet}
               monthLabel={monthLabel}
+              mm={String(selectedMonth).padStart(2, '0')}
+              year={selectedYear}
               nonAttribuito={nonAttribuito}
             />
           )}
@@ -715,6 +732,8 @@ export default function Dipendenti() {
               allocByEmp={allocByEmp}
               nettoOf={nettoOf}
               outlets={outlets}
+              mm={String(selectedMonth).padStart(2, '0')}
+              year={selectedYear}
               outletFilter={orgOutletFilter}
               setOutletFilter={setOrgOutletFilter}
               search={orgSearch}
@@ -733,9 +752,12 @@ export default function Dipendenti() {
             <CostiTab
               contiMese={contiMese}
               totaleConti={totaleConti}
+              totalNettoMese={totalNettoMese}
               monthLabel={monthLabel}
+              mm={String(selectedMonth).padStart(2, '0')}
               year={selectedYear}
               employees={activeEmployees}
+              allocByEmp={allocByEmp}
               costForMonth={costForMonth}
               docsForEmp={docsForEmp}
               onAddCost={(empId) => { setEditingCost(costForMonth(empId) || null); setCostFormEmp(empId); setShowCostForm(true); }}
@@ -955,65 +977,80 @@ function PerOutletTab(props: {
   headcountByOutlet: Record<string, Set<string>>;
   bcByOutlet: (o: OutletRow) => number;
   monthLabel: string;
+  mm: string;
+  year: number;
   nonAttribuito: number;
 }) {
-  const { outlets, activeEmployees, allocByEmp, nettoOf, nettoByOutlet, headcountByOutlet, bcByOutlet, monthLabel, nonAttribuito } = props;
+  const { outlets, activeEmployees, allocByEmp, nettoOf, nettoByOutlet, headcountByOutlet, bcByOutlet, mm, year, nonAttribuito } = props;
   if (outlets.length === 0) {
     return <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center text-slate-400">Nessun outlet configurato per questo tenant.</div>;
   }
+  const totHc = new Set<string>();
+  Object.values(headcountByOutlet).forEach((s) => s.forEach((id) => totHc.add(id)));
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+    <div className="space-y-3.5">
+      <div className="text-xs sm:text-[13px] text-blue-900 bg-blue-50 border border-blue-200 rounded-xl p-3.5 flex items-start gap-2.5">
+        <Store size={16} className="text-blue-600 mt-0.5 shrink-0" />
+        <div><strong>{totHc.size} dipendenti su {outlets.length} sedi.</strong> Ogni persona è su una sola sede (ripartizione payroll secca). I punti vendita sono outlet veri; la sede operativa (magazzino + direzione) è trattata come location di primo livello, non come “orfana”.</div>
+      </div>
+
       {outlets.map((o) => {
         const color = getOutletColor(o.name);
+        const isSede = o.cost_center_key === 'sede_magazzino';
         const persone = activeEmployees.filter((e) => (allocByEmp[e.id] || []).some((a) => a.outlet_code === o.name));
         return (
-          <div key={o.id} className="bg-white rounded-2xl shadow-lg overflow-hidden">
-            <div className="px-5 py-3 flex items-center justify-between" style={{ background: color.light }}>
-              <div className="flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full" style={{ background: color.main }} />
-                <span className="font-semibold text-slate-900">{o.name}</span>
+          <div key={o.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="flex items-center gap-3 p-4">
+              <div className="w-9 h-9 rounded-[10px] flex items-center justify-center text-white shrink-0" style={{ background: color.main }}><Store size={18} /></div>
+              <div className="flex-1 min-w-0">
+                <div className="font-bold text-slate-800 flex items-center gap-2 truncate">
+                  {o.name}
+                  {isSede && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 shrink-0">sede — no outlet</span>}
+                </div>
+                <div className="text-xs text-slate-500">{(headcountByOutlet[o.name]?.size || 0)} dipendenti · netto {eurFmt.format(nettoByOutlet[o.name] || 0)} €/mese</div>
               </div>
-              <span className="text-xs text-slate-500">{(headcountByOutlet[o.name]?.size || 0)} addetti</span>
+              <div className="text-right shrink-0">
+                <div className="font-extrabold tabular-nums" style={{ color: color.main }}>{eurInt.format(bcByOutlet(o))}&nbsp;€</div>
+                <div className="text-xs text-slate-500">costo annuo (B&amp;C)</div>
+              </div>
             </div>
-            <div className="p-5 space-y-3">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <div className="text-xs text-slate-500">Netto {monthLabel}</div>
-                  <div className="text-lg font-bold"><Money v={nettoByOutlet[o.name] || 0} strong /></div>
-                </div>
-                <div>
-                  <div className="text-xs text-slate-500">Costo annuo B&C</div>
-                  <div className="text-lg font-bold"><Money v={bcByOutlet(o)} strong /></div>
-                </div>
-              </div>
-              <div className="border-t border-slate-100 pt-3">
-                {persone.length === 0 ? (
-                  <div className="text-xs text-slate-400">Nessun addetto allocato.</div>
-                ) : (
-                  <ul className="space-y-1.5">
+            <div className="border-t border-slate-200 px-2 pb-2">
+              {persone.length === 0 ? (
+                <div className="text-xs text-slate-400 px-2 py-3">Nessun addetto allocato.</div>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-xs uppercase tracking-wide text-slate-400">
+                      <th className="px-3 py-2 text-left font-semibold">Dipendente</th>
+                      <th className="px-3 py-2 text-right font-semibold">Netto {mm}/{year}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
                     {persone.map((e) => (
-                      <li key={e.id} className="flex items-center justify-between text-sm">
-                        <span className="text-slate-700 truncate">{empName(e)}{isAdminRole(e) && <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">Amministratore</span>}</span>
-                        <Money v={nettoOf(e.id)} />
-                      </li>
+                      <tr key={e.id} className="border-t border-slate-50">
+                        <td className="px-3 py-2 text-slate-700">
+                          {empName(e)}
+                          {isAdminRole(e) && <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-700">amministratore</span>}
+                        </td>
+                        <td className="px-3 py-2 text-right"><Money v={nettoOf(e.id)} /></td>
+                      </tr>
                     ))}
-                  </ul>
-                )}
-              </div>
+                  </tbody>
+                </table>
+              )}
             </div>
           </div>
         );
       })}
+
       {nonAttribuito > 0 && (
-        <div className="bg-white rounded-2xl shadow-lg overflow-hidden">
-          <div className="px-5 py-3 bg-slate-100">
-            <span className="font-semibold text-slate-600">Non attribuito</span>
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 flex items-center gap-3">
+          <div className="w-9 h-9 rounded-[10px] bg-slate-300 flex items-center justify-center text-white shrink-0"><Store size={18} /></div>
+          <div className="flex-1">
+            <div className="font-bold text-slate-600">Non attribuito</div>
+            <div className="text-xs text-slate-400">Centri di costo non agganciati a un punto vendita (es. spese da ripartire).</div>
           </div>
-          <div className="p-5">
-            <div className="text-xs text-slate-500">Costo annuo B&C senza outlet</div>
-            <div className="text-lg font-bold"><Money v={nonAttribuito} strong /></div>
-            <p className="text-xs text-slate-400 mt-2">Centri di costo non agganciati a un punto vendita (es. spese da ripartire).</p>
-          </div>
+          <div className="text-right"><div className="font-extrabold tabular-nums text-slate-600">{eurInt.format(nonAttribuito)}&nbsp;€</div><div className="text-xs text-slate-500">costo annuo (B&amp;C)</div></div>
         </div>
       )}
     </div>
@@ -1028,6 +1065,7 @@ function OrganicoTab(props: {
   allocByEmp: Record<string, EmployeeOutletAllocation[]>;
   nettoOf: (id: string) => number;
   outlets: OutletRow[];
+  mm: string; year: number;
   outletFilter: string; setOutletFilter: (s: string) => void;
   search: string; setSearch: (s: string) => void;
   onAdd: () => void;
@@ -1038,58 +1076,65 @@ function OrganicoTab(props: {
   docsForEmp: (id: string) => EmployeeDocument[];
   uploadingEmployee: string | null;
 }) {
-  const { employees, allocByEmp, nettoOf, outlets, outletFilter, setOutletFilter, search, setSearch, onAdd, onEdit, onAlloc, onCedolino, onDelete, docsForEmp, uploadingEmployee } = props;
+  const { employees, allocByEmp, nettoOf, outlets, mm, year, outletFilter, setOutletFilter, search, setSearch, onAdd, onEdit, onAlloc, onCedolino, onDelete, docsForEmp, uploadingEmployee } = props;
   const filtered = employees.filter((e) => {
     if (search && !empName(e).toLowerCase().includes(search.toLowerCase()) && !(e.matricola || '').toLowerCase().includes(search.toLowerCase())) return false;
     if (outletFilter && !(allocByEmp[e.id] || []).some((a) => a.outlet_code === outletFilter)) return false;
     return true;
   });
+  const totNetto = filtered.reduce((s, e) => s + nettoOf(e.id), 0);
   return (
-    <div className="bg-white rounded-2xl shadow-lg overflow-hidden">
-      <div className="p-4 flex flex-wrap items-center gap-2 border-b border-slate-100">
-        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Cerca nome o matricola…" className="px-3 py-2 text-sm rounded-lg border border-slate-200 flex-1 min-w-[180px]" />
-        <select value={outletFilter} onChange={(e) => setOutletFilter(e.target.value)} className="px-3 py-2 text-sm rounded-lg border border-slate-200">
-          <option value="">Tutti gli outlet</option>
-          {outlets.map((o) => <option key={o.id} value={o.name}>{o.name}</option>)}
-        </select>
-        <button onClick={onAdd} className="ml-auto px-3 py-2 rounded-lg text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 flex items-center gap-1.5"><Plus size={15} /> Nuovo</button>
+    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+      <div className="p-4 flex flex-wrap items-center justify-between gap-2 border-b border-slate-200">
+        <h2 className="font-bold text-slate-800">Anagrafica organico</h2>
+        <div className="flex flex-wrap items-center gap-2">
+          <select value={outletFilter} onChange={(e) => setOutletFilter(e.target.value)} className="px-3 py-2 text-sm rounded-lg border border-slate-300 bg-white">
+            <option value="">Tutte le sedi</option>
+            {outlets.map((o) => <option key={o.id} value={o.name}>{o.name}</option>)}
+          </select>
+          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Cerca nome…" className="px-3 py-2 text-sm rounded-lg border border-slate-300 w-44" />
+          <button onClick={onAdd} className="px-3 py-2 rounded-lg text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 flex items-center gap-1.5"><Plus size={15} /> Dipendente</button>
+        </div>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="text-left text-xs uppercase tracking-wide text-slate-400 border-b border-slate-100">
-              <th className="px-4 py-2 font-medium">Matricola</th>
-              <th className="px-4 py-2 font-medium">Nome</th>
-              <th className="px-4 py-2 font-medium">Sede</th>
-              <th className="px-4 py-2 font-medium">Contratto</th>
-              <th className="px-4 py-2 font-medium text-right">Netto</th>
-              <th className="px-4 py-2 font-medium text-right">Azioni</th>
+            <tr className="text-xs uppercase tracking-wide text-slate-500 bg-slate-50 border-b border-slate-200">
+              <th className="px-4 py-2.5 text-left font-bold">Matricola</th>
+              <th className="px-4 py-2.5 text-left font-bold">Dipendente</th>
+              <th className="px-4 py-2.5 text-left font-bold">Sede</th>
+              <th className="px-4 py-2.5 text-left font-bold">Contratto</th>
+              <th className="px-4 py-2.5 text-right font-bold">Netto {mm}/{year}</th>
+              <th className="px-4 py-2.5 text-center font-bold">Cedolino</th>
+              <th className="px-4 py-2.5 text-center font-bold">Azioni</th>
             </tr>
           </thead>
           <tbody>
             {filtered.length === 0 ? (
-              <tr><td colSpan={6} className="px-4 py-10 text-center text-slate-400">Nessun dipendente.</td></tr>
+              <tr><td colSpan={7} className="px-4 py-10 text-center text-slate-400">Nessun dipendente.</td></tr>
             ) : filtered.map((e) => {
               const allocs = allocByEmp[e.id] || [];
               const docs = docsForEmp(e.id);
               return (
-                <tr key={e.id} className="border-b border-slate-50 hover:bg-slate-50/50">
+                <tr key={e.id} className="border-b border-slate-100 hover:bg-slate-50">
                   <td className="px-4 py-2.5 text-slate-500 tabular-nums">{e.matricola || '—'}</td>
                   <td className="px-4 py-2.5">
-                    <span className="text-slate-800">{empName(e)}</span>
-                    {isAdminRole(e) && <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">Amministratore</span>}
+                    <span className="font-semibold text-slate-800">{empName(e)}</span>
+                    {isAdminRole(e) && <span className="ml-1.5 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-50 text-amber-700">amministratore</span>}
                   </td>
-                  <td className="px-4 py-2.5 text-slate-500">{allocs.length ? allocs.map((a) => a.outlet_code).join(', ') : <span className="text-slate-300">—</span>}</td>
-                  <td className="px-4 py-2.5 text-slate-500">{e.contratto_tipo || e.contract_type || '—'}</td>
+                  <td className="px-4 py-2.5"><SedeCell allocs={allocs} /></td>
+                  <td className="px-4 py-2.5 text-slate-500">{e.contratto_tipo || e.contract_type || 'da definire'}</td>
                   <td className="px-4 py-2.5 text-right"><Money v={nettoOf(e.id)} /></td>
+                  <td className="px-4 py-2.5 text-center">
+                    <button onClick={() => onCedolino(e.id)} disabled={uploadingEmployee === e.id} className="text-slate-400 hover:text-emerald-600 inline-flex items-center gap-1 relative" title="Carica cedolino">
+                      <Upload size={15} />
+                      {docs.length > 0 && <span className="absolute -top-1 -right-2 w-3.5 h-3.5 rounded-full bg-emerald-500 text-white text-[8px] flex items-center justify-center">{docs.length}</span>}
+                    </button>
+                  </td>
                   <td className="px-4 py-2.5">
-                    <div className="flex items-center justify-end gap-1.5">
+                    <div className="flex items-center justify-center gap-1.5">
                       <button onClick={() => onEdit(e)} className="p-1.5 rounded text-slate-400 hover:text-blue-600 hover:bg-blue-50" title="Modifica"><Edit2 size={15} /></button>
                       <button onClick={() => onAlloc(e.id)} className="p-1.5 rounded text-slate-400 hover:text-violet-600 hover:bg-violet-50" title="Allocazione"><Percent size={15} /></button>
-                      <button onClick={() => onCedolino(e.id)} disabled={uploadingEmployee === e.id} className="p-1.5 rounded text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 relative" title="Carica cedolino">
-                        <Upload size={15} />
-                        {docs.length > 0 && <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-emerald-500 text-white text-[8px] flex items-center justify-center">{docs.length}</span>}
-                      </button>
                       <button onClick={() => onDelete(e.id)} className="p-1.5 rounded text-slate-400 hover:text-red-600 hover:bg-red-50" title="Disattiva"><Trash2 size={15} /></button>
                     </div>
                   </td>
@@ -1097,6 +1142,15 @@ function OrganicoTab(props: {
               );
             })}
           </tbody>
+          {filtered.length > 0 && (
+            <tfoot>
+              <tr className="font-bold border-t-2 border-slate-300">
+                <td className="px-4 py-2.5" colSpan={4}>TOTALE — {filtered.length} dipendenti</td>
+                <td className="px-4 py-2.5 text-right"><Money v={totNetto} strong /></td>
+                <td /><td />
+              </tr>
+            </tfoot>
+          )}
         </table>
       </div>
     </div>
@@ -1109,9 +1163,12 @@ function OrganicoTab(props: {
 function CostiTab(props: {
   contiMese: { code: string; label: string; field: string; amount: number }[];
   totaleConti: number;
+  totalNettoMese: number;
   monthLabel: string;
+  mm: string;
   year: number;
   employees: Employee[];
+  allocByEmp: Record<string, EmployeeOutletAllocation[]>;
   costForMonth: (id: string) => EmployeeCost | undefined;
   docsForEmp: (id: string) => EmployeeDocument[];
   onAddCost: (empId: string) => void;
@@ -1122,85 +1179,91 @@ function CostiTab(props: {
   uploadingEmployee: string | null;
   importPanel: React.ReactNode;
 }) {
-  const { contiMese, totaleConti, monthLabel, year, employees, costForMonth, docsForEmp, onAddCost, onEditCost, onDeleteCost, onCedolino, onViewDoc, uploadingEmployee, importPanel } = props;
+  const { contiMese, totalNettoMese, monthLabel, mm, year, employees, allocByEmp, costForMonth, docsForEmp, onAddCost, onEditCost, onDeleteCost, onCedolino, onViewDoc, uploadingEmployee, importPanel } = props;
   return (
-    <div className="space-y-6">
-      {/* Costo per conto del mese */}
-      <div className="bg-white rounded-2xl shadow-lg p-5">
-        <h3 className="font-semibold text-slate-900 mb-1">Costo per conto — {monthLabel} {year}</h3>
-        <p className="text-xs text-slate-400 mb-4">Obiettivo: i cedolini alimentano l'aggregato e la riga costo smette di essere digitata a mano (fase 2).</p>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-xs uppercase tracking-wide text-slate-400 border-b border-slate-100">
-                <th className="px-3 py-2 font-medium">Conto</th>
-                <th className="px-3 py-2 font-medium">Voce</th>
-                <th className="px-3 py-2 font-medium">Fonte</th>
-                <th className="px-3 py-2 font-medium text-right">Importo</th>
-              </tr>
-            </thead>
-            <tbody>
-              {contiMese.map((c) => (
-                <tr key={c.code} className="border-b border-slate-50">
-                  <td className="px-3 py-2.5 text-slate-500 tabular-nums">{c.code}</td>
-                  <td className="px-3 py-2.5 text-slate-700">{c.label}</td>
-                  <td className="px-3 py-2.5"><span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-amber-50 text-amber-700">manuale oggi</span></td>
-                  <td className="px-3 py-2.5 text-right"><Money v={c.amount} /></td>
-                </tr>
-              ))}
-              <tr className="font-semibold">
-                <td className="px-3 py-2.5" colSpan={3}>Totale</td>
-                <td className="px-3 py-2.5 text-right"><Money v={totaleConti} strong /></td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+    <div className="space-y-5">
+      <div className="text-xs sm:text-[13px] text-amber-900 bg-amber-50 border border-amber-200 rounded-xl p-3.5 flex items-start gap-2.5">
+        <span className="text-amber-600 font-bold shrink-0">€</span>
+        <div><strong>Qui convivono due livelli.</strong> In alto il <strong>costo aziendale per conto</strong> (quello che serve a B&amp;C, oggi inserito a mano). In basso i <strong>netti dai cedolini</strong> (quello che hai caricato). Obiettivo del redesign: i cedolini alimentano automaticamente l'aggregato, e la riga “costo” smette di essere digitata a mano.</div>
       </div>
 
-      {/* Netti per dipendente */}
-      <div className="bg-white rounded-2xl shadow-lg p-5">
-        <h3 className="font-semibold text-slate-900 mb-4">Netti per dipendente — {monthLabel} {year}</h3>
+      {/* Costo per conto */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="px-4 py-3.5 border-b border-slate-200 flex items-center justify-between gap-2">
+          <h2 className="font-bold text-slate-800">Costo personale per conto — {monthLabel} {year}</h2>
+          <span className="text-xs text-slate-500">mappato sul piano dei conti civilistico</span>
+        </div>
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-xs uppercase tracking-wide text-slate-500 bg-slate-50 border-b border-slate-200">
+              <th className="px-4 py-2.5 text-left font-bold">Conto</th>
+              <th className="px-4 py-2.5 text-left font-bold">Voce</th>
+              <th className="px-4 py-2.5 text-right font-bold">Importo mese</th>
+              <th className="px-4 py-2.5 text-center font-bold">Fonte</th>
+            </tr>
+          </thead>
+          <tbody>
+            {contiMese.map((c) => (
+              <tr key={c.code} className="border-b border-slate-100">
+                <td className="px-4 py-2.5 text-slate-500 tabular-nums">{c.code}</td>
+                <td className="px-4 py-2.5 text-slate-700">{c.label}</td>
+                <td className="px-4 py-2.5 text-right">{c.amount ? <Money v={c.amount} /> : <span className="text-slate-400">— da cedolino</span>}</td>
+                <td className="px-4 py-2.5 text-center"><span className="text-[10.5px] font-bold px-2 py-0.5 rounded bg-amber-50 text-amber-700">manuale oggi</span></td>
+              </tr>
+            ))}
+            <tr className="font-bold border-t-2 border-slate-300">
+              <td className="px-4 py-2.5" colSpan={2}>NETTO PAGATO (dai cedolini)</td>
+              <td className="px-4 py-2.5 text-right tabular-nums">{eurFmt.format(totalNettoMese)}&nbsp;€</td>
+              <td className="px-4 py-2.5 text-center"><span className="text-[10.5px] font-bold px-2 py-0.5 rounded bg-emerald-50 text-emerald-700">automatico</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      {/* Cedolini per dipendente */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="px-4 py-3.5 border-b border-slate-200 flex items-center justify-between gap-2">
+          <h2 className="font-bold text-slate-800">Cedolini per dipendente</h2>
+          <span className="text-xs text-slate-500">netto + upload PDF · {monthLabel} {year}</span>
+        </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-left text-xs uppercase tracking-wide text-slate-400 border-b border-slate-100">
-                <th className="px-3 py-2 font-medium">Dipendente</th>
-                <th className="px-3 py-2 font-medium text-right">Netto</th>
-                <th className="px-3 py-2 font-medium text-right">Componenti</th>
-                <th className="px-3 py-2 font-medium text-right">Cedolino</th>
-                <th className="px-3 py-2 font-medium text-right">Azioni</th>
+              <tr className="text-xs uppercase tracking-wide text-slate-500 bg-slate-50 border-b border-slate-200">
+                <th className="px-4 py-2.5 text-left font-bold">Dipendente</th>
+                <th className="px-4 py-2.5 text-left font-bold">Sede</th>
+                <th className="px-4 py-2.5 text-right font-bold">Netto {mm}/{year}</th>
+                <th className="px-4 py-2.5 text-center font-bold">PDF cedolino</th>
+                <th className="px-4 py-2.5 text-center font-bold">Costo</th>
               </tr>
             </thead>
             <tbody>
               {employees.length === 0 ? (
-                <tr><td colSpan={5} className="px-3 py-10 text-center text-slate-400">Nessun dipendente. Usa l’import mensile qui sotto.</td></tr>
+                <tr><td colSpan={5} className="px-4 py-10 text-center text-slate-400">Nessun dipendente. Usa l’import mensile qui sotto.</td></tr>
               ) : employees.map((e) => {
                 const c = costForMonth(e.id);
                 const docs = docsForEmp(e.id).filter((d) => d.year === year);
-                const tot = c ? (Number(c.retribuzione || 0) + Number(c.contributi || 0) + Number(c.inail || 0) + Number(c.tfr || 0) + Number(c.altri_costi || 0)) : 0;
                 return (
-                  <tr key={e.id} className="border-b border-slate-50 hover:bg-slate-50/50">
-                    <td className="px-3 py-2.5 text-slate-800">{empName(e)}</td>
-                    <td className="px-3 py-2.5 text-right"><Money v={c?.netto || 0} /></td>
-                    <td className="px-3 py-2.5 text-right text-slate-500"><Money v={tot} /></td>
-                    <td className="px-3 py-2.5 text-right">
+                  <tr key={e.id} className="border-b border-slate-100 hover:bg-slate-50">
+                    <td className="px-4 py-2.5 font-semibold text-slate-800">{empName(e)}</td>
+                    <td className="px-4 py-2.5"><SedeCell allocs={allocByEmp[e.id] || []} /></td>
+                    <td className="px-4 py-2.5 text-right"><Money v={c?.netto || 0} /></td>
+                    <td className="px-4 py-2.5 text-center">
                       {docs.length > 0 ? (
-                        <button onClick={() => onViewDoc(docs[0])} className="text-blue-600 hover:text-blue-700 inline-flex items-center gap-1"><Eye size={14} /> Vedi</button>
+                        <button onClick={() => onViewDoc(docs[0])} className="px-2.5 py-1 rounded-lg border border-slate-300 text-xs text-blue-600 hover:bg-blue-50 inline-flex items-center gap-1"><Eye size={13} /> Vedi</button>
                       ) : (
-                        <button onClick={() => onCedolino(e.id)} disabled={uploadingEmployee === e.id} className="text-slate-400 hover:text-emerald-600 inline-flex items-center gap-1"><Upload size={14} /> Carica</button>
+                        <button onClick={() => onCedolino(e.id)} disabled={uploadingEmployee === e.id} className="px-2.5 py-1 rounded-lg border border-slate-300 text-xs text-slate-600 hover:bg-slate-50 inline-flex items-center gap-1"><Upload size={13} /> carica</button>
                       )}
                     </td>
-                    <td className="px-3 py-2.5">
-                      <div className="flex items-center justify-end gap-1.5">
-                        {c ? (
-                          <>
-                            <button onClick={() => onEditCost(c)} className="p-1.5 rounded text-slate-400 hover:text-blue-600 hover:bg-blue-50" title="Modifica costo"><Edit2 size={15} /></button>
-                            <button onClick={() => onDeleteCost(c.id)} className="p-1.5 rounded text-slate-400 hover:text-red-600 hover:bg-red-50" title="Elimina costo"><Trash2 size={15} /></button>
-                          </>
-                        ) : (
-                          <button onClick={() => onAddCost(e.id)} className="p-1.5 rounded text-slate-400 hover:text-blue-600 hover:bg-blue-50" title="Aggiungi costo"><Plus size={15} /></button>
-                        )}
-                      </div>
+                    <td className="px-4 py-2.5 text-center">
+                      {c ? (
+                        <span className="inline-flex items-center gap-1.5">
+                          <button onClick={() => onEditCost(c)} className="p-1 rounded text-slate-400 hover:text-blue-600 hover:bg-blue-50" title="Modifica costo"><Edit2 size={14} /></button>
+                          <button onClick={() => onDeleteCost(c.id)} className="p-1 rounded text-slate-400 hover:text-red-600 hover:bg-red-50" title="Elimina costo"><Trash2 size={14} /></button>
+                        </span>
+                      ) : (
+                        <button onClick={() => onAddCost(e.id)} className="p-1 rounded text-slate-400 hover:text-blue-600 hover:bg-blue-50" title="Aggiungi costo"><Plus size={14} /></button>
+                      )}
                     </td>
                   </tr>
                 );
