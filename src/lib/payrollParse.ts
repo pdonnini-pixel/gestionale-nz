@@ -82,6 +82,9 @@ export const rowHasLordo = (r: PreviewRow) => LORDI_FIELDS.some((f) => (r as any
 const deDouble = (s: string) => s.replace(/(.)\1/g, '$1');
 const RE_MATRICOLA = /\b\d{7}\b/g;
 const RE_MONEY_G = /\d{1,3}(?:\.\d{3})*,\d{2}/g;
+// "Totale aziendale" tollerante ai caratteri raddoppiati del grassetto
+// ("TToottaallee aazziieennddaallee"): ogni lettera 1-2 volte.
+const RE_TOT_AZIENDALE_LOOSE = /t{1,2}o{1,2}t{1,2}a{1,2}l{1,2}e{1,2}\s+a{1,2}z{1,2}i{1,2}e{1,2}n{1,2}d{1,2}a{1,2}l{1,2}e{1,2}/i;
 const NAME_LABELS = /^(filiale|cod|dip|cognome|nome|importo|importi|totale|totali|di|del|della|ripartizione|aziendale|nr|n|dipendenti|dipendente|progressivo|coordinate|bancarie|iban|villaggio|village|outlet|udine|mensilita|normale|elenco|netti|netto|pag|pagina|data|periodo|azienda|ditta)$/i;
 
 // Estrazione nomi best-effort: la colonna "Cognome e nome" è un blocco unico non
@@ -112,18 +115,24 @@ export function parseInfinityNettiPages(pages: string[], outlets: ParserOutlet[]
     const mf = page.match(/Filiale:\s*\d+\s*-\s*(.+?)\s*;/i);
     if (!mf) continue;
     const outlet = matchOutletName(mf[1], outlets);
-    const mats = page.match(RE_MATRICOLA) || [];
+    // La validazione di filiale ignora tutto DA "Totale aziendale" in poi:
+    // sull'ultima pagina ci sono due totali (ripartizione filiale + aziendale documento)
+    // e l'aziendale non deve essere scambiato per il totale di filiale.
+    const azCut = page.search(RE_TOT_AZIENDALE_LOOSE);
+    const work = azCut >= 0 ? page.slice(0, azCut) : page;
+    const mats = work.match(RE_MATRICOLA) || [];
     if (!mats.length) continue;
-    const amts = (page.match(RE_MONEY_G) || []).map((a) => parseItNum(a));
+    const amts = (work.match(RE_MONEY_G) || []).map((a) => parseItNum(a));
     const N = mats.length;
     const netti = amts.slice(0, N);
+    // totale di ripartizione = PRIMO token money dopo gli N netti (non l'ultimo della pagina)
     const totRip = amts.length > N ? amts[N] : null;
     const sum = netti.reduce<number>((s, v) => s + (v || 0), 0);
-    const dd = deDouble(page);
+    const dd = deDouble(work);
     const nrm = dd.match(/nr\s+dipendenti\s+(\d+)/i);
     const nrDip = nrm ? parseInt(nrm[1], 10) : null;
     const quadra = (totRip == null || Math.abs(sum - totRip) < 0.01) && (nrDip == null || nrDip === N);
-    const names = extractNames(page, mf[0], N);
+    const names = extractNames(work, mf[0], N);
     for (let i = 0; i < N; i++) {
       const r = blankRow();
       r.matricola = mats[i];

@@ -5,6 +5,7 @@ const OUTLETS: ParserOutlet[] = [
   { name: 'VALDICHIANA', cost_center_key: 'valdichiana' },
   { name: 'BARBERINO', cost_center_key: 'barberino' },
   { name: 'PALMANOVA', cost_center_key: 'palmanova' },
+  { name: 'VALMONTONE', cost_center_key: 'valmontone' },
   { name: 'SEDE / MAGAZZINO', cost_center_key: 'sede_magazzino', mall_name: 'Matassino' },
 ]
 
@@ -115,6 +116,20 @@ describe('parseInfinityNettiPages — abbinamento per colonna (ordine di stream)
     const { rows, fileTotal } = parseInfinityNettiPages([p1, p3, p5], OUTLETS)
     expect(rows.length).toBe(18)
     expect(fileTotal).toBeCloseTo(9332.02 + 5400.25 + 18579.83, 2)
+  })
+
+  it('p8 Valmontone con DOPPIO totale (ripartizione + aziendale): nessun warn', () => {
+    const p8 = 'Filiale: 0000000008 - VALMONTONE ; Cod. dip. Cognome e nome Importo '
+      + '0000056 0000057 0000058 0000059 0000060 0000062 '
+      + 'CACCIOTTI DANIELA GERMANI MARIA MELE FRANCESCA NUNZIANTE SILVIA PARIS AURORA TALONE FRANCESCA '
+      + '1.625,00 1.150,00 983,00 1.143,00 841,00 1.171,00 '
+      + 'Totale di ripartizione 6.913,00 Nr dipendenti 6 '
+      + 'TToottaallee aazziieennddaallee 60.926,46 Nr dipendenti 41'
+    const { rows } = parseInfinityNettiPages([p8], OUTLETS)
+    expect(rows.length).toBe(6)
+    expect(rows.every((r) => r.outlet === 'VALMONTONE')).toBe(true)
+    expect(rows.some((r) => r.warn)).toBe(false)              // 6.913,00, NON 60.926,46
+    expect(rows.reduce((s, r) => s + (r.netto || 0), 0)).toBeCloseTo(6913.00, 2)
   })
 
   it('filiale che non quadra → righe marcate warn', () => {
