@@ -37,6 +37,7 @@ import { supabase } from '../lib/supabase';
 import { GlassTooltip, AXIS_STYLE, GRID_STYLE, PALETTE, getOutletColor, fmtEuro } from '../components/ChartTheme';
 import { useAuth } from '../hooks/useAuth';
 import { useCompany } from '../hooks/useCompany';
+import { extractPdfLines } from '../lib/pdfText';
 
 const PdfViewer = lazy(() => import('../components/PdfViewer'));
 
@@ -140,6 +141,29 @@ const isAdminRole = (e: Employee) =>
 
 const empName = (e: Employee) =>
   `${e.cognome || e.last_name || ''} ${e.nome || e.first_name || ''}`.trim() || '—';
+
+// Mapping filiale→outlet a RUNTIME (niente tabella hardcoded): confronta il testo
+// della filiale con outlets.name (normalizzato), fallback su cost_center_key.
+function matchOutletName(text: string, outlets: OutletRow[]): string {
+  const t = norm(text);
+  if (!t) return '';
+  // 1) match esatto / inclusione sul nome
+  for (const o of outlets) {
+    const n = norm(o.name);
+    if (n && (n === t || t.includes(n) || n.includes(t))) return o.name;
+  }
+  // 2) fallback: cost_center_key contenuto nel testo (es. "valdichiana")
+  for (const o of outlets) {
+    const k = norm((o.cost_center_key || '').replace(/_/g, ' '));
+    if (k && (t.includes(k) || k.includes(t))) return o.name;
+  }
+  // 3) match per prima parola significativa (es. "VALDICHIANA VILLAGE" → "valdichiana")
+  const firstWord = t.split(' ')[0];
+  for (const o of outlets) {
+    if (firstWord && norm(o.name).startsWith(firstWord)) return o.name;
+  }
+  return '';
+}
 
 // ============================================================================
 // UI SHELLS (Modal custom — mai dialog nativi)
@@ -263,6 +287,11 @@ export default function Dipendenti() {
   // Filtri organico
   const [orgOutletFilter, setOrgOutletFilter] = useState('');
   const [orgSearch, setOrgSearch] = useState('');
+  const [orgStatus, setOrgStatus] = useState<'attivi' | 'cessati' | 'tutti'>('attivi');
+
+  // Cessazione dipendente (modale custom)
+  const [cessaEmp, setCessaEmp] = useState<Employee | null>(null);
+  const [cessaDate, setCessaDate] = useState('');
 
   // ========== LOAD ==========
   useEffect(() => {
@@ -282,7 +311,7 @@ export default function Dipendenti() {
     try {
       setLoading(true);
       const [empRes, allocRes, costRes, ccRes, outRes, docRes] = await Promise.all([
-        supabase.from('employees').select('*').eq('company_id', COMPANY_ID).or('is_active.is.null,is_active.eq.true').order('cognome', { nullsFirst: false }),
+        supabase.from('employees').select('*').eq('company_id', COMPANY_ID).order('cognome', { nullsFirst: false }),
         supabase.from('employee_outlet_allocations').select('*').eq('company_id', COMPANY_ID),
         supabase.from('employee_costs').select('*').eq('company_id', COMPANY_ID),
         supabase.from('cost_centers').select('*').eq('company_id', COMPANY_ID).eq('is_active', true).order('sort_order', { nullsFirst: false }),
@@ -373,8 +402,21 @@ export default function Dipendenti() {
   const costForMonth = (empId: string) =>
     costs.find((c) => c.employee_id === empId && c.year === selectedYear && c.month === selectedMonth);
 
-  // Netto mensile per dipendente
-  const nettoOf = (empId: string) => Number(costForMonth(empId)?.netto || 0);
+  // Netto mensile (busta paga) per dipendente — null se non caricato (empty-state, non 0 fuorviante)
+  const nettoCell = (empId: string): number | null => {
+    const c = costForMonth(empId);
+    return c && c.netto != null ? Number(c.netto) : null;
+  };
+  const nettoOf = (empId: string) => Number(nettoCell(empId) || 0);
+
+  // Costo lordo aziendale = somma componenti; null se nessun componente caricato
+  const lordoCell = (empId: string): number | null => {
+    const c = costForMonth(empId);
+    if (!c) return null;
+    const parts = [c.retribuzione, c.contributi, c.inail, c.tfr, c.altri_costi];
+    if (parts.every((p) => p == null)) return null;
+    return parts.reduce<number>((s, p) => s + Number(p || 0), 0);
+  };
 
   // Netto mensile per outlet (via allocazioni, outlet_code == outlet.name)
   const nettoByOutlet = useMemo(() => {
@@ -468,14 +510,13 @@ export default function Dipendenti() {
     if ('contratto' in out) { out.contratto_tipo = out.contratto; delete out.contratto; }
     if ('qualifica' in out) { out.role_description = out.qualifica; delete out.qualifica; }
     ['hire_date', 'termination_date', 'data_assunzione', 'data_cessazione'].forEach((k) => { if (out[k] === '') out[k] = null; });
-    if (out.contratto_tipo === 'indeterminato' && !out.data_cessazione) {
-      out.data_cessazione = '9999-12-31'; out.termination_date = '9999-12-31';
-    }
+    // Data fine resta APERTA (null) finché non c'è cessazione — niente sentinella 9999.
     return out;
   };
 
   const handleSaveEmployee = async (formData: any) => {
     if (!formData.nome?.trim() || !formData.cognome?.trim()) { toast({ type: 'error', message: 'Nome e cognome sono obbligatori' }); return; }
+    if (!formData.data_assunzione) { toast({ type: 'error', message: 'La data di inizio contratto è obbligatoria' }); return; }
     if (!COMPANY_ID) return;
     const doSave = async () => {
       try {
@@ -510,17 +551,33 @@ export default function Dipendenti() {
     await doSave();
   };
 
-  const handleDeleteEmployee = (empId: string) => {
-    const e = employees.find((x) => x.id === empId);
+  // Cessazione: NON cancella il record — is_active=false + data di cessazione (storico preservato).
+  const openCessa = (e: Employee) => {
+    setCessaEmp(e);
+    setCessaDate(new Date().toISOString().split('T')[0]);
+  };
+  const handleCessa = async () => {
+    if (!cessaEmp) return;
+    if (!cessaDate) { toast({ type: 'error', message: 'Indica la data di cessazione' }); return; }
+    const { error } = await supabase.from('employees')
+      .update({ is_active: false, data_cessazione: cessaDate, termination_date: cessaDate })
+      .eq('id', cessaEmp.id);
+    if (error) { toast({ type: 'error', message: 'Errore nella cessazione: ' + error.message }); return; }
+    toast({ type: 'success', message: 'Dipendente cessato (resta in archivio)' });
+    setCessaEmp(null); setCessaDate('');
+    await reloadAll();
+  };
+  // Riattivazione di un cessato.
+  const handleRiattiva = (e: Employee) => {
     setConfirmState({
-      title: 'Disattiva dipendente',
-      message: `Vuoi disattivare "${e ? empName(e) : ''}"? Resterà nello storico ma non comparirà nell'organico attivo.`,
-      confirmLabel: 'Disattiva', danger: true,
+      title: 'Riattiva dipendente',
+      message: `Vuoi riportare "${empName(e)}" tra gli attivi? La data di cessazione verrà azzerata.`,
+      confirmLabel: 'Riattiva',
       onConfirm: async () => {
         setConfirmState(null);
-        const { error } = await supabase.from('employees').update({ is_active: false }).eq('id', empId);
+        const { error } = await supabase.from('employees').update({ is_active: true, data_cessazione: null, termination_date: null }).eq('id', e.id);
         if (error) { toast({ type: 'error', message: 'Errore' }); return; }
-        toast({ type: 'success', message: 'Dipendente disattivato' });
+        toast({ type: 'success', message: 'Dipendente riattivato' });
         await reloadAll();
       },
     });
@@ -728,12 +785,15 @@ export default function Dipendenti() {
 
           {view === 'organico' && (
             <OrganicoTab
-              employees={activeEmployees}
+              employees={employees}
               allocByEmp={allocByEmp}
-              nettoOf={nettoOf}
+              nettoCell={nettoCell}
+              lordoCell={lordoCell}
               outlets={outlets}
               mm={String(selectedMonth).padStart(2, '0')}
               year={selectedYear}
+              status={orgStatus}
+              setStatus={setOrgStatus}
               outletFilter={orgOutletFilter}
               setOutletFilter={setOrgOutletFilter}
               search={orgSearch}
@@ -742,7 +802,8 @@ export default function Dipendenti() {
               onEdit={(e) => { setEditingEmployee(e); setShowEmployeeForm(true); }}
               onAlloc={openAllocEditor}
               onCedolino={triggerCedolino}
-              onDelete={handleDeleteEmployee}
+              onCessa={openCessa}
+              onRiattiva={handleRiattiva}
               docsForEmp={docsForEmp}
               uploadingEmployee={uploadingEmployee}
             />
@@ -767,16 +828,30 @@ export default function Dipendenti() {
               onViewDoc={handleViewDoc}
               uploadingEmployee={uploadingEmployee}
               importPanel={
-                <ImportMensile
-                  companyId={COMPANY_ID}
-                  userId={USER_ID}
-                  outlets={outlets}
-                  employees={employees}
-                  existingCosts={costs}
-                  defaultYear={selectedYear}
-                  defaultMonth={selectedMonth}
-                  onDone={reloadAll}
-                />
+                <div className="space-y-5">
+                  <ImportLane
+                    mode="netto"
+                    companyId={COMPANY_ID}
+                    userId={USER_ID}
+                    outlets={outlets}
+                    employees={employees}
+                    existingCosts={costs}
+                    defaultYear={selectedYear}
+                    defaultMonth={selectedMonth}
+                    onDone={reloadAll}
+                  />
+                  <ImportLane
+                    mode="lordi"
+                    companyId={COMPANY_ID}
+                    userId={USER_ID}
+                    outlets={outlets}
+                    employees={employees}
+                    existingCosts={costs}
+                    defaultYear={selectedYear}
+                    defaultMonth={selectedMonth}
+                    onDone={reloadAll}
+                  />
+                </div>
               }
             />
           )}
@@ -841,6 +916,22 @@ export default function Dipendenti() {
           <Suspense fallback={<div className="text-slate-400 py-8 text-center">Caricamento documento…</div>}>
             <PdfViewer pdfData={docPdfData} />
           </Suspense>
+        </Modal>
+      )}
+
+      {cessaEmp && (
+        <Modal title="Cessazione dipendente" onClose={() => { setCessaEmp(null); setCessaDate(''); }} maxW="max-w-md">
+          <p className="text-sm text-slate-600 mb-4">
+            Cessazione di <strong>{empName(cessaEmp)}</strong>. Il record <strong>non viene cancellato</strong>: resta in archivio tra i “Cessati” con la data indicata.
+          </p>
+          <Field label="Data di cessazione *">
+            <input type="date" value={cessaDate} onChange={(e) => setCessaDate(e.target.value)} className="inp" />
+          </Field>
+          <div className="flex justify-end gap-2 mt-5">
+            <button onClick={() => { setCessaEmp(null); setCessaDate(''); }} className="px-4 py-2 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100">Annulla</button>
+            <button onClick={handleCessa} className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-red-600 hover:bg-red-700">Conferma cessazione</button>
+          </div>
+          <style>{`.inp{width:100%;padding:0.5rem 0.75rem;font-size:0.875rem;border-radius:0.5rem;border:1px solid rgb(226 232 240)}`}</style>
         </Modal>
       )}
 
@@ -1063,30 +1154,51 @@ function PerOutletTab(props: {
 function OrganicoTab(props: {
   employees: Employee[];
   allocByEmp: Record<string, EmployeeOutletAllocation[]>;
-  nettoOf: (id: string) => number;
+  nettoCell: (id: string) => number | null;
+  lordoCell: (id: string) => number | null;
   outlets: OutletRow[];
   mm: string; year: number;
+  status: 'attivi' | 'cessati' | 'tutti'; setStatus: (s: 'attivi' | 'cessati' | 'tutti') => void;
   outletFilter: string; setOutletFilter: (s: string) => void;
   search: string; setSearch: (s: string) => void;
   onAdd: () => void;
   onEdit: (e: Employee) => void;
   onAlloc: (id: string) => void;
   onCedolino: (id: string) => void;
-  onDelete: (id: string) => void;
+  onCessa: (e: Employee) => void;
+  onRiattiva: (e: Employee) => void;
   docsForEmp: (id: string) => EmployeeDocument[];
   uploadingEmployee: string | null;
 }) {
-  const { employees, allocByEmp, nettoOf, outlets, mm, year, outletFilter, setOutletFilter, search, setSearch, onAdd, onEdit, onAlloc, onCedolino, onDelete, docsForEmp, uploadingEmployee } = props;
+  const { employees, allocByEmp, nettoCell, lordoCell, outlets, mm, year, status, setStatus, outletFilter, setOutletFilter, search, setSearch, onAdd, onEdit, onAlloc, onCedolino, onCessa, onRiattiva, docsForEmp, uploadingEmployee } = props;
   const filtered = employees.filter((e) => {
+    const active = e.is_active !== false;
+    if (status === 'attivi' && !active) return false;
+    if (status === 'cessati' && active) return false;
     if (search && !empName(e).toLowerCase().includes(search.toLowerCase()) && !(e.matricola || '').toLowerCase().includes(search.toLowerCase())) return false;
     if (outletFilter && !(allocByEmp[e.id] || []).some((a) => a.outlet_code === outletFilter)) return false;
     return true;
   });
-  const totNetto = filtered.reduce((s, e) => s + nettoOf(e.id), 0);
+  const totNetto = filtered.reduce((s, e) => s + (nettoCell(e.id) || 0), 0);
+  const totLordo = filtered.reduce((s, e) => s + (lordoCell(e.id) || 0), 0);
+  const fmtDate = (d?: string | null) => (d ? new Date(d).toLocaleDateString('it-IT') : '');
+  const STATUS: { k: 'attivi' | 'cessati' | 'tutti'; label: string }[] = [
+    { k: 'attivi', label: 'Attivi' }, { k: 'cessati', label: 'Cessati' }, { k: 'tutti', label: 'Tutti' },
+  ];
   return (
     <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
       <div className="p-4 flex flex-wrap items-center justify-between gap-2 border-b border-slate-200">
-        <h2 className="font-bold text-slate-800">Anagrafica organico</h2>
+        <div className="flex items-center gap-3">
+          <h2 className="font-bold text-slate-800">Anagrafica organico</h2>
+          <div className="inline-flex bg-slate-100 rounded-lg p-0.5">
+            {STATUS.map((s) => (
+              <button key={s.k} onClick={() => setStatus(s.k)}
+                className={`px-3 py-1 rounded-md text-xs font-semibold transition-all ${status === s.k ? 'bg-white shadow text-blue-700' : 'text-slate-500 hover:text-slate-700'}`}>
+                {s.label}
+              </button>
+            ))}
+          </div>
+        </div>
         <div className="flex flex-wrap items-center gap-2">
           <select value={outletFilter} onChange={(e) => setOutletFilter(e.target.value)} className="px-3 py-2 text-sm rounded-lg border border-slate-300 bg-white">
             <option value="">Tutte le sedi</option>
@@ -1104,27 +1216,38 @@ function OrganicoTab(props: {
               <th className="px-4 py-2.5 text-left font-bold">Dipendente</th>
               <th className="px-4 py-2.5 text-left font-bold">Sede</th>
               <th className="px-4 py-2.5 text-left font-bold">Contratto</th>
-              <th className="px-4 py-2.5 text-right font-bold">Netto {mm}/{year}</th>
+              <th className="px-4 py-2.5 text-right font-bold">Netto busta {mm}/{year}</th>
+              <th className="px-4 py-2.5 text-right font-bold">Costo lordo {mm}/{year}</th>
               <th className="px-4 py-2.5 text-center font-bold">Cedolino</th>
               <th className="px-4 py-2.5 text-center font-bold">Azioni</th>
             </tr>
           </thead>
           <tbody>
             {filtered.length === 0 ? (
-              <tr><td colSpan={7} className="px-4 py-10 text-center text-slate-400">Nessun dipendente.</td></tr>
+              <tr><td colSpan={8} className="px-4 py-10 text-center text-slate-400">Nessun dipendente.</td></tr>
             ) : filtered.map((e) => {
               const allocs = allocByEmp[e.id] || [];
               const docs = docsForEmp(e.id);
+              const netto = nettoCell(e.id);
+              const lordo = lordoCell(e.id);
+              const cessato = e.is_active === false;
+              const inizio = e.data_assunzione || e.hire_date;
+              const fine = e.data_cessazione || e.termination_date;
               return (
-                <tr key={e.id} className="border-b border-slate-100 hover:bg-slate-50">
+                <tr key={e.id} className={`border-b border-slate-100 hover:bg-slate-50 ${cessato ? 'opacity-60' : ''}`}>
                   <td className="px-4 py-2.5 text-slate-500 tabular-nums">{e.matricola || '—'}</td>
                   <td className="px-4 py-2.5">
                     <span className="font-semibold text-slate-800">{empName(e)}</span>
                     {isAdminRole(e) && <span className="ml-1.5 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-50 text-amber-700">amministratore</span>}
+                    {cessato && <span className="ml-1.5 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-200 text-slate-600">cessato</span>}
                   </td>
                   <td className="px-4 py-2.5"><SedeCell allocs={allocs} /></td>
-                  <td className="px-4 py-2.5 text-slate-500">{e.contratto_tipo || e.contract_type || 'da definire'}</td>
-                  <td className="px-4 py-2.5 text-right"><Money v={nettoOf(e.id)} /></td>
+                  <td className="px-4 py-2.5 text-slate-500">
+                    <div>{e.contratto_tipo || e.contract_type || 'da definire'}</div>
+                    <div className="text-[11px] text-slate-400">{inizio ? `dal ${fmtDate(inizio)}` : ''}{cessato && fine ? ` · al ${fmtDate(fine)}` : ''}</div>
+                  </td>
+                  <td className="px-4 py-2.5 text-right">{netto == null ? <span className="text-slate-300">—</span> : <Money v={netto} />}</td>
+                  <td className="px-4 py-2.5 text-right">{lordo == null ? <span className="text-slate-300">—</span> : <Money v={lordo} />}</td>
                   <td className="px-4 py-2.5 text-center">
                     <button onClick={() => onCedolino(e.id)} disabled={uploadingEmployee === e.id} className="text-slate-400 hover:text-emerald-600 inline-flex items-center gap-1 relative" title="Carica cedolino">
                       <Upload size={15} />
@@ -1135,7 +1258,11 @@ function OrganicoTab(props: {
                     <div className="flex items-center justify-center gap-1.5">
                       <button onClick={() => onEdit(e)} className="p-1.5 rounded text-slate-400 hover:text-blue-600 hover:bg-blue-50" title="Modifica"><Edit2 size={15} /></button>
                       <button onClick={() => onAlloc(e.id)} className="p-1.5 rounded text-slate-400 hover:text-violet-600 hover:bg-violet-50" title="Allocazione"><Percent size={15} /></button>
-                      <button onClick={() => onDelete(e.id)} className="p-1.5 rounded text-slate-400 hover:text-red-600 hover:bg-red-50" title="Disattiva"><Trash2 size={15} /></button>
+                      {cessato ? (
+                        <button onClick={() => onRiattiva(e)} className="p-1.5 rounded text-slate-400 hover:text-emerald-600 hover:bg-emerald-50" title="Riattiva"><RefreshCw size={15} /></button>
+                      ) : (
+                        <button onClick={() => onCessa(e)} className="p-1.5 rounded text-slate-400 hover:text-red-600 hover:bg-red-50" title="Cessa"><Trash2 size={15} /></button>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -1147,6 +1274,7 @@ function OrganicoTab(props: {
               <tr className="font-bold border-t-2 border-slate-300">
                 <td className="px-4 py-2.5" colSpan={4}>TOTALE — {filtered.length} dipendenti</td>
                 <td className="px-4 py-2.5 text-right"><Money v={totNetto} strong /></td>
+                <td className="px-4 py-2.5 text-right"><Money v={totLordo} strong /></td>
                 <td /><td />
               </tr>
             </tfoot>
@@ -1304,18 +1432,19 @@ function EmployeeFormModal({ initial, onCancel, onSave }: { initial: Employee | 
         <Field label="Nome *"><input value={form.nome} onChange={(e) => set('nome', e.target.value)} className="inp" /></Field>
         <Field label="Matricola"><input value={form.matricola} onChange={(e) => set('matricola', e.target.value)} className="inp" /></Field>
         <Field label="Codice fiscale"><input value={form.codice_fiscale} onChange={(e) => set('codice_fiscale', e.target.value)} className="inp" /></Field>
-        <Field label="Data assunzione"><input type="date" value={form.data_assunzione || ''} onChange={(e) => set('data_assunzione', e.target.value)} className="inp" /></Field>
-        <Field label="Contratto">
+        <Field label="Data inizio contratto *"><input type="date" value={form.data_assunzione || ''} onChange={(e) => set('data_assunzione', e.target.value)} className="inp" /></Field>
+        <Field label="Tipo contratto">
           <select value={form.contratto} onChange={(e) => set('contratto', e.target.value)} className="inp">
             <option value="indeterminato">Indeterminato</option>
             <option value="determinato">Determinato</option>
             <option value="apprendistato">Apprendistato</option>
-            <option value="stage">Stage</option>
-            <option value="somministrazione">Somministrazione</option>
+            <option value="stagionale">Stagionale</option>
           </select>
         </Field>
-        {form.contratto !== 'indeterminato' && (
-          <Field label="Data cessazione"><input type="date" value={form.data_cessazione || ''} onChange={(e) => set('data_cessazione', e.target.value)} className="inp" /></Field>
+        {form.contratto === 'indeterminato' ? (
+          <Field label="Data fine"><div className="text-sm text-slate-400 px-3 py-2 rounded-lg border border-slate-100 bg-slate-50">Aperta — si valorizza alla cessazione</div></Field>
+        ) : (
+          <Field label="Data fine prevista"><input type="date" value={form.data_cessazione || ''} onChange={(e) => set('data_cessazione', e.target.value)} className="inp" /></Field>
         )}
         <Field label="Livello"><input value={form.livello} onChange={(e) => set('livello', e.target.value)} className="inp" /></Field>
         <Field label="Qualifica / ruolo"><input value={form.qualifica} onChange={(e) => set('qualifica', e.target.value)} placeholder="es. Store manager, Amministratore" className="inp" /></Field>
@@ -1421,10 +1550,142 @@ interface PreviewRow {
   isNew: boolean; matchedId: string | null;
 }
 
-function ImportMensile({ companyId, userId, outlets, employees, existingCosts, defaultYear, defaultMonth, onDone }: {
-  companyId: string; userId: string | null; outlets: OutletRow[]; employees: Employee[]; existingCosts: EmployeeCost[];
+type ParsedImport = { rows: PreviewRow[]; fileTotal: number | null };
+
+const RE_FILIALE = /^filiale[:\s]+[\d]+\s*[-–]\s*(.+?)\s*;?\s*$/i;
+const RE_TOT_AZIENDALE = /totale aziendale\s+(-?[\d.]+,\d{2})/i;
+const blankRow = (): PreviewRow => ({ matricola: '', cognome: '', nome: '', outlet: '', netto: null, retribuzione: null, contributi: null, inail: null, tfr: null, altri: null, isNew: false, matchedId: null });
+
+// PDF "Elenco netti" Infinity: sezioni per Filiale, righe `matricola COGNOME NOME importo`,
+// chiusura `Totale aziendale <importo>`. Mapping filiale→outlet a runtime.
+function parseInfinityNetti(lines: string[], outlets: OutletRow[]): ParsedImport {
+  const rows: PreviewRow[] = [];
+  let fileTotal: number | null = null;
+  let currentOutlet = '';
+  const reEmp = /^(\d{6,7})\s+(.+?)\s+(-?[\d.]+,\d{2})\s*$/;
+  for (const ln of lines) {
+    const mf = ln.match(RE_FILIALE);
+    if (mf) { currentOutlet = matchOutletName(mf[1], outlets); continue; }
+    const ta = ln.match(RE_TOT_AZIENDALE);
+    if (ta) { fileTotal = parseItNum(ta[1]); continue; }
+    if (/totale di ripartizione/i.test(ln)) continue;
+    const me = ln.match(reEmp);
+    if (me) {
+      const parts = me[2].trim().split(/\s+/);
+      const r = blankRow();
+      r.matricola = me[1]; r.cognome = parts[0] || ''; r.nome = parts.slice(1).join(' ');
+      r.outlet = currentOutlet; r.netto = parseItNum(me[3]);
+      rows.push(r);
+    }
+  }
+  return { rows, fileTotal };
+}
+
+// PDF costi lordi — best-effort finché non arriva il tracciato definitivo:
+// cerca una riga intestazione con ≥2 etichette note, poi mappa i numeri per ordine.
+function parsePdfLordi(lines: string[], outlets: OutletRow[]): ParsedImport {
+  const LABELS: { field: 'retribuzione' | 'contributi' | 'inail' | 'tfr' | 'altri'; re: RegExp }[] = [
+    { field: 'retribuzione', re: /lord|retribuz|compet|imponibile/i },
+    { field: 'contributi', re: /contrib|inps|oneri/i },
+    { field: 'inail', re: /inail/i },
+    { field: 'tfr', re: /tfr/i },
+    { field: 'altri', re: /altri|altro/i },
+  ];
+  let order: ('retribuzione' | 'contributi' | 'inail' | 'tfr' | 'altri')[] | null = null;
+  let currentOutlet = '';
+  let fileTotal: number | null = null;
+  const rows: PreviewRow[] = [];
+  for (const ln of lines) {
+    const mf = ln.match(RE_FILIALE);
+    if (mf) { currentOutlet = matchOutletName(mf[1], outlets); continue; }
+    const ta = ln.match(RE_TOT_AZIENDALE);
+    if (ta) { fileTotal = parseItNum(ta[1]); continue; }
+    if (!order) {
+      const present = LABELS.filter((l) => l.re.test(ln));
+      if (present.length >= 2) {
+        order = present.map((l) => ({ field: l.field, idx: ln.toLowerCase().search(l.re) })).sort((a, b) => a.idx - b.idx).map((x) => x.field);
+        continue;
+      }
+    }
+    const m = ln.match(/^(\d{6,7})\s+(.+)$/);
+    if (m && order) {
+      const rest = m[2];
+      const nums = (rest.match(/-?[\d.]+,\d{2}/g) || []).map((x) => parseItNum(x));
+      const parts = rest.replace(/-?[\d.]+,\d{2}/g, '').trim().split(/\s+/);
+      const r = blankRow();
+      r.matricola = m[1]; r.cognome = parts[0] || ''; r.nome = parts.slice(1).join(' '); r.outlet = currentOutlet;
+      order.forEach((f, i) => { if (nums[i] != null) (r as any)[f] = nums[i]; });
+      rows.push(r);
+    }
+  }
+  return { rows, fileTotal };
+}
+
+// CSV/Excel mapping-driven sugli header (entrambe le corsie).
+function parseSpreadsheet(matrix: any[][]): ParsedImport {
+  let headerIdx = -1;
+  for (let i = 0; i < Math.min(12, matrix.length); i++) {
+    const cells = matrix[i].map(norm);
+    if (cells.some((c) => c === 'netto' || c.includes('matricola') || c === 'cognome' || c.includes('retribuzione') || c.includes('lordo') || c.includes('nominativo'))) { headerIdx = i; break; }
+  }
+  if (headerIdx === -1) return { rows: [], fileTotal: null };
+  const header = matrix[headerIdx].map(norm);
+  const findCol = (field: string): number => {
+    const syns = FIELD_SYNS[field];
+    for (const s of syns) { const idx = header.indexOf(s); if (idx >= 0) return idx; }
+    for (let i = 0; i < header.length; i++) { if (syns.some((s) => header[i].includes(s))) return i; }
+    return -1;
+  };
+  const cols: Record<string, number> = {};
+  Object.keys(FIELD_SYNS).forEach((f) => { cols[f] = findCol(f); });
+  const get = (r: any[], field: string) => (cols[field] >= 0 ? r[cols[field]] : undefined);
+  const rows: PreviewRow[] = [];
+  let fileTotal: number | null = null;
+  for (let i = headerIdx + 1; i < matrix.length; i++) {
+    const r = matrix[i];
+    if (!r || r.every((c) => c == null || String(c).trim() === '')) continue;
+    const matricola = String(get(r, 'matricola') ?? '').trim().replace(/\.0$/, '');
+    let cognome = String(get(r, 'cognome') ?? '').trim();
+    let nome = String(get(r, 'nome') ?? '').trim();
+    if (!cognome && cols.nominativo >= 0) {
+      const full = String(get(r, 'nominativo') ?? '').trim();
+      const parts = full.split(/\s+/);
+      cognome = parts[0] || ''; nome = parts.slice(1).join(' ');
+    }
+    const netto = parseItNum(get(r, 'netto'));
+    const retribuzione = parseItNum(get(r, 'retribuzione'));
+    const labelBlob = norm(`${matricola} ${cognome} ${nome}`);
+    if (!matricola && /totale|totali|tot\./.test(labelBlob)) {
+      if (netto != null) fileTotal = netto; else if (retribuzione != null) fileTotal = retribuzione;
+      continue;
+    }
+    if (!cognome && !matricola && netto == null && retribuzione == null) continue;
+    const row = blankRow();
+    row.matricola = matricola; row.cognome = cognome; row.nome = nome;
+    row.outlet = String(get(r, 'outlet') ?? '').trim();
+    row.netto = netto; row.retribuzione = retribuzione;
+    row.contributi = parseItNum(get(r, 'contributi'));
+    row.inail = parseItNum(get(r, 'inail'));
+    row.tfr = parseItNum(get(r, 'tfr'));
+    row.altri = parseItNum(get(r, 'altri'));
+    rows.push(row);
+  }
+  return { rows, fileTotal };
+}
+
+const LORDI_FIELDS: { key: 'retribuzione' | 'contributi' | 'inail' | 'tfr' | 'altri'; col: string }[] = [
+  { key: 'retribuzione', col: 'retribuzione' }, { key: 'contributi', col: 'contributi' },
+  { key: 'inail', col: 'inail' }, { key: 'tfr', col: 'tfr' }, { key: 'altri', col: 'altri_costi' },
+];
+const rowLordo = (r: PreviewRow) => LORDI_FIELDS.reduce((s, f) => s + Number((r as any)[f.key] || 0), 0);
+const rowHasLordo = (r: PreviewRow) => LORDI_FIELDS.some((f) => (r as any)[f.key] != null);
+
+// Una corsia di import: mode='netto' (busta paga) | 'lordi' (costo aziendale). Entrambe PDF + CSV/Excel.
+function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts, defaultYear, defaultMonth, onDone }: {
+  mode: 'netto' | 'lordi'; companyId: string; userId: string | null; outlets: OutletRow[]; employees: Employee[]; existingCosts: EmployeeCost[];
   defaultYear: number; defaultMonth: number; onDone: () => Promise<void>;
 }) {
+  const isNetto = mode === 'netto';
   const { toast } = useToast();
   const [impYear, setImpYear] = useState(defaultYear);
   const [impMonth, setImpMonth] = useState(defaultMonth);
@@ -1432,12 +1693,11 @@ function ImportMensile({ companyId, userId, outlets, employees, existingCosts, d
   const [fileName, setFileName] = useState('');
   const [rows, setRows] = useState<PreviewRow[] | null>(null);
   const [fileTotal, setFileTotal] = useState<number | null>(null);
-  const [hasComponents, setHasComponents] = useState(false);
   const [parsing, setParsing] = useState(false);
   const [importing, setImporting] = useState(false);
   const [overwriteAck, setOverwriteAck] = useState(false);
 
-  const monthHasData = existingCosts.some((c) => c.year === impYear && c.month === impMonth && (c.netto != null || c.retribuzione != null));
+  const monthHasData = existingCosts.some((c) => c.year === impYear && c.month === impMonth && (isNetto ? c.netto != null : (c.retribuzione != null || c.contributi != null || c.inail != null || c.tfr != null || c.altri_costi != null)));
 
   const matchEmployee = (matricola: string, cognome: string, nome: string): string | null => {
     if (matricola) {
@@ -1448,91 +1708,36 @@ function ImportMensile({ companyId, userId, outlets, employees, existingCosts, d
     return byName ? byName.id : null;
   };
 
+  const amountOf = (r: PreviewRow) => (isNetto ? Number(r.netto || 0) : rowLordo(r));
+
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    setParsing(true);
-    setFileName(file.name);
+    setParsing(true); setFileName(file.name);
     setRows(null); setFileTotal(null); setOverwriteAck(false);
     try {
-      const buf = await file.arrayBuffer();
-      const wb = XLSX.read(buf, { type: 'array' });
-      const ws = wb.Sheets[wb.SheetNames[0]];
-      const matrix: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, blankrows: false, raw: false });
-      if (!matrix.length) { toast({ type: 'error', message: 'File vuoto' }); setParsing(false); return; }
-
-      // Trova la riga di intestazione (entro le prime 12 righe)
-      let headerIdx = -1;
-      for (let i = 0; i < Math.min(12, matrix.length); i++) {
-        const cells = matrix[i].map(norm);
-        if (cells.some((c) => c === 'netto' || c.includes('matricola') || c === 'cognome' || c.includes('retribuzione') || c.includes('nominativo'))) { headerIdx = i; break; }
+      const isPdf = /\.pdf$/i.test(file.name) || file.type === 'application/pdf';
+      let parsed: ParsedImport;
+      if (isPdf) {
+        const lines = await extractPdfLines(file);
+        parsed = isNetto ? parseInfinityNetti(lines, outlets) : parsePdfLordi(lines, outlets);
+      } else {
+        const buf = await file.arrayBuffer();
+        const wb = XLSX.read(buf, { type: 'array' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const matrix: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, blankrows: false, raw: false });
+        parsed = parseSpreadsheet(matrix);
       }
-      if (headerIdx === -1) { toast({ type: 'error', message: 'Intestazioni non riconosciute (attese: matricola, cognome/nome, netto…)' }); setParsing(false); return; }
-
-      const header = matrix[headerIdx].map(norm);
-      const findCol = (field: string): number => {
-        const syns = FIELD_SYNS[field];
-        // exact match first
-        for (const s of syns) { const idx = header.indexOf(s); if (idx >= 0) return idx; }
-        // includes fallback
-        for (let i = 0; i < header.length; i++) { if (syns.some((s) => header[i].includes(s))) return i; }
-        return -1;
-      };
-      const cols: Record<string, number> = {};
-      Object.keys(FIELD_SYNS).forEach((f) => { cols[f] = findCol(f); });
-
-      const componentsPresent = ['retribuzione', 'contributi', 'inail', 'tfr', 'altri'].some((f) => cols[f] >= 0);
-      setHasComponents(componentsPresent);
-
-      const get = (r: any[], field: string) => (cols[field] >= 0 ? r[cols[field]] : undefined);
-      const out: PreviewRow[] = [];
-      let detectedTotal: number | null = null;
-
-      for (let i = headerIdx + 1; i < matrix.length; i++) {
-        const r = matrix[i];
-        if (!r || r.every((c) => c == null || String(c).trim() === '')) continue;
-
-        let matricola = String(get(r, 'matricola') ?? '').trim().replace(/\.0$/, '');
-        let cognome = String(get(r, 'cognome') ?? '').trim();
-        let nome = String(get(r, 'nome') ?? '').trim();
-        if (!cognome && cols.nominativo >= 0) {
-          const full = String(get(r, 'nominativo') ?? '').trim();
-          const parts = full.split(/\s+/);
-          cognome = parts[0] || '';
-          nome = parts.slice(1).join(' ');
-        }
-        const outlet = String(get(r, 'outlet') ?? '').trim();
-        const netto = parseItNum(get(r, 'netto'));
-
-        // Riga "Totale aziendale" → estrai totale, non importare
-        const labelBlob = norm(`${matricola} ${cognome} ${nome} ${outlet}`);
-        if (!matricola && /totale|totali|tot\.|t o t a l e/.test(labelBlob)) {
-          if (netto != null) detectedTotal = netto;
-          continue;
-        }
-        if (!cognome && !matricola && netto == null) continue;
-
-        out.push({
-          matricola, cognome, nome, outlet,
-          netto,
-          retribuzione: parseItNum(get(r, 'retribuzione')),
-          contributi: parseItNum(get(r, 'contributi')),
-          inail: parseItNum(get(r, 'inail')),
-          tfr: parseItNum(get(r, 'tfr')),
-          altri: parseItNum(get(r, 'altri')),
-          isNew: false, matchedId: null,
-        });
+      // tieni solo le righe pertinenti alla corsia
+      const relevant = parsed.rows.filter((r) => (isNetto ? r.netto != null : rowHasLordo(r)));
+      if (!relevant.length) {
+        toast({ type: 'error', message: isNetto
+          ? 'Nessun netto riconosciuto. Attesi: PDF “Elenco netti”, oppure CSV/Excel con colonna netto.'
+          : 'Nessun componente di costo riconosciuto. Usa CSV/Excel con colonne lordo/contributi/INAIL/TFR (il tracciato PDF definitivo arriva domani).' });
+        setParsing(false); if (fileRef.current) fileRef.current.value = ''; return;
       }
-
-      // match dipendenti
-      out.forEach((row) => {
-        const id = matchEmployee(row.matricola, row.cognome, row.nome);
-        row.matchedId = id; row.isNew = !id;
-      });
-
-      if (!out.length) { toast({ type: 'error', message: 'Nessuna riga dipendente riconosciuta' }); setParsing(false); return; }
-      setRows(out);
-      setFileTotal(detectedTotal);
+      relevant.forEach((row) => { const id = matchEmployee(row.matricola, row.cognome, row.nome); row.matchedId = id; row.isNew = !id; });
+      setRows(relevant); setFileTotal(parsed.fileTotal);
     } catch (err: any) {
       toast({ type: 'error', message: 'Errore parsing file: ' + (err?.message || '') });
     } finally {
@@ -1541,31 +1746,30 @@ function ImportMensile({ companyId, userId, outlets, employees, existingCosts, d
     }
   };
 
-  const totalNetto = rows ? rows.reduce((s, r) => s + (r.netto || 0), 0) : 0;
+  // campi lordi effettivamente presenti nel file (per payload uniforme nel batch)
+  const lordiPresent = useMemo(() => (rows ? LORDI_FIELDS.filter((f) => rows.some((r) => (r as any)[f.key] != null)) : []), [rows]);
+  const total = rows ? rows.reduce((s, r) => s + amountOf(r), 0) : 0;
   const newCount = rows ? rows.filter((r) => r.isNew).length : 0;
-  const scostamento = fileTotal != null ? totalNetto - fileTotal : null;
+  const scostamento = fileTotal != null ? total - fileTotal : null;
   const quadra = scostamento == null || Math.abs(scostamento) < 0.01;
-
   const reset = () => { setRows(null); setFileName(''); setFileTotal(null); setOverwriteAck(false); };
 
   const doImport = async () => {
     if (!rows) return;
     setImporting(true);
     try {
-      // mappa nome outlet (case-insensitive) → nome esatto in DB
       const outletByNorm: Record<string, string> = {};
       outlets.forEach((o) => { outletByNorm[norm(o.name)] = o.name; });
 
-      // log import (header) per ottenere import_id
       const { data: logRow, error: logErr } = await supabase.from('employee_cost_imports').insert([{
         company_id: companyId, year: impYear, month: impMonth, file_name: fileName,
-        rows_total: rows.length, rows_new_employees: newCount, total_netto: totalNetto,
-        file_total: fileTotal, scostamento: scostamento, imported_by: userId,
+        rows_total: rows.length, rows_new_employees: newCount, total_netto: total,
+        file_total: fileTotal, scostamento, imported_by: userId, note: isNetto ? 'busta_paga' : 'lordi',
       }]).select('id').single();
       if (logErr) throw logErr;
       const importId = logRow?.id || null;
 
-      const costPayloads: any[] = [];
+      const payloads: any[] = [];
       for (const row of rows) {
         let empId = row.matchedId;
         if (!empId) {
@@ -1577,33 +1781,27 @@ function ImportMensile({ companyId, userId, outlets, employees, existingCosts, d
           }]).select('id').single();
           if (empErr) { console.error('Errore creazione dipendente', empErr); continue; }
           empId = newEmp?.id || null;
-          // allocazione 100% sull'outlet (match per nome)
           if (empId && row.outlet) {
             const exact = outletByNorm[norm(row.outlet)];
-            if (exact) {
-              await supabase.from('employee_outlet_allocations').insert([{ employee_id: empId, company_id: companyId, outlet_code: exact, allocation_pct: 100, is_primary: true }]);
-            }
+            if (exact) await supabase.from('employee_outlet_allocations').insert([{ employee_id: empId, company_id: companyId, outlet_code: exact, allocation_pct: 100, is_primary: true }]);
           }
         }
         if (!empId) continue;
-
-        // payload: solo i campi presenti nel file (netti-only NON azzera i componenti)
-        const payload: any = { employee_id: empId, company_id: companyId, year: impYear, month: impMonth, source: 'import_mensile', import_id: importId };
-        if (row.netto != null) payload.netto = row.netto;
-        if (row.retribuzione != null) payload.retribuzione = row.retribuzione;
-        if (row.contributi != null) payload.contributi = row.contributi;
-        if (row.inail != null) payload.inail = row.inail;
-        if (row.tfr != null) payload.tfr = row.tfr;
-        if (row.altri != null) payload.altri_costi = row.altri;
-        costPayloads.push(payload);
+        // Payload con SOLO i campi della corsia (l'altra corsia non viene toccata).
+        const payload: any = { employee_id: empId, company_id: companyId, year: impYear, month: impMonth, source: isNetto ? 'import_busta_paga' : 'import_lordi', import_id: importId };
+        if (isNetto) {
+          payload.netto = Number(row.netto || 0);
+        } else {
+          lordiPresent.forEach((f) => { payload[f.col] = Number((row as any)[f.key] || 0); });
+        }
+        payloads.push(payload);
       }
 
-      if (costPayloads.length) {
-        const { error: upErr } = await supabase.from('employee_costs').upsert(costPayloads, { onConflict: 'employee_id,year,month' });
+      if (payloads.length) {
+        const { error: upErr } = await supabase.from('employee_costs').upsert(payloads, { onConflict: 'employee_id,year,month' });
         if (upErr) throw upErr;
       }
-
-      toast({ type: 'success', message: `Import completato: ${costPayloads.length} righe, ${newCount} nuovi dipendenti.` });
+      toast({ type: 'success', message: `Import ${isNetto ? 'netti' : 'costi lordi'} completato: ${payloads.length} righe, ${newCount} nuovi dipendenti.` });
       reset();
       await onDone();
     } catch (err: any) {
@@ -1613,51 +1811,57 @@ function ImportMensile({ companyId, userId, outlets, employees, existingCosts, d
     }
   };
 
+  const accent = isNetto ? 'text-blue-600' : 'text-violet-600';
+  const chip = isNetto
+    ? <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-blue-50 text-blue-600">cassa</span>
+    : <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-violet-50 text-violet-600">costo</span>;
+
   return (
-    <div className="bg-white rounded-2xl shadow-lg p-5">
-      <div className="flex items-center gap-2 mb-4">
-        <FileUp size={18} className="text-blue-600" />
-        <h3 className="font-semibold text-slate-900">Import mensile netti / costi</h3>
+    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+      <div className="flex items-center gap-2 mb-1">
+        <FileUp size={18} className={accent} />
+        <h3 className="font-bold text-slate-800">{isNetto ? 'Import costi busta paga' : 'Import costi lordi'}</h3>
+        {chip}
       </div>
-      <p className="text-xs text-slate-500 mb-4">Carica un file CSV o Excel. Le intestazioni vengono riconosciute automaticamente (matricola, cognome, nome, filiale, netto, retribuzione, contributi, INAIL, TFR, altri).</p>
+      <p className="text-xs text-slate-500 mb-4">
+        {isNetto
+          ? 'Netto pagato al dipendente (take-home) → scrive solo employee_costs.netto. Formato tipico: PDF “Elenco netti” del software paghe. Accetta anche CSV/Excel.'
+          : 'Costo lordo aziendale (retribuzione lorda + contributi + INAIL + TFR + altri) → scrive i componenti, non il netto. Accetta PDF, CSV/Excel mapping-driven (tracciato definitivo in arrivo).'}
+      </p>
 
       <div className="flex flex-wrap items-center gap-2 mb-4">
-        <select value={impYear} onChange={(e) => setImpYear(Number(e.target.value))} className="px-3 py-2 text-sm rounded-lg border border-slate-200">
-          {[defaultYear + 1, defaultYear, defaultYear - 1, defaultYear - 2].map((y) => <option key={y} value={y}>{y}</option>)}
+        <select value={impYear} onChange={(e) => setImpYear(Number(e.target.value))} className="px-3 py-2 text-sm rounded-lg border border-slate-300">
+          {[defaultYear + 1, defaultYear, defaultYear - 1, defaultYear - 2].map((y) => <option key={y} value={y}>Anno {y}</option>)}
         </select>
-        <select value={impMonth} onChange={(e) => setImpMonth(Number(e.target.value))} className="px-3 py-2 text-sm rounded-lg border border-slate-200">
+        <select value={impMonth} onChange={(e) => setImpMonth(Number(e.target.value))} className="px-3 py-2 text-sm rounded-lg border border-slate-300">
           {MONTHS.map((m) => <option key={m.num} value={m.num}>{m.label}</option>)}
         </select>
-        <input ref={fileRef} type="file" accept=".csv,.txt,.xlsx,.xls" className="hidden" onChange={handleFile} />
-        <button onClick={() => fileRef.current?.click()} disabled={parsing} className="px-3 py-2 rounded-lg text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 flex items-center gap-1.5">
-          <Upload size={15} /> {parsing ? 'Lettura…' : 'Scegli file'}
+        <input ref={fileRef} type="file" accept=".pdf,.csv,.txt,.xlsx,.xls" className="hidden" onChange={handleFile} />
+        <button onClick={() => fileRef.current?.click()} disabled={parsing} className={`px-3 py-2 rounded-lg text-sm font-medium text-white ${isNetto ? 'bg-blue-600 hover:bg-blue-700' : 'bg-violet-600 hover:bg-violet-700'} flex items-center gap-1.5`}>
+          <Upload size={15} /> {parsing ? 'Lettura…' : 'Scegli file (PDF / CSV / Excel)'}
         </button>
       </div>
 
       {monthHasData && (
         <div className="mb-4 p-3 rounded-lg bg-amber-50 border border-amber-200 text-sm text-amber-800 flex items-start gap-2">
           <AlertCircle size={16} className="mt-0.5 shrink-0" />
-          <span>Il mese {MONTHS.find((m) => m.num === impMonth)?.label} {impYear} contiene già dati. Confermando, <strong>sovrascriverai solo questo mese</strong> (gli altri mesi non vengono toccati).</span>
+          <span>Il mese {MONTHS.find((m) => m.num === impMonth)?.label} {impYear} contiene già {isNetto ? 'netti' : 'costi lordi'}. Confermando, <strong>sovrascriverai solo questa corsia per questo mese</strong> (l'altra corsia e gli altri mesi non vengono toccati).</span>
         </div>
       )}
 
-      {/* Anteprima */}
       {rows && (
         <div className="border border-slate-200 rounded-xl overflow-hidden">
           <div className="px-4 py-3 bg-slate-50 grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
             <div><div className="text-xs text-slate-500">Righe riconosciute</div><div className="font-semibold">{rows.length}</div></div>
             <div><div className="text-xs text-slate-500">Nuovi dipendenti</div><div className="font-semibold">{newCount}</div></div>
-            <div><div className="text-xs text-slate-500">Totale netto calcolato</div><div className="font-semibold"><Money v={totalNetto} /></div></div>
-            <div>
-              <div className="text-xs text-slate-500">Totale file</div>
-              <div className="font-semibold">{fileTotal != null ? <Money v={fileTotal} /> : <span className="text-slate-400">—</span>}</div>
-            </div>
+            <div><div className="text-xs text-slate-500">{isNetto ? 'Totale netto calcolato' : 'Totale lordo calcolato'}</div><div className="font-semibold"><Money v={total} /></div></div>
+            <div><div className="text-xs text-slate-500">Totale aziendale (file)</div><div className="font-semibold">{fileTotal != null ? <Money v={fileTotal} /> : <span className="text-slate-400">—</span>}</div></div>
           </div>
 
           {scostamento != null && (
             <div className={`px-4 py-2 text-sm flex items-center gap-2 ${quadra ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>
               {quadra ? <CheckCircle2 size={15} /> : <AlertCircle size={15} />}
-              {quadra ? 'Quadratura OK con il totale del file.' : <>Scostamento dal totale file: <Money v={scostamento} /></>}
+              {quadra ? 'Quadratura OK con il totale aziendale del file.' : <>Scostamento dal totale file: <Money v={scostamento} /></>}
             </div>
           )}
 
@@ -1668,8 +1872,7 @@ function ImportMensile({ companyId, userId, outlets, employees, existingCosts, d
                   <th className="px-3 py-2 font-medium">Matr.</th>
                   <th className="px-3 py-2 font-medium">Dipendente</th>
                   <th className="px-3 py-2 font-medium">Outlet</th>
-                  <th className="px-3 py-2 font-medium text-right">Netto</th>
-                  {hasComponents && <th className="px-3 py-2 font-medium text-right">Retrib.</th>}
+                  <th className="px-3 py-2 font-medium text-right">{isNetto ? 'Netto' : 'Costo lordo'}</th>
                   <th className="px-3 py-2 font-medium text-center">Stato</th>
                 </tr>
               </thead>
@@ -1678,9 +1881,8 @@ function ImportMensile({ companyId, userId, outlets, employees, existingCosts, d
                   <tr key={i} className="border-b border-slate-50">
                     <td className="px-3 py-2 text-slate-500 tabular-nums">{r.matricola || '—'}</td>
                     <td className="px-3 py-2 text-slate-700">{`${r.cognome} ${r.nome}`.trim() || '—'}</td>
-                    <td className="px-3 py-2 text-slate-500">{r.outlet || '—'}</td>
-                    <td className="px-3 py-2 text-right"><Money v={r.netto || 0} /></td>
-                    {hasComponents && <td className="px-3 py-2 text-right text-slate-500"><Money v={r.retribuzione || 0} /></td>}
+                    <td className="px-3 py-2 text-slate-500">{r.outlet || <span className="text-amber-600">filiale non mappata</span>}</td>
+                    <td className="px-3 py-2 text-right"><Money v={amountOf(r)} /></td>
                     <td className="px-3 py-2 text-center">
                       {r.isNew
                         ? <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700">Nuovo</span>
