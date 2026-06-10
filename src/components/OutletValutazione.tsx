@@ -9,7 +9,7 @@ import { useAuth } from '../hooks/useAuth'
 import { useCompanyLabels } from '../hooks/useCompanyLabels'
 import { usePeriod } from '../hooks/usePeriod'
 import {
-  getCodeLevel, buildTree, sumMacros, applyEditsZero, fmt2, fmtC2,
+  getCodeLevel, buildTree, sumMacros, applyEditsZero, fmt2, fmtC2, parseImportoIt,
   CETreeNode,
 } from '../lib/ceHelpers'
 import {
@@ -44,7 +44,9 @@ type ToastType = 'ok' | 'error'
 // semantici di bilancio: ogni macro-voce ha i suoi sottoconti, tutto collassabile.
 
 function TreeNodeEdit({ node, depth = 0, edits, onEdit }: { node: CETreeNode; depth?: number; edits: Record<string, number>; onEdit: (code: string, value: number) => void }) {
-  const [open, setOpen] = useState(false)
+  // Nodi espansi di default a ogni livello: il form mostra subito i campi di
+  // dettaglio compilabili. Restano collassabili a mano.
+  const [open, setOpen] = useState(true)
   const hasKids = (node.children?.length ?? 0) > 0
   // Macro = livello 1 del piano dei conti (es. 61, 63, 67…). Stile in grassetto.
   const isMacro = node.level <= 1
@@ -52,6 +54,14 @@ function TreeNodeEdit({ node, depth = 0, edits, onEdit }: { node: CETreeNode; de
   const val = edits[node.code] != null ? edits[node.code] : (node.amount || 0)
   const isEdited = edits[node.code] != null
   const description = (node as { description?: string }).description ?? ''
+
+  // Editing importo: stato locale del testo digitato per NON riformattare a ogni
+  // keystroke (la riformattazione mid-typing scartava virgola/punto → bug ×100).
+  // In focus si mostra il draft (forma editabile, virgola decimale); fuori focus
+  // si mostra il valore formattato con fmt2 ("1.250,50").
+  const [focused, setFocused] = useState(false)
+  const [draft, setDraft] = useState('')
+  const displayValue = focused ? draft : (val ? fmt2(val) : '')
 
   return (
     <div>
@@ -61,10 +71,12 @@ function TreeNodeEdit({ node, depth = 0, edits, onEdit }: { node: CETreeNode; de
         {/* Solo etichetta umana + riferimento CE: niente codici tecnici in UI */}
         <span className={`truncate ml-1 flex-1 ${isMacro ? 'text-[11px] font-bold text-slate-900' : 'text-[11px] text-slate-600'}`} title={description}>{description}</span>
         {isLeaf ? (
-          <input type="text" inputMode="numeric"
-            value={isEdited ? val : (val || '')}
+          <input type="text" inputMode="decimal"
+            value={displayValue}
             onClick={e => e.stopPropagation()}
-            onChange={e => { const raw = e.target.value.replace(/\./g, '').replace(',', '.'); onEdit(node.code, parseFloat(raw) || 0) }}
+            onFocus={() => { setFocused(true); setDraft(val ? String(val).replace('.', ',') : '') }}
+            onChange={e => { setDraft(e.target.value); onEdit(node.code, parseImportoIt(e.target.value)) }}
+            onBlur={() => setFocused(false)}
             className={`w-24 text-right px-1 py-0.5 text-[11px] border rounded ml-1 tabular-nums focus:outline-none focus:ring-1 focus:ring-indigo-400 ${isEdited ? 'bg-indigo-50 border-indigo-300' : 'border-slate-200'}`}
             placeholder="0" />
         ) : (

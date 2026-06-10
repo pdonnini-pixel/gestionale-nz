@@ -89,3 +89,36 @@ export function fmt2(n: number | null | undefined): string {
 export function fmtC2(n: number | null | undefined): string {
   return `${fmt2(n)} €`
 }
+
+// Parsing di un importo digitato in formato italiano. Accetta:
+//  - virgola decimale: "250,50" → 250.5
+//  - punti come separatore migliaia (opzionali): "1.250,50" → 1250.5
+//  - tolleranza al punto come decimale quando non c'è virgola: "250.50" → 250.5
+// Un singolo punto con 3 cifre dopo è interpretato come migliaia ("1.250" → 1250),
+// altrimenti come decimale. Più punti = tutti migliaia ("1.250.000" → 1250000).
+// Stringa vuota o non numerica → 0. Non restituisce MAI NaN.
+export function parseImportoIt(s: string | null | undefined): number {
+  if (s == null) return 0
+  // tieni solo cifre, separatori e segno meno
+  const t = String(s).trim().replace(/[^0-9.,-]/g, '')
+  if (!t || t === '-' || t === '.' || t === ',') return 0
+  let normalized: string
+  if (t.includes(',')) {
+    // virgola = decimale; i punti sono migliaia → rimuovili
+    normalized = t.replace(/\./g, '').replace(',', '.')
+  } else {
+    const parts = t.split('.')
+    if (parts.length <= 1) {
+      normalized = t // nessun separatore
+    } else if (parts.length > 2) {
+      normalized = parts.join('') // più punti → tutti migliaia
+    } else {
+      // un solo punto: 3 cifre dopo → migliaia, altrimenti decimale
+      normalized = (parts[1].length === 3 && parts[0].length >= 1)
+        ? parts[0] + parts[1]
+        : parts[0] + '.' + parts[1]
+    }
+  }
+  const n = parseFloat(normalized)
+  return isNaN(n) ? 0 : n
+}
