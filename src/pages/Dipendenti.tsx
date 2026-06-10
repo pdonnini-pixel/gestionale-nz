@@ -292,6 +292,8 @@ export default function Dipendenti() {
   // Cessazione dipendente (modale custom)
   const [cessaEmp, setCessaEmp] = useState<Employee | null>(null);
   const [cessaDate, setCessaDate] = useState('');
+  // Scheda dipendente (netto mese per mese)
+  const [schedaEmp, setSchedaEmp] = useState<Employee | null>(null);
 
   // ========== LOAD ==========
   useEffect(() => {
@@ -467,8 +469,8 @@ export default function Dipendenti() {
     () => outlets.map((o) => ({
       name: o.name,
       bc: bcByOutlet(o),
-      nettoX12: (nettoByOutlet[o.name] || 0) * 12,
-    })).filter((d) => d.bc > 0 || d.nettoX12 > 0),
+      netto: nettoByOutlet[o.name] || 0, // netto del MESE, mai ×12
+    })).filter((d) => d.bc > 0 || d.netto > 0),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [outlets, bcByCenter, nettoByOutlet]
   );
@@ -803,6 +805,7 @@ export default function Dipendenti() {
               onCedolino={triggerCedolino}
               onCessa={openCessa}
               onRiattiva={handleRiattiva}
+              onScheda={(e) => setSchedaEmp(e)}
               docsForEmp={docsForEmp}
               uploadingEmployee={uploadingEmployee}
             />
@@ -934,6 +937,18 @@ export default function Dipendenti() {
         </Modal>
       )}
 
+      {schedaEmp && (
+        <SchedaDipendenteModal
+          employee={schedaEmp}
+          year={selectedYear}
+          costs={costs}
+          allocs={allocByEmp[schedaEmp.id] || []}
+          companyId={COMPANY_ID}
+          onClose={() => setSchedaEmp(null)}
+          onSaved={reloadAll}
+        />
+      )}
+
       <ConfirmModal
         open={!!confirmState}
         title={confirmState?.title || ''}
@@ -953,15 +968,14 @@ export default function Dipendenti() {
 function PanoramicaTab(props: {
   headcount: number; sedi: number; totalBC: number; totalNettoMese: number; nettoYear: number;
   incidenza: number | null; costoMedio: number; monthLabel: string; month: number;
-  chartData: { name: string; bc: number; nettoX12: number }[];
+  chartData: { name: string; bc: number; netto: number }[];
   bilancioPersonale: number | null; nonAttribuito: number; year: number;
 }) {
-  const { headcount, sedi, totalBC, totalNettoMese, incidenza, costoMedio, month, chartData, bilancioPersonale, nonAttribuito, year } = props;
-  const nettoAnnualizzato = totalNettoMese * 12;
+  const { headcount, sedi, totalBC, totalNettoMese, nettoYear, incidenza, costoMedio, monthLabel, month, chartData, bilancioPersonale, nonAttribuito, year } = props;
   const empty = headcount === 0 && totalBC === 0 && totalNettoMese === 0;
   const mm = String(month).padStart(2, '0');
   const avgPerOutlet = sedi > 0 ? (headcount / sedi).toLocaleString('it-IT', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : '—';
-  const maxVal = Math.max(1, ...chartData.map((d) => d.bc + d.nettoX12));
+  const maxVal = Math.max(1, ...chartData.map((d) => Math.max(d.bc, d.netto)));
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
@@ -982,7 +996,7 @@ function PanoramicaTab(props: {
           <div className="bg-white rounded-2xl shadow-lg p-5">
             <div className="flex items-baseline justify-between mb-5">
               <h3 className="font-semibold text-slate-900">Costo personale per outlet — {year}</h3>
-              <span className="text-xs text-slate-400">budget annuo (B&amp;C) vs netto mensile ×12 (payroll)</span>
+              <span className="text-xs text-slate-400">costo budget annuo (B&amp;C) vs netto del mese {mm}/{year}</span>
             </div>
             {chartData.length === 0 ? (
               <div className="text-sm text-slate-400 py-8 text-center">Nessun costo per outlet disponibile.</div>
@@ -996,17 +1010,20 @@ function PanoramicaTab(props: {
                       <div className="h-3.5 rounded-full bg-slate-100">
                         <div className="h-full rounded-full" style={{ width: `${(d.bc / maxVal) * 100}%`, background: '#7c3aed' }} />
                       </div>
-                      {/* Netto ×12 (blu) */}
+                      {/* Netto del mese (blu) — valore così com'è, mai ×12 */}
                       <div className="h-3.5 rounded-full bg-slate-100">
-                        <div className="h-full rounded-full" style={{ width: `${(d.nettoX12 / maxVal) * 100}%`, background: '#2563eb' }} />
+                        <div className="h-full rounded-full" style={{ width: `${(d.netto / maxVal) * 100}%`, background: '#2563eb' }} />
                       </div>
                     </div>
-                    <div className="w-28 shrink-0 text-right text-sm font-semibold tabular-nums" style={{ color: '#7c3aed' }}>{eurFmt.format(d.bc)}&nbsp;€</div>
+                    <div className="w-44 shrink-0 text-right text-sm tabular-nums leading-tight">
+                      <div className="font-semibold" style={{ color: '#7c3aed' }}>{eurFmt.format(d.bc)}&nbsp;€</div>
+                      <div className="text-xs" style={{ color: '#2563eb' }}>{eurFmt.format(d.netto)}&nbsp;€</div>
+                    </div>
                   </div>
                 ))}
                 <div className="flex items-center gap-4 pt-3 mt-1 border-t border-slate-100 text-xs text-slate-500">
                   <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm" style={{ background: '#7c3aed' }} /> Costo budget annuo (B&amp;C)</span>
-                  <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm" style={{ background: '#2563eb' }} /> Netto ×12 (payroll)</span>
+                  <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm" style={{ background: '#2563eb' }} /> Netto del mese</span>
                 </div>
               </div>
             )}
@@ -1019,14 +1036,14 @@ function PanoramicaTab(props: {
               <span className="text-xs text-slate-400">spia di controllo — le tre fonti devono avvicinarsi</span>
             </div>
             <div className="flex flex-col sm:flex-row items-stretch gap-3">
-              <QuadCard label="Netto annualizzato" value={nettoAnnualizzato} sub="payroll ×12 (Gallo incl.)" color="#2563eb" />
+              <QuadCard label={`Netto anno ${year}`} value={nettoYear} sub="somma mensilità importate (no ×12)" color="#2563eb" />
               <div className="flex items-center justify-center text-xs font-semibold text-slate-300">VS</div>
               <QuadCard label="Costo budget B&C" value={totalBC} sub="conti 6701/6703/6705" color="#7c3aed" />
               <div className="flex items-center justify-center text-xs font-semibold text-slate-300">VS</div>
               <QuadCard label={`Costo bilancio ${year}`} value={bilancioPersonale ?? 0} sub={bilancioPersonale == null ? 'non disponibile' : 'consuntivo depositato'} muted={bilancioPersonale == null} />
             </div>
             <div className="mt-4 text-xs text-blue-800 bg-blue-50 border border-blue-200 rounded-lg p-3 leading-relaxed">
-              Se il netto annualizzato supera il costo a bilancio, il costo personale a gestionale è incompleto: la spia serve proprio a renderlo visibile.
+              Il “Netto anno” è la <strong>somma dei netti dei mesi effettivamente caricati</strong> (13ª e 14ª comprese nel mese in cui vengono erogate) — mai una stima mese×12. Più mesi importi, più la quadratura diventa attendibile.
             </div>
             {nonAttribuito > 0 && (
               <div className="mt-3 text-xs text-slate-500 flex items-center gap-1.5">
@@ -1161,10 +1178,11 @@ function OrganicoTab(props: {
   onCedolino: (id: string) => void;
   onCessa: (e: Employee) => void;
   onRiattiva: (e: Employee) => void;
+  onScheda: (e: Employee) => void;
   docsForEmp: (id: string) => EmployeeDocument[];
   uploadingEmployee: string | null;
 }) {
-  const { employees, allocByEmp, nettoCell, lordoCell, outlets, mm, year, status, setStatus, outletFilter, setOutletFilter, search, setSearch, onAdd, onEdit, onAlloc, onCedolino, onCessa, onRiattiva, docsForEmp, uploadingEmployee } = props;
+  const { employees, allocByEmp, nettoCell, lordoCell, outlets, mm, year, status, setStatus, outletFilter, setOutletFilter, search, setSearch, onAdd, onEdit, onAlloc, onCedolino, onCessa, onRiattiva, onScheda, docsForEmp, uploadingEmployee } = props;
   const filtered = employees.filter((e) => {
     const active = e.is_active !== false;
     if (status === 'attivi' && !active) return false;
@@ -1231,7 +1249,7 @@ function OrganicoTab(props: {
                 <tr key={e.id} className={`border-b border-slate-100 hover:bg-slate-50 ${cessato ? 'opacity-60' : ''}`}>
                   <td className="px-4 py-2.5 text-slate-500 tabular-nums">{e.matricola || '—'}</td>
                   <td className="px-4 py-2.5">
-                    <span className="font-semibold text-slate-800">{empName(e)}</span>
+                    <button onClick={() => onScheda(e)} className="font-semibold text-slate-800 hover:text-blue-700 hover:underline text-left" title="Apri scheda dipendente">{empName(e)}</button>
                     {isAdminRole(e) && <span className="ml-1.5 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-50 text-amber-700">amministratore</span>}
                     {cessato && <span className="ml-1.5 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-200 text-slate-600">cessato</span>}
                   </td>
@@ -1250,6 +1268,7 @@ function OrganicoTab(props: {
                   </td>
                   <td className="px-4 py-2.5">
                     <div className="flex items-center justify-center gap-1.5">
+                      <button onClick={() => onScheda(e)} className="p-1.5 rounded text-slate-400 hover:text-blue-600 hover:bg-blue-50" title="Scheda dipendente"><FileText size={15} /></button>
                       <button onClick={() => onEdit(e)} className="p-1.5 rounded text-slate-400 hover:text-blue-600 hover:bg-blue-50" title="Modifica"><Edit2 size={15} /></button>
                       <button onClick={() => onAlloc(e.id)} className="p-1.5 rounded text-slate-400 hover:text-violet-600 hover:bg-violet-50" title="Allocazione"><Percent size={15} /></button>
                       {cessato ? (
@@ -1459,6 +1478,97 @@ function Field({ label, children, full = false }: { label: string; children: Rea
       <span className="text-xs text-slate-500 mb-1 block">{label}</span>
       {children}
     </label>
+  );
+}
+
+// ============================================================================
+// SCHEDA DIPENDENTE — netto mese per mese (14 mensilità; totale = somma, mai ×12)
+// ============================================================================
+function SchedaDipendenteModal({ employee, year, costs, allocs, companyId, onClose, onSaved }: {
+  employee: Employee; year: number; costs: EmployeeCost[]; allocs: EmployeeOutletAllocation[];
+  companyId: string; onClose: () => void; onSaved: () => Promise<void>;
+}) {
+  const { toast } = useToast();
+  const initial: Record<number, string> = {};
+  for (let m = 1; m <= 12; m++) {
+    const c = costs.find((x) => x.employee_id === employee.id && x.year === year && x.month === m);
+    initial[m] = c?.netto != null ? eurFmt.format(Number(c.netto)) : '';
+  }
+  const [vals, setVals] = useState<Record<number, string>>(initial);
+  const [saving, setSaving] = useState(false);
+  const setM = (m: number, v: string) => setVals((s) => ({ ...s, [m]: v }));
+  const totale = Object.values(vals).reduce<number>((s, v) => s + (parseItNum(v) || 0), 0);
+  const mesiCompilati = Object.values(vals).filter((v) => parseItNum(v) != null).length;
+  const sede = allocs.map((a) => a.outlet_code).join(', ') || '—';
+  const fmtDate = (d?: string | null) => (d ? new Date(d).toLocaleDateString('it-IT') : '—');
+  const inizio = employee.data_assunzione || employee.hire_date;
+  const fine = employee.data_cessazione || employee.termination_date;
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      const payloads: any[] = [];
+      for (let m = 1; m <= 12; m++) {
+        const n = parseItNum(vals[m]);
+        const had = initial[m] !== '';
+        if (n != null) payloads.push({ employee_id: employee.id, company_id: companyId, year, month: m, netto: n, source: 'scheda_dipendente' });
+        else if (had) payloads.push({ employee_id: employee.id, company_id: companyId, year, month: m, netto: null, source: 'scheda_dipendente' });
+      }
+      if (payloads.length) {
+        const { error } = await supabase.from('employee_costs').upsert(payloads, { onConflict: 'employee_id,year,month' });
+        if (error) throw error;
+      }
+      toast({ type: 'success', message: 'Scheda salvata' });
+      onClose();
+      await onSaved();
+    } catch (err: any) {
+      toast({ type: 'error', message: 'Errore nel salvataggio: ' + (err?.message || '') });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Modal title={`Scheda — ${empName(employee)}`} onClose={onClose} maxW="max-w-2xl">
+      {/* Anagrafica */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4 text-sm">
+        <div><div className="text-xs text-slate-400">Matricola</div><div className="font-medium tabular-nums">{employee.matricola || '—'}</div></div>
+        <div><div className="text-xs text-slate-400">Contratto</div><div className="font-medium">{employee.contratto_tipo || employee.contract_type || 'da definire'}</div></div>
+        <div><div className="text-xs text-slate-400">Sede</div><div className="font-medium">{sede}</div></div>
+        <div><div className="text-xs text-slate-400">Periodo</div><div className="font-medium">{fmtDate(inizio)}{fine && employee.is_active === false ? ` → ${fmtDate(fine)}` : ' → in corso'}</div></div>
+      </div>
+
+      <div className="mb-3 p-3 rounded-lg bg-blue-50 border border-blue-200 text-xs text-blue-800 leading-relaxed">
+        Inserisci il <strong>netto del mese</strong> (così come arriva dalla busta paga). Ci sono <strong>14 mensilità</strong>: la <strong>13ª</strong> e la <strong>14ª</strong> vanno sommate nel netto del mese in cui vengono erogate (tipicamente dicembre e giugno). Il totale annuo è la <strong>somma dei mesi</strong>, mai mese×12.
+      </div>
+
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+        {MONTHS.map((m) => (
+          <label key={m.num} className="block">
+            <span className="text-xs text-slate-500 mb-1 flex items-center gap-1">
+              {m.label}
+              {m.num === 12 && <span className="text-[10px] px-1 rounded bg-amber-50 text-amber-700">+13ª</span>}
+              {m.num === 6 && <span className="text-[10px] px-1 rounded bg-amber-50 text-amber-700">+14ª</span>}
+            </span>
+            <div className="relative">
+              <input value={vals[m.num]} onChange={(e) => setM(m.num, e.target.value)} placeholder="—" inputMode="decimal"
+                className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 tabular-nums text-right pr-6" />
+              <span className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 text-xs">€</span>
+            </div>
+          </label>
+        ))}
+      </div>
+
+      <div className="mt-4 p-3 rounded-lg bg-slate-50 border border-slate-200 flex items-center justify-between text-sm">
+        <span className="text-slate-600">Totale netto {year} <span className="text-slate-400">({mesiCompilati} mesi compilati)</span></span>
+        <strong className="tabular-nums" style={{ color: '#2563eb' }}>{eurFmt.format(totale)}&nbsp;€</strong>
+      </div>
+
+      <div className="flex justify-end gap-2 mt-5">
+        <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100">Chiudi</button>
+        <button onClick={save} disabled={saving} className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 flex items-center gap-1.5"><Save size={15} /> {saving ? 'Salvataggio…' : 'Salva netti'}</button>
+      </div>
+    </Modal>
   );
 }
 
