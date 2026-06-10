@@ -78,3 +78,14 @@ export function fmt(n: number | null | undefined): string {
 export function fmtC(n: number | null | undefined): string {
   return `${fmt(n)} €`
 }
+
+// Variante con 2 decimali e separatore migliaia (anche sulle 4 cifre): locale
+// 'de-DE' → "2.323.996,01" (it-IT non raggrupperebbe i numeri di 4 cifre).
+export function fmt2(n: number | null | undefined): string {
+  if (n == null || isNaN(n)) return '—'
+  return new Intl.NumberFormat('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)
+}
+
+export function fmtC2(n: number | null | undefined): string {
+  return `${fmt2(n)} €`
+}
