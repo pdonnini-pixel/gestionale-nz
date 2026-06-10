@@ -3,17 +3,18 @@
  * Salvate su DB, con nome, possibilità di confronto e attivazione
  */
 import { useState, useEffect, useMemo } from 'react'
+import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { useCompanyLabels } from '../hooks/useCompanyLabels'
 import { usePeriod } from '../hooks/usePeriod'
 import {
-  getCodeLevel, buildTree, sumMacros, applyEditsZero, applyEdits, fmt, fmtC,
+  getCodeLevel, buildTree, sumMacros, applyEditsZero, fmt2, fmtC2,
   CETreeNode,
 } from '../lib/ceHelpers'
 import {
   Rocket, Plus, Save, Trash2, CheckCircle2,
-  AlertTriangle, Archive, Star
+  AlertTriangle, Archive, Star, X
 } from 'lucide-react'
 
 // ─── TREE COMPONENTS ──────────────────────────────────────
@@ -60,8 +61,7 @@ function TreeNodeEdit({ node, depth = 0, edits, onEdit }: { node: CETreeNode; de
       <div className={`flex items-center py-1 px-1 rounded transition ${hasKids ? 'cursor-pointer hover:bg-slate-50' : ''} ${isMacro ? 'bg-slate-50/80 mt-1' : ''}`}
         style={{ paddingLeft: `${4 + depth * 16}px` }} onClick={() => hasKids && setOpen(!open)}>
         <span className="w-4 shrink-0 text-center text-[10px] text-slate-400">{hasKids ? (open ? '▾' : '▸') : ''}</span>
-        <span className={`font-mono text-slate-400 shrink-0 ml-0.5 ${isMacro ? 'text-[11px] font-bold' : 'text-[10px]'}`}
-          style={{ width: node.code && node.code.length > 4 ? '50px' : '26px' }}>{node.code}</span>
+        {/* Solo etichetta umana + riferimento CE: niente codici tecnici in UI */}
         <span className={`truncate ml-1 flex-1 ${isMacro ? 'text-[11px] font-bold text-slate-900' : 'text-[11px] text-slate-600'}`} title={description}>{description}</span>
         {isLeaf ? (
           <input type="text" inputMode="numeric"
@@ -71,7 +71,7 @@ function TreeNodeEdit({ node, depth = 0, edits, onEdit }: { node: CETreeNode; de
             className={`w-24 text-right px-1 py-0.5 text-[11px] border rounded ml-1 tabular-nums focus:outline-none focus:ring-1 focus:ring-indigo-400 ${isEdited ? 'bg-indigo-50 border-indigo-300' : 'border-slate-200'}`}
             placeholder="0" />
         ) : (
-          <span className={`tabular-nums text-right shrink-0 ml-1 text-[11px] ${isMacro ? 'font-bold text-slate-900 w-28' : 'text-slate-500 w-24'}`}>{fmt(node.amount)} €</span>
+          <span className={`tabular-nums text-right shrink-0 ml-1 text-[11px] ${isMacro ? 'font-bold text-slate-900 w-28' : 'text-slate-500 w-24'}`}>{fmt2(node.amount)} €</span>
         )}
       </div>
       {open && hasKids && node.children.map((c, i) => (
@@ -95,10 +95,31 @@ function SimBadge({ status }: { status: string }) {
 
 // ─── MAIN COMPONENT ───────────────────────────────────────
 
+// Slug leggibile da nome ("Outlet Milano City" → outlet-milano-city)
+const slugify = (s: string) =>
+  (s || '').toLowerCase().trim()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'simulazione'
+
+// Slug univoco nella lista: nome-slug, con suffisso id solo se il nome collide
+const simSlugFor = (sim: Simulation, all: Simulation[]) => {
+  const base = slugify(sim.name)
+  const dup = all.some(s => s.id !== sim.id && slugify(s.name) === base)
+  return dup ? `${base}-${sim.id.slice(0, 8)}` : base
+}
+
+const findSimBySlug = (slug: string, all: Simulation[]): Simulation | null =>
+  all.find(s => s.id === slug)
+  || all.find(s => `${slugify(s.name)}-${s.id.slice(0, 8)}` === slug)
+  || all.find(s => slugify(s.name) === slug)
+  || null
+
 export default function OutletValutazione() {
   const { profile } = useAuth()
   const labels = useCompanyLabels()
   const { year: periodYear } = usePeriod()
+  const { simSlug } = useParams()
+  const navigate = useNavigate()
   const CID = profile?.company_id
 
   // CE data
@@ -115,6 +136,12 @@ export default function OutletValutazione() {
   const [revEdits, setRevEdits] = useState<Record<string, number>>({})
   const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState<{ msg: string; t: ToastType } | null>(null)
+  // Modal custom di conferma eliminazione (niente confirm() nativo)
+  const [deleteTarget, setDeleteTarget] = useState<Simulation | null>(null)
+  // Visibilità del form: true solo dopo "+ Nuova simulazione" o aprendo una
+  // simulazione esistente (anche da URL slug). activeSimId null + formOpen =
+  // bozza nuova non ancora salvata.
+  const [formOpen, setFormOpen] = useState(false)
 
   const show = (msg: string, t: ToastType = 'ok') => { setToast({ msg, t }); setTimeout(() => setToast(null), 3000) }
 
@@ -165,18 +192,45 @@ export default function OutletValutazione() {
   // ─── SIMULATION CRUD ─────────────────────────────────────
 
   function newSimulation() {
-    setActiveSimId('new')
+    setFormOpen(true)
+    setActiveSimId(null)
     setSimName('')
     setCostEdits({})
     setRevEdits({})
+    navigate('/outlet/valutazione')
   }
 
-  function editSimulation(sim: Simulation) {
+  // Carica la simulazione nello stato (senza navigare): usato dall'apertura via URL
+  function openSimState(sim: Simulation) {
+    setFormOpen(true)
     setActiveSimId(sim.id)
     setSimName(sim.name)
     setCostEdits(sim.cost_edits || {})
     setRevEdits(sim.rev_edits || {})
   }
+
+  function editSimulation(sim: Simulation) {
+    openSimState(sim)
+    navigate(`/outlet/valutazione/${simSlugFor(sim, simulations)}`)
+  }
+
+  // Chiude il form (annulla bozza o esce dalla modifica)
+  function closeForm() {
+    setFormOpen(false)
+    setActiveSimId(null)
+    setSimName('')
+    setCostEdits({})
+    setRevEdits({})
+    navigate('/outlet/valutazione')
+  }
+
+  // Apri la simulazione indicata dall'URL (/outlet/valutazione/:simSlug) dopo il load
+  useEffect(() => {
+    if (loading || !simSlug) return
+    const sim = findSimBySlug(simSlug, simulations)
+    if (sim && activeSimId !== sim.id) openSimState(sim)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [simSlug, loading, simulations])
 
   async function saveSimulation() {
     if (!simName.trim()) { show('Inserisci un nome', 'error'); return }
@@ -198,15 +252,19 @@ export default function OutletValutazione() {
         updated_at: new Date().toISOString(),
       }
 
-      if (activeSimId === 'new') {
+      if (!activeSimId) {
         payload.created_by = profile?.id
         const { data, error } = await supabase.from('outlet_simulations').insert(payload).select('id').single()
         if (error) throw error
         setActiveSimId(data.id)
+        const saved = { id: data.id, name: simName.trim() } as Simulation
+        navigate(`/outlet/valutazione/${simSlugFor(saved, simulations)}`, { replace: true })
         show(`Simulazione "${simName}" salvata ✓`)
       } else if (activeSimId) {
         const { error } = await supabase.from('outlet_simulations').update(payload).eq('id', activeSimId)
         if (error) throw error
+        const saved = { id: activeSimId, name: simName.trim() } as Simulation
+        navigate(`/outlet/valutazione/${simSlugFor(saved, simulations)}`, { replace: true })
         show(`Simulazione "${simName}" aggiornata ✓`)
       }
       loadAll()
@@ -216,11 +274,17 @@ export default function OutletValutazione() {
     } finally { setSaving(false) }
   }
 
-  async function deleteSimulation(id: string) {
-    if (!confirm('Eliminare questa simulazione?')) return
-    const { error } = await supabase.from('outlet_simulations').delete().eq('id', id)
+  async function confirmDeleteSimulation() {
+    const target = deleteTarget
+    if (!target) return
+    setDeleteTarget(null)
+    const { error } = await supabase.from('outlet_simulations').delete().eq('id', target.id)
     if (error) { show(error.message, 'error'); return }
-    if (activeSimId === id) { setActiveSimId(null); setCostEdits({}); setRevEdits({}) }
+    if (activeSimId === target.id) {
+      setFormOpen(false)
+      setActiveSimId(null); setCostEdits({}); setRevEdits({})
+      navigate('/outlet/valutazione')
+    }
     show('Simulazione eliminata')
     loadAll()
   }
@@ -249,8 +313,11 @@ export default function OutletValutazione() {
 
   // ─── COMPUTED ────────────────────────────────────────────
 
+  // Base ZERO sia per costi che per ricavi: una nuova simulazione parte con
+  // tutti i campi a 0 (nessun precompilato dai dati reali del tenant). I valori
+  // salvati restano negli edits e vengono riapplicati sopra la base a zero.
   const editedC = applyEditsZero(costiTree, costEdits)
-  const editedR = applyEdits(ricaviTree, revEdits)
+  const editedR = applyEditsZero(ricaviTree, revEdits)
   const totC = sumMacros(editedC)
   const totR = sumMacros(editedR)
   const ris = totR - totC
@@ -267,7 +334,7 @@ export default function OutletValutazione() {
         <div className="flex items-center justify-between mb-4">
           <div>
             <h2 className="text-base font-bold text-slate-900">Simulazioni salvate</h2>
-            <p className="text-xs text-slate-500 mt-0.5">{simulations.length} {simulations.length === 1 ? 'simulazione' : 'simulazioni'} — clicca per modificare</p>
+            <p className="text-xs text-slate-500 mt-0.5">{simulations.length} {simulations.length === 1 ? 'simulazione' : 'simulazioni'}{simulations.length > 0 ? ' — clicca per modificare' : ''}</p>
           </div>
           <button onClick={newSimulation} className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 flex items-center gap-2">
             <Plus size={16} /> Nuova simulazione
@@ -275,12 +342,24 @@ export default function OutletValutazione() {
         </div>
 
         {simulations.length === 0 ? (
-          <div className="text-center py-8 text-slate-400">
-            <Rocket size={32} className="mx-auto mb-2 opacity-50" />
-            <p className="text-sm">Nessuna simulazione. Crea la prima!</p>
-          </div>
+          formOpen ? (
+            <div className="text-center py-8 text-amber-600">
+              <Rocket size={32} className="mx-auto mb-2 opacity-60" />
+              <p className="text-sm font-medium">Bozza in corso — non ancora salvata</p>
+            </div>
+          ) : (
+            <div className="text-center py-8 text-slate-400">
+              <Rocket size={32} className="mx-auto mb-2 opacity-50" />
+              <p className="text-sm">Nessuna simulazione. Crea la prima!</p>
+            </div>
+          )
         ) : (
           <div className="space-y-2">
+            {formOpen && activeSimId === null && (
+              <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-50 text-amber-700 text-sm font-medium">
+                <Rocket size={14} /> Bozza in corso — non ancora salvata
+              </div>
+            )}
             {simulations.map(sim => {
               const sC = Object.values(sim.cost_edits || {}).reduce((a, b) => a + (typeof b === 'number' ? b : 0), 0)
               const sR = Object.values(sim.rev_edits || {}).reduce((a, b) => a + (typeof b === 'number' ? b : 0), 0)
@@ -293,7 +372,7 @@ export default function OutletValutazione() {
                     <div>
                       <div className="font-medium text-sm text-slate-900">{sim.name}</div>
                       <div className="text-[10px] text-slate-400">
-                        Costi {fmtC(sC)} — Ricavi {fmtC(sR)} — {new Date(sim.created_at).toLocaleDateString('it-IT')}
+                        Costi {fmtC2(sC)} — Ricavi {fmtC2(sR)} — {new Date(sim.created_at).toLocaleDateString('it-IT')}
                       </div>
                     </div>
                   </div>
@@ -305,7 +384,7 @@ export default function OutletValutazione() {
                     {sim.status === 'approvato' && (
                       <button onClick={() => setStatus(sim.id, 'archiviato')} title="Archivia" className="p-1 hover:bg-slate-100 rounded"><Archive size={14} className="text-slate-400" /></button>
                     )}
-                    <button onClick={() => deleteSimulation(sim.id)} title="Elimina" className="p-1 hover:bg-red-50 rounded"><Trash2 size={14} className="text-red-400" /></button>
+                    <button onClick={() => setDeleteTarget(sim)} title="Elimina" className="p-1 hover:bg-red-50 rounded"><Trash2 size={14} className="text-red-400" /></button>
                   </div>
                 </div>
               )
@@ -314,8 +393,8 @@ export default function OutletValutazione() {
         )}
       </div>
 
-      {/* EDITOR */}
-      {activeSimId && (
+      {/* EDITOR — visibile solo se il form è aperto */}
+      {formOpen && (
         <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
           <div className="flex items-center justify-between mb-5">
             <div className="flex-1 max-w-md">
@@ -324,6 +403,9 @@ export default function OutletValutazione() {
                 className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" placeholder={`Es. ${labels.pointOfSale} Milano City`} />
             </div>
             <div className="flex items-center gap-2">
+              <button onClick={closeForm} title="Chiudi" className="px-3 py-1.5 border border-slate-200 text-slate-500 rounded-lg text-sm font-medium hover:bg-slate-50 flex items-center gap-1.5">
+                <X size={14} /> Chiudi
+              </button>
               {simulations.length > 0 && (
                 <select onChange={e => e.target.value && copyFromOutlet(e.target.value)} className="px-2 py-1.5 border border-slate-200 rounded-lg text-xs" defaultValue="">
                   <option value="">Copia da simulazione...</option>
@@ -344,33 +426,51 @@ export default function OutletValutazione() {
           {/* CE Tree */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
             <div>
-              <div className="text-xs font-semibold text-red-500 uppercase tracking-wider mb-2">Componenti Negative (da compilare)</div>
+              <div className="text-xs font-semibold text-slate-600 uppercase tracking-wider mb-2">Componenti Negative (da compilare)</div>
               <div className="border border-slate-200 rounded-lg p-1.5 max-h-[500px] overflow-y-auto">
                 {editedC.map((n, i) => <TreeNodeEdit key={`c-${n.code}-${i}`} node={n} edits={costEdits} onEdit={(c, v) => setCostEdits(prev => ({ ...prev, [c]: v }))} />)}
               </div>
               <div className="mt-2 pt-2 border-t-2 border-slate-300 flex justify-between px-2">
                 <span className="text-sm font-bold">TOTALE COSTI</span>
-                <span className="text-sm font-bold text-red-600">{fmtC(totC)}</span>
+                <span className={`text-sm font-bold ${totC < 0 ? 'text-red-600' : 'text-slate-900'}`}>{fmtC2(totC)}</span>
               </div>
             </div>
             <div>
-              <div className="text-xs font-semibold text-emerald-500 uppercase tracking-wider mb-2">Componenti Positive (da compilare)</div>
+              <div className="text-xs font-semibold text-slate-600 uppercase tracking-wider mb-2">Componenti Positive (da compilare)</div>
               <div className="border border-slate-200 rounded-lg p-1.5 max-h-[500px] overflow-y-auto">
                 {editedR.map((n, i) => <TreeNodeEdit key={`r-${n.code}-${i}`} node={n} edits={revEdits} onEdit={(c, v) => setRevEdits(prev => ({ ...prev, [c]: v }))} />)}
               </div>
               <div className="mt-2 pt-2 border-t-2 border-slate-300 flex justify-between px-2">
                 <span className="text-sm font-bold">TOTALE RICAVI</span>
-                <span className="text-sm font-bold text-emerald-600">{fmtC(totR)}</span>
+                <span className={`text-sm font-bold ${totR < 0 ? 'text-red-600' : 'text-slate-900'}`}>{fmtC2(totR)}</span>
               </div>
             </div>
           </div>
 
           {/* Risultato */}
-          <div className={`p-4 rounded-lg text-center font-bold ${ris >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>
-            <div className="text-lg">{ris >= 0 ? 'Utile previsto' : 'Perdita prevista'}: {fmtC(Math.abs(ris))}</div>
-            <div className="text-xs font-normal mt-1 opacity-70">
-              Ricavi {fmtC(totR)} — Costi {fmtC(totC)}
+          {/* Convenzione colori: positivo = nero senza segno, negativo = rosso col meno, niente verde */}
+          <div className={`p-4 rounded-lg text-center font-bold ${ris < 0 ? 'bg-red-50' : 'bg-slate-50'}`}>
+            <div className={`text-lg ${ris < 0 ? 'text-red-600' : 'text-slate-900'}`}>{ris >= 0 ? 'Utile previsto' : 'Perdita prevista'}: {fmtC2(ris)}</div>
+            <div className="text-xs font-normal mt-1 opacity-70 text-slate-600">
+              Ricavi {fmtC2(totR)} — Costi {fmtC2(totC)}
               {totR > 0 && ` — Margine ${(ris / totR * 100).toFixed(1)}%`}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL CONFERMA ELIMINAZIONE (custom del progetto, niente confirm nativo) */}
+      {deleteTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setDeleteTarget(null)}>
+          <div className="bg-white rounded-xl shadow-xl max-w-sm w-full p-6" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-3 mb-3">
+              <div className="p-2 rounded-full bg-red-50"><AlertTriangle size={20} className="text-red-500" /></div>
+              <h3 className="text-base font-bold text-slate-900">Elimina simulazione</h3>
+            </div>
+            <p className="text-sm text-slate-600 mb-5">Vuoi eliminare la simulazione <span className="font-semibold text-slate-900">«{deleteTarget.name}»</span>? L'operazione non è reversibile.</p>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setDeleteTarget(null)} className="px-4 py-2 text-sm font-medium text-slate-600 rounded-lg hover:bg-slate-100">Annulla</button>
+              <button onClick={confirmDeleteSimulation} className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 flex items-center gap-1.5"><Trash2 size={14} /> Elimina</button>
             </div>
           </div>
         </div>

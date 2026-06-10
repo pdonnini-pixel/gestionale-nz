@@ -1,5 +1,5 @@
 import { useState, useEffect, lazy, Suspense } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import PageHelp from '../components/PageHelp'
 import PageHeader from '../components/PageHeader'
 import { useToast } from '../components/Toast'
@@ -1894,7 +1894,11 @@ export default function Outlet() {
   const [editOutlet, setEditOutlet] = useState<OutletEntity | null>(null)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<OutletEntity | null>(null)
   const [deleting, setDeleting] = useState(false)
-  const [tab, setTab] = useState('operativi')
+  // Il tab attivo è pilotato dall'URL (/outlet/operativi · /outlet/valutazione),
+  // così cambio tab = cambio URL e refresh/back del browser lo mantengono.
+  const location = useLocation()
+  const tab = location.pathname.startsWith('/outlet/valutazione') ? 'valutazione' : 'operativi'
+  const goTab = (key: string) => navigate(key === 'valutazione' ? '/outlet/valutazione' : '/outlet/operativi')
   const canWrite = profile?.role === 'super_advisor'
 
   // Ricarica i ricavi ad ogni cambio anno (selettore globale) o di azienda.
@@ -2165,7 +2169,7 @@ export default function Outlet() {
           ].map(t => (
             <button
               key={t.key}
-              onClick={() => setTab(t.key)}
+              onClick={() => goTab(t.key)}
               className={`px-4 py-2 text-sm font-medium rounded-md transition ${
                 tab === t.key
                   ? 'bg-white text-blue-700 shadow-sm'
