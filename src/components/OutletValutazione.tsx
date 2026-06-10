@@ -14,7 +14,7 @@ import {
 } from '../lib/ceHelpers'
 import {
   Rocket, Plus, Save, Trash2, CheckCircle2,
-  AlertTriangle, Archive, Star
+  AlertTriangle, Archive, Star, X
 } from 'lucide-react'
 
 // ─── TREE COMPONENTS ──────────────────────────────────────
@@ -138,6 +138,10 @@ export default function OutletValutazione() {
   const [toast, setToast] = useState<{ msg: string; t: ToastType } | null>(null)
   // Modal custom di conferma eliminazione (niente confirm() nativo)
   const [deleteTarget, setDeleteTarget] = useState<Simulation | null>(null)
+  // Visibilità del form: true solo dopo "+ Nuova simulazione" o aprendo una
+  // simulazione esistente (anche da URL slug). activeSimId null + formOpen =
+  // bozza nuova non ancora salvata.
+  const [formOpen, setFormOpen] = useState(false)
 
   const show = (msg: string, t: ToastType = 'ok') => { setToast({ msg, t }); setTimeout(() => setToast(null), 3000) }
 
@@ -188,7 +192,8 @@ export default function OutletValutazione() {
   // ─── SIMULATION CRUD ─────────────────────────────────────
 
   function newSimulation() {
-    setActiveSimId('new')
+    setFormOpen(true)
+    setActiveSimId(null)
     setSimName('')
     setCostEdits({})
     setRevEdits({})
@@ -197,6 +202,7 @@ export default function OutletValutazione() {
 
   // Carica la simulazione nello stato (senza navigare): usato dall'apertura via URL
   function openSimState(sim: Simulation) {
+    setFormOpen(true)
     setActiveSimId(sim.id)
     setSimName(sim.name)
     setCostEdits(sim.cost_edits || {})
@@ -206,6 +212,16 @@ export default function OutletValutazione() {
   function editSimulation(sim: Simulation) {
     openSimState(sim)
     navigate(`/outlet/valutazione/${simSlugFor(sim, simulations)}`)
+  }
+
+  // Chiude il form (annulla bozza o esce dalla modifica)
+  function closeForm() {
+    setFormOpen(false)
+    setActiveSimId(null)
+    setSimName('')
+    setCostEdits({})
+    setRevEdits({})
+    navigate('/outlet/valutazione')
   }
 
   // Apri la simulazione indicata dall'URL (/outlet/valutazione/:simSlug) dopo il load
@@ -236,7 +252,7 @@ export default function OutletValutazione() {
         updated_at: new Date().toISOString(),
       }
 
-      if (activeSimId === 'new') {
+      if (!activeSimId) {
         payload.created_by = profile?.id
         const { data, error } = await supabase.from('outlet_simulations').insert(payload).select('id').single()
         if (error) throw error
@@ -265,6 +281,7 @@ export default function OutletValutazione() {
     const { error } = await supabase.from('outlet_simulations').delete().eq('id', target.id)
     if (error) { show(error.message, 'error'); return }
     if (activeSimId === target.id) {
+      setFormOpen(false)
       setActiveSimId(null); setCostEdits({}); setRevEdits({})
       navigate('/outlet/valutazione')
     }
@@ -325,7 +342,7 @@ export default function OutletValutazione() {
         </div>
 
         {simulations.length === 0 ? (
-          activeSimId ? (
+          formOpen ? (
             <div className="text-center py-8 text-amber-600">
               <Rocket size={32} className="mx-auto mb-2 opacity-60" />
               <p className="text-sm font-medium">Bozza in corso — non ancora salvata</p>
@@ -338,6 +355,11 @@ export default function OutletValutazione() {
           )
         ) : (
           <div className="space-y-2">
+            {formOpen && activeSimId === null && (
+              <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-50 text-amber-700 text-sm font-medium">
+                <Rocket size={14} /> Bozza in corso — non ancora salvata
+              </div>
+            )}
             {simulations.map(sim => {
               const sC = Object.values(sim.cost_edits || {}).reduce((a, b) => a + (typeof b === 'number' ? b : 0), 0)
               const sR = Object.values(sim.rev_edits || {}).reduce((a, b) => a + (typeof b === 'number' ? b : 0), 0)
@@ -371,8 +393,8 @@ export default function OutletValutazione() {
         )}
       </div>
 
-      {/* EDITOR */}
-      {activeSimId && (
+      {/* EDITOR — visibile solo se il form è aperto */}
+      {formOpen && (
         <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
           <div className="flex items-center justify-between mb-5">
             <div className="flex-1 max-w-md">
@@ -381,6 +403,9 @@ export default function OutletValutazione() {
                 className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" placeholder={`Es. ${labels.pointOfSale} Milano City`} />
             </div>
             <div className="flex items-center gap-2">
+              <button onClick={closeForm} title="Chiudi" className="px-3 py-1.5 border border-slate-200 text-slate-500 rounded-lg text-sm font-medium hover:bg-slate-50 flex items-center gap-1.5">
+                <X size={14} /> Chiudi
+              </button>
               {simulations.length > 0 && (
                 <select onChange={e => e.target.value && copyFromOutlet(e.target.value)} className="px-2 py-1.5 border border-slate-200 rounded-lg text-xs" defaultValue="">
                   <option value="">Copia da simulazione...</option>
@@ -401,7 +426,7 @@ export default function OutletValutazione() {
           {/* CE Tree */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
             <div>
-              <div className="text-xs font-semibold text-red-500 uppercase tracking-wider mb-2">Componenti Negative (da compilare)</div>
+              <div className="text-xs font-semibold text-slate-600 uppercase tracking-wider mb-2">Componenti Negative (da compilare)</div>
               <div className="border border-slate-200 rounded-lg p-1.5 max-h-[500px] overflow-y-auto">
                 {editedC.map((n, i) => <TreeNodeEdit key={`c-${n.code}-${i}`} node={n} edits={costEdits} onEdit={(c, v) => setCostEdits(prev => ({ ...prev, [c]: v }))} />)}
               </div>
