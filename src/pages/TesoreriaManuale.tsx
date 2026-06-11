@@ -2558,6 +2558,17 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
   const [manualSearch, setManualSearch] = useState('')
   const [reconciling, setReconciling] = useState(false)
 
+  // Suggerimenti riconciliazione (reconciliation_log) + vista riconciliati + annullo
+  type LogRow = { id: string; bank_transaction_id: string | null; payable_id: string | null; confidence: number | null; status: string; applied_amount: number | null }
+  type SugRow = { log: LogRow; bt: TxT; payable: PayT; confidence: number }
+  const [viewMode, setViewMode] = useState<'da_riconciliare' | 'riconciliati'>('da_riconciliare')
+  const [suggCollapsed, setSuggCollapsed] = useState(false)
+  const [logRows, setLogRows] = useState<LogRow[]>([])
+  const [selectedSug, setSelectedSug] = useState<Set<string>>(new Set())
+  const [summaryModal, setSummaryModal] = useState<{ rows: SugRow[] } | null>(null)
+  const [undoModal, setUndoModal] = useState<{ logId: string; label: string; amount: number } | null>(null)
+  const [processingSug, setProcessingSug] = useState(false)
+
   // Get unreconciled outgoing movements
   const unreconciledMovements = useMemo(() => {
     let items = transactions.filter((t) => !t.is_reconciled && (Number(t.amount) || 0) < 0)
@@ -2720,6 +2731,162 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
     }
   }
 
+  // Carica le righe di log (suggerimenti + applicate per l'annullo). Si ricarica a
+  // ogni refresh del parent (transactions cambia) per restare coerente.
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      // NB: i tipi generati di reconciliation_log sono obsoleti (manca bank_transaction_id/
+      // status/applied_amount); cast a any per usare lo schema reale (migration 032/063/064).
+      const { data } = await (supabase.from('reconciliation_log') as any)
+        .select('id, bank_transaction_id, payable_id, confidence, status, applied_amount')
+        .eq('company_id', companyId)
+        .in('status', ['to_confirm', 'applied'])
+        .order('confidence', { ascending: false })
+      if (!cancelled) setLogRows((data || []) as LogRow[])
+    })()
+    return () => { cancelled = true }
+  }, [companyId, transactions])
+
+  const txById = useMemo(() => {
+    const m = new Map<string, TxT>()
+    for (const t of transactions) m.set(String(t.id), t)
+    return m
+  }, [transactions])
+  const payById = useMemo(() => {
+    const m = new Map<string, PayT>()
+    for (const p of payables) m.set(String(p.id), p)
+    return m
+  }, [payables])
+
+  const OPEN_STATUSES = ['da_pagare', 'in_scadenza', 'scaduto', 'parziale']
+
+  // Suggerimenti validi: log 'to_confirm' la cui fattura è ancora aperta e il
+  // cui movimento non è ancora riconciliato. Gli stantii vengono nascosti.
+  const suggestions = useMemo<SugRow[]>(() => {
+    const out: SugRow[] = []
+    for (const log of logRows) {
+      if (log.status !== 'to_confirm') continue
+      if (!log.bank_transaction_id || !log.payable_id) continue
+      const bt = txById.get(log.bank_transaction_id)
+      const payable = payById.get(log.payable_id)
+      if (!bt || bt.is_reconciled) continue
+      if (!payable || !OPEN_STATUSES.includes(String(payable.status))) continue
+      const rem = payable.amount_remaining != null ? Number(payable.amount_remaining) : Number(payable.gross_amount || 0) - Number(payable.amount_paid || 0)
+      if (rem <= 0) continue
+      out.push({ log, bt, payable, confidence: Number(log.confidence) || 0 })
+    }
+    return out.sort((a, b) => b.confidence - a.confidence)
+  }, [logRows, txById, payById])
+
+  // Mappa bt riconciliato -> riga di log 'applied' con applied_amount (per l'annullo)
+  const appliedLogByBt = useMemo(() => {
+    const m = new Map<string, LogRow>()
+    for (const log of logRows) {
+      if (log.status === 'applied' && log.applied_amount != null && log.bank_transaction_id) {
+        if (!m.has(log.bank_transaction_id)) m.set(log.bank_transaction_id, log)
+      }
+    }
+    return m
+  }, [logRows])
+
+  // Vista "Riconciliati": movimenti in uscita riconciliati, con fattura linkata
+  const reconciledMovements = useMemo(() => {
+    let items = transactions.filter((t) => t.is_reconciled && (Number(t.amount) || 0) < 0)
+    if (filterAccount !== 'all') items = items.filter((t) => t.bank_account_id === filterAccount)
+    if (search) {
+      const q = search.toLowerCase()
+      items = items.filter((t) => String(t.description || '').toLowerCase().includes(q) || String(t.counterpart_name || '').toLowerCase().includes(q))
+    }
+    return items
+      .map((t) => ({
+        bt: t as TxT,
+        payable: t.reconciled_invoice_id ? payById.get(String(t.reconciled_invoice_id)) || null : null,
+        appliedLog: appliedLogByBt.get(String(t.id)) || null,
+      }))
+      .sort((a, b) => new Date(String(b.bt.reconciled_at || b.bt.transaction_date) || 0).getTime() - new Date(String(a.bt.reconciled_at || a.bt.transaction_date) || 0).getTime())
+  }, [transactions, filterAccount, search, payById, appliedLogByBt])
+
+  // Conferma una singola riga (o usata nel batch). Ritorna 'ok' | 'stale' | 'error'.
+  const confirmSuggestion = async (s: SugRow): Promise<'ok' | 'stale' | 'error'> => {
+    try {
+      const { data, error } = await supabase.rpc('reconcile_movement' as never, {
+        p_bt_id: String(s.bt.id),
+        p_payable_id: String(s.payable.id),
+        p_log_id: String(s.log.id),
+      } as never)
+      if (error) throw error
+      const res = data as { ok?: boolean; reason?: string } | null
+      if (res?.ok) return 'ok'
+      if (res?.reason === 'stale') return 'stale'
+      return 'error'
+    } catch (err) {
+      console.error('confirmSuggestion error:', err)
+      return 'error'
+    }
+  }
+
+  const handleConfirmOne = async (s: SugRow) => {
+    setProcessingSug(true)
+    const r = await confirmSuggestion(s)
+    setProcessingSug(false)
+    if (r === 'ok') toast({ type: 'success', message: `Abbinamento confermato: ${getSupplierName(s.payable)} • ${fmt(Math.abs(Number(s.bt.amount) || 0))} €` })
+    else if (r === 'stale') toast({ type: 'info', message: 'Suggerimento non più valido: rimosso dalla lista.' })
+    else toast({ type: 'error', message: 'Errore nella conferma dell’abbinamento.' })
+    setSelectedSug(new Set())
+    onRefresh()
+  }
+
+  const handleRejectOne = async (s: SugRow) => {
+    setProcessingSug(true)
+    const { error } = await supabase.from('reconciliation_log')
+      .update({ status: 'rejected', notes: 'rifiutato manualmente' } as never)
+      .eq('id', s.log.id).eq('company_id', companyId)
+    setProcessingSug(false)
+    if (error) { toast({ type: 'error', message: 'Errore nel rifiuto: ' + error.message }); return }
+    toast({ type: 'info', message: 'Suggerimento rifiutato. Il movimento resta abbinabile a mano.' })
+    setSelectedSug(prev => { const n = new Set(prev); n.delete(s.log.id); return n })
+    onRefresh()
+  }
+
+  const runBatchConfirm = async (rows: SugRow[]) => {
+    setSummaryModal(null)
+    setProcessingSug(true)
+    let okN = 0, staleN = 0, errN = 0
+    for (const s of rows) {
+      const r = await confirmSuggestion(s)
+      if (r === 'ok') okN++
+      else if (r === 'stale') staleN++
+      else errN++
+    }
+    setProcessingSug(false)
+    setSelectedSug(new Set())
+    const parts = [`Confermati ${okN}`]
+    if (staleN > 0) parts.push(`saltati ${staleN} perché nel frattempo non più validi`)
+    if (errN > 0) parts.push(`${errN} in errore`)
+    toast({ type: errN > 0 ? 'error' : 'success', message: parts.join(', ') })
+    onRefresh()
+  }
+
+  const handleUndo = async () => {
+    if (!undoModal) return
+    const logId = undoModal.logId
+    setUndoModal(null)
+    setProcessingSug(true)
+    const { data, error } = await supabase.rpc('undo_reconcile_movement' as never, { p_log_id: logId } as never)
+    setProcessingSug(false)
+    if (error) { toast({ type: 'error', message: 'Errore annullo: ' + error.message }); return }
+    const res = data as { ok?: boolean; reason?: string } | null
+    if (!res?.ok) { toast({ type: 'warning', message: 'Abbinamento non annullabile (non più valido).' }); onRefresh(); return }
+    toast({ type: 'success', message: 'Abbinamento annullato: la fattura è tornata aperta.' })
+    onRefresh()
+  }
+
+  const toggleSug = (logId: string) => setSelectedSug(prev => {
+    const n = new Set(prev); n.has(logId) ? n.delete(logId) : n.add(logId); return n
+  })
+  const selectedSugRows = useMemo(() => suggestions.filter(s => selectedSug.has(s.log.id)), [suggestions, selectedSug])
+
   const confidenceColor = (score: number) => {
     if (score >= 80) return 'bg-emerald-100 text-emerald-700'
     if (score >= 50) return 'bg-amber-100 text-amber-700'
@@ -2727,7 +2894,148 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
   }
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <div className="space-y-6">
+      {/* Toggle vista: Da riconciliare / Riconciliati */}
+      <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5 shadow-sm">
+        <button onClick={() => setViewMode('da_riconciliare')}
+          className={classNames('px-4 py-1.5 rounded-md text-sm font-medium transition', viewMode === 'da_riconciliare' ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-50')}>
+          Da riconciliare
+        </button>
+        <button onClick={() => setViewMode('riconciliati')}
+          className={classNames('px-4 py-1.5 rounded-md text-sm font-medium transition', viewMode === 'riconciliati' ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-50')}>
+          Riconciliati
+        </button>
+      </div>
+
+      {viewMode === 'riconciliati' ? (
+        /* ═══ VISTA RICONCILIATI ═══ */
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+          <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-slate-700">Movimenti riconciliati ({reconciledMovements.length})</h3>
+            <div className="flex gap-2">
+              <div className="relative">
+                <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Cerca..."
+                  className="w-44 pl-8 pr-2 py-1.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <select value={filterAccount} onChange={e => setFilterAccount(e.target.value)}
+                className="px-2 py-1.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <option value="all">Tutti i conti</option>
+                {accounts.filter(a => a.is_active !== false).map(a => (
+                  <option key={a.id} value={a.id}>{a.account_name || a.bank_name}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          {reconciledMovements.length === 0 ? (
+            <EmptyState icon={Link2} title="Nessun movimento riconciliato" description="I movimenti abbinati a una fattura compariranno qui." />
+          ) : (
+            <div className="divide-y divide-slate-50 max-h-[640px] overflow-y-auto">
+              {reconciledMovements.map(({ bt, payable, appliedLog }) => {
+                const acct = accounts.find(a => a.id === bt.bank_account_id)
+                return (
+                  <div key={bt.id} className="flex items-center gap-3 px-5 py-3">
+                    <div className="p-1.5 rounded-lg bg-emerald-50"><CheckCircle2 size={14} className="text-emerald-600" /></div>
+                    <div className="flex-1 min-w-0">
+                      <CellTooltip content={String(bt.description || 'Movimento')}><div className="text-sm font-medium text-slate-900 truncate">{bt.description || 'Movimento'}</div></CellTooltip>
+                      <div className="text-xs text-slate-400 truncate">
+                        {fmtDate(bt.transaction_date)} {acct ? `• ${acct.account_name || acct.bank_name}` : ''}
+                        {payable ? <> {'•'} <CellTooltip content={getSupplierName(payable)}><span className="cursor-help">{getSupplierName(payable)}</span></CellTooltip> {payable.invoice_number ? `(${payable.invoice_number})` : ''}</> : ' • fattura non collegata'}
+                        {bt.reconciled_at ? ` • ric. ${fmtDate(bt.reconciled_at)}` : ''}
+                      </div>
+                    </div>
+                    <div className="text-sm font-semibold text-red-600 whitespace-nowrap">{fmt(bt.amount)} &euro;</div>
+                    {appliedLog ? (
+                      <button onClick={() => setUndoModal({ logId: appliedLog.id, label: payable ? getSupplierName(payable) : 'fattura', amount: Number(appliedLog.applied_amount) || 0 })}
+                        disabled={processingSug}
+                        className="flex items-center gap-1.5 px-3 py-1.5 border border-amber-200 text-amber-700 rounded-lg text-xs font-medium hover:bg-amber-50 transition disabled:opacity-50">
+                        <Unlink size={12} /> Annulla abbinamento
+                      </button>
+                    ) : (
+                      <CellTooltip content="Abbinamento senza log — non annullabile da qui">
+                        <span className="flex items-center gap-1.5 px-3 py-1.5 border border-slate-100 text-slate-300 rounded-lg text-xs font-medium cursor-not-allowed">
+                          <Unlink size={12} /> Annulla abbinamento
+                        </span>
+                      </CellTooltip>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      ) : (
+      <>
+      {/* ═══ SEZIONE ABBINAMENTI SUGGERITI ═══ */}
+      {suggestions.length > 0 && (
+        <div className="bg-white rounded-xl border border-amber-200 shadow-sm overflow-hidden">
+          <div className="px-5 py-3 bg-amber-50/60 border-b border-amber-100 flex items-center justify-between gap-3">
+            <button onClick={() => setSuggCollapsed(c => !c)} className="flex items-center gap-2 text-sm font-semibold text-amber-800">
+              {suggCollapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
+              Abbinamenti suggeriti ({suggestions.length})
+            </button>
+            {!suggCollapsed && (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setSummaryModal({ rows: selectedSugRows })}
+                  disabled={processingSug || selectedSugRows.length === 0}
+                  className="px-3 py-1.5 rounded-lg text-xs font-medium border border-blue-200 text-blue-700 hover:bg-blue-50 transition disabled:opacity-40 disabled:cursor-not-allowed">
+                  Conferma selezionati ({selectedSugRows.length})
+                </button>
+                <button
+                  onClick={() => setSummaryModal({ rows: suggestions })}
+                  disabled={processingSug}
+                  className="px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700 transition disabled:opacity-50">
+                  Conferma tutti ({suggestions.length})
+                </button>
+              </div>
+            )}
+          </div>
+          {!suggCollapsed && (
+            <div className="divide-y divide-slate-50 max-h-[420px] overflow-y-auto">
+              {suggestions.map((s) => {
+                const acct = accounts.find(a => a.id === s.bt.bank_account_id)
+                const rem = s.payable.amount_remaining != null ? Number(s.payable.amount_remaining) : Number(s.payable.gross_amount || 0) - Number(s.payable.amount_paid || 0)
+                return (
+                  <div key={s.log.id} className="flex items-center gap-3 px-5 py-3 hover:bg-slate-50/60">
+                    <input type="checkbox" checked={selectedSug.has(s.log.id)} onChange={() => toggleSug(s.log.id)}
+                      className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer" />
+                    {/* Movimento */}
+                    <div className="flex-1 min-w-0">
+                      <CellTooltip content={String(s.bt.description || 'Movimento')}><div className="text-sm font-medium text-slate-900 truncate">{s.bt.description || 'Movimento'}</div></CellTooltip>
+                      <div className="text-xs text-slate-400 truncate">
+                        {fmtDate(s.bt.transaction_date)} {acct ? `• ${acct.account_name || acct.bank_name}` : ''}
+                      </div>
+                    </div>
+                    <div className="text-sm font-semibold text-red-600 whitespace-nowrap">{fmt(s.bt.amount)} &euro;</div>
+                    <ArrowRight size={16} className="text-slate-300 flex-shrink-0" />
+                    {/* Fattura proposta */}
+                    <div className="flex-1 min-w-0">
+                      <CellTooltip content={getSupplierName(s.payable)}><div className="text-sm font-medium text-slate-800 truncate">{getSupplierName(s.payable)}</div></CellTooltip>
+                      <div className="text-xs text-slate-400 truncate">
+                        Fatt. {s.payable.invoice_number || '—'} {'•'} residuo {fmt(rem)} €
+                      </div>
+                    </div>
+                    <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${confidenceColor(s.confidence)}`}>{Math.round(s.confidence)}%</span>
+                    <div className="flex items-center gap-1.5">
+                      <button onClick={() => handleConfirmOne(s)} disabled={processingSug}
+                        className="flex items-center gap-1 px-2.5 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-medium hover:bg-emerald-700 transition disabled:opacity-50">
+                        <Check size={12} /> Conferma
+                      </button>
+                      <button onClick={() => handleRejectOne(s)} disabled={processingSug}
+                        className="flex items-center gap-1 px-2.5 py-1.5 border border-slate-200 text-slate-600 rounded-lg text-xs font-medium hover:bg-slate-50 transition disabled:opacity-50">
+                        <X size={12} /> Rifiuta
+                      </button>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
       {/* Left: unreconciled movements */}
       <div className="space-y-4">
         <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
@@ -2939,6 +3247,70 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
           </>
         )}
       </div>
+      </div>{/* chiude grid 2 colonne */}
+      </>
+      )}
+
+      {/* Modal riepilogo conferma (selezionati / tutti) */}
+      {summaryModal && (() => {
+        const rows = summaryModal.rows
+        const total = rows.reduce((s, r) => s + Math.abs(Number(r.bt.amount) || 0), 0)
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setSummaryModal(null)}>
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between p-5 border-b border-slate-100">
+                <h3 className="text-lg font-semibold text-slate-900">Conferma abbinamenti</h3>
+                <button onClick={() => setSummaryModal(null)} className="p-1 rounded-lg hover:bg-slate-100 text-slate-400"><X size={20} /></button>
+              </div>
+              <div className="p-5 space-y-3 overflow-hidden flex flex-col">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-slate-600">Abbinamenti</span><span className="font-bold">{rows.length}</span>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-slate-600">Totale</span><span className="font-bold">{fmt(total)} €</span>
+                </div>
+                <div className="border border-slate-100 rounded-lg divide-y divide-slate-50 overflow-y-auto max-h-[40vh]">
+                  {rows.map(r => (
+                    <div key={r.log.id} className="flex items-center justify-between gap-2 px-3 py-2 text-xs">
+                      <CellTooltip content={getSupplierName(r.payable)}><span className="truncate max-w-[200px] text-slate-700">{getSupplierName(r.payable)} <span className="text-slate-400">· {r.payable.invoice_number || '—'}</span></span></CellTooltip>
+                      <span className="font-semibold text-red-600 whitespace-nowrap">{fmt(r.bt.amount)} €</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex gap-3 pt-2">
+                  <button onClick={() => setSummaryModal(null)} className="flex-1 py-2.5 rounded-lg border border-slate-200 text-sm font-medium hover:bg-slate-50">Annulla</button>
+                  <button onClick={() => runBatchConfirm(rows)} disabled={processingSug || rows.length === 0}
+                    className="flex-1 py-2.5 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 disabled:opacity-50">
+                    {processingSug ? 'Conferma in corso...' : `Conferma ${rows.length}`}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+
+      {/* Modal conferma annullo abbinamento */}
+      {undoModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setUndoModal(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-5 border-b border-slate-100">
+              <h3 className="text-lg font-semibold text-slate-900">Annullare l'abbinamento?</h3>
+              <button onClick={() => setUndoModal(null)} className="p-1 rounded-lg hover:bg-slate-100 text-slate-400"><X size={20} /></button>
+            </div>
+            <div className="p-5 space-y-4">
+              <p className="text-sm text-slate-700">La fattura <strong>{undoModal.label}</strong> tornerà aperta per <strong>{fmt(undoModal.amount)} €</strong> e il movimento tornerà fra quelli da riconciliare.</p>
+              <div className="flex gap-3">
+                <button onClick={() => setUndoModal(null)} className="flex-1 py-2.5 rounded-lg border border-slate-200 text-sm font-medium hover:bg-slate-50">Annulla</button>
+                <button onClick={handleUndo} disabled={processingSug}
+                  className="flex-1 py-2.5 rounded-lg bg-amber-600 text-white text-sm font-medium hover:bg-amber-700 disabled:opacity-50">
+                  {processingSug ? 'Annullamento...' : 'Annulla abbinamento'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -2974,6 +3346,7 @@ export default function TesoreriaManuale() {
   const [payables, setPayables] = useState<any[]>([])
   const [batches, setBatches] = useState<any[]>([])
   const [batchItems, setBatchItems] = useState<any[]>([])
+  const [suggestCount, setSuggestCount] = useState(0)
 
   const refresh = useCallback(() => setRefreshKey(k => k + 1), [])
 
@@ -3007,12 +3380,13 @@ export default function TesoreriaManuale() {
     async function load() {
       setLoading(true)
       try {
-        const [acctRes, txRes, payRes, batchRes, itemsRes] = await Promise.all([
+        const [acctRes, txRes, payRes, batchRes, itemsRes, sugRes] = await Promise.all([
           supabase.from('bank_accounts').select('*').eq('company_id', companyId).order('bank_name'),
           supabase.from('bank_transactions').select('*').eq('company_id', companyId).order('transaction_date', { ascending: false }).limit(10000),
           supabase.from('payables').select('*, suppliers(id, name, ragione_sociale, iban)').eq('company_id', companyId).order('due_date'),
           supabase.from('payment_batches').select('*').eq('company_id', companyId).order('created_at', { ascending: false }),
           supabase.from('payment_batch_items').select('*').eq('company_id', companyId).order('priority'),
+          (supabase.from('reconciliation_log') as any).select('id', { count: 'exact', head: true }).eq('company_id', companyId).eq('status', 'to_confirm'),
         ])
 
         if (!cancelled) {
@@ -3021,6 +3395,7 @@ export default function TesoreriaManuale() {
           setPayables(payRes.data || [])
           setBatches(batchRes.data || [])
           setBatchItems(itemsRes.data || [])
+          setSuggestCount(sugRes.count || 0)
         }
       } catch (err: unknown) {
         console.error('TesoreriaManuale load error:', err)
@@ -3079,9 +3454,11 @@ export default function TesoreriaManuale() {
             const isActive = activeTab === tab.key
             // Badge counts
             let badge = null
+            let suggBadge = null
             if (tab.key === 'riconciliazione') {
               const unrecCount = transactions.filter(t => !t.is_reconciled && (t.amount || 0) < 0).length
               if (unrecCount > 0) badge = unrecCount
+              if (suggestCount > 0) suggBadge = suggestCount
             }
 
             return (
@@ -3097,8 +3474,13 @@ export default function TesoreriaManuale() {
               >
                 <Icon size={16} />
                 {tab.label}
+                {suggBadge != null && (
+                  <span className="px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded-full text-xs font-semibold min-w-[20px] text-center" title={`${suggBadge} abbinamenti suggeriti da confermare`}>
+                    {suggBadge > 99 ? '99+' : suggBadge}
+                  </span>
+                )}
                 {badge != null && (
-                  <span className="px-1.5 py-0.5 bg-red-100 text-red-700 rounded-full text-xs font-semibold min-w-[20px] text-center">
+                  <span className="px-1.5 py-0.5 bg-red-100 text-red-700 rounded-full text-xs font-semibold min-w-[20px] text-center" title={`${badge} movimenti da riconciliare`}>
                     {badge > 99 ? '99+' : badge}
                   </span>
                 )}
