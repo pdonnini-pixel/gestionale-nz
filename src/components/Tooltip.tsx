@@ -92,3 +92,8 @@ export default function Tooltip({ content, children, maxWidth = 380 }: TooltipPr
     </>
   )
 }
+
+// Export con nome NON ambiguo: nei file che importano anche `Tooltip` da recharts
+// usare SEMPRE questo (`import { UiTooltip } from '.../components/Tooltip'`) per
+// evitare la collisione di binding (recharts vince → rende null e ingoia i children).
+export { Tooltip as UiTooltip }
