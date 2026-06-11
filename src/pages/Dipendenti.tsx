@@ -169,14 +169,14 @@ function ConfirmModal({ open, title, message, confirmLabel = 'Conferma', danger 
 // KPI card pulita — stesso stile delle altre pagine (ConfrontoOutlet / Conto Economico):
 // fondo bianco→slate, bordo tenue, accento solo sul numero. Niente tessere a gradiente pieno.
 const KPI_ACCENT: Record<'cost' | 'cash' | 'emerald' | 'none', string> = {
-  cost: '#7c3aed',
-  cash: '#2563eb',
+  cost: '#ea580c',
+  cash: '#16a34a',
   emerald: '#059669',
   none: '#0f172a',
 };
 const KPI_CHIP: Record<'costo' | 'cassa', { bg: string; color: string }> = {
-  costo: { bg: '#f5f3ff', color: '#7c3aed' },
-  cassa: { bg: '#eff6ff', color: '#2563eb' },
+  costo: { bg: '#fff7ed', color: '#ea580c' },
+  cassa: { bg: '#f0fdf4', color: '#16a34a' },
 };
 function Kpi({ label, value, sub, icon: Icon, accent = 'none', chip }: {
   label: string; value: React.ReactNode; sub?: React.ReactNode;
@@ -977,22 +977,22 @@ function PanoramicaTab(props: {
                     <div className="flex-1 space-y-1">
                       {/* Costo budget (viola) — tutte le barre stesso colore e stessa forma */}
                       <div className="h-3.5 rounded-full bg-slate-100">
-                        <div className="h-full rounded-full" style={{ width: `${(d.bc / maxVal) * 100}%`, background: '#7c3aed' }} />
+                        <div className="h-full rounded-full" style={{ width: `${(d.bc / maxVal) * 100}%`, background: '#ea580c' }} />
                       </div>
                       {/* Netto del mese (blu) — valore così com'è, mai ×12 */}
                       <div className="h-3.5 rounded-full bg-slate-100">
-                        <div className="h-full rounded-full" style={{ width: `${(d.netto / maxVal) * 100}%`, background: '#2563eb' }} />
+                        <div className="h-full rounded-full" style={{ width: `${(d.netto / maxVal) * 100}%`, background: '#16a34a' }} />
                       </div>
                     </div>
                     <div className="w-44 shrink-0 text-right text-sm tabular-nums leading-tight">
-                      <div className="font-semibold" style={{ color: '#7c3aed' }}>{eurFmt.format(d.bc)}&nbsp;€</div>
-                      <div className="text-xs" style={{ color: '#2563eb' }}>{eurFmt.format(d.netto)}&nbsp;€</div>
+                      <div className="font-semibold" style={{ color: '#ea580c' }}>{eurFmt.format(d.bc)}&nbsp;€</div>
+                      <div className="text-xs" style={{ color: '#16a34a' }}>{eurFmt.format(d.netto)}&nbsp;€</div>
                     </div>
                   </div>
                 ))}
                 <div className="flex items-center gap-4 pt-3 mt-1 border-t border-slate-100 text-xs text-slate-500">
-                  <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm" style={{ background: '#7c3aed' }} /> Costo budget annuo (B&amp;C)</span>
-                  <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm" style={{ background: '#2563eb' }} /> Netto del mese</span>
+                  <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm" style={{ background: '#ea580c' }} /> Costo budget annuo (B&amp;C)</span>
+                  <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm" style={{ background: '#16a34a' }} /> Netto del mese</span>
                 </div>
               </div>
             )}
@@ -1005,9 +1005,9 @@ function PanoramicaTab(props: {
               <span className="text-xs text-slate-400">spia di controllo — le tre fonti devono avvicinarsi</span>
             </div>
             <div className="flex flex-col sm:flex-row items-stretch gap-3">
-              <QuadCard label={`Netto anno ${year}`} value={nettoYear} sub="somma mensilità importate (no ×12)" color="#2563eb" />
+              <QuadCard label={`Netto anno ${year}`} value={nettoYear} sub="somma mensilità importate (no ×12)" color="#16a34a" />
               <div className="flex items-center justify-center text-xs font-semibold text-slate-300">VS</div>
-              <QuadCard label="Costo budget B&C" value={totalBC} sub="conti 6701/6703/6705" color="#7c3aed" />
+              <QuadCard label="Costo budget B&C" value={totalBC} sub="conti 6701/6703/6705" color="#ea580c" />
               <div className="flex items-center justify-center text-xs font-semibold text-slate-300">VS</div>
               <QuadCard label={`Costo bilancio ${year}`} value={bilancioPersonale ?? 0} sub={bilancioPersonale == null ? 'non disponibile' : 'consuntivo depositato'} muted={bilancioPersonale == null} />
             </div>
@@ -1530,7 +1530,7 @@ function SchedaDipendenteModal({ employee, year, costs, allocs, companyId, onClo
 
       <div className="mt-4 p-3 rounded-lg bg-slate-50 border border-slate-200 flex items-center justify-between text-sm">
         <span className="text-slate-600">Totale netto {year} <span className="text-slate-400">({mesiCompilati} mesi compilati)</span></span>
-        <strong className="tabular-nums" style={{ color: '#2563eb' }}>{eurFmt.format(totale)}&nbsp;€</strong>
+        <strong className="tabular-nums" style={{ color: '#16a34a' }}>{eurFmt.format(totale)}&nbsp;€</strong>
       </div>
 
       <div className="flex justify-end gap-2 mt-5">
@@ -1759,10 +1759,10 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
     }
   };
 
-  const accent = isNetto ? 'text-blue-600' : 'text-violet-600';
+  const accent = isNetto ? 'text-green-600' : 'text-orange-600';
   const chip = isNetto
-    ? <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-blue-50 text-blue-600">cassa</span>
-    : <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-violet-50 text-violet-600">costo</span>;
+    ? <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-green-50 text-green-600">cassa</span>
+    : <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-orange-50 text-orange-600">costo</span>;
 
   return (
     <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
@@ -1793,9 +1793,9 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
         onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
         onDragLeave={() => setDragOver(false)}
         onDrop={handleDrop}
-        className={`mb-4 rounded-xl border-2 border-dashed p-6 text-center cursor-pointer transition-colors ${dragOver ? (isNetto ? 'border-blue-400 bg-blue-50' : 'border-violet-400 bg-violet-50') : 'border-slate-300 hover:border-slate-400 bg-slate-50'}`}
+        className={`mb-4 rounded-xl border-2 border-dashed p-6 text-center cursor-pointer transition-colors ${dragOver ? (isNetto ? 'border-green-400 bg-green-50' : 'border-orange-400 bg-orange-50') : 'border-slate-300 hover:border-slate-400 bg-slate-50'}`}
       >
-        <Upload size={22} className={`mx-auto mb-2 ${isNetto ? 'text-blue-500' : 'text-violet-500'}`} />
+        <Upload size={22} className={`mx-auto mb-2 ${isNetto ? 'text-green-500' : 'text-orange-500'}`} />
         <div className="text-sm font-medium text-slate-700">{parsing ? 'Lettura del file…' : 'Trascina qui il file PDF / CSV / Excel'}</div>
         <div className="text-xs text-slate-400 mt-0.5">oppure clicca per sceglierlo {fileName && !parsing ? `· ${fileName}` : ''}</div>
       </div>
