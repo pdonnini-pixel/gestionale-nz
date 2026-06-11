@@ -482,10 +482,12 @@ const ScadenzarioSmart = () => {
       const movementIds = (payablesRaw || []).map(p => p.cash_movement_id).filter((v): v is string => Boolean(v));
       const cashMovBankMap = new Map<string, string>();
       if (movementIds.length > 0) {
+        // Filtro per azienda invece di .in(movementIds): la lista cresce con i payables
+        // riconciliati e l'URL .in(...) rischia il 400 oltre i ~25KB. Bounded per azienda.
         const { data: movs } = await supabase
           .from('cash_movements')
           .select('id, bank_account_id')
-          .in('id', movementIds);
+          .eq('company_id', COMPANY_ID!);
         (movs || []).forEach(m => {
           if (m.bank_account_id) cashMovBankMap.set(m.id, m.bank_account_id);
         });
@@ -496,20 +498,21 @@ const ScadenzarioSmart = () => {
       // creazione della distinta; la fattura resta aperta finche' non riconciliata.
       const dispMap = new Map<string, { date: string | null; bankId: string | null }>();
       {
-        const payableIds = (viewData || []).map(r => r.id).filter((v): v is string => Boolean(v));
-        if (payableIds.length > 0) {
-          const { data: dispActions } = await supabase
-            .from('payable_actions')
-            .select('payable_id, bank_account_id, performed_at')
-            .eq('action_type', 'disposizione')
-            .in('payable_id', payableIds)
-            .order('performed_at', { ascending: false });
-          (dispActions || []).forEach(a => {
-            if (a.payable_id && !dispMap.has(a.payable_id)) {
-              dispMap.set(a.payable_id, { date: a.performed_at, bankId: a.bank_account_id || null });
-            }
-          });
-        }
+        // Filtro per azienda via embedded join (payables!inner) invece di .in(payableIds):
+        // con molti payables (>~700) l'URL .in(...) superava i ~25KB e Supabase rispondeva
+        // 400. Il join filtrato e' bounded e indipendente dalla crescita dei dati.
+        const { data: dispActions } = await supabase
+          .from('payable_actions')
+          .select('payable_id, bank_account_id, performed_at, payables!inner(company_id)')
+          .eq('action_type', 'disposizione')
+          .eq('payables.company_id', COMPANY_ID!)
+          .order('performed_at', { ascending: false });
+        (dispActions || []).forEach(a => {
+          // La riga include la chiave nidificata `payables` (solo per il filtro): ignorata.
+          if (a.payable_id && !dispMap.has(a.payable_id)) {
+            dispMap.set(a.payable_id, { date: a.performed_at, bankId: a.bank_account_id || null });
+          }
+        });
       }
 
       const enrichedPayables: AnyRow[] = (viewData || []).map(row => {
