@@ -108,7 +108,11 @@ function extractNames(page: string, filialeMatch: string | null, n: number): { c
 
 export type PdfItem = { str: string; x: number; y: number };
 const RE_MAT_ONE = /^\d{7}$/;
-const RE_MONEY_ONE = /^\d{1,3}(?:\.\d{3})*,\d{2}$/;
+// L'item importo può avere l'IBAN concatenato ("1.417,00 IT53…"): riconosci un importo
+// in TESTA all'item (non full-string) ed estrai solo quello.
+const RE_MONEY_LEAD = /^(\d{1,3}(?:\.\d{3})*,\d{2})(?![\d.,])/;
+const moneyLead = (s: string): number | null => { const m = s.trim().match(RE_MONEY_LEAD); return m ? parseItNum(m[1]) : null; };
+const isMoneyItem = (s: string) => RE_MONEY_LEAD.test(s.trim());
 const ROW_LABEL = /^(totale|totali|nr|n|di|del|della|ripartizione|aziendale|importo|importi|cod\.?|dip\.?|cognome|nome|filiale|e|progressivo)$/i;
 
 // PDF "Elenco netti" — il documento è RUOTATO: le RIGHE sono sull'asse X (transform[4]),
@@ -134,7 +138,7 @@ export function parseInfinityNettiItems(pages: PdfItem[][], outlets: ParserOutle
     for (const g of groups) {
       const sorted = g.items.slice().sort((a, b) => a.y - b.y);
       const matTok = sorted.find((i) => RE_MAT_ONE.test(i.str.trim()));
-      const moneyItems = sorted.filter((i) => RE_MONEY_ONE.test(i.str.trim()));
+      const moneyItems = sorted.filter((i) => isMoneyItem(i.str)); // importo in testa (IBAN concatenato ok)
       if (!matTok || !moneyItems.length) continue; // intestazioni / totali → scartate
       const nettoItem = moneyItems[0]; // il netto è la colonna importo (Y più bassa dei money)
       // Il NOME è solo la colonna nome: token con Y < Y(netto). Esclude IBAN/banca/beneficiario
@@ -142,7 +146,7 @@ export function parseInfinityNettiItems(pages: PdfItem[][], outlets: ParserOutle
       const nameParts = sorted
         .filter((i) => i.y < nettoItem.y)
         .map((i) => i.str.trim())
-        .filter((t) => !RE_MAT_ONE.test(t) && !RE_MONEY_ONE.test(t) && !ROW_LABEL.test(t));
+        .filter((t) => !RE_MAT_ONE.test(t) && !isMoneyItem(t) && !ROW_LABEL.test(t));
       const fullName = nameParts.join(' ').replace(/\s+/g, ' ').trim();
       const parts = fullName.split(' ');
       const r = blankRow();
@@ -150,7 +154,7 @@ export function parseInfinityNettiItems(pages: PdfItem[][], outlets: ParserOutle
       r.cognome = parts[0] || '';
       r.nome = parts.slice(1).join(' ');
       r.outlet = outlet;
-      r.netto = parseItNum(nettoItem.str.trim());
+      r.netto = moneyLead(nettoItem.str); // solo l'importo in testa (eventuale IBAN concatenato escluso)
       pageRows.push(r);
     }
 
@@ -163,8 +167,8 @@ export function parseInfinityNettiItems(pages: PdfItem[][], outlets: ParserOutle
       const gtxt = deDouble(g.items.map((i) => i.str).join(' '));
       if (/totale\s+aziendale/i.test(gtxt)) continue; // ignora il totale documento
       if (/totale\s+di\s+ripartizione/i.test(gtxt)) {
-        const money = g.items.map((i) => i.str.trim()).find((t) => RE_MONEY_ONE.test(t));
-        if (money) totRip = parseItNum(money);
+        const money = g.items.map((i) => i.str.trim()).find((t) => isMoneyItem(t));
+        if (money) totRip = moneyLead(money);
         const nm = gtxt.match(/nr\s+dipendenti[^\d]{0,10}(\d+)/i);
         if (nm) nrDip = parseInt(nm[1], 10);
       }
