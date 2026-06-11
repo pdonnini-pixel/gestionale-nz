@@ -282,6 +282,9 @@ const ScadenzarioSmart = () => {
   const [paymentPlan, setPaymentPlan] = useState<Record<string, PlanEntry>>({});
   const [emailRecipients, setEmailRecipients] = useState('');
   const [showEmailConfig, setShowEmailConfig] = useState(false);
+  // Conferma custom (vietati confirm/alert/prompt nativi)
+  const [confirmDialog, setConfirmDialog] = useState<{ message: string; resolve: (v: boolean) => void } | null>(null);
+  const askConfirm = useCallback((message: string) => new Promise<boolean>((resolve) => setConfirmDialog({ message, resolve })), []);
   type ConfirmPayment = { fornitore: string; fattura: string; importo: number; bankId: string; banca: string; iban: string; ibanBeneficiario: string; pivaBeneficiario: string; tipo: string; metodo: string; note: string }
   type ConfirmBank = { bankName: string; iban: string; saldoIniziale: number; totalePagamenti: number; pagamenti: ConfirmPayment[]; saldoFinale?: number }
   type ConfirmResult = { results: ConfirmPayment[]; banks: ConfirmBank[]; totaleComplessivo: number; emailBody: string; emailSubject: string } | null
@@ -313,6 +316,9 @@ const ScadenzarioSmart = () => {
     } else {
       next.add(id);
       nextPlan[id] = { bankId: '', type: 'saldo', amount: Number(payable.amount_remaining) || 0, note: '' };
+      if (payable.disposizione_date && payable.status !== 'pagato' && payable.status !== 'annullato') {
+        toast({ type: 'warning', message: `Fattura ${payable.invoice_number || ''} già in distinta dal ${new Date(payable.disposizione_date as string).toLocaleDateString('it-IT')} — verrà inserita di nuovo.` });
+      }
     }
     setSelectedIds(next);
     setPaymentPlan(nextPlan);
@@ -485,6 +491,27 @@ const ScadenzarioSmart = () => {
         });
       }
 
+      // Ultima disposizione (distinta) per payable -> badge "In distinta".
+      // L'azione 'disposizione' viene scritta da confirmPayments al momento della
+      // creazione della distinta; la fattura resta aperta finche' non riconciliata.
+      const dispMap = new Map<string, { date: string | null; bankId: string | null }>();
+      {
+        const payableIds = (viewData || []).map(r => r.id).filter((v): v is string => Boolean(v));
+        if (payableIds.length > 0) {
+          const { data: dispActions } = await supabase
+            .from('payable_actions')
+            .select('payable_id, bank_account_id, performed_at')
+            .eq('action_type', 'disposizione')
+            .in('payable_id', payableIds)
+            .order('performed_at', { ascending: false });
+          (dispActions || []).forEach(a => {
+            if (a.payable_id && !dispMap.has(a.payable_id)) {
+              dispMap.set(a.payable_id, { date: a.performed_at, bankId: a.bank_account_id || null });
+            }
+          });
+        }
+      }
+
       const enrichedPayables: AnyRow[] = (viewData || []).map(row => {
         const extra = ((row.id && payablesExtraMap[row.id]) || {}) as AnyRow;
         const baseRow: AnyRow = {
@@ -529,6 +556,11 @@ const ScadenzarioSmart = () => {
           cash_movement_id: (extra.cash_movement_id as string | null) ?? null,
           cost_category_id: (extra.cost_category_id as string | null) ?? null,
           verified: Boolean(extra.verified),
+          disposizione_date: row.id ? (dispMap.get(row.id)?.date ?? null) : null,
+          disposizione_bank_name: (() => {
+            const b = row.id ? dispMap.get(row.id)?.bankId : null;
+            return b ? bankNameById.get(b) || null : null;
+          })(),
         };
         // Fix 5.1: ricalcolo lo stato dalla data se non e' terminale
         baseRow.status = calculatePayableStatus(baseRow);
@@ -981,20 +1013,31 @@ const ScadenzarioSmart = () => {
   }, [payables]);
 
   // Handlers
+  // Override manuale per pagamenti eseguiti fuori dall'app (RID, F24, home banking):
+  // somma additiva su amount_paid (cap a gross_amount), ricalcolo residuo e stato.
   const handleMarkAsPaid = useCallback(async (payableId: string, amount: number, bankAccountId: string | null) => {
     try {
       const payableMod = modals.payment.payable as AnyRow | null;
-      await supabase.from('payables').update({
-        amount_paid: amount,
+      const gross = Number(payableMod?.gross_amount) || 0;
+      const newPaid = Math.min(gross, (Number(payableMod?.amount_paid) || 0) + amount);
+      const newRemaining = Math.max(0, gross - newPaid);
+      const { error } = await supabase.from('payables').update({
+        amount_paid: newPaid,
+        amount_remaining: newRemaining,
         payment_date: today.toISOString().split('T')[0],
         payment_bank_account_id: bankAccountId,
-        status: amount >= ((payableMod?.amount_remaining as number | null) || 0) ? 'pagato' : 'parziale',
+        status: newRemaining <= 0 ? 'pagato' : 'parziale',
       } as never).eq('id', payableId);
+      if (error) {
+        toast({ type: 'error', message: 'Errore registrazione pagamento: ' + error.message });
+        return;
+      }
       fetchData();
     } catch (error) {
       console.error('Error marking payment:', error);
+      toast({ type: 'error', message: 'Errore registrazione pagamento: ' + (error instanceof Error ? error.message : String(error)) });
     }
-  }, [today, modals, fetchData]);
+  }, [today, modals, fetchData, toast]);
 
   type InvoiceData = { supplierId: string; invoiceNumber: string; invoiceDate: string; dueDate: string; grossAmount: number; paymentMethod?: string }
   const handleCreateInvoice = useCallback(async (invoiceData: InvoiceData) => {
@@ -1192,7 +1235,7 @@ const ScadenzarioSmart = () => {
     if (hasNegativeBalance || selectedIds.size === 0) return;
     setIsSaving(true);
     const results = [];
-    const today_str = new Date().toISOString().split('T')[0];
+    const dataStr = new Date().toLocaleDateString('it-IT');
 
     try {
       for (const id of selectedIds) {
@@ -1200,27 +1243,34 @@ const ScadenzarioSmart = () => {
         const payable = payables.find(p => p.id === id);
         if (!plan || !payable) continue;
 
-        const newPaid = (payable.amount_paid || 0) + plan.amount;
-        const newStatus = plan.type === 'saldo' ? 'pagato' : 'parziale';
         const bank = bankAccounts.find(b => b.id === plan.bankId);
 
-        await supabase.from('payables').update({
-          amount_paid: newPaid,
-          amount_remaining: (payable.gross_amount ?? 0) - newPaid,
-          payment_date: today_str,
-          payment_bank_account_id: plan.bankId || null,
-          status: newStatus,
-        } as never).eq('id', id);
+        // NUOVO DISEGNO: la distinta NON marca la fattura pagata. La fattura resta
+        // aperta e si chiude solo quando il movimento bancario reale viene importato
+        // e riconciliato. Qui scriviamo SOLO una traccia leggera + la banca attesa.
 
-        await supabase.from('payable_actions').insert({
+        // 1) traccia disposizione (audit)
+        const { error: actErr } = await supabase.from('payable_actions').insert({
           payable_id: id,
-          action_type: newStatus === 'pagato' ? 'pagamento' : 'pagamento_parziale',
+          action_type: 'disposizione',
           old_status: payable.status,
-          new_status: newStatus,
+          new_status: payable.status,
           amount: plan.amount,
           bank_account_id: plan.bankId || null,
-          note: plan.note || null,
+          note: `Distinta del ${dataStr} — ${bank?.bank_name || 'N/D'}`,
         } as never);
+        if (actErr) {
+          throw new Error(`Errore registrazione disposizione (${payable.invoice_number || id}): ${actErr.message}`);
+        }
+
+        // 2) banca attesa: serve alla riconciliazione per sapere da quale conto
+        //    aspettarsi il movimento. NESSUN altro campo della fattura viene toccato.
+        const { error: bankErr } = await supabase.from('payables').update({
+          payment_bank_account_id: plan.bankId || null,
+        } as never).eq('id', id);
+        if (bankErr) {
+          throw new Error(`Errore impostazione banca attesa (${payable.invoice_number || id}): ${bankErr.message}`);
+        }
 
         results.push({
           fornitore: payable.suppliers?.ragione_sociale || payable.suppliers?.name || 'N/A',
@@ -1260,7 +1310,6 @@ const ScadenzarioSmart = () => {
       });
       const banks = Object.values(bankMap);
       const totaleComplessivo = results.reduce((s, r) => s + r.importo, 0);
-      const dataStr = new Date().toLocaleDateString('it-IT');
 
       // Costruisci email strutturata
       const emailSubject = `Disposizione pagamenti fornitori - ${dataStr}`;
@@ -1277,8 +1326,11 @@ const ScadenzarioSmart = () => {
       setSelectedIds(new Set());
       setPaymentPlan({});
       setIsSaving(false);
+      // Ricarico per mostrare il badge "In distinta" sulle righe disposte
+      fetchData();
     } catch (error) {
       console.error('Error confirming payments:', error);
+      toast({ type: 'error', message: 'Errore creazione distinta: ' + (error instanceof Error ? error.message : String(error)) });
       setIsSaving(false);
     }
   };
@@ -1322,7 +1374,7 @@ const ScadenzarioSmart = () => {
       return;
     }
 
-    if (!confirm(`Lanciare ${Array.from(groupsByBank.values()).reduce((n, g) => n + g.items.length, 0)} bonifico/i via A-Cube su ${groupsByBank.size} banca/banche?\n\nVerrà generata 1 distinta per banca. Si apriranno gli URL di autorizzazione PSD2 da firmare sulla banca.`)) return;
+    if (!(await askConfirm(`Lanciare ${Array.from(groupsByBank.values()).reduce((n, g) => n + g.items.length, 0)} bonifico/i via A-Cube su ${groupsByBank.size} banca/banche?\n\nVerrà generata 1 distinta per banca. Si apriranno gli URL di autorizzazione PSD2 da firmare sulla banca.`))) return;
 
     setIsSaving(true);
     const today_str = new Date().toISOString().split('T')[0];
@@ -2318,6 +2370,13 @@ const ScadenzarioSmart = () => {
                             <button onClick={(e) => { e.stopPropagation(); setStatusDropdownId(statusDropdownId === p.id ? null : p.id); setCategoryDropdownId(null); }}>
                               <StatusPill status={p.status} />
                             </button>
+                            {!!p.disposizione_date && p.status !== 'pagato' && p.status !== 'annullato' && (
+                              <Tooltip content={`Disposta il ${new Date(p.disposizione_date as string).toLocaleDateString('it-IT')}${p.disposizione_bank_name ? ' da ' + p.disposizione_bank_name : ''} — in attesa di addebito e riconciliazione`}>
+                                <span className="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-50 text-[10px] text-amber-700 font-medium border border-amber-200">
+                                  <Clock size={10} /> In distinta {new Date(p.disposizione_date as string).toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit' })}
+                                </span>
+                              </Tooltip>
+                            )}
                             {statusDropdownId === p.id && (
                               <div className="absolute z-50 top-full left-1/2 -translate-x-1/2 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg py-1 min-w-[140px]" onClick={e => e.stopPropagation()}>
                                 {['da_pagare', 'scaduto', 'parziale', 'pagato', 'contestato', 'annullato'].map(s => (
@@ -2735,15 +2794,14 @@ const ScadenzarioSmart = () => {
                     )}
                     <button onClick={confirmPayments} disabled={isSaving || hasNegativeBalance || Array.from(selectedIds).some(id => !paymentPlan[id]?.bankId)}
                       className="px-6 py-2 bg-emerald-600 text-white hover:bg-emerald-700 rounded-lg text-sm font-bold disabled:opacity-50 disabled:cursor-not-allowed"
-                      title="Marca come pagato + invia email distinta alla commercialista (per pagamenti già fatti via home banking, F24, RID, ecc.)">
-                      {isSaving ? 'Elaborazione...' : 'Marca pagato'}
+                      title="Genera l'email-distinta di pagamento. La fattura resterà aperta finché il movimento bancario non verrà importato e riconciliato.">
+                      {isSaving ? 'Elaborazione...' : 'Crea distinta'}
                     </button>
-                    <button onClick={confirmPaymentsViaAcube}
-                      disabled={isSaving || hasNegativeBalance || Array.from(selectedIds).some(id => !paymentPlan[id]?.bankId) || !someSelectedBankIsAcube}
-                      className="px-6 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded-lg text-sm font-bold disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
-                      title={someSelectedBankIsAcube ? 'Esegue bonifico SEPA reale via A-Cube PSD2 — apre tab autorizzazione su ogni banca' : 'Nessuna banca selezionata è collegata ad A-Cube'}>
+                    <button disabled
+                      className="px-6 py-2 bg-slate-200 text-slate-400 rounded-lg text-sm font-bold cursor-not-allowed flex items-center gap-1.5"
+                      title="In arrivo: bonifico SEPA diretto dal gestionale via A-Cube PSD2">
                       <Wallet size={14} />
-                      {isSaving ? 'Elaborazione...' : 'Paga via A-Cube'}
+                      Paga via A-Cube — Prossima feature
                     </button>
                   </div>
                 </div>
@@ -2753,6 +2811,19 @@ const ScadenzarioSmart = () => {
         </>
       ) : null}
       </div>{/* chiude content wrapper */}
+
+      {/* Conferma custom (sostituisce confirm() nativo) */}
+      <Modal open={!!confirmDialog} onClose={() => { confirmDialog?.resolve(false); setConfirmDialog(null); }} title="Conferma">
+        <div className="space-y-4">
+          <p className="text-sm text-slate-700 whitespace-pre-line">{confirmDialog?.message}</p>
+          <div className="flex gap-3 pt-2">
+            <button onClick={() => { confirmDialog?.resolve(false); setConfirmDialog(null); }}
+              className="flex-1 py-2.5 rounded-lg border border-slate-200 text-sm font-medium hover:bg-slate-50">Annulla</button>
+            <button onClick={() => { confirmDialog?.resolve(true); setConfirmDialog(null); }}
+              className="flex-1 py-2.5 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700">Conferma</button>
+          </div>
+        </div>
+      </Modal>
 
       {/* Email Config Modal */}
       {showEmailConfig && (
