@@ -9,7 +9,7 @@ import {
   ChevronDown, ChevronRight, Landmark, BarChart3, GitCompare, Target,
   CalendarClock, UserCheck, PieChart, Sparkles, Activity, Sliders,
   Upload, FolderArchive, TrendingUp, ChevronsUpDown, Building,
-  Menu, X, ChevronsLeft, ChevronsRight, Split,
+  Menu, X, ChevronsLeft, ChevronsRight,
   MessageSquare, Shield,
   LucideIcon
 } from 'lucide-react'
@@ -87,7 +87,6 @@ function buildSections(labels: CompanyLabels): NavSection[] {
       label: 'Ciclo Passivo',
       items: [
         { to: '/fornitori', icon: Users, label: 'Fornitori', roles: ['super_advisor', 'cfo', 'contabile'] },
-        { to: '/allocazione-fornitori', icon: Split, label: 'Divisione Fornitori', roles: ['super_advisor', 'cfo', 'contabile'], minOutlets: 2 },
         { to: '/fatturazione', icon: FileText, label: 'Fatturazione', roles: ['super_advisor', 'cfo', 'contabile'] },
         { to: '/scadenzario', icon: CalendarClock, label: 'Scadenzario', badgeKey: 'scadenzario', roles: ['super_advisor', 'ceo', 'cfo', 'contabile'] },
       ],
@@ -151,7 +150,6 @@ export function buildBreadcrumbMap(
     '/confronto-outlet': { section: sectionPos, page: `Confronto ${posPlural}` },
     '/budget': { section: sectionPos, page: 'Budget & Controllo' },
     '/fornitori': { section: 'Ciclo Passivo', page: 'Fornitori' },
-    '/allocazione-fornitori': { section: 'Ciclo Passivo', page: 'Divisione Fornitori' },
     '/fatturazione': { section: 'Ciclo Passivo', page: 'Fatturazione' },
     '/scadenzario': { section: 'Ciclo Passivo', page: 'Scadenzario' },
     '/scadenze-fiscali': { section: 'Ciclo Passivo', page: 'Scadenze Fiscali' },

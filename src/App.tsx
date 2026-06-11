@@ -35,7 +35,6 @@ const Fatturazione = lazy(() => import('./pages/Fatturazione'))
 const AcubeFatturaForm = lazy(() => import('./pages/AcubeFatturaForm'))
 const ScadenzeFiscali = lazy(() => import('./pages/ScadenzeFiscali'))
 const AICategoriePage = lazy(() => import('./pages/AICategoriePage'))
-const AllocazioneFornitori = lazy(() => import('./pages/AllocazioneFornitori'))
 const SchedaContabileFornitore = lazy(() => import('./pages/SchedaContabileFornitore'))
 const Profilo = lazy(() => import('./pages/Profilo'))
 const Ticket = lazy(() => import('./pages/Ticket'))
@@ -124,7 +123,8 @@ function AppRoutes() {
           <Route path="import-hub" element={<ImportHub />} />
           <Route path="fornitori" element={<Fornitori />} />
           <Route path="fornitori/:supplierId/scheda-contabile" element={<SchedaContabileFornitore />} />
-          <Route path="allocazione-fornitori" element={<AllocazioneFornitori />} />
+          {/* /allocazione-fornitori assorbita dal pannello "Gestione" in /fornitori */}
+          <Route path="allocazione-fornitori" element={<Navigate to="/fornitori" replace />} />
           <Route path="fatturazione" element={<Fatturazione />} />
           <Route path="fatturazione/nuova-acube" element={<AcubeFatturaForm />} />
           {/* /prima-nota → ora tab dentro Banche (TesoreriaManuale) */}
