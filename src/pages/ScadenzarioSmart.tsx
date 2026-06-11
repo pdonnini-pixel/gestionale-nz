@@ -287,8 +287,15 @@ const ScadenzarioSmart = () => {
   const askConfirm = useCallback((message: string) => new Promise<boolean>((resolve) => setConfirmDialog({ message, resolve })), []);
   type ConfirmPayment = { fornitore: string; fattura: string; importo: number; bankId: string; banca: string; iban: string; ibanBeneficiario: string; pivaBeneficiario: string; tipo: string; metodo: string; note: string }
   type ConfirmBank = { bankName: string; iban: string; saldoIniziale: number; totalePagamenti: number; pagamenti: ConfirmPayment[]; saldoFinale?: number }
-  type ConfirmResult = { results: ConfirmPayment[]; banks: ConfirmBank[]; totaleComplessivo: number; emailBody: string; emailSubject: string } | null
+  // Item grezzo da salvare in distinta SOLO alla conferma esplicita (no side-effect)
+  type DistintaItem = { payableId: string; bankId: string; amount: number; status: string; note: string }
+  type ConfirmResult = { results: ConfirmPayment[]; banks: ConfirmBank[]; totaleComplessivo: number; emailBody: string; emailSubject: string; items: DistintaItem[] } | null
   const [confirmResult, setConfirmResult] = useState<ConfirmResult>(null);
+  // La distinta è stata effettivamente salvata? (gate per "Conferma distinta")
+  const [distintaSaved, setDistintaSaved] = useState(false);
+  // Modale "Rimuovi dalla distinta" (conferma) e fallback copia-testo per mailto troppo lunghi
+  const [removeDistintaModal, setRemoveDistintaModal] = useState<{ payableId: string; invoiceNumber: string } | null>(null);
+  const [mailFallback, setMailFallback] = useState<{ subject: string; body: string } | null>(null);
   const [selectedMethodGroup, setSelectedMethodGroup] = useState<any>(null);
   const [supplierDetail, setSupplierDetail] = useState<any>(null);
   const [viewingXml, setViewingXml] = useState<any>(null);
@@ -317,7 +324,7 @@ const ScadenzarioSmart = () => {
       next.add(id);
       nextPlan[id] = { bankId: '', type: 'saldo', amount: Number(payable.amount_remaining) || 0, note: '' };
       if (payable.disposizione_date && payable.status !== 'pagato' && payable.status !== 'annullato') {
-        toast({ type: 'warning', message: `Fattura ${payable.invoice_number || ''} già in distinta dal ${new Date(payable.disposizione_date as string).toLocaleDateString('it-IT')} — verrà inserita di nuovo.` });
+        toast({ type: 'warning', message: `Fattura ${payable.invoice_number || ''} è già in distinta dal ${new Date(payable.disposizione_date as string).toLocaleDateString('it-IT')}: non verrà aggiunta di nuovo.` });
       }
     }
     setSelectedIds(next);
@@ -1235,10 +1242,14 @@ const ScadenzarioSmart = () => {
     }
   }, [payables, toast, fetchData]);
 
+  // "Crea distinta" (bottom bar): costruisce SOLO l'anteprima (recap + email).
+  // NESSUNA scrittura su DB qui: il salvataggio avviene solo con "Conferma distinta"
+  // nel modale. Cosi' chiudere senza confermare non lascia righe "In distinta".
   const confirmPayments = async () => {
     if (hasNegativeBalance || selectedIds.size === 0) return;
     setIsSaving(true);
     const results = [];
+    const items: DistintaItem[] = [];
     const dataStr = new Date().toLocaleDateString('it-IT');
 
     try {
@@ -1249,32 +1260,15 @@ const ScadenzarioSmart = () => {
 
         const bank = bankAccounts.find(b => b.id === plan.bankId);
 
-        // NUOVO DISEGNO: la distinta NON marca la fattura pagata. La fattura resta
-        // aperta e si chiude solo quando il movimento bancario reale viene importato
-        // e riconciliato. Qui scriviamo SOLO una traccia leggera + la banca attesa.
-
-        // 1) traccia disposizione (audit)
-        const { error: actErr } = await supabase.from('payable_actions').insert({
-          payable_id: id,
-          action_type: 'disposizione',
-          old_status: payable.status,
-          new_status: payable.status,
+        // Riga da salvare alla conferma (la disposizione NON marca la fattura pagata:
+        // resta aperta finche' il movimento non viene riconciliato).
+        items.push({
+          payableId: id,
+          bankId: plan.bankId || '',
           amount: plan.amount,
-          bank_account_id: plan.bankId || null,
+          status: (payable.status as string) || 'da_pagare',
           note: `Distinta del ${dataStr} — ${bank?.bank_name || 'N/D'}`,
-        } as never);
-        if (actErr) {
-          throw new Error(`Errore registrazione disposizione (${payable.invoice_number || id}): ${actErr.message}`);
-        }
-
-        // 2) banca attesa: serve alla riconciliazione per sapere da quale conto
-        //    aspettarsi il movimento. NESSUN altro campo della fattura viene toccato.
-        const { error: bankErr } = await supabase.from('payables').update({
-          payment_bank_account_id: plan.bankId || null,
-        } as never).eq('id', id);
-        if (bankErr) {
-          throw new Error(`Errore impostazione banca attesa (${payable.invoice_number || id}): ${bankErr.message}`);
-        }
+        });
 
         results.push({
           fornitore: payable.suppliers?.ragione_sociale || payable.suppliers?.name || 'N/A',
@@ -1326,17 +1320,111 @@ const ScadenzarioSmart = () => {
         }).join('\n\n') +
         `\n\n${'─'.repeat(40)}\nTOTALE COMPLESSIVO: ${fmt(totaleComplessivo)} €\nNumero operazioni: ${results.length}\n\nCordiali saluti`;
 
-      setConfirmResult({ results, banks, totaleComplessivo, emailBody, emailSubject } as unknown as NonNullable<ConfirmResult>);
-      setSelectedIds(new Set());
-      setPaymentPlan({});
+      setConfirmResult({ results, banks, totaleComplessivo, emailBody, emailSubject, items } as unknown as NonNullable<ConfirmResult>);
+      setDistintaSaved(false);
       setIsSaving(false);
-      // Ricarico per mostrare il badge "In distinta" sulle righe disposte
-      fetchData();
+      // NB: nessuna scrittura né fetchData qui — è solo l'anteprima.
     } catch (error) {
-      console.error('Error confirming payments:', error);
-      toast({ type: 'error', message: 'Errore creazione distinta: ' + (error instanceof Error ? error.message : String(error)) });
+      console.error('Error building distinta preview:', error);
+      toast({ type: 'error', message: 'Errore creazione anteprima distinta: ' + (error instanceof Error ? error.message : String(error)) });
       setIsSaving(false);
     }
+  };
+
+  // "Conferma distinta": salva le disposizioni (azione esplicita). Dedup: non inserisce
+  // se la fattura è già in distinta (controllo applicativo + indice unique parziale lato DB).
+  const confirmDistinta = async () => {
+    if (!confirmResult || distintaSaved) return;
+    const items = confirmResult.items || [];
+    if (items.length === 0) return;
+    setIsSaving(true);
+    try {
+      const ids = items.map(i => i.payableId);
+      // Quali sono già in distinta? (batch piccolo = ids selezionati, nessun rischio URL)
+      const { data: existing } = await supabase
+        .from('payable_actions')
+        .select('payable_id, payables!inner(company_id)')
+        .eq('action_type', 'disposizione')
+        .eq('payables.company_id', COMPANY_ID!)
+        .in('payable_id', ids);
+      const already = new Set((existing || []).map(r => r.payable_id));
+
+      let inserted = 0, skipped = 0;
+      const errors: string[] = [];
+      for (const it of items) {
+        if (already.has(it.payableId)) { skipped++; continue; }
+        const { error: actErr } = await supabase.from('payable_actions').insert({
+          payable_id: it.payableId,
+          action_type: 'disposizione',
+          old_status: it.status,
+          new_status: it.status,
+          amount: it.amount,
+          bank_account_id: it.bankId || null,
+          note: it.note,
+        } as never);
+        if (actErr) {
+          // 23505 = violazione unique (indice parziale): già in distinta, non è un errore
+          if ((actErr as { code?: string }).code === '23505') { skipped++; continue; }
+          errors.push(`${it.payableId}: ${actErr.message}`);
+          continue;
+        }
+        // Banca attesa per la riconciliazione (nessun altro campo della fattura toccato)
+        await supabase.from('payables').update({ payment_bank_account_id: it.bankId || null } as never).eq('id', it.payableId);
+        inserted++;
+      }
+
+      setIsSaving(false);
+      if (errors.length > 0) {
+        toast({ type: 'error', message: `Distinta salvata con errori: ${inserted} aggiunte, ${errors.length} fallite.` });
+      } else if (skipped > 0) {
+        toast({ type: 'success', message: `Distinta confermata: ${inserted} aggiunte${skipped > 0 ? `, ${skipped} già in distinta (saltate)` : ''}.` });
+      } else {
+        toast({ type: 'success', message: `Distinta confermata: ${inserted} scadenze in distinta.` });
+      }
+      setDistintaSaved(true);
+      setSelectedIds(new Set());
+      setPaymentPlan({});
+      fetchData();
+    } catch (error) {
+      console.error('Error confirming distinta:', error);
+      toast({ type: 'error', message: 'Errore conferma distinta: ' + (error instanceof Error ? error.message : String(error)) });
+      setIsSaving(false);
+    }
+  };
+
+  // "Rimuovi dalla distinta": cancella la SINGOLA riga disposizione di quel payable.
+  const removeFromDistinta = async (payableId: string) => {
+    try {
+      const { error } = await supabase
+        .from('payable_actions')
+        .delete()
+        .eq('payable_id', payableId)
+        .eq('action_type', 'disposizione');
+      if (error) {
+        toast({ type: 'error', message: 'Errore rimozione dalla distinta: ' + error.message });
+        return;
+      }
+      toast({ type: 'success', message: 'Scadenza rimossa dalla distinta.' });
+      setRemoveDistintaModal(null);
+      fetchData();
+    } catch (error) {
+      toast({ type: 'error', message: 'Errore rimozione dalla distinta: ' + (error instanceof Error ? error.message : String(error)) });
+    }
+  };
+
+  // Apertura mail senza pagina blank: location.href diretto (no window.open su mailto).
+  // Se il mailto supera ~1900 char, niente mailto -> modale custom copia-testo.
+  const openDistintaMail = () => {
+    if (!confirmResult) return;
+    const to = emailRecipients || '';
+    const subject = encodeURIComponent(confirmResult.emailSubject);
+    const body = encodeURIComponent(confirmResult.emailBody);
+    const mailtoUrl = `mailto:${to}?subject=${subject}&body=${body}`;
+    if (mailtoUrl.length > 1900) {
+      setMailFallback({ subject: confirmResult.emailSubject, body: confirmResult.emailBody });
+      return;
+    }
+    window.location.href = mailtoUrl;
   };
 
   // Lancia bonifico reale via A-Cube PSD2: raggruppa per banca, crea distinta + items,
@@ -1515,6 +1603,7 @@ const ScadenzarioSmart = () => {
       scadute: filteredPayables.filter(p => p.status === 'scaduto').length,
       da_saldare: filteredPayables.filter(p => p.status !== 'pagato' && p.status !== 'annullato' && (p.gross_amount || 0) >= 0).length,
       saldate: filteredPayables.filter(p => p.status === 'pagato').length,
+      in_distinta: filteredPayables.filter(p => !!p.disposizione_date && p.status !== 'pagato' && p.status !== 'annullato').length,
     };
   }, [filteredPayables, payables]);
 
@@ -1525,6 +1614,7 @@ const ScadenzarioSmart = () => {
     let list = filteredPayables;
     if (sibillTab === 'scadute') list = list.filter(p => p.status === 'scaduto');
     else if (sibillTab === 'da_saldare') list = list.filter(p => p.status !== 'pagato' && p.status !== 'annullato' && (p.gross_amount || 0) >= 0);
+    else if (sibillTab === 'in_distinta') list = list.filter(p => !!p.disposizione_date && p.status !== 'pagato' && p.status !== 'annullato');
     else if (sibillTab === 'saldate') list = list.filter(p => p.status === 'pagato');
     else {
       // Tab "tutte" o default: logica Sibill — nascondi pagate dalla vista principale.
@@ -1799,6 +1889,7 @@ const ScadenzarioSmart = () => {
                 { key: 'tutte', label: 'Pagamenti' },
                 { key: 'saldate', label: 'Incassi' },
                 { key: 'da_saldare', label: 'Tutte le scadenze' },
+                { key: 'in_distinta', label: 'In distinta' },
               ].map(t => (
                 <button key={t.key} onClick={() => {
                   setSibillTab(t.key);
@@ -1818,6 +1909,9 @@ const ScadenzarioSmart = () => {
                       : 'border-transparent text-slate-400 hover:text-slate-600'
                   }`}>
                   {t.label}
+                  {t.key === 'in_distinta' && tabCounts.in_distinta > 0 && (
+                    <span className="ml-1.5 px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 text-[10px] font-semibold">{tabCounts.in_distinta}</span>
+                  )}
                 </button>
               ))}
             </div>
@@ -2515,6 +2609,14 @@ const ScadenzarioSmart = () => {
                                   <Eye size={13} />
                                 </button>
                               )}
+                              {/* Rimuovi dalla distinta — solo se la scadenza è in distinta */}
+                              {!!p.disposizione_date && p.status !== 'pagato' && p.status !== 'annullato' && (
+                                <button onClick={() => p.id && setRemoveDistintaModal({ payableId: p.id, invoiceNumber: p.invoice_number || '' })}
+                                  className="p-1 rounded text-amber-500 hover:text-amber-700 hover:bg-amber-50"
+                                  title="Rimuovi dalla distinta">
+                                  <Ban size={12} />
+                                </button>
+                              )}
                               {/* Rimanda scadenza (cambia due_date) — visibile su tutte le non pagate */}
                               {p.status !== 'pagato' && (
                                 <button onClick={() => setRinviaModal({ open: true, scheduleId: p.id || null, currentDueDate: p.due_date || null, invoiceNumber: p.invoice_number || null })}
@@ -2988,15 +3090,30 @@ const ScadenzarioSmart = () => {
 
       {/* Confirm Result Modal */}
       {confirmResult && (
-        <Modal open={true} onClose={() => { setConfirmResult(null); fetchData(); }} title="Pagamenti Confermati" wide>
+        <Modal open={true} onClose={() => { setConfirmResult(null); setDistintaSaved(false); fetchData(); }} title={distintaSaved ? 'Distinta confermata' : 'Anteprima distinta'} wide>
           <div className="space-y-4">
             {/* Header riepilogo */}
-            <div className="flex items-center justify-between p-3 bg-emerald-50 rounded-xl border border-emerald-200">
-              <p className="text-sm font-semibold text-emerald-800 flex items-center gap-2">
-                <CheckCircle2 size={18} /> {confirmResult.results.length} pagamenti registrati con successo
-              </p>
-              <span className="text-lg font-bold text-emerald-700">{fmt(confirmResult.totaleComplessivo)} €</span>
-            </div>
+            {distintaSaved ? (
+              <div className="flex items-center justify-between p-3 bg-emerald-50 rounded-xl border border-emerald-200">
+                <p className="text-sm font-semibold text-emerald-800 flex items-center gap-2">
+                  <CheckCircle2 size={18} /> {confirmResult.results.length} scadenze messe in distinta
+                </p>
+                <span className="text-lg font-bold text-emerald-700">{fmt(confirmResult.totaleComplessivo)} €</span>
+              </div>
+            ) : (
+              <div className="flex items-center justify-between p-3 bg-amber-50 rounded-xl border border-amber-200">
+                <p className="text-sm font-semibold text-amber-800 flex items-center gap-2">
+                  <Clock size={18} /> Anteprima: {confirmResult.results.length} scadenze — premi "Conferma distinta" per salvarle
+                </p>
+                <span className="text-lg font-bold text-amber-700">{fmt(confirmResult.totaleComplessivo)} €</span>
+              </div>
+            )}
+
+            {/* Conferma distinta (salvataggio esplicito) */}
+            <button onClick={confirmDistinta} disabled={isSaving || distintaSaved}
+              className={`w-full py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition ${distintaSaved ? 'bg-emerald-100 text-emerald-700 cursor-default' : 'bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50'}`}>
+              {distintaSaved ? <><CheckCircle2 size={16} /> Distinta confermata</> : (isSaving ? 'Salvataggio...' : <><CheckCircle2 size={16} /> Conferma distinta</>)}
+            </button>
 
             {/* Dettaglio per banca */}
             {confirmResult.banks.map((bank, bIdx) => {
@@ -3097,16 +3214,11 @@ const ScadenzarioSmart = () => {
                 <textarea readOnly value={confirmResult.emailBody} rows={8}
                   className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs font-mono bg-slate-50 mb-3" />
                 <div className="flex gap-2">
-                  <button onClick={() => navigator.clipboard.writeText(confirmResult.emailBody)}
+                  <button onClick={() => { navigator.clipboard.writeText(confirmResult.emailBody); toast({ type: 'success', message: 'Testo della distinta copiato.' }); }}
                     className="flex-1 py-2.5 bg-slate-200 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-300 flex items-center justify-center gap-2">
                     <Download size={14} /> Copia testo
                   </button>
-                  <button onClick={() => {
-                    const to = emailRecipients || '';
-                    const subject = encodeURIComponent(confirmResult.emailSubject);
-                    const body = encodeURIComponent(confirmResult.emailBody);
-                    window.open(`mailto:${to}?subject=${subject}&body=${body}`, '_blank');
-                  }}
+                  <button onClick={openDistintaMail}
                     className="flex-1 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 flex items-center justify-center gap-2">
                     <Send size={14} /> Apri nella posta
                   </button>
@@ -3116,6 +3228,43 @@ const ScadenzarioSmart = () => {
           </div>
         </Modal>
       )}
+
+      {/* Modale conferma "Rimuovi dalla distinta" */}
+      {removeDistintaModal && (
+        <Modal open={true} onClose={() => setRemoveDistintaModal(null)} title="Rimuovere dalla distinta?">
+          <div className="space-y-4">
+            <p className="text-sm text-slate-700">
+              La scadenza <strong>{removeDistintaModal.invoiceNumber || 'selezionata'}</strong> verrà tolta dalla distinta e tornerà allo stato precedente. La fattura non viene modificata.
+            </p>
+            <div className="flex gap-3 pt-1">
+              <button onClick={() => setRemoveDistintaModal(null)} className="flex-1 py-2.5 rounded-lg border border-slate-200 text-sm font-medium hover:bg-slate-50">Annulla</button>
+              <button onClick={() => removeFromDistinta(removeDistintaModal.payableId)}
+                className="flex-1 py-2.5 rounded-lg bg-amber-600 text-white text-sm font-medium hover:bg-amber-700">Rimuovi dalla distinta</button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Fallback copia-testo: mostrato quando il mailto è troppo lungo per il client di posta */}
+      {mailFallback && (
+        <Modal open={true} onClose={() => setMailFallback(null)} title="Distinta troppo lunga per la posta" wide>
+          <div className="space-y-3">
+            <p className="text-sm text-slate-600">
+              La distinta è troppo lunga per essere aperta automaticamente nel programma di posta. Copia il testo qui sotto e incollalo in una nuova email.
+            </p>
+            <textarea readOnly value={mailFallback.body} rows={12}
+              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs font-mono bg-slate-50" />
+            <div className="flex gap-3">
+              <button onClick={() => setMailFallback(null)} className="flex-1 py-2.5 rounded-lg border border-slate-200 text-sm font-medium hover:bg-slate-50">Chiudi</button>
+              <button onClick={() => { navigator.clipboard.writeText(mailFallback.body); toast({ type: 'success', message: 'Testo della distinta copiato.' }); }}
+                className="flex-1 py-2.5 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 flex items-center justify-center gap-2">
+                <Download size={14} /> Copia testo
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
       <PageHelp page="scadenzario" />
 
       {/* InvoiceViewer modal */}
