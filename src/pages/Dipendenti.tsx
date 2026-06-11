@@ -131,6 +131,73 @@ function OutletAccordion({ name, count, total, defaultOpen = false, children }: 
   );
 }
 
+// ORDINAMENTO GRANITICO: outlet veri (alfabetico) → SEDE / MAGAZZINO → (Amministratori a parte).
+const isSedeOutlet = (o: OutletRow) => o.cost_center_key === 'sede_magazzino';
+function sortOutlets(outlets: OutletRow[]): OutletRow[] {
+  return [...outlets].sort((a, b) => {
+    const as = isSedeOutlet(a) ? 1 : 0, bs = isSedeOutlet(b) ? 1 : 0;
+    return as - bs || a.name.localeCompare(b.name, 'it');
+  });
+}
+function sortGroupNames(names: string[], outlets: OutletRow[]): string[] {
+  const order = sortOutlets(outlets).map((o) => o.name);
+  const rank = (n: string) => { const i = order.indexOf(n); return i >= 0 ? i : 9000; };
+  return [...names].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b, 'it'));
+}
+
+// Sezione "Amministratori" — sempre in fondo. Netto del mese (no-zero) + costo lordo annuo.
+function AmministratoriAccordion({ admins, nettoCell, lordoTot, mm, year }: {
+  admins: Employee[]; nettoCell: (id: string) => number | null; lordoTot: number; mm: string; year: number;
+}) {
+  const [open, setOpen] = useState(false);
+  if (!admins.length && !lordoTot) return null;
+  const totNetto = admins.reduce((s, e) => s + (nettoCell(e.id) || 0), 0);
+  const single = admins.length === 1;
+  return (
+    <div className="border border-amber-200 rounded-xl overflow-hidden">
+      <button onClick={() => setOpen((v) => !v)} className="w-full flex items-center justify-between gap-3 px-4 py-3 bg-amber-50 hover:bg-amber-100 transition-colors">
+        <span className="flex items-center gap-2 min-w-0">
+          {open ? <ChevronDown size={16} className="text-amber-500 shrink-0" /> : <ChevronRight size={16} className="text-amber-500 shrink-0" />}
+          <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: '#f59e0b' }} />
+          <span className="font-semibold text-amber-800 truncate">Amministratori</span>
+          <span className="text-xs font-normal text-amber-700/70 shrink-0">· {admins.length} · esclusi dai conteggi dipendenti</span>
+        </span>
+        <span className="text-sm shrink-0">{totNetto ? <Money v={totNetto} strong /> : <span className="text-slate-300">—</span>}</span>
+      </button>
+      {open && (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-xs uppercase tracking-wide text-slate-500 bg-white border-b border-slate-200">
+                <th className="px-4 py-2 text-left font-bold">Amministratore</th>
+                <th className="px-4 py-2 text-right font-bold">Netto {mm}/{year}</th>
+                <th className="px-4 py-2 text-right font-bold">Costo lordo {year}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {admins.map((e) => {
+                const netto = nettoCell(e.id);
+                return (
+                  <tr key={e.id} className="border-b border-slate-100">
+                    <td className="px-4 py-2.5 font-semibold text-slate-800">{empName(e)}</td>
+                    <td className="px-4 py-2.5 text-right">{netto == null ? <span className="text-slate-300">—</span> : <Money v={netto} />}</td>
+                    <td className="px-4 py-2.5 text-right">{single ? <Money v={lordoTot} /> : <span className="text-slate-300">—</span>}</td>
+                  </tr>
+                );
+              })}
+              <tr className="font-bold border-t-2 border-slate-300">
+                <td className="px-4 py-2.5">Totale amministratori</td>
+                <td className="px-4 py-2.5 text-right"><Money v={totNetto} strong /></td>
+                <td className="px-4 py-2.5 text-right"><Money v={lordoTot} strong /></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ============================================================================
 // HELPERS
 // ============================================================================
@@ -253,6 +320,7 @@ export default function Dipendenti() {
   const [outlets, setOutlets] = useState<OutletRow[]>([]);
   const [employeeDocs, setEmployeeDocs] = useState<EmployeeDocument[]>([]);
   const [bcByCenter, setBcByCenter] = useState<Record<string, number>>({});
+  const [adminBudgetRows, setAdminBudgetRows] = useState<{ cost_center: string; amount: number }[]>([]);
   const [bilancioPersonale, setBilancioPersonale] = useState<number | null>(null);
   const [revenueYear, setRevenueYear] = useState<number>(0);
   const [loading, setLoading] = useState(true);
@@ -370,6 +438,27 @@ export default function Dipendenti() {
         revenue = (rev || []).reduce((s, r) => s + (Number(r.actual_amount) || Number(r.budget_amount) || 0), 0);
       }
       setRevenueYear(revenue);
+
+      // Costo lordo amministratori = budget_entries dei conti is_admin_compensation,
+      // per cost_center mappato a un outlet reale (escluso 'all'). Codici da DB, niente hardcoded.
+      const { data: admAccts } = await supabase
+        .from('chart_of_accounts')
+        .select('code')
+        .eq('company_id', cid)
+        .eq('is_admin_compensation', true);
+      const admCodes = (admAccts || []).map((r) => r.code);
+      if (admCodes.length) {
+        const { data: ab } = await supabase
+          .from('budget_entries')
+          .select('cost_center, budget_amount')
+          .eq('company_id', cid)
+          .eq('year', year)
+          .in('account_code', admCodes)
+          .neq('cost_center', 'all');
+        setAdminBudgetRows((ab || []).map((r) => ({ cost_center: r.cost_center as string, amount: Number(r.budget_amount) || 0 })));
+      } else {
+        setAdminBudgetRows([]);
+      }
     } catch (err) {
       console.error('Errore year-scoped Personale:', err);
     }
@@ -383,6 +472,8 @@ export default function Dipendenti() {
   // ========== DERIVED ==========
   const activeEmployees = useMemo(() => employees.filter((e) => e.is_active !== false), [employees]);
   const headcountEmployees = useMemo(() => activeEmployees.filter((e) => !isAdminRole(e)), [activeEmployees]);
+  const empById = useMemo(() => { const m: Record<string, Employee> = {}; employees.forEach((e) => { m[e.id] = e; }); return m; }, [employees]);
+  const isAdminId = (id: string) => { const e = empById[id]; return e ? isAdminRole(e) : false; };
 
   const allocByEmp = useMemo(() => {
     const m: Record<string, EmployeeOutletAllocation[]> = {};
@@ -413,6 +504,7 @@ export default function Dipendenti() {
   const nettoByOutlet = useMemo(() => {
     const m: Record<string, number> = {};
     activeEmployees.forEach((e) => {
+      if (isAdminRole(e)) return; // gli amministratori non entrano nei totali outlet
       const netto = nettoOf(e.id);
       if (!netto) return;
       const allocs = allocByEmp[e.id] || [];
@@ -428,9 +520,11 @@ export default function Dipendenti() {
 
   // REGOLA NO-ZERO: un dipendente "esiste" per il mese SOLO se ha un netto reale (cedolino).
   // Tutto ciò che è per-mese (organico, per outlet, cedolini) si basa su questo insieme.
+  // esclude gli amministratori: hanno una sezione dedicata e non contano nell'organico dipendenti
   const paidThisMonth = useMemo(
-    () => costs.filter((c) => c.year === selectedYear && c.month === selectedMonth && c.netto != null),
-    [costs, selectedYear, selectedMonth]
+    () => costs.filter((c) => c.year === selectedYear && c.month === selectedMonth && c.netto != null && c.employee_id != null && !isAdminId(c.employee_id)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [costs, selectedYear, selectedMonth, empById]
   );
   const paidEmpIds = useMemo(() => new Set(paidThisMonth.map((c) => c.employee_id)), [paidThisMonth]);
   const isPaid = (empId: string) => paidEmpIds.has(empId);
@@ -478,6 +572,13 @@ export default function Dipendenti() {
   const nonAttribuito = useMemo(
     () => Object.entries(bcByCenter).filter(([k]) => !outletKeys.has(k)).reduce((s, [, v]) => s + v, 0),
     [bcByCenter, outletKeys]
+  );
+
+  // Amministratori (role_description='Amministratore', via isAdminRole) e relativo costo lordo annuo.
+  const admins = useMemo(() => activeEmployees.filter(isAdminRole), [activeEmployees]);
+  const lordoAmministratori = useMemo(
+    () => adminBudgetRows.filter((r) => outletKeys.has(r.cost_center)).reduce((s, r) => s + r.amount, 0),
+    [adminBudgetRows, outletKeys]
   );
 
   // Componenti del mese per conto (da employee_costs)
@@ -772,7 +873,10 @@ export default function Dipendenti() {
               activeEmployees={activeEmployees}
               allocByEmp={allocByEmp}
               nettoOf={nettoOf}
+              nettoCell={nettoCell}
               isPaid={isPaid}
+              admins={admins}
+              lordoAmministratori={lordoAmministratori}
               nettoByOutlet={nettoByOutlet}
               headcountByOutlet={headcountByOutlet}
               bcByOutlet={bcByOutlet}
@@ -790,6 +894,7 @@ export default function Dipendenti() {
               nettoCell={nettoCell}
               lordoCell={lordoCell}
               isPaid={isPaid}
+              lordoAmministratori={lordoAmministratori}
               outlets={outlets}
               mm={String(selectedMonth).padStart(2, '0')}
               year={selectedYear}
@@ -821,8 +926,11 @@ export default function Dipendenti() {
               year={selectedYear}
               employees={activeEmployees}
               allocByEmp={allocByEmp}
+              outlets={outlets}
               isPaid={isPaid}
               nettoCell={nettoCell}
+              admins={admins}
+              lordoAmministratori={lordoAmministratori}
               costForMonth={costForMonth}
               docsForEmp={docsForEmp}
               onAddCost={(empId) => { setEditingCost(costForMonth(empId) || null); setCostFormEmp(empId); setShowCostForm(true); }}
@@ -1077,7 +1185,10 @@ function PerOutletTab(props: {
   activeEmployees: Employee[];
   allocByEmp: Record<string, EmployeeOutletAllocation[]>;
   nettoOf: (id: string) => number;
+  nettoCell: (id: string) => number | null;
   isPaid: (id: string) => boolean;
+  admins: Employee[];
+  lordoAmministratori: number;
   nettoByOutlet: Record<string, number>;
   headcountByOutlet: Record<string, Set<string>>;
   bcByOutlet: (o: OutletRow) => number;
@@ -1086,7 +1197,7 @@ function PerOutletTab(props: {
   year: number;
   nonAttribuito: number;
 }) {
-  const { outlets, activeEmployees, allocByEmp, nettoOf, isPaid, nettoByOutlet, headcountByOutlet, bcByOutlet, mm, year, nonAttribuito } = props;
+  const { outlets, activeEmployees, allocByEmp, nettoOf, nettoCell, isPaid, admins, lordoAmministratori, nettoByOutlet, headcountByOutlet, bcByOutlet, mm, year, nonAttribuito } = props;
   if (outlets.length === 0) {
     return <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center text-slate-400">Nessun outlet configurato per questo tenant.</div>;
   }
@@ -1099,10 +1210,10 @@ function PerOutletTab(props: {
         <div><strong>{totHc.size} dipendenti su {outlets.length} sedi.</strong> Ogni persona è su una sola sede (ripartizione payroll secca). I punti vendita sono outlet veri; la sede operativa (magazzino + direzione) è trattata come location di primo livello, non come “orfana”.</div>
       </div>
 
-      {outlets.map((o) => {
+      {sortOutlets(outlets).map((o) => {
         const color = getOutletColor(o.name);
         const isSede = o.cost_center_key === 'sede_magazzino';
-        // NO-ZERO: solo chi ha il cedolino del mese viene elencato
+        // NO-ZERO: solo chi ha il cedolino del mese viene elencato (amministratori esclusi: sezione dedicata)
         const persone = activeEmployees.filter((e) => isPaid(e.id) && (allocByEmp[e.id] || []).some((a) => a.outlet_code === o.name));
         return (
           <div key={o.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
@@ -1159,6 +1270,8 @@ function PerOutletTab(props: {
           <div className="text-right"><div className="font-extrabold tabular-nums text-slate-600">{eurFmt.format(nonAttribuito)}&nbsp;€</div><div className="text-xs text-slate-500">costo annuo (B&amp;C)</div></div>
         </div>
       )}
+
+      <AmministratoriAccordion admins={admins} nettoCell={nettoCell} lordoTot={lordoAmministratori} mm={mm} year={year} />
     </div>
   );
 }
@@ -1172,6 +1285,7 @@ function OrganicoTab(props: {
   nettoCell: (id: string) => number | null;
   lordoCell: (id: string) => number | null;
   isPaid: (id: string) => boolean;
+  lordoAmministratori: number;
   outlets: OutletRow[];
   mm: string; year: number;
   status: 'attivi' | 'cessati' | 'tutti'; setStatus: (s: 'attivi' | 'cessati' | 'tutti') => void;
@@ -1187,7 +1301,7 @@ function OrganicoTab(props: {
   docsForEmp: (id: string) => EmployeeDocument[];
   uploadingEmployee: string | null;
 }) {
-  const { employees, allocByEmp, nettoCell, lordoCell, isPaid, outlets, mm, year, status, setStatus, outletFilter, setOutletFilter, search, setSearch, onAdd, onEdit, onAlloc, onCedolino, onCessa, onRiattiva, onScheda, docsForEmp, uploadingEmployee } = props;
+  const { employees, allocByEmp, nettoCell, lordoCell, isPaid, lordoAmministratori, outlets, mm, year, status, setStatus, outletFilter, setOutletFilter, search, setSearch, onAdd, onEdit, onAlloc, onCedolino, onCessa, onRiattiva, onScheda, docsForEmp, uploadingEmployee } = props;
   const filtered = employees.filter((e) => {
     const active = e.is_active !== false;
     if (status === 'attivi' && !active) return false;
@@ -1201,10 +1315,11 @@ function OrganicoTab(props: {
     { k: 'attivi', label: 'Attivi' }, { k: 'cessati', label: 'Cessati' }, { k: 'tutti', label: 'Tutti' },
   ];
 
-  // Raggruppa per sede (outlet primario); ordine = outlets DB poi "Senza sede".
+  // Amministratori a parte (sezione in fondo); gli altri raggruppati per sede.
+  const adminRows = filtered.filter(isAdminRole);
   const groups: Record<string, Employee[]> = {};
-  filtered.forEach((e) => { const k = primaryOutlet(allocByEmp[e.id] || []); (groups[k] ||= []).push(e); });
-  const orderedNames = [...outlets.map((o) => o.name).filter((n) => groups[n]), ...Object.keys(groups).filter((k) => !outlets.some((o) => o.name === k))];
+  filtered.filter((e) => !isAdminRole(e)).forEach((e) => { const k = primaryOutlet(allocByEmp[e.id] || []); (groups[k] ||= []).push(e); });
+  const orderedNames = sortGroupNames(Object.keys(groups), outlets);
 
   const renderRow = (e: Employee) => {
     const allocs = allocByEmp[e.id] || [];
@@ -1301,6 +1416,10 @@ function OrganicoTab(props: {
           </OutletAccordion>
         );
       })}
+
+      {adminRows.length > 0 && (
+        <AmministratoriAccordion admins={adminRows} nettoCell={nettoCell} lordoTot={lordoAmministratori} mm={mm} year={year} />
+      )}
     </div>
   );
 }
@@ -1317,8 +1436,11 @@ function CostiTab(props: {
   year: number;
   employees: Employee[];
   allocByEmp: Record<string, EmployeeOutletAllocation[]>;
+  outlets: OutletRow[];
   isPaid: (id: string) => boolean;
   nettoCell: (id: string) => number | null;
+  admins: Employee[];
+  lordoAmministratori: number;
   costForMonth: (id: string) => EmployeeCost | undefined;
   docsForEmp: (id: string) => EmployeeDocument[];
   onAddCost: (empId: string) => void;
@@ -1329,12 +1451,12 @@ function CostiTab(props: {
   uploadingEmployee: string | null;
   importPanel: React.ReactNode;
 }) {
-  const { contiMese, totalNettoMese, monthLabel, mm, year, employees, allocByEmp, isPaid, nettoCell, costForMonth, docsForEmp, onAddCost, onEditCost, onDeleteCost, onCedolino, onViewDoc, uploadingEmployee, importPanel } = props;
-  // NO-ZERO: solo chi ha il cedolino del mese; raggruppato in accordion per outlet.
+  const { contiMese, totalNettoMese, monthLabel, mm, year, employees, allocByEmp, outlets, isPaid, nettoCell, admins, lordoAmministratori, costForMonth, docsForEmp, onAddCost, onEditCost, onDeleteCost, onCedolino, onViewDoc, uploadingEmployee, importPanel } = props;
+  // NO-ZERO: solo chi ha il cedolino del mese; raggruppato in accordion per outlet (admin a parte).
   const paid = employees.filter((e) => isPaid(e.id));
   const cedGroups: Record<string, Employee[]> = {};
   paid.forEach((e) => { const k = primaryOutlet(allocByEmp[e.id] || []); (cedGroups[k] ||= []).push(e); });
-  const cedNames = Object.keys(cedGroups).sort();
+  const cedNames = sortGroupNames(Object.keys(cedGroups), outlets);
   return (
     <div className="space-y-5">
       <div className="text-xs sm:text-[13px] text-amber-900 bg-amber-50 border border-amber-200 rounded-xl p-3.5 flex items-start gap-2.5">
@@ -1434,6 +1556,11 @@ function CostiTab(props: {
                 </OutletAccordion>
               );
             })}
+          </div>
+        )}
+        {admins.length > 0 && (
+          <div className="mt-3">
+            <AmministratoriAccordion admins={admins} nettoCell={nettoCell} lordoTot={lordoAmministratori} mm={mm} year={year} />
           </div>
         )}
       </div>
