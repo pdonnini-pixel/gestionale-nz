@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { useCompanyLabels } from '../hooks/useCompanyLabels'
+import Tooltip from '../components/Tooltip'
 import {
   Upload, RefreshCw, FileText, Check, X, AlertCircle,
   Clock, ChevronDown, ChevronUp, Download, Trash2, Eye
@@ -172,9 +173,11 @@ function ImportHistory({ batches, onRefresh }: { batches: any[]; onRefresh: () =
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className="font-medium text-sm text-slate-900 truncate">
-                      {batch.file_name || 'Importazione'}
-                    </span>
+                    <Tooltip content={batch.file_name || ''}>
+                      <span className="font-medium text-sm text-slate-900 truncate">
+                        {batch.file_name || 'Importazione'}
+                      </span>
+                    </Tooltip>
                     <StatusBadge status={batch.status} />
                   </div>
                   <div className="flex items-center gap-3 mt-0.5 text-xs text-slate-400">

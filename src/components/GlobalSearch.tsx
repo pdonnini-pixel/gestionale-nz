@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Search, X, Store, Building2, Receipt, Landmark, Users, FileText, ArrowRight, LucideIcon } from 'lucide-react'
+import Tooltip from './Tooltip'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { useCompanyLabels } from '../hooks/useCompanyLabels'
@@ -18,6 +19,7 @@ interface SearchResult {
   subtitle?: string | null
   url: string
   category?: string
+  fullTitle?: string | null
 }
 
 const SEARCH_CATEGORIES: SearchCategory[] = [
@@ -125,7 +127,7 @@ export default function GlobalSearch({ open: openProp, onClose }: GlobalSearchPr
         url: `/fornitori/${s.id}/scheda-contabile`,
       }))
       if (invoices.data?.length) res.invoices = invoices.data.map(i => ({ id: i.id, title: `${i.invoice_number || 'Fattura'}`, subtitle: `${i.supplier_name || ''} — €${Number(i.gross_amount || 0).toLocaleString('de-DE')}`, url: '/fatturazione' }))
-      if (movements.data?.length) res.movements = movements.data.map(m => ({ id: m.id, title: m.counterpart || m.description?.slice(0, 50) || '—', subtitle: `€${Number(m.amount || 0).toLocaleString('de-DE')} — ${m.date}`, url: '/banche' }))
+      if (movements.data?.length) res.movements = movements.data.map(m => ({ id: m.id, title: m.counterpart || m.description?.slice(0, 50) || '—', subtitle: `€${Number(m.amount || 0).toLocaleString('de-DE')} — ${m.date}`, url: '/banche', fullTitle: m.counterpart || m.description || '' }))
       if (employees.data?.length) res.employees = employees.data.map(e => ({ id: e.id, title: `${e.first_name ?? ''} ${e.last_name ?? ''}`.trim(), subtitle: e.role, url: '/dipendenti' }))
     } catch (err: unknown) {
       console.warn('Search error:', err)
@@ -209,8 +211,14 @@ export default function GlobalSearch({ open: openProp, onClose }: GlobalSearchPr
                     >
                       <CatIcon size={16} className={`text-${cat.color}-500 shrink-0`} />
                       <div className="min-w-0 flex-1">
-                        <div className="text-sm font-medium text-slate-800 truncate" title={item.title}>{item.title}</div>
-                        {item.subtitle && <div className="text-xs text-slate-400 truncate" title={item.subtitle}>{item.subtitle}</div>}
+                        <Tooltip content={item.fullTitle || item.title}>
+                          <div className="text-sm font-medium text-slate-800 truncate">{item.title}</div>
+                        </Tooltip>
+                        {item.subtitle && (
+                          <Tooltip content={item.subtitle}>
+                            <div className="text-xs text-slate-400 truncate">{item.subtitle}</div>
+                          </Tooltip>
+                        )}
                       </div>
                       {isSelected && <ArrowRight size={14} className="text-blue-500 shrink-0" />}
                     </button>

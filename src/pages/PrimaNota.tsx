@@ -8,6 +8,7 @@ import { Download, FileSpreadsheet, Calendar, Filter, RefreshCw, Loader2 } from 
 import * as XLSX from 'xlsx'
 import { supabase } from '../lib/supabase'
 import { useCompany } from '../hooks/useCompany'
+import Tooltip from '../components/Tooltip'
 
 type BankAccount = { id: string; bank_name: string; account_name: string | null; iban: string | null }
 type Supplier = { id: string; ragione_sociale: string | null; name: string | null; partita_iva: string | null }
@@ -331,35 +332,20 @@ export default function PrimaNota() {
                     € {fmt(Math.abs(m.amount))}
                   </td>
                   <td className="px-3 py-2 text-slate-700 max-w-[200px]">
-                    <div className="relative group">
+                    <Tooltip content={getCounterpart(m) || ''}>
                       <div className="truncate cursor-help">{getCounterpart(m)}</div>
-                      {getCounterpart(m).length > 24 && (
-                        <div className="pointer-events-none absolute left-0 top-full mt-1 z-20 hidden group-hover:block bg-slate-900 text-white text-xs rounded-lg px-3 py-2 shadow-xl max-w-md w-max whitespace-normal break-words">
-                          {getCounterpart(m)}
-                        </div>
-                      )}
-                    </div>
+                    </Tooltip>
                   </td>
                   <td className="px-3 py-2 text-slate-500 text-xs" title={m.suppliers?.partita_iva ?? m.payables?.supplier_vat ?? ''}>{m.suppliers?.partita_iva ?? m.payables?.supplier_vat ?? '—'}</td>
                   <td className="px-3 py-2 text-slate-600 text-xs max-w-md">
-                    <div className="relative group">
+                    <Tooltip content={getCausale(m) || ''}>
                       <div className="truncate cursor-help">{getCausale(m)}</div>
-                      {getCausale(m).length > 40 && (
-                        <div className="pointer-events-none absolute left-0 top-full mt-1 z-20 hidden group-hover:block bg-slate-900 text-white text-xs rounded-lg px-3 py-2 shadow-xl max-w-md w-max whitespace-normal break-words">
-                          {getCausale(m)}
-                        </div>
-                      )}
-                    </div>
+                    </Tooltip>
                   </td>
                   <td className="px-3 py-2 text-slate-500 text-xs max-w-[160px]">
-                    <div className="relative group">
+                    <Tooltip content={m.category ?? ''}>
                       <div className="truncate cursor-help">{m.category ?? '—'}</div>
-                      {m.category && m.category.length > 20 && (
-                        <div className="pointer-events-none absolute left-0 top-full mt-1 z-20 hidden group-hover:block bg-slate-900 text-white text-xs rounded-lg px-3 py-2 shadow-xl max-w-md w-max whitespace-normal break-words">
-                          {m.category}
-                        </div>
-                      )}
-                    </div>
+                    </Tooltip>
                   </td>
                 </tr>
               ))}

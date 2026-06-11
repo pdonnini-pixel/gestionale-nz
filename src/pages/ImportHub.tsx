@@ -6,6 +6,7 @@ type ImportHubTab = 'sources' | 'overview' | 'history';
 const VALID_IMPORT_HUB_TABS: ImportHubTab[] = ['sources', 'overview', 'history'];
 import PageHelp from '../components/PageHelp';
 import PageHeader from '../components/PageHeader';
+import TextTooltip from '../components/Tooltip';
 import { useCompanyLabels } from '../hooks/useCompanyLabels';
 import {
   Upload,
@@ -1296,7 +1297,7 @@ export default function ImportHub() {
                               <FileText size={16} className={isPdf ? 'text-red-500' : 'text-blue-500'} />
                             </div>
                             <div className="min-w-0">
-                              <div className="text-sm font-medium text-slate-700 truncate" title={f.file_name}>{f.file_name}</div>
+                              <TextTooltip content={f.file_name || ''}><div className="text-sm font-medium text-slate-700 truncate">{f.file_name}</div></TextTooltip>
                               <div className="text-xs text-slate-400">
                                 {f.file_size ? `${((Number(f.file_size)) / 1024).toFixed(0)} KB` : ''} — {new Date(String(f.created_at || f.uploaded_at || '')).toLocaleString('it-IT')}
                               </div>
@@ -1456,9 +1457,11 @@ export default function ImportHub() {
                         {previewData.sampleRows?.slice(0, 5).map((row, i) => (
                           <tr key={i} className="hover:bg-amber-50">
                             {(previewData.headers || []).map((h, j) => (
-                              <td key={j} className="px-2 py-1 border border-amber-100 text-slate-700 whitespace-nowrap max-w-48 truncate">
-                                {row[h]}
-                              </td>
+                              <TextTooltip key={j} content={row[h] != null ? String(row[h]) : ''}>
+                                <td className="px-2 py-1 border border-amber-100 text-slate-700 whitespace-nowrap max-w-48 truncate">
+                                  {row[h]}
+                                </td>
+                              </TextTooltip>
                             ))}
                           </tr>
                         ))}
@@ -1650,9 +1653,11 @@ export default function ImportHub() {
                         {(matchModal.reconciled || []).slice(0, 8).map((m: ReconciledMatch & { details?: { movementAmount?: number }; payable?: { suppliers?: { ragione_sociale?: string; name?: string } } & ReconciledMatch['payable'] }, i: number) => (
                           <div key={i} className="px-3 py-2 text-xs flex items-center justify-between">
                             <div className="flex-1 min-w-0">
-                              <div className="font-medium text-slate-800 truncate">
-                                {m.movement?.description || '—'}
-                              </div>
+                              <TextTooltip content={m.movement?.description || ''}>
+                                <div className="font-medium text-slate-800 truncate">
+                                  {m.movement?.description || '—'}
+                                </div>
+                              </TextTooltip>
                               <div className="text-slate-500 mt-0.5">
                                 {m.movement?.date} · {m.payable?.suppliers?.ragione_sociale || m.payable?.suppliers?.name || 'Fornitore'} · Fatt. {m.payable?.invoice_number || '—'}
                               </div>

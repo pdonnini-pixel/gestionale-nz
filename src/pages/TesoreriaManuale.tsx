@@ -27,6 +27,7 @@ import { useToast } from '../components/Toast'
 import { BANK_CATEGORY_OPTIONS, bankCategoryLabel } from '../lib/bankCategories'
 import PrimaNota from './PrimaNota'
 import OpenBankingAcube from '../components/OpenBankingAcube'
+import CellTooltip from '../components/Tooltip'
 
 // ═══════════════════════════════════════════════════════════════════
 // ═══ HELPERS ═══
@@ -740,7 +741,7 @@ function TabPanoramica({ accounts, transactions, payables, onNavigate }: { accou
                       {days === 0 ? 'Oggi' : days === 1 ? 'Domani' : `${days}gg`}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium text-slate-900 truncate" title={getSupplierName(p)}>{getSupplierName(p)}</div>
+                      <CellTooltip content={getSupplierName(p)}><div className="text-sm font-medium text-slate-900 truncate">{getSupplierName(p)}</div></CellTooltip>
                       <div className="text-xs text-slate-400" title={String(p.invoice_number || '')}>{String(p.invoice_number || '')} - Scadenza {fmtDate(p.due_date)}</div>
                     </div>
                     <div className="text-sm font-semibold text-slate-900 whitespace-nowrap">{fmt(remaining)} &euro;</div>
@@ -775,7 +776,7 @@ function TabPanoramica({ accounts, transactions, payables, onNavigate }: { accou
                       {amt >= 0 ? <ArrowDownLeft size={14} className="text-emerald-600" /> : <ArrowUpRight size={14} className="text-red-500" />}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium text-slate-900 truncate" title={(m.description as string | null) || (m.counterpart_name as string | null) || 'Movimento'}>{(m.description as string | null) || (m.counterpart_name as string | null) || 'Movimento'}</div>
+                      <CellTooltip content={(m.description as string | null) || (m.counterpart_name as string | null) || 'Movimento'}><div className="text-sm font-medium text-slate-900 truncate">{(m.description as string | null) || (m.counterpart_name as string | null) || 'Movimento'}</div></CellTooltip>
                       <div className="text-xs text-slate-400">{fmtDate(m.transaction_date)} {acct ? `\u2022 ${acct.account_name || acct.bank_name}` : ''}</div>
                     </div>
                     <div className={classNames('text-sm font-semibold whitespace-nowrap', amt >= 0 ? 'text-emerald-600' : 'text-red-600')}>
@@ -1400,7 +1401,7 @@ function UploadStatementModal({ isOpen, onClose, account, companyId, onImported 
                 {preview.map((row, i) => (
                   <tr key={i} className="hover:bg-slate-50">
                     <td className="px-3 py-2 text-slate-700">{fmtDate(row.date)}</td>
-                    <td className="px-3 py-2 text-slate-700 max-w-[250px] truncate" title={row.description}>{row.description}</td>
+                    <td className="px-3 py-2 text-slate-700 max-w-[250px]"><CellTooltip content={row.description}><div className="truncate">{row.description}</div></CellTooltip></td>
                     <td className={classNames('px-3 py-2 text-right font-medium', row.amount >= 0 ? 'text-emerald-600' : 'text-red-600')}>
                       {row.amount >= 0 ? '+' : ''}{fmt(row.amount)}
                     </td>
@@ -1925,20 +1926,12 @@ function TabMovimenti({ transactions, accounts, onAssignCategory, initialCategor
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
                           <div className="w-2 h-2 rounded-full" style={{ backgroundColor: (acct?.color as string | undefined) || '#94a3b8' }} />
-                          <span className="text-slate-600 text-xs truncate max-w-[160px]" title={String(acct?.account_name || acct?.iban || '')}>{(acct?.bank_name as string | undefined) || (acct?.account_name as string | undefined) || '\u2014'}</span>
+                          <CellTooltip content={String(acct?.account_name || acct?.iban || '')}><span className="text-slate-600 text-xs truncate max-w-[160px]">{(acct?.bank_name as string | undefined) || (acct?.account_name as string | undefined) || '\u2014'}</span></CellTooltip>
                         </div>
                       </td>
                       <td className="px-4 py-3 text-slate-900 max-w-[300px]">
-                        {/* Hover description \u2192 tooltip ricco immediato con full text */}
-                        <div className="relative group">
-                          <div className="truncate cursor-help">{t.description || '\u2014'}</div>
-                          {Boolean(t.description) && String(t.description).length > 40 && (
-                            <div className="pointer-events-none absolute left-0 top-full mt-1 z-20 hidden group-hover:block bg-slate-900 text-white text-xs rounded-lg px-3 py-2 shadow-xl max-w-md w-max whitespace-normal break-words">
-                              {String(t.description)}
-                            </div>
-                          )}
-                        </div>
-                        {Boolean(t.counterpart_name) && <div className="text-xs text-slate-400 truncate" title={String(t.counterpart_name)}>{String(t.counterpart_name)}</div>}
+                        <CellTooltip content={String(t.description || '')}><div className="truncate cursor-help">{t.description || '\u2014'}</div></CellTooltip>
+                        {Boolean(t.counterpart_name) && <CellTooltip content={String(t.counterpart_name)}><div className="text-xs text-slate-400 truncate">{String(t.counterpart_name)}</div></CellTooltip>}
                       </td>
                       <td className={classNames('px-4 py-3 text-right font-semibold whitespace-nowrap', (Number(t.amount) || 0) >= 0 ? 'text-emerald-600' : 'text-red-600')}>
                         {(Number(t.amount) || 0) >= 0 ? '+' : ''}{fmt(t.amount)}
@@ -2162,7 +2155,7 @@ function TabPagamenti({ payables, accounts, companyId, onRefresh, preSelectId }:
                           <input type="checkbox" checked={!!selected[p.id]} onChange={() => toggleSelect(p.id)} className="rounded border-slate-300" />
                         </td>
                         <td className="px-4 py-3">
-                          <div className="font-medium text-slate-900 truncate max-w-[180px]" title={getSupplierName(p)}>{getSupplierName(p)}</div>
+                          <CellTooltip content={getSupplierName(p)}><div className="font-medium text-slate-900 truncate max-w-[180px]">{getSupplierName(p)}</div></CellTooltip>
                         </td>
                         <td className="px-4 py-3 text-slate-600 text-xs">{String(p.invoice_number || '\u2014')}</td>
                         <td className="px-4 py-3">
@@ -2207,7 +2200,7 @@ function TabPagamenti({ payables, accounts, companyId, onRefresh, preSelectId }:
                   return (
                     <div key={p.id} className="flex items-center justify-between py-2 px-3 bg-blue-50 rounded-lg">
                       <div className="min-w-0 flex-1">
-                        <div className="text-sm font-medium text-slate-800 truncate" title={getSupplierName(p)}>{getSupplierName(p)}</div>
+                        <CellTooltip content={getSupplierName(p)}><div className="text-sm font-medium text-slate-800 truncate">{getSupplierName(p)}</div></CellTooltip>
                         <div className="text-xs text-slate-400" title={String(p.invoice_number || '')}>{String(p.invoice_number || '')}</div>
                       </div>
                       <div className="text-sm font-semibold text-slate-900 whitespace-nowrap ml-2">{fmt(remaining)} &euro;</div>
@@ -2783,7 +2776,7 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
                       <ArrowUpRight size={14} className="text-red-500" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium text-slate-900 truncate" title={String(m.description || 'Movimento')}>{m.description || 'Movimento'}</div>
+                      <CellTooltip content={String(m.description || 'Movimento')}><div className="text-sm font-medium text-slate-900 truncate">{m.description || 'Movimento'}</div></CellTooltip>
                       <div className="text-xs text-slate-400">
                         {fmtDate(m.transaction_date)} {acct ? `\u2022 ${acct.account_name || acct.bank_name}` : ''}
                         {m.counterpart_name && ` \u2022 ${m.counterpart_name}`}
@@ -2914,7 +2907,7 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
                         className={`w-full text-left px-3 py-2 hover:bg-slate-50 flex items-center justify-between gap-3 ${isSelected ? 'bg-blue-50 ring-2 ring-blue-400' : ''}`}
                       >
                         <div className="min-w-0 flex-1">
-                          <div className="text-sm font-medium text-slate-900 truncate" title={getSupplierName(p)}>{getSupplierName(p)}</div>
+                          <CellTooltip content={getSupplierName(p)}><div className="text-sm font-medium text-slate-900 truncate">{getSupplierName(p)}</div></CellTooltip>
                           <div className="text-[11px] text-slate-500">
                             Fatt. {p.invoice_number || '—'} · Scad. {fmtDate ? fmtDate(p.due_date) : p.due_date}
                             {p.status && <span className="ml-2 text-slate-400">· {p.status}</span>}

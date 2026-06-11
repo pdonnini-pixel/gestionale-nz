@@ -8,6 +8,7 @@ import {
 } from 'lucide-react'
 import type { Row } from '../types/business'
 import PageHeader from '../components/PageHeader'
+import Tooltip from '../components/Tooltip'
 
 type AllocationMode = 'DIRETTO' | 'SPLIT_PCT' | 'SPLIT_VALORE' | 'QUOTE_UGUALI'
 type ColorKey = 'blue' | 'purple' | 'amber' | 'emerald' | 'gray'
@@ -667,9 +668,11 @@ function SupplierSection({ title, suppliers, ruleBySupplier, outlets, onSelect, 
               className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-gray-50 transition-colors group"
             >
               <div className="min-w-0">
-                <div className="text-sm font-medium text-gray-900 truncate">
-                  {s.ragione_sociale || s.name || '—'}
-                </div>
+                <Tooltip content={s.ragione_sociale || s.name || ''}>
+                  <div className="text-sm font-medium text-gray-900 truncate">
+                    {s.ragione_sociale || s.name || '—'}
+                  </div>
+                </Tooltip>
                 {s.partita_iva && (
                   <div className="text-xs text-gray-400">P.IVA {s.partita_iva}</div>
                 )}
@@ -783,7 +786,9 @@ function SplitPctForm({ outlets, editDetails, setDetailField, outletName, pctTot
           return (
             <div key={o.id} className="flex items-center gap-3">
               <Store className="w-4 h-4 text-gray-400 flex-shrink-0" />
-              <span className="text-sm text-gray-700 w-40 truncate" title={`${o.code} — ${o.name}`}>{o.code} — {o.name}</span>
+              <Tooltip content={`${o.code} — ${o.name}`}>
+                <span className="text-sm text-gray-700 w-40 truncate">{o.code} — {o.name}</span>
+              </Tooltip>
               <div className="relative flex-1 max-w-[140px]">
                 <input
                   type="number"
@@ -826,7 +831,9 @@ function SplitValoreForm({ outlets, editDetails, setDetailField, outletName, val
           return (
             <div key={o.id} className="flex items-center gap-3">
               <Store className="w-4 h-4 text-gray-400 flex-shrink-0" />
-              <span className="text-sm text-gray-700 w-40 truncate" title={`${o.code} — ${o.name}`}>{o.code} — {o.name}</span>
+              <Tooltip content={`${o.code} — ${o.name}`}>
+                <span className="text-sm text-gray-700 w-40 truncate">{o.code} — {o.name}</span>
+              </Tooltip>
               <div className="relative flex-1 max-w-[140px]">
                 <input
                   type="number"

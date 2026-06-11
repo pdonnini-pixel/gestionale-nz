@@ -6,6 +6,7 @@ import {
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
 import { useCompanyLabels } from '../hooks/useCompanyLabels';
+import Tooltip from './Tooltip';
 
 const paymentMethodLabels: Record<string, string> = {
   bonifico_ordinario: 'Bonifico ordinario',
@@ -720,9 +721,11 @@ function CostiRicorrenti() {
                   </summary>
                   <ul className="mt-2 space-y-1 ml-2 border-l border-slate-300 pl-2">
                     {projection[m.month].costs.map((desc, idx) => (
-                      <li key={idx} className="text-slate-600 truncate" title={desc}>
-                        {desc}
-                      </li>
+                      <Tooltip key={idx} content={desc || ''}>
+                        <li className="text-slate-600 truncate">
+                          {desc}
+                        </li>
+                      </Tooltip>
                     ))}
                   </ul>
                 </details>
