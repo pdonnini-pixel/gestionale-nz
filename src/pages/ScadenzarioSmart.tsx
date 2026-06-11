@@ -511,7 +511,8 @@ const ScadenzarioSmart = () => {
           outlet_id: row.outlet_id,
           outlet_name: row.outlet_name,
           cost_center: row.cost_category_name || row.macro_group || 'altro',
-          notes: row.suspend_reason,
+          notes: row.notes ?? null,
+          suspend_reason: row.suspend_reason ?? null,
           days_to_due: row.days_to_due,
           urgency: row.urgency,
           priority: row.priority,
@@ -864,7 +865,7 @@ const ScadenzarioSmart = () => {
       const matchStatus = !selectedStatus
         || (selectedStatus === 'da_saldare' && p.status !== 'pagato')
         || (selectedStatus !== 'da_saldare' && p.status === selectedStatus);
-      const matchSearch = !searchTerm || (p.invoice_number || '').toLowerCase().includes(searchTerm.toLowerCase()) || (p.suppliers?.ragione_sociale || p.suppliers?.name || '').toLowerCase().includes(searchTerm.toLowerCase());
+      const matchSearch = !searchTerm || (p.invoice_number || '').toLowerCase().includes(searchTerm.toLowerCase()) || (p.suppliers?.ragione_sociale || p.suppliers?.name || '').toLowerCase().includes(searchTerm.toLowerCase()) || (p.notes || '').toLowerCase().includes(searchTerm.toLowerCase());
       // Filtro data: applica SOLO se start/end sono valorizzati (string non
       // vuota e date valide). Prima filtrava tutto out quando start='' perche'
       // new Date('') = Invalid Date e i confronti restituivano false.
@@ -1605,6 +1606,8 @@ const ScadenzarioSmart = () => {
             </div>
             <ExportMenu
               data={filteredPayables.map(p => ({
+                descrizione: (p.notes || '').trim()
+                  || [p.suppliers?.ragione_sociale || p.suppliers?.name || '', (p.invoice_number && p.invoice_number !== '-') ? p.invoice_number : ''].filter(Boolean).join(' · '),
                 fornitore: p.suppliers?.name || '—',
                 fattura: p.invoice_number,
                 scadenza: p.due_date,
@@ -1614,6 +1617,7 @@ const ScadenzarioSmart = () => {
                 metodo: (paymentMethodLabels as Record<string, string>)[p.payment_method || ''] || p.payment_method,
               }))}
               columns={[
+                { key: 'descrizione', label: 'Descrizione' },
                 { key: 'fornitore', label: 'Fornitore' },
                 { key: 'fattura', label: 'Fattura' },
                 { key: 'scadenza', label: 'Scadenza', format: 'date' },
@@ -2252,26 +2256,42 @@ const ScadenzarioSmart = () => {
                               {(paymentMethodLabels as Record<string, string>)[p.payment_method || ''] || 'Bonifico'}
                             </div>
                           </td>
-                          {/* DESCRIZIONE — fornitore + fattura (Sibill style) */}
+                          {/* DESCRIZIONE — fornitore (riga primaria) + notes/fattura (riga
+                              secondaria). La descrizione integrale (notes) è sempre raggiungibile
+                              via Tooltip e, se valorizzata, mostrata in chiaro come riga di dettaglio;
+                              la riga non è mai anonima (fallback fattura). */}
                           <td className="py-2.5 px-3">
-                            <button onClick={() => {
-                              const sup = suppliers.find(s =>
-                                s.ragione_sociale === (p.suppliers?.ragione_sociale || p.suppliers?.name) ||
-                                s.name === (p.suppliers?.name || p.suppliers?.ragione_sociale)
-                              );
-                              setSupplierDetail(sup || { ragione_sociale: p.suppliers?.ragione_sociale || p.suppliers?.name || 'N/A' });
-                            }} className="text-left">
-                              <Tooltip content={p.suppliers?.ragione_sociale || p.suppliers?.name || ''}>
-                                <div className="text-[13px] text-slate-800 hover:text-blue-600 font-medium truncate max-w-[220px]">
-                                  {p.suppliers?.ragione_sociale || p.suppliers?.name || 'N/A'}
-                                </div>
-                              </Tooltip>
-                              <Tooltip content={p.invoice_number || ''}>
-                                <div className="text-[10px] text-slate-400 mt-0.5 truncate max-w-[220px]">
-                                  Fattura • {p.invoice_number || '—'}
-                                </div>
-                              </Tooltip>
-                            </button>
+                            {(() => {
+                              const supplierLabel = (p.suppliers?.ragione_sociale || p.suppliers?.name || '').trim()
+                              const note = (p.notes || '').trim()
+                              const invoiceLabel = p.invoice_number && p.invoice_number !== '-' ? `Fattura • ${p.invoice_number}` : ''
+                              // Riga primaria: fornitore se presente, altrimenti la nota, altrimenti la fattura
+                              const mainText = supplierLabel || note || (p.invoice_number && p.invoice_number !== '-' ? p.invoice_number : '') || 'N/A'
+                              // Riga secondaria: la nota (descrizione) se valorizzata, altrimenti la fattura
+                              const subText = (supplierLabel && note) ? note : (note && !supplierLabel ? invoiceLabel : invoiceLabel)
+                              return (
+                                <button onClick={() => {
+                                  const sup = suppliers.find(s =>
+                                    s.ragione_sociale === (p.suppliers?.ragione_sociale || p.suppliers?.name) ||
+                                    s.name === (p.suppliers?.name || p.suppliers?.ragione_sociale)
+                                  );
+                                  setSupplierDetail(sup || { ragione_sociale: p.suppliers?.ragione_sociale || p.suppliers?.name || 'N/A' });
+                                }} className="text-left">
+                                  <Tooltip content={mainText}>
+                                    <div className="text-[13px] text-slate-800 hover:text-blue-600 font-medium truncate max-w-[220px]">
+                                      {mainText}
+                                    </div>
+                                  </Tooltip>
+                                  {subText && (
+                                    <Tooltip content={subText}>
+                                      <div className="text-[10px] text-slate-400 mt-0.5 truncate max-w-[220px]">
+                                        {subText}
+                                      </div>
+                                    </Tooltip>
+                                  )}
+                                </button>
+                              )
+                            })()}
                           </td>
                           {/* IMPORTO — click per editare inline (anche scadenze fiscali via dispatch) */}
                           <td className={`py-2.5 px-3 text-right text-[13px] font-medium whitespace-nowrap ${
