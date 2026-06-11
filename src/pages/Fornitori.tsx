@@ -26,6 +26,7 @@ import { useTableSort } from '../hooks/useTableSort';
 import SortableTh from '../components/ui/SortableTh';
 import TextTooltip from '../components/Tooltip';
 import { useOutlets } from '../hooks/useOutlets';
+import { usePeriod } from '../hooks/usePeriod';
 import SupplierAllocationEditor, { MODE_META, type AllocationMode } from '../components/SupplierAllocationEditor';
 
 const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316'];
@@ -84,6 +85,35 @@ const CATEGORIES = [
   'Consulenza', 'Manutenzione', 'IT', 'Personale', 'Altro',
 ];
 
+// Carica TUTTE le payables del tenant con colonne leggere (mai xml_content),
+// paginando a blocchi da 1000 per superare il cap righe di PostgREST. Gli
+// aggregati per-fornitore e i KPI vengono poi ricalcolati lato client e
+// filtrati per anno (volume tipico ~769 righe).
+async function fetchAllPayables(companyId: string): Promise<Array<Record<string, unknown> & { id: string }>> {
+  const pageSize = 1000;
+  const all: Array<Record<string, unknown> & { id: string }> = [];
+  for (let guard = 0, from = 0; guard < 50; guard++, from += pageSize) {
+    const { data, error } = await supabase.from('payables')
+      .select('id, supplier_id, invoice_number, invoice_date, due_date, gross_amount, amount_remaining, status, payment_method, cash_movement_id')
+      .eq('company_id', companyId)
+      .not('supplier_id', 'is', null)
+      .order('invoice_date', { ascending: false })
+      .range(from, from + pageSize - 1);
+    if (error) { console.warn('payables load:', error.message); break; }
+    const chunk = (data || []) as unknown as Array<Record<string, unknown> & { id: string }>;
+    all.push(...chunk);
+    if (chunk.length < pageSize) break;
+  }
+  return all;
+}
+
+// Anno (number) dalla data ISO di una payable, o null.
+function yearOf(d: unknown): number | null {
+  if (!d) return null;
+  const y = new Date(String(d)).getFullYear();
+  return Number.isFinite(y) ? y : null;
+}
+
 export default function Fornitori() {
   const navigate = useNavigate();
   const { profile } = useAuth();
@@ -95,14 +125,19 @@ export default function Fornitori() {
   const { outlets: tenantOutlets } = useOutlets();
   const activeOutletCount = tenantOutlets.length;
 
+  // Anno selezionato (selettore globale ?anno= nel layout): filtra fatturato,
+  // da pagare, KPI e tab Analytics. Fonte unica di verità via usePeriod, così
+  // il selettore di pagina e le pillole globali restano sincronizzati.
+  const { year, setYear } = usePeriod();
+
   // Data state
   type SupplierRow = Record<string, unknown> & { id: string }
   type PayableRow = Record<string, unknown> & { id: string }
-  type KpiRow = Record<string, unknown> & { supplier_id: string }
   const [suppliers, setSuppliers] = useState<SupplierRow[]>([]);
-  const [kpiRows, setKpiRows] = useState<KpiRow[]>([]);
-  const [invoiceCount, setInvoiceCount] = useState(0);
-  const [expandedPays, setExpandedPays] = useState<PayableRow[]>([]);
+  // Tutte le payables del tenant (colonne leggere, NO xml_content): aggregati
+  // per-fornitore e KPI calcolati lato client e filtrabili per anno. Volume
+  // piccolo (~769 righe NZ); paginato per superare il cap 1000 di PostgREST.
+  const [allPayables, setAllPayables] = useState<PayableRow[]>([]);
   // Modalità di divisione attiva per fornitore (supplier_id → AllocationMode).
   // Caricata con UNA query aggregata in loadData (no N+1) e aggiornata in
   // place quando si salva dal pannello Gestione.
@@ -159,20 +194,16 @@ export default function Fornitori() {
       setLoading(false);
     }, 15000);
     try {
-      const [suppRes, kpiRes, invCountRes, rulesRes] = await Promise.all([
+      const [suppRes, payables, rulesRes] = await Promise.all([
         supabase.from('suppliers').select('*')
           .eq('company_id', COMPANY_ID)
           .or('is_deleted.is.null,is_deleted.eq.false')
           .order('ragione_sociale', { ascending: true }),
-        // Aggregati per-fornitore calcolati lato DB (view v_fornitori_kpi): un record
-        // per fornitore. Evita di scaricare tutte le payables/fatture lato client
-        // (causa del timeout 15s dopo il backfill: 769 e-invoices con xml_content).
-        supabase.from('v_fornitori_kpi').select('*')
-          .eq('company_id', COMPANY_ID),
-        // Solo il CONTEGGIO fatture (head=true): nessun download di xml_content.
-        supabase.from('electronic_invoices')
-          .select('id', { count: 'exact', head: true })
-          .eq('company_id', COMPANY_ID),
+        // Tutte le payables del tenant con colonne leggere (NO xml_content): gli
+        // aggregati per-fornitore e i KPI sono ricalcolati lato client filtrando
+        // per anno (il vecchio v_fornitori_kpi era all-time → l'anno non filtrava).
+        // Paginato in blocchi da 1000 per superare il cap PostgREST.
+        fetchAllPayables(COMPANY_ID),
         // Regole di divisione attive: UNA query aggregata (supplier_id +
         // allocation_mode) per popolare la colonna "Divisione" senza N+1.
         supabase.from('supplier_allocation_rules')
@@ -182,13 +213,10 @@ export default function Fornitori() {
       ]);
 
       if (suppRes.error) console.warn('suppliers load:', suppRes.error.message);
-      if (kpiRes.error) console.warn('kpi load:', kpiRes.error.message);
-      if (invCountRes.error) console.warn('invoice count load:', invCountRes.error.message);
       if (rulesRes.error) console.warn('allocation rules load:', rulesRes.error.message);
 
       setSuppliers((suppRes.data || []) as unknown as SupplierRow[]);
-      setKpiRows((kpiRes.data || []) as unknown as KpiRow[]);
-      setInvoiceCount(invCountRes.count || 0);
+      setAllPayables(payables);
       const ruleMap: Record<string, AllocationMode> = {};
       (rulesRes.data || []).forEach((r: Record<string, unknown>) => {
         const sid = r.supplier_id as string | null;
@@ -203,23 +231,6 @@ export default function Fornitori() {
       setLoading(false);
     }
   }
-
-  // Scadenze del fornitore espanso: caricate on-demand (lazy) per non tenere
-  // in memoria tutte le payables della company.
-  useEffect(() => {
-    if (!expandedId || !COMPANY_ID) { setExpandedPays([]); return; }
-    let cancelled = false;
-    (async () => {
-      const { data } = await supabase.from('payables')
-        .select('id, invoice_number, invoice_date, created_at, gross_amount, amount_remaining, status, due_date')
-        .eq('company_id', COMPANY_ID)
-        .eq('supplier_id', expandedId)
-        .order('invoice_date', { ascending: false })
-        .limit(500);
-      if (!cancelled) setExpandedPays((data || []) as unknown as PayableRow[]);
-    })();
-    return () => { cancelled = true; };
-  }, [expandedId, COMPANY_ID]);
 
   // ─── PANNELLO GESTIONE ─────────────────────────────────────────
 
@@ -259,30 +270,32 @@ export default function Fornitori() {
 
   // ─── COMPUTED DATA ────────────────────────────────────────────
 
-  // Aggregate payable data per supplier — keyed by supplier_id.
-  // Fonte: view DB v_fornitori_kpi (un record aggregato per fornitore). Sostituisce
-  // il vecchio loop client su tutte le payables (non scalava: timeout dopo il backfill).
+  // Aggregati per-fornitore calcolati lato client dalle payables FILTRATE per
+  // anno (invoice_date). Replica la logica del vecchio v_fornitori_kpi ma resa
+  // anno-consapevole: al cambio anno fatturato/da pagare/scaduto si aggiornano.
   interface SupplierStat { total: number; paid: number; pending: number; overdue: number; count: number; lastDate: string | null; grossTotal: number; methods: Set<string>; paidCount: number; reconciledCount: number }
+  const CLOSED = ['pagato', 'annullato', 'bloccato'];
   const supplierStats = useMemo<Record<string, SupplierStat>>(() => {
     const stats: Record<string, SupplierStat> = {};
-    kpiRows.forEach(r => {
-      const key = r.supplier_id as string | null;
-      if (!key) return;
-      stats[key] = {
-        total: 0,
-        grossTotal: Number(r.gross_total) || 0,
-        paid: Number(r.paid) || 0,
-        pending: Number(r.pending) || 0,
-        overdue: Number(r.overdue) || 0,
-        count: Number(r.pay_count) || 0,
-        lastDate: (r.last_date as string | null) || null,
-        methods: new Set(((r.methods as string[] | null) || []).map(String)),
-        paidCount: Number(r.paid_count) || 0,
-        reconciledCount: Number(r.reconciled_count) || 0,
-      };
-    });
+    for (const p of allPayables) {
+      if (yearOf(p.invoice_date) !== year) continue;
+      const key = p.supplier_id as string | null;
+      if (!key) continue;
+      const s = stats[key] || (stats[key] = { total: 0, paid: 0, pending: 0, overdue: 0, count: 0, lastDate: null, grossTotal: 0, methods: new Set<string>(), paidCount: 0, reconciledCount: 0 });
+      const gross = Number(p.gross_amount) || 0;
+      const remaining = Number(p.amount_remaining) || 0;
+      const status = String(p.status || '');
+      s.count++;
+      s.grossTotal += gross;
+      if (status === 'pagato') { s.paid += gross; s.paidCount++; if (p.cash_movement_id) s.reconciledCount++; }
+      if (status === 'scaduto') s.overdue += remaining;
+      if (!CLOSED.includes(status)) s.pending += remaining;
+      if (p.payment_method) s.methods.add(String(p.payment_method));
+      const d = p.invoice_date ? String(p.invoice_date) : null;
+      if (d && (!s.lastDate || d > s.lastDate)) s.lastDate = d;
+    }
     return stats;
-  }, [kpiRows]);
+  }, [allPayables, year]);
 
   // Filtered & sorted suppliers
   const filteredSuppliers = useMemo(() => {
@@ -339,27 +352,42 @@ export default function Fornitori() {
     { persistKey: 'fornitori_anagrafica' }
   );
 
-  // KPIs — totali coerenti fra loro:
-  // - totalFatturato: somma dei gross_amount POSITIVI (esclude le note
-  //   credito che sono negative). Prima includeva le NC creando
-  //   l'assurdo 'Da pagare > Fatturato' (il da pagare NON riduce per NC).
-  // - totalCrediti: importo assoluto delle note credito (a favore di NZ).
-  // - totalPending: somma amount_remaining di fatture non chiuse.
+  // Anni disponibili: ricavati dai dati (invoice_date delle payables), mai
+  // hardcoded. Includo sempre l'anno selezionato così il selettore lo mostra
+  // anche se quell'anno non ha ancora payables (empty-state coerente).
+  const availableYears = useMemo(() => {
+    const set = new Set<number>();
+    for (const p of allPayables) { const y = yearOf(p.invoice_date); if (y) set.add(y); }
+    set.add(year);
+    return Array.from(set).sort((a, b) => b - a);
+  }, [allPayables, year]);
+
+  // KPIs dell'anno selezionato — totali coerenti fra loro, dalle payables filtrate:
+  // - totalFatturato: somma gross_amount POSITIVI (esclude note credito negative).
+  // - totalPending: amount_remaining di fatture non chiuse (escluse anche NC).
+  // - overdue: amount_remaining scaduto. - payCount: n. fatture dell'anno.
   const kpis = useMemo(() => {
     const active = suppliers.filter(s => s.is_active !== false).length;
-    let totalPending = 0, overdue = 0, totalFatturato = 0, totalCrediti = 0;
-    kpiRows.forEach(r => {
-      totalPending += Number(r.pending_excl_nc) || 0;  // remaining escluse pagate/annullate/bloccate/NC
-      overdue += Number(r.overdue) || 0;                // remaining scadute
-      totalFatturato += Number(r.gross_positive) || 0;  // gross positivi, escluse NC
-      totalCrediti += Number(r.credito) || 0;           // abs note credito / gross negativi
-    });
-    const withPayables = kpiRows.length;                 // un record per fornitore con payables
-    // Copertura lavorazione (sul totale fornitori, non filtrato)
+    let totalPending = 0, overdue = 0, totalFatturato = 0, totalCrediti = 0, payCount = 0;
+    const suppliersWithPayables = new Set<string>();
+    for (const p of allPayables) {
+      if (yearOf(p.invoice_date) !== year) continue;
+      const gross = Number(p.gross_amount) || 0;
+      const remaining = Number(p.amount_remaining) || 0;
+      const status = String(p.status || '');
+      const isNC = status === 'nota_credito' || gross < 0;
+      payCount++;
+      if (p.supplier_id) suppliersWithPayables.add(p.supplier_id as string);
+      if (!isNC && gross > 0) totalFatturato += gross;        // gross positivi, escluse NC
+      if (isNC) totalCrediti += Math.abs(gross);              // abs note credito
+      if (status === 'scaduto') overdue += remaining;         // remaining scadute
+      if (!CLOSED.includes(status) && !isNC) totalPending += remaining; // remaining aperte escluse NC
+    }
+    // Copertura lavorazione (sul totale fornitori, non filtrato per anno)
     const withCategory = suppliers.filter(s => !!s.category).length;
     const withDivision = suppliers.filter(s => !!ruleModeBySupplier[s.id]).length;
-    return { active, total: suppliers.length, totalPending, overdue, totalFatturato, totalCrediti, withPayables, withCategory, withDivision };
-  }, [suppliers, kpiRows, ruleModeBySupplier]);
+    return { active, total: suppliers.length, totalPending, overdue, totalFatturato, totalCrediti, payCount, withPayables: suppliersWithPayables.size, withCategory, withDivision };
+  }, [suppliers, allPayables, year, ruleModeBySupplier]);
 
   // Charts data
   interface CatBucket { name: string; value: number; count: number }
@@ -527,7 +555,7 @@ export default function Fornitori() {
     <div className="min-h-screen bg-white">
       <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
       <PageHeader
-        title="Anagrafica Fornitori"
+        title="Fornitori"
         subtitle="Gestione fornitori, condizioni di pagamento, analisi spesa"
         noDivider
         actions={
@@ -548,7 +576,7 @@ export default function Fornitori() {
                 { key: 'payment_method', label: 'Metodo Pag.' },
               ]}
               filename={`Fornitori_${new Date().toISOString().slice(0, 10)}`}
-              title="Anagrafica Fornitori"
+              title="Fornitori"
             />
             <button onClick={openNew} className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 flex items-center gap-2 shadow-sm">
               <Plus size={16} /> Nuovo Fornitore
@@ -557,13 +585,28 @@ export default function Fornitori() {
         }
       />
 
-      {/* KPI CARDS */}
+      {/* SELETTORE ANNO (anni dai dati) — filtra fatturato, da pagare, KPI, Analytics */}
+      <div className="flex items-center gap-2">
+        <Calendar size={16} className="text-slate-400" />
+        <label htmlFor="fornitori-anno" className="text-sm text-slate-500">Anno</label>
+        <select
+          id="fornitori-anno"
+          value={year}
+          onChange={e => setYear(Number(e.target.value))}
+          className="px-3 py-1.5 border border-slate-200 rounded-lg text-sm font-semibold text-slate-700 bg-white"
+        >
+          {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
+        </select>
+        <span className="text-xs text-slate-400">dati {year}</span>
+      </div>
+
+      {/* KPI CARDS — riga unica, nessun numero ripetuto */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
-        <KpiCard icon={Building2} label="Fornitori attivi" value={kpis.active} sub={`${kpis.withPayables} con fatture`} color="indigo" />
-        <KpiCard icon={Banknote} label="Tot. fatturato" value={`€ ${kpis.totalFatturato.toLocaleString('de-DE', { minimumFractionDigits: 0 })}`} color="blue" />
-        <KpiCard icon={Clock} label="Da pagare" value={`€ ${kpis.totalPending.toLocaleString('de-DE', { minimumFractionDigits: 0 })}`} color="amber" />
-        <KpiCard icon={AlertTriangle} label="Scaduto" value={`€ ${kpis.overdue.toLocaleString('de-DE', { minimumFractionDigits: 0 })}`} color={kpis.overdue > 0 ? 'red' : 'green'} />
-        <KpiCard icon={FileText} label="Fatture importate" value={invoiceCount} color="purple" />
+        <KpiCard icon={Building2} label="Fornitori" value={kpis.total} sub={`${kpis.active} attivi`} color="indigo" />
+        <KpiCard icon={Tag} label="Con categoria" value={`${kpis.withCategory} / ${kpis.total}`} color="purple" />
+        <KpiCard icon={Split} label="Con divisione" value={`${kpis.withDivision} / ${kpis.total}`} color="purple" />
+        <KpiCard icon={AlertTriangle} label="Scaduto" value={`€ ${kpis.overdue.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} color={kpis.overdue > 0 ? 'red' : 'green'} />
+        <KpiCard icon={FileText} label="Totale fatture" value={`€ ${kpis.totalFatturato.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} sub={`${kpis.payCount.toLocaleString('de-DE')} fatture`} color="blue" />
       </div>
 
       {/* TAB NAV */}
@@ -588,14 +631,6 @@ export default function Fornitori() {
       {/* ANAGRAFICA TAB */}
       {activeTab === 'anagrafica' && (
         <div className="space-y-4">
-          {/* KPI COPERTURA LAVORAZIONE */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            <CoverageKpi label="Fornitori" value={kpis.total} />
-            <CoverageKpi label="Con categoria" value={kpis.withCategory} of={kpis.total} accent />
-            <CoverageKpi label="Con divisione" value={kpis.withDivision} of={kpis.total} accent />
-            <CoverageKpi label="Scaduto" value={`€ ${kpis.overdue.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} red={kpis.overdue > 0} />
-          </div>
-
           {/* FILTERS */}
           <div className="flex flex-col sm:flex-row gap-3">
             <div className="relative flex-1">
@@ -793,9 +828,10 @@ export default function Fornitori() {
 
                       {/* Expanded detail */}
                       {isExpanded && (() => {
-                        // Scadenze del fornitore caricate on-demand all'espansione
-                        // (vedi useEffect su expandedId) — gia' ordinate per data desc dal DB.
-                        const supplierPays = expandedPays;
+                        // Scadenze del fornitore dell'anno selezionato, derivate da
+                        // allPayables (già ordinate per invoice_date desc) — coerenti
+                        // con KPI e statistiche year-aware.
+                        const supplierPays = allPayables.filter(p => p.supplier_id === s.id && yearOf(p.invoice_date) === year);
                         const avgAmount = supplierPays.length > 0
                           ? supplierPays.reduce((acc, p) => acc + (Number(p.gross_amount) || 0), 0) / supplierPays.length
                           : 0;
@@ -1247,18 +1283,6 @@ function KpiCard({ icon: Icon, label, value, sub, color }: { icon: React.Element
           <div className="text-xs text-slate-500">{label}</div>
           {sub && <div className="text-xs text-slate-400">{sub}</div>}
         </div>
-      </div>
-    </div>
-  );
-}
-
-// KPI di copertura lavorazione (mockup: Fornitori, Con categoria, Con divisione, Scaduto)
-function CoverageKpi({ label, value, of, accent, red }: { label: string; value: string | number; of?: number; accent?: boolean; red?: boolean }) {
-  return (
-    <div className={`rounded-xl border p-3 ${accent ? 'border-violet-200 bg-violet-50/50' : 'border-slate-200 bg-white'}`}>
-      <div className={`text-[11px] uppercase tracking-wider ${accent ? 'text-violet-600' : 'text-slate-500'}`}>{label}</div>
-      <div className={`text-xl font-bold mt-0.5 ${red ? 'text-red-600' : 'text-slate-900'}`}>
-        {value}{of != null && <span className="text-xs font-normal text-slate-400"> / {of}</span>}
       </div>
     </div>
   );
