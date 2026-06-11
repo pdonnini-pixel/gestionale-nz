@@ -16,6 +16,7 @@ import { getCurrentTenant } from '../lib/tenants'
 import { usePeriod } from '../hooks/usePeriod'
 import { useTableSort } from '../hooks/useTableSort'
 import SortableTh from '../components/ui/SortableTh'
+import Tooltip from '../components/Tooltip'
 import {
   FileText, Upload, Send, RefreshCw, Search, Filter, ChevronDown, ChevronUp,
   CheckCircle, XCircle, Clock, AlertTriangle, Eye, Download, Plus, X,
@@ -544,9 +545,13 @@ function FatturePassive() {
               ) : sortedFiltered.map((inv, idx) => (
                 <tr key={inv.id} onClick={() => { setSelectedInvoice(inv); setShowXml(false) }} className={`border-b border-slate-100 hover:bg-blue-50/50 transition-colors cursor-pointer ${idx % 2 === 1 ? 'bg-slate-50/50' : ''}`}>
                   <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{fmtDate(inv.invoice_date)}</td>
-                  <td className="px-4 py-3 font-medium text-slate-900 truncate min-w-[150px] max-w-[200px]" title={inv.invoice_number ?? undefined}>{inv.invoice_number || '—'}</td>
+                  <Tooltip content={inv.invoice_number || ''}>
+                    <td className="px-4 py-3 font-medium text-slate-900 truncate min-w-[150px] max-w-[200px]">{inv.invoice_number || '—'}</td>
+                  </Tooltip>
                   <td className="px-4 py-3 min-w-[200px]">
-                    <div className="font-medium text-slate-800 truncate max-w-[280px]" title={inv.supplier_name ?? undefined}>{inv.supplier_name || '—'}</div>
+                    <Tooltip content={inv.supplier_name || ''}>
+                      <div className="font-medium text-slate-800 truncate max-w-[280px]">{inv.supplier_name || '—'}</div>
+                    </Tooltip>
                     {inv.supplier_vat && <div className="text-xs text-slate-400">P.IVA {inv.supplier_vat}</div>}
                   </td>
                   <td className="px-4 py-3 text-slate-600">{inv.tipo_documento || '—'}</td>

@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
+import Tooltip from '../components/Tooltip';
 import InvoiceViewer from '../components/InvoiceViewer';
 import PageHeader from '../components/PageHeader';
 
@@ -810,7 +811,7 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
                     : <div className="w-7 h-7 bg-indigo-100 text-indigo-700 rounded font-semibold text-xs flex items-center justify-center">{MONTH_LABELS[new Date(group.invoices[0].invoice_date || '').getMonth()]}</div>
                   }
                   <div className="flex-1 min-w-0">
-                    <div className="font-medium text-slate-800 truncate" title={group.label}>{group.label}</div>
+                    <Tooltip content={group.label}><div className="font-medium text-slate-800 truncate">{group.label}</div></Tooltip>
                     <div className="text-xs text-slate-500">{group.invoices.length} fattur{group.invoices.length === 1 ? 'a' : 'e'}</div>
                   </div>
                   <div className="text-right shrink-0">
@@ -837,7 +838,7 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
                             <td className="px-5 py-2.5 text-sm font-medium text-slate-800">{inv.invoice_number || '—'}</td>
                             <td className="px-4 py-2.5 text-sm text-slate-600">{formatDate(inv.invoice_date)}</td>
                             {groupBy === 'month' && (
-                              <td className="px-4 py-2.5 text-sm text-slate-600 truncate max-w-xs" title={inv.supplier_name ?? undefined}>{inv.supplier_name || '—'}</td>
+                              <Tooltip content={inv.supplier_name ?? ''}><td className="px-4 py-2.5 text-sm text-slate-600 truncate max-w-xs">{inv.supplier_name || '—'}</td></Tooltip>
                             )}
                             <td className="px-4 py-2.5 text-sm text-right font-medium text-slate-900">
                               {formatCurrency(inv.gross_amount || (inv as { total_amount?: number | null }).total_amount || null)}
@@ -918,9 +919,11 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
                   <FileText size={16} className="text-red-500" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="font-medium text-slate-800 truncate" title={String(bs.file_name ?? '')}>
-                    {String(bs.file_name ?? 'Bilancio senza nome')}
-                  </div>
+                  <Tooltip content={String(bs.file_name ?? '')}>
+                    <div className="font-medium text-slate-800 truncate">
+                      {String(bs.file_name ?? 'Bilancio senza nome')}
+                    </div>
+                  </Tooltip>
                   <div className="text-xs text-slate-500 flex gap-3">
                     {bs.year != null && <span>Anno {String(bs.year)}</span>}
                     <span>{formatDate((bs.created_at || (bs.uploaded_at as string | null | undefined)) ?? null)}</span>
@@ -995,9 +998,11 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
                     <FileText size={16} className="text-emerald-600" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="font-medium text-slate-800 truncate" title={ec.filename ?? undefined}>
-                      {ec.filename || 'EC senza nome'}
-                    </div>
+                    <Tooltip content={ec.filename ?? ''}>
+                      <div className="font-medium text-slate-800 truncate">
+                        {ec.filename || 'EC senza nome'}
+                      </div>
+                    </Tooltip>
                     <div className="text-xs text-slate-500 flex flex-wrap gap-x-3 gap-y-1">
                       <span className="font-medium text-slate-700">{bankLabel}</span>
                       {txCount != null && (
@@ -1104,7 +1109,7 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
                     {ecPreview.rows.map(tx => (
                       <tr key={tx.id} className="hover:bg-slate-50">
                         <td className="px-4 py-2 text-slate-600 whitespace-nowrap">{formatDate(tx.transaction_date)}</td>
-                        <td className="px-4 py-2 text-slate-700 truncate max-w-md" title={tx.description ?? undefined}>{tx.description || '—'}</td>
+                        <Tooltip content={tx.description ?? ''}><td className="px-4 py-2 text-slate-700 truncate max-w-md">{tx.description || '—'}</td></Tooltip>
                         <td className={`px-4 py-2 text-right font-medium whitespace-nowrap ${(tx.amount ?? 0) < 0 ? 'text-red-700' : 'text-emerald-700'}`}>
                           {tx.amount != null ? formatCurrency(tx.amount) : '—'}
                         </td>
@@ -1308,11 +1313,13 @@ function ConservazioneTab({ docs, stats, loading, filter, setFilter, search, set
                               {isInvoice ? <Receipt size={16} className="text-violet-500" /> : <FileText size={16} className="text-slate-500" />}
                             </div>
                             <div className="min-w-0">
-                              <div className="text-sm font-medium text-slate-800 truncate max-w-xs" title={name}>{name}</div>
+                              <Tooltip content={name}><div className="text-sm font-medium text-slate-800 truncate max-w-xs">{name}</div></Tooltip>
                               {isInvoice && (
-                                <div className="text-xs text-slate-400 truncate">
-                                  {doc.direction === 'inbound' ? doc.supplier_name : doc.customer_name}
-                                </div>
+                                <Tooltip content={(doc.direction === 'inbound' ? doc.supplier_name : doc.customer_name) ?? ''}>
+                                  <div className="text-xs text-slate-400 truncate">
+                                    {doc.direction === 'inbound' ? doc.supplier_name : doc.customer_name}
+                                  </div>
+                                </Tooltip>
                               )}
                             </div>
                           </div>

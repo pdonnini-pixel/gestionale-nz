@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useCompanyLabels } from '../hooks/useCompanyLabels'
+import Tooltip from '../components/Tooltip'
 
 // Tab principale Scadenzario — persistito in URL come ?tab=
 type ScadenzarioTab = 'scadenze' | 'incassi' | 'fornitori' | 'riconciliazione'
@@ -1377,7 +1378,7 @@ export default function Scadenzario() {
                       return (
                         <tr key={String(i.id)} className="hover:bg-slate-50/60">
                           <td className="py-2 px-3 whitespace-nowrap text-slate-600">{fmtDate(i.transaction_date as string | null | undefined)}</td>
-                          <td className="py-2 px-3 truncate max-w-md text-slate-700" title={desc ?? undefined}>{desc || '—'}</td>
+                          <td className="py-2 px-3 text-slate-700"><Tooltip content={desc || ''}><div className="truncate max-w-md">{desc || '—'}</div></Tooltip></td>
                           <td className="py-2 px-3">
                             <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold ${tipoColor}`}>{tipo}</span>
                           </td>
@@ -1442,7 +1443,7 @@ export default function Scadenzario() {
                           <td className="py-2 px-3 text-right font-medium">{fmt(a.amount as number | null | undefined)} €</td>
                           <td className="py-2 px-3 text-xs">{paymentMethodLabels[String(a.payment_method ?? '')] || '—'}</td>
                           <td className="py-2 px-3 text-xs">{bankName || '—'}</td>
-                          <td className="py-2 px-3 text-xs text-slate-500 max-w-48 truncate" title={String(a.note || '—')}>{String(a.note || '—')}</td>
+                          <td className="py-2 px-3 text-xs text-slate-500"><Tooltip content={String(a.note || '')}><div className="max-w-48 truncate">{String(a.note || '—')}</div></Tooltip></td>
                           <td className="py-2 px-3 text-center">
                             {isReconciled
                               ? <CheckCircle2 size={16} className="text-green-600 mx-auto" />

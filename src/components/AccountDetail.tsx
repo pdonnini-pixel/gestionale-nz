@@ -39,6 +39,7 @@ import {
   X, RefreshCw, ArrowUpRight, ArrowDownLeft, Search,
   Filter, Calendar, CheckCircle2, Link2, Loader2, ChevronDown
 } from 'lucide-react'
+import TextTooltip from './Tooltip'
 
 const PAGE_SIZE = 50
 
@@ -177,7 +178,7 @@ function ReconciliationModal({ isOpen, onClose, transaction, onReconcile }: { is
             <div>
               <h3 className="text-base font-semibold text-gray-900">Riconcilia movimento</h3>
               <p className="text-xs text-gray-500 mt-1">
-                {formatDate(transaction.transaction_date)} · {transaction.description?.slice(0, 40)}... · {fmt(Math.abs(transaction.amount))} €
+                {formatDate(transaction.transaction_date)} · <TextTooltip content={transaction.description || ''}><span>{transaction.description?.slice(0, 40)}...</span></TextTooltip> · {fmt(Math.abs(transaction.amount))} €
               </p>
             </div>
             <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg">
@@ -224,9 +225,11 @@ function ReconciliationModal({ isOpen, onClose, transaction, onReconcile }: { is
                     <div className="flex items-center justify-between">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
-                          <span className="text-sm font-medium text-gray-800 truncate">
-                            {inv.supplier_name || 'Fornitore sconosciuto'}
-                          </span>
+                          <TextTooltip content={inv.supplier_name || ''}>
+                            <span className="text-sm font-medium text-gray-800 truncate">
+                              {inv.supplier_name || 'Fornitore sconosciuto'}
+                            </span>
+                          </TextTooltip>
                           {isBest && (
                             <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-100 text-blue-700">
                               Suggerito
@@ -444,9 +447,11 @@ export default function AccountDetail({ isOpen, onClose, account, onSync }: Acco
           <div className="flex items-start justify-between">
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-3">
-                <h2 className="text-xl font-semibold text-gray-900 truncate">
-                  {account.account_name || 'Conto bancario'}
-                </h2>
+                <TextTooltip content={account.account_name || ''}>
+                  <h2 className="text-xl font-semibold text-gray-900 truncate">
+                    {account.account_name || 'Conto bancario'}
+                  </h2>
+                </TextTooltip>
                 {account.institution_id && (
                   <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-600">
                     <Link2 className="w-3 h-3" />
@@ -693,9 +698,11 @@ export default function AccountDetail({ isOpen, onClose, account, onSync }: Acco
                                 <ArrowUpRight className="w-3.5 h-3.5" />
                               )}
                             </span>
-                            <span className="truncate text-gray-800">
-                              {tx.description || '—'}
-                            </span>
+                            <TextTooltip content={tx.description || ''}>
+                              <span className="truncate text-gray-800">
+                                {tx.description || '—'}
+                              </span>
+                            </TextTooltip>
                           </div>
                         </td>
                         <td className={`py-3 px-2 text-right whitespace-nowrap font-medium ${

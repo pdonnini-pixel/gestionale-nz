@@ -20,6 +20,7 @@ import { useCompanyLabels } from '../hooks/useCompanyLabels'
 import { useCompany } from '../hooks/useCompany'
 import PageHelp from '../components/PageHelp'
 import PageHeader from '../components/PageHeader'
+import Tooltip from '../components/Tooltip'
 import ExportBilancioDialog from '../components/ExportBilancioDialog'
 import { getCurrentTenant } from '../lib/tenants'
 import { RICAVI_SOURCE_LABEL } from '../lib/outletRevenue'
@@ -495,12 +496,13 @@ function TreeNodeEdit({ node, depth = 0, edits, onEdit, onCommitAccount }: { nod
         <span className="w-4 shrink-0 text-center text-[10px] text-slate-400">{hasKids ? (open ? '▾' : '▸') : ''}</span>
         <span className={`font-mono text-slate-400 shrink-0 ml-0.5 ${isMacro ? 'text-[11px] font-bold' : 'text-[10px]'}`}
           style={{ width: node.code?.length > 4 ? '50px' : '26px' }}>{node.code}</span>
-        <span
-          className={`truncate ml-1 flex-1 ${isMacro ? 'text-[11px] font-bold text-slate-900' : 'text-[11px] text-slate-600'}`}
-          title={node.description}
-        >
-          {prettifyAccountName(node.description)}
-        </span>
+        <Tooltip content={node.description}>
+          <span
+            className={`truncate ml-1 flex-1 ${isMacro ? 'text-[11px] font-bold text-slate-900' : 'text-[11px] text-slate-600'}`}
+          >
+            {prettifyAccountName(node.description)}
+          </span>
+        </Tooltip>
         {isLeaf ? (
           <NumberInputIt
             value={val}
@@ -540,12 +542,13 @@ function TreeNodeView({ node, depth = 0 }: { node: TreeNodeT; depth?: number }) 
         <span className="text-slate-400 w-4 shrink-0 text-center text-[10px]">{hasKids ? (open ? '▾' : '▸') : ''}</span>
         <span className={`font-mono text-slate-400 shrink-0 ${isMacro ? 'text-[11px] font-bold' : 'text-[10px]'}`}
           style={{ width: node.code?.length > 4 ? '50px' : '26px' }}>{node.code}</span>
-        <span
-          className={`truncate ml-1 ${isMacro ? 'text-[11px] font-bold text-slate-900' : 'text-[11px] text-slate-600'}`}
-          title={node.description}
-        >
-          {prettifyAccountName(node.description)}
-        </span>
+        <Tooltip content={node.description}>
+          <span
+            className={`truncate ml-1 ${isMacro ? 'text-[11px] font-bold text-slate-900' : 'text-[11px] text-slate-600'}`}
+          >
+            {prettifyAccountName(node.description)}
+          </span>
+        </Tooltip>
         <span className={`tabular-nums text-right shrink-0 ml-auto ${isMacro ? 'text-[11px] font-bold text-slate-900' : 'text-[10px] text-slate-600'} ${(node.amount ?? 0) < 0 ? 'text-red-600' : ''}`}>
           {fmt(node.amount)} €
         </span>
@@ -2136,9 +2139,11 @@ function MonthlyTreeNode({ node, depth = 0, prevByCode, consByCode, rettAmtByCod
         onClick={() => hasKids && setOpen(!open)}>
         <span className="text-[10px] text-slate-400 text-center">{hasKids ? (open ? '▾' : '▸') : ''}</span>
         <span className={`font-mono text-slate-400 ${isMacro ? 'text-[10px] font-bold' : 'text-[9px]'}`}>{node.code}</span>
-        <span className={`truncate min-w-0 ${isMacro ? 'text-[11px] font-bold text-slate-900' : 'text-[10px] text-slate-600'}`} title={node.description}>
-          {prettifyAccountName(node.description)}
-        </span>
+        <Tooltip content={node.description}>
+          <span className={`truncate min-w-0 ${isMacro ? 'text-[11px] font-bold text-slate-900' : 'text-[10px] text-slate-600'}`}>
+            {prettifyAccountName(node.description)}
+          </span>
+        </Tooltip>
         {/* Preventivo */}
         {isLeaf && !readOnly && !isAnnualView ? (
           <NumberInputIt
@@ -2692,7 +2697,7 @@ function ConfrontoRow({ prevNode, consNode, rettNode, depth = 0, consEdits, onCo
           <span className="w-3 shrink-0 text-[10px] text-slate-400">{hasKids ? (open ? '▾' : '▸') : ''}</span>
           <span className={`font-mono text-slate-400 shrink-0 ${isMacro ? 'text-[11px] font-bold' : 'text-[10px]'}`}
             style={{ width: prevNode.code?.length > 4 ? '46px' : '24px' }}>{prevNode.code}</span>
-          <span className={`truncate ${isMacro ? 'text-[11px] font-bold text-slate-900' : 'text-[10px] text-slate-600'}`} title={prevNode.description}>{prevNode.description}</span>
+          <Tooltip content={prevNode.description}><span className={`truncate ${isMacro ? 'text-[11px] font-bold text-slate-900' : 'text-[10px] text-slate-600'}`}>{prevNode.description}</span></Tooltip>
         </div>
         {/* Preventivo (bloccato) */}
         <span className={`tabular-nums text-right text-[10px] ${isMacro ? 'font-bold text-indigo-700' : 'text-indigo-500'}`}>{fmt(pv)}</span>
@@ -3107,7 +3112,7 @@ function InserimentoRapidoMatrice({ year, companyId, outlets }: {
                   <th className="text-left py-3 px-4 text-[10px] font-semibold text-slate-400 uppercase tracking-wider w-32">Tipologia</th>
                   {outlets.map(o => (
                     <th key={o.code} className="text-right py-3 px-3 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">
-                      <div className="truncate" title={o.label}>{o.label.split('(')[0].trim()}</div>
+                      <Tooltip content={o.label}><div className="truncate">{o.label.split('(')[0].trim()}</div></Tooltip>
                     </th>
                   ))}
                   <th className="text-right py-3 px-4 text-[10px] font-semibold text-indigo-500 uppercase tracking-wider">Totale mese</th>

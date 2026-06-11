@@ -6,6 +6,7 @@ import {
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useToast } from './Toast'
+import Tooltip from './Tooltip'
 
 interface CashMovement {
   id: string
@@ -499,7 +500,9 @@ export default function AICategorization({ companyId }: AICategorizationProps) {
                     : a.anomaly_type === 'overdue_payable' ? 'Scadenza non pagata'
                     : a.anomaly_type}
                   </div>
-                  <div className="text-xs text-slate-500 truncate" title={a.description ?? ''}>{a.description}</div>
+                  <Tooltip content={a.description ?? ''}>
+                    <div className="text-xs text-slate-500 truncate">{a.description}</div>
+                  </Tooltip>
                   <div className="text-[10px] text-slate-400 mt-0.5">{fmtDate(a.created_at)}</div>
                 </div>
                 {/* BUG-003: amount non è colonna, è dentro details (Json). */}
@@ -596,12 +599,16 @@ export default function AICategorization({ companyId }: AICategorizationProps) {
                         {fmtDate(m.date)}
                       </td>
                       <td className="py-2.5 px-4 text-slate-800 max-w-[240px]">
-                        <span className="block truncate text-[13px]" title={m.description || ''}>
-                          {m.description || '—'}
-                        </span>
+                        <Tooltip content={m.description || ''}>
+                          <span className="block truncate text-[13px]">
+                            {m.description || '—'}
+                          </span>
+                        </Tooltip>
                       </td>
-                      <td className="py-2.5 px-4 text-xs text-slate-500 max-w-[150px] truncate" title={m.counterpart || ''}>
-                        {m.counterpart || '—'}
+                      <td className="py-2.5 px-4 text-xs text-slate-500 max-w-[150px]">
+                        <Tooltip content={m.counterpart || ''}>
+                          <div className="truncate">{m.counterpart || '—'}</div>
+                        </Tooltip>
                       </td>
                       <td className={`py-2.5 px-4 text-right font-medium whitespace-nowrap text-[13px] ${isEntrata ? 'text-emerald-600' : 'text-red-500'}`}>
                         {isEntrata ? '+' : '-'}{fmt(Math.abs(m.amount))} €

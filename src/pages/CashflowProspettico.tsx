@@ -39,6 +39,7 @@ import { useAuth } from '../hooks/useAuth';
 import { usePeriod } from '../hooks/usePeriod';
 import { GlassTooltip, AXIS_STYLE, GRID_STYLE } from '../components/ChartTheme';
 import ExportMenu from '../components/ExportMenu';
+import TextTooltip from '../components/Tooltip';
 
 const MONTHS = ['Gen', 'Feb', 'Mar', 'Apr', 'Mag', 'Giu', 'Lug', 'Ago', 'Set', 'Ott', 'Nov', 'Dic'];
 const DAYS_SHORT = ['Dom', 'Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab'];
@@ -1772,7 +1773,7 @@ function DrillDownPanel({ items, column, onClose }: { items: { label: string; am
         <div className="space-y-1 max-h-48 overflow-y-auto">
           {items.map((item, i) => (
             <div key={i} className="flex items-center justify-between text-xs py-1 border-b border-slate-100 last:border-0">
-              <span className="text-slate-700 truncate mr-4" title={item.label}>{item.label}</span>
+              <TextTooltip content={item.label || ''}><span className="text-slate-700 truncate mr-4">{item.label}</span></TextTooltip>
               <span className={`font-medium whitespace-nowrap ${isEntrate ? 'text-green-700' : 'text-red-700'}`}>
                 {formatCurrency(item.amount)}
               </span>

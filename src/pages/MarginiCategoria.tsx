@@ -18,6 +18,7 @@ import {
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { useCompanyLabels } from '../hooks/useCompanyLabels'
+import TextTooltip from '../components/Tooltip'
 
 // ═══ HELPERS ═══
 const fmt = (n: number | null | undefined): string => n == null ? '—' : new Intl.NumberFormat('de-DE', { maximumFractionDigits: 0 }).format(n)
@@ -683,7 +684,7 @@ function Kpi({ icon: Icon, label, value, sub, color }: { icon: React.ComponentTy
       <div className="flex items-center gap-3">
         <div className={`p-2 rounded-lg ${colors[color] || colors.indigo}`}><Icon size={18} /></div>
         <div className="min-w-0">
-          <div className="text-lg font-bold text-slate-900 truncate" title={value}>{value}</div>
+          <TextTooltip content={value === '' || value == null ? '' : String(value)}><div className="text-lg font-bold text-slate-900 truncate">{value}</div></TextTooltip>
           <div className="text-xs text-slate-500">{label}</div>
           {sub && <div className="text-xs text-slate-400">{sub}</div>}
         </div>

@@ -23,6 +23,7 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
 import { useTableSort } from '../hooks/useTableSort';
 import SortableTh from '../components/ui/SortableTh';
+import TextTooltip from '../components/Tooltip';
 
 const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316'];
 
@@ -585,10 +586,14 @@ export default function Fornitori() {
                           <div className="flex items-center gap-2">
                             <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${s.is_active !== false ? 'bg-emerald-400' : 'bg-slate-300'}`} />
                             <div className="min-w-0">
-                              <div className="font-medium text-slate-800 truncate" title={name}>{name}</div>
-                              <div className="text-xs text-slate-400 truncate" title={String([s.citta, s.provincia ? `(${s.provincia})` : ''].filter(Boolean).join(' ') || s.email || s.pec || '')}>
-                                {String([s.citta, s.provincia ? `(${s.provincia})` : ''].filter(Boolean).join(' ') || s.email || s.pec || '')}
-                              </div>
+                              <TextTooltip content={name}>
+                                <div className="font-medium text-slate-800 truncate">{name}</div>
+                              </TextTooltip>
+                              <TextTooltip content={String([s.citta, s.provincia ? `(${s.provincia})` : ''].filter(Boolean).join(' ') || s.email || s.pec || '')}>
+                                <div className="text-xs text-slate-400 truncate">
+                                  {String([s.citta, s.provincia ? `(${s.provincia})` : ''].filter(Boolean).join(' ') || s.email || s.pec || '')}
+                                </div>
+                              </TextTooltip>
                             </div>
                           </div>
                         </td>
@@ -753,7 +758,9 @@ export default function Fornitori() {
                                             <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
                                               pay.status === 'pagato' ? 'bg-emerald-400' : pay.status === 'scaduto' ? 'bg-red-400' : 'bg-amber-400'
                                             }`} />
-                                            <span className="font-medium text-slate-700 truncate" title={String(pay.invoice_number || '')}>{String(pay.invoice_number || '')}</span>
+                                            <TextTooltip content={String(pay.invoice_number || '')}>
+                                              <span className="font-medium text-slate-700 truncate">{String(pay.invoice_number || '')}</span>
+                                            </TextTooltip>
                                             <span className="text-slate-400">{pay.due_date ? new Date(String(pay.due_date)).toLocaleDateString('it-IT') : ''}</span>
                                           </div>
                                           <span className="font-semibold text-slate-700 shrink-0 ml-2">€ {(Number(pay.gross_amount) || 0).toLocaleString('de-DE', { minimumFractionDigits: 2 })}</span>

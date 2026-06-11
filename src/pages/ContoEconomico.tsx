@@ -30,6 +30,7 @@ import { useAuth } from '../hooks/useAuth'
 import { useRole } from '../hooks/useRole'
 import { usePeriod } from '../hooks/usePeriod'
 import { GlassTooltip, AXIS_STYLE, GRID_STYLE } from '../components/ChartTheme'
+import TextTooltip from '../components/Tooltip'
 
 import PdfViewer from '../components/PdfViewer'
 import { parseBilancio, toSupabaseRecords } from '../lib/parsers/bilancioParser'
@@ -2838,7 +2839,7 @@ export default function ContoEconomico() {
                 {costiPieData.map((d, i) => (
                   <div key={d.name} className="flex items-center gap-2 text-xs">
                     <div className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ backgroundColor: COLORS[i % COLORS.length] }} />
-                    <span className="text-slate-600 truncate">{d.name}: <strong>{fmt(d.value)} €</strong></span>
+                    <TextTooltip content={d.name}><span className="text-slate-600 truncate">{d.name}: <strong>{fmt(d.value)} €</strong></span></TextTooltip>
                   </div>
                 ))}
               </div>
@@ -3089,9 +3090,11 @@ function TreeNode({ node, depth = 0, prevByCode, showYoY, isCost }: { node: Tree
             style={{ width: node.code.length > 4 ? '60px' : '30px' }}>
             {node.code}
           </span>
-          <span className={`truncate ${isMacroRow ? 'text-xs font-bold text-slate-900' : 'text-xs text-slate-600'}`}>
-            {node.description}
-          </span>
+          <TextTooltip content={node.description}>
+            <span className={`truncate ${isMacroRow ? 'text-xs font-bold text-slate-900' : 'text-xs text-slate-600'}`}>
+              {node.description}
+            </span>
+          </TextTooltip>
         </div>
         <div className="flex items-center gap-1 shrink-0 ml-2">
           <span className={`tabular-nums text-right w-24 ${

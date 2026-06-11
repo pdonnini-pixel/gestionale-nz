@@ -23,6 +23,7 @@ import { useAuth } from '../hooks/useAuth'
 import { useCompanyLabels } from '../hooks/useCompanyLabels'
 import OpenBankingAcube from '../components/OpenBankingAcube'
 import AICategorization from '../components/AICategorization'
+import TextTooltip from '../components/Tooltip'
 
 /* ───── reconciliation engine ───── */
 import { runAutoReconciliation, applyReconciliation, undoReconciliation, getReconciliationLog } from '../lib/reconciliationEngine'
@@ -794,7 +795,7 @@ function SezioneComposizione({ accounts, totalLiquidity }: { accounts: AccountRo
             <div key={d.name} className="flex items-center gap-2">
               <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: d.color }} />
               <div className="min-w-0 flex-1">
-                <div className="text-xs font-medium text-slate-700 truncate" title={d.name}>{d.name}</div>
+                <TextTooltip content={d.name}><div className="text-xs font-medium text-slate-700 truncate">{d.name}</div></TextTooltip>
                 <div className="text-[10px] text-slate-400">
                   {fmt(d.realValue != null ? d.realValue : d.value)} €
                   {totalLiquidity !== 0 && <span className="ml-1">({((d.value / Math.abs(totalLiquidity)) * 100).toFixed(1)}%)</span>}
@@ -994,13 +995,17 @@ function SezioneMovimentiReali({ movements, setMovements, accounts, search, load
                           {fmtDate(m.date)}
                         </td>
                         <td className="py-2.5 px-4 text-slate-800 max-w-[280px]">
-                          <span className="block truncate text-[13px]" title={m.description || ''}>
-                            {m.description || '—'}
-                          </span>
+                          <TextTooltip content={m.description || ''}>
+                            <span className="block truncate text-[13px]">
+                              {m.description || '—'}
+                            </span>
+                          </TextTooltip>
                         </td>
-                        <td className="py-2.5 px-4 text-xs text-slate-500 max-w-[180px] truncate" title={m.counterpart || ''}>
-                          {m.counterpart || '—'}
-                        </td>
+                        <TextTooltip content={m.counterpart || ''}>
+                          <td className="py-2.5 px-4 text-xs text-slate-500 max-w-[180px] truncate">
+                            {m.counterpart || '—'}
+                          </td>
+                        </TextTooltip>
                         <td className={`py-2.5 px-4 text-right font-medium whitespace-nowrap text-[13px] ${isEntrata ? 'text-emerald-600' : 'text-red-500'}`}>
                           {isEntrata ? '+' : '-'}{fmt(Math.abs(Number(m.amount) || 0))} €
                         </td>
@@ -1117,7 +1122,7 @@ function SezioneMovimenti({ transactions, accounts, suppliers: _suppliers, searc
                       {t.transaction_date ? new Date(t.transaction_date).toLocaleDateString('it-IT') : '—'}
                     </td>
                     <td className="py-2 px-4 text-xs text-slate-500">{getAccountName(t.bank_account_id)}</td>
-                    <td className="py-2 px-4 text-slate-900 max-w-64 truncate" title={t.description || '—'}>{t.description || '—'}</td>
+                    <TextTooltip content={t.description || ''}><td className="py-2 px-4 text-slate-900 max-w-64 truncate">{t.description || '—'}</td></TextTooltip>
                     <td className="py-2 px-4 text-slate-500 text-xs">{t.counterpart || '—'}</td>
                     <td className="py-2 px-4 text-right text-red-600 font-medium">
                       {(Number(t.amount) || 0) < 0 ? fmt(Math.abs(Number(t.amount) || 0)) : ''}
@@ -1762,14 +1767,10 @@ function SezioneRiconciliazione({ companyId, accounts }: { companyId: string; ac
                         <td className="py-2 px-4 text-slate-600 whitespace-nowrap border-l-4 border-l-emerald-500">
                           {fmtDate(item.movement?.date || (item.movement?.transaction_date as string | null | undefined))}
                         </td>
-                        <td className="py-2 px-4 text-slate-900 max-w-[280px] relative group">
-                          <span className="block truncate cursor-help" title={item.movement?.description || '—'}>{item.movement?.description || '—'}</span>
-                          {item.movement?.description && (
-                            <div className="hidden group-hover:block absolute z-50 left-0 top-full mt-1 p-3 bg-slate-800 text-white text-xs rounded-lg shadow-xl max-w-md whitespace-pre-wrap leading-relaxed border border-slate-600">
-                              <div className="font-semibold text-slate-300 mb-1">Descrizione completa:</div>
-                              {item.movement.description}
-                            </div>
-                          )}
+                        <td className="py-2 px-4 text-slate-900 max-w-[280px]">
+                          <TextTooltip content={item.movement?.description || ''}>
+                            <span className="block truncate cursor-help">{item.movement?.description || '—'}</span>
+                          </TextTooltip>
                         </td>
                         <td className="py-2 px-4 text-right font-medium text-red-600 whitespace-nowrap">
                           {fmtEuro(Number(item.movement?.amount) || 0)}
@@ -1859,14 +1860,10 @@ function SezioneRiconciliazione({ companyId, accounts }: { companyId: string; ac
                           </div>
 
                           {/* Description with tooltip */}
-                          <div className="flex-1 min-w-0 relative group">
-                            <div className="text-sm font-medium text-slate-900 truncate" title={item.movement?.description || '—'}>{item.movement?.description || '—'}</div>
-                            {item.movement?.description && (
-                              <div className="hidden group-hover:block absolute z-50 left-0 top-full mt-1 p-3 bg-slate-800 text-white text-xs rounded-lg shadow-xl max-w-md whitespace-pre-wrap leading-relaxed border border-slate-600">
-                                <div className="font-semibold text-slate-300 mb-1">Descrizione completa:</div>
-                                {item.movement.description}
-                              </div>
-                            )}
+                          <div className="flex-1 min-w-0">
+                            <TextTooltip content={item.movement?.description || ''}>
+                              <div className="text-sm font-medium text-slate-900 truncate">{item.movement?.description || '—'}</div>
+                            </TextTooltip>
                           </div>
 
                           {/* Amount */}
@@ -1951,7 +1948,7 @@ function SezioneRiconciliazione({ companyId, accounts }: { companyId: string; ac
 
                                   {/* Supplier */}
                                   <div className="flex-1 min-w-0">
-                                    <div className="text-sm font-medium text-slate-800 truncate" title={supplierName}>{supplierName}</div>
+                                    <TextTooltip content={supplierName || ''}><div className="text-sm font-medium text-slate-800 truncate">{supplierName}</div></TextTooltip>
                                     <div className="text-xs text-slate-500 flex items-center gap-2">
                                       <span>Fatt. {cPayable?.invoice_number || '—'}</span>
                                       <span>·</span>
@@ -2064,14 +2061,10 @@ function SezioneRiconciliazione({ companyId, accounts }: { companyId: string; ac
                         <td className="py-2 px-4 text-slate-600 whitespace-nowrap border-l-4 border-l-slate-400">
                           {fmtDate(mov.date || (mov.transaction_date as string | null | undefined))}
                         </td>
-                        <td className="py-2 px-4 text-slate-900 max-w-[280px] relative group">
-                          <span className="block truncate cursor-help" title={mov.description || '—'}>{mov.description || '—'}</span>
-                          {Boolean(mov.description) && (
-                            <div className="hidden group-hover:block absolute z-50 left-0 top-full mt-1 p-3 bg-slate-800 text-white text-xs rounded-lg shadow-xl max-w-md whitespace-pre-wrap leading-relaxed border border-slate-600">
-                              <div className="font-semibold text-slate-300 mb-1">Descrizione completa:</div>
-                              {mov.description}
-                            </div>
-                          )}
+                        <td className="py-2 px-4 text-slate-900 max-w-[280px]">
+                          <TextTooltip content={mov.description || ''}>
+                            <span className="block truncate cursor-help">{mov.description || '—'}</span>
+                          </TextTooltip>
                         </td>
                         <td className="py-2 px-4 text-slate-500 text-xs">{mov.counterpart || '—'}</td>
                         <td className="py-2 px-4 text-right font-medium text-red-600 whitespace-nowrap">
@@ -2199,11 +2192,13 @@ function SezioneRiconciliazione({ companyId, accounts }: { companyId: string; ac
                              entry.match_type || '—'}
                           </span>
                         </td>
-                        <td className="py-2 px-4 text-slate-900 text-xs max-w-xs truncate" title={entry.cash_movements?.description || ''}>
-                          {entry.cash_movements?.description
-                            ? `${fmtDate(entry.cash_movements.date)} — ${entry.cash_movements.description.substring(0, 50)}…`
-                            : entry.cash_movement_id?.substring(0, 8) || '—'}
-                        </td>
+                        <TextTooltip content={entry.cash_movements?.description || ''}>
+                          <td className="py-2 px-4 text-slate-900 text-xs max-w-xs truncate">
+                            {entry.cash_movements?.description
+                              ? `${fmtDate(entry.cash_movements.date)} — ${entry.cash_movements.description.substring(0, 50)}…`
+                              : entry.cash_movement_id?.substring(0, 8) || '—'}
+                          </td>
+                        </TextTooltip>
                         <td className="py-2 px-4 text-slate-500 text-xs">
                           {entry.payables?.invoice_number || entry.payable_id?.substring(0, 8) || '—'}
                           {entry.payables?.suppliers?.ragione_sociale ? ` (${entry.payables.suppliers.ragione_sociale})` : ''}

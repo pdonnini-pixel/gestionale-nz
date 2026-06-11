@@ -19,6 +19,7 @@ import ExportMenu from '../components/ExportMenu';
 import StatusBadge from '../components/ui/StatusBadge';
 import SortableTh from '../components/ui/SortableTh';
 import InvoiceViewer from '../components/InvoiceViewer';
+import Tooltip from '../components/Tooltip';
 import { useTableSort } from '../hooks/useTableSort';
 import {
   BarChart, Bar, PieChart, Pie, Cell, AreaChart, Area,
@@ -1648,7 +1649,7 @@ const ScadenzarioSmart = () => {
               <div className="space-y-2">
                 {displayPayables.filter(p => p.status !== 'pagato' && p.status !== 'annullato').slice(0, 3).map(p => (
                   <div key={p.id} className="flex items-center justify-between text-sm">
-                    <span className="text-slate-600 truncate max-w-[200px]" title={p.suppliers?.ragione_sociale || p.suppliers?.name || '—'}>{p.suppliers?.ragione_sociale || p.suppliers?.name || '—'}</span>
+                    <Tooltip content={p.suppliers?.ragione_sociale || p.suppliers?.name || ''}><span className="text-slate-600 truncate max-w-[200px]">{p.suppliers?.ragione_sociale || p.suppliers?.name || '—'}</span></Tooltip>
                     <span className="font-medium text-slate-800">{fmt(p.amount_remaining || p.gross_amount)} €</span>
                   </div>
                 ))}
@@ -2094,8 +2095,8 @@ const ScadenzarioSmart = () => {
                             <div className="flex items-center gap-3">
                               <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${dotColor(p)}`} />
                               <div>
-                                <div className="text-sm font-medium text-slate-800 truncate max-w-[280px]" title={p.suppliers?.ragione_sociale || p.suppliers?.name || ''}>{p.suppliers?.ragione_sociale || p.suppliers?.name || '—'}</div>
-                                <div className="text-xs text-slate-400 truncate max-w-[280px]" title={p.invoice_number || ''}>Fatt. {p.invoice_number || '—'} {p.payment_method ? `- ${(paymentMethodLabels as Record<string, string>)[p.payment_method] || p.payment_method}` : ''}</div>
+                                <Tooltip content={p.suppliers?.ragione_sociale || p.suppliers?.name || ''}><div className="text-sm font-medium text-slate-800 truncate max-w-[280px]">{p.suppliers?.ragione_sociale || p.suppliers?.name || '—'}</div></Tooltip>
+                                <Tooltip content={p.invoice_number || ''}><div className="text-xs text-slate-400 truncate max-w-[280px]">Fatt. {p.invoice_number || '—'} {p.payment_method ? `- ${(paymentMethodLabels as Record<string, string>)[p.payment_method] || p.payment_method}` : ''}</div></Tooltip>
                               </div>
                             </div>
                             <div className="flex items-center gap-3">
@@ -2181,7 +2182,7 @@ const ScadenzarioSmart = () => {
                             return (
                               <tr key={i.id} className="hover:bg-slate-50/60">
                                 <td className="py-2 px-3 whitespace-nowrap text-slate-600">{fmtDate(i.transaction_date)}</td>
-                                <td className="py-2 px-3 truncate max-w-md text-slate-700" title={i.description ?? undefined}>{i.description || '—'}</td>
+                                <td className="py-2 px-3 text-slate-700"><Tooltip content={i.description || ''}><div className="truncate max-w-md">{i.description || '—'}</div></Tooltip></td>
                                 <td className="py-2 px-3"><span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold ${cat.cls}`}>{cat.tipo}</span></td>
                                 <td className="py-2 px-3 text-xs text-slate-500">{i.bank_accounts?.bank_name || '—'}</td>
                                 <td className="py-2 px-3 text-right font-semibold text-emerald-700 whitespace-nowrap">+{fmt(i.amount)} €</td>
@@ -2260,12 +2261,16 @@ const ScadenzarioSmart = () => {
                               );
                               setSupplierDetail(sup || { ragione_sociale: p.suppliers?.ragione_sociale || p.suppliers?.name || 'N/A' });
                             }} className="text-left">
-                              <div className="text-[13px] text-slate-800 hover:text-blue-600 font-medium truncate max-w-[220px]" title={p.suppliers?.ragione_sociale || p.suppliers?.name || 'N/A'}>
-                                {p.suppliers?.ragione_sociale || p.suppliers?.name || 'N/A'}
-                              </div>
-                              <div className="text-[10px] text-slate-400 mt-0.5 truncate max-w-[220px]" title={`Fattura • ${p.invoice_number || '—'}`}>
-                                Fattura • {p.invoice_number || '—'}
-                              </div>
+                              <Tooltip content={p.suppliers?.ragione_sociale || p.suppliers?.name || ''}>
+                                <div className="text-[13px] text-slate-800 hover:text-blue-600 font-medium truncate max-w-[220px]">
+                                  {p.suppliers?.ragione_sociale || p.suppliers?.name || 'N/A'}
+                                </div>
+                              </Tooltip>
+                              <Tooltip content={p.invoice_number || ''}>
+                                <div className="text-[10px] text-slate-400 mt-0.5 truncate max-w-[220px]">
+                                  Fattura • {p.invoice_number || '—'}
+                                </div>
+                              </Tooltip>
                             </button>
                           </td>
                           {/* IMPORTO — click per editare inline (anche scadenze fiscali via dispatch) */}
@@ -2374,7 +2379,7 @@ const ScadenzarioSmart = () => {
                                     <button key={c.id} onClick={() => p.id && c.id && handleSetCategory(p.id, c.id)}
                                       className={`w-full text-left px-3 py-1.5 text-xs hover:bg-slate-50 flex items-center gap-2 ${p.cost_category_id === c.id ? 'font-bold bg-slate-50' : ''}`}>
                                       <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: String(c.color || '') }} />
-                                      <span className="truncate" title={String(c.name || '')}>{String(c.name || '')}</span>
+                                      <Tooltip content={String(c.name || '')}><span className="truncate">{String(c.name || '')}</span></Tooltip>
                                     </button>
                                   ))}
                                 </div>
@@ -2953,7 +2958,7 @@ const ScadenzarioSmart = () => {
                       <div key={pIdx} className="px-4 py-2.5 bg-white hover:bg-slate-50/50">
                         <div className="flex items-center justify-between">
                           <div className="flex-1 min-w-0">
-                            <div className="text-sm font-medium text-slate-800 truncate" title={p.fornitore}>{p.fornitore}</div>
+                            <Tooltip content={p.fornitore || ''}><div className="text-sm font-medium text-slate-800 truncate">{p.fornitore}</div></Tooltip>
                             <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                               <span className="text-xs text-slate-500">Fatt. {p.fattura}</span>
                               {p.metodo && <span className="text-xs text-slate-400">• {p.metodo}</span>}
