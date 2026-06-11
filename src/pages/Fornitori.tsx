@@ -11,7 +11,7 @@ import {
   Building2, Search, Plus, Edit3, Trash2, FileText, Phone, Mail, MapPin,
   CreditCard, Clock, AlertTriangle, CheckCircle, ChevronDown, ChevronUp,
   X, Filter, Download, TrendingUp, Calendar, ArrowUpDown, ExternalLink,
-  Loader2, Eye, BarChart3, PieChart as PieChartIcon, Banknote, BookOpen, Tag,
+  Loader2, BarChart3, PieChart as PieChartIcon, Banknote, BookOpen, Tag,
   SlidersHorizontal, Split
 } from 'lucide-react';
 import {
@@ -27,7 +27,6 @@ import SortableTh from '../components/ui/SortableTh';
 import TextTooltip from '../components/Tooltip';
 import { useOutlets } from '../hooks/useOutlets';
 import SupplierAllocationEditor, { MODE_META, type AllocationMode } from '../components/SupplierAllocationEditor';
-import InvoiceViewer from '../components/InvoiceViewer';
 
 const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316'];
 
@@ -121,15 +120,6 @@ export default function Fornitori() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   // Pannello "Gestione" — un solo fornitore aperto alla volta.
   const [gestioneId, setGestioneId] = useState<string | null>(null);
-  // Fatture del fornitore nel pannello Gestione (caricate on-demand).
-  type InvoiceRow = { id: string; invoice_number: string | null; invoice_date: string | null; gross_amount: number | null; tipo_documento: string | null };
-  const [gestioneInvoices, setGestioneInvoices] = useState<InvoiceRow[]>([]);
-  const [gestioneInvLoading, setGestioneInvLoading] = useState(false);
-  const [gestionePayStatus, setGestionePayStatus] = useState<Record<string, string>>({});
-  const [showAllInvoices, setShowAllInvoices] = useState(false);
-  // XML per InvoiceViewer (modal) + flag caricamento del singolo XML.
-  const [viewingXml, setViewingXml] = useState<string | null>(null);
-  const [loadingXmlId, setLoadingXmlId] = useState<string | null>(null);
   // activeTab persistito in URL come ?tab=… (default 'anagrafica')
   const [searchParams, setSearchParams] = useSearchParams();
   const tabParam = searchParams.get('tab');
@@ -249,73 +239,6 @@ export default function Fornitori() {
       return;
     }
     showToast(next ? `Categoria "${next}" salvata` : 'Categoria rimossa');
-  }
-
-  // Fatture + stato payables del fornitore nel pannello Gestione: lazy load.
-  // Nessun xml_content nella lista (54MB → timeout): l'XML si scarica solo
-  // all'apertura del viewer (handleViewInvoice).
-  useEffect(() => {
-    if (!gestioneId || !COMPANY_ID) { setGestioneInvoices([]); setGestionePayStatus({}); setShowAllInvoices(false); return; }
-    const supplier = suppliers.find(s => s.id === gestioneId);
-    const vat = String(supplier?.partita_iva || supplier?.vat_number || '').trim();
-    let cancelled = false;
-    setGestioneInvLoading(true);
-    (async () => {
-      let invQuery = supabase.from('electronic_invoices')
-        .select('id, invoice_number, invoice_date, gross_amount, tipo_documento')
-        .eq('company_id', COMPANY_ID);
-      // supplier_id quando collegato; fallback su supplier_vat (fatture non
-      // ancora agganciate al fornitore ma con stessa P.IVA). Uso .or() anche nel
-      // ramo singolo: supplier_id non è nei tipi generati di electronic_invoices
-      // (esiste a DB) e il filtro stringa di .or() bypassa il check sui tipi.
-      invQuery = vat
-        ? invQuery.or(`supplier_id.eq.${gestioneId},supplier_vat.eq.${vat}`)
-        : invQuery.or(`supplier_id.eq.${gestioneId}`);
-      const [invRes, payRes] = await Promise.all([
-        invQuery.order('invoice_date', { ascending: false }).limit(500),
-        supabase.from('payables')
-          .select('invoice_number, status')
-          .eq('company_id', COMPANY_ID)
-          .eq('supplier_id', gestioneId)
-          .limit(500),
-      ]);
-      if (cancelled) return;
-      if (invRes.error) console.warn('gestione invoices load:', invRes.error.message);
-      if (payRes.error) console.warn('gestione payables load:', payRes.error.message);
-      setGestioneInvoices((invRes.data || []) as unknown as InvoiceRow[]);
-      const statusMap: Record<string, string> = {};
-      (payRes.data || []).forEach((p: Record<string, unknown>) => {
-        const num = p.invoice_number as string | null;
-        const st = p.status as string | null;
-        if (num && st && !statusMap[num]) statusMap[num] = st;
-      });
-      setGestionePayStatus(statusMap);
-      setGestioneInvLoading(false);
-    })();
-    return () => { cancelled = true; };
-  }, [gestioneId, COMPANY_ID, suppliers]);
-
-  // "Apri": scarica l'xml_content della singola fattura e apre InvoiceViewer.
-  async function handleViewInvoice(inv: InvoiceRow) {
-    if (!inv.id) return;
-    setLoadingXmlId(inv.id);
-    try {
-      const { data } = await supabase.from('electronic_invoices')
-        .select('xml_content')
-        .eq('id', inv.id)
-        .not('xml_content', 'is', null)
-        .maybeSingle();
-      if (data?.xml_content) {
-        setViewingXml(data.xml_content as string);
-      } else {
-        showToast('XML non disponibile per questa fattura', 'error');
-      }
-    } catch (err) {
-      console.error('handleViewInvoice error:', err);
-      showToast('Errore apertura fattura', 'error');
-    } finally {
-      setLoadingXmlId(null);
-    }
   }
 
   // Toggle pannello Gestione (uno solo aperto alla volta).
@@ -1019,72 +942,6 @@ export default function Fornitori() {
                                   )}
                                 </div>
                               </div>
-
-                              {/* Blocco C — Fatture del fornitore */}
-                              <div className="bg-white rounded-xl border border-slate-200 p-4">
-                                <h3 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
-                                  <FileText size={15} className="text-violet-600" /> Fatture del fornitore
-                                  {!gestioneInvLoading && gestioneInvoices.length > 0 && (
-                                    <span className="font-normal text-slate-400">({Math.min(gestioneInvoices.length, showAllInvoices ? gestioneInvoices.length : 20)} di {gestioneInvoices.length})</span>
-                                  )}
-                                </h3>
-                                {gestioneInvLoading ? (
-                                  <div className="flex items-center gap-2 py-6 text-sm text-slate-400"><Loader2 size={16} className="animate-spin" /> Caricamento fatture…</div>
-                                ) : gestioneInvoices.length === 0 ? (
-                                  <p className="text-sm text-slate-400 py-4 text-center">Nessuna fattura elettronica per questo fornitore.</p>
-                                ) : (
-                                  <>
-                                    <table className="w-full text-sm">
-                                      <thead>
-                                        <tr className="text-left text-[10.5px] uppercase tracking-wider text-slate-400 border-b border-slate-100">
-                                          <th className="py-1.5 px-2 font-semibold">Numero</th>
-                                          <th className="py-1.5 px-2 font-semibold">Data</th>
-                                          <th className="py-1.5 px-2 font-semibold text-right">Importo</th>
-                                          <th className="py-1.5 px-2 font-semibold text-center">Tipo</th>
-                                          <th className="py-1.5 px-2 font-semibold text-center">Stato</th>
-                                          <th className="py-1.5 px-2 font-semibold text-center">Documento</th>
-                                        </tr>
-                                      </thead>
-                                      <tbody>
-                                        {(showAllInvoices ? gestioneInvoices : gestioneInvoices.slice(0, 20)).map(inv => {
-                                          const amt = Number(inv.gross_amount) || 0;
-                                          const st = inv.invoice_number ? gestionePayStatus[inv.invoice_number] : undefined;
-                                          const stCls = st === 'pagato' ? 'bg-emerald-100 text-emerald-700'
-                                            : st === 'scaduto' ? 'bg-red-100 text-red-700'
-                                            : st ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-400';
-                                          return (
-                                            <tr key={inv.id} className="border-b border-slate-50 hover:bg-slate-50/60">
-                                              <td className="py-1.5 px-2 font-mono text-xs text-slate-700">
-                                                <TextTooltip content={String(inv.invoice_number || '')}>
-                                                  <span className="truncate inline-block max-w-[160px] align-bottom">{inv.invoice_number || '—'}</span>
-                                                </TextTooltip>
-                                              </td>
-                                              <td className="py-1.5 px-2 text-slate-500 text-xs whitespace-nowrap">{inv.invoice_date ? new Date(inv.invoice_date).toLocaleDateString('it-IT') : '—'}</td>
-                                              <td className={`py-1.5 px-2 text-right font-semibold whitespace-nowrap ${amt < 0 ? 'text-red-600' : 'text-slate-700'}`}>€ {amt.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                                              <td className="py-1.5 px-2 text-center"><span className="text-[10.5px] font-mono text-slate-500">{inv.tipo_documento || '—'}</span></td>
-                                              <td className="py-1.5 px-2 text-center"><span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-medium ${stCls}`}>{st || 'n/d'}</span></td>
-                                              <td className="py-1.5 px-2 text-center">
-                                                <button
-                                                  onClick={() => handleViewInvoice(inv)}
-                                                  disabled={loadingXmlId === inv.id}
-                                                  className="inline-flex items-center gap-1 px-2.5 py-1 border border-slate-200 rounded-md text-[11.5px] font-medium text-slate-600 hover:border-slate-400 disabled:opacity-50"
-                                                >
-                                                  {loadingXmlId === inv.id ? <Loader2 size={12} className="animate-spin" /> : <Eye size={12} />} Apri
-                                                </button>
-                                              </td>
-                                            </tr>
-                                          );
-                                        })}
-                                      </tbody>
-                                    </table>
-                                    {gestioneInvoices.length > 20 && !showAllInvoices && (
-                                      <button onClick={() => setShowAllInvoices(true)} className="mt-2 text-xs font-medium text-violet-600 hover:text-violet-800">
-                                        Mostra tutte ({gestioneInvoices.length})
-                                      </button>
-                                    )}
-                                  </>
-                                )}
-                              </div>
                             </div>
                           </td>
                         </tr>
@@ -1365,9 +1222,6 @@ export default function Fornitori() {
           {toast.msg}
         </div>
       )}
-      {/* INVOICE VIEWER (XML fattura del fornitore) */}
-      {viewingXml && <InvoiceViewer xmlContent={viewingXml} onClose={() => setViewingXml(null)} />}
-
       <PageHelp page="fornitori" />
       </div>
     </div>
