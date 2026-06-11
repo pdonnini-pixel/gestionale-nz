@@ -172,6 +172,23 @@ describe('parseInfinityNettiItems — righe per asse X (PDF ruotato)', () => {
     expect(rows.every((r) => r.cognome !== r.matricola)).toBe(true)
   })
 
+  it('riga con IBAN/banca: il nome NON contiene IBAN né banca (token con Y > netto esclusi)', () => {
+    const page: PI[] = [
+      { str: 'Filiale: 0000000004 - FRANCIACORTA ;', x: 300, y: 400 },
+      { str: '0000051', x: 200, y: 23 },
+      { str: 'PIANTONI ROSITA FRANCESC', x: 200, y: 55 },
+      { str: '1.417,00', x: 200, y: 206 },
+      { str: 'IT53O0503453420000000014530', x: 200, y: 235 },
+      { str: 'BANCO BPM S.P.A. ROMANO DI LOMBARDIA', x: 200, y: 480 },
+      { str: 'Totale di ripartizione', x: 50, y: 55 }, { str: '1.417,00', x: 50, y: 206 }, { str: 'Nr dipendenti 1', x: 50, y: 250 },
+    ]
+    const { rows } = parseInfinityNettiItems([page], [{ name: 'FRANCIACORTA', cost_center_key: 'franciacorta' }])
+    expect(rows.length).toBe(1)
+    expect(rows[0]).toMatchObject({ matricola: '0000051', cognome: 'PIANTONI', nome: 'ROSITA FRANCESC', netto: 1417 })
+    expect(rows[0].nome).not.toMatch(/IT53|BANCO|BPM|LOMBARDIA/)
+    expect(rows.some((r) => r.warn)).toBe(false)
+  })
+
   it('doppio totale (ripartizione + aziendale) → nessun warn, usa la ripartizione', () => {
     const page: PI[] = [
       { str: 'Filiale: 0000000008 - VALMONTONE ;', x: 300, y: 400 },

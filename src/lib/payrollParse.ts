@@ -132,19 +132,25 @@ export function parseInfinityNettiItems(pages: PdfItem[][], outlets: ParserOutle
 
     const pageRows: PreviewRow[] = [];
     for (const g of groups) {
-      const toks = g.items.slice().sort((a, b) => a.y - b.y).map((i) => i.str.trim());
-      const matTok = toks.find((t) => RE_MAT_ONE.test(t));
-      const moneyToks = toks.filter((t) => RE_MONEY_ONE.test(t));
-      if (!matTok || !moneyToks.length) continue; // intestazioni / totali → scartate
-      const nameParts = toks.filter((t) => !RE_MAT_ONE.test(t) && !RE_MONEY_ONE.test(t) && !ROW_LABEL.test(t));
+      const sorted = g.items.slice().sort((a, b) => a.y - b.y);
+      const matTok = sorted.find((i) => RE_MAT_ONE.test(i.str.trim()));
+      const moneyItems = sorted.filter((i) => RE_MONEY_ONE.test(i.str.trim()));
+      if (!matTok || !moneyItems.length) continue; // intestazioni / totali → scartate
+      const nettoItem = moneyItems[0]; // il netto è la colonna importo (Y più bassa dei money)
+      // Il NOME è solo la colonna nome: token con Y < Y(netto). Esclude IBAN/banca/beneficiario
+      // (Y maggiore, colonne coordinate bancarie compilate solo per alcuni dipendenti).
+      const nameParts = sorted
+        .filter((i) => i.y < nettoItem.y)
+        .map((i) => i.str.trim())
+        .filter((t) => !RE_MAT_ONE.test(t) && !RE_MONEY_ONE.test(t) && !ROW_LABEL.test(t));
       const fullName = nameParts.join(' ').replace(/\s+/g, ' ').trim();
       const parts = fullName.split(' ');
       const r = blankRow();
-      r.matricola = matTok;
+      r.matricola = matTok.str.trim();
       r.cognome = parts[0] || '';
       r.nome = parts.slice(1).join(' ');
       r.outlet = outlet;
-      r.netto = parseItNum(moneyToks[0]);
+      r.netto = parseItNum(nettoItem.str.trim());
       pageRows.push(r);
     }
 
