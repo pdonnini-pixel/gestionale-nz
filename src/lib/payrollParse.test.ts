@@ -172,6 +172,23 @@ describe('parseInfinityNettiItems — righe per asse X (PDF ruotato)', () => {
     expect(rows.every((r) => r.cognome !== r.matricola)).toBe(true)
   })
 
+  it('riga con netto+IBAN CONCATENATI nello stesso item (coord. reali PIANTONI)', () => {
+    // pdfjs reale: l'importo e l'IBAN escono in UN solo item "1.417,00 IT53…"
+    const page: PI[] = [
+      { str: 'Filiale: 0000000004 - FRANCIACORTA VILLAGE ;', x: 300, y: 400 },
+      { str: '0000051', x: 205.9, y: 23.1 },
+      { str: 'PIANTONI ROSITA FRANCESC', x: 205.9, y: 55.1 },
+      { str: '1.417,00 IT53O0503453420000000014530', x: 205.9, y: 205.9 },
+      { str: '05034 53420 BANCO BPM S.P.A. ROMANO DI LOMBARDIA', x: 205.9, y: 479.6 },
+      { str: 'Totale di ripartizione', x: 50, y: 55 }, { str: '1.417,00', x: 50, y: 206 }, { str: 'Nr dipendenti 1', x: 50, y: 250 },
+    ]
+    const { rows } = parseInfinityNettiItems([page], [{ name: 'FRANCIACORTA', cost_center_key: 'franciacorta' }])
+    expect(rows.length).toBe(1)
+    expect(rows[0]).toMatchObject({ matricola: '0000051', cognome: 'PIANTONI', nome: 'ROSITA FRANCESC', netto: 1417 })
+    expect(rows[0].nome).not.toMatch(/IT53|BANCO|BPM|0503/)
+    expect(rows.some((r) => r.warn)).toBe(false)
+  })
+
   it('riga con IBAN/banca: il nome NON contiene IBAN né banca (token con Y > netto esclusi)', () => {
     const page: PI[] = [
       { str: 'Filiale: 0000000004 - FRANCIACORTA ;', x: 300, y: 400 },
