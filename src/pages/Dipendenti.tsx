@@ -22,6 +22,8 @@ import {
   Store,
   Users,
   CheckCircle2,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-react';
 import {
   BarChart,
@@ -101,6 +103,34 @@ function SedeCell({ allocs }: { allocs: EmployeeOutletAllocation[] }) {
   );
 }
 
+// Outlet (sede) primario di un dipendente: prima allocazione (is_primary o la prima).
+const primaryOutlet = (allocs: EmployeeOutletAllocation[]): string => {
+  if (!allocs.length) return 'Senza sede';
+  return (allocs.find((a) => a.is_primary) || allocs[0]).outlet_code;
+};
+
+// Sezione collassabile per outlet (accordion). Default collassata.
+function OutletAccordion({ name, count, total, defaultOpen = false, children }: {
+  name: string; count: number; total: number | null; defaultOpen?: boolean; children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  const color = name === 'Senza sede' ? { main: '#94a3b8' } : getOutletColor(name);
+  return (
+    <div className="border border-slate-200 rounded-xl overflow-hidden">
+      <button onClick={() => setOpen((v) => !v)} className="w-full flex items-center justify-between gap-3 px-4 py-3 bg-slate-50 hover:bg-slate-100 transition-colors">
+        <span className="flex items-center gap-2 min-w-0">
+          {open ? <ChevronDown size={16} className="text-slate-400 shrink-0" /> : <ChevronRight size={16} className="text-slate-400 shrink-0" />}
+          <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: color.main }} />
+          <span className="font-semibold text-slate-800 truncate">{name}</span>
+          <span className="text-xs font-normal text-slate-500 shrink-0">· {count} dipendenti</span>
+        </span>
+        <span className="text-sm shrink-0">{total == null ? <span className="text-slate-300">—</span> : <Money v={total} strong />}</span>
+      </button>
+      {open && <div>{children}</div>}
+    </div>
+  );
+}
+
 // ============================================================================
 // HELPERS
 // ============================================================================
@@ -166,35 +196,25 @@ function ConfirmModal({ open, title, message, confirmLabel = 'Conferma', danger 
   );
 }
 
-// KPI card pulita — stesso stile delle altre pagine (ConfrontoOutlet / Conto Economico):
-// fondo bianco→slate, bordo tenue, accento solo sul numero. Niente tessere a gradiente pieno.
-const KPI_ACCENT: Record<'cost' | 'cash' | 'emerald' | 'none', string> = {
-  cost: '#ea580c',
-  cash: '#16a34a',
-  emerald: '#059669',
-  none: '#0f172a',
+// KPI card: il BORDO colorato indica la FONTE del dato (arancione = B&C, verde =
+// netti/consuntivo, neutro = anagrafico). Valore e label sempre in NERO (slate-900).
+const KPI_BORDER: Record<'bc' | 'netto' | 'neutro', string> = {
+  bc: '#ea580c',
+  netto: '#16a34a',
+  neutro: '#e2e8f0',
 };
-const KPI_CHIP: Record<'costo' | 'cassa', { bg: string; color: string }> = {
-  costo: { bg: '#fff7ed', color: '#ea580c' },
-  cassa: { bg: '#f0fdf4', color: '#16a34a' },
-};
-function Kpi({ label, value, sub, icon: Icon, accent = 'none', chip }: {
+function Kpi({ label, value, sub, icon: Icon, source = 'neutro' }: {
   label: string; value: React.ReactNode; sub?: React.ReactNode;
   icon: React.ComponentType<{ size?: number; className?: string }>;
-  accent?: 'cost' | 'cash' | 'emerald' | 'none'; chip?: 'costo' | 'cassa';
+  source?: 'bc' | 'netto' | 'neutro';
 }) {
   return (
-    <div className="rounded-2xl shadow-lg p-5" style={{ background: 'linear-gradient(135deg,#ffffff 0%,#f8fafc 100%)', border: '1px solid rgba(99,102,241,0.08)' }}>
+    <div className="rounded-2xl shadow-lg p-5 bg-white" style={{ border: `2px solid ${KPI_BORDER[source]}` }}>
       <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2 min-w-0">
-          {chip && (
-            <span className="text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded shrink-0" style={{ background: KPI_CHIP[chip].bg, color: KPI_CHIP[chip].color }}>{chip}</span>
-          )}
-          <span className="text-xs font-medium text-slate-500 truncate">{label}</span>
-        </div>
+        <span className="text-xs font-medium text-slate-500 truncate">{label}</span>
         <Icon size={16} className="text-slate-400 shrink-0" />
       </div>
-      <div className="text-2xl font-bold tabular-nums leading-tight" style={{ color: KPI_ACCENT[accent] }}>{value}</div>
+      <div className="text-2xl font-bold tabular-nums leading-tight text-slate-900">{value}</div>
       {sub && <div className="text-xs text-slate-400 mt-1">{sub}</div>}
     </div>
   );
@@ -406,24 +426,33 @@ export default function Dipendenti() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeEmployees, allocByEmp, costs, selectedYear, selectedMonth]);
 
+  // REGOLA NO-ZERO: un dipendente "esiste" per il mese SOLO se ha un netto reale (cedolino).
+  // Tutto ciò che è per-mese (organico, per outlet, cedolini) si basa su questo insieme.
+  const paidThisMonth = useMemo(
+    () => costs.filter((c) => c.year === selectedYear && c.month === selectedMonth && c.netto != null),
+    [costs, selectedYear, selectedMonth]
+  );
+  const paidEmpIds = useMemo(() => new Set(paidThisMonth.map((c) => c.employee_id)), [paidThisMonth]);
+  const isPaid = (empId: string) => paidEmpIds.has(empId);
+  const organicoAttivo = paidEmpIds.size; // organico attivo del MESE = chi ha il cedolino
+
   const headcountByOutlet = useMemo(() => {
     const m: Record<string, Set<string>> = {};
     activeEmployees.forEach((e) => {
-      if (isAdminRole(e)) return;
+      if (!paidEmpIds.has(e.id)) return; // solo chi ha il cedolino del mese
       (allocByEmp[e.id] || []).forEach((a) => {
         (m[a.outlet_code] ||= new Set()).add(e.id);
       });
     });
     return m;
-  }, [activeEmployees, allocByEmp]);
+  }, [activeEmployees, allocByEmp, paidEmpIds]);
 
   const bcByOutlet = (o: OutletRow) => (o.cost_center_key ? bcByCenter[o.cost_center_key] || 0 : 0);
 
   // KPI
   const totalNettoMese = useMemo(
-    () => activeEmployees.reduce((s, e) => s + nettoOf(e.id), 0),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [activeEmployees, costs, selectedYear, selectedMonth]
+    () => paidThisMonth.reduce((s, c) => s + Number(c.netto || 0), 0),
+    [paidThisMonth]
   );
   const nettoYear = useMemo(
     () => costs.filter((c) => c.year === selectedYear).reduce((s, c) => s + Number(c.netto || 0), 0),
@@ -431,7 +460,7 @@ export default function Dipendenti() {
   );
   const totalBC = useMemo(() => Object.values(bcByCenter).reduce((s, v) => s + v, 0), [bcByCenter]);
   const incidenza = revenueYear > 0 ? (totalBC / revenueYear) * 100 : null;
-  const costoMedio = headcountEmployees.length > 0 ? totalBC / headcountEmployees.length : 0;
+  const costoMedio = organicoAttivo > 0 ? totalBC / organicoAttivo : 0;
 
   // Chart costo per outlet (B&C) + netto×12 in trasparenza
   const chartData = useMemo(
@@ -721,7 +750,7 @@ export default function Dipendenti() {
         <>
           {view === 'panoramica' && (
             <PanoramicaTab
-              headcount={headcountEmployees.length}
+              headcount={organicoAttivo}
               sedi={outlets.length}
               totalBC={totalBC}
               totalNettoMese={totalNettoMese}
@@ -743,6 +772,7 @@ export default function Dipendenti() {
               activeEmployees={activeEmployees}
               allocByEmp={allocByEmp}
               nettoOf={nettoOf}
+              isPaid={isPaid}
               nettoByOutlet={nettoByOutlet}
               headcountByOutlet={headcountByOutlet}
               bcByOutlet={bcByOutlet}
@@ -759,6 +789,7 @@ export default function Dipendenti() {
               allocByEmp={allocByEmp}
               nettoCell={nettoCell}
               lordoCell={lordoCell}
+              isPaid={isPaid}
               outlets={outlets}
               mm={String(selectedMonth).padStart(2, '0')}
               year={selectedYear}
@@ -790,6 +821,8 @@ export default function Dipendenti() {
               year={selectedYear}
               employees={activeEmployees}
               allocByEmp={allocByEmp}
+              isPaid={isPaid}
+              nettoCell={nettoCell}
               costForMonth={costForMonth}
               docsForEmp={docsForEmp}
               onAddCost={(empId) => { setEditingCost(costForMonth(empId) || null); setCostFormEmp(empId); setShowCostForm(true); }}
@@ -948,11 +981,11 @@ function PanoramicaTab(props: {
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-        <Kpi label="Organico attivo" value={headcount} sub={`su ${sedi} sedi · ${avgPerOutlet} addetti/outlet`} icon={Users} accent="none" />
-        <Kpi label="Costo personale" value={`${eurFmt.format(totalBC)} €`} sub="budget annuo · da Budget&Controllo" icon={BarChart3} accent="cost" chip="costo" />
-        <Kpi label="Netto mensile" value={`${eurFmt.format(totalNettoMese)} €`} sub={`bonifici stipendi · da cedolini ${mm}/${year}`} icon={FileText} accent="cash" chip="cassa" />
-        <Kpi label="Incidenza su ricavi" value={incidenza != null ? `${incidenza.toFixed(1).replace('.', ',')}%` : '—'} sub={`costo personale / ricavi ${year}`} icon={Percent} accent="emerald" />
-        <Kpi label="Costo medio / addetto" value={headcount > 0 ? `${eurFmt.format(costoMedio)} €` : '—'} sub="annuo lordo aziendale" icon={Users} accent="none" />
+        <Kpi label="Organico attivo" value={headcount} sub={`cedolini ${mm}/${year} · su ${sedi} sedi`} icon={Users} source="neutro" />
+        <Kpi label="Costo personale" value={`${eurFmt.format(totalBC)} €`} sub="budget annuo · da Budget&Controllo" icon={BarChart3} source="bc" />
+        <Kpi label="Netto mensile totale" value={`${eurFmt.format(totalNettoMese)} €`} sub={`bonifici stipendi · da cedolini ${mm}/${year}`} icon={FileText} source="netto" />
+        <Kpi label="Costo medio / addetto" value={headcount > 0 ? `${eurFmt.format(costoMedio)} €` : '—'} sub="annuo lordo aziendale (B&C)" icon={Users} source="bc" />
+        <Kpi label="Incidenza su ricavi" value={incidenza != null ? `${incidenza.toFixed(1).replace('.', ',')}%` : '—'} sub={`costo personale / ricavi ${year}`} icon={Percent} source="neutro" />
       </div>
 
       {empty ? (
@@ -1044,6 +1077,7 @@ function PerOutletTab(props: {
   activeEmployees: Employee[];
   allocByEmp: Record<string, EmployeeOutletAllocation[]>;
   nettoOf: (id: string) => number;
+  isPaid: (id: string) => boolean;
   nettoByOutlet: Record<string, number>;
   headcountByOutlet: Record<string, Set<string>>;
   bcByOutlet: (o: OutletRow) => number;
@@ -1052,7 +1086,7 @@ function PerOutletTab(props: {
   year: number;
   nonAttribuito: number;
 }) {
-  const { outlets, activeEmployees, allocByEmp, nettoOf, nettoByOutlet, headcountByOutlet, bcByOutlet, mm, year, nonAttribuito } = props;
+  const { outlets, activeEmployees, allocByEmp, nettoOf, isPaid, nettoByOutlet, headcountByOutlet, bcByOutlet, mm, year, nonAttribuito } = props;
   if (outlets.length === 0) {
     return <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center text-slate-400">Nessun outlet configurato per questo tenant.</div>;
   }
@@ -1068,7 +1102,8 @@ function PerOutletTab(props: {
       {outlets.map((o) => {
         const color = getOutletColor(o.name);
         const isSede = o.cost_center_key === 'sede_magazzino';
-        const persone = activeEmployees.filter((e) => (allocByEmp[e.id] || []).some((a) => a.outlet_code === o.name));
+        // NO-ZERO: solo chi ha il cedolino del mese viene elencato
+        const persone = activeEmployees.filter((e) => isPaid(e.id) && (allocByEmp[e.id] || []).some((a) => a.outlet_code === o.name));
         return (
           <div key={o.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
             <div className="flex items-center gap-3 p-4">
@@ -1087,7 +1122,7 @@ function PerOutletTab(props: {
             </div>
             <div className="border-t border-slate-200 px-2 pb-2">
               {persone.length === 0 ? (
-                <div className="text-xs text-slate-400 px-2 py-3">Nessun addetto allocato.</div>
+                <div className="text-xs text-slate-400 px-2 py-3">Nessun cedolino caricato per {mm}/{year}.</div>
               ) : (
                 <table className="w-full text-sm">
                   <thead>
@@ -1136,6 +1171,7 @@ function OrganicoTab(props: {
   allocByEmp: Record<string, EmployeeOutletAllocation[]>;
   nettoCell: (id: string) => number | null;
   lordoCell: (id: string) => number | null;
+  isPaid: (id: string) => boolean;
   outlets: OutletRow[];
   mm: string; year: number;
   status: 'attivi' | 'cessati' | 'tutti'; setStatus: (s: 'attivi' | 'cessati' | 'tutti') => void;
@@ -1151,7 +1187,7 @@ function OrganicoTab(props: {
   docsForEmp: (id: string) => EmployeeDocument[];
   uploadingEmployee: string | null;
 }) {
-  const { employees, allocByEmp, nettoCell, lordoCell, outlets, mm, year, status, setStatus, outletFilter, setOutletFilter, search, setSearch, onAdd, onEdit, onAlloc, onCedolino, onCessa, onRiattiva, onScheda, docsForEmp, uploadingEmployee } = props;
+  const { employees, allocByEmp, nettoCell, lordoCell, isPaid, outlets, mm, year, status, setStatus, outletFilter, setOutletFilter, search, setSearch, onAdd, onEdit, onAlloc, onCedolino, onCessa, onRiattiva, onScheda, docsForEmp, uploadingEmployee } = props;
   const filtered = employees.filter((e) => {
     const active = e.is_active !== false;
     if (status === 'attivi' && !active) return false;
@@ -1160,15 +1196,63 @@ function OrganicoTab(props: {
     if (outletFilter && !(allocByEmp[e.id] || []).some((a) => a.outlet_code === outletFilter)) return false;
     return true;
   });
-  const totNetto = filtered.reduce((s, e) => s + (nettoCell(e.id) || 0), 0);
-  const totLordo = filtered.reduce((s, e) => s + (lordoCell(e.id) || 0), 0);
   const fmtDate = (d?: string | null) => (d ? new Date(d).toLocaleDateString('it-IT') : '');
   const STATUS: { k: 'attivi' | 'cessati' | 'tutti'; label: string }[] = [
     { k: 'attivi', label: 'Attivi' }, { k: 'cessati', label: 'Cessati' }, { k: 'tutti', label: 'Tutti' },
   ];
+
+  // Raggruppa per sede (outlet primario); ordine = outlets DB poi "Senza sede".
+  const groups: Record<string, Employee[]> = {};
+  filtered.forEach((e) => { const k = primaryOutlet(allocByEmp[e.id] || []); (groups[k] ||= []).push(e); });
+  const orderedNames = [...outlets.map((o) => o.name).filter((n) => groups[n]), ...Object.keys(groups).filter((k) => !outlets.some((o) => o.name === k))];
+
+  const renderRow = (e: Employee) => {
+    const allocs = allocByEmp[e.id] || [];
+    const docs = docsForEmp(e.id);
+    const netto = nettoCell(e.id);
+    const lordo = lordoCell(e.id);
+    const cessato = e.is_active === false;
+    const inizio = e.data_assunzione || e.hire_date;
+    const fine = e.data_cessazione || e.termination_date;
+    return (
+      <tr key={e.id} className={`border-b border-slate-100 hover:bg-slate-50 ${cessato ? 'opacity-60' : ''}`}>
+        <td className="px-4 py-2.5 text-slate-500 tabular-nums">{e.matricola || '—'}</td>
+        <td className="px-4 py-2.5">
+          <button onClick={() => onScheda(e)} className="font-semibold text-slate-800 hover:text-blue-700 hover:underline text-left" title="Apri scheda dipendente">{empName(e)}</button>
+          {isAdminRole(e) && <span className="ml-1.5 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-50 text-amber-700">amministratore</span>}
+          {cessato && <span className="ml-1.5 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-200 text-slate-600">cessato</span>}
+        </td>
+        <td className="px-4 py-2.5 text-slate-500">
+          <div>{e.contratto_tipo || e.contract_type || 'da definire'}</div>
+          <div className="text-[11px] text-slate-400">{inizio ? `dal ${fmtDate(inizio)}` : ''}{cessato && fine ? ` · al ${fmtDate(fine)}` : ''}</div>
+        </td>
+        <td className="px-4 py-2.5 text-right">{netto == null ? <span className="text-slate-300">—</span> : <Money v={netto} />}</td>
+        <td className="px-4 py-2.5 text-right">{lordo == null ? <span className="text-slate-300">—</span> : <Money v={lordo} />}</td>
+        <td className="px-4 py-2.5 text-center">
+          <button onClick={() => onCedolino(e.id)} disabled={uploadingEmployee === e.id} className="text-slate-400 hover:text-emerald-600 inline-flex items-center gap-1 relative" title="Carica cedolino">
+            <Upload size={15} />
+            {docs.length > 0 && <span className="absolute -top-1 -right-2 w-3.5 h-3.5 rounded-full bg-emerald-500 text-white text-[8px] flex items-center justify-center">{docs.length}</span>}
+          </button>
+        </td>
+        <td className="px-4 py-2.5">
+          <div className="flex items-center justify-center gap-1.5">
+            <button onClick={() => onScheda(e)} className="p-1.5 rounded text-slate-400 hover:text-blue-600 hover:bg-blue-50" title="Scheda dipendente"><FileText size={15} /></button>
+            <button onClick={() => onEdit(e)} className="p-1.5 rounded text-slate-400 hover:text-blue-600 hover:bg-blue-50" title="Modifica"><Edit2 size={15} /></button>
+            <button onClick={() => onAlloc(e.id)} className="p-1.5 rounded text-slate-400 hover:text-violet-600 hover:bg-violet-50" title="Allocazione"><Percent size={15} /></button>
+            {cessato ? (
+              <button onClick={() => onRiattiva(e)} className="p-1.5 rounded text-slate-400 hover:text-emerald-600 hover:bg-emerald-50" title="Riattiva"><RefreshCw size={15} /></button>
+            ) : (
+              <button onClick={() => onCessa(e)} className="p-1.5 rounded text-slate-400 hover:text-red-600 hover:bg-red-50" title="Cessa"><Trash2 size={15} /></button>
+            )}
+          </div>
+        </td>
+      </tr>
+    );
+  };
+
   return (
-    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-      <div className="p-4 flex flex-wrap items-center justify-between gap-2 border-b border-slate-200">
+    <div className="space-y-3">
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-3">
           <h2 className="font-bold text-slate-800">Anagrafica organico</h2>
           <div className="inline-flex bg-slate-100 rounded-lg p-0.5">
@@ -1189,80 +1273,34 @@ function OrganicoTab(props: {
           <button onClick={onAdd} className="px-3 py-2 rounded-lg text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 flex items-center gap-1.5"><Plus size={15} /> Dipendente</button>
         </div>
       </div>
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-xs uppercase tracking-wide text-slate-500 bg-slate-50 border-b border-slate-200">
-              <th className="px-4 py-2.5 text-left font-bold">Matricola</th>
-              <th className="px-4 py-2.5 text-left font-bold">Dipendente</th>
-              <th className="px-4 py-2.5 text-left font-bold">Sede</th>
-              <th className="px-4 py-2.5 text-left font-bold">Contratto</th>
-              <th className="px-4 py-2.5 text-right font-bold">Netto busta {mm}/{year}</th>
-              <th className="px-4 py-2.5 text-right font-bold">Costo lordo {mm}/{year}</th>
-              <th className="px-4 py-2.5 text-center font-bold">Cedolino</th>
-              <th className="px-4 py-2.5 text-center font-bold">Azioni</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.length === 0 ? (
-              <tr><td colSpan={8} className="px-4 py-10 text-center text-slate-400">Nessun dipendente.</td></tr>
-            ) : filtered.map((e) => {
-              const allocs = allocByEmp[e.id] || [];
-              const docs = docsForEmp(e.id);
-              const netto = nettoCell(e.id);
-              const lordo = lordoCell(e.id);
-              const cessato = e.is_active === false;
-              const inizio = e.data_assunzione || e.hire_date;
-              const fine = e.data_cessazione || e.termination_date;
-              return (
-                <tr key={e.id} className={`border-b border-slate-100 hover:bg-slate-50 ${cessato ? 'opacity-60' : ''}`}>
-                  <td className="px-4 py-2.5 text-slate-500 tabular-nums">{e.matricola || '—'}</td>
-                  <td className="px-4 py-2.5">
-                    <button onClick={() => onScheda(e)} className="font-semibold text-slate-800 hover:text-blue-700 hover:underline text-left" title="Apri scheda dipendente">{empName(e)}</button>
-                    {isAdminRole(e) && <span className="ml-1.5 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-50 text-amber-700">amministratore</span>}
-                    {cessato && <span className="ml-1.5 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-200 text-slate-600">cessato</span>}
-                  </td>
-                  <td className="px-4 py-2.5"><SedeCell allocs={allocs} /></td>
-                  <td className="px-4 py-2.5 text-slate-500">
-                    <div>{e.contratto_tipo || e.contract_type || 'da definire'}</div>
-                    <div className="text-[11px] text-slate-400">{inizio ? `dal ${fmtDate(inizio)}` : ''}{cessato && fine ? ` · al ${fmtDate(fine)}` : ''}</div>
-                  </td>
-                  <td className="px-4 py-2.5 text-right">{netto == null ? <span className="text-slate-300">—</span> : <Money v={netto} />}</td>
-                  <td className="px-4 py-2.5 text-right">{lordo == null ? <span className="text-slate-300">—</span> : <Money v={lordo} />}</td>
-                  <td className="px-4 py-2.5 text-center">
-                    <button onClick={() => onCedolino(e.id)} disabled={uploadingEmployee === e.id} className="text-slate-400 hover:text-emerald-600 inline-flex items-center gap-1 relative" title="Carica cedolino">
-                      <Upload size={15} />
-                      {docs.length > 0 && <span className="absolute -top-1 -right-2 w-3.5 h-3.5 rounded-full bg-emerald-500 text-white text-[8px] flex items-center justify-center">{docs.length}</span>}
-                    </button>
-                  </td>
-                  <td className="px-4 py-2.5">
-                    <div className="flex items-center justify-center gap-1.5">
-                      <button onClick={() => onScheda(e)} className="p-1.5 rounded text-slate-400 hover:text-blue-600 hover:bg-blue-50" title="Scheda dipendente"><FileText size={15} /></button>
-                      <button onClick={() => onEdit(e)} className="p-1.5 rounded text-slate-400 hover:text-blue-600 hover:bg-blue-50" title="Modifica"><Edit2 size={15} /></button>
-                      <button onClick={() => onAlloc(e.id)} className="p-1.5 rounded text-slate-400 hover:text-violet-600 hover:bg-violet-50" title="Allocazione"><Percent size={15} /></button>
-                      {cessato ? (
-                        <button onClick={() => onRiattiva(e)} className="p-1.5 rounded text-slate-400 hover:text-emerald-600 hover:bg-emerald-50" title="Riattiva"><RefreshCw size={15} /></button>
-                      ) : (
-                        <button onClick={() => onCessa(e)} className="p-1.5 rounded text-slate-400 hover:text-red-600 hover:bg-red-50" title="Cessa"><Trash2 size={15} /></button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-          {filtered.length > 0 && (
-            <tfoot>
-              <tr className="font-bold border-t-2 border-slate-300">
-                <td className="px-4 py-2.5" colSpan={4}>TOTALE — {filtered.length} dipendenti</td>
-                <td className="px-4 py-2.5 text-right"><Money v={totNetto} strong /></td>
-                <td className="px-4 py-2.5 text-right"><Money v={totLordo} strong /></td>
-                <td /><td />
-              </tr>
-            </tfoot>
-          )}
-        </table>
-      </div>
+
+      {orderedNames.length === 0 ? (
+        <div className="bg-white rounded-2xl border border-slate-200 p-10 text-center text-slate-400">Nessun dipendente.</div>
+      ) : orderedNames.map((name) => {
+        const emps = groups[name];
+        const paidEmps = emps.filter((e) => isPaid(e.id));
+        const totMese = paidEmps.reduce((s, e) => s + (nettoCell(e.id) || 0), 0);
+        return (
+          <OutletAccordion key={name} name={name} count={paidEmps.length} total={paidEmps.length ? totMese : null}>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-xs uppercase tracking-wide text-slate-500 bg-white border-b border-slate-200">
+                    <th className="px-4 py-2 text-left font-bold">Matricola</th>
+                    <th className="px-4 py-2 text-left font-bold">Dipendente</th>
+                    <th className="px-4 py-2 text-left font-bold">Contratto</th>
+                    <th className="px-4 py-2 text-right font-bold">Netto busta {mm}/{year}</th>
+                    <th className="px-4 py-2 text-right font-bold">Costo lordo {mm}/{year}</th>
+                    <th className="px-4 py-2 text-center font-bold">Cedolino</th>
+                    <th className="px-4 py-2 text-center font-bold">Azioni</th>
+                  </tr>
+                </thead>
+                <tbody>{emps.map(renderRow)}</tbody>
+              </table>
+            </div>
+          </OutletAccordion>
+        );
+      })}
     </div>
   );
 }
@@ -1279,6 +1317,8 @@ function CostiTab(props: {
   year: number;
   employees: Employee[];
   allocByEmp: Record<string, EmployeeOutletAllocation[]>;
+  isPaid: (id: string) => boolean;
+  nettoCell: (id: string) => number | null;
   costForMonth: (id: string) => EmployeeCost | undefined;
   docsForEmp: (id: string) => EmployeeDocument[];
   onAddCost: (empId: string) => void;
@@ -1289,7 +1329,12 @@ function CostiTab(props: {
   uploadingEmployee: string | null;
   importPanel: React.ReactNode;
 }) {
-  const { contiMese, totalNettoMese, monthLabel, mm, year, employees, allocByEmp, costForMonth, docsForEmp, onAddCost, onEditCost, onDeleteCost, onCedolino, onViewDoc, uploadingEmployee, importPanel } = props;
+  const { contiMese, totalNettoMese, monthLabel, mm, year, employees, allocByEmp, isPaid, nettoCell, costForMonth, docsForEmp, onAddCost, onEditCost, onDeleteCost, onCedolino, onViewDoc, uploadingEmployee, importPanel } = props;
+  // NO-ZERO: solo chi ha il cedolino del mese; raggruppato in accordion per outlet.
+  const paid = employees.filter((e) => isPaid(e.id));
+  const cedGroups: Record<string, Employee[]> = {};
+  paid.forEach((e) => { const k = primaryOutlet(allocByEmp[e.id] || []); (cedGroups[k] ||= []).push(e); });
+  const cedNames = Object.keys(cedGroups).sort();
   return (
     <div className="space-y-5">
       <div className="text-xs sm:text-[13px] text-amber-900 bg-amber-50 border border-amber-200 rounded-xl p-3.5 flex items-start gap-2.5">
@@ -1330,57 +1375,67 @@ function CostiTab(props: {
         </table>
       </div>
 
-      {/* Cedolini per dipendente */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="px-4 py-3.5 border-b border-slate-200 flex items-center justify-between gap-2">
+      {/* Cedolini per dipendente — solo chi ha il cedolino del mese, raggruppato per outlet */}
+      <div>
+        <div className="flex items-center justify-between gap-2 mb-2 px-1">
           <h2 className="font-bold text-slate-800">Cedolini per dipendente</h2>
           <span className="text-xs text-slate-500">netto + upload PDF · {monthLabel} {year}</span>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-xs uppercase tracking-wide text-slate-500 bg-slate-50 border-b border-slate-200">
-                <th className="px-4 py-2.5 text-left font-bold">Dipendente</th>
-                <th className="px-4 py-2.5 text-left font-bold">Sede</th>
-                <th className="px-4 py-2.5 text-right font-bold">Netto {mm}/{year}</th>
-                <th className="px-4 py-2.5 text-center font-bold">PDF cedolino</th>
-                <th className="px-4 py-2.5 text-center font-bold">Costo</th>
-              </tr>
-            </thead>
-            <tbody>
-              {employees.length === 0 ? (
-                <tr><td colSpan={5} className="px-4 py-10 text-center text-slate-400">Nessun dipendente. Usa l’import mensile qui sotto.</td></tr>
-              ) : employees.map((e) => {
-                const c = costForMonth(e.id);
-                const docs = docsForEmp(e.id).filter((d) => d.year === year);
-                return (
-                  <tr key={e.id} className="border-b border-slate-100 hover:bg-slate-50">
-                    <td className="px-4 py-2.5 font-semibold text-slate-800">{empName(e)}</td>
-                    <td className="px-4 py-2.5"><SedeCell allocs={allocByEmp[e.id] || []} /></td>
-                    <td className="px-4 py-2.5 text-right"><Money v={c?.netto || 0} /></td>
-                    <td className="px-4 py-2.5 text-center">
-                      {docs.length > 0 ? (
-                        <button onClick={() => onViewDoc(docs[0])} className="px-2.5 py-1 rounded-lg border border-slate-300 text-xs text-blue-600 hover:bg-blue-50 inline-flex items-center gap-1"><Eye size={13} /> Vedi</button>
-                      ) : (
-                        <button onClick={() => onCedolino(e.id)} disabled={uploadingEmployee === e.id} className="px-2.5 py-1 rounded-lg border border-slate-300 text-xs text-slate-600 hover:bg-slate-50 inline-flex items-center gap-1"><Upload size={13} /> carica</button>
-                      )}
-                    </td>
-                    <td className="px-4 py-2.5 text-center">
-                      {c ? (
-                        <span className="inline-flex items-center gap-1.5">
-                          <button onClick={() => onEditCost(c)} className="p-1 rounded text-slate-400 hover:text-blue-600 hover:bg-blue-50" title="Modifica costo"><Edit2 size={14} /></button>
-                          <button onClick={() => onDeleteCost(c.id)} className="p-1 rounded text-slate-400 hover:text-red-600 hover:bg-red-50" title="Elimina costo"><Trash2 size={14} /></button>
-                        </span>
-                      ) : (
-                        <button onClick={() => onAddCost(e.id)} className="p-1 rounded text-slate-400 hover:text-blue-600 hover:bg-blue-50" title="Aggiungi costo"><Plus size={14} /></button>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        {paid.length === 0 ? (
+          <div className="bg-white rounded-2xl border border-slate-200 p-10 text-center text-slate-400">Nessun cedolino per {mm}/{year}. Usa l’import mensile qui sotto.</div>
+        ) : (
+          <div className="space-y-3">
+            {cedNames.map((name) => {
+              const emps = cedGroups[name];
+              const totMese = emps.reduce((s, e) => s + (nettoCell(e.id) || 0), 0);
+              return (
+                <OutletAccordion key={name} name={name} count={emps.length} total={totMese}>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-xs uppercase tracking-wide text-slate-500 bg-white border-b border-slate-200">
+                          <th className="px-4 py-2 text-left font-bold">Dipendente</th>
+                          <th className="px-4 py-2 text-right font-bold">Netto {mm}/{year}</th>
+                          <th className="px-4 py-2 text-center font-bold">PDF cedolino</th>
+                          <th className="px-4 py-2 text-center font-bold">Costo</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {emps.map((e) => {
+                          const c = costForMonth(e.id);
+                          const docs = docsForEmp(e.id).filter((d) => d.year === year);
+                          return (
+                            <tr key={e.id} className="border-b border-slate-100 hover:bg-slate-50">
+                              <td className="px-4 py-2.5 font-semibold text-slate-800">{empName(e)}</td>
+                              <td className="px-4 py-2.5 text-right"><Money v={nettoCell(e.id)} /></td>
+                              <td className="px-4 py-2.5 text-center">
+                                {docs.length > 0 ? (
+                                  <button onClick={() => onViewDoc(docs[0])} className="px-2.5 py-1 rounded-lg border border-slate-300 text-xs text-blue-600 hover:bg-blue-50 inline-flex items-center gap-1"><Eye size={13} /> Vedi</button>
+                                ) : (
+                                  <button onClick={() => onCedolino(e.id)} disabled={uploadingEmployee === e.id} className="px-2.5 py-1 rounded-lg border border-slate-300 text-xs text-slate-600 hover:bg-slate-50 inline-flex items-center gap-1"><Upload size={13} /> carica</button>
+                                )}
+                              </td>
+                              <td className="px-4 py-2.5 text-center">
+                                {c ? (
+                                  <span className="inline-flex items-center gap-1.5">
+                                    <button onClick={() => onEditCost(c)} className="p-1 rounded text-slate-400 hover:text-blue-600 hover:bg-blue-50" title="Modifica costo"><Edit2 size={14} /></button>
+                                    <button onClick={() => onDeleteCost(c.id)} className="p-1 rounded text-slate-400 hover:text-red-600 hover:bg-red-50" title="Elimina costo"><Trash2 size={14} /></button>
+                                  </span>
+                                ) : (
+                                  <button onClick={() => onAddCost(e.id)} className="p-1 rounded text-slate-400 hover:text-blue-600 hover:bg-blue-50" title="Aggiungi costo"><Plus size={14} /></button>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </OutletAccordion>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {importPanel}
@@ -1508,7 +1563,7 @@ function SchedaDipendenteModal({ employee, year, costs, allocs, companyId, onClo
       </div>
 
       <div className="mb-3 p-3 rounded-lg bg-blue-50 border border-blue-200 text-xs text-blue-800 leading-relaxed">
-        Inserisci il <strong>netto del mese</strong> (così come arriva dalla busta paga). Ci sono <strong>14 mensilità</strong>: la <strong>13ª</strong> e la <strong>14ª</strong> vanno sommate nel netto del mese in cui vengono erogate (tipicamente dicembre e giugno). Il totale annuo è la <strong>somma dei mesi</strong>, mai mese×12.
+        Inserisci il <strong>netto del mese</strong> (così come arriva dalla busta paga). Ci sono <strong>14 mensilità</strong>: la <strong>13ª</strong> e la <strong>14ª</strong> vanno sommate nel netto del mese in cui vengono erogate (tipicamente dicembre e giugno). Il totale annuo è la <strong>somma dei mesi</strong>, mai mese×12. I valori inseriti qui a mano sono <strong>provvisori</strong>: l'import del mese (Elenco netti) li <strong>sovrascrive</strong> con il dato ufficiale.
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
