@@ -19,11 +19,11 @@ import ExportMenu from '../components/ExportMenu';
 import StatusBadge from '../components/ui/StatusBadge';
 import SortableTh from '../components/ui/SortableTh';
 import InvoiceViewer from '../components/InvoiceViewer';
-import Tooltip from '../components/Tooltip';
+import { UiTooltip } from '../components/Tooltip';
 import { useTableSort } from '../hooks/useTableSort';
 import {
   BarChart, Bar, PieChart, Pie, Cell, AreaChart, Area,
-  XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
+  XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer,
 } from 'recharts';
 import { GlassTooltip, AXIS_STYLE, GRID_STYLE } from '../components/ChartTheme';
 import { supabase } from '../lib/supabase';
@@ -1705,7 +1705,7 @@ const ScadenzarioSmart = () => {
               <div className="space-y-2">
                 {displayPayables.filter(p => p.status !== 'pagato' && p.status !== 'annullato').slice(0, 3).map(p => (
                   <div key={p.id} className="flex items-center justify-between text-sm">
-                    <Tooltip content={p.suppliers?.ragione_sociale || p.suppliers?.name || ''}><span className="text-slate-600 truncate max-w-[200px]">{p.suppliers?.ragione_sociale || p.suppliers?.name || '—'}</span></Tooltip>
+                    <UiTooltip content={p.suppliers?.ragione_sociale || p.suppliers?.name || ''}><span className="text-slate-600 truncate max-w-[200px]">{p.suppliers?.ragione_sociale || p.suppliers?.name || '—'}</span></UiTooltip>
                     <span className="font-medium text-slate-800">{fmt(p.amount_remaining || p.gross_amount)} €</span>
                   </div>
                 ))}
@@ -2151,8 +2151,8 @@ const ScadenzarioSmart = () => {
                             <div className="flex items-center gap-3">
                               <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${dotColor(p)}`} />
                               <div>
-                                <Tooltip content={p.suppliers?.ragione_sociale || p.suppliers?.name || ''}><div className="text-sm font-medium text-slate-800 truncate max-w-[280px]">{p.suppliers?.ragione_sociale || p.suppliers?.name || '—'}</div></Tooltip>
-                                <Tooltip content={p.invoice_number || ''}><div className="text-xs text-slate-400 truncate max-w-[280px]">Fatt. {p.invoice_number || '—'} {p.payment_method ? `- ${(paymentMethodLabels as Record<string, string>)[p.payment_method] || p.payment_method}` : ''}</div></Tooltip>
+                                <UiTooltip content={p.suppliers?.ragione_sociale || p.suppliers?.name || ''}><div className="text-sm font-medium text-slate-800 truncate max-w-[280px]">{p.suppliers?.ragione_sociale || p.suppliers?.name || '—'}</div></UiTooltip>
+                                <UiTooltip content={p.invoice_number || ''}><div className="text-xs text-slate-400 truncate max-w-[280px]">Fatt. {p.invoice_number || '—'} {p.payment_method ? `- ${(paymentMethodLabels as Record<string, string>)[p.payment_method] || p.payment_method}` : ''}</div></UiTooltip>
                               </div>
                             </div>
                             <div className="flex items-center gap-3">
@@ -2238,7 +2238,7 @@ const ScadenzarioSmart = () => {
                             return (
                               <tr key={i.id} className="hover:bg-slate-50/60">
                                 <td className="py-2 px-3 whitespace-nowrap text-slate-600">{fmtDate(i.transaction_date)}</td>
-                                <td className="py-2 px-3 text-slate-700"><Tooltip content={i.description || ''}><div className="truncate max-w-md">{i.description || '—'}</div></Tooltip></td>
+                                <td className="py-2 px-3 text-slate-700"><UiTooltip content={i.description || ''}><div className="truncate max-w-md">{i.description || '—'}</div></UiTooltip></td>
                                 <td className="py-2 px-3"><span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold ${cat.cls}`}>{cat.tipo}</span></td>
                                 <td className="py-2 px-3 text-xs text-slate-500">{i.bank_accounts?.bank_name || '—'}</td>
                                 <td className="py-2 px-3 text-right font-semibold text-emerald-700 whitespace-nowrap">+{fmt(i.amount)} €</td>
@@ -2329,17 +2329,17 @@ const ScadenzarioSmart = () => {
                                   );
                                   setSupplierDetail(sup || { ragione_sociale: p.suppliers?.ragione_sociale || p.suppliers?.name || 'N/A' });
                                 }} className="text-left">
-                                  <Tooltip content={mainText}>
+                                  <UiTooltip content={mainText}>
                                     <div className="text-[13px] text-slate-800 hover:text-blue-600 font-medium truncate max-w-[220px]">
                                       {mainText}
                                     </div>
-                                  </Tooltip>
+                                  </UiTooltip>
                                   {subText && (
-                                    <Tooltip content={subText}>
+                                    <UiTooltip content={subText}>
                                       <div className="text-[10px] text-slate-400 mt-0.5 truncate max-w-[220px]">
                                         {subText}
                                       </div>
-                                    </Tooltip>
+                                    </UiTooltip>
                                   )}
                                 </button>
                               )
@@ -2391,11 +2391,11 @@ const ScadenzarioSmart = () => {
                               <StatusPill status={p.status} />
                             </button>
                             {!!p.disposizione_date && p.status !== 'pagato' && p.status !== 'annullato' && (
-                              <Tooltip content={`Disposta il ${new Date(p.disposizione_date as string).toLocaleDateString('it-IT')}${p.disposizione_bank_name ? ' da ' + p.disposizione_bank_name : ''} — in attesa di addebito e riconciliazione`}>
+                              <UiTooltip content={`Disposta il ${new Date(p.disposizione_date as string).toLocaleDateString('it-IT')}${p.disposizione_bank_name ? ' da ' + p.disposizione_bank_name : ''} — in attesa di addebito e riconciliazione`}>
                                 <span className="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-50 text-[10px] text-amber-700 font-medium border border-amber-200">
                                   <Clock size={10} /> In distinta {new Date(p.disposizione_date as string).toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit' })}
                                 </span>
-                              </Tooltip>
+                              </UiTooltip>
                             )}
                             {statusDropdownId === p.id && (
                               <div className="absolute z-50 top-full left-1/2 -translate-x-1/2 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg py-1 min-w-[140px]" onClick={e => e.stopPropagation()}>
@@ -2458,7 +2458,7 @@ const ScadenzarioSmart = () => {
                                     <button key={c.id} onClick={() => p.id && c.id && handleSetCategory(p.id, c.id)}
                                       className={`w-full text-left px-3 py-1.5 text-xs hover:bg-slate-50 flex items-center gap-2 ${p.cost_category_id === c.id ? 'font-bold bg-slate-50' : ''}`}>
                                       <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: String(c.color || '') }} />
-                                      <Tooltip content={String(c.name || '')}><span className="truncate">{String(c.name || '')}</span></Tooltip>
+                                      <UiTooltip content={String(c.name || '')}><span className="truncate">{String(c.name || '')}</span></UiTooltip>
                                     </button>
                                   ))}
                                 </div>
@@ -2739,7 +2739,7 @@ const ScadenzarioSmart = () => {
                     <CartesianGrid {...GRID_STYLE} strokeDasharray="3 3" />
                     <XAxis dataKey="month" {...AXIS_STYLE} />
                     <YAxis {...AXIS_STYLE} />
-                    <Tooltip content={<GlassTooltip />} />
+                    <RechartsTooltip content={<GlassTooltip />} />
                     <Bar dataKey="scadenze" fill="#6366f1" radius={[8, 8, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
@@ -2754,7 +2754,7 @@ const ScadenzarioSmart = () => {
                         <Cell key={`cell-${index}`} fill={['#6366f1', '#ec4899', '#14b8a6', '#f59e0b', '#ef4444'][index % 5]} />
                       ))}
                     </Pie>
-                    <Tooltip />
+                    <RechartsTooltip />
                   </PieChart>
                 </ResponsiveContainer>
               </div>
@@ -2766,7 +2766,7 @@ const ScadenzarioSmart = () => {
                     <CartesianGrid {...GRID_STYLE} strokeDasharray="3 3" />
                     <XAxis dataKey="range" {...AXIS_STYLE} />
                     <YAxis {...AXIS_STYLE} />
-                    <Tooltip content={<GlassTooltip />} />
+                    <RechartsTooltip content={<GlassTooltip />} />
                     <Bar dataKey="value" fill="#ef4444" radius={[8, 8, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
@@ -3049,7 +3049,7 @@ const ScadenzarioSmart = () => {
                       <div key={pIdx} className="px-4 py-2.5 bg-white hover:bg-slate-50/50">
                         <div className="flex items-center justify-between">
                           <div className="flex-1 min-w-0">
-                            <Tooltip content={p.fornitore || ''}><div className="text-sm font-medium text-slate-800 truncate">{p.fornitore}</div></Tooltip>
+                            <UiTooltip content={p.fornitore || ''}><div className="text-sm font-medium text-slate-800 truncate">{p.fornitore}</div></UiTooltip>
                             <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                               <span className="text-xs text-slate-500">Fatt. {p.fattura}</span>
                               {p.metodo && <span className="text-xs text-slate-400">• {p.metodo}</span>}
