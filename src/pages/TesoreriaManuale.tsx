@@ -1144,6 +1144,8 @@ function UploadStatementModal({ isOpen, onClose, account, companyId, onImported 
           source: 'csv_import',
           is_reconciled: false,
           currency: 'EUR',
+          // 'booked' = contabilizzato: attiva il trigger di riconciliazione automatica
+          status: 'booked',
         }
       }).filter(t => t.amount !== 0)
 
@@ -2314,6 +2316,21 @@ function TabDistinte({ batches, batchItems, accounts, companyId, onRefresh }: {
   const [expandedBatch, setExpandedBatch] = useState<string | null>(null)
   const [confirmExec, setConfirmExec] = useState<BatchT | null>(null)
   const [confirmCancel, setConfirmCancel] = useState<BatchT | null>(null)
+  const [confirmAcube, setConfirmAcube] = useState<BatchT | null>(null)
+
+  const handleAcubeSend = async () => {
+    if (!confirmAcube) return
+    const batch = confirmAcube
+    setConfirmAcube(null)
+    const { data, error } = await supabase.functions.invoke('acube-payment-send', { body: { batch_id: batch.id, stage: 'sandbox' } })
+    if (error) { toast({ type: 'error', message: 'Errore: ' + error.message }); return }
+    const result = data as { initiated?: number; failed?: number; items?: Array<{ acube_authorize_url?: string; error?: string }> }
+    toast({ type: 'info', message: `Risultato:\n• Iniziati: ${result.initiated ?? 0}\n• Falliti: ${result.failed ?? 0}\n\nApri ogni URL per autorizzare il bonifico sulla banca.` })
+    result.items?.forEach((it, i) => {
+      if (it.acube_authorize_url) setTimeout(() => window.open(it.acube_authorize_url, '_blank'), i * 500)
+    })
+    onRefresh()
+  }
   const [executing, setExecuting] = useState(false)
 
   const handleExecute = async () => {
@@ -2487,18 +2504,7 @@ function TabDistinte({ batches, batchItems, accounts, companyId, onRefresh }: {
                         <strong>Pagamento PSD2 via A-Cube</strong>: ogni bonifico richiede autorizzazione sulla tua app banca (1 SCA per item).
                       </div>
                       <button
-                        onClick={async () => {
-                          if (!confirm(`Lanciare ${items.length} bonifico/i via A-Cube sandbox?`)) return
-                          const { data, error } = await supabase.functions.invoke('acube-payment-send', { body: { batch_id: batch.id, stage: 'sandbox' } })
-                          if (error) { toast({ type: 'error', message: 'Errore: ' + error.message }); return }
-                          const result = data as { initiated?: number; failed?: number; items?: Array<{ acube_authorize_url?: string; error?: string }> }
-                          toast({ type: 'info', message: `Risultato:\n• Iniziati: ${result.initiated ?? 0}\n• Falliti: ${result.failed ?? 0}\n\nApri ogni URL per autorizzare il bonifico sulla banca.` })
-                          // Apri tutti gli URL autorizzazione
-                          result.items?.forEach((it, i) => {
-                            if (it.acube_authorize_url) setTimeout(() => window.open(it.acube_authorize_url, '_blank'), i * 500)
-                          })
-                          onRefresh()
-                        }}
+                        onClick={() => setConfirmAcube(batch)}
                         className="inline-flex items-center gap-2 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium"
                       >
                         🚀 Paga via A-Cube ({items.length})
@@ -2520,6 +2526,10 @@ function TabDistinte({ batches, batchItems, accounts, companyId, onRefresh }: {
         title="Annullare questa distinta?"
         message={`La distinta ${confirmCancel?.batch_number || ''} verra annullata. Le fatture torneranno disponibili per il pagamento.`}
         confirmLabel="Annulla distinta" danger />
+      <ConfirmDialog isOpen={!!confirmAcube} onClose={() => setConfirmAcube(null)} onConfirm={handleAcubeSend}
+        title="Pagare via A-Cube?"
+        message={`Verranno lanciati ${batchItems.filter(i => i.batch_id === confirmAcube?.id).length} bonifico/i via A-Cube (sandbox) per la distinta ${confirmAcube?.batch_number || ''}. Ogni bonifico richiede autorizzazione PSD2 sulla tua app banca.`}
+        confirmLabel="Lancia bonifici" />
     </div>
   )
 }
@@ -2667,33 +2677,22 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
   const handleReconcile = async (movement: TxT, payable: PayT) => {
     setReconciling(true)
     try {
-      const now = new Date().toISOString()
-      // Mark transaction as reconciled
-      const { error: txErr } = await supabase.from('bank_transactions').update({
-        is_reconciled: true,
-        reconciled_at: now,
-        reconciled_invoice_id: payable.id,
-      } as never).eq('id', String(movement.id)).eq('company_id', companyId)
-      if (txErr) throw txErr
-
-      // Update payable
-      const newPaid = Number(payable.amount_paid || 0) + Math.abs(Number(movement.amount) || 0)
-      const totalDue = Number(payable.gross_amount || 0)
-      const newRemaining = Math.max(0, totalDue - newPaid)
-      const newStatus = newPaid >= totalDue ? 'pagato' : 'parziale'
-      const { error: payErr } = await supabase.from('payables').update({
-        amount_paid: newPaid,
-        amount_remaining: newRemaining,
-        status: newStatus,
-        cash_movement_id: movement.id,
-      } as never).eq('id', String(payable.id)).eq('company_id', companyId)
-      if (payErr) throw payErr
+      // RPC transazionale (tutto-o-niente). NON tocca payables.cash_movement_id che e'
+      // GENERATED ALWAYS AS (bank_transaction_id): scrive bank_transaction_id sulla
+      // fattura, marca il movimento riconciliato e logga in reconciliation_log.
+      const { data, error } = await supabase.rpc('reconcile_movement' as never, {
+        p_bt_id: String(movement.id),
+        p_payable_id: String(payable.id),
+      } as never)
+      if (error) throw error
+      const res = data as { ok?: boolean } | null
+      if (!res?.ok) throw new Error('Riconciliazione non applicata')
 
       setSelectedMovement(null)
       onRefresh()
     } catch (err: unknown) {
       console.error('Reconcile error:', err)
-      toast({ type: 'error', message: `Errore: ${(err as Error).message}` })
+      toast({ type: 'error', message: `Errore riconciliazione: ${(err as Error).message}` })
     } finally {
       setReconciling(false)
     }
