@@ -293,9 +293,8 @@ const ScadenzarioSmart = () => {
   const [confirmResult, setConfirmResult] = useState<ConfirmResult>(null);
   // La distinta è stata effettivamente salvata? (gate per "Conferma distinta")
   const [distintaSaved, setDistintaSaved] = useState(false);
-  // Modale "Rimuovi dalla distinta" (conferma) e fallback copia-testo per mailto troppo lunghi
+  // Modale "Rimuovi dalla distinta" (conferma)
   const [removeDistintaModal, setRemoveDistintaModal] = useState<{ payableId: string; invoiceNumber: string } | null>(null);
-  const [mailFallback, setMailFallback] = useState<{ subject: string; body: string } | null>(null);
   const [selectedMethodGroup, setSelectedMethodGroup] = useState<any>(null);
   const [supplierDetail, setSupplierDetail] = useState<any>(null);
   const [viewingXml, setViewingXml] = useState<any>(null);
@@ -1392,7 +1391,10 @@ const ScadenzarioSmart = () => {
     }
   };
 
-  // "Rimuovi dalla distinta": cancella la SINGOLA riga disposizione di quel payable.
+  // "Rimuovi dalla distinta": cancella la SINGOLA riga disposizione di quel payable e
+  // riporta davvero allo stato precedente azzerando payment_bank_account_id (la banca
+  // attesa scritta dalla conferma distinta). Guardia lato DB: NON tocca la banca se la
+  // scadenza è pagata/parziale o ha già una payment_date (banca dei flussi reali).
   const removeFromDistinta = async (payableId: string) => {
     try {
       const { error } = await supabase
@@ -1404,6 +1406,20 @@ const ScadenzarioSmart = () => {
         toast({ type: 'error', message: 'Errore rimozione dalla distinta: ' + error.message });
         return;
       }
+      // Azzero la banca attesa solo se la scadenza è ancora "aperta" (non pagata/parziale,
+      // nessuna data pagamento): condizioni applicate nella query, niente race su stato stale.
+      const { error: bankErr } = await supabase
+        .from('payables')
+        .update({ payment_bank_account_id: null } as never)
+        .eq('id', payableId)
+        .is('payment_date', null)
+        .not('status', 'in', '("pagato","parziale")');
+      if (bankErr) {
+        toast({ type: 'error', message: 'Scadenza rimossa, ma errore azzerando la banca attesa: ' + bankErr.message });
+        setRemoveDistintaModal(null);
+        fetchData();
+        return;
+      }
       toast({ type: 'success', message: 'Scadenza rimossa dalla distinta.' });
       setRemoveDistintaModal(null);
       fetchData();
@@ -1412,19 +1428,21 @@ const ScadenzarioSmart = () => {
     }
   };
 
-  // Apertura mail senza pagina blank: location.href diretto (no window.open su mailto).
-  // Se il mailto supera ~1900 char, niente mailto -> modale custom copia-testo.
-  const openDistintaMail = () => {
+  // Apertura in Gmail (le utenti usano Gmail dal browser): compose in NUOVA scheda.
+  // mailto via location.href era un no-op silenzioso senza client di posta desktop.
+  // Gmail ha un limite pratico ~8000 char sull'URL: se superato, niente apertura ->
+  // messaggio chiaro che invita a usare "Copia testo" (sempre visibile qui sotto).
+  const openDistintaGmail = () => {
     if (!confirmResult) return;
-    const to = emailRecipients || '';
-    const subject = encodeURIComponent(confirmResult.emailSubject);
+    const to = encodeURIComponent(emailRecipients || '');
+    const su = encodeURIComponent(confirmResult.emailSubject);
     const body = encodeURIComponent(confirmResult.emailBody);
-    const mailtoUrl = `mailto:${to}?subject=${subject}&body=${body}`;
-    if (mailtoUrl.length > 1900) {
-      setMailFallback({ subject: confirmResult.emailSubject, body: confirmResult.emailBody });
+    const url = `https://mail.google.com/mail/?view=cm&fs=1${emailRecipients ? `&to=${to}` : ''}&su=${su}&body=${body}`;
+    if (url.length > 8000) {
+      toast({ type: 'warning', message: 'Testo troppo lungo per Gmail: usa "Copia testo" e incollalo nella mail.' });
       return;
     }
-    window.location.href = mailtoUrl;
+    window.open(url, '_blank', 'noopener,noreferrer');
   };
 
   // Lancia bonifico reale via A-Cube PSD2: raggruppa per banca, crea distinta + items,
@@ -3218,11 +3236,12 @@ const ScadenzarioSmart = () => {
                     className="flex-1 py-2.5 bg-slate-200 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-300 flex items-center justify-center gap-2">
                     <Download size={14} /> Copia testo
                   </button>
-                  <button onClick={openDistintaMail}
+                  <button onClick={openDistintaGmail}
                     className="flex-1 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 flex items-center justify-center gap-2">
-                    <Send size={14} /> Apri nella posta
+                    <Send size={14} /> Apri in Gmail
                   </button>
                 </div>
+                <p className="text-[11px] text-slate-400 mt-2">Si apre Gmail in una nuova scheda con la distinta già compilata. In alternativa usa "Copia testo".</p>
               </div>
             </div>
           </div>
@@ -3234,32 +3253,12 @@ const ScadenzarioSmart = () => {
         <Modal open={true} onClose={() => setRemoveDistintaModal(null)} title="Rimuovere dalla distinta?">
           <div className="space-y-4">
             <p className="text-sm text-slate-700">
-              La scadenza <strong>{removeDistintaModal.invoiceNumber || 'selezionata'}</strong> verrà tolta dalla distinta e tornerà allo stato precedente. La fattura non viene modificata.
+              La scadenza <strong>{removeDistintaModal.invoiceNumber || 'selezionata'}</strong> verrà tolta dalla distinta e tornerà esattamente allo stato precedente: sparirà il badge "In distinta" e verrà azzerata la banca attesa.
             </p>
             <div className="flex gap-3 pt-1">
               <button onClick={() => setRemoveDistintaModal(null)} className="flex-1 py-2.5 rounded-lg border border-slate-200 text-sm font-medium hover:bg-slate-50">Annulla</button>
               <button onClick={() => removeFromDistinta(removeDistintaModal.payableId)}
                 className="flex-1 py-2.5 rounded-lg bg-amber-600 text-white text-sm font-medium hover:bg-amber-700">Rimuovi dalla distinta</button>
-            </div>
-          </div>
-        </Modal>
-      )}
-
-      {/* Fallback copia-testo: mostrato quando il mailto è troppo lungo per il client di posta */}
-      {mailFallback && (
-        <Modal open={true} onClose={() => setMailFallback(null)} title="Distinta troppo lunga per la posta" wide>
-          <div className="space-y-3">
-            <p className="text-sm text-slate-600">
-              La distinta è troppo lunga per essere aperta automaticamente nel programma di posta. Copia il testo qui sotto e incollalo in una nuova email.
-            </p>
-            <textarea readOnly value={mailFallback.body} rows={12}
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs font-mono bg-slate-50" />
-            <div className="flex gap-3">
-              <button onClick={() => setMailFallback(null)} className="flex-1 py-2.5 rounded-lg border border-slate-200 text-sm font-medium hover:bg-slate-50">Chiudi</button>
-              <button onClick={() => { navigator.clipboard.writeText(mailFallback.body); toast({ type: 'success', message: 'Testo della distinta copiato.' }); }}
-                className="flex-1 py-2.5 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 flex items-center justify-center gap-2">
-                <Download size={14} /> Copia testo
-              </button>
             </div>
           </div>
         </Modal>
