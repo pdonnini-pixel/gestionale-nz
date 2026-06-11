@@ -1591,6 +1591,7 @@ export type Database = {
           is_fixed: boolean | null
           is_recurring: boolean | null
           is_revenue: boolean | null
+          is_admin_compensation: boolean | null
           level: number | null
           macro_group: string
           name: string
@@ -1611,6 +1612,7 @@ export type Database = {
           is_fixed?: boolean | null
           is_recurring?: boolean | null
           is_revenue?: boolean | null
+          is_admin_compensation?: boolean | null
           level?: number | null
           macro_group: string
           name: string
@@ -1631,6 +1633,7 @@ export type Database = {
           is_fixed?: boolean | null
           is_recurring?: boolean | null
           is_revenue?: boolean | null
+          is_admin_compensation?: boolean | null
           level?: number | null
           macro_group?: string
           name?: string
