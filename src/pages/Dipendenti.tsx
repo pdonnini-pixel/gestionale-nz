@@ -557,16 +557,6 @@ export default function Dipendenti() {
   const costoMedio = organicoAttivo > 0 ? totalBC / organicoAttivo : 0;
 
   // Chart costo per outlet (B&C) + netto×12 in trasparenza
-  const chartData = useMemo(
-    () => outlets.map((o) => ({
-      name: o.name,
-      bc: bcByOutlet(o),
-      netto: nettoByOutlet[o.name] || 0, // netto del MESE, mai ×12
-    })).filter((d) => d.bc > 0 || d.netto > 0),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [outlets, bcByCenter, nettoByOutlet]
-  );
-
   // Cost centers non agganciati ad alcun outlet (es. spese_non_divise) → "Non attribuito"
   const outletKeys = useMemo(() => new Set(outlets.map((o) => o.cost_center_key).filter(Boolean)), [outlets]);
   const nonAttribuito = useMemo(
@@ -580,6 +570,22 @@ export default function Dipendenti() {
     () => adminBudgetRows.filter((r) => outletKeys.has(r.cost_center)).reduce((s, r) => s + r.amount, 0),
     [adminBudgetRows, outletKeys]
   );
+  const nettoAmministratoriMese = useMemo(
+    () => admins.reduce((s, e) => s + (nettoCell(e.id) || 0), 0),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [admins, costs, selectedYear, selectedMonth]
+  );
+
+  // Grafico Panoramica: ordine granitico (outlet A-Z → SEDE → Amministratori per ultimi).
+  const chartData = useMemo(() => {
+    const rows = sortOutlets(outlets).map((o) => ({ name: o.name, bc: bcByOutlet(o), netto: nettoByOutlet[o.name] || 0 }))
+      .filter((d) => d.bc > 0 || d.netto > 0);
+    if (lordoAmministratori > 0 || nettoAmministratoriMese > 0) {
+      rows.push({ name: 'Amministratori', bc: lordoAmministratori, netto: nettoAmministratoriMese });
+    }
+    return rows;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [outlets, bcByCenter, nettoByOutlet, lordoAmministratori, nettoAmministratoriMese]);
 
   // Componenti del mese per conto (da employee_costs)
   const contiMese = useMemo(() => {
@@ -1126,8 +1132,8 @@ function PanoramicaTab(props: {
                       </div>
                     </div>
                     <div className="w-44 shrink-0 text-right text-sm tabular-nums leading-tight">
-                      <div className="font-semibold" style={{ color: '#ea580c' }}>{eurFmt.format(d.bc)}&nbsp;€</div>
-                      <div className="text-xs" style={{ color: '#16a34a' }}>{eurFmt.format(d.netto)}&nbsp;€</div>
+                      <div className="font-semibold" style={{ color: '#ea580c' }}>{d.bc ? <>{eurFmt.format(d.bc)}&nbsp;€</> : <span className="text-slate-300">—</span>}</div>
+                      <div className="text-xs" style={{ color: '#16a34a' }}>{d.netto ? <>{eurFmt.format(d.netto)}&nbsp;€</> : <span className="text-slate-300">—</span>}</div>
                     </div>
                   </div>
                 ))}
