@@ -37,10 +37,10 @@ import { supabase } from '../lib/supabase';
 import { GlassTooltip, AXIS_STYLE, GRID_STYLE, PALETTE, getOutletColor, fmtEuro } from '../components/ChartTheme';
 import { useAuth } from '../hooks/useAuth';
 import { useCompany } from '../hooks/useCompany';
-import { extractPdfLines, extractPdfPages } from '../lib/pdfText';
+import { extractPdfLines, extractPdfItems } from '../lib/pdfText';
 import {
   parseItNum, norm,
-  parseInfinityNettiPages, parsePdfLordi, parseSpreadsheet,
+  parseInfinityNettiItems, parsePdfLordi, parseSpreadsheet,
   LORDI_FIELDS, rowLordo, rowHasLordo,
   type PreviewRow, type ParsedImport,
 } from '../lib/payrollParse';
@@ -1645,10 +1645,10 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
       let rawLines: string[] = [];
       if (isPdf) {
         if (isNetto) {
-          // Abbinamento per colonna (ordine di stream), una filiale per pagina.
-          const pages = await extractPdfPages(file);
-          rawLines = pages.flatMap((p, i) => [`— pagina ${i + 1} —`, p]);
-          parsed = parseInfinityNettiPages(pages, outlets);
+          // PDF ruotato: righe per asse X. Una filiale per pagina, nome+matricola+netto sulla stessa riga.
+          const pages = await extractPdfItems(file);
+          rawLines = pages.flatMap((items, i) => [`— pagina ${i + 1} —`, items.map((t) => t.str).join(' ')]);
+          parsed = parseInfinityNettiItems(pages, outlets);
         } else {
           rawLines = await extractPdfLines(file);
           parsed = parsePdfLordi(rawLines, outlets);
@@ -1719,12 +1719,15 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
       for (const row of rows) {
         let empId = row.matchedId;
         if (!empId) {
-          // Nome provvisorio = matricola se lo split nomi non è affidabile (editabile dalla scheda).
-          const prov = row.matricola || '—';
+          // Il nome arriva dall'import (PDF ruotato → riga completa). Mai la matricola come nome:
+          // se davvero manca il testo-nome, usa un placeholder editabile dalla scheda.
+          const hasName = !!(row.cognome || row.nome);
+          const cognome = hasName ? (row.cognome || row.nome) : '(nome da completare)';
+          const nome = hasName ? row.nome : '';
           const { data: newEmp, error: empErr } = await supabase.from('employees').insert([{
             company_id: companyId, matricola: row.matricola || null,
-            nome: row.nome || null, cognome: row.cognome || (row.nome ? null : prov),
-            first_name: row.nome || row.cognome || prov, last_name: row.cognome || row.nome || prov,
+            nome: nome || null, cognome,
+            first_name: nome || cognome, last_name: cognome,
             is_active: true,
           }]).select('id').single();
           if (empErr) { console.error('Errore creazione dipendente', empErr); continue; }

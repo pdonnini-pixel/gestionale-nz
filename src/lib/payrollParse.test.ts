@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseInfinityNetti, parseInfinityNettiPages, matchOutletName, parseItNum, type ParserOutlet } from './payrollParse'
+import { parseInfinityNetti, parseInfinityNettiPages, parseInfinityNettiItems, matchOutletName, parseItNum, type ParserOutlet } from './payrollParse'
 
 const OUTLETS: ParserOutlet[] = [
   { name: 'VALDICHIANA', cost_center_key: 'valdichiana' },
@@ -137,5 +137,51 @@ describe('parseInfinityNettiPages — abbinamento per colonna (ordine di stream)
     const { rows } = parseInfinityNettiPages([bad], OUTLETS)
     expect(rows.length).toBe(2)
     expect(rows.every((r) => r.warn)).toBe(true)
+  })
+})
+
+describe('parseInfinityNettiItems — righe per asse X (PDF ruotato)', () => {
+  type PI = { str: string; x: number; y: number }
+  // una persona = matricola(y23) + nome(y55) + netto(y206) sulla STESSA x
+  const person = (x: number, mat: string, name: string, netto: string): PI[] => ([
+    { str: mat, x, y: 23 }, { str: name, x, y: 55 }, { str: netto, x, y: 206 },
+  ])
+  const page1: PI[] = [
+    { str: 'Filiale: 0000000001 - VALDICHIANA VILLAGE ;', x: 300, y: 400 },
+    { str: 'Cod. dip.', x: 320, y: 23 }, { str: 'Cognome e nome', x: 320, y: 55 }, { str: 'Importo', x: 320, y: 206 },
+    ...person(280, '0000003', 'FELICI SILVIA', '2.399,00'),
+    ...person(250, '0000004', 'GERMANI MARIA LETIZIA', '1.356,00'),
+    ...person(220, '0000006', "D'ALESSANDRO NICOLA", '1.329,00'),
+    ...person(190, '0000007', 'MIR SHAFIEI SHADI', '1.301,00'),
+    ...person(160, '0000040', 'CORSANO CHIARA', '2.339,26'),
+    ...person(130, '0000066', 'MEUCCI LUDOVICA', '607,76'),
+    { str: 'Totale di ripartizione', x: 50, y: 55 }, { str: '9.332,02', x: 50, y: 206 }, { str: 'Nr dipendenti 6', x: 50, y: 250 },
+  ]
+
+  it('estrae righe complete con NOME (anche multi-parola), mai la matricola come nome', () => {
+    const { rows, fileTotal } = parseInfinityNettiItems([page1], OUTLETS)
+    expect(rows.length).toBe(6)
+    expect(rows.every((r) => r.outlet === 'VALDICHIANA')).toBe(true)
+    expect(rows[0]).toMatchObject({ matricola: '0000003', cognome: 'FELICI', nome: 'SILVIA', netto: 2399 })
+    expect(rows[1]).toMatchObject({ matricola: '0000004', cognome: 'GERMANI', nome: 'MARIA LETIZIA', netto: 1356 })
+    expect(rows[2]).toMatchObject({ matricola: '0000006', cognome: "D'ALESSANDRO", nome: 'NICOLA' })
+    expect(rows[3]).toMatchObject({ matricola: '0000007', cognome: 'MIR', nome: 'SHAFIEI SHADI' })
+    expect(rows.some((r) => r.warn)).toBe(false)
+    expect(fileTotal).toBeCloseTo(9332.02, 2)
+    // nessuna riga ha la matricola come nome
+    expect(rows.every((r) => r.cognome !== r.matricola)).toBe(true)
+  })
+
+  it('doppio totale (ripartizione + aziendale) → nessun warn, usa la ripartizione', () => {
+    const page: PI[] = [
+      { str: 'Filiale: 0000000008 - VALMONTONE ;', x: 300, y: 400 },
+      ...person(280, '0000056', 'CACCIOTTI DANIELA', '1.625,00'),
+      ...person(250, '0000057', 'GERMANI MARIA', '1.150,00'),
+      { str: 'Totale di ripartizione', x: 50, y: 55 }, { str: '2.775,00', x: 50, y: 206 }, { str: 'Nr dipendenti 2', x: 50, y: 250 },
+      { str: 'TToottaallee aazziieennddaallee', x: 40, y: 55 }, { str: '60.926,46', x: 40, y: 206 },
+    ]
+    const { rows } = parseInfinityNettiItems([page], OUTLETS)
+    expect(rows.length).toBe(2)
+    expect(rows.some((r) => r.warn)).toBe(false)
   })
 })

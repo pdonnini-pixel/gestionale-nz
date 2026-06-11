@@ -106,6 +106,72 @@ function extractNames(page: string, filialeMatch: string | null, n: number): { c
   return out;
 }
 
+export type PdfItem = { str: string; x: number; y: number };
+const RE_MAT_ONE = /^\d{7}$/;
+const RE_MONEY_ONE = /^\d{1,3}(?:\.\d{3})*,\d{2}$/;
+const ROW_LABEL = /^(totale|totali|nr|n|di|del|della|ripartizione|aziendale|importo|importi|cod\.?|dip\.?|cognome|nome|filiale|e|progressivo)$/i;
+
+// PDF "Elenco netti" — il documento è RUOTATO: le RIGHE sono sull'asse X (transform[4]),
+// le colonne sull'asse Y. Per ogni pagina (= una filiale) raggruppo gli item per X (toll. ~3):
+// ogni gruppo è una persona con matricola + NOME (un solo item, anche multi-parola) + netto.
+export function parseInfinityNettiItems(pages: PdfItem[][], outlets: ParserOutlet[]): ParsedImport {
+  const rows: PreviewRow[] = [];
+  const TOL = 3;
+  for (const items of pages) {
+    const fullText = items.map((i) => i.str).join(' ');
+    const mf = fullText.match(/Filiale:\s*\d+\s*-\s*(.+?)\s*;/i);
+    const outlet = mf ? matchOutletName(mf[1], outlets) : '';
+
+    // raggruppa per X (riga)
+    const groups: { x: number; items: PdfItem[] }[] = [];
+    for (const it of items) {
+      let g = groups.find((gr) => Math.abs(gr.x - it.x) <= TOL);
+      if (!g) { g = { x: it.x, items: [] }; groups.push(g); }
+      g.items.push(it);
+    }
+
+    const pageRows: PreviewRow[] = [];
+    for (const g of groups) {
+      const toks = g.items.slice().sort((a, b) => a.y - b.y).map((i) => i.str.trim());
+      const matTok = toks.find((t) => RE_MAT_ONE.test(t));
+      const moneyToks = toks.filter((t) => RE_MONEY_ONE.test(t));
+      if (!matTok || !moneyToks.length) continue; // intestazioni / totali → scartate
+      const nameParts = toks.filter((t) => !RE_MAT_ONE.test(t) && !RE_MONEY_ONE.test(t) && !ROW_LABEL.test(t));
+      const fullName = nameParts.join(' ').replace(/\s+/g, ' ').trim();
+      const parts = fullName.split(' ');
+      const r = blankRow();
+      r.matricola = matTok;
+      r.cognome = parts[0] || '';
+      r.nome = parts.slice(1).join(' ');
+      r.outlet = outlet;
+      r.netto = parseItNum(moneyToks[0]);
+      pageRows.push(r);
+    }
+
+    // Validazione di filiale: somma netti == Totale di ripartizione. Il totale di ripartizione
+    // si legge dal GRUPPO (riga) che contiene la dicitura, prendendone il money item ORIGINALE
+    // (deDouble solo per riconoscere la label, mai per estrarre cifre → niente "33"→"3").
+    let totRip: number | null = null;
+    let nrDip: number | null = null;
+    for (const g of groups) {
+      const gtxt = deDouble(g.items.map((i) => i.str).join(' '));
+      if (/totale\s+aziendale/i.test(gtxt)) continue; // ignora il totale documento
+      if (/totale\s+di\s+ripartizione/i.test(gtxt)) {
+        const money = g.items.map((i) => i.str.trim()).find((t) => RE_MONEY_ONE.test(t));
+        if (money) totRip = parseItNum(money);
+        const nm = gtxt.match(/nr\s+dipendenti[^\d]{0,10}(\d+)/i);
+        if (nm) nrDip = parseInt(nm[1], 10);
+      }
+    }
+    const sum = pageRows.reduce<number>((s, r) => s + (r.netto || 0), 0);
+    const quadra = (totRip == null || Math.abs(sum - totRip) < 0.01) && (nrDip == null || nrDip === pageRows.length);
+    if (!quadra) pageRows.forEach((r) => { r.warn = true; });
+    rows.push(...pageRows);
+  }
+  const fileTotal = rows.reduce<number>((s, r) => s + (r.netto || 0), 0);
+  return { rows, fileTotal: rows.length ? fileTotal : null };
+}
+
 // PDF "Elenco netti" — abbinamento per COLONNA (ordine di stream). Una filiale = una pagina.
 // 1 filiale, N matricole, N netti (primi N token money), poi i totali (da ignorare).
 // Validazione per filiale: somma(netti) == totale di ripartizione e N == Nr dipendenti.
