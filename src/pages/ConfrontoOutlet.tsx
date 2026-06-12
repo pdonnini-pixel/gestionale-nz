@@ -512,9 +512,13 @@ export default function ConfrontoOutlet() {
   type BudgetEntryRow = { cost_center?: string | null; account_code?: string | null; account_name?: string | null; macro_group?: string | null; budget_amount?: number | null; actual_amount?: number | null; month?: number | null; is_approved?: boolean | null }
   type EmployeeCostRow = { outlet_code?: string | null; employee_id?: string | null; month?: number | null; totale_allocato?: number | null }
   type BalanceRow = Record<string, unknown>
+  type EmpRow = { id: string; role_description?: string | null; is_active?: boolean | null }
+  type AllocRow = { employee_id?: string | null; outlet_code?: string | null }
   const [outlets, setOutlets] = useState<CostCenterRow[]>([])
   const [budgetData, setBudgetData] = useState<BudgetEntryRow[]>([])
   const [employeeCosts, setEmployeeCosts] = useState<EmployeeCostRow[]>([])
+  const [empList, setEmpList] = useState<EmpRow[]>([])
+  const [allocList, setAllocList] = useState<AllocRow[]>([])
   const [balanceData, setBalanceData] = useState<BalanceRow[]>([])
   // Sprint 2: consuntivo + preventivo mensile da budget_confronto (Lilian), aggregati
   // per (cost_center, account_code). Vincono su budget_entries.actual_amount nei calcoli.
@@ -588,6 +592,17 @@ export default function ConfrontoOutlet() {
           .select('*')
           .eq('year', year)
 
+        // Anagrafica + allocazioni: per contare i dipendenti reali (anche solo-netto)
+        // e per il fallback quando nel periodo non c'è alcun cedolino.
+        const { data: empRows } = await supabase
+          .from('employees')
+          .select('id, role_description, is_active')
+          .eq('company_id', companyId)
+        const { data: allocRows } = await supabase
+          .from('employee_outlet_allocations')
+          .select('employee_id, outlet_code')
+          .eq('company_id', companyId)
+
         // Piano dei conti: ricavi (is_revenue) + classificazione costi
         // (macro_group/ce_section/sort_order). Mai prefissi/nomi/sezioni hardcoded.
         const { data: coaData } = await supabase
@@ -647,6 +662,8 @@ export default function ConfrontoOutlet() {
         setBudgetData((budgetEntries || []) as BudgetEntryRow[])
         setBalanceData((bsData || []) as BalanceRow[])
         setEmployeeCosts((empCosts || []) as EmployeeCostRow[])
+        setEmpList((empRows || []) as EmpRow[])
+        setAllocList((allocRows || []) as AllocRow[])
         setConsOverlay(consOverlay)
         setPrevOverlay(prevOverlay)
         setRevenueMap(revMap)
@@ -697,6 +714,24 @@ export default function ConfrontoOutlet() {
     }
     return costi - ricavi
   }, [budgetData, hqCodes, coaByCode, selectedMonths])
+
+  // Amministratori (role_description='Amministratore') esclusi dal conteggio dipendenti.
+  const adminIds = useMemo(
+    () => new Set(empList.filter(e => /amministrat/i.test(e.role_description || '')).map(e => e.id)),
+    [empList]
+  )
+  // Fallback anagrafica: dipendenti ATTIVI (non admin) allocati per outlet (chiave = cost_center code).
+  // allocations.outlet_code è il NOME outlet (es. 'VALDICHIANA'); cost_center.code = lower(name).
+  const activeNonAdminByCode = useMemo(() => {
+    const activeIds = new Set(empList.filter(e => e.is_active !== false && !adminIds.has(e.id)).map(e => e.id))
+    const m: Record<string, Set<string>> = {}
+    allocList.forEach(a => {
+      if (!a.employee_id || !a.outlet_code || !activeIds.has(a.employee_id)) return
+      const code = String(a.outlet_code).trim().toLowerCase()
+      ;(m[code] ||= new Set()).add(a.employee_id)
+    })
+    return m
+  }, [empList, allocList, adminIds])
 
   // Calculate metrics for each outlet (pre-sede)
   const outletMetricsBase = useMemo(() => {
@@ -826,11 +861,16 @@ export default function ConfrontoOutlet() {
             }
           : budget
 
-      // Dipendenti dalla view (filtro per mesi se necessario)
+      // Dipendenti REALI con cedolino/netto nel periodo (la view ha una riga per ogni
+      // employee_costs, anche solo-netto). outlet_code della view = NOME outlet → confronto
+      // case-insensitive con outletCode (cost_center code). Amministratori esclusi.
       const empRows = employeeCosts
-        .filter(e => e.outlet_code === outlet.code)
+        .filter(e => String(e.outlet_code || '').trim().toLowerCase() === outletCode)
         .filter(e => selectedMonths ? (e.month != null && selectedMonths.includes(e.month)) : true)
-      const personaleCount = new Set(empRows.map(e => e.employee_id).filter((id): id is string => Boolean(id))).size
+        .filter(e => e.employee_id && !adminIds.has(e.employee_id))
+      const paidIds = new Set(empRows.map(e => e.employee_id).filter((id): id is string => Boolean(id)))
+      // No-zero: se nel periodo non c'è alcun cedolino, ripiega sull'anagrafica attiva allocata.
+      const personaleCount = paidIds.size > 0 ? paidIds.size : (activeNonAdminByCode[outletCode]?.size || 0)
       const costoPersonaleFromDb = empRows.reduce((sum, e) => sum + (e.totale_allocato || 0), 0)
 
       // Personale = B.9 dal piano dei conti (NON l'allocazione dipendenti, che
@@ -927,7 +967,7 @@ export default function ConfrontoOutlet() {
         },
       } as OutletMetric
     })
-  }, [outlets, budgetData, balanceData, employeeCosts, selectedMonths, viewMode, quotaSedePerOutlet, consOverlay, prevOverlay, revenueMap, coaByCode, macroMeta])
+  }, [outlets, budgetData, balanceData, employeeCosts, adminIds, activeNonAdminByCode, selectedMonths, viewMode, quotaSedePerOutlet, consOverlay, prevOverlay, revenueMap, coaByCode, macroMeta])
 
   // Quota sede pro-quota netta: il netto sede ripartito sugli outlet in
   // proporzione al fatturato preventivo (budgetRicavi). Aggiunge alla scheda
