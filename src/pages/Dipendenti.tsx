@@ -553,7 +553,7 @@ export default function Dipendenti() {
     [costs, selectedYear]
   );
   const totalBC = useMemo(() => Object.values(bcByCenter).reduce((s, v) => s + v, 0), [bcByCenter]);
-  const incidenza = revenueYear > 0 ? (totalBC / revenueYear) * 100 : null;
+  // Costo medio/addetto: SOLO dipendenti (67xx) / organico — l'amministratore non è un addetto.
   const costoMedio = organicoAttivo > 0 ? totalBC / organicoAttivo : 0;
 
   // Chart costo per outlet (B&C) + netto×12 in trasparenza
@@ -570,6 +570,9 @@ export default function Dipendenti() {
     () => adminBudgetRows.filter((r) => outletKeys.has(r.cost_center)).reduce((s, r) => s + r.amount, 0),
     [adminBudgetRows, outletKeys]
   );
+  // Totale budget B&C COMPLETO = dipendenti (67xx) + amministratori → combacia col grafico.
+  const totalBCConAmministratori = totalBC + lordoAmministratori;
+  const incidenza = revenueYear > 0 ? (totalBCConAmministratori / revenueYear) * 100 : null;
   const nettoAmministratoriMese = useMemo(
     () => admins.reduce((s, e) => s + (nettoCell(e.id) || 0), 0),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -860,6 +863,7 @@ export default function Dipendenti() {
               headcount={organicoAttivo}
               sedi={outlets.length}
               totalBC={totalBC}
+              totalBCAll={totalBCConAmministratori}
               totalNettoMese={totalNettoMese}
               nettoYear={nettoYear}
               incidenza={incidenza}
@@ -1082,12 +1086,12 @@ export default function Dipendenti() {
 // TAB 1 — PANORAMICA
 // ============================================================================
 function PanoramicaTab(props: {
-  headcount: number; sedi: number; totalBC: number; totalNettoMese: number; nettoYear: number;
+  headcount: number; sedi: number; totalBC: number; totalBCAll: number; totalNettoMese: number; nettoYear: number;
   incidenza: number | null; costoMedio: number; monthLabel: string; month: number;
   chartData: { name: string; bc: number; netto: number }[];
   bilancioPersonale: number | null; nonAttribuito: number; year: number;
 }) {
-  const { headcount, sedi, totalBC, totalNettoMese, nettoYear, incidenza, costoMedio, monthLabel, month, chartData, bilancioPersonale, nonAttribuito, year } = props;
+  const { headcount, sedi, totalBC, totalBCAll, totalNettoMese, nettoYear, incidenza, costoMedio, monthLabel, month, chartData, bilancioPersonale, nonAttribuito, year } = props;
   const empty = headcount === 0 && totalBC === 0 && totalNettoMese === 0;
   const mm = String(month).padStart(2, '0');
   const avgPerOutlet = sedi > 0 ? (headcount / sedi).toLocaleString('it-IT', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : '—';
@@ -1096,7 +1100,7 @@ function PanoramicaTab(props: {
     <div className="space-y-6">
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         <Kpi label="Organico attivo" value={headcount} sub={`cedolini ${mm}/${year} · su ${sedi} sedi`} icon={Users} source="neutro" />
-        <Kpi label="Costo personale" value={`${eurFmt.format(totalBC)} €`} sub="budget annuo · da Budget&Controllo" icon={BarChart3} source="bc" />
+        <Kpi label="Costo personale" value={`${eurFmt.format(totalBCAll)} €`} sub="budget annuo · incl. amministratori" icon={BarChart3} source="bc" />
         <Kpi label="Netto mensile totale" value={`${eurFmt.format(totalNettoMese)} €`} sub={`bonifici stipendi · da cedolini ${mm}/${year}`} icon={FileText} source="netto" />
         <Kpi label="Costo medio / addetto" value={headcount > 0 ? `${eurFmt.format(costoMedio)} €` : '—'} sub="annuo lordo aziendale (B&C)" icon={Users} source="bc" />
         <Kpi label="Incidenza su ricavi" value={incidenza != null ? `${incidenza.toFixed(1).replace('.', ',')}%` : '—'} sub={`costo personale / ricavi ${year}`} icon={Percent} source="neutro" />
@@ -1154,7 +1158,7 @@ function PanoramicaTab(props: {
             <div className="flex flex-col sm:flex-row items-stretch gap-3">
               <QuadCard label={`Netto anno ${year}`} value={nettoYear} sub="somma mensilità importate (no ×12)" color="#16a34a" />
               <div className="flex items-center justify-center text-xs font-semibold text-slate-300">VS</div>
-              <QuadCard label="Costo budget B&C" value={totalBC} sub="conti 6701/6703/6705" color="#ea580c" />
+              <QuadCard label="Costo budget B&C" value={totalBCAll} sub="67xx + amministratori" color="#ea580c" />
               <div className="flex items-center justify-center text-xs font-semibold text-slate-300">VS</div>
               <QuadCard label={`Costo bilancio ${year}`} value={bilancioPersonale ?? 0} sub={bilancioPersonale == null ? 'non disponibile' : 'consuntivo depositato'} muted={bilancioPersonale == null} />
             </div>
