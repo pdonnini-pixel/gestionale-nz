@@ -569,7 +569,7 @@ function Kpi({ icon: Icon, label, value, sub, color = 'indigo', alert }: { icon:
       <div className="flex items-center gap-3">
         <div className={`p-2 rounded-lg ${cm[color]||cm.indigo}`}><Icon size={18} /></div>
         <div className="min-w-0">
-          <div className="text-lg font-bold text-slate-900 truncate" title={value}>{value}</div>
+          <div className="text-lg font-bold text-slate-900 truncate" title={String(value)}>{value}</div>
           <div className="text-xs text-slate-500">{label}</div>
           {sub && <div className="text-xs text-slate-400">{sub}</div>}
         </div>
@@ -810,7 +810,7 @@ export default function BudgetControl() {
       type CoaRow = { code: string; name: string | null; level: number | null; is_revenue: boolean | null; outlet_link?: string | null }
       const co: CeRow[] = []
       const ri: CeRow[] = []
-      ;((coaR.data || []) as CoaRow[]).forEach(c => {
+      ;((coaR.data || []) as unknown as CoaRow[]).forEach(c => {
         const row: CeRow = {
           code: c.code,
           description: c.name || '',

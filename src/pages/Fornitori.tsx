@@ -82,7 +82,7 @@ PAYMENT_LABEL.carta = 'Carta';
 
 const CATEGORIES = [
   'Merci', 'Servizi', 'Affitti', 'Utenze', 'Marketing', 'Logistica',
-  'Consulenza', 'Manutenzione', 'IT', 'Personale', 'Altro',
+  'Consulenza', 'Manutenzione', 'IT', 'Personale', 'Beni ammortizzabili', 'Altro',
 ];
 
 // Carica TUTTE le payables del tenant con colonne leggere (mai xml_content),

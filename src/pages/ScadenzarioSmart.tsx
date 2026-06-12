@@ -547,7 +547,7 @@ const ScadenzarioSmart = () => {
           outlet_id: row.outlet_id,
           outlet_name: row.outlet_name,
           cost_center: row.cost_category_name || row.macro_group || 'altro',
-          notes: row.notes ?? null,
+          notes: (row as { notes?: string | null }).notes ?? null,
           suspend_reason: row.suspend_reason ?? null,
           days_to_due: row.days_to_due,
           urgency: row.urgency,
