@@ -12,7 +12,7 @@ import {
   CreditCard, Clock, AlertTriangle, CheckCircle, ChevronDown, ChevronUp,
   X, Filter, Download, TrendingUp, Calendar, ArrowUpDown, ExternalLink,
   Loader2, BarChart3, PieChart as PieChartIcon, Banknote, BookOpen, Tag,
-  SlidersHorizontal, Split
+  SlidersHorizontal, Split, Eye, Paperclip
 } from 'lucide-react';
 import {
   BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid,
@@ -28,6 +28,9 @@ import TextTooltip from '../components/Tooltip';
 import { useOutlets } from '../hooks/useOutlets';
 import { usePeriod } from '../hooks/usePeriod';
 import SupplierAllocationEditor, { MODE_META, type AllocationMode } from '../components/SupplierAllocationEditor';
+import InvoiceViewer from '../components/InvoiceViewer';
+import PdfViewer from '../components/PdfViewer';
+import { parseFatturaAllegati, downloadBytes, type FatturaAllegato } from '../lib/fatturaAllegati';
 
 const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316'];
 
@@ -155,6 +158,21 @@ export default function Fornitori() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   // Pannello "Gestione" — un solo fornitore aperto alla volta.
   const [gestioneId, setGestioneId] = useState<string | null>(null);
+  // Blocco "Fatture" del pannello Gestione: lista leggera caricata on-demand
+  // all'apertura (mai xml_content in lista). Aggancio per supplier_vat (=P.IVA).
+  type InvoiceRow = { id: string; invoice_number: string | null; invoice_date: string | null; gross_amount: number | null; tipo_documento: string | null };
+  const [gestInvoices, setGestInvoices] = useState<InvoiceRow[]>([]);
+  const [gestInvLoading, setGestInvLoading] = useState(false);
+  const [gestPayStatus, setGestPayStatus] = useState<Record<string, string>>({}); // invoice_number → status payables
+  const [showAllInvoices, setShowAllInvoices] = useState(false);
+  // Cache per riga (id fattura) dell'xml e degli allegati estratti: 1 solo fetch
+  // dell'xml_content per fattura, riusato sia da "Apri" sia da "PDF".
+  const [xmlCache, setXmlCache] = useState<Record<string, string>>({});
+  const [allegatiCache, setAllegatiCache] = useState<Record<string, FatturaAllegato[]>>({});
+  const [busyInvoiceId, setBusyInvoiceId] = useState<string | null>(null); // spinner per riga
+  // Modali: InvoiceViewer (xml) e PdfViewer (allegato PDF in modal custom).
+  const [viewerXml, setViewerXml] = useState<string | null>(null);
+  const [pdfModal, setPdfModal] = useState<{ data: Uint8Array; nome: string } | null>(null);
   // activeTab persistito in URL come ?tab=… (default 'anagrafica')
   const [searchParams, setSearchParams] = useSearchParams();
   const tabParam = searchParams.get('tab');
@@ -267,6 +285,109 @@ export default function Fornitori() {
     });
     showToast(mode ? `Divisione "${MODE_META[mode].label}" salvata` : 'Divisione rimossa');
   }
+
+  // ─── BLOCCO FATTURE (pannello Gestione) ────────────────────────
+
+  // P.IVA del fornitore aperto: chiave d'aggancio su electronic_invoices.supplier_vat
+  // (stesso criterio di SchedaContabileFornitore). Primitiva → evita reload
+  // inutili dell'effetto quando cambia il riferimento dell'array suppliers.
+  const gestioneVat = useMemo(() => {
+    const sup = suppliers.find(s => s.id === gestioneId);
+    return String(sup?.partita_iva || sup?.vat_number || '').trim();
+  }, [suppliers, gestioneId]);
+
+  // Carica lista fatture + stato payables SOLO all'apertura del pannello.
+  useEffect(() => {
+    if (!gestioneId || !COMPANY_ID) { setGestInvoices([]); setGestPayStatus({}); setShowAllInvoices(false); return; }
+    let cancelled = false;
+    setShowAllInvoices(false);
+    setGestInvLoading(true);
+    (async () => {
+      // Senza P.IVA non c'è chiave d'aggancio affidabile → lista vuota.
+      if (!gestioneVat) {
+        if (!cancelled) { setGestInvoices([]); setGestPayStatus({}); setGestInvLoading(false); }
+        return;
+      }
+      const [invRes, payRes] = await Promise.all([
+        // Mai xml_content nella lista (trascina megabyte → timeout).
+        supabase.from('electronic_invoices')
+          .select('id, invoice_number, invoice_date, gross_amount, tipo_documento')
+          .eq('company_id', COMPANY_ID)
+          .eq('supplier_vat', gestioneVat)
+          .order('invoice_date', { ascending: false })
+          .limit(1000),
+        supabase.from('payables')
+          .select('invoice_number, status')
+          .eq('company_id', COMPANY_ID)
+          .eq('supplier_id', gestioneId)
+          .limit(1000),
+      ]);
+      if (cancelled) return;
+      if (invRes.error) console.warn('gestione invoices load:', invRes.error.message);
+      if (payRes.error) console.warn('gestione payables load:', payRes.error.message);
+      setGestInvoices((invRes.data || []) as unknown as InvoiceRow[]);
+      const sm: Record<string, string> = {};
+      (payRes.data || []).forEach((p: Record<string, unknown>) => {
+        const num = p.invoice_number as string | null;
+        const st = p.status as string | null;
+        if (num && st && !sm[num]) sm[num] = st;
+      });
+      setGestPayStatus(sm);
+      setGestInvLoading(false);
+    })();
+    return () => { cancelled = true; };
+  }, [gestioneId, gestioneVat, COMPANY_ID]);
+
+  // Fetch on-demand del solo xml_content di una fattura, con cache per riga.
+  // Popola anche allegatiCache così "PDF" sa se mostrare/abilitare il bottone.
+  async function fetchXml(id: string): Promise<string | null> {
+    if (xmlCache[id]) return xmlCache[id];
+    const { data, error } = await supabase.from('electronic_invoices')
+      .select('xml_content')
+      .eq('id', id)
+      .not('xml_content', 'is', null)
+      .maybeSingle();
+    if (error) { console.warn('xml load:', error.message); return null; }
+    const xml = (data?.xml_content as string | undefined) || null;
+    if (xml) {
+      setXmlCache(prev => ({ ...prev, [id]: xml }));
+      setAllegatiCache(prev => ({ ...prev, [id]: parseFatturaAllegati(xml) }));
+    }
+    return xml;
+  }
+
+  // "Apri": scarica l'xml e apre InvoiceViewer.
+  async function handleOpenInvoice(inv: InvoiceRow) {
+    setBusyInvoiceId(inv.id);
+    const xml = await fetchXml(inv.id);
+    setBusyInvoiceId(null);
+    if (xml) setViewerXml(xml);
+    else showToast('XML non disponibile per questa fattura', 'error');
+  }
+
+  // "PDF": scarica l'xml (se non in cache), estrae l'allegato. Se è un PDF lo
+  // apre nel PdfViewer; se è un altro formato lo scarica; se non c'è, avvisa.
+  async function handleOpenPdf(inv: InvoiceRow) {
+    setBusyInvoiceId(inv.id);
+    const xml = await fetchXml(inv.id);
+    setBusyInvoiceId(null);
+    if (!xml) { showToast('XML non disponibile per questa fattura', 'error'); return; }
+    const allegati = allegatiCache[inv.id] ?? parseFatturaAllegati(xml);
+    const pdf = allegati.find(a => a.isPdf);
+    if (pdf) {
+      const nome = /\.pdf$/i.test(pdf.nome) ? pdf.nome : `${pdf.nome}.pdf`;
+      setPdfModal({ data: pdf.data, nome });
+    } else if (allegati.length > 0) {
+      downloadBytes(allegati[0].data, allegati[0].nome);
+      showToast(`Allegato "${allegati[0].nome}" scaricato`);
+    } else {
+      showToast('Nessun PDF allegato a questa fattura', 'error');
+    }
+  }
+
+  // Copia disposable per pdf.js (può consumare il buffer): la sorgente in
+  // pdfModal.data resta intatta per il pulsante "Scarica PDF".
+  const pdfViewerData = useMemo(() => (pdfModal ? pdfModal.data.slice() : null), [pdfModal]);
 
   // ─── COMPUTED DATA ────────────────────────────────────────────
 
@@ -978,6 +1099,99 @@ export default function Fornitori() {
                                   )}
                                 </div>
                               </div>
+
+                              {/* Blocco C — Fatture del fornitore */}
+                              <div className="bg-white rounded-xl border border-slate-200 p-4">
+                                <h3 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
+                                  <FileText size={15} className="text-violet-600" /> Fatture del fornitore
+                                  {!gestInvLoading && gestInvoices.length > 0 && (
+                                    <span className="font-normal text-slate-400">({Math.min(gestInvoices.length, showAllInvoices ? gestInvoices.length : 20)} di {gestInvoices.length})</span>
+                                  )}
+                                </h3>
+                                {gestInvLoading ? (
+                                  <div className="flex items-center gap-2 py-6 text-sm text-slate-400"><Loader2 size={16} className="animate-spin" /> Caricamento fatture…</div>
+                                ) : gestInvoices.length === 0 ? (
+                                  <p className="text-sm text-slate-400 py-4 text-center">
+                                    {getVat(s) ? 'Nessuna fattura elettronica per questo fornitore.' : 'Fornitore senza P.IVA: impossibile agganciare le fatture elettroniche.'}
+                                  </p>
+                                ) : (
+                                  <div className="overflow-x-auto">
+                                    <table className="w-full text-sm">
+                                      <thead>
+                                        <tr className="text-left text-[10.5px] uppercase tracking-wider text-slate-400 border-b border-slate-100">
+                                          <th className="py-1.5 px-2 font-semibold">Numero</th>
+                                          <th className="py-1.5 px-2 font-semibold">Data</th>
+                                          <th className="py-1.5 px-2 font-semibold text-right">Importo</th>
+                                          <th className="py-1.5 px-2 font-semibold text-center">Tipo</th>
+                                          <th className="py-1.5 px-2 font-semibold text-center">Stato</th>
+                                          <th className="py-1.5 px-2 font-semibold text-center">Documento</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {(showAllInvoices ? gestInvoices : gestInvoices.slice(0, 20)).map(inv => {
+                                          const amt = Number(inv.gross_amount) || 0;
+                                          const st = inv.invoice_number ? gestPayStatus[inv.invoice_number] : undefined;
+                                          const stInfo = st === 'pagato' ? { t: 'Pagata', c: 'bg-emerald-100 text-emerald-700' }
+                                            : st === 'scaduto' ? { t: 'Scaduta', c: 'bg-red-100 text-red-700' }
+                                            : st ? { t: 'In scadenza', c: 'bg-amber-100 text-amber-700' }
+                                            : { t: '—', c: 'bg-slate-100 text-slate-400' };
+                                          const allg = allegatiCache[inv.id];
+                                          const known = allg !== undefined;
+                                          const hasAttach = known && allg.length > 0;
+                                          const busy = busyInvoiceId === inv.id;
+                                          return (
+                                            <tr key={inv.id} className="border-b border-slate-50 hover:bg-slate-50/60">
+                                              <td className="py-1.5 px-2 font-mono text-xs text-slate-700">
+                                                <TextTooltip content={String(inv.invoice_number || '')}>
+                                                  <span className="truncate inline-block max-w-[160px] align-bottom">{inv.invoice_number || '—'}</span>
+                                                </TextTooltip>
+                                              </td>
+                                              <td className="py-1.5 px-2 text-slate-500 text-xs whitespace-nowrap">{inv.invoice_date ? new Date(inv.invoice_date).toLocaleDateString('it-IT') : '—'}</td>
+                                              <td className={`py-1.5 px-2 text-right font-semibold whitespace-nowrap ${amt < 0 ? 'text-red-600' : 'text-slate-700'}`}>€ {amt.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                              <td className="py-1.5 px-2 text-center"><span className="text-[10.5px] font-mono text-slate-500">{inv.tipo_documento || '—'}</span></td>
+                                              <td className="py-1.5 px-2 text-center"><span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-medium ${stInfo.c}`}>{stInfo.t}</span></td>
+                                              <td className="py-1.5 px-2">
+                                                <div className="flex items-center justify-center gap-1.5">
+                                                  <button
+                                                    onClick={() => handleOpenInvoice(inv)}
+                                                    disabled={busy}
+                                                    className="inline-flex items-center gap-1 px-2.5 py-1 border border-slate-200 rounded-md text-[11.5px] font-medium text-slate-600 hover:border-slate-400 disabled:opacity-50"
+                                                    title="Apri la fattura elettronica formattata"
+                                                  >
+                                                    {busy ? <Loader2 size={12} className="animate-spin" /> : <Eye size={12} />} Apri
+                                                  </button>
+                                                  {(!known || hasAttach) ? (
+                                                    <button
+                                                      onClick={() => handleOpenPdf(inv)}
+                                                      disabled={busy}
+                                                      className="inline-flex items-center gap-1 px-2.5 py-1 border border-violet-200 bg-violet-50 rounded-md text-[11.5px] font-medium text-violet-700 hover:bg-violet-100 disabled:opacity-50"
+                                                      title="Apri il PDF allegato alla fattura"
+                                                    >
+                                                      {busy ? <Loader2 size={12} className="animate-spin" /> : <Paperclip size={12} />} PDF
+                                                    </button>
+                                                  ) : (
+                                                    <TextTooltip content="Nessun PDF allegato a questa fattura">
+                                                      <span className="inline-flex items-center gap-1 px-2.5 py-1 border border-slate-100 rounded-md text-[11.5px] font-medium text-slate-300 cursor-default">
+                                                        <Paperclip size={12} /> PDF
+                                                      </span>
+                                                    </TextTooltip>
+                                                  )}
+                                                </div>
+                                              </td>
+                                            </tr>
+                                          );
+                                        })}
+                                      </tbody>
+                                    </table>
+                                    {gestInvoices.length > 20 && !showAllInvoices && (
+                                      <button onClick={() => setShowAllInvoices(true)} className="mt-2 text-xs font-medium text-violet-600 hover:text-violet-800">
+                                        Mostra tutte ({gestInvoices.length})
+                                      </button>
+                                    )}
+                                    <p className="text-[11.5px] text-slate-400 mt-2 leading-relaxed">"Apri" mostra la fattura XML formattata (stampa/PDF, download XML). "PDF" apre l'eventuale allegato della fattura senza uscire dalla pagina.</p>
+                                  </div>
+                                )}
+                              </div>
                             </div>
                           </td>
                         </tr>
@@ -1244,6 +1458,37 @@ export default function Fornitori() {
                 {saving && <Loader2 size={16} className="animate-spin" />}
                 {editingId ? 'Salva Modifiche' : 'Crea Fornitore'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* INVOICE VIEWER (XML fattura formattato) */}
+      {viewerXml && <InvoiceViewer xmlContent={viewerXml} onClose={() => setViewerXml(null)} />}
+
+      {/* PDF VIEWER (allegato PDF della fattura) in modal custom */}
+      {pdfModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setPdfModal(null)}>
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl h-[85vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 shrink-0">
+              <div className="flex items-center gap-2 min-w-0">
+                <Paperclip size={16} className="text-violet-600 shrink-0" />
+                <TextTooltip content={pdfModal.nome}>
+                  <span className="font-semibold text-slate-800 truncate">{pdfModal.nome}</span>
+                </TextTooltip>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  onClick={() => downloadBytes(pdfModal.data, pdfModal.nome, 'application/pdf')}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-slate-200 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-50"
+                >
+                  <Download size={15} /> Scarica PDF
+                </button>
+                <button onClick={() => setPdfModal(null)} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} /></button>
+              </div>
+            </div>
+            <div className="flex-1 min-h-0">
+              <PdfViewer pdfData={pdfViewerData} className="h-full" />
             </div>
           </div>
         </div>
