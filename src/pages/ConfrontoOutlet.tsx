@@ -512,7 +512,7 @@ export default function ConfrontoOutlet() {
   type BudgetEntryRow = { cost_center?: string | null; account_code?: string | null; account_name?: string | null; macro_group?: string | null; budget_amount?: number | null; actual_amount?: number | null; month?: number | null; is_approved?: boolean | null }
   type EmployeeCostRow = { outlet_code?: string | null; employee_id?: string | null; month?: number | null; totale_allocato?: number | null }
   type BalanceRow = Record<string, unknown>
-  type EmpRow = { id: string; role_description?: string | null; is_active?: boolean | null }
+  type EmpRow = { id: string; role_description?: string | null; is_active?: boolean | null; nome?: string | null; cognome?: string | null; first_name?: string | null; last_name?: string | null; codice_fiscale?: string | null; fiscal_code?: string | null }
   type AllocRow = { employee_id?: string | null; outlet_code?: string | null }
   const [outlets, setOutlets] = useState<CostCenterRow[]>([])
   const [budgetData, setBudgetData] = useState<BudgetEntryRow[]>([])
@@ -596,7 +596,7 @@ export default function ConfrontoOutlet() {
         // e per il fallback quando nel periodo non c'è alcun cedolino.
         const { data: empRows } = await supabase
           .from('employees')
-          .select('id, role_description, is_active')
+          .select('id, role_description, is_active, nome, cognome, first_name, last_name, codice_fiscale, fiscal_code')
           .eq('company_id', companyId)
         const { data: allocRows } = await supabase
           .from('employee_outlet_allocations')
@@ -720,18 +720,33 @@ export default function ConfrontoOutlet() {
     () => new Set(empList.filter(e => /amministrat/i.test(e.role_description || '')).map(e => e.id)),
     [empList]
   )
-  // Fallback anagrafica: dipendenti ATTIVI (non admin) allocati per outlet (chiave = cost_center code).
-  // allocations.outlet_code è il NOME outlet (es. 'VALDICHIANA'); cost_center.code = lower(name).
+  // Chiave di dedup PERSONA: stessa persona con più matricole/employee_id = una sola.
+  // Preferisci il codice fiscale; altrimenti cognome+nome normalizzati.
+  const empById = useMemo(() => { const m: Record<string, EmpRow> = {}; empList.forEach(e => { m[e.id] = e }); return m }, [empList])
+  const personKey = (empId: string | null | undefined): string => {
+    if (!empId) return ''
+    const e = empById[empId]
+    if (!e) return empId
+    const cf = (e.codice_fiscale || e.fiscal_code || '').trim().toLowerCase()
+    if (cf) return `cf:${cf}`
+    const cog = (e.cognome || e.last_name || '').trim().toLowerCase().replace(/\s+/g, ' ')
+    const nom = (e.nome || e.first_name || '').trim().toLowerCase().replace(/\s+/g, ' ')
+    const name = `${cog} ${nom}`.trim()
+    return name ? `nm:${name}` : `id:${empId}`
+  }
+  // Fallback anagrafica: PERSONE attive (non admin) allocate per outlet (chiave = cost_center code),
+  // deduplicate per persona. allocations.outlet_code = NOME outlet; cost_center.code = lower(name).
   const activeNonAdminByCode = useMemo(() => {
     const activeIds = new Set(empList.filter(e => e.is_active !== false && !adminIds.has(e.id)).map(e => e.id))
     const m: Record<string, Set<string>> = {}
     allocList.forEach(a => {
       if (!a.employee_id || !a.outlet_code || !activeIds.has(a.employee_id)) return
       const code = String(a.outlet_code).trim().toLowerCase()
-      ;(m[code] ||= new Set()).add(a.employee_id)
+      ;(m[code] ||= new Set()).add(personKey(a.employee_id))
     })
     return m
-  }, [empList, allocList, adminIds])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [empList, allocList, adminIds, empById])
 
   // Calculate metrics for each outlet (pre-sede)
   const outletMetricsBase = useMemo(() => {
@@ -861,17 +876,18 @@ export default function ConfrontoOutlet() {
             }
           : budget
 
-      // Dipendenti REALI con cedolino/netto nel periodo (la view ha una riga per ogni
-      // employee_costs, anche solo-netto). outlet_code della view = NOME outlet → confronto
-      // case-insensitive con outletCode (cost_center code). Amministratori esclusi.
+      // Organico = PERSONE distinte con cedolino nel MESE PIÙ RECENTE del periodo (non l'unione
+      // dei mesi → niente gonfiaggio), deduplicate per persona (stessa persona con più matricole
+      // = 1). View outlet_code = NOME outlet → confronto case-insensitive. Amministratori esclusi.
       const empRows = employeeCosts
         .filter(e => String(e.outlet_code || '').trim().toLowerCase() === outletCode)
         .filter(e => selectedMonths ? (e.month != null && selectedMonths.includes(e.month)) : true)
-        .filter(e => e.employee_id && !adminIds.has(e.employee_id))
-      const paidIds = new Set(empRows.map(e => e.employee_id).filter((id): id is string => Boolean(id)))
-      // No-zero: se nel periodo non c'è alcun cedolino, ripiega sull'anagrafica attiva allocata.
-      const personaleCount = paidIds.size > 0 ? paidIds.size : (activeNonAdminByCode[outletCode]?.size || 0)
-      const costoPersonaleFromDb = empRows.reduce((sum, e) => sum + (e.totale_allocato || 0), 0)
+        .filter(e => e.employee_id && !adminIds.has(e.employee_id) && e.month != null)
+      const lastMonth = empRows.length ? Math.max(...empRows.map(e => e.month as number)) : null
+      const personeMese = new Set(empRows.filter(e => e.month === lastMonth).map(e => personKey(e.employee_id)))
+      // No-zero: se il mese più recente non ha cedolini, ripiega sull'anagrafica attiva allocata.
+      const personaleCount = personeMese.size > 0 ? personeMese.size : (activeNonAdminByCode[outletCode]?.size || 0)
+      const costoPersonaleFromDb = empRows.filter(e => e.month === lastMonth).reduce((sum, e) => sum + (e.totale_allocato || 0), 0)
 
       // Personale = B.9 dal piano dei conti (NON l'allocazione dipendenti, che
       // è un consuntivo a parte): così il preventivo mostra il dato di Lilian.
@@ -967,7 +983,8 @@ export default function ConfrontoOutlet() {
         },
       } as OutletMetric
     })
-  }, [outlets, budgetData, balanceData, employeeCosts, adminIds, activeNonAdminByCode, selectedMonths, viewMode, quotaSedePerOutlet, consOverlay, prevOverlay, revenueMap, coaByCode, macroMeta])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [outlets, budgetData, balanceData, employeeCosts, adminIds, activeNonAdminByCode, empById, selectedMonths, viewMode, quotaSedePerOutlet, consOverlay, prevOverlay, revenueMap, coaByCode, macroMeta])
 
   // Quota sede pro-quota netta: il netto sede ripartito sugli outlet in
   // proporzione al fatturato preventivo (budgetRicavi). Aggiunge alla scheda
