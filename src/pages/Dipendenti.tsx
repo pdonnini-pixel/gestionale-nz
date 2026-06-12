@@ -578,6 +578,15 @@ export default function Dipendenti() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [admins, costs, selectedYear, selectedMonth]
   );
+  // Amministratori del mese (con cedolino) per il "costo medio incluso amministratore".
+  const nAdminMese = useMemo(
+    () => admins.filter((e) => nettoCell(e.id) != null).length,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [admins, costs, selectedYear, selectedMonth]
+  );
+  // Costo medio/addetto: escluso amministratore (solo 67xx / organico) e incluso (67xx+admin / organico+admin).
+  const costoMedioEscl = organicoAttivo > 0 ? totalBC / organicoAttivo : null;
+  const costoMedioIncl = (organicoAttivo + nAdminMese) > 0 ? totalBCConAmministratori / (organicoAttivo + nAdminMese) : null;
 
   // Grafico Panoramica: ordine granitico (outlet A-Z → SEDE → Amministratori per ultimi).
   const chartData = useMemo(() => {
@@ -867,7 +876,8 @@ export default function Dipendenti() {
               totalNettoMese={totalNettoMese}
               nettoYear={nettoYear}
               incidenza={incidenza}
-              costoMedio={costoMedio}
+              costoMedioEscl={costoMedioEscl}
+              costoMedioIncl={costoMedioIncl}
               monthLabel={monthLabel}
               month={selectedMonth}
               chartData={chartData}
@@ -1087,11 +1097,11 @@ export default function Dipendenti() {
 // ============================================================================
 function PanoramicaTab(props: {
   headcount: number; sedi: number; totalBC: number; totalBCAll: number; totalNettoMese: number; nettoYear: number;
-  incidenza: number | null; costoMedio: number; monthLabel: string; month: number;
+  incidenza: number | null; costoMedioEscl: number | null; costoMedioIncl: number | null; monthLabel: string; month: number;
   chartData: { name: string; bc: number; netto: number }[];
   bilancioPersonale: number | null; nonAttribuito: number; year: number;
 }) {
-  const { headcount, sedi, totalBC, totalBCAll, totalNettoMese, nettoYear, incidenza, costoMedio, monthLabel, month, chartData, bilancioPersonale, nonAttribuito, year } = props;
+  const { headcount, sedi, totalBC, totalBCAll, totalNettoMese, nettoYear, incidenza, costoMedioEscl, costoMedioIncl, monthLabel, month, chartData, bilancioPersonale, nonAttribuito, year } = props;
   const empty = headcount === 0 && totalBC === 0 && totalNettoMese === 0;
   const mm = String(month).padStart(2, '0');
   const avgPerOutlet = sedi > 0 ? (headcount / sedi).toLocaleString('it-IT', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : '—';
@@ -1102,7 +1112,16 @@ function PanoramicaTab(props: {
         <Kpi label="Organico attivo" value={headcount} sub={`cedolini ${mm}/${year} · su ${sedi} sedi`} icon={Users} source="neutro" />
         <Kpi label="Costo personale" value={`${eurFmt.format(totalBCAll)} €`} sub="budget annuo · incl. amministratori" icon={BarChart3} source="bc" />
         <Kpi label="Netto mensile totale" value={`${eurFmt.format(totalNettoMese)} €`} sub={`bonifici stipendi · da cedolini ${mm}/${year}`} icon={FileText} source="netto" />
-        <Kpi label="Costo medio / addetto" value={headcount > 0 ? `${eurFmt.format(costoMedio)} €` : '—'} sub="annuo lordo aziendale (B&C)" icon={Users} source="bc" />
+        <Kpi
+          label="Costo medio / addetto"
+          value={costoMedioEscl != null ? `${eurFmt.format(costoMedioEscl)} €` : '—'}
+          sub={<>
+            <div>escluso amministratore</div>
+            <div className="text-[11px] text-slate-400 mt-0.5">incl. amministratore: {costoMedioIncl != null ? `${eurFmt.format(costoMedioIncl)} €` : '—'}</div>
+          </>}
+          icon={Users}
+          source="bc"
+        />
         <Kpi label="Incidenza su ricavi" value={incidenza != null ? `${incidenza.toFixed(1).replace('.', ',')}%` : '—'} sub={`costo personale / ricavi ${year}`} icon={Percent} source="neutro" />
       </div>
 
