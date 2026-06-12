@@ -12,7 +12,7 @@ import {
   CreditCard, Clock, AlertTriangle, CheckCircle, ChevronDown, ChevronUp,
   X, Filter, Download, TrendingUp, Calendar, ArrowUpDown, ExternalLink,
   Loader2, BarChart3, PieChart as PieChartIcon, Banknote, BookOpen, Tag,
-  SlidersHorizontal, Split, Eye, Paperclip
+  SlidersHorizontal, Split, Eye, Paperclip, Info
 } from 'lucide-react';
 import {
   BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid,
@@ -1170,10 +1170,17 @@ export default function Fornitori() {
                                                       {busy ? <Loader2 size={12} className="animate-spin" /> : <Paperclip size={12} />} PDF
                                                     </button>
                                                   ) : (
+                                                    // Nessun allegato: il bottone resta cliccabile a fini
+                                                    // informativi — spiega col toast (oltre al tooltip) che
+                                                    // l'assenza del PDF non è un errore. L'utente non deve
+                                                    // ricordarsi le spiegazioni: le dà il sistema nel dubbio.
                                                     <TextTooltip content="Nessun PDF allegato a questa fattura">
-                                                      <span className="inline-flex items-center gap-1 px-2.5 py-1 border border-slate-100 rounded-md text-[11.5px] font-medium text-slate-300 cursor-default">
+                                                      <button
+                                                        onClick={() => showToast("Questo fornitore non ha allegato il PDF alla fattura elettronica. Non è un errore: puoi vedere la fattura con 'Apri'.", 'info')}
+                                                        className="inline-flex items-center gap-1 px-2.5 py-1 border border-slate-100 rounded-md text-[11.5px] font-medium text-slate-300 hover:text-slate-500 hover:border-slate-200"
+                                                      >
                                                         <Paperclip size={12} /> PDF
-                                                      </span>
+                                                      </button>
                                                     </TextTooltip>
                                                   )}
                                                 </div>
@@ -1496,11 +1503,13 @@ export default function Fornitori() {
 
       {/* TOAST */}
       {toast && (
-        <div className={`fixed bottom-6 right-6 z-50 px-4 py-3 rounded-xl shadow-lg text-sm font-medium flex items-center gap-2 ${
-          toast.type === 'error' ? 'bg-red-600 text-white' : 'bg-emerald-600 text-white'
+        <div className={`fixed bottom-6 right-6 z-50 max-w-sm px-4 py-3 rounded-xl shadow-lg text-sm font-medium flex items-start gap-2 ${
+          toast.type === 'error' ? 'bg-red-600 text-white' : toast.type === 'info' ? 'bg-blue-600 text-white' : 'bg-emerald-600 text-white'
         }`}>
-          {toast.type === 'error' ? <AlertTriangle size={16} /> : <CheckCircle size={16} />}
-          {toast.msg}
+          <span className="shrink-0 mt-0.5">
+            {toast.type === 'error' ? <AlertTriangle size={16} /> : toast.type === 'info' ? <Info size={16} /> : <CheckCircle size={16} />}
+          </span>
+          <span>{toast.msg}</span>
         </div>
       )}
       <PageHelp page="fornitori" />
