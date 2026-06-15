@@ -4,8 +4,8 @@ import PageHelp from '../components/PageHelp';
 import { useToast } from '../components/Toast';
 
 // Tab principale ScadenzarioSmart — persistito in URL come ?section=
-type ScadenzarioSection = 'situazione' | 'scadenze' | 'ricorrenti' | 'regole';
-const VALID_SCADENZARIO_SECTIONS: ScadenzarioSection[] = ['situazione', 'scadenze', 'ricorrenti', 'regole'];
+type ScadenzarioSection = 'situazione' | 'scadenze' | 'ricorrenti';
+const VALID_SCADENZARIO_SECTIONS: ScadenzarioSection[] = ['situazione', 'scadenze', 'ricorrenti'];
 import {
   Calendar, TrendingUp, TrendingDown, Filter, AlertCircle, Clock,
   DollarSign, BarChart3, Eye, EyeOff, ChevronDown, CheckCircle2,
@@ -251,7 +251,15 @@ const ScadenzarioSmart = () => {
   const [loading, setLoading] = useState(true);
   const [payables, setPayables] = useState<AnyRow[]>([]);
   const [fiscalDeadlines, setFiscalDeadlines] = useState<AnyRow[]>([]);
-  const [sourceFilter, setSourceFilter] = useState('tutte'); // 'tutte' | 'fornitori' | 'fiscali'
+  // Asse TIPO unificato (sostituisce sourceFilter + i sotto-tab Sibill).
+  // '' = tutte le scadenze (default) | 'fornitori' | 'fiscali' | 'incassi'.
+  // 'incassi' commuta sulla tabella dedicata dei movimenti in entrata.
+  const [typeFilter, setTypeFilter] = useState(''); // '' | 'fornitori' | 'fiscali' | 'incassi'
+  // Layout della lista scadenze: 'mese' (default, sezioni collassabili con
+  // subtotale) | 'lista' (lista piatta).
+  const [listLayout, setListLayout] = useState('mese'); // 'mese' | 'lista'
+  // Mesi collassati nella vista raggruppata (chiave 'YYYY-MM').
+  const [collapsedMonths, setCollapsedMonths] = useState<Set<string>>(new Set());
 
   // Tab Incassi: i VERI incassi sono i movimenti in entrata dagli estratti
   // conto (bank_transactions.amount > 0), NON le payables pagate. La tabella
@@ -885,10 +893,12 @@ const ScadenzarioSmart = () => {
   }, [fiscalDeadlines]);
 
   const filteredPayables = useMemo(() => {
-    // Combine sources based on filter
+    // Combine sources based on TYPE filter (default '' = fornitori + fiscali).
+    // 'incassi' usa una tabella dedicata (bank_transactions in entrata), quindi
+    // qui resta sull'unione: il ramo incassi non legge questa lista.
     let source: AnyRow[] = [];
-    if (sourceFilter === 'fornitori') source = payables;
-    else if (sourceFilter === 'fiscali') source = fiscalAsPayables;
+    if (typeFilter === 'fornitori') source = payables;
+    else if (typeFilter === 'fiscali') source = fiscalAsPayables;
     else source = [...payables, ...fiscalAsPayables];
 
     return source.filter((p) => {
@@ -898,12 +908,16 @@ const ScadenzarioSmart = () => {
       // Escludi annullati per default — visibili SOLO se utente filtra esplicitamente 'annullato'
       if (p.status === 'annullato' && selectedStatus !== 'annullato') return false;
 
+      // Stato speciale 'In distinta': scadenze disposte ma non ancora pagate/annullate.
+      if (selectedStatus === 'in_distinta' && !(p.disposizione_date && p.status !== 'pagato' && p.status !== 'annullato')) return false;
+
       // NB: esclusione delle pagate per default applicata in displayPayables
-      // (sotto), NON qui — sibillTab è dichiarato DOPO questo useMemo, causa
+      // (sotto), NON qui — displayPayables è derivato DOPO questo useMemo, causa
       // ReferenceError TDZ runtime "Cannot access Y before initialization".
 
       const matchOutlet = !selectedOutlet || p.outlet_id === selectedOutlet;
       const matchStatus = !selectedStatus
+        || selectedStatus === 'in_distinta' // gestito sopra
         || (selectedStatus === 'da_saldare' && p.status !== 'pagato')
         || (selectedStatus !== 'da_saldare' && p.status === selectedStatus);
       const matchSearch = !searchTerm || (p.invoice_number || '').toLowerCase().includes(searchTerm.toLowerCase()) || (p.suppliers?.ragione_sociale || p.suppliers?.name || '').toLowerCase().includes(searchTerm.toLowerCase()) || (p.notes || '').toLowerCase().includes(searchTerm.toLowerCase());
@@ -926,7 +940,7 @@ const ScadenzarioSmart = () => {
 
       return matchOutlet && matchStatus && matchSearch && matchDate && matchMethodGroup;
     });
-  }, [payables, fiscalAsPayables, sourceFilter, selectedOutlet, selectedStatus, searchTerm, dateRange, selectedMethodGroup]);
+  }, [payables, fiscalAsPayables, typeFilter, selectedOutlet, selectedStatus, searchTerm, dateRange, selectedMethodGroup]);
 
   // KPIs
   const kpis = useMemo(() => {
@@ -1625,30 +1639,32 @@ const ScadenzarioSmart = () => {
     };
   }, [filteredPayables, payables]);
 
-  // Sibill-style sub-tab filter for the table
-  const [sibillTab, setSibillTab] = useState('tutte');
+  // Quando l'utente sceglie il tipo "Incassi" carico i movimenti in entrata
+  // (tabella dedicata) e azzero i filtri tipici dei pagamenti, che non si
+  // applicano agli incassi. Nessun filtro resta attivo in modo invisibile.
+  useEffect(() => {
+    if (typeFilter === 'incassi') {
+      loadBankIncomes();
+      setSelectedStatus('');
+      setSelectedMethodGroup(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [typeFilter]);
 
   const displayPayables = useMemo(() => {
-    let list = filteredPayables;
-    if (sibillTab === 'scadute') list = list.filter(p => p.status === 'scaduto');
-    else if (sibillTab === 'da_saldare') list = list.filter(p => p.status !== 'pagato' && p.status !== 'annullato' && (p.gross_amount || 0) >= 0);
-    else if (sibillTab === 'in_distinta') list = list.filter(p => !!p.disposizione_date && p.status !== 'pagato' && p.status !== 'annullato');
-    else if (sibillTab === 'saldate') list = list.filter(p => p.status === 'pagato');
-    else {
-      // Tab "tutte" o default: logica Sibill — nascondi pagate dalla vista principale.
-      // Visibili SOLO se utente filtra esplicitamente 'pagato' dal dropdown stati.
-      list = list.filter(p => p.status !== 'pagato' || selectedStatus === 'pagato');
-    }
-    return list;
-  }, [filteredPayables, sibillTab, selectedStatus]);
+    // Vista default "Tutte le scadenze": nascondi le pagate, a meno che l'utente
+    // non filtri esplicitamente per stato 'Pagato'. Tutto il resto (tipo, stato,
+    // periodo, ricerca) è già applicato in filteredPayables.
+    return filteredPayables.filter(p => p.status !== 'pagato' || selectedStatus === 'pagato');
+  }, [filteredPayables, selectedStatus]);
 
   // Ordinamento tabella scadenze (modello standard SortableTh + useTableSort).
   // Default: scadenza piu' vecchia in cima. Persistente tra refresh per
-  // questa pagina. Reset automatico al cambio sibillTab.
+  // questa pagina. Reset automatico al cambio tipo/stato.
   const { sorted: sortedDisplayPayables, sortBy: sortByPayables, onSort: onSortPayables, reset: resetPayablesSort } = useTableSort(
     displayPayables,
     [{ key: 'due_date', dir: 'asc' }],
-    { persistKey: 'scadenzario_payables', resetOn: [sibillTab] }
+    { persistKey: 'scadenzario_payables', resetOn: [typeFilter, selectedStatus] }
   );
 
   // Aging analysis
@@ -1700,6 +1716,46 @@ const ScadenzarioSmart = () => {
     return Object.entries(groups).sort((a, b) => a[0].localeCompare(b[0]));
   }, [displayPayables]);
 
+  // Toggle collasso di una sezione-mese.
+  const toggleMonth = useCallback((key: string) => {
+    setCollapsedMonths(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }, []);
+
+  // Lista "appiattita" per il render: sezioni-mese (header) + righe, in ordine
+  // cronologico (inclusi mesi passati con scaduto). I mesi derivano dai dati,
+  // niente anni/mesi hardcoded. Le righe seguono l'ordinamento attivo della
+  // tabella; 'N/D' (senza data) va in fondo. Se un mese è collassato, le sue
+  // righe non vengono emesse (resta solo l'header con subtotale e conteggio).
+  type MonthRenderItem =
+    | { kind: 'header'; key: string; label: string; count: number; subtotal: number; collapsed: boolean }
+    | { kind: 'row'; p: AnyRow };
+  const monthRenderItems = useMemo<MonthRenderItem[]>(() => {
+    const map = new Map<string, { key: string; label: string; items: AnyRow[]; subtotal: number }>();
+    sortedDisplayPayables.forEach(p => {
+      const d = p.due_date ? new Date(p.due_date) : null;
+      const valid = d && !isNaN(d.getTime());
+      const key = valid ? `${d!.getFullYear()}-${String(d!.getMonth() + 1).padStart(2, '0')}` : 'N/D';
+      const label = valid ? d!.toLocaleDateString('it-IT', { month: 'long', year: 'numeric' }) : 'Senza data';
+      if (!map.has(key)) map.set(key, { key, label, items: [], subtotal: 0 });
+      const g = map.get(key)!;
+      g.items.push(p);
+      g.subtotal += p.amount_remaining || 0;
+    });
+    const keys = Array.from(map.keys()).sort((a, b) => (a === 'N/D' ? 1 : b === 'N/D' ? -1 : a.localeCompare(b)));
+    const out: MonthRenderItem[] = [];
+    keys.forEach(k => {
+      const g = map.get(k)!;
+      const collapsed = collapsedMonths.has(k);
+      out.push({ kind: 'header', key: k, label: g.label, count: g.items.length, subtotal: g.subtotal, collapsed });
+      if (!collapsed) g.items.forEach(p => out.push({ kind: 'row', p }));
+    });
+    return out;
+  }, [sortedDisplayPayables, collapsedMonths]);
+
   if (loading) {
     return (
       <div className="p-6 max-w-[1600px] mx-auto flex items-center justify-center min-h-screen">
@@ -1718,55 +1774,32 @@ const ScadenzarioSmart = () => {
         <div className="max-w-[1600px] mx-auto px-6 py-3 flex items-center justify-between">
           <div className="flex items-center gap-8">
             <h1 className="text-base font-bold text-slate-800 tracking-tight">Scadenze</h1>
-            {/* 4 tab principali come Sibill: Situazione | Scadenzario | Ricorrenze | Regole.
-                Fix 13.1: tab 'Regole' disabilitata visivamente (Coming soon)
-                perche' la funzionalita' non e' ancora pronta — evitare che
-                Sabrina/Veronica clicchino e si confondano con la pagina vuota. */}
+            {/* Tab principali: Situazione | Scadenzario | Ricorrenze.
+                La tab 'Regole (Coming soon)' è stata rimossa: niente elementi
+                morti cliccabili che confondono Sabrina/Veronica. */}
             <div className="flex gap-1">
               {([
-                { key: 'situazione', label: 'Situazione', disabled: false },
-                { key: 'scadenze', label: 'Scadenzario', disabled: false },
-                { key: 'ricorrenti', label: 'Ricorrenze', disabled: false },
-                { key: 'regole', label: 'Regole', disabled: true },
-              ] as { key: ScadenzarioSection; label: string; disabled: boolean }[]).map(t => (
+                { key: 'situazione', label: 'Situazione' },
+                { key: 'scadenze', label: 'Scadenzario' },
+                { key: 'ricorrenti', label: 'Ricorrenze' },
+              ] as { key: ScadenzarioSection; label: string }[]).map(t => (
                 <button
                   key={t.key}
-                  onClick={() => !t.disabled && setSection(t.key)}
-                  disabled={t.disabled}
-                  title={t.disabled ? 'Funzione in arrivo' : undefined}
+                  onClick={() => setSection(t.key)}
                   className={`px-4 py-2 rounded-full text-sm font-medium transition flex items-center gap-2 ${
-                    t.disabled
-                      ? 'text-slate-400 cursor-not-allowed opacity-60'
-                      : section === t.key
-                        ? 'bg-slate-800 text-white'
-                        : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700'
+                    section === t.key
+                      ? 'bg-slate-800 text-white'
+                      : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700'
                   }`}>
                   {t.label}
-                  {t.disabled && (
-                    <span className="text-[10px] font-semibold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded-full">
-                      Coming soon
-                    </span>
-                  )}
                 </button>
               ))}
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {/* Source filter: Tutte / Fornitori / Fiscali */}
-            <div className="flex gap-0.5 bg-slate-100 rounded-lg p-0.5 mr-2">
-              {[
-                { key: 'tutte', label: 'Tutte' },
-                { key: 'fornitori', label: 'Fornitori' },
-                { key: 'fiscali', label: 'Fiscali' },
-              ].map(t => (
-                <button key={t.key} onClick={() => setSourceFilter(t.key)}
-                  className={`px-2.5 py-1 text-xs font-medium rounded-md transition ${
-                    sourceFilter === t.key ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'
-                  }`}>
-                  {t.label}
-                </button>
-              ))}
-            </div>
+            {/* Il filtro TIPO (Tutte/Fornitori/Fiscali/Incassi) vive ora nella
+                barra filtri unificata sotto, con chip removibile: niente più
+                asse-tipo duplicato e invisibile qui in alto. */}
             <ExportMenu
               data={filteredPayables.map(p => ({
                 descrizione: (p.notes || '').trim()
@@ -1887,88 +1920,51 @@ const ScadenzarioSmart = () => {
         </div>
       )}
 
-      {/* ===== TAB REGOLE — placeholder ===== */}
-      {section === 'regole' && (
-        <div className="bg-white border border-slate-200 rounded-xl p-8 text-center">
-          <Settings size={32} className="mx-auto text-slate-300 mb-3" />
-          <h3 className="text-sm font-semibold text-slate-700 mb-1">Regole automatiche</h3>
-          <p className="text-xs text-slate-400">Imposta regole per la categorizzazione automatica delle scadenze. Funzionalità in arrivo.</p>
-        </div>
-      )}
-
       {section === 'ricorrenti' ? (
         <CostiRicorrenti />
       ) : section === 'scadenze' ? (
         <>
-          {/* Sub-tab Sibill: Pagamenti | Incassi | Tutte le scadenze */}
-          <div className="flex items-center justify-between">
-            <div className="flex gap-1">
-              {[
-                { key: 'tutte', label: 'Pagamenti' },
-                { key: 'saldate', label: 'Incassi' },
-                { key: 'da_saldare', label: 'Tutte le scadenze' },
-                { key: 'in_distinta', label: 'In distinta' },
-              ].map(t => (
-                <button key={t.key} onClick={() => {
-                  setSibillTab(t.key);
-                  if (t.key === 'saldate') {
-                    // Entrando in Incassi resetto i filtri pagamenti che non
-                    // devono influenzare la vista. Data di fine = oggi, data
-                    // di inizio vuota (la decide l'utente se vuole).
-                    loadBankIncomes();
-                    setSelectedStatus('');
-                    setSelectedMethodGroup(null);
-                    setDateRange({ start: '', end: new Date().toISOString().split('T')[0] });
-                  }
-                }}
-                  className={`px-3 py-1.5 text-sm font-medium transition border-b-2 ${
-                    sibillTab === t.key
-                      ? 'border-slate-800 text-slate-800'
-                      : 'border-transparent text-slate-400 hover:text-slate-600'
-                  }`}>
-                  {t.label}
-                  {t.key === 'in_distinta' && tabCounts.in_distinta > 0 && (
-                    <span className="ml-1.5 px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 text-[10px] font-semibold">{tabCounts.in_distinta}</span>
-                  )}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Filters — Sibill-style (solo Pagamenti / Tutte le scadenze) */}
-          {sibillTab !== 'saldate' && (
+          {/* ===== BARRA FILTRI UNIFICATA =====
+              Vista default = "Tutte le scadenze". Tutti i filtri sono OPZIONALI
+              e li sceglie l'utente: nessun asse-tipo o sotto-tab resta attivo in
+              modo invisibile. Ogni filtro attivo compare come chip removibile
+              sotto (vedi blocco "chip"). */}
+          {typeFilter !== 'incassi' && (
           <div className="flex items-center gap-2 flex-wrap">
             <div className="relative flex-1 min-w-[180px] max-w-[240px]">
               <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-300" />
-              <input type="text" placeholder="Ricerca" value={searchTerm}
+              <input type="text" placeholder="Cerca fornitore, fattura, nota…" value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="w-full pl-8 pr-3 py-1.5 rounded-lg border border-slate-200 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400/40 focus:border-blue-300 bg-white placeholder:text-slate-300" />
             </div>
-            <input type="date" value={dateRange.start} onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })}
-              className="px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs bg-white text-slate-500" />
-            <input type="date" value={dateRange.end} onChange={(e) => setDateRange({ ...dateRange, end: e.target.value })}
-              className="px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs bg-white text-slate-500" />
+            {/* TIPO */}
+            <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}
+              className="px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs bg-white text-slate-600"
+              title="Tipo di scadenza">
+              <option value="">Tutte le scadenze</option>
+              <option value="fornitori">Solo Fornitori</option>
+              <option value="fiscali">Solo Fiscali</option>
+              <option value="incassi">Incassi</option>
+            </select>
+            {/* STATO (include In distinta come stato) */}
             <select value={selectedStatus} onChange={(e) => setSelectedStatus(e.target.value)}
-              className="px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs bg-white text-slate-500">
+              className="px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs bg-white text-slate-600"
+              title="Stato della scadenza">
               <option value="">Tutti gli stati</option>
-              {/* Allineato a statusConfig (badge): include in_scadenza,
-                  sospeso, rimandato, nota_credito che prima mancavano */}
               <option value="scaduto">Scaduto</option>
               <option value="in_scadenza">In scadenza</option>
               <option value="da_pagare">Da pagare</option>
               <option value="parziale">Parziale</option>
               <option value="pagato">Pagato</option>
+              <option value="in_distinta">In distinta</option>
               <option value="sospeso">Sospeso</option>
               <option value="rimandato">Rimandato</option>
-              <option value="nota_credito">Nota Credito</option>
               <option value="annullato">Annullato</option>
             </select>
-            {/* Filter count badge — Sibill */}
-            {(searchTerm || selectedStatus || selectedMethodGroup || dateRange.start || dateRange.end) && (
-              <span className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs text-slate-600 bg-slate-50">
-                <Filter size={12} /> Filtri ({[searchTerm, selectedStatus, selectedMethodGroup, dateRange.start, dateRange.end].filter(Boolean).length})
-              </span>
-            )}
+            <input type="date" value={dateRange.start} onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })}
+              className="px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs bg-white text-slate-500" title="Periodo: da" />
+            <input type="date" value={dateRange.end} onChange={(e) => setDateRange({ ...dateRange, end: e.target.value })}
+              className="px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs bg-white text-slate-500" title="Periodo: a" />
             <div className="flex-1" />
             {/* Payment method chips */}
             {methodTotals.slice(0, 4).map(m => {
@@ -1985,10 +1981,18 @@ const ScadenzarioSmart = () => {
           </div>
           )}
 
-          {/* Filtri dedicati per Tab INCASSI: ricerca + tipo + banca + date.
-              Sostituiscono i filtri dei Pagamenti che non hanno senso qui. */}
-          {sibillTab === 'saldate' && (
+          {/* Filtri dedicati per il TIPO INCASSI: ricerca + tipo + banca + date.
+              Tornare a un altro tipo riporta ai filtri scadenze. */}
+          {typeFilter === 'incassi' && (
             <div className="flex items-center gap-2 flex-wrap">
+              <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}
+                className="px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs bg-white text-slate-600"
+                title="Tipo di scadenza">
+                <option value="">Tutte le scadenze</option>
+                <option value="fornitori">Solo Fornitori</option>
+                <option value="fiscali">Solo Fiscali</option>
+                <option value="incassi">Incassi</option>
+              </select>
               <div className="relative flex-1 min-w-[180px] max-w-[240px]">
                 <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-300" />
                 <input type="text" placeholder="Cerca descrizione, importo..." value={searchTerm}
@@ -2050,28 +2054,27 @@ const ScadenzarioSmart = () => {
             </div>
           )}
 
-          {/* Active filter chips — removable, Sibill style (solo NON Incassi) */}
-          {sibillTab !== 'saldate' && (searchTerm || selectedStatus || selectedMethodGroup || dateRange.start || dateRange.end) && (
+          {/* ===== CHIP FILTRI ATTIVI — removibili =====
+              "Stai vedendo:" rende esplicito ogni filtro attivo. Nessun filtro
+              deve restare attivo in modo invisibile. */}
+          {typeFilter !== 'incassi' && (typeFilter || searchTerm || selectedStatus || selectedMethodGroup || dateRange.start || dateRange.end) && (
             <div className="flex items-center gap-2 flex-wrap">
-              {dateRange.start && (() => {
-                // Il chip mostra la VERA data di inizio del filtro, non un
-                // label fisso che ingannava l'utente (es. 'A partire da oggi'
-                // con dateRange.start=2026-01-01 includeva scadenze gia'
-                // passate). Se la data coincide con oggi, uso label "oggi".
-                const today = new Date().toISOString().split('T')[0];
-                const label = dateRange.start === today
-                  ? 'A partire da oggi'
-                  : `Da ${fmtDate(dateRange.start)}`;
-                return (
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 text-xs text-slate-600">
-                    {label}
-                    <button onClick={() => setDateRange({ ...dateRange, start: '' })} className="text-slate-400 hover:text-slate-600"><X size={11} /></button>
-                  </span>
-                );
-              })()}
+              <span className="text-xs text-slate-400 font-medium">Stai vedendo:</span>
+              {typeFilter && (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-50 text-xs text-indigo-700 font-medium">
+                  {typeFilter === 'fornitori' ? 'Solo Fornitori' : typeFilter === 'fiscali' ? 'Solo Fiscali' : typeFilter}
+                  <button onClick={() => setTypeFilter('')} className="text-indigo-400 hover:text-indigo-600"><X size={11} /></button>
+                </span>
+              )}
               {selectedStatus && (
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 text-xs text-slate-600">
-                  {(statusConfig as Record<string, { label?: string }>)[selectedStatus]?.label || selectedStatus} <button onClick={() => setSelectedStatus('')} className="text-slate-400 hover:text-slate-600"><X size={11} /></button>
+                  {selectedStatus === 'in_distinta' ? 'In distinta' : ((statusConfig as Record<string, { label?: string }>)[selectedStatus]?.label || selectedStatus)} <button onClick={() => setSelectedStatus('')} className="text-slate-400 hover:text-slate-600"><X size={11} /></button>
+                </span>
+              )}
+              {(dateRange.start || dateRange.end) && (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 text-xs text-slate-600">
+                  Periodo {dateRange.start ? `da ${fmtDate(dateRange.start)}` : ''}{dateRange.end ? ` a ${fmtDate(dateRange.end)}` : ''}
+                  <button onClick={() => setDateRange({ start: '', end: '' })} className="text-slate-400 hover:text-slate-600"><X size={11} /></button>
                 </span>
               )}
               {searchTerm && (
@@ -2084,60 +2087,47 @@ const ScadenzarioSmart = () => {
                   {paymentGroups.find(g => g.key === selectedMethodGroup)?.label || selectedMethodGroup} <button onClick={() => setSelectedMethodGroup(null)} className="text-slate-400 hover:text-slate-600"><X size={11} /></button>
                 </span>
               )}
-              <button onClick={() => { setSearchTerm(''); setSelectedStatus(''); setSelectedMethodGroup(null); setDateRange({ start: '', end: '' }); }}
+              <button onClick={() => { setTypeFilter(''); setSearchTerm(''); setSelectedStatus(''); setSelectedMethodGroup(null); setDateRange({ start: '', end: '' }); }}
                 className="text-xs text-red-500 hover:text-red-600 font-medium">
-                Rimuovi filtri
+                Rimuovi tutti i filtri
               </button>
             </div>
           )}
 
-          {/* Quick filter chips — Sibill sub-filters (solo NON Incassi) */}
-          {sibillTab !== 'saldate' && (
-          <div className="flex items-center gap-2">
-            <button onClick={() => { setSelectedStatus('da_pagare'); setDateRange({ start: new Date().toISOString().split('T')[0], end: new Date(Date.now() + 30*86400000).toISOString().split('T')[0] }); }}
-              className="px-3 py-1 rounded-full text-xs border border-slate-200 text-slate-500 hover:bg-slate-50 transition">
-              Da pagare nei prossimi 30 giorni
-            </button>
-            <button onClick={() => setSelectedStatus('scaduto')}
-              className="px-3 py-1 rounded-full text-xs border border-slate-200 text-slate-500 hover:bg-slate-50 transition">
-              Scaduto
-            </button>
-          </div>
-          )}
-
-          {/* Result count + total + view toggle — Sibill style.
-              Sugli Incassi il toggle Lista/Calendario e il totale payables
-              non hanno senso, quindi riga nascosta. Il count+totale incassi
-              e' gia' mostrato dentro la tabella dedicata. */}
-          {sibillTab !== 'saldate' && (
-          <div className="flex items-center justify-between">
-            <span className="text-sm text-slate-500">{displayPayables.length} risultati</span>
-            <div className="flex items-center gap-3">
-              {/* Lista / Calendario toggle */}
-              <div className="flex gap-0.5 bg-slate-100 rounded-lg p-0.5">
-                <button onClick={() => setScadViewMode('lista')}
-                  className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md transition ${
-                    scadViewMode === 'lista' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
-                  }`}>
-                  <List size={13} /> Lista
-                </button>
-                <button onClick={() => setScadViewMode('calendario')}
-                  className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md transition ${
-                    scadViewMode === 'calendario' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
-                  }`}>
-                  <CalendarDays size={13} /> Calendario
-                </button>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <TrendingDown size={14} className="text-slate-400" />
-                <span className="text-sm font-bold text-slate-700">{fmt(displayPayables.reduce((s, p) => s + (p.amount_remaining || 0), 0))} €</span>
-              </div>
+          {/* ===== TOTALE (sempre visibile, coerente col filtro) + vista ===== */}
+          {typeFilter !== 'incassi' && (
+          <div className="flex items-center justify-between flex-wrap gap-2 border-y border-slate-100 py-2.5">
+            <div className="flex items-baseline gap-2">
+              <span className="text-xs text-slate-400 uppercase tracking-wide font-semibold">Totale da saldare</span>
+              <span className="text-xl font-bold text-slate-900">{fmt(displayPayables.reduce((s, p) => s + (p.amount_remaining || 0), 0))} €</span>
+              <span className="text-sm text-slate-400">· {displayPayables.length} scadenz{displayPayables.length === 1 ? 'a' : 'e'}</span>
+            </div>
+            {/* Vista: Mese (default) | Lista piatta | Calendario */}
+            <div className="flex gap-0.5 bg-slate-100 rounded-lg p-0.5">
+              <button onClick={() => { setScadViewMode('lista'); setListLayout('mese'); }}
+                className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md transition ${
+                  scadViewMode === 'lista' && listLayout === 'mese' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                }`}>
+                <CalendarDays size={13} /> Mese
+              </button>
+              <button onClick={() => { setScadViewMode('lista'); setListLayout('lista'); }}
+                className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md transition ${
+                  scadViewMode === 'lista' && listLayout === 'lista' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                }`}>
+                <List size={13} /> Lista piatta
+              </button>
+              <button onClick={() => setScadViewMode('calendario')}
+                className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md transition ${
+                  scadViewMode === 'calendario' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                }`}>
+                <Calendar size={13} /> Calendario
+              </button>
             </div>
           </div>
           )}
 
           {/* ===== CALENDARIO VIEW ===== */}
-          {scadViewMode === 'calendario' && (() => {
+          {scadViewMode === 'calendario' && typeFilter !== 'incassi' && (() => {
             const year = calendarMonth.getFullYear();
             const month = calendarMonth.getMonth();
             const firstDay = new Date(year, month, 1);
@@ -2290,7 +2280,7 @@ const ScadenzarioSmart = () => {
           {/* Tab Incassi: mostra movimenti in entrata dagli EC (NON payables
               pagate). Sorgente: bank_transactions con amount > 0.
               Categorizzazione automatica della descrizione. */}
-          {scadViewMode === 'lista' && viewMode === 'timeline' && sibillTab === 'saldate' && (
+          {viewMode === 'timeline' && typeFilter === 'incassi' && (
             <div className="bg-white rounded-xl border border-slate-200/80 overflow-hidden">
               {bankIncomesLoading ? (
                 <div className="p-10 text-center text-sm text-slate-500">
@@ -2375,7 +2365,52 @@ const ScadenzarioSmart = () => {
           )}
 
           {/* Timeline View — Sibill style (Pagamenti / Tutte le scadenze) */}
-          {scadViewMode === 'lista' && viewMode === 'timeline' && sibillTab !== 'saldate' && (
+          {/* ===== EMPTY-STATE CONTESTUALE =====
+              Quando un filtro svuota la lista, il sistema spiega il perché e
+              offre la rimozione mirata. Mai liste misteriosamente vuote. */}
+          {scadViewMode === 'lista' && viewMode === 'timeline' && typeFilter !== 'incassi' && displayPayables.length === 0 && (
+            <div className="bg-white rounded-xl border border-slate-200/80 p-10 text-center">
+              <CheckCircle2 size={28} className="text-slate-300 mx-auto mb-2" />
+              {(typeFilter || selectedStatus || selectedMethodGroup || searchTerm || dateRange.start || dateRange.end) ? (
+                <>
+                  <p className="text-sm font-medium text-slate-600">Nessuna scadenza con questi filtri</p>
+                  <div className="mt-3 flex items-center justify-center gap-2 flex-wrap">
+                    {typeFilter && (
+                      <button onClick={() => setTypeFilter('')} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 text-xs text-slate-600 hover:bg-slate-200">
+                        Rimuovi "{typeFilter === 'fornitori' ? 'Solo Fornitori' : typeFilter === 'fiscali' ? 'Solo Fiscali' : typeFilter}" <X size={11} />
+                      </button>
+                    )}
+                    {selectedStatus && (
+                      <button onClick={() => setSelectedStatus('')} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 text-xs text-slate-600 hover:bg-slate-200">
+                        Rimuovi "{selectedStatus === 'in_distinta' ? 'In distinta' : ((statusConfig as Record<string, { label?: string }>)[selectedStatus]?.label || selectedStatus)}" <X size={11} />
+                      </button>
+                    )}
+                    {(dateRange.start || dateRange.end) && (
+                      <button onClick={() => setDateRange({ start: '', end: '' })} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 text-xs text-slate-600 hover:bg-slate-200">
+                        Rimuovi periodo <X size={11} />
+                      </button>
+                    )}
+                    {searchTerm && (
+                      <button onClick={() => setSearchTerm('')} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 text-xs text-slate-600 hover:bg-slate-200">
+                        Rimuovi "{searchTerm}" <X size={11} />
+                      </button>
+                    )}
+                    {selectedMethodGroup && (
+                      <button onClick={() => setSelectedMethodGroup(null)} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 text-xs text-slate-600 hover:bg-slate-200">
+                        Rimuovi metodo <X size={11} />
+                      </button>
+                    )}
+                    <button onClick={() => { setTypeFilter(''); setSearchTerm(''); setSelectedStatus(''); setSelectedMethodGroup(null); setDateRange({ start: '', end: '' }); }}
+                      className="text-xs text-red-500 hover:text-red-600 font-medium">Rimuovi tutti i filtri</button>
+                  </div>
+                </>
+              ) : (
+                <p className="text-sm font-medium text-slate-600">Nessuna scadenza da saldare. Tutto in regola!</p>
+              )}
+            </div>
+          )}
+
+          {scadViewMode === 'lista' && viewMode === 'timeline' && typeFilter !== 'incassi' && displayPayables.length > 0 && (
             <div className="bg-white rounded-xl border border-slate-200/80 overflow-hidden">
               <div className="overflow-x-auto">
                 {/* Bottone reset ordinamento (visibile solo se sort attivo
@@ -2404,7 +2439,23 @@ const ScadenzarioSmart = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {sortedDisplayPayables.map((p, idx) => (
+                    {(listLayout === 'lista'
+                      ? sortedDisplayPayables.map((p): MonthRenderItem => ({ kind: 'row', p }))
+                      : monthRenderItems
+                    ).map((item, idx) => item.kind === 'header' ? (
+                      <tr key={`mh-${item.key}`} className="bg-slate-50/80 border-y border-slate-200">
+                        <td colSpan={8} className="px-3 py-2">
+                          <button onClick={() => toggleMonth(item.key)} className="w-full flex items-center justify-between text-left">
+                            <span className="flex items-center gap-2">
+                              <ChevronDown size={15} className={`text-slate-400 transition-transform ${item.collapsed ? '-rotate-90' : ''}`} />
+                              <span className="text-sm font-semibold text-slate-800 capitalize">{item.label}</span>
+                              <span className="text-xs text-slate-400">· {item.count} scadenz{item.count === 1 ? 'a' : 'e'}</span>
+                            </span>
+                            <span className="text-sm font-bold text-slate-900">{fmt(item.subtotal)} €</span>
+                          </button>
+                        </td>
+                      </tr>
+                    ) : (() => { const p = item.p; return (
                       <React.Fragment key={p.id}>
                         <tr className={`border-b border-slate-50 hover:bg-blue-50/50 transition-colors group ${idx % 2 === 1 ? 'even:bg-slate-50/50' : ''}`}>
                           <td className="py-2.5 px-3 text-center">
@@ -2707,7 +2758,7 @@ const ScadenzarioSmart = () => {
                           );
                         })()}
                       </React.Fragment>
-                    ))}
+                    ); })())}
                   </tbody>
                 </table>
               </div>

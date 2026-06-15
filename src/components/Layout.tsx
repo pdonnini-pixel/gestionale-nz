@@ -225,6 +225,13 @@ function ProfileMenu() {
 
 // ─── LAYOUT ───────────────────────────────────────────────────
 export default function Layout() {
+  const location = useLocation()
+  // Lo Scadenzario è un flusso "giorno-1" su un singolo elenco di scadenze:
+  // il selettore anni globale non filtra la lista (le scadenze derivano dalle
+  // loro date, non dall'anno selezionato) e ingannava l'utente. Nascosto SOLO
+  // qui; resta attivo su tutte le altre pagine.
+  const path = '/' + location.pathname.split('/').filter(Boolean).join('/')
+  const hidePeriodSelector = path === '/scadenzario'
   const [mobileOpen, setMobileOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   // Badge sidebar: numero ticket dell'autore con aggiornamenti non visti.
@@ -283,8 +290,8 @@ export default function Layout() {
             <Breadcrumb />
           </div>
 
-          {/* Center: Period selector */}
-          <PeriodSelector />
+          {/* Center: Period selector (nascosto su /scadenzario — vedi sopra) */}
+          {!hidePeriodSelector && <PeriodSelector />}
 
           {/* Right: search + notifications + avatar */}
           <div className="flex items-center gap-1.5 shrink-0">
