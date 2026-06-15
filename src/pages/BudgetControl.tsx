@@ -975,6 +975,44 @@ export default function BudgetControl() {
   const ricaviTree = useMemo(() => buildTree(ceRawRicavi), [ceRawRicavi])
   const hasTree = ceRawCosti.length > 0 || ceRawRicavi.length > 0
 
+  // ─── Marcatore segnaposto (is_placeholder) ──────────────────────────────
+  // NB: questi hook DEVONO stare prima di qualunque early return (es. if(loading)),
+  // altrimenti React error #310 (ordine degli hook). Classificazione ricavo/costo
+  // via chart_of_accounts.is_revenue (ceRawRicavi), MAI per prefisso conto.
+  const revenueCodeSet = useMemo(
+    () => new Set(ceRawRicavi.map(r => r.account_code).filter(Boolean) as string[]),
+    [ceRawRicavi]
+  )
+  // Costi a budget con placeholder, per cost_center (OR sulle righe sottostanti).
+  const phCostByCenter = useMemo(() => {
+    const m: Record<string, boolean> = {}
+    budgetEntries.forEach(e => {
+      if (e.is_placeholder !== true) return
+      const ac = e.account_code || ''
+      if (revenueCodeSet.has(ac)) return // ricavi gestiti da budget_confronto (Lilian)
+      if (e.cost_center) m[e.cost_center] = true
+    })
+    return m
+  }, [budgetEntries, revenueCodeSet])
+  // Ricavi a budget con placeholder, per cost_center+mese (per Inserimento Rapido).
+  const phRevByCenterMonth = useMemo(() => {
+    const m: Record<string, boolean[]> = {}
+    budgetEntries.forEach(e => {
+      if (e.is_placeholder !== true) return
+      const ac = e.account_code || ''
+      if (!revenueCodeSet.has(ac)) return
+      const mo = Number(e.month || 0)
+      if (mo < 1 || mo > 12 || !e.cost_center) return
+      if (!m[e.cost_center]) m[e.cost_center] = Array(12).fill(false)
+      m[e.cost_center][mo - 1] = true
+    })
+    return m
+  }, [budgetEntries, revenueCodeSet])
+  const anyPlaceholder = useMemo(
+    () => budgetEntries.some(e => e.is_placeholder === true),
+    [budgetEntries]
+  )
+
   // Alberi conti SPECIFICI per outlet (strategia C 13/05/2026):
   // ogni outlet vede SOLO i suoi valori (es. Valdichiana = ricavi corrispettivi
   // 510107 + costi specifici outlet). I costi non allocati a outlet stanno nel
@@ -1399,43 +1437,6 @@ export default function BudgetControl() {
 
   // Outlets that have saved BP data
   const outletsWithBP = ops.filter(cc => bpEdits[cc.code] && Object.keys(bpEdits[cc.code]).length > 0)
-
-  // ─── Marcatore segnaposto (is_placeholder) ──────────────────────────────
-  // Classificazione ricavo/costo via chart_of_accounts.is_revenue (ceRawRicavi),
-  // MAI per prefisso conto. Placeholder = clone 2025 non ancora granito.
-  const revenueCodeSet = useMemo(
-    () => new Set(ceRawRicavi.map(r => r.account_code).filter(Boolean) as string[]),
-    [ceRawRicavi]
-  )
-  // Costi a budget con placeholder, per cost_center (OR sulle righe sottostanti).
-  const phCostByCenter = useMemo(() => {
-    const m: Record<string, boolean> = {}
-    budgetEntries.forEach(e => {
-      if (e.is_placeholder !== true) return
-      const ac = e.account_code || ''
-      if (revenueCodeSet.has(ac)) return // ricavi gestiti da budget_confronto (Lilian)
-      if (e.cost_center) m[e.cost_center] = true
-    })
-    return m
-  }, [budgetEntries, revenueCodeSet])
-  // Ricavi a budget con placeholder, per cost_center+mese (per Inserimento Rapido).
-  const phRevByCenterMonth = useMemo(() => {
-    const m: Record<string, boolean[]> = {}
-    budgetEntries.forEach(e => {
-      if (e.is_placeholder !== true) return
-      const ac = e.account_code || ''
-      if (!revenueCodeSet.has(ac)) return
-      const mo = Number(e.month || 0)
-      if (mo < 1 || mo > 12 || !e.cost_center) return
-      if (!m[e.cost_center]) m[e.cost_center] = Array(12).fill(false)
-      m[e.cost_center][mo - 1] = true
-    })
-    return m
-  }, [budgetEntries, revenueCodeSet])
-  const anyPlaceholder = useMemo(
-    () => budgetEntries.some(e => e.is_placeholder === true),
-    [budgetEntries]
-  )
 
   // Somma annuale ricavi per outlet+account_code, REGOLA GRANITICO/PREVENTIVO:
   // per ogni mese usa il valore GRANITICO (consuntivo reale, consMonthly) se presente,
