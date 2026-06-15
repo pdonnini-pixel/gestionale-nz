@@ -1537,7 +1537,8 @@ export default function BudgetControl() {
             </div>
           )}
 
-          {Object.keys(phCostByCenter).length > 0 && <PlaceholderLegend />}
+          {/* Legenda solo se una card renderizzata (HQ o outlet) ha un marcatore costi. */}
+          {[HQ_CODE, ...ops.map(o => o.code)].some(c => phCostByCenter[c]) && <PlaceholderLegend />}
 
           {/* Banner "Compila i costi previsti" + bottone "Cancella tutti" RIMOSSI:
               il testo sui ricavi dal bilancio anno precedente era ormai falso
