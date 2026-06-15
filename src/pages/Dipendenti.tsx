@@ -43,9 +43,12 @@ import { extractPdfLines, extractPdfItems } from '../lib/pdfText';
 import {
   parseItNum, norm,
   parseInfinityNettiItems, parsePdfLordi, parseSpreadsheet,
+  parseProspettoPaghe, contrAziendaOutlet,
   LORDI_FIELDS, rowLordo, rowHasLordo,
-  type PreviewRow, type ParsedImport,
+  type PreviewRow, type ParsedImport, type ProspettoOutletRow,
 } from '../lib/payrollParse';
+import { UiTooltip } from '../components/Tooltip'; // alias: 'Tooltip' collide con recharts
+import ExportMenu from '../components/ExportMenu';
 
 const PdfViewer = lazy(() => import('../components/PdfViewer'));
 
@@ -69,8 +72,8 @@ interface OutletRow {
 }
 
 // Vista persistita in URL come ?view=
-type PersonaleView = 'panoramica' | 'per_outlet' | 'organico' | 'costi';
-const VALID_VIEWS: PersonaleView[] = ['panoramica', 'per_outlet', 'organico', 'costi'];
+type PersonaleView = 'panoramica' | 'per_outlet' | 'organico' | 'costi' | 'lordi';
+const VALID_VIEWS: PersonaleView[] = ['panoramica', 'per_outlet', 'organico', 'costi', 'lordi'];
 
 const MONTHS = [
   { num: 1, label: 'Gennaio' }, { num: 2, label: 'Febbraio' }, { num: 3, label: 'Marzo' },
@@ -852,6 +855,7 @@ export default function Dipendenti() {
           { k: 'per_outlet', label: 'Per outlet', icon: Store },
           { k: 'organico', label: 'Organico', icon: Users },
           { k: 'costi', label: 'Costi & cedolini', icon: FileText },
+          { k: 'lordi', label: 'Costo lordo', icon: Percent },
         ] as { k: PersonaleView; label: string; icon: any }[]).map((t) => {
           const Icon = t.icon;
           return (
@@ -985,6 +989,17 @@ export default function Dipendenti() {
                   />
                 </div>
               }
+            />
+          )}
+
+          {view === 'lordi' && (
+            <CostiLordoTab
+              companyId={COMPANY_ID}
+              userId={USER_ID}
+              outlets={outlets}
+              year={selectedYear}
+              month={selectedMonth}
+              monthLabel={monthLabel}
             />
           )}
         </>
@@ -1862,6 +1877,12 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
           parsed = parseInfinityNettiItems(pages, outlets);
         } else {
           rawLines = await extractPdfLines(file);
+          // Il "Prospetto riepilogativo elaborazione paghe" è per OUTLET (non per dipendente):
+          // si importa dalla scheda «Costo lordo», non da questa corsia per-cedolino.
+          if (parseProspettoPaghe(rawLines, outlets).isProspetto) {
+            toast({ type: 'info', message: 'Questo è un «Prospetto paghe» (costo per outlet): importalo dalla scheda «Costo lordo».' });
+            return;
+          }
           parsed = parsePdfLordi(rawLines, outlets);
         }
       } else {
@@ -2096,6 +2117,426 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
             </div>
           </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
+// TAB "COSTO LORDO" — import del "Prospetto riepilogativo elaborazione paghe"
+// (Zucchetti Paghe Infinity) → costo del lavoro per OUTLET/MESE. Tabella
+// personnel_gross_cost + vista v_personnel_gross_cost (INAIL = Σ imponibile×tasso).
+// Amministratori in voce SEPARATA. Import idempotente (upsert), NO DATA LOSS.
+// ============================================================================
+
+type GrossPat = { code: string; label: string; imponibile: number };
+type GrossRow = {
+  id: string; outlet_id: string | null; outlet_label: string | null; filiale_code: string;
+  year: number; month: number; numero_dipendenti: number | null;
+  retribuzioni_lorde: number | null; totale_retribuzioni: number | null;
+  compensi_amm: number; contr_inps: number; contr_ebinter: number; contr_est: number;
+  contr_gestione_separata: number; tfr_fondo: number; inail_pat: GrossPat[];
+  contr_azienda: number; inail_calcolato: number; inail_incompleto: boolean;
+  costo_lordo_outlet: number; amministratori_totale: number; source_file: string | null;
+};
+type InailRateRow = { id: string; pat_label: string; outlet_id: string | null; rate_percent: number | null; note: string | null };
+
+const MESI_LBL = ['', 'Gennaio', 'Febbraio', 'Marzo', 'Aprile', 'Maggio', 'Giugno', 'Luglio', 'Agosto', 'Settembre', 'Ottobre', 'Novembre', 'Dicembre'];
+
+function CostiLordoTab({ companyId, userId, outlets, year, month, monthLabel }: {
+  companyId: string; userId: string | null; outlets: OutletRow[]; year: number; month: number; monthLabel: string;
+}) {
+  const { toast } = useToast();
+  // I tipi generati di Supabase non includono ancora le tabelle nuove (migration 068):
+  // accesso untyped a personnel_gross_cost / inail_rates / v_personnel_gross_cost.
+  const sb: any = supabase;
+  const [rows, setRows] = useState<GrossRow[]>([]);
+  const [rates, setRates] = useState<InailRateRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [dragOver, setDragOver] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [preview, setPreview] = useState<{ rows: ProspettoOutletRow[]; fileName: string } | null>(null);
+  const [rateDraft, setRateDraft] = useState<Record<string, string>>({});
+  const fileRef = useRef<HTMLInputElement | null>(null);
+
+  const outletById = useMemo(() => new Map(outlets.map((o) => [o.id, o])), [outlets]);
+  const outletIdByName = useMemo(() => new Map(outlets.map((o) => [o.name, o.id])), [outlets]);
+  const rateByPat = useMemo(() => new Map(rates.map((r) => [r.pat_label, r.rate_percent])), [rates]);
+
+  const load = async () => {
+    setLoading(true);
+    const [g, r] = await Promise.all([
+      sb.from('v_personnel_gross_cost').select('*').eq('company_id', companyId).eq('year', year).eq('month', month),
+      sb.from('inail_rates').select('*').eq('company_id', companyId).order('pat_label'),
+    ]);
+    setRows((g.data as any as GrossRow[]) || []);
+    setRates((r.data as any as InailRateRow[]) || []);
+    setLoading(false);
+  };
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [companyId, year, month]);
+
+  // INAIL stimato in anteprima usando i tassi già salvati (0 dove il tasso manca).
+  const inailPreview = (pats: ProspettoOutletRow['inailPat']) =>
+    pats.reduce((s, p) => s + p.imponibile * ((rateByPat.get(p.label) ?? 0) / 100), 0);
+  const costoLordoPreview = (r: ProspettoOutletRow) =>
+    (r.totaleRetribuzioni || 0) - r.compensiAmm + contrAziendaOutlet(r) + inailPreview(r.inailPat) + r.tfrFondo;
+
+  const onPick = (file?: File | null) => {
+    if (!file) return;
+    const isPdf = /\.pdf$/i.test(file.name) || file.type === 'application/pdf';
+    if (!isPdf) { toast({ type: 'error', message: 'Carica il Prospetto paghe in formato PDF.' }); return; }
+    (async () => {
+      try {
+        const lines = await extractPdfLines(file);
+        const parsed = parseProspettoPaghe(lines, outlets as any);
+        if (!parsed.isProspetto || parsed.rows.length === 0) {
+          toast({ type: 'error', message: 'Il PDF non sembra un «Prospetto riepilogativo elaborazione paghe». Nessun dato per outlet riconosciuto.' });
+          return;
+        }
+        setPreview({ rows: parsed.rows, fileName: file.name });
+      } catch (e) {
+        console.error(e);
+        toast({ type: 'error', message: 'Impossibile leggere il PDF.' });
+      }
+    })();
+  };
+
+  const confirmSave = async () => {
+    if (!preview) return;
+    setImporting(true);
+    try {
+      const pr = preview.rows;
+      const fileTotal = pr.reduce((s, r) => s + (r.totaleRetribuzioni || 0), 0);
+      const first = pr[0];
+      // Log import (uno per file). I mesi reali sono comunque sulle singole righe.
+      const { data: imp, error: impErr } = await sb.from('personnel_gross_cost_imports').insert({
+        company_id: companyId, year: first.year, month: first.month, file_name: preview.fileName,
+        outlets_total: pr.length, file_total: fileTotal, imported_by: userId,
+      }).select('id').single();
+      if (impErr) throw impErr;
+      const importId = (imp as any)?.id ?? null;
+
+      const payload = pr.map((r) => ({
+        company_id: companyId,
+        outlet_id: outletIdByName.get(r.outlet) ?? null,
+        outlet_label: r.filialeName,
+        filiale_code: r.filialeCode,
+        year: r.year, month: r.month,
+        numero_dipendenti: r.numeroDipendenti,
+        retribuzioni_lorde: r.retribuzioniLorde,
+        totale_retribuzioni: r.totaleRetribuzioni,
+        compensi_amm: r.compensiAmm,
+        contr_inps: r.contrInps, contr_ebinter: r.contrEbinter, contr_est: r.contrEst,
+        contr_gestione_separata: r.contrGestioneSeparata, tfr_fondo: r.tfrFondo,
+        inail_pat: r.inailPat,
+        source_file: preview.fileName, import_id: importId,
+        updated_at: new Date().toISOString(),
+      }));
+      const { error: upErr } = await sb.from('personnel_gross_cost')
+        .upsert(payload, { onConflict: 'company_id,filiale_code,year,month' });
+      if (upErr) throw upErr;
+
+      // Seed PAT INAIL (senza mai sovrascrivere i tassi già inseriti da Lilian).
+      const patSeen = new Map<string, string | null>();
+      for (const r of pr) for (const p of r.inailPat) {
+        if (!patSeen.has(p.label)) patSeen.set(p.label, outletIdByName.get(r.outlet) ?? null);
+      }
+      if (patSeen.size) {
+        const ratePayload = [...patSeen.entries()].map(([pat_label, outlet_id]) => ({
+          company_id: companyId, pat_label, outlet_id, rate_percent: null as number | null,
+        }));
+        await sb.from('inail_rates').upsert(ratePayload, { onConflict: 'company_id,pat_label', ignoreDuplicates: true });
+      }
+
+      const monthsLbl = [...new Set(pr.map((r) => `${MESI_LBL[r.month]} ${r.year}`))].join(', ');
+      toast({ type: 'success', message: `Salvati ${pr.length} outlet (${monthsLbl}). Totale retribuzioni ${eurFmt.format(fileTotal)} €.` });
+      setPreview(null);
+      await load();
+    } catch (e: any) {
+      console.error(e);
+      toast({ type: 'error', message: `Errore nel salvataggio: ${e?.message || e}` });
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const saveRate = async (rate: InailRateRow) => {
+    const raw = rateDraft[rate.id];
+    if (raw === undefined) return;
+    const val = raw.trim() === '' ? null : parseItNum(raw);
+    const { error } = await sb.from('inail_rates').update({ rate_percent: val, updated_at: new Date().toISOString() }).eq('id', rate.id);
+    if (error) { toast({ type: 'error', message: 'Tasso non salvato: ' + error.message }); return; }
+    toast({ type: 'success', message: `Tasso INAIL aggiornato per ${rate.pat_label}.` });
+    setRateDraft((d) => { const n = { ...d }; delete n[rate.id]; return n; });
+    await load();
+  };
+
+  // Ordinamento: outlet veri (alfabetici) → SEDE → "Non attribuito" in fondo.
+  const sortedRows = useMemo(() => {
+    const order = sortOutlets(outlets).map((o) => o.id);
+    return [...rows].sort((a, b) => {
+      const ia = a.outlet_id ? order.indexOf(a.outlet_id) : 999;
+      const ib = b.outlet_id ? order.indexOf(b.outlet_id) : 999;
+      return (ia < 0 ? 998 : ia) - (ib < 0 ? 998 : ib);
+    });
+  }, [rows, outlets]);
+
+  const outletNameOf = (r: GrossRow) => (r.outlet_id ? (outletById.get(r.outlet_id)?.name || r.outlet_label || '—') : (r.outlet_label || 'Non attribuito'));
+
+  const tot = useMemo(() => rows.reduce((a, r) => ({
+    dip: a.dip + (r.numero_dipendenti || 0),
+    retr: a.retr + (r.totale_retribuzioni || 0),
+    ca: a.ca + r.contr_azienda,
+    inail: a.inail + r.inail_calcolato,
+    tfr: a.tfr + r.tfr_fondo,
+    costo: a.costo + r.costo_lordo_outlet,
+    amm: a.amm + r.amministratori_totale,
+  }), { dip: 0, retr: 0, ca: 0, inail: 0, tfr: 0, costo: 0, amm: 0 }), [rows]);
+
+  const adminRows = useMemo(() => rows.filter((r) => r.amministratori_totale > 0), [rows]);
+  const anyInailMissing = rows.some((r) => r.inail_incompleto);
+
+  const exportData = sortedRows.map((r) => ({
+    outlet: outletNameOf(r), filiale: r.filiale_code, dipendenti: r.numero_dipendenti ?? 0,
+    totale_retribuzioni: r.totale_retribuzioni ?? 0, compensi_amm: r.compensi_amm,
+    contr_azienda: r.contr_azienda, inail: r.inail_calcolato, tfr_fondo: r.tfr_fondo,
+    contr_gestione_separata: r.contr_gestione_separata, costo_lordo_outlet: r.costo_lordo_outlet,
+    amministratori_totale: r.amministratori_totale,
+  }));
+  const exportCols = [
+    { key: 'outlet', label: 'Outlet' }, { key: 'filiale', label: 'Codice filiale' },
+    { key: 'dipendenti', label: 'N. dipendenti' },
+    { key: 'totale_retribuzioni', label: 'Totale retribuzioni', format: 'euro' as const },
+    { key: 'compensi_amm', label: 'Compensi amministratori (escl. outlet)', format: 'euro' as const },
+    { key: 'contr_azienda', label: 'Contributi azienda (INPS+EBINTER+EST)', format: 'euro' as const },
+    { key: 'inail', label: 'INAIL calcolato', format: 'euro' as const },
+    { key: 'tfr_fondo', label: 'TFR a fondo', format: 'euro' as const },
+    { key: 'contr_gestione_separata', label: 'INPS Gestione separata (amministratori)', format: 'euro' as const },
+    { key: 'costo_lordo_outlet', label: 'Costo lordo outlet', format: 'euro' as const },
+    { key: 'amministratori_totale', label: 'Totale amministratori', format: 'euro' as const },
+  ];
+
+  return (
+    <div className="space-y-5">
+      {/* Import tile + export */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div className="lg:col-span-2">
+          <div
+            onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={(e) => { e.preventDefault(); setDragOver(false); onPick(e.dataTransfer.files?.[0]); }}
+            className={`rounded-2xl border-2 border-dashed p-6 text-center transition-colors ${dragOver ? 'border-blue-400 bg-blue-50' : 'border-slate-200 bg-white'}`}
+          >
+            <FileUp size={26} className="mx-auto text-slate-400 mb-2" />
+            <div className="text-sm font-semibold text-slate-800">Import costi lordi — Prospetto paghe (PDF)</div>
+            <div className="text-xs text-slate-500 mt-1 mb-3">Trascina qui il «Prospetto riepilogativo elaborazione paghe» del mese, oppure</div>
+            <button onClick={() => fileRef.current?.click()} className="px-3.5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium inline-flex items-center gap-1.5"><Upload size={15} /> Scegli il PDF</button>
+            <input ref={fileRef} type="file" accept=".pdf" className="hidden" onChange={(e) => { onPick(e.target.files?.[0]); e.target.value = ''; }} />
+            <div className="text-[11px] text-slate-400 mt-3">Il sistema riconosce gli outlet e il mese dal file. Re-importare lo stesso mese <strong>aggiorna</strong> i dati, non li duplica.</div>
+          </div>
+        </div>
+        <div className="bg-white rounded-2xl border border-slate-200 p-4 flex flex-col justify-between">
+          <div>
+            <div className="text-xs font-medium text-slate-500">Periodo</div>
+            <div className="text-lg font-bold text-slate-900">{monthLabel} {year}</div>
+            <div className="text-xs text-slate-400 mt-1">{rows.length} outlet con dati</div>
+          </div>
+          {rows.length > 0 && <div className="mt-3"><ExportMenu data={exportData} columns={exportCols} filename={`costo_lordo_${year}_${String(month).padStart(2, '0')}`} title={`Costo lordo ${monthLabel} ${year}`} /></div>}
+        </div>
+      </div>
+
+      {anyInailMissing && (
+        <div className="flex items-start gap-2 text-sm bg-amber-50 border border-amber-200 text-amber-800 rounded-xl px-4 py-3">
+          <AlertCircle size={16} className="mt-0.5 shrink-0" />
+          <div>Alcune PAT non hanno ancora il <strong>tasso INAIL</strong>: il loro INAIL è calcolato a 0. Inseriscili nella sezione <strong>Tassi INAIL</strong> qui sotto perché il costo lordo sia completo.</div>
+        </div>
+      )}
+
+      {/* Breakdown per outlet */}
+      {loading ? (
+        <div className="text-slate-400 py-10 text-center">Caricamento…</div>
+      ) : rows.length === 0 ? (
+        <div className="bg-white rounded-2xl border border-slate-200 p-10 text-center text-slate-400">
+          Nessun costo lordo per <strong>{monthLabel} {year}</strong>. Importa il Prospetto paghe del mese qui sopra.
+        </div>
+      ) : (
+        <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+          <div className="px-5 py-3 border-b border-slate-100 text-sm font-semibold text-slate-700">Costo del lavoro per outlet · {monthLabel} {year}</div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 text-slate-500">
+                <tr>
+                  <th className="px-4 py-2.5 text-left font-bold">Outlet</th>
+                  <th className="px-3 py-2.5 text-right font-bold">Dip.</th>
+                  <th className="px-3 py-2.5 text-right font-bold">Totale retrib.</th>
+                  <th className="px-3 py-2.5 text-right font-bold">Contributi azienda</th>
+                  <th className="px-3 py-2.5 text-right font-bold">INAIL</th>
+                  <th className="px-3 py-2.5 text-right font-bold">TFR fondo</th>
+                  <th className="px-4 py-2.5 text-right font-bold">Costo lordo</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {sortedRows.map((r) => {
+                  const breakdown = `Filiale ${r.filiale_code}${r.outlet_label ? ' · ' + r.outlet_label : ''}\nTotale retribuzioni: ${eurFmt.format(r.totale_retribuzioni || 0)} €\n  di cui compensi amministratori (esclusi): ${eurFmt.format(r.compensi_amm)} €\nINPS: ${eurFmt.format(r.contr_inps)} €  ·  EBINTER: ${eurFmt.format(r.contr_ebinter)} €  ·  EST: ${eurFmt.format(r.contr_est)} €\nTFR a fondo: ${eurFmt.format(r.tfr_fondo)} €`;
+                  const inailTip = r.inail_pat.length
+                    ? r.inail_pat.map((p) => `${p.label}: imponibile ${eurFmt.format(p.imponibile)} € × ${rateByPat.get(p.label) != null ? rateByPat.get(p.label) + '%' : 'tasso da inserire'}`).join('\n')
+                    : 'Nessuna PAT INAIL nel prospetto';
+                  return (
+                    <tr key={r.id} className="hover:bg-slate-50">
+                      <td className="px-4 py-2.5">
+                        <UiTooltip content={breakdown}>
+                          <span className="font-medium text-slate-800 cursor-help border-b border-dotted border-slate-300">{outletNameOf(r)}</span>
+                        </UiTooltip>
+                        {!r.outlet_id && <span className="ml-2 text-[11px] text-amber-600">non attribuito</span>}
+                      </td>
+                      <td className="px-3 py-2.5 text-right tabular-nums text-slate-600">{r.numero_dipendenti ?? '—'}</td>
+                      <td className="px-3 py-2.5 text-right"><Money v={r.totale_retribuzioni} /></td>
+                      <td className="px-3 py-2.5 text-right"><Money v={r.contr_azienda} /></td>
+                      <td className="px-3 py-2.5 text-right">
+                        <UiTooltip content={inailTip}>
+                          <span className="cursor-help inline-flex items-center gap-1">
+                            {r.inail_incompleto && <AlertCircle size={13} className="text-amber-500" />}
+                            <Money v={r.inail_calcolato} />
+                          </span>
+                        </UiTooltip>
+                      </td>
+                      <td className="px-3 py-2.5 text-right"><Money v={r.tfr_fondo} /></td>
+                      <td className="px-4 py-2.5 text-right"><Money v={r.costo_lordo_outlet} strong /></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              <tfoot className="bg-slate-50 font-semibold">
+                <tr>
+                  <td className="px-4 py-2.5 text-slate-700">Totale outlet</td>
+                  <td className="px-3 py-2.5 text-right tabular-nums text-slate-600">{tot.dip}</td>
+                  <td className="px-3 py-2.5 text-right"><Money v={tot.retr} /></td>
+                  <td className="px-3 py-2.5 text-right"><Money v={tot.ca} /></td>
+                  <td className="px-3 py-2.5 text-right"><Money v={tot.inail} /></td>
+                  <td className="px-3 py-2.5 text-right"><Money v={tot.tfr} /></td>
+                  <td className="px-4 py-2.5 text-right"><Money v={tot.costo} strong /></td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+
+          {/* Amministratori — voce SEPARATA dal costo outlet */}
+          {adminRows.length > 0 && (
+            <div className="px-5 py-4 border-t border-slate-100 bg-slate-50/60">
+              <div className="flex items-center justify-between">
+                <div className="text-sm font-semibold text-slate-700">Amministratori <span className="font-normal text-slate-400">· fuori dal costo outlet</span></div>
+                <Money v={tot.amm} strong />
+              </div>
+              <div className="mt-2 space-y-1">
+                {adminRows.map((r) => (
+                  <div key={r.id} className="flex items-center justify-between text-xs text-slate-500">
+                    <UiTooltip content={`Compensi Collaboratori/Amministratori: ${eurFmt.format(r.compensi_amm)} €\nINPS Gestione separata (Contr.Azienda): ${eurFmt.format(r.contr_gestione_separata)} €`}>
+                      <span className="cursor-help">{outletNameOf(r)} — compensi {eurFmt.format(r.compensi_amm)} € + gest. separata {eurFmt.format(r.contr_gestione_separata)} €</span>
+                    </UiTooltip>
+                    <Money v={r.amministratori_totale} />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Tassi INAIL */}
+      <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+        <div className="px-5 py-3 border-b border-slate-100 flex items-center gap-2 text-sm font-semibold text-slate-700"><Percent size={15} /> Tassi INAIL per PAT</div>
+        {rates.length === 0 ? (
+          <div className="px-5 py-8 text-center text-sm text-slate-400">
+            Nessuna PAT ancora rilevata. <strong>Importa un Prospetto paghe</strong>: le PAT compaiono qui e potrai inserire il tasso di ciascuna.<br />
+            <span className="text-xs">Il tasso INAIL si recupera dall'autoliquidazione INAIL annuale, dal portale INAIL o dallo studio paghe (è un'aliquota %, es. 1,2345).</span>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 text-slate-500">
+                <tr>
+                  <th className="px-4 py-2.5 text-left font-bold">PAT</th>
+                  <th className="px-4 py-2.5 text-left font-bold">Outlet</th>
+                  <th className="px-4 py-2.5 text-right font-bold">Tasso %</th>
+                  <th className="px-4 py-2.5 text-right font-bold"> </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {rates.map((rt) => {
+                  const draft = rateDraft[rt.id];
+                  const dirty = draft !== undefined && draft !== (rt.rate_percent == null ? '' : String(rt.rate_percent).replace('.', ','));
+                  const missing = rt.rate_percent == null;
+                  return (
+                    <tr key={rt.id} className="hover:bg-slate-50">
+                      <td className="px-4 py-2.5 font-medium text-slate-800">{rt.pat_label}{missing && <span className="ml-2 text-[11px] text-amber-600">tasso da inserire</span>}</td>
+                      <td className="px-4 py-2.5 text-slate-500">{rt.outlet_id ? (outletById.get(rt.outlet_id)?.name || '—') : '—'}</td>
+                      <td className="px-4 py-2.5 text-right">
+                        <input
+                          value={draft !== undefined ? draft : (rt.rate_percent == null ? '' : String(rt.rate_percent).replace('.', ','))}
+                          onChange={(e) => setRateDraft((d) => ({ ...d, [rt.id]: e.target.value }))}
+                          placeholder="—"
+                          inputMode="decimal"
+                          className={`w-24 text-right px-2 py-1 rounded-lg border tabular-nums ${missing && draft === undefined ? 'border-amber-300 bg-amber-50' : 'border-slate-200'}`}
+                        />
+                      </td>
+                      <td className="px-4 py-2.5 text-right">
+                        <button onClick={() => saveRate(rt)} disabled={!dirty} className={`px-2.5 py-1 rounded-lg text-xs font-medium inline-flex items-center gap-1 ${dirty ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-slate-100 text-slate-400'}`}><Save size={13} /> Salva</button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Anteprima import */}
+      {preview && (
+        <Modal title="Anteprima import — Prospetto paghe" onClose={() => !importing && setPreview(null)} maxW="max-w-4xl">
+          <div className="text-xs text-slate-500 mb-3">File: <strong>{preview.fileName}</strong> · {[...new Set(preview.rows.map((r) => `${MESI_LBL[r.month]} ${r.year}`))].join(', ')} · {preview.rows.length} outlet. Controlla i valori prima di salvare.</div>
+          <div className="overflow-x-auto border border-slate-200 rounded-xl">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 text-slate-500">
+                <tr>
+                  <th className="px-3 py-2 text-left font-bold">Outlet</th>
+                  <th className="px-3 py-2 text-right font-bold">Totale retrib.</th>
+                  <th className="px-3 py-2 text-right font-bold">Contr. azienda</th>
+                  <th className="px-3 py-2 text-right font-bold">INAIL</th>
+                  <th className="px-3 py-2 text-right font-bold">TFR fondo</th>
+                  <th className="px-3 py-2 text-right font-bold">Costo lordo</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {preview.rows.map((r, i) => {
+                  const inail = inailPreview(r.inailPat);
+                  const noRate = r.inailPat.some((p) => rateByPat.get(p.label) == null && p.imponibile > 0);
+                  return (
+                    <tr key={i}>
+                      <td className="px-3 py-2">
+                        <span className="font-medium text-slate-800">{r.outlet || r.filialeName}</span>
+                        {!r.outlet && <span className="ml-2 text-[11px] text-amber-600">non riconosciuto</span>}
+                        {r.compensiAmm > 0 && <div className="text-[11px] text-slate-400">amministratori esclusi: {eurFmt.format(r.compensiAmm)} € + gest.sep. {eurFmt.format(r.contrGestioneSeparata)} €</div>}
+                      </td>
+                      <td className="px-3 py-2 text-right"><Money v={r.totaleRetribuzioni} /></td>
+                      <td className="px-3 py-2 text-right"><Money v={contrAziendaOutlet(r)} /></td>
+                      <td className="px-3 py-2 text-right">{noRate ? <span className="text-amber-600 text-xs">0 (tasso da inserire)</span> : <Money v={inail} />}</td>
+                      <td className="px-3 py-2 text-right"><Money v={r.tfrFondo} /></td>
+                      <td className="px-3 py-2 text-right"><Money v={costoLordoPreview(r)} strong /></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <div className="flex items-center justify-between mt-4">
+            <div className="text-xs text-slate-400">Salvataggio idempotente: aggiorna i mesi/outlet esistenti, non duplica.</div>
+            <div className="flex gap-2">
+              <button onClick={() => setPreview(null)} disabled={importing} className="px-4 py-2 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100">Annulla</button>
+              <button onClick={confirmSave} disabled={importing} className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 inline-flex items-center gap-1.5"><CheckCircle2 size={15} /> {importing ? 'Salvataggio…' : 'Conferma e salva'}</button>
+            </div>
+          </div>
+        </Modal>
       )}
     </div>
   );
