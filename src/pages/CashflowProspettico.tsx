@@ -115,6 +115,11 @@ export default function CashflowProspettico() {
   const [forecastDescription, setForecastDescription] = useState<string>('');
   const [forecastSaving, setForecastSaving] = useState(false);
   const [editingForecastId, setEditingForecastId] = useState<string | null>(null); // null = creazione, valore = modifica
+  // B.1 — tipo previsione: una tantum (payables) o ricorrente (recurring_costs)
+  const [forecastTipo, setForecastTipo] = useState<'una_tantum' | 'ricorrente'>('una_tantum');
+  const [forecastFrequency, setForecastFrequency] = useState<'monthly' | 'bimonthly' | 'quarterly' | 'semiannual' | 'annual'>('monthly');
+  const [forecastDayOfMonth, setForecastDayOfMonth] = useState<string>('');
+  const [forecastEndDate, setForecastEndDate] = useState<string>('');
   // Lista previsioni manuali (is_forecast=true) per gestione inline
   type ForecastRow = { id: string; due_date: string | null; gross_amount: number | null; notes: string | null; invoice_number: string | null; status: string | null };
   const [forecasts, setForecasts] = useState<ForecastRow[]>([]);
@@ -142,6 +147,33 @@ export default function CashflowProspettico() {
     }
     setForecastSaving(true);
     try {
+      // B.1 — Ricorrente (solo in creazione): scrive in recurring_costs, non in payables.
+      if (forecastTipo === 'ricorrente' && !editingForecastId) {
+        const start = new Date(forecastDate);
+        const { error } = await supabase.from('recurring_costs').insert({
+          company_id: COMPANY_ID,
+          cost_center: 'all',
+          description: forecastDescription.trim(),
+          supplier_name: forecastDescription.trim(),
+          amount,
+          frequency: forecastFrequency,
+          day_of_month: forecastDayOfMonth ? parseInt(forecastDayOfMonth, 10) : start.getDate(),
+          month_start: start.getMonth() + 1,
+          start_date: forecastDate,
+          end_date: forecastEndDate || null,
+          is_active: true,
+          notes: 'Previsione ricorrente manuale. [manuale]',
+        } as never);
+        if (error) throw new Error(error.message);
+        toast({ type: 'success', message: `Uscita ricorrente aggiunta: € ${amount.toLocaleString('de-DE', { minimumFractionDigits: 2 })} (${forecastFrequency})` });
+        setShowForecastModal(false);
+        setEditingForecastId(null);
+        setForecastDate(''); setForecastAmount(''); setForecastDescription('');
+        setForecastTipo('una_tantum'); setForecastDayOfMonth(''); setForecastEndDate('');
+        await fetchAllData();
+        setForecastSaving(false);
+        return;
+      }
       if (editingForecastId) {
         // MODIFICA previsione esistente
         const { error } = await supabase.from('payables').update({
@@ -192,6 +224,7 @@ export default function CashflowProspettico() {
   // Apri modal in modalità MODIFICA su una previsione esistente
   const handleEditForecast = (f: ForecastRow) => {
     setEditingForecastId(f.id);
+    setForecastTipo('una_tantum');
     setForecastDate(f.due_date || new Date().toISOString().slice(0, 10));
     setForecastAmount(String(f.gross_amount ?? 0));
     setForecastDescription(f.notes || (f.invoice_number || '').replace('[PREV] ', ''));
@@ -212,6 +245,84 @@ export default function CashflowProspettico() {
     } catch (err) {
       toast({ type: 'error', message: 'Errore eliminazione: ' + (err instanceof Error ? err.message : String(err)) });
       setForecastToDelete(null);
+    }
+  };
+
+  // ─── B.3 — "Genera stime" ricorrenti dai DATI REALI (idempotente) ─────────
+  // Crea/aggiorna righe in recurring_costs SOLO dove esiste un dato reale:
+  //  - Stipendi netti = Σ employee_costs.netto ultimo mese disponibile (employees.is_active)
+  //  - F24 = Σ employee_costs.contributi (solo se > 0)
+  //  - INAIL = Σ employee_costs.inail (solo se > 0)
+  //  - Compensi amministratori = Σ budget_entries.is_admin_compensation / 12
+  // Niente numeri inventati: se la somma è 0 → nessuna riga (empty-state).
+  // Idempotente: ogni voce ha un tag in notes ([auto:<key>]); rilanciare aggiorna, non duplica.
+  const [generating, setGenerating] = useState(false);
+  const AUTO_TAG = (key: string) => `[auto:${key}]`;
+  const handleGenerateEstimates = async () => {
+    if (!COMPANY_ID) return;
+    setGenerating(true);
+    // Cast unico per query/scritture senza tipi DB stringenti (database.ts stale su alcune colonne).
+    const sbAny = supabase as unknown as { from: (t: string) => any };
+    try {
+      // 1) ultimo mese con cedolini (netto valorizzato)
+      const { data: lastRows } = await sbAny.from('employee_costs').select('year, month').eq('company_id', COMPANY_ID).not('netto', 'is', null).order('year', { ascending: false }).order('month', { ascending: false }).limit(1);
+      // se nessun cedolino → nessuna stima stipendi (empty-state)
+      let nettiAmount = 0, f24Amount = 0, inailAmount = 0;
+      const lm = (lastRows || [])[0] as { year: number; month: number } | undefined;
+      if (lm) {
+        const { data: ecData } = await sbAny.from('employee_costs').select('netto, contributi, inail, employee_id').eq('company_id', COMPANY_ID).eq('year', lm.year).eq('month', lm.month);
+        const { data: empData } = await sbAny.from('employees').select('id').eq('company_id', COMPANY_ID).eq('is_active', true);
+        const activeIds = new Set(((empData || []) as Array<{ id: string }>).map(e => e.id));
+        ((ecData || []) as Array<{ netto: number | null; contributi: number | null; inail: number | null; employee_id: string }>).forEach(r => {
+          if (!activeIds.has(r.employee_id)) return;
+          nettiAmount += Number(r.netto) || 0;
+          f24Amount += Number(r.contributi) || 0;
+          inailAmount += Number(r.inail) || 0;
+        });
+      }
+      // 2) compensi amministratori da budget_entries.is_admin_compensation (anno selezionato)
+      let adminMonthly = 0;
+      const { data: coaAdmin } = await sbAny.from('chart_of_accounts').select('code').eq('company_id', COMPANY_ID).eq('is_admin_compensation', true);
+      const adminCodes = new Set(((coaAdmin || []) as Array<{ code: string }>).map(c => c.code));
+      if (adminCodes.size > 0) {
+        const { data: beAdmin } = await sbAny.from('budget_entries').select('account_code, budget_amount').eq('company_id', COMPANY_ID).eq('year', year).range(0, 9999);
+        const totAdmin = ((beAdmin || []) as Array<{ account_code: string; budget_amount: number | null }>).reduce((s, r) => adminCodes.has(String(r.account_code ?? '')) ? s + (Number(r.budget_amount) || 0) : s, 0);
+        adminMonthly = totAdmin / 12;
+      }
+      // 3) upsert idempotente per ciascuna voce con importo > 0
+      const specs = [
+        { key: 'stipendi-netti', supplier: 'Stipendi netti (stima)', amount: Math.round(nettiAmount), day: 27 },
+        { key: 'f24', supplier: 'F24 contributi (stima)', amount: Math.round(f24Amount), day: 16 },
+        { key: 'inail', supplier: 'INAIL (stima)', amount: Math.round(inailAmount), day: 16 },
+        { key: 'amministratori', supplier: 'Compensi amministratori (stima)', amount: Math.round(adminMonthly), day: 27 },
+      ].filter(s => s.amount > 0);
+      let created = 0, updated = 0;
+      for (const s of specs) {
+        const tag = AUTO_TAG(s.key);
+        const { data: existing } = await sbAny.from('recurring_costs').select('id, notes').eq('company_id', COMPANY_ID).ilike('notes', `%${tag}%`);
+        const row = {
+          company_id: COMPANY_ID, cost_center: 'all', description: s.supplier, supplier_name: s.supplier,
+          amount: s.amount, frequency: 'monthly', day_of_month: s.day, is_active: true,
+          notes: `Stima dai dati reali (ultimo mese cedolini / budget). Modificabile. ${tag}`,
+        };
+        if (existing && existing.length > 0) {
+          await sbAny.from('recurring_costs').update(row).eq('id', existing[0].id);
+          updated++;
+        } else {
+          await sbAny.from('recurring_costs').insert(row);
+          created++;
+        }
+      }
+      if (specs.length === 0) {
+        toast({ type: 'warning', message: 'Nessun dato reale disponibile per generare stime (cedolini/budget mancanti).' });
+      } else {
+        toast({ type: 'success', message: `Stime ricorrenti: ${created} create, ${updated} aggiornate. Modificabili nel Dettaglio Uscite.` });
+      }
+      await fetchAllData();
+    } catch (err) {
+      toast({ type: 'error', message: 'Errore generazione stime: ' + (err instanceof Error ? err.message : String(err)) });
+    } finally {
+      setGenerating(false);
     }
   };
 
@@ -1069,7 +1180,7 @@ export default function CashflowProspettico() {
   }, [viewMode, monthlyData, dailyData, weeklyData, year]);
 
   // ===== DRILL-DOWN DETAIL FOR MONTHLY VIEW =====
-  type DrillItem = { label: string; amount: number }
+  type DrillItem = { label: string; amount: number; state?: 'certo' | 'stima' }
   const getMonthlyDrillDown = (monthIdx: number, column: string): DrillItem[] => {
     const filteredOutlet = selectedOutlet === 'all' ? null : selectedOutlet;
     const outletIdToCode: Record<string, string> = {};
@@ -1092,7 +1203,8 @@ export default function CashflowProspettico() {
           if (!filteredOutlet || outletIdToCode[oid] === filteredOutlet) {
             items.push({
               label: `${formatDateFull(dateStr)} - ${outletIdToName[oid] || 'N/A'}`,
-              amount: Math.round(Number(rev.gross_revenue) || 0)
+              amount: Math.round(Number(rev.gross_revenue) || 0),
+              state: 'certo'
             });
           }
         }
@@ -1103,7 +1215,8 @@ export default function CashflowProspettico() {
           if (!filteredOutlet || entry.cost_center === filteredOutlet) {
             items.push({
               label: `Budget - ${String(entry.cost_center || 'Generale')}`,
-              amount: Math.round(Number(entry.amount) || 0)
+              amount: Math.round(Number(entry.amount) || 0),
+              state: 'stima'
             });
           }
         }
@@ -1123,7 +1236,8 @@ export default function CashflowProspettico() {
         if (outstanding > 0) {
           items.push({
             label: `Fatt. ${String(p.invoice_number || '-')} (scad. ${formatDateFull(due)})`,
-            amount: Math.round(outstanding)
+            amount: Math.round(outstanding),
+            state: 'certo'
           });
         }
       });
@@ -1132,7 +1246,7 @@ export default function CashflowProspettico() {
         if (!filteredOutlet || o.code === filteredOutlet) {
           const rent = Number(o.rent_monthly) || 0;
           if (rent > 0) {
-            items.push({ label: `Canone - ${String(o.name || o.code || '')}`, amount: Math.round(rent) });
+            items.push({ label: `Canone - ${String(o.name || o.code || '')}`, amount: Math.round(rent), state: 'certo' });
           }
         }
       });
@@ -1148,7 +1262,7 @@ export default function CashflowProspettico() {
           else if (cost.frequency === 'semiannual') applies = (monthIdx - startMonth) % 6 === 0 && monthIdx >= startMonth;
           else if (cost.frequency === 'annual') applies = monthIdx === startMonth;
           if (applies) {
-            items.push({ label: `${String(cost.description || cost.category || 'Costo ricorrente')}`, amount: Math.round(Number(cost.amount) || 0) });
+            items.push({ label: `≈ ${String(cost.description || cost.category || 'Costo ricorrente')}`, amount: Math.round(Number(cost.amount) || 0), state: 'stima' });
           }
         }
       });
@@ -1156,7 +1270,7 @@ export default function CashflowProspettico() {
       (rawLoans || []).forEach(loan => {
         const monthly = Number(loan.monthly_payment) || Number(loan.installment_amount) || 0;
         if (monthly > 0) {
-          items.push({ label: `Rata - ${String(loan.description || 'Finanziamento')}`, amount: Math.round(monthly) });
+          items.push({ label: `Rata - ${String(loan.description || 'Finanziamento')}`, amount: Math.round(monthly), state: 'certo' });
         }
       });
       return items;
@@ -1262,16 +1376,33 @@ export default function CashflowProspettico() {
         title="Cashflow Prospettico"
         subtitle="Proiezione liquidità giornaliera, settimanale e mensile"
         actions={
-          <button
-            onClick={() => {
-              setForecastDate(new Date().toISOString().slice(0, 10));
-              setShowForecastModal(true);
-            }}
-            className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition"
-            title="Crea una previsione di uscita futura (es. 'Pagherò 5000€ il 15/06 per ristrutturazione')"
-          >
-            <span className="text-lg leading-none">+</span> Previsione uscita
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleGenerateEstimates}
+              disabled={generating}
+              className="flex items-center gap-1.5 px-3 py-2 bg-white border border-sky-300 text-sky-700 hover:bg-sky-50 text-sm font-medium rounded-lg transition disabled:opacity-50"
+              title="Crea/aggiorna le uscite ricorrenti stimate dai dati reali (stipendi netti ultimo mese, compensi amministratori). Idempotente."
+            >
+              {generating ? 'Genero…' : '≈ Genera stime'}
+            </button>
+            <button
+              onClick={() => {
+                setEditingForecastId(null);
+                setForecastTipo('una_tantum');
+                setForecastFrequency('monthly');
+                setForecastDayOfMonth('');
+                setForecastEndDate('');
+                setForecastAmount('');
+                setForecastDescription('');
+                setForecastDate(new Date().toISOString().slice(0, 10));
+                setShowForecastModal(true);
+              }}
+              className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition"
+              title="Crea una previsione di uscita futura, una tantum o ricorrente"
+            >
+              <span className="text-lg leading-none">+</span> Previsione uscita
+            </button>
+          </div>
         }
       />
 
@@ -1349,15 +1480,54 @@ export default function CashflowProspettico() {
             <h2 className="text-lg font-bold text-slate-900 mb-1">{editingForecastId ? 'Modifica previsione' : 'Aggiungi previsione uscita'}</h2>
             <p className="text-xs text-slate-500 mb-4">Entra solo nel cashflow prospettico, NON nel Conto Economico</p>
             <div className="space-y-3">
+              {/* B.1 — Tipo: una tantum o ricorrente (solo in creazione) */}
+              {!editingForecastId && (
+                <div>
+                  <label className="text-xs font-medium text-slate-600 block mb-1">Tipo</label>
+                  <div className="flex gap-1 bg-slate-100 rounded-lg p-1">
+                    {([['una_tantum', 'Una tantum'], ['ricorrente', 'Ricorrente']] as const).map(([v, l]) => (
+                      <button key={v} type="button" onClick={() => setForecastTipo(v)}
+                        className={`flex-1 py-1.5 rounded-md text-sm font-medium transition ${forecastTipo === v ? 'bg-white shadow-sm text-indigo-700' : 'text-slate-500'}`}>
+                        {l}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
               <div>
-                <label className="text-xs font-medium text-slate-600 block mb-1">Data prevista *</label>
+                <label className="text-xs font-medium text-slate-600 block mb-1">{forecastTipo === 'ricorrente' ? 'Data inizio *' : 'Data prevista *'}</label>
                 <input type="date" value={forecastDate} onChange={(e) => setForecastDate(e.target.value)}
                   className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500" />
               </div>
+              {forecastTipo === 'ricorrente' && !editingForecastId && (
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-xs font-medium text-slate-600 block mb-1">Frequenza *</label>
+                    <select value={forecastFrequency} onChange={(e) => setForecastFrequency(e.target.value as typeof forecastFrequency)}
+                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500">
+                      <option value="monthly">Mensile</option>
+                      <option value="bimonthly">Bimestrale</option>
+                      <option value="quarterly">Trimestrale</option>
+                      <option value="semiannual">Semestrale</option>
+                      <option value="annual">Annuale</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-slate-600 block mb-1">Giorno mese</label>
+                    <input type="number" min="1" max="31" value={forecastDayOfMonth} onChange={(e) => setForecastDayOfMonth(e.target.value)}
+                      placeholder="es. 27" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500" />
+                  </div>
+                  <div className="col-span-2">
+                    <label className="text-xs font-medium text-slate-600 block mb-1">Data fine (vuoto = indeterminato)</label>
+                    <input type="date" value={forecastEndDate} onChange={(e) => setForecastEndDate(e.target.value)}
+                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500" />
+                  </div>
+                </div>
+              )}
               <div>
                 <label className="text-xs font-medium text-slate-600 block mb-1">Importo (€) *</label>
                 <input type="number" step="0.01" min="0" value={forecastAmount} onChange={(e) => setForecastAmount(e.target.value)}
-                  placeholder="5000.00" autoFocus
+                  placeholder="es. 5000.00"
                   className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500" />
               </div>
               <div>
@@ -1578,9 +1748,10 @@ export default function CashflowProspettico() {
                         <td className="px-4 py-3 text-right">
                           <button
                             onClick={() => handleDrillDown(idx, 'entrate')}
-                            className="font-semibold text-green-600 hover:underline cursor-pointer inline-flex items-center gap-1"
+                            className={`font-semibold hover:underline cursor-pointer inline-flex items-center gap-1 ${(month.tipo === 'Previsione' || month.tipo === 'In corso') ? 'text-sky-600' : 'text-slate-900'}`}
+                            title={(month.tipo === 'Previsione' || month.tipo === 'In corso') ? 'Stima da budget B&C (preventivo), variabile' : undefined}
                           >
-                            {formatCurrency(month.tot_entrate)}
+                            {(month.tipo === 'Previsione' || month.tipo === 'In corso') ? '≈ ' : ''}{formatCurrency(month.tot_entrate)}
                             <PlaceholderDot show={month.entrate_ph} tip="Entrate previsionali: la quota a budget di questo mese deriva da righe segnaposto (clone 2025) non ancora granite in Budget & Controllo." />
                             {isExpanded && expandedColumn === 'entrate'
                               ? <ChevronDown size={14} />
@@ -1731,7 +1902,7 @@ export default function CashflowProspettico() {
 }
 
 // ===== DRILL-DOWN PANEL COMPONENT =====
-function DrillDownPanel({ items, column, onClose }: { items: { label: string; amount: number }[]; column: string; onClose: () => void }) {
+function DrillDownPanel({ items, column, onClose }: { items: { label: string; amount: number; state?: 'certo' | 'stima' }[]; column: string; onClose: () => void }) {
   const isEntrate = column === 'entrate';
   const total = items.reduce((sum, item) => sum + (item.amount || 0), 0);
 
@@ -1754,20 +1925,27 @@ function DrillDownPanel({ items, column, onClose }: { items: { label: string; am
         <div className="space-y-1 max-h-48 overflow-y-auto">
           {items.map((item, i) => (
             <div key={i} className="flex items-center justify-between text-xs py-1 border-b border-slate-100 last:border-0">
-              <TextTooltip content={item.label || ''}><span className="text-slate-700 truncate mr-4">{item.label}</span></TextTooltip>
-              <span className={`font-medium whitespace-nowrap ${isEntrate ? 'text-green-700' : 'text-red-700'}`}>
-                {formatCurrency(item.amount)}
+              <TextTooltip content={item.state === 'stima' ? `${item.label} — stima variabile, modificabile` : (item.label || '')}><span className="text-slate-700 truncate mr-4">{item.label}</span></TextTooltip>
+              {/* Colore-numero per CERTEZZA: nero=certo, azzurro=stima (≈). Mai rosso qui (riservato al saldo). */}
+              <span className={`font-medium whitespace-nowrap tabular-nums ${item.state === 'stima' ? 'text-sky-600' : 'text-slate-900'}`}>
+                {item.state === 'stima' ? '≈ ' : ''}{formatCurrency(item.amount)}
               </span>
             </div>
           ))}
           {items.length > 1 && (
             <div className="flex items-center justify-between text-xs py-2 border-t-2 border-slate-300 font-bold mt-1">
               <span className="text-slate-900">Totale</span>
-              <span className={isEntrate ? 'text-green-800' : 'text-red-800'}>
+              <span className="text-slate-900 tabular-nums">
                 {formatCurrency(total)}
               </span>
             </div>
           )}
+        </div>
+      )}
+      {items.some(it => it.state === 'stima') && (
+        <div className="mt-2 text-[11px] text-sky-600 flex items-center gap-1">
+          <span className="font-medium">≈ azzurro = stima variabile</span>
+          <span className="text-slate-400">(dal mese precedente, modificabile)</span>
         </div>
       )}
       <PageHelp page="cashflow" />
