@@ -25,8 +25,6 @@ import {
   TrendingDown,
   AlertTriangle,
   Download,
-  Filter,
-  Calendar,
   Loader,
   CheckCircle,
   Clock,
@@ -38,7 +36,6 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
 import { usePeriod } from '../hooks/usePeriod';
 import { GlassTooltip, AXIS_STYLE, GRID_STYLE } from '../components/ChartTheme';
-import ExportMenu from '../components/ExportMenu';
 import TextTooltip from '../components/Tooltip';
 import { PlaceholderDot, PlaceholderLegend } from '../components/PlaceholderMark';
 
@@ -366,13 +363,8 @@ export default function CashflowProspettico() {
         const row = c as unknown as Record<string, unknown>;
         if (row.code != null) coaMap[String(row.code)] = { is_revenue: row.is_revenue === true, is_cash: row.is_cash !== false };
       });
-      // Ricavo a budget: conto is_revenue=true. Costo-cassa a budget: NON ricavo AND is_cash
-      // (conto non mappato => trattato come costo di cassa, coerente col default DB).
+      // Ricavo a budget: conto is_revenue=true (per il marcatore segnaposto sulle entrate).
       const isRevenueCode = (code: unknown) => coaMap[String(code ?? '')]?.is_revenue === true;
-      const isCashCostCode = (code: unknown) => {
-        const info = coaMap[String(code ?? '')];
-        return info ? (!info.is_revenue && info.is_cash) : true;
-      };
       // Cast: is_placeholder non è ancora nei tipi DB generati (database.ts stale).
       type BERow = { cost_center?: string | null; account_code?: string | null; budget_amount?: number | null; month?: number | null; is_placeholder?: boolean | null };
       const beRows: BERow[] = (budgetEntriesData as unknown as BERow[]) || [];
@@ -413,11 +405,10 @@ export default function CashflowProspettico() {
         month: number; monthName: string;
         entrate_sdi: number; entrate_budget: number;
         uscite_sdi: number; uscite_ricorrenti: number; uscite_scadenze: number;
-        uscite_canoni: number; rate_finanziamenti: number; uscite_budget: number;
-        tot_entrate: number; tot_uscite: number; flusso_netto: number; saldo_progressivo: number;
-        // Marcatori segnaposto: true se la quota budget del mese (ricavi/costi) deriva
-        // da righe budget_entries con is_placeholder=true (clone non granito).
-        entrate_ph: boolean; uscite_ph: boolean;
+        uscite_canoni: number; rate_finanziamenti: number;
+        tot_entrate: number; tot_uscite: number; flusso_netto: number; saldo_progressivo: number | null;
+        // Marcatore segnaposto sulle ENTRATE previsionali (ricavi a budget clone non granito).
+        entrate_ph: boolean;
         tipo?: string;
       }
       const monthData: MonthData[] = Array.from({ length: 12 }, (_, i) => ({
@@ -430,22 +421,19 @@ export default function CashflowProspettico() {
         uscite_scadenze: 0,
         uscite_canoni: totalMonthlyRent,
         rate_finanziamenti: 0,
-        uscite_budget: 0,
         tot_entrate: 0, tot_uscite: 0, flusso_netto: 0, saldo_progressivo: 0,
-        entrate_ph: false, uscite_ph: false,
+        entrate_ph: false,
       }));
 
-      // Mappe placeholder per mese da budget_entries (OR di is_placeholder sulle righe
-      // sottostanti, rispettando il filtro outlet). Guidano il marcatore arancio.
+      // Mappa placeholder ricavi per mese da budget_entries (OR di is_placeholder sulle righe
+      // ricavo sottostanti). Guida il marcatore arancio sulle ENTRATE previsionali.
       const revPhByMonth: boolean[] = Array(12).fill(false);
-      const costPhByMonth: boolean[] = Array(12).fill(false);
       beRows.forEach(entry => {
         if (entry.is_placeholder !== true) return;
         const m = (Number(entry.month) || 1) - 1;
         if (m < 0 || m > 11) return;
         if (filteredOutlet && entry.cost_center !== filteredOutlet) return;
         if (isRevenueCode(entry.account_code)) revPhByMonth[m] = true;
-        else if (isCashCostCode(entry.account_code)) costPhByMonth[m] = true;
       });
 
       // 3.1 Add budget revenues from budget_confronto
@@ -561,45 +549,28 @@ export default function CashflowProspettico() {
         }
       });
 
-      // 3.6 Uscite a budget (§3): stima costi-cassa per i mesi Previsione e In corso.
-      // Somma budget_amount delle righe budget_entries con is_revenue=false AND is_cash=true
-      // (classificazione da chart_of_accounts). Esclude automaticamente ammortamenti e
-      // variazione rimanenze (is_cash=false). Entrano merci, personale, servizi, canoni
-      // (godimento beni terzi), oneri/finanziarie già a budget.
-      const monthlyBudgetCost: number[] = Array(12).fill(0);
-      if (beRows.length > 0) {
-        beRows.forEach(entry => {
-          if (!isCashCostCode(entry.account_code)) return;
-          const month = (Number(entry.month) || 1) - 1;
-          if (month < 0 || month > 11) return;
-          if (filteredOutlet && entry.cost_center !== filteredOutlet) return;
-          monthlyBudgetCost[month] += Number(entry.budget_amount) || 0;
-        });
-      }
+      // Modello A (tesoreria): le USCITE future NON usano più la stima costi-a-budget (§3).
+      // Le uscite future = scadenzario (payables per due_date) + ricorrenti (recurring_costs,
+      // generate dal workstream B) + canoni reali (outlets.rent_monthly) + rate finanziamenti
+      // + previsioni manuali. Niente uscite_budget. Il flag is_cash resta usato dal Conto
+      // Economico (qui non più letto per le uscite).
       monthData.forEach((month, idx) => {
         const isForecast = month.tipo === 'Previsione' || month.tipo === 'In corso';
-        if (isForecast) {
-          // Mesi previsionali: stima costi-cassa a budget.
-          month.uscite_budget = monthlyBudgetCost[idx];
-          // §3.2 niente doppio conteggio canoni: gli affitti sono già dentro uscite_budget
-          // (godimento_beni_terzi). Fallback: se non c'è budget-costi per il mese, usa i canoni.
-          month.uscite_canoni = month.uscite_budget > 0 ? 0 : totalMonthlyRent;
-          // Marcatore segnaposto: solo per i mesi previsionali (i consuntivi non si marcano).
-          month.entrate_ph = revPhByMonth[idx];
-          month.uscite_ph = costPhByMonth[idx];
-        } else {
-          // Mesi Consuntivo: comportamento attuale (canoni reali, nessuna stima a budget).
-          month.uscite_budget = 0;
-          month.uscite_canoni = totalMonthlyRent;
-          month.entrate_ph = false;
-          month.uscite_ph = false;
-        }
+        month.uscite_canoni = totalMonthlyRent;       // canone reale per tutti i mesi
+        // Le entrate previsionali restano dal B&C: il marcatore segnaposto sui ricavi resta.
+        month.entrate_ph = isForecast ? revPhByMonth[idx] : false;
       });
 
       // 4. Apply scenario multiplier to revenues
       const multiplier = scenario === 'ottimistico' ? 1.1 : scenario === 'pessimistico' ? 0.9 : 1;
 
-      // 5. Calculate totals, flows, and cumulative balance
+      // 5. Calculate totals, flows. Il saldo cumulativo (Modello A) PARTE DA OGGI:
+      // è ancorato alla cassa reale di oggi (balance da v_cash_position) al mese corrente
+      // e proietta in avanti. I mesi già passati NON vengono ricostruiti dalla cassa di oggi
+      // (saldo_progressivo = null: mostrano i consuntivi reali nelle barre, non sulla linea).
+      const now = new Date();
+      const curMonth = now.getMonth();
+      const curYear = now.getFullYear();
       let cumulativeBalance = balance;
       let totalIn = 0, totalOut = 0;
       let foundNegative = false;
@@ -609,17 +580,20 @@ export default function CashflowProspettico() {
         month.entrate_budget = Math.round(month.entrate_budget * multiplier);
 
         month.tot_entrate = month.entrate_sdi + month.entrate_budget;
-        month.tot_uscite = month.uscite_sdi + month.uscite_ricorrenti + month.uscite_scadenze + month.uscite_canoni + month.rate_finanziamenti + month.uscite_budget;
+        month.tot_uscite = month.uscite_sdi + month.uscite_ricorrenti + month.uscite_scadenze + month.uscite_canoni + month.rate_finanziamenti;
         month.flusso_netto = month.tot_entrate - month.tot_uscite;
-
-        cumulativeBalance += month.flusso_netto;
-        month.saldo_progressivo = cumulativeBalance;
 
         totalIn += month.tot_entrate;
         totalOut += month.tot_uscite;
 
-        if (cumulativeBalance < 0) {
-          foundNegative = true;
+        // La linea di liquidità esiste solo da "oggi" in avanti.
+        const isPast = (year < curYear) || (year === curYear && idx < curMonth);
+        if (isPast) {
+          month.saldo_progressivo = null;
+        } else {
+          cumulativeBalance += month.flusso_netto;
+          month.saldo_progressivo = cumulativeBalance;
+          if (cumulativeBalance < 0) foundNegative = true;
         }
       });
 
@@ -784,19 +758,6 @@ export default function CashflowProspettico() {
       });
     }
 
-    // §3 — costi-cassa a budget per mese (is_revenue=false AND is_cash=true), spalmati sui giorni
-    // coerentemente con come è spalmato il ricavo a budget. Conto non mappato => costo di cassa.
-    const monthlyBudgetCost: number[] = Array(12).fill(0);
-    (rawBudgetEntries || []).forEach(entry => {
-      const info = coaCashMap[String(entry.account_code ?? '')];
-      const isCashCost = info ? (!info.is_revenue && info.is_cash) : true;
-      if (!isCashCost) return;
-      const month = (Number(entry.month) || 1) - 1;
-      if (month < 0 || month > 11) return;
-      if (filteredOutlet && entry.cost_center !== filteredOutlet) return;
-      monthlyBudgetCost[month] += Number(entry.budget_amount) || 0;
-    });
-
     const today = new Date();
     const startDate = new Date(today);
     startDate.setHours(0, 0, 0, 0);
@@ -817,28 +778,23 @@ export default function CashflowProspettico() {
       const entrateRaw = revenueTotal > 0 ? revenueTotal : budgetDaily;
       const entrate = Math.round(entrateRaw * multiplier);
 
-      // Uscite: payables (incl. previsioni manuali) + costi-cassa a budget (quota giornaliera)
-      // + ricorrenti + rate. §3.2: il canone è già dentro il budget-costi (godimento), quindi
-      // si usa la quota budget giornaliera; fallback ai canoni solo se non c'è budget nel mese.
+      // Uscite (Modello A): scadenzario (payables, incl. previsioni manuali) + canoni reali
+      // (pro-rata) + ricorrenti + rate finanziamenti. Niente stima costi-a-budget.
       const payableItems = payablesByDate[dateKey] || [];
       const payablesTotal = payableItems.reduce((sum, p) => sum + p.gross_amount, 0);
-      const budgetCostDaily = monthlyBudgetCost[month] / daysInMonth;
-      const costBaseDaily = budgetCostDaily > 0 ? budgetCostDaily : totalDailyRent;
-      const uscite = Math.round(payablesTotal + costBaseDaily + dailyRecurring + dailyLoan);
+      const uscite = Math.round(payablesTotal + totalDailyRent + dailyRecurring + dailyLoan);
 
       const flusso = entrate - uscite;
       cumBalance += flusso;
 
-      // Dettaglio costo base: stima budget se disponibile, altrimenti canoni per outlet
-      const costBaseItems = budgetCostDaily > 0
-        ? [{ label: 'Stima costi budget (escl. amm.ti e var. rimanenze)', amount: Math.round(budgetCostDaily) }]
-        : rawOutlets
-            .filter(o => !filteredOutlet || o.code === filteredOutlet)
-            .map(o => ({
-              label: String(o.name || o.code || ''),
-              amount: Math.round((Number(o.rent_monthly) || 0) / 30)
-            }))
-            .filter(item => item.amount > 0);
+      // Dettaglio canoni reali per outlet (pro-rata giornaliero)
+      const costBaseItems = rawOutlets
+        .filter(o => !filteredOutlet || o.code === filteredOutlet)
+        .map(o => ({
+          label: String(o.name || o.code || ''),
+          amount: Math.round((Number(o.rent_monthly) || 0) / 30)
+        }))
+        .filter(item => item.amount > 0);
 
       days.push({
         label: `${DAYS_SHORT[date.getDay()]} ${formatDate(date)}`,
@@ -960,18 +916,6 @@ export default function CashflowProspettico() {
       });
     }
 
-    // §3 — costi-cassa a budget per mese (is_revenue=false AND is_cash=true)
-    const monthlyBudgetCost: number[] = Array(12).fill(0);
-    (rawBudgetEntries || []).forEach(entry => {
-      const info = coaCashMap[String(entry.account_code ?? '')];
-      const isCashCost = info ? (!info.is_revenue && info.is_cash) : true;
-      if (!isCashCost) return;
-      const month = (Number(entry.month) || 1) - 1;
-      if (month < 0 || month > 11) return;
-      if (filteredOutlet && entry.cost_center !== filteredOutlet) return;
-      monthlyBudgetCost[month] += Number(entry.budget_amount) || 0;
-    });
-
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     // Start from Monday of current week
@@ -990,8 +934,7 @@ export default function CashflowProspettico() {
 
       let weekEntrate = 0;
       let weekUscite = 0;
-      let weekCostBase = 0; // somma quota giornaliera costi-cassa a budget (o canoni in fallback)
-      let weekUsedBudget = false;
+      let weekCostBase = 0; // somma quota giornaliera canoni reali
       const weekEntrateItems: WeekItem[] = [];
       const weekUsciteItems: WeekItem[] = [];
 
@@ -1017,12 +960,9 @@ export default function CashflowProspettico() {
 
         const payableItems = payablesByDate[dateKey] || [];
         const payablesTotal = payableItems.reduce((sum, p) => sum + p.gross_amount, 0);
-        // §3.2: il canone è già dentro il budget-costi; quota budget giornaliera, fallback canoni
-        const budgetCostDaily = monthlyBudgetCost[month] / daysInMonth;
-        const costBaseDaily = budgetCostDaily > 0 ? budgetCostDaily : totalDailyRent;
-        if (budgetCostDaily > 0) weekUsedBudget = true;
-        weekCostBase += costBaseDaily;
-        const dayUscite = Math.round(payablesTotal + costBaseDaily + dailyRecurring + dailyLoan);
+        // Modello A: canoni reali (pro-rata), niente stima costi-a-budget.
+        weekCostBase += totalDailyRent;
+        const dayUscite = Math.round(payablesTotal + totalDailyRent + dailyRecurring + dailyLoan);
         weekUscite += dayUscite;
 
         payableItems.forEach(p => {
@@ -1034,10 +974,7 @@ export default function CashflowProspettico() {
       const weeklyCostBase = Math.round(weekCostBase);
       const weeklyRecurring = Math.round(dailyRecurring * 7);
       const weeklyLoan = Math.round(dailyLoan * 7);
-      if (weeklyCostBase > 0) weekUsciteItems.push({
-        label: weekUsedBudget ? 'Stima costi budget (settimana)' : 'Canoni affitto (settimana)',
-        amount: weeklyCostBase
-      });
+      if (weeklyCostBase > 0) weekUsciteItems.push({ label: 'Canoni affitto (settimana)', amount: weeklyCostBase });
       if (weeklyRecurring > 0) weekUsciteItems.push({ label: 'Costi ricorrenti (settimana)', amount: weeklyRecurring });
       if (weeklyLoan > 0) weekUsciteItems.push({ label: 'Rate finanziamenti (settimana)', amount: weeklyLoan });
 
@@ -1095,7 +1032,7 @@ export default function CashflowProspettico() {
 
     if (viewMode === 'mensile') {
       for (const m of monthlyData) {
-        if (m.saldo_progressivo < 0) {
+        if (m.saldo_progressivo != null && m.saldo_progressivo < 0) {
           alertInfo = {
             period: `${m.monthName} ${year}`,
             uscite: m.tot_uscite,
@@ -1190,22 +1127,15 @@ export default function CashflowProspettico() {
           });
         }
       });
-      // Costo base: mesi previsionali => stima costi-cassa a budget (canone già incluso);
-      // mesi a Consuntivo => canoni reali per outlet (comportamento attuale).
-      const md = monthlyData[monthIdx];
-      const isForecast = md?.tipo === 'Previsione' || md?.tipo === 'In corso';
-      if (isForecast && md && md.uscite_budget > 0) {
-        items.push({ label: 'Stima costi a budget (escl. ammortamenti e var. rimanenze)', amount: Math.round(md.uscite_budget) });
-      } else {
-        rawOutlets.forEach(o => {
-          if (!filteredOutlet || o.code === filteredOutlet) {
-            const rent = Number(o.rent_monthly) || 0;
-            if (rent > 0) {
-              items.push({ label: `Canone - ${String(o.name || o.code || '')}`, amount: Math.round(rent) });
-            }
+      // Canoni reali per outlet (Modello A: niente stima costi-a-budget).
+      rawOutlets.forEach(o => {
+        if (!filteredOutlet || o.code === filteredOutlet) {
+          const rent = Number(o.rent_monthly) || 0;
+          if (rent > 0) {
+            items.push({ label: `Canone - ${String(o.name || o.code || '')}`, amount: Math.round(rent) });
           }
-        });
-      }
+        }
+      });
       // Recurring costs
       (rawRecurringCosts || []).forEach(cost => {
         if (!filteredOutlet || cost.cost_center === filteredOutlet) {
@@ -1251,21 +1181,6 @@ export default function CashflowProspettico() {
     const row = activeData[rowIdx];
     if (!row) return [];
     return column === 'entrate' ? (row.entrateItems || []) : (row.usciteItems || []);
-  };
-
-  const handleExportCSV = () => {
-    let csv = 'Cashflow Prospettico - ' + year + '\n';
-    csv += 'Mese,Tipo,Entrate Reali,Uscite Reali,Netto Reale,Entrate SDI,Entrate Budget,Tot Entrate,Uscite SDI,Costi Ricorrenti,Scadenze Fornitori,Canoni Affitto,Rate Finanziamenti,Uscite Budget,Tot Uscite,Flusso Netto,Saldo Progressivo\n';
-
-    monthlyData.forEach((month, idx) => {
-      const actual = actualMonthlyData[idx];
-      const hasActual = actual && actual.hasData;
-      csv += `${month.monthName},${month.tipo || 'Previsione'},${hasActual ? Math.round(actual.entrate) : ''},${hasActual ? Math.round(actual.uscite) : ''},${hasActual ? Math.round(actual.netto) : ''},${month.entrate_sdi},${month.entrate_budget},${month.tot_entrate},${month.uscite_sdi},${month.uscite_ricorrenti},${month.uscite_scadenze},${month.uscite_canoni},${month.rate_finanziamenti},${month.uscite_budget},${month.tot_uscite},${month.flusso_netto},${month.saldo_progressivo}\n`;
-    });
-
-    navigator.clipboard.writeText(csv).then(() => {
-      toast({ type: 'success', message: 'Dati copiati negli appunti' });
-    });
   };
 
   if (loading) {
@@ -1490,83 +1405,8 @@ export default function CashflowProspettico() {
           ))}
         </div>
 
-        {/* Controls */}
-        <div className="flex flex-wrap gap-4 items-center">
-          {viewMode === 'mensile' && (
-            <div className="flex items-center gap-2">
-              <Calendar className="w-5 h-5 text-slate-500" />
-              <span className="px-3 py-2 border border-slate-200 rounded-lg text-sm font-semibold bg-slate-50">{year}</span>
-            </div>
-          )}
-
-          <div className="flex items-center gap-2">
-            <Filter className="w-5 h-5 text-slate-500" />
-            <select
-              value={selectedOutlet}
-              onChange={(e) => setSelectedOutlet(e.target.value)}
-              className="px-3 py-2 border border-slate-300 rounded-lg text-slate-900 bg-white hover:border-slate-400"
-            >
-              <option value="all">Tutti gli {labels.pointOfSalePluralLower}</option>
-              {costCenters.map(cc => (
-                <option key={cc.code} value={cc.code}>{cc.label}</option>
-              ))}
-            </select>
-          </div>
-
-          <div className="flex gap-2">
-            {['base', 'ottimistico', 'pessimistico'].map(s => (
-              <button
-                key={s}
-                onClick={() => setScenario(s)}
-                className={`px-4 py-2 rounded-lg font-medium transition ${
-                  scenario === s
-                    ? 'bg-indigo-600 text-white'
-                    : 'bg-white text-slate-700 border border-slate-300 hover:border-slate-400'
-                }`}
-              >
-                {s === 'base' ? 'Base' : s === 'ottimistico' ? '+10%' : '-10%'}
-              </button>
-            ))}
-          </div>
-
-          <div className="ml-auto">
-            <ExportMenu
-              data={monthlyData.map((m, idx) => {
-                const a = actualMonthlyData[idx];
-                return {
-                  mese: m.monthName,
-                  tipo: m.tipo || 'Previsione',
-                  entrate_reali: a?.hasData ? Math.round(a.entrate) : '',
-                  uscite_reali: a?.hasData ? Math.round(a.uscite) : '',
-                  netto_reale: a?.hasData ? Math.round(a.netto) : '',
-                  tot_entrate: m.tot_entrate,
-                  uscite_scadenze: m.uscite_scadenze,
-                  uscite_canoni: m.uscite_canoni,
-                  uscite_budget: m.uscite_budget,
-                  tot_uscite: m.tot_uscite,
-                  flusso_netto: m.flusso_netto,
-                  saldo_progressivo: m.saldo_progressivo,
-                };
-              })}
-              columns={[
-                { key: 'mese', label: 'Mese' },
-                { key: 'tipo', label: 'Tipo' },
-                { key: 'entrate_reali', label: 'Entrate Reali', format: 'euro' },
-                { key: 'uscite_reali', label: 'Uscite Reali', format: 'euro' },
-                { key: 'netto_reale', label: 'Netto Reale', format: 'euro' },
-                { key: 'tot_entrate', label: 'Tot Entrate', format: 'euro' },
-                { key: 'uscite_scadenze', label: 'Scadenze Fornitori', format: 'euro' },
-                { key: 'uscite_canoni', label: 'Canoni Affitto', format: 'euro' },
-                { key: 'uscite_budget', label: 'Uscite Budget', format: 'euro' },
-                { key: 'tot_uscite', label: 'Tot Uscite', format: 'euro' },
-                { key: 'flusso_netto', label: 'Flusso Netto', format: 'euro' },
-                { key: 'saldo_progressivo', label: 'Saldo Progressivo', format: 'euro' },
-              ]}
-              filename={`cashflow_prospettico_${year}`}
-              title={`Cashflow Prospettico ${year}`}
-            />
-          </div>
-        </div>
+        {/* Modello A: toolbar minimale. Rimossi anno (resta il selettore globale in alto),
+            filtro outlet (la cassa è di società), scenario ±10% ed Esporta. */}
       </div>
 
       {/* KPI Cards */}
@@ -1708,7 +1548,7 @@ export default function CashflowProspettico() {
                     <React.Fragment key={idx}>
                       <tr
                         className={`border-b border-slate-200 hover:bg-slate-50 transition ${
-                          month.saldo_progressivo < 0 ? 'bg-red-50' : ''
+                          (month.saldo_progressivo ?? 0) < 0 ? 'bg-red-50' : ''
                         } ${isConsuntivo ? 'bg-emerald-50/30' : ''}`}
                       >
                         <td className="px-4 py-3 font-semibold text-slate-900">{month.monthName}</td>
@@ -1753,7 +1593,6 @@ export default function CashflowProspettico() {
                             className="font-semibold text-red-600 hover:underline cursor-pointer inline-flex items-center gap-1"
                           >
                             {formatCurrency(month.tot_uscite)}
-                            <PlaceholderDot show={month.uscite_ph} tip="Uscite previsionali: la quota costi a budget di questo mese deriva da righe segnaposto (clone 2025) non ancora granite in Budget & Controllo." />
                             {isExpanded && expandedColumn === 'uscite'
                               ? <ChevronDown size={14} />
                               : <ChevronRight size={14} className="opacity-40" />}
@@ -1771,9 +1610,9 @@ export default function CashflowProspettico() {
                           )}
                         </td>
                         <td className={`px-4 py-3 text-right font-bold ${
-                          month.saldo_progressivo >= 0 ? 'text-green-600' : 'text-red-600'
+                          month.saldo_progressivo == null ? 'text-slate-300' : month.saldo_progressivo >= 0 ? 'text-green-600' : 'text-red-600'
                         }`}>
-                          {formatCurrency(month.saldo_progressivo)}
+                          {month.saldo_progressivo == null ? '—' : formatCurrency(month.saldo_progressivo)}
                         </td>
                       </tr>
                       {/* Drill-down detail row */}
