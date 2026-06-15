@@ -323,6 +323,9 @@ const ScadenzarioSmart = () => {
   const [supplierDetail, setSupplierDetail] = useState<any>(null);
   const [viewingXml, setViewingXml] = useState<any>(null);
   const [categories, setCategories] = useState<AnyRow[]>([]);
+  // Centri di costo (outlet + sede + spese da ripartire): servono al form
+  // "Aggiungi scadenza" quando si imposta una periodicità (recurring_costs.cost_center).
+  const [costCenters, setCostCenters] = useState<AnyRow[]>([]);
   const [categoryDropdownId, setCategoryDropdownId] = useState<any>(null);
   const [categorySearch, setCategorySearch] = useState('');
   const [statusDropdownId, setStatusDropdownId] = useState<any>(null);
@@ -496,6 +499,13 @@ const ScadenzarioSmart = () => {
         .select('*')
         .eq('company_id', COMPANY_ID!)
         .or('is_deleted.is.null,is_deleted.eq.false');
+
+      const { data: centersData } = await supabase
+        .from('cost_centers')
+        .select('code, label, role, sort_order')
+        .eq('company_id', COMPANY_ID!)
+        .order('sort_order', { ascending: true });
+      setCostCenters(centersData || []);
 
       const { data: accountsData } = await supabase
         .from('bank_accounts')
@@ -1079,8 +1089,14 @@ const ScadenzarioSmart = () => {
     }
   }, [today, modals, fetchData, toast]);
 
-  type InvoiceData = { supplierId: string; invoiceNumber: string; invoiceDate: string; dueDate: string; grossAmount: number; paymentMethod?: string }
+  type InvoiceData = { supplierId: string; invoiceNumber: string; invoiceDate: string; dueDate: string; grossAmount: number; paymentMethod?: string; frequency?: string; costCenter?: string }
   const handleCreateInvoice = useCallback(async (invoiceData: InvoiceData) => {
+    // Validazione minima (niente dialog nativi): fornitore + scadenza + importo.
+    if (!invoiceData.supplierId) { toast({ type: 'warning', message: 'Seleziona un fornitore.' }); return; }
+    if (!invoiceData.dueDate) { toast({ type: 'warning', message: 'Indica la data di scadenza.' }); return; }
+    if (!(Number(invoiceData.grossAmount) > 0)) { toast({ type: 'warning', message: 'Indica un importo maggiore di zero.' }); return; }
+    const isRecurring = !!invoiceData.frequency && invoiceData.frequency !== 'una_tantum';
+    if (isRecurring && !invoiceData.costCenter) { toast({ type: 'warning', message: 'Per una scadenza ricorrente scegli il centro di costo / outlet.' }); return; }
     try {
       const { data: inv } = await supabase.from('electronic_invoices').insert([{
         company_id: COMPANY_ID,
@@ -1093,7 +1109,7 @@ const ScadenzarioSmart = () => {
         source: 'manual',
       } as never]).select();
 
-      await supabase.from('payables').insert([{
+      const { error: payErr } = await supabase.from('payables').insert([{
         company_id: COMPANY_ID,
         supplier_id: invoiceData.supplierId,
         invoice_number: invoiceData.invoiceNumber,
@@ -1105,12 +1121,43 @@ const ScadenzarioSmart = () => {
         payment_method: invoiceData.paymentMethod || 'bonifico',
         electronic_invoice_id: inv?.[0]?.id,
       } as never]);
+      if (payErr) { toast({ type: 'error', message: 'Errore creazione scadenza: ' + payErr.message }); return; }
 
+      // Periodicità: registra la ricorrenza nel sistema esistente (recurring_costs),
+      // che alimenta la tab Ricorrenze e il cashflow previsionale. La prima scadenza
+      // è già stata creata sopra; le successive restano stime finché non arrivano.
+      let recurringMsg = '';
+      if (isRecurring) {
+        const supplierName = (suppliers.find(s => s.id === invoiceData.supplierId)?.ragione_sociale
+          || suppliers.find(s => s.id === invoiceData.supplierId)?.name || '') as string;
+        const dueDay = invoiceData.dueDate ? new Date(invoiceData.dueDate).getDate() : 1;
+        const { error: recErr } = await supabase.from('recurring_costs').insert([{
+          company_id: COMPANY_ID,
+          cost_center: invoiceData.costCenter,
+          description: [supplierName, invoiceData.invoiceNumber].filter(Boolean).join(' · ') || 'Scadenza ricorrente',
+          amount: invoiceData.grossAmount,
+          frequency: invoiceData.frequency,
+          day_of_month: Math.min(28, Math.max(1, dueDay)),
+          payment_method: invoiceData.paymentMethod || 'bonifico_ordinario',
+          supplier_name: supplierName || null,
+          start_date: invoiceData.dueDate,
+          is_active: true,
+        } as never]);
+        if (recErr) {
+          toast({ type: 'warning', message: 'Scadenza creata, ma errore nel registrare la ricorrenza: ' + recErr.message });
+        } else {
+          recurringMsg = ' — ricorrenza registrata in Ricorrenze';
+        }
+      }
+
+      setModals(prev => ({ ...prev, invoice: { open: false, data: null } }));
+      toast({ type: 'success', message: 'Scadenza creata' + recurringMsg + '.' });
       fetchData();
     } catch (error) {
-      console.error('Error creating invoice:', error);
+      console.error('Error creating scadenza:', error);
+      toast({ type: 'error', message: 'Errore creazione scadenza: ' + (error instanceof Error ? error.message : String(error)) });
     }
-  }, [COMPANY_ID]);
+  }, [COMPANY_ID, suppliers, toast]);
 
   type SupplierData = { name: string; vat?: string; fiscal?: string; iban?: string; category?: string; paymentMethod?: string }
   const handleCreateSupplier = useCallback(async (supplierData: SupplierData) => {
@@ -3345,8 +3392,8 @@ const ScadenzarioSmart = () => {
 
       {/* Invoice Modal */}
       {modals.invoice.open && (
-        <Modal open={true} onClose={() => setModals({ ...modals, invoice: { open: false, data: null } })} title="Nuova Fattura Fornitore">
-          <InvoiceModal suppliers={suppliers} paymentGroups={paymentGroups} paymentMethodLabels={paymentMethodLabels} onSave={handleCreateInvoice} onClose={() => setModals({ ...modals, invoice: { open: false, data: null } })} />
+        <Modal open={true} onClose={() => setModals({ ...modals, invoice: { open: false, data: null } })} title="Nuova scadenza">
+          <InvoiceModal suppliers={suppliers} costCenters={costCenters} paymentGroups={paymentGroups} paymentMethodLabels={paymentMethodLabels} onSave={handleCreateInvoice} onClose={() => setModals({ ...modals, invoice: { open: false, data: null } })} />
         </Modal>
       )}
 
@@ -3565,10 +3612,21 @@ const EditScheduleModal = ({ schedule, onUpdate: _onUpdate, onSave }: { schedule
 };
 
 // Invoice Modal Component
-type InvoiceFormState = { supplierId: string; invoiceNumber: string; invoiceDate: string; dueDate: string; grossAmount: number; paymentMethod: string }
+type InvoiceFormState = { supplierId: string; invoiceNumber: string; invoiceDate: string; dueDate: string; grossAmount: number; paymentMethod: string; frequency: string; costCenter: string }
+type CostCenterLite = { code?: string; label?: string | null; [k: string]: unknown }
+// Frequenze della scadenza ricorrente — allineate a recurring_costs.frequency
+// (stessi valori della tab Ricorrenze). 'una_tantum' = scadenza singola.
+const scadenzaFrequencyOptions: { value: string; label: string }[] = [
+  { value: 'una_tantum', label: 'Una tantum (non si ripete)' },
+  { value: 'monthly', label: 'Mensile' },
+  { value: 'bimonthly', label: 'Bimestrale' },
+  { value: 'quarterly', label: 'Trimestrale' },
+  { value: 'semiannual', label: 'Semestrale' },
+  { value: 'annual', label: 'Annuale' },
+];
 type SupplierLite = { id?: string; name?: string | null; ragione_sociale?: string | null; [k: string]: unknown }
 type PaymentGroup = { label: string; methods: string[] }
-const InvoiceModal = ({ suppliers, paymentGroups, paymentMethodLabels, onSave, onClose }: { suppliers: SupplierLite[]; paymentGroups: PaymentGroup[]; paymentMethodLabels: Record<string, string>; onSave: (data: InvoiceFormState) => void; onClose: () => void }) => {
+const InvoiceModal = ({ suppliers, costCenters, paymentGroups, paymentMethodLabels, onSave, onClose }: { suppliers: SupplierLite[]; costCenters: CostCenterLite[]; paymentGroups: PaymentGroup[]; paymentMethodLabels: Record<string, string>; onSave: (data: InvoiceFormState) => void; onClose: () => void }) => {
   const [formData, setFormData] = useState<InvoiceFormState>({
     supplierId: '',
     invoiceNumber: '',
@@ -3576,38 +3634,78 @@ const InvoiceModal = ({ suppliers, paymentGroups, paymentMethodLabels, onSave, o
     dueDate: '',
     grossAmount: 0,
     paymentMethod: 'bonifico_ordinario',
+    frequency: 'una_tantum',
+    costCenter: '',
   });
+
+  // Selettore fornitore con RICERCA (typeahead): la select nativa con tutti i
+  // fornitori era ingestibile. Filtra per ragione sociale/nome.
+  const [supplierQuery, setSupplierQuery] = useState('');
+  const [supplierOpen, setSupplierOpen] = useState(false);
+  const selectedSupplier = suppliers.find(s => s.id === formData.supplierId);
+  const selectedSupplierLabel = (selectedSupplier?.ragione_sociale || selectedSupplier?.name || '') as string;
+  const filteredSuppliers = (() => {
+    const q = supplierQuery.trim().toLowerCase();
+    const list = q
+      ? suppliers.filter(s => `${s.ragione_sociale || ''} ${s.name || ''}`.toLowerCase().includes(q))
+      : suppliers;
+    return list.slice(0, 50);
+  })();
+
+  const isRecurring = formData.frequency !== 'una_tantum';
 
   return (
     <div className="space-y-3">
-      <div>
-        <label className="block text-sm font-medium text-slate-700 mb-1">Fornitore</label>
-        <select value={formData.supplierId} onChange={e => setFormData({ ...formData, supplierId: e.target.value })}
-          className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none">
-          <option value="">Seleziona fornitore...</option>
-          {suppliers.map(s => <option key={s.id} value={s.id}>{s.ragione_sociale || s.name}</option>)}
-        </select>
+      {/* FORNITORE — combobox con ricerca */}
+      <div className="relative">
+        <label className="block text-sm font-medium text-slate-700 mb-1">Fornitore *</label>
+        <div className="relative">
+          <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-300" />
+          <input
+            type="text"
+            value={supplierOpen ? supplierQuery : selectedSupplierLabel}
+            onChange={e => { setSupplierQuery(e.target.value); setSupplierOpen(true); }}
+            onFocus={() => { setSupplierOpen(true); setSupplierQuery(''); }}
+            onBlur={() => setTimeout(() => setSupplierOpen(false), 150)}
+            placeholder="Cerca fornitore…"
+            className="w-full pl-8 pr-3 py-2 rounded-lg border border-slate-300 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none" />
+        </div>
+        {supplierOpen && (
+          <div className="absolute z-50 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-56 overflow-y-auto">
+            {filteredSuppliers.length === 0 ? (
+              <div className="px-3 py-2 text-xs text-slate-400">Nessun fornitore trovato</div>
+            ) : filteredSuppliers.map(s => (
+              <button key={s.id} type="button"
+                onClick={() => { setFormData({ ...formData, supplierId: String(s.id) }); setSupplierOpen(false); setSupplierQuery(''); }}
+                className={`w-full text-left px-3 py-1.5 text-sm hover:bg-slate-50 ${formData.supplierId === s.id ? 'bg-slate-50 font-medium' : ''}`}>
+                {s.ragione_sociale || s.name}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
       <div>
-        <label className="block text-sm font-medium text-slate-700 mb-1">Numero Fattura</label>
+        <label className="block text-sm font-medium text-slate-700 mb-1">Numero documento <span className="text-slate-400 font-normal">(opzionale)</span></label>
         <input type="text" value={formData.invoiceNumber} onChange={e => setFormData({ ...formData, invoiceNumber: e.target.value })}
+          placeholder="Es. fattura, riferimento…"
           className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none" />
       </div>
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1">Data Fattura</label>
+          <label className="block text-sm font-medium text-slate-700 mb-1">Data documento</label>
           <input type="date" value={formData.invoiceDate} onChange={e => setFormData({ ...formData, invoiceDate: e.target.value })}
             className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none" />
         </div>
         <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1">Scadenza</label>
+          <label className="block text-sm font-medium text-slate-700 mb-1">Scadenza *</label>
           <input type="date" value={formData.dueDate} onChange={e => setFormData({ ...formData, dueDate: e.target.value })}
             className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none" />
         </div>
       </div>
       <div>
-        <label className="block text-sm font-medium text-slate-700 mb-1">Importo Lordo</label>
-        <input type="number" step="0.01" value={formData.grossAmount} onChange={e => setFormData({ ...formData, grossAmount: Number(e.target.value) })}
+        <label className="block text-sm font-medium text-slate-700 mb-1">Importo *</label>
+        <input type="number" step="0.01" value={formData.grossAmount || ''} onChange={e => setFormData({ ...formData, grossAmount: Number(e.target.value) })}
+          placeholder="0,00"
           className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none" />
       </div>
       <div>
@@ -3621,9 +3719,29 @@ const InvoiceModal = ({ suppliers, paymentGroups, paymentMethodLabels, onSave, o
           ))}
         </select>
       </div>
+      {/* PERIODICITÀ — ogni quanto si ripete il pagamento */}
+      <div>
+        <label className="block text-sm font-medium text-slate-700 mb-1">Periodicità</label>
+        <select value={formData.frequency} onChange={e => setFormData({ ...formData, frequency: e.target.value })}
+          className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none">
+          {scadenzaFrequencyOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
+      </div>
+      {/* Centro di costo: obbligatorio solo se ricorrente (recurring_costs.cost_center) */}
+      {isRecurring && (
+        <div>
+          <label className="block text-sm font-medium text-slate-700 mb-1">Centro di costo / Outlet *</label>
+          <select value={formData.costCenter} onChange={e => setFormData({ ...formData, costCenter: e.target.value })}
+            className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none">
+            <option value="">Seleziona centro di costo…</option>
+            {costCenters.map(c => <option key={String(c.code)} value={String(c.code)}>{c.label || c.code}</option>)}
+          </select>
+          <p className="mt-1 text-[11px] text-slate-400">La prima scadenza viene creata ora; la ripetizione viene registrata tra le Ricorrenze e nel cashflow previsionale.</p>
+        </div>
+      )}
       <div className="flex gap-3 pt-2">
         <button onClick={onClose} className="flex-1 py-2.5 rounded-lg border border-slate-200 text-sm font-medium hover:bg-slate-50">Annulla</button>
-        <button onClick={() => onSave(formData)} className="flex-1 py-2.5 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">Crea Fattura</button>
+        <button onClick={() => onSave(formData)} className="flex-1 py-2.5 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">Crea scadenza</button>
       </div>
     </div>
   );
