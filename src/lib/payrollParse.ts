@@ -342,3 +342,157 @@ export function parseSpreadsheet(matrix: any[][]): ParsedImport {
   }
   return { rows, fileTotal };
 }
+
+// ============================================================================
+// PROSPETTO RIEPILOGATIVO ELABORAZIONE PAGHE (Zucchetti Paghe Infinity)
+// Documento per PERIODO, una sezione per FILIALE. Dà il costo del lavoro
+// AGGREGATO per outlet/mese (niente matricole). Parser puro: lavora sulle righe
+// già ricostruite per geometria da extractPdfLines (TOL=2), che fonde l'imponibile
+// INAIL sulla riga della PAT. Verificato su gen-apr 2026 NZ.
+//
+// Costo lordo outlet (decisione contabile Lilian):
+//   totale_retribuzioni − compensi_amm + (INPS+EBINTER+EST Contr.Azienda)
+//   + INAIL(Σ imponibile_PAT × tasso_PAT) + T.F.R. trasf. (Contr.Azienda)
+// Gli amministratori (Compensi Collaboratori/Ammin. + I.N.P.S. Gestione separata)
+// vanno in una voce SEPARATA, fuori dal costo outlet.
+// ============================================================================
+
+export type ProspettoPat = { code: string; label: string; imponibile: number };
+export type ProspettoOutletRow = {
+  filialeCode: string;
+  filialeName: string;       // testo grezzo della filiale (per tooltip/export)
+  outlet: string;            // outlet riconosciuto ('' se non mappato → "Non attribuito")
+  year: number; month: number;
+  numeroDipendenti: number | null;
+  retribuzioniLorde: number | null;  // "1 Retribuzioni Lorde" (dettaglio)
+  totaleRetribuzioni: number | null; // base del costo
+  compensiAmm: number;               // "2 Compensi Collaboratori/Ammin." (→ amministratori)
+  contrInps: number;                 // I.N.P.S. ordinaria Contr.Azienda
+  contrEbinter: number;
+  contrEst: number;
+  contrGestioneSeparata: number;     // I.N.P.S. Gestione separata (→ amministratori)
+  tfrFondo: number;                  // T.F.R. trasf. <fondo> Contr.Azienda
+  inailPat: ProspettoPat[];          // imponibili INAIL per PAT (tasso applicato a runtime)
+  warn?: string;
+};
+export type ProspettoParsed = {
+  isProspetto: boolean;
+  rows: ProspettoOutletRow[];
+  months: { year: number; month: number }[]; // periodi distinti trovati nel file
+};
+
+const MONTHS_IT: Record<string, number> = {
+  gennaio: 1, febbraio: 2, marzo: 3, aprile: 4, maggio: 5, giugno: 6,
+  luglio: 7, agosto: 8, settembre: 9, ottobre: 10, novembre: 11, dicembre: 12,
+};
+const RE_MONEY_ALL = /-?\d{1,3}(?:\.\d{3})*,\d{2}/g;
+const moneyAt = (s: string): number[] => (s.match(RE_MONEY_ALL) || []).map((m) => parseItNum(m) as number).filter((n) => n != null);
+const firstMoney = (s: string): number | null => { const a = moneyAt(s); return a.length ? a[0] : null; };
+
+// somma INPS+EBINTER+EST (Contr.Azienda) che resta sull'outlet
+export const contrAziendaOutlet = (r: Pick<ProspettoOutletRow, 'contrInps' | 'contrEbinter' | 'contrEst'>) =>
+  r.contrInps + r.contrEbinter + r.contrEst;
+
+/**
+ * Parser del Prospetto. `lines` = output di extractPdfLines (righe per geometria).
+ * `outlets` per il mapping filiale→outlet a runtime (matchOutletName).
+ */
+export function parseProspettoPaghe(lines: string[], outlets: ParserOutlet[]): ProspettoParsed {
+  const isProspetto = lines.some((l) => /Prospetto riepilogativo elaborazione paghe/i.test(l));
+  const sections = new Map<string, ProspettoOutletRow>();
+  const months: { year: number; month: number }[] = [];
+  let curYear = 0, curMonth = 0;
+  let cur: ProspettoOutletRow | null = null;
+  let ente: 'inps' | 'ebinter' | 'est' | 'gsep' | 'tfr' | null = null;
+  let inInail = false;
+
+  const setPeriod = (ln: string) => {
+    // "Dal Gennaio 2026 Norm. - Al Gennaio 2026 Norm." oppure "Dal Marzo 2026 Agg.1 - Al Marzo 2026 Norm."
+    // il mese di competenza è quello del periodo (Dal/Al coincidono): prendo l'ultimo "<mese> <anno>".
+    const all = [...ln.matchAll(/([A-Za-zàèéìòù]+)\s+(\d{4})/g)];
+    for (let i = all.length - 1; i >= 0; i--) {
+      const mname = all[i][1].toLowerCase();
+      if (MONTHS_IT[mname]) { curMonth = MONTHS_IT[mname]; curYear = parseInt(all[i][2], 10); break; }
+    }
+    if (curYear && curMonth && !months.some((m) => m.year === curYear && m.month === curMonth)) {
+      months.push({ year: curYear, month: curMonth });
+    }
+  };
+
+  for (const raw of lines) {
+    const ln = raw.trim();
+    if (!ln) continue;
+
+    if (/Periodo di elaborazione:/i.test(ln)) { setPeriod(ln); continue; }
+
+    // Filiale: sia "Ripartizione: Filiale: 0000000001 NOME" sia "Progressivo ripartizione n.2: Filiale: ..."
+    const mf = ln.match(/Filiale:\s*(\d{10})\s+(.+?)\s*$/i);
+    if (mf) {
+      const code = mf[1];
+      const name = mf[2].trim();
+      ente = null; inInail = false;
+      if (cur && cur.filialeCode === code) continue; // header ripetuto su pagina di continuazione
+      const existing = sections.get(code);
+      if (existing) { cur = existing; continue; }
+      const outlet = matchOutletName(name, outlets);
+      cur = {
+        filialeCode: code, filialeName: name, outlet,
+        year: curYear, month: curMonth,
+        numeroDipendenti: null, retribuzioniLorde: null, totaleRetribuzioni: null,
+        compensiAmm: 0, contrInps: 0, contrEbinter: 0, contrEst: 0,
+        contrGestioneSeparata: 0, tfrFondo: 0, inailPat: [],
+        warn: outlet ? undefined : 'Outlet non riconosciuto dal nome filiale',
+      };
+      sections.set(code, cur);
+      continue;
+    }
+    if (!cur) continue;
+
+    const mnd = ln.match(/NUMERO DIPENDENTI\s+(\d+)/i);
+    if (mnd) { cur.numeroDipendenti = parseInt(mnd[1], 10); continue; }
+
+    if (/^1\s+Retribuzioni Lorde\b/i.test(ln)) { cur.retribuzioniLorde = firstMoney(ln); continue; }
+    if (/Compensi Collaboratori\/Ammin/i.test(ln)) { cur.compensiAmm = firstMoney(ln) ?? 0; continue; }
+    if (/^Totale retribuzioni\b/i.test(ln)) { cur.totaleRetribuzioni = firstMoney(ln); continue; }
+
+    // INAIL
+    if (/SEZIONE I\.N\.A\.I\.L\./i.test(ln)) { inInail = true; ente = null; continue; }
+    if (inInail) {
+      if (/SEZIONE FISCALE|RIEPILOGO IMPORTI|SEZIONE CONTRIBUTIVA/i.test(ln)) { inInail = false; }
+      else {
+        // Dentro la sezione INAIL ogni riga "<n> <NOME PAT> [imponibile] [Imp.Dip.]" è una PAT.
+        // Il nome può contenere parentesi/typo ("PALMANOVA OUTLED (UDINE)") o numeri ("BRUGNATO 5 TERRE").
+        // imponibile = primo importo POSITIVO; l'eventuale negativo è l'Imp.Dipendente (da ignorare).
+        const mp = ln.match(/^(\d{1,2})\s+([A-ZÀ-ÿ].*)$/);
+        if (mp) {
+          const monies = moneyAt(mp[2]);
+          const imp = monies.find((m) => m > 0) ?? 0;
+          const label = mp[2].replace(RE_MONEY_ALL, ' ').replace(/\s+/g, ' ').trim();
+          cur.inailPat.push({ code: mp[1], label, imponibile: imp });
+        }
+        continue;
+      }
+    }
+
+    // Enti contributivi
+    if (/Gestione separata/i.test(ln)) { ente = 'gsep'; continue; }
+    if (/^I\.N\.P\.S\.\s*$/i.test(ln)) { ente = 'inps'; continue; }
+    if (/^EBINTER\b/i.test(ln)) { ente = 'ebinter'; continue; }
+    if (/^Fondo EST\b/i.test(ln)) { ente = 'est'; continue; }
+    if (/T\.F\.R\. trasf\./i.test(ln)) { ente = 'tfr'; /* la riga di dettaglio precede il Totale id */ }
+
+    if (/^Totale id\b/i.test(ln)) {
+      const v = firstMoney(ln);
+      if (v != null) {
+        if (ente === 'inps') cur.contrInps += v;
+        else if (ente === 'ebinter') cur.contrEbinter += v;
+        else if (ente === 'est') cur.contrEst += v;
+        else if (ente === 'gsep') cur.contrGestioneSeparata += v;
+        else if (ente === 'tfr') cur.tfrFondo += v;
+      }
+      continue;
+    }
+  }
+
+  return { isProspetto, rows: [...sections.values()], months };
+}
