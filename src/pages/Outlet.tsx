@@ -3,6 +3,7 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import PageHelp from '../components/PageHelp'
 import PageHeader from '../components/PageHeader'
 import TextTooltip from '../components/Tooltip'
+import { PlaceholderDot, PlaceholderLegend } from '../components/PlaceholderMark'
 import { useToast } from '../components/Toast'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
@@ -1604,7 +1605,7 @@ function StaffTab({ outletId, companyId }: { outletId: string; companyId: string
 // ====== DETTAGLIO OUTLET — HUB CON TAB ======
 // TODO: tighten type
 type OutletEntity = Record<string, unknown> & { id: string; company_id?: string; name?: string | null; code?: string | null; mall_name?: string | null; rent_monthly?: number | null; condo_marketing_monthly?: number | null; is_active?: boolean | null }
-function OutletDetail({ outlet, revenue, confronto, year, onBack, onEdit, onDelete }: { outlet: OutletEntity; revenue: Record<string, Record<number, number>>; confronto: Record<string, { prev: Record<number, number>; cons: Record<number, number> }>; year: number; onBack: () => void; onEdit: (o: OutletEntity) => void; onDelete: (o: OutletEntity) => void }) {
+function OutletDetail({ outlet, revenue, confronto, revPlaceholder, year, onBack, onEdit, onDelete }: { outlet: OutletEntity; revenue: Record<string, Record<number, number>>; confronto: Record<string, { prev: Record<number, number>; cons: Record<number, number> }>; revPlaceholder?: Record<string, boolean>; year: number; onBack: () => void; onEdit: (o: OutletEntity) => void; onDelete: (o: OutletEntity) => void }) {
   const { profile: _profile } = useAuth()
   const yearData: Record<number, number> = revenue[outlet.id] || {}
   const [detailTab, setDetailTab] = useState('overview')
@@ -1768,10 +1769,11 @@ function OutletDetail({ outlet, revenue, confronto, year, onBack, onEdit, onDele
             <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
               <h3 className="text-sm font-semibold text-slate-900">Preventivo vs Consuntivo — {year}</h3>
               <div className="flex items-center gap-4 text-xs">
-                <span className="text-slate-500">Preventivo: <span className="font-semibold text-rose-600">{fmt(totPreventivo)} €</span></span>
+                <span className="text-slate-500 inline-flex items-center">Preventivo: <span className="font-semibold text-rose-600 ml-1">{fmt(totPreventivo)} €</span><PlaceholderDot show={!!revPlaceholder?.[outlet.id]} tip="Ricavi a budget di questo outlet ancora segnaposto (clone 2025) non granito in Budget & Controllo." /></span>
                 <span className="text-slate-500">Consuntivo: <span className="font-semibold text-emerald-600">{fmt(totConsuntivo)} €</span></span>
               </div>
             </div>
+            {revPlaceholder?.[outlet.id] && <PlaceholderLegend className="mb-2" />}
             {confrontoChart.length === 0 ? (
               <div className="text-sm text-slate-400 text-center py-10">
                 Nessun dato di preventivo/consuntivo per il {year}.
@@ -1869,6 +1871,8 @@ export default function Outlet() {
   // budget_confronto — usati dal grafico di dettaglio preventivo vs consuntivo.
   type ConfrontoMap = Record<string, { prev: Record<number, number>; cons: Record<number, number> }>
   const [confronto, setConfronto] = useState<ConfrontoMap>({})
+  // Per outletId: true se i ricavi a budget contengono righe segnaposto (clone non granito).
+  const [revPlaceholder, setRevPlaceholder] = useState<Record<string, boolean>>({})
   // Outlet selezionato pilotato dall'URL (/outlet/:outletId), così il dettaglio
   // ha una sua URL diretta e linkabile (es. dal ranking in Dashboard), invece di
   // essere solo stato interno sotto la pagina principale /outlet. L'identificatore
@@ -2014,11 +2018,24 @@ export default function Outlet() {
       // 3) budget_entries dell'anno — fallback per anni senza budget_confronto
       const { data: budgetData, error: budgetErr } = await supabase
         .from('budget_entries')
-        .select('cost_center, month, budget_amount, account_code')
+        .select('cost_center, month, budget_amount, account_code, is_placeholder')
         .eq('company_id', companyId)
         .eq('year', year)
         .range(0, 9999) // override default Supabase limit 1000 — piano dei conti completo (~1212 righe/anno)
       if (budgetErr) console.error('budget_entries error:', budgetErr)
+
+      // Marcatore segnaposto: per outlet, true se i RICAVI a budget (budget_entries
+      // con is_revenue) contengono righe is_placeholder=true (clone 2025 non granito).
+      type BERowOut = { cost_center?: string | null; account_code?: string | null; budget_amount?: number | null; month?: number | null; is_placeholder?: boolean | null }
+      const budgetRows = (budgetData || []) as unknown as BERowOut[]
+      const revPh: Record<string, boolean> = {}
+      budgetRows.forEach(r => {
+        if (r.is_placeholder !== true) return
+        if (!r.account_code || !revenueCodes.has(r.account_code)) return
+        const oid = matchOutletId(r.cost_center || '')
+        if (oid) revPh[oid] = true
+      })
+      setRevPlaceholder(revPh)
 
       // Ricavo card per outlet/mese:
       //  - anni con budget_confronto → CONSUNTIVO GRANITICO (cons_monthly)
@@ -2033,7 +2050,7 @@ export default function Outlet() {
           }
         }
       } else {
-        ;((budgetData || [])).forEach(r => {
+        budgetRows.forEach(r => {
           const cc = r.cost_center || ''
           if (!outletCostCenters.has(cc)) return
           if (!r.account_code || !revenueCodes.has(r.account_code)) return
@@ -2196,6 +2213,7 @@ export default function Outlet() {
               outlet={selectedOutlet}
               revenue={revenue}
               confronto={confronto}
+              revPlaceholder={revPlaceholder}
               year={year}
               onBack={() => navigate('/outlet')}
               onEdit={handleEdit}
