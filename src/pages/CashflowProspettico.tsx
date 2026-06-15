@@ -42,6 +42,10 @@ import { PlaceholderDot, PlaceholderLegend } from '../components/PlaceholderMark
 const MONTHS = ['Gen', 'Feb', 'Mar', 'Apr', 'Mag', 'Giu', 'Lug', 'Ago', 'Set', 'Ott', 'Nov', 'Dic'];
 const DAYS_SHORT = ['Dom', 'Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab'];
 
+// Override manuale della stima viva: tag in recurring_costs.notes [override:<voce>:<YYYY-MM>]
+const OVERRIDE_TAG = (key: string, y: number, m1: number) => `[override:${key}:${y}-${String(m1).padStart(2, '0')}]`;
+const OVERRIDE_RE = /\[override:([a-z0-9-]+):(\d{4})-(\d{2})\]/;
+
 const formatCurrency = (value: number | null | undefined): string => {
   if (value === null || value === undefined) return '€ 0';
   return new Intl.NumberFormat('de-DE', {
@@ -248,81 +252,34 @@ export default function CashflowProspettico() {
     }
   };
 
-  // ─── B.3 — "Genera stime" ricorrenti dai DATI REALI (idempotente) ─────────
-  // Crea/aggiorna righe in recurring_costs SOLO dove esiste un dato reale:
-  //  - Stipendi netti = Σ employee_costs.netto ultimo mese disponibile (employees.is_active)
-  //  - F24 = Σ employee_costs.contributi (solo se > 0)
-  //  - INAIL = Σ employee_costs.inail (solo se > 0)
-  //  - Compensi amministratori = Σ budget_entries.is_admin_compensation / 12
-  // Niente numeri inventati: se la somma è 0 → nessuna riga (empty-state).
-  // Idempotente: ogni voce ha un tag in notes ([auto:<key>]); rilanciare aggiorna, non duplica.
-  const [generating, setGenerating] = useState(false);
-  const AUTO_TAG = (key: string) => `[auto:${key}]`;
-  const handleGenerateEstimates = async () => {
+  // ─── B (rettifica): STIMA VIVA, calcolata on-the-fly ad ogni render ───────
+  // Niente più bottone/scrittura auto: stipendi netti e compensi amministratori si
+  // ricalcolano in fetchAllData dai dati reali più recenti e si proiettano sui mesi
+  // futuri (azzurro "≈"). F24/INAIL solo se contributi/inail>0 (altrimenti empty-state).
+  // Override manuale (no data loss): una riga recurring_costs taggata
+  // [override:<voce>:<YYYY-MM>] sostituisce il calcolato per quella voce+mese; la
+  // ricomputazione non tocca mai le righe manuali e per quel mese vince l'override.
+  type EstimateVoice = { key: string; label: string; amount: number; day: number };
+  const [estimateVoices, setEstimateVoices] = useState<EstimateVoice[]>([]);
+
+  // Salva un override (inline-edit dal Dettaglio Uscite) come riga recurring_costs.
+  const handleSaveOverride = async (voiceKey: string, voiceLabel: string, monthIdx: number, amount: number) => {
     if (!COMPANY_ID) return;
-    setGenerating(true);
-    // Cast unico per query/scritture senza tipi DB stringenti (database.ts stale su alcune colonne).
     const sbAny = supabase as unknown as { from: (t: string) => any };
+    const tag = OVERRIDE_TAG(voiceKey, year, monthIdx + 1);
     try {
-      // 1) ultimo mese con cedolini (netto valorizzato)
-      const { data: lastRows } = await sbAny.from('employee_costs').select('year, month').eq('company_id', COMPANY_ID).not('netto', 'is', null).order('year', { ascending: false }).order('month', { ascending: false }).limit(1);
-      // se nessun cedolino → nessuna stima stipendi (empty-state)
-      let nettiAmount = 0, f24Amount = 0, inailAmount = 0;
-      const lm = (lastRows || [])[0] as { year: number; month: number } | undefined;
-      if (lm) {
-        const { data: ecData } = await sbAny.from('employee_costs').select('netto, contributi, inail, employee_id').eq('company_id', COMPANY_ID).eq('year', lm.year).eq('month', lm.month);
-        const { data: empData } = await sbAny.from('employees').select('id').eq('company_id', COMPANY_ID).eq('is_active', true);
-        const activeIds = new Set(((empData || []) as Array<{ id: string }>).map(e => e.id));
-        ((ecData || []) as Array<{ netto: number | null; contributi: number | null; inail: number | null; employee_id: string }>).forEach(r => {
-          if (!activeIds.has(r.employee_id)) return;
-          nettiAmount += Number(r.netto) || 0;
-          f24Amount += Number(r.contributi) || 0;
-          inailAmount += Number(r.inail) || 0;
-        });
-      }
-      // 2) compensi amministratori da budget_entries.is_admin_compensation (anno selezionato)
-      let adminMonthly = 0;
-      const { data: coaAdmin } = await sbAny.from('chart_of_accounts').select('code').eq('company_id', COMPANY_ID).eq('is_admin_compensation', true);
-      const adminCodes = new Set(((coaAdmin || []) as Array<{ code: string }>).map(c => c.code));
-      if (adminCodes.size > 0) {
-        const { data: beAdmin } = await sbAny.from('budget_entries').select('account_code, budget_amount').eq('company_id', COMPANY_ID).eq('year', year).range(0, 9999);
-        const totAdmin = ((beAdmin || []) as Array<{ account_code: string; budget_amount: number | null }>).reduce((s, r) => adminCodes.has(String(r.account_code ?? '')) ? s + (Number(r.budget_amount) || 0) : s, 0);
-        adminMonthly = totAdmin / 12;
-      }
-      // 3) upsert idempotente per ciascuna voce con importo > 0
-      const specs = [
-        { key: 'stipendi-netti', supplier: 'Stipendi netti (stima)', amount: Math.round(nettiAmount), day: 27 },
-        { key: 'f24', supplier: 'F24 contributi (stima)', amount: Math.round(f24Amount), day: 16 },
-        { key: 'inail', supplier: 'INAIL (stima)', amount: Math.round(inailAmount), day: 16 },
-        { key: 'amministratori', supplier: 'Compensi amministratori (stima)', amount: Math.round(adminMonthly), day: 27 },
-      ].filter(s => s.amount > 0);
-      let created = 0, updated = 0;
-      for (const s of specs) {
-        const tag = AUTO_TAG(s.key);
-        const { data: existing } = await sbAny.from('recurring_costs').select('id, notes').eq('company_id', COMPANY_ID).ilike('notes', `%${tag}%`);
-        const row = {
-          company_id: COMPANY_ID, cost_center: 'all', description: s.supplier, supplier_name: s.supplier,
-          amount: s.amount, frequency: 'monthly', day_of_month: s.day, is_active: true,
-          notes: `Stima dai dati reali (ultimo mese cedolini / budget). Modificabile. ${tag}`,
-        };
-        if (existing && existing.length > 0) {
-          await sbAny.from('recurring_costs').update(row).eq('id', existing[0].id);
-          updated++;
-        } else {
-          await sbAny.from('recurring_costs').insert(row);
-          created++;
-        }
-      }
-      if (specs.length === 0) {
-        toast({ type: 'warning', message: 'Nessun dato reale disponibile per generare stime (cedolini/budget mancanti).' });
-      } else {
-        toast({ type: 'success', message: `Stime ricorrenti: ${created} create, ${updated} aggiornate. Modificabili nel Dettaglio Uscite.` });
-      }
+      const { data: existing } = await sbAny.from('recurring_costs').select('id').eq('company_id', COMPANY_ID).ilike('notes', `%${tag}%`);
+      const row = {
+        company_id: COMPANY_ID, cost_center: 'all', description: voiceLabel, supplier_name: voiceLabel,
+        amount: Math.round(amount), frequency: 'monthly', day_of_month: 27, month_start: monthIdx + 1, is_active: true,
+        notes: `Override manuale stima (${MONTHS[monthIdx]} ${year}). ${tag}`,
+      };
+      if (existing && existing.length > 0) await sbAny.from('recurring_costs').update(row).eq('id', existing[0].id);
+      else await sbAny.from('recurring_costs').insert(row);
+      toast({ type: 'success', message: `Stima ${voiceLabel} aggiornata per ${MONTHS[monthIdx]} ${year}` });
       await fetchAllData();
     } catch (err) {
-      toast({ type: 'error', message: 'Errore generazione stime: ' + (err instanceof Error ? err.message : String(err)) });
-    } finally {
-      setGenerating(false);
+      toast({ type: 'error', message: 'Errore salvataggio override: ' + (err instanceof Error ? err.message : String(err)) });
     }
   };
 
@@ -506,6 +463,41 @@ export default function CashflowProspettico() {
         if (residuo > 0) monthlyFiscal[dd.getMonth()] += residuo;
       });
 
+      // ─── B (rettifica): STIME VIVE calcolate dai dati reali più recenti ───────
+      const sbAnyE = supabase as unknown as { from: (t: string) => any };
+      let estNetti = 0, estAdmin = 0;
+      // Stipendi netti = Σ netto ULTIMO mese con cedolini, dipendenti in forza.
+      const { data: lastRows } = await sbAnyE.from('employee_costs').select('year, month').eq('company_id', companyId).not('netto', 'is', null).order('year', { ascending: false }).order('month', { ascending: false }).limit(1);
+      const lm = ((lastRows || []) as Array<{ year: number; month: number }>)[0];
+      if (lm) {
+        const { data: ecData } = await sbAnyE.from('employee_costs').select('netto, employee_id').eq('company_id', companyId).eq('year', lm.year).eq('month', lm.month);
+        const { data: empData } = await sbAnyE.from('employees').select('id').eq('company_id', companyId).eq('is_active', true);
+        const activeIds = new Set(((empData || []) as Array<{ id: string }>).map(e => e.id));
+        ((ecData || []) as Array<{ netto: number | null; employee_id: string }>).forEach(r => { if (activeIds.has(r.employee_id)) estNetti += Number(r.netto) || 0; });
+      }
+      // Compensi amministratori = Σ budget_entries.is_admin_compensation / 12
+      const { data: coaAdmin } = await sbAnyE.from('chart_of_accounts').select('code').eq('company_id', companyId).eq('is_admin_compensation', true);
+      const adminCodes = new Set(((coaAdmin || []) as Array<{ code: string }>).map(c => c.code));
+      if (adminCodes.size > 0) {
+        const totAdmin = beRows.reduce((s, r) => adminCodes.has(String(r.account_code ?? '')) ? s + (Number(r.budget_amount) || 0) : s, 0);
+        estAdmin = totAdmin / 12;
+      }
+      // F24/INAIL: oggi non valorizzati (contributi/inail=0) → NON inventare, empty-state.
+      const estVoices: EstimateVoice[] = [
+        { key: 'stipendi-netti', label: 'Stipendi netti (stima)', amount: Math.round(estNetti), day: 27 },
+        { key: 'amministratori', label: 'Compensi amministratori (stima)', amount: Math.round(estAdmin), day: 27 },
+      ].filter(v => v.amount > 0);
+      setEstimateVoices(estVoices);
+
+      // Override manuali (recurring_costs taggati [override:voce:YYYY-MM]) per voce+mese (anno corrente).
+      const overrideByVoiceMonth: Record<string, number> = {};
+      (recurringCosts || []).forEach(rc => {
+        const mm = OVERRIDE_RE.exec(String((rc as Record<string, unknown>).notes || ''));
+        if (!mm) return;
+        if (Number(mm[2]) !== year) return;
+        overrideByVoiceMonth[`${mm[1]}|${Number(mm[3]) - 1}`] = Number((rc as Record<string, unknown>).amount) || 0;
+      });
+
       // Filter by outlet if not 'all'
       let filteredOutlet = selectedOutlet === 'all' ? null : selectedOutlet;
 
@@ -532,7 +524,7 @@ export default function CashflowProspettico() {
         month: number; monthName: string;
         entrate_sdi: number; entrate_budget: number;
         uscite_sdi: number; uscite_ricorrenti: number; uscite_scadenze: number;
-        uscite_canoni: number; rate_finanziamenti: number; uscite_fiscali: number;
+        uscite_canoni: number; rate_finanziamenti: number; uscite_fiscali: number; uscite_stima: number;
         tot_entrate: number; tot_uscite: number; flusso_netto: number; saldo_progressivo: number | null;
         // Marcatore segnaposto sulle ENTRATE previsionali (ricavi a budget clone non granito).
         entrate_ph: boolean;
@@ -549,6 +541,7 @@ export default function CashflowProspettico() {
         uscite_canoni: totalMonthlyRent,
         rate_finanziamenti: 0,
         uscite_fiscali: monthlyFiscal[i] || 0,
+        uscite_stima: 0,
         tot_entrate: 0, tot_uscite: 0, flusso_netto: 0, saldo_progressivo: 0,
         entrate_ph: false,
       }));
@@ -624,9 +617,12 @@ export default function CashflowProspettico() {
         });
       }
 
-      // 3.3 Add recurring costs
+      // 3.3 Add recurring costs (escluse le righe-stima: override [override:...] e
+      // deprecate [auto:...] sono gestite dalla stima viva, non dal loop generico → no doppio conteggio)
       if (recurringCosts) {
         recurringCosts.forEach(cost => {
+          const notes = String((cost as Record<string, unknown>).notes || '');
+          if (OVERRIDE_RE.test(notes) || notes.includes('[auto:')) return;
           if (!filteredOutlet || cost.cost_center === filteredOutlet) {
             const startMonth = (Number(cost.month_start) || 1) - 1; // 1-12 to 0-11
 
@@ -687,6 +683,22 @@ export default function CashflowProspettico() {
         month.uscite_canoni = totalMonthlyRent;       // canone reale per tutti i mesi
         // Le entrate previsionali restano dal B&C: il marcatore segnaposto sui ricavi resta.
         month.entrate_ph = isForecast ? revPhByMonth[idx] : false;
+        // Stima viva (solo mesi futuri): per ogni voce usa l'OVERRIDE del mese se presente,
+        // altrimenti il calcolato. Le voci con solo override (senza stima auto) entrano lo stesso.
+        if (isForecast) {
+          let stima = 0;
+          const seen = new Set<string>();
+          estVoices.forEach(v => {
+            const ov = overrideByVoiceMonth[`${v.key}|${idx}`];
+            stima += ov !== undefined ? ov : v.amount;
+            seen.add(v.key);
+          });
+          Object.keys(overrideByVoiceMonth).forEach(k => {
+            const [vk, mi] = k.split('|');
+            if (Number(mi) === idx && !seen.has(vk)) stima += overrideByVoiceMonth[k];
+          });
+          month.uscite_stima = stima;
+        }
       });
 
       // 4. Apply scenario multiplier to revenues
@@ -708,7 +720,7 @@ export default function CashflowProspettico() {
         month.entrate_budget = Math.round(month.entrate_budget * multiplier);
 
         month.tot_entrate = month.entrate_sdi + month.entrate_budget;
-        month.tot_uscite = month.uscite_sdi + month.uscite_ricorrenti + month.uscite_scadenze + month.uscite_canoni + month.rate_finanziamenti + month.uscite_fiscali;
+        month.tot_uscite = month.uscite_sdi + month.uscite_ricorrenti + month.uscite_scadenze + month.uscite_canoni + month.rate_finanziamenti + month.uscite_fiscali + month.uscite_stima;
         month.flusso_netto = month.tot_entrate - month.tot_uscite;
 
         totalIn += month.tot_entrate;
@@ -1197,7 +1209,7 @@ export default function CashflowProspettico() {
   }, [viewMode, monthlyData, dailyData, weeklyData, year]);
 
   // ===== DRILL-DOWN DETAIL FOR MONTHLY VIEW =====
-  type DrillItem = { label: string; amount: number; state?: 'certo' | 'stima' }
+  type DrillItem = { label: string; amount: number; state?: 'certo' | 'stima'; editable?: { voiceKey: string; label: string; monthIdx: number } }
   const getMonthlyDrillDown = (monthIdx: number, column: string): DrillItem[] => {
     const filteredOutlet = selectedOutlet === 'all' ? null : selectedOutlet;
     const outletIdToCode: Record<string, string> = {};
@@ -1267,8 +1279,10 @@ export default function CashflowProspettico() {
           }
         }
       });
-      // Recurring costs
+      // Recurring costs (escluse righe-stima override/auto: gestite sotto come stima viva)
       (rawRecurringCosts || []).forEach(cost => {
+        const notes = String((cost as Record<string, unknown>).notes || '');
+        if (OVERRIDE_RE.test(notes) || notes.includes('[auto:')) return;
         if (!filteredOutlet || cost.cost_center === filteredOutlet) {
           // Check if this cost applies to this month
           const startMonth = (Number(cost.month_start) || 1) - 1;
@@ -1283,6 +1297,31 @@ export default function CashflowProspettico() {
           }
         }
       });
+      // STIMA VIVA (B rettifica): stipendi netti + amministratori, solo mesi futuri.
+      // Override per voce+mese (recurring_costs [override:...]) vince sul calcolato. Editabile inline.
+      {
+        const md = monthlyData[monthIdx];
+        const isForecast = md?.tipo === 'Previsione' || md?.tipo === 'In corso';
+        if (isForecast && !filteredOutlet) {
+          const ovMap: Record<string, number> = {};
+          (rawRecurringCosts || []).forEach(rc => {
+            const mm = OVERRIDE_RE.exec(String((rc as Record<string, unknown>).notes || ''));
+            if (mm && Number(mm[2]) === year && Number(mm[3]) - 1 === monthIdx) ovMap[mm[1]] = Number((rc as Record<string, unknown>).amount) || 0;
+          });
+          const seen = new Set<string>();
+          estimateVoices.forEach(v => {
+            seen.add(v.key);
+            const ov = ovMap[v.key];
+            const amount = ov !== undefined ? ov : v.amount;
+            if (amount > 0) items.push({ label: `≈ ${v.label}${ov !== undefined ? ' (corretto)' : ''}`, amount: Math.round(amount), state: 'stima', editable: { voiceKey: v.key, label: v.label, monthIdx } });
+          });
+          Object.keys(ovMap).forEach(vk => {
+            if (seen.has(vk)) return;
+            const amount = ovMap[vk];
+            if (amount > 0) items.push({ label: `≈ ${vk} (corretto)`, amount: Math.round(amount), state: 'stima', editable: { voiceKey: vk, label: vk, monthIdx } });
+          });
+        }
+      }
       // Loan payments
       (rawLoans || []).forEach(loan => {
         const monthly = Number(loan.monthly_payment) || Number(loan.installment_amount) || 0;
@@ -1405,14 +1444,6 @@ export default function CashflowProspettico() {
         subtitle="Proiezione liquidità giornaliera, settimanale e mensile"
         actions={
           <div className="flex items-center gap-2">
-            <button
-              onClick={handleGenerateEstimates}
-              disabled={generating}
-              className="flex items-center gap-1.5 px-3 py-2 bg-white border border-sky-300 text-sky-700 hover:bg-sky-50 text-sm font-medium rounded-lg transition disabled:opacity-50"
-              title="Crea/aggiorna le uscite ricorrenti stimate dai dati reali (stipendi netti ultimo mese, compensi amministratori). Idempotente."
-            >
-              {generating ? 'Genero…' : '≈ Genera stime'}
-            </button>
             <button
               onClick={() => {
                 setEditingForecastId(null);
@@ -1822,6 +1853,7 @@ export default function CashflowProspettico() {
                               items={getDrillDownItems(idx, expandedColumn || '')}
                               column={expandedColumn || ''}
                               onClose={() => { setExpandedRow(null); setExpandedColumn(null); }}
+                              onEdit={handleSaveOverride}
                             />
                           </td>
                         </tr>
@@ -1882,6 +1914,7 @@ export default function CashflowProspettico() {
                               items={getDrillDownItems(idx, expandedColumn || '')}
                               column={expandedColumn || ''}
                               onClose={() => { setExpandedRow(null); setExpandedColumn(null); }}
+                              onEdit={handleSaveOverride}
                             />
                           </td>
                         </tr>
@@ -1930,9 +1963,12 @@ export default function CashflowProspettico() {
 }
 
 // ===== DRILL-DOWN PANEL COMPONENT =====
-function DrillDownPanel({ items, column, onClose }: { items: { label: string; amount: number; state?: 'certo' | 'stima' }[]; column: string; onClose: () => void }) {
+function DrillDownPanel({ items, column, onClose, onEdit }: { items: { label: string; amount: number; state?: 'certo' | 'stima'; editable?: { voiceKey: string; label: string; monthIdx: number } }[]; column: string; onClose: () => void; onEdit?: (voiceKey: string, label: string, monthIdx: number, amount: number) => void }) {
   const isEntrate = column === 'entrate';
   const total = items.reduce((sum, item) => sum + (item.amount || 0), 0);
+  // Inline-edit override stima (hook PRIMA di ogni return)
+  const [editingIdx, setEditingIdx] = useState<number | null>(null);
+  const [editVal, setEditVal] = useState('');
 
   return (
     <div className={`rounded-lg border p-4 ${isEntrate ? 'border-green-200 bg-green-50/50' : 'border-red-200 bg-red-50/50'}`}>
@@ -1954,10 +1990,26 @@ function DrillDownPanel({ items, column, onClose }: { items: { label: string; am
           {items.map((item, i) => (
             <div key={i} className="flex items-center justify-between text-xs py-1 border-b border-slate-100 last:border-0">
               <TextTooltip content={item.state === 'stima' ? `${item.label} — stima variabile, modificabile` : (item.label || '')}><span className="text-slate-700 truncate mr-4">{item.label}</span></TextTooltip>
-              {/* Colore-numero per CERTEZZA: nero=certo, azzurro=stima (≈). Mai rosso qui (riservato al saldo). */}
-              <span className={`font-medium whitespace-nowrap tabular-nums ${item.state === 'stima' ? 'text-sky-600' : 'text-slate-900'}`}>
-                {item.state === 'stima' ? '≈ ' : ''}{formatCurrency(item.amount)}
-              </span>
+              {editingIdx === i && item.editable ? (
+                <span className="flex items-center gap-1 shrink-0">
+                  <input type="number" autoFocus value={editVal} onChange={e => setEditVal(e.target.value)}
+                    className="w-24 px-1.5 py-0.5 border border-sky-300 rounded text-right text-xs tabular-nums" />
+                  <button onClick={() => { const v = parseFloat(editVal.replace(',', '.')); if (!isNaN(v) && v >= 0 && item.editable && onEdit) onEdit(item.editable.voiceKey, item.editable.label, item.editable.monthIdx, v); setEditingIdx(null); }}
+                    className="text-emerald-600 font-bold px-1" title="Salva">✓</button>
+                  <button onClick={() => setEditingIdx(null)} className="text-slate-400 px-1" title="Annulla">✕</button>
+                </span>
+              ) : (
+                <span className="flex items-center gap-1.5 shrink-0">
+                  {/* Colore-numero per CERTEZZA: nero=certo, azzurro=stima (≈). Mai rosso qui (riservato al saldo). */}
+                  <span className={`font-medium whitespace-nowrap tabular-nums ${item.state === 'stima' ? 'text-sky-600' : 'text-slate-900'}`}>
+                    {item.state === 'stima' ? '≈ ' : ''}{formatCurrency(item.amount)}
+                  </span>
+                  {item.editable && onEdit && (
+                    <button onClick={() => { setEditingIdx(i); setEditVal(String(item.amount)); }}
+                      className="text-slate-400 hover:text-sky-600" title="Correggi questa stima per il mese">✎</button>
+                  )}
+                </span>
+              )}
             </div>
           ))}
           {items.length > 1 && (
