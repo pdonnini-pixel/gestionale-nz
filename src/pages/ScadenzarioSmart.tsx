@@ -154,6 +154,21 @@ const paymentGroups = [
 
 const RIBA_DAYS = { riba_30: 30, riba_60: 60, riba_90: 90, riba_120: 120 };
 
+// Categorizzazione automatica degli INCASSI dalla descrizione del movimento.
+// Solo etichetta categoriale (chip), NON un numero: niente verde sugli importi.
+// Per rispettare la convenzione "niente verde" evito classi emerald: Accredito/
+// Incasso/Giroconto/Altro su slate, gli altri su tinte non-verdi.
+function categorizeIncome(desc: string | null | undefined): { tipo: string; cls: string } {
+  const d = (desc || '').toLowerCase();
+  if (d.includes('p.o.s.') || /\bpos\b/.test(d)) return { tipo: 'POS', cls: 'bg-violet-50 text-violet-700' };
+  if (d.includes('bonifico') && (d.includes('favore') || d.includes('ordinante'))) return { tipo: 'Bonifico', cls: 'bg-blue-50 text-blue-700' };
+  if (d.includes('versamento') && d.includes('contant')) return { tipo: 'Contanti', cls: 'bg-amber-50 text-amber-700' };
+  if (d.includes('accredito')) return { tipo: 'Accredito', cls: 'bg-slate-100 text-slate-600' };
+  if (d.includes('incass')) return { tipo: 'Incasso', cls: 'bg-slate-100 text-slate-600' };
+  if (d.includes('giroconto')) return { tipo: 'Giroconto', cls: 'bg-slate-100 text-slate-600' };
+  return { tipo: 'Altro', cls: 'bg-slate-100 text-slate-600' };
+}
+
 // Status pill component — delegates to shared StatusBadge
 function StatusPill({ status }: { status: string | null | undefined }) {
   return <StatusBadge status={status || ''} size="sm" />
@@ -260,6 +275,9 @@ const ScadenzarioSmart = () => {
   const [listLayout, setListLayout] = useState('mese'); // 'mese' | 'lista'
   // Mesi collassati nella vista raggruppata (chiave 'YYYY-MM').
   const [collapsedMonths, setCollapsedMonths] = useState<Set<string>>(new Set());
+  // Mesi collassati nella vista INCASSI (set separato: collassare un mese nei
+  // pagamenti non deve influenzare gli incassi e viceversa).
+  const [collapsedIncomeMonths, setCollapsedIncomeMonths] = useState<Set<string>>(new Set());
 
   // Tab Incassi: i VERI incassi sono i movimenti in entrata dagli estratti
   // conto (bank_transactions.amount > 0), NON le payables pagate. La tabella
@@ -267,10 +285,8 @@ const ScadenzarioSmart = () => {
   // spese saldate, non incassi.
   const [bankIncomes, setBankIncomes] = useState<AnyRow[]>([]);
   const [bankIncomesLoading, setBankIncomesLoading] = useState(false);
-  // Filtri dedicati al tab Incassi: tipo (POS/Contanti/Bonifico/…) + banca.
-  // Sono indipendenti dai filtri dei Pagamenti (che non hanno senso per
-  // movimenti bancari in entrata).
-  const [incomeTypeFilter, setIncomeTypeFilter] = useState('all');
+  // Filtro banca dedicato agli Incassi (i filtri pagamenti non si applicano ai
+  // movimenti bancari in entrata). Reso nella barra unificata come chip.
   const [incomeBankFilter, setIncomeBankFilter] = useState('all');
   const [suppliers, setSuppliers] = useState<AnyRow[]>([]);
   const [bankAccounts, setBankAccounts] = useState<AnyRow[]>([]);
@@ -1756,6 +1772,67 @@ const ScadenzarioSmart = () => {
     return out;
   }, [sortedDisplayPayables, collapsedMonths]);
 
+  // ===== INCASSI — stessa pipeline dei pagamenti, dataset bankIncomes =====
+  // Filtri unificati: ricerca (descrizione/importo) + banca + periodo. Niente
+  // filtro "tipo incasso" separato (era la barra parallela da eliminare).
+  const filteredIncomes = useMemo(() => {
+    const q = (searchTerm || '').toLowerCase();
+    const from = dateRange.start ? new Date(dateRange.start) : null;
+    const to = dateRange.end ? new Date(dateRange.end) : null;
+    return bankIncomes.filter(i => {
+      if (q && !(i.description || '').toLowerCase().includes(q) && !String(i.amount).includes(q)) return false;
+      if (incomeBankFilter !== 'all' && i.bank_account_id !== incomeBankFilter) return false;
+      const d = i.transaction_date ? new Date(String(i.transaction_date)) : null;
+      if (from && d && d < from) return false;
+      if (to && d && d > to) return false;
+      return true;
+    });
+  }, [bankIncomes, searchTerm, incomeBankFilter, dateRange]);
+
+  // Ordine cronologico ascendente per data incasso (come i pagamenti).
+  const sortedIncomes = useMemo(() => {
+    return [...filteredIncomes].sort((a, b) =>
+      new Date(String(a.transaction_date || 0)).getTime() - new Date(String(b.transaction_date || 0)).getTime());
+  }, [filteredIncomes]);
+
+  const incomesTotal = useMemo(() => filteredIncomes.reduce((s, i) => s + (Number(i.amount) || 0), 0), [filteredIncomes]);
+
+  const toggleIncomeMonth = useCallback((key: string) => {
+    setCollapsedIncomeMonths(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }, []);
+
+  // Sezioni-mese (header + righe appiattiti) per gli incassi, ordine cronologico,
+  // 'N/D' in fondo. Mesi derivati dai dati. Collassabili via collapsedIncomeMonths.
+  type IncomeRenderItem =
+    | { kind: 'header'; key: string; label: string; count: number; subtotal: number; collapsed: boolean }
+    | { kind: 'row'; i: AnyRow };
+  const incomeMonthRenderItems = useMemo<IncomeRenderItem[]>(() => {
+    const map = new Map<string, { key: string; label: string; items: AnyRow[]; subtotal: number }>();
+    sortedIncomes.forEach(i => {
+      const d = i.transaction_date ? new Date(String(i.transaction_date)) : null;
+      const valid = d && !isNaN(d.getTime());
+      const key = valid ? `${d!.getFullYear()}-${String(d!.getMonth() + 1).padStart(2, '0')}` : 'N/D';
+      const label = valid ? d!.toLocaleDateString('it-IT', { month: 'long', year: 'numeric' }) : 'Senza data';
+      if (!map.has(key)) map.set(key, { key, label, items: [], subtotal: 0 });
+      const g = map.get(key)!;
+      g.items.push(i);
+      g.subtotal += Number(i.amount) || 0;
+    });
+    const keys = Array.from(map.keys()).sort((a, b) => (a === 'N/D' ? 1 : b === 'N/D' ? -1 : a.localeCompare(b)));
+    const out: IncomeRenderItem[] = [];
+    keys.forEach(k => {
+      const g = map.get(k)!;
+      const collapsed = collapsedIncomeMonths.has(k);
+      out.push({ kind: 'header', key: k, label: g.label, count: g.items.length, subtotal: g.subtotal, collapsed });
+      if (!collapsed) g.items.forEach(i => out.push({ kind: 'row', i }));
+    });
+    return out;
+  }, [sortedIncomes, collapsedIncomeMonths]);
+
   if (loading) {
     return (
       <div className="p-6 max-w-[1600px] mx-auto flex items-center justify-center min-h-screen">
@@ -1981,10 +2058,19 @@ const ScadenzarioSmart = () => {
           </div>
           )}
 
-          {/* Filtri dedicati per il TIPO INCASSI: ricerca + tipo + banca + date.
-              Tornare a un altro tipo riporta ai filtri scadenze. */}
+          {/* ===== BARRA FILTRI UNIFICATA — INCASSI =====
+              Stessa barra dei pagamenti: ricerca + Tipo (per tornare alle
+              scadenze) + Banca + periodo. Niente seconda barra parallela; i
+              filtri attivi compaiono come chip removibili sotto. */}
           {typeFilter === 'incassi' && (
             <div className="flex items-center gap-2 flex-wrap">
+              <div className="relative flex-1 min-w-[180px] max-w-[240px]">
+                <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-300" />
+                <input type="text" placeholder="Cerca descrizione, importo…" value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full pl-8 pr-3 py-1.5 rounded-lg border border-slate-200 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400/40 focus:border-blue-300 bg-white placeholder:text-slate-300" />
+              </div>
+              {/* TIPO */}
               <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}
                 className="px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs bg-white text-slate-600"
                 title="Tipo di scadenza">
@@ -1993,42 +2079,7 @@ const ScadenzarioSmart = () => {
                 <option value="fiscali">Solo Fiscali</option>
                 <option value="incassi">Incassi</option>
               </select>
-              <div className="relative flex-1 min-w-[180px] max-w-[240px]">
-                <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-300" />
-                <input type="text" placeholder="Cerca descrizione, importo..." value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full pl-8 pr-3 py-1.5 rounded-lg border border-slate-200 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400/40 focus:border-blue-300 bg-white placeholder:text-slate-300" />
-              </div>
-              <select value={incomeTypeFilter} onChange={e => setIncomeTypeFilter(e.target.value)}
-                className="px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs bg-white text-slate-600"
-                title="Filtra per tipo di incasso">
-                <option value="all">Tutti i tipi ({bankIncomes.length})</option>
-                {(() => {
-                  // Genera la lista dinamicamente dai dati caricati: mostro
-                  // solo i tipi presenti. Per ognuno il count dei movimenti.
-                  type IncomeType = 'POS' | 'Bonifico' | 'Contanti' | 'Accredito' | 'Incasso' | 'Giroconto' | 'Altro'
-                  const categorize = (desc: string | null | undefined): IncomeType => {
-                    const d = (desc || '').toLowerCase();
-                    if (d.includes('p.o.s.') || /\bpos\b/.test(d)) return 'POS';
-                    if (d.includes('bonifico') && (d.includes('favore') || d.includes('ordinante'))) return 'Bonifico';
-                    if (d.includes('versamento') && d.includes('contant')) return 'Contanti';
-                    if (d.includes('accredito')) return 'Accredito';
-                    if (d.includes('incass')) return 'Incasso';
-                    if (d.includes('giroconto')) return 'Giroconto';
-                    return 'Altro';
-                  };
-                  const counts: Record<string, number> = {};
-                  bankIncomes.forEach(i => {
-                    const t = categorize(i.description);
-                    counts[t] = (counts[t] || 0) + 1;
-                  });
-                  return Object.entries(counts)
-                    .sort((a, b) => b[1] - a[1])
-                    .map(([tipo, n]) => (
-                      <option key={tipo} value={tipo}>{tipo} ({n})</option>
-                    ));
-                })()}
-              </select>
+              {/* BANCA */}
               <select value={incomeBankFilter} onChange={e => setIncomeBankFilter(e.target.value)}
                 className="px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs bg-white text-slate-600"
                 title="Filtra per banca">
@@ -2038,20 +2089,76 @@ const ScadenzarioSmart = () => {
                 ))}
               </select>
               <input type="date" value={dateRange.start} onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })}
-                className="px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs bg-white text-slate-500" title="Da" />
+                className="px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs bg-white text-slate-500" title="Periodo: da" />
               <input type="date" value={dateRange.end} onChange={(e) => setDateRange({ ...dateRange, end: e.target.value })}
-                className="px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs bg-white text-slate-500" title="A" />
-              {(searchTerm || incomeTypeFilter !== 'all' || incomeBankFilter !== 'all' || dateRange.start || dateRange.end) && (
-                <button onClick={() => {
-                  setSearchTerm('');
-                  setIncomeTypeFilter('all');
-                  setIncomeBankFilter('all');
-                  setDateRange({ start: '', end: '' });
-                }} className="text-xs text-red-500 hover:text-red-600 font-medium ml-1">
-                  Rimuovi filtri
+                className="px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs bg-white text-slate-500" title="Periodo: a" />
+            </div>
+          )}
+
+          {/* ===== CHIP FILTRI ATTIVI — INCASSI (removibili) ===== */}
+          {typeFilter === 'incassi' && (
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs text-slate-400 font-medium">Stai vedendo:</span>
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-50 text-xs text-indigo-700 font-medium">
+                Incassi
+                <button onClick={() => setTypeFilter('')} className="text-indigo-400 hover:text-indigo-600"><X size={11} /></button>
+              </span>
+              {incomeBankFilter !== 'all' && (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 text-xs text-slate-600">
+                  {(() => { const b = (bankAccounts || []).find(x => String(x.id) === String(incomeBankFilter)); return b ? String(b.bank_name || 'Banca') : 'Banca'; })()}
+                  <button onClick={() => setIncomeBankFilter('all')} className="text-slate-400 hover:text-slate-600"><X size={11} /></button>
+                </span>
+              )}
+              {(dateRange.start || dateRange.end) && (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 text-xs text-slate-600">
+                  Periodo {dateRange.start ? `da ${fmtDate(dateRange.start)}` : ''}{dateRange.end ? ` a ${fmtDate(dateRange.end)}` : ''}
+                  <button onClick={() => setDateRange({ start: '', end: '' })} className="text-slate-400 hover:text-slate-600"><X size={11} /></button>
+                </span>
+              )}
+              {searchTerm && (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 text-xs text-slate-600">
+                  "{searchTerm}" <button onClick={() => setSearchTerm('')} className="text-slate-400 hover:text-slate-600"><X size={11} /></button>
+                </span>
+              )}
+              {(searchTerm || incomeBankFilter !== 'all' || dateRange.start || dateRange.end) && (
+                <button onClick={() => { setSearchTerm(''); setIncomeBankFilter('all'); setDateRange({ start: '', end: '' }); }}
+                  className="text-xs text-red-500 hover:text-red-600 font-medium">
+                  Rimuovi tutti i filtri
                 </button>
               )}
             </div>
+          )}
+
+          {/* ===== TOTALE DA INCASSARE (coerente col filtro) + vista ===== */}
+          {typeFilter === 'incassi' && !bankIncomesLoading && bankIncomes.length > 0 && (
+          <div className="flex items-center justify-between flex-wrap gap-2 border-y border-slate-100 py-2.5">
+            <div className="flex items-baseline gap-2">
+              <span className="text-xs text-slate-400 uppercase tracking-wide font-semibold">Totale da incassare</span>
+              <span className="text-xl font-bold text-slate-900">{fmt(incomesTotal)} €</span>
+              <span className="text-sm text-slate-400">· {filteredIncomes.length} incass{filteredIncomes.length === 1 ? 'o' : 'i'}</span>
+            </div>
+            {/* Vista: Mese (default) | Lista piatta | Calendario */}
+            <div className="flex gap-0.5 bg-slate-100 rounded-lg p-0.5">
+              <button onClick={() => { setScadViewMode('lista'); setListLayout('mese'); }}
+                className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md transition ${
+                  scadViewMode === 'lista' && listLayout === 'mese' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                }`}>
+                <CalendarDays size={13} /> Mese
+              </button>
+              <button onClick={() => { setScadViewMode('lista'); setListLayout('lista'); }}
+                className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md transition ${
+                  scadViewMode === 'lista' && listLayout === 'lista' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                }`}>
+                <List size={13} /> Lista piatta
+              </button>
+              <button onClick={() => setScadViewMode('calendario')}
+                className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md transition ${
+                  scadViewMode === 'calendario' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                }`}>
+                <Calendar size={13} /> Calendario
+              </button>
+            </div>
+          </div>
           )}
 
           {/* ===== CHIP FILTRI ATTIVI — removibili =====
@@ -2276,92 +2383,185 @@ const ScadenzarioSmart = () => {
             );
           })()}
 
-          {/* ===== LISTA VIEWS ===== */}
-          {/* Tab Incassi: mostra movimenti in entrata dagli EC (NON payables
-              pagate). Sorgente: bank_transactions con amount > 0.
-              Categorizzazione automatica della descrizione. */}
-          {viewMode === 'timeline' && typeFilter === 'incassi' && (
-            <div className="bg-white rounded-xl border border-slate-200/80 overflow-hidden">
-              {bankIncomesLoading ? (
-                <div className="p-10 text-center text-sm text-slate-500">
-                  <RefreshCw size={20} className="animate-spin mx-auto mb-2 text-emerald-600" /> Caricamento incassi dagli estratti conto...
+          {/* ===== INCASSI — CALENDARIO VIEW ===== */}
+          {scadViewMode === 'calendario' && typeFilter === 'incassi' && !bankIncomesLoading && bankIncomes.length > 0 && (() => {
+            const year = calendarMonth.getFullYear();
+            const month = calendarMonth.getMonth();
+            const firstDay = new Date(year, month, 1);
+            const startDow = (firstDay.getDay() + 6) % 7;
+            const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+            const dayMap: Record<number, AnyRow[]> = {};
+            filteredIncomes.forEach(i => {
+              if (!i.transaction_date) return;
+              const d = new Date(String(i.transaction_date));
+              if (d.getFullYear() === year && d.getMonth() === month) {
+                const day = d.getDate();
+                (dayMap[day] = dayMap[day] || []).push(i);
+              }
+            });
+
+            const cells: (number | null)[] = [];
+            for (let k = 0; k < startDow; k++) cells.push(null);
+            for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+            const todayDate = new Date();
+            const isToday = (day: number | null) => day != null && todayDate.getFullYear() === year && todayDate.getMonth() === month && todayDate.getDate() === day;
+            const monthLabel = calendarMonth.toLocaleDateString('it-IT', { month: 'long', year: 'numeric' });
+            const selectedDayIncomes = selectedCalendarDay && dayMap[selectedCalendarDay] ? dayMap[selectedCalendarDay] : [];
+
+            return (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <button onClick={() => setCalendarMonth(new Date(year, month - 1, 1))} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 transition"><ChevronLeft size={18} /></button>
+                  <h3 className="text-sm font-semibold text-slate-800 capitalize">{monthLabel}</h3>
+                  <button onClick={() => setCalendarMonth(new Date(year, month + 1, 1))} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 transition"><ChevronRight size={18} /></button>
                 </div>
-              ) : bankIncomes.length === 0 ? (
-                <div className="p-12 text-center">
-                  <Receipt size={28} className="text-slate-300 mx-auto mb-2" />
-                  <p className="text-sm text-slate-500 font-medium">Nessun incasso trovato</p>
-                  <p className="text-xs text-slate-400 mt-1">
-                    Gli incassi sono movimenti in entrata (importo positivo) dagli estratti conto bancari.
-                    Importa un EC da Import Hub per popolare questa sezione.
-                  </p>
+                <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                  <div className="grid grid-cols-7 border-b border-slate-100">
+                    {['Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab', 'Dom'].map(d => (
+                      <div key={d} className="py-2 text-center text-[11px] font-semibold text-slate-400 uppercase tracking-wide">{d}</div>
+                    ))}
+                  </div>
+                  <div className="grid grid-cols-7">
+                    {cells.map((day, idx) => {
+                      const items = day ? (dayMap[day] || []) : [];
+                      const isSelected = day && selectedCalendarDay === day;
+                      return (
+                        <button key={idx} disabled={!day}
+                          onClick={() => day && setSelectedCalendarDay(isSelected ? null : day)}
+                          className={`relative min-h-[64px] p-1.5 border-b border-r border-slate-50 text-left transition
+                            ${!day ? 'bg-slate-50/30' : 'hover:bg-blue-50/40 cursor-pointer'}
+                            ${isSelected ? 'bg-blue-50 ring-1 ring-blue-300 ring-inset' : ''}`}>
+                          {day && (
+                            <>
+                              <span className={`text-xs font-medium ${isToday(day) ? 'bg-blue-600 text-white w-5 h-5 rounded-full inline-flex items-center justify-center' : 'text-slate-600'}`}>{day}</span>
+                              {items.length > 0 && (
+                                <div className="flex flex-wrap gap-0.5 mt-1">
+                                  {items.slice(0, 4).map((i: AnyRow, k: number) => (
+                                    <span key={k} className="w-2 h-2 rounded-full bg-blue-500" title={`${(i.description || '').slice(0, 40)} — ${fmt(i.amount)} €`} />
+                                  ))}
+                                  {items.length > 4 && <span className="text-[9px] text-slate-400 leading-none">+{items.length - 4}</span>}
+                                </div>
+                              )}
+                            </>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
-              ) : (() => {
-                // Filtri incassi: testo + tipo + banca + range date
-                const q = (searchTerm || '').toLowerCase();
-                const from = dateRange.start ? new Date(dateRange.start) : null;
-                const to = dateRange.end ? new Date(dateRange.end) : null;
-                const categorize = (desc: string | null | undefined) => {
-                  const d = (desc || '').toLowerCase();
-                  if (d.includes('p.o.s.') || /\bpos\b/.test(d)) return { tipo: 'POS', cls: 'bg-violet-50 text-violet-700' };
-                  if (d.includes('bonifico') && (d.includes('favore') || d.includes('ordinante'))) return { tipo: 'Bonifico', cls: 'bg-blue-50 text-blue-700' };
-                  if (d.includes('versamento') && d.includes('contant')) return { tipo: 'Contanti', cls: 'bg-amber-50 text-amber-700' };
-                  if (d.includes('accredito')) return { tipo: 'Accredito', cls: 'bg-emerald-50 text-emerald-700' };
-                  if (d.includes('incass')) return { tipo: 'Incasso', cls: 'bg-emerald-50 text-emerald-700' };
-                  if (d.includes('giroconto')) return { tipo: 'Giroconto', cls: 'bg-slate-100 text-slate-600' };
-                  return { tipo: 'Altro', cls: 'bg-slate-100 text-slate-600' };
-                };
-                const filteredIncomes = bankIncomes.filter(i => {
-                  if (q && !(i.description || '').toLowerCase().includes(q) && !String(i.amount).includes(q)) return false;
-                  if (incomeBankFilter !== 'all' && i.bank_account_id !== incomeBankFilter) return false;
-                  if (incomeTypeFilter !== 'all' && categorize(i.description).tipo !== incomeTypeFilter) return false;
-                  const d = i.transaction_date ? new Date(i.transaction_date) : null;
-                  if (from && d && d < from) return false;
-                  if (to && d && d > to) return false;
-                  return true;
-                });
-                const totale = filteredIncomes.reduce((s, i) => s + (Number(i.amount) || 0), 0);
-                return (
-                  <>
-                    <div className="px-4 py-2 bg-emerald-50/50 border-b border-emerald-100 flex items-center justify-between text-xs">
-                      <span className="text-emerald-800 font-medium">{filteredIncomes.length} incassi</span>
-                      <span className="text-emerald-700 font-semibold">Totale: {fmt(totale)} €</span>
+                {selectedCalendarDay && (
+                  <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                    <div className="px-4 py-3 bg-slate-50 border-b border-slate-200">
+                      <h4 className="text-sm font-semibold text-slate-700">
+                        Incassi del {selectedCalendarDay} {calendarMonth.toLocaleDateString('it-IT', { month: 'long', year: 'numeric' })}
+                        <span className="ml-2 text-xs font-normal text-slate-400">({selectedDayIncomes.length} incass{selectedDayIncomes.length === 1 ? 'o' : 'i'})</span>
+                      </h4>
                     </div>
-                    <div className="overflow-x-auto max-h-[70vh]">
-                      <table className="w-full text-sm">
-                        <thead className="bg-slate-50 sticky top-0 z-10">
-                          <tr className="text-[11px] text-slate-500 uppercase tracking-wider border-b border-slate-200">
-                            <th className="py-2 px-3 text-left font-semibold">Data</th>
-                            <th className="py-2 px-3 text-left font-semibold">Descrizione</th>
-                            <th className="py-2 px-3 text-left font-semibold">Tipo</th>
-                            <th className="py-2 px-3 text-left font-semibold">Banca</th>
-                            <th className="py-2 px-3 text-right font-semibold">Importo</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100">
-                          {filteredIncomes.slice(0, 500).map(i => {
-                            const cat = categorize(i.description);
-                            return (
-                              <tr key={i.id} className="hover:bg-slate-50/60">
-                                <td className="py-2 px-3 whitespace-nowrap text-slate-600">{fmtDate(i.transaction_date)}</td>
-                                <td className="py-2 px-3 text-slate-700"><UiTooltip content={i.description || ''}><div className="truncate max-w-md">{i.description || '—'}</div></UiTooltip></td>
-                                <td className="py-2 px-3"><span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold ${cat.cls}`}>{cat.tipo}</span></td>
-                                <td className="py-2 px-3 text-xs text-slate-500">{i.bank_accounts?.bank_name || '—'}</td>
-                                <td className="py-2 px-3 text-right font-semibold text-emerald-700 whitespace-nowrap">+{fmt(i.amount)} €</td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                      {filteredIncomes.length > 500 && (
-                        <div className="px-3 py-2 bg-slate-50 text-xs text-slate-500 text-center">
-                          Mostrati i primi 500 su {filteredIncomes.length}. Usa i filtri per restringere.
-                        </div>
-                      )}
-                    </div>
-                  </>
-                );
-              })()}
-            </div>
+                    {selectedDayIncomes.length === 0 ? (
+                      <div className="p-6 text-center text-sm text-slate-400">Nessun incasso in questo giorno</div>
+                    ) : (
+                      <div className="divide-y divide-slate-50">
+                        {selectedDayIncomes.map((i: AnyRow) => (
+                          <div key={i.id} className="px-4 py-3 flex items-center justify-between hover:bg-slate-50/50">
+                            <div className="flex items-center gap-3 min-w-0">
+                              <span className="w-2.5 h-2.5 rounded-full flex-shrink-0 bg-blue-500" />
+                              <div className="min-w-0">
+                                <UiTooltip content={i.description || ''}><div className="text-sm font-medium text-slate-800 truncate max-w-[280px]">{i.description || '—'}</div></UiTooltip>
+                                <div className="text-xs text-slate-400 truncate max-w-[280px]">{categorizeIncome(i.description).tipo}{i.bank_accounts?.bank_name ? ` · ${i.bank_accounts.bank_name}` : ''}</div>
+                              </div>
+                            </div>
+                            <span className="text-sm font-semibold text-slate-900 whitespace-nowrap">{fmt(i.amount)} €</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
+          {/* ===== INCASSI — viste LISTA (mese collassabile / lista piatta) =====
+              Stessa struttura dei pagamenti, dataset bankIncomes. Sorgente:
+              bank_transactions + cash_movements con amount > 0. Importi NERI
+              senza segno (convenzione granito), niente verde. */}
+          {viewMode === 'timeline' && typeFilter === 'incassi' && (scadViewMode === 'lista' || bankIncomesLoading || bankIncomes.length === 0) && (
+            bankIncomesLoading ? (
+              <div className="bg-white rounded-xl border border-slate-200/80 p-10 text-center text-sm text-slate-500">
+                <RefreshCw size={20} className="animate-spin mx-auto mb-2 text-slate-400" /> Caricamento incassi dagli estratti conto…
+              </div>
+            ) : bankIncomes.length === 0 ? (
+              <div className="bg-white rounded-xl border border-slate-200/80 p-12 text-center">
+                <Receipt size={28} className="text-slate-300 mx-auto mb-2" />
+                <p className="text-sm text-slate-500 font-medium">Nessun incasso trovato</p>
+                <p className="text-xs text-slate-400 mt-1">
+                  Gli incassi sono movimenti in entrata (importo positivo) dagli estratti conto bancari.
+                  Importa un EC da Import Hub per popolare questa sezione.
+                </p>
+              </div>
+            ) : filteredIncomes.length === 0 ? (
+              <div className="bg-white rounded-xl border border-slate-200/80 p-10 text-center">
+                <CheckCircle2 size={28} className="text-slate-300 mx-auto mb-2" />
+                <p className="text-sm font-medium text-slate-600">Nessun incasso con questi filtri</p>
+                <div className="mt-3 flex items-center justify-center gap-2 flex-wrap">
+                  {incomeBankFilter !== 'all' && (
+                    <button onClick={() => setIncomeBankFilter('all')} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 text-xs text-slate-600 hover:bg-slate-200">Rimuovi banca <X size={11} /></button>
+                  )}
+                  {(dateRange.start || dateRange.end) && (
+                    <button onClick={() => setDateRange({ start: '', end: '' })} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 text-xs text-slate-600 hover:bg-slate-200">Rimuovi periodo <X size={11} /></button>
+                  )}
+                  {searchTerm && (
+                    <button onClick={() => setSearchTerm('')} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 text-xs text-slate-600 hover:bg-slate-200">Rimuovi "{searchTerm}" <X size={11} /></button>
+                  )}
+                  <button onClick={() => { setSearchTerm(''); setIncomeBankFilter('all'); setDateRange({ start: '', end: '' }); }}
+                    className="text-xs text-red-500 hover:text-red-600 font-medium">Rimuovi tutti i filtri</button>
+                </div>
+              </div>
+            ) : (
+              <div className="bg-white rounded-xl border border-slate-200/80 overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead className="sticky top-0 bg-white z-10">
+                      <tr className="border-b border-slate-100 text-[11px] uppercase tracking-wider text-slate-500">
+                        <th className="py-2.5 px-3 text-left font-medium">Data</th>
+                        <th className="py-2.5 px-3 text-left font-medium">Descrizione</th>
+                        <th className="py-2.5 px-3 text-left font-medium">Tipo</th>
+                        <th className="py-2.5 px-3 text-left font-medium">Banca</th>
+                        <th className="py-2.5 px-3 text-right font-medium">Importo</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(listLayout === 'lista'
+                        ? sortedIncomes.map((i): IncomeRenderItem => ({ kind: 'row', i }))
+                        : incomeMonthRenderItems
+                      ).map((item, idx) => item.kind === 'header' ? (
+                        <tr key={`ih-${item.key}`} className="bg-slate-50/80 border-y border-slate-200">
+                          <td colSpan={5} className="px-3 py-2">
+                            <button onClick={() => toggleIncomeMonth(item.key)} className="w-full flex items-center justify-between text-left">
+                              <span className="flex items-center gap-2">
+                                <ChevronDown size={15} className={`text-slate-400 transition-transform ${item.collapsed ? '-rotate-90' : ''}`} />
+                                <span className="text-sm font-semibold text-slate-800 capitalize">{item.label}</span>
+                                <span className="text-xs text-slate-400">· {item.count} incass{item.count === 1 ? 'o' : 'i'}</span>
+                              </span>
+                              <span className="text-sm font-bold text-slate-900">{fmt(item.subtotal)} €</span>
+                            </button>
+                          </td>
+                        </tr>
+                      ) : (() => { const i = item.i; const cat = categorizeIncome(i.description); return (
+                        <tr key={i.id} className={`border-b border-slate-50 hover:bg-blue-50/50 transition-colors ${idx % 2 === 1 ? 'bg-slate-50/40' : ''}`}>
+                          <td className="py-2.5 px-3 whitespace-nowrap text-[13px] text-slate-600">{fmtDate(i.transaction_date)}</td>
+                          <td className="py-2.5 px-3 text-[13px] text-slate-700"><UiTooltip content={i.description || ''}><div className="truncate max-w-md">{i.description || '—'}</div></UiTooltip></td>
+                          <td className="py-2.5 px-3"><span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold ${cat.cls}`}>{cat.tipo}</span></td>
+                          <td className="py-2.5 px-3 text-xs text-slate-500">{i.bank_accounts?.bank_name || '—'}</td>
+                          <td className="py-2.5 px-3 text-right text-[13px] font-medium text-slate-900 whitespace-nowrap">{fmt(i.amount)} €</td>
+                        </tr>
+                      ); })())}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )
           )}
 
           {/* Timeline View — Sibill style (Pagamenti / Tutte le scadenze) */}
