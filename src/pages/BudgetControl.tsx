@@ -979,9 +979,17 @@ export default function BudgetControl() {
   // NB: questi hook DEVONO stare prima di qualunque early return (es. if(loading)),
   // altrimenti React error #310 (ordine degli hook). Classificazione ricavo/costo
   // via chart_of_accounts.is_revenue (ceRawRicavi), MAI per prefisso conto.
+  // NB: le righe ceRaw* usano `.code` (non `.account_code`, sempre undefined qui).
   const revenueCodeSet = useMemo(
-    () => new Set(ceRawRicavi.map(r => r.account_code).filter(Boolean) as string[]),
+    () => new Set(ceRawRicavi.map(r => r.code).filter(Boolean) as string[]),
     [ceRawRicavi]
+  )
+  // Set dei codici COSTO noti (piano dei conti, NON ricavi). Usato per marcare i
+  // costi: così un codice ricavo (o un conto inattivo non in piano) NON finisce
+  // per sbaglio sul marcatore dei costi.
+  const costCodeSet = useMemo(
+    () => new Set(ceRawCosti.map(r => r.code).filter(Boolean) as string[]),
+    [ceRawCosti]
   )
   // Costi a budget con placeholder, per cost_center (OR sulle righe sottostanti).
   const phCostByCenter = useMemo(() => {
@@ -989,11 +997,11 @@ export default function BudgetControl() {
     budgetEntries.forEach(e => {
       if (e.is_placeholder !== true) return
       const ac = e.account_code || ''
-      if (revenueCodeSet.has(ac)) return // ricavi gestiti da budget_confronto (Lilian)
+      if (!costCodeSet.has(ac)) return // marca solo costi noti (i ricavi vivono in budget_confronto)
       if (e.cost_center) m[e.cost_center] = true
     })
     return m
-  }, [budgetEntries, revenueCodeSet])
+  }, [budgetEntries, costCodeSet])
   // Ricavi a budget con placeholder, per cost_center+mese (per Inserimento Rapido).
   const phRevByCenterMonth = useMemo(() => {
     const m: Record<string, boolean[]> = {}
@@ -1008,10 +1016,6 @@ export default function BudgetControl() {
     })
     return m
   }, [budgetEntries, revenueCodeSet])
-  const anyPlaceholder = useMemo(
-    () => budgetEntries.some(e => e.is_placeholder === true),
-    [budgetEntries]
-  )
 
   // Alberi conti SPECIFICI per outlet (strategia C 13/05/2026):
   // ogni outlet vede SOLO i suoi valori (es. Valdichiana = ricavi corrispettivi
@@ -1533,7 +1537,7 @@ export default function BudgetControl() {
             </div>
           )}
 
-          {anyPlaceholder && <PlaceholderLegend />}
+          {Object.keys(phCostByCenter).length > 0 && <PlaceholderLegend />}
 
           {/* Banner "Compila i costi previsti" + bottone "Cancella tutti" RIMOSSI:
               il testo sui ricavi dal bilancio anno precedente era ormai falso
