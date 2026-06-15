@@ -343,6 +343,7 @@ export default function CashflowProspettico() {
   const [rawOutlets, setRawOutlets] = useState<AnyRow[]>([]);
   const [rawRecurringCosts, setRawRecurringCosts] = useState<AnyRow[]>([]);
   const [rawLoans, setRawLoans] = useState<AnyRow[]>([]);
+  const [rawFiscal, setRawFiscal] = useState<AnyRow[]>([]); // E — scadenze fiscali (fiscal_deadlines)
   const [rawBudgetConfronto, setRawBudgetConfronto] = useState<AnyRow[]>([]);
   // budget_entries (TUTTI i conti) + mappa di classificazione da chart_of_accounts.
   // Classifichiamo ricavi/costi via is_revenue e cassa via is_cash, MAI per prefisso conto.
@@ -490,6 +491,21 @@ export default function CashflowProspettico() {
       setRawBudgetEntries((beRows as unknown as AnyRow[]) || []);
       setCoaCashMap(coaMap);
 
+      // E — scadenze fiscali (IVA/imposte) da fiscal_deadlines: uscite STIMA (azzurro).
+      // Solo non pagate; se non ci sono dati → nessuna riga (empty-state).
+      const { data: fiscalData } = await (supabase as unknown as { from: (t: string) => any })
+        .from('fiscal_deadlines').select('due_date, amount, amount_paid, status, title, deadline_type').eq('company_id', companyId);
+      setRawFiscal((fiscalData || []) as AnyRow[]);
+      const monthlyFiscal: number[] = Array(12).fill(0);
+      ((fiscalData || []) as Array<Record<string, unknown>>).forEach(f => {
+        if (['pagato', 'annullato'].includes(String(f.status || ''))) return;
+        if (!f.due_date) return;
+        const dd = new Date(String(f.due_date));
+        if (dd.getFullYear() !== year) return;
+        const residuo = (Number(f.amount) || 0) - (Number(f.amount_paid) || 0);
+        if (residuo > 0) monthlyFiscal[dd.getMonth()] += residuo;
+      });
+
       // Filter by outlet if not 'all'
       let filteredOutlet = selectedOutlet === 'all' ? null : selectedOutlet;
 
@@ -516,7 +532,7 @@ export default function CashflowProspettico() {
         month: number; monthName: string;
         entrate_sdi: number; entrate_budget: number;
         uscite_sdi: number; uscite_ricorrenti: number; uscite_scadenze: number;
-        uscite_canoni: number; rate_finanziamenti: number;
+        uscite_canoni: number; rate_finanziamenti: number; uscite_fiscali: number;
         tot_entrate: number; tot_uscite: number; flusso_netto: number; saldo_progressivo: number | null;
         // Marcatore segnaposto sulle ENTRATE previsionali (ricavi a budget clone non granito).
         entrate_ph: boolean;
@@ -532,6 +548,7 @@ export default function CashflowProspettico() {
         uscite_scadenze: 0,
         uscite_canoni: totalMonthlyRent,
         rate_finanziamenti: 0,
+        uscite_fiscali: monthlyFiscal[i] || 0,
         tot_entrate: 0, tot_uscite: 0, flusso_netto: 0, saldo_progressivo: 0,
         entrate_ph: false,
       }));
@@ -691,7 +708,7 @@ export default function CashflowProspettico() {
         month.entrate_budget = Math.round(month.entrate_budget * multiplier);
 
         month.tot_entrate = month.entrate_sdi + month.entrate_budget;
-        month.tot_uscite = month.uscite_sdi + month.uscite_ricorrenti + month.uscite_scadenze + month.uscite_canoni + month.rate_finanziamenti;
+        month.tot_uscite = month.uscite_sdi + month.uscite_ricorrenti + month.uscite_scadenze + month.uscite_canoni + month.rate_finanziamenti + month.uscite_fiscali;
         month.flusso_netto = month.tot_entrate - month.tot_uscite;
 
         totalIn += month.tot_entrate;
@@ -1271,6 +1288,17 @@ export default function CashflowProspettico() {
         const monthly = Number(loan.monthly_payment) || Number(loan.installment_amount) || 0;
         if (monthly > 0) {
           items.push({ label: `Rata - ${String(loan.description || 'Finanziamento')}`, amount: Math.round(monthly), state: 'certo' });
+        }
+      });
+      // E — scadenze fiscali (IVA/imposte): stima variabile (azzurro)
+      (rawFiscal || []).forEach(f => {
+        if (['pagato', 'annullato'].includes(String(f.status || ''))) return;
+        if (!f.due_date) return;
+        const dd = new Date(String(f.due_date));
+        if (dd.getMonth() !== monthIdx || dd.getFullYear() !== year) return;
+        const residuo = (Number(f.amount) || 0) - (Number(f.amount_paid) || 0);
+        if (residuo > 0) {
+          items.push({ label: `≈ ${String(f.title || f.deadline_type || 'Scadenza fiscale')} (${formatDateFull(String(f.due_date))})`, amount: Math.round(residuo), state: 'stima' });
         }
       });
       return items;
