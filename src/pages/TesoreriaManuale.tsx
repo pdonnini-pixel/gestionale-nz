@@ -18,8 +18,8 @@ import {
 import { useSearchParams } from 'react-router-dom'
 
 // Tab principale TesoreriaManuale — persistito in URL come ?tab=
-type TesoreriaTab = 'panoramica' | 'conti' | 'movimenti' | 'riconciliazione' | 'prima_nota'
-const VALID_TESORERIA_TABS: TesoreriaTab[] = ['panoramica', 'conti', 'movimenti', 'riconciliazione', 'prima_nota']
+type TesoreriaTab = 'panoramica' | 'conti' | 'movimenti' | 'riconciliazione' | 'prima_nota' | 'finanziamenti'
+const VALID_TESORERIA_TABS: TesoreriaTab[] = ['panoramica', 'conti', 'movimenti', 'riconciliazione', 'prima_nota', 'finanziamenti']
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { useCompanyLabels } from '../hooks/useCompanyLabels'
@@ -27,6 +27,7 @@ import { useToast } from '../components/Toast'
 import { BANK_CATEGORY_OPTIONS, bankCategoryLabel } from '../lib/bankCategories'
 import PrimaNota from './PrimaNota'
 import OpenBankingAcube from '../components/OpenBankingAcube'
+import FinanziamentiTab from '../components/FinanziamentiTab'
 import CellTooltip from '../components/Tooltip'
 
 // ═══════════════════════════════════════════════════════════════════
@@ -41,6 +42,7 @@ const TABS = [
   { key: 'movimenti', label: 'Movimenti', icon: ArrowUpRight },
   { key: 'riconciliazione', label: 'Riconciliazione', icon: Link2 },
   { key: 'prima_nota', label: 'Prima Nota', icon: BookOpen },
+  { key: 'finanziamenti', label: 'Finanziamenti', icon: Banknote },
 ] as const
 
 const ACCOUNT_TYPES = [
@@ -3320,7 +3322,7 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
 // ═══════════════════════════════════════════════════════════════════
 
 export default function TesoreriaManuale() {
-  const { session } = useAuth()
+  const { session, profile } = useAuth()
   const { toast } = useToast()
   const companyId = session?.user?.app_metadata?.company_id || '00000000-0000-0000-0000-000000000001'
 
@@ -3510,6 +3512,9 @@ export default function TesoreriaManuale() {
       )}
       {activeTab === 'prima_nota' && (
         <PrimaNota />
+      )}
+      {activeTab === 'finanziamenti' && (
+        <FinanziamentiTab accounts={accounts} companyId={companyId} uploadedByName={[profile?.first_name, profile?.last_name].filter(Boolean).join(' ') || profile?.email || null} />
       )}
     </div>
   )
