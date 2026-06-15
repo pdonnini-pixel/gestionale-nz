@@ -21,6 +21,7 @@ import { useCompany } from '../hooks/useCompany'
 import PageHelp from '../components/PageHelp'
 import PageHeader from '../components/PageHeader'
 import Tooltip from '../components/Tooltip'
+import { PlaceholderDot, PlaceholderLegend } from '../components/PlaceholderMark'
 import ExportBilancioDialog from '../components/ExportBilancioDialog'
 import { getCurrentTenant } from '../lib/tenants'
 import { RICAVI_SOURCE_LABEL } from '../lib/outletRevenue'
@@ -1399,6 +1400,43 @@ export default function BudgetControl() {
   // Outlets that have saved BP data
   const outletsWithBP = ops.filter(cc => bpEdits[cc.code] && Object.keys(bpEdits[cc.code]).length > 0)
 
+  // ─── Marcatore segnaposto (is_placeholder) ──────────────────────────────
+  // Classificazione ricavo/costo via chart_of_accounts.is_revenue (ceRawRicavi),
+  // MAI per prefisso conto. Placeholder = clone 2025 non ancora granito.
+  const revenueCodeSet = useMemo(
+    () => new Set(ceRawRicavi.map(r => r.account_code).filter(Boolean) as string[]),
+    [ceRawRicavi]
+  )
+  // Costi a budget con placeholder, per cost_center (OR sulle righe sottostanti).
+  const phCostByCenter = useMemo(() => {
+    const m: Record<string, boolean> = {}
+    budgetEntries.forEach(e => {
+      if (e.is_placeholder !== true) return
+      const ac = e.account_code || ''
+      if (revenueCodeSet.has(ac)) return // ricavi gestiti da budget_confronto (Lilian)
+      if (e.cost_center) m[e.cost_center] = true
+    })
+    return m
+  }, [budgetEntries, revenueCodeSet])
+  // Ricavi a budget con placeholder, per cost_center+mese (per Inserimento Rapido).
+  const phRevByCenterMonth = useMemo(() => {
+    const m: Record<string, boolean[]> = {}
+    budgetEntries.forEach(e => {
+      if (e.is_placeholder !== true) return
+      const ac = e.account_code || ''
+      if (!revenueCodeSet.has(ac)) return
+      const mo = Number(e.month || 0)
+      if (mo < 1 || mo > 12 || !e.cost_center) return
+      if (!m[e.cost_center]) m[e.cost_center] = Array(12).fill(false)
+      m[e.cost_center][mo - 1] = true
+    })
+    return m
+  }, [budgetEntries, revenueCodeSet])
+  const anyPlaceholder = useMemo(
+    () => budgetEntries.some(e => e.is_placeholder === true),
+    [budgetEntries]
+  )
+
   // Somma annuale ricavi per outlet+account_code, REGOLA GRANITICO/PREVENTIVO:
   // per ogni mese usa il valore GRANITICO (consuntivo reale, consMonthly) se presente,
   // altrimenti il PREVENTIVO (revMonthly). Coerente con budget_confronto.stato.
@@ -1494,6 +1532,8 @@ export default function BudgetControl() {
             </div>
           )}
 
+          {anyPlaceholder && <PlaceholderLegend />}
+
           {/* Banner "Compila i costi previsti" + bottone "Cancella tutti" RIMOSSI:
               il testo sui ricavi dal bilancio anno precedente era ormai falso
               (ricavi e consuntivo vengono da Budget & Controllo), e "Cancella tutti"
@@ -1517,7 +1557,8 @@ export default function BudgetControl() {
                 onApprove={() => setApproveDialog({ code: HQ_CODE, label: hq.label || HQ_CODE })}
                 onUnlock={() => setUnlockDialog({ code: HQ_CODE, label: hq.label || HQ_CODE })}
                 onSaveAccount={(ac, v) => saveAnnualCostAccount(HQ_CODE, ac, v)}
-                revYearlyFromMonthly={revYearlyByOutlet[HQ_CODE]} />
+                revYearlyFromMonthly={revYearlyByOutlet[HQ_CODE]}
+                costHasPlaceholder={!!phCostByCenter[HQ_CODE]} />
             )
           })()}
 
@@ -1537,7 +1578,8 @@ export default function BudgetControl() {
                 onApprove={() => setApproveDialog({ code: cc.code, label: prettyCenterLabel(cc) })}
                 onUnlock={() => setUnlockDialog({ code: cc.code, label: prettyCenterLabel(cc) })}
                 onSaveAccount={(ac, v) => saveAnnualCostAccount(cc.code, ac, v)}
-                revYearlyFromMonthly={revYearlyByOutlet[cc.code]} />
+                revYearlyFromMonthly={revYearlyByOutlet[cc.code]}
+                costHasPlaceholder={!!phCostByCenter[cc.code]} />
             )
           })}
         </div>
@@ -1659,6 +1701,7 @@ export default function BudgetControl() {
                   cashLoaded={cashLoaded}
                   revMonthlyOutlet={aggMonthly(revMonthly)}
                   consMonthlyOutlet={aggMonthly(consMonthly)}
+                  prevHasPlaceholder={Object.keys(phCostByCenter).length > 0}
                 />
                 )
               })()}
@@ -1682,6 +1725,7 @@ export default function BudgetControl() {
                   cashLoaded={cashLoaded}
                   revMonthlyOutlet={revMonthly[confOutlet]}
                   consMonthlyOutlet={consMonthly[confOutlet]}
+                  prevHasPlaceholder={!!phCostByCenter[confOutlet]}
                 />
               )}
               {confOutlet && confOutlet !== ALL_OUTLETS_CODE && confView === 'mensile' && (
@@ -1777,6 +1821,7 @@ export default function BudgetControl() {
                 accountCode: accCode,
               }
             })}
+          phRevByCenterMonth={phRevByCenterMonth}
         />
       )}
 
@@ -1858,8 +1903,10 @@ type BPCardProps = {
   // Se presente per un codice ricavo, sovrascrive il valore del bilancio come default.
   // L'edit utente in edits[code] ha sempre priorita' (applyEdits lo gestisce).
   revYearlyFromMonthly?: Record<string, number>
+  // true se i costi a budget di questo outlet contengono righe segnaposto (clone 2025)
+  costHasPlaceholder?: boolean
 }
-function BPCard({ label, code, isHQ, numOps: _numOps, costiTree, ricaviTree, edits, setEdits, onClear, onSave, saving, color, year, workflowStatus, workflowMeta, canApprove, onApprove, onUnlock, onSaveAccount, revYearlyFromMonthly }: BPCardProps) {
+function BPCard({ label, code, isHQ, numOps: _numOps, costiTree, ricaviTree, edits, setEdits, onClear, onSave, saving, color, year, workflowStatus, workflowMeta, canApprove, onApprove, onUnlock, onSaveAccount, revYearlyFromMonthly, costHasPlaceholder }: BPCardProps) {
   const [open, setOpen] = useState(false)
 
   const isLocked = workflowStatus === 'approvato'
@@ -1921,7 +1968,7 @@ function BPCard({ label, code, isHQ, numOps: _numOps, costiTree, ricaviTree, edi
         </div>
         <div className="flex items-center gap-5">
           <div className="text-right"><div className="text-xs text-slate-400">{RICAVI_SOURCE_LABEL}</div><div className="font-semibold text-emerald-600">{fmtC(totR)}</div></div>
-          <div className="text-right"><div className="text-xs text-slate-400">Costi (preventivo)</div><div className="font-semibold text-red-600">{fmtC(totC)}</div></div>
+          <div className="text-right"><div className="text-xs text-slate-400">Costi (preventivo)</div><div className="font-semibold text-red-600">{fmtC(totC)}<PlaceholderDot show={!!costHasPlaceholder} tip="I costi a budget di questo outlet contengono voci segnaposto (clone 2025) non ancora granite: apri la card e compila/conferma i valori." /></div></div>
           {!isHQ && <div className="text-right"><div className="text-xs text-slate-400">Risultato</div><div className={`font-bold ${ris>=0?'text-emerald-700':'text-red-700'}`}>{fmtC(ris)}</div></div>}
           {open ? <ChevronUp size={18} className="text-slate-400"/> : <ChevronDown size={18} className="text-slate-400"/>}
         </div>
@@ -2764,8 +2811,10 @@ type ConfrontoPanelProps = {
   // piu' usato come default; i ricavi si popolano solo dalla somma del mensile.
   revMonthlyOutlet?: Record<string, number[]>
   consMonthlyOutlet?: Record<string, number[]>
+  // true se la colonna Preventivo (costi) contiene voci segnaposto (clone 2025)
+  prevHasPlaceholder?: boolean
 }
-function ConfrontoPanel({ outletCode, outletLabel, prevEdits, consEdits, onConsEdit, rettEdits, onRettEdit, costiTree, ricaviTree, year, cashTotals, cashLoaded, revMonthlyOutlet, consMonthlyOutlet }: ConfrontoPanelProps) {
+function ConfrontoPanel({ outletCode, outletLabel, prevEdits, consEdits, onConsEdit, rettEdits, onRettEdit, costiTree, ricaviTree, year, cashTotals, cashLoaded, revMonthlyOutlet, consMonthlyOutlet, prevHasPlaceholder }: ConfrontoPanelProps) {
   // Somma annuale (per code) dei mensili gia' caricati da budget_confronto.
   // Patrizio (29/05/2026): "il numero si popola solo dalla somma dei mensili
   // per i preventivi e dalla somma dei mensili per i consuntivi". Quindi NO
@@ -2845,8 +2894,8 @@ function ConfrontoPanel({ outletCode, outletLabel, prevEdits, consEdits, onConsE
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="px-5 py-3 bg-slate-50 border-b flex items-center justify-between">
           <h3 className="text-sm font-semibold text-slate-700">{outletLabel} — Preventivo vs Consuntivo {year}</h3>
-          <div className="flex gap-3 text-xs">
-            <span className="flex items-center gap-1"><Lock size={10} className="text-indigo-400"/> <span className="text-indigo-600 font-medium">Preventivo</span></span>
+          <div className="flex items-center gap-3 text-xs">
+            <span className="flex items-center gap-1"><Lock size={10} className="text-indigo-400"/> <span className="text-indigo-600 font-medium">Preventivo</span><PlaceholderDot show={!!prevHasPlaceholder} tip="La colonna Preventivo contiene voci segnaposto (clone 2025) non ancora granite in Budget & Controllo." /></span>
             <span className="flex items-center gap-1"><Unlock size={10} className="text-emerald-400"/> <span className="text-emerald-600 font-medium">Consuntivo</span></span>
             <span className="text-purple-600 font-medium">Rettifica</span>
             <span className="text-amber-600 font-medium">Δ Scostamento</span>
@@ -3008,8 +3057,9 @@ function ConfrontoPanel({ outletCode, outletLabel, prevEdits, consEdits, onConsE
    scriveranno a sua volta in automatico nella parte del bilancio".
    ═══════════════════════════════════════════════════════════ */
 type OutletForRapido = { code: string; label: string; accountCode: string }
-function InserimentoRapidoMatrice({ year, companyId, outlets }: {
+function InserimentoRapidoMatrice({ year, companyId, outlets, phRevByCenterMonth }: {
   year: number; companyId: string; outlets: OutletForRapido[]
+  phRevByCenterMonth?: Record<string, boolean[]>
 }) {
   const MESI_NOMI = ['Gennaio','Febbraio','Marzo','Aprile','Maggio','Giugno','Luglio','Agosto','Settembre','Ottobre','Novembre','Dicembre']
   const [mese, setMese] = useState<number>(new Date().getMonth()) // mese corrente di default
@@ -3127,13 +3177,16 @@ function InserimentoRapidoMatrice({ year, companyId, outlets }: {
                   </td>
                   {outlets.map(o => (
                     <td key={o.code} className="py-2 px-3">
-                      <NumberInputIt
-                        value={matrix[o.code]?.prev || 0}
-                        onChange={n => setMatrix(prev => ({ ...prev, [o.code]: { ...(prev[o.code] || { prev: 0, cons: 0 }), prev: n } }))}
-                        onCommit={async n => { await saveCell(o, 'prev', n) }}
-                        className="w-full text-right px-2 py-1.5 text-sm border rounded tabular-nums focus:outline-none focus:ring-2 focus:ring-indigo-400 border-slate-200"
-                        placeholder="0"
-                      />
+                      <div className="flex items-center justify-end gap-0.5">
+                        <NumberInputIt
+                          value={matrix[o.code]?.prev || 0}
+                          onChange={n => setMatrix(prev => ({ ...prev, [o.code]: { ...(prev[o.code] || { prev: 0, cons: 0 }), prev: n } }))}
+                          onCommit={async n => { await saveCell(o, 'prev', n) }}
+                          className="w-full text-right px-2 py-1.5 text-sm border rounded tabular-nums focus:outline-none focus:ring-2 focus:ring-indigo-400 border-slate-200"
+                          placeholder="0"
+                        />
+                        <PlaceholderDot show={!!phRevByCenterMonth?.[o.code]?.[mese]} />
+                      </div>
                     </td>
                   ))}
                   <td className="py-3 px-4 text-right text-sm font-bold text-indigo-700 tabular-nums bg-indigo-50/40">
@@ -3166,6 +3219,10 @@ function InserimentoRapidoMatrice({ year, companyId, outlets }: {
           </div>
         )}
       </div>
+
+      {outlets.some(o => phRevByCenterMonth?.[o.code]?.[mese]) && (
+        <PlaceholderLegend className="px-2" />
+      )}
 
       <div className="text-xs text-slate-400 px-2">
         Esci dal campo per salvare (Tab oppure click fuori). Cambiare mese non perde i dati: ogni cella e' gia' sul DB. Scostamenti, percentuali e dettagli per voce di bilancio sono nella tab <strong>Preventivo vs Consuntivo</strong>.

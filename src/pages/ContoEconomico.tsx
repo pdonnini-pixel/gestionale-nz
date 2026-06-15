@@ -31,6 +31,7 @@ import { useRole } from '../hooks/useRole'
 import { usePeriod } from '../hooks/usePeriod'
 import { GlassTooltip, AXIS_STYLE, GRID_STYLE } from '../components/ChartTheme'
 import TextTooltip from '../components/Tooltip'
+import { PlaceholderDot, PlaceholderLegend } from '../components/PlaceholderMark'
 
 import PdfViewer from '../components/PdfViewer'
 import { parseBilancio, toSupabaseRecords } from '../lib/parsers/bilancioParser'
@@ -449,6 +450,9 @@ export default function ContoEconomico() {
     costiPrev: number; costiCons: number;
     lastRefresh: Date | null; anyStale: boolean;
     rowsTotal: number; rowsBudgetCompiled: number;
+    // true se esistono righe budget_entries segnaposto (clone 2025) ESCLUSE dal
+    // preventivo mostrato: il totale è quindi parziale finché non granite in B&C.
+    ricaviPrevPh: boolean; costiPrevPh: boolean;
   }
   const [budgetSummary, setBudgetSummary] = useState<BudgetSummary | null>(null)
   const [budgetRefreshing, setBudgetRefreshing] = useState(false)
@@ -1102,6 +1106,14 @@ export default function ContoEconomico() {
       // database.ts è stale): sul 2026 le righe segnaposto sono cloni del 2025 e
       // non vanno conteggiate; sul 2025 sono tutte non-placeholder → invariato.
       const rows = (data || []).filter((r) => r.is_placeholder !== true)
+      // Marcatore: traccia se esistono righe segnaposto (clone) ESCLUSE dal preventivo,
+      // così da segnalare che il totale è parziale (split ricavi/costi, no rettifiche).
+      let phRevExcluded = false, phCostExcluded = false
+      ;(data || []).forEach((r) => {
+        if (r.is_placeholder !== true || r.cost_center === 'rettifica_bilancio') return
+        if ((r.account_code || '').startsWith('5')) phRevExcluded = true
+        else phCostExcluded = true
+      })
       let ricaviPrevBE = 0, ricaviConsBE = 0, costiPrev = 0, costiConsBE = 0
       let anyStale = false
       let lastTs = 0
@@ -1222,6 +1234,10 @@ export default function ContoEconomico() {
         anyStale,
         rowsTotal: rows.length,
         rowsBudgetCompiled,
+        // I ricavi preventivo vengono da budget_confronto (Lilian) quando presente →
+        // in quel caso non sono segnaposto; il flag vale solo sul fallback budget_entries.
+        ricaviPrevPh: cfRows.length === 0 && phRevExcluded,
+        costiPrevPh: phCostExcluded,
       })
     } catch (err) {
       console.error('[loadBudgetSummary]', err)
@@ -2445,13 +2461,13 @@ export default function ContoEconomico() {
                 <tbody>
                   {(() => {
                     const rows = [
-                      { label: 'Ricavi', prev: budgetSummary.ricaviPrev, cons: budgetSummary.ricaviCons, positive: true },
-                      { label: 'Costi', prev: budgetSummary.costiPrev, cons: budgetSummary.costiCons, positive: false },
+                      { label: 'Ricavi', prev: budgetSummary.ricaviPrev, cons: budgetSummary.ricaviCons, positive: true, prevPh: budgetSummary.ricaviPrevPh },
+                      { label: 'Costi', prev: budgetSummary.costiPrev, cons: budgetSummary.costiCons, positive: false, prevPh: budgetSummary.costiPrevPh },
                       {
                         label: 'Risultato gestionale (Ricavi − Costi)',
                         prev: budgetSummary.ricaviPrev - Math.abs(budgetSummary.costiPrev),
                         cons: budgetSummary.ricaviCons - Math.abs(budgetSummary.costiCons),
-                        positive: true, total: true,
+                        positive: true, total: true, prevPh: budgetSummary.ricaviPrevPh || budgetSummary.costiPrevPh,
                       },
                     ]
                     return rows.map((r) => {
@@ -2465,6 +2481,7 @@ export default function ContoEconomico() {
                           <td className="px-4 py-2 text-slate-800">{r.label}</td>
                           <td className="px-4 py-2 text-right text-slate-700">
                             {r.prev.toLocaleString('de-DE', { minimumFractionDigits: 2 })} €
+                            <PlaceholderDot show={r.prevPh} tip="Preventivo parziale: alcune voci sono ancora segnaposto (clone 2025) ed escluse da questo totale finché non granite in Budget & Controllo." />
                           </td>
                           <td className="px-4 py-2 text-right text-slate-700">
                             {r.cons.toLocaleString('de-DE', { minimumFractionDigits: 2 })} €
@@ -2483,6 +2500,9 @@ export default function ContoEconomico() {
               </table>
             </div>
 
+            {(budgetSummary.ricaviPrevPh || budgetSummary.costiPrevPh) && (
+              <PlaceholderLegend className="mt-1" />
+            )}
             <div className="text-xs text-slate-500">
               <Info size={12} className="inline mr-1" />
               Preventivo e consuntivo provengono da <strong>Budget &amp; Controllo</strong>, inseriti per outlet.

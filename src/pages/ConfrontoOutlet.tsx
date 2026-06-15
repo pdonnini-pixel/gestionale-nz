@@ -20,6 +20,7 @@ import {
   RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar,
 } from 'recharts'
 import { GlassTooltip, ChartGradients, AXIS_STYLE, GRID_STYLE, BAR_RADIUS, ModernLegend, fmtEuro, fmtK } from '../components/ChartTheme'
+import { PlaceholderDot, PlaceholderLegend } from '../components/PlaceholderMark'
 import { formatOutletName, shortOutletName } from '../lib/formatters'
 import {
   RICAVI_SOURCE_LABEL, buildOutletRevenue, outletRevenueMetrics,
@@ -67,13 +68,14 @@ function KpiBadge({ label, value, sub, color = 'blue' }: { label: string; value:
    ═══════════════════════════════════════ */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type CalcMetricsT = any
-function OutletCard({ name, outletData, calculatedMetrics, ranking, onNavigate, onOpenBudget }: {
+function OutletCard({ name, outletData, calculatedMetrics, ranking, onNavigate, onOpenBudget, showPlaceholder }: {
   name: string
   outletData: { color?: string | null }
   calculatedMetrics: CalcMetricsT | null | undefined
   ranking?: number | null
   onNavigate: () => void
   onOpenBudget: () => void
+  showPlaceholder?: boolean
 }) {
   const [open, setOpen] = useState(false)
 
@@ -160,7 +162,7 @@ function OutletCard({ name, outletData, calculatedMetrics, ranking, onNavigate, 
             rosso col meno se <0), niente verde. */}
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <div className="text-xs text-slate-400">{isVariance ? 'Δ Ricavi (Cons. − Prev., mesi presi)' : RICAVI_SOURCE_LABEL}</div>
+            <div className="text-xs text-slate-400 flex items-center">{isVariance ? 'Δ Ricavi (Cons. − Prev., mesi presi)' : RICAVI_SOURCE_LABEL}<PlaceholderDot show={!!showPlaceholder} tip="Budget di questo outlet ancora segnaposto (clone 2025) non granito in Budget & Controllo." /></div>
             <div className={`text-2xl font-bold ${isVariance ? (ricavi < 0 ? 'text-red-600' : 'text-slate-900') : 'text-slate-900'}`}>
               {isVariance ? scostamentoSegno(scostamento) : `${fmt(ricavi)} €`}
             </div>
@@ -389,6 +391,8 @@ type OutletMetric = {
   name: string
   outletData: OutletDataLite
   calculatedMetrics: CalculatedMetrics | null
+  // true se i budget_entries dell'outlet contengono righe segnaposto (clone non granito)
+  hasPlaceholder?: boolean
 }
 
 function TabellaBenchmark({ outletMetrics }: { outletMetrics: OutletMetric[] }) {
@@ -509,7 +513,7 @@ export default function ConfrontoOutlet() {
   const COMPANY_ID = profile?.company_id
   const { year, quarter } = usePeriod()
   type CostCenterRow = { id?: string; code?: string; label?: string; name?: string; color?: string; sort_order?: number; is_active?: boolean }
-  type BudgetEntryRow = { cost_center?: string | null; account_code?: string | null; account_name?: string | null; macro_group?: string | null; budget_amount?: number | null; actual_amount?: number | null; month?: number | null; is_approved?: boolean | null }
+  type BudgetEntryRow = { cost_center?: string | null; account_code?: string | null; account_name?: string | null; macro_group?: string | null; budget_amount?: number | null; actual_amount?: number | null; month?: number | null; is_approved?: boolean | null; is_placeholder?: boolean | null }
   type EmployeeCostRow = { outlet_code?: string | null; employee_id?: string | null; month?: number | null; totale_allocato?: number | null }
   type BalanceRow = Record<string, unknown>
   type EmpRow = { id: string; role_description?: string | null; is_active?: boolean | null; nome?: string | null; cognome?: string | null; first_name?: string | null; last_name?: string | null; codice_fiscale?: string | null; fiscal_code?: string | null }
@@ -958,6 +962,7 @@ export default function ConfrontoOutlet() {
       return {
         name: outlet.label || '',
         outletData: outlet,
+        hasPlaceholder: outletBudget.some(b => b.is_placeholder === true),
         calculatedMetrics: {
           ricavi, margine, marginePct,
           costoPersonale: finalCostoPersonale,
@@ -1282,6 +1287,9 @@ export default function ConfrontoOutlet() {
           <BarChart3 size={20} className="text-blue-600" />
           Schede outlet — P&L comparativo
         </h2>
+        {viewMode !== 'actual' && outletMetrics.some(o => o.hasPlaceholder) && (
+          <PlaceholderLegend className="mb-3" />
+        )}
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {outletMetrics.map(o => (
             <OutletCard
@@ -1290,6 +1298,7 @@ export default function ConfrontoOutlet() {
               outletData={o.outletData}
               calculatedMetrics={o.calculatedMetrics}
               ranking={rankings[o.name]}
+              showPlaceholder={viewMode !== 'actual' && !!o.hasPlaceholder}
               onNavigate={() => navigate(`/outlet?id=${o.outletData.id}`)}
               onOpenBudget={() => navigate(`/budget?tab=confronto&outlet=${encodeURIComponent(o.calculatedMetrics?.outletCode || o.outletData.code || '')}&anno=${year}`)}
             />
