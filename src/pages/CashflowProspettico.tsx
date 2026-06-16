@@ -416,7 +416,7 @@ export default function CashflowProspettico() {
           .eq('is_active', true),
         supabase
           .from('payables')
-          .select('id, due_date, gross_amount, amount_paid, outlet_id, status, supplier_id, supplier_name, invoice_number')
+          .select('id, due_date, gross_amount, amount_paid, outlet_id, status, supplier_id, supplier_name, invoice_number, installment_number, installment_total')
           .eq('company_id', companyId)
           .in('status', ['da_pagare', 'in_scadenza', 'scaduto']),
         // Daily revenue for daily/weekly views
@@ -1282,9 +1282,13 @@ export default function CashflowProspettico() {
         if (outstanding > 0) {
           const num = String(p.invoice_number || '-');
           const supplier = String(p.supplier_name || '').trim() || `Fatt. ${num}`;
+          // Fattura a rate (installment_total>1): indica "rata X/N" nel sottotitolo.
+          const instTot = Number(p.installment_total) || 0;
+          const instNum = Number(p.installment_number) || 0;
+          const rata = instTot > 1 ? ` · rata ${instNum}/${instTot}` : '';
           items.push({
             label: supplier,
-            sub: `Fatt. ${num} · scad. ${formatDate(due)}`,
+            sub: `Fatt. ${num}${rata} · scad. ${formatDate(due)}`,
             amount: Math.round(outstanding),
             state: 'certo',
             group: 'FORNITORI',
