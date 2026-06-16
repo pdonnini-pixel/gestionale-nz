@@ -495,7 +495,7 @@ const ScadenzarioSmart = () => {
       //  - colonna CONTO con nome banca (Fix 5.2)
       const { data: payablesRaw } = await supabase
         .from('payables')
-        .select('id, cash_movement_id, cost_category_id, verified, payment_date, payment_bank_account_id')
+        .select('id, cash_movement_id, cost_category_id, verified, payment_date, payment_bank_account_id, installment_number, installment_total')
         .eq('company_id', COMPANY_ID!);
       const payablesExtraMap: Record<string, AnyRow> = {};
       (payablesRaw || []).forEach(p => {
@@ -506,6 +506,8 @@ const ScadenzarioSmart = () => {
           verified: p.verified || false,
           payment_date: p.payment_date || null,
           payment_bank_account_id: p.payment_bank_account_id || null,
+          installment_number: (p as { installment_number?: number | null }).installment_number ?? null,
+          installment_total: (p as { installment_total?: number | null }).installment_total ?? null,
         };
       });
 
@@ -631,6 +633,8 @@ const ScadenzarioSmart = () => {
           cash_movement_id: (extra.cash_movement_id as string | null) ?? null,
           cost_category_id: (extra.cost_category_id as string | null) ?? null,
           verified: Boolean(extra.verified),
+          installment_number: (extra.installment_number as number | null) ?? null,
+          installment_total: (extra.installment_total as number | null) ?? null,
           disposizione_date: row.id ? (dispMap.get(row.id)?.date ?? null) : null,
           disposizione_bank_name: (() => {
             const b = row.id ? dispMap.get(row.id)?.bankId : null;
@@ -2922,7 +2926,9 @@ const ScadenzarioSmart = () => {
                             {(() => {
                               const supplierLabel = (p.suppliers?.ragione_sociale || p.suppliers?.name || '').trim()
                               const note = (p.notes || '').trim()
-                              const invoiceLabel = p.invoice_number && p.invoice_number !== '-' ? `Fattura • ${p.invoice_number}` : ''
+                              // Badge rata X/N per le fatture con pagamento rateale (split dall'XML)
+                              const rataLabel = (Number(p.installment_total) || 0) > 1 ? ` • rata ${p.installment_number}/${p.installment_total}` : ''
+                              const invoiceLabel = (p.invoice_number && p.invoice_number !== '-' ? `Fattura • ${p.invoice_number}` : '') + rataLabel
                               // Riga primaria: fornitore se presente, altrimenti la nota, altrimenti la fattura
                               const mainText = supplierLabel || note || (p.invoice_number && p.invoice_number !== '-' ? p.invoice_number : '') || 'N/A'
                               // Riga secondaria: la nota (descrizione) se valorizzata, altrimenti la fattura
