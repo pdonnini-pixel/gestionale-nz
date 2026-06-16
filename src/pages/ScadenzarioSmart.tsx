@@ -467,14 +467,14 @@ const ScadenzarioSmart = () => {
     invoice: { open: boolean; data: AnyRow | null }
     supplier: { open: boolean; data: AnyRow | null }
     editSchedule: { open: boolean; schedule: AnyRow | null }
-    deleteConfirm: { open: boolean; scheduleId: string | null; invoiceNumber: string | null }
+    deleteConfirm: { open: boolean; scheduleId: string | null; invoiceNumber: string | null; recurringCostId: string | null }
   }
   const [modals, setModals] = useState<ModalsState>({
     payment: { open: false, payable: null },
     invoice: { open: false, data: null },
     supplier: { open: false, data: null },
     editSchedule: { open: false, schedule: null },
-    deleteConfirm: { open: false, scheduleId: null, invoiceNumber: null },
+    deleteConfirm: { open: false, scheduleId: null, invoiceNumber: null, recurringCostId: null },
   });
 
   const today = new Date();
@@ -495,7 +495,7 @@ const ScadenzarioSmart = () => {
       //  - colonna CONTO con nome banca (Fix 5.2)
       const { data: payablesRaw } = await supabase
         .from('payables')
-        .select('id, cash_movement_id, cost_category_id, verified, payment_date, payment_bank_account_id, installment_number, installment_total')
+        .select('id, cash_movement_id, cost_category_id, verified, payment_date, payment_bank_account_id, installment_number, installment_total, recurring_cost_id')
         .eq('company_id', COMPANY_ID!);
       const payablesExtraMap: Record<string, AnyRow> = {};
       (payablesRaw || []).forEach(p => {
@@ -508,6 +508,7 @@ const ScadenzarioSmart = () => {
           payment_bank_account_id: p.payment_bank_account_id || null,
           installment_number: (p as { installment_number?: number | null }).installment_number ?? null,
           installment_total: (p as { installment_total?: number | null }).installment_total ?? null,
+          recurring_cost_id: (p as { recurring_cost_id?: string | null }).recurring_cost_id ?? null,
         };
       });
 
@@ -635,6 +636,7 @@ const ScadenzarioSmart = () => {
           verified: Boolean(extra.verified),
           installment_number: (extra.installment_number as number | null) ?? null,
           installment_total: (extra.installment_total as number | null) ?? null,
+          recurring_cost_id: (extra.recurring_cost_id as string | null) ?? null,
           disposizione_date: row.id ? (dispMap.get(row.id)?.date ?? null) : null,
           disposizione_bank_name: (() => {
             const b = row.id ? dispMap.get(row.id)?.bankId : null;
@@ -1124,26 +1126,46 @@ const ScadenzarioSmart = () => {
     }
   }, [today, modals, fetchData, toast]);
 
-  type InvoiceData = { supplierId: string; invoiceNumber: string; invoiceDate: string; dueDate: string; grossAmount: number; paymentMethod?: string; frequency?: string; costCenter?: string }
+  type InvoiceData = { supplierId: string; invoiceNumber: string; invoiceDate: string; dueDate: string; grossAmount: number; paymentMethod?: string; frequency?: string; costCenter?: string; endDate?: string }
   const handleCreateInvoice = useCallback(async (invoiceData: InvoiceData) => {
     // Validazione minima (niente dialog nativi): fornitore + scadenza + importo.
     if (!invoiceData.supplierId) { toast({ type: 'warning', message: 'Seleziona un fornitore.' }); return; }
-    if (!invoiceData.dueDate) { toast({ type: 'warning', message: 'Indica la data di scadenza.' }); return; }
+    if (!invoiceData.dueDate) { toast({ type: 'warning', message: 'Indica la data di scadenza pagamento.' }); return; }
     if (!(Number(invoiceData.grossAmount) > 0)) { toast({ type: 'warning', message: 'Indica un importo maggiore di zero.' }); return; }
     const isRecurring = !!invoiceData.frequency && invoiceData.frequency !== 'una_tantum';
     if (isRecurring && !invoiceData.costCenter) { toast({ type: 'warning', message: 'Per una scadenza ricorrente scegli il centro di costo / outlet.' }); return; }
     try {
-      const { data: inv } = await supabase.from('electronic_invoices').insert([{
-        company_id: COMPANY_ID,
-        supplier_id: invoiceData.supplierId,
-        invoice_number: invoiceData.invoiceNumber,
-        invoice_date: invoiceData.invoiceDate,
-        due_date: invoiceData.dueDate,
-        total_amount: invoiceData.grossAmount,
-        payment_method: invoiceData.paymentMethod,
-        source: 'manual',
-      } as never]).select();
+      // 1) Se ricorrente, crea PRIMA la ricorrenza (così posso collegarla alla
+      //    payable): il link recurring_cost_id permette la cancellazione a
+      //    cascata — niente più ricorrenze fantasma in cashflow/stime.
+      let recurringId: string | null = null;
+      let recurringMsg = '';
+      if (isRecurring) {
+        const supplierName = (suppliers.find(s => s.id === invoiceData.supplierId)?.ragione_sociale
+          || suppliers.find(s => s.id === invoiceData.supplierId)?.name || '') as string;
+        const dueDay = invoiceData.dueDate ? new Date(invoiceData.dueDate).getDate() : 1;
+        const { data: recData, error: recErr } = await supabase.from('recurring_costs').insert([{
+          company_id: COMPANY_ID,
+          cost_center: invoiceData.costCenter,
+          description: [supplierName, invoiceData.invoiceNumber].filter(Boolean).join(' · ') || 'Scadenza ricorrente',
+          amount: invoiceData.grossAmount,
+          frequency: invoiceData.frequency,
+          day_of_month: Math.min(28, Math.max(1, dueDay)),
+          payment_method: invoiceData.paymentMethod || 'bonifico_ordinario',
+          supplier_name: supplierName || null,
+          start_date: invoiceData.dueDate,
+          end_date: invoiceData.endDate || null,
+          is_active: true,
+        } as never]).select('id');
+        if (recErr) {
+          toast({ type: 'error', message: 'Errore nel registrare la ricorrenza: ' + recErr.message });
+          return;
+        }
+        recurringId = (recData?.[0] as { id?: string } | undefined)?.id ?? null;
+        recurringMsg = ' — ricorrenza registrata in Ricorrenze';
+      }
 
+      // 2) Crea la prima scadenza (payable), collegata alla ricorrenza se esiste.
       const { error: payErr } = await supabase.from('payables').insert([{
         company_id: COMPANY_ID,
         supplier_id: invoiceData.supplierId,
@@ -1154,35 +1176,13 @@ const ScadenzarioSmart = () => {
         gross_amount: invoiceData.grossAmount,
         amount_remaining: invoiceData.grossAmount,
         payment_method: invoiceData.paymentMethod || 'bonifico',
-        electronic_invoice_id: inv?.[0]?.id,
+        recurring_cost_id: recurringId,
       } as never]);
-      if (payErr) { toast({ type: 'error', message: 'Errore creazione scadenza: ' + payErr.message }); return; }
-
-      // Periodicità: registra la ricorrenza nel sistema esistente (recurring_costs),
-      // che alimenta la tab Ricorrenze e il cashflow previsionale. La prima scadenza
-      // è già stata creata sopra; le successive restano stime finché non arrivano.
-      let recurringMsg = '';
-      if (isRecurring) {
-        const supplierName = (suppliers.find(s => s.id === invoiceData.supplierId)?.ragione_sociale
-          || suppliers.find(s => s.id === invoiceData.supplierId)?.name || '') as string;
-        const dueDay = invoiceData.dueDate ? new Date(invoiceData.dueDate).getDate() : 1;
-        const { error: recErr } = await supabase.from('recurring_costs').insert([{
-          company_id: COMPANY_ID,
-          cost_center: invoiceData.costCenter,
-          description: [supplierName, invoiceData.invoiceNumber].filter(Boolean).join(' · ') || 'Scadenza ricorrente',
-          amount: invoiceData.grossAmount,
-          frequency: invoiceData.frequency,
-          day_of_month: Math.min(28, Math.max(1, dueDay)),
-          payment_method: invoiceData.paymentMethod || 'bonifico_ordinario',
-          supplier_name: supplierName || null,
-          start_date: invoiceData.dueDate,
-          is_active: true,
-        } as never]);
-        if (recErr) {
-          toast({ type: 'warning', message: 'Scadenza creata, ma errore nel registrare la ricorrenza: ' + recErr.message });
-        } else {
-          recurringMsg = ' — ricorrenza registrata in Ricorrenze';
-        }
+      if (payErr) {
+        // Rollback ricorrenza per non lasciare orfani.
+        if (recurringId) await supabase.from('recurring_costs').delete().eq('id', recurringId);
+        toast({ type: 'error', message: 'Errore creazione scadenza: ' + payErr.message });
+        return;
       }
 
       setModals(prev => ({ ...prev, invoice: { open: false, data: null } }));
@@ -1299,7 +1299,9 @@ const ScadenzarioSmart = () => {
     }
   }, [toast, fetchData]);
 
-  const handleDeleteSchedule = useCallback(async (scheduleId: string) => {
+  // cascadeRecurring: se valorizzato, elimina anche la ricorrenza collegata
+  // (così stime on-the-fly e cashflow si aggiornano da soli, niente fantasmi).
+  const handleDeleteSchedule = useCallback(async (scheduleId: string, cascadeRecurringId?: string | null) => {
     setIsSaving(true);
     try {
       // Dispatch fiscal vs payable
@@ -1311,8 +1313,12 @@ const ScadenzarioSmart = () => {
         const { error } = await supabase.from('payables').update({ status: 'annullato' } as never).eq('id', scheduleId);
         if (error) throw new Error(error.message);
       }
-      setModals({ ...modals, deleteConfirm: { open: false, scheduleId: null, invoiceNumber: null } });
-      toast({ type: 'success', message: 'Scadenza annullata' });
+      if (cascadeRecurringId) {
+        const { error: recErr } = await supabase.from('recurring_costs').delete().eq('id', cascadeRecurringId);
+        if (recErr) throw new Error(recErr.message);
+      }
+      setModals({ ...modals, deleteConfirm: { open: false, scheduleId: null, invoiceNumber: null, recurringCostId: null } });
+      toast({ type: 'success', message: cascadeRecurringId ? 'Scadenza e ricorrenza eliminate' : 'Scadenza annullata' });
       fetchData();
     } catch (error) {
       console.error('Error deleting schedule:', error);
@@ -3154,7 +3160,7 @@ const ScadenzarioSmart = () => {
                                 title="Modifica">
                                 <Edit2 size={12} />
                               </button>
-                              <button onClick={() => setModals({ ...modals, deleteConfirm: { open: true, scheduleId: p.id || null, invoiceNumber: p.invoice_number || null } })}
+                              <button onClick={() => setModals({ ...modals, deleteConfirm: { open: true, scheduleId: p.id || null, invoiceNumber: p.invoice_number || null, recurringCostId: (p.recurring_cost_id as string | null) || null } })}
                                 className="p-1 rounded text-slate-400 hover:text-red-600 hover:bg-red-50"
                                 title="Elimina">
                                 <Trash2 size={12} />
@@ -3573,22 +3579,38 @@ const ScadenzarioSmart = () => {
       )}
 
       {/* Delete Confirmation Modal */}
-      {modals.deleteConfirm.open && (
-        <Modal open={true} onClose={() => setModals({ ...modals, deleteConfirm: { open: false, scheduleId: null, invoiceNumber: null } })}
-          title="Conferma Cancellazione">
+      {modals.deleteConfirm.open && (() => {
+        const dc = modals.deleteConfirm;
+        const isRecurring = !!dc.recurringCostId;
+        const close = () => setModals({ ...modals, deleteConfirm: { open: false, scheduleId: null, invoiceNumber: null, recurringCostId: null } });
+        return (
+        <Modal open={true} onClose={close} title="Conferma cancellazione">
           <div className="space-y-3">
-            <p className="text-sm">Sei sicuro di voler cancellare <span className="font-mono text-red-600">{modals.deleteConfirm.invoiceNumber}</span>?</p>
+            <p className="text-sm">Eliminare la scadenza <span className="font-mono text-red-600">{dc.invoiceNumber || ''}</span>?</p>
+            {isRecurring && (
+              <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-50 border border-amber-200 text-[13px] text-amber-800">
+                <Repeat size={15} className="mt-0.5 shrink-0 text-amber-500" />
+                <span>Questa scadenza è <strong>ricorrente</strong>. Eliminandola viene rimossa anche la <strong>ricorrenza</strong> collegata, così sparisce anche dalle stime future e dal cashflow. Per non lasciare residui, è l'opzione consigliata.</span>
+              </div>
+            )}
             <div className="flex gap-3 pt-2">
-              <button onClick={() => setModals({ ...modals, deleteConfirm: { open: false, scheduleId: null, invoiceNumber: null } })}
+              <button onClick={close}
                 className="flex-1 py-2.5 rounded-lg border border-slate-200 text-sm font-medium hover:bg-slate-50">Annulla</button>
-              <button onClick={() => modals.deleteConfirm.scheduleId && handleDeleteSchedule(modals.deleteConfirm.scheduleId)} disabled={isSaving}
+              <button onClick={() => dc.scheduleId && handleDeleteSchedule(dc.scheduleId, dc.recurringCostId)} disabled={isSaving}
                 className="flex-1 py-2.5 rounded-lg bg-red-600 text-white text-sm font-medium hover:bg-red-700 disabled:opacity-50">
-                {isSaving ? 'Cancellazione...' : 'Cancella'}
+                {isSaving ? 'Eliminazione…' : (isRecurring ? 'Elimina scadenza e ricorrenza' : 'Elimina')}
               </button>
             </div>
+            {isRecurring && (
+              <button onClick={() => dc.scheduleId && handleDeleteSchedule(dc.scheduleId, null)} disabled={isSaving}
+                className="w-full text-center text-[11px] text-slate-400 hover:text-slate-600">
+                Elimina solo questa scadenza (mantieni la ricorrenza)
+              </button>
+            )}
           </div>
         </Modal>
-      )}
+        );
+      })()}
 
       {/* Edit Schedule Modal */}
       {modals.editSchedule.open && modals.editSchedule.schedule && (
@@ -3820,7 +3842,7 @@ const EditScheduleModal = ({ schedule, onUpdate: _onUpdate, onSave }: { schedule
 };
 
 // Invoice Modal Component
-type InvoiceFormState = { supplierId: string; invoiceNumber: string; invoiceDate: string; dueDate: string; grossAmount: number; paymentMethod: string; frequency: string; costCenter: string }
+type InvoiceFormState = { supplierId: string; invoiceNumber: string; invoiceDate: string; dueDate: string; grossAmount: number; paymentMethod: string; frequency: string; costCenter: string; endDate: string }
 type CostCenterLite = { code?: string; label?: string | null; [k: string]: unknown }
 // Frequenze della scadenza ricorrente — allineate a recurring_costs.frequency
 // (stessi valori della tab Ricorrenze). 'una_tantum' = scadenza singola.
@@ -3844,6 +3866,7 @@ const InvoiceModal = ({ suppliers, costCenters, paymentGroups, paymentMethodLabe
     paymentMethod: 'bonifico_ordinario',
     frequency: 'una_tantum',
     costCenter: '',
+    endDate: '',
   });
 
   // Selettore fornitore con RICERCA (typeahead): la select nativa con tutti i
@@ -3905,7 +3928,7 @@ const InvoiceModal = ({ suppliers, costCenters, paymentGroups, paymentMethodLabe
             className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none" />
         </div>
         <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1">Scadenza *</label>
+          <label className="block text-sm font-medium text-slate-700 mb-1">Scadenza pagamento *</label>
           <input type="date" value={formData.dueDate} onChange={e => setFormData({ ...formData, dueDate: e.target.value })}
             className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none" />
         </div>
@@ -3935,16 +3958,26 @@ const InvoiceModal = ({ suppliers, costCenters, paymentGroups, paymentMethodLabe
           {scadenzaFrequencyOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
       </div>
-      {/* Centro di costo: obbligatorio solo se ricorrente (recurring_costs.cost_center) */}
+      {/* Centro di costo + Fine periodicità: solo se ricorrente */}
       {isRecurring && (
         <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1">Centro di costo / Outlet *</label>
-          <select value={formData.costCenter} onChange={e => setFormData({ ...formData, costCenter: e.target.value })}
-            className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none">
-            <option value="">Seleziona centro di costo…</option>
-            {costCenters.map(c => <option key={String(c.code)} value={String(c.code)}>{c.label || c.code}</option>)}
-          </select>
-          <p className="mt-1 text-[11px] text-slate-400">La prima scadenza viene creata ora; la ripetizione viene registrata tra le Ricorrenze e nel cashflow previsionale.</p>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Centro di costo / Outlet *</label>
+              <select value={formData.costCenter} onChange={e => setFormData({ ...formData, costCenter: e.target.value })}
+                className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none">
+                <option value="">Seleziona centro di costo…</option>
+                {costCenters.map(c => <option key={String(c.code)} value={String(c.code)}>{c.label || c.code}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Fine periodicità <span className="text-slate-400 font-normal">(opzionale)</span></label>
+              <input type="date" value={formData.endDate} min={formData.dueDate || undefined}
+                onChange={e => setFormData({ ...formData, endDate: e.target.value })}
+                className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none" />
+            </div>
+          </div>
+          <p className="mt-1 text-[11px] text-slate-400">La prima scadenza viene creata ora; la ripetizione viene registrata tra le Ricorrenze e nel cashflow previsionale. Vuoto = nessuna fine (orizzonte mobile 12 mesi).</p>
         </div>
       )}
       <div className="flex gap-3 pt-2">
