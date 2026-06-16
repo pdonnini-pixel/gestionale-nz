@@ -325,7 +325,9 @@ export default function Dipendenti() {
   const [bcByCenter, setBcByCenter] = useState<Record<string, number>>({});
   const [adminBudgetRows, setAdminBudgetRows] = useState<{ cost_center: string; amount: number }[]>([]);
   const [bilancioPersonale, setBilancioPersonale] = useState<number | null>(null);
-  const [revenueYear, setRevenueYear] = useState<number>(0);
+  const [revenueYear, setRevenueYear] = useState<number>(0); // ricavi PREVISTI (budget)
+  const [revenueConsAnnual, setRevenueConsAnnual] = useState<number>(0); // consuntivo a oggi ANNUALIZZATO
+  const [consMesi, setConsMesi] = useState<number>(0); // n. mesi consuntivati
   const [loading, setLoading] = useState(true);
 
   // UI state
@@ -441,6 +443,23 @@ export default function Dipendenti() {
         revenue = (rev || []).reduce((s, r) => s + (Number(r.actual_amount) || Number(r.budget_amount) || 0), 0);
       }
       setRevenueYear(revenue);
+
+      // Ricavi CONSUNTIVO a oggi (granitico, budget_confronto.cons_monthly) → annualizzati
+      // (tot / mesi_consuntivati × 12) per l'incidenza "proiezione a fine anno".
+      let consTot = 0; let mesiSet = new Set<number>();
+      if (codes.length) {
+        const { data: cons } = await supabase
+          .from('budget_confronto')
+          .select('amount, month')
+          .eq('company_id', cid)
+          .eq('year', year)
+          .eq('entry_type', 'cons_monthly')
+          .in('account_code', codes);
+        (cons || []).forEach((r) => { consTot += Number(r.amount) || 0; if (r.month != null) mesiSet.add(Number(r.month)); });
+      }
+      const nMesi = mesiSet.size;
+      setConsMesi(nMesi);
+      setRevenueConsAnnual(nMesi > 0 ? (consTot / nMesi) * 12 : 0);
 
       // Costo lordo amministratori = budget_entries dei conti is_admin_compensation,
       // per cost_center mappato a un outlet reale (escluso 'all'). Codici da DB, niente hardcoded.
@@ -575,7 +594,9 @@ export default function Dipendenti() {
   );
   // Totale budget B&C COMPLETO = dipendenti (67xx) + amministratori → combacia col grafico.
   const totalBCConAmministratori = totalBC + lordoAmministratori;
-  const incidenza = revenueYear > 0 ? (totalBCConAmministratori / revenueYear) * 100 : null;
+  // Incidenza personale/ricavi: sui ricavi PREVISTI (budget) e sui ricavi A OGGI annualizzati (consuntivo).
+  const incidenzaPrevisti = revenueYear > 0 ? (totalBCConAmministratori / revenueYear) * 100 : null;
+  const incidenzaAOggi = revenueConsAnnual > 0 ? (totalBCConAmministratori / revenueConsAnnual) * 100 : null;
   const nettoAmministratoriMese = useMemo(
     () => admins.reduce((s, e) => s + (nettoCell(e.id) || 0), 0),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -879,7 +900,9 @@ export default function Dipendenti() {
               totalBCAll={totalBCConAmministratori}
               totalNettoMese={totalNettoMese}
               nettoYear={nettoYear}
-              incidenza={incidenza}
+              incidenzaPrevisti={incidenzaPrevisti}
+              incidenzaAOggi={incidenzaAOggi}
+              consMesi={consMesi}
               costoMedioEscl={costoMedioEscl}
               costoMedioIncl={costoMedioIncl}
               monthLabel={monthLabel}
@@ -1112,11 +1135,12 @@ export default function Dipendenti() {
 // ============================================================================
 function PanoramicaTab(props: {
   headcount: number; sedi: number; totalBC: number; totalBCAll: number; totalNettoMese: number; nettoYear: number;
-  incidenza: number | null; costoMedioEscl: number | null; costoMedioIncl: number | null; monthLabel: string; month: number;
+  incidenzaPrevisti: number | null; incidenzaAOggi: number | null; consMesi: number; costoMedioEscl: number | null; costoMedioIncl: number | null; monthLabel: string; month: number;
   chartData: { name: string; bc: number; netto: number }[];
   bilancioPersonale: number | null; nonAttribuito: number; year: number;
 }) {
-  const { headcount, sedi, totalBC, totalBCAll, totalNettoMese, nettoYear, incidenza, costoMedioEscl, costoMedioIncl, monthLabel, month, chartData, bilancioPersonale, nonAttribuito, year } = props;
+  const { headcount, sedi, totalBC, totalBCAll, totalNettoMese, nettoYear, incidenzaPrevisti, incidenzaAOggi, consMesi, costoMedioEscl, costoMedioIncl, monthLabel, month, chartData, bilancioPersonale, nonAttribuito, year } = props;
+  const pct = (v: number | null) => (v != null ? `${v.toFixed(1).replace('.', ',')}%` : '—');
   const empty = headcount === 0 && totalBC === 0 && totalNettoMese === 0;
   const mm = String(month).padStart(2, '0');
   const avgPerOutlet = sedi > 0 ? (headcount / sedi).toLocaleString('it-IT', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : '—';
@@ -1137,7 +1161,16 @@ function PanoramicaTab(props: {
           icon={Users}
           source="bc"
         />
-        <Kpi label="Incidenza su ricavi" value={incidenza != null ? `${incidenza.toFixed(1).replace('.', ',')}%` : '—'} sub={`costo personale / ricavi ${year}`} icon={Percent} source="neutro" />
+        <Kpi
+          label="Incidenza su ricavi"
+          value={pct(incidenzaPrevisti)}
+          sub={<>
+            <div>su ricavi previsti {year}</div>
+            <div className="text-[11px] text-slate-400 mt-0.5">a oggi (consuntivo {consMesi}m ann.): {pct(incidenzaAOggi)}</div>
+          </>}
+          icon={Percent}
+          source="neutro"
+        />
       </div>
 
       {empty ? (
