@@ -39,6 +39,7 @@ const SchedaContabileFornitore = lazy(() => import('./pages/SchedaContabileForni
 const Profilo = lazy(() => import('./pages/Profilo'))
 const Ticket = lazy(() => import('./pages/Ticket'))
 const TicketAdmin = lazy(() => import('./pages/TicketAdmin'))
+const ReportSincronizzazioni = lazy(() => import('./pages/ReportSincronizzazioni'))
 
 // Spinner per lazy loading
 function PageLoader() {
@@ -133,6 +134,7 @@ function AppRoutes() {
           <Route path="archivio" element={<ArchivioDocumenti />} />
           <Route path="ai-categorie" element={<AICategoriePage />} />
           <Route path="impostazioni" element={<Impostazioni />} />
+          <Route path="report-sincronizzazioni" element={<ReportSincronizzazioni />} />
           <Route path="profilo" element={<Profilo />} />
           <Route path="ticket" element={<Ticket />} />
           <Route path="ticket/admin" element={<TicketAdmin />} />

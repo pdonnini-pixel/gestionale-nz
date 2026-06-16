@@ -1,101 +1,39 @@
-// Netlify Scheduled Function — SDI Sync (automatica ogni 6 ore)
+// Netlify Function — SDI Sync mTLS (DEPRECATA / PARCHEGGIATA il 16/06/2026)
 //
-// Sincronizza fatture passive e corrispettivi dall'Agenzia delle Entrate
-// via mTLS. Eseguita automaticamente tramite cron Netlify.
+// PERCHÉ È PARCHEGGIATA
+// Questo era l'unico scheduler attivo del canale AdE via mTLS (cron Netlify
+// "0 */6 * * *"). Da 2026-05-13 ogni run falliva con ERR_OSSL_PEM_NO_START_LINE
+// (certificato client PEM nel Vault malformato/vuoto): 137 run consecutive,
+// tutte status='partial', fatture_count=0. Generava un errore ricorrente ogni
+// 6h in sdi_sync_log → falsi negativi nel nuovo Report Sincronizzazioni.
 //
-// Schedule: ogni 6 ore (cron: 0 every-6h)
+// Il canale fatture passive è stato sostituito da A-Cube REST
+// (acube_sdi_sync_inbound_production + pg_cron "acube-sdi-sync-inbound-every-6h",
+// vedi migrazioni 073/074).
 //
-// NOTA: Questa e' una Netlify Serverless Function (Node.js) con schedule().
+// COSA È STATO FATTO (parcheggio, NON cancellazione)
+// - Rimosso il wrapper `schedule(...)`: Netlify non lo esegue più su cron, quindi
+//   non scrive più righe d'errore in sdi_sync_log ogni 6h.
+// - Mantenuto come stub on-demand: se invocato restituisce 410 con la spiegazione,
+//   NON tocca l'AdE e NON scrive sync log.
+// - NON sono stati cancellati: la edge function Supabase `sdi-sync`, il core
+//   `./lib/sdi-sync-core`, né lo storico in `sdi_sync_log` (seedato in sync_runs).
+//
+// RIATTIVAZIONE
+// Quando il certificato mTLS sarà valido, ripristinare l'import di `schedule` e
+// l'handler originale dalla cronologia git (commit precedente a questo).
 
-import { schedule } from "@netlify/functions";
-import { createClient } from "@supabase/supabase-js";
-import {
-  createMtlsAgent,
-  syncFatture,
-  syncCorrispettivi,
-  getDefaultDateFrom,
-  getToday,
-  COMPANY_ID,
-} from "./lib/sdi-sync-core";
+const DEPRECATION_NOTE =
+  "sdi-sync-scheduled è deprecata dal 16/06/2026: canale AdE mTLS non operativo " +
+  "(certificato PEM non valido). Le fatture passive sono sincronizzate da A-Cube REST " +
+  "(cron Supabase acube-sdi-sync-inbound-every-6h). Vedi Report Sincronizzazioni.";
 
-const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "";
-const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
-
-const syncHandler = async () => {
-  console.log("[sdi-sync-scheduled] Starting scheduled sync...");
-
-  if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
-    console.error("[sdi-sync-scheduled] Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
-    return { statusCode: 500 };
-  }
-
-  const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
-  const dateFrom = getDefaultDateFrom(7); // ultimi 7 giorni per scheduled
-  const dateTo = getToday();
-  const startTime = Date.now();
-
-  console.log(`[sdi-sync-scheduled] Period: ${dateFrom} → ${dateTo}`);
-
-  try {
-    const agent = createMtlsAgent();
-
-    const fattureResult = await syncFatture(agent, supabaseAdmin, dateFrom, dateTo);
-    const corrispettiviResult = await syncCorrispettivi(agent, supabaseAdmin, dateFrom, dateTo);
-
-    const durationMs = Date.now() - startTime;
-    const allErrors = [...fattureResult.errors, ...corrispettiviResult.errors];
-
-    // Log risultato
-    try {
-      await supabaseAdmin.from("sdi_sync_log").insert({
-        company_id: COMPANY_ID,
-        trigger: "scheduled",
-        triggered_by: "cron_6h",
-        date_from: dateFrom,
-        date_to: dateTo,
-        fatture_count: fattureResult.count,
-        corrispettivi_count: corrispettiviResult.count,
-        errors: allErrors.length > 0 ? allErrors : null,
-        duration_ms: durationMs,
-        status: allErrors.some((e) => e.startsWith("FATAL"))
-          ? "error"
-          : allErrors.length > 0
-          ? "partial"
-          : "success",
-      });
-    } catch (logErr: any) {
-      console.error("[sdi-sync-scheduled] Failed to log:", logErr.message);
-    }
-
-    console.log(
-      `[sdi-sync-scheduled] Done: ${fattureResult.count} fatture, ${corrispettiviResult.count} corrispettivi, ${allErrors.length} errors, ${durationMs}ms`
-    );
-
-    return { statusCode: 200 };
-  } catch (err: any) {
-    const durationMs = Date.now() - startTime;
-    console.error(`[sdi-sync-scheduled] Fatal:`, err.message);
-
-    try {
-      await supabaseAdmin.from("sdi_sync_log").insert({
-        company_id: COMPANY_ID,
-        trigger: "scheduled",
-        triggered_by: "cron_6h",
-        date_from: dateFrom,
-        date_to: dateTo,
-        fatture_count: 0,
-        corrispettivi_count: 0,
-        errors: [`FATAL: ${err.message}`],
-        duration_ms: durationMs,
-        status: "error",
-      });
-    } catch (logErr: any) {
-      console.error("[sdi-sync-scheduled] Failed to log error:", logErr.message);
-    }
-
-    return { statusCode: 500 };
-  }
+// Handler on-demand NON schedulato: nessuna chiamata AdE, nessuna scrittura log.
+export const handler = async () => {
+  console.warn("[sdi-sync-scheduled] PARCHEGGIATA — no-op. " + DEPRECATION_NOTE);
+  return {
+    statusCode: 410,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ deprecated: true, message: DEPRECATION_NOTE }),
+  };
 };
-
-// Ogni 6 ore: 0 */6 * * *
-export const handler = schedule("0 */6 * * *", syncHandler);
