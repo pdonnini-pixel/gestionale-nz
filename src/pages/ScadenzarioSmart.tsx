@@ -2926,9 +2926,11 @@ const ScadenzarioSmart = () => {
                             {(() => {
                               const supplierLabel = (p.suppliers?.ragione_sociale || p.suppliers?.name || '').trim()
                               const note = (p.notes || '').trim()
-                              // Badge rata X/N per le fatture con pagamento rateale (split dall'XML)
-                              const rataLabel = (Number(p.installment_total) || 0) > 1 ? ` • rata ${p.installment_number}/${p.installment_total}` : ''
-                              const invoiceLabel = (p.invoice_number && p.invoice_number !== '-' ? `Fattura • ${p.invoice_number}` : '') + rataLabel
+                              const invoiceLabel = p.invoice_number && p.invoice_number !== '-' ? `Fattura • ${p.invoice_number}` : ''
+                              // Fattura a rate (split dall'XML): badge dedicato "rata X/N", sempre
+                              // visibile quando le rate sono >1, così tre righe della stessa fattura
+                              // non sembrano un doppione.
+                              const isRata = (Number(p.installment_total) || 0) > 1
                               // Riga primaria: fornitore se presente, altrimenti la nota, altrimenti la fattura
                               const mainText = supplierLabel || note || (p.invoice_number && p.invoice_number !== '-' ? p.invoice_number : '') || 'N/A'
                               // Riga secondaria: la nota (descrizione) se valorizzata, altrimenti la fattura
@@ -2941,11 +2943,18 @@ const ScadenzarioSmart = () => {
                                   );
                                   setSupplierDetail(sup || { ragione_sociale: p.suppliers?.ragione_sociale || p.suppliers?.name || 'N/A' });
                                 }} className="text-left">
-                                  <UiTooltip content={mainText}>
-                                    <div className="text-[13px] text-slate-800 hover:text-blue-600 font-medium truncate max-w-[220px]">
-                                      {mainText}
-                                    </div>
-                                  </UiTooltip>
+                                  <div className="flex items-center gap-1.5">
+                                    <UiTooltip content={mainText}>
+                                      <div className={`text-[13px] text-slate-800 hover:text-blue-600 font-medium truncate ${isRata ? 'max-w-[150px]' : 'max-w-[220px]'}`}>
+                                        {mainText}
+                                      </div>
+                                    </UiTooltip>
+                                    {isRata && (
+                                      <span className="shrink-0 inline-flex items-center px-1.5 py-0.5 rounded-md bg-indigo-50 text-[10px] font-semibold text-indigo-700 border border-indigo-100">
+                                        rata {p.installment_number}/{p.installment_total}
+                                      </span>
+                                    )}
+                                  </div>
                                   {subText && (
                                     <UiTooltip content={subText}>
                                       <div className="text-[10px] text-slate-400 mt-0.5 truncate max-w-[220px]">
