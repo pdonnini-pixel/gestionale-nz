@@ -2402,20 +2402,26 @@ const ScadenzarioSmart = () => {
           {/* ===== TOTALE (sempre visibile, coerente col filtro) + vista ===== */}
           {typeFilter !== 'incassi' && (
           <div className="flex items-center justify-between flex-wrap gap-2 border-y border-slate-100 py-2.5">
-            {/* Il totale "da saldare" conta SOLO le scadenze reali. Le stime da
-                ricorrenza (azzurre) sono un di-cui previsionale separato. */}
+            {/* Totale "da saldare" = UN unico numero che include reali + stime
+                ricorrenti previste (decisione post-#200). Le stime restano azzurre
+                nelle righe; qui sotto al totale una nota discreta indica quanta
+                parte è stimata. Le stime coperte da fattura reale sono già escluse
+                (riconciliazione #200) → niente doppio conteggio. */}
             {(() => {
               const reals = displayPayables.filter(p => !p._isEstimate);
               const estimates = displayPayables.filter(p => p._isEstimate);
-              const realTot = reals.reduce((s, p) => s + (p.amount_remaining || 0), 0);
               const estTot = estimates.reduce((s, p) => s + (p.amount_remaining || 0), 0);
+              const total = displayPayables.reduce((s, p) => s + (p.amount_remaining || 0), 0);
+              const count = reals.length + estimates.length;
               return (
-                <div className="flex items-baseline gap-2 flex-wrap">
-                  <span className="text-xs text-slate-400 uppercase tracking-wide font-semibold">Totale da saldare</span>
-                  <span className="text-xl font-bold text-slate-900">{fmt(realTot)} €</span>
-                  <span className="text-sm text-slate-400">· {reals.length} scadenz{reals.length === 1 ? 'a' : 'e'}</span>
+                <div className="flex flex-col">
+                  <div className="flex items-baseline gap-2 flex-wrap">
+                    <span className="text-xs text-slate-400 uppercase tracking-wide font-semibold">Totale da saldare</span>
+                    <span className="text-xl font-bold text-slate-900">{fmt(total)} €</span>
+                    <span className="text-sm text-slate-400">· {count} scadenz{count === 1 ? 'a' : 'e'}</span>
+                  </div>
                   {estimates.length > 0 && (
-                    <span className="text-sm text-sky-600">+ {estimates.length} stim{estimates.length === 1 ? 'a' : 'e'} ≈ {fmt(estTot)} €</span>
+                    <span className="text-[11px] text-sky-600 mt-0.5">include ≈ {fmt(estTot)} € di ricorrenti previste ({estimates.length} stim{estimates.length === 1 ? 'a' : 'e'})</span>
                   )}
                 </div>
               );
@@ -2861,12 +2867,12 @@ const ScadenzarioSmart = () => {
                             <span className="flex items-center gap-2">
                               <ChevronDown size={15} className={`text-slate-400 transition-transform ${item.collapsed ? '-rotate-90' : ''}`} />
                               <span className="text-sm font-semibold text-slate-800 capitalize">{item.label}</span>
-                              <span className="text-xs text-slate-400">· {item.count} scadenz{item.count === 1 ? 'a' : 'e'}</span>
-                              {item.estimateCount > 0 && <span className="text-xs text-sky-600">· {item.estimateCount} stim{item.estimateCount === 1 ? 'a' : 'e'}</span>}
+                              <span className="text-xs text-slate-400">· {item.count + item.estimateCount} scadenz{(item.count + item.estimateCount) === 1 ? 'a' : 'e'}</span>
                             </span>
+                            {/* Subtotale mese = reali + stime (numero unico); nota azzurra discreta della quota stimata. */}
                             <span className="flex items-baseline gap-2">
-                              <span className="text-sm font-bold text-slate-900">{fmt(item.subtotal)} €</span>
-                              {item.estimateSubtotal > 0 && <span className="text-xs text-sky-600">+ ≈ {fmt(item.estimateSubtotal)} €</span>}
+                              <span className="text-sm font-bold text-slate-900">{fmt(item.subtotal + item.estimateSubtotal)} €</span>
+                              {item.estimateSubtotal > 0 && <span className="text-[11px] text-sky-600">incl. ≈ {fmt(item.estimateSubtotal)} €</span>}
                             </span>
                           </button>
                         </td>
