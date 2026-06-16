@@ -22,6 +22,7 @@ type TesoreriaTab = 'panoramica' | 'conti' | 'movimenti' | 'riconciliazione' | '
 const VALID_TESORERIA_TABS: TesoreriaTab[] = ['panoramica', 'conti', 'movimenti', 'riconciliazione', 'prima_nota', 'finanziamenti']
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
+import { usePeriod } from '../hooks/usePeriod'
 import { useCompanyLabels } from '../hooks/useCompanyLabels'
 import { useToast } from '../components/Toast'
 import { BANK_CATEGORY_OPTIONS, bankCategoryLabel } from '../lib/bankCategories'
@@ -1616,7 +1617,7 @@ function TabContiBancari({ accounts, companyId, onRefresh }: { accounts: Account
 // ═══ TAB 3: MOVIMENTI ═══
 // ═══════════════════════════════════════════════════════════════════
 
-function TabMovimenti({ transactions, accounts, onAssignCategory, initialCategoryFilter }: { transactions: TransactionT[]; accounts: AccountT[]; onAssignCategory: (t: TransactionT, category: string) => void | Promise<void>; initialCategoryFilter?: string }) {
+function TabMovimenti({ transactions, accounts, onAssignCategory, initialCategoryFilter, year }: { transactions: TransactionT[]; accounts: AccountT[]; onAssignCategory: (t: TransactionT, category: string) => void | Promise<void>; initialCategoryFilter?: string; year: number }) {
   // Deep-link Dashboard: ?filter=senza-categoria preseleziona il filtro categoria
   // e azzera il range date (default = mese corrente) per mostrare TUTTI i movimenti
   // senza categoria, non solo quelli del mese.
@@ -1627,13 +1628,10 @@ function TabMovimenti({ transactions, accounts, onAssignCategory, initialCategor
   const [filterType, setFilterType] = useState('all') // all, entrata, uscita
   const [filterReconciled, setFilterReconciled] = useState('all') // all, yes, no
   const [filterCategory, setFilterCategory] = useState(() => wantsUncat ? 'senza_categoria' : 'all') // all, senza_categoria, <slug>
-  // Default: dal primo del mese a oggi (modificabile). Col deep-link senza-categoria: vuoto.
-  const [dateFrom, setDateFrom] = useState(() => {
-    if (wantsUncat) return ''
-    const d = new Date()
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`
-  })
-  const [dateTo, setDateTo] = useState(() => wantsUncat ? '' : new Date().toISOString().slice(0, 10))
+  // Default: l'anno selezionato dal Period Selector globale (modificabile).
+  // Col deep-link senza-categoria: vuoto (mostra tutti gli scategorizzati).
+  const [dateFrom, setDateFrom] = useState(() => wantsUncat ? '' : `${year}-01-01`)
+  const [dateTo, setDateTo] = useState(() => wantsUncat ? '' : `${year}-12-31`)
   const [page, setPage] = useState(1)
   const [perPage, setPerPage] = useState(50) // 50/100/250 selezionabile (default 50)
   const [sortField, setSortField] = useState<keyof TransactionT | string>('transaction_date')
@@ -1646,6 +1644,15 @@ function TabMovimenti({ transactions, accounts, onAssignCategory, initialCategor
       setFilterCategory('senza_categoria'); setDateFrom(''); setDateTo('')
     }
   }, [initialCategoryFilter])
+
+  // L'anno selezionato dal Period Selector globale guida il range del tab Movimenti:
+  // selezionando un anno la lista mostra i movimenti di quell'anno. Il deep-link
+  // "senza-categoria" resta senza date (mostra tutti gli scategorizzati, vedi sopra).
+  useEffect(() => {
+    if (wantsUncat) return
+    setDateFrom(`${year}-01-01`)
+    setDateTo(`${year}-12-31`)
+  }, [year, wantsUncat])
 
   const uncategorizedCount = useMemo(() => transactions.filter(t => t.category == null).length, [transactions])
 
@@ -1720,9 +1727,8 @@ function TabMovimenti({ transactions, accounts, onAssignCategory, initialCategor
     setFilterAccount('all')
     setFilterType('all')
     setFilterReconciled('all')
-    const d = new Date()
-    setDateFrom(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`)
-    setDateTo(new Date().toISOString().slice(0, 10))
+    setDateFrom(`${year}-01-01`)
+    setDateTo(`${year}-12-31`)
     setPage(1)
   }
 
@@ -3324,6 +3330,9 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
 export default function TesoreriaManuale() {
   const { session, profile } = useAuth()
   const { toast } = useToast()
+  // Anno selezionato dal Period Selector globale (Layout): guida il tab Movimenti.
+  // I KPI "live" (posizione di cassa, entrate/uscite 30gg) NON dipendono dall'anno.
+  const { year } = usePeriod()
   const companyId = session?.user?.app_metadata?.company_id || '00000000-0000-0000-0000-000000000001'
 
   // activeTab persistito in URL come ?tab=… (default 'panoramica')
@@ -3505,6 +3514,7 @@ export default function TesoreriaManuale() {
           accounts={accounts}
           onAssignCategory={handleAssignCategory}
           initialCategoryFilter={searchParams.get('filter') === 'senza-categoria' ? 'senza_categoria' : undefined}
+          year={year}
         />
       )}
       {activeTab === 'riconciliazione' && (
