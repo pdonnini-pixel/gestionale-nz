@@ -330,6 +330,22 @@ export default function CashflowProspettico() {
     fetchAllData();
   }, [COMPANY_ID, year, quarter, selectedOutlet, scenario]);
 
+  // FIX 2 — Refresh cross-pagina: ri-legge i dati quando la finestra/scheda torna
+  // attiva (es. dopo aver modificato un importo fiscale nello Scadenzario), così il
+  // cashflow non resta fermo ai dati del mount. Re-registrato quando cambiano i filtri
+  // (cattura la fetchAllData corrente).
+  useEffect(() => {
+    if (!COMPANY_ID) return;
+    const onActive = () => { if (document.visibilityState === 'visible') fetchAllData(); };
+    window.addEventListener('focus', onActive);
+    document.addEventListener('visibilitychange', onActive);
+    return () => {
+      window.removeEventListener('focus', onActive);
+      document.removeEventListener('visibilitychange', onActive);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [COMPANY_ID, year, quarter, selectedOutlet, scenario]);
+
   // Reset expanded row when view mode changes
   useEffect(() => {
     setExpandedRow(null);
@@ -455,7 +471,7 @@ export default function CashflowProspettico() {
       setRawFiscal((fiscalData || []) as AnyRow[]);
       const monthlyFiscal: number[] = Array(12).fill(0);
       ((fiscalData || []) as Array<Record<string, unknown>>).forEach(f => {
-        if (['pagato', 'annullato'].includes(String(f.status || ''))) return;
+        if (['paid', 'cancelled', 'pagato', 'annullato'].includes(String(f.status || '').toLowerCase())) return;
         if (!f.due_date) return;
         const dd = new Date(String(f.due_date));
         if (dd.getFullYear() !== year) return;
@@ -1331,7 +1347,7 @@ export default function CashflowProspettico() {
       });
       // E — scadenze fiscali (IVA/imposte): stima variabile (azzurro)
       (rawFiscal || []).forEach(f => {
-        if (['pagato', 'annullato'].includes(String(f.status || ''))) return;
+        if (['paid', 'cancelled', 'pagato', 'annullato'].includes(String(f.status || '').toLowerCase())) return;
         if (!f.due_date) return;
         const dd = new Date(String(f.due_date));
         if (dd.getMonth() !== monthIdx || dd.getFullYear() !== year) return;
@@ -1444,6 +1460,14 @@ export default function CashflowProspettico() {
         subtitle="Proiezione liquidità giornaliera, settimanale e mensile"
         actions={
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => fetchAllData()}
+              disabled={loading}
+              className="flex items-center gap-1.5 px-3 py-2 bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 text-sm font-medium rounded-lg transition disabled:opacity-50"
+              title="Ri-leggi i dati (scadenze, fiscali, ricorrenti) modificati in altre pagine"
+            >
+              {loading ? 'Aggiorno…' : 'Aggiorna'}
+            </button>
             <button
               onClick={() => {
                 setEditingForecastId(null);
