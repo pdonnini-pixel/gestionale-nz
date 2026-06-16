@@ -30,6 +30,7 @@ import PrimaNota from './PrimaNota'
 import OpenBankingAcube from '../components/OpenBankingAcube'
 import FinanziamentiTab from '../components/FinanziamentiTab'
 import CellTooltip from '../components/Tooltip'
+import SyncStatusBadge from '../components/SyncStatusBadge'
 
 // ═══════════════════════════════════════════════════════════════════
 // ═══ HELPERS ═══
@@ -3452,9 +3453,12 @@ export default function TesoreriaManuale() {
           </h1>
           <p className="text-sm text-slate-500 mt-1">Gestione conti bancari, estratti conto e riconciliazione</p>
         </div>
-        <button onClick={refresh} className="flex items-center gap-2 px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-50 transition shadow-sm">
-          <RefreshCw size={14} /> Aggiorna
-        </button>
+        <div className="flex items-center gap-2">
+          <SyncStatusBadge feed="banche" />
+          <button onClick={refresh} className="flex items-center gap-2 px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-50 transition shadow-sm">
+            <RefreshCw size={14} /> Aggiorna
+          </button>
+        </div>
       </div>
 
       {/* Tab navigation */}

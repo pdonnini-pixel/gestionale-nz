@@ -17,6 +17,7 @@ import { usePeriod } from '../hooks/usePeriod'
 import { useTableSort } from '../hooks/useTableSort'
 import SortableTh from '../components/ui/SortableTh'
 import Tooltip from '../components/Tooltip'
+import SyncStatusBadge from '../components/SyncStatusBadge'
 import {
   FileText, Upload, Send, RefreshCw, Search, Filter, ChevronDown, ChevronUp,
   CheckCircle, XCircle, Clock, AlertTriangle, Eye, Download, Plus, X,
@@ -1629,32 +1630,24 @@ export default function Fatturazione() {
   const handleSyncAcubeSdi = async () => {
     setSyncing(true)
     try {
-      const { data, error } = await supabase.functions.invoke('acube-sdi-sync-inbound', { body: { stage: sdiStage } })
-      // Supabase functions-js wraps non-2xx in FunctionsHttpError con .context.json() che contiene il body
-      if (error) {
-        let detail = error.message
-        // Tenta di leggere il body JSON dell'errore Edge Function per messaggio specifico
-        try {
-          const errCtx = (error as unknown as { context?: { json?: () => Promise<{ error?: string }> } })?.context
-          if (errCtx?.json) {
-            const bodyJson = await errCtx.json()
-            if (bodyJson?.error) detail = bodyJson.error
-          }
-        } catch { /* swallow */ }
-        throw new Error(detail)
-      }
-      const result = data as { inserted?: number; skipped?: number; failed?: number; total_found?: number; errors?: string[] }
+      // Pull manuale via RPC SECURITY DEFINER (stesso motore del cron 6h:
+      // login A-Cube + fetch /invoices con guardia tenant, idempotente, logga
+      // sync_runs con origine='manuale'). Un'unica implementazione corretta.
+      const { data, error } = await supabase.rpc('acube_sdi_sync_inbound_production' as never, {
+        p_stage: sdiStage,
+        p_origine: 'manuale',
+      } as never)
+      if (error) throw new Error(error.message)
+      const result = (data ?? {}) as { ok?: boolean; inserted?: number; found?: number; status?: string; error?: string | null }
       const inserted = result.inserted ?? 0
-      const skipped = result.skipped ?? 0
-      const failed = result.failed ?? 0
-      const total = result.total_found ?? 0
-      const hasErrors = (result.errors?.length ?? 0) > 0 || failed > 0
+      const total = result.found ?? 0
+      const skipped = Math.max(0, total - inserted)
+      const hasErrors = result.ok === false || !!result.error || result.status === 'parziale' || result.status === 'errore'
 
-      const summary = `${inserted} nuove fatture, ${skipped} già presenti, ${failed} errori\n(trovate su A-Cube: ${total})`
-      const errLines = (result.errors || []).slice(0, 5).join('\n')
+      const summary = `${inserted} nuove fatture, ${skipped} già presenti\n(trovate su A-Cube: ${total})`
       toast({
         type: hasErrors ? 'warning' : 'success',
-        message: hasErrors ? `${summary}\n\n${errLines}` : summary,
+        message: hasErrors && result.error ? `${summary}\n\n${result.error}` : summary,
       })
       setSyncKey(prev => prev + 1)
       loadStats()
@@ -1686,6 +1679,7 @@ export default function Fatturazione() {
         noDivider
         actions={
           <>
+            <SyncStatusBadge feed="fatture_passive" refreshKey={syncKey} />
             {sdiStats?.config && (
               <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
                 sdiStats.config.environment === 'PRODUCTION' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'

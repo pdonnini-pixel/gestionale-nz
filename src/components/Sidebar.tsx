@@ -10,7 +10,7 @@ import {
   CalendarClock, UserCheck, PieChart, Sparkles, Activity, Sliders,
   Upload, FolderArchive, TrendingUp, ChevronsUpDown, Building,
   Menu, X, ChevronsLeft, ChevronsRight,
-  MessageSquare, Shield,
+  MessageSquare, Shield, RefreshCw,
   LucideIcon
 } from 'lucide-react'
 import { useState, useRef, useEffect, useMemo, createContext, useContext } from 'react'
@@ -114,6 +114,7 @@ function buildSections(labels: CompanyLabels): NavSection[] {
       items: [
         { to: '/import-hub', icon: Upload, label: 'Import Hub', roles: ['super_advisor', 'cfo', 'contabile'] },
         { to: '/archivio', icon: FolderArchive, label: 'Archivio Documenti', roles: ['super_advisor', 'cfo', 'contabile'] },
+        { to: '/report-sincronizzazioni', icon: RefreshCw, label: 'Report Sincronizzazioni', roles: ['super_advisor'] },
         { to: '/impostazioni', icon: Settings, label: 'Impostazioni', roles: ['super_advisor'] },
       ],
     },
@@ -160,6 +161,7 @@ export function buildBreadcrumbMap(
     '/scenario': { section: 'AI & Analytics', page: 'Scenario Planning' },
     '/import-hub': { section: 'Sistema', page: 'Import Hub' },
     '/archivio': { section: 'Sistema', page: 'Archivio Documenti' },
+    '/report-sincronizzazioni': { section: 'Sistema', page: 'Report Sincronizzazioni' },
     '/impostazioni': { section: 'Sistema', page: 'Impostazioni' },
     '/ticket': { section: 'Supporto', page: 'Segnalazioni' },
     '/ticket/admin': { section: 'Supporto', page: 'Admin Segnalazioni' },
