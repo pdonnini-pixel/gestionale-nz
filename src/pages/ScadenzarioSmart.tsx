@@ -154,6 +154,26 @@ const paymentGroups = [
 
 const RIBA_DAYS = { riba_30: 30, riba_60: 60, riba_90: 90, riba_120: 120 };
 
+// ── SCADENZE-STIMA da ricorrenza (on-the-fly) ─────────────────────────────
+// Orizzonte mobile e tolleranza di riconciliazione: definiti UNA volta qui,
+// niente valori sparsi. La finestra parte sempre dal mese corrente (mobile:
+// si sposta da sola a ogni apertura, nessun job schedulato necessario).
+const ESTIMATE_HORIZON_MONTHS = 12;
+// Tolleranza importo per considerare una stima "coperta" da una fattura reale
+// (stesso fornitore + stesso mese). ±8% oppure ±€20, il maggiore: copre IVA/
+// arrotondamenti senza abbinare importi palesemente diversi.
+const ESTIMATE_MATCH_TOLERANCE_PCT = 0.08;
+const ESTIMATE_MATCH_TOLERANCE_ABS = 20;
+// Passo in mesi per frequenza ricorrenza (allineato a recurring_costs.frequency
+// e alla tab Ricorrenze / cashflow).
+const RECURRENCE_STEP_MONTHS: Record<string, number> = {
+  monthly: 1, bimonthly: 2, quarterly: 3, semiannual: 6, annual: 12,
+};
+// Normalizza un nome fornitore per il match (case/spazi).
+function normSupplier(s: string | null | undefined): string {
+  return (s || '').toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
 // Categorizzazione automatica degli INCASSI dalla descrizione del movimento.
 // Solo etichetta categoriale (chip), NON un numero: niente verde sugli importi.
 // Per rispettare la convenzione "niente verde" evito classi emerald: Accredito/
@@ -326,6 +346,9 @@ const ScadenzarioSmart = () => {
   // Centri di costo (outlet + sede + spese da ripartire): servono al form
   // "Aggiungi scadenza" quando si imposta una periodicità (recurring_costs.cost_center).
   const [costCenters, setCostCenters] = useState<AnyRow[]>([]);
+  // Costi ricorrenti attivi: sorgente delle SCADENZE-STIMA generate on-the-fly
+  // (read-only; nessuna riga materializzata, nessuna migration).
+  const [recurringCosts, setRecurringCosts] = useState<AnyRow[]>([]);
   const [categoryDropdownId, setCategoryDropdownId] = useState<any>(null);
   const [categorySearch, setCategorySearch] = useState('');
   const [statusDropdownId, setStatusDropdownId] = useState<any>(null);
@@ -506,6 +529,14 @@ const ScadenzarioSmart = () => {
         .eq('company_id', COMPANY_ID!)
         .order('sort_order', { ascending: true });
       setCostCenters(centersData || []);
+
+      // Ricorrenze attive: alimentano le scadenze-stima on-the-fly. Solo lettura.
+      const { data: recurringData } = await supabase
+        .from('recurring_costs')
+        .select('id, supplier_name, cost_center, amount, frequency, day_of_month, payment_method, start_date, end_date, is_active, description')
+        .eq('company_id', COMPANY_ID!)
+        .or('is_active.is.null,is_active.eq.true');
+      setRecurringCosts(recurringData || []);
 
       const { data: accountsData } = await supabase
         .from('bank_accounts')
@@ -1714,12 +1745,118 @@ const ScadenzarioSmart = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [typeFilter]);
 
+  // ── SCADENZE-STIMA da ricorrenza (on-the-fly, orizzonte 12 mesi mobili) ──
+  // Genera occorrenze previste per ogni ricorrenza attiva, SENZA materializzare
+  // righe nel DB. Riconciliazione VISIVA (no-data-loss): se per lo stesso
+  // fornitore+mese esiste già una fattura reale entro tolleranza, la stima è
+  // "coperta" e non viene mostrata (la reale conta una volta sola, niente doppi
+  // nel totale né nel cashflow). Se esiste una reale stesso fornitore+mese ma
+  // con importo fuori tolleranza, la stima resta visibile con indicatore
+  // "possibile corrispondenza" (l'utente decide, niente azioni automatiche).
+  const estimateRows = useMemo<AnyRow[]>(() => {
+    if (!recurringCosts.length) return [];
+    // Indice fatture reali (non stime, non annullate/nota credito) per
+    // fornitore-normalizzato|YYYY-MM → importi lordi.
+    const realIndex = new Map<string, number[]>();
+    payables.forEach(p => {
+      if (p._isEstimate) return;
+      if (p.status === 'annullato' || p.status === 'nota_credito') return;
+      const d = p.due_date ? new Date(String(p.due_date)) : null;
+      if (!d || isNaN(d.getTime())) return;
+      const name = normSupplier((p.suppliers?.ragione_sociale || p.suppliers?.name || p.supplier_name) as string);
+      if (!name) return;
+      const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      const key = `${name}|${ym}`;
+      (realIndex.get(key) || realIndex.set(key, []).get(key)!).push(Number(p.gross_amount) || 0);
+    });
+
+    const now = new Date();
+    const curIdx = now.getFullYear() * 12 + now.getMonth();
+    const horizonIdx = curIdx + ESTIMATE_HORIZON_MONTHS;
+    const out: AnyRow[] = [];
+
+    recurringCosts.forEach(rc => {
+      if (rc.is_active === false) return;
+      const amount = Number(rc.amount) || 0;
+      if (!(amount > 0)) return;
+      const step = RECURRENCE_STEP_MONTHS[String(rc.frequency)] || 1;
+      const day = Math.min(28, Math.max(1, Number(rc.day_of_month) || 1));
+      const supplierName = (rc.supplier_name || rc.description || 'Ricorrenza') as string;
+      const nName = normSupplier(supplierName);
+      const sd = rc.start_date ? new Date(String(rc.start_date)) : null;
+      const ed = rc.end_date ? new Date(String(rc.end_date)) : null;
+      const anchorIdx = sd && !isNaN(sd.getTime()) ? sd.getFullYear() * 12 + sd.getMonth() : curIdx;
+      const endIdx = ed && !isNaN(ed.getTime()) ? ed.getFullYear() * 12 + ed.getMonth() : Infinity;
+
+      for (let mi = curIdx; mi <= Math.min(horizonIdx, endIdx); mi++) {
+        if (mi < anchorIdx) continue;
+        if ((mi - anchorIdx) % step !== 0) continue;
+        const y = Math.floor(mi / 12);
+        const m = mi % 12;
+        const ym = `${y}-${String(m + 1).padStart(2, '0')}`;
+        const reals = realIndex.get(`${nName}|${ym}`);
+        let possibleMatch = false;
+        if (reals && reals.length) {
+          const covered = reals.some(a => Math.abs(a - amount) <= Math.max(amount * ESTIMATE_MATCH_TOLERANCE_PCT, ESTIMATE_MATCH_TOLERANCE_ABS));
+          if (covered) continue; // coperta dalla fattura reale → non mostrare
+          possibleMatch = true;  // stessa voce ma importo diverso → segnala
+        }
+        out.push({
+          id: `est_${rc.id}_${ym}`,
+          _isEstimate: true,
+          _possibleMatch: possibleMatch,
+          _recurringId: rc.id,
+          invoice_number: '',
+          due_date: `${ym}-${String(day).padStart(2, '0')}`,
+          original_due_date: `${ym}-${String(day).padStart(2, '0')}`,
+          gross_amount: amount,
+          amount_paid: 0,
+          amount_remaining: amount,
+          status: 'stima',
+          payment_method: (rc.payment_method as string) || 'bonifico',
+          suppliers: { name: supplierName, ragione_sociale: supplierName, category: 'ricorrente' },
+          notes: (rc.description as string) || '',
+          cost_center: (rc.cost_center as string) || '',
+          supplier_id: null,
+          days_to_due: null,
+          urgency: null,
+        } as AnyRow);
+      }
+    });
+    return out;
+  }, [recurringCosts, payables]);
+
   const displayPayables = useMemo(() => {
     // Vista default "Tutte le scadenze": nascondi le pagate, a meno che l'utente
     // non filtri esplicitamente per stato 'Pagato'. Tutto il resto (tipo, stato,
     // periodo, ricerca) è già applicato in filteredPayables.
-    return filteredPayables.filter(p => p.status !== 'pagato' || selectedStatus === 'pagato');
-  }, [filteredPayables, selectedStatus]);
+    const reals = filteredPayables.filter(p => p.status !== 'pagato' || selectedStatus === 'pagato');
+
+    // Le STIME compaiono solo nella vista scadenze "fornitori/tutte", senza un
+    // filtro di stato reale attivo (non sono scaduto/pagato/in distinta), e
+    // rispettano gli stessi filtri ricerca/periodo/metodo/outlet.
+    const showEstimates = (typeFilter === '' || typeFilter === 'fornitori') && !selectedStatus && !selectedOutlet;
+    if (!showEstimates || !estimateRows.length) return reals;
+
+    const q = searchTerm.trim().toLowerCase();
+    const startD = dateRange.start ? new Date(dateRange.start) : null;
+    const endD = dateRange.end ? new Date(dateRange.end) : null;
+    const methodSet = selectedMethodGroup ? new Set(paymentGroups.find(g => g.key === selectedMethodGroup)?.methods || []) : null;
+    const estimates = estimateRows.filter(e => {
+      if (q) {
+        const hay = `${e.suppliers?.ragione_sociale || ''} ${e.suppliers?.name || ''} ${e.notes || ''}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      const d = e.due_date ? new Date(String(e.due_date)) : null;
+      if (d && !isNaN(d.getTime())) {
+        if (startD && !isNaN(startD.getTime()) && d < startD) return false;
+        if (endD && !isNaN(endD.getTime()) && d > endD) return false;
+      }
+      if (methodSet && !methodSet.has(String(e.payment_method))) return false;
+      return true;
+    });
+    return [...reals, ...estimates];
+  }, [filteredPayables, selectedStatus, estimateRows, typeFilter, selectedOutlet, searchTerm, dateRange, selectedMethodGroup]);
 
   // Ordinamento tabella scadenze (modello standard SortableTh + useTableSort).
   // Default: scadenza piu' vecchia in cima. Persistente tra refresh per
@@ -1793,27 +1930,31 @@ const ScadenzarioSmart = () => {
   // niente anni/mesi hardcoded. Le righe seguono l'ordinamento attivo della
   // tabella; 'N/D' (senza data) va in fondo. Se un mese è collassato, le sue
   // righe non vengono emesse (resta solo l'header con subtotale e conteggio).
+  // Subtotale/conteggio del mese tengono SEPARATE le scadenze reali dalle
+  // STIME (azzurre): il subtotale "da saldare" resta reale, le stime sono un
+  // di-cui previsionale a parte. Niente somma reale+stima.
   type MonthRenderItem =
-    | { kind: 'header'; key: string; label: string; count: number; subtotal: number; collapsed: boolean }
+    | { kind: 'header'; key: string; label: string; count: number; subtotal: number; estimateCount: number; estimateSubtotal: number; collapsed: boolean }
     | { kind: 'row'; p: AnyRow };
   const monthRenderItems = useMemo<MonthRenderItem[]>(() => {
-    const map = new Map<string, { key: string; label: string; items: AnyRow[]; subtotal: number }>();
+    const map = new Map<string, { key: string; label: string; items: AnyRow[]; subtotal: number; estimateCount: number; estimateSubtotal: number }>();
     sortedDisplayPayables.forEach(p => {
       const d = p.due_date ? new Date(p.due_date) : null;
       const valid = d && !isNaN(d.getTime());
       const key = valid ? `${d!.getFullYear()}-${String(d!.getMonth() + 1).padStart(2, '0')}` : 'N/D';
       const label = valid ? d!.toLocaleDateString('it-IT', { month: 'long', year: 'numeric' }) : 'Senza data';
-      if (!map.has(key)) map.set(key, { key, label, items: [], subtotal: 0 });
+      if (!map.has(key)) map.set(key, { key, label, items: [], subtotal: 0, estimateCount: 0, estimateSubtotal: 0 });
       const g = map.get(key)!;
       g.items.push(p);
-      g.subtotal += p.amount_remaining || 0;
+      if (p._isEstimate) { g.estimateCount += 1; g.estimateSubtotal += p.amount_remaining || 0; }
+      else g.subtotal += p.amount_remaining || 0;
     });
     const keys = Array.from(map.keys()).sort((a, b) => (a === 'N/D' ? 1 : b === 'N/D' ? -1 : a.localeCompare(b)));
     const out: MonthRenderItem[] = [];
     keys.forEach(k => {
       const g = map.get(k)!;
       const collapsed = collapsedMonths.has(k);
-      out.push({ kind: 'header', key: k, label: g.label, count: g.items.length, subtotal: g.subtotal, collapsed });
+      out.push({ kind: 'header', key: k, label: g.label, count: g.items.length - g.estimateCount, subtotal: g.subtotal, estimateCount: g.estimateCount, estimateSubtotal: g.estimateSubtotal, collapsed });
       if (!collapsed) g.items.forEach(p => out.push({ kind: 'row', p }));
     });
     return out;
@@ -2251,11 +2392,24 @@ const ScadenzarioSmart = () => {
           {/* ===== TOTALE (sempre visibile, coerente col filtro) + vista ===== */}
           {typeFilter !== 'incassi' && (
           <div className="flex items-center justify-between flex-wrap gap-2 border-y border-slate-100 py-2.5">
-            <div className="flex items-baseline gap-2">
-              <span className="text-xs text-slate-400 uppercase tracking-wide font-semibold">Totale da saldare</span>
-              <span className="text-xl font-bold text-slate-900">{fmt(displayPayables.reduce((s, p) => s + (p.amount_remaining || 0), 0))} €</span>
-              <span className="text-sm text-slate-400">· {displayPayables.length} scadenz{displayPayables.length === 1 ? 'a' : 'e'}</span>
-            </div>
+            {/* Il totale "da saldare" conta SOLO le scadenze reali. Le stime da
+                ricorrenza (azzurre) sono un di-cui previsionale separato. */}
+            {(() => {
+              const reals = displayPayables.filter(p => !p._isEstimate);
+              const estimates = displayPayables.filter(p => p._isEstimate);
+              const realTot = reals.reduce((s, p) => s + (p.amount_remaining || 0), 0);
+              const estTot = estimates.reduce((s, p) => s + (p.amount_remaining || 0), 0);
+              return (
+                <div className="flex items-baseline gap-2 flex-wrap">
+                  <span className="text-xs text-slate-400 uppercase tracking-wide font-semibold">Totale da saldare</span>
+                  <span className="text-xl font-bold text-slate-900">{fmt(realTot)} €</span>
+                  <span className="text-sm text-slate-400">· {reals.length} scadenz{reals.length === 1 ? 'a' : 'e'}</span>
+                  {estimates.length > 0 && (
+                    <span className="text-sm text-sky-600">+ {estimates.length} stim{estimates.length === 1 ? 'a' : 'e'} ≈ {fmt(estTot)} €</span>
+                  )}
+                </div>
+              );
+            })()}
             {/* Vista: Mese (default) | Lista piatta | Calendario */}
             <div className="flex gap-0.5 bg-slate-100 rounded-lg p-0.5">
               <button onClick={() => { setScadViewMode('lista'); setListLayout('mese'); }}
@@ -2304,6 +2458,7 @@ const ScadenzarioSmart = () => {
 
             // Determine dot color for a payable
             const dotColor = (p: AnyRow) => {
+              if (p._isEstimate) return 'bg-sky-400'; // stima da ricorrenza
               if (p.status === 'scaduto') return 'bg-red-500';
               if (p.status === 'in_scadenza') return 'bg-amber-500';
               if (p.status === 'pagato') return 'bg-emerald-500';
@@ -2697,12 +2852,50 @@ const ScadenzarioSmart = () => {
                               <ChevronDown size={15} className={`text-slate-400 transition-transform ${item.collapsed ? '-rotate-90' : ''}`} />
                               <span className="text-sm font-semibold text-slate-800 capitalize">{item.label}</span>
                               <span className="text-xs text-slate-400">· {item.count} scadenz{item.count === 1 ? 'a' : 'e'}</span>
+                              {item.estimateCount > 0 && <span className="text-xs text-sky-600">· {item.estimateCount} stim{item.estimateCount === 1 ? 'a' : 'e'}</span>}
                             </span>
-                            <span className="text-sm font-bold text-slate-900">{fmt(item.subtotal)} €</span>
+                            <span className="flex items-baseline gap-2">
+                              <span className="text-sm font-bold text-slate-900">{fmt(item.subtotal)} €</span>
+                              {item.estimateSubtotal > 0 && <span className="text-xs text-sky-600">+ ≈ {fmt(item.estimateSubtotal)} €</span>}
+                            </span>
                           </button>
                         </td>
                       </tr>
-                    ) : (() => { const p = item.p; return (
+                    ) : (() => { const p = item.p;
+                      // ── RIGA STIMA da ricorrenza (azzurra, non selezionabile,
+                      //    non pagabile): è una previsione, non una scadenza reale. ──
+                      if (p._isEstimate) return (
+                        <tr key={p.id} className="border-b border-slate-50 bg-sky-50/30 hover:bg-sky-50/60 transition-colors">
+                          <td className="py-2.5 px-3 text-center">
+                            <UiTooltip content="Stima da ricorrenza: diventa pagabile quando arriva la fattura reale"><Repeat size={13} className="text-sky-400 inline" /></UiTooltip>
+                          </td>
+                          <td className="py-2.5 px-3 whitespace-nowrap">
+                            <div className="text-[13px] font-medium text-sky-700">
+                              {p.due_date ? new Date(p.due_date).toLocaleDateString('it-IT', { day: 'numeric', month: 'long', year: 'numeric' }) : '—'}
+                            </div>
+                            <div className="text-[10px] text-sky-400 mt-0.5">{(paymentMethodLabels as Record<string, string>)[p.payment_method || ''] || 'Bonifico'}</div>
+                          </td>
+                          <td className="py-2.5 px-3">
+                            <UiTooltip content={(p.suppliers?.ragione_sociale || p.suppliers?.name || '') as string}>
+                              <div className="text-[13px] text-sky-800 font-medium truncate max-w-[220px]">{p.suppliers?.ragione_sociale || p.suppliers?.name || '—'}</div>
+                            </UiTooltip>
+                            <div className="text-[10px] text-sky-500 mt-0.5">≈ Stima da ricorrenza{p.notes ? ` • ${p.notes}` : ''}</div>
+                          </td>
+                          <td className="py-2.5 px-3 text-right text-[13px] font-medium whitespace-nowrap text-sky-700">≈ {fmt(p.gross_amount)} €</td>
+                          <td className="py-2.5 px-3 text-center">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-sky-100 text-[10px] text-sky-700 font-medium">Stima</span>
+                            {p._possibleMatch && (
+                              <UiTooltip content="Esiste una fattura reale per questo fornitore nel mese, ma con importo diverso: verifica se è la stessa. Nessuna azione automatica.">
+                                <span className="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-50 text-[10px] text-amber-700 font-medium border border-amber-200"><AlertTriangle size={10} /> Possibile corrispondenza</span>
+                              </UiTooltip>
+                            )}
+                          </td>
+                          <td className="py-2.5 px-3 text-center"><span className="text-[11px] text-slate-300">—</span></td>
+                          <td className="py-2.5 px-3 text-center"><span className="text-[10px] text-sky-500">da Ricorrenze</span></td>
+                          <td className="py-2.5 px-3 text-right"><span className="text-[11px] text-slate-300">—</span></td>
+                        </tr>
+                      );
+                      return (
                       <React.Fragment key={p.id}>
                         <tr className={`border-b border-slate-50 hover:bg-blue-50/50 transition-colors group ${idx % 2 === 1 ? 'even:bg-slate-50/50' : ''}`}>
                           <td className="py-2.5 px-3 text-center">
