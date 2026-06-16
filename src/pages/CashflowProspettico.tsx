@@ -416,7 +416,7 @@ export default function CashflowProspettico() {
           .eq('is_active', true),
         supabase
           .from('payables')
-          .select('id, due_date, gross_amount, amount_paid, outlet_id, status, supplier_id, invoice_number')
+          .select('id, due_date, gross_amount, amount_paid, outlet_id, status, supplier_id, supplier_name, invoice_number')
           .eq('company_id', companyId)
           .in('status', ['da_pagare', 'in_scadenza', 'scaduto']),
         // Daily revenue for daily/weekly views
@@ -1225,7 +1225,8 @@ export default function CashflowProspettico() {
   }, [viewMode, monthlyData, dailyData, weeklyData, year]);
 
   // ===== DRILL-DOWN DETAIL FOR MONTHLY VIEW =====
-  type DrillItem = { label: string; amount: number; state?: 'certo' | 'stima'; editable?: { voiceKey: string; label: string; monthIdx: number } }
+  type DrillGroup = 'FORNITORI' | 'AFFITTI' | 'PERSONALE' | 'FINANZIAMENTI' | 'FISCALI' | 'RICORRENTI'
+  type DrillItem = { label: string; amount: number; state?: 'certo' | 'stima'; group?: DrillGroup; sub?: string; editable?: { voiceKey: string; label: string; monthIdx: number } }
   const getMonthlyDrillDown = (monthIdx: number, column: string): DrillItem[] => {
     const filteredOutlet = selectedOutlet === 'all' ? null : selectedOutlet;
     const outletIdToCode: Record<string, string> = {};
@@ -1269,7 +1270,7 @@ export default function CashflowProspettico() {
       return items;
     } else {
       const items: DrillItem[] = [];
-      // Payables due this month
+      // Payables due this month — nome fornitore in chiaro, fattura+scadenza come dettaglio.
       (rawPayables || []).forEach(p => {
         if (!p.due_date) return;
         const due = String(p.due_date);
@@ -1279,10 +1280,14 @@ export default function CashflowProspettico() {
         if (filteredOutlet && outletIdToCode[oid] !== filteredOutlet) return;
         const outstanding = (Number(p.gross_amount) || 0) - (Number(p.amount_paid) || 0);
         if (outstanding > 0) {
+          const num = String(p.invoice_number || '-');
+          const supplier = String(p.supplier_name || '').trim() || `Fatt. ${num}`;
           items.push({
-            label: `Fatt. ${String(p.invoice_number || '-')} (scad. ${formatDateFull(due)})`,
+            label: supplier,
+            sub: `Fatt. ${num} · scad. ${formatDate(due)}`,
             amount: Math.round(outstanding),
-            state: 'certo'
+            state: 'certo',
+            group: 'FORNITORI',
           });
         }
       });
@@ -1291,7 +1296,7 @@ export default function CashflowProspettico() {
         if (!filteredOutlet || o.code === filteredOutlet) {
           const rent = Number(o.rent_monthly) || 0;
           if (rent > 0) {
-            items.push({ label: `Canone - ${String(o.name || o.code || '')}`, amount: Math.round(rent), state: 'certo' });
+            items.push({ label: String(o.name || o.code || ''), amount: Math.round(rent), state: 'certo', group: 'AFFITTI' });
           }
         }
       });
@@ -1309,7 +1314,7 @@ export default function CashflowProspettico() {
           else if (cost.frequency === 'semiannual') applies = (monthIdx - startMonth) % 6 === 0 && monthIdx >= startMonth;
           else if (cost.frequency === 'annual') applies = monthIdx === startMonth;
           if (applies) {
-            items.push({ label: `≈ ${String(cost.description || cost.category || 'Costo ricorrente')}`, amount: Math.round(Number(cost.amount) || 0), state: 'stima' });
+            items.push({ label: `≈ ${String(cost.description || cost.category || 'Costo ricorrente')}`, amount: Math.round(Number(cost.amount) || 0), state: 'stima', group: 'RICORRENTI' });
           }
         }
       });
@@ -1329,12 +1334,12 @@ export default function CashflowProspettico() {
             seen.add(v.key);
             const ov = ovMap[v.key];
             const amount = ov !== undefined ? ov : v.amount;
-            if (amount > 0) items.push({ label: `≈ ${v.label}${ov !== undefined ? ' (corretto)' : ''}`, amount: Math.round(amount), state: 'stima', editable: { voiceKey: v.key, label: v.label, monthIdx } });
+            if (amount > 0) items.push({ label: `≈ ${v.label}${ov !== undefined ? ' (corretto)' : ''}`, amount: Math.round(amount), state: 'stima', group: 'PERSONALE', editable: { voiceKey: v.key, label: v.label, monthIdx } });
           });
           Object.keys(ovMap).forEach(vk => {
             if (seen.has(vk)) return;
             const amount = ovMap[vk];
-            if (amount > 0) items.push({ label: `≈ ${vk} (corretto)`, amount: Math.round(amount), state: 'stima', editable: { voiceKey: vk, label: vk, monthIdx } });
+            if (amount > 0) items.push({ label: `≈ ${vk} (corretto)`, amount: Math.round(amount), state: 'stima', group: 'PERSONALE', editable: { voiceKey: vk, label: vk, monthIdx } });
           });
         }
       }
@@ -1342,7 +1347,7 @@ export default function CashflowProspettico() {
       (rawLoans || []).forEach(loan => {
         const monthly = Number(loan.monthly_payment) || Number(loan.installment_amount) || 0;
         if (monthly > 0) {
-          items.push({ label: `Rata - ${String(loan.description || 'Finanziamento')}`, amount: Math.round(monthly), state: 'certo' });
+          items.push({ label: `Rata - ${String(loan.description || 'Finanziamento')}`, amount: Math.round(monthly), state: 'certo', group: 'FINANZIAMENTI' });
         }
       });
       // E — scadenze fiscali (IVA/imposte): stima variabile (azzurro)
@@ -1353,7 +1358,7 @@ export default function CashflowProspettico() {
         if (dd.getMonth() !== monthIdx || dd.getFullYear() !== year) return;
         const residuo = (Number(f.amount) || 0) - (Number(f.amount_paid) || 0);
         if (residuo > 0) {
-          items.push({ label: `≈ ${String(f.title || f.deadline_type || 'Scadenza fiscale')} (${formatDateFull(String(f.due_date))})`, amount: Math.round(residuo), state: 'stima' });
+          items.push({ label: `≈ ${String(f.title || f.deadline_type || 'Scadenza fiscale')}`, sub: `scad. ${formatDate(String(f.due_date))}`, amount: Math.round(residuo), state: 'stima', group: 'FISCALI' });
         }
       });
       return items;
@@ -1876,6 +1881,7 @@ export default function CashflowProspettico() {
                             <DrillDownPanel
                               items={getDrillDownItems(idx, expandedColumn || '')}
                               column={expandedColumn || ''}
+                              title={`${month.monthName} ${year}`}
                               onClose={() => { setExpandedRow(null); setExpandedColumn(null); }}
                               onEdit={handleSaveOverride}
                             />
@@ -1937,6 +1943,7 @@ export default function CashflowProspettico() {
                             <DrillDownPanel
                               items={getDrillDownItems(idx, expandedColumn || '')}
                               column={expandedColumn || ''}
+                              title={String(row.label || '')}
                               onClose={() => { setExpandedRow(null); setExpandedColumn(null); }}
                               onEdit={handleSaveOverride}
                             />
@@ -1987,61 +1994,100 @@ export default function CashflowProspettico() {
 }
 
 // ===== DRILL-DOWN PANEL COMPONENT =====
-function DrillDownPanel({ items, column, onClose, onEdit }: { items: { label: string; amount: number; state?: 'certo' | 'stima'; editable?: { voiceKey: string; label: string; monthIdx: number } }[]; column: string; onClose: () => void; onEdit?: (voiceKey: string, label: string, monthIdx: number, amount: number) => void }) {
+type DrillPanelItem = { label: string; amount: number; state?: 'certo' | 'stima'; group?: string; sub?: string; editable?: { voiceKey: string; label: string; monthIdx: number } };
+// Ordine ed etichette dei gruppi del Dettaglio Uscite (i gruppi-stima hanno "(stima)").
+const DRILL_GROUPS: { key: string; label: string; stima?: boolean }[] = [
+  { key: 'FORNITORI', label: 'FORNITORI' },
+  { key: 'AFFITTI', label: 'AFFITTI' },
+  { key: 'PERSONALE', label: 'PERSONALE (stima)', stima: true },
+  { key: 'FINANZIAMENTI', label: 'FINANZIAMENTI' },
+  { key: 'FISCALI', label: 'FISCALI (stima)', stima: true },
+  { key: 'RICORRENTI', label: 'RICORRENTI' },
+];
+function DrillDownPanel({ items, column, onClose, onEdit, title }: { items: DrillPanelItem[]; column: string; onClose: () => void; onEdit?: (voiceKey: string, label: string, monthIdx: number, amount: number) => void; title?: string }) {
   const isEntrate = column === 'entrate';
   const total = items.reduce((sum, item) => sum + (item.amount || 0), 0);
   // Inline-edit override stima (hook PRIMA di ogni return)
-  const [editingIdx, setEditingIdx] = useState<number | null>(null);
+  const [editingKey, setEditingKey] = useState<number | null>(null);
   const [editVal, setEditVal] = useState('');
+
+  // Voci con indice originale stabile (per l'inline-edit anche dopo il raggruppamento).
+  const indexed = items.map((item, i) => ({ item, i }));
+  const grouped = !isEntrate && indexed.some(x => x.item.group);
+
+  // Riga voce singola (riuso per render flat e raggruppato).
+  const renderRow = (item: DrillPanelItem, i: number, indent: boolean) => (
+    <div key={i} className={`flex items-center justify-between text-xs py-1 border-b border-slate-100 last:border-0 ${indent ? 'pl-3' : ''}`}>
+      <div className="min-w-0 mr-4">
+        <TextTooltip content={item.state === 'stima' ? `${item.label} — stima variabile, modificabile` : (item.label || '')}>
+          <span className="text-slate-700 truncate block">{item.label}</span>
+        </TextTooltip>
+        {item.sub && <span className="text-[10px] text-slate-400 truncate block">{item.sub}</span>}
+      </div>
+      {editingKey === i && item.editable ? (
+        <span className="flex items-center gap-1 shrink-0">
+          <input type="number" autoFocus value={editVal} onChange={e => setEditVal(e.target.value)}
+            className="w-24 px-1.5 py-0.5 border border-sky-300 rounded text-right text-xs tabular-nums" />
+          <button onClick={() => { const v = parseFloat(editVal.replace(',', '.')); if (!isNaN(v) && v >= 0 && item.editable && onEdit) onEdit(item.editable.voiceKey, item.editable.label, item.editable.monthIdx, v); setEditingKey(null); }}
+            className="text-emerald-600 font-bold px-1" title="Salva">✓</button>
+          <button onClick={() => setEditingKey(null)} className="text-slate-400 px-1" title="Annulla">✕</button>
+        </span>
+      ) : (
+        <span className="flex items-center gap-1.5 shrink-0">
+          {/* Colore-numero per CERTEZZA: nero=certo, azzurro=stima (≈). Mai rosso qui (riservato al saldo). */}
+          <span className={`font-medium whitespace-nowrap tabular-nums ${item.state === 'stima' ? 'text-sky-600' : 'text-slate-900'}`}>
+            {item.state === 'stima' ? '≈ ' : ''}{formatCurrency(item.amount)}
+          </span>
+          {item.editable && onEdit && (
+            <button onClick={() => { setEditingKey(i); setEditVal(String(item.amount)); }}
+              className="text-slate-400 hover:text-sky-600" title="Correggi questa stima per il mese">✎</button>
+          )}
+        </span>
+      )}
+    </div>
+  );
 
   return (
     <div className={`rounded-lg border p-4 ${isEntrate ? 'border-green-200 bg-green-50/50' : 'border-red-200 bg-red-50/50'}`}>
       <div className="flex items-center justify-between mb-3">
         <h4 className={`font-semibold text-sm ${isEntrate ? 'text-green-800' : 'text-red-800'}`}>
-          {isEntrate ? 'Dettaglio Entrate' : 'Dettaglio Uscite'}
+          {(isEntrate ? 'Dettaglio Entrate' : 'Dettaglio Uscite')}{title ? ` — ${title}` : ''}
+          {items.length > 0 && <span className="ml-1 font-normal text-slate-500">· {formatCurrency(total)}</span>}
         </h4>
-        <button
-          onClick={onClose}
-          className="text-slate-400 hover:text-slate-600 transition"
-        >
+        <button onClick={onClose} className="text-slate-400 hover:text-slate-600 transition">
           <X size={16} />
         </button>
       </div>
       {items.length === 0 ? (
         <p className="text-slate-500 text-xs italic">Nessun dettaglio disponibile per questo periodo.</p>
+      ) : grouped ? (
+        <div className="space-y-2 max-h-72 overflow-y-auto">
+          {DRILL_GROUPS.map(g => {
+            const rows = indexed.filter(x => x.item.group === g.key).sort((a, b) => b.item.amount - a.item.amount);
+            if (rows.length === 0) return null;
+            const sub = rows.reduce((s, x) => s + (x.item.amount || 0), 0);
+            return (
+              <div key={g.key}>
+                <div className="flex items-center justify-between text-[11px] font-bold uppercase tracking-wide bg-slate-100 rounded px-2 py-1">
+                  <span className="text-slate-600">{g.label}</span>
+                  <span className={`tabular-nums ${g.stima ? 'text-sky-600' : 'text-slate-900'}`}>{g.stima ? '≈ ' : ''}{formatCurrency(sub)}</span>
+                </div>
+                {rows.map(x => renderRow(x.item, x.i, true))}
+              </div>
+            );
+          })}
+          <div className="flex items-center justify-between text-xs py-2 border-t-2 border-slate-300 font-bold">
+            <span className="text-slate-900">TOTALE USCITE</span>
+            <span className="text-slate-900 tabular-nums">{formatCurrency(total)}</span>
+          </div>
+        </div>
       ) : (
         <div className="space-y-1 max-h-48 overflow-y-auto">
-          {items.map((item, i) => (
-            <div key={i} className="flex items-center justify-between text-xs py-1 border-b border-slate-100 last:border-0">
-              <TextTooltip content={item.state === 'stima' ? `${item.label} — stima variabile, modificabile` : (item.label || '')}><span className="text-slate-700 truncate mr-4">{item.label}</span></TextTooltip>
-              {editingIdx === i && item.editable ? (
-                <span className="flex items-center gap-1 shrink-0">
-                  <input type="number" autoFocus value={editVal} onChange={e => setEditVal(e.target.value)}
-                    className="w-24 px-1.5 py-0.5 border border-sky-300 rounded text-right text-xs tabular-nums" />
-                  <button onClick={() => { const v = parseFloat(editVal.replace(',', '.')); if (!isNaN(v) && v >= 0 && item.editable && onEdit) onEdit(item.editable.voiceKey, item.editable.label, item.editable.monthIdx, v); setEditingIdx(null); }}
-                    className="text-emerald-600 font-bold px-1" title="Salva">✓</button>
-                  <button onClick={() => setEditingIdx(null)} className="text-slate-400 px-1" title="Annulla">✕</button>
-                </span>
-              ) : (
-                <span className="flex items-center gap-1.5 shrink-0">
-                  {/* Colore-numero per CERTEZZA: nero=certo, azzurro=stima (≈). Mai rosso qui (riservato al saldo). */}
-                  <span className={`font-medium whitespace-nowrap tabular-nums ${item.state === 'stima' ? 'text-sky-600' : 'text-slate-900'}`}>
-                    {item.state === 'stima' ? '≈ ' : ''}{formatCurrency(item.amount)}
-                  </span>
-                  {item.editable && onEdit && (
-                    <button onClick={() => { setEditingIdx(i); setEditVal(String(item.amount)); }}
-                      className="text-slate-400 hover:text-sky-600" title="Correggi questa stima per il mese">✎</button>
-                  )}
-                </span>
-              )}
-            </div>
-          ))}
+          {indexed.map(x => renderRow(x.item, x.i, false))}
           {items.length > 1 && (
             <div className="flex items-center justify-between text-xs py-2 border-t-2 border-slate-300 font-bold mt-1">
               <span className="text-slate-900">Totale</span>
-              <span className="text-slate-900 tabular-nums">
-                {formatCurrency(total)}
-              </span>
+              <span className="text-slate-900 tabular-nums">{formatCurrency(total)}</span>
             </div>
           )}
         </div>
@@ -2049,7 +2095,7 @@ function DrillDownPanel({ items, column, onClose, onEdit }: { items: { label: st
       {items.some(it => it.state === 'stima') && (
         <div className="mt-2 text-[11px] text-sky-600 flex items-center gap-1">
           <span className="font-medium">≈ azzurro = stima variabile</span>
-          <span className="text-slate-400">(dal mese precedente, modificabile)</span>
+          <span className="text-slate-400">(modificabile)</span>
         </div>
       )}
       <PageHelp page="cashflow" />
