@@ -980,6 +980,7 @@ const ScadenzarioSmart = () => {
 
       const matchOutlet = !selectedOutlet || p.outlet_id === selectedOutlet;
       const matchStatus = !selectedStatus
+        || selectedStatus === 'all' // "Tutti gli stati": include le pagate
         || selectedStatus === 'in_distinta' // gestito sopra
         || (selectedStatus === 'da_saldare' && p.status !== 'pagato')
         || (selectedStatus !== 'da_saldare' && p.status === selectedStatus);
@@ -1837,10 +1838,11 @@ const ScadenzarioSmart = () => {
   }, [recurringCosts, payables]);
 
   const displayPayables = useMemo(() => {
-    // Vista default "Tutte le scadenze": nascondi le pagate, a meno che l'utente
-    // non filtri esplicitamente per stato 'Pagato'. Tutto il resto (tipo, stato,
-    // periodo, ricerca) è già applicato in filteredPayables.
-    const reals = filteredPayables.filter(p => p.status !== 'pagato' || selectedStatus === 'pagato');
+    // Vista default "Aperte" (selectedStatus=''): nascondi le pagate. Le pagate
+    // compaiono SOLO se l'utente filtra esplicitamente 'Pagato' oppure sceglie
+    // "Tutti gli stati" ('all'), che mostra davvero tutto incluse le pagate.
+    // Tutto il resto (tipo, stato, periodo, ricerca) è già in filteredPayables.
+    const reals = filteredPayables.filter(p => p.status !== 'pagato' || selectedStatus === 'pagato' || selectedStatus === 'all');
 
     // Le STIME compaiono solo nella vista scadenze "fornitori/tutte", senza un
     // filtro di stato reale attivo (non sono scaduto/pagato/in distinta), e
@@ -2225,7 +2227,8 @@ const ScadenzarioSmart = () => {
             <select value={selectedStatus} onChange={(e) => setSelectedStatus(e.target.value)}
               className="px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs bg-white text-slate-600"
               title="Stato della scadenza">
-              <option value="">Tutti gli stati</option>
+              <option value="">Aperte</option>
+              <option value="all">Tutti gli stati</option>
               <option value="scaduto">Scaduto</option>
               <option value="in_scadenza">In scadenza</option>
               <option value="da_pagare">Da pagare</option>
