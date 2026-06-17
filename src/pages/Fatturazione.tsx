@@ -1457,11 +1457,9 @@ export default function Fatturazione() {
   // Sincronizza fatture passive da A-Cube SDI (pull manuale on-demand).
   // Fonte: pull REST A-Cube via RPC acube_sdi_sync_inbound_production (lo stesso
   // motore del cron automatico ogni 6h). Questo bottone forza un pull immediato.
-  // Stage A-Cube per il pull SDI inbound. Soft-launch: production di default
-  // per ricevere fatture passive REALI dal cassetto fiscale. Toggle a sandbox
-  // disponibile per test (mostrato accanto al bottone con badge ambra).
-  const [sdiStage, setSdiStage] = useState<'production' | 'sandbox'>('production')
-
+  // Stage A-Cube fisso a 'production': in esercizio si scaricano sempre le
+  // fatture reali. La sandbox serve solo a noi per test e si lancia da SQL/RPC,
+  // non dalla UI (un toggle in pagina sarebbe una trappola per l'utente finale).
   const handleSyncAcubeSdi = async () => {
     setSyncing(true)
     try {
@@ -1469,7 +1467,7 @@ export default function Fatturazione() {
       // login A-Cube + fetch /invoices con guardia tenant, idempotente, logga
       // sync_runs con origine='manuale'). Un'unica implementazione corretta.
       const { data, error } = await supabase.rpc('acube_sdi_sync_inbound_production' as never, {
-        p_stage: sdiStage,
+        p_stage: 'production',
         p_origine: 'manuale',
       } as never)
       if (error) throw new Error(error.message)
@@ -1514,23 +1512,10 @@ export default function Fatturazione() {
         actions={
           <>
             <SyncStatusBadge feed="fatture_passive" refreshKey={syncKey} />
-            <select
-              value={sdiStage}
-              onChange={(e) => setSdiStage(e.target.value as 'production' | 'sandbox')}
-              className={`px-3 py-2.5 text-sm border rounded-xl font-medium ${
-                sdiStage === 'production'
-                  ? 'bg-red-50 border-red-300 text-red-800'
-                  : 'bg-amber-50 border-amber-300 text-amber-800'
-              }`}
-              title="Ambiente A-Cube SDI: Produzione = fatture vere; Sandbox = test"
-            >
-              <option value="production">🔴 Produzione</option>
-              <option value="sandbox">🟡 Sandbox</option>
-            </select>
             <button
               onClick={handleSyncAcubeSdi}
               disabled={syncing}
-              title={`Forza ora il pull delle fatture passive da A-Cube SDI (${sdiStage}). In automatico vengono già scaricate ogni 6 ore.`}
+              title="Forza ora il pull delle fatture passive da A-Cube SDI. In automatico vengono già scaricate ogni 6 ore."
               className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl transition disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
             >
               <RefreshCw size={16} className={syncing ? 'animate-spin' : ''} />
