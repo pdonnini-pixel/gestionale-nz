@@ -22,7 +22,7 @@ import {
   FileText, Upload, Send, RefreshCw, Search, Filter, ChevronDown, ChevronUp,
   CheckCircle, XCircle, Clock, AlertTriangle, Eye, Download, Plus, X,
   Building2, Calendar, Euro, Hash, FileCode, Inbox, ArrowUpRight, Loader2,
-  BarChart3, Store, Zap
+  BarChart3, Store, FileMinus
 } from 'lucide-react'
 
 // ─── Helpers ────────────────────────────────────────────────────────────
@@ -251,7 +251,6 @@ function FatturePassive() {
   const [invoices, setInvoices] = useState<InvoiceRow[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
-  const [statusFilter, setStatusFilter] = useState('ALL')
   // Filtro anno: si allinea al filtro globale del PeriodContext (header
   // in alto). Quando l'utente cambia anno nell'header, qui si aggiorna
   // automaticamente. L'utente puo' comunque sovrascriverlo localmente col
@@ -403,7 +402,6 @@ function FatturePassive() {
   }, [invoices])
 
   const filtered = invoices.filter(inv => {
-    if (statusFilter !== 'ALL' && (inv.sdi_status || 'RECEIVED') !== statusFilter) return false
     if (yearFilter !== 'ALL' && inv.invoice_date) {
       const y = String(new Date(inv.invoice_date).getFullYear())
       if (y !== yearFilter) return false
@@ -426,12 +424,11 @@ function FatturePassive() {
   const yearSet = useMemo(() => invoices.filter(inv =>
     yearFilter === 'ALL' || (inv.invoice_date && String(new Date(inv.invoice_date).getFullYear()) === yearFilter)
   ), [invoices, yearFilter])
-  type Stats = { total: number; withSdi: number; totalAmount: number; totalVat: number; noteCredito: number }
+  type Stats = { total: number; totalAmount: number; totalVat: number; noteCredito: number }
   const stats = useMemo<Stats>(() => {
-    const s: Stats = { total: 0, withSdi: 0, totalAmount: 0, totalVat: 0, noteCredito: 0 }
+    const s: Stats = { total: 0, totalAmount: 0, totalVat: 0, noteCredito: 0 }
     for (const inv of yearSet) {
       s.total++
-      if (inv.sdi_id) s.withSdi++
       s.totalAmount += Number(inv.gross_amount || 0)
       s.totalVat += Number(inv.vat_amount || 0)
       if ((inv.tipo_documento || '').toUpperCase() === 'TD04') s.noteCredito++
@@ -449,19 +446,12 @@ function FatturePassive() {
 
   return (
     <div className="space-y-4">
-      {/* KPI — coerenti col badge tab. Fatture totali include le NC: il
-          sub-testo separa fatture positive da note credito cosi' il numero
-          principale corrisponde al badge del tab (es. "202 = 198 fatt + 4 NC"). */}
+      {/* KPI sull'intero set filtrato per anno: fatture e note di credito (TD04)
+          sono conteggi distinti; importi su tutto il set. */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <KpiCard
-          icon={FileText}
-          label="Fatture passive"
-          value={stats.total}
-          sub={stats.noteCredito > 0 ? `${stats.total - stats.noteCredito} fatture + ${stats.noteCredito} note di credito` : undefined}
-          color="blue"
-        />
+        <KpiCard icon={FileText} label="Fatture passive" value={stats.total - stats.noteCredito} color="blue" />
+        <KpiCard icon={FileMinus} label="Note di credito" value={stats.noteCredito} color="amber" />
         <KpiCard icon={Euro} label="Totale lordo" value={`€ ${fmt(stats.totalAmount)}`} color="blue" />
-        <KpiCard icon={Zap} label="Con ID SDI" value={stats.withSdi} sub={`${stats.total - stats.withSdi} senza`} color="amber" />
         <KpiCard icon={Euro} label="Totale IVA" value={`€ ${fmt(stats.totalVat)}`} color="blue" />
       </div>
 
@@ -485,17 +475,6 @@ function FatturePassive() {
         >
           <option value="ALL">Tutti gli anni</option>
           {availableYears.map(y => <option key={y} value={y}>Anno {y}</option>)}
-        </select>
-        <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          className="px-3 py-2 text-sm border border-slate-200 rounded-lg"
-        >
-          <option value="ALL">Tutti gli stati</option>
-          <option value="RECEIVED">Ricevute</option>
-          <option value="ACCEPTED">Accettate</option>
-          <option value="REJECTED">Scartate</option>
-          <option value="PENDING">In attesa</option>
         </select>
         <label className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 cursor-pointer transition">
           <Upload size={16} />
@@ -533,8 +512,6 @@ function FatturePassive() {
         </div>
       )}
 
-      {/* Legenda stati SDI per operatore */}
-      <SdiLegend tipo="passive" />
 
       {/* Tabella */}
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
@@ -1537,14 +1514,6 @@ export default function Fatturazione() {
         actions={
           <>
             <SyncStatusBadge feed="fatture_passive" refreshKey={syncKey} />
-            {sdiStats?.config && (
-              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
-                sdiStats.config.environment === 'PRODUCTION' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'
-              }`}>
-                {sdiStats.config.environment === 'PRODUCTION' ? 'Produzione' : 'Test'}
-                {' — '}{sdiStats.config.accreditation_status}
-              </span>
-            )}
             <select
               value={sdiStage}
               onChange={(e) => setSdiStage(e.target.value as 'production' | 'sandbox')}
