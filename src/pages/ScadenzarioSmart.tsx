@@ -2078,29 +2078,33 @@ const ScadenzarioSmart = () => {
                 barra filtri unificata sotto, con chip removibile: niente più
                 asse-tipo duplicato e invisibile qui in alto. */}
             <ExportMenu
-              data={filteredPayables.map(p => ({
-                descrizione: (p.notes || '').trim()
-                  || [p.suppliers?.ragione_sociale || p.suppliers?.name || '', (p.invoice_number && p.invoice_number !== '-') ? p.invoice_number : ''].filter(Boolean).join(' · '),
-                fornitore: p.suppliers?.name || '—',
-                fattura: p.invoice_number,
+              /* Esporta ESATTAMENTE le righe visibili nello Scadenzario: le
+                 scadenze APERTE (payables non pagate/annullate/note credito +
+                 F24 aperte, via displayPayables) rispettando i filtri attivi a
+                 video (tipo/stato/fornitore/date/ricerca). Esclude le STIME
+                 previsionali (_isEstimate) e lo storico/pagato. Niente colonna
+                 Descrizione. Multi-tenant: i dati sono già caricati per
+                 company_id corrente. */
+              data={sortedDisplayPayables.filter(p => !p._isEstimate).map(p => ({
                 scadenza: p.due_date,
+                fornitore: p.suppliers?.ragione_sociale || p.suppliers?.name || '—',
+                fattura: (p.invoice_number && p.invoice_number !== '-') ? p.invoice_number : '',
                 importo: p.gross_amount,
                 residuo: p.amount_remaining,
                 stato: (statusConfig as Record<string, { label?: string }>)[p.status || '']?.label || p.status,
-                metodo: (paymentMethodLabels as Record<string, string>)[p.payment_method || ''] || p.payment_method,
+                categoria: ((categories.find(c => c.id === p.cost_category_id)?.name as string | undefined) || (p.cost_center as string | null) || '—'),
               }))}
               columns={[
-                { key: 'descrizione', label: 'Descrizione' },
-                { key: 'fornitore', label: 'Fornitore' },
-                { key: 'fattura', label: 'Fattura' },
                 { key: 'scadenza', label: 'Scadenza', format: 'date' },
+                { key: 'fornitore', label: 'Fornitore' },
+                { key: 'fattura', label: 'NR fattura' },
                 { key: 'importo', label: 'Importo', format: 'euro' },
                 { key: 'residuo', label: 'Residuo', format: 'euro' },
                 { key: 'stato', label: 'Stato' },
-                { key: 'metodo', label: 'Pagamento' },
+                { key: 'categoria', label: 'Categoria/Conto' },
               ]}
-              filename="scadenzario"
-              title="Scadenzario"
+              filename="scadenzario-aperte"
+              title="Scadenzario — scadenze aperte"
             />
             <button onClick={() => setModals({ ...modals, invoice: { open: true, data: null } })}
               className="flex items-center gap-1.5 px-3 py-2 text-xs rounded-lg bg-slate-800 text-white hover:bg-slate-700 transition font-medium">
