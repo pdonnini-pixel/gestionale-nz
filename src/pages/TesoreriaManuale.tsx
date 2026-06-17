@@ -3455,9 +3455,6 @@ export default function TesoreriaManuale() {
         </div>
         <div className="flex items-center gap-2">
           <SyncStatusBadge feed="banche" />
-          <button onClick={refresh} className="flex items-center gap-2 px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-50 transition shadow-sm">
-            <RefreshCw size={14} /> Aggiorna
-          </button>
         </div>
       </div>
 
