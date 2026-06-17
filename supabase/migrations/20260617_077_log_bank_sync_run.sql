@@ -22,3 +22,6 @@ END $$;
 
 REVOKE ALL ON FUNCTION public.log_bank_sync_run(int,int) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.log_bank_sync_run(int,int) TO authenticated;
+-- Supabase concede EXECUTE ad anon di default sulle funzioni public: senza questa
+-- revoca una funzione SECURITY DEFINER resta eseguibile da anon.
+REVOKE ALL ON FUNCTION public.log_bank_sync_run(int,int) FROM anon;
