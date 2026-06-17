@@ -39,6 +39,13 @@ export default function SyncStatusBadge({ feed, refreshKey = 0, className = '' }
 
   useEffect(() => { load() }, [load, refreshKey])
 
+  // Ricarica anche quando una sync manuale segnala un nuovo run (vedi OpenBankingAcube).
+  useEffect(() => {
+    const h = () => load()
+    window.addEventListener('sync-runs-updated', h)
+    return () => window.removeEventListener('sync-runs-updated', h)
+  }, [load])
+
   if (loading) {
     return (
       <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs border border-slate-200 bg-slate-50 text-slate-400 ${className}`}>

@@ -175,6 +175,12 @@ export default function OpenBankingAcube() {
       await acube.syncAccounts(stage, br.fiscal_id, companyId)
       const r = await acube.syncTransactions(stage, br.fiscal_id, companyId)
       toast({ type: 'success', message: `Aggiornati saldi e ${r.bank_inserted ?? 0} nuovi movimenti${r.duplicates ? ` (${r.duplicates} già presenti)` : ''}.` })
+      // Registra il sync manuale in sync_runs così il badge "Dati aggiornati al…"
+      // si allinea alle card dei conti (il cron non è l'unica sorgente).
+      try {
+        await supabase.rpc('log_bank_sync_run', { p_items: r.bank_inserted ?? 0 })
+        window.dispatchEvent(new CustomEvent('sync-runs-updated', { detail: { feed: 'banche' } }))
+      } catch { /* il sync è già andato a buon fine: non bloccare */ }
       await loadData()
     } catch (err) {
       toast({ type: 'error', message: err instanceof Error ? err.message : 'Errore sync banche' })
