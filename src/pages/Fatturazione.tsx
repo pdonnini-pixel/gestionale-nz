@@ -30,6 +30,23 @@ import {
 const fmt = (n: number | null | undefined): string => n != null ? Number(n).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'
 const fmtDate = (d: string | null | undefined): string => d ? new Date(d).toLocaleDateString('it-IT') : '—'
 
+// Tipo documento FatturaPA: codice → etichetta leggibile. Codici sconosciuti
+// restano mostrati così come arrivano (con il codice nel tooltip).
+const TIPO_DOC_LABEL: Record<string, string> = {
+  TD01: 'Fattura', TD02: 'Acconto fattura', TD03: 'Acconto parcella',
+  TD04: 'Nota di credito', TD05: 'Nota di debito', TD06: 'Parcella',
+  TD16: 'Integrazione reverse charge interno',
+  TD17: 'Integrazione/autofattura acquisti estero servizi',
+  TD18: 'Integrazione acquisti intra UE beni',
+  TD19: 'Integrazione/autofattura art.17 c.2',
+  TD24: 'Fattura differita', TD25: 'Fattura differita (triangolazione)',
+  TD26: 'Cessione beni ammortizzabili', TD27: 'Autofattura per autoconsumo',
+}
+const tipoDocLabel = (code?: string | null): string => {
+  if (!code) return '—'
+  return TIPO_DOC_LABEL[code.toUpperCase()] ?? code
+}
+
 const SDI_STATUS_CONFIG = {
   DRAFT: { label: 'Bozza', color: 'bg-slate-100 text-slate-700', icon: FileText },
   SENT: { label: 'Inviata', color: 'bg-blue-100 text-blue-700', icon: Send },
@@ -252,13 +269,9 @@ function FatturePassive() {
   useEffect(() => {
     if (globalYear) setYearFilter(String(globalYear))
   }, [globalYear])
-  const [selectedInvoice, setSelectedInvoice] = useState<InvoiceRow | null>(null)
-  const [showXml, setShowXml] = useState(false)
   const [viewingXml, setViewingXml] = useState<string | null>(null) // XML content for InvoiceViewer
   const [uploading, setUploading] = useState(false)
-  // XML caricato lazy per la fattura selezionata (non scaricato in lista).
-  const [detailXml, setDetailXml] = useState<string | null>(null)
-  const [xmlLoading, setXmlLoading] = useState(false)
+  const [openingId, setOpeningId] = useState<string | null>(null) // id fattura in apertura (spinner occhio)
 
   // Scarica xml_content della singola fattura on-demand (per-id). Evita di
   // tenere i 54 MB di XML in memoria sulla lista. Restituisce null in errore.
@@ -275,17 +288,30 @@ function FatturePassive() {
     return (data?.xml_content as string | null) ?? null
   }, [toast])
 
+  // Apre direttamente la fattura formattata (InvoiceViewer) dall'XML reale.
+  // Niente scheda-riepilogo: il documento formattato contiene già tutti i dati.
+  const openFormatted = useCallback(async (inv: InvoiceRow) => {
+    setOpeningId(inv.id)
+    const xml = await fetchXmlFor(inv.id)
+    setOpeningId(null)
+    const clean = (xml ?? '').replace(/^﻿/, '').trimStart()
+    if (clean.startsWith('<') && clean.includes('FatturaElettronica')) setViewingXml(clean)
+    else toast({ type: 'warning', message: 'Documento XML non disponibile per questa fattura.' })
+  }, [fetchXmlFor, toast])
+
   const loadInvoices = useCallback(async () => {
     setLoading(true)
     try {
       // Lista da v_electronic_invoices_list: tutte le colonne TRANNE xml_content
       // (54 MB complessivi, causa del timeout 15s) + flag has_xml. L'XML si
       // carica lazy per-id solo al click "Visualizza" (vedi fetchXmlFor).
+      // Niente .limit(500): la vista esclude xml_content (leggera), quindi
+      // carichiamo l'intero set → KPI e conteggi coincidono col badge tab.
       const { data, error } = await supabase
         .from('v_electronic_invoices_list')
         .select('*')
         .order('invoice_date', { ascending: false })
-        .limit(500)
+        .limit(10000)
       if (error) throw error
       setInvoices((data || []) as InvoiceRow[])
     } catch (err: unknown) {
@@ -296,9 +322,6 @@ function FatturePassive() {
   }, [])
 
   useEffect(() => { loadInvoices() }, [loadInvoices])
-
-  // Reset dell'XML lazy quando cambia (o si chiude) la fattura selezionata.
-  useEffect(() => { setDetailXml(null); setShowXml(false) }, [selectedInvoice])
 
   // Upload XML FatturaPA
   const handleXmlUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -397,20 +420,24 @@ function FatturePassive() {
     return true
   })
 
-  // Stats calcolate sul SET FILTRATO — cosi i KPI si aggiornano con il filtro anno
-  // e corrispondono al valore mostrato nella Dashboard (Costi = fatture {year}).
-  type Stats = { total: number; withSdi: number; totalAmount: number; byStatus: Record<string, number> }
+  // KPI sull'intero set filtrato per ANNO (indipendenti da ricerca/stato) →
+  // coerenti col badge del tab. Note di credito = tipo_documento TD04
+  // (la classificazione corretta, non gross<0).
+  const yearSet = useMemo(() => invoices.filter(inv =>
+    yearFilter === 'ALL' || (inv.invoice_date && String(new Date(inv.invoice_date).getFullYear()) === yearFilter)
+  ), [invoices, yearFilter])
+  type Stats = { total: number; withSdi: number; totalAmount: number; totalVat: number; noteCredito: number }
   const stats = useMemo<Stats>(() => {
-    const s: Stats = { total: 0, withSdi: 0, totalAmount: 0, byStatus: {} }
-    for (const inv of filtered) {
+    const s: Stats = { total: 0, withSdi: 0, totalAmount: 0, totalVat: 0, noteCredito: 0 }
+    for (const inv of yearSet) {
       s.total++
       if (inv.sdi_id) s.withSdi++
       s.totalAmount += Number(inv.gross_amount || 0)
-      const st = String(inv.sdi_status || 'RECEIVED')
-      s.byStatus[st] = (s.byStatus[st] || 0) + 1
+      s.totalVat += Number(inv.vat_amount || 0)
+      if ((inv.tipo_documento || '').toUpperCase() === 'TD04') s.noteCredito++
     }
     return s
-  }, [filtered])
+  }, [yearSet])
 
   // Sort tabella fatture passive: default invoice_date desc (le piu' recenti
   // in cima), persistente per refresh, reset al cambio anno.
@@ -425,24 +452,18 @@ function FatturePassive() {
       {/* KPI — coerenti col badge tab. Fatture totali include le NC: il
           sub-testo separa fatture positive da note credito cosi' il numero
           principale corrisponde al badge del tab (es. "202 = 198 fatt + 4 NC"). */}
-      {stats && (() => {
-        const notCrediti = filtered.filter(inv => (Number(inv.gross_amount) || 0) < 0).length;
-        const fattureNormali = stats.total - notCrediti;
-        return (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <KpiCard
-              icon={FileText}
-              label="Fatture passive"
-              value={stats.total}
-              sub={notCrediti > 0 ? `${fattureNormali} fatture + ${notCrediti} note credito` : undefined}
-              color="blue"
-            />
-            <KpiCard icon={Euro} label="Totale lordo" value={`€ ${fmt(stats.totalAmount)}`} color="green" />
-            <KpiCard icon={Zap} label="Con ID SDI" value={stats.withSdi} sub={`${stats.total - stats.withSdi} senza`} color="amber" />
-            <KpiCard icon={CheckCircle} label="Accettate" value={stats.byStatus.ACCEPTED || 0} sub={`${stats.byStatus.REJECTED || 0} scartate`} color="green" />
-          </div>
-        );
-      })()}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <KpiCard
+          icon={FileText}
+          label="Fatture passive"
+          value={stats.total}
+          sub={stats.noteCredito > 0 ? `${stats.total - stats.noteCredito} fatture + ${stats.noteCredito} note di credito` : undefined}
+          color="blue"
+        />
+        <KpiCard icon={Euro} label="Totale lordo" value={`€ ${fmt(stats.totalAmount)}`} color="blue" />
+        <KpiCard icon={Zap} label="Con ID SDI" value={stats.withSdi} sub={`${stats.total - stats.withSdi} senza`} color="amber" />
+        <KpiCard icon={Euro} label="Totale IVA" value={`€ ${fmt(stats.totalVat)}`} color="blue" />
+      </div>
 
       {/* Toolbar */}
       <div className="flex flex-wrap items-center gap-3">
@@ -534,17 +555,16 @@ function FatturePassive() {
                 <SortableTh sortKey="net_amount" sortBy={ftSortBy} onSort={ftOnSort} align="right" className="min-w-[100px]">Imponibile</SortableTh>
                 <SortableTh sortKey="vat_amount" sortBy={ftSortBy} onSort={ftOnSort} align="right" className="min-w-[100px]">IVA</SortableTh>
                 <SortableTh sortKey="gross_amount" sortBy={ftSortBy} onSort={ftOnSort} align="right" className="min-w-[100px]">Totale</SortableTh>
-                <SortableTh sortKey="sdi_status" sortBy={ftSortBy} onSort={ftOnSort} align="center">Stato SDI</SortableTh>
                 <th className="text-center px-4 py-3 font-medium text-slate-600 text-[11px] uppercase tracking-wider">Azioni</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={9} className="text-center py-12 text-slate-400"><Loader2 size={24} className="animate-spin mx-auto mb-2" />Caricamento fatture...</td></tr>
+                <tr><td colSpan={8} className="text-center py-12 text-slate-400"><Loader2 size={24} className="animate-spin mx-auto mb-2" />Caricamento fatture...</td></tr>
               ) : sortedFiltered.length === 0 ? (
-                <tr><td colSpan={9} className="text-center py-12 text-slate-400">Nessuna fattura trovata</td></tr>
+                <tr><td colSpan={8} className="text-center py-12 text-slate-400">Nessuna fattura trovata</td></tr>
               ) : sortedFiltered.map((inv, idx) => (
-                <tr key={inv.id} onClick={() => { setSelectedInvoice(inv); setShowXml(false) }} className={`border-b border-slate-100 hover:bg-blue-50/50 transition-colors cursor-pointer ${idx % 2 === 1 ? 'bg-slate-50/50' : ''}`}>
+                <tr key={inv.id} onClick={() => openFormatted(inv)} className={`border-b border-slate-100 hover:bg-blue-50/50 transition-colors cursor-pointer ${idx % 2 === 1 ? 'bg-slate-50/50' : ''}`}>
                   <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{fmtDate(inv.invoice_date)}</td>
                   <Tooltip content={inv.invoice_number || ''}>
                     <td className="px-4 py-3 font-medium text-slate-900 truncate min-w-[150px] max-w-[200px]">{inv.invoice_number || '—'}</td>
@@ -555,20 +575,20 @@ function FatturePassive() {
                     </Tooltip>
                     {inv.supplier_vat && <div className="text-xs text-slate-400">P.IVA {inv.supplier_vat}</div>}
                   </td>
-                  <td className="px-4 py-3 text-slate-600">{inv.tipo_documento || '—'}</td>
+                  <Tooltip content={inv.tipo_documento ? `Codice ${inv.tipo_documento}` : ''}>
+                    <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{tipoDocLabel(inv.tipo_documento)}</td>
+                  </Tooltip>
                   <td className="px-4 py-3 text-right text-slate-700 min-w-[100px] whitespace-nowrap">{fmt(inv.net_amount)}</td>
                   <td className="px-4 py-3 text-right text-slate-500 min-w-[100px] whitespace-nowrap">{fmt(inv.vat_amount)}</td>
                   <td className="px-4 py-3 text-right font-semibold text-slate-900 min-w-[100px] whitespace-nowrap">{fmt(inv.gross_amount)}</td>
                   <td className="px-4 py-3 text-center">
-                    <StatusBadge status={inv.sdi_status || 'RECEIVED'} />
-                  </td>
-                  <td className="px-4 py-3 text-center">
                     <button
-                      onClick={(e) => { e.stopPropagation(); setSelectedInvoice(inv); setShowXml(false) }}
-                      className="p-1.5 text-slate-400 hover:text-blue-600 rounded transition"
-                      title="Dettaglio"
+                      onClick={(e) => { e.stopPropagation(); openFormatted(inv) }}
+                      disabled={openingId === inv.id}
+                      className="p-1.5 text-slate-400 hover:text-blue-600 rounded transition disabled:opacity-50"
+                      title="Apri fattura formattata"
                     >
-                      <Eye size={16} />
+                      {openingId === inv.id ? <Loader2 size={16} className="animate-spin" /> : <Eye size={16} />}
                     </button>
                   </td>
                 </tr>
@@ -579,167 +599,6 @@ function FatturePassive() {
         {!loading && <div className="px-4 py-2 bg-slate-50 text-xs text-slate-500 border-t border-slate-200">{filtered.length} fatture visualizzate su {invoices.length} totali</div>}
       </div>
 
-      {/* Slide-over dettaglio fattura */}
-      {selectedInvoice && (
-        <>
-          <div className="fixed inset-0 bg-black/30 z-40 transition-opacity" onClick={() => setSelectedInvoice(null)} />
-          <div className="fixed inset-y-0 right-0 z-50 w-full max-w-lg bg-white shadow-2xl border-l border-slate-200 flex flex-col animate-in slide-in-from-right">
-            {/* Header */}
-            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 bg-slate-50/50">
-              <div>
-                <h3 className="font-semibold text-lg text-slate-900">Fattura {selectedInvoice.invoice_number || '—'}</h3>
-                <div className="flex items-center gap-2 mt-0.5">
-                  <StatusBadge status={selectedInvoice.sdi_status || 'RECEIVED'} />
-                  {selectedInvoice.tipo_documento && (
-                    <span className="text-xs text-slate-400 font-medium">{selectedInvoice.tipo_documento}</span>
-                  )}
-                </div>
-              </div>
-              <button onClick={() => setSelectedInvoice(null)} className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition"><X size={20} /></button>
-            </div>
-
-            {/* Content */}
-            <div className="flex-1 overflow-y-auto p-5 space-y-5">
-              {/* Fornitore */}
-              <div className="bg-slate-50 rounded-lg p-4 space-y-2">
-                <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Fornitore</h4>
-                <div className="text-base font-semibold text-slate-900">{selectedInvoice.supplier_name || '—'}</div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <span className="text-xs text-slate-500">P.IVA</span>
-                    <div className="text-sm font-medium text-slate-800 font-mono">{selectedInvoice.supplier_vat || '—'}</div>
-                  </div>
-                  <div>
-                    <span className="text-xs text-slate-500">Codice Fiscale</span>
-                    <div className="text-sm font-medium text-slate-800 font-mono">{selectedInvoice.supplier_fiscal_code || '—'}</div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Importi */}
-              <div className="space-y-2">
-                <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Importi</h4>
-                <div className="grid grid-cols-3 gap-3">
-                  <div className="bg-white border border-slate-200 rounded-lg p-3 text-center">
-                    <span className="text-xs text-slate-500 block">Imponibile</span>
-                    <div className="text-sm font-semibold text-slate-800 mt-0.5">{fmt(selectedInvoice.net_amount)}</div>
-                  </div>
-                  <div className="bg-white border border-slate-200 rounded-lg p-3 text-center">
-                    <span className="text-xs text-slate-500 block">IVA</span>
-                    <div className="text-sm font-semibold text-slate-800 mt-0.5">{fmt(selectedInvoice.vat_amount)}</div>
-                  </div>
-                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-center">
-                    <span className="text-xs text-blue-600 block">Totale</span>
-                    <div className="text-lg font-bold text-blue-700 mt-0.5">{fmt(selectedInvoice.gross_amount)}</div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Dettagli documento */}
-              <div className="space-y-2">
-                <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Dettagli documento</h4>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <span className="text-xs text-slate-500">Data fattura</span>
-                    <div className="text-sm font-medium text-slate-800">{fmtDate(selectedInvoice.invoice_date)}</div>
-                  </div>
-                  <div>
-                    <span className="text-xs text-slate-500">Tipo documento</span>
-                    <div className="text-sm font-medium text-slate-800">{selectedInvoice.tipo_documento || '—'}</div>
-                  </div>
-                  <div>
-                    <span className="text-xs text-slate-500">Stato SDI</span>
-                    <div className="mt-0.5"><StatusBadge status={selectedInvoice.sdi_status || 'RECEIVED'} /></div>
-                  </div>
-                  <div>
-                    <span className="text-xs text-slate-500">ID SDI</span>
-                    <div className="text-sm font-medium text-slate-800 font-mono">{selectedInvoice.sdi_id || '—'}</div>
-                  </div>
-                  <div>
-                    <span className="text-xs text-slate-500">Scadenza</span>
-                    <div className="text-sm font-medium text-slate-800">{fmtDate(selectedInvoice.due_date)}</div>
-                  </div>
-                  <div>
-                    <span className="text-xs text-slate-500">Codice destinatario</span>
-                    <div className="text-sm font-medium text-slate-800 font-mono">{selectedInvoice.codice_destinatario || '—'}</div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Pagamento */}
-              <div className="space-y-2">
-                <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Pagamento</h4>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <span className="text-xs text-slate-500">Metodo</span>
-                    <div className="text-sm font-medium text-slate-800">{selectedInvoice.payment_method || '—'}</div>
-                  </div>
-                  <div>
-                    <span className="text-xs text-slate-500">Termini</span>
-                    <div className="text-sm font-medium text-slate-800">{selectedInvoice.payment_terms || '—'}</div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Note */}
-              {(selectedInvoice.description || selectedInvoice.notes) && (
-                <div className="space-y-2">
-                  <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Note</h4>
-                  <div className="text-sm text-slate-700 bg-slate-50 rounded-lg p-3">
-                    {selectedInvoice.description || selectedInvoice.notes}
-                  </div>
-                </div>
-              )}
-
-              {/* Visualizza fattura formattata — XML caricato lazy per-id */}
-              {selectedInvoice.has_xml && (
-                <div className="space-y-2">
-                  <button
-                    disabled={xmlLoading}
-                    onClick={async () => {
-                      const xml = detailXml ?? await (async () => {
-                        setXmlLoading(true)
-                        const r = await fetchXmlFor(selectedInvoice.id)
-                        setXmlLoading(false)
-                        if (r) setDetailXml(r)
-                        return r
-                      })()
-                      if (xml) setViewingXml(xml)
-                      else if (!xmlLoading) toast({ type: 'warning', message: 'XML non disponibile per questa fattura' })
-                    }}
-                    className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition disabled:opacity-60 disabled:cursor-not-allowed"
-                  >
-                    {xmlLoading ? <Loader2 size={14} className="animate-spin" /> : <Eye size={14} />}
-                    Visualizza fattura formattata
-                  </button>
-                  <button
-                    disabled={xmlLoading}
-                    onClick={async () => {
-                      if (!showXml && !detailXml) {
-                        setXmlLoading(true)
-                        const r = await fetchXmlFor(selectedInvoice.id)
-                        setXmlLoading(false)
-                        if (r) setDetailXml(r)
-                        else return
-                      }
-                      setShowXml(!showXml)
-                    }}
-                    className="flex items-center gap-2 text-xs text-slate-500 hover:text-slate-700 transition disabled:opacity-60"
-                  >
-                    <FileCode size={12} />
-                    {showXml ? 'Nascondi XML grezzo' : 'Mostra XML grezzo'}
-                  </button>
-                  {showXml && detailXml && (
-                    <pre className="p-3 bg-slate-900 text-green-400 rounded-lg text-xs overflow-x-auto max-h-72 border border-slate-700 font-mono leading-relaxed">
-                      {detailXml}
-                    </pre>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-        </>
-      )}
 
       {/* InvoiceViewer modal */}
       {viewingXml && (
@@ -1426,7 +1285,7 @@ function Corrispettivi() {
                   <tr><td colSpan={5} className="text-center py-12 text-slate-400">
                     <Inbox size={32} className="mx-auto mb-2 text-slate-300" />
                     <p>Nessun corrispettivo dal cassetto fiscale.</p>
-                    <p className="text-xs mt-1">Sincronizzazione SDI non ancora attiva — in attesa di accreditamento Agenzia delle Entrate.</p>
+                    <p className="text-xs mt-1">Il canale di sincronizzazione dei corrispettivi telematici non è ancora attivo.</p>
                   </td></tr>
                 ) : corrispettiviLog
                     .filter(c => selectedOutlet === 'ALL' || c.outlet_id === selectedOutlet)
@@ -1618,10 +1477,9 @@ export default function Fatturazione() {
 
   useEffect(() => { loadStats(); loadInvoiceCounts() }, [loadStats, loadInvoiceCounts])
 
-  // Sincronizza fatture passive da A-Cube SDI (pull manuale).
-  // Il webhook A-Cube è la fonte primaria push real-time; questo bottone serve
-  // come fallback se eventi webhook sono stati persi (ritardi sandbox, ecc.).
-  // Edge Function: acube-sdi-sync-inbound (deployed v1)
+  // Sincronizza fatture passive da A-Cube SDI (pull manuale on-demand).
+  // Fonte: pull REST A-Cube via RPC acube_sdi_sync_inbound_production (lo stesso
+  // motore del cron automatico ogni 6h). Questo bottone forza un pull immediato.
   // Stage A-Cube per il pull SDI inbound. Soft-launch: production di default
   // per ricevere fatture passive REALI dal cassetto fiscale. Toggle a sandbox
   // disponibile per test (mostrato accanto al bottone con badge ambra).
@@ -1669,9 +1527,8 @@ export default function Fatturazione() {
   return (
     <div className="min-h-screen bg-white">
       <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
-      {/* Banner EPPI rimosso: piano accreditamento diretto AdE abbandonato.
-          Le fatture SDI ora arrivano via webhook A-Cube real-time + pull manuale
-          on-demand col bottone "Sincronizza A-Cube SDI". */}
+      {/* Le fatture passive SDI arrivano via pull REST A-Cube: cron automatico
+          ogni 6h + pull manuale on-demand col bottone "Sincronizza SDI". */}
 
       <PageHeader
         title="Fatturazione Elettronica"
@@ -1704,7 +1561,7 @@ export default function Fatturazione() {
             <button
               onClick={handleSyncAcubeSdi}
               disabled={syncing}
-              title={`Pull manuale fatture passive da A-Cube SDI (${sdiStage}). Webhook A-Cube già attivo in real-time.`}
+              title={`Forza ora il pull delle fatture passive da A-Cube SDI (${sdiStage}). In automatico vengono già scaricate ogni 6 ore.`}
               className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl transition disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
             >
               <RefreshCw size={16} className={syncing ? 'animate-spin' : ''} />
