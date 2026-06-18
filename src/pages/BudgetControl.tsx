@@ -1471,7 +1471,7 @@ export default function BudgetControl() {
   // ricavi = mensile -> edit annuale BPCard -> 0), sommati SOLO sulle card
   // effettivamente renderizzate (rispetta il filtro read-only che nasconde le bozze),
   // cosi' il "TOTALE COMPLESSIVO" combacia con la somma di cio' che si vede.
-  const bpTotals = useMemo(() => {
+  const bpTotals = (() => {
     const renderedCodes: string[] = []
     if (hq && hasTree) {
       const st = workflow[HQ_CODE]?.status ?? 'bozza'
@@ -1498,8 +1498,7 @@ export default function BudgetControl() {
       cos += sumMacros(applyEditsZero(costiTree, bpEdits[code] || {}))
     })
     return { ric, cos, ris: ric - cos, count: renderedCodes.length }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hq, hasTree, HQ_CODE, ops, workflow, canApproveBudget, costiTree, ricaviTree, revYearlyByOutlet, bpEdits])
+  })()
 
   return (
     <div className="min-h-screen bg-white">
