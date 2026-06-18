@@ -1070,7 +1070,16 @@ export default function BudgetControl() {
   // Preseleziona l'outlet richiesto (ha priorità sui default sotto).
   const outletParam = searchParams.get('outlet')
   useEffect(() => {
-    if (outletParam) setConfOutlet(outletParam)
+    if (outletParam) {
+      setConfOutlet(outletParam)
+      // consuma il deep-link: rimuovi ?outlet= dall'URL così i reload successivi
+      // tornano al default "Tutti gli outlet" (l'effetto di default sotto NON riparte
+      // perché confOutlet è ormai valorizzato).
+      const p = new URLSearchParams(searchParams)
+      p.delete('outlet')
+      setSearchParams(p, { replace: true })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [outletParam])
 
   // Default selettore Confronto per TUTTI i ruoli: vista aggregata "Tutti gli outlet".
