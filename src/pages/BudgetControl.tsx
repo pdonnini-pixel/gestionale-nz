@@ -1467,6 +1467,40 @@ export default function BudgetControl() {
     })
   })
 
+  // Totali tab Business Plan: STESSA priorita' della BPCard (costi zero-based;
+  // ricavi = mensile -> edit annuale BPCard -> 0), sommati SOLO sulle card
+  // effettivamente renderizzate (rispetta il filtro read-only che nasconde le bozze),
+  // cosi' il "TOTALE COMPLESSIVO" combacia con la somma di cio' che si vede.
+  const bpTotals = useMemo(() => {
+    const renderedCodes: string[] = []
+    if (hq && hasTree) {
+      const st = workflow[HQ_CODE]?.status ?? 'bozza'
+      if (canApproveBudget || st !== 'bozza') renderedCodes.push(HQ_CODE)
+    }
+    ops.forEach(cc => {
+      const st = workflow[cc.code]?.status ?? 'bozza'
+      if (canApproveBudget || st !== 'bozza') renderedCodes.push(cc.code)
+    })
+    const revForCenter = (code: string): number => {
+      const rev = revYearlyByOutlet[code]
+      const ed = bpEdits[code] || {}
+      const walk = (nodes: TreeNodeT[]): number => nodes.reduce<number>((s, n) => {
+        if (n.children?.length) return s + walk(n.children)
+        if (rev && rev[n.code] != null) return s + rev[n.code]
+        if (ed[n.code] != null) return s + ed[n.code]
+        return s
+      }, 0)
+      return walk(filterRicaviTree(ricaviTree, code))
+    }
+    let ric = 0, cos = 0
+    renderedCodes.forEach(code => {
+      ric += revForCenter(code)
+      cos += sumMacros(applyEditsZero(costiTree, bpEdits[code] || {}))
+    })
+    return { ric, cos, ris: ric - cos, count: renderedCodes.length }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hq, hasTree, HQ_CODE, ops, workflow, canApproveBudget, costiTree, ricaviTree, revYearlyByOutlet, bpEdits])
+
   return (
     <div className="min-h-screen bg-white">
       <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
@@ -1586,6 +1620,21 @@ export default function BudgetControl() {
                 costHasPlaceholder={!!phCostByCenter[cc.code]} />
             )
           })}
+
+          {/* TOTALE COMPLESSIVO: somma su tutte le card renderizzate (Sede + outlet),
+              stessa priorita' della BPCard cosi' i totali combaciano con le card visibili. */}
+          {hasTree && bpTotals.count > 0 && (
+            <div className="bg-slate-50 rounded-xl border-2 border-slate-300 shadow-sm px-5 py-4">
+              <div className="flex items-center justify-between gap-5 flex-wrap">
+                <div className="font-bold text-slate-700">TOTALE COMPLESSIVO <span className="text-xs font-normal text-slate-400 ml-1">({bpTotals.count} {bpTotals.count === 1 ? 'scheda' : 'schede'})</span></div>
+                <div className="flex items-center gap-5">
+                  <div className="text-right"><div className="text-xs text-slate-400">{RICAVI_SOURCE_LABEL}</div><div className="font-bold text-emerald-700">{fmtC(bpTotals.ric)}</div></div>
+                  <div className="text-right"><div className="text-xs text-slate-400">Costi (preventivo)</div><div className="font-bold text-red-700">{fmtC(bpTotals.cos)}</div></div>
+                  <div className="text-right"><div className="text-xs text-slate-400">Risultato</div><div className={`font-bold ${bpTotals.ris >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>{fmtC(bpTotals.ris)}</div></div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -1614,7 +1663,7 @@ export default function BudgetControl() {
                 <span className="text-sm text-slate-600 font-medium">{labels.pointOfSale}:</span>
                 <select value={confOutlet} onChange={e => setConfOutlet(e.target.value)} className="px-3 py-2 border border-slate-200 rounded-lg text-sm">
                   <option value={ALL_OUTLETS_CODE}>📊 Tutti gli {labels.pointOfSalePluralLower} (vista aggregata)</option>
-                  <option value="all">🏢 Sede / Costi generali (non allocati)</option>
+                  {hq && <option value={HQ_CODE}>🏢 {prettyCenterLabel(hq)}</option>}
                   {/* Tutti gli outlet operativi attivi (non solo quelli con preventivo
                       gia' popolato in budget_entries). Outlet senza preventivo (es. Torino
                       neoaperto 24/03/2026) appare comunque, pronto per data entry da Lilian. */}
@@ -1716,7 +1765,7 @@ export default function BudgetControl() {
               {confOutlet && confOutlet !== ALL_OUTLETS_CODE && confView === 'annuale' && (
                 <ConfrontoPanel
                   outletCode={confOutlet}
-                  outletLabel={confOutlet === 'all' ? 'Sede / Costi generali' : (prettyCenterLabel(costCenters.find(c => c.code === confOutlet)) || prettyCenterLabel({ code: confOutlet }))}
+                  outletLabel={prettyCenterLabel(costCenters.find(c => c.code === confOutlet)) || prettyCenterLabel({ code: confOutlet })}
                   prevEdits={bpEdits[confOutlet] || {}}
                   consEdits={consEdits[confOutlet] || {}}
                   onConsEdit={(code: string, val: number) => setConsEdits(prev => ({...prev, [confOutlet]: {...(prev[confOutlet]||{}), [code]: val}}))}
@@ -1735,7 +1784,7 @@ export default function BudgetControl() {
               {confOutlet && confOutlet !== ALL_OUTLETS_CODE && confView === 'mensile' && (
                 <ConfrontoMensile
                   outletCode={confOutlet}
-                  outletLabel={confOutlet === 'all' ? 'Sede / Costi generali' : (prettyCenterLabel(costCenters.find(c => c.code === confOutlet)) || prettyCenterLabel({ code: confOutlet }))}
+                  outletLabel={prettyCenterLabel(costCenters.find(c => c.code === confOutlet)) || prettyCenterLabel({ code: confOutlet })}
                   costiTree={costiTreeForOutlet}
                   ricaviTree={ricaviTreeForOutlet}
                   readOnly={!canApproveBudget || (workflow[confOutlet]?.status === 'approvato')}
@@ -1973,7 +2022,7 @@ function BPCard({ label, code, isHQ, numOps: _numOps, costiTree, ricaviTree, edi
         <div className="flex items-center gap-5">
           <div className="text-right"><div className="text-xs text-slate-400">{RICAVI_SOURCE_LABEL}</div><div className="font-semibold text-emerald-600">{fmtC(totR)}</div></div>
           <div className="text-right"><div className="text-xs text-slate-400">Costi (preventivo)</div><div className="font-semibold text-red-600">{fmtC(totC)}<PlaceholderDot show={!!costHasPlaceholder} tip="I costi a budget di questo outlet contengono voci segnaposto (clone 2025) non ancora granite: apri la card e compila/conferma i valori." /></div></div>
-          {!isHQ && <div className="text-right"><div className="text-xs text-slate-400">Risultato</div><div className={`font-bold ${ris>=0?'text-emerald-700':'text-red-700'}`}>{fmtC(ris)}</div></div>}
+          <div className="text-right"><div className="text-xs text-slate-400">Risultato</div><div className={`font-bold ${ris>=0?'text-emerald-700':'text-red-700'}`}>{fmtC(ris)}</div></div>
           {open ? <ChevronUp size={18} className="text-slate-400"/> : <ChevronDown size={18} className="text-slate-400"/>}
         </div>
       </div>
