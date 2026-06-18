@@ -106,7 +106,7 @@ function extractNames(page: string, filialeMatch: string | null, n: number): { c
   return out;
 }
 
-export type PdfItem = { str: string; x: number; y: number };
+export type PdfItem = { str: string; x: number; y: number; w?: number };
 const RE_MAT_ONE = /^\d{7}$/;
 // L'item importo può avere l'IBAN concatenato ("1.417,00 IT53…"): riconosci un importo
 // in TESTA all'item (non full-string) ed estrai solo quello.
@@ -495,4 +495,185 @@ export function parseProspettoPaghe(lines: string[], outlets: ParserOutlet[]): P
   }
 
   return { isProspetto, rows: [...sections.values()], months };
+}
+
+// ============================================================================
+// "Statistica costo orario" (Zucchetti Paghe Infinity) — costo lordo per
+// DIPENDENTE/MESE. File multi-azienda: si importa una sola azienda per volta
+// (companyCode = codice 6 cifre della riga "Azienda:"). Vedi migration 082.
+//
+// Regole verificate sul file reale (column-major, niente split inventati):
+//  - colonne riconosciute per posizione X dall'header
+//    (Costo retribuzione | contribuzione | Inail | Totale | Ore | Costo medio);
+//    Ore e Costo medio NON sono importi → scartate.
+//  - blocchi dipendente spezzati a cavallo di pagina: la matricola si ristampa,
+//    lo stato (matricola/mese) viene PORTATO fra le pagine, non azzerato.
+//  - mese rilevato da un token "MM/AAAA" anche quando l'anno è spezzato
+//    ("02/20 2 6") → si guarda solo MM.
+//  - il blocco di coda "Totale aziendale" è la sintesi azienda: NON è un
+//    dipendente → escluso dai dati, usato solo come totale di controllo.
+//  - lordo = colonna "Totale" = retribuzione + contribuzione + inail.
+//    Il TFR (voce 930) è GIÀ dentro la retribuzione → salvato a parte, mai risommato.
+// ============================================================================
+
+export type StatEmpMonth = {
+  matricola: string;
+  name: string;            // "COGNOME NOME" come nel report
+  year: number; month: number;
+  retribuzione: number; contribuzione: number; inail: number;
+  tfr: number;             // informativo (già incluso in retribuzione)
+  lordo: number;           // = retribuzione + contribuzione + inail
+};
+export type StatParsed = {
+  isStatistica: boolean;
+  companyCode: string;
+  rows: StatEmpMonth[];
+  employees: number;
+  totalLordo: number;
+  monthly: { month: number; lordo: number }[];
+  controlTotal: number | null;   // "Totale aziendale" → lordo Gen–…: totale di controllo
+};
+
+type GItem = { str: string; x: number; y: number; w?: number };
+type StatCol = 'retrib' | 'contrib' | 'inail' | 'totale' | 'ore' | 'medio';
+const STAT_COLS: StatCol[] = ['retrib', 'contrib', 'inail', 'totale', 'ore', 'medio'];
+const RE_STAT_MONEY = /^-?\d{1,3}(?:\.\d{3})*,\d{2}$|^-?\d+,\d{2}$/;
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
+// Item in coordinate di DISPLAY (vedi extractPdfItemsOriented): y cresce verso il
+// basso → l'ordine di lettura è y CRESCENTE; le colonne sono x crescente.
+function statClusterRows(items: GItem[], tol = 2.5): GItem[][] {
+  const rows: { y: number; n: number; items: GItem[] }[] = [];
+  for (const it of [...items].sort((a, b) => a.y - b.y)) {
+    let r = rows.find((rr) => Math.abs(rr.y - it.y) <= tol);
+    if (!r) { r = { y: it.y, n: 0, items: [] }; rows.push(r); }
+    r.items.push(it); r.y = (r.y * r.n + it.y) / (r.n + 1); r.n++;
+  }
+  rows.sort((a, b) => a.y - b.y);
+  return rows.map((r) => r.items.slice().sort((a, b) => a.x - b.x));
+}
+// Colonne riconosciute dall'header (x = bordo sinistro dell'etichetta, in ordine).
+// Un importo appartiene alla colonna la cui etichetta inizia più a destra senza
+// superare l'importo (gli importi sono allineati a destra rispetto all'header e
+// stanno sempre prima dell'header successivo): più robusto del nearest puro.
+type StatColPos = { k: StatCol; x: number };
+const statAssign = (cellX: number, cols: StatColPos[]): StatCol => {
+  let chosen = cols[0].k;
+  for (const c of cols) { if (cellX >= c.x - 6) chosen = c.k; else break; }
+  return chosen;
+};
+
+export function parseStatisticaCostoOrario(pages: GItem[][], opts: { companyCode: string }): StatParsed {
+  const company = opts.companyCode;
+  const empName = new Map<string, string>();
+  const monthly = new Map<string, Map<number, number[]>>();   // mat → month → [r,c,i,t]
+  const tfr = new Map<string, Map<number, number>>();         // mat → month → tfr
+  let col: StatColPos[] | null = null;
+  let cur: string | null = null, curM: number | null = null;
+  let inTot = false, az: string | null = null, skip = false, seenStat = false;
+  let controlTotal: number | null = null, controlM: number | null = null;
+  let year = 0;
+
+  for (const items of pages) {
+    for (const row of statClusterRows(items)) {
+      const txt = row.map((t) => t.str).join(' ').replace(/\s+/g, ' ').trim();
+      if (/Statistica costo orario/i.test(txt)) seenStat = true;
+      const py = txt.match(/Periodo di elaborazione:.*?(\d{4})/i);
+      if (py) year = +py[1];
+      const ma = txt.match(/Azienda:\s*(\d{6})/);
+      if (ma) { az = ma[1]; skip = false; continue; }
+      if (az !== company) continue;
+
+      if (/Costo retribuzione/i.test(txt) && /Inail/i.test(txt)) {
+        const cc: Partial<Record<StatCol, number>> = {};
+        for (const t of row) {
+          const s = t.str.toLowerCase();
+          if (s.includes('retribuzione')) cc.retrib = t.x;
+          else if (s.includes('contribuzione')) cc.contrib = t.x;
+          else if (s.includes('inail')) cc.inail = t.x;
+          else if (s === 'totale') cc.totale = t.x;
+          else if (s === 'ore') cc.ore = t.x;
+          else if (s.includes('medio')) cc.medio = t.x;
+        }
+        if (cc.retrib != null && cc.contrib != null && cc.inail != null && cc.totale != null && cc.ore != null && cc.medio != null)
+          col = STAT_COLS.map((k) => ({ k, x: cc[k] as number })).sort((a, b) => a.x - b.x);
+        continue;
+      }
+
+      // Sintesi azienda di coda: non un dipendente → solo totale di controllo.
+      if (/Totale\s+aziendale/i.test(txt)) { skip = true; }
+      if (skip) {
+        if (!col) continue;
+        const dm = txt.match(/(\d{2})\/\d{2,4}/);
+        if (dm) { const M = +dm[1]; if (M >= 1 && M <= 12) controlM = M; }
+        if (/\bTotali\b/i.test(txt)) controlM = null; // blocco "Totali" finale = grand total
+        if (row[0]?.str === 'Totale' && row[1] && RE_STAT_MONEY.test(row[1].str) && controlM === null) {
+          let tot = 0;
+          for (const t of row) { if (RE_STAT_MONEY.test(t.str) && statAssign(t.x, col) === 'totale') { tot = parseItNum(t.str) ?? 0; break; } }
+          if (tot) controlTotal = round2(tot);
+        }
+        continue;
+      }
+
+      const mm = txt.match(/^(\d{7})\s+(.*)/);
+      if (mm && mm[1] !== cur) {
+        cur = mm[1]; curM = null; inTot = false;
+        empName.set(cur, mm[2].split(/\s+\d{2}\/\d{2}/)[0].trim());
+      }
+      if (/\bTotali\b/i.test(txt)) { inTot = true; curM = null; }
+      if (!inTot) {
+        for (const t of row) { const d = t.str.match(/^(\d{2})\/\d{2,4}$/); if (d) { const M = +d[1]; if (M >= 1 && M <= 12) { curM = M; break; } } }
+      }
+      if (!col || !cur) continue;
+
+      // voce 930 T.F.R. → colonna retribuzione (informativo)
+      if (!inTot && curM && row[0]?.str === '930') {
+        for (const t of row) { if (RE_STAT_MONEY.test(t.str) && statAssign(t.x, col) === 'retrib') { if (!tfr.has(cur)) tfr.set(cur, new Map()); tfr.get(cur)!.set(curM, parseItNum(t.str) ?? 0); break; } }
+      }
+      // riga "Totale" del mese (o del blocco "Totali" del dipendente → cross-check, ignorata)
+      if (row[0]?.str === 'Totale' && row[1] && RE_STAT_MONEY.test(row[1].str)) {
+        const v: Record<StatCol, number> = { retrib: 0, contrib: 0, inail: 0, totale: 0, ore: 0, medio: 0 };
+        for (const t of row) { if (!RE_STAT_MONEY.test(t.str)) continue; v[statAssign(t.x, col)] = parseItNum(t.str) ?? 0; }
+        if (!inTot && curM) {
+          if (!monthly.has(cur)) monthly.set(cur, new Map());
+          if (!monthly.get(cur)!.has(curM)) monthly.get(cur)!.set(curM, [round2(v.retrib), round2(v.contrib), round2(v.inail), round2(v.totale)]);
+        }
+      }
+    }
+  }
+
+  const rows: StatEmpMonth[] = [];
+  const monthTot = new Map<number, number>();
+  for (const [mat, mmap] of monthly) {
+    for (const [m, arr] of mmap) {
+      const lordo = round2(arr[3]);
+      rows.push({ matricola: mat, name: empName.get(mat) || mat, year: year || new Date().getFullYear(), month: m,
+        retribuzione: arr[0], contribuzione: arr[1], inail: arr[2], tfr: round2(tfr.get(mat)?.get(m) ?? 0), lordo });
+      monthTot.set(m, round2((monthTot.get(m) ?? 0) + lordo));
+    }
+  }
+  rows.sort((a, b) => (a.matricola === b.matricola ? a.month - b.month : a.matricola < b.matricola ? -1 : 1));
+  return {
+    isStatistica: seenStat && rows.length > 0,
+    companyCode: company,
+    rows,
+    employees: empName.size,
+    totalLordo: round2(rows.reduce((s, r) => s + r.lordo, 0)),
+    monthly: [...monthTot.entries()].sort((a, b) => a[0] - b[0]).map(([month, lordo]) => ({ month, lordo })),
+    controlTotal,
+  };
+}
+
+// Elenca le aziende presenti nel file "Statistica costo orario" (è multi-azienda):
+// l'utente sceglie quale importare per il proprio tenant. Codice 6 cifre + nome.
+export function listStatisticaCompanies(pages: GItem[][]): { code: string; name: string }[] {
+  const seen = new Map<string, string>();
+  for (const items of pages) {
+    for (const row of statClusterRows(items)) {
+      const txt = row.map((t) => t.str).join(' ').replace(/\s+/g, ' ').trim();
+      const m = txt.match(/Azienda:\s*(\d{6})\s+(.+?)\s*$/);
+      if (m && !seen.has(m[1])) seen.set(m[1], m[2].trim());
+    }
+  }
+  return [...seen.entries()].map(([code, name]) => ({ code, name }));
 }

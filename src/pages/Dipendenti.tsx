@@ -39,13 +39,14 @@ import { supabase } from '../lib/supabase';
 import { GlassTooltip, AXIS_STYLE, GRID_STYLE, PALETTE, getOutletColor, fmtEuro } from '../components/ChartTheme';
 import { useAuth } from '../hooks/useAuth';
 import { useCompany } from '../hooks/useCompany';
-import { extractPdfLines, extractPdfItems } from '../lib/pdfText';
+import { extractPdfLines, extractPdfItems, extractPdfItemsOriented } from '../lib/pdfText';
 import {
   parseItNum, norm,
   parseInfinityNettiItems, parsePdfLordi, parseSpreadsheet,
   parseProspettoPaghe, contrAziendaOutlet,
+  parseStatisticaCostoOrario, listStatisticaCompanies,
   LORDI_FIELDS, rowLordo, rowHasLordo,
-  type PreviewRow, type ParsedImport, type ProspettoOutletRow,
+  type PreviewRow, type ParsedImport, type ProspettoOutletRow, type StatEmpMonth,
 } from '../lib/payrollParse';
 import { UiTooltip } from '../components/Tooltip'; // alias: 'Tooltip' collide con recharts
 import ExportMenu from '../components/ExportMenu';
@@ -1552,42 +1553,15 @@ function CostiTab(props: {
   const cedNames = sortGroupNames(Object.keys(cedGroups), outlets);
   return (
     <div className="space-y-5">
-      <div className="text-xs sm:text-[13px] text-amber-900 bg-amber-50 border border-amber-200 rounded-xl p-3.5 flex items-start gap-2.5">
-        <span className="text-amber-600 font-bold shrink-0">€</span>
-        <div><strong>Qui convivono due livelli.</strong> In alto il <strong>costo aziendale per conto</strong> (quello che serve a B&amp;C, oggi inserito a mano). In basso i <strong>netti dai cedolini</strong> (quello che hai caricato). Obiettivo del redesign: i cedolini alimentano automaticamente l'aggregato, e la riga “costo” smette di essere digitata a mano.</div>
-      </div>
-
-      {/* Costo per conto */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="px-4 py-3.5 border-b border-slate-200 flex items-center justify-between gap-2">
-          <h2 className="font-bold text-slate-800">Costo personale per conto — {monthLabel} {year}</h2>
-          <span className="text-xs text-slate-500">mappato sul piano dei conti civilistico</span>
+      <div className="text-xs sm:text-[13px] text-slate-600 bg-slate-50 border border-slate-200 rounded-xl p-3.5 flex items-start justify-between gap-2.5">
+        <div className="flex items-start gap-2.5">
+          <span className="text-slate-400 font-bold shrink-0">€</span>
+          <div>Questa vista mostra i <strong>netti dai cedolini</strong> per dipendente e mese. Il <strong>costo lordo</strong> (retribuzione + contributi + INAIL, per dipendente e outlet) vive ora nella scheda <strong>«Costo lordo»</strong>.</div>
         </div>
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-xs uppercase tracking-wide text-slate-500 bg-slate-50 border-b border-slate-200">
-              <th className="px-4 py-2.5 text-left font-bold">Conto</th>
-              <th className="px-4 py-2.5 text-left font-bold">Voce</th>
-              <th className="px-4 py-2.5 text-right font-bold">Importo mese</th>
-              <th className="px-4 py-2.5 text-center font-bold">Fonte</th>
-            </tr>
-          </thead>
-          <tbody>
-            {contiMese.map((c) => (
-              <tr key={c.code} className="border-b border-slate-100">
-                <td className="px-4 py-2.5 text-slate-500 tabular-nums">{c.code}</td>
-                <td className="px-4 py-2.5 text-slate-700">{c.label}</td>
-                <td className="px-4 py-2.5 text-right">{c.amount ? <Money v={c.amount} /> : <span className="text-slate-400">— da cedolino</span>}</td>
-                <td className="px-4 py-2.5 text-center"><span className="text-[10.5px] font-bold px-2 py-0.5 rounded bg-amber-50 text-amber-700">manuale oggi</span></td>
-              </tr>
-            ))}
-            <tr className="font-bold border-t-2 border-slate-300">
-              <td className="px-4 py-2.5" colSpan={2}>NETTO PAGATO (dai cedolini)</td>
-              <td className="px-4 py-2.5 text-right tabular-nums">{eurFmt.format(totalNettoMese)}&nbsp;€</td>
-              <td className="px-4 py-2.5 text-center"><span className="text-[10.5px] font-bold px-2 py-0.5 rounded bg-emerald-50 text-emerald-700">automatico</span></td>
-            </tr>
-          </tbody>
-        </table>
+        <div className="text-right shrink-0">
+          <div className="text-[11px] text-slate-400">Netto pagato · {monthLabel} {year}</div>
+          <div className="font-semibold tabular-nums text-slate-900">{eurFmt.format(totalNettoMese)}&nbsp;€</div>
+        </div>
       </div>
 
       {/* Cedolini per dipendente — solo chi ha il cedolino del mese, raggruppato per outlet */}
@@ -2282,6 +2256,324 @@ type InailRateRow = { id: string; pat_label: string; outlet_id: string | null; r
 
 const MESI_LBL = ['', 'Gennaio', 'Febbraio', 'Marzo', 'Aprile', 'Maggio', 'Giugno', 'Luglio', 'Agosto', 'Settembre', 'Ottobre', 'Novembre', 'Dicembre'];
 
+// ============================================================================
+// Costo lordo PER DIPENDENTE/MESE — layer drillabile dentro la scheda "Costo
+// lordo". Sorgente: report "Statistica costo orario" (Paghe Infinity, ruotato)
+// → tabella personnel_gross_cost_employee (migration 082).
+// Lordo = retribuzione + contribuzione + inail. TFR già dentro la retribuzione.
+// ============================================================================
+type PgceRow = {
+  id: string; matricola: string; employee_name: string | null; outlet_code: string | null;
+  is_admin: boolean; year: number; month: number; employee_id: string | null;
+  retribuzione: number; contribuzione: number; inail: number; tfr: number; lordo: number;
+};
+const DA_ASSEGNARE = 'Da assegnare';
+const AMMINISTRATORI = 'Amministratori';
+
+function CostiLordoDipendentiBlock({ companyId, userId, outlets, year, month, monthLabel, prospettoByOutlet }: {
+  companyId: string; userId: string | null; outlets: OutletRow[]; year: number; month: number; monthLabel: string;
+  prospettoByOutlet: Map<string, number>;
+}) {
+  const { toast } = useToast();
+  const sb: any = supabase; // tabelle nuove (082) non ancora nei tipi generati
+  const [rows, setRows] = useState<PgceRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [dragOver, setDragOver] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [companyPick, setCompanyPick] = useState<{ pages: any[][]; companies: { code: string; name: string }[]; fileName: string } | null>(null);
+  const [preview, setPreview] = useState<{ companyCode: string; companyName: string; res: ReturnType<typeof parseStatisticaCostoOrario>; fileName: string } | null>(null);
+  const fileRef = useRef<HTMLInputElement | null>(null);
+
+  const load = async () => {
+    setLoading(true);
+    const { data } = await sb.from('personnel_gross_cost_employee').select('*').eq('company_id', companyId).eq('year', year);
+    setRows(((data as PgceRow[]) || []).map((r) => ({ ...r, lordo: Number(r.lordo), retribuzione: Number(r.retribuzione), contribuzione: Number(r.contribuzione), inail: Number(r.inail), tfr: Number(r.tfr) })));
+    setLoading(false);
+  };
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [companyId, year]);
+
+  const monthRows = useMemo(() => rows.filter((r) => r.month === month), [rows, month]);
+  const bucketOf = (r: PgceRow) => (r.is_admin ? AMMINISTRATORI : (r.outlet_code || DA_ASSEGNARE));
+
+  // Ordine bucket: outlet (alfabetici, SEDE in coda) → Da assegnare → Amministratori.
+  const outletRank = useMemo(() => {
+    const order = sortOutlets(outlets).map((o) => o.name.toLowerCase());
+    return (name: string) => {
+      if (name === AMMINISTRATORI) return 100000;
+      if (name === DA_ASSEGNARE) return 90000;
+      const i = order.indexOf(name.toLowerCase());
+      return i >= 0 ? i : 80000;
+    };
+  }, [outlets]);
+
+  // Raggruppamento del mese selezionato: bucket → dipendenti.
+  const groups = useMemo(() => {
+    const byBucket = new Map<string, PgceRow[]>();
+    for (const r of monthRows) {
+      const k = bucketOf(r);
+      if (!byBucket.has(k)) byBucket.set(k, []);
+      byBucket.get(k)!.push(r);
+    }
+    return [...byBucket.entries()]
+      .map(([name, emps]) => ({ name, emps: emps.sort((a, b) => b.lordo - a.lordo), tot: Math.round(emps.reduce((s, e) => s + e.lordo, 0) * 100) / 100 }))
+      .sort((a, b) => outletRank(a.name) - outletRank(b.name) || a.name.localeCompare(b.name, 'it'));
+  }, [monthRows, outletRank]);
+
+  const monthTotal = useMemo(() => monthRows.reduce((s, r) => s + r.lordo, 0), [monthRows]);
+  const periodTotal = useMemo(() => rows.reduce((s, r) => s + r.lordo, 0), [rows]);
+  const periodMonths = useMemo(() => {
+    const m = new Map<number, number>();
+    for (const r of rows) m.set(r.month, (m.get(r.month) || 0) + r.lordo);
+    return [...m.entries()].sort((a, b) => a[0] - b[0]).map(([mm, lordo]) => ({ mm, lordo }));
+  }, [rows]);
+  const periodLabel = periodMonths.length ? `${MESI_LBL[periodMonths[0].mm].slice(0, 3)}–${MESI_LBL[periodMonths[periodMonths.length - 1].mm].slice(0, 3)} ${year}` : `${year}`;
+
+  const toggle = (k: string) => setExpanded((s) => { const n = new Set(s); n.has(k) ? n.delete(k) : n.add(k); return n; });
+
+  // -------------------------------------------------------------- import
+  const onPick = async (file?: File | null) => {
+    if (!file) return;
+    const isPdf = /\.pdf$/i.test(file.name) || file.type === 'application/pdf';
+    if (!isPdf) { toast({ type: 'error', message: 'Carica la «Statistica costo orario» in formato PDF.' }); return; }
+    try {
+      const pages = await extractPdfItemsOriented(file);
+      const companies = listStatisticaCompanies(pages);
+      if (companies.length === 0) { toast({ type: 'error', message: 'Il PDF non sembra una «Statistica costo orario»: nessuna azienda riconosciuta.' }); return; }
+      if (companies.length === 1) { runParse(pages, companies[0], file.name); return; }
+      setCompanyPick({ pages, companies, fileName: file.name });
+    } catch (e) { console.error(e); toast({ type: 'error', message: 'Impossibile leggere il PDF.' }); }
+  };
+  const runParse = (pages: any[][], company: { code: string; name: string }, fileName: string) => {
+    const res = parseStatisticaCostoOrario(pages, { companyCode: company.code });
+    if (!res.isStatistica || res.rows.length === 0) { toast({ type: 'error', message: `Nessun dato per ${company.name} nel file.` }); return; }
+    setCompanyPick(null);
+    setPreview({ companyCode: company.code, companyName: company.name, res, fileName });
+  };
+
+  const confirmSave = async () => {
+    if (!preview) return;
+    const { res, fileName } = preview;
+    // Guardia totale di controllo: se il file stampa "Totale aziendale" e non quadra, blocca.
+    if (res.controlTotal != null && Math.abs(res.totalLordo - res.controlTotal) > 0.01) {
+      toast({ type: 'error', message: `Totale letto ${eurFmt.format(res.totalLordo)} € ≠ totale di controllo del file ${eurFmt.format(res.controlTotal)} €. Import annullato (parser da rivedere).` });
+      return;
+    }
+    setImporting(true);
+    try {
+      // Risoluzione data-driven: matricola → employee_id, outlet (allocazione primaria), is_admin (ruolo).
+      const [{ data: emps }, { data: allocs }] = await Promise.all([
+        sb.from('employees').select('id, matricola, role_description, qualifica, notes, note').eq('company_id', companyId),
+        sb.from('employee_outlet_allocations').select('employee_id, outlet_code, is_primary').eq('company_id', companyId),
+      ]);
+      const empByMat = new Map<string, any>((emps || []).map((e: any) => [String(e.matricola), e]));
+      const outletByEmp = new Map<string, string>();
+      for (const a of (allocs || []) as any[]) {
+        if (!outletByEmp.has(a.employee_id) || a.is_primary) outletByEmp.set(a.employee_id, a.outlet_code);
+      }
+      const isAdminMat = (e: any) => !!e && /amministrat/i.test(`${e.qualifica || ''} ${e.role_description || ''} ${e.note || e.notes || ''}`);
+
+      const months = [...new Set(res.rows.map((r) => r.month))].sort((a, b) => a - b);
+      const periodTxt = months.length ? `${MESI_LBL[months[0]].slice(0, 3)}–${MESI_LBL[months[months.length - 1]].slice(0, 3)} ${res.rows[0].year}` : null;
+      const { data: imp, error: impErr } = await sb.from('personnel_gross_cost_employee_imports').insert({
+        company_id: companyId, file_name: fileName, period_label: periodTxt,
+        rows_total: res.rows.length, employees_total: res.employees, file_total: res.totalLordo, imported_by: userId,
+      }).select('id').single();
+      if (impErr) throw impErr;
+      const importId = (imp as any)?.id ?? null;
+
+      const payload = res.rows.map((r) => {
+        const e = empByMat.get(r.matricola);
+        const admin = isAdminMat(e);
+        return {
+          company_id: companyId, employee_id: e?.id ?? null, matricola: r.matricola, employee_name: r.name,
+          outlet_code: admin ? null : (e ? (outletByEmp.get(e.id) ?? null) : null), is_admin: admin,
+          year: r.year, month: r.month, retribuzione: r.retribuzione, contribuzione: r.contribuzione,
+          inail: r.inail, tfr: r.tfr, lordo: r.lordo, source_file: fileName, import_id: importId, updated_at: new Date().toISOString(),
+        };
+      });
+      const { error: upErr } = await sb.from('personnel_gross_cost_employee').upsert(payload, { onConflict: 'company_id,matricola,year,month' });
+      if (upErr) throw upErr;
+
+      const unmatched = payload.filter((p) => !p.employee_id).length;
+      toast({ type: 'success', message: `Importati ${res.employees} dipendenti · ${res.rows.length} righe mese · totale ${eurFmt.format(res.totalLordo)} €${unmatched ? ` · ${unmatched} righe da assegnare` : ''}.` });
+      setPreview(null);
+      await load();
+    } catch (e: any) {
+      console.error(e);
+      toast({ type: 'error', message: `Errore nel salvataggio: ${e?.message || e}` });
+    } finally { setImporting(false); }
+  };
+
+  const exportData = monthRows
+    .slice().sort((a, b) => outletRank(bucketOf(a)) - outletRank(bucketOf(b)) || b.lordo - a.lordo)
+    .map((r) => ({ outlet: bucketOf(r), matricola: r.matricola, dipendente: r.employee_name || r.matricola, retribuzione: r.retribuzione, contribuzione: r.contribuzione, inail: r.inail, tfr: r.tfr, lordo: r.lordo }));
+  const exportCols = [
+    { key: 'outlet', label: 'Outlet' }, { key: 'matricola', label: 'Matricola' }, { key: 'dipendente', label: 'Dipendente' },
+    { key: 'retribuzione', label: 'Retribuzione', format: 'euro' as const }, { key: 'contribuzione', label: 'Contribuzione', format: 'euro' as const },
+    { key: 'inail', label: 'INAIL', format: 'euro' as const }, { key: 'tfr', label: 'TFR (incl. in retrib.)', format: 'euro' as const },
+    { key: 'lordo', label: 'Costo lordo', format: 'euro' as const },
+  ];
+
+  return (
+    <div className="space-y-5">
+      {/* KPI periodo / mese */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <Kpi label={`Costo lordo · ${monthLabel} ${year}`} value={`${eurFmt.format(monthTotal)} €`} sub={`${monthRows.length} dipendenti nel mese`} icon={Users} source="neutro" />
+        <Kpi label={`Costo lordo · ${periodLabel}`} value={`${eurFmt.format(periodTotal)} €`} sub={`${new Set(rows.map((r) => r.matricola)).size} dipendenti · ${periodMonths.length} mesi`} icon={FileText} source="neutro" />
+        <div className="bg-white rounded-2xl border border-slate-200 p-4 flex flex-col justify-between">
+          <div>
+            <div className="text-xs font-medium text-slate-500">Riepilogo periodo</div>
+            <div className="mt-1 space-y-0.5">
+              {periodMonths.map((m) => (
+                <div key={m.mm} className="flex items-center justify-between text-xs">
+                  <span className="text-slate-500">{MESI_LBL[m.mm]}</span><Money v={m.lordo} />
+                </div>
+              ))}
+            </div>
+          </div>
+          {monthRows.length > 0 && <div className="mt-3"><ExportMenu data={exportData} columns={exportCols} filename={`costo_lordo_dipendenti_${year}_${String(month).padStart(2, '0')}`} title={`Costo lordo per dipendente · ${monthLabel} ${year}`} /></div>}
+        </div>
+      </div>
+
+      {/* Import "Statistica costo orario" */}
+      <div
+        onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={(e) => { e.preventDefault(); setDragOver(false); onPick(e.dataTransfer.files?.[0]); }}
+        className={`rounded-2xl border-2 border-dashed p-6 text-center transition-colors ${dragOver ? 'border-blue-400 bg-blue-50' : 'border-slate-200 bg-white'}`}
+      >
+        <FileUp size={26} className="mx-auto text-slate-400 mb-2" />
+        <div className="text-sm font-semibold text-slate-800">Import costo lordo per dipendente — «Statistica costo orario» (PDF)</div>
+        <div className="text-xs text-slate-500 mt-1 mb-3">Report Paghe Infinity con il dettaglio per dipendente e mese. Trascina qui il PDF, oppure</div>
+        <button onClick={() => fileRef.current?.click()} className="px-3.5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium inline-flex items-center gap-1.5"><Upload size={15} /> Scegli il PDF</button>
+        <input ref={fileRef} type="file" accept=".pdf" className="hidden" onChange={(e) => { onPick(e.target.files?.[0]); e.target.value = ''; }} />
+        <div className="text-[11px] text-slate-400 mt-3">Il file può contenere più aziende: sceglierai quale importare. Re-importare lo stesso mese <strong>aggiorna</strong> i dati, non li duplica.</div>
+      </div>
+
+      {/* Breakdown per outlet → dipendente */}
+      {loading ? (
+        <div className="text-slate-400 py-10 text-center">Caricamento…</div>
+      ) : monthRows.length === 0 ? (
+        <div className="bg-white rounded-2xl border border-slate-200 p-10 text-center text-slate-400">
+          Nessun costo lordo per dipendente in <strong>{monthLabel} {year}</strong>.{' '}
+          {periodMonths.length > 0 ? <>Seleziona un mese tra <strong>{periodMonths.map((m) => MESI_LBL[m.mm]).join(', ')}</strong> dal selettore in alto, oppure importa il report del mese.</> : <>Importa la «Statistica costo orario» qui sopra.</>}
+        </div>
+      ) : (
+        <div className="space-y-2.5">
+          {groups.map((g) => {
+            const isOpen = expanded.has(g.name);
+            const prosp = prospettoByOutlet.get(g.name.toLowerCase());
+            const diff = prosp != null ? g.tot - prosp : null;
+            const special = g.name === DA_ASSEGNARE || g.name === AMMINISTRATORI;
+            return (
+              <div key={g.name} className={`bg-white rounded-2xl border overflow-hidden ${g.name === DA_ASSEGNARE ? 'border-amber-200' : 'border-slate-200'}`}>
+                <button onClick={() => toggle(g.name)} className="w-full flex items-center justify-between px-5 py-3 hover:bg-slate-50 transition-colors">
+                  <div className="flex items-center gap-2 min-w-0">
+                    {isOpen ? <ChevronDown size={16} className="text-slate-400 shrink-0" /> : <ChevronRight size={16} className="text-slate-400 shrink-0" />}
+                    <span className={`font-semibold truncate ${g.name === DA_ASSEGNARE ? 'text-amber-700' : 'text-slate-800'}`}>{g.name}</span>
+                    <span className="text-xs text-slate-400 shrink-0">· {g.emps.length} dip.</span>
+                    {g.name === DA_ASSEGNARE && <span className="text-[11px] text-amber-600 hidden sm:inline">matricole non in anagrafica o senza outlet — assegnabili</span>}
+                  </div>
+                  <div className="flex items-center gap-3 shrink-0">
+                    {!special && diff != null && Math.abs(diff) > 1 && (
+                      <UiTooltip content={`Prospetto paghe (per outlet): ${eurFmt.format(prosp!)} €\nSomma dipendenti: ${eurFmt.format(g.tot)} €\nDifferenza: ${eurFmt.format(diff)} €\n(i due report definiscono le voci in modo diverso: scarto atteso)`}>
+                        <span className="text-[11px] text-slate-400 cursor-help border-b border-dotted border-slate-300">Δ Prospetto {eurFmt.format(diff)} €</span>
+                      </UiTooltip>
+                    )}
+                    <Money v={g.tot} strong />
+                  </div>
+                </button>
+                {isOpen && (
+                  <div className="border-t border-slate-100 overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-slate-50 text-slate-500">
+                        <tr>
+                          <th className="px-5 py-2 text-left font-bold">Dipendente</th>
+                          <th className="px-3 py-2 text-right font-bold">Retrib.</th>
+                          <th className="px-3 py-2 text-right font-bold">Contrib.</th>
+                          <th className="px-3 py-2 text-right font-bold">INAIL</th>
+                          <th className="px-4 py-2 text-right font-bold">Costo lordo</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {g.emps.map((e) => (
+                          <tr key={e.id} className="hover:bg-slate-50">
+                            <td className="px-5 py-2">
+                              <UiTooltip content={`Matricola ${e.matricola}${e.employee_id ? '' : ' · non in anagrafica'}\nRetribuzione: ${eurFmt.format(e.retribuzione)} € (di cui TFR ${eurFmt.format(e.tfr)} €, già incluso)\nContribuzione: ${eurFmt.format(e.contribuzione)} €\nINAIL: ${eurFmt.format(e.inail)} €`}>
+                                <span className="text-slate-800 cursor-help border-b border-dotted border-slate-300">{e.employee_name || e.matricola}</span>
+                              </UiTooltip>
+                              {!e.employee_id && <span className="ml-2 text-[11px] text-amber-600">nuova matricola</span>}
+                            </td>
+                            <td className="px-3 py-2 text-right"><Money v={e.retribuzione} /></td>
+                            <td className="px-3 py-2 text-right"><Money v={e.contribuzione} /></td>
+                            <td className="px-3 py-2 text-right"><Money v={e.inail} /></td>
+                            <td className="px-4 py-2 text-right"><Money v={e.lordo} strong /></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          <div className="flex items-center justify-between px-5 py-3 bg-slate-50 rounded-2xl border border-slate-200">
+            <span className="font-semibold text-slate-700">Totale costo lordo · {monthLabel} {year}</span>
+            <Money v={monthTotal} strong />
+          </div>
+        </div>
+      )}
+
+      {/* Scelta azienda (file multi-azienda) */}
+      {companyPick && (
+        <Modal title="Quale azienda importare?" onClose={() => !importing && setCompanyPick(null)} maxW="max-w-md">
+          <div className="text-xs text-slate-500 mb-3">Il file <strong>{companyPick.fileName}</strong> contiene più aziende. Importa quella di questo gestionale.</div>
+          <div className="space-y-2">
+            {companyPick.companies.map((c) => (
+              <button key={c.code} onClick={() => runParse(companyPick.pages, c, companyPick.fileName)} className="w-full text-left px-4 py-3 rounded-xl border border-slate-200 hover:border-blue-300 hover:bg-blue-50 transition-colors">
+                <div className="font-medium text-slate-800">{c.name}</div>
+                <div className="text-xs text-slate-400">codice {c.code}</div>
+              </button>
+            ))}
+          </div>
+        </Modal>
+      )}
+
+      {/* Anteprima import */}
+      {preview && (
+        <Modal title="Anteprima import — Statistica costo orario" onClose={() => !importing && setPreview(null)} maxW="max-w-2xl">
+          <div className="text-xs text-slate-500 mb-3">File: <strong>{preview.fileName}</strong> · Azienda <strong>{preview.companyName}</strong> · {preview.res.employees} dipendenti · {preview.res.rows.length} righe mese.</div>
+          <div className="rounded-xl border border-slate-200 overflow-hidden mb-3">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 text-slate-500"><tr><th className="px-4 py-2 text-left font-bold">Mese</th><th className="px-4 py-2 text-right font-bold">Costo lordo</th></tr></thead>
+              <tbody className="divide-y divide-slate-100">
+                {preview.res.monthly.map((m) => (
+                  <tr key={m.month}><td className="px-4 py-2 text-slate-700">{MESI_LBL[m.month]} {preview.res.rows[0]?.year}</td><td className="px-4 py-2 text-right"><Money v={m.lordo} /></td></tr>
+                ))}
+              </tbody>
+              <tfoot className="bg-slate-50 font-semibold"><tr><td className="px-4 py-2 text-slate-700">Totale</td><td className="px-4 py-2 text-right"><Money v={preview.res.totalLordo} strong /></td></tr></tfoot>
+            </table>
+          </div>
+          {preview.res.controlTotal != null && (
+            <div className={`flex items-start gap-2 text-sm rounded-xl px-4 py-2.5 ${Math.abs(preview.res.totalLordo - preview.res.controlTotal) > 0.01 ? 'bg-red-50 border border-red-200 text-red-700' : 'bg-emerald-50 border border-emerald-200 text-emerald-700'}`}>
+              {Math.abs(preview.res.totalLordo - preview.res.controlTotal) > 0.01 ? <AlertCircle size={16} className="mt-0.5 shrink-0" /> : <CheckCircle2 size={16} className="mt-0.5 shrink-0" />}
+              <div>Totale di controllo del file («Totale aziendale»): <strong>{eurFmt.format(preview.res.controlTotal)} €</strong>. {Math.abs(preview.res.totalLordo - preview.res.controlTotal) > 0.01 ? 'NON quadra con il totale letto: l’import sarà bloccato.' : 'Quadra con il totale letto.'}</div>
+            </div>
+          )}
+          <div className="flex items-center justify-between mt-4">
+            <div className="text-xs text-slate-400">Salvataggio idempotente: outlet e amministratori risolti dall’anagrafica.</div>
+            <div className="flex gap-2">
+              <button onClick={() => setPreview(null)} disabled={importing} className="px-4 py-2 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100">Annulla</button>
+              <button onClick={confirmSave} disabled={importing} className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 inline-flex items-center gap-1.5"><CheckCircle2 size={15} /> {importing ? 'Salvataggio…' : 'Conferma e salva'}</button>
+            </div>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
 function CostiLordoTab({ companyId, userId, outlets, year, month, monthLabel }: {
   companyId: string; userId: string | null; outlets: OutletRow[]; year: number; month: number; monthLabel: string;
 }) {
@@ -2422,6 +2714,13 @@ function CostiLordoTab({ companyId, userId, outlets, year, month, monthLabel }: 
 
   const outletNameOf = (r: GrossRow) => (r.outlet_id ? (outletById.get(r.outlet_id)?.name || r.outlet_label || '—') : (r.outlet_label || 'Non attribuito'));
 
+  // Costo lordo per outlet dal Prospetto (per riconciliare col rollup dipendenti).
+  const prospettoByOutlet = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const r of rows) m.set(outletNameOf(r).toLowerCase(), (m.get(outletNameOf(r).toLowerCase()) || 0) + r.costo_lordo_outlet);
+    return m;
+  }, [rows, outletById]);
+
   const tot = useMemo(() => rows.reduce((a, r) => ({
     dip: a.dip + (r.numero_dipendenti || 0),
     retr: a.retr + (r.totale_retribuzioni || 0),
@@ -2456,6 +2755,24 @@ function CostiLordoTab({ companyId, userId, outlets, year, month, monthLabel }: 
   ];
 
   return (
+    <div className="space-y-8">
+      {/* Layer per DIPENDENTE/MESE — drillabile outlet → dipendente (sorgente: Statistica costo orario) */}
+      <CostiLordoDipendentiBlock
+        companyId={companyId}
+        userId={userId}
+        outlets={outlets}
+        year={year}
+        month={month}
+        monthLabel={monthLabel}
+        prospettoByOutlet={prospettoByOutlet}
+      />
+
+      {/* Vista per OUTLET dal Prospetto paghe — riconciliazione e tassi INAIL */}
+      <div className="pt-2">
+        <div className="flex items-center gap-2 mb-3">
+          <div className="text-sm font-semibold text-slate-700">Vista per outlet — Prospetto paghe</div>
+          <span className="text-xs text-slate-400">riconciliazione e tassi INAIL · {monthLabel} {year}</span>
+        </div>
     <div className="space-y-5">
       {/* Import tile + export */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -2677,6 +2994,8 @@ function CostiLordoTab({ companyId, userId, outlets, year, month, monthLabel }: 
           </div>
         </Modal>
       )}
+    </div>
+      </div>
     </div>
   );
 }

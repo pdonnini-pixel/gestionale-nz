@@ -8,7 +8,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
 
 type It = { s: string; x: number; y: number };
 
-export type PdfItem = { str: string; x: number; y: number };
+export type PdfItem = { str: string; x: number; y: number; w?: number };
 
 /**
  * Estrae gli item di testo per PAGINA con la loro geometria (x = transform[4], y = transform[5]).
@@ -24,7 +24,33 @@ export async function extractPdfItems(file: File): Promise<PdfItem[][]> {
     const tc = await page.getTextContent();
     const items: PdfItem[] = (tc.items as any[])
       .filter((i) => typeof i.str === 'string' && i.str.trim() !== '')
-      .map((i) => ({ str: i.str, x: i.transform[4], y: i.transform[5] }));
+      .map((i) => ({ str: i.str, x: i.transform[4], y: i.transform[5], w: i.width }));
+    pages.push(items);
+  }
+  return pages;
+}
+
+/**
+ * Estrae gli item per PAGINA in coordinate di DISPLAY (viewport), così la
+ * rotazione della pagina è già applicata: x cresce verso destra, y verso il
+ * basso, a prescindere dall'orientamento del PDF. Serve ai report "Paghe
+ * Infinity" che sono RUOTATI a 90° (es. "Statistica costo orario"): senza
+ * normalizzazione transform[4]/[5] sono gli assi scambiati.
+ */
+export async function extractPdfItemsOriented(file: File): Promise<PdfItem[][]> {
+  const buf = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise;
+  const pages: PdfItem[][] = [];
+  for (let p = 1; p <= pdf.numPages; p++) {
+    const page = await pdf.getPage(p);
+    const vp = page.getViewport({ scale: 1 });
+    const tc = await page.getTextContent();
+    const items: PdfItem[] = (tc.items as any[])
+      .filter((i) => typeof i.str === 'string' && i.str.trim() !== '')
+      .map((i) => {
+        const [dx, dy] = vp.convertToViewportPoint(i.transform[4], i.transform[5]);
+        return { str: i.str, x: dx, y: dy, w: i.width };
+      });
     pages.push(items);
   }
   return pages;
