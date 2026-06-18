@@ -1,54 +1,62 @@
 /**
  * ExportBilancioDialog
  *
- * Dialog modale per export del bilancio consuntivo periodico (Lavoro 3 Task A).
+ * Export del Bilancio previsionale (Budget & Controllo → "Preventivo vs
+ * Consuntivo"). Riproduce ESATTAMENTE la vista gerarchica a monitor — macro
+ * civilistiche con i sottoconti — non più la vecchia lista piatta.
  *
- * Permette di scegliere:
- *  - Periodo: mensile singolo / trimestrale / annuale / range custom
- *  - Vista: gestionale (per outlet, senza rettifica magazzino)
- *           civilistico (consolidato, con rettifica magazzino)
- *  - Outlet: singolo o tutti
+ * Output:
+ *  - Excel multi-foglio: 1 foglio per scheda (Totale azienda + ogni outlet +
+ *    Sede), righe raggruppabili (outline) per espandere/collassare i sottoconti.
+ *  - PDF: 1 pagina per scheda, una tabella per sezione (Costi / Ricavi).
  *
- * Genera un file .xlsx multi-sheet con:
- *  - Foglio "Riepilogo": metadati + totali per macro_group
- *  - Foglio "Dettaglio": righe budget_entries con preventivo / consuntivo /
- *    scostamento €/% / ultimo refresh consuntivo
+ * Colonne: Voce | Preventivo | Consuntivo | Rettifica | Scostamento | %
+ * Negativi in rosso col meno (Excel: number format [Red]; PDF: testo rosso).
  *
- * Il file viene scaricato direttamente dal browser. Niente edge function:
- * la libreria xlsx (SheetJS v0.18.5) genera tutto client-side.
+ * Fonti dati e ordinamento sono in src/lib/bilancioExport.ts (verificati su DB).
+ * Tutto client-side: nessuna edge function, nessuna scrittura su DB.
  */
 
 import { useMemo, useState } from 'react'
 import * as XLSX from 'xlsx'
-import { X, FileSpreadsheet, Download } from 'lucide-react'
+import { jsPDF } from 'jspdf'
+import autoTable from 'jspdf-autotable'
+import { X, FileSpreadsheet, FileText, Download } from 'lucide-react'
 import { useToast } from './Toast'
+import {
+  buildSheets,
+  fmtEuroIt,
+  scostamento,
+  scostamentoPct,
+  fmtPct,
+  periodLabel,
+  slugify,
+  sheetName,
+  XLSX_EURO_FMT,
+  XLSX_PCT_FMT,
+  type CenterSheet,
+  type ExportSection,
+  type BudgetEntryLite,
+  type MonthlyMap,
+  type CoaNode,
+  type CenterRef,
+} from '../lib/bilancioExport'
 
-type BudgetEntry = {
-  cost_center?: string
-  account_code?: string
-  account_name?: string
-  macro_group?: string
-  budget_amount?: number
-  actual_amount?: number | null
-  month?: number
-  year?: number
-  actual_refreshed_at?: string | null
-}
-
-type CostCenter = {
-  code: string
-  label?: string
-  name?: string
-}
+type CostCenter = { code: string; label?: string; name?: string }
 
 type PeriodType = 'mensile' | 'trimestrale' | 'annuale' | 'custom'
-type ViewType = 'gestionale' | 'civilistico'
+type FormatType = 'excel' | 'pdf'
 
 type Props = {
   open: boolean
   onClose: () => void
-  budgetEntries: BudgetEntry[]
+  budgetEntries: BudgetEntryLite[]
   operativeOutlets: CostCenter[]
+  hq: CostCenter | null
+  revMonthly: MonthlyMap
+  consMonthly: MonthlyMap
+  coaCosti: CoaNode[]
+  coaRicavi: CoaNode[]
   year: number
   tenantName: string
   tenantCode: string
@@ -58,8 +66,13 @@ type Props = {
 const MESI_IT = ['Gennaio', 'Febbraio', 'Marzo', 'Aprile', 'Maggio', 'Giugno',
                  'Luglio', 'Agosto', 'Settembre', 'Ottobre', 'Novembre', 'Dicembre']
 
+const CONS_NOTE = 'Consuntivo costi non ancora importato (gli actual 2026 non sono ancora stati caricati: 0,00 è corretto).'
+
+const centerRef = (c: CostCenter): CenterRef => ({ code: c.code, label: c.label || c.name || c.code })
+
 export default function ExportBilancioDialog({
-  open, onClose, budgetEntries, operativeOutlets, year, tenantName, tenantCode, userEmail,
+  open, onClose, budgetEntries, operativeOutlets, hq, revMonthly, consMonthly,
+  coaCosti, coaRicavi, year, tenantName, tenantCode, userEmail,
 }: Props) {
   const { toast } = useToast()
   const [periodType, setPeriodType] = useState<PeriodType>('annuale')
@@ -67,168 +80,204 @@ export default function ExportBilancioDialog({
   const [trimestre, setTrimestre] = useState<1 | 2 | 3 | 4>(1)
   const [customFrom, setCustomFrom] = useState(1)
   const [customTo, setCustomTo] = useState(12)
-  const [viewType, setViewType] = useState<ViewType>('gestionale')
+  const [format, setFormat] = useState<FormatType>('excel')
   const [outletFilter, setOutletFilter] = useState<string>('__all__') // __all__ o cost_center code
   const [generating, setGenerating] = useState(false)
 
-  // Calcola intervallo mesi in base al periodo scelto
-  const monthRange = useMemo((): { from: number; to: number; label: string } => {
+  // Intervallo mesi in base al periodo scelto
+  const monthRange = useMemo((): { from: number; to: number } => {
     switch (periodType) {
       case 'mensile':
-        return { from: singleMonth, to: singleMonth, label: `${MESI_IT[singleMonth - 1]} ${year}` }
+        return { from: singleMonth, to: singleMonth }
       case 'trimestrale': {
         const from = (trimestre - 1) * 3 + 1
-        return { from, to: from + 2, label: `Q${trimestre} ${year}` }
+        return { from, to: from + 2 }
       }
       case 'annuale':
-        return { from: 1, to: 12, label: `Anno ${year}` }
+        return { from: 1, to: 12 }
       case 'custom':
-        return {
-          from: Math.min(customFrom, customTo),
-          to: Math.max(customFrom, customTo),
-          label: `${MESI_IT[Math.min(customFrom, customTo) - 1]} – ${MESI_IT[Math.max(customFrom, customTo) - 1]} ${year}`,
-        }
+        return { from: Math.min(customFrom, customTo), to: Math.max(customFrom, customTo) }
     }
-  }, [periodType, singleMonth, trimestre, customFrom, customTo, year])
+  }, [periodType, singleMonth, trimestre, customFrom, customTo])
 
-  // Filtra le righe budget_entries in base ai criteri scelti
-  const filteredRows = useMemo(() => {
-    return budgetEntries.filter((e) => {
-      // Anno
-      if (e.year !== year) return false
-      // Mese in range
-      const m = e.month || 0
-      if (m < monthRange.from || m > monthRange.to) return false
-      // Vista: gestionale esclude rettifica_bilancio, civilistico la include
-      if (viewType === 'gestionale' && e.cost_center === 'rettifica_bilancio') return false
-      // Outlet filter
-      if (outletFilter !== '__all__' && e.cost_center !== outletFilter) return false
-      // Esclude righe "sede"/"spese_non_divise" da vista gestionale per outlet specifico
-      // Mantiene tutte le righe in vista civilistica/aggregata
-      return true
+  const periodTxt = periodLabel(monthRange.from, monthRange.to, year)
+
+  const sheets = useMemo<CenterSheet[]>(() => {
+    if (!open) return []
+    return buildSheets({
+      selection: outletFilter,
+      operativeOutlets: operativeOutlets.map(centerRef),
+      hq: hq ? centerRef(hq) : null,
+      fromMonth: monthRange.from,
+      toMonth: monthRange.to,
+      budgetEntries,
+      revMonthly,
+      consMonthly,
+      coaCosti,
+      coaRicavi,
     })
-  }, [budgetEntries, year, monthRange, viewType, outletFilter])
+  }, [open, outletFilter, operativeOutlets, hq, monthRange, budgetEntries, revMonthly, consMonthly, coaCosti, coaRicavi])
 
-  // Etichette outlet per UI e per export
-  const outletLabel = (code?: string): string => {
-    if (!code) return ''
-    if (code === 'all') return 'Generale (non assegnato)'
-    if (code === 'rettifica_bilancio') return 'Rettifica magazzino'
-    if (code === 'spese_non_divise') return 'Spese non divise'
+  const outletLabel = (code: string): string => {
+    if (code === '__all__') return 'Tutti (Totale azienda + outlet + Sede)'
     const found = operativeOutlets.find((o) => o.code === code)
-    return found ? (found.label || found.name || code) : code
+    if (found) return found.label || found.name || code
+    if (hq && hq.code === code) return hq.label || hq.name || code
+    return code
   }
 
+  function fileBase(): string {
+    const outletSlug = outletFilter === '__all__' ? 'tutti' : (slugify(outletLabel(outletFilter)) || outletFilter)
+    const ts = new Date().toISOString().slice(0, 10)
+    return `bilancio_previsionale_${slugify(tenantCode)}_${outletSlug}_${slugify(periodTxt)}_${ts}`
+  }
+
+  // ─── EXCEL ──────────────────────────────────────────────────────────────
   function generaExcel() {
+    const wb = XLSX.utils.book_new()
+    const usedNames = new Set<string>()
+
+    sheets.forEach((sheet) => {
+      type Cell = string | number
+      const aoa: Cell[][] = []
+      const rowLevels: number[] = []
+      const pushRow = (cells: Cell[], level = 0) => { aoa.push(cells); rowLevels.push(level) }
+
+      pushRow([`${tenantName} — ${sheet.title}`])
+      pushRow([`Periodo: ${periodTxt}`])
+      pushRow([`Nota: ${CONS_NOTE}`])
+      pushRow([])
+      pushRow(['Voce', 'Preventivo', 'Consuntivo', 'Rettifica', 'Scostamento', '%'])
+
+      const emitSection = (sec: ExportSection) => {
+        pushRow([sec.title])
+        sec.rows.forEach((r) => {
+          const sc = scostamento(r.prev, r.cons)
+          const pct = scostamentoPct(r.prev, r.cons)
+          pushRow(
+            [`${'    '.repeat(r.depth)}${r.label}`, r.prev, r.cons, '—', sc, pct == null ? '—' : pct],
+            Math.min(r.depth, 7),
+          )
+        })
+        const tsc = scostamento(sec.totalPrev, sec.totalCons)
+        const tpct = scostamentoPct(sec.totalPrev, sec.totalCons)
+        pushRow([sec.totalLabel, sec.totalPrev, sec.totalCons, '—', tsc, tpct == null ? '—' : tpct])
+      }
+
+      emitSection(sheet.costi)
+      pushRow([])
+      emitSection(sheet.ricavi)
+
+      const ws = XLSX.utils.aoa_to_sheet(aoa)
+      ws['!cols'] = [{ wch: 48 }, { wch: 16 }, { wch: 16 }, { wch: 14 }, { wch: 16 }, { wch: 12 }]
+      // Outline righe (raggruppamento espandibile) + sommario sopra i sottoconti
+      ws['!rows'] = rowLevels.map((lvl) => (lvl > 0 ? { level: lvl } : {}))
+      ;(ws as { [k: string]: unknown })['!outline'] = { above: true }
+
+      // Number format: nero positivo, rosso negativo (no verde).
+      // Colonne 1,2,4 = euro; colonna 5 = percentuale.
+      const range = XLSX.utils.decode_range(ws['!ref'] || 'A1')
+      for (let r = range.s.r; r <= range.e.r; r++) {
+        for (const c of [1, 2, 4, 5]) {
+          const cell = ws[XLSX.utils.encode_cell({ r, c })] as { t?: string; z?: string } | undefined
+          if (cell && cell.t === 'n') cell.z = c === 5 ? XLSX_PCT_FMT : XLSX_EURO_FMT
+        }
+      }
+
+      let name = sheetName(sheet.title)
+      let i = 2
+      while (usedNames.has(name.toLowerCase())) { name = sheetName(`${sheet.title} ${i++}`) }
+      usedNames.add(name.toLowerCase())
+      XLSX.utils.book_append_sheet(wb, ws, name)
+    })
+
+    XLSX.writeFile(wb, `${fileBase()}.xlsx`)
+  }
+
+  // ─── PDF ────────────────────────────────────────────────────────────────
+  function generaPdf() {
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' })
+    const RED: [number, number, number] = [220, 38, 38]
+    const isNeg = (txt: string) => txt.trim().startsWith('-')
+
+    sheets.forEach((sheet, sIdx) => {
+      if (sIdx > 0) doc.addPage()
+      doc.setFontSize(13)
+      doc.setTextColor(15, 23, 42)
+      doc.text(`${tenantName} — ${sheet.title}`, 40, 44)
+      doc.setFontSize(9)
+      doc.setTextColor(100, 116, 139)
+      doc.text(`Periodo: ${periodTxt}`, 40, 60)
+      doc.text(CONS_NOTE, 40, 73, { maxWidth: 515 })
+
+      let startY = 90
+      const emitSection = (sec: ExportSection) => {
+        type Meta = { macro: boolean; total: boolean }
+        const meta: Meta[] = []
+        const body = sec.rows.map((r) => {
+          const sc = scostamento(r.prev, r.cons)
+          const pct = scostamentoPct(r.prev, r.cons)
+          meta.push({ macro: r.isMacro, total: false })
+          return [
+            `${'   '.repeat(r.depth)}${r.label}`,
+            fmtEuroIt(r.prev),
+            fmtEuroIt(r.cons),
+            '—',
+            fmtEuroIt(sc),
+            fmtPct(pct),
+          ]
+        })
+        const tsc = scostamento(sec.totalPrev, sec.totalCons)
+        const tpct = scostamentoPct(sec.totalPrev, sec.totalCons)
+        meta.push({ macro: false, total: true })
+        body.push([sec.totalLabel, fmtEuroIt(sec.totalPrev), fmtEuroIt(sec.totalCons), '—', fmtEuroIt(tsc), fmtPct(tpct)])
+
+        autoTable(doc, {
+          startY,
+          head: [[sec.title, 'Preventivo', 'Consuntivo', 'Rettifica', 'Scostamento', '%']],
+          body,
+          theme: 'grid',
+          styles: { fontSize: 7, cellPadding: 2, overflow: 'linebreak', textColor: [30, 41, 59] },
+          headStyles: { fillColor: [241, 245, 249], textColor: [51, 65, 85], fontStyle: 'bold', halign: 'left' },
+          columnStyles: {
+            0: { cellWidth: 235, halign: 'left' },
+            1: { cellWidth: 62, halign: 'right' },
+            2: { cellWidth: 62, halign: 'right' },
+            3: { cellWidth: 42, halign: 'right' },
+            4: { cellWidth: 62, halign: 'right' },
+            5: { cellWidth: 52, halign: 'right' },
+          },
+          margin: { left: 40, right: 40 },
+          didParseCell: (data) => {
+            const m = meta[data.row.index]
+            if (data.section === 'body' && m && (m.macro || m.total)) data.cell.styles.fontStyle = 'bold'
+            // Negativi in rosso (colonne numeriche)
+            if (data.section === 'body' && data.column.index >= 1) {
+              const text = Array.isArray(data.cell.text) ? data.cell.text.join('') : String(data.cell.text)
+              if (isNeg(text)) data.cell.styles.textColor = RED
+            }
+          },
+        })
+        const after = (doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable
+        startY = (after ? after.finalY : startY) + 16
+      }
+
+      emitSection(sheet.costi)
+      emitSection(sheet.ricavi)
+    })
+
+    doc.save(`${fileBase()}.pdf`)
+  }
+
+  function genera() {
     setGenerating(true)
     try {
-      const wb = XLSX.utils.book_new()
-
-      // ─── FOGLIO 1: RIEPILOGO ─────────────────────────────────────────
-      const totals = filteredRows.reduce(
-        (acc, r) => {
-          const isRev = (r.account_code || '').startsWith('510')
-          const budget = Number(r.budget_amount || 0)
-          const actual = Number(r.actual_amount || 0)
-          if (isRev) {
-            acc.ricaviPrev += budget
-            acc.ricaviCons += actual
-          } else {
-            acc.costiPrev += budget
-            acc.costiCons += actual
-          }
-          return acc
-        },
-        { ricaviPrev: 0, ricaviCons: 0, costiPrev: 0, costiCons: 0 },
-      )
-      const utilePrev = totals.ricaviPrev - Math.abs(totals.costiPrev)
-      const utileCons = totals.ricaviCons - Math.abs(totals.costiCons)
-      const scostUtile = utileCons - utilePrev
-      const scostUtilePct = utilePrev !== 0 ? (scostUtile / Math.abs(utilePrev)) * 100 : 0
-
-      const summary: (string | number)[][] = [
-        ['BILANCIO CONSUNTIVO'],
-        [],
-        ['Tenant', tenantName],
-        ['Codice tenant', tenantCode],
-        ['Periodo', monthRange.label],
-        ['Vista', viewType === 'gestionale' ? 'Gestionale (per outlet, senza rettifica magazzino)' : 'Civilistico (consolidato, con rettifica magazzino)'],
-        ['Outlet', outletFilter === '__all__' ? 'Tutti gli outlet operativi' : outletLabel(outletFilter)],
-        ['Generato il', new Date().toLocaleString('it-IT')],
-        ['Generato da', userEmail],
-        ['Righe totali', filteredRows.length],
-        [],
-        ['VOCE', 'PREVENTIVO', 'CONSUNTIVO', 'SCOSTAMENTO €', 'SCOSTAMENTO %'],
-        ['Ricavi', totals.ricaviPrev, totals.ricaviCons, totals.ricaviCons - totals.ricaviPrev,
-         totals.ricaviPrev !== 0 ? ((totals.ricaviCons - totals.ricaviPrev) / Math.abs(totals.ricaviPrev)) * 100 : 0],
-        ['Costi', totals.costiPrev, totals.costiCons, totals.costiCons - totals.costiPrev,
-         totals.costiPrev !== 0 ? ((totals.costiCons - totals.costiPrev) / Math.abs(totals.costiPrev)) * 100 : 0],
-        ['Utile / Perdita', utilePrev, utileCons, scostUtile, scostUtilePct],
-      ]
-
-      const ws1 = XLSX.utils.aoa_to_sheet(summary)
-      // Larghezza colonne
-      ws1['!cols'] = [{ wch: 32 }, { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 16 }]
-      XLSX.utils.book_append_sheet(wb, ws1, 'Riepilogo')
-
-      // ─── FOGLIO 2: DETTAGLIO ─────────────────────────────────────────
-      const detail: (string | number)[][] = [
-        ['Codice conto', 'Descrizione conto', 'Macro gruppo', 'Outlet (cost center)',
-         'Mese', 'Anno', 'Preventivo', 'Consuntivo', 'Scostamento €', 'Scostamento %',
-         'Ultimo refresh consuntivo'],
-      ]
-      // Ordina per: macro_group, account_code, cost_center, month
-      const sorted = [...filteredRows].sort((a, b) => {
-        const k1 = (a.macro_group || 'zzz')
-        const k2 = (b.macro_group || 'zzz')
-        if (k1 !== k2) return k1.localeCompare(k2)
-        const c1 = (a.account_code || '')
-        const c2 = (b.account_code || '')
-        if (c1 !== c2) return c1.localeCompare(c2)
-        const cc1 = (a.cost_center || '')
-        const cc2 = (b.cost_center || '')
-        if (cc1 !== cc2) return cc1.localeCompare(cc2)
-        return (a.month || 0) - (b.month || 0)
-      })
-      sorted.forEach((r) => {
-        const prev = Number(r.budget_amount || 0)
-        const cons = Number(r.actual_amount || 0)
-        const scost = cons - prev
-        const scostPct = prev !== 0 ? (scost / Math.abs(prev)) * 100 : 0
-        detail.push([
-          r.account_code || '',
-          r.account_name || '',
-          r.macro_group || '',
-          outletLabel(r.cost_center),
-          (r.month || 0) >= 1 && (r.month || 0) <= 12 ? MESI_IT[(r.month || 1) - 1] : '',
-          r.year || year,
-          prev, cons, scost, scostPct,
-          r.actual_refreshed_at ? new Date(r.actual_refreshed_at).toLocaleString('it-IT') : '—',
-        ])
-      })
-      const ws2 = XLSX.utils.aoa_to_sheet(detail)
-      ws2['!cols'] = [
-        { wch: 14 }, { wch: 36 }, { wch: 18 }, { wch: 22 },
-        { wch: 12 }, { wch: 8 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 },
-        { wch: 22 },
-      ]
-      XLSX.utils.book_append_sheet(wb, ws2, 'Dettaglio')
-
-      // ─── DOWNLOAD ────────────────────────────────────────────────────
-      // Nome file: bilancio_consuntivo_<tenant>_<outlet>_<periodo>_<YYYY-MM-DD>.xlsx
-      // Outlet = "tutti" se filtro su tutti, altrimenti slug del nome outlet scelto.
-      const slugify = (s: string) => s.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '')
-      const periodSlug = slugify(monthRange.label)
-      const outletSlug = outletFilter === '__all__'
-        ? 'tutti'
-        : slugify(outletLabel(outletFilter)) || outletFilter
-      const ts = new Date().toISOString().slice(0, 10) // YYYY-MM-DD
-      const filename = `bilancio_consuntivo_${slugify(tenantCode)}_${outletSlug}_${periodSlug}_${ts}.xlsx`
-      XLSX.writeFile(wb, filename)
+      if (format === 'excel') generaExcel()
+      else generaPdf()
       onClose()
     } catch (err) {
       console.error('[ExportBilancio]', err)
-      toast({ type: 'error', message: 'Errore durante la generazione del file Excel. Vedi console per dettagli.' })
+      toast({ type: 'error', message: 'Errore durante la generazione del file. Vedi console per dettagli.' })
     } finally {
       setGenerating(false)
     }
@@ -246,8 +295,8 @@ export default function ExportBilancioDialog({
               <FileSpreadsheet size={22} className="text-emerald-700" />
             </div>
             <div>
-              <h2 className="text-lg font-bold text-slate-900">Esporta bilancio consuntivo</h2>
-              <p className="text-sm text-slate-500">Genera file Excel con preventivo, consuntivo e scostamento per il periodo scelto</p>
+              <h2 className="text-lg font-bold text-slate-900">Esporta bilancio previsionale</h2>
+              <p className="text-sm text-slate-500">Vista gerarchica (macro + sottoconti) con preventivo, consuntivo e scostamento</p>
             </div>
           </div>
           <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-lg">
@@ -257,6 +306,25 @@ export default function ExportBilancioDialog({
 
         {/* Body */}
         <div className="p-6 space-y-5">
+          {/* Formato */}
+          <div>
+            <label className="block text-sm font-semibold text-slate-700 mb-2">Formato</label>
+            <div className="grid grid-cols-2 gap-2">
+              <button onClick={() => setFormat('excel')}
+                className={`px-3 py-2 rounded-lg text-sm font-medium border flex items-center gap-2 ${
+                  format === 'excel' ? 'bg-indigo-50 border-indigo-300 text-indigo-700' : 'bg-white border-slate-200 text-slate-600'
+                }`}>
+                <FileSpreadsheet size={16} /> Excel (multi-foglio)
+              </button>
+              <button onClick={() => setFormat('pdf')}
+                className={`px-3 py-2 rounded-lg text-sm font-medium border flex items-center gap-2 ${
+                  format === 'pdf' ? 'bg-indigo-50 border-indigo-300 text-indigo-700' : 'bg-white border-slate-200 text-slate-600'
+                }`}>
+                <FileText size={16} /> PDF
+              </button>
+            </div>
+          </div>
+
           {/* Periodo */}
           <div>
             <label className="block text-sm font-semibold text-slate-700 mb-2">Periodo</label>
@@ -315,46 +383,26 @@ export default function ExportBilancioDialog({
             )}
           </div>
 
-          {/* Vista */}
-          <div>
-            <label className="block text-sm font-semibold text-slate-700 mb-2">Vista</label>
-            <div className="grid grid-cols-2 gap-2">
-              <button onClick={() => setViewType('gestionale')}
-                className={`px-3 py-2 rounded-lg text-sm font-medium border text-left ${
-                  viewType === 'gestionale' ? 'bg-indigo-50 border-indigo-300 text-indigo-700' : 'bg-white border-slate-200 text-slate-600'
-                }`}>
-                <div className="font-semibold">Gestionale</div>
-                <div className="text-xs opacity-75">Per outlet, senza rettifica magazzino</div>
-              </button>
-              <button onClick={() => setViewType('civilistico')}
-                className={`px-3 py-2 rounded-lg text-sm font-medium border text-left ${
-                  viewType === 'civilistico' ? 'bg-indigo-50 border-indigo-300 text-indigo-700' : 'bg-white border-slate-200 text-slate-600'
-                }`}>
-                <div className="font-semibold">Civilistico</div>
-                <div className="text-xs opacity-75">Consolidato, con rettifica magazzino</div>
-              </button>
-            </div>
-          </div>
-
           {/* Outlet */}
           <div>
-            <label className="block text-sm font-semibold text-slate-700 mb-2">Outlet</label>
+            <label className="block text-sm font-semibold text-slate-700 mb-2">Scheda</label>
             <select value={outletFilter} onChange={(e) => setOutletFilter(e.target.value)}
               className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm">
-              <option value="__all__">Tutti gli outlet operativi</option>
+              <option value="__all__">Tutti (Totale azienda + outlet + Sede)</option>
               {operativeOutlets.map((o) => (
                 <option key={o.code} value={o.code}>{o.label || o.name || o.code}</option>
               ))}
+              {hq && <option value={hq.code}>{hq.label || hq.name || hq.code}</option>}
             </select>
           </div>
 
           {/* Anteprima */}
           <div className="bg-slate-50 rounded-lg p-3 text-sm text-slate-600">
             <div className="font-semibold text-slate-800 mb-1">Anteprima export</div>
-            <div>📅 <span className="font-medium">{monthRange.label}</span></div>
-            <div>📊 Vista <span className="font-medium">{viewType}</span></div>
-            <div>🏪 Outlet: <span className="font-medium">{outletFilter === '__all__' ? 'tutti operativi' : outletLabel(outletFilter)}</span></div>
-            <div>📋 Righe nel file: <span className="font-medium">{filteredRows.length}</span></div>
+            <div>🗂️ Formato: <span className="font-medium">{format === 'excel' ? 'Excel multi-foglio' : 'PDF'}</span></div>
+            <div>📅 Periodo: <span className="font-medium">{periodTxt}</span></div>
+            <div>🏪 Scheda: <span className="font-medium">{outletLabel(outletFilter)}</span></div>
+            <div>📄 {format === 'excel' ? 'Fogli' : 'Pagine'} nel file: <span className="font-medium">{sheets.length}</span></div>
           </div>
         </div>
 
@@ -364,11 +412,11 @@ export default function ExportBilancioDialog({
             className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-lg">
             Annulla
           </button>
-          <button onClick={generaExcel}
-            disabled={generating || filteredRows.length === 0}
+          <button onClick={genera}
+            disabled={generating || sheets.length === 0}
             className="px-5 py-2 bg-emerald-600 text-white rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed">
             <Download size={16} />
-            {generating ? 'Generazione…' : 'Scarica Excel'}
+            {generating ? 'Generazione…' : (format === 'excel' ? 'Scarica Excel' : 'Scarica PDF')}
           </button>
         </div>
       </div>
