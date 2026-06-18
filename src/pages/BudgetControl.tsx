@@ -1039,7 +1039,7 @@ export default function BudgetControl() {
   // gli outlet operativi visibili al ruolo corrente. Usato per la vista
   // "Tutti gli outlet" nel selettore Confronto (default per CEO).
   const aggregatedConfrontoEdits = useMemo(() => {
-    const empty = { prev: {} as Record<string, number>, cons: {} as Record<string, number>, rett: {} as Record<string, number>, outletCount: 0 }
+    const empty = { prev: {} as Record<string, number>, cons: {} as Record<string, number>, rett: {} as Record<string, number>, outletCount: 0, sedeIncluded: false }
     if (confOutlet !== ALL_OUTLETS_CODE) return empty
     const operative = (canApproveBudget
       ? ops
@@ -1053,13 +1053,18 @@ export default function BudgetControl() {
       }
     }
     const prev: Record<string, number> = {}, cons: Record<string, number> = {}, rett: Record<string, number> = {}
-    for (const o of operative) {
-      sumInto(prev, bpEdits[o.code])
-      sumInto(cons, consEdits[o.code])
-      sumInto(rett, rettEdits[o.code])
+    // Includi la Sede (cost_center HQ) tra i centri sommati, con la STESSA regola
+    // read-only della card BP: visibile se canApproveBudget o status Sede != 'bozza'.
+    // Cosi' il Risultato aggregato del Confronto coincide col TOTALE COMPLESSIVO del BP e col CE.
+    const sedeIncluded = !!hq && (canApproveBudget || (workflow[HQ_CODE]?.status ?? 'bozza') !== 'bozza')
+    const centers = [...(sedeIncluded ? [HQ_CODE] : []), ...operative.map(o => o.code)]
+    for (const code of centers) {
+      sumInto(prev, bpEdits[code])
+      sumInto(cons, consEdits[code])
+      sumInto(rett, rettEdits[code])
     }
-    return { prev, cons, rett, outletCount: operative.length }
-  }, [confOutlet, bpEdits, consEdits, rettEdits, ops, workflow, canApproveBudget])
+    return { prev, cons, rett, outletCount: operative.length, sedeIncluded }
+  }, [confOutlet, bpEdits, consEdits, rettEdits, ops, workflow, canApproveBudget, hq, HQ_CODE])
 
   // I3 — deep-link da "Confronto Outlet": /budget?tab=confronto&outlet=<code>.
   // Preseleziona l'outlet richiesto (ha priorità sui default sotto).
@@ -1707,7 +1712,7 @@ export default function BudgetControl() {
                   <Info size={18} className="text-indigo-600 mt-0.5 shrink-0" />
                   <div className="text-sm text-indigo-900 flex-1">
                     <strong>Vista aggregata di tutti gli {labels.pointOfSalePluralLower}.</strong>
-                    {' '}I valori qui sotto sono la <strong>somma</strong> di preventivo, consuntivo e rettifica di {aggregatedConfrontoEdits.outletCount} {aggregatedConfrontoEdits.outletCount === 1 ? labels.pointOfSaleLower : labels.pointOfSalePluralLower}.
+                    {' '}I valori qui sotto sono la <strong>somma</strong> di preventivo, consuntivo e rettifica di {aggregatedConfrontoEdits.outletCount} {aggregatedConfrontoEdits.outletCount === 1 ? labels.pointOfSaleLower : labels.pointOfSalePluralLower}{aggregatedConfrontoEdits.sedeIncluded ? ' + la Sede' : ''}.
                     {' '}Per modificare i valori di un singolo {labels.pointOfSaleLower}, selezionalo dal menu sopra.
                   </div>
                 </div>
@@ -1740,7 +1745,7 @@ export default function BudgetControl() {
                 return (
                 <ConfrontoPanel
                   outletCode={ALL_OUTLETS_CODE}
-                  outletLabel={`Tutti gli ${labels.pointOfSalePluralLower} (${aggregatedConfrontoEdits.outletCount})`}
+                  outletLabel={`Tutti gli ${labels.pointOfSalePluralLower}${aggregatedConfrontoEdits.sedeIncluded ? ' + Sede' : ''} (${aggregatedConfrontoEdits.outletCount}${aggregatedConfrontoEdits.sedeIncluded ? '+1' : ''})`}
                   prevEdits={aggregatedConfrontoEdits.prev}
                   consEdits={aggregatedConfrontoEdits.cons}
                   onConsEdit={() => { /* read-only nella vista aggregata */ }}
