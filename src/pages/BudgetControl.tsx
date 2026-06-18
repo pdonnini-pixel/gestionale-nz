@@ -883,9 +883,8 @@ export default function BudgetControl() {
       setRettMonthly(newRettM)
       setRettMonthlyPct(newRettMP)
 
-      // Set first outlet with BP data as default for confronto
-      const outletCodes = Object.keys(edits).filter(k => k !== 'all' && k !== HQ_CODE)
-      if (outletCodes.length > 0 && !confOutlet) setConfOutlet(outletCodes[0])
+      // Default Confronto gestito dall'effect (vista aggregata "Tutti gli outlet"),
+      // rispettando il deep-link ?outlet=<code>.
 
       // Load cash movements for cassa column
       await loadCashMovements()
@@ -1069,14 +1068,13 @@ export default function BudgetControl() {
     if (outletParam) setConfOutlet(outletParam)
   }, [outletParam])
 
-  // Default selettore Confronto: per CEO (read-only) parte sulla vista
-  // aggregata "Tutti gli outlet". Per altri ruoli rimane il primo outlet
-  // con preventivo (gia' impostato in loadAll).
+  // Default selettore Confronto per TUTTI i ruoli: vista aggregata "Tutti gli outlet".
+  // Il deep-link ?outlet=<code> ha priorita' (gestito dall'effect sopra).
   useEffect(() => {
-    if (!loading && hasRole('ceo') && !confOutlet) {
+    if (!loading && !confOutlet && !outletParam) {
       setConfOutlet(ALL_OUTLETS_CODE)
     }
-  }, [loading, hasRole, confOutlet])
+  }, [loading, confOutlet, outletParam])
 
   // Stato placeholder: quante righe del preventivo sono provvisorie (copia
   // automatica dall'anno precedente, da confermare). Calcolato per anno
@@ -2863,7 +2861,11 @@ function ConfrontoPanel({ outletCode, outletLabel, prevEdits, consEdits, onConsE
     })
   }
 
-  const prevC = applyEdits(costiTree, prevEdits)
+  // Costi preventivo: zero-based, solo le voci compilate per outlet. NO fallback al bilancio
+  // (coerente con consC/rettC e con i ricavi applyZeroWithMonthly). applyEdits ripiegava su
+  // node.amount (somma globale di TUTTI i cost_center, incluso 'all') facendo leakare nella
+  // vista aggregata gli ammortamenti (69x/71x) e i costi di Sede che nessun outlet ha a budget.
+  const prevC = applyEditsZero(costiTree, prevEdits)
   // RICAVI preventivo: NO bilancio. Popolato da edit annuale BPCard o somma mensile.
   const prevR = applyZeroWithMonthly(ricaviTree, prevEdits, revYearly)
   const consC = applyEditsZero(costiTree, consEdits)
