@@ -645,15 +645,28 @@ export default function Dipendenti() {
     const out: any = { ...formData };
     if ('nome' in out) out.first_name = out.nome;
     if ('cognome' in out) out.last_name = out.cognome;
-    if ('codice_fiscale' in out) out.fiscal_code = out.codice_fiscale || null;
+    if ('codice_fiscale' in out) { out.codice_fiscale = out.codice_fiscale || null; out.fiscal_code = out.codice_fiscale; }
     if ('data_assunzione' in out) out.hire_date = out.data_assunzione || null;
     if ('data_cessazione' in out) out.termination_date = out.data_cessazione || null;
-    if ('livello' in out) out.level = out.livello || null;
+    if ('livello' in out) { out.livello = out.livello || null; out.level = out.livello; }
     if ('note' in out) out.notes = out.note || null;
     if ('contratto' in out) { out.contratto_tipo = out.contratto; delete out.contratto; }
-    if ('qualifica' in out) { out.role_description = out.qualifica; delete out.qualifica; }
-    ['hire_date', 'termination_date', 'data_assunzione', 'data_cessazione'].forEach((k) => { if (out[k] === '') out[k] = null; });
-    // Data fine resta APERTA (null) finché non c'è cessazione — niente sentinella 9999.
+    // Qualifica: salva la COLONNA e allinea role_description (la sezione "Amministratori"
+    // rileva via role_description ILIKE 'amministrat' — così Gallo resta amministratore).
+    if ('qualifica' in out) { out.qualifica = out.qualifica || null; out.role_description = out.qualifica || null; }
+    if ('filiale' in out) out.filiale = out.filiale || null;
+    if ('outlet_id' in out) out.outlet_id = out.outlet_id || null;
+    if ('stato_td' in out) out.stato_td = out.stato_td || null;
+    // numerici: '' → null, altrimenti Number
+    ['part_time_pct', 'durata_mesi', 'proroghe', 'proroghe_disponibili', 'mesi_disp_senza_causale', 'mesi_disp_con_causale'].forEach((k) => {
+      if (k in out) out[k] = (out[k] === '' || out[k] == null) ? null : Number(out[k]);
+    });
+    // date: '' → null. Data fine resta APERTA finché non c'è cessazione (niente sentinella 9999).
+    ['hire_date', 'termination_date', 'data_assunzione', 'data_cessazione', 'scadenza_td'].forEach((k) => { if (out[k] === '') out[k] = null; });
+    // Campi "tempo determinato" valgono solo se contratto determinato: altrimenti azzera.
+    if (out.contratto_tipo !== 'determinato') {
+      ['scadenza_td', 'durata_mesi', 'proroghe', 'proroghe_disponibili', 'mesi_disp_senza_causale', 'mesi_disp_con_causale', 'stato_td'].forEach((k) => { out[k] = null; });
+    }
     return out;
   };
 
@@ -1035,6 +1048,7 @@ export default function Dipendenti() {
       {showEmployeeForm && (
         <EmployeeFormModal
           initial={editingEmployee}
+          outlets={outlets}
           onCancel={() => { setShowEmployeeForm(false); setEditingEmployee(null); }}
           onSave={handleSaveEmployee}
         />
@@ -1111,9 +1125,11 @@ export default function Dipendenti() {
           year={selectedYear}
           costs={costs}
           allocs={allocByEmp[schedaEmp.id] || []}
+          outlets={outlets}
           companyId={COMPANY_ID}
           onClose={() => setSchedaEmp(null)}
           onSaved={reloadAll}
+          onEdit={() => { setEditingEmployee(schedaEmp); setSchedaEmp(null); setShowEmployeeForm(true); }}
         />
       )}
 
@@ -1650,7 +1666,18 @@ function CostiTab(props: {
 // ============================================================================
 // EMPLOYEE FORM MODAL
 // ============================================================================
-function EmployeeFormModal({ initial, onCancel, onSave }: { initial: Employee | null; onCancel: () => void; onSave: (data: any) => Promise<void> }) {
+// Codici natura contratto (DB) → label IT.
+const CONTRATTO_OPTS: { v: string; l: string }[] = [
+  { v: 'indeterminato', l: 'Tempo indeterminato' },
+  { v: 'determinato', l: 'Tempo determinato' },
+  { v: 'a_chiamata', l: 'A chiamata' },
+  { v: 'amministratore', l: 'Amministratore' },
+];
+const contrattoLabel = (v?: string | null) => CONTRATTO_OPTS.find((o) => o.v === v)?.l || v || '—';
+
+function EmployeeFormModal({ initial, outlets, onCancel, onSave }: { initial: Employee | null; outlets: OutletRow[]; onCancel: () => void; onSave: (data: any) => Promise<void> }) {
+  const i = (initial || {}) as any;
+  const numStr = (v: any) => (v == null ? '' : String(v));
   const [form, setForm] = useState({
     nome: initial?.nome || initial?.first_name || '',
     cognome: initial?.cognome || initial?.last_name || '',
@@ -1660,37 +1687,80 @@ function EmployeeFormModal({ initial, onCancel, onSave }: { initial: Employee | 
     contratto: initial?.contratto_tipo || initial?.contract_type || 'indeterminato',
     data_cessazione: (initial?.data_cessazione === '9999-12-31' ? '' : (initial?.data_cessazione || '')) || '',
     livello: initial?.livello || initial?.level || '',
-    qualifica: initial?.role_description || '',
+    qualifica: i.qualifica || initial?.role_description || '',
     note: initial?.note || initial?.notes || '',
+    part_time_pct: numStr(i.part_time_pct),
+    outlet_id: initial?.outlet_id || '',
+    filiale: i.filiale || '',
+    // tempo determinato
+    scadenza_td: i.scadenza_td || '',
+    durata_mesi: numStr(i.durata_mesi),
+    proroghe: numStr(i.proroghe),
+    proroghe_disponibili: numStr(i.proroghe_disponibili),
+    mesi_disp_senza_causale: numStr(i.mesi_disp_senza_causale),
+    mesi_disp_con_causale: numStr(i.mesi_disp_con_causale),
+    stato_td: i.stato_td || '',
   });
   const set = (k: string, v: string) => setForm((f) => ({ ...f, [k]: v }));
   const [saving, setSaving] = useState(false);
   const submit = async () => { setSaving(true); await onSave({ ...form, id: initial?.id }); setSaving(false); };
+  const isTD = form.contratto === 'determinato';
   return (
-    <Modal title={initial ? 'Modifica dipendente' : 'Nuovo dipendente'} onClose={onCancel}>
+    <Modal title={initial ? 'Modifica dipendente' : 'Nuovo dipendente'} onClose={onCancel} maxW="max-w-2xl">
       <div className="grid grid-cols-2 gap-3">
         <Field label="Cognome *"><input value={form.cognome} onChange={(e) => set('cognome', e.target.value)} className="inp" /></Field>
         <Field label="Nome *"><input value={form.nome} onChange={(e) => set('nome', e.target.value)} className="inp" /></Field>
         <Field label="Matricola"><input value={form.matricola} onChange={(e) => set('matricola', e.target.value)} className="inp" /></Field>
         <Field label="Codice fiscale"><input value={form.codice_fiscale} onChange={(e) => set('codice_fiscale', e.target.value)} className="inp" /></Field>
-        <Field label="Data inizio contratto *"><input type="date" value={form.data_assunzione || ''} onChange={(e) => set('data_assunzione', e.target.value)} className="inp" /></Field>
-        <Field label="Tipo contratto">
-          <select value={form.contratto} onChange={(e) => set('contratto', e.target.value)} className="inp">
-            <option value="indeterminato">Indeterminato</option>
-            <option value="determinato">Determinato</option>
-            <option value="apprendistato">Apprendistato</option>
-            <option value="stagionale">Stagionale</option>
+        <Field label="Qualifica">
+          <select value={form.qualifica} onChange={(e) => set('qualifica', e.target.value)} className="inp">
+            <option value="">—</option>
+            <option value="Impiegato">Impiegato</option>
+            <option value="Operaio">Operaio</option>
+            <option value="Amministratore">Amministratore</option>
+            {!['Impiegato', 'Operaio', 'Amministratore', ''].includes(form.qualifica) && <option value={form.qualifica}>{form.qualifica}</option>}
           </select>
         </Field>
-        {form.contratto === 'indeterminato' ? (
-          <Field label="Data fine"><div className="text-sm text-slate-400 px-3 py-2 rounded-lg border border-slate-100 bg-slate-50">Aperta — si valorizza alla cessazione</div></Field>
-        ) : (
-          <Field label="Data fine prevista"><input type="date" value={form.data_cessazione || ''} onChange={(e) => set('data_cessazione', e.target.value)} className="inp" /></Field>
+        <Field label="Livello"><input value={form.livello} onChange={(e) => set('livello', e.target.value)} placeholder="es. 4 Livello" className="inp" /></Field>
+        <Field label="Tipo contratto">
+          <select value={form.contratto} onChange={(e) => set('contratto', e.target.value)} className="inp">
+            {CONTRATTO_OPTS.map((o) => <option key={o.v} value={o.v}>{o.l}</option>)}
+            {!CONTRATTO_OPTS.some((o) => o.v === form.contratto) && <option value={form.contratto}>{form.contratto}</option>}
+          </select>
+        </Field>
+        <Field label="% part time"><input value={form.part_time_pct} onChange={(e) => set('part_time_pct', e.target.value)} inputMode="decimal" placeholder="(full time)" className="inp tabular-nums" /></Field>
+        <Field label="Data inizio contratto *"><input type="date" value={form.data_assunzione || ''} onChange={(e) => set('data_assunzione', e.target.value)} className="inp" /></Field>
+        <Field label="Filiale / sede">
+          <select value={form.outlet_id} onChange={(e) => set('outlet_id', e.target.value)} className="inp">
+            <option value="">—</option>
+            {outlets.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+          </select>
+          {form.filiale && <span className="text-[11px] text-slate-400 mt-1 block">da file: {form.filiale}</span>}
+        </Field>
+        {!isTD && (
+          <Field label="Data fine">
+            <div className="text-sm text-slate-400 px-3 py-2 rounded-lg border border-slate-100 bg-slate-50">{form.contratto === 'indeterminato' ? 'Aperta — si valorizza alla cessazione' : '—'}</div>
+          </Field>
         )}
-        <Field label="Livello"><input value={form.livello} onChange={(e) => set('livello', e.target.value)} className="inp" /></Field>
-        <Field label="Qualifica / ruolo"><input value={form.qualifica} onChange={(e) => set('qualifica', e.target.value)} placeholder="es. Store manager, Amministratore" className="inp" /></Field>
         <Field label="Note" full><input value={form.note} onChange={(e) => set('note', e.target.value)} className="inp" /></Field>
       </div>
+
+      {/* Blocco Tempo determinato — solo se contratto determinato */}
+      {isTD && (
+        <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50/60 p-3">
+          <div className="text-xs font-semibold text-amber-800 mb-2">Tempo determinato</div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            <Field label="Scadenza TD"><input type="date" value={form.scadenza_td || ''} onChange={(e) => set('scadenza_td', e.target.value)} className="inp" /></Field>
+            <Field label="Durata (mesi)"><input value={form.durata_mesi} onChange={(e) => set('durata_mesi', e.target.value)} inputMode="decimal" className="inp tabular-nums" /></Field>
+            <Field label="Proroghe usate"><input value={form.proroghe} onChange={(e) => set('proroghe', e.target.value)} inputMode="numeric" className="inp tabular-nums" /></Field>
+            <Field label="Proroghe disponibili"><input value={form.proroghe_disponibili} onChange={(e) => set('proroghe_disponibili', e.target.value)} inputMode="numeric" className="inp tabular-nums" /></Field>
+            <Field label="Mesi disp. senza causale"><input value={form.mesi_disp_senza_causale} onChange={(e) => set('mesi_disp_senza_causale', e.target.value)} inputMode="decimal" className="inp tabular-nums" /></Field>
+            <Field label="Mesi disp. con causale"><input value={form.mesi_disp_con_causale} onChange={(e) => set('mesi_disp_con_causale', e.target.value)} inputMode="decimal" className="inp tabular-nums" /></Field>
+            <Field label="Stato" full><input value={form.stato_td} onChange={(e) => set('stato_td', e.target.value)} placeholder="es. Prorogabile/Riassumibile" className="inp" /></Field>
+          </div>
+        </div>
+      )}
+
       <div className="flex justify-end gap-2 mt-5">
         <button onClick={onCancel} className="px-4 py-2 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100">Annulla</button>
         <button onClick={submit} disabled={saving} className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 flex items-center gap-1.5"><Save size={15} /> {saving ? 'Salvataggio…' : 'Salva'}</button>
@@ -1712,11 +1782,12 @@ function Field({ label, children, full = false }: { label: string; children: Rea
 // ============================================================================
 // SCHEDA DIPENDENTE — netto mese per mese (14 mensilità; totale = somma, mai ×12)
 // ============================================================================
-function SchedaDipendenteModal({ employee, year, costs, allocs, companyId, onClose, onSaved }: {
-  employee: Employee; year: number; costs: EmployeeCost[]; allocs: EmployeeOutletAllocation[];
-  companyId: string; onClose: () => void; onSaved: () => Promise<void>;
+function SchedaDipendenteModal({ employee, year, costs, allocs, outlets, companyId, onClose, onSaved, onEdit }: {
+  employee: Employee; year: number; costs: EmployeeCost[]; allocs: EmployeeOutletAllocation[]; outlets: OutletRow[];
+  companyId: string; onClose: () => void; onSaved: () => Promise<void>; onEdit: () => void;
 }) {
   const { toast } = useToast();
+  const emp = employee as any;
   const initial: Record<number, string> = {};
   for (let m = 1; m <= 12; m++) {
     const c = costs.find((x) => x.employee_id === employee.id && x.year === year && x.month === m);
@@ -1756,14 +1827,49 @@ function SchedaDipendenteModal({ employee, year, costs, allocs, companyId, onClo
     }
   };
 
+  const val = (v: any) => (v == null || v === '' ? '—' : String(v));
+  const pct = (v: any) => (v == null || v === '' ? '—' : `${Number(v).toLocaleString('it-IT', { maximumFractionDigits: 2 })}%`);
+  const outletName = outlets.find((o) => o.id === employee.outlet_id)?.name;
+  const isTD = (emp.contratto_tipo || '') === 'determinato';
+  const Cell = ({ label, children }: { label: string; children: React.ReactNode }) => (
+    <div><div className="text-xs text-slate-400">{label}</div><div className="font-medium">{children}</div></div>
+  );
+
   return (
     <Modal title={`Scheda — ${empName(employee)}`} onClose={onClose} maxW="max-w-2xl">
-      {/* Anagrafica */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4 text-sm">
-        <div><div className="text-xs text-slate-400">Matricola</div><div className="font-medium tabular-nums">{employee.matricola || '—'}</div></div>
-        <div><div className="text-xs text-slate-400">Contratto</div><div className="font-medium">{employee.contratto_tipo || employee.contract_type || 'da definire'}</div></div>
-        <div><div className="text-xs text-slate-400">Sede</div><div className="font-medium">{sede}</div></div>
-        <div><div className="text-xs text-slate-400">Periodo</div><div className="font-medium">{fmtDate(inizio)}{fine && employee.is_active === false ? ` → ${fmtDate(fine)}` : ' → in corso'}</div></div>
+      {/* Sezione Contratto (sola lettura) + Modifica */}
+      <div className="mb-4 rounded-xl border border-slate-200 p-3">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Contratto e anagrafica</span>
+          <button onClick={onEdit} className="px-2.5 py-1 rounded-lg border border-slate-300 text-xs font-medium text-blue-600 hover:bg-blue-50 inline-flex items-center gap-1"><Edit2 size={13} /> Modifica</button>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+          <Cell label="Matricola"><span className="tabular-nums">{val(employee.matricola)}</span></Cell>
+          <Cell label="Qualifica">{val(emp.qualifica || employee.role_description)}</Cell>
+          <Cell label="Livello">{val(employee.livello || (employee as any).level)}</Cell>
+          <Cell label="Tipo contratto">{contrattoLabel(emp.contratto_tipo || (employee as any).contract_type)}</Cell>
+          <Cell label="% part time">{pct(emp.part_time_pct)}</Cell>
+          <Cell label="Sede">{val(outletName || sede)}</Cell>
+          <Cell label="Codice fiscale"><span className="tabular-nums text-xs">{val(employee.codice_fiscale || (employee as any).fiscal_code)}</span></Cell>
+          <Cell label="Data assunzione">{fmtDate(inizio)}</Cell>
+        </div>
+        {emp.filiale && <div className="text-[11px] text-slate-400 mt-2">Filiale (da file contratti): {emp.filiale}</div>}
+
+        {isTD ? (
+          <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50/60 p-2.5">
+            <div className="text-[11px] font-semibold text-amber-800 mb-1.5">Tempo determinato</div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+              <Cell label="Scadenza TD">{fmtDate(emp.scadenza_td)}</Cell>
+              <Cell label="Durata (mesi)"><span className="tabular-nums">{val(emp.durata_mesi)}</span></Cell>
+              <Cell label="Proroghe (usate/disp.)"><span className="tabular-nums">{val(emp.proroghe)} / {val(emp.proroghe_disponibili)}</span></Cell>
+              <Cell label="Stato">{val(emp.stato_td)}</Cell>
+              <Cell label="Mesi disp. senza causale"><span className="tabular-nums">{val(emp.mesi_disp_senza_causale)}</span></Cell>
+              <Cell label="Mesi disp. con causale"><span className="tabular-nums">{val(emp.mesi_disp_con_causale)}</span></Cell>
+            </div>
+          </div>
+        ) : (
+          <div className="text-[11px] text-slate-400 mt-2">Contratto non a termine: nessuna scadenza/proroga (il blocco "Tempo determinato" compare solo per i contratti a tempo determinato).</div>
+        )}
       </div>
 
       <div className="mb-3 p-3 rounded-lg bg-blue-50 border border-blue-200 text-xs text-blue-800 leading-relaxed">
