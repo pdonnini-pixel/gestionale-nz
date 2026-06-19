@@ -1,8 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import {
   buildSheets,
+  buildMonthlySheets,
   scostamento,
   scostamentoPct,
+  fmtEuroIt,
   type BudgetEntryLite,
   type MonthlyMap,
   type CoaNode,
@@ -109,5 +111,39 @@ describe('buildSheets', () => {
     expect(scostamento(100, 40)).toBe(-60)
     expect(scostamentoPct(100, 40)).toBeCloseTo(-60)
     expect(scostamentoPct(0, 40)).toBeNull()
+  })
+
+  it('valuta euro con simbolo €', () => {
+    expect(fmtEuroIt(2000)).toBe('2.000,00 €')
+    expect(fmtEuroIt(-270187.06)).toBe('-270.187,06 €')
+    expect(fmtEuroIt(null)).toBe('—')
+  })
+})
+
+describe('buildMonthlySheets', () => {
+  const args = {
+    selection: '__all__', operativeOutlets: outlets, hq,
+    fromMonth: 1, toMonth: 12, budgetEntries, revMonthly, consMonthly, coaCosti, coaRicavi,
+  }
+  it('12 mesi + total, e i mesi sommano al totale', () => {
+    const [tot] = buildMonthlySheets(args)
+    // costi: valdichiana 610101 gen=100 feb=50, 630101 mese6=30; sede 630101 gen=200
+    const c61 = tot.costi.rows.find((r) => r.code === '61')!
+    expect(c61.months).toHaveLength(12)
+    expect(c61.months[0]).toBe(100) // gennaio: solo 610101 valdichiana
+    expect(c61.months[1]).toBe(50)  // febbraio
+    expect(c61.total).toBe(150)
+    // 630101: sede gen 200 + valdichiana giu 30 sotto macro 63
+    const c63 = tot.costi.rows.find((r) => r.code === '63')!
+    expect(c63.months[0]).toBe(200) // gennaio (sede)
+    expect(c63.months[5]).toBe(30)  // giugno (valdichiana)
+    expect(c63.total).toBe(230)
+    // ricavi gennaio: vald 510107 gen 10 + barberino 510108 gen 5 = 15
+    expect(tot.ricavi.rows.find((r) => r.code === '51')!.months[0]).toBe(15)
+    expect(tot.ricavi.total).toBe(40)
+    // somma mesi == totale di sezione
+    const sum = (a: number[]) => a.reduce((s, v) => s + v, 0)
+    expect(sum(tot.costi.totals)).toBe(tot.costi.total)
+    expect(sum(tot.ricavi.totals)).toBe(tot.ricavi.total)
   })
 })

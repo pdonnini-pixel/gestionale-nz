@@ -89,23 +89,17 @@ type Node = { code: string; description: string; children: Node[]; prev: number;
 
 const norm = (c: string | null | undefined) => (c || '').replace(/\s/g, '')
 
-function buildTree(rows: CoaNode[]): Node[] {
-  const nodes: Node[] = rows.map((r) => ({
-    code: r.code,
-    description: r.description || '',
-    children: [],
-    prev: 0,
-    cons: 0,
-  }))
-  const byCode = new Map<string, Node>()
+/** Annida i nodi per prefisso di codice (6305 contiene SOLO i codici 6305xx). */
+function nestByPrefix<T extends { code: string; children: T[] }>(nodes: T[]): T[] {
+  const byCode = new Map<string, T>()
   nodes.forEach((n) => {
     const k = norm(n.code)
     if (k && !byCode.has(k)) byCode.set(k, n)
   })
-  const tree: Node[] = []
+  const tree: T[] = []
   for (const node of nodes) {
     const nc = norm(node.code)
-    let parent: Node | null = null
+    let parent: T | null = null
     for (let l = nc.length - 1; l >= 1; l--) {
       const cand = byCode.get(nc.slice(0, l))
       if (cand && cand !== node) {
@@ -117,6 +111,16 @@ function buildTree(rows: CoaNode[]): Node[] {
     else tree.push(node)
   }
   return tree
+}
+
+function buildTree(rows: CoaNode[]): Node[] {
+  return nestByPrefix(rows.map((r) => ({
+    code: r.code,
+    description: r.description || '',
+    children: [] as Node[],
+    prev: 0,
+    cons: 0,
+  })))
 }
 
 /** Riempie le foglie dai valori per-conto e somma ricorsivamente i nodi padre. */
@@ -268,11 +272,30 @@ export type BuildAllInput = {
   coaRicavi: CoaNode[]
 }
 
+type PlanItem = { key: string; title: string; centers: string[] }
+
 /**
- * Genera i fogli in ordine: Totale azienda (tutti i centri) → ogni outlet
- * operativo → Sede/Magazzino. Con un singolo outlet selezionato genera solo
- * quel foglio.
+ * Ordine schede: Totale azienda (tutti i centri) → ogni outlet operativo →
+ * Sede/Magazzino. Con un singolo centro selezionato, solo quella scheda.
  */
+function sheetPlan(input: BuildAllInput): PlanItem[] {
+  const allCenters = [
+    ...input.operativeOutlets.map((o) => o.code),
+    ...(input.hq ? [input.hq.code] : []),
+  ]
+  if (input.selection !== '__all__') {
+    const ref =
+      input.operativeOutlets.find((o) => o.code === input.selection) ||
+      (input.hq && input.hq.code === input.selection ? input.hq : null)
+    return [{ key: input.selection, title: ref ? ref.label : input.selection, centers: [input.selection] }]
+  }
+  const plan: PlanItem[] = [{ key: 'totale_azienda', title: 'Totale azienda', centers: allCenters }]
+  for (const o of input.operativeOutlets) plan.push({ key: o.code, title: o.label, centers: [o.code] })
+  if (input.hq) plan.push({ key: input.hq.code, title: input.hq.label, centers: [input.hq.code] })
+  return plan
+}
+
+/** Versione ANNUALE (1 colonna Preventivo, somma del periodo). */
 export function buildSheets(input: BuildAllInput): CenterSheet[] {
   const base = {
     fromMonth: input.fromMonth,
@@ -283,40 +306,144 @@ export function buildSheets(input: BuildAllInput): CenterSheet[] {
     coaCosti: input.coaCosti,
     coaRicavi: input.coaRicavi,
   }
-  const allCenters = [
-    ...input.operativeOutlets.map((o) => o.code),
-    ...(input.hq ? [input.hq.code] : []),
-  ]
+  return sheetPlan(input).map((it) => buildCenterSheet({ ...it, ...base }))
+}
 
-  if (input.selection !== '__all__') {
-    const ref =
-      input.operativeOutlets.find((o) => o.code === input.selection) ||
-      (input.hq && input.hq.code === input.selection ? input.hq : null)
-    const title = ref ? ref.label : input.selection
-    return [buildCenterSheet({ key: input.selection, title, centers: [input.selection], ...base })]
-  }
+// ─── VERSIONE MENSILE (12 colonne Gen…Dic + Totale anno) ───────────────────
 
-  const sheets: CenterSheet[] = [
-    buildCenterSheet({ key: 'totale_azienda', title: 'Totale azienda', centers: allCenters, ...base }),
-  ]
-  for (const o of input.operativeOutlets) {
-    sheets.push(buildCenterSheet({ key: o.code, title: o.label, centers: [o.code], ...base }))
+export type MonthlyRow = {
+  code: string
+  label: string
+  depth: number
+  isMacro: boolean
+  /** 12 valori, indice 0 = Gennaio. */
+  months: number[]
+  total: number
+}
+
+export type MonthlySection = {
+  title: string
+  rows: MonthlyRow[]
+  totalLabel: string
+  totals: number[]
+  total: number
+}
+
+export type MonthlyCenterSheet = {
+  key: string
+  title: string
+  costi: MonthlySection
+  ricavi: MonthlySection
+}
+
+type MNode = { code: string; description: string; children: MNode[]; months: number[] }
+
+const zeros = (): number[] => Array(12).fill(0)
+const sum12 = (a: number[]): number => a.reduce((s, v) => s + v, 0)
+
+/** COSTI mensili: budget_amount per mese (no placeholder, no rettifica). */
+function costMonthlyLeaves(entries: BudgetEntryLite[], centers: Set<string>): Record<string, number[]> {
+  const out: Record<string, number[]> = {}
+  for (const e of entries) {
+    if (e.is_placeholder === true) continue
+    const cc = e.cost_center || ''
+    if (cc === 'rettifica_bilancio' || !centers.has(cc)) continue
+    const m = Number(e.month || 0)
+    if (m < 1 || m > 12) continue
+    const code = e.account_code
+    if (!code) continue
+    ;(out[code] ||= zeros())[m - 1] += Number(e.budget_amount) || 0
   }
-  if (input.hq) {
-    sheets.push(buildCenterSheet({ key: input.hq.code, title: input.hq.label, centers: [input.hq.code], ...base }))
+  return out
+}
+
+/** RICAVI mensili: rev_monthly per mese. */
+function revMonthlyLeaves(revMonthly: MonthlyMap, centers: Set<string>): Record<string, number[]> {
+  const out: Record<string, number[]> = {}
+  for (const cc of Object.keys(revMonthly)) {
+    if (!centers.has(cc)) continue
+    const byCode = revMonthly[cc] || {}
+    for (const code of Object.keys(byCode)) {
+      const arr = byCode[code] || []
+      const dst = (out[code] ||= zeros())
+      for (let i = 0; i < 12; i++) {
+        const v = arr[i]
+        if (typeof v === 'number') dst[i] += v
+      }
+    }
   }
-  return sheets
+  return out
+}
+
+function buildMonthlySection(coaRows: CoaNode[], leaf: Record<string, number[]>, title: string, totalLabel: string): MonthlySection {
+  const tree = nestByPrefix(coaRows.map((r) => ({
+    code: r.code,
+    description: r.description || '',
+    children: [] as MNode[],
+    months: zeros(),
+  })))
+  const fillM = (n: MNode): void => {
+    if (n.children.length > 0) {
+      const m = zeros()
+      for (const ch of n.children) {
+        fillM(ch)
+        for (let i = 0; i < 12; i++) m[i] += ch.months[i]
+      }
+      n.months = m
+    } else {
+      n.months = (leaf[n.code] || zeros()).slice()
+    }
+  }
+  tree.forEach(fillM)
+  const rows: MonthlyRow[] = []
+  const flat = (nodes: MNode[], depth: number): void => {
+    for (const n of nodes) {
+      rows.push({
+        code: n.code,
+        label: n.description ? `${n.code} ${n.description}` : n.code,
+        depth,
+        isMacro: depth === 0,
+        months: n.months,
+        total: sum12(n.months),
+      })
+      if (n.children.length > 0) flat(n.children, depth + 1)
+    }
+  }
+  flat(tree, 0)
+  const totals = zeros()
+  tree.forEach((n) => { for (let i = 0; i < 12; i++) totals[i] += n.months[i] })
+  return { title, rows, totalLabel, totals, total: sum12(totals) }
+}
+
+function buildMonthlyCenterSheet(item: PlanItem, input: BuildAllInput): MonthlyCenterSheet {
+  const centerSet = new Set(item.centers)
+  const costLeaf = costMonthlyLeaves(input.budgetEntries, centerSet)
+  const revLeaf = revMonthlyLeaves(input.revMonthly, centerSet)
+  return {
+    key: item.key,
+    title: item.title,
+    costi: buildMonthlySection(input.coaCosti, costLeaf, COSTI_TITLE, 'TOTALE COSTI'),
+    ricavi: buildMonthlySection(input.coaRicavi, revLeaf, RICAVI_TITLE, 'TOTALE RICAVI'),
+  }
+}
+
+/** Versione MENSILE: 12 mesi (Gen…Dic) + Totale anno, sempre anno intero. */
+export function buildMonthlySheets(input: BuildAllInput): MonthlyCenterSheet[] {
+  return sheetPlan(input).map((it) => buildMonthlyCenterSheet(it, input))
 }
 
 // ─── FORMATTAZIONE ─────────────────────────────────────────────────────────
 
 /**
- * Euro it-IT, separatore migliaia + 2 decimali. Usa locale de-DE (TS-safe) per
- * il raggruppamento a 4 cifre → "2.000,00". Negativo col segno meno.
+ * Valuta euro it-IT: separatore migliaia + 2 decimali + simbolo € → "2.000,00 €".
+ * Usa locale de-DE (TS-safe) con style:'currency' per grouping a 4 cifre corretto.
+ * Negativo col segno meno (es. "-270.187,06 €").
  */
 export function fmtEuroIt(n: number | null | undefined): string {
   if (n == null || isNaN(n)) return '—'
-  return new Intl.NumberFormat('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)
+  // Intl mette un non-breaking space (U+00A0) prima di €: lo normalizziamo a
+  // spazio normale per un rendering prevedibile in PDF.
+  return new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' }).format(n).replace(/ /g, ' ')
 }
 
 /** Scostamento = Consuntivo − Preventivo. */
@@ -335,14 +462,17 @@ export function fmtPct(p: number | null): string {
   return `${new Intl.NumberFormat('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(p)}%`
 }
 
-/** Number format Excel: nero positivo, rosso col meno (no verde). */
-export const XLSX_EURO_FMT = '#,##0.00;[Red]-#,##0.00'
+/** Number format Excel: valuta € nera positiva, rossa col meno (no verde). */
+export const XLSX_EURO_FMT = '#,##0.00\\ "€";[Red]-#,##0.00\\ "€"'
 export const XLSX_PCT_FMT = '#,##0.0"%";[Red]-#,##0.0"%"'
 
 const MESI_IT = [
   'Gennaio', 'Febbraio', 'Marzo', 'Aprile', 'Maggio', 'Giugno',
   'Luglio', 'Agosto', 'Settembre', 'Ottobre', 'Novembre', 'Dicembre',
 ]
+
+/** Sigle mesi per le intestazioni colonna della versione mensile. */
+export const MESI_ABBR = ['Gen', 'Feb', 'Mar', 'Apr', 'Mag', 'Giu', 'Lug', 'Ago', 'Set', 'Ott', 'Nov', 'Dic']
 
 export function periodLabel(from: number, to: number, year: number): string {
   if (from === to) return `${MESI_IT[from - 1]} ${year}`
