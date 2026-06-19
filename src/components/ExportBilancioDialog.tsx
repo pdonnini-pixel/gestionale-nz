@@ -5,13 +5,15 @@
  * Consuntivo"). Riproduce ESATTAMENTE la vista gerarchica a monitor — macro
  * civilistiche con i sottoconti — non più la vecchia lista piatta.
  *
- * Output:
+ * Output (uguale all'anteprima approvata):
  *  - Excel multi-foglio: 1 foglio per scheda (Totale azienda + ogni outlet +
  *    Sede), righe raggruppabili (outline) per espandere/collassare i sottoconti.
- *  - PDF: 1 pagina per scheda, una tabella per sezione (Costi / Ricavi).
+ *  - PDF: 1 pagina per scheda, una tabella per sezione (Ricavi sopra, Costi sotto).
  *
- * Colonne: Voce | Preventivo | Consuntivo | Scostamento (= Consuntivo − Preventivo)
- * Negativi in rosso col meno (Excel: number format [Red]; PDF: testo rosso).
+ * Sezioni nell'ordine: COMPONENTI POSITIVE (RICAVI) → COMPONENTI NEGATIVE (COSTI)
+ * → riga RISULTATO PREVISIONALE (Ricavi − Costi).
+ * Colonna unica: Voce | Preventivo. Negativi in rosso col meno (Excel: number
+ * format [Red]; PDF: testo rosso).
  *
  * Fonti dati e ordinamento sono in src/lib/bilancioExport.ts (verificati su DB).
  * Tutto client-side: nessuna edge function, nessuna scrittura su DB.
@@ -26,7 +28,6 @@ import { useToast } from './Toast'
 import {
   buildSheets,
   fmtEuroIt,
-  scostamento,
   periodLabel,
   slugify,
   sheetName,
@@ -63,7 +64,7 @@ type Props = {
 const MESI_IT = ['Gennaio', 'Febbraio', 'Marzo', 'Aprile', 'Maggio', 'Giugno',
                  'Luglio', 'Agosto', 'Settembre', 'Ottobre', 'Novembre', 'Dicembre']
 
-const CONS_NOTE = 'Consuntivo costi non ancora importato (gli actual 2026 non sono ancora stati caricati: 0,00 è corretto).'
+const PREV_NOTE = 'Solo colonna Preventivo · negativi in rosso · sottoconti esplosi sotto ogni macro.'
 
 const centerRef = (c: CostCenter): CenterRef => ({ code: c.code, label: c.label || c.name || c.code })
 
@@ -140,40 +141,38 @@ export default function ExportBilancioDialog({
       const rowLevels: number[] = []
       const pushRow = (cells: Cell[], level = 0) => { aoa.push(cells); rowLevels.push(level) }
 
-      pushRow([`${tenantName} — ${sheet.title}`])
+      pushRow([`${tenantName} — ${sheet.title} — Previsionale ${year}`])
       pushRow([`Periodo: ${periodTxt}`])
-      pushRow([`Nota: ${CONS_NOTE}`])
+      pushRow([`Nota: ${PREV_NOTE}`])
       pushRow([])
-      pushRow(['Voce', 'Preventivo', 'Consuntivo', 'Scostamento'])
+      pushRow(['Voce', 'Preventivo'])
 
       const emitSection = (sec: ExportSection) => {
         pushRow([sec.title])
         sec.rows.forEach((r) => {
-          pushRow(
-            [`${'    '.repeat(r.depth)}${r.label}`, r.prev, r.cons, scostamento(r.prev, r.cons)],
-            Math.min(r.depth, 7),
-          )
+          pushRow([`${'    '.repeat(r.depth)}${r.label}`, r.prev], Math.min(r.depth, 7))
         })
-        pushRow([sec.totalLabel, sec.totalPrev, sec.totalCons, scostamento(sec.totalPrev, sec.totalCons)])
+        pushRow([sec.totalLabel, sec.totalPrev])
       }
 
+      // Ordine come l'anteprima: Ricavi sopra, Costi sotto, poi Risultato.
+      emitSection(sheet.ricavi)
+      pushRow([])
       emitSection(sheet.costi)
       pushRow([])
-      emitSection(sheet.ricavi)
+      pushRow(['RISULTATO PREVISIONALE', sheet.ricavi.totalPrev - sheet.costi.totalPrev])
 
       const ws = XLSX.utils.aoa_to_sheet(aoa)
-      ws['!cols'] = [{ wch: 48 }, { wch: 16 }, { wch: 16 }, { wch: 16 }]
+      ws['!cols'] = [{ wch: 56 }, { wch: 18 }]
       // Outline righe (raggruppamento espandibile) + sommario sopra i sottoconti
       ws['!rows'] = rowLevels.map((lvl) => (lvl > 0 ? { level: lvl } : {}))
       ;(ws as { [k: string]: unknown })['!outline'] = { above: true }
 
-      // Number format euro: nero positivo, rosso negativo (no verde). Colonne 1,2,3.
+      // Number format euro: nero positivo, rosso negativo (no verde). Colonna 1.
       const range = XLSX.utils.decode_range(ws['!ref'] || 'A1')
       for (let r = range.s.r; r <= range.e.r; r++) {
-        for (const c of [1, 2, 3]) {
-          const cell = ws[XLSX.utils.encode_cell({ r, c })] as { t?: string; z?: string } | undefined
-          if (cell && cell.t === 'n') cell.z = XLSX_EURO_FMT
-        }
+        const cell = ws[XLSX.utils.encode_cell({ r, c: 1 })] as { t?: string; z?: string } | undefined
+        if (cell && cell.t === 'n') cell.z = XLSX_EURO_FMT
       }
 
       let name = sheetName(sheet.title)
@@ -196,11 +195,11 @@ export default function ExportBilancioDialog({
       if (sIdx > 0) doc.addPage()
       doc.setFontSize(13)
       doc.setTextColor(15, 23, 42)
-      doc.text(`${tenantName} — ${sheet.title}`, 40, 44)
+      doc.text(`${tenantName} — ${sheet.title} — Previsionale ${year}`, 40, 44)
       doc.setFontSize(9)
       doc.setTextColor(100, 116, 139)
       doc.text(`Periodo: ${periodTxt}`, 40, 60)
-      doc.text(CONS_NOTE, 40, 73, { maxWidth: 515 })
+      doc.text(PREV_NOTE, 40, 73, { maxWidth: 515 })
 
       let startY = 90
       const emitSection = (sec: ExportSection) => {
@@ -208,46 +207,54 @@ export default function ExportBilancioDialog({
         const meta: Meta[] = []
         const body = sec.rows.map((r) => {
           meta.push({ macro: r.isMacro, total: false })
-          return [
-            `${'   '.repeat(r.depth)}${r.label}`,
-            fmtEuroIt(r.prev),
-            fmtEuroIt(r.cons),
-            fmtEuroIt(scostamento(r.prev, r.cons)),
-          ]
+          return [`${'   '.repeat(r.depth)}${r.label}`, fmtEuroIt(r.prev)]
         })
         meta.push({ macro: false, total: true })
-        body.push([sec.totalLabel, fmtEuroIt(sec.totalPrev), fmtEuroIt(sec.totalCons), fmtEuroIt(scostamento(sec.totalPrev, sec.totalCons))])
+        body.push([sec.totalLabel, fmtEuroIt(sec.totalPrev)])
 
         autoTable(doc, {
           startY,
-          head: [[sec.title, 'Preventivo', 'Consuntivo', 'Scostamento']],
+          head: [[sec.title, 'Preventivo']],
           body,
           theme: 'grid',
-          styles: { fontSize: 7, cellPadding: 2, overflow: 'linebreak', textColor: [30, 41, 59] },
+          styles: { fontSize: 7.5, cellPadding: 2.5, overflow: 'linebreak', textColor: [30, 41, 59] },
           headStyles: { fillColor: [241, 245, 249], textColor: [51, 65, 85], fontStyle: 'bold', halign: 'left' },
           columnStyles: {
-            0: { cellWidth: 311, halign: 'left' },
-            1: { cellWidth: 68, halign: 'right' },
-            2: { cellWidth: 68, halign: 'right' },
-            3: { cellWidth: 68, halign: 'right' },
+            0: { cellWidth: 415, halign: 'left' },
+            1: { cellWidth: 100, halign: 'right' },
           },
           margin: { left: 40, right: 40 },
           didParseCell: (data) => {
             const m = meta[data.row.index]
             if (data.section === 'body' && m && (m.macro || m.total)) data.cell.styles.fontStyle = 'bold'
-            // Negativi in rosso (colonne numeriche)
-            if (data.section === 'body' && data.column.index >= 1) {
+            // Negativi in rosso (colonna importi)
+            if (data.section === 'body' && data.column.index === 1) {
               const text = Array.isArray(data.cell.text) ? data.cell.text.join('') : String(data.cell.text)
               if (isNeg(text)) data.cell.styles.textColor = RED
             }
           },
         })
         const after = (doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable
-        startY = (after ? after.finalY : startY) + 16
+        startY = (after ? after.finalY : startY) + 14
       }
 
-      emitSection(sheet.costi)
+      // Ordine come l'anteprima: Ricavi sopra, Costi sotto.
       emitSection(sheet.ricavi)
+      emitSection(sheet.costi)
+
+      // Riga RISULTATO PREVISIONALE = Ricavi − Costi
+      const ris = sheet.ricavi.totalPrev - sheet.costi.totalPrev
+      autoTable(doc, {
+        startY,
+        body: [['RISULTATO PREVISIONALE', fmtEuroIt(ris)]],
+        theme: 'grid',
+        styles: { fontSize: 8.5, cellPadding: 3, fontStyle: 'bold', textColor: [15, 23, 42] },
+        columnStyles: { 0: { cellWidth: 415 }, 1: { cellWidth: 100, halign: 'right' } },
+        margin: { left: 40, right: 40 },
+        didParseCell: (data) => {
+          if (data.column.index === 1 && isNeg(fmtEuroIt(ris))) data.cell.styles.textColor = RED
+        },
+      })
     })
 
     doc.save(`${fileBase()}.pdf`)
@@ -280,7 +287,7 @@ export default function ExportBilancioDialog({
             </div>
             <div>
               <h2 className="text-lg font-bold text-slate-900">Esporta bilancio previsionale</h2>
-              <p className="text-sm text-slate-500">Vista gerarchica (macro + sottoconti) con preventivo, consuntivo e scostamento</p>
+              <p className="text-sm text-slate-500">Vista gerarchica previsionale (macro + sottoconti esplosi) per outlet e Totale azienda</p>
             </div>
           </div>
           <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-lg">
