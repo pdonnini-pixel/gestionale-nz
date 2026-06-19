@@ -1876,6 +1876,11 @@ export default function BudgetControl() {
         onClose={() => setExportDialogOpen(false)}
         budgetEntries={budgetEntries}
         operativeOutlets={ops}
+        hq={hq ?? null}
+        revMonthly={revMonthly}
+        consMonthly={consMonthly}
+        coaCosti={ceRawCosti}
+        coaRicavi={ceRawRicavi}
         year={year}
         tenantName={company?.name || 'Tenant'}
         tenantCode={getCurrentTenant().alias}
