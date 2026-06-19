@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react'
+// sedeQuota: ripartisce un importo pro-quota su un denominatore (riuso per l'allocazione imposte).
 import { useSearchParams } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 
@@ -24,7 +25,7 @@ import Tooltip from '../components/Tooltip'
 import { PlaceholderDot, PlaceholderLegend } from '../components/PlaceholderMark'
 import ExportBilancioDialog from '../components/ExportBilancioDialog'
 import { getCurrentTenant } from '../lib/tenants'
-import { RICAVI_SOURCE_LABEL } from '../lib/outletRevenue'
+import { RICAVI_SOURCE_LABEL, sedeQuota } from '../lib/outletRevenue'
 import {
   Calculator, ChevronDown, ChevronUp,
   Store, Building2, Save, Trash2,
@@ -715,6 +716,11 @@ export default function BudgetControl() {
   const [rettMonthly, setRettMonthly] = useState<MonthlyEditMap>({})    // rettifica € mensile
   const [rettMonthlyPct, setRettMonthlyPct] = useState<MonthlyEditMap>({}) // rettifica % mensile
 
+  // Imposte sul reddito annuali (input Lilian). Valore POSITIVO unico per anno,
+  // editabile solo nella vista aggregata "Tutti gli outlet"; il segno meno e la
+  // ripartizione (10% Sede + 90% outlet pro-quota ricavi) sono solo a display.
+  const [imposteAmount, setImposteAmount] = useState(0)
+
 
   // ─── LOAD ──────────────────────────────────────────────────
   useEffect(() => { if (CID) loadAll() }, [CID, year, quarter])
@@ -729,12 +735,15 @@ export default function BudgetControl() {
       // IN ('ce_costi', 'ce_ricavi') che era diventata vuota dopo il wipe del
       // 13/05/2026. Gli importi (amount) sono aggregati da budget_entries
       // dell'anno corrente.
-      const [ccR, coaR, buR, cfR] = await Promise.all([
+      const [ccR, coaR, buR, cfR, impR] = await Promise.all([
         supabase.from('cost_centers').select('*').eq('company_id', cid).eq('is_active', true).order('sort_order'),
         supabase.from('chart_of_accounts').select('code, name, level, is_revenue, sort_order, macro_group, outlet_link').eq('company_id', cid).eq('is_active', true).order('sort_order'),
         supabase.from('budget_entries').select('*').eq('company_id', cid).eq('year', year).range(0, 9999),
         supabase.from('budget_confronto').select('*').eq('company_id', cid).eq('year', year).range(0, 9999),
+        supabase.from('imposte_annuali').select('amount').eq('company_id', cid).eq('year', year).maybeSingle(),
       ])
+      // Imposte annuali per l'anno selezionato (0 se nessun record: empty-state, mai inventato).
+      setImposteAmount(Number(impR.data?.amount) || 0)
       setCostCenters((ccR.data || []) as CostCenter[])
       const beAll = (buR.data || []) as BudgetEntry[]
       setBudgetEntries(beAll)
@@ -1424,6 +1433,43 @@ export default function BudgetControl() {
     })
   })
 
+  // ─── Allocazione imposte (Sede 10% fisso + 90% outlet aperti pro-quota ricavi) ──
+  // Stessa logica di ripartizione dei costi sede: riusa sedeQuota(). "Outlet aperti" =
+  // ops (cost_centers.role='outlet', già filtrati is_active al load). Edge case: nessun
+  // ricavo outlet nel periodo → l'intero importo resta su Sede (no divisione per zero).
+  // imposteByCenter[code] = quota POSITIVA allocata a quel centro (Sede o singolo outlet).
+  const imposteByCenter: Record<string, number> = (() => {
+    const total = imposteAmount || 0
+    const outletRev: Record<string, number> = {}
+    ops.forEach(o => {
+      outletRev[o.code] = Object.values(revYearlyByOutlet[o.code] || {}).reduce<number>((s, v) => s + (Number(v) || 0), 0)
+    })
+    const ricaviTot = ops.reduce<number>((s, o) => s + (outletRev[o.code] || 0), 0)
+    const byCenter: Record<string, number> = {}
+    if (total !== 0 && ricaviTot > 0) {
+      byCenter[HQ_CODE] = total * 0.10
+      const quota90 = total * 0.90
+      ops.forEach(o => { byCenter[o.code] = sedeQuota(quota90, outletRev[o.code] || 0, ricaviTot) })
+    } else {
+      // Nessun outlet con ricavi → tutto su Sede (o importo 0). Niente NaN/Infinity.
+      byCenter[HQ_CODE] = total
+      ops.forEach(o => { byCenter[o.code] = 0 })
+    }
+    return byCenter
+  })()
+
+  // Persistenza imposte (upsert idempotente su company_id,year). Autosave on-blur
+  // dell'input nella vista aggregata; toast custom (mai dialog nativi).
+  const saveImposte = async (val: number) => {
+    if (!CID) return
+    const { error } = await supabase.from('imposte_annuali').upsert(
+      { company_id: CID, year, amount: val, updated_at: new Date().toISOString() } as never,
+      { onConflict: 'company_id,year' },
+    )
+    if (error) { show(`Errore salvataggio imposte: ${error.message}`, 'error'); throw error }
+    show(`Imposte ${year} salvate ✓ (${fmtC(val)})`)
+  }
+
   // Totali tab Business Plan: STESSA priorita' della BPCard (costi zero-based;
   // ricavi = mensile -> edit annuale BPCard -> 0), sommati SOLO sulle card
   // effettivamente renderizzate (rispetta il filtro read-only che nasconde le bozze),
@@ -1709,6 +1755,11 @@ export default function BudgetControl() {
                   revMonthlyOutlet={aggMonthly(revMonthly)}
                   consMonthlyOutlet={aggMonthly(consMonthly)}
                   prevHasPlaceholder={Object.keys(phCostByCenter).length > 0}
+                  // Imposte: vista aggregata = importo annuale TOTALE, editabile da Lilian.
+                  imposteAmount={imposteAmount}
+                  imposteEditable={canApproveBudget}
+                  onImposteEdit={(v) => setImposteAmount(v)}
+                  onImposteCommit={saveImposte}
                 />
                 )
               })()}
@@ -1740,6 +1791,9 @@ export default function BudgetControl() {
                   onPrevCommit={(!canApproveBudget || workflow[confOutlet]?.status === 'approvato')
                     ? undefined
                     : (code: string, val: number) => saveAnnualCostAccount(confOutlet, code, val)}
+                  // Imposte: singolo outlet / Sede = quota allocata, sempre READ-ONLY.
+                  imposteAmount={imposteByCenter[confOutlet] ?? 0}
+                  imposteEditable={false}
                 />
               )}
               {confOutlet && confOutlet !== ALL_OUTLETS_CODE && confView === 'mensile' && (
@@ -2850,8 +2904,14 @@ type ConfrontoPanelProps = {
   // onPrevEdit = live (state bpEdits); onPrevCommit = persistenza budget_entries on-blur.
   onPrevEdit?: (code: string, val: number) => void
   onPrevCommit?: (code: string, val: number) => Promise<void>
+  // Imposte (valore POSITIVO): aggregata = totale annuale editabile; singolo/Sede =
+  // quota allocata read-only. Segno meno e colore rosso solo a display.
+  imposteAmount?: number
+  imposteEditable?: boolean
+  onImposteEdit?: (val: number) => void
+  onImposteCommit?: (val: number) => Promise<void>
 }
-function ConfrontoPanel({ outletCode, outletLabel, prevEdits, consEdits, onConsEdit, rettEdits, onRettEdit, costiTree, ricaviTree, year, revMonthlyOutlet, consMonthlyOutlet, prevHasPlaceholder, onPrevEdit, onPrevCommit }: ConfrontoPanelProps) {
+function ConfrontoPanel({ outletCode, outletLabel, prevEdits, consEdits, onConsEdit, rettEdits, onRettEdit, costiTree, ricaviTree, year, revMonthlyOutlet, consMonthlyOutlet, prevHasPlaceholder, onPrevEdit, onPrevCommit, imposteAmount, imposteEditable, onImposteEdit, onImposteCommit }: ConfrontoPanelProps) {
   // Somma annuale (per code) dei mensili gia' caricati da budget_confronto.
   // Patrizio (29/05/2026): "il numero si popola solo dalla somma dei mensili
   // per i preventivi e dalla somma dei mensili per i consuntivi". Quindi NO
@@ -2918,6 +2978,14 @@ function ConfrontoPanel({ outletCode, outletLabel, prevEdits, consEdits, onConsE
   // KPI/box riepilogo: usano consuntivo PURO (senza rettifica).
   const scostCostiPuro = totConsC - totPrevC
   const scostRicaviPuro = totConsR - totPrevR
+
+  // ─── Imposte ──────────────────────────────────────────────────────────────
+  // imposte = importo POSITIVO (aggregata: totale annuale; singolo/Sede: quota
+  // allocata). "Risultato prima delle imposte" = risultato preventivo ante imposte;
+  // "Risultato dopo le imposte" = risPrev − imposte (l'imposta si somma in negativo).
+  const isAggregate = outletCode === ALL_OUTLETS_CODE
+  const imposte = imposteAmount || 0
+  const risDopoImposte = risPrev - imposte
 
   return (
     <div className="space-y-6">
@@ -2995,19 +3063,61 @@ function ConfrontoPanel({ outletCode, outletLabel, prevEdits, consEdits, onConsE
           </div>
         </div>
 
-        {/* Risultati */}
+        {/* IMPOSTE — riga subito sotto i Ricavi. Vista aggregata: importo annuale
+            editabile (Lilian), autosave on-blur + toast. Singolo outlet / Sede:
+            quota allocata READ-ONLY. Sempre in rosso col segno meno. */}
+        <div className="px-5 py-3 border-t-2 border-slate-200 bg-rose-50/40 space-y-2">
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <span className="text-sm font-bold text-slate-900">Imposte</span>
+              <span className="text-[11px] text-slate-500 ml-2">
+                {isAggregate ? 'valore annuale (inserito da Lilian)' : 'quota allocata'}
+              </span>
+            </div>
+            {isAggregate && imposteEditable ? (
+              <div className="flex items-center gap-1.5">
+                <span className="text-red-600 font-bold text-base">-</span>
+                <NumberInputIt
+                  value={imposte}
+                  edited={imposte !== 0}
+                  onChange={n => onImposteEdit?.(n)}
+                  onCommit={onImposteCommit ? (n => onImposteCommit(n)) : undefined}
+                  className="w-36 text-right px-2 py-1 text-sm font-bold text-red-600 border border-rose-300 rounded tabular-nums focus:outline-none focus:ring-1 focus:ring-rose-400 bg-white"
+                  placeholder="0" />
+                <span className="text-slate-400 text-xs">€</span>
+              </div>
+            ) : (
+              <span className="text-base font-bold text-red-600 tabular-nums">
+                {imposte !== 0 ? `-${fmtC(imposte)}` : '—'}
+              </span>
+            )}
+          </div>
+          <div className="flex items-center justify-between gap-3 pt-2 border-t border-rose-200">
+            <span className="text-sm font-bold text-slate-900">Risultato dopo le imposte</span>
+            <span className={`text-base font-bold tabular-nums ${risDopoImposte >= 0 ? 'text-slate-900' : 'text-red-600'}`}>
+              {fmtC(risDopoImposte)}
+            </span>
+          </div>
+          {isAggregate && imposteEditable && (
+            <p className="text-[10px] text-slate-400">
+              Salvataggio automatico all'uscita dal campo. Ripartizione: 10% Sede/Magazzino, 90% sugli outlet aperti pro-quota ricavi.
+            </p>
+          )}
+        </div>
+
+        {/* Risultati — Risultato prima delle imposte | Imposte | Risultato dopo le imposte */}
         <div className="border-t border-slate-200 px-5 py-3 grid grid-cols-3 gap-4">
           <div className={`p-3 rounded-lg text-center font-bold text-sm ${risPrev>=0?'bg-indigo-50 text-indigo-700':'bg-red-50 text-red-700'}`}>
-            <div className="text-[10px] font-semibold uppercase tracking-wider opacity-60 mb-1">Preventivo</div>
+            <div className="text-[10px] font-semibold uppercase tracking-wider opacity-60 mb-1">Risultato prima delle imposte</div>
             {risPrev>=0?'Utile':'Perdita'} {fmtC(Math.abs(risPrev))}
           </div>
-          <div className={`p-3 rounded-lg text-center font-bold text-sm ${risCons>=0?'bg-emerald-50 text-emerald-700':'bg-red-50 text-red-700'}`}>
-            <div className="text-[10px] font-semibold uppercase tracking-wider opacity-60 mb-1">Consuntivo</div>
-            {risCons>=0?'Utile':'Perdita'} {fmtC(Math.abs(risCons))}
+          <div className="p-3 rounded-lg text-center font-bold text-sm bg-rose-50 text-red-700">
+            <div className="text-[10px] font-semibold uppercase tracking-wider opacity-60 mb-1">Imposte</div>
+            {imposte !== 0 ? `-${fmtC(imposte)}` : '—'}
           </div>
-          <div className={`p-3 rounded-lg text-center font-bold text-sm ${(risPrev - risCons)>=0?'bg-amber-50 text-amber-700':'bg-red-50 text-red-700'}`}>
-            <div className="text-[10px] font-semibold uppercase tracking-wider opacity-60 mb-1">Scostamento</div>
-            {(risPrev - risCons)>=0?'+':''}{fmtC(risPrev - risCons)}
+          <div className={`p-3 rounded-lg text-center font-bold text-sm ${risDopoImposte>=0?'bg-emerald-50 text-emerald-700':'bg-red-50 text-red-700'}`}>
+            <div className="text-[10px] font-semibold uppercase tracking-wider opacity-60 mb-1">Risultato dopo le imposte</div>
+            {risDopoImposte>=0?'Utile':'Perdita'} {fmtC(Math.abs(risDopoImposte))}
           </div>
         </div>
       </div>

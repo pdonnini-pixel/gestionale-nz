@@ -105,7 +105,7 @@ function OutletCard({ name, outletData, calculatedMetrics, ranking, onNavigate, 
   const { ricavi, margine, marginePct, costoPersonale, affitto, servizi, personaleCount,
     ricavoPerDip, incidenzaPersonale, incidenzaAffitto, breakeven, merci, costiDiretti, costiTotali,
     costiCategorie, isVariance, scostamento, scostamentoPct, mesiPresi, mesiTotali, mediaMensile, provenance,
-    quotaSedePro, margineFinale } = calculatedMetrics
+    quotaSedePro, margineFinale, imposteQuota, risultatoDopoImposte } = calculatedMetrics
 
   // I1 — badge provenienza dato. Nel caso "misto" il testo dettaglia i mesi:
   // "{mesi reali (consuntivo)} reali + {mesi previsti} previsti" (dai dati, no hardcoded).
@@ -264,6 +264,20 @@ function OutletCard({ name, outletData, calculatedMetrics, ranking, onNavigate, 
             <span className="font-semibold text-slate-700">Margine dopo sede</span>
             <span className={`font-bold ${(margineFinale ?? 0) < 0 ? 'text-red-600' : 'text-slate-900'}`}>{fmt(margineFinale ?? 0)} €</span>
           </div>
+          {/* Imposte (quota allocata pro-quota ricavi) → risultato dopo imposte.
+              Mostrate solo in vista annuale con imposte inserite. */}
+          {imposteQuota != null && (
+            <>
+              <div className="flex items-center justify-between">
+                <span className="text-slate-500">Imposte (quota)</span>
+                <span className="font-medium text-red-600">{imposteQuota > 0 ? '-' : ''}{fmt(Math.abs(imposteQuota))} €</span>
+              </div>
+              <div className="flex items-center justify-between pt-1 border-t border-slate-100">
+                <span className="font-semibold text-slate-700">Risultato dopo imposte</span>
+                <span className={`font-bold ${(risultatoDopoImposte ?? 0) < 0 ? 'text-red-600' : 'text-slate-900'}`}>{fmt(risultatoDopoImposte ?? 0)} €</span>
+              </div>
+            </>
+          )}
         </div>
       )}
 
@@ -326,6 +340,21 @@ function OutletCard({ name, outletData, calculatedMetrics, ranking, onNavigate, 
                   {ricavi > 0 && ` (${(((margineFinale ?? 0) / ricavi) * 100).toFixed(1)}%)`}
                 </span>
               </div>
+              {imposteQuota != null && (
+                <>
+                  <div className="flex items-center justify-between text-slate-600">
+                    <span>Imposte (quota)</span>
+                    <span className="text-red-600 font-medium">{imposteQuota > 0 ? '-' : ''}{fmt(Math.abs(imposteQuota))} €</span>
+                  </div>
+                  <div className="flex items-center justify-between pt-2 border-t border-slate-200 font-bold">
+                    <span className="text-slate-900">Risultato dopo imposte</span>
+                    <span className={(risultatoDopoImposte ?? 0) < 0 ? 'text-red-600' : 'text-slate-900'}>
+                      {fmt(risultatoDopoImposte ?? 0)} €
+                      {ricavi > 0 && ` (${(((risultatoDopoImposte ?? 0) / ricavi) * 100).toFixed(1)}%)`}
+                    </span>
+                  </div>
+                </>
+              )}
             </>
           )}
           <div className="flex items-center justify-between text-xs text-slate-400 pt-1">
@@ -361,6 +390,10 @@ type CalculatedMetrics = {
   costiCategorie: CostCategory[]
   quotaSedePro?: number
   margineFinale?: number
+  // Imposte: quota allocata all'outlet (positiva) e risultato dopo imposte
+  // (margineFinale − quota). Presenti solo nella vista annuale con imposte > 0.
+  imposteQuota?: number
+  risultatoDopoImposte?: number
   personaleCount: number
   ricavoPerDip: number | null
   incidenzaPersonale: number
@@ -539,6 +572,10 @@ export default function ConfrontoOutlet() {
   const [hqCodes, setHqCodes] = useState<Set<string>>(new Set())
   // Esiste consuntivo di COSTO per l'anno? (I5 empty-state). Oggi vuoto.
   const [hasCostConsuntivo, setHasCostConsuntivo] = useState(false)
+  // Imposte annuali (input Lilian in Budget & Controllo, vista aggregata). Valore
+  // POSITIVO unico per anno; qui si mostra solo la QUOTA allocata per outlet
+  // (90% pro-quota ricavi, stessa logica della quota sede), nella vista annuale.
+  const [imposteTotal, setImposteTotal] = useState(0)
   const [loading, setLoading] = useState(true)
   // viewMode persistito in URL come ?view=… (default 'budget')
   const [searchParams, setSearchParams] = useSearchParams()
@@ -675,6 +712,11 @@ export default function ConfrontoOutlet() {
         setMacroMeta(macroMetaMap)
         setHqCodes(hqCC)
         setHasCostConsuntivo(costCons)
+        // Imposte annuali per l'anno (0 se nessun record: empty-state, mai inventato).
+        const { data: impData } = await supabase
+          .from('imposte_annuali').select('amount')
+          .eq('company_id', companyId).eq('year', year).maybeSingle()
+        setImposteTotal(Number(impData?.amount) || 0)
         setHasData((budgetEntries?.length || 0) > 0 || (bsData?.length || 0) > 0 || (cfData?.length || 0) > 0)
       } catch (err: unknown) {
         console.error('Error loading data:', err)
@@ -998,11 +1040,23 @@ export default function ConfrontoOutlet() {
     () => outletMetricsBase.reduce((s, o) => s + (o.calculatedMetrics?.budgetRicavi || 0), 0),
     [outletMetricsBase],
   )
+  // Imposte allocate per outlet: 90% del totale ripartito pro-quota ricavi
+  // (budgetRicavi), STESSO helper sedeQuota della quota sede. Il 10% fisso resta
+  // sulla Sede (non mostrata qui). Solo vista annuale (selectedMonths === null) e
+  // imposte > 0: applicare imposte annuali a un sotto-periodo sarebbe fuorviante.
+  const imposteAnnualeAttiva = selectedMonths === null && imposteTotal > 0
   const outletMetrics = useMemo(() => outletMetricsBase.map(o => {
     if (!o.calculatedMetrics) return o
     const quota = sedeQuota(nettoSede, o.calculatedMetrics.budgetRicavi || 0, fatturatoTot)
-    return { ...o, calculatedMetrics: { ...o.calculatedMetrics, quotaSedePro: quota, margineFinale: o.calculatedMetrics.margine - quota } }
-  }), [outletMetricsBase, nettoSede, fatturatoTot])
+    const margineFinale = o.calculatedMetrics.margine - quota
+    const cm = { ...o.calculatedMetrics, quotaSedePro: quota, margineFinale }
+    if (imposteAnnualeAttiva && fatturatoTot > 0) {
+      const imposteQuota = sedeQuota(imposteTotal * 0.90, o.calculatedMetrics.budgetRicavi || 0, fatturatoTot)
+      cm.imposteQuota = imposteQuota
+      cm.risultatoDopoImposte = margineFinale - imposteQuota
+    }
+    return { ...o, calculatedMetrics: cm }
+  }), [outletMetricsBase, nettoSede, fatturatoTot, imposteAnnualeAttiva, imposteTotal])
 
   // Rankings
   const rankings = useMemo<Record<string, number>>(() => {

@@ -1074,6 +1074,41 @@ export type Database = {
         }
         Relationships: []
       }
+      imposte_annuali: {
+        Row: {
+          amount: number
+          company_id: string
+          created_at: string | null
+          id: string
+          updated_at: string | null
+          year: number
+        }
+        Insert: {
+          amount?: number
+          company_id: string
+          created_at?: string | null
+          id?: string
+          updated_at?: string | null
+          year: number
+        }
+        Update: {
+          amount?: number
+          company_id?: string
+          created_at?: string | null
+          id?: string
+          updated_at?: string | null
+          year?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "imposte_annuali_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       budget_confronto: {
         Row: {
           account_code: string
