@@ -10,7 +10,7 @@
  *    Sede), righe raggruppabili (outline) per espandere/collassare i sottoconti.
  *  - PDF: 1 pagina per scheda, una tabella per sezione (Costi / Ricavi).
  *
- * Colonne: Voce | Preventivo | Consuntivo | Rettifica | Scostamento | %
+ * Colonne: Voce | Preventivo | Consuntivo | Scostamento | %
  * Negativi in rosso col meno (Excel: number format [Red]; PDF: testo rosso).
  *
  * Fonti dati e ordinamento sono in src/lib/bilancioExport.ts (verificati su DB).
@@ -147,7 +147,7 @@ export default function ExportBilancioDialog({
       pushRow([`Periodo: ${periodTxt}`])
       pushRow([`Nota: ${CONS_NOTE}`])
       pushRow([])
-      pushRow(['Voce', 'Preventivo', 'Consuntivo', 'Rettifica', 'Scostamento', '%'])
+      pushRow(['Voce', 'Preventivo', 'Consuntivo', 'Scostamento', '%'])
 
       const emitSection = (sec: ExportSection) => {
         pushRow([sec.title])
@@ -155,13 +155,13 @@ export default function ExportBilancioDialog({
           const sc = scostamento(r.prev, r.cons)
           const pct = scostamentoPct(r.prev, r.cons)
           pushRow(
-            [`${'    '.repeat(r.depth)}${r.label}`, r.prev, r.cons, '—', sc, pct == null ? '—' : pct],
+            [`${'    '.repeat(r.depth)}${r.label}`, r.prev, r.cons, sc, pct == null ? '—' : pct],
             Math.min(r.depth, 7),
           )
         })
         const tsc = scostamento(sec.totalPrev, sec.totalCons)
         const tpct = scostamentoPct(sec.totalPrev, sec.totalCons)
-        pushRow([sec.totalLabel, sec.totalPrev, sec.totalCons, '—', tsc, tpct == null ? '—' : tpct])
+        pushRow([sec.totalLabel, sec.totalPrev, sec.totalCons, tsc, tpct == null ? '—' : tpct])
       }
 
       emitSection(sheet.costi)
@@ -169,18 +169,18 @@ export default function ExportBilancioDialog({
       emitSection(sheet.ricavi)
 
       const ws = XLSX.utils.aoa_to_sheet(aoa)
-      ws['!cols'] = [{ wch: 48 }, { wch: 16 }, { wch: 16 }, { wch: 14 }, { wch: 16 }, { wch: 12 }]
+      ws['!cols'] = [{ wch: 48 }, { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 12 }]
       // Outline righe (raggruppamento espandibile) + sommario sopra i sottoconti
       ws['!rows'] = rowLevels.map((lvl) => (lvl > 0 ? { level: lvl } : {}))
       ;(ws as { [k: string]: unknown })['!outline'] = { above: true }
 
       // Number format: nero positivo, rosso negativo (no verde).
-      // Colonne 1,2,4 = euro; colonna 5 = percentuale.
+      // Colonne 1,2,3 = euro; colonna 4 = percentuale.
       const range = XLSX.utils.decode_range(ws['!ref'] || 'A1')
       for (let r = range.s.r; r <= range.e.r; r++) {
-        for (const c of [1, 2, 4, 5]) {
+        for (const c of [1, 2, 3, 4]) {
           const cell = ws[XLSX.utils.encode_cell({ r, c })] as { t?: string; z?: string } | undefined
-          if (cell && cell.t === 'n') cell.z = c === 5 ? XLSX_PCT_FMT : XLSX_EURO_FMT
+          if (cell && cell.t === 'n') cell.z = c === 4 ? XLSX_PCT_FMT : XLSX_EURO_FMT
         }
       }
 
@@ -222,7 +222,6 @@ export default function ExportBilancioDialog({
             `${'   '.repeat(r.depth)}${r.label}`,
             fmtEuroIt(r.prev),
             fmtEuroIt(r.cons),
-            '—',
             fmtEuroIt(sc),
             fmtPct(pct),
           ]
@@ -230,22 +229,21 @@ export default function ExportBilancioDialog({
         const tsc = scostamento(sec.totalPrev, sec.totalCons)
         const tpct = scostamentoPct(sec.totalPrev, sec.totalCons)
         meta.push({ macro: false, total: true })
-        body.push([sec.totalLabel, fmtEuroIt(sec.totalPrev), fmtEuroIt(sec.totalCons), '—', fmtEuroIt(tsc), fmtPct(tpct)])
+        body.push([sec.totalLabel, fmtEuroIt(sec.totalPrev), fmtEuroIt(sec.totalCons), fmtEuroIt(tsc), fmtPct(tpct)])
 
         autoTable(doc, {
           startY,
-          head: [[sec.title, 'Preventivo', 'Consuntivo', 'Rettifica', 'Scostamento', '%']],
+          head: [[sec.title, 'Preventivo', 'Consuntivo', 'Scostamento', '%']],
           body,
           theme: 'grid',
           styles: { fontSize: 7, cellPadding: 2, overflow: 'linebreak', textColor: [30, 41, 59] },
           headStyles: { fillColor: [241, 245, 249], textColor: [51, 65, 85], fontStyle: 'bold', halign: 'left' },
           columnStyles: {
-            0: { cellWidth: 235, halign: 'left' },
+            0: { cellWidth: 277, halign: 'left' },
             1: { cellWidth: 62, halign: 'right' },
             2: { cellWidth: 62, halign: 'right' },
-            3: { cellWidth: 42, halign: 'right' },
-            4: { cellWidth: 62, halign: 'right' },
-            5: { cellWidth: 52, halign: 'right' },
+            3: { cellWidth: 62, halign: 'right' },
+            4: { cellWidth: 52, halign: 'right' },
           },
           margin: { left: 40, right: 40 },
           didParseCell: (data) => {
