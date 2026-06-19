@@ -1731,6 +1731,15 @@ export default function BudgetControl() {
                   revMonthlyOutlet={revMonthly[confOutlet]}
                   consMonthlyOutlet={consMonthly[confOutlet]}
                   prevHasPlaceholder={!!phCostByCenter[confOutlet]}
+                  // Preventivo costi editabile qui (singolo outlet), come nel tab Business Plan:
+                  // live su bpEdits, persistenza on-blur in budget_entries. Bloccato se preventivo
+                  // approvato o utente senza permesso (coerente con la card BP).
+                  onPrevEdit={(!canApproveBudget || workflow[confOutlet]?.status === 'approvato')
+                    ? undefined
+                    : (code: string, val: number) => setBpEdits(prev => ({...prev, [confOutlet]: {...(prev[confOutlet]||{}), [code]: val}}))}
+                  onPrevCommit={(!canApproveBudget || workflow[confOutlet]?.status === 'approvato')
+                    ? undefined
+                    : (code: string, val: number) => saveAnnualCostAccount(confOutlet, code, val)}
                 />
               )}
               {confOutlet && confOutlet !== ALL_OUTLETS_CODE && confView === 'mensile' && (
@@ -2722,8 +2731,11 @@ function isLeafCode(code: string, tree: TreeNodeT[]): boolean {
    ═══════════════════════════════════════════════════════════ */
 const CONF_COLS = '1fr 85px 95px 90px 85px 55px'
 
-type ConfrontoRowProps = { prevNode: TreeNodeT; consNode: TreeNodeT; rettNode: TreeNodeT; depth?: number; consEdits: Record<string, number>; onConsEdit: (code: string, val: number) => void; rettEdits: Record<string, number | string>; onRettEdit: (code: string, val: number | string | undefined) => void }
-function ConfrontoRow({ prevNode, consNode, rettNode, depth = 0, consEdits, onConsEdit, rettEdits, onRettEdit }: ConfrontoRowProps) {
+type ConfrontoRowProps = { prevNode: TreeNodeT; consNode: TreeNodeT; rettNode: TreeNodeT; depth?: number; consEdits: Record<string, number>; onConsEdit: (code: string, val: number) => void; rettEdits: Record<string, number | string>; onRettEdit: (code: string, val: number | string | undefined) => void;
+  // Editing del Preventivo sulle foglie (solo singolo outlet, sezione costi).
+  // onPrevEdit = aggiornamento live (state); onPrevCommit = persistenza on-blur.
+  onPrevEdit?: (code: string, val: number) => void; onPrevCommit?: (code: string, val: number) => Promise<void> }
+function ConfrontoRow({ prevNode, consNode, rettNode, depth = 0, consEdits, onConsEdit, rettEdits, onRettEdit, onPrevEdit, onPrevCommit }: ConfrontoRowProps) {
   const [open, setOpen] = useState(false)
   const hasKids = prevNode.children?.length > 0
   const isMacro = prevNode.level === 0
@@ -2756,8 +2768,19 @@ function ConfrontoRow({ prevNode, consNode, rettNode, depth = 0, consEdits, onCo
             style={{ width: prevNode.code?.length > 4 ? '46px' : '24px' }}>{prevNode.code}</span>
           <Tooltip content={prevNode.description}><span className={`truncate ${isMacro ? 'text-[11px] font-bold text-slate-900' : 'text-[10px] text-slate-600'}`}>{prevNode.description}</span></Tooltip>
         </div>
-        {/* Preventivo (bloccato) */}
-        <span className={`tabular-nums text-right text-[10px] ${isMacro ? 'font-bold text-indigo-700' : 'text-indigo-500'}`}>{fmt(pv)}</span>
+        {/* Preventivo — input su foglie quando editabile (singolo outlet, costi); altrimenti bloccato */}
+        {isLeaf && onPrevEdit ? (
+          <NumberInputIt
+            value={pv}
+            edited={pv !== 0}
+            onChange={n => onPrevEdit(prevNode.code, n)}
+            onCommit={onPrevCommit ? (n => onPrevCommit(prevNode.code, n)) : undefined}
+            onClickStop
+            className={`w-full text-right px-1 py-0.5 text-[10px] border rounded tabular-nums focus:outline-none focus:ring-1 focus:ring-indigo-400 ${pv !== 0 ? 'bg-indigo-50 border-indigo-300' : 'border-slate-200'}`}
+            placeholder="0" />
+        ) : (
+          <span className={`tabular-nums text-right text-[10px] ${isMacro ? 'font-bold text-indigo-700' : 'text-indigo-500'}`}>{fmt(pv)}</span>
+        )}
         {/* Consuntivo — input for leaves */}
         {isLeaf ? (
           <NumberInputIt
@@ -2798,7 +2821,8 @@ function ConfrontoRow({ prevNode, consNode, rettNode, depth = 0, consEdits, onCo
       {open && hasKids && prevNode.children.map((c, i) => (
         <ConfrontoRow key={`${c.code}-${i}`}
           prevNode={c} consNode={consNode.children?.[i] || c} rettNode={rettNode.children?.[i] || { ...c, amount: 0, children: [] }}
-          depth={depth + 1} consEdits={consEdits} onConsEdit={onConsEdit} rettEdits={rettEdits} onRettEdit={onRettEdit} />
+          depth={depth + 1} consEdits={consEdits} onConsEdit={onConsEdit} rettEdits={rettEdits} onRettEdit={onRettEdit}
+          onPrevEdit={onPrevEdit} onPrevCommit={onPrevCommit} />
       ))}
     </div>
   )
@@ -2822,8 +2846,12 @@ type ConfrontoPanelProps = {
   consMonthlyOutlet?: Record<string, number[]>
   // true se la colonna Preventivo (costi) contiene voci segnaposto (clone 2025)
   prevHasPlaceholder?: boolean
+  // Editing del Preventivo COSTI sulle foglie (solo singolo outlet, non aggregata).
+  // onPrevEdit = live (state bpEdits); onPrevCommit = persistenza budget_entries on-blur.
+  onPrevEdit?: (code: string, val: number) => void
+  onPrevCommit?: (code: string, val: number) => Promise<void>
 }
-function ConfrontoPanel({ outletCode, outletLabel, prevEdits, consEdits, onConsEdit, rettEdits, onRettEdit, costiTree, ricaviTree, year, revMonthlyOutlet, consMonthlyOutlet, prevHasPlaceholder }: ConfrontoPanelProps) {
+function ConfrontoPanel({ outletCode, outletLabel, prevEdits, consEdits, onConsEdit, rettEdits, onRettEdit, costiTree, ricaviTree, year, revMonthlyOutlet, consMonthlyOutlet, prevHasPlaceholder, onPrevEdit, onPrevCommit }: ConfrontoPanelProps) {
   // Somma annuale (per code) dei mensili gia' caricati da budget_confronto.
   // Patrizio (29/05/2026): "il numero si popola solo dalla somma dei mensili
   // per i preventivi e dalla somma dei mensili per i consuntivi". Quindi NO
@@ -2928,7 +2956,8 @@ function ConfrontoPanel({ outletCode, outletLabel, prevEdits, consEdits, onConsE
           <div className="max-h-[400px] overflow-y-auto">
             {prevC.map((n, i) => (
               <ConfrontoRow key={`c-${n.code}-${i}`} prevNode={n} consNode={consC[i] || n} rettNode={rettC[i] || { ...n, amount: 0, children: [] }}
-                consEdits={consEdits} onConsEdit={onConsEdit} rettEdits={rettEdits} onRettEdit={onRettEdit} />
+                consEdits={consEdits} onConsEdit={onConsEdit} rettEdits={rettEdits} onRettEdit={onRettEdit}
+                onPrevEdit={onPrevEdit} onPrevCommit={onPrevCommit} />
             ))}
           </div>
           <div className="grid mt-2 pt-2 border-t-2 border-slate-300 font-bold text-[11px]"
