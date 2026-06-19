@@ -220,7 +220,7 @@ export default function ExportBilancioDialog({
           styles: { fontSize: 7.5, cellPadding: 2.5, overflow: 'linebreak', textColor: [30, 41, 59] },
           headStyles: { fillColor: [241, 245, 249], textColor: [51, 65, 85], fontStyle: 'bold', halign: 'left' },
           columnStyles: {
-            0: { cellWidth: 415, halign: 'left' },
+            0: { cellWidth: 414, halign: 'left' },
             1: { cellWidth: 100, halign: 'right' },
           },
           margin: { left: 40, right: 40 },
@@ -249,7 +249,7 @@ export default function ExportBilancioDialog({
         body: [['RISULTATO PREVISIONALE', fmtEuroIt(ris)]],
         theme: 'grid',
         styles: { fontSize: 8.5, cellPadding: 3, fontStyle: 'bold', textColor: [15, 23, 42] },
-        columnStyles: { 0: { cellWidth: 415 }, 1: { cellWidth: 100, halign: 'right' } },
+        columnStyles: { 0: { cellWidth: 414 }, 1: { cellWidth: 100, halign: 'right' } },
         margin: { left: 40, right: 40 },
         didParseCell: (data) => {
           if (data.column.index === 1 && isNeg(fmtEuroIt(ris))) data.cell.styles.textColor = RED
