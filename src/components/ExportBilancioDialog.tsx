@@ -10,7 +10,7 @@
  *    Sede), righe raggruppabili (outline) per espandere/collassare i sottoconti.
  *  - PDF: 1 pagina per scheda, una tabella per sezione (Costi / Ricavi).
  *
- * Colonne: Voce | Preventivo | Consuntivo | Scostamento | %
+ * Colonne: Voce | Preventivo | Consuntivo | Scostamento (= Consuntivo − Preventivo)
  * Negativi in rosso col meno (Excel: number format [Red]; PDF: testo rosso).
  *
  * Fonti dati e ordinamento sono in src/lib/bilancioExport.ts (verificati su DB).
@@ -27,13 +27,10 @@ import {
   buildSheets,
   fmtEuroIt,
   scostamento,
-  scostamentoPct,
-  fmtPct,
   periodLabel,
   slugify,
   sheetName,
   XLSX_EURO_FMT,
-  XLSX_PCT_FMT,
   type CenterSheet,
   type ExportSection,
   type BudgetEntryLite,
@@ -147,21 +144,17 @@ export default function ExportBilancioDialog({
       pushRow([`Periodo: ${periodTxt}`])
       pushRow([`Nota: ${CONS_NOTE}`])
       pushRow([])
-      pushRow(['Voce', 'Preventivo', 'Consuntivo', 'Scostamento', '%'])
+      pushRow(['Voce', 'Preventivo', 'Consuntivo', 'Scostamento'])
 
       const emitSection = (sec: ExportSection) => {
         pushRow([sec.title])
         sec.rows.forEach((r) => {
-          const sc = scostamento(r.prev, r.cons)
-          const pct = scostamentoPct(r.prev, r.cons)
           pushRow(
-            [`${'    '.repeat(r.depth)}${r.label}`, r.prev, r.cons, sc, pct == null ? '—' : pct],
+            [`${'    '.repeat(r.depth)}${r.label}`, r.prev, r.cons, scostamento(r.prev, r.cons)],
             Math.min(r.depth, 7),
           )
         })
-        const tsc = scostamento(sec.totalPrev, sec.totalCons)
-        const tpct = scostamentoPct(sec.totalPrev, sec.totalCons)
-        pushRow([sec.totalLabel, sec.totalPrev, sec.totalCons, tsc, tpct == null ? '—' : tpct])
+        pushRow([sec.totalLabel, sec.totalPrev, sec.totalCons, scostamento(sec.totalPrev, sec.totalCons)])
       }
 
       emitSection(sheet.costi)
@@ -169,18 +162,17 @@ export default function ExportBilancioDialog({
       emitSection(sheet.ricavi)
 
       const ws = XLSX.utils.aoa_to_sheet(aoa)
-      ws['!cols'] = [{ wch: 48 }, { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 12 }]
+      ws['!cols'] = [{ wch: 48 }, { wch: 16 }, { wch: 16 }, { wch: 16 }]
       // Outline righe (raggruppamento espandibile) + sommario sopra i sottoconti
       ws['!rows'] = rowLevels.map((lvl) => (lvl > 0 ? { level: lvl } : {}))
       ;(ws as { [k: string]: unknown })['!outline'] = { above: true }
 
-      // Number format: nero positivo, rosso negativo (no verde).
-      // Colonne 1,2,3 = euro; colonna 4 = percentuale.
+      // Number format euro: nero positivo, rosso negativo (no verde). Colonne 1,2,3.
       const range = XLSX.utils.decode_range(ws['!ref'] || 'A1')
       for (let r = range.s.r; r <= range.e.r; r++) {
-        for (const c of [1, 2, 3, 4]) {
+        for (const c of [1, 2, 3]) {
           const cell = ws[XLSX.utils.encode_cell({ r, c })] as { t?: string; z?: string } | undefined
-          if (cell && cell.t === 'n') cell.z = c === 4 ? XLSX_PCT_FMT : XLSX_EURO_FMT
+          if (cell && cell.t === 'n') cell.z = XLSX_EURO_FMT
         }
       }
 
@@ -215,35 +207,29 @@ export default function ExportBilancioDialog({
         type Meta = { macro: boolean; total: boolean }
         const meta: Meta[] = []
         const body = sec.rows.map((r) => {
-          const sc = scostamento(r.prev, r.cons)
-          const pct = scostamentoPct(r.prev, r.cons)
           meta.push({ macro: r.isMacro, total: false })
           return [
             `${'   '.repeat(r.depth)}${r.label}`,
             fmtEuroIt(r.prev),
             fmtEuroIt(r.cons),
-            fmtEuroIt(sc),
-            fmtPct(pct),
+            fmtEuroIt(scostamento(r.prev, r.cons)),
           ]
         })
-        const tsc = scostamento(sec.totalPrev, sec.totalCons)
-        const tpct = scostamentoPct(sec.totalPrev, sec.totalCons)
         meta.push({ macro: false, total: true })
-        body.push([sec.totalLabel, fmtEuroIt(sec.totalPrev), fmtEuroIt(sec.totalCons), fmtEuroIt(tsc), fmtPct(tpct)])
+        body.push([sec.totalLabel, fmtEuroIt(sec.totalPrev), fmtEuroIt(sec.totalCons), fmtEuroIt(scostamento(sec.totalPrev, sec.totalCons))])
 
         autoTable(doc, {
           startY,
-          head: [[sec.title, 'Preventivo', 'Consuntivo', 'Scostamento', '%']],
+          head: [[sec.title, 'Preventivo', 'Consuntivo', 'Scostamento']],
           body,
           theme: 'grid',
           styles: { fontSize: 7, cellPadding: 2, overflow: 'linebreak', textColor: [30, 41, 59] },
           headStyles: { fillColor: [241, 245, 249], textColor: [51, 65, 85], fontStyle: 'bold', halign: 'left' },
           columnStyles: {
-            0: { cellWidth: 277, halign: 'left' },
-            1: { cellWidth: 62, halign: 'right' },
-            2: { cellWidth: 62, halign: 'right' },
-            3: { cellWidth: 62, halign: 'right' },
-            4: { cellWidth: 52, halign: 'right' },
+            0: { cellWidth: 311, halign: 'left' },
+            1: { cellWidth: 68, halign: 'right' },
+            2: { cellWidth: 68, halign: 'right' },
+            3: { cellWidth: 68, halign: 'right' },
           },
           margin: { left: 40, right: 40 },
           didParseCell: (data) => {
