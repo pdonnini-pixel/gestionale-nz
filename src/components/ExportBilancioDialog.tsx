@@ -27,13 +27,17 @@ import { X, FileSpreadsheet, FileText, Download } from 'lucide-react'
 import { useToast } from './Toast'
 import {
   buildSheets,
+  buildMonthlySheets,
   fmtEuroIt,
   periodLabel,
   slugify,
   sheetName,
   XLSX_EURO_FMT,
+  MESI_ABBR,
   type CenterSheet,
   type ExportSection,
+  type MonthlyCenterSheet,
+  type MonthlySection,
   type BudgetEntryLite,
   type MonthlyMap,
   type CoaNode,
@@ -44,6 +48,8 @@ type CostCenter = { code: string; label?: string; name?: string }
 
 type PeriodType = 'mensile' | 'trimestrale' | 'annuale' | 'custom'
 type FormatType = 'excel' | 'pdf'
+// Tipologia di vista: annuale (1 colonna Preventivo) o mensile (12 mesi + Totale).
+type ViewType = 'annuale' | 'mensile'
 
 type Props = {
   open: boolean
@@ -64,7 +70,8 @@ type Props = {
 const MESI_IT = ['Gennaio', 'Febbraio', 'Marzo', 'Aprile', 'Maggio', 'Giugno',
                  'Luglio', 'Agosto', 'Settembre', 'Ottobre', 'Novembre', 'Dicembre']
 
-const PREV_NOTE = 'Solo colonna Preventivo · negativi in rosso · sottoconti esplosi sotto ogni macro.'
+const PREV_NOTE = 'Solo colonna Preventivo · valori in € · negativi in rosso · sottoconti esplosi sotto ogni macro.'
+const MENS_NOTE = 'Versione mensile · 12 mesi (Gen…Dic) + Totale anno · valori in € · negativi in rosso · sottoconti esplosi.'
 
 const centerRef = (c: CostCenter): CenterRef => ({ code: c.code, label: c.label || c.name || c.code })
 
@@ -79,8 +86,13 @@ export default function ExportBilancioDialog({
   const [customFrom, setCustomFrom] = useState(1)
   const [customTo, setCustomTo] = useState(12)
   const [format, setFormat] = useState<FormatType>('excel')
+  const [viewType, setViewType] = useState<ViewType>('annuale')
   const [outletFilter, setOutletFilter] = useState<string>('__all__') // __all__ o cost_center code
   const [generating, setGenerating] = useState(false)
+
+  // La versione mensile è disponibile SOLO in Excel (il PDF a 14 colonne è
+  // illeggibile). Forziamo Excel quando si sceglie Mensile.
+  const effectiveFormat: FormatType = viewType === 'mensile' ? 'excel' : format
 
   // Intervallo mesi in base al periodo scelto
   const monthRange = useMemo((): { from: number; to: number } => {
@@ -98,23 +110,31 @@ export default function ExportBilancioDialog({
     }
   }, [periodType, singleMonth, trimestre, customFrom, customTo])
 
-  const periodTxt = periodLabel(monthRange.from, monthRange.to, year)
+  // In mensile il periodo è sempre l'anno intero (12 colonne Gen…Dic).
+  const periodTxt = viewType === 'mensile' ? `Anno ${year} (mensile)` : periodLabel(monthRange.from, monthRange.to, year)
 
-  const sheets = useMemo<CenterSheet[]>(() => {
-    if (!open) return []
-    return buildSheets({
-      selection: outletFilter,
-      operativeOutlets: operativeOutlets.map(centerRef),
-      hq: hq ? centerRef(hq) : null,
-      fromMonth: monthRange.from,
-      toMonth: monthRange.to,
-      budgetEntries,
-      revMonthly,
-      consMonthly,
-      coaCosti,
-      coaRicavi,
-    })
-  }, [open, outletFilter, operativeOutlets, hq, monthRange, budgetEntries, revMonthly, consMonthly, coaCosti, coaRicavi])
+  const buildInput = useMemo(() => ({
+    selection: outletFilter,
+    operativeOutlets: operativeOutlets.map(centerRef),
+    hq: hq ? centerRef(hq) : null,
+    fromMonth: monthRange.from,
+    toMonth: monthRange.to,
+    budgetEntries,
+    revMonthly,
+    consMonthly,
+    coaCosti,
+    coaRicavi,
+  }), [outletFilter, operativeOutlets, hq, monthRange, budgetEntries, revMonthly, consMonthly, coaCosti, coaRicavi])
+
+  const sheets = useMemo<CenterSheet[]>(
+    () => (open && viewType === 'annuale' ? buildSheets(buildInput) : []),
+    [open, viewType, buildInput],
+  )
+  const monthlySheets = useMemo<MonthlyCenterSheet[]>(
+    () => (open && viewType === 'mensile' ? buildMonthlySheets(buildInput) : []),
+    [open, viewType, buildInput],
+  )
+  const sheetCount = viewType === 'mensile' ? monthlySheets.length : sheets.length
 
   const outletLabel = (code: string): string => {
     if (code === '__all__') return 'Tutti (Totale azienda + outlet + Sede)'
@@ -173,6 +193,62 @@ export default function ExportBilancioDialog({
       for (let r = range.s.r; r <= range.e.r; r++) {
         const cell = ws[XLSX.utils.encode_cell({ r, c: 1 })] as { t?: string; z?: string } | undefined
         if (cell && cell.t === 'n') cell.z = XLSX_EURO_FMT
+      }
+
+      let name = sheetName(sheet.title)
+      let i = 2
+      while (usedNames.has(name.toLowerCase())) { name = sheetName(`${sheet.title} ${i++}`) }
+      usedNames.add(name.toLowerCase())
+      XLSX.utils.book_append_sheet(wb, ws, name)
+    })
+
+    XLSX.writeFile(wb, `${fileBase()}.xlsx`)
+  }
+
+  // ─── EXCEL MENSILE (12 mesi + Totale anno) ──────────────────────────────
+  function generaExcelMensile() {
+    const wb = XLSX.utils.book_new()
+    const usedNames = new Set<string>()
+    const lastCol = 13 // colonne valore: 12 mesi (1..12) + Totale anno (13)
+
+    monthlySheets.forEach((sheet) => {
+      type Cell = string | number
+      const aoa: Cell[][] = []
+      const rowLevels: number[] = []
+      const pushRow = (cells: Cell[], level = 0) => { aoa.push(cells); rowLevels.push(level) }
+
+      pushRow([`${tenantName} — ${sheet.title} — Previsionale ${year} (mensile)`])
+      pushRow([`Nota: ${MENS_NOTE}`])
+      pushRow([])
+      pushRow(['Voce', ...MESI_ABBR, 'Totale anno'])
+
+      const emitSection = (sec: MonthlySection) => {
+        pushRow([sec.title])
+        sec.rows.forEach((r) => {
+          pushRow([`${'    '.repeat(r.depth)}${r.label}`, ...r.months, r.total], Math.min(r.depth, 7))
+        })
+        pushRow([sec.totalLabel, ...sec.totals, sec.total])
+      }
+
+      emitSection(sheet.ricavi)
+      pushRow([])
+      emitSection(sheet.costi)
+      pushRow([])
+      const ris = sheet.ricavi.totals.map((v, i) => v - sheet.costi.totals[i])
+      pushRow(['RISULTATO PREVISIONALE', ...ris, ris.reduce((s, v) => s + v, 0)])
+
+      const ws = XLSX.utils.aoa_to_sheet(aoa)
+      ws['!cols'] = [{ wch: 50 }, ...Array(12).fill({ wch: 14 }), { wch: 16 }]
+      ws['!rows'] = rowLevels.map((lvl) => (lvl > 0 ? { level: lvl } : {}))
+      ;(ws as { [k: string]: unknown })['!outline'] = { above: true }
+
+      // Number format euro su tutte le colonne valore (1..13).
+      const range = XLSX.utils.decode_range(ws['!ref'] || 'A1')
+      for (let r = range.s.r; r <= range.e.r; r++) {
+        for (let c = 1; c <= lastCol; c++) {
+          const cell = ws[XLSX.utils.encode_cell({ r, c })] as { t?: string; z?: string } | undefined
+          if (cell && cell.t === 'n') cell.z = XLSX_EURO_FMT
+        }
       }
 
       let name = sheetName(sheet.title)
@@ -263,7 +339,8 @@ export default function ExportBilancioDialog({
   function genera() {
     setGenerating(true)
     try {
-      if (format === 'excel') generaExcel()
+      if (viewType === 'mensile') generaExcelMensile()
+      else if (effectiveFormat === 'excel') generaExcel()
       else generaPdf()
       onClose()
     } catch (err) {
@@ -297,26 +374,54 @@ export default function ExportBilancioDialog({
 
         {/* Body */}
         <div className="p-6 space-y-5">
-          {/* Formato */}
+          {/* Tipologia */}
+          <div>
+            <label className="block text-sm font-semibold text-slate-700 mb-2">Tipologia</label>
+            <div className="grid grid-cols-2 gap-2">
+              <button onClick={() => setViewType('annuale')}
+                className={`px-3 py-2 rounded-lg text-sm font-medium border text-left ${
+                  viewType === 'annuale' ? 'bg-indigo-50 border-indigo-300 text-indigo-700' : 'bg-white border-slate-200 text-slate-600'
+                }`}>
+                <div className="font-semibold">Annuale</div>
+                <div className="text-xs opacity-75">1 colonna Preventivo · Excel o PDF</div>
+              </button>
+              <button onClick={() => setViewType('mensile')}
+                className={`px-3 py-2 rounded-lg text-sm font-medium border text-left ${
+                  viewType === 'mensile' ? 'bg-indigo-50 border-indigo-300 text-indigo-700' : 'bg-white border-slate-200 text-slate-600'
+                }`}>
+                <div className="font-semibold">Mensile</div>
+                <div className="text-xs opacity-75">12 mesi + Totale anno · solo Excel</div>
+              </button>
+            </div>
+          </div>
+
+          {/* Formato (PDF solo per Annuale) */}
           <div>
             <label className="block text-sm font-semibold text-slate-700 mb-2">Formato</label>
             <div className="grid grid-cols-2 gap-2">
               <button onClick={() => setFormat('excel')}
                 className={`px-3 py-2 rounded-lg text-sm font-medium border flex items-center gap-2 ${
-                  format === 'excel' ? 'bg-indigo-50 border-indigo-300 text-indigo-700' : 'bg-white border-slate-200 text-slate-600'
+                  effectiveFormat === 'excel' ? 'bg-indigo-50 border-indigo-300 text-indigo-700' : 'bg-white border-slate-200 text-slate-600'
                 }`}>
                 <FileSpreadsheet size={16} /> Excel (multi-foglio)
               </button>
-              <button onClick={() => setFormat('pdf')}
+              <button onClick={() => setFormat('pdf')} disabled={viewType === 'mensile'}
+                title={viewType === 'mensile' ? 'Il PDF è disponibile solo per la versione annuale' : undefined}
                 className={`px-3 py-2 rounded-lg text-sm font-medium border flex items-center gap-2 ${
-                  format === 'pdf' ? 'bg-indigo-50 border-indigo-300 text-indigo-700' : 'bg-white border-slate-200 text-slate-600'
+                  viewType === 'mensile'
+                    ? 'bg-slate-50 border-slate-200 text-slate-300 cursor-not-allowed'
+                    : effectiveFormat === 'pdf' ? 'bg-indigo-50 border-indigo-300 text-indigo-700' : 'bg-white border-slate-200 text-slate-600'
                 }`}>
                 <FileText size={16} /> PDF
               </button>
             </div>
+            {viewType === 'mensile' && (
+              <p className="mt-1.5 text-xs text-slate-400">Il PDF è disponibile solo per la versione annuale (12 colonne sono illeggibili in PDF).</p>
+            )}
           </div>
 
-          {/* Periodo */}
+          {/* Periodo (solo per Annuale; in Mensile è sempre l'anno intero) */}
+          {viewType === 'annuale' && (
           <div>
             <label className="block text-sm font-semibold text-slate-700 mb-2">Periodo</label>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
@@ -373,6 +478,7 @@ export default function ExportBilancioDialog({
               </div>
             )}
           </div>
+          )}
 
           {/* Outlet */}
           <div>
@@ -390,10 +496,11 @@ export default function ExportBilancioDialog({
           {/* Anteprima */}
           <div className="bg-slate-50 rounded-lg p-3 text-sm text-slate-600">
             <div className="font-semibold text-slate-800 mb-1">Anteprima export</div>
-            <div>🗂️ Formato: <span className="font-medium">{format === 'excel' ? 'Excel multi-foglio' : 'PDF'}</span></div>
+            <div>🧾 Tipologia: <span className="font-medium">{viewType === 'mensile' ? 'Mensile (12 mesi + Totale anno)' : 'Annuale (1 colonna)'}</span></div>
+            <div>🗂️ Formato: <span className="font-medium">{effectiveFormat === 'excel' ? 'Excel multi-foglio' : 'PDF'}</span></div>
             <div>📅 Periodo: <span className="font-medium">{periodTxt}</span></div>
             <div>🏪 Scheda: <span className="font-medium">{outletLabel(outletFilter)}</span></div>
-            <div>📄 {format === 'excel' ? 'Fogli' : 'Pagine'} nel file: <span className="font-medium">{sheets.length}</span></div>
+            <div>📄 {effectiveFormat === 'excel' ? 'Fogli' : 'Pagine'} nel file: <span className="font-medium">{sheetCount}</span></div>
           </div>
         </div>
 
@@ -404,10 +511,10 @@ export default function ExportBilancioDialog({
             Annulla
           </button>
           <button onClick={genera}
-            disabled={generating || sheets.length === 0}
+            disabled={generating || sheetCount === 0}
             className="px-5 py-2 bg-emerald-600 text-white rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed">
             <Download size={16} />
-            {generating ? 'Generazione…' : (format === 'excel' ? 'Scarica Excel' : 'Scarica PDF')}
+            {generating ? 'Generazione…' : (effectiveFormat === 'excel' ? 'Scarica Excel' : 'Scarica PDF')}
           </button>
         </div>
       </div>
