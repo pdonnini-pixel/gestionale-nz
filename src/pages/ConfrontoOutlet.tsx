@@ -1040,10 +1040,10 @@ export default function ConfrontoOutlet() {
     () => outletMetricsBase.reduce((s, o) => s + (o.calculatedMetrics?.budgetRicavi || 0), 0),
     [outletMetricsBase],
   )
-  // Imposte allocate per outlet: 90% del totale ripartito pro-quota ricavi
-  // (budgetRicavi), STESSO helper sedeQuota della quota sede. Il 10% fisso resta
-  // sulla Sede (non mostrata qui). Solo vista annuale (selectedMonths === null) e
-  // imposte > 0: applicare imposte annuali a un sotto-periodo sarebbe fuorviante.
+  // Imposte allocate per outlet: 100% del totale ripartito pro-quota ricavi
+  // (budgetRicavi), STESSO helper sedeQuota della quota sede. La Sede/Magazzino è
+  // esclusa (Patrizio 19/06: niente 10% fisso). Solo vista annuale (selectedMonths
+  // === null) e imposte > 0: applicare imposte annuali a un sotto-periodo sarebbe fuorviante.
   const imposteAnnualeAttiva = selectedMonths === null && imposteTotal > 0
   const outletMetrics = useMemo(() => outletMetricsBase.map(o => {
     if (!o.calculatedMetrics) return o
@@ -1051,7 +1051,7 @@ export default function ConfrontoOutlet() {
     const margineFinale = o.calculatedMetrics.margine - quota
     const cm = { ...o.calculatedMetrics, quotaSedePro: quota, margineFinale }
     if (imposteAnnualeAttiva && fatturatoTot > 0) {
-      const imposteQuota = sedeQuota(imposteTotal * 0.90, o.calculatedMetrics.budgetRicavi || 0, fatturatoTot)
+      const imposteQuota = sedeQuota(imposteTotal, o.calculatedMetrics.budgetRicavi || 0, fatturatoTot)
       cm.imposteQuota = imposteQuota
       cm.risultatoDopoImposte = margineFinale - imposteQuota
     }

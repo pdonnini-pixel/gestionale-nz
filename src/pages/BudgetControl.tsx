@@ -718,7 +718,7 @@ export default function BudgetControl() {
 
   // Imposte sul reddito annuali (input Lilian). Valore POSITIVO unico per anno,
   // editabile solo nella vista aggregata "Tutti gli outlet"; il segno meno e la
-  // ripartizione (10% Sede + 90% outlet pro-quota ricavi) sono solo a display.
+  // ripartizione (100% sugli outlet aperti pro-quota ricavi) sono solo a display.
   const [imposteAmount, setImposteAmount] = useState(0)
 
 
@@ -1447,11 +1447,13 @@ export default function BudgetControl() {
     const ricaviTot = ops.reduce<number>((s, o) => s + (outletRev[o.code] || 0), 0)
     const byCenter: Record<string, number> = {}
     if (total !== 0 && ricaviTot > 0) {
-      byCenter[HQ_CODE] = total * 0.10
-      const quota90 = total * 0.90
-      ops.forEach(o => { byCenter[o.code] = sedeQuota(quota90, outletRev[o.code] || 0, ricaviTot) })
+      // Sede/Magazzino esclusa (quota 0): l'intero importo va sugli outlet aperti
+      // pro-quota ricavi. Patrizio 19/06: niente 10% fisso alla Sede.
+      byCenter[HQ_CODE] = 0
+      ops.forEach(o => { byCenter[o.code] = sedeQuota(total, outletRev[o.code] || 0, ricaviTot) })
     } else {
-      // Nessun outlet con ricavi → tutto su Sede (o importo 0). Niente NaN/Infinity.
+      // Nessun outlet con ricavi → fallback su Sede per non perdere l'importo
+      // (caso degenere; niente NaN/Infinity, niente divisione per zero).
       byCenter[HQ_CODE] = total
       ops.forEach(o => { byCenter[o.code] = 0 })
     }
@@ -3100,7 +3102,7 @@ function ConfrontoPanel({ outletCode, outletLabel, prevEdits, consEdits, onConsE
           </div>
           {isAggregate && imposteEditable && (
             <p className="text-[10px] text-slate-400">
-              Salvataggio automatico all'uscita dal campo. Ripartizione: 10% Sede/Magazzino, 90% sugli outlet aperti pro-quota ricavi.
+              Salvataggio automatico all'uscita dal campo. Ripartizione: 100% sugli outlet aperti pro-quota ricavi (Sede/Magazzino esclusa).
             </p>
           )}
         </div>
