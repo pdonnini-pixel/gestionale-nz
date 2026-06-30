@@ -396,6 +396,22 @@ export default function SchedaContabileFornitore() {
           aliquotaIVA: aliq,
           tipo: 'nota_credito',
         });
+        // Se la NC è stata chiusa a mano → scrittura di chiusura in AVERE che
+        // annulla il DARE della nota di credito (il saldo torna a non risentirne).
+        if (agg.closedManually) {
+          const dataRifNC = agg.manualCloseDate || agg.paymentDate;
+          const dataChiusuraNC = dataRifNC ? new Date(dataRifNC).toLocaleDateString('it-IT') : '—';
+          movimenti.push({
+            data: agg.invoiceDate,
+            dataPagamento: dataRifNC,
+            numero: agg.invoiceNumber,
+            dare: 0,
+            avere: Math.abs(agg.grossTotal),
+            descrizione: `Chiusura nota di credito — chiusa a mano il ${dataChiusuraNC}${agg.manualCloseReason ? ` — ${agg.manualCloseReason}` : ''} — rif. NC ${agg.invoiceNumber}`,
+            aliquotaIVA: '—',
+            tipo: 'pagamento',
+          });
+        }
       } else {
         // Fattura ricevuta → riga AVERE (aumenta debito)
         movimenti.push({
