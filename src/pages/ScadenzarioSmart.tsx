@@ -2671,7 +2671,7 @@ const ScadenzarioSmart = () => {
                               </div>
                             </div>
                             <div className="flex items-center gap-3">
-                              <span className={`text-sm font-semibold ${p.status === 'pagato' ? 'text-slate-400' : (p.status === 'scaduto' || p.status === 'nota_credito' || (Number(p.gross_amount) || 0) < 0) ? 'text-red-600' : 'text-slate-800'}`}>
+                              <span className={`text-sm font-semibold ${p.status === 'pagato' ? 'text-slate-400' : (p.status === 'nota_credito' || (Number(p.gross_amount) || 0) < 0) ? 'text-red-600' : 'text-slate-800'}`}>
                                 {fmt(p.amount_remaining || p.gross_amount)} €
                               </span>
                               <StatusPill status={p.status} />
@@ -3065,10 +3065,11 @@ const ScadenzarioSmart = () => {
                             })()}
                           </td>
                           {/* IMPORTO — click per editare inline (anche scadenze fiscali via dispatch).
-                              Le note di credito (importo negativo) sono sempre in rosso. */}
+                              ROSSO riservato SOLO alle note di credito (importo negativo, con il
+                              segno -). Le altre voci, incluse le scadute, restano in nero. */}
                           <td className={`py-2.5 px-3 text-right text-[13px] font-medium whitespace-nowrap ${
                             p.status === 'pagato' ? 'text-slate-400'
-                              : (p.status === 'scaduto' || p.status === 'nota_credito' || (Number(p.gross_amount) || 0) < 0) ? 'text-red-600'
+                              : (p.status === 'nota_credito' || (Number(p.gross_amount) || 0) < 0) ? 'text-red-600'
                               : 'text-slate-800'
                           }`}>
                             {inlineEditAmountId === p.id ? (
