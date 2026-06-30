@@ -965,8 +965,9 @@ const ScadenzarioSmart = () => {
     else source = [...payables, ...fiscalAsPayables];
 
     return source.filter((p) => {
-      // Escludi note credito dallo Scadenzario (importi negativi o status nota_credito)
-      if (p.status === 'nota_credito' || (Number(p.gross_amount) || 0) < 0) return false;
+      // Le note di credito (status 'nota_credito' / importo negativo) RESTANO visibili
+      // nello Scadenzario: hanno importo negativo e scalano il dovuto per fornitore
+      // (passivo che riduce la quota da pagare). Non sono pagabili (no checkbox).
 
       // Escludi annullati per default — visibili SOLO se utente filtra esplicitamente 'annullato'
       if (p.status === 'annullato' && selectedStatus !== 'annullato') return false;
@@ -1738,7 +1739,7 @@ const ScadenzarioSmart = () => {
     return {
       tutte: filteredPayables.length,
       scadute: filteredPayables.filter(p => p.status === 'scaduto').length,
-      da_saldare: filteredPayables.filter(p => p.status !== 'pagato' && p.status !== 'annullato' && (p.gross_amount || 0) >= 0).length,
+      da_saldare: filteredPayables.filter(p => p.status !== 'pagato' && p.status !== 'annullato').length,
       saldate: filteredPayables.filter(p => p.status === 'pagato').length,
       in_distinta: filteredPayables.filter(p => !!p.disposizione_date && p.status !== 'pagato' && p.status !== 'annullato').length,
     };
@@ -2589,11 +2590,11 @@ const ScadenzarioSmart = () => {
                               <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${dotColor(p)}`} />
                               <div>
                                 <UiTooltip content={p.suppliers?.ragione_sociale || p.suppliers?.name || ''}><div className="text-sm font-medium text-slate-800 truncate max-w-[280px]">{p.suppliers?.ragione_sociale || p.suppliers?.name || '—'}</div></UiTooltip>
-                                <UiTooltip content={p.invoice_number || ''}><div className="text-xs text-slate-400 truncate max-w-[280px]">Fatt. {p.invoice_number || '—'} {p.payment_method ? `- ${(paymentMethodLabels as Record<string, string>)[p.payment_method] || p.payment_method}` : ''}</div></UiTooltip>
+                                <UiTooltip content={p.invoice_number || ''}><div className="text-xs text-slate-400 truncate max-w-[280px]">{(p.status === 'nota_credito' || (Number(p.gross_amount) || 0) < 0) ? 'Nota di credito' : 'Fatt.'} {p.invoice_number || '—'} {p.payment_method ? `- ${(paymentMethodLabels as Record<string, string>)[p.payment_method] || p.payment_method}` : ''}</div></UiTooltip>
                               </div>
                             </div>
                             <div className="flex items-center gap-3">
-                              <span className={`text-sm font-semibold ${p.status === 'pagato' ? 'text-slate-400' : p.status === 'scaduto' ? 'text-red-600' : 'text-slate-800'}`}>
+                              <span className={`text-sm font-semibold ${p.status === 'pagato' ? 'text-slate-400' : (p.status === 'scaduto' || p.status === 'nota_credito' || (Number(p.gross_amount) || 0) < 0) ? 'text-red-600' : 'text-slate-800'}`}>
                                 {fmt(p.amount_remaining || p.gross_amount)} €
                               </span>
                               <StatusPill status={p.status} />
@@ -2945,7 +2946,8 @@ const ScadenzarioSmart = () => {
                             {(() => {
                               const supplierLabel = (p.suppliers?.ragione_sociale || p.suppliers?.name || '').trim()
                               const note = (p.notes || '').trim()
-                              const invoiceLabel = p.invoice_number && p.invoice_number !== '-' ? `Fattura • ${p.invoice_number}` : ''
+                              const isNotaCredito = p.status === 'nota_credito' || (Number(p.gross_amount) || 0) < 0
+                              const invoiceLabel = p.invoice_number && p.invoice_number !== '-' ? `${isNotaCredito ? 'Nota di credito' : 'Fattura'} • ${p.invoice_number}` : ''
                               // Fattura a rate (split dall'XML): badge dedicato "rata X/N", sempre
                               // visibile quando le rate sono >1, così tre righe della stessa fattura
                               // non sembrano un doppione.
@@ -2985,9 +2987,12 @@ const ScadenzarioSmart = () => {
                               )
                             })()}
                           </td>
-                          {/* IMPORTO — click per editare inline (anche scadenze fiscali via dispatch) */}
+                          {/* IMPORTO — click per editare inline (anche scadenze fiscali via dispatch).
+                              Le note di credito (importo negativo) sono sempre in rosso. */}
                           <td className={`py-2.5 px-3 text-right text-[13px] font-medium whitespace-nowrap ${
-                            p.status === 'pagato' ? 'text-slate-400' : p.status === 'scaduto' ? 'text-red-600' : 'text-slate-800'
+                            p.status === 'pagato' ? 'text-slate-400'
+                              : (p.status === 'scaduto' || p.status === 'nota_credito' || (Number(p.gross_amount) || 0) < 0) ? 'text-red-600'
+                              : 'text-slate-800'
                           }`}>
                             {inlineEditAmountId === p.id ? (
                               <input
@@ -3009,7 +3014,7 @@ const ScadenzarioSmart = () => {
                               <span
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  if (p.status === 'pagato') return;
+                                  if (p.status === 'pagato' || p.status === 'nota_credito' || (Number(p.gross_amount) || 0) < 0) return;
                                   setInlineEditAmountId(p.id || null);
                                   setInlineEditAmountValue(String(p.gross_amount ?? 0));
                                 }}
