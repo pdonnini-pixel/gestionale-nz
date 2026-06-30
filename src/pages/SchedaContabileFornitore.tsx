@@ -327,6 +327,8 @@ export default function SchedaContabileFornitore() {
       paymentBankId: string | null;
       isPaid: boolean;
       tipoDoc: string | null;
+      closedManually: boolean;       // true se almeno una rata e' stata chiusa a mano
+      manualCloseReason: string | null;
     }
     const map = new Map<string, InvoiceAgg>();
     for (const p of filteredPayables) {
@@ -343,12 +345,19 @@ export default function SchedaContabileFornitore() {
           paymentBankId: null,
           isPaid: false,
           tipoDoc: (p as Payable & { tipo_documento?: string | null }).tipo_documento || null,
+          closedManually: false,
+          manualCloseReason: null,
         };
         map.set(key, agg);
       }
       agg.grossTotal += Number(p.gross_amount || 0);
       agg.netTotal += Number(p.net_amount || 0);
       agg.vatTotal += Number(p.vat_amount || 0);
+      const pManual = p as Payable & { closed_manually?: boolean | null; manual_close_reason?: string | null };
+      if (pManual.closed_manually) {
+        agg.closedManually = true;
+        if (pManual.manual_close_reason) agg.manualCloseReason = pManual.manual_close_reason;
+      }
       if (p.status === 'pagato' && p.payment_date) {
         agg.isPaid = true;
         if (!agg.paymentDate || p.payment_date > agg.paymentDate) {
@@ -390,16 +399,25 @@ export default function SchedaContabileFornitore() {
           aliquotaIVA: aliq,
           tipo: 'fattura',
         });
-        // Se pagata → riga DARE pagamento con banca + data pagamento sotto data fattura
+        // Se pagata → riga DARE pagamento con banca + data pagamento sotto data fattura.
+        // Se chiusa a mano → dicitura "Chiusura manuale — chiusa a mano il GG/MM/AAAA",
+        // senza banca (chiusura contabile senza movimento bancario).
         if (agg.isPaid && agg.paymentDate) {
-          const bankName = agg.paymentBankId ? (bankAccountById[agg.paymentBankId] || 'Banca non specificata') : 'Banca non specificata';
+          let descr: string;
+          if (agg.closedManually) {
+            const dataChiusura = new Date(agg.paymentDate).toLocaleDateString('it-IT');
+            descr = `Chiusura manuale — chiusa a mano il ${dataChiusura}${agg.manualCloseReason ? ` — ${agg.manualCloseReason}` : ''} — rif. Fatt. ${agg.invoiceNumber}`;
+          } else {
+            const bankName = agg.paymentBankId ? (bankAccountById[agg.paymentBankId] || 'Banca non specificata') : 'Banca non specificata';
+            descr = `Pagamento — ${bankName} — rif. Fatt. ${agg.invoiceNumber}`;
+          }
           movimenti.push({
             data: agg.invoiceDate,           // data principale = emissione fattura
             dataPagamento: agg.paymentDate,  // mostrata sotto in piccolo
             numero: agg.invoiceNumber,
             dare: agg.grossTotal,
             avere: 0,
-            descrizione: `Pagamento — ${bankName} — rif. Fatt. ${agg.invoiceNumber}`,
+            descrizione: descr,
             aliquotaIVA: '—',
             tipo: 'pagamento',
           });
