@@ -4778,6 +4778,7 @@ export type Database = {
           amount_paid: number | null
           amount_remaining: number | null
           cash_movement_id: string | null
+          closed_manually: boolean | null
           company_id: string
           cost_category_id: string | null
           created_at: string | null
@@ -4786,6 +4787,7 @@ export type Database = {
           gross_amount: number
           iban: string | null
           id: string
+          manual_close_reason: string | null
           import_batch_id: string | null
           installment_number: number | null
           installment_total: number | null
@@ -4823,6 +4825,7 @@ export type Database = {
           amount_paid?: number | null
           amount_remaining?: number | null
           cash_movement_id?: string | null
+          closed_manually?: boolean | null
           company_id: string
           cost_category_id?: string | null
           created_at?: string | null
@@ -4832,6 +4835,7 @@ export type Database = {
           iban?: string | null
           id?: string
           import_batch_id?: string | null
+          manual_close_reason?: string | null
           installment_number?: number | null
           installment_total?: number | null
           invoice_date: string
@@ -4868,6 +4872,7 @@ export type Database = {
           amount_paid?: number | null
           amount_remaining?: number | null
           cash_movement_id?: string | null
+          closed_manually?: boolean | null
           company_id?: string
           cost_category_id?: string | null
           created_at?: string | null
@@ -4877,6 +4882,7 @@ export type Database = {
           iban?: string | null
           id?: string
           import_batch_id?: string | null
+          manual_close_reason?: string | null
           installment_number?: number | null
           installment_total?: number | null
           invoice_date?: string
