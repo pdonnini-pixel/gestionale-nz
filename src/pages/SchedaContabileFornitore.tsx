@@ -329,6 +329,8 @@ export default function SchedaContabileFornitore() {
       tipoDoc: string | null;
       closedManually: boolean;       // true se almeno una rata e' stata chiusa a mano
       manualCloseReason: string | null;
+      manualClosedAmount: number;    // importo complessivo chiuso a mano (totale o parziale)
+      manualCloseDate: string | null;
     }
     const map = new Map<string, InvoiceAgg>();
     for (const p of filteredPayables) {
@@ -347,6 +349,8 @@ export default function SchedaContabileFornitore() {
           tipoDoc: (p as Payable & { tipo_documento?: string | null }).tipo_documento || null,
           closedManually: false,
           manualCloseReason: null,
+          manualClosedAmount: 0,
+          manualCloseDate: null,
         };
         map.set(key, agg);
       }
@@ -357,6 +361,11 @@ export default function SchedaContabileFornitore() {
       if (pManual.closed_manually) {
         agg.closedManually = true;
         if (pManual.manual_close_reason) agg.manualCloseReason = pManual.manual_close_reason;
+        // Importo chiuso a mano = quanto e' stato saldato manualmente (amount_paid).
+        agg.manualClosedAmount += Number(p.amount_paid || 0);
+        if (p.payment_date && (!agg.manualCloseDate || p.payment_date > agg.manualCloseDate)) {
+          agg.manualCloseDate = p.payment_date;
+        }
       }
       if (p.status === 'pagato' && p.payment_date) {
         agg.isPaid = true;
@@ -399,25 +408,33 @@ export default function SchedaContabileFornitore() {
           aliquotaIVA: aliq,
           tipo: 'fattura',
         });
-        // Se pagata → riga DARE pagamento con banca + data pagamento sotto data fattura.
-        // Se chiusa a mano → dicitura "Chiusura manuale — chiusa a mano il GG/MM/AAAA",
-        // senza banca (chiusura contabile senza movimento bancario).
-        if (agg.isPaid && agg.paymentDate) {
-          let descr: string;
-          if (agg.closedManually) {
-            const dataChiusura = new Date(agg.paymentDate).toLocaleDateString('it-IT');
-            descr = `Chiusura manuale — chiusa a mano il ${dataChiusura}${agg.manualCloseReason ? ` — ${agg.manualCloseReason}` : ''} — rif. Fatt. ${agg.invoiceNumber}`;
-          } else {
-            const bankName = agg.paymentBankId ? (bankAccountById[agg.paymentBankId] || 'Banca non specificata') : 'Banca non specificata';
-            descr = `Pagamento — ${bankName} — rif. Fatt. ${agg.invoiceNumber}`;
-          }
+        // Chiusura a mano (TOTALE o PARZIALE) → riga DARE per l'importo chiuso a
+        // mano, senza banca, dicitura "Chiusura manuale — chiusa a mano il GG/MM/AAAA".
+        // Vale anche per i parziali (status 'parziale'): il saldo mostra il residuo.
+        if (agg.closedManually && agg.manualClosedAmount > 0) {
+          const dataRif = agg.manualCloseDate || agg.paymentDate;
+          const dataChiusura = dataRif ? new Date(dataRif).toLocaleDateString('it-IT') : '—';
+          const isPartial = agg.manualClosedAmount < Math.abs(agg.grossTotal) - 0.005;
+          movimenti.push({
+            data: agg.invoiceDate,           // data principale = emissione fattura
+            dataPagamento: dataRif,          // mostrata sotto in piccolo
+            numero: agg.invoiceNumber,
+            dare: agg.manualClosedAmount,
+            avere: 0,
+            descrizione: `Chiusura manuale${isPartial ? ' parziale' : ''} — chiusa a mano il ${dataChiusura}${agg.manualCloseReason ? ` — ${agg.manualCloseReason}` : ''} — rif. Fatt. ${agg.invoiceNumber}`,
+            aliquotaIVA: '—',
+            tipo: 'pagamento',
+          });
+        } else if (agg.isPaid && agg.paymentDate) {
+          // Pagamento normale con banca.
+          const bankName = agg.paymentBankId ? (bankAccountById[agg.paymentBankId] || 'Banca non specificata') : 'Banca non specificata';
           movimenti.push({
             data: agg.invoiceDate,           // data principale = emissione fattura
             dataPagamento: agg.paymentDate,  // mostrata sotto in piccolo
             numero: agg.invoiceNumber,
             dare: agg.grossTotal,
             avere: 0,
-            descrizione: descr,
+            descrizione: `Pagamento — ${bankName} — rif. Fatt. ${agg.invoiceNumber}`,
             aliquotaIVA: '—',
             tipo: 'pagamento',
           });

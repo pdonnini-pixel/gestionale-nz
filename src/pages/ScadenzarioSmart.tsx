@@ -365,6 +365,7 @@ const ScadenzarioSmart = () => {
   const [manualCloseModal, setManualCloseModal] = useState<{ open: boolean; payable: AnyRow | null }>({ open: false, payable: null });
   const [manualCloseDate, setManualCloseDate] = useState<string>('');
   const [manualCloseReason, setManualCloseReason] = useState<string>('');
+  const [manualCloseAmount, setManualCloseAmount] = useState<string>(''); // importo da chiudere (totale o parziale)
 
   // Selection helpers
   const toggleSelect = (id: string, payable: AnyRow) => {
@@ -918,22 +919,35 @@ const ScadenzarioSmart = () => {
   const operatorName = ([profile?.first_name, profile?.last_name].filter(Boolean).join(' ').trim())
     || profile?.email || 'Operatore';
 
-  // Chiusura manuale TRACCIATA: chiude la fattura (status='pagato' + flag
-  // closed_manually) e registra SEMPRE la riga in partitario (payable_actions)
-  // con dicitura "Chiusa a mano" e data di chiusura. Nessuna chiusura muta.
-  const closePayableManually = async (payableId: string, closeDate: string, reason: string | null): Promise<boolean> => {
+  // Chiusura manuale TRACCIATA: chiude la fattura (totale o PARZIALE) e registra
+  // SEMPRE la riga in partitario (payable_actions) con dicitura "Chiusa a mano" e
+  // data di chiusura. Nessuna chiusura muta.
+  //   - closeAmount === residuo (o undefined) → chiusura TOTALE: status='pagato'
+  //   - closeAmount < residuo               → chiusura PARZIALE: status='parziale'
+  const closePayableManually = async (payableId: string, closeDate: string, reason: string | null, closeAmount?: number): Promise<boolean> => {
     const payable = payables.find(p => p.id === payableId);
     const prevStatus = (payable?.status as string | null) ?? null;
     const gross = Number(payable?.gross_amount ?? 0) || 0;
-    const remaining = Number(payable?.amount_remaining ?? gross) || 0;
+    const prevPaid = Number(payable?.amount_paid ?? 0) || 0;
+    const remaining = Number(payable?.amount_remaining ?? (gross - prevPaid)) || 0;
+
+    // Importo da chiudere: default = residuo. Clamp tra 0 (escluso) e residuo.
+    let amount = (closeAmount === undefined || !Number.isFinite(closeAmount)) ? remaining : closeAmount;
+    if (amount <= 0) { toast({ type: 'error', message: 'Importo di chiusura non valido' }); return false; }
+    if (amount > remaining + 0.005) amount = remaining;
+
+    const newPaid = prevPaid + amount;
+    const newRemaining = Math.max(0, remaining - amount);
+    const isFull = newRemaining <= 0.005;
+    const newStatus = isFull ? 'pagato' : 'parziale';
 
     const { error } = await supabase
       .from('payables')
       .update({
-        status: 'pagato',
+        status: newStatus,
         payment_date: closeDate,
-        amount_paid: gross,
-        amount_remaining: 0,
+        amount_paid: newPaid,
+        amount_remaining: newRemaining,
         closed_manually: true,
         manual_close_reason: reason || null,
         payment_bank_account_id: null,
@@ -945,22 +959,33 @@ const ScadenzarioSmart = () => {
     }
 
     // Registrazione contabile in partitario (audit). Uso solo colonne stabili:
-    // tutta l'informazione (dicitura + data + transizione di stato) sta in note.
+    // tutta l'informazione (dicitura + data + parziale/totale) sta in note.
     const dateLabel = new Date(closeDate).toLocaleDateString('it-IT');
+    const tipoChiusura = isFull ? '' : ' — PARZIALE';
     await supabase.from('payable_actions').insert({
       payable_id: payableId,
       action_type: 'chiusura_manuale',
-      amount: remaining,
+      amount,
       bank_account_id: null,
-      note: `Chiusa a mano il ${dateLabel}${reason ? ` — ${reason}` : ''} (${prevStatus || '—'} → pagato)`,
+      note: `Chiusa a mano il ${dateLabel}${tipoChiusura}${reason ? ` — ${reason}` : ''} (${prevStatus || '—'} → ${newStatus})`,
       operator_name: operatorName,
       performed_at: new Date().toISOString(),
     } as never);
 
     setPayables(prev => prev.map(p => p.id === payableId
-      ? { ...p, status: 'pagato', payment_date: closeDate, amount_paid: gross, amount_remaining: 0, closed_manually: true, manual_close_reason: reason || null, payment_bank_account_id: null, payment_bank_name: null }
+      ? { ...p, status: newStatus, payment_date: closeDate, amount_paid: newPaid, amount_remaining: newRemaining, closed_manually: true, manual_close_reason: reason || null, payment_bank_account_id: null, payment_bank_name: null }
       : p));
     return true;
+  };
+
+  // Apre la modale "Chiudi a mano" precompilando data (oggi) e importo (residuo).
+  const openManualCloseModal = (p: AnyRow) => {
+    setStatusDropdownId(null);
+    setManualCloseModal({ open: true, payable: p });
+    setManualCloseDate(new Date().toISOString().split('T')[0]);
+    setManualCloseReason('');
+    const remaining = Number(p.amount_remaining ?? p.gross_amount ?? 0) || 0;
+    setManualCloseAmount(remaining ? String(remaining.toFixed(2)) : '');
   };
 
   // Handler: update status inline. La transizione a 'pagato' viene SEMPRE
@@ -986,14 +1011,23 @@ const ScadenzarioSmart = () => {
   // Handler: submit della modale "Chiudi a mano"
   const handleManualCloseSubmit = async () => {
     if (!manualCloseModal.payable?.id || !manualCloseDate) return;
+    const remaining = Number(manualCloseModal.payable.amount_remaining ?? manualCloseModal.payable.gross_amount ?? 0) || 0;
+    const parsed = parseFloat((manualCloseAmount || '').replace(',', '.'));
+    const amount = Number.isFinite(parsed) ? parsed : remaining;
+    if (amount <= 0 || amount > remaining + 0.005) {
+      toast({ type: 'error', message: `Importo non valido: deve essere tra 0 e ${fmt(remaining)} €` });
+      return;
+    }
     setIsSaving(true);
-    const ok = await closePayableManually(manualCloseModal.payable.id, manualCloseDate, manualCloseReason.trim() || null);
+    const ok = await closePayableManually(manualCloseModal.payable.id, manualCloseDate, manualCloseReason.trim() || null, amount);
     setIsSaving(false);
     if (ok) {
-      toast({ type: 'success', message: 'Fattura chiusa a mano e registrata in partitario' });
+      const isFull = amount >= remaining - 0.005;
+      toast({ type: 'success', message: isFull ? 'Fattura chiusa a mano e registrata in partitario' : `Chiusura parziale di ${fmt(amount)} € registrata in partitario` });
       setManualCloseModal({ open: false, payable: null });
       setManualCloseDate('');
       setManualCloseReason('');
+      setManualCloseAmount('');
     }
   };
 
@@ -3124,7 +3158,7 @@ const ScadenzarioSmart = () => {
                               <div className="mt-1">
                                 <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-violet-50 text-[9px] text-violet-700 font-medium border border-violet-200"
                                   title={`Chiusa a mano${p.payment_date ? ' il ' + new Date(p.payment_date as string).toLocaleDateString('it-IT') : ''}${p.manual_close_reason ? ' — ' + String(p.manual_close_reason) : ''}`}>
-                                  ✎ Chiusa a mano
+                                  ✎ Chiusa a mano{p.status === 'parziale' ? ' (parziale)' : ''}
                                 </span>
                               </div>
                             )}
@@ -3138,12 +3172,7 @@ const ScadenzarioSmart = () => {
                                   </button>
                                 ))}
                                 <div className="my-1 border-t border-slate-100" />
-                                <button onClick={() => {
-                                  setStatusDropdownId(null);
-                                  setManualCloseModal({ open: true, payable: p });
-                                  setManualCloseDate(new Date().toISOString().split('T')[0]);
-                                  setManualCloseReason('');
-                                }}
+                                <button onClick={() => openManualCloseModal(p)}
                                   className="w-full text-left px-3 py-1.5 text-xs hover:bg-violet-50 text-violet-700 font-medium flex items-center gap-2">
                                   ✎ Chiudi a mano…
                                 </button>
@@ -3267,6 +3296,14 @@ const ScadenzarioSmart = () => {
                                   className="p-1 rounded text-slate-400 hover:text-amber-600 hover:bg-amber-50"
                                   title="Rimanda scadenza (+7/+15/+30gg o data custom)">
                                   <Calendar size={12} />
+                                </button>
+                              )}
+                              {/* Chiudi a mano — chiusura contabile manuale (totale o parziale) */}
+                              {p.status !== 'pagato' && p.status !== 'annullato' && (Number(p.gross_amount) || 0) >= 0 && p.id && (
+                                <button onClick={() => openManualCloseModal(p)}
+                                  className="p-1 rounded text-slate-400 hover:text-violet-600 hover:bg-violet-50"
+                                  title="Chiudi a mano (totale o parziale) — registra in partitario">
+                                  <CheckCircle2 size={13} />
                                 </button>
                               )}
                               <button onClick={() => setModals({ ...modals, editSchedule: { open: true, schedule: p } })}
@@ -3692,19 +3729,44 @@ const ScadenzarioSmart = () => {
         </Modal>
       )}
 
-      {/* Chiudi a mano Modal — chiusura contabile manuale con registrazione in partitario */}
-      {manualCloseModal.open && (
-        <Modal open={true} onClose={() => { setManualCloseModal({ open: false, payable: null }); setManualCloseDate(''); setManualCloseReason(''); }}
+      {/* Chiudi a mano Modal — chiusura contabile manuale (totale o parziale) con registrazione in partitario */}
+      {manualCloseModal.open && (() => {
+        const closeModal = () => { setManualCloseModal({ open: false, payable: null }); setManualCloseDate(''); setManualCloseReason(''); setManualCloseAmount(''); };
+        const remaining = Number(manualCloseModal.payable?.amount_remaining ?? manualCloseModal.payable?.gross_amount ?? 0) || 0;
+        const parsed = parseFloat((manualCloseAmount || '').replace(',', '.'));
+        const amount = Number.isFinite(parsed) ? parsed : remaining;
+        const isPartial = amount > 0 && amount < remaining - 0.005;
+        const invalid = !(amount > 0 && amount <= remaining + 0.005);
+        return (
+        <Modal open={true} onClose={closeModal}
           title={`Chiudi a mano: ${manualCloseModal.payable?.invoice_number || 'fattura'}`}>
           <div className="space-y-4">
             <div className="rounded-lg bg-violet-50 border border-violet-200 px-3 py-2.5 text-xs text-violet-800">
-              La fattura verrà marcata come <span className="font-semibold">pagata (chiusa a mano)</span> e verrà
-              registrata la chiusura nel <span className="font-semibold">partitario fornitore</span> con dicitura
-              «Chiusa a mano» e la data scelta. Nessun movimento bancario viene generato.
+              {isPartial
+                ? <>Verrà registrata una <span className="font-semibold">chiusura parziale</span> di <span className="font-semibold">{fmt(amount)} €</span> nel <span className="font-semibold">partitario fornitore</span> (dicitura «Chiusa a mano», con data). La fattura resta <span className="font-semibold">parziale</span> per il residuo. Nessun movimento bancario.</>
+                : <>La fattura verrà marcata come <span className="font-semibold">pagata (chiusa a mano)</span> e registrata nel <span className="font-semibold">partitario fornitore</span> con dicitura «Chiusa a mano» e la data scelta. Nessun movimento bancario.</>}
             </div>
             <p className="text-sm text-slate-600">
-              Importo da chiudere: <span className="font-medium text-slate-900">{fmt(Number(manualCloseModal.payable?.amount_remaining ?? manualCloseModal.payable?.gross_amount ?? 0))} €</span>
+              Residuo da chiudere: <span className="font-medium text-slate-900">{fmt(remaining)} €</span>
             </p>
+            <div>
+              <label className="text-xs font-semibold text-slate-700 mb-2 block uppercase tracking-wide">Importo da chiudere</label>
+              <div className="flex gap-2">
+                <input type="number" step="0.01" min="0" max={remaining} value={manualCloseAmount}
+                  onChange={(e) => setManualCloseAmount(e.target.value)}
+                  className="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-violet-500" />
+                <button type="button" onClick={() => setManualCloseAmount(String(remaining.toFixed(2)))}
+                  className="px-3 py-2 rounded-lg border border-slate-200 text-xs font-medium text-slate-600 hover:bg-slate-50 whitespace-nowrap">
+                  Tutto il residuo
+                </button>
+              </div>
+              {invalid && manualCloseAmount !== '' && (
+                <p className="text-[11px] text-red-600 mt-1">Inserisci un importo tra 0 e {fmt(remaining)} €.</p>
+              )}
+              {!invalid && (
+                <p className="text-[11px] text-slate-500 mt-1">{isPartial ? `Chiusura parziale — residuo dopo: ${fmt(remaining - amount)} €` : 'Chiusura totale della fattura.'}</p>
+              )}
+            </div>
             <div>
               <label className="text-xs font-semibold text-slate-700 mb-2 block uppercase tracking-wide">Data di chiusura</label>
               <input type="date" value={manualCloseDate} onChange={(e) => setManualCloseDate(e.target.value)}
@@ -3718,16 +3780,17 @@ const ScadenzarioSmart = () => {
                 className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-violet-500" />
             </div>
             <div className="flex gap-2 pt-1">
-              <button onClick={() => { setManualCloseModal({ open: false, payable: null }); setManualCloseDate(''); setManualCloseReason(''); }}
+              <button onClick={closeModal}
                 className="flex-1 py-2.5 rounded-lg border border-slate-200 text-sm font-medium hover:bg-slate-50">Annulla</button>
-              <button onClick={handleManualCloseSubmit} disabled={isSaving || !manualCloseDate}
+              <button onClick={handleManualCloseSubmit} disabled={isSaving || !manualCloseDate || invalid}
                 className="flex-1 py-2.5 rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-sm font-medium disabled:opacity-50">
-                {isSaving ? 'Chiusura…' : 'Chiudi a mano'}
+                {isSaving ? 'Chiusura…' : (isPartial ? 'Chiudi parziale' : 'Chiudi a mano')}
               </button>
             </div>
           </div>
         </Modal>
-      )}
+        );
+      })()}
 
       {/* Delete Confirmation Modal */}
       {modals.deleteConfirm.open && (() => {
