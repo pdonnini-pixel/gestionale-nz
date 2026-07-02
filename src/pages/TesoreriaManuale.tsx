@@ -3334,7 +3334,9 @@ export default function TesoreriaManuale() {
   // Anno selezionato dal Period Selector globale (Layout): guida il tab Movimenti.
   // I KPI "live" (posizione di cassa, entrate/uscite 30gg) NON dipendono dall'anno.
   const { year } = usePeriod()
-  const companyId = session?.user?.app_metadata?.company_id || '00000000-0000-0000-0000-000000000001'
+  // Multi-tenant: mai fallback su un company_id hardcoded (contaminazione cross-tenant).
+  // profile.company_id (da user_profiles) è più affidabile di app_metadata post-onboarding.
+  const companyId = profile?.company_id || session?.user?.app_metadata?.company_id || ''
 
   // activeTab persistito in URL come ?tab=… (default 'panoramica')
   // L'URL `?tab=…&select=…` era già supportato in lettura: ora persiste

@@ -16,9 +16,11 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
  * - NE (Notifica Esito)          → ACCEPTED / REJECTED
  * - DT (Decorrenza Termini)      → ACCEPTED
  * - AT (Attestazione trasmissione con impossibilità di recapito) → DEPOSITED
+ *
+ * MULTI-TENANT: nessun company_id hardcoded. L'endpoint è per-progetto,
+ * quindi il company_id è quello dell'unica company del tenant, letto dalla
+ * tabella `companies` a runtime.
  */
-
-const COMPANY_ID = "00000000-0000-0000-0000-000000000001";
 
 // ─── XML helpers ────────────────────────────────────────────────────
 
@@ -134,11 +136,23 @@ Deno.serve(async (req: Request) => {
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
+    // Multi-tenant: risolviamo il company_id dalla singola company del progetto.
+    const { data: company, error: companyError } = await supabase
+      .from("companies")
+      .select("id")
+      .limit(1)
+      .maybeSingle();
+    if (companyError || !company?.id) {
+      console.error("[sdi-notifications] Company non configurata:", companyError);
+      return new Response("OK (company non configurata)", { status: 200 });
+    }
+    const companyId: string = company.id;
+
     // Cerca la fattura per sdi_id
     let query = supabase
       .from("electronic_invoices")
       .select("id, sdi_id, sdi_status, invoice_number, supplier_name")
-      .eq("company_id", COMPANY_ID);
+      .eq("company_id", companyId);
 
     if (sdiId) {
       query = query.eq("sdi_id", sdiId);

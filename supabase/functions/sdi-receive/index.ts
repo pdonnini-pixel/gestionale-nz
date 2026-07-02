@@ -14,9 +14,12 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
  * 2. Parsa XML per estrarre dati fattura
  * 3. UPSERT in electronic_invoices (chiave: company_id + sdi_id)
  * 4. Risponde HTTP 200
+ *
+ * MULTI-TENANT: nessun company_id hardcoded. L'endpoint è per-progetto
+ * (ogni tenant ha una sua URL edge function), quindi la fattura ricevuta
+ * appartiene alla singola company del progetto, letta dalla tabella
+ * `companies` a runtime.
  */
-
-const COMPANY_ID = "00000000-0000-0000-0000-000000000001";
 
 // ─── XML Parser helpers ─────────────────────────────────────────────
 // Parser leggero per XML FatturaPA senza dipendenze esterne.
@@ -218,10 +221,22 @@ Deno.serve(async (req: Request) => {
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
+    // Multi-tenant: risolviamo il company_id dalla singola company del progetto.
+    const { data: company, error: companyError } = await supabase
+      .from("companies")
+      .select("id")
+      .limit(1)
+      .maybeSingle();
+    if (companyError || !company?.id) {
+      console.error("[sdi-receive] Company non configurata:", companyError);
+      return new Response("Company non configurata nel tenant", { status: 500 });
+    }
+    const companyId: string = company.id;
+
     // UPSERT in electronic_invoices
     // Usa sdi_id come chiave per evitare duplicati (se il SDI reinvia la stessa fattura)
     const invoiceData = {
-      company_id: COMPANY_ID,
+      company_id: companyId,
       sdi_id: sdiId,
       sdi_status: "RECEIVED",
       source: "xml_sdi",
@@ -246,7 +261,7 @@ Deno.serve(async (req: Request) => {
     const { data: existing } = await supabase
       .from("electronic_invoices")
       .select("id")
-      .eq("company_id", COMPANY_ID)
+      .eq("company_id", companyId)
       .eq("sdi_id", sdiId)
       .maybeSingle();
 

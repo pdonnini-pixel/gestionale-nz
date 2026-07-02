@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useCompanyLabels } from '../hooks/useCompanyLabels'
+import { useAuth } from '../hooks/useAuth'
 import {
   X, ChevronRight, ChevronLeft, Check, AlertCircle,
   Store, MapPin, FileText, DollarSign, Shield, Save, Paperclip, Upload, Sparkles
@@ -481,6 +482,7 @@ interface OutletWizardProps {
 
 export default function OutletWizard({ onClose, onSaved, initialData, allegati, contractFileName, uploadedFiles: initialUploadedFiles, editId }: OutletWizardProps) {
   const labels = useCompanyLabels()
+  const { profile } = useAuth()
   const hasAllegati = allegati && allegati.length > 0
   const STEPS = hasAllegati ? [...BASE_STEPS.slice(0, 5), ALLEGATI_STEP, BASE_STEPS[5]] : BASE_STEPS
   const riepilogoIndex = hasAllegati ? 6 : 5
@@ -519,11 +521,18 @@ export default function OutletWizard({ onClose, onSaved, initialData, allegati, 
     setSaving(true)
     setError(null)
 
+    const companyId = profile?.company_id
+    if (!companyId) {
+      setError('Azienda non associata al profilo. Effettua di nuovo il login o completa la configurazione del tenant.')
+      setSaving(false)
+      return
+    }
+
     const numOrNull = (v: unknown): number | null => v ? parseFloat(String(v)) : null
     const strOrNull = (v: unknown): string | null => v ? String(v) : null
 
     const payload = {
-      company_id: '00000000-0000-0000-0000-000000000001',
+      company_id: companyId,
       name: String(form.name ?? ''), code: String(form.code ?? ''),
       brand: strOrNull(form.brand), outlet_type: String(form.outlet_type ?? 'outlet'),
       sqm: numOrNull(form.sqm), sell_sqm: numOrNull(form.sell_sqm), unit_code: strOrNull(form.unit_code),
