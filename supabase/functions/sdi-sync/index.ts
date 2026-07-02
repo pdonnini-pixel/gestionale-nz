@@ -4,17 +4,16 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 /**
  * SDI Sync — sdi-sync
  *
- * Scarica fatture passive e corrispettivi di New Zago (P.IVA 07362100484)
- * dal cassetto fiscale AdE, usando i certificati mTLS in Vault.
+ * Scarica fatture passive e corrispettivi del tenant (P.IVA e company_id
+ * risolti a runtime dalla tabella `companies` del progetto) dal cassetto
+ * fiscale AdE, usando i certificati mTLS in Vault.
  *
- * EPPI S.R.L. (P.IVA 07355140489) opera come intermediario delegato.
+ * MULTI-TENANT: nessun identificativo hardcoded. Ogni progetto Supabase
+ * contiene una sola company; company_id e vat_number vengono letti da lì.
  *
  * Input: { type: 'fatture' | 'corrispettivi' | 'all', dateFrom?, dateTo? }
  * Output: { fattureSincronizzate, corrispettiviSincronizzati, errors, environment, mtlsSupported }
  */
-
-const COMPANY_ID = "00000000-0000-0000-0000-000000000001";
-const NEW_ZAGO_PIVA = "07362100484";
 
 // Endpoint AdE Consultazione (produzione)
 const ADE_BASE_URL = "https://api.fatturapa.gov.it/servizi/fatturazione/v1";
@@ -148,6 +147,7 @@ async function createMtlsClient(creds: MtlsCredentials): Promise<Deno.HttpClient
 
 async function fetchFattureFromAde(
   httpClient: Deno.HttpClient,
+  companyPiva: string,
   dateFrom: string,
   dateTo: string,
 ): Promise<{ invoices: string[]; errors: string[] }> {
@@ -157,7 +157,7 @@ async function fetchFattureFromAde(
   try {
     // API AdE: lista fatture ricevute per P.IVA delegante
     // GET /consultazione/fatture/ricevute?idFiscale={piva}&dataInizio={from}&dataFine={to}
-    const listUrl = `${ADE_BASE_URL}/consultazione/fatture/ricevute?idFiscale=${NEW_ZAGO_PIVA}&dataInizio=${dateFrom}&dataFine=${dateTo}`;
+    const listUrl = `${ADE_BASE_URL}/consultazione/fatture/ricevute?idFiscale=${companyPiva}&dataInizio=${dateFrom}&dataFine=${dateTo}`;
     console.log(`[sdi-sync] Fetching invoice list from: ${listUrl}`);
 
     const listRes = await fetch(listUrl, {
@@ -218,6 +218,7 @@ async function fetchFattureFromAde(
 
 async function fetchCorrispettiviFromAde(
   httpClient: Deno.HttpClient,
+  companyPiva: string,
   dateFrom: string,
   dateTo: string,
 ): Promise<{ corrispettivi: any[]; errors: string[] }> {
@@ -226,7 +227,7 @@ async function fetchCorrispettiviFromAde(
 
   try {
     // API AdE corrispettivi: lista trasmessi
-    const listUrl = `${ADE_CORR_BASE_URL}/consultazione/corrispettivi?idFiscale=${NEW_ZAGO_PIVA}&dataInizio=${dateFrom}&dataFine=${dateTo}`;
+    const listUrl = `${ADE_CORR_BASE_URL}/consultazione/corrispettivi?idFiscale=${companyPiva}&dataInizio=${dateFrom}&dataFine=${dateTo}`;
     console.log(`[sdi-sync] Fetching corrispettivi from: ${listUrl}`);
 
     const listRes = await fetch(listUrl, {
@@ -274,13 +275,13 @@ async function fetchCorrispettiviFromAde(
 
 // ─── Outlet mapping (matricola RT → outlet_id) ─────────────────────
 
-async function getOutletMapping(supabase: any): Promise<Map<string, string>> {
+async function getOutletMapping(supabase: any, companyId: string): Promise<Map<string, string>> {
   // Per ora: carica gli outlet e tenta di mappare in base al nome/codice
   // In futuro: tabella rt_devices con mappatura matricola → outlet_id
   const { data: outlets } = await supabase
     .from("outlets")
     .select("id, name, code")
-    .eq("company_id", COMPANY_ID);
+    .eq("company_id", companyId);
 
   const map = new Map<string, string>();
   // Placeholder — la mappatura reale verrà configurata in Impostazioni
@@ -345,15 +346,32 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    const companyId = user.app_metadata?.company_id;
-    if (!companyId) {
+    if (!user.app_metadata?.company_id) {
       return new Response(JSON.stringify({ error: "No company assigned" }), {
         status: 403,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    console.log(`[sdi-sync] User ${user.email} (company: ${companyId}) starting sync`);
+    // Multi-tenant: ogni progetto Supabase ha una sola company. Risolviamo
+    // company_id e P.IVA dalla tabella `companies` invece di hardcodare NZ.
+    const { data: company, error: companyError } = await supabase
+      .from("companies")
+      .select("id, vat_number")
+      .limit(1)
+      .maybeSingle();
+    if (companyError || !company?.id || !company?.vat_number) {
+      return new Response(JSON.stringify({
+        error: "Company non configurata: manca id o vat_number nella tabella companies. Completare l'onboarding del tenant.",
+      }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    const companyId: string = company.id;
+    const companyPiva: string = company.vat_number;
+
+    console.log(`[sdi-sync] User ${user.email} (company: ${companyId}, piva: ${companyPiva}) starting sync`);
 
     // Parse input
     const body = await req.json();
@@ -400,7 +418,7 @@ Deno.serve(async (req: Request) => {
       // ── Sync Fatture ──────────────────────────────────────────────
       if (syncType === "fatture" || syncType === "all") {
         console.log("[sdi-sync] Starting fatture sync...");
-        const { invoices, errors: fatErrors } = await fetchFattureFromAde(httpClient, dateFrom, dateTo);
+        const { invoices, errors: fatErrors } = await fetchFattureFromAde(httpClient, companyPiva, dateFrom, dateTo);
         allErrors.push(...fatErrors);
 
         for (const xmlContent of invoices) {
@@ -410,7 +428,7 @@ Deno.serve(async (req: Request) => {
               `SYNC_${parsed.supplierVat || "UNK"}_${parsed.invoiceNumber || "0"}_${parsed.invoiceDate || ""}`;
 
             const invoiceData = {
-              company_id: COMPANY_ID,
+              company_id: companyId,
               sdi_id: sdiId,
               sdi_status: "RECEIVED",
               source: "api_ade",
@@ -435,7 +453,7 @@ Deno.serve(async (req: Request) => {
             const { data: existing } = await supabase
               .from("electronic_invoices")
               .select("id")
-              .eq("company_id", COMPANY_ID)
+              .eq("company_id", companyId)
               .eq("sdi_id", sdiId)
               .maybeSingle();
 
@@ -455,15 +473,15 @@ Deno.serve(async (req: Request) => {
       // ── Sync Corrispettivi ────────────────────────────────────────
       if (syncType === "corrispettivi" || syncType === "all") {
         console.log("[sdi-sync] Starting corrispettivi sync...");
-        const { corrispettivi, errors: corrErrors } = await fetchCorrispettiviFromAde(httpClient, dateFrom, dateTo);
+        const { corrispettivi, errors: corrErrors } = await fetchCorrispettiviFromAde(httpClient, companyPiva, dateFrom, dateTo);
         allErrors.push(...corrErrors);
 
         // Carica mapping outlet
-        const outletMapping = await getOutletMapping(supabase);
+        const outletMapping = await getOutletMapping(supabase, companyId);
         const { data: outlets } = await supabase
           .from("outlets")
           .select("id, name, code")
-          .eq("company_id", COMPANY_ID);
+          .eq("company_id", companyId);
 
         for (const corr of corrispettivi) {
           try {
@@ -474,7 +492,7 @@ Deno.serve(async (req: Request) => {
             }
 
             const corrData = {
-              company_id: COMPANY_ID,
+              company_id: companyId,
               outlet_id: outletId,
               date: corr.date,
               device_serial: corr.device_serial,
@@ -490,7 +508,7 @@ Deno.serve(async (req: Request) => {
             const { data: existingCorr } = await supabase
               .from("corrispettivi_log")
               .select("id")
-              .eq("company_id", COMPANY_ID)
+              .eq("company_id", companyId)
               .eq("outlet_id", outletId)
               .eq("date", corr.date)
               .maybeSingle();

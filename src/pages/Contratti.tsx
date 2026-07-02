@@ -89,6 +89,11 @@ function ModalNuovoContratto({ outlets, onClose, onSave, editingContract = null,
 
   async function uploadAttachments(contractId: string) {
     if (attachments.length === 0) return
+    const companyId = profile?.company_id
+    if (!companyId) {
+      alert('Azienda non associata al profilo: impossibile caricare gli allegati. Effettua di nuovo il login.')
+      return
+    }
 
     try {
       for (const file of attachments) {
@@ -96,7 +101,7 @@ function ModalNuovoContratto({ outlets, onClose, onSave, editingContract = null,
           // Only upload files that don't have a path (new files)
           const ts = Date.now()
           const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
-          const filePath = `${profile?.company_id || '00000000-0000-0000-0000-000000000001'}/${contractId}/${ts}_${safeName}`
+          const filePath = `${companyId}/${contractId}/${ts}_${safeName}`
 
           // Upload to Supabase Storage
           const { error: storageErr } = await supabase.storage
@@ -314,6 +319,7 @@ function ModalNuovoContratto({ outlets, onClose, onSave, editingContract = null,
 type ContractDoc = any
 
 function PdfUploader({ contractId, files, loading: filesLoading, onUploadDone, onRemoveDone, onPreview }: { contractId: string; files: ContractDoc[]; loading: boolean; onUploadDone: () => void; onRemoveDone: () => void; onPreview: (f: ContractDoc) => void }) {
+  const { profile } = useAuth()
   const [dragActive, setDragActive] = useState(false)
   const [uploading, setUploading] = useState(false)
 
@@ -322,12 +328,17 @@ function PdfUploader({ contractId, files, loading: filesLoading, onUploadDone, o
       f.type === 'application/pdf' || f.name.endsWith('.pdf')
     )
     if (!pdfs.length) return
+    const companyId = profile?.company_id
+    if (!companyId) {
+      alert('Azienda non associata al profilo: impossibile caricare il documento. Effettua di nuovo il login.')
+      return
+    }
     setUploading(true)
     try {
       for (const file of pdfs) {
         const ts = Date.now()
         const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
-        const filePath = `00000000-0000-0000-0000-000000000001/${contractId}/${ts}_${safeName}`
+        const filePath = `${companyId}/${contractId}/${ts}_${safeName}`
 
         // Upload al bucket
         const { error: storageErr } = await supabase.storage
