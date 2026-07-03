@@ -83,6 +83,9 @@ export default function SchedaContabileFornitore() {
 
   const [supplier, setSupplier] = useState<Supplier | null>(null);
   const [payables, setPayables] = useState<Payable[]>([]);
+  // invoice_number → { net, vat } reali da electronic_invoices, per riempire
+  // lo split imponibile/IVA quando i payables (A-Cube) hanno solo il totale.
+  const [einvSplit, setEinvSplit] = useState<Record<string, { net: number; vat: number }>>({});
   const [bankAccountById, setBankAccountById] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   // selectedYear persistito in URL come ?year=… (default 'latest')
@@ -162,6 +165,27 @@ export default function SchedaContabileFornitore() {
       allPayables.sort((a, b) => new Date(b.invoice_date || 0).getTime() - new Date(a.invoice_date || 0).getTime());
 
       setPayables(allPayables);
+
+      // Imponibile/IVA reali: i payables importati da A-Cube spesso hanno
+      // net/vat non valorizzati (solo gross). I valori corretti stanno in
+      // electronic_invoices. Costruiamo la mappa invoice_number → {net, vat}
+      // per riempire lo split mancante in visualizzazione (non modifica il DB).
+      const numbers = [...new Set(allPayables.map(p => p.invoice_number).filter(Boolean))] as string[];
+      const splitMap: Record<string, { net: number; vat: number }> = {};
+      for (let i = 0; i < numbers.length; i += 200) {
+        const chunk = numbers.slice(i, i + 200);
+        const { data: eis } = await supabase
+          .from('electronic_invoices')
+          .select('invoice_number, net_amount, vat_amount')
+          .eq('company_id', COMPANY_ID)
+          .in('invoice_number', chunk);
+        (eis || []).forEach((e: { invoice_number: string | null; net_amount: number | null; vat_amount: number | null }) => {
+          if (e.invoice_number && (e.net_amount != null || e.vat_amount != null)) {
+            splitMap[e.invoice_number] = { net: Number(e.net_amount || 0), vat: Number(e.vat_amount || 0) };
+          }
+        });
+      }
+      setEinvSplit(splitMap);
 
       // Categories
       const { data: cats } = await supabase
@@ -260,8 +284,20 @@ export default function SchedaContabileFornitore() {
       // Use earliest due_date
       if (p.due_date && (!f.due_date || p.due_date < f.due_date)) f.due_date = p.due_date;
     }
+    // Riempi imponibile/IVA mancanti (payables A-Cube con solo il totale) dai
+    // valori reali di electronic_invoices, allineando il segno al totale (NC).
+    for (const f of map.values()) {
+      if (f.net_amount === 0 && f.vat_amount === 0 && f.invoice_number) {
+        const ei = einvSplit[f.invoice_number];
+        if (ei) {
+          const sign = f.gross_amount < 0 ? -1 : 1;
+          f.net_amount = sign * Math.abs(ei.net);
+          f.vat_amount = sign * Math.abs(ei.vat);
+        }
+      }
+    }
     return [...map.values()].sort((a, b) => new Date(b.invoice_date || 0).getTime() - new Date(a.invoice_date || 0).getTime());
-  }, [filteredPayables]);
+  }, [filteredPayables, einvSplit]);
 
   // KPIs — gestione Note Credito
   // Fix 9.1: il "Pagato" ora esclude le note di credito (status='nota_credito'
@@ -372,6 +408,18 @@ export default function SchedaContabileFornitore() {
         if (!agg.paymentDate || p.payment_date > agg.paymentDate) {
           agg.paymentDate = p.payment_date;
           agg.paymentBankId = p.payment_bank_account_id || null;
+        }
+      }
+    }
+
+    // Riempi imponibile/IVA mancanti dai valori reali di electronic_invoices.
+    for (const agg of map.values()) {
+      if (agg.netTotal === 0 && agg.vatTotal === 0 && agg.invoiceNumber && agg.invoiceNumber !== '—') {
+        const ei = einvSplit[agg.invoiceNumber];
+        if (ei) {
+          const sign = agg.grossTotal < 0 ? -1 : 1;
+          agg.netTotal = sign * Math.abs(ei.net);
+          agg.vatTotal = sign * Math.abs(ei.vat);
         }
       }
     }
@@ -498,7 +546,7 @@ export default function SchedaContabileFornitore() {
     }
 
     return { righe: righeConSaldo, totaliDare, totaliAvere, saldoFinale: saldo };
-  }, [filteredPayables, bankAccountById, partitarioSortBy, openingBalance, fiscalYear, selectedYear]);
+  }, [filteredPayables, bankAccountById, partitarioSortBy, openingBalance, fiscalYear, selectedYear, einvSplit]);
 
   // ─── Actions ───────────────────────────────────────────────
   const toggleExpand = (invoiceNumber: string) => {
