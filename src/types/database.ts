@@ -8250,7 +8250,7 @@ export type Database = {
         | "altro"
       period_status: "aperto" | "in_chiusura" | "chiuso"
       transaction_type: "entrata" | "uscita"
-      user_role: "super_advisor" | "cfo" | "coo" | "ceo" | "contabile"
+      user_role: "super_advisor" | "cfo" | "coo" | "ceo" | "contabile" | "viewer"
     }
     CompositeTypes: {
       http_header: {
@@ -8455,7 +8455,7 @@ export const Constants = {
       ],
       period_status: ["aperto", "in_chiusura", "chiuso"],
       transaction_type: ["entrata", "uscita"],
-      user_role: ["super_advisor", "cfo", "coo", "ceo", "contabile"],
+      user_role: ["super_advisor", "cfo", "coo", "ceo", "contabile", "viewer"],
     },
   },
 } as const
