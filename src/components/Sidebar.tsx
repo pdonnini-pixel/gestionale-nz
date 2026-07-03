@@ -214,7 +214,19 @@ export default function Sidebar({ mobileOpen, setMobileOpen, badges = {} }: Side
     ceo: 'CEO', cfo: 'CFO', coo: 'COO',
     contabile: 'Contabile',
     budget_approver: 'Approvatore Budget',
+    viewer: 'Sola lettura',
   }
+
+  // Ruolo 'viewer' (sola lettura): vede le pagine dati, nessuna scrittura.
+  // La sicurezza vera è lato DB (RLS: viewer non è in nessuna write policy);
+  // qui decidiamo solo cosa mostrare nel menu. Escluse: Impostazioni, Import
+  // Hub, Archivio, AI Categorie, Divisione Fornitori, Admin Segnalazioni.
+  const VIEWER_ROUTES = new Set<string>([
+    '/', '/banche', '/cash-flow', '/conto-economico', '/outlet',
+    '/confronto-outlet', '/budget', '/fornitori', '/fatturazione',
+    '/scadenzario', '/margini', '/produttivita', '/scenario',
+    '/dipendenti', '/ticket',
+  ])
 
   // Outlet count del tenant attivo: serve per nascondere voci che hanno
   // senso solo con >=2 punti vendita (Confronto, Divisione Fornitori).
@@ -232,7 +244,8 @@ export default function Sidebar({ mobileOpen, setMobileOpen, badges = {} }: Side
       .map(section => ({
         ...section,
         items: section.items.filter(item =>
-          item.roles.includes(role) && (item.minOutlets == null || outletCount >= item.minOutlets),
+          (item.roles.includes(role) || (role === 'viewer' && VIEWER_ROUTES.has(item.to)))
+            && (item.minOutlets == null || outletCount >= item.minOutlets),
         ),
       }))
       .filter(section => section.items.length > 0)

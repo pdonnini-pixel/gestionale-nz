@@ -226,6 +226,8 @@ function ProfileMenu() {
 // ─── LAYOUT ───────────────────────────────────────────────────
 export default function Layout() {
   const location = useLocation()
+  const { profile } = useAuth()
+  const isViewer = profile?.role === 'viewer'
   // Lo Scadenzario è un flusso "giorno-1" su un singolo elenco di scadenze:
   // il selettore anni globale non filtra la lista (le scadenze derivano dalle
   // loro date, non dall'anno selezionato) e ingannava l'utente. Nascosto SOLO
@@ -309,6 +311,11 @@ export default function Layout() {
 
         {/* Main content */}
         <main className="flex-1 overflow-y-auto bg-slate-50 pb-16 md:pb-0">
+          {isViewer && (
+            <div className="bg-amber-50 border-b border-amber-200 text-amber-800 text-xs px-4 py-1.5 text-center">
+              Modalità <strong>sola lettura</strong>: puoi consultare i dati ma non modificarli.
+            </div>
+          )}
           <Outlet />
         </main>
 
