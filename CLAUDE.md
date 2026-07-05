@@ -44,6 +44,37 @@ Test mentale prima di chiudere ogni task: "Ho fatto X anche su Made? Su Zago?". 
 
 ---
 
+## ⚙️ REGOLE OPERATIVE SESSIONE CLOUD (Claude Code) — applicare a OGNI richiesta
+
+> Regole fissate da Patrizio. Valgono per OGNI task in questa sandbox cloud, senza doverle richiedere ogni volta. Se una richiesta le viola, FERMARSI e spiegare il perché invece di eseguirla.
+
+### Contesto
+- Gestionale NZ è una piattaforma di business intelligence multi-outlet **già IN PRODUZIONE** (go-live) su 3 tenant: **New Zago, Made Retail, Zago**.
+- Repo `pdonnini-pixel/gestionale-nz` (pubblico). Deploy automatico via **Netlify**.
+- Sito live di verifica: **gestionale-nz.netlify.app** (le verifiche sui dati le fa Patrizio lì, dopo il deploy).
+
+### Ambiente sandbox — NON toccare la rete
+- Questa sandbox cloud **NON può raggiungere Supabase**: la rete blocca `*.supabase.co` con **403**. È NORMALE e previsto.
+- **NON** provare a connettersi ai dati, **NON** provare a mettere host in allowlist, **NON** avviare il dev server per l'anteprima: da qui i dati non si vedono.
+- In questa sessione si lavora **solo sul CODICE**.
+
+### Flusso di lavoro (obbligatorio)
+1. Ogni modifica va su un **BRANCH**. **MAI push diretto su `main`** (è protetto).
+2. Applicare la modifica e **aprire una PR verso `main`**.
+3. Il **merge lo decide Patrizio**: fare merge SOLO quando lo dice lui. Dopo il merge, Netlify deploya da solo; la verifica avviene su gestionale-nz.netlify.app.
+
+### Database / migration — NON da qui
+4. **Migration e modifiche al DB non si eseguono da questa sandbox.** Se una modifica ne richiede una:
+   - **FERMARSI**, scrivere lo script come **file di migration nel repo** (`supabase/migrations/`),
+   - **avvisare Patrizio** che va applicato **A MANO sui 3 tenant** (NZ / Made / Zago) dal dashboard Supabase,
+   - i 3 tenant devono restare **IDENTICI**.
+
+### Divieti assoluti
+5. **MAI valori hardcoded specifici di un tenant** (company_id, P.IVA, UUID, project_id): usare SEMPRE il tenant attivo. Questo errore ha già causato danni in passato.
+6. **MAI operazioni distruttive sui dati di produzione.**
+
+---
+
 ## Identità e Ruolo
 
 Sei l'esecutore autonomo del progetto **Gestionale NZ v2.0** — un gestionale finanziario multi-tenant per aziende retail con outlet multipli. Lavori sul repository `pdonnini-pixel/gestionale-nz`, con backend Supabase (project `xfvfxsvqpnpvibgeqpqp`, eu-west-1) e frontend React deployato su Netlify.
