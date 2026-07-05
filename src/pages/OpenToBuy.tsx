@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ComposedChart } from 'recharts';
 import { Info, TrendingUp, Package, Percent, Store } from 'lucide-react';
 import { GlassTooltip, AXIS_STYLE, GRID_STYLE } from '../components/ChartTheme';
@@ -23,128 +23,59 @@ interface OutletPlan {
 type SeasonData = Record<string, OutletPlan>
 type SeasonDataset = Record<Season, SeasonData>
 
-const initialData: SeasonDataset = {
-  SS26: {
-    Valdichiana: {
-      vendite_previste: 185000,
-      ricarico_target: 58,
-      scorta_iniziale: 42000,
-      scorta_finale_target: 38000,
-      markdown_previsto: 12,
-    },
-    Barberino: {
-      vendite_previste: 220000,
-      ricarico_target: 60,
-      scorta_iniziale: 48000,
-      scorta_finale_target: 45000,
-      markdown_previsto: 14,
-    },
-    Franciacorta: {
-      vendite_previste: 165000,
-      ricarico_target: 55,
-      scorta_iniziale: 38000,
-      scorta_finale_target: 35000,
-      markdown_previsto: 11,
-    },
-    Palmanova: {
-      vendite_previste: 245000,
-      ricarico_target: 62,
-      scorta_iniziale: 52000,
-      scorta_finale_target: 50000,
-      markdown_previsto: 13,
-    },
-    Brugnato: {
-      vendite_previste: 140000,
-      ricarico_target: 56,
-      scorta_iniziale: 32000,
-      scorta_finale_target: 30000,
-      markdown_previsto: 10,
-    },
-    Valmontone: {
-      vendite_previste: 210000,
-      ricarico_target: 59,
-      scorta_iniziale: 46000,
-      scorta_finale_target: 43000,
-      markdown_previsto: 12,
-    },
-    Torino: {
-      vendite_previste: 155000,
-      ricarico_target: 57,
-      scorta_iniziale: 35000,
-      scorta_finale_target: 33000,
-      markdown_previsto: 11,
-    },
-  },
-  FW26: {
-    Valdichiana: {
-      vendite_previste: 210000,
-      ricarico_target: 60,
-      scorta_iniziale: 38000,
-      scorta_finale_target: 42000,
-      markdown_previsto: 13,
-    },
-    Barberino: {
-      vendite_previste: 245000,
-      ricarico_target: 62,
-      scorta_iniziale: 45000,
-      scorta_finale_target: 48000,
-      markdown_previsto: 15,
-    },
-    Franciacorta: {
-      vendite_previste: 190000,
-      ricarico_target: 58,
-      scorta_iniziale: 35000,
-      scorta_finale_target: 38000,
-      markdown_previsto: 12,
-    },
-    Palmanova: {
-      vendite_previste: 270000,
-      ricarico_target: 63,
-      scorta_iniziale: 50000,
-      scorta_finale_target: 55000,
-      markdown_previsto: 14,
-    },
-    Brugnato: {
-      vendite_previste: 160000,
-      ricarico_target: 58,
-      scorta_iniziale: 30000,
-      scorta_finale_target: 33000,
-      markdown_previsto: 11,
-    },
-    Valmontone: {
-      vendite_previste: 235000,
-      ricarico_target: 61,
-      scorta_iniziale: 43000,
-      scorta_finale_target: 46000,
-      markdown_previsto: 13,
-    },
-    Torino: {
-      vendite_previste: 175000,
-      ricarico_target: 59,
-      scorta_iniziale: 33000,
-      scorta_finale_target: 36000,
-      markdown_previsto: 12,
-    },
-  },
-};
+// Valori di esempio (NON salvati, solo stato locale): baseline neutro variato
+// per outlet in modo deterministico. Non più cablati sui 7 outlet NZ — gli
+// outlet si derivano dal tenant (useOutlets). L'utente modifica i parametri a mano.
+const SIZE_FACTORS = [1.0, 1.2, 0.9, 1.35, 0.75, 1.15, 0.85, 1.0, 0.7, 1.1]
+const SS_BASE: OutletPlan = { vendite_previste: 180000, ricarico_target: 58, scorta_iniziale: 40000, scorta_finale_target: 37000, markdown_previsto: 12 }
+const FW_BASE: OutletPlan = { vendite_previste: 210000, ricarico_target: 60, scorta_iniziale: 38000, scorta_finale_target: 42000, markdown_previsto: 13 }
+const DEFAULT_PLAN: OutletPlan = SS_BASE
 
-// outlets hardcoded sui 7 outlet NZ — la pagina è mock-data (vedi initialData).
-// Per tenant non-NZ mostriamo empty state. Soluzione strutturale (planning
-// OTB reale dal DB) è un task separato.
-const LEGACY_OUTLETS = ['Valdichiana', 'Barberino', 'Franciacorta', 'Palmanova', 'Brugnato', 'Valmontone', 'Torino'];
+function scalePlan(base: OutletPlan, factor: number): OutletPlan {
+  return {
+    vendite_previste: Math.round(base.vendite_previste * factor),
+    ricarico_target: base.ricarico_target,
+    scorta_iniziale: Math.round(base.scorta_iniziale * factor),
+    scorta_finale_target: Math.round(base.scorta_finale_target * factor),
+    markdown_previsto: base.markdown_previsto,
+  }
+}
+
+function buildSeedData(outletNames: string[]): SeasonDataset {
+  const ss: SeasonData = {}
+  const fw: SeasonData = {}
+  outletNames.forEach((name, i) => {
+    const f = SIZE_FACTORS[i % SIZE_FACTORS.length]
+    ss[name] = scalePlan(SS_BASE, f)
+    fw[name] = scalePlan(FW_BASE, f)
+  })
+  return { SS26: ss, FW26: fw }
+}
 
 export default function OpenToBuy() {
   const labels = useCompanyLabels();
   const { outlets: tenantOutlets, loading: outletsLoading } = useOutlets();
   const [season, setSeason] = useState<'SS26' | 'FW26'>('SS26');
-  const [data, setData] = useState(initialData);
 
-  const hasLegacyDemo = useMemo(() => {
-    return tenantOutlets.some((o) => {
-      const firstToken = (o.name || '').split(/\s+/)[0] || '';
-      return LEGACY_OUTLETS.includes(firstToken);
-    });
-  }, [tenantOutlets]);
+  // Outlet reali del tenant (non più cablati su NZ).
+  const outletNames = useMemo(() => tenantOutlets.map((o) => o.name), [tenantOutlets]);
+  const hasOutlets = outletNames.length > 0;
+
+  // Valori di esempio per gli outlet del tenant (NON salvati). Vengono
+  // riallineati quando cambia l'insieme di outlet (es. primo caricamento),
+  // senza sovrascrivere le modifiche fatte dall'utente durante l'uso.
+  const seededData = useMemo(() => buildSeedData(outletNames), [outletNames]);
+  const [data, setData] = useState<SeasonDataset>(seededData);
+  const outletsKey = outletNames.join('|');
+  const seededKeyRef = useRef('');
+  useEffect(() => {
+    if (seededKeyRef.current !== outletsKey) {
+      seededKeyRef.current = outletsKey;
+      setData(seededData);
+    }
+  }, [outletsKey, seededData]);
+
+  const planFor = (outlet: string): OutletPlan => data[season]?.[outlet] ?? DEFAULT_PLAN;
 
   const handleInputChange = (outlet: string, field: string, value: string) => {
     setData((prev) => ({
@@ -152,7 +83,7 @@ export default function OpenToBuy() {
       [season]: {
         ...prev[season],
         [outlet]: {
-          ...prev[season][outlet],
+          ...(prev[season]?.[outlet] ?? DEFAULT_PLAN),
           [field]: field.includes('vendite') || field.includes('scorta') ? parseFloat(value) || 0 : parseFloat(value) || 0,
         },
       },
@@ -160,7 +91,7 @@ export default function OpenToBuy() {
   };
 
   const calculateOTB = (outlet: string): number => {
-    const d = data[season][outlet];
+    const d = planFor(outlet);
     // OTB = Planned Sales + Planned Markdowns + Planned End Inventory - Beginning Inventory
     // In cost: Planned Sales = vendite_previste / (1 + ricarico_target/100)
     const costo_vendite = d.vendite_previste / (1 + d.ricarico_target / 100);
@@ -170,26 +101,29 @@ export default function OpenToBuy() {
   };
 
   const chartData = useMemo(() => {
-    return LEGACY_OUTLETS.map((outlet) => ({
-      outlet: outlet.slice(0, 10),
-      OTB: Math.round(calculateOTB(outlet)),
-      vendite: Math.round(data[season][outlet].vendite_previste),
-      markdown: Math.round((data[season][outlet].vendite_previste * data[season][outlet].markdown_previsto) / 100),
-      scorta: Math.round(data[season][outlet].scorta_finale_target),
-    }));
-  }, [season, data]);
+    return outletNames.map((outlet) => {
+      const d = planFor(outlet);
+      return {
+        outlet: outlet.slice(0, 10),
+        OTB: Math.round(calculateOTB(outlet)),
+        vendite: Math.round(d.vendite_previste),
+        markdown: Math.round((d.vendite_previste * d.markdown_previsto) / 100),
+        scorta: Math.round(d.scorta_finale_target),
+      };
+    });
+  }, [season, data, outletNames]);
 
   const summaryData = useMemo(() => {
-    return LEGACY_OUTLETS.map((outlet) => ({
+    return outletNames.map((outlet) => ({
       outlet,
-      ...data[season][outlet],
+      ...planFor(outlet),
       otb: calculateOTB(outlet),
     }));
-  }, [season, data]);
+  }, [season, data, outletNames]);
 
   const kpis = useMemo(() => {
     const totalOTB = summaryData.reduce((sum, d) => sum + d.otb, 0);
-    const avgOTB = totalOTB / LEGACY_OUTLETS.length;
+    const avgOTB = summaryData.length ? totalOTB / summaryData.length : 0;
     const totalSales = summaryData.reduce((sum, d) => sum + d.vendite_previste, 0);
     const totalMarkdown = summaryData.reduce((sum, d) => sum + (d.vendite_previste * d.markdown_previsto) / 100, 0);
     const sellThrough = (totalSales / (totalSales + totalMarkdown)) * 100;
@@ -204,7 +138,7 @@ export default function OpenToBuy() {
       </div>
     );
   }
-  if (!hasLegacyDemo) {
+  if (!hasOutlets) {
     return (
       <div className="min-h-screen bg-slate-50 p-6">
         <div className="max-w-3xl mx-auto">
@@ -230,6 +164,14 @@ export default function OpenToBuy() {
           title="Open-to-Buy Planner"
           subtitle="Pianificazione stagionale acquisti"
         />
+
+        <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <span className="mt-0.5 font-semibold whitespace-nowrap">Valori di esempio</span>
+          <span className="text-amber-700">
+            I parametri partono da valori di esempio sugli {labels.pointOfSalePluralLower} del tenant e
+            si modificano a mano. Le modifiche non vengono salvate: servono a simulare il piano OTB.
+          </span>
+        </div>
 
         {/* Season Selector */}
         <div className="flex gap-3 mb-8">
@@ -265,7 +207,7 @@ export default function OpenToBuy() {
               <TrendingUp className="w-5 h-5 text-green-600" />
             </div>
             <p className="text-3xl font-bold text-slate-900">€{fmt(kpis.avgOTB, 0)}</p>
-            <p className="text-xs text-slate-500 mt-1">Media dei {LEGACY_OUTLETS.length} {labels.pointOfSalePluralLower}</p>
+            <p className="text-xs text-slate-500 mt-1">Media dei {outletNames.length} {labels.pointOfSalePluralLower}</p>
           </div>
 
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
@@ -306,8 +248,8 @@ export default function OpenToBuy() {
         <div className="mb-8">
           <h2 className="text-2xl font-bold text-slate-900 mb-4">Parametri per {labels.pointOfSale}</h2>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {LEGACY_OUTLETS.map((outlet) => {
-              const d = data[season][outlet];
+            {outletNames.map((outlet) => {
+              const d = planFor(outlet);
               const otb = calculateOTB(outlet);
               return (
                 <div key={outlet} className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
