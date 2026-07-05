@@ -24,21 +24,27 @@ function fmt(n: number, dec = 0): string {
 
 interface OutletConfig { id: string; label: string; annual_revenue: number; color: string }
 
-// ⚠️  HARDCODED NZ (Sprint 4 — refactor in corso, work-in-progress)
-// Questi 6 outlet NZ con annual_revenue 2025 hardcoded sono il "seed" del POS
-// simulato. Su Made/Zago la pagina mostra dati NZ - BUG.
-// Refactor pianificato: derivare OUTLETS da useOutlets() + balance_sheet_data
-// (year-1 SUM revenue per cost_center) come baseline annual_revenue. I colori
-// possono restare hardcoded come pool di rotazione (non e' business data).
-// Tracciato nel SPRINT_PLAN.md. Patrizio 29/05/2026.
-const OUTLETS: OutletConfig[] = [
-  { id: 'valdichiana', label: 'Valdichiana Village', annual_revenue: 815000, color: '#3b82f6' },
-  { id: 'barberino', label: 'Barberino Outlet', annual_revenue: 355000, color: '#10b981' },
-  { id: 'franciacorta', label: 'Franciacorta Village', annual_revenue: 411000, color: '#f59e0b' },
-  { id: 'palmanova', label: 'Palmanova Outlet', annual_revenue: 281000, color: '#8b5cf6' },
-  { id: 'brugnato', label: 'Brugnato 5Terre', annual_revenue: 195000, color: '#ec4899' },
-  { id: 'valmontone', label: 'Valmontone Outlet', annual_revenue: 219000, color: '#06b6d4' }
-];
+// I dati POS di questa pagina sono SIMULATI: non esiste (ancora) una sorgente
+// cassa reale nel DB. Gli outlet NON sono più cablati su NZ — si derivano dagli
+// outlet reali del tenant attivo (useOutlets), così Made/Zago vedono i propri.
+// I colori sono un pool di rotazione (non business data). La pagina mostra un
+// badge "dati simulati" per evitare che i numeri vengano scambiati per reali.
+const COLOR_POOL = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#f43f5e', '#14b8a6', '#a855f7', '#eab308'];
+
+// Baseline neutro (fatturato annuo simulato per outlet): serve solo a dare un
+// ordine di grandezza plausibile agli scontrini generati.
+const SIM_ANNUAL_BASELINE = 400000;
+
+function buildOutletsFromTenant(
+  tenantOutlets: { id: string; name: string }[]
+): OutletConfig[] {
+  return tenantOutlets.map((o, i) => ({
+    id: o.id,
+    label: o.name,
+    annual_revenue: SIM_ANNUAL_BASELINE,
+    color: COLOR_POOL[i % COLOR_POOL.length],
+  }));
+}
 
 interface POSMonthEntry {
   month: number
@@ -70,11 +76,11 @@ const SEASONAL_MULTIPLIER: Record<number, number> = {
 };
 
 // Generate 12 months of POS data per outlet
-function generatePOSData(): POSData {
+function generatePOSData(outlets: OutletConfig[]): POSData {
   const data: POSData = {};
   const months = ['Gen', 'Feb', 'Mar', 'Apr', 'Mag', 'Giu', 'Lug', 'Ago', 'Set', 'Ott', 'Nov', 'Dic'];
 
-  OUTLETS.forEach(outlet => {
+  outlets.forEach(outlet => {
     data[outlet.id] = {};
 
     for (let month = 1; month <= 12; month++) {
@@ -189,8 +195,8 @@ function calculateDistribution(posData: POSData, selectedOutlet: string | null) 
 }
 
 // Best/worst performers
-function getPerformers(posData: POSData) {
-  const outletMetrics = OUTLETS.map(outlet => {
+function getPerformers(posData: POSData, outlets: OutletConfig[]) {
+  const outletMetrics = outlets.map(outlet => {
     let totalImporto = 0;
     let totalScontrini = 0;
     for (let month = 1; month <= 12; month++) {
@@ -219,19 +225,11 @@ export default function AnalyticsPOS() {
   const { outlets: tenantOutlets, loading: outletsLoading } = useOutlets();
   const [selectedOutlet, setSelectedOutlet] = useState<string | null>(null);
 
-  // OUTLETS è hardcoded sui 7 outlet NZ (Valdichiana/Barberino/…) e
-  // `generatePOSData()` produce mock data simulati. Per tenant non-NZ
-  // (Made/Zago/SaaS futuri) i dati simulati sarebbero fuorvianti.
-  // Mostriamo empty state finché il tenant non ha almeno un outlet il
-  // cui nome match con un id di OUTLETS. Soluzione strutturale (lettura
-  // POS reale dal DB) è un task separato.
-  const hasLegacyDemo = useMemo(() => {
-    const hardcodedIds = OUTLETS.map((o) => o.id.toLowerCase());
-    return tenantOutlets.some((o) => {
-      const firstToken = (o.name || '').split(/\s+/)[0]?.toLowerCase() || '';
-      return hardcodedIds.includes(firstToken) || hardcodedIds.includes((o.code || '').toLowerCase());
-    });
-  }, [tenantOutlets]);
+  // Outlet derivati dagli outlet reali del tenant (non più cablati su NZ).
+  // I dati POS restano simulati (nessuna sorgente cassa nel DB) ma per-tenant.
+  const outlets = useMemo(() => buildOutletsFromTenant(tenantOutlets), [tenantOutlets]);
+  // Empty state finché il tenant non ha almeno un outlet configurato.
+  const hasOutlets = outlets.length > 0;
   // viewMode persistito in URL come ?view=… (default 'annual')
   const [searchParams, setSearchParams] = useSearchParams();
   const viewParam = searchParams.get('view');
@@ -244,18 +242,18 @@ export default function AnalyticsPOS() {
     setSearchParams(params);
   };
 
-  const posData = useMemo(() => generatePOSData(), []);
+  const posData = useMemo(() => generatePOSData(outlets), [outlets]);
   const chartData = useMemo(() => buildChartData(posData), [posData]);
   const kpis = useMemo(() => calculateKPIs(posData, selectedOutlet), [posData, selectedOutlet]);
   const distribution = useMemo(() => calculateDistribution(posData, selectedOutlet), [posData, selectedOutlet]);
-  const performers = useMemo(() => getPerformers(posData), [posData]);
+  const performers = useMemo(() => getPerformers(posData, outlets), [posData, outlets]);
 
   const outletData = selectedOutlet
-    ? OUTLETS.filter(o => o.id === selectedOutlet)
-    : OUTLETS;
+    ? outlets.filter(o => o.id === selectedOutlet)
+    : outlets;
 
   // Table: outlet comparison
-  const tableData = OUTLETS.map(outlet => {
+  const tableData = outlets.map(outlet => {
     let totalScontrini = 0;
     let totalImporto = 0;
     let totalPezzi = 0;
@@ -288,7 +286,7 @@ export default function AnalyticsPOS() {
       </div>
     );
   }
-  if (!hasLegacyDemo) {
+  if (!hasOutlets) {
     return (
       <div className="min-h-screen bg-slate-50 p-8">
         <div className="max-w-3xl mx-auto">
@@ -315,6 +313,14 @@ export default function AnalyticsPOS() {
           subtitle="Analisi dati transazioni - Anno 2026"
         />
 
+        <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <span className="mt-0.5 font-semibold">Dati simulati (demo)</span>
+          <span className="text-amber-700">
+            Questa pagina genera metriche POS simulate sugli {labels.pointOfSalePluralLower} del tenant:
+            non è ancora collegata a un sistema cassa reale.
+          </span>
+        </div>
+
         {/* Controls */}
         <div className="mb-8 flex flex-wrap gap-4 items-center">
           <div>
@@ -325,7 +331,7 @@ export default function AnalyticsPOS() {
               className="px-4 py-2 border border-slate-300 rounded-lg bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option value="">Tutti gli {labels.pointOfSalePluralLower}</option>
-              {OUTLETS.map(outlet => (
+              {outlets.map(outlet => (
                 <option key={outlet.id} value={outlet.id}>
                   {outlet.label}
                 </option>

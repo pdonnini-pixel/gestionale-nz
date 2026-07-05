@@ -15,11 +15,11 @@ import type { Handler, HandlerEvent, HandlerContext } from "@netlify/functions";
 import { createClient } from "@supabase/supabase-js";
 import {
   createMtlsAgent,
+  resolveCompany,
   syncFatture,
   syncCorrispettivi,
   getDefaultDateFrom,
   getToday,
-  COMPANY_ID,
 } from "./lib/sdi-sync-core";
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "";
@@ -79,6 +79,20 @@ const handler: Handler = async (event: HandlerEvent, _context: HandlerContext) =
     };
   }
 
+  // Risolve il tenant (company_id + P.IVA) dal DB — niente più NZ cablato.
+  let companyId: string;
+  let piva: string;
+  try {
+    ({ companyId, piva } = await resolveCompany(supabaseAdmin));
+  } catch (e: any) {
+    console.error("[sdi-sync] resolveCompany failed:", e.message);
+    return {
+      statusCode: 500,
+      headers,
+      body: JSON.stringify({ error: "Impossibile determinare l'azienda del tenant", detail: e.message }),
+    };
+  }
+
   // Parametri dal body
   let dateFrom: string;
   let dateTo: string;
@@ -101,16 +115,17 @@ const handler: Handler = async (event: HandlerEvent, _context: HandlerContext) =
     const agent = createMtlsAgent();
 
     // Sync fatture passive
-    const fattureResult = await syncFatture(agent, supabaseAdmin, dateFrom, dateTo);
+    const fattureResult = await syncFatture(agent, supabaseAdmin, companyId, piva, dateFrom, dateTo);
 
     // Sync corrispettivi telematici
-    const corrispettiviResult = await syncCorrispettivi(agent, supabaseAdmin, dateFrom, dateTo);
+    const corrispettiviResult = await syncCorrispettivi(agent, supabaseAdmin, companyId, piva, dateFrom, dateTo);
 
     const durationMs = Date.now() - startTime;
     const allErrors = [...fattureResult.errors, ...corrispettiviResult.errors];
 
     // Log in sdi_sync_log
     await logSyncResult(supabaseAdmin, {
+      companyId,
       trigger: "manual",
       triggeredBy: user.email || user.id,
       dateFrom,
@@ -145,6 +160,7 @@ const handler: Handler = async (event: HandlerEvent, _context: HandlerContext) =
 
     // Log errore fatale
     await logSyncResult(supabaseAdmin, {
+      companyId,
       trigger: "manual",
       triggeredBy: user.email || user.id,
       dateFrom,
@@ -175,6 +191,7 @@ const handler: Handler = async (event: HandlerEvent, _context: HandlerContext) =
 async function logSyncResult(
   supabase: ReturnType<typeof createClient>,
   data: {
+    companyId: string;
     trigger: string;
     triggeredBy: string;
     dateFrom: string;
@@ -187,7 +204,7 @@ async function logSyncResult(
 ) {
   try {
     await supabase.from("sdi_sync_log").insert({
-      company_id: COMPANY_ID,
+      company_id: data.companyId,
       trigger: data.trigger,
       triggered_by: data.triggeredBy,
       date_from: data.dateFrom,

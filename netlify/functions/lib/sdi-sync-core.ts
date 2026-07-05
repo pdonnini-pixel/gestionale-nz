@@ -4,16 +4,46 @@
  * Usato sia dalla function manuale (sdi-sync) che dalla scheduled (sdi-sync-scheduled).
  * Connessione ad Agenzia delle Entrate con mTLS via Node.js https.
  *
- * EPPI S.R.L. (P.IVA 07355140489) = intermediario accreditato
- * New Zago (P.IVA 07362100484) = cliente
+ * Multi-tenant: company_id e P.IVA del cliente si risolvono a runtime da
+ * `companies` (vedi resolveCompany), NON sono più cablati su New Zago.
+ * EPPI S.R.L. (P.IVA 07355140489) resta l'intermediario accreditato (mTLS).
  */
 
 import https from "https";
 import { XMLParser } from "fast-xml-parser";
 import { SupabaseClient } from "@supabase/supabase-js";
 
-const COMPANY_ID = "00000000-0000-0000-0000-000000000001";
-const NEW_ZAGO_PIVA = "07362100484";
+// company_id e P.IVA NON sono più cablati su NZ: si risolvono a runtime dal
+// tenant a cui punta questa function. Ogni site Netlify ha il proprio
+// SUPABASE_URL/SERVICE_ROLE_KEY, quindi `companies` contiene un solo tenant.
+export interface TenantIdentity {
+  companyId: string;
+  piva: string;
+}
+
+export async function resolveCompany(
+  supabase: SupabaseClient
+): Promise<TenantIdentity> {
+  const { data, error } = await supabase
+    .from("companies")
+    .select("id, vat_number, fiscal_code")
+    .limit(1)
+    .single();
+  if (error || !data) {
+    throw new Error(
+      `Impossibile risolvere il tenant dalla tabella 'companies': ${
+        error?.message || "nessuna azienda trovata"
+      }`
+    );
+  }
+  const piva = String(data.vat_number || data.fiscal_code || "").replace(/\D/g, "");
+  if (!piva) {
+    throw new Error(
+      "Azienda senza vat_number/fiscal_code valido: P.IVA non risolvibile per il sync SDI"
+    );
+  }
+  return { companyId: data.id, piva };
+}
 
 // API AdE — Consultazione e Download
 // NOTA: gli endpoint esatti vanno verificati con la documentazione tecnica AdE
@@ -199,6 +229,8 @@ export function parseFatturaPA(xml: string): ParsedFattura {
 export async function syncFatture(
   agent: https.Agent,
   supabase: SupabaseClient,
+  companyId: string,
+  piva: string,
   dateFrom: string,
   dateTo: string
 ): Promise<{ count: number; errors: string[] }> {
@@ -206,7 +238,7 @@ export async function syncFatture(
 
   const listUrl =
     `${ADE_FATTURE_API}/ricevute?` +
-    `idFiscale=${NEW_ZAGO_PIVA}&dataInizio=${dateFrom}&dataFine=${dateTo}`;
+    `idFiscale=${piva}&dataInizio=${dateFrom}&dataFine=${dateTo}`;
 
   console.log(`[sdi-sync] Fetching fatture: ${listUrl}`);
 
@@ -246,12 +278,12 @@ export async function syncFatture(
       const { data: existing } = await supabase
         .from("electronic_invoices")
         .select("id")
-        .eq("company_id", COMPANY_ID)
+        .eq("company_id", companyId)
         .eq("sdi_id", sdiId)
         .maybeSingle();
 
       const invoiceData = {
-        company_id: COMPANY_ID,
+        company_id: companyId,
         sdi_id: sdiId,
         sdi_status: "RECEIVED",
         source: "api_ade",
@@ -306,6 +338,8 @@ export async function syncFatture(
 export async function syncCorrispettivi(
   agent: https.Agent,
   supabase: SupabaseClient,
+  companyId: string,
+  piva: string,
   dateFrom: string,
   dateTo: string
 ): Promise<{ count: number; errors: string[] }> {
@@ -313,7 +347,7 @@ export async function syncCorrispettivi(
 
   const listUrl =
     `${ADE_CORRISPETTIVI_API}/consultazione?` +
-    `idFiscale=${NEW_ZAGO_PIVA}&dataInizio=${dateFrom}&dataFine=${dateTo}`;
+    `idFiscale=${piva}&dataInizio=${dateFrom}&dataFine=${dateTo}`;
 
   console.log(`[sdi-sync] Fetching corrispettivi: ${listUrl}`);
 
@@ -346,11 +380,11 @@ export async function syncCorrispettivi(
   for (const corr of corrispettivi) {
     try {
       // Mapping matricola RT → outlet_id
-      const outletId = await mapDeviceToOutlet(supabase, corr.matricolaRT);
+      const outletId = await mapDeviceToOutlet(supabase, companyId, corr.matricolaRT);
 
       const { error } = await supabase.from("corrispettivi_log").upsert(
         {
-          company_id: COMPANY_ID,
+          company_id: companyId,
           date: corr.data,
           device_serial: corr.matricolaRT || null,
           total_amount: corr.totale,
@@ -478,6 +512,7 @@ function extractCorrispettiviFromResponse(responseBody: string): Array<{
 
 async function mapDeviceToOutlet(
   supabase: SupabaseClient,
+  companyId: string,
   matricola: string | null
 ): Promise<string | null> {
   if (!matricola) return null;
@@ -486,7 +521,7 @@ async function mapDeviceToOutlet(
   const { data } = await supabase
     .from("outlets")
     .select("id")
-    .eq("company_id", COMPANY_ID)
+    .eq("company_id", companyId)
     .or(`device_serial.eq.${matricola},pos_serial.eq.${matricola}`)
     .limit(1)
     .maybeSingle();
@@ -503,5 +538,3 @@ export function getDefaultDateFrom(daysBack: number = 30): string {
 export function getToday(): string {
   return new Date().toISOString().split("T")[0];
 }
-
-export { COMPANY_ID };

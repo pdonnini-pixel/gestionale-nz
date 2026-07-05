@@ -40,15 +40,22 @@ function readEnv(suffix: string): RawEnv {
 }
 
 /**
- * NZ legacy fallback: il vecchio progetto NZ ha hardcoded l'URL e l'anon key
- * nel codice (vedi supabase.ts pre-multitenant). Manteniamo il fallback solo
- * per il tenant NZ in modo che dev locale e build senza env vars continuino
- * a funzionare. Made e Zago NON hanno fallback hardcoded — se manca l'env,
- * l'app fallisce esplicitamente al boot.
+ * Fallback NZ SOLO per il dev locale (`import.meta.env.DEV`).
+ *
+ * In produzione ogni site Netlify ha le proprie env vars
+ * (VITE_SUPABASE_URL[_MADE/_ZAGO] + VITE_SUPABASE_ANON_KEY[_MADE/_ZAGO]),
+ * quindi questo fallback NON serve. Essendo racchiuso in un ramo
+ * `import.meta.env.DEV`, viene eliminato dal tree-shaking nei bundle di
+ * produzione: l'anon key NZ non finisce più in NESSUN bundle (né NZ né
+ * Made/Zago). `npm run dev` continua a funzionare senza file .env.
  */
-const NZ_LEGACY_URL = 'https://xfvfxsvqpnpvibgeqpqp.supabase.co'
-const NZ_LEGACY_ANON =
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhmdmZ4c3ZxcG5wdmliZ2VxcHFwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUxNDkwNDcsImV4cCI6MjA5MDcyNTA0N30.ohYziAXiOWS0TKU9HHuhUAbf5Geh10xbLGEoftOMJZA'
+function devNzFallback(): RawEnv | undefined {
+  if (!import.meta.env.DEV) return undefined
+  return {
+    url: 'https://xfvfxsvqpnpvibgeqpqp.supabase.co',
+    anon: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhmdmZ4c3ZxcG5wdmliZ2VxcHFwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUxNDkwNDcsImV4cCI6MjA5MDcyNTA0N30.ohYziAXiOWS0TKU9HHuhUAbf5Geh10xbLGEoftOMJZA',
+  }
+}
 
 function buildConfig(
   alias: TenantAlias,
@@ -88,13 +95,14 @@ function resolveTenantForHost(host: string): TenantConfig {
     return buildConfig('zago', 'Zago Srl', 'ZAGO', '#c2410c', '#f97316')
   }
   // NZ default: dominio principale, deploy preview, e tutto il dev locale.
+  // In prod usa le env vars; il fallback esiste solo in dev (vedi devNzFallback).
   return buildConfig(
     'newzago',
     'New Zago Srl',
     'NEWZAGO',
     '#047857',
     '#10b981',
-    { url: NZ_LEGACY_URL, anon: NZ_LEGACY_ANON }
+    devNzFallback()
   )
 }
 

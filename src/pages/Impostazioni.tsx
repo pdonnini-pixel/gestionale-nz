@@ -7,6 +7,7 @@ import {
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { useCompanyLabels } from '../hooks/useCompanyLabels'
+import { getCurrentTenant } from '../lib/tenants'
 import PageHeader from '../components/PageHeader'
 
 // Role-based permissions
@@ -1371,8 +1372,8 @@ function SdiSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
     setTesting(true)
     setTestResult(null)
     try {
-      const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhmdmZ4c3ZxcG5wdmliZ2VxcHFwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUxNDkwNDcsImV4cCI6MjA5MDcyNTA0N30.ohYziAXiOWS0TKU9HHuhUAbf5Geh10xbLGEoftOMJZA'
-      const baseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://xfvfxsvqpnpvibgeqpqp.supabase.co'
+      // Config del tenant attivo (fonte unica: getCurrentTenant), niente chiave duplicata.
+      const { supabaseUrl: baseUrl, supabaseAnonKey: anonKey } = getCurrentTenant()
       const { data: { session } } = await supabase.auth.getSession()
       if (!session) throw new Error('Non autenticato')
       const res = await fetch(`${baseUrl}/functions/v1/sdi-status-check`, {

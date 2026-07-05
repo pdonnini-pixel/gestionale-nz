@@ -10,379 +10,49 @@ function fmt(n: number, dec = 0): string {
   return new Intl.NumberFormat('de-DE', { minimumFractionDigits: dec, maximumFractionDigits: dec }).format(n)
 }
 
-// Hardcoded data for all outlets
-const outletsData: Record<string, OutletData> = {
-  'Valdichiana Village': {
-    color: '#3b82f6',
-    categories: {
-      'T-shirt': {
-        pezzi_acquistati: 450,
-        pezzi_venduti: 382,
-        pezzi_stock: 68,
-        prezzo_medio_acquisto: 12.50,
-        prezzo_medio_vendita: 19.99,
-        giorni_medi_giacenza: 28,
-      },
-      'Felpe': {
-        pezzi_acquistati: 280,
-        pezzi_venduti: 198,
-        pezzi_stock: 82,
-        prezzo_medio_acquisto: 22.00,
-        prezzo_medio_vendita: 34.99,
-        giorni_medi_giacenza: 45,
-      },
-      'Pantaloni': {
-        pezzi_acquistati: 320,
-        pezzi_venduti: 224,
-        pezzi_stock: 96,
-        prezzo_medio_acquisto: 28.00,
-        prezzo_medio_vendita: 44.99,
-        giorni_medi_giacenza: 52,
-      },
-      'Giacche': {
-        pezzi_acquistati: 150,
-        pezzi_venduti: 78,
-        pezzi_stock: 72,
-        prezzo_medio_acquisto: 45.00,
-        prezzo_medio_vendita: 69.99,
-        giorni_medi_giacenza: 68,
-      },
-      'Accessori': {
-        pezzi_acquistati: 600,
-        pezzi_venduti: 510,
-        pezzi_stock: 90,
-        prezzo_medio_acquisto: 6.00,
-        prezzo_medio_vendita: 9.99,
-        giorni_medi_giacenza: 22,
-      },
-      'Calzature': {
-        pezzi_acquistati: 200,
-        pezzi_venduti: 130,
-        pezzi_stock: 70,
-        prezzo_medio_acquisto: 35.00,
-        prezzo_medio_vendita: 54.99,
-        giorni_medi_giacenza: 58,
-      },
-    },
-  },
-  'Barberino Outlet': {
-    color: '#10b981',
-    categories: {
-      'T-shirt': {
-        pezzi_acquistati: 520,
-        pezzi_venduti: 468,
-        pezzi_stock: 52,
-        prezzo_medio_acquisto: 12.50,
-        prezzo_medio_vendita: 19.99,
-        giorni_medi_giacenza: 18,
-      },
-      'Felpe': {
-        pezzi_acquistati: 320,
-        pezzi_venduti: 256,
-        pezzi_stock: 64,
-        prezzo_medio_acquisto: 22.00,
-        prezzo_medio_vendita: 34.99,
-        giorni_medi_giacenza: 32,
-      },
-      'Pantaloni': {
-        pezzi_acquistati: 380,
-        pezzi_venduti: 304,
-        pezzi_stock: 76,
-        prezzo_medio_acquisto: 28.00,
-        prezzo_medio_vendita: 44.99,
-        giorni_medi_giacenza: 38,
-      },
-      'Giacche': {
-        pezzi_acquistati: 180,
-        pezzi_venduti: 126,
-        pezzi_stock: 54,
-        prezzo_medio_acquisto: 45.00,
-        prezzo_medio_vendita: 69.99,
-        giorni_medi_giacenza: 72,
-      },
-      'Accessori': {
-        pezzi_acquistati: 700,
-        pezzi_venduti: 658,
-        pezzi_stock: 42,
-        prezzo_medio_acquisto: 6.00,
-        prezzo_medio_vendita: 9.99,
-        giorni_medi_giacenza: 12,
-      },
-      'Calzature': {
-        pezzi_acquistati: 240,
-        pezzi_venduti: 192,
-        pezzi_stock: 48,
-        prezzo_medio_acquisto: 35.00,
-        prezzo_medio_vendita: 54.99,
-        giorni_medi_giacenza: 42,
-      },
-    },
-  },
-  'Franciacorta Village': {
-    color: '#f59e0b',
-    categories: {
-      'T-shirt': {
-        pezzi_acquistati: 480,
-        pezzi_venduti: 336,
-        pezzi_stock: 144,
-        prezzo_medio_acquisto: 12.50,
-        prezzo_medio_vendita: 19.99,
-        giorni_medi_giacenza: 62,
-      },
-      'Felpe': {
-        pezzi_acquistati: 300,
-        pezzi_venduti: 180,
-        pezzi_stock: 120,
-        prezzo_medio_acquisto: 22.00,
-        prezzo_medio_vendita: 34.99,
-        giorni_medi_giacenza: 75,
-      },
-      'Pantaloni': {
-        pezzi_acquistati: 350,
-        pezzi_venduti: 210,
-        pezzi_stock: 140,
-        prezzo_medio_acquisto: 28.00,
-        prezzo_medio_vendita: 44.99,
-        giorni_medi_giacenza: 85,
-      },
-      'Giacche': {
-        pezzi_acquistati: 160,
-        pezzi_venduti: 64,
-        pezzi_stock: 96,
-        prezzo_medio_acquisto: 45.00,
-        prezzo_medio_vendita: 69.99,
-        giorni_medi_giacenza: 105,
-      },
-      'Accessori': {
-        pezzi_acquistati: 650,
-        pezzi_venduti: 455,
-        pezzi_stock: 195,
-        prezzo_medio_acquisto: 6.00,
-        prezzo_medio_vendita: 9.99,
-        giorni_medi_giacenza: 48,
-      },
-      'Calzature': {
-        pezzi_acquistati: 220,
-        pezzi_venduti: 99,
-        pezzi_stock: 121,
-        prezzo_medio_acquisto: 35.00,
-        prezzo_medio_vendita: 54.99,
-        giorni_medi_giacenza: 98,
-      },
-    },
-  },
-  'Palmanova Outlet': {
-    color: '#8b5cf6',
-    categories: {
-      'T-shirt': {
-        pezzi_acquistati: 500,
-        pezzi_venduti: 425,
-        pezzi_stock: 75,
-        prezzo_medio_acquisto: 12.50,
-        prezzo_medio_vendita: 19.99,
-        giorni_medi_giacenza: 35,
-      },
-      'Felpe': {
-        pezzi_acquistati: 310,
-        pezzi_venduti: 217,
-        pezzi_stock: 93,
-        prezzo_medio_acquisto: 22.00,
-        prezzo_medio_vendita: 34.99,
-        giorni_medi_giacenza: 54,
-      },
-      'Pantaloni': {
-        pezzi_acquistati: 360,
-        pezzi_venduti: 252,
-        pezzi_stock: 108,
-        prezzo_medio_acquisto: 28.00,
-        prezzo_medio_vendita: 44.99,
-        giorni_medi_giacenza: 61,
-      },
-      'Giacche': {
-        pezzi_acquistati: 170,
-        pezzi_venduti: 102,
-        pezzi_stock: 68,
-        prezzo_medio_acquisto: 45.00,
-        prezzo_medio_vendita: 69.99,
-        giorni_medi_giacenza: 88,
-      },
-      'Accessori': {
-        pezzi_acquistati: 680,
-        pezzi_venduti: 544,
-        pezzi_stock: 136,
-        prezzo_medio_acquisto: 6.00,
-        prezzo_medio_vendita: 9.99,
-        giorni_medi_giacenza: 36,
-      },
-      'Calzature': {
-        pezzi_acquistati: 230,
-        pezzi_venduti: 138,
-        pezzi_stock: 92,
-        prezzo_medio_acquisto: 35.00,
-        prezzo_medio_vendita: 54.99,
-        giorni_medi_giacenza: 72,
-      },
-    },
-  },
-  'Brugnato 5Terre': {
-    color: '#ec4899',
-    categories: {
-      'T-shirt': {
-        pezzi_acquistati: 420,
-        pezzi_venduti: 252,
-        pezzi_stock: 168,
-        prezzo_medio_acquisto: 12.50,
-        prezzo_medio_vendita: 19.99,
-        giorni_medi_giacenza: 78,
-      },
-      'Felpe': {
-        pezzi_acquistati: 280,
-        pezzi_venduti: 140,
-        pezzi_stock: 140,
-        prezzo_medio_acquisto: 22.00,
-        prezzo_medio_vendita: 34.99,
-        giorni_medi_giacenza: 95,
-      },
-      'Pantaloni': {
-        pezzi_acquistati: 330,
-        pezzi_venduti: 165,
-        pezzi_stock: 165,
-        prezzo_medio_acquisto: 28.00,
-        prezzo_medio_vendita: 44.99,
-        giorni_medi_giacenza: 112,
-      },
-      'Giacche': {
-        pezzi_acquistati: 140,
-        pezzi_venduti: 42,
-        pezzi_stock: 98,
-        prezzo_medio_acquisto: 45.00,
-        prezzo_medio_vendita: 69.99,
-        giorni_medi_giacenza: 118,
-      },
-      'Accessori': {
-        pezzi_acquistati: 600,
-        pezzi_venduti: 360,
-        pezzi_stock: 240,
-        prezzo_medio_acquisto: 6.00,
-        prezzo_medio_vendita: 9.99,
-        giorni_medi_giacenza: 72,
-      },
-      'Calzature': {
-        pezzi_acquistati: 200,
-        pezzi_venduti: 80,
-        pezzi_stock: 120,
-        prezzo_medio_acquisto: 35.00,
-        prezzo_medio_vendita: 54.99,
-        giorni_medi_giacenza: 105,
-      },
-    },
-  },
-  'Valmontone Outlet': {
-    color: '#06b6d4',
-    categories: {
-      'T-shirt': {
-        pezzi_acquistati: 510,
-        pezzi_venduti: 433,
-        pezzi_stock: 77,
-        prezzo_medio_acquisto: 12.50,
-        prezzo_medio_vendita: 19.99,
-        giorni_medi_giacenza: 32,
-      },
-      'Felpe': {
-        pezzi_acquistati: 330,
-        pezzi_venduti: 264,
-        pezzi_stock: 66,
-        prezzo_medio_acquisto: 22.00,
-        prezzo_medio_vendita: 34.99,
-        giorni_medi_giacenza: 42,
-      },
-      'Pantaloni': {
-        pezzi_acquistati: 370,
-        pezzi_venduti: 296,
-        pezzi_stock: 74,
-        prezzo_medio_acquisto: 28.00,
-        prezzo_medio_vendita: 44.99,
-        giorni_medi_giacenza: 40,
-      },
-      'Giacche': {
-        pezzi_acquistati: 175,
-        pezzi_venduti: 105,
-        pezzi_stock: 70,
-        prezzo_medio_acquisto: 45.00,
-        prezzo_medio_vendita: 69.99,
-        giorni_medi_giacenza: 78,
-      },
-      'Accessori': {
-        pezzi_acquistati: 720,
-        pezzi_venduti: 648,
-        pezzi_stock: 72,
-        prezzo_medio_acquisto: 6.00,
-        prezzo_medio_vendita: 9.99,
-        giorni_medi_giacenza: 18,
-      },
-      'Calzature': {
-        pezzi_acquistati: 250,
-        pezzi_venduti: 175,
-        pezzi_stock: 75,
-        prezzo_medio_acquisto: 35.00,
-        prezzo_medio_vendita: 54.99,
-        giorni_medi_giacenza: 52,
-      },
-    },
-  },
-  'Torino': {
-    color: '#94a3b8',
-    categories: {
-      'T-shirt': {
-        pezzi_acquistati: 150,
-        pezzi_venduti: 75,
-        pezzi_stock: 75,
-        prezzo_medio_acquisto: 12.50,
-        prezzo_medio_vendita: 19.99,
-        giorni_medi_giacenza: 20,
-      },
-      'Felpe': {
-        pezzi_acquistati: 100,
-        pezzi_venduti: 60,
-        pezzi_stock: 40,
-        prezzo_medio_acquisto: 22.00,
-        prezzo_medio_vendita: 34.99,
-        giorni_medi_giacenza: 25,
-      },
-      'Pantaloni': {
-        pezzi_acquistati: 120,
-        pezzi_venduti: 72,
-        pezzi_stock: 48,
-        prezzo_medio_acquisto: 28.00,
-        prezzo_medio_vendita: 44.99,
-        giorni_medi_giacenza: 28,
-      },
-      'Giacche': {
-        pezzi_acquistati: 60,
-        pezzi_venduti: 30,
-        pezzi_stock: 30,
-        prezzo_medio_acquisto: 45.00,
-        prezzo_medio_vendita: 69.99,
-        giorni_medi_giacenza: 32,
-      },
-      'Accessori': {
-        pezzi_acquistati: 250,
-        pezzi_venduti: 175,
-        pezzi_stock: 75,
-        prezzo_medio_acquisto: 6.00,
-        prezzo_medio_vendita: 9.99,
-        giorni_medi_giacenza: 18,
-      },
-      'Calzature': {
-        pezzi_acquistati: 80,
-        pezzi_venduti: 48,
-        pezzi_stock: 32,
-        prezzo_medio_acquisto: 35.00,
-        prezzo_medio_vendita: 54.99,
-        giorni_medi_giacenza: 30,
-      },
-    },
-  },
+// I dati di sell-through/giacenza di questa pagina sono SIMULATI: non esiste
+// (ancora) una sorgente magazzino reale nel DB. Non sono più cablati sui 7
+// outlet NZ — si generano per gli outlet reali del tenant (useOutlets) da un
+// template di categorie scalato in modo deterministico per outlet (nessun
+// Math.random → stabile). La pagina mostra un badge "dati simulati".
+// Colori = pool di rotazione (non business data).
+const COLOR_POOL = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#f43f5e', '#14b8a6', '#a855f7', '#eab308']
+
+// Template categoria: numeri base per un outlet "medio", poi scalati per outlet.
+const CATEGORY_TEMPLATE: Record<string, CategoryData> = {
+  'T-shirt':   { pezzi_acquistati: 400, pezzi_venduti: 320, pezzi_stock: 80, prezzo_medio_acquisto: 12.5, prezzo_medio_vendita: 19.99, giorni_medi_giacenza: 28 },
+  'Felpe':     { pezzi_acquistati: 260, pezzi_venduti: 180, pezzi_stock: 80, prezzo_medio_acquisto: 22.0, prezzo_medio_vendita: 34.99, giorni_medi_giacenza: 45 },
+  'Pantaloni': { pezzi_acquistati: 300, pezzi_venduti: 210, pezzi_stock: 90, prezzo_medio_acquisto: 28.0, prezzo_medio_vendita: 44.99, giorni_medi_giacenza: 52 },
+  'Giacche':   { pezzi_acquistati: 140, pezzi_venduti: 72,  pezzi_stock: 68, prezzo_medio_acquisto: 45.0, prezzo_medio_vendita: 69.99, giorni_medi_giacenza: 68 },
+  'Accessori': { pezzi_acquistati: 560, pezzi_venduti: 470, pezzi_stock: 90, prezzo_medio_acquisto: 6.0,  prezzo_medio_vendita: 9.99,  giorni_medi_giacenza: 22 },
+  'Calzature': { pezzi_acquistati: 190, pezzi_venduti: 120, pezzi_stock: 70, prezzo_medio_acquisto: 35.0, prezzo_medio_vendita: 54.99, giorni_medi_giacenza: 58 },
+}
+
+// Fattori deterministici per differenziare gli outlet (dimensione + aging).
+const SIZE_FACTORS = [1.0, 1.15, 0.85, 0.7, 0.6, 0.5, 0.4, 0.9, 0.75, 0.55]
+const AGING_DELTAS = [0, 6, -4, 10, 14, -6, 2, 8, -2, 4]
+
+function buildOutletsData(
+  tenantOutlets: { id: string; name: string }[]
+): Record<string, OutletData> {
+  const result: Record<string, OutletData> = {}
+  tenantOutlets.forEach((o, i) => {
+    const size = SIZE_FACTORS[i % SIZE_FACTORS.length]
+    const agingDelta = AGING_DELTAS[i % AGING_DELTAS.length]
+    const categories: Record<string, CategoryData> = {}
+    for (const [cat, base] of Object.entries(CATEGORY_TEMPLATE)) {
+      categories[cat] = {
+        pezzi_acquistati: Math.round(base.pezzi_acquistati * size),
+        pezzi_venduti: Math.round(base.pezzi_venduti * size),
+        pezzi_stock: Math.max(0, Math.round(base.pezzi_stock * size)),
+        prezzo_medio_acquisto: base.prezzo_medio_acquisto,
+        prezzo_medio_vendita: base.prezzo_medio_vendita,
+        giorni_medi_giacenza: Math.max(5, base.giorni_medi_giacenza + agingDelta),
+      }
+    }
+    result[o.name] = { color: COLOR_POOL[i % COLOR_POOL.length], categories }
+  })
+  return result
 }
 
 function getAgingStatus(days: number) {
@@ -435,42 +105,11 @@ export default function StockSellthrough() {
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
   const [expandedOutlet, setExpandedOutlet] = useState<string | null>(null)
 
-  // La pagina è interamente alimentata da `outletsData` mock-hardcoded sui
-  // 7 outlet NZ (Valdichiana/Barberino/…). Per tenant non-NZ (Made/Zago/SaaS
-  // futuri) i dati simulati sarebbero fuorvianti, quindi mostriamo un empty
-  // state finché non c'è almeno un outlet del tenant il cui name matcha una
-  // chiave di outletsData. Soluzione strutturale (lettura giacenze reali dal
-  // DB) è un task separato.
-  const hasLegacyDemo = useMemo(
-    () => tenantOutlets.some((o) => o.name in outletsData),
-    [tenantOutlets],
-  )
-
-  if (outletsLoading) {
-    return (
-      <div className="min-h-screen bg-slate-50 p-6">
-        <div className="max-w-7xl mx-auto text-sm text-slate-400">Caricamento…</div>
-      </div>
-    )
-  }
-  if (!hasLegacyDemo) {
-    return (
-      <div className="min-h-screen bg-slate-50 p-6">
-        <div className="max-w-3xl mx-auto">
-          <h1 className="text-3xl font-bold text-slate-900 mb-2">Analisi Sell-Through Magazzino</h1>
-          <p className="text-slate-600 mb-8">Monitoraggio giacenze e rotazione stock per i punti vendita</p>
-          <div className="bg-white rounded-2xl border border-slate-200 p-10 text-center">
-            <Store className="w-14 h-14 mx-auto mb-4 text-slate-300" />
-            <h2 className="text-lg font-semibold text-slate-700 mb-2">Nessun dato di stock disponibile</h2>
-            <p className="text-sm text-slate-500 max-w-md mx-auto">
-              I dati di sell-through verranno popolati automaticamente quando saranno disponibili.
-              Per gestire l'elenco dei {labels.pointOfSalePluralLower} vai su Impostazioni.
-            </p>
-          </div>
-        </div>
-      </div>
-    )
-  }
+  // Dati simulati per-tenant: generati dagli outlet reali del tenant.
+  // NB: tutti gli hook (useMemo) stanno PRIMA degli early-return più in basso,
+  // per non violare le regole degli hook (React #310).
+  const outletsData = useMemo(() => buildOutletsData(tenantOutlets), [tenantOutlets])
+  const hasOutlets = tenantOutlets.length > 0
 
   // Calculate metrics
   const metrics = useMemo(() => {
@@ -531,7 +170,7 @@ export default function StockSellthrough() {
       outletMetrics,
       agingBuckets,
     }
-  }, [])
+  }, [outletsData])
 
   // Filter alerts
   const alerts = useMemo<AlertEntry[]>(() => {
@@ -568,7 +207,7 @@ export default function StockSellthrough() {
       })
     })
     return alertList
-  }, [])
+  }, [outletsData])
 
   // Chart data
   const sellthroughChartData = useMemo(() => {
@@ -596,6 +235,32 @@ export default function StockSellthrough() {
     ]
   }, [metrics])
 
+  if (outletsLoading) {
+    return (
+      <div className="min-h-screen bg-slate-50 p-6">
+        <div className="max-w-7xl mx-auto text-sm text-slate-400">Caricamento…</div>
+      </div>
+    )
+  }
+  if (!hasOutlets) {
+    return (
+      <div className="min-h-screen bg-slate-50 p-6">
+        <div className="max-w-3xl mx-auto">
+          <h1 className="text-3xl font-bold text-slate-900 mb-2">Analisi Sell-Through Magazzino</h1>
+          <p className="text-slate-600 mb-8">Monitoraggio giacenze e rotazione stock per i punti vendita</p>
+          <div className="bg-white rounded-2xl border border-slate-200 p-10 text-center">
+            <Store className="w-14 h-14 mx-auto mb-4 text-slate-300" />
+            <h2 className="text-lg font-semibold text-slate-700 mb-2">Nessun dato di stock disponibile</h2>
+            <p className="text-sm text-slate-500 max-w-md mx-auto">
+              I dati di sell-through verranno popolati automaticamente quando saranno disponibili.
+              Per gestire l'elenco dei {labels.pointOfSalePluralLower} vai su Impostazioni.
+            </p>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen bg-white">
       <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
@@ -603,6 +268,14 @@ export default function StockSellthrough() {
           title="Analisi Sell-Through Magazzino"
           subtitle="Monitoraggio giacenze e rotazione stock per i punti vendita"
         />
+
+        <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <span className="mt-0.5 font-semibold whitespace-nowrap">Dati simulati (demo)</span>
+          <span className="text-amber-700">
+            Le giacenze e i sell-through mostrati sono generati come demo sugli {labels.pointOfSalePluralLower}
+            del tenant: la pagina non è ancora collegata al magazzino reale.
+          </span>
+        </div>
 
         {/* KPI Cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
