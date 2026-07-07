@@ -526,7 +526,7 @@ function FatturePassive() {
             <thead className="sticky top-0 bg-slate-50 z-10">
               <tr className="bg-slate-50 border-b border-slate-200">
                 <SortableTh sortKey="invoice_date" sortBy={ftSortBy} onSort={ftOnSort}>Data</SortableTh>
-                <SortableTh sortKey="invoice_number" sortBy={ftSortBy} onSort={ftOnSort} className="min-w-[150px]">Numero</SortableTh>
+                <SortableTh sortKey="invoice_number" sortBy={ftSortBy} onSort={ftOnSort} className="min-w-[120px]">Numero</SortableTh>
                 <SortableTh sortKey="supplier_name" sortBy={ftSortBy} onSort={ftOnSort} className="min-w-[200px]">Fornitore</SortableTh>
                 <SortableTh sortKey="tipo_documento" sortBy={ftSortBy} onSort={ftOnSort}>Tipo</SortableTh>
                 <SortableTh sortKey="net_amount" sortBy={ftSortBy} onSort={ftOnSort} align="right" className="min-w-[100px]">Imponibile</SortableTh>
@@ -544,11 +544,11 @@ function FatturePassive() {
                 <tr key={inv.id} onClick={() => openFormatted(inv)} className={`border-b border-slate-100 hover:bg-blue-50/50 transition-colors cursor-pointer ${idx % 2 === 1 ? 'bg-slate-50/50' : ''}`}>
                   <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{fmtDate(inv.invoice_date)}</td>
                   <Tooltip content={inv.invoice_number || ''}>
-                    <td className="px-4 py-3 font-medium text-slate-900 truncate min-w-[150px] max-w-[200px]">{inv.invoice_number || '—'}</td>
+                    <td className="px-4 py-3 font-medium text-slate-900 truncate min-w-[120px] max-w-[180px]">{inv.invoice_number || '—'}</td>
                   </Tooltip>
                   <td className="px-4 py-3 min-w-[200px]">
                     <Tooltip content={inv.supplier_name || ''}>
-                      <div className="font-medium text-slate-800 truncate max-w-[280px]">{inv.supplier_name || '—'}</div>
+                      <div className="font-medium text-slate-800 truncate max-w-[200px]">{inv.supplier_name || '—'}</div>
                     </Tooltip>
                     {inv.supplier_vat && <div className="text-xs text-slate-400">P.IVA {inv.supplier_vat}</div>}
                   </td>

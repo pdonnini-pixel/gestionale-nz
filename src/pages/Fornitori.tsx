@@ -792,7 +792,8 @@ export default function Fornitori() {
               </div>
             )}
             {/* Table */}
-            <table className="w-full text-sm">
+            <div className="overflow-x-auto">
+            <table className="w-full text-sm min-w-[920px]">
               <thead className="sticky top-0 bg-slate-50 border-b border-slate-200 z-10">
                 <tr>
                   <SortableTh sortKey="ragione_sociale" sortBy={suSortBy} onSort={suOnSort}>Fornitore</SortableTh>
@@ -1210,6 +1211,7 @@ export default function Fornitori() {
             )}
               </tbody>
             </table>
+            </div>
 
             {/* Footer */}
             <div className="px-4 py-2.5 bg-slate-50 border-t text-xs text-slate-500">
