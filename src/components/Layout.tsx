@@ -240,6 +240,9 @@ export default function Layout() {
   // Si ricarica all'avvio, e ogni volta che il dettaglio ticket emette
   // l'evento 'ticket-seen' (dopo che l'autore l'ha aperto).
   const [ticketUnseen, setTicketUnseen] = useState(0)
+  // Badge Fatturazione: anomalie di configurazione pagamento fornitore aperte
+  // (stato condiviso azienda). Sparisce solo quando risolte.
+  const [fattAnomalie, setFattAnomalie] = useState(0)
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -271,9 +274,38 @@ export default function Layout() {
     return () => { window.removeEventListener('ticket-seen', onSeen); clearInterval(t) }
   }, [])
 
+  useEffect(() => {
+    async function fetchAnomalie() {
+      try {
+        const { supabase } = await import('../lib/supabase')
+        // Tabella non ancora nei tipi generati (database.ts): cast minimale.
+        const sb = supabase as unknown as {
+          from: (t: string) => {
+            select: (c: string, o?: unknown) => {
+              eq: (col: string, val: string) => Promise<{ count: number | null; error: unknown }>
+            }
+          }
+        }
+        const { count, error } = await sb
+          .from('payment_import_anomalies')
+          .select('id', { count: 'exact', head: true })
+          .eq('stato', 'aperta')
+        if (!error && typeof count === 'number') setFattAnomalie(count)
+      } catch (e) {
+        console.warn('[fatt-anomalie]', e)
+      }
+    }
+    void fetchAnomalie()
+    // Ricalcola quando un'anomalia viene risolta dal pannello Fatturazione
+    function onResolved() { void fetchAnomalie() }
+    window.addEventListener('fatt-anomalia-risolta', onResolved)
+    const t = setInterval(fetchAnomalie, 60_000)
+    return () => { window.removeEventListener('fatt-anomalia-risolta', onResolved); clearInterval(t) }
+  }, [])
+
   return (
     <div className="flex h-screen overflow-hidden">
-      <Sidebar mobileOpen={mobileOpen} setMobileOpen={setMobileOpen} badges={{ 'ticket-unseen': ticketUnseen }} />
+      <Sidebar mobileOpen={mobileOpen} setMobileOpen={setMobileOpen} badges={{ 'ticket-unseen': ticketUnseen, 'fatt-anomalie': fattAnomalie }} />
 
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
         {/* Tenant badge (banda colorata) */}

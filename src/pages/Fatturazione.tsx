@@ -18,6 +18,7 @@ import { useTableSort } from '../hooks/useTableSort'
 import SortableTh from '../components/ui/SortableTh'
 import Tooltip from '../components/Tooltip'
 import SyncStatusBadge from '../components/SyncStatusBadge'
+import PaymentAnomaliesPanel from '../components/PaymentAnomaliesPanel'
 import {
   FileText, Upload, Send, RefreshCw, Search, Filter, ChevronDown, ChevronUp,
   CheckCircle, XCircle, Clock, AlertTriangle, Eye, Download, Plus, X,
@@ -454,6 +455,9 @@ function FatturePassive() {
         <KpiCard icon={Euro} label="Totale lordo" value={`€ ${fmt(stats.totalAmount)}`} color="blue" />
         <KpiCard icon={Euro} label="Totale IVA" value={`€ ${fmt(stats.totalVat)}`} color="blue" />
       </div>
+
+      {/* Segnalazioni: anomalie configurazione pagamento fornitore (badge rosso) */}
+      <PaymentAnomaliesPanel />
 
       {/* Toolbar */}
       <div className="flex flex-wrap items-center gap-3">

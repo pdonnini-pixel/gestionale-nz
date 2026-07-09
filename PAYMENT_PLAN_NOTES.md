@@ -46,9 +46,25 @@ Tipi + "come risolvere" (`come_risolvere`):
 
 Helper `fn_supplier_config_anomaly(supplier_id)` ritorna i primi tre tipi (o NULL). Gli altri due (`importo_non_quadra`, `fornitore_non_riconosciuto`) li rileva il flusso di import.
 
-## DA FARE — step successivi (in questo branch)
+## STATO IMPLEMENTAZIONE
 
-### A) Edge/trigger: generazione rate + apertura anomalia all'import
+✅ **FATTO in questo branch:**
+- Migration `087` — schema (4 campi fornitore, tabella anomalie, funzioni pure di calcolo/anomalia). **Applicata e verificata su NZ + Made + Zago.**
+- Migration `088` — motore anomalie: `rpc_refresh_payment_anomalies()` (apre/risolve le anomalie di config per i fornitori con fatture ≥ 31/07) e `rpc_resolve_payment_anomaly()`. **Da applicare a mano su NZ + Made + Zago** (query in coda al file).
+- Frontend:
+  - `Fornitori.tsx` — form fornitore con i 4 campi (base DF/FM, 1ª scadenza gg, n° rate, banca) + avviso banca-obbligatoria per metodo. Deep-link `?edit=<id>`.
+  - `Sidebar.tsx` + `Layout.tsx` — **badge rosso numerato** su Fatturazione = anomalie aperte (aggiornamento live all'evento `fatt-anomalia-risolta`).
+  - `components/PaymentAnomaliesPanel.tsx` + `Fatturazione.tsx` — pannello segnalazioni con descrizione + "come risolvere" + "Vai al fornitore" + "Risolto".
+- `npm run build` OK; nuovi file type-clean.
+
+⏳ **RESTA (step successivo, richiede test su ambiente reale prima del prod):**
+### A) Generazione automatica delle rate in `payables` all'import
+Oggi le anomalie di **configurazione** vengono già rilevate e mostrate. Manca la
+**materializzazione delle N rate** in `payables` all'arrivo della fattura
+(emissione ≥ 31/07). Va integrata col bridge A-Cube esistente
+(`trg_sync_acube_sdi_passive`) usando `fn_supplier_installment_schedule()`, con
+guardia anti-duplicato e assegnazione `payment_bank_account_id`. NON auto-wirato
+ora perché scrive payables in produzione su 3 tenant e va testato prima.
 Aggancio al flusso che crea i payables dall'import SDI A-Cube (bridge `trg_sync_acube_sdi_passive` / edge `acube-cf-sync-invoices`). Logica:
 1. Solo se `electronic_invoices.invoice_date >= '2026-07-31'`.
 2. Risali al fornitore. Se non riconosciuto → anomalia `fornitore_non_riconosciuto`.

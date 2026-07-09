@@ -87,7 +87,7 @@ function buildSections(labels: CompanyLabels): NavSection[] {
       label: 'Ciclo Passivo',
       items: [
         { to: '/fornitori', icon: Users, label: 'Fornitori', roles: ['super_advisor', 'cfo', 'contabile'] },
-        { to: '/fatturazione', icon: FileText, label: 'Fatturazione', roles: ['super_advisor', 'cfo', 'contabile'] },
+        { to: '/fatturazione', icon: FileText, label: 'Fatturazione', badgeKey: 'fatt-anomalie', roles: ['super_advisor', 'cfo', 'contabile'] },
         { to: '/scadenzario', icon: CalendarClock, label: 'Scadenzario', badgeKey: 'scadenzario', roles: ['super_advisor', 'ceo', 'cfo', 'contabile'] },
       ],
     },

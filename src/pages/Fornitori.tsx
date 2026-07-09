@@ -39,7 +39,16 @@ const EMPTY_FORM = {
   pec: '', email: '', telefono: '', iban: '', indirizzo: '', citta: '',
   provincia: '', cap: '', category: '', payment_terms: 30,
   payment_method: 'bonifico_ordinario', cost_center: 'all', note: '',
+  // Piano rate scadenze (v2): usato per generare le scadenze delle fatture >= 31/07/2026
+  payment_base: '', prima_scadenza_gg: 30, numero_rate: 1, payment_bank_account_id: '',
 };
+
+// Metodi per cui la banca di pagamento è OBBLIGATORIA (serve per lo storno nei cashflow)
+const BANK_REQUIRED_METHODS = new Set([
+  'riba_30', 'riba_60', 'riba_90', 'riba_120',
+  'rid', 'sdd_core', 'sdd_b2b', 'carta_credito', 'carta_debito',
+]);
+const isBankRequired = (method: string) => BANK_REQUIRED_METHODS.has(method);
 
 // v2 payment method enum options for dropdown
 const PAYMENT_METHOD_OPTIONS = [
@@ -137,6 +146,8 @@ export default function Fornitori() {
   type SupplierRow = Record<string, unknown> & { id: string }
   type PayableRow = Record<string, unknown> & { id: string }
   const [suppliers, setSuppliers] = useState<SupplierRow[]>([]);
+  // Conti banca (sezione Banche) per la tendina "Banca di pagamento" del fornitore
+  const [bankAccounts, setBankAccounts] = useState<{ id: string; label: string }[]>([]);
   // Tutte le payables del tenant (colonne leggere, NO xml_content): aggregati
   // per-fornitore e KPI calcolati lato client e filtrabili per anno. Volume
   // piccolo (~769 righe NZ); paginato per superare il cap 1000 di PostgREST.
@@ -199,6 +210,22 @@ export default function Fornitori() {
   useEffect(() => {
     if (!COMPANY_ID) return;
     loadData();
+  }, [COMPANY_ID]);
+
+  // Carica i conti banca attivi per la tendina del piano di pagamento
+  useEffect(() => {
+    if (!COMPANY_ID) return;
+    (async () => {
+      const { data } = await supabase.from('bank_accounts')
+        .select('id, bank_name, account_name, iban')
+        .eq('company_id', COMPANY_ID)
+        .or('is_active.is.null,is_active.eq.true');
+      setBankAccounts((data || []).map((b: Record<string, unknown>) => ({
+        id: String(b.id),
+        label: [b.bank_name, b.account_name].filter(Boolean).join(' · ')
+          || (b.iban ? String(b.iban) : String(b.id).slice(0, 8)),
+      })));
+    })();
   }, [COMPANY_ID]);
 
   async function loadData() {
@@ -295,6 +322,20 @@ export default function Fornitori() {
     const sup = suppliers.find(s => s.id === gestioneId);
     return String(sup?.partita_iva || sup?.vat_number || '').trim();
   }, [suppliers, gestioneId]);
+
+  // Deep-link ?edit=<supplier_id> (dal pannello anomalie in Fatturazione):
+  // apre direttamente la scheda di modifica del fornitore.
+  useEffect(() => {
+    const editId = searchParams.get('edit');
+    if (!editId || suppliers.length === 0) return;
+    const sup = suppliers.find(s => s.id === editId);
+    if (sup) {
+      openEdit(sup);
+      const params = new URLSearchParams(searchParams);
+      params.delete('edit');
+      setSearchParams(params, { replace: true });
+    }
+  }, [suppliers, searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Carica lista fatture + stato payables SOLO all'apertura del pannello.
   useEffect(() => {
@@ -566,6 +607,10 @@ export default function Fornitori() {
       payment_method: str('payment_method') || str('default_payment_method') || 'bonifico',
       cost_center: str('cost_center') || 'all',
       note: str('note') || str('notes'),
+      payment_base: str('payment_base'),
+      prima_scadenza_gg: num('prima_scadenza_gg', 30),
+      numero_rate: num('numero_rate', 1),
+      payment_bank_account_id: str('payment_bank_account_id'),
     });
     setShowModal(true);
   }
@@ -597,6 +642,11 @@ export default function Fornitori() {
         default_payment_terms: parseInt(String(form.payment_terms)) || 30,
         payment_method: form.payment_method || 'bonifico_ordinario',
         default_payment_method: form.payment_method || 'bonifico_ordinario',
+        // Piano rate scadenze (v2)
+        payment_base: form.payment_base || null,
+        prima_scadenza_gg: Number(form.prima_scadenza_gg) || null,
+        numero_rate: Number(form.numero_rate) || null,
+        payment_bank_account_id: form.payment_bank_account_id || null,
         cost_center: form.cost_center || 'all',
         note: form.note.trim() || null,
         notes: form.note.trim() || null,
@@ -1450,6 +1500,44 @@ export default function Fornitori() {
                         </optgroup>
                       ))}
                     </select>
+                  </div>
+                  {/* ── PIANO RATE SCADENZE (v2) ─────────────────────────── */}
+                  <div className="col-span-2 mt-1 pt-3 border-t border-slate-200">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Calendar size={14} className="text-indigo-500" />
+                      <span className="text-xs font-semibold text-slate-700">Piano scadenze (fatture dal 31/07/2026)</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="text-xs font-medium text-slate-600">Base di calcolo</label>
+                        <select value={form.payment_base} onChange={e => setForm(f => ({ ...f, payment_base: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm">
+                          <option value="">— non impostata —</option>
+                          <option value="data_fattura">Data fattura (a giorni)</option>
+                          <option value="fine_mese">Fine mese (a mesi)</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-xs font-medium text-slate-600">Banca di pagamento{isBankRequired(form.payment_method) && <span className="text-rose-500"> *</span>}</label>
+                        <select value={form.payment_bank_account_id} onChange={e => setForm(f => ({ ...f, payment_bank_account_id: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm">
+                          <option value="">— nessuna —</option>
+                          {bankAccounts.map(b => <option key={b.id} value={b.id}>{b.label}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-xs font-medium text-slate-600">1ª scadenza (gg)</label>
+                        <input type="number" value={form.prima_scadenza_gg} onChange={e => setForm(f => ({ ...f, prima_scadenza_gg: Number(e.target.value) || 0 }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" min={0} max={365} step={30} />
+                      </div>
+                      <div>
+                        <label className="text-xs font-medium text-slate-600">Numero rate</label>
+                        <input type="number" value={form.numero_rate} onChange={e => setForm(f => ({ ...f, numero_rate: Number(e.target.value) || 1 }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" min={1} max={12} />
+                      </div>
+                    </div>
+                    {isBankRequired(form.payment_method) && !form.payment_bank_account_id && (
+                      <div className="mt-2 flex items-center gap-1.5 text-xs text-rose-600">
+                        <AlertTriangle size={13} /> Con metodo {PAYMENT_LABEL[form.payment_method] || form.payment_method} la banca è obbligatoria (serve per il cashflow).
+                      </div>
+                    )}
+                    <p className="mt-2 text-[11px] text-slate-400">Le rate successive sono +30gg (data fattura) o +1 mese (fine mese). Importo diviso equamente tra le rate.</p>
                   </div>
                   <div className="col-span-2">
                     <label className="text-xs font-medium text-slate-600">Note</label>
