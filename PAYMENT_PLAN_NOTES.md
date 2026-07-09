@@ -1,5 +1,43 @@
 # Piano di pagamento fornitore + segnalazioni anomalie — Note di implementazione
 
+> ## 📌 REGOLA — LEGGERE SEMPRE PRIMA DI TOCCARE IL CICLO PASSIVO
+>
+> Questo file va **letto per intero prima di qualsiasi lavoro sulla sezione Ciclo Passivo**
+> (Fornitori, Fatturazione, Scadenzario) e prima di modificare fornitori, payables,
+> `electronic_invoices`, il bridge A-Cube o le scadenze. Contiene le regole di piano
+> pagamento, l'aggancio fornitore↔fattura **per P.IVA**, e i casi noti (es. Estenergy→Hera).
+> Se una richiesta contraddice queste regole, **fermarsi e spiegare** invece di eseguire.
+
+## Regola aggancio fornitore ↔ fattura (A-Cube / manuale)
+- Il fornitore si crea/associa **per PARTITA IVA** (`sender_vat`), NON per nome. Il bridge
+  `sync_acube_sdi_passive_to_payable` cerca `partita_iva = sender_vat OR vat_number = sender_vat`;
+  se esiste lo riusa (nessun duplicato), altrimenti lo crea con il nome della prima fattura vista.
+- Conseguenza: un fornitore che ha **cambiato ragione sociale** resta in anagrafica col nome
+  vecchio ma con la stessa P.IVA (le nuove fatture si agganciano comunque). Cercare per nome
+  può far sembrare un fornitore "assente" quando invece c'è: **verificare sempre per P.IVA**.
+- Un fornitore creato **a mano senza P.IVA** genererà un DUPLICATO alla prima fattura A-Cube
+  (che porta la P.IVA e non trova match per nome). Inserire sempre la P.IVA reale.
+
+## Resoconto popolamento piani pagamento — 2026-07-09 (solo NZ)
+Origine: file `SCADENZE_NEW_ZAGO_2026_x_code.xlsx` (6 fogli Giu→Nov, 508 righe), aggregato
+per fornitore su **tutti i mesi** (non solo Giugno) per dedurre metodo/base/rate/banca.
+- **92 fornitori** aggiornati con `payment_method`/`default_payment_method`, `payment_base`
+  (DF/FM), `prima_scadenza_gg`, `numero_rate`, `payment_bank_account_id` (solo per metodi
+  che richiedono banca). Solo UPDATE di campi vuoti, nessuna cancellazione.
+- **HERA COMM S.p.A.** (P.IVA `03819031208`): era in anagrafica come **"Estenergy S.p.A."**
+  (Estenergy confluita in Hera Comm, stessa P.IVA). Rinominato → HERA COMM e piano
+  **RID / data fattura / 20gg / MPS**. 51 payables storici restano agganciati per P.IVA.
+- **Humatics S.r.l. - Società Unipersonale**: creato a mano con piano **RI.BA / fine mese /
+  30gg / MPS**. ⚠️ P.IVA da inserire (nel file non c'era): finché è NULL, la prima fattura
+  A-Cube creerà un duplicato — completare la P.IVA appena disponibile.
+- Banche NZ: MPS `e351d628-a150-4769-b965-9514deab48a3`, BCC `e3e82fb2-2661-4525-a25e-8960fc1123dc`,
+  Intesa `549a983d-3fe1-4f9a-aed8-d5d5ed14f123`. `CASSA *` = contanti (nessuna banca).
+- **Nota parità-tenant**: questo è **DATO specifico dei fornitori di New Zago** → NON si
+  replica su Made/Zago (hanno fornitori/P.IVA diversi). La parità #0 vale per codice/migration,
+  non per questi valori-dato.
+
+---
+
 Stato: **migration DB pronta** (`supabase/migrations/20260709_087_supplier_payment_plan_and_anomalies.sql`),
 edge/import e frontend **da fare** (step successivi). Nessun dato toccato.
 
