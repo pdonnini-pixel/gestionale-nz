@@ -2009,7 +2009,17 @@ const ScadenzarioSmart = () => {
     // compaiono SOLO se l'utente filtra esplicitamente 'Pagato' oppure sceglie
     // "Tutti gli stati" ('all'), che mostra davvero tutto incluse le pagate.
     // Tutto il resto (tipo, stato, periodo, ricerca) è già in filteredPayables.
-    const reals = filteredPayables.filter(p => p.status !== 'pagato' || selectedStatus === 'pagato' || selectedStatus === 'all');
+    const reals = filteredPayables.filter(p => {
+      // Viste "chiuse/tutte" o filtro esplicito NC → mostra tutto (incluse le chiuse).
+      if (selectedStatus === 'pagato' || selectedStatus === 'all' || selectedStatus === 'nota_credito') return true;
+      // Pagate nascoste di default.
+      if (p.status === 'pagato') return false;
+      // NC CHIUSA a mano (registrata in partitario): esce dalle Aperte come una pagata,
+      // altrimenti resterebbe visibile perche' mantiene status 'nota_credito'.
+      const isNC = p.status === 'nota_credito' || (Number(p.gross_amount) || 0) < 0;
+      if (isNC && (p.closed_manually || p.payment_date)) return false;
+      return true;
+    });
 
     // Le STIME compaiono solo nella vista scadenze "fornitori/tutte", senza un
     // filtro di stato reale attivo (non sono scaduto/pagato/in distinta), e
