@@ -1,6 +1,10 @@
 # CLAUDE.md — Gestionale NZ v2.0
 
 > Prompt operativo per Cowork. Leggi SEMPRE `BLUEPRINT_GestionaleNZ_v2.md` prima di qualsiasi implementazione.
+>
+> **CICLO PASSIVO** (Fornitori, Fatturazione, Scadenzario, payables, `electronic_invoices`, bridge A-Cube):
+> leggi SEMPRE anche `PAYMENT_PLAN_NOTES.md` prima di toccare qualsiasi cosa. Contiene le regole
+> di piano pagamento, l'aggancio fornitore↔fattura **per P.IVA** (non per nome) e i casi noti.
 
 ---
 
