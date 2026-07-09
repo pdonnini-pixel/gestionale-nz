@@ -27,9 +27,12 @@ per fornitore su **tutti i mesi** (non solo Giugno) per dedurre metodo/base/rate
 - **HERA COMM S.p.A.** (P.IVA `03819031208`): era in anagrafica come **"Estenergy S.p.A."**
   (Estenergy confluita in Hera Comm, stessa P.IVA). Rinominato → HERA COMM e piano
   **RID / data fattura / 20gg / MPS**. 51 payables storici restano agganciati per P.IVA.
-- **Humatics S.r.l. - Società Unipersonale**: creato a mano con piano **RI.BA / fine mese /
-  30gg / MPS**. ⚠️ P.IVA da inserire (nel file non c'era): finché è NULL, la prima fattura
-  A-Cube creerà un duplicato — completare la P.IVA appena disponibile.
+- **HUMATICS S.r.l. - Società Unipersonale** = nuova denominazione di **SYS-DAT Verona
+  S.r.l.** (stessa società, P.IVA `03268520230`, già in anagrafica con 8 fatture + 9
+  scadenze storiche). Il record SYS-DAT è stato **rinominato → HUMATICS** (P.IVA e storico
+  invariati); piano **RI.BA / fine mese / 30gg / MPS**. Le fatture "Humatics" da A-Cube si
+  agganciano per P.IVA. Il record "Humatics" creato a mano il 09/07 (senza P.IVA) era un
+  duplicato → **soft-delete** (`is_deleted=true`).
 - Banche NZ: MPS `e351d628-a150-4769-b965-9514deab48a3`, BCC `e3e82fb2-2661-4525-a25e-8960fc1123dc`,
   Intesa `549a983d-3fe1-4f9a-aed8-d5d5ed14f123`. `CASSA *` = contanti (nessuna banca).
 - **Nota parità-tenant**: questo è **DATO specifico dei fornitori di New Zago** → NON si
