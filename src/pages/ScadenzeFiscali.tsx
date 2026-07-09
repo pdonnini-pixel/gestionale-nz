@@ -365,8 +365,8 @@ export default function ScadenzeFiscali() {
     <div className="min-h-screen bg-white">
       <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
       <PageHeader
-        title="Scadenze Fiscali & F24"
-        subtitle="Tracciamento F24, IVA, imposte e contributi"
+        title="Scadenze Fiscali / Interni"
+        subtitle="F24, IVA, imposte, contributi e uscite interne (stipendi, compensi, finanziamenti)"
         noDivider
         actions={
           <button onClick={() => { setEditingDeadline(null); setModalOpen(true) }}
