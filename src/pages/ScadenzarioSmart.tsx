@@ -3120,8 +3120,11 @@ const ScadenzarioSmart = () => {
                               const isRata = (Number(p.installment_total) || 0) > 1
                               // Riga primaria: fornitore se presente, altrimenti la nota, altrimenti la fattura
                               const mainText = supplierLabel || note || (p.invoice_number && p.invoice_number !== '-' ? p.invoice_number : '') || 'N/A'
-                              // Riga secondaria: la nota (descrizione) se valorizzata, altrimenti la fattura
-                              const subText = (supplierLabel && note) ? note : (note && !supplierLabel ? invoiceLabel : invoiceLabel)
+                              // Riga secondaria: SEMPRE il numero fattura/NC (così si sceglie
+                              // senza espandere la riga); se manca, fallback sulla nota. La nota
+                              // completa resta comunque leggibile nel tooltip.
+                              const subText = invoiceLabel || note
+                              const subTooltip = [invoiceLabel, note].filter(Boolean).join(' — ') || subText
                               return (
                                 <button onClick={() => {
                                   const sup = suppliers.find(s =>
@@ -3143,7 +3146,7 @@ const ScadenzarioSmart = () => {
                                     )}
                                   </div>
                                   {subText && (
-                                    <UiTooltip content={subText}>
+                                    <UiTooltip content={subTooltip}>
                                       <div className="text-[10px] text-slate-400 mt-0.5 truncate max-w-[220px]">
                                         {subText}
                                       </div>
