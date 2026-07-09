@@ -34,6 +34,7 @@ const Onboarding = lazy(() => import('./pages/Onboarding'))
 const Fatturazione = lazy(() => import('./pages/Fatturazione'))
 const AcubeFatturaForm = lazy(() => import('./pages/AcubeFatturaForm'))
 const ScadenzeFiscali = lazy(() => import('./pages/ScadenzeFiscali'))
+const StoricoDistinte = lazy(() => import('./pages/StoricoDistinte'))
 const AICategoriePage = lazy(() => import('./pages/AICategoriePage'))
 const SchedaContabileFornitore = lazy(() => import('./pages/SchedaContabileFornitore'))
 const Profilo = lazy(() => import('./pages/Profilo'))
@@ -107,6 +108,7 @@ function AppRoutes() {
           <Route path="outlet/valutazione/:simSlug" element={<Outlet />} />
           <Route path="outlet/:outletId" element={<Outlet />} />
           <Route path="scadenzario" element={<Scadenzario />} />
+          <Route path="storico-distinte" element={<StoricoDistinte />} />
           <Route path="banche" element={<Banche />} />
           <Route path="dipendenti" element={<Dipendenti />} />
           <Route path="conto-economico" element={<ContoEconomico />} />
