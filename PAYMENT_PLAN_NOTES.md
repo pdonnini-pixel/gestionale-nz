@@ -57,14 +57,24 @@ Helper `fn_supplier_config_anomaly(supplier_id)` ritorna i primi tre tipi (o NUL
   - `components/PaymentAnomaliesPanel.tsx` + `Fatturazione.tsx` — pannello segnalazioni con descrizione + "come risolvere" + "Vai al fornitore" + "Risolto".
 - `npm run build` OK; nuovi file type-clean.
 
-⏳ **RESTA (step successivo, richiede test su ambiente reale prima del prod):**
-### A) Generazione automatica delle rate in `payables` all'import
-Oggi le anomalie di **configurazione** vengono già rilevate e mostrate. Manca la
-**materializzazione delle N rate** in `payables` all'arrivo della fattura
-(emissione ≥ 31/07). Va integrata col bridge A-Cube esistente
-(`trg_sync_acube_sdi_passive`) usando `fn_supplier_installment_schedule()`, con
-guardia anti-duplicato e assegnazione `payment_bank_account_id`. NON auto-wirato
-ora perché scrive payables in produzione su 3 tenant e va testato prima.
+✅ **FATTO — Generazione rate all'import (migration 089, applicata su NZ+Made+Zago):**
+Scoperta: il bridge A-Cube (`sync_acube_sdi_passive_to_payable`) **genera già** le
+scadenze dallo scadenzario dell'XML (DatiPagamento) quando presente. La 089
+aggiunge, **solo nel ramo fallback** (XML senza scadenzario), la generazione dal
+**piano fornitore** via `fn_supplier_installment_schedule()`:
+- guardia `emissione >= 31/07/2026` (oggi 0 fatture → zero effetto sul pregresso)
+- **opt-in per fornitore**: agisce solo se `payment_base` e `numero_rate` sono
+  impostati; senza piano il comportamento resta identico a oggi (rata unica)
+- assegna metodo e `payment_bank_account_id` del fornitore; `acube_uuid` solo sulla
+  rata 1; `on conflict do nothing` anti-duplicato
+- il ramo XML-con-scadenzario (n>=2) **non è toccato**.
+
+Validazione: funzione ridistribuita senza errori su tutti e 3 i tenant; vincoli di
+unicità payables compatibili (installment_number distinto). La verifica end-to-end
+avverrà sulla prima fattura reale ≥ 31/07 da fornitore configurato.
+
+Nota: le anomalie di configurazione (metodo/banca/piano mancanti) vengono comunque
+rilevate e mostrate dal badge/pannello Fatturazione (087/088).
 Aggancio al flusso che crea i payables dall'import SDI A-Cube (bridge `trg_sync_acube_sdi_passive` / edge `acube-cf-sync-invoices`). Logica:
 1. Solo se `electronic_invoices.invoice_date >= '2026-07-31'`.
 2. Risali al fornitore. Se non riconosciuto → anomalia `fornitore_non_riconosciuto`.
