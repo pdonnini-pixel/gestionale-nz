@@ -153,7 +153,7 @@ export function buildBreadcrumbMap(
     '/fornitori': { section: 'Ciclo Passivo', page: 'Fornitori' },
     '/fatturazione': { section: 'Ciclo Passivo', page: 'Fatturazione' },
     '/scadenzario': { section: 'Ciclo Passivo', page: 'Scadenzario' },
-    '/scadenze-fiscali': { section: 'Ciclo Passivo', page: 'Scadenze Fiscali' },
+    '/scadenze-fiscali': { section: 'Ciclo Passivo', page: 'Scadenze Fiscali / Interni' },
     '/dipendenti': { section: 'Risorse', page: 'Dipendenti' },
     '/ai-categorie': { section: 'AI & Analytics', page: 'AI Categorie' },
     '/margini': { section: 'AI & Analytics', page: `Margini ${posPlural}` },

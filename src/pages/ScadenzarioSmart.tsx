@@ -2391,7 +2391,7 @@ const ScadenzarioSmart = () => {
               title="Tipo di scadenza">
               <option value="">Tutte le scadenze</option>
               <option value="fornitori">Solo Fornitori</option>
-              <option value="fiscali">Solo Fiscali</option>
+              <option value="fiscali">Solo Fiscali / Interni</option>
               <option value="incassi">Incassi</option>
             </select>
             {/* STATO (include In distinta come stato) */}
@@ -2448,7 +2448,7 @@ const ScadenzarioSmart = () => {
                 title="Tipo di scadenza">
                 <option value="">Tutte le scadenze</option>
                 <option value="fornitori">Solo Fornitori</option>
-                <option value="fiscali">Solo Fiscali</option>
+                <option value="fiscali">Solo Fiscali / Interni</option>
                 <option value="incassi">Incassi</option>
               </select>
               {/* BANCA */}
@@ -2541,7 +2541,7 @@ const ScadenzarioSmart = () => {
               <span className="text-xs text-slate-400 font-medium">Stai vedendo:</span>
               {typeFilter && (
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-50 text-xs text-indigo-700 font-medium">
-                  {typeFilter === 'fornitori' ? 'Solo Fornitori' : typeFilter === 'fiscali' ? 'Solo Fiscali' : typeFilter}
+                  {typeFilter === 'fornitori' ? 'Solo Fornitori' : typeFilter === 'fiscali' ? 'Solo Fiscali / Interni' : typeFilter}
                   <button onClick={() => setTypeFilter('')} className="text-indigo-400 hover:text-indigo-600"><X size={11} /></button>
                 </span>
               )}
@@ -2969,7 +2969,7 @@ const ScadenzarioSmart = () => {
                   <div className="mt-3 flex items-center justify-center gap-2 flex-wrap">
                     {typeFilter && (
                       <button onClick={() => setTypeFilter('')} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 text-xs text-slate-600 hover:bg-slate-200">
-                        Rimuovi "{typeFilter === 'fornitori' ? 'Solo Fornitori' : typeFilter === 'fiscali' ? 'Solo Fiscali' : typeFilter}" <X size={11} />
+                        Rimuovi "{typeFilter === 'fornitori' ? 'Solo Fornitori' : typeFilter === 'fiscali' ? 'Solo Fiscali / Interni' : typeFilter}" <X size={11} />
                       </button>
                     )}
                     {selectedStatus && (
