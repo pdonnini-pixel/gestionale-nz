@@ -509,8 +509,12 @@ const ScadenzarioSmart = () => {
         return acc;
       };
 
+      // NB: ordine UNIVOCO per id. La vista ha un ORDER BY interno NON univoco
+      // (stato, due_date) con pareggi enormi: senza una chiave univoca la
+      // paginazione .range() su richieste HTTP separate puo' perdere/duplicare
+      // righe al confine tra le pagine. Ordinando per id la paginazione e' stabile.
       const viewData = await fetchAllPaged(
-        (from, to) => supabase.from('v_payables_operative').select('*').range(from, to),
+        (from, to) => supabase.from('v_payables_operative').select('*').order('id', { ascending: true }).range(from, to),
         'v_payables_operative',
       );
 
@@ -523,6 +527,7 @@ const ScadenzarioSmart = () => {
           .from('payables')
           .select('id, cash_movement_id, cost_category_id, verified, payment_date, payment_bank_account_id, installment_number, installment_total, recurring_cost_id, closed_manually, manual_close_reason')
           .eq('company_id', COMPANY_ID!)
+          .order('id', { ascending: true })
           .range(from, to),
         'payables extra',
       );
