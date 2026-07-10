@@ -490,18 +490,42 @@ const ScadenzarioSmart = () => {
     try {
       setLoading(true);
 
-      const { data: viewData } = await supabase
-        .from('v_payables_operative')
-        .select('*');
+      // PostgREST limita ogni richiesta a 1000 righe. Con oltre 1000 payables il
+      // semplice .select('*') troncava i dati e i totali mensili risultavano
+      // incompleti (scadenze mancanti nei subtotali). Pagino esplicitamente in
+      // blocchi da 1000 finche' la sorgente e' esaurita.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const fetchAllPaged = async (makeQuery: (from: number, to: number) => any, label: string): Promise<any[]> => {
+        const PAGE = 1000;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const acc: any[] = [];
+        for (let from = 0; ; from += PAGE) {
+          const { data, error } = await makeQuery(from, from + PAGE - 1);
+          if (error) { console.error(`[scadenzario] ${label} fetch:`, error?.message); break; }
+          const batch = data || [];
+          acc.push(...batch);
+          if (batch.length < PAGE) break;
+        }
+        return acc;
+      };
+
+      const viewData = await fetchAllPaged(
+        (from, to) => supabase.from('v_payables_operative').select('*').range(from, to),
+        'v_payables_operative',
+      );
 
       // Fetch extra fields from payables (cost_category_id, verified,
       // cash_movement_id, payment_date, payment_bank_account_id) per:
       //  - calcolo stato dinamico (Fix 5.1)
       //  - colonna CONTO con nome banca (Fix 5.2)
-      const { data: payablesRaw } = await supabase
-        .from('payables')
-        .select('id, cash_movement_id, cost_category_id, verified, payment_date, payment_bank_account_id, installment_number, installment_total, recurring_cost_id, closed_manually, manual_close_reason')
-        .eq('company_id', COMPANY_ID!);
+      const payablesRaw = await fetchAllPaged(
+        (from, to) => supabase
+          .from('payables')
+          .select('id, cash_movement_id, cost_category_id, verified, payment_date, payment_bank_account_id, installment_number, installment_total, recurring_cost_id, closed_manually, manual_close_reason')
+          .eq('company_id', COMPANY_ID!)
+          .range(from, to),
+        'payables extra',
+      );
       const payablesExtraMap: Record<string, AnyRow> = {};
       (payablesRaw || []).forEach(p => {
         if (!p.id) return;
