@@ -1342,23 +1342,46 @@ const ScadenzarioSmart = () => {
     }
   }, [today, modals, fetchData, toast]);
 
-  type InvoiceData = { supplierId: string; invoiceNumber: string; invoiceDate: string; dueDate: string; grossAmount: number; paymentMethod?: string; frequency?: string; costCenter?: string; endDate?: string }
+  type InvoiceData = { supplierId: string; newSupplierName?: string; supplierType?: string; invoiceNumber: string; invoiceDate: string; dueDate: string; grossAmount: number; paymentMethod?: string; frequency?: string; costCenter?: string; endDate?: string }
   const handleCreateInvoice = useCallback(async (invoiceData: InvoiceData) => {
-    // Validazione minima (niente dialog nativi): fornitore + scadenza + importo.
-    if (!invoiceData.supplierId) { toast({ type: 'warning', message: 'Seleziona un fornitore.' }); return; }
+    // Validazione minima (niente dialog nativi): nominativo + scadenza + importo.
+    const newName = (invoiceData.newSupplierName || '').trim();
+    if (!invoiceData.supplierId && !newName) { toast({ type: 'warning', message: 'Indica un fornitore esistente o un nuovo nominativo.' }); return; }
     if (!invoiceData.dueDate) { toast({ type: 'warning', message: 'Indica la data di scadenza pagamento.' }); return; }
     if (!(Number(invoiceData.grossAmount) > 0)) { toast({ type: 'warning', message: 'Indica un importo maggiore di zero.' }); return; }
     const isRecurring = !!invoiceData.frequency && invoiceData.frequency !== 'una_tantum';
     if (isRecurring && !invoiceData.costCenter) { toast({ type: 'warning', message: 'Per una scadenza ricorrente scegli il centro di costo / outlet.' }); return; }
     try {
+      // 0) Nominativo NON a sistema: creo un'anagrafica leggera (nome + tipo scelto
+      //    come categoria) così è riutilizzabile e il tipo resta salvato.
+      let supplierId = invoiceData.supplierId;
+      if (!supplierId && newName) {
+        const { data: newSup, error: supErr } = await supabase.from('suppliers').insert([{
+          company_id: COMPANY_ID,
+          ragione_sociale: newName,
+          name: newName,
+          category: invoiceData.supplierType || 'fornitore',
+          is_active: true,
+        } as never]).select('id');
+        if (supErr || !newSup?.[0]) {
+          toast({ type: 'error', message: 'Errore nel creare il nominativo: ' + (supErr?.message || 'sconosciuto') });
+          return;
+        }
+        supplierId = String((newSup[0] as { id?: string }).id || '');
+        // Aggiorno la lista locale così compare subito nelle ricerche successive.
+        setSuppliers(prev => [...prev, { id: supplierId, name: newName, ragione_sociale: newName, category: invoiceData.supplierType || 'fornitore' } as AnyRow]);
+      }
+      const effectiveName = newName
+        || (suppliers.find(s => s.id === supplierId)?.ragione_sociale
+          || suppliers.find(s => s.id === supplierId)?.name || '') as string;
+
       // 1) Se ricorrente, crea PRIMA la ricorrenza (così posso collegarla alla
       //    payable): il link recurring_cost_id permette la cancellazione a
       //    cascata — niente più ricorrenze fantasma in cashflow/stime.
       let recurringId: string | null = null;
       let recurringMsg = '';
       if (isRecurring) {
-        const supplierName = (suppliers.find(s => s.id === invoiceData.supplierId)?.ragione_sociale
-          || suppliers.find(s => s.id === invoiceData.supplierId)?.name || '') as string;
+        const supplierName = effectiveName;
         const dueDay = invoiceData.dueDate ? new Date(invoiceData.dueDate).getDate() : 1;
         const { data: recData, error: recErr } = await supabase.from('recurring_costs').insert([{
           company_id: COMPANY_ID,
@@ -1384,7 +1407,8 @@ const ScadenzarioSmart = () => {
       // 2) Crea la prima scadenza (payable), collegata alla ricorrenza se esiste.
       const { error: payErr } = await supabase.from('payables').insert([{
         company_id: COMPANY_ID,
-        supplier_id: invoiceData.supplierId,
+        supplier_id: supplierId,
+        supplier_name: effectiveName || null,
         invoice_number: invoiceData.invoiceNumber,
         invoice_date: invoiceData.invoiceDate,
         due_date: invoiceData.dueDate,
@@ -4195,7 +4219,17 @@ const EditScheduleModal = ({ schedule, onUpdate: _onUpdate, onSave }: { schedule
 };
 
 // Invoice Modal Component
-type InvoiceFormState = { supplierId: string; invoiceNumber: string; invoiceDate: string; dueDate: string; grossAmount: number; paymentMethod: string; frequency: string; costCenter: string; endDate: string }
+type InvoiceFormState = { supplierId: string; newSupplierName: string; supplierType: string; invoiceNumber: string; invoiceDate: string; dueDate: string; grossAmount: number; paymentMethod: string; frequency: string; costCenter: string; endDate: string }
+
+// Tipo del nominativo/scadenza. Diventa la `category` del fornitore quando si crea
+// un'anagrafica leggera al volo (nominativo non a sistema).
+const supplierTypeOptions: { value: string; label: string }[] = [
+  { value: 'fornitore', label: 'Fornitore' },
+  { value: 'fiscale', label: 'Fiscale' },
+  { value: 'interno', label: 'Interno' },
+  { value: 'altro', label: 'Altro' },
+];
+const supplierTypeValues = supplierTypeOptions.map(o => o.value);
 type CostCenterLite = { code?: string; label?: string | null; [k: string]: unknown }
 // Frequenze della scadenza ricorrente — allineate a recurring_costs.frequency
 // (stessi valori della tab Ricorrenze). 'una_tantum' = scadenza singola.
@@ -4212,6 +4246,8 @@ type PaymentGroup = { label: string; methods: string[] }
 const InvoiceModal = ({ suppliers, costCenters, paymentGroups, paymentMethodLabels, onSave, onClose }: { suppliers: SupplierLite[]; costCenters: CostCenterLite[]; paymentGroups: PaymentGroup[]; paymentMethodLabels: Record<string, string>; onSave: (data: InvoiceFormState) => void; onClose: () => void }) => {
   const [formData, setFormData] = useState<InvoiceFormState>({
     supplierId: '',
+    newSupplierName: '',
+    supplierType: 'fornitore',
     invoiceNumber: '',
     invoiceDate: new Date().toISOString().split('T')[0],
     dueDate: '',
@@ -4222,27 +4258,39 @@ const InvoiceModal = ({ suppliers, costCenters, paymentGroups, paymentMethodLabe
     endDate: '',
   });
 
-  // Selettore fornitore con RICERCA (typeahead): la select nativa con tutti i
-  // fornitori era ingestibile. Filtra per ragione sociale/nome.
+  // Selettore fornitore con RICERCA (typeahead): NON mostra l'intera lista quando
+  // il campo è vuoto (ingestibile con centinaia di fornitori). Si digita almeno
+  // 2 lettere e compaiono le corrispondenze; se il nominativo non è a sistema, si
+  // può aggiungerlo al volo (anagrafica leggera con il "tipo" scelto).
+  const MIN_QUERY = 2;
   const [supplierQuery, setSupplierQuery] = useState('');
   const [supplierOpen, setSupplierOpen] = useState(false);
   const selectedSupplier = suppliers.find(s => s.id === formData.supplierId);
-  const selectedSupplierLabel = (selectedSupplier?.ragione_sociale || selectedSupplier?.name || '') as string;
+  const selectedSupplierLabel = formData.newSupplierName
+    ? formData.newSupplierName
+    : (selectedSupplier?.ragione_sociale || selectedSupplier?.name || '') as string;
+  const trimmedQuery = supplierQuery.trim();
   const filteredSuppliers = (() => {
-    const q = supplierQuery.trim().toLowerCase();
-    const list = q
-      ? suppliers.filter(s => `${s.ragione_sociale || ''} ${s.name || ''}`.toLowerCase().includes(q))
-      : suppliers;
-    return list.slice(0, 50);
+    if (trimmedQuery.length < MIN_QUERY) return [];
+    const q = trimmedQuery.toLowerCase();
+    return suppliers
+      .filter(s => `${s.ragione_sociale || ''} ${s.name || ''}`.toLowerCase().includes(q))
+      .slice(0, 50);
   })();
+  // Mostra l'azione "aggiungi nuovo" solo se non esiste già un nominativo con lo
+  // stesso nome esatto (case-insensitive).
+  const hasExactMatch = suppliers.some(s =>
+    `${s.ragione_sociale || s.name || ''}`.trim().toLowerCase() === trimmedQuery.toLowerCase()
+  );
+  const canAddNew = trimmedQuery.length >= MIN_QUERY && !hasExactMatch;
 
   const isRecurring = formData.frequency !== 'una_tantum';
 
   return (
     <div className="space-y-3">
-      {/* FORNITORE — combobox con ricerca */}
+      {/* FORNITORE / NOMINATIVO — combobox con ricerca + aggiunta al volo */}
       <div className="relative">
-        <label className="block text-sm font-medium text-slate-700 mb-1">Fornitore *</label>
+        <label className="block text-sm font-medium text-slate-700 mb-1">Nominativo *</label>
         <div className="relative">
           <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-300" />
           <input
@@ -4251,22 +4299,66 @@ const InvoiceModal = ({ suppliers, costCenters, paymentGroups, paymentMethodLabe
             onChange={e => { setSupplierQuery(e.target.value); setSupplierOpen(true); }}
             onFocus={() => { setSupplierOpen(true); setSupplierQuery(''); }}
             onBlur={() => setTimeout(() => setSupplierOpen(false), 150)}
-            placeholder="Cerca fornitore…"
+            placeholder="Digita per cercare o aggiungere un nominativo…"
             className="w-full pl-8 pr-3 py-2 rounded-lg border border-slate-300 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none" />
         </div>
         {supplierOpen && (
           <div className="absolute z-50 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-56 overflow-y-auto">
-            {filteredSuppliers.length === 0 ? (
-              <div className="px-3 py-2 text-xs text-slate-400">Nessun fornitore trovato</div>
-            ) : filteredSuppliers.map(s => (
-              <button key={s.id} type="button"
-                onClick={() => { setFormData({ ...formData, supplierId: String(s.id) }); setSupplierOpen(false); setSupplierQuery(''); }}
-                className={`w-full text-left px-3 py-1.5 text-sm hover:bg-slate-50 ${formData.supplierId === s.id ? 'bg-slate-50 font-medium' : ''}`}>
-                {s.ragione_sociale || s.name}
-              </button>
-            ))}
+            {trimmedQuery.length < MIN_QUERY ? (
+              <div className="px-3 py-2 text-xs text-slate-400">Digita almeno {MIN_QUERY} lettere per cercare…</div>
+            ) : (
+              <>
+                {filteredSuppliers.map(s => (
+                  <button key={s.id} type="button"
+                    onMouseDown={e => e.preventDefault()}
+                    onClick={() => {
+                      const cat = String(s.category || '');
+                      setFormData({
+                        ...formData,
+                        supplierId: String(s.id),
+                        newSupplierName: '',
+                        supplierType: supplierTypeValues.includes(cat) ? cat : formData.supplierType,
+                      });
+                      setSupplierOpen(false); setSupplierQuery('');
+                    }}
+                    className={`w-full text-left px-3 py-1.5 text-sm hover:bg-slate-50 ${formData.supplierId === s.id ? 'bg-slate-50 font-medium' : ''}`}>
+                    {s.ragione_sociale || s.name}
+                  </button>
+                ))}
+                {filteredSuppliers.length === 0 && (
+                  <div className="px-3 py-2 text-xs text-slate-400">Nessun nominativo a sistema</div>
+                )}
+                {canAddNew && (
+                  <button type="button"
+                    onMouseDown={e => e.preventDefault()}
+                    onClick={() => {
+                      setFormData({ ...formData, supplierId: '', newSupplierName: trimmedQuery });
+                      setSupplierOpen(false); setSupplierQuery('');
+                    }}
+                    className="w-full text-left px-3 py-2 text-sm border-t border-slate-100 bg-emerald-50/60 hover:bg-emerald-100 text-emerald-700 font-medium flex items-center gap-1.5">
+                    <Plus size={14} /> Usa «{trimmedQuery}» come nuovo nominativo
+                  </button>
+                )}
+              </>
+            )}
           </div>
         )}
+        {formData.newSupplierName && !supplierOpen && (
+          <p className="mt-1 text-[11px] text-emerald-600 font-medium">Nuovo nominativo — verrà creato come «{supplierTypeOptions.find(o => o.value === formData.supplierType)?.label}»</p>
+        )}
+      </div>
+      {/* TIPO — classifica il nominativo/scadenza (salvato come categoria) */}
+      <div>
+        <label className="block text-sm font-medium text-slate-700 mb-1">Tipo</label>
+        <div className="flex rounded-lg overflow-hidden border border-slate-300">
+          {supplierTypeOptions.map(o => (
+            <button key={o.value} type="button"
+              onClick={() => setFormData({ ...formData, supplierType: o.value })}
+              className={`flex-1 px-3 py-1.5 text-sm font-medium border-l first:border-l-0 border-slate-200 ${formData.supplierType === o.value ? 'bg-indigo-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}>
+              {o.label}
+            </button>
+          ))}
+        </div>
       </div>
       <div>
         <label className="block text-sm font-medium text-slate-700 mb-1">Numero documento <span className="text-slate-400 font-normal">(opzionale)</span></label>
