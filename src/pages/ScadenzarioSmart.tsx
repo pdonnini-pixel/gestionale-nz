@@ -368,6 +368,16 @@ const ScadenzarioSmart = () => {
   const [manualCloseAmount, setManualCloseAmount] = useState<string>(''); // importo da chiudere (totale o parziale)
 
   // Selection helpers
+  // Banca di default alla selezione: se la fattura ha gia' un conto di pagamento
+  // salvato lo riuso; altrimenti, se esiste UN SOLO conto attivo, preseleziono
+  // quello. Con piu' conti resta vuoto (l'utente deve scegliere).
+  const defaultBankIdFor = (payable: AnyRow): string => {
+    const stored = payable.payment_bank_account_id ? String(payable.payment_bank_account_id) : '';
+    if (stored && bankAccounts.some(b => String(b.id) === stored)) return stored;
+    if (bankAccounts.length === 1 && bankAccounts[0]?.id) return String(bankAccounts[0].id);
+    return '';
+  };
+
   const toggleSelect = (id: string, payable: AnyRow) => {
     const next = new Set(selectedIds);
     const nextPlan = { ...paymentPlan };
@@ -376,7 +386,7 @@ const ScadenzarioSmart = () => {
       delete nextPlan[id];
     } else {
       next.add(id);
-      nextPlan[id] = { bankId: '', type: 'saldo', amount: Number(payable.amount_remaining) || 0, note: '' };
+      nextPlan[id] = { bankId: defaultBankIdFor(payable), type: 'saldo', amount: Number(payable.amount_remaining) || 0, note: '' };
       if (payable.disposizione_date && payable.status !== 'pagato' && payable.status !== 'annullato') {
         toast({ type: 'warning', message: `Fattura ${payable.invoice_number || ''} è già in distinta dal ${new Date(payable.disposizione_date as string).toLocaleDateString('it-IT')}: non verrà aggiunta di nuovo.` });
       }
@@ -396,7 +406,7 @@ const ScadenzarioSmart = () => {
       nonPaid.forEach(p => {
         if (!p.id) return;
         next.add(p.id);
-        nextPlan[p.id] = paymentPlan[p.id] || { bankId: '', type: 'saldo', amount: Number(p.amount_remaining) || 0, note: '' };
+        nextPlan[p.id] = paymentPlan[p.id] || { bankId: defaultBankIdFor(p), type: 'saldo', amount: Number(p.amount_remaining) || 0, note: '' };
       });
       setSelectedIds(next);
       setPaymentPlan(nextPlan);
@@ -464,6 +474,15 @@ const ScadenzarioSmart = () => {
       const plan = paymentPlan[id];
       return sum + (plan?.amount || 0);
     }, 0);
+  }, [selectedIds, paymentPlan]);
+
+  // Fatture selezionate SENZA banca assegnata: bloccano la creazione distinta.
+  // Serve per dare un feedback esplicito all'utente (altrimenti il tasto resta
+  // grigio senza spiegazione).
+  const missingBankCount = useMemo(() => {
+    let n = 0;
+    for (const id of selectedIds) if (!paymentPlan[id]?.bankId) n++;
+    return n;
   }, [selectedIds, paymentPlan]);
 
   // Modals
@@ -3686,6 +3705,11 @@ const ScadenzarioSmart = () => {
                     <span className="text-sm font-medium text-slate-900">{selectedIds.size} fattura{selectedIds.size !== 1 ? 'e' : ''}</span>
                     <span className="text-lg font-bold">{fmt(selectedTotal)} €</span>
                     {hasNegativeBalance && <span className="text-sm font-medium text-red-600">Saldo insufficiente</span>}
+                    {!hasNegativeBalance && missingBankCount > 0 && (
+                      <span className="text-sm font-medium text-amber-600">
+                        {missingBankCount === 1 ? '1 fattura senza banca' : `${missingBankCount} fatture senza banca`}
+                      </span>
+                    )}
                   </div>
                   <div className="flex gap-3">
                     <button onClick={() => { setSelectedIds(new Set()); setPaymentPlan({}); }}
@@ -3697,9 +3721,16 @@ const ScadenzarioSmart = () => {
                         <AlertTriangle size={14} /> Saldo insufficiente su una o più banche
                       </div>
                     )}
-                    <button onClick={confirmPayments} disabled={isSaving || hasNegativeBalance || Array.from(selectedIds).some(id => !paymentPlan[id]?.bankId)}
+                    {!hasNegativeBalance && missingBankCount > 0 && (
+                      <div className="flex items-center gap-1.5 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-700 font-medium">
+                        <AlertTriangle size={14} /> Assegna una banca a ogni fattura selezionata
+                      </div>
+                    )}
+                    <button onClick={confirmPayments} disabled={isSaving || hasNegativeBalance || missingBankCount > 0}
                       className="px-6 py-2 bg-emerald-600 text-white hover:bg-emerald-700 rounded-lg text-sm font-bold disabled:opacity-50 disabled:cursor-not-allowed"
-                      title="Genera l'email-distinta di pagamento. La fattura resterà aperta finché il movimento bancario non verrà importato e riconciliato.">
+                      title={missingBankCount > 0
+                        ? 'Assegna una banca a ogni fattura selezionata per abilitare la creazione della distinta.'
+                        : "Genera l'email-distinta di pagamento. La fattura resterà aperta finché il movimento bancario non verrà importato e riconciliato."}>
                       {isSaving ? 'Elaborazione...' : 'Crea distinta'}
                     </button>
                     <button disabled
