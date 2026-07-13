@@ -1,5 +1,28 @@
 # Piano di pagamento fornitore + segnalazioni anomalie — Note di implementazione
 
+> ## 🧾 CICLO DISTINTA / "IN SOSPESO" (2026-07-13) — leggere prima di toccare distinta/riconciliazione
+>
+> Flusso a 3 stati: **Predisposizione** (Crea distinta = solo anteprima, nessuna scrittura) →
+> **Conferma** (fatture IN SOSPESO, tolte dallo scadenzario attivo, banca prevista impostata,
+> **niente chiuso**) → **Pagamento** (riconciliazione del movimento bancario → la fattura si chiude,
+> con le NC collegate). Regole ferme:
+> - Alla Conferma **non si chiude nulla** (né fatture né note di credito). La compensazione NC è solo
+>   un'intenzione registrata in `payable_credit_note_links` (stato `pending`).
+> - Le fatture in distinta restano `da_pagare`/`scaduto` (NON stato `sospeso`): così il motore di
+>   riconciliazione le aggancia comunque. "In sospeso" è un **filtro UI** (`selectedStatus='in_distinta'`),
+>   non un cambio di stato DB.
+> - **Prima nota = solo `bank_transactions`** (movimenti reali). La chiusura a mano non crea movimenti
+>   e non tocca il saldo → nessun doppio conteggio in prima nota/cashflow.
+> - Frontend: `src/pages/ScadenzarioSmart.tsx` (distinta, bozza localStorage, ACCONTO/SALDO, scala NC,
+>   "In sospeso"), riuso del tab **Riconciliazione** in `TesoreriaManuale.tsx` per l'abbinamento manuale.
+> - **Passo 2 — migration `supabase/migrations/20260713_090_credit_note_links_reconcile.sql`**: tabella
+>   `payable_credit_note_links` + `reconcile_movement` (consuma le NC collegate, aggancia a fatture chiuse
+>   a mano) + `undo_reconcile_movement` (riapre le NC) + `try_match_bank_transaction` (esclude dall'auto
+>   le fatture con NC pending). **⚠️ Da applicare A MANO su NZ + Made + Zago** (additiva, con rollback e
+>   verifiche in coda al file). Il frontend scrive i link in best-effort: se la 090 non è applicata,
+>   la NC dopo l'abbinamento del netto va chiusa a mano (resto invariato). Guida utente:
+>   `GUIDA_DISTINTA_Sabrina.md` + in-app (HelpPanel voce `/scadenzario`).
+
 > ## 📌 REGOLA — LEGGERE SEMPRE PRIMA DI TOCCARE IL CICLO PASSIVO
 >
 > Questo file va **letto per intero prima di qualsiasi lavoro sulla sezione Ciclo Passivo**

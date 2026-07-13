@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useSearchParams, Link } from 'react-router-dom';
 import PageHelp from '../components/PageHelp';
 import { useToast } from '../components/Toast';
 
@@ -321,7 +321,13 @@ const ScadenzarioSmart = () => {
   const [searchTerm, setSearchTerm] = useState(urlSearch || '');
   const [isSaving, setIsSaving] = useState(false);
 
-  type PlanEntry = { bankId: string; type: string; amount: number; note: string }
+  // PlanEntry: piano di pagamento per singola fattura selezionata in distinta.
+  //  - type: 'saldo' | 'parziale' (toggle in assegnazione banca)
+  //  - baseAmount: importo lordo previsto PRIMA delle NC (residuo per saldo, acconto per parziale)
+  //  - amount: importo NETTO effettivo del bonifico = baseAmount − Σ|NC compensate| (è quello che
+  //    incide su saldi banca e distinta)
+  //  - ncIds: id dei payables nota-di-credito (stesso fornitore) compensati su questa fattura
+  type PlanEntry = { bankId: string; type: string; amount: number; note: string; baseAmount?: number; ncIds?: string[] }
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [paymentPlan, setPaymentPlan] = useState<Record<string, PlanEntry>>({});
   const [emailRecipients, setEmailRecipients] = useState('');
@@ -331,8 +337,9 @@ const ScadenzarioSmart = () => {
   const askConfirm = useCallback((message: string) => new Promise<boolean>((resolve) => setConfirmDialog({ message, resolve })), []);
   type ConfirmPayment = { fornitore: string; fattura: string; importo: number; bankId: string; banca: string; iban: string; ibanBeneficiario: string; pivaBeneficiario: string; tipo: string; metodo: string; note: string }
   type ConfirmBank = { bankName: string; iban: string; saldoIniziale: number; totalePagamenti: number; pagamenti: ConfirmPayment[]; saldoFinale?: number }
-  // Item grezzo da salvare in distinta SOLO alla conferma esplicita (no side-effect)
-  type DistintaItem = { payableId: string; bankId: string; amount: number; status: string; note: string }
+  // Item grezzo da salvare in distinta SOLO alla conferma esplicita (no side-effect).
+  // ncIds: note di credito compensate su questa fattura — alla conferma vengono chiuse in AVERE.
+  type DistintaItem = { payableId: string; bankId: string; amount: number; status: string; note: string; ncIds?: string[] }
   type ConfirmResult = { results: ConfirmPayment[]; banks: ConfirmBank[]; totaleComplessivo: number; emailBody: string; emailSubject: string; items: DistintaItem[] } | null
   const [confirmResult, setConfirmResult] = useState<ConfirmResult>(null);
   // La distinta è stata effettivamente salvata? (gate per "Conferma distinta")
@@ -386,7 +393,8 @@ const ScadenzarioSmart = () => {
       delete nextPlan[id];
     } else {
       next.add(id);
-      nextPlan[id] = { bankId: defaultBankIdFor(payable), type: 'saldo', amount: Number(payable.amount_remaining) || 0, note: '' };
+      const residuo0 = Number(payable.amount_remaining) || 0;
+      nextPlan[id] = { bankId: defaultBankIdFor(payable), type: 'saldo', amount: residuo0, baseAmount: residuo0, note: '', ncIds: [] };
       if (payable.disposizione_date && payable.status !== 'pagato' && payable.status !== 'annullato') {
         toast({ type: 'warning', message: `Fattura ${payable.invoice_number || ''} è già in distinta dal ${new Date(payable.disposizione_date as string).toLocaleDateString('it-IT')}: non verrà aggiunta di nuovo.` });
       }
@@ -406,7 +414,8 @@ const ScadenzarioSmart = () => {
       nonPaid.forEach(p => {
         if (!p.id) return;
         next.add(p.id);
-        nextPlan[p.id] = paymentPlan[p.id] || { bankId: defaultBankIdFor(p), type: 'saldo', amount: Number(p.amount_remaining) || 0, note: '' };
+        const residuo0 = Number(p.amount_remaining) || 0;
+        nextPlan[p.id] = paymentPlan[p.id] || { bankId: defaultBankIdFor(p), type: 'saldo', amount: residuo0, baseAmount: residuo0, note: '', ncIds: [] };
       });
       setSelectedIds(next);
       setPaymentPlan(nextPlan);
@@ -419,6 +428,72 @@ const ScadenzarioSmart = () => {
       [id]: { ...prev[id], [field]: value as never }
     }));
   };
+
+  // Importo (valore assoluto) di una nota di credito
+  const ncAmountOf = (nc: AnyRow): number => Math.abs(Number(nc.gross_amount) || 0);
+
+  // Note di credito APERTE dello stesso fornitore di `payable`, compensabili in distinta.
+  // NC = payable con importo negativo o status 'nota_credito', non ancora chiusa a mano.
+  // Aggancio fornitore per supplier_id o per P.IVA (come da regola PAYMENT_PLAN_NOTES).
+  const openCreditNotesFor = (payable: AnyRow): AnyRow[] => {
+    const sid = payable.supplier_id ? String(payable.supplier_id) : '';
+    const svat = payable.supplier_vat ? String(payable.supplier_vat) : '';
+    return payables.filter(x => {
+      const g = Number(x.gross_amount) || 0;
+      const isNC = x.status === 'nota_credito' || g < 0;
+      if (!isNC || x.closed_manually) return false;
+      const sameById = sid && String(x.supplier_id || '') === sid;
+      const sameByVat = svat && String(x.supplier_vat || '') === svat;
+      return Boolean(sameById || sameByVat);
+    });
+  };
+
+  // Ricalcola l'importo NETTO del piano dopo una modifica (type/baseAmount/ncIds):
+  //   netto = base (residuo se saldo, acconto se parziale) − Σ|NC selezionate|, min 0
+  const recomputePlan = (pid: string, patch: Partial<PlanEntry>) => {
+    setPaymentPlan(prev => {
+      const cur = { ...prev[pid], ...patch } as PlanEntry;
+      const payable = payables.find(p => p.id === pid);
+      const residuo = Number(payable?.amount_remaining) || 0;
+      const base = cur.type === 'saldo' ? residuo : Math.min(Number(cur.baseAmount) || 0, residuo);
+      const ncTot = (cur.ncIds || []).reduce((s, nid) => {
+        const nc = payables.find(p => p.id === nid);
+        return s + (nc ? ncAmountOf(nc) : 0);
+      }, 0);
+      const net = Math.max(0, +(base - ncTot).toFixed(2));
+      return { ...prev, [pid]: { ...cur, baseAmount: base, amount: net } };
+    });
+  };
+
+  // Tipo riga distinta (ACCONTO vs SALDO) come richiesto:
+  //  - 'parziale' (acconto scelto in assegnazione banca) → ACCONTO
+  //  - rata intermedia di un piano 30/60/90 (es. 1/3, 2/3) → ACCONTO
+  //  - pagamento pieno che chiude / ultima rata → SALDO
+  // Restituisce anche l'etichetta con l'eventuale "(rata i/N)".
+  const distintaTipo = (payable: AnyRow, plan: PlanEntry): { tipo: 'ACCONTO' | 'SALDO'; label: string } => {
+    const nRate = Number(payable.installment_total) || 0;
+    const rata = Number(payable.installment_number) || 0;
+    const isRata = nRate > 1;
+    const isIntermedia = isRata && rata > 0 && rata < nRate;
+    const tipo: 'ACCONTO' | 'SALDO' = (plan.type === 'parziale' || isIntermedia) ? 'ACCONTO' : 'SALDO';
+    const label = `${tipo}${isRata ? ` (rata ${rata}/${nRate})` : ''}`;
+    return { tipo, label };
+  };
+
+  // Accesso alla tabella payable_credit_note_links (legami NC↔fattura del Passo 2).
+  // Non è ancora nei tipi generati finché la migration 090 non è applicata + tipi rigenerati:
+  // cast localizzato (niente any). Tutte le chiamate sono best-effort (try/catch a monte).
+  type PcnlBuilder = {
+    upsert: (values: unknown, options?: unknown) => Promise<{ error: { code?: string; message: string } | null }>
+    delete: () => { eq: (col: string, val: unknown) => { eq: (col: string, val: unknown) => Promise<{ error: { message: string } | null }> } }
+  }
+  const pcnlTable = (): PcnlBuilder => (supabase.from as unknown as (t: string) => PcnlBuilder)('payable_credit_note_links');
+
+  // Riepilogo NC compensate su una fattura (per causale/note distinta)
+  const ncBreakdown = (plan: PlanEntry): { num: string; amt: number }[] =>
+    (plan.ncIds || [])
+      .map(nid => { const nc = payables.find(p => p.id === nid); return nc ? { num: nc.invoice_number || 'NC', amt: ncAmountOf(nc) } : null; })
+      .filter(Boolean) as { num: string; amt: number }[];
 
   // Date range
   const getDynamicDateRange = () => {
@@ -453,6 +528,50 @@ const ScadenzarioSmart = () => {
     });
     return spending;
   }, [paymentPlan]);
+
+  // ───── BOZZA DISTINTA PERSISTENTE (localStorage) ─────
+  // Il lavoro in corso (fatture selezionate + piano di pagamento) vive solo in memoria
+  // React: cambiare pagina, finestra o ricaricare lo perdeva ("distinta prodotta senza
+  // salvarla"). Lo persistiamo nel browser così sopravvive a navigazione/reload. Per
+  // singola operatrice (nessun dato condiviso, nessuna migration).
+  const DRAFT_KEY = COMPANY_ID ? `scad_distinta_draft_${COMPANY_ID}` : '';
+  const draftReady = useRef(false);
+
+  // Ripristino una sola volta, quando i payables sono caricati (per validare le righe).
+  useEffect(() => {
+    if (!DRAFT_KEY || draftReady.current) return;
+    if (!payables || payables.length === 0) return;
+    draftReady.current = true;
+    try {
+      const raw = localStorage.getItem(DRAFT_KEY);
+      if (!raw) return;
+      const draft = JSON.parse(raw) as { ids?: string[]; plan?: Record<string, PlanEntry> };
+      // Tieni solo le fatture ancora presenti e non pagate/annullate.
+      const validIds = (draft.ids || []).filter(id => {
+        const p = payables.find(x => x.id === id);
+        return p && p.status !== 'pagato' && p.status !== 'annullato';
+      });
+      if (validIds.length === 0) { localStorage.removeItem(DRAFT_KEY); return; }
+      const plan: Record<string, PlanEntry> = {};
+      validIds.forEach(id => { if (draft.plan && draft.plan[id]) plan[id] = draft.plan[id]; });
+      setSelectedIds(new Set(validIds));
+      setPaymentPlan(plan);
+      toast({ type: 'info', message: `Bozza distinta ripristinata: ${validIds.length} fattur${validIds.length === 1 ? 'a' : 'e'} in lavorazione.` });
+    } catch { /* bozza illeggibile: ignora */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [DRAFT_KEY, payables]);
+
+  // Salvataggio automatico a ogni modifica (dopo il primo ripristino). Selezione vuota → pulisce.
+  useEffect(() => {
+    if (!DRAFT_KEY || !draftReady.current) return;
+    try {
+      if (selectedIds.size === 0) {
+        localStorage.removeItem(DRAFT_KEY);
+      } else {
+        localStorage.setItem(DRAFT_KEY, JSON.stringify({ ids: Array.from(selectedIds), plan: paymentPlan, savedAt: new Date().toISOString() }));
+      }
+    } catch { /* quota o storage non disponibile: ignora */ }
+  }, [DRAFT_KEY, selectedIds, paymentPlan]);
 
   // Saldo insufficiente: controlla SOLO le banche effettivamente in uso nei pagamenti
   // selezionati (non tutti i conti del tenant). Se un conto X è negativo ma non lo stai
@@ -1262,6 +1381,13 @@ const ScadenzarioSmart = () => {
     };
   }, [filteredPayables, cashPosition, today]);
 
+  // Fatture IN SOSPESO = disposte in distinta, in attesa di riscontro bancario.
+  // Conteggio/totale globali (indipendenti dal filtro attivo), per l'accesso rapido.
+  const suspendedInfo = useMemo(() => {
+    const list = payables.filter(p => !!p.disposizione_date && p.status !== 'pagato' && p.status !== 'annullato');
+    return { count: list.length, total: list.reduce((s, p) => s + (Number(p.amount_remaining) || 0), 0) };
+  }, [payables]);
+
   // Totali per singolo metodo di pagamento (stessa base filtrata dei KPI)
   type MethodAgg = { key: string; label: string; total: number; count: number }
   const methodTotals = useMemo<MethodAgg[]>(() => {
@@ -1617,14 +1743,25 @@ const ScadenzarioSmart = () => {
 
         const bank = bankAccounts.find(b => b.id === plan.bankId);
 
+        // Tipo ACCONTO/SALDO (con eventuale rata) + note di credito compensate.
+        const { label: tipoLabel } = distintaTipo(payable, plan);
+        const ncList = ncBreakdown(plan);
+        // Causale NC per il bonifico (la scrive Sabrina): "al netto NC n.X (importo) e NC n.Y (importo)"
+        const ncNote = ncList.length
+          ? `al netto ${ncList.map(n => `NC n.${n.num} (${fmt(n.amt)})`).join(' e ')}`
+          : '';
+        const composedNote = [plan.note, ncNote].filter(Boolean).join(' — ');
+
         // Riga da salvare alla conferma (la disposizione NON marca la fattura pagata:
-        // resta aperta finche' il movimento non viene riconciliato).
+        // resta aperta finche' il movimento non viene riconciliato). La nota include tipo
+        // (ACCONTO/SALDO) e l'eventuale scalatura NC, così resta tracciata anche in Storico.
         items.push({
           payableId: id,
           bankId: plan.bankId || '',
           amount: plan.amount,
           status: (payable.status as string) || 'da_pagare',
-          note: `Distinta del ${dataStr} — ${bank?.bank_name || 'N/D'}`,
+          note: `Distinta del ${dataStr} — ${bank?.bank_name || 'N/D'} — ${tipoLabel}${ncNote ? ` — ${ncNote}` : ''}`,
+          ncIds: plan.ncIds && plan.ncIds.length ? [...plan.ncIds] : undefined,
         });
 
         results.push({
@@ -1636,9 +1773,9 @@ const ScadenzarioSmart = () => {
           iban: bank?.iban || '',
           ibanBeneficiario: payable.supplier_iban || '',
           pivaBeneficiario: payable.supplier_vat || '',
-          tipo: plan.type === 'saldo' ? 'SALDO' : 'PARZIALE',
+          tipo: tipoLabel,
           metodo: (paymentMethodLabels as Record<string, string>)[payable.payment_method || ''] || '',
-          note: plan.note || '',
+          note: composedNote,
         });
       }
 
@@ -1730,6 +1867,39 @@ const ScadenzarioSmart = () => {
         inserted++;
       }
 
+      // NOTE DI CREDITO: NON si chiudono qui. La compensazione è solo un'INTENZIONE finché
+      // il bonifico netto non è realmente uscito e riconciliato. Alla Conferma la distinta
+      // porta solo il netto + la causale (numeri NC) nella disposizione; la chiusura di
+      // fattura e NC avviene insieme al momento della riconciliazione del movimento
+      // bancario (o della chiusura a mano di normalizzazione). Vedi Passo 2.
+      //
+      // Passo 2: registro il LEGAME fattura↔NC (tabella payable_credit_note_links) così che,
+      // quando il movimento netto viene riconciliato, la funzione reconcile_movement consumi
+      // le NC e chiuda la fattura. Best-effort: se la tabella non esiste ancora (migration 090
+      // non applicata) l'errore viene ignorato e la distinta resta valida comunque.
+      try {
+        const links = items.flatMap(it => (it.ncIds || []).map(ncId => {
+          const nc = payables.find(p => p.id === ncId);
+          return {
+            company_id: COMPANY_ID,
+            payable_id: it.payableId,
+            credit_note_payable_id: ncId,
+            amount: nc ? Math.abs(Number(nc.gross_amount) || 0) : 0,
+            status: 'pending',
+          };
+        }));
+        if (links.length > 0) {
+          const { error: linkErr } = await pcnlTable()
+            .upsert(links, { onConflict: 'payable_id,credit_note_payable_id', ignoreDuplicates: true });
+          if (linkErr && linkErr.code !== '42P01') {
+            // 42P01 = tabella inesistente (migration non ancora applicata): silenzioso.
+            console.warn('[distinta] legami NC non salvati:', linkErr.message);
+          }
+        }
+      } catch (e) {
+        console.warn('[distinta] legami NC: errore ignorato', e);
+      }
+
       setIsSaving(false);
       if (errors.length > 0) {
         toast({ type: 'error', message: `Distinta salvata con errori: ${inserted} aggiunte, ${errors.length} fallite.` });
@@ -1755,6 +1925,11 @@ const ScadenzarioSmart = () => {
   // scadenza è pagata/parziale o ha già una payment_date (banca dei flussi reali).
   const removeFromDistinta = async (payableId: string) => {
     try {
+      // Passo 2: rimuovo anche i legami NC↔fattura ancora 'pending' (l'intenzione di
+      // compensazione decade con la distinta). Best-effort: ignoro se la tabella non c'è.
+      try {
+        await pcnlTable().delete().eq('payable_id', payableId).eq('status', 'pending');
+      } catch { /* tabella assente o errore non bloccante */ }
       const { error } = await supabase
         .from('payable_actions')
         .delete()
@@ -2084,6 +2259,12 @@ const ScadenzarioSmart = () => {
     const reals = filteredPayables.filter(p => {
       // Viste "chiuse/tutte" o filtro esplicito NC → mostra tutto (incluse le chiuse).
       if (selectedStatus === 'pagato' || selectedStatus === 'all' || selectedStatus === 'nota_credito') return true;
+      // Fatture "in distinta" (disposte, in attesa di riscontro bancario): sono IN SOSPESO
+      // e vanno tolte dalla lista attiva dello scadenzario. Si vedono solo nella vista
+      // dedicata "In sospeso" (selectedStatus='in_distinta'). Lo stato DB resta invariato
+      // (da_pagare/scaduto) così il motore di riconciliazione le aggancia comunque.
+      const isInDistinta = !!p.disposizione_date && p.status !== 'pagato' && p.status !== 'annullato';
+      if (isInDistinta && selectedStatus !== 'in_distinta') return false;
       // Pagate nascoste di default.
       if (p.status === 'pagato') return false;
       // NC CHIUSA a mano (registrata in partitario): esce dalle Aperte come una pagata,
@@ -2487,11 +2668,22 @@ const ScadenzarioSmart = () => {
               <option value="da_pagare">Da pagare</option>
               <option value="parziale">Parziale</option>
               <option value="pagato">Pagato</option>
-              <option value="in_distinta">In distinta</option>
+              <option value="in_distinta">In sospeso (in attesa di riscontro)</option>
               <option value="sospeso">Sospeso</option>
               <option value="rimandato">Rimandato</option>
               <option value="annullato">Annullato</option>
             </select>
+            {/* Accesso rapido "In sospeso": le fatture disposte in distinta sono tolte dalla
+                lista attiva; questo pill le richiama (o torna alle Aperte se già attivo). */}
+            {suspendedInfo.count > 0 && (
+              <button
+                onClick={() => setSelectedStatus(selectedStatus === 'in_distinta' ? '' : 'in_distinta')}
+                title="Fatture disposte in distinta, in attesa di riscontro sul movimento bancario"
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium ${selectedStatus === 'in_distinta' ? 'bg-amber-500 text-white border-amber-500' : 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100'}`}>
+                <Clock size={12} />
+                In sospeso: {suspendedInfo.count} ({fmt(suspendedInfo.total)} €)
+              </button>
+            )}
             <input type="date" value={dateRange.start} onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })}
               className="px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs bg-white text-slate-500" title="Periodo: da" />
             <input type="date" value={dateRange.end} onChange={(e) => setDateRange({ ...dateRange, end: e.target.value })}
@@ -2629,7 +2821,7 @@ const ScadenzarioSmart = () => {
               )}
               {selectedStatus && (
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 text-xs text-slate-600">
-                  {selectedStatus === 'in_distinta' ? 'In distinta' : ((statusConfig as Record<string, { label?: string }>)[selectedStatus]?.label || selectedStatus)} <button onClick={() => setSelectedStatus('')} className="text-slate-400 hover:text-slate-600"><X size={11} /></button>
+                  {selectedStatus === 'in_distinta' ? 'In sospeso' : ((statusConfig as Record<string, { label?: string }>)[selectedStatus]?.label || selectedStatus)} <button onClick={() => setSelectedStatus('')} className="text-slate-400 hover:text-slate-600"><X size={11} /></button>
                 </span>
               )}
               {(dateRange.start || dateRange.end) && (
@@ -2652,6 +2844,23 @@ const ScadenzarioSmart = () => {
                 className="text-xs text-red-500 hover:text-red-600 font-medium">
                 Rimuovi tutti i filtri
               </button>
+            </div>
+          )}
+
+          {/* ===== BANNER "IN SOSPESO" — spiega lo stato e come chiudere ===== */}
+          {selectedStatus === 'in_distinta' && (
+            <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+              <Clock size={18} className="text-amber-500 shrink-0 mt-0.5" />
+              <div className="text-sm text-amber-800">
+                <div className="font-semibold">Fatture in sospeso — in attesa di riscontro bancario</div>
+                <p className="text-xs text-amber-700 mt-1 leading-relaxed">
+                  Disposte in distinta e tolte dallo scadenzario attivo. Si chiudono da sole quando il
+                  movimento bancario viene riconciliato. Se il bonifico non trova riscontro (causale non
+                  riconosciuta, o importo netto per note di credito) puoi abbinarlo a mano dalla
+                  <Link to="/banche?tab=riconciliazione" className="font-semibold underline mx-1 hover:text-amber-900">Riconciliazione</Link>
+                  senza creare doppioni, oppure chiudere la fattura a mano (data + banca) qui sotto con «Chiudi a mano».
+                </p>
+              </div>
             </div>
           )}
 
@@ -3464,6 +3673,11 @@ const ScadenzarioSmart = () => {
                         {p.id && selectedIds.has(p.id) && paymentPlan[p.id] && (() => {
                           const pid = p.id;
                           const plan = paymentPlan[pid];
+                          const residuo = Number(p.amount_remaining) || 0;
+                          const ncOpts = openCreditNotesFor(p);
+                          const ncTot = (plan.ncIds || []).reduce((s, nid) => { const nc = payables.find(x => x.id === nid); return s + (nc ? ncAmountOf(nc) : 0); }, 0);
+                          const baseAmt = plan.type === 'saldo' ? residuo : (Number(plan.baseAmount) || 0);
+                          const { tipo: tipoKind, label: tipoLabel } = distintaTipo(p, plan);
                           return (
                           <tr className="bg-slate-50 border-b border-slate-200">
                             <td colSpan={9} className="px-4 py-2.5">
@@ -3481,30 +3695,61 @@ const ScadenzarioSmart = () => {
                                 <div>
                                   <label className="text-xs font-medium text-slate-600 block mb-1">Tipo</label>
                                   <div className="flex rounded-lg overflow-hidden border border-slate-300">
-                                    <button onClick={() => { updatePlan(pid, 'type', 'saldo'); updatePlan(pid, 'amount', p.amount_remaining || 0); }}
+                                    <button onClick={() => recomputePlan(pid, { type: 'saldo' })}
                                       className={`px-3 py-1.5 text-sm font-medium ${plan.type === 'saldo' ? 'bg-emerald-600 text-white' : 'bg-white text-slate-600'}`}>
                                       Saldo
                                     </button>
-                                    <button onClick={() => updatePlan(pid, 'type', 'parziale')}
+                                    <button onClick={() => recomputePlan(pid, { type: 'parziale', baseAmount: plan.baseAmount ?? residuo })}
                                       className={`px-3 py-1.5 text-sm font-medium ${plan.type === 'parziale' ? 'bg-amber-500 text-white' : 'bg-white text-slate-600'}`}>
                                       Parziale
                                     </button>
                                   </div>
                                 </div>
                                 {plan.type === 'parziale' && (
-                                  <>
-                                    <div>
-                                      <label className="text-xs font-medium text-slate-600 block mb-1">Importo</label>
-                                      <input type="number" step="0.01" value={plan.amount}
-                                        onChange={e => updatePlan(pid, 'amount', Math.min(Number(e.target.value) || 0, p.amount_remaining || 0))}
-                                        className="px-2 py-1.5 border border-slate-300 rounded-lg text-sm w-32" />
+                                  <div>
+                                    <label className="text-xs font-medium text-slate-600 block mb-1">Acconto (lordo)</label>
+                                    <input type="number" step="0.01" value={plan.baseAmount ?? plan.amount}
+                                      onChange={e => recomputePlan(pid, { baseAmount: Math.min(Number(e.target.value) || 0, residuo) })}
+                                      className="px-2 py-1.5 border border-slate-300 rounded-lg text-sm w-32" />
+                                  </div>
+                                )}
+                                {/* Scala note di credito — NC aperte dello stesso fornitore. Selezionandole,
+                                    l'importo del bonifico scende del loro valore e la causale le cita. */}
+                                {ncOpts.length > 0 && (
+                                  <div className="min-w-48">
+                                    <label className="text-xs font-medium text-slate-600 block mb-1">Scala note di credito</label>
+                                    <div className="flex flex-wrap gap-1">
+                                      {ncOpts.map(nc => {
+                                        const on = (plan.ncIds || []).includes(nc.id as string);
+                                        return (
+                                          <button key={String(nc.id)} type="button"
+                                            onClick={() => {
+                                              const cur = new Set(plan.ncIds || []);
+                                              if (on) cur.delete(nc.id as string); else cur.add(nc.id as string);
+                                              recomputePlan(pid, { ncIds: Array.from(cur) });
+                                            }}
+                                            className={`px-2 py-1 rounded-md text-xs font-medium border ${on ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}
+                                            title={`Nota di credito ${nc.invoice_number || ''} — ${fmt(ncAmountOf(nc))} €`}>
+                                            {on ? '✓ ' : ''}NC {nc.invoice_number || 's/n'} −{fmt(ncAmountOf(nc))}
+                                          </button>
+                                        );
+                                      })}
                                     </div>
-                                    <div className="flex-1 min-w-48">
-                                      <label className="text-xs font-medium text-slate-600 block mb-1">Note</label>
-                                      <input type="text" value={plan.note} onChange={e => updatePlan(pid, 'note', e.target.value)}
-                                        placeholder="Motivo..." className="px-2 py-1.5 border border-slate-300 rounded-lg text-sm w-full" />
-                                    </div>
-                                  </>
+                                  </div>
+                                )}
+                                <div className="flex-1 min-w-48">
+                                  <label className="text-xs font-medium text-slate-600 block mb-1">Note (causale)</label>
+                                  <input type="text" value={plan.note} onChange={e => updatePlan(pid, 'note', e.target.value)}
+                                    placeholder="Causale / motivo..." className="px-2 py-1.5 border border-slate-300 rounded-lg text-sm w-full" />
+                                </div>
+                              </div>
+                              {/* Riepilogo tipo + netto bonifico (aggiornato live) */}
+                              <div className="mt-2 flex items-center gap-2 flex-wrap text-xs">
+                                <span className={`px-1.5 py-0.5 rounded font-semibold ${tipoKind === 'SALDO' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{tipoLabel}</span>
+                                <span className="text-slate-500">Netto bonifico:</span>
+                                <span className="font-bold text-slate-800">{fmt(plan.amount)} €</span>
+                                {ncTot > 0 && (
+                                  <span className="text-slate-400">({fmt(baseAmt)} − NC {fmt(ncTot)})</span>
                                 )}
                               </div>
                             </td>
@@ -3722,8 +3967,31 @@ const ScadenzarioSmart = () => {
 
           {/* Floating Action Bar for Bulk Payments */}
           {selectedIds.size > 0 && (
-            <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40">
+            <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 w-[min(92vw,880px)]">
               <div className="bg-white border border-slate-200 rounded-xl shadow-lg px-6 py-4">
+                {/* Saldi progressivi per banca — SEMPRE visibili mentre si spuntano le fatture,
+                    così si tiene d'occhio quanto resta su ogni conto (saldo attuale → residuo stimato). */}
+                {Object.keys(bankSpending).length > 0 && (
+                  <div className="flex flex-wrap gap-x-5 gap-y-1.5 mb-3 pb-3 border-b border-slate-100">
+                    {Object.keys(bankSpending).map(bid => {
+                      const ba = bankAccounts.find(b => String(b.id) === String(bid));
+                      if (!ba) return null;
+                      const saldo0 = Number(ba.current_balance) || 0;
+                      const residuoStimato = bankBalances[bid] ?? saldo0;
+                      const neg = residuoStimato < 0;
+                      return (
+                        <div key={bid} className="flex items-center gap-1.5 text-xs">
+                          <Landmark size={13} className="text-slate-400" />
+                          <span className="font-medium text-slate-700">{ba.bank_name}</span>
+                          <span className="text-slate-400">{fmt(saldo0)} €</span>
+                          <ChevronRight size={12} className="text-slate-300" />
+                          <span className={neg ? 'font-bold text-red-600' : 'font-semibold text-emerald-600'}>{fmt(residuoStimato)} €</span>
+                          <span className="text-slate-400">(−{fmt(bankSpending[bid] || 0)})</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
                 <div className="flex items-center justify-between gap-8">
                   <div className="flex items-center gap-4">
                     <span className="text-sm font-medium text-slate-900">{selectedIds.size} fattura{selectedIds.size !== 1 ? 'e' : ''}</span>
@@ -4096,7 +4364,7 @@ const ScadenzarioSmart = () => {
                             <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                               <span className="text-xs text-slate-500">Fatt. {p.fattura}</span>
                               {p.metodo && <span className="text-xs text-slate-400">• {p.metodo}</span>}
-                              <span className={`text-xs px-1.5 py-0.5 rounded ${p.tipo === 'SALDO' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{p.tipo}</span>
+                              <span className={`text-xs px-1.5 py-0.5 rounded ${p.tipo.startsWith('SALDO') ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{p.tipo}</span>
                             </div>
                           </div>
                           <div className="text-sm font-bold text-slate-900 ml-4">{fmt(p.importo)} €</div>
@@ -4110,6 +4378,9 @@ const ScadenzarioSmart = () => {
                               <span className="text-slate-400">P.IVA: {p.pivaBeneficiario}</span>
                             )}
                           </div>
+                        )}
+                        {p.note && (
+                          <div className="mt-1 text-xs text-slate-500 italic">{p.note}</div>
                         )}
                       </div>
                     ))}

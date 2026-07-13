@@ -10,7 +10,7 @@ const PAGE_HELP: Record<string, string> = {
   budget: "Il business plan per outlet. Ricavi (verde) dal bilancio importato. Costi previsti (blu) li inserisci tu: affitto, personale, utenze. Il risultato dice quanto guadagna ogni outlet.",
   fornitori: "Elenco fornitori con fatture ricevute. Dati dalle fatture elettroniche SDI (XML). Vedi spesa per fornitore, debito residuo, stato pagamenti.",
   fatturazione: "Fatture passive dallo SDI (XML). Fatture attive le crei tu. Corrispettivi dai dati POS. Per importare: Import Hub → Fatture Elettroniche → carica XML.",
-  scadenzario: "Calendario pagamenti. Rosso = scaduto. Giallo = in scadenza. Verde = pagato. Blu = futuro. Filtra per tipo pagamento e verifica ogni scadenza.",
+  scadenzario: "Scadenze fornitori e DISTINTA pagamenti. Spunta le fatture, assegna banca/tipo (Saldo o Parziale=Acconto), eventualmente scala le note di credito, poi 'Crea distinta' → 'Conferma distinta'. Le confermate vanno IN SOSPESO (pill in alto) e si chiudono solo quando il bonifico è riconciliato. Guida completa nel pulsante ? in basso a destra.",
   dipendenti: "Costi del personale dal bilancio importato. Per il dettaglio per persona, importa i cedolini dall'Import Hub.",
   'categorizzazione-ai': "L'AI analizza i movimenti bancari e suggerisce categorie. Conferma se corretti, Correggi per cambiare. Più confermi, più il sistema impara.",
   'import-hub': "Centro importazione dati. Carica: estratti conto (CSV/Excel), fatture (XML SDI), bilanci (PDF/Excel), cedolini (PDF), dati POS (CSV), corrispettivi (CSV/XML AdE). Ogni file alimenta automaticamente le altre pagine.",
