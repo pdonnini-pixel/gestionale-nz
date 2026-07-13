@@ -52,17 +52,29 @@ const HELP_CONTENT: Record<string, HelpContent> = {
     ]
   },
   '/scadenzario': {
-    title: 'Scadenzario',
+    title: 'Scadenzario e Distinta pagamenti',
     icon: Receipt,
-    description: 'Gestione scadenze fornitori e pagamenti. Monitora le fatture in scadenza e pianifica i pagamenti.',
+    description: 'Da qui vedi le fatture fornitori da pagare, prepari la DISTINTA (la lista dei bonifici), la mandi a chi paga e, al ritorno, la confermi. Le fatture confermate restano "in sospeso" finché il bonifico non arriva in banca e viene riconciliato: solo allora si chiudono. Nessuna fattura si chiude prima del pagamento reale.',
     tips: [
-      'Le scadenze in rosso sono già scadute e richiedono attenzione immediata.',
-      'Puoi registrare un pagamento cliccando sull\'icona "Paga" nella riga della scadenza.',
-      'Usa i filtri per visualizzare solo le scadenze di un fornitore specifico.',
+      '① SELEZIONA le fatture da pagare: spunta la casella a sinistra di ogni riga. In basso compare la barra con il totale e, per ogni banca in uso, il saldo attuale → saldo residuo stimato (sempre a colpo d\'occhio).',
+      '② ASSEGNA BANCA e TIPO: nel pannello che si apre sotto la riga scegli la Banca e il Tipo. "Saldo" = paghi tutto il residuo. "Parziale" = acconto: scrivi l\'importo. Sotto vedi live il tipo (ACCONTO/SALDO, con la rata es. 1/3) e il netto del bonifico.',
+      '③ NOTE DI CREDITO (compensazione): se il fornitore ha NC aperte, compaiono i pulsanti "Scala note di credito". Selezionandole, l\'importo del bonifico scende del loro valore e la causale le cita ("al netto NC n.123…"), pronta da scrivere nel bonifico. Le NC NON si chiudono ora: solo al pagamento.',
+      '④ CREA DISTINTA: genera l\'anteprima (email + riepilogo per banca). NON scrive nulla sul gestionale: puoi rileggerla, correggere e rigenerare. Copiala o mandala via Gmail a chi esegue i bonifici.',
+      '⑤ CONFERMA DISTINTA: quando torni, premi "Conferma distinta". Le fatture passano IN SOSPESO (escono dallo scadenzario attivo) e restano in attesa. Non vengono ancora segnate come pagate.',
+      '⑥ BOZZA AUTOMATICA: il lavoro in corso (selezione + piano) si salva da solo nel browser. Se cambi pagina/finestra o ricarichi, al ritorno lo ritrovi ("Bozza distinta ripristinata"). Si azzera a conferma o con "Annulla".',
+      '⑦ IN SOSPESO: le fatture disposte le rivedi col pill "In sospeso" nella barra filtri (o filtro stato "In sospeso"). Da qui puoi cambiare idea con "Rimuovi dalla distinta" (torna attiva) o chiuderle a mano.',
+      '⑧ RICONCILIAZIONE: quando l\'estratto conto arriva, il movimento si aggancia da solo alla fattura e la chiude. Se il bonifico non trova riscontro (causale non riconosciuta, o importo netto per NC) lo abbini a mano in Banche → Riconciliazione: chiude la fattura (e le NC collegate) senza creare doppioni.',
+      '⑨ CHIUDI A MANO (valvola): se un pagamento non risulterà mai in banca, puoi chiudere la fattura a mano indicando data e banca. Non crea un movimento: la prima nota resta i soli movimenti bancari reali.',
     ],
     faq: [
-      { q: 'Come aggiungo una scadenza manuale?', a: 'Clicca "+ Nuova scadenza" per inserire manualmente una scadenza fornitore.' },
-      { q: 'Le fatture SDI si aggiornano automaticamente?', a: 'Sì, le fatture ricevute via SDI generano automaticamente le scadenze corrispondenti.' },
+      { q: 'Quando si chiudono le fatture e le note di credito?', a: 'Mai alla conferma della distinta. Solo quando il bonifico arriva ed è riconciliato (in automatico o a mano), oppure se la chiudi a mano. Fino ad allora restano "in sospeso", in attesa. Fattura e NC collegate si chiudono insieme.' },
+      { q: 'La distinta ha segnato le fatture come pagate?', a: 'No. La conferma le mette solo "in sospeso" con la banca prevista. Diventano "pagate" solo al riscontro del movimento bancario.' },
+      { q: 'Ho sbagliato la banca dopo aver confermato. Come correggo?', a: 'Vai nel filtro "In sospeso", trova la fattura e usa "Rimuovi dalla distinta": torna attiva e la ridisponi con la banca giusta. (Prima di confermare, basta cambiare la banca nel pannello e rigenerare.)' },
+      { q: 'Come funzionano ACCONTO e SALDO nella distinta?', a: 'ACCONTO se paghi in "Parziale" o se è una rata intermedia di un piano (es. 1/3, 2/3). SALDO se paghi tutto o è l\'ultima rata. L\'etichetta mostra anche la rata (es. "SALDO (rata 3/3)").' },
+      { q: 'Fattura 8.000 con 2 note di credito da 1.000: come faccio?', a: 'Selezioni la fattura, poi con "Scala note di credito" spunti le due NC: il bonifico diventa 6.000 e la causale diventa "…al netto NC n.X e NC n.Y". Bonifichi 6.000; alla riconciliazione la fattura si chiude e le due NC si compensano da sole.' },
+      { q: 'Se chiudo a mano e poi il bonifico arriva lo stesso, si duplica?', a: 'In prima nota no: la prima nota sono solo i movimenti bancari veri, la chiusura a mano non crea movimenti. Il movimento arrivato lo abbini alla fattura (anche già chiusa) in Banche → Riconciliazione, così non resta "spaiato".' },
+      { q: 'Ho perso il lavoro sulla distinta cambiando finestra?', a: 'No: la bozza si salva da sola nel browser e viene ripristinata quando torni sulla pagina. Attenzione: è legata al tuo browser/PC (non è condivisa con le altre operatrici).' },
+      { q: 'Come aggiungo una scadenza manuale?', a: 'Con "+ Nuova scadenza". Le fatture ricevute via SDI/A-Cube generano invece le scadenze in automatico.' },
     ]
   },
   '/banche': {

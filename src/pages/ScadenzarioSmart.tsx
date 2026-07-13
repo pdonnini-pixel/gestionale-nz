@@ -480,6 +480,15 @@ const ScadenzarioSmart = () => {
     return { tipo, label };
   };
 
+  // Accesso alla tabella payable_credit_note_links (legami NC↔fattura del Passo 2).
+  // Non è ancora nei tipi generati finché la migration 090 non è applicata + tipi rigenerati:
+  // cast localizzato (niente any). Tutte le chiamate sono best-effort (try/catch a monte).
+  type PcnlBuilder = {
+    upsert: (values: unknown, options?: unknown) => Promise<{ error: { code?: string; message: string } | null }>
+    delete: () => { eq: (col: string, val: unknown) => { eq: (col: string, val: unknown) => Promise<{ error: { message: string } | null }> } }
+  }
+  const pcnlTable = (): PcnlBuilder => (supabase.from as unknown as (t: string) => PcnlBuilder)('payable_credit_note_links');
+
   // Riepilogo NC compensate su una fattura (per causale/note distinta)
   const ncBreakdown = (plan: PlanEntry): { num: string; amt: number }[] =>
     (plan.ncIds || [])
@@ -1863,6 +1872,33 @@ const ScadenzarioSmart = () => {
       // porta solo il netto + la causale (numeri NC) nella disposizione; la chiusura di
       // fattura e NC avviene insieme al momento della riconciliazione del movimento
       // bancario (o della chiusura a mano di normalizzazione). Vedi Passo 2.
+      //
+      // Passo 2: registro il LEGAME fattura↔NC (tabella payable_credit_note_links) così che,
+      // quando il movimento netto viene riconciliato, la funzione reconcile_movement consumi
+      // le NC e chiuda la fattura. Best-effort: se la tabella non esiste ancora (migration 090
+      // non applicata) l'errore viene ignorato e la distinta resta valida comunque.
+      try {
+        const links = items.flatMap(it => (it.ncIds || []).map(ncId => {
+          const nc = payables.find(p => p.id === ncId);
+          return {
+            company_id: COMPANY_ID,
+            payable_id: it.payableId,
+            credit_note_payable_id: ncId,
+            amount: nc ? Math.abs(Number(nc.gross_amount) || 0) : 0,
+            status: 'pending',
+          };
+        }));
+        if (links.length > 0) {
+          const { error: linkErr } = await pcnlTable()
+            .upsert(links, { onConflict: 'payable_id,credit_note_payable_id', ignoreDuplicates: true });
+          if (linkErr && linkErr.code !== '42P01') {
+            // 42P01 = tabella inesistente (migration non ancora applicata): silenzioso.
+            console.warn('[distinta] legami NC non salvati:', linkErr.message);
+          }
+        }
+      } catch (e) {
+        console.warn('[distinta] legami NC: errore ignorato', e);
+      }
 
       setIsSaving(false);
       if (errors.length > 0) {
@@ -1889,6 +1925,11 @@ const ScadenzarioSmart = () => {
   // scadenza è pagata/parziale o ha già una payment_date (banca dei flussi reali).
   const removeFromDistinta = async (payableId: string) => {
     try {
+      // Passo 2: rimuovo anche i legami NC↔fattura ancora 'pending' (l'intenzione di
+      // compensazione decade con la distinta). Best-effort: ignoro se la tabella non c'è.
+      try {
+        await pcnlTable().delete().eq('payable_id', payableId).eq('status', 'pending');
+      } catch { /* tabella assente o errore non bloccante */ }
       const { error } = await supabase
         .from('payable_actions')
         .delete()
