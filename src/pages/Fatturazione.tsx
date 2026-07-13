@@ -715,13 +715,23 @@ function FattureAttive() {
           />
         </div>
         <Link
-          to="/fatturazione/nuova-acube"
+          to="/fatturazione/converti-xml"
           className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white text-sm rounded-lg hover:bg-emerald-700 transition"
-          title="Emetti via A-Cube SDI (sandbox/production)"
+          title="Converti l'export Excel del gestionale in XML FatturaPA (FPR12) per l'import in AdE"
+        >
+          <FileCode size={16} />
+          Converti Excel → XML
+        </Link>
+        <button
+          type="button"
+          disabled
+          aria-disabled="true"
+          className="flex items-center gap-2 px-4 py-2 bg-slate-100 text-slate-400 text-sm rounded-lg border border-slate-200 cursor-not-allowed"
+          title="Emissione diretta via A-Cube temporaneamente disattivata — per ora usa «Converti Excel → XML»"
         >
           <Send size={16} />
           Nuova via A-Cube
-        </Link>
+        </button>
         <button onClick={loadInvoices} className="p-2 text-slate-500 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition">
           <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
         </button>
