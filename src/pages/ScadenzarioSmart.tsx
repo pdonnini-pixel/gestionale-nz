@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, Link } from 'react-router-dom';
 import PageHelp from '../components/PageHelp';
 import { useToast } from '../components/Toast';
 
@@ -1372,6 +1372,13 @@ const ScadenzarioSmart = () => {
     };
   }, [filteredPayables, cashPosition, today]);
 
+  // Fatture IN SOSPESO = disposte in distinta, in attesa di riscontro bancario.
+  // Conteggio/totale globali (indipendenti dal filtro attivo), per l'accesso rapido.
+  const suspendedInfo = useMemo(() => {
+    const list = payables.filter(p => !!p.disposizione_date && p.status !== 'pagato' && p.status !== 'annullato');
+    return { count: list.length, total: list.reduce((s, p) => s + (Number(p.amount_remaining) || 0), 0) };
+  }, [payables]);
+
   // Totali per singolo metodo di pagamento (stessa base filtrata dei KPI)
   type MethodAgg = { key: string; label: string; total: number; count: number }
   const methodTotals = useMemo<MethodAgg[]>(() => {
@@ -1851,28 +1858,19 @@ const ScadenzarioSmart = () => {
         inserted++;
       }
 
-      // Note di credito compensate nella distinta: le chiudo contabilmente (registrate in
-      // AVERE, come "Chiudi a mano"). Dedup: ogni NC chiusa una sola volta anche se citata
-      // su più fatture. Solo NC ancora aperte (non già chiuse a mano).
-      const ncToClose = Array.from(new Set(items.flatMap(it => it.ncIds || [])))
-        .filter(nid => { const nc = payables.find(p => p.id === nid); return nc && !nc.closed_manually; });
-      let ncClosed = 0;
-      if (ncToClose.length > 0) {
-        const today = new Date().toISOString().split('T')[0];
-        const dataStr = new Date().toLocaleDateString('it-IT');
-        for (const nid of ncToClose) {
-          const ok = await closePayableManually(nid, today, `Compensata in distinta del ${dataStr}`);
-          if (ok) ncClosed++;
-        }
-      }
+      // NOTE DI CREDITO: NON si chiudono qui. La compensazione è solo un'INTENZIONE finché
+      // il bonifico netto non è realmente uscito e riconciliato. Alla Conferma la distinta
+      // porta solo il netto + la causale (numeri NC) nella disposizione; la chiusura di
+      // fattura e NC avviene insieme al momento della riconciliazione del movimento
+      // bancario (o della chiusura a mano di normalizzazione). Vedi Passo 2.
 
       setIsSaving(false);
       if (errors.length > 0) {
         toast({ type: 'error', message: `Distinta salvata con errori: ${inserted} aggiunte, ${errors.length} fallite.` });
       } else if (skipped > 0) {
-        toast({ type: 'success', message: `Distinta confermata: ${inserted} aggiunte${skipped > 0 ? `, ${skipped} già in distinta (saltate)` : ''}${ncClosed > 0 ? ` — ${ncClosed} NC compensate` : ''}.` });
+        toast({ type: 'success', message: `Distinta confermata: ${inserted} aggiunte${skipped > 0 ? `, ${skipped} già in distinta (saltate)` : ''}.` });
       } else {
-        toast({ type: 'success', message: `Distinta confermata: ${inserted} scadenze in distinta${ncClosed > 0 ? ` — ${ncClosed} NC compensate` : ''}.` });
+        toast({ type: 'success', message: `Distinta confermata: ${inserted} scadenze in distinta.` });
       }
       setDistintaSaved(true);
       setSelectedIds(new Set());
@@ -2220,6 +2218,12 @@ const ScadenzarioSmart = () => {
     const reals = filteredPayables.filter(p => {
       // Viste "chiuse/tutte" o filtro esplicito NC → mostra tutto (incluse le chiuse).
       if (selectedStatus === 'pagato' || selectedStatus === 'all' || selectedStatus === 'nota_credito') return true;
+      // Fatture "in distinta" (disposte, in attesa di riscontro bancario): sono IN SOSPESO
+      // e vanno tolte dalla lista attiva dello scadenzario. Si vedono solo nella vista
+      // dedicata "In sospeso" (selectedStatus='in_distinta'). Lo stato DB resta invariato
+      // (da_pagare/scaduto) così il motore di riconciliazione le aggancia comunque.
+      const isInDistinta = !!p.disposizione_date && p.status !== 'pagato' && p.status !== 'annullato';
+      if (isInDistinta && selectedStatus !== 'in_distinta') return false;
       // Pagate nascoste di default.
       if (p.status === 'pagato') return false;
       // NC CHIUSA a mano (registrata in partitario): esce dalle Aperte come una pagata,
@@ -2623,11 +2627,22 @@ const ScadenzarioSmart = () => {
               <option value="da_pagare">Da pagare</option>
               <option value="parziale">Parziale</option>
               <option value="pagato">Pagato</option>
-              <option value="in_distinta">In distinta</option>
+              <option value="in_distinta">In sospeso (in attesa di riscontro)</option>
               <option value="sospeso">Sospeso</option>
               <option value="rimandato">Rimandato</option>
               <option value="annullato">Annullato</option>
             </select>
+            {/* Accesso rapido "In sospeso": le fatture disposte in distinta sono tolte dalla
+                lista attiva; questo pill le richiama (o torna alle Aperte se già attivo). */}
+            {suspendedInfo.count > 0 && (
+              <button
+                onClick={() => setSelectedStatus(selectedStatus === 'in_distinta' ? '' : 'in_distinta')}
+                title="Fatture disposte in distinta, in attesa di riscontro sul movimento bancario"
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium ${selectedStatus === 'in_distinta' ? 'bg-amber-500 text-white border-amber-500' : 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100'}`}>
+                <Clock size={12} />
+                In sospeso: {suspendedInfo.count} ({fmt(suspendedInfo.total)} €)
+              </button>
+            )}
             <input type="date" value={dateRange.start} onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })}
               className="px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs bg-white text-slate-500" title="Periodo: da" />
             <input type="date" value={dateRange.end} onChange={(e) => setDateRange({ ...dateRange, end: e.target.value })}
@@ -2765,7 +2780,7 @@ const ScadenzarioSmart = () => {
               )}
               {selectedStatus && (
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 text-xs text-slate-600">
-                  {selectedStatus === 'in_distinta' ? 'In distinta' : ((statusConfig as Record<string, { label?: string }>)[selectedStatus]?.label || selectedStatus)} <button onClick={() => setSelectedStatus('')} className="text-slate-400 hover:text-slate-600"><X size={11} /></button>
+                  {selectedStatus === 'in_distinta' ? 'In sospeso' : ((statusConfig as Record<string, { label?: string }>)[selectedStatus]?.label || selectedStatus)} <button onClick={() => setSelectedStatus('')} className="text-slate-400 hover:text-slate-600"><X size={11} /></button>
                 </span>
               )}
               {(dateRange.start || dateRange.end) && (
@@ -2788,6 +2803,23 @@ const ScadenzarioSmart = () => {
                 className="text-xs text-red-500 hover:text-red-600 font-medium">
                 Rimuovi tutti i filtri
               </button>
+            </div>
+          )}
+
+          {/* ===== BANNER "IN SOSPESO" — spiega lo stato e come chiudere ===== */}
+          {selectedStatus === 'in_distinta' && (
+            <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+              <Clock size={18} className="text-amber-500 shrink-0 mt-0.5" />
+              <div className="text-sm text-amber-800">
+                <div className="font-semibold">Fatture in sospeso — in attesa di riscontro bancario</div>
+                <p className="text-xs text-amber-700 mt-1 leading-relaxed">
+                  Disposte in distinta e tolte dallo scadenzario attivo. Si chiudono da sole quando il
+                  movimento bancario viene riconciliato. Se il bonifico non trova riscontro (causale non
+                  riconosciuta, o importo netto per note di credito) puoi abbinarlo a mano dalla
+                  <Link to="/banche?tab=riconciliazione" className="font-semibold underline mx-1 hover:text-amber-900">Riconciliazione</Link>
+                  senza creare doppioni, oppure chiudere la fattura a mano (data + banca) qui sotto con «Chiudi a mano».
+                </p>
+              </div>
             </div>
           )}
 
