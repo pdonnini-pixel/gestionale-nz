@@ -21,7 +21,7 @@ import SyncStatusBadge from '../components/SyncStatusBadge'
 import PaymentAnomaliesPanel from '../components/PaymentAnomaliesPanel'
 import {
   FileText, Upload, Send, RefreshCw, Search, Filter, ChevronDown, ChevronUp,
-  CheckCircle, XCircle, Clock, AlertTriangle, Eye, Download, Plus, X,
+  CheckCircle, XCircle, Clock, AlertTriangle, Eye, Download, X,
   Building2, Calendar, Euro, Hash, FileCode, Inbox, ArrowUpRight, Loader2,
   BarChart3, Store, FileMinus
 } from 'lucide-react'
@@ -622,7 +622,6 @@ function FattureAttive() {
   const { toast } = useToast()
   const [invoices, setInvoices] = useState<ActiveInvoiceRow[]>([])
   const [loading, setLoading] = useState(true)
-  const [showForm, setShowForm] = useState(false)
   const [sending, setSending] = useState<string | null>(null) // invoiceId in corso di invio
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedInvoice, setSelectedInvoice] = useState<ActiveInvoiceRow | null>(null)
@@ -670,46 +669,6 @@ function FattureAttive() {
       toast({ type: 'error', message: 'Errore invio SDI: ' + (err as Error).message })
     } finally {
       setSending(null)
-    }
-  }
-
-  // Form nuova fattura
-  const [form, setForm] = useState({
-    invoice_number: '', invoice_date: new Date().toISOString().split('T')[0],
-    tipo_documento: 'TD01', client_name: '', client_vat: '', client_fiscal_code: '',
-    codice_destinatario: '', total_amount: '', taxable_amount: '', vat_amount: '',
-    vat_rate: '22.00', payment_method: 'MP05', due_date: '', description: '',
-  })
-
-  const handleCreateInvoice = async (e: React.FormEvent) => {
-    e.preventDefault()
-    try {
-      const { data: { user } } = await supabase.auth.getUser()
-      const companyId = user?.app_metadata?.company_id
-      const record = {
-        company_id: companyId,
-        invoice_number: form.invoice_number,
-        invoice_date: form.invoice_date,
-        tipo_documento: form.tipo_documento,
-        client_name: form.client_name,
-        client_vat: form.client_vat || null,
-        client_fiscal_code: form.client_fiscal_code || null,
-        codice_destinatario: form.codice_destinatario || null,
-        total_amount: Number(form.total_amount),
-        taxable_amount: Number(form.taxable_amount) || null,
-        vat_amount: Number(form.vat_amount) || null,
-        vat_rate: Number(form.vat_rate),
-        payment_method: form.payment_method,
-        due_date: form.due_date || null,
-        sdi_status: 'DRAFT',
-      }
-      const { error } = await supabase.from('active_invoices').insert(record)
-      if (error) throw error
-      setShowForm(false)
-      setForm({ invoice_number: '', invoice_date: new Date().toISOString().split('T')[0], tipo_documento: 'TD01', client_name: '', client_vat: '', client_fiscal_code: '', codice_destinatario: '', total_amount: '', taxable_amount: '', vat_amount: '', vat_rate: '22.00', payment_method: 'MP05', due_date: '', description: '' })
-      loadInvoices()
-    } catch (err: unknown) {
-      toast({ type: 'error', message: 'Errore creazione fattura: ' + (err as Error).message })
     }
   }
 
@@ -763,13 +722,6 @@ function FattureAttive() {
           <Send size={16} />
           Nuova via A-Cube
         </Link>
-        <button
-          onClick={() => setShowForm(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition"
-        >
-          <Plus size={16} />
-          Nuova fattura
-        </button>
         <button onClick={loadInvoices} className="p-2 text-slate-500 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition">
           <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
         </button>
@@ -847,104 +799,6 @@ function FattureAttive() {
         </div>
       </div>
 
-      {/* Modal nuova fattura */}
-      {showForm && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowForm(false)}>
-          <div className="bg-white rounded-xl shadow-xl max-w-xl w-full max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between p-4 border-b border-slate-200">
-              <h3 className="font-semibold text-lg text-slate-900">Nuova Fattura Attiva</h3>
-              <button onClick={() => setShowForm(false)} className="p-1 text-slate-400 hover:text-slate-700 rounded"><X size={20} /></button>
-            </div>
-            <form onSubmit={handleCreateInvoice} className="p-4 space-y-4">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1">Numero fattura *</label>
-                  <input type="text" required value={form.invoice_number} onChange={e => setForm({...form, invoice_number: e.target.value})} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg" />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1">Data *</label>
-                  <input type="date" required value={form.invoice_date} onChange={e => setForm({...form, invoice_date: e.target.value})} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg" />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1">Tipo documento</label>
-                  <select value={form.tipo_documento} onChange={e => setForm({...form, tipo_documento: e.target.value})} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg">
-                    <option value="TD01">TD01 — Fattura</option>
-                    <option value="TD02">TD02 — Acconto</option>
-                    <option value="TD04">TD04 — Nota credito</option>
-                    <option value="TD05">TD05 — Nota debito</option>
-                    <option value="TD06">TD06 — Parcella</option>
-                    <option value="TD24">TD24 — Fatt. differita</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1">Metodo pagamento</label>
-                  <select value={form.payment_method} onChange={e => setForm({...form, payment_method: e.target.value})} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg">
-                    <option value="MP05">MP05 — Bonifico</option>
-                    <option value="MP01">MP01 — Contanti</option>
-                    <option value="MP02">MP02 — Assegno</option>
-                    <option value="MP08">MP08 — Carta credito</option>
-                    <option value="MP12">MP12 — RIBA</option>
-                  </select>
-                </div>
-              </div>
-              <div className="border-t border-slate-100 pt-3">
-                <h4 className="text-sm font-medium text-slate-700 mb-2">Cliente</h4>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="col-span-2">
-                    <label className="block text-xs font-medium text-slate-600 mb-1">Denominazione *</label>
-                    <input type="text" required value={form.client_name} onChange={e => setForm({...form, client_name: e.target.value})} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg" />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-slate-600 mb-1">P.IVA</label>
-                    <input type="text" value={form.client_vat} onChange={e => setForm({...form, client_vat: e.target.value})} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg" />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-slate-600 mb-1">Codice fiscale</label>
-                    <input type="text" value={form.client_fiscal_code} onChange={e => setForm({...form, client_fiscal_code: e.target.value})} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg" />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-slate-600 mb-1">Codice SDI (7 char)</label>
-                    <input type="text" maxLength={7} value={form.codice_destinatario} onChange={e => setForm({...form, codice_destinatario: e.target.value})} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg" />
-                  </div>
-                </div>
-              </div>
-              <div className="border-t border-slate-100 pt-3">
-                <h4 className="text-sm font-medium text-slate-700 mb-2">Importi</h4>
-                <div className="grid grid-cols-3 gap-3">
-                  <div>
-                    <label className="block text-xs font-medium text-slate-600 mb-1">Imponibile</label>
-                    <input type="number" step="0.01" value={form.taxable_amount} onChange={e => {
-                      const tax = Number(e.target.value)
-                      const vatAmt = tax * Number(form.vat_rate) / 100
-                      setForm({...form, taxable_amount: e.target.value, vat_amount: vatAmt.toFixed(2), total_amount: (tax + vatAmt).toFixed(2)})
-                    }} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg" />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-slate-600 mb-1">Aliquota IVA %</label>
-                    <input type="number" step="0.01" value={form.vat_rate} onChange={e => {
-                      const rate = Number(e.target.value)
-                      const vatAmt = Number(form.taxable_amount) * rate / 100
-                      setForm({...form, vat_rate: e.target.value, vat_amount: vatAmt.toFixed(2), total_amount: (Number(form.taxable_amount) + vatAmt).toFixed(2)})
-                    }} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg" />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-slate-600 mb-1">Totale *</label>
-                    <input type="number" step="0.01" required value={form.total_amount} onChange={e => setForm({...form, total_amount: e.target.value})} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg font-semibold" />
-                  </div>
-                </div>
-                <div className="mt-3">
-                  <label className="block text-xs font-medium text-slate-600 mb-1">Scadenza pagamento</label>
-                  <input type="date" value={form.due_date} onChange={e => setForm({...form, due_date: e.target.value})} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg" />
-                </div>
-              </div>
-              <div className="flex justify-end gap-3 pt-3 border-t border-slate-100">
-                <button type="button" onClick={() => setShowForm(false)} className="px-4 py-2 text-sm text-slate-600 hover:text-slate-800 transition">Annulla</button>
-                <button type="submit" className="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition">Crea fattura</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
 
       {/* Slide-over dettaglio fattura attiva */}
       {selectedInvoice && (
