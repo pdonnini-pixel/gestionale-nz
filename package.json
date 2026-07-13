@@ -17,6 +17,7 @@
     "fast-xml-parser": "^5.7.1",
     "jspdf": "^2.5.2",
     "jspdf-autotable": "^3.8.4",
+    "jszip": "^3.10.1",
     "lucide-react": "^1.7.0",
     "mammoth": "^1.12.0",
     "netlify-cli": "^24.9.0",
