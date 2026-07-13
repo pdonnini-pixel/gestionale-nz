@@ -1358,7 +1358,6 @@ function Corrispettivi() {
 // ═══════════════════════════════════════════════════════════════════════
 
 export default function Fatturazione() {
-  const { company } = useCompany()
   const { year } = usePeriod()
   const { toast } = useToast()
   // activeTab persistito in URL come ?tab=… (default 'passive')
@@ -1417,35 +1416,27 @@ export default function Fatturazione() {
     }
   }, [])
 
-  // Count diretto da electronic_invoices per badge tab coerente
-  // BUG-002 fix (PROMPT_TS_STRICT_COMPLETION Fase 2): la colonna `direction`
-  // non esiste nello schema. Discriminante deciso con Patrizio:
-  //   passiva (acquisto): supplier_vat IS NULL OR supplier_vat != company.vat_number
-  //   attiva (vendita):   supplier_vat == company.vat_number
-  // Caveat: assume che il parser XML SDI popoli supplier_vat con il cedente
-  // della fattura, indipendentemente dalla direzione SDI. Se in futuro emergono
-  // fatture mal-categorizzate, valutare aggiunta colonna direction al DB.
+  // Count per badge tab: ogni badge conta ESATTAMENTE la tabella che la
+  // rispettiva lista mostra, così badge e lista coincidono sempre.
+  //   passive → electronic_invoices (stessa fonte della vista v_electronic_invoices_list)
+  //   active  → active_invoices     (le attive A-Cube arrivano qui via trigger DB
+  //                                   sync_acube_sdi_active_to_einvoice; ci finiscono
+  //                                   anche le fatture create dal form manuale)
+  // Storico: il vecchio conteggio discriminava attiva/passiva su
+  // electronic_invoices.supplier_vat == company.vat_number. Ma le fatture attive
+  // NON stanno in electronic_invoices — vanno in active_invoices — quindi il badge
+  // attive contava 0 mentre la lista ne elencava 27. Le due tabelle sono già
+  // disgiunte per costruzione (nessuna attiva "sfuggita" in electronic_invoices).
   const loadInvoiceCounts = useCallback(async () => {
     try {
-      const companyVat = company?.vat_number
-      // Filtro anno globale (da usePeriod) → counter coerente con la tabella sotto.
+      // Filtro anno globale (da usePeriod) → counter coerente con le tabelle sotto.
       const yearStart = `${year}-01-01`
       const yearEnd = `${year}-12-31`
-      // Senza P.IVA company non possiamo discriminare → trattiamo tutto come passivo
-      // (default conservativo: NZ è prevalentemente in fattura passiva).
-      if (!companyVat) {
-        const totalRes = await supabase.from('electronic_invoices').select('id', { count: 'exact', head: true })
-          .gte('invoice_date', yearStart).lte('invoice_date', yearEnd)
-        setInvoiceCounts({ passive: totalRes.count || 0, active: 0 })
-        return
-      }
       const [passiveRes, activeRes] = await Promise.all([
         supabase.from('electronic_invoices').select('id', { count: 'exact', head: true })
-          .gte('invoice_date', yearStart).lte('invoice_date', yearEnd)
-          .or(`supplier_vat.is.null,supplier_vat.neq.${companyVat}`),
-        supabase.from('electronic_invoices').select('id', { count: 'exact', head: true })
-          .gte('invoice_date', yearStart).lte('invoice_date', yearEnd)
-          .eq('supplier_vat', companyVat),
+          .gte('invoice_date', yearStart).lte('invoice_date', yearEnd),
+        supabase.from('active_invoices').select('id', { count: 'exact', head: true })
+          .gte('invoice_date', yearStart).lte('invoice_date', yearEnd),
       ])
       setInvoiceCounts({
         passive: passiveRes.count || 0,
@@ -1454,7 +1445,7 @@ export default function Fatturazione() {
     } catch (err: unknown) {
       console.warn('loadInvoiceCounts:', (err as Error).message)
     }
-  }, [company?.vat_number, year])
+  }, [year])
 
   useEffect(() => { loadStats(); loadInvoiceCounts() }, [loadStats, loadInvoiceCounts])
 
