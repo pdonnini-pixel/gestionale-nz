@@ -131,8 +131,7 @@ la banca giusta.
 
 ## Nota tecnica (per chi gestisce il gestionale)
 
-La **compensazione automatica delle NC in riconciliazione** (punto ⑧, "si compensano da sole") richiede
-la **migration `20260713_090_credit_note_links_reconcile.sql`** applicata su **NZ, Made e Zago**.
-Finché non è applicata, il ciclo funziona lo stesso ma la nota di credito, dopo l'abbinamento del
-bonifico netto, va **chiusa a mano** (la fattura resta "parziale" per l'importo NC). Tutto il resto
-(distinta, in sospeso, abbinamento manuale, chiusura a mano) funziona da subito.
+La **compensazione automatica delle NC in riconciliazione** (punto ⑧, "si compensano da sole") è
+**attiva** su **NZ, Made e Zago** (migration `20260713_090_credit_note_links_reconcile.sql` applicata
+e verificata). Quando abbini il bonifico netto alla fattura, la nota di credito collegata si chiude
+insieme e la fattura risulta pagata: non serve più chiuderla a mano.
