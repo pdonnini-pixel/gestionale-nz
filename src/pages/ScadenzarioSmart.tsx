@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
-import PageHelp from '../components/PageHelp';
 import { useToast } from '../components/Toast';
 
 // Tab principale ScadenzarioSmart — persistito in URL come ?section=
@@ -4440,7 +4439,9 @@ const ScadenzarioSmart = () => {
         </Modal>
       )}
 
-      <PageHelp page="scadenzario" />
+      {/* Guida: usa il pannello globale HelpPanel (voce '/scadenzario', ricco: step + FAQ),
+          montato una sola volta in Layout. Il vecchio <PageHelp> per-pagina è stato rimosso
+          per evitare il doppio pulsante guida sovrapposto in basso a destra. */}
 
       {/* InvoiceViewer modal */}
       {viewingXml && (
