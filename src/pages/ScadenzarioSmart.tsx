@@ -151,6 +151,14 @@ const paymentGroups = [
   { label: 'Altro', key: 'altro', methods: ['rimessa_diretta', 'carta_credito', 'carta_debito', 'carta', 'assegno', 'contanti', 'compensazione', 'f24', 'mav', 'rav', 'bollettino_postale', 'altro'] },
 ];
 
+// Pseudo-metodi usati SOLO per raggruppare i filtri ('Bonifico'/'RiBa'/'Carta'):
+// NON esistono nell'enum payment_method del DB, quindi non devono mai finire in un
+// INSERT su payables (Postgres 22P02 → la scadenza non si salva). Mappa alias →
+// valore enum reale; usata sia per normalizzare prima dell'INSERT sia per
+// nasconderli dal menù di creazione (restano validi per il filtro).
+const PAYMENT_METHOD_ALIAS: Record<string, string> = { bonifico: 'bonifico_ordinario', riba: 'riba_30', carta: 'carta_credito' };
+const toDbPaymentMethod = (m?: string | null): string => PAYMENT_METHOD_ALIAS[m || ''] || m || 'bonifico_ordinario';
+
 const RIBA_DAYS = { riba_30: 30, riba_60: 60, riba_90: 90, riba_120: 120 };
 
 // ── SCADENZE-STIMA da ricorrenza (on-the-fly) ─────────────────────────────
@@ -1540,7 +1548,7 @@ const ScadenzarioSmart = () => {
         original_due_date: invoiceData.dueDate,
         gross_amount: invoiceData.grossAmount,
         amount_remaining: invoiceData.grossAmount,
-        payment_method: invoiceData.paymentMethod || 'bonifico',
+        payment_method: toDbPaymentMethod(invoiceData.paymentMethod),
         recurring_cost_id: recurringId,
       } as never]);
       if (payErr) {
@@ -4662,7 +4670,9 @@ const InvoiceModal = ({ suppliers, costCenters, paymentGroups, paymentMethodLabe
           className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none">
           {paymentGroups.map(g => (
             <optgroup key={g.label} label={g.label}>
-              {g.methods.map(m => <option key={m} value={m}>{paymentMethodLabels[m]}</option>)}
+              {/* Esclude i pseudo-metodi solo-filtro ('bonifico'/'riba'/'carta'): non
+                  sono nell'enum del DB e romperebbero il salvataggio se selezionati. */}
+              {g.methods.filter(m => !(m in PAYMENT_METHOD_ALIAS)).map(m => <option key={m} value={m}>{paymentMethodLabels[m]}</option>)}
             </optgroup>
           ))}
         </select>
