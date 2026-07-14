@@ -6,14 +6,15 @@
 // NB: gli XML NON sono firmati (.p7m) ne' validati contro XSD ufficiale: stessa forma
 // del modello usato per l'import manuale. Riga di dettaglio unica e sintetica.
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import * as XLSX from 'xlsx'
 import JSZip from 'jszip'
 import PageHeader from '../components/PageHeader'
+import { supabase } from '../lib/supabase'
 import {
   ArrowLeft, Upload, FileCode, Download, CheckCircle, AlertTriangle,
-  Loader2, FileSpreadsheet, ClipboardPaste,
+  Loader2, FileSpreadsheet, ClipboardPaste, Archive, RefreshCw,
 } from 'lucide-react'
 
 // ─── Dati fissi cedente ──────────────────────────────────────────────────
@@ -235,6 +236,20 @@ function buildXml(rec: Rec, prog: number): string {
 
 interface GenFile { filename: string; xml: string; rec: Rec; prog: number; quadra: boolean }
 interface Alert { kind: 'info' | 'warn' | 'err'; text: string }
+interface ArchiveRow {
+  id: string; batch_id: string; progressivo: number; file_name: string
+  invoice_number: string | null; invoice_date: string | null; client_name: string | null
+  imponibile: number | null; imposta: number | null; totale: number | null
+  quadra: boolean | null; xml_content: string; created_at: string
+}
+const fmtDateTime = (s: string): string => { try { return new Date(s).toLocaleString('it-IT') } catch { return s } }
+function downloadXmlString(name: string, xml: string): void {
+  const blob = new Blob([xml], { type: 'application/xml' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a'); a.href = url; a.download = name
+  document.body.appendChild(a); a.click(); document.body.removeChild(a)
+  setTimeout(() => URL.revokeObjectURL(url), 1500)
+}
 
 // ═════════════════════════════════════════════════════════════════════════
 export default function ConvertitoreFattureXML() {
@@ -249,6 +264,8 @@ export default function ConvertitoreFattureXML() {
   const [alerts, setAlerts] = useState<Alert[]>([])
   const [busy, setBusy] = useState(false)
   const [zipping, setZipping] = useState(false)
+  const [archive, setArchive] = useState<ArchiveRow[]>([])
+  const [archiveLoading, setArchiveLoading] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Storico progressivo da localStorage
@@ -258,6 +275,50 @@ export default function ConvertitoreFattureXML() {
     setHistory({ last })
     if (!touched) setStartNum(String((last ?? (DEFAULT_START - 1)) + 1))
   }, [touched])
+
+  // Archivio generazioni (tabella fattura_xml_export, isolata per company via RLS)
+  const loadArchive = useCallback(async () => {
+    setArchiveLoading(true)
+    try {
+      const { data, error } = await supabase
+        .from('fattura_xml_export' as never)
+        .select('id,batch_id,progressivo,file_name,invoice_number,invoice_date,client_name,imponibile,imposta,totale,quadra,xml_content,created_at')
+        .order('created_at', { ascending: false })
+        .order('progressivo', { ascending: true })
+        .limit(2000)
+      if (error) throw error
+      setArchive((data as unknown as ArchiveRow[]) || [])
+    } catch {
+      setArchive([]) // archivio non disponibile (es. utente non loggato): silenzioso
+    } finally {
+      setArchiveLoading(false)
+    }
+  }, [])
+  useEffect(() => { loadArchive() }, [loadArchive])
+
+  // Raggruppa per batch mantenendo l'ordine (created_at desc, progressivo asc)
+  const batches = useMemo(() => {
+    const map = new Map<string, ArchiveRow[]>()
+    for (const r of archive) {
+      if (!map.has(r.batch_id)) map.set(r.batch_id, [])
+      map.get(r.batch_id)!.push(r)
+    }
+    return Array.from(map.entries()).map(([batch_id, rows]) => ({
+      batch_id, rows, created_at: rows[0].created_at,
+      progFrom: rows[0].progressivo, progTo: rows[rows.length - 1].progressivo,
+    }))
+  }, [archive])
+
+  const downloadBatchZip = useCallback(async (rows: ArchiveRow[]) => {
+    const zip = new JSZip()
+    rows.forEach((r) => zip.file(r.file_name, r.xml_content))
+    const blob = await zip.generateAsync({ type: 'blob' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a'); a.href = url
+    a.download = `FatturaElettronica_XML_${rows[0].progressivo}-${rows[rows.length - 1].progressivo}.zip`
+    document.body.appendChild(a); a.click(); document.body.removeChild(a)
+    setTimeout(() => URL.revokeObjectURL(url), 1500)
+  }, [])
 
   const readFile = useCallback(async (file: File) => {
     setFileInfo(`File: ${file.name} — lettura…`)
@@ -302,7 +363,7 @@ export default function ConvertitoreFattureXML() {
     return recs
   }, [mode, fileRows, pasteText])
 
-  const generate = useCallback(() => {
+  const generate = useCallback(async () => {
     setBusy(true)
     setAlerts([])
     setGenerated([])
@@ -335,16 +396,44 @@ export default function ConvertitoreFattureXML() {
       if (nBad) msgs.push({ kind: 'warn', text: `${nBad} fattura/e in cui Imponibile + Imposta ≠ Totale (tolleranza 0,01): righe evidenziate. Gli XML sono comunque generati.` })
       if (nProvBad) msgs.push({ kind: 'warn', text: `${nProvBad} fattura/e senza provincia riconosciuta: controlla la colonna Provincia.` })
       if (nDateBad) msgs.push({ kind: 'warn', text: `${nDateBad} fattura/e senza data valida.` })
-      setAlerts(msgs)
 
       localStorage.setItem(LS_KEY, String(last))
       setHistory({ last })
+
+      // Archivia in DB (ogni generazione = un batch). Se fallisce, i file restano scaricabili.
+      // company_id lo valorizza il DB (DEFAULT get_my_company_id()), coerente con la RLS.
+      try {
+        const { data: { user } } = await supabase.auth.getUser()
+        const batchId = crypto.randomUUID()
+        const payload = out.map((g) => ({
+          batch_id: batchId,
+          progressivo: g.prog,
+          file_name: g.filename,
+          invoice_number: g.rec.numero || null,
+          invoice_date: g.rec.dataISO || null,
+          client_name: g.rec.denom || null,
+          imponibile: Number(g.rec.imponibile),
+          imposta: Number(g.rec.imposta),
+          totale: Number(g.rec.totale),
+          quadra: g.quadra,
+          xml_content: g.xml,
+          created_by: user?.id ?? null,
+        }))
+        const { error: insErr } = await supabase.from('fattura_xml_export' as never).insert(payload as never)
+        if (insErr) throw insErr
+        msgs.push({ kind: 'info', text: `Archiviati ${out.length} file: li ritrovi in «Archivio generazioni» qui sotto.` })
+        await loadArchive()
+      } catch (e) {
+        msgs.push({ kind: 'warn', text: 'File generati ma NON archiviati (' + (e as Error).message + '). Puoi comunque scaricarli ora con «Scarica tutti (.zip)».' })
+      }
+
+      setAlerts(msgs)
     } catch (e) {
       setAlerts([{ kind: 'err', text: (e as Error).message }])
     } finally {
       setBusy(false)
     }
-  }, [getRecords, startNum])
+  }, [getRecords, startNum, loadArchive])
 
   const downloadZip = useCallback(async () => {
     if (!generated.length) return
@@ -510,6 +599,63 @@ export default function ConvertitoreFattureXML() {
           <pre className="bg-slate-900 text-green-300 rounded-lg p-3 text-[11px] leading-relaxed overflow-x-auto max-h-80 font-mono">{generated[0].xml}</pre>
         </div>
       )}
+
+      {/* Archivio generazioni */}
+      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+        <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
+          <div className="flex items-center gap-2 text-sm font-semibold text-slate-800">
+            <Archive size={16} className="text-slate-500" />
+            Archivio generazioni
+            {archive.length > 0 && <span className="text-slate-400 font-normal">({archive.length} file · {batches.length} generazioni)</span>}
+          </div>
+          <button onClick={loadArchive} className="p-1.5 text-slate-500 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition" title="Aggiorna archivio">
+            <RefreshCw size={15} className={archiveLoading ? 'animate-spin' : ''} />
+          </button>
+        </div>
+        {batches.length === 0 ? (
+          <div className="px-4 py-8 text-center text-sm text-slate-400">
+            {archiveLoading ? 'Caricamento…' : 'Nessuna generazione archiviata. Ogni volta che premi «Genera XML» i file vengono salvati qui.'}
+          </div>
+        ) : (
+          <div className="divide-y divide-slate-100">
+            {batches.map((b) => (
+              <div key={b.batch_id} className="p-3">
+                <div className="flex items-center justify-between gap-3 flex-wrap mb-2">
+                  <div className="text-sm text-slate-700">
+                    <span className="font-medium">{fmtDateTime(b.created_at)}</span>
+                    <span className="text-slate-400"> · {b.rows.length} file · progressivi {pad5(b.progFrom)}–{pad5(b.progTo)}</span>
+                  </div>
+                  <button onClick={() => downloadBatchZip(b.rows)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs bg-white border border-blue-600 text-blue-700 rounded-lg hover:bg-blue-50 transition">
+                    <Download size={13} /> Scarica .zip
+                  </button>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <tbody>
+                      {b.rows.map((r) => (
+                        <tr key={r.id} className="border-t border-slate-50">
+                          <td className="py-1.5 pr-3 font-mono text-slate-500 whitespace-nowrap">{r.file_name}</td>
+                          <td className="py-1.5 pr-3 text-slate-700 whitespace-nowrap">{r.invoice_number || '—'}</td>
+                          <td className="py-1.5 pr-3 text-slate-600">{r.client_name || '—'}</td>
+                          <td className="py-1.5 pr-3 text-slate-500 whitespace-nowrap">{r.invoice_date || '—'}</td>
+                          <td className="py-1.5 pr-3 text-right tabular-nums text-slate-700 whitespace-nowrap">{r.totale != null ? Number(r.totale).toFixed(2) : '—'}</td>
+                          <td className="py-1.5 text-right">
+                            <button onClick={() => downloadXmlString(r.file_name, r.xml_content)}
+                              className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800" title="Scarica questo XML">
+                              <Download size={13} />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* Note */}
       <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-xs text-slate-500 space-y-1.5 leading-relaxed">
