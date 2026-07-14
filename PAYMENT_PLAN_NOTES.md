@@ -18,10 +18,12 @@
 > - **Passo 2 — migration `supabase/migrations/20260713_090_credit_note_links_reconcile.sql`**: tabella
 >   `payable_credit_note_links` + `reconcile_movement` (consuma le NC collegate, aggancia a fatture chiuse
 >   a mano) + `undo_reconcile_movement` (riapre le NC) + `try_match_bank_transaction` (esclude dall'auto
->   le fatture con NC pending). **⚠️ Da applicare A MANO su NZ + Made + Zago** (additiva, con rollback e
->   verifiche in coda al file). Il frontend scrive i link in best-effort: se la 090 non è applicata,
->   la NC dopo l'abbinamento del netto va chiusa a mano (resto invariato). Guida utente:
->   `GUIDA_DISTINTA_Sabrina.md` + in-app (HelpPanel voce `/scadenzario`).
+>   le fatture con NC pending). **✅ APPLICATA e VERIFICATA su NZ + Made + Zago (2026-07-14)** — testata
+>   end-to-end con transazioni di rollback (compensazione, undo, aggancio a fattura chiusa a mano,
+>   esclusione auto-match). **NB fondamentale**: la compensazione NC deve passare per `amount_paid`
+>   (non per `amount_remaining`): il trigger `update_payable_status` ricalcola sempre
+>   `amount_remaining = gross - amount_paid` e sovrascriverebbe qualsiasi set diretto di `amount_remaining`.
+>   Guida utente: `GUIDA_DISTINTA_Sabrina.md` + in-app (HelpPanel voce `/scadenzario`).
 
 > ## 📌 REGOLA — LEGGERE SEMPRE PRIMA DI TOCCARE IL CICLO PASSIVO
 >
