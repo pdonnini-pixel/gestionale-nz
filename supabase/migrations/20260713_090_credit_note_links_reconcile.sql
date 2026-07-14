@@ -199,27 +199,33 @@ BEGIN
   END IF;
 
   v_applied := LEAST(abs(v_bt.amount), v_remaining);
-  v_new_remaining := v_remaining - v_applied;
 
+  -- Applico il movimento come pagamento. NB: il trigger update_payable_status ricalcola
+  -- amount_remaining = gross - amount_paid e lo status. Non impostiamo remaining/status a mano
+  -- (verrebbero sovrascritti dal trigger): la fonte di verità è amount_paid.
   UPDATE public.payables
   SET amount_paid = COALESCE(amount_paid, 0) + v_applied,
-      amount_remaining = v_new_remaining,
       payment_date = v_bt.transaction_date,
       bank_transaction_id = p_bt_id,
       updated_at = now()
   WHERE id = p_payable_id;
 
-  -- (B) NOVITÀ: se resta un residuo, provo a compensarlo con le NC collegate in distinta.
+  -- (B) NOVITÀ: se resta un residuo, lo compenso con le NC collegate in distinta.
+  -- La compensazione = aumento di amount_paid pari all'importo NC (il trigger porterà
+  -- remaining a 0 e status a 'pagato'). Cap a v_remaining per non superare il lordo.
+  SELECT amount_remaining INTO v_new_remaining FROM public.payables WHERE id = p_payable_id;
   IF v_new_remaining > 0 THEN
     v_nc_applied := public.apply_credit_note_links(p_payable_id, v_bt.transaction_date);
     IF v_nc_applied > 0 THEN
-      v_new_remaining := GREATEST(0, v_new_remaining - v_nc_applied);
-      UPDATE public.payables SET amount_remaining = v_new_remaining, updated_at = now() WHERE id = p_payable_id;
+      UPDATE public.payables
+      SET amount_paid = COALESCE(amount_paid, 0) + LEAST(v_nc_applied, v_new_remaining),
+          updated_at = now()
+      WHERE id = p_payable_id;
     END IF;
   END IF;
 
-  v_new_status := CASE WHEN v_new_remaining <= 0 THEN 'pagato'::payable_status ELSE 'parziale'::payable_status END;
-  UPDATE public.payables SET status = v_new_status, updated_at = now() WHERE id = p_payable_id;
+  -- Stato finale calcolato dal trigger
+  SELECT amount_remaining, status INTO v_new_remaining, v_new_status FROM public.payables WHERE id = p_payable_id;
 
   UPDATE public.bank_transactions
   SET is_reconciled = true, reconciled_at = now(), reconciled_invoice_id = p_payable_id
@@ -300,24 +306,19 @@ BEGIN
     v_nc_restored := v_nc_restored + COALESCE(v_link.amount, 0);
   END LOOP;
 
-  v_new_paid := GREATEST(0, COALESCE(v_pay.amount_paid, 0) - v_log.applied_amount);
-  v_new_remaining := COALESCE(v_pay.amount_remaining, 0) + v_log.applied_amount + v_nc_restored;
+  -- Tolgo dal pagato sia la quota movimento sia la quota NB (le NC riaperte sopra). Il trigger
+  -- update_payable_status ricalcola amount_remaining e status da gross - amount_paid.
+  v_new_paid := GREATEST(0, COALESCE(v_pay.amount_paid, 0) - v_log.applied_amount - v_nc_restored);
   v_fully_open := v_new_paid <= 0;
-  v_new_status := CASE
-    WHEN v_fully_open THEN
-      CASE WHEN v_pay.due_date IS NOT NULL AND v_pay.due_date < CURRENT_DATE
-           THEN 'scaduto'::payable_status ELSE 'da_pagare'::payable_status END
-    ELSE 'parziale'::payable_status
-  END;
 
   UPDATE public.payables
   SET amount_paid = v_new_paid,
-      amount_remaining = v_new_remaining,
-      status = v_new_status,
       payment_date = CASE WHEN v_fully_open THEN NULL ELSE payment_date END,
       bank_transaction_id = CASE WHEN v_fully_open THEN NULL ELSE bank_transaction_id END,
       updated_at = now()
   WHERE id = v_pay.id;
+
+  SELECT amount_remaining, status INTO v_new_remaining, v_new_status FROM public.payables WHERE id = v_pay.id;
 
   IF v_log.bank_transaction_id IS NOT NULL THEN
     UPDATE public.bank_transactions
