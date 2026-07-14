@@ -31,6 +31,11 @@ import {
 const fmt = (n: number | null | undefined): string => n != null ? Number(n).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'
 const fmtDate = (d: string | null | undefined): string => d ? new Date(d).toLocaleDateString('it-IT') : '—'
 
+// Periodi mese-per-mese (non per giorno) per i filtri
+const MESI_IT = ['Gennaio', 'Febbraio', 'Marzo', 'Aprile', 'Maggio', 'Giugno', 'Luglio', 'Agosto', 'Settembre', 'Ottobre', 'Novembre', 'Dicembre']
+const monthKey = (d?: string | null): string => { const s = String(d || ''); return /^\d{4}-\d{2}/.test(s) ? s.slice(0, 7) : '' }
+const monthLabel = (key: string): string => { const [y, m] = key.split('-'); return `${MESI_IT[Number(m) - 1] ?? m} ${y}` }
+
 // Tipo documento FatturaPA: codice → etichetta leggibile. Codici sconosciuti
 // restano mostrati così come arrivano (con il codice nel tooltip).
 const TIPO_DOC_LABEL: Record<string, string> = {
@@ -79,46 +84,6 @@ function SdiStatusBadge({ status, configMap = SDI_STATUS_CONFIG as StatusConfigM
       {cfg.icon && <Icon size={12} />}
       {cfg.label}
     </span>
-  )
-}
-
-// Legenda esplicativa stati SDI — per Sabrina/Veronica che non conoscono i termini
-const SDI_LEGEND_PASSIVE: Array<{ key: string; what: string }> = [
-  { key: 'RECEIVED', what: 'Arrivata dal fornitore via SDI. Visibile nel gestionale.' },
-  { key: 'PENDING', what: 'SDI sta ancora processando la fattura. Attendi esito.' },
-  { key: 'ACCEPTED', what: 'Validata dall’Agenzia delle Entrate. Registrabile in contabilità.' },
-  { key: 'REJECTED', what: 'Scartata dall’AdE per dati invalidi. NON contabilizzare. Chiedi nuova fattura al fornitore.' },
-]
-
-const SDI_LEGEND_ACTIVE: Array<{ key: string; what: string }> = [
-  { key: 'DRAFT', what: 'Bozza creata nel gestionale, non ancora inviata via SDI.' },
-  { key: 'SENT', what: 'Trasmessa all’AdE, in attesa di ricevuta SDI.' },
-  { key: 'DELIVERED', what: 'Consegnata al destinatario tramite SDI.' },
-  { key: 'ACCEPTED', what: 'Validata e accettata dall’AdE. Definitiva.' },
-  { key: 'REJECTED', what: 'Rifiutata. Rivedi XML, correggi e ritrasmetti.' },
-  { key: 'ERROR', what: 'Errore tecnico di invio. Chiama Patrizio o Lilian.' },
-]
-
-function SdiLegend({ tipo }: { tipo: 'passive' | 'active' }) {
-  const items = tipo === 'passive' ? SDI_LEGEND_PASSIVE : SDI_LEGEND_ACTIVE
-  return (
-    <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 flex flex-wrap items-center gap-x-4 gap-y-2">
-      <span className="text-xs font-semibold text-slate-700 uppercase tracking-wide">Legenda stato SDI:</span>
-      {items.map(it => {
-        const cfg = SDI_STATUS_CONFIG[it.key as keyof typeof SDI_STATUS_CONFIG]
-        if (!cfg) return null
-        const Icon = cfg.icon || Clock
-        return (
-          <div key={it.key} className="flex items-center gap-1.5" title={it.what}>
-            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${cfg.color}`}>
-              <Icon size={12} />
-              {cfg.label}
-            </span>
-            <span className="text-xs text-slate-600 hidden lg:inline max-w-[280px] truncate" title={it.what}>{it.what}</span>
-          </div>
-        )
-      })}
-    </div>
   )
 }
 
@@ -624,6 +589,7 @@ function FattureAttive() {
   const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState<string | null>(null) // invoiceId in corso di invio
   const [searchTerm, setSearchTerm] = useState('')
+  const [periodFilter, setPeriodFilter] = useState('ALL') // 'ALL' o 'YYYY-MM'
   const [selectedInvoice, setSelectedInvoice] = useState<ActiveInvoiceRow | null>(null)
   const [showXml, setShowXml] = useState(false)
   const [viewingXml, setViewingXml] = useState<string | null>(null)
@@ -672,10 +638,20 @@ function FattureAttive() {
     }
   }
 
+  // Periodi disponibili (mese in mese) dalle date fattura, dal più recente
+  const availableMonths = useMemo(() => {
+    const set = new Set<string>()
+    invoices.forEach(inv => { const k = monthKey(inv.invoice_date); if (k) set.add(k) })
+    return Array.from(set).sort((a, b) => (a < b ? 1 : -1))
+  }, [invoices])
+
   const filtered = invoices.filter(inv => {
-    if (!searchTerm) return true
-    const q = searchTerm.toLowerCase()
-    return (inv.client_name || '').toLowerCase().includes(q) || (inv.invoice_number || '').toLowerCase().includes(q)
+    if (periodFilter !== 'ALL' && monthKey(inv.invoice_date) !== periodFilter) return false
+    if (searchTerm) {
+      const q = searchTerm.toLowerCase()
+      if (!((inv.client_name || '').toLowerCase().includes(q) || (inv.invoice_number || '').toLowerCase().includes(q))) return false
+    }
+    return true
   })
 
   const stats = {
@@ -685,11 +661,11 @@ function FattureAttive() {
     totalAmount: invoices.reduce((s, i) => s + Number(i.total_amount || 0), 0),
   }
 
-  // Sort tabella fatture attive: default invoice_date desc.
+  // Sort tabella fatture attive: SEMPRE default invoice_date desc a ogni caricamento
+  // (nessuna persistenza) → la fattura più recente resta in cima.
   const { sorted: sortedFiltered, sortBy: faSortBy, onSort: faOnSort, reset: faResetSort } = useTableSort(
     filtered,
-    [{ key: 'invoice_date', dir: 'desc' }],
-    { persistKey: 'fatture_attive' }
+    [{ key: 'invoice_date', dir: 'desc' }]
   );
 
   return (
@@ -708,12 +684,21 @@ function FattureAttive() {
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <input
             type="text"
-            placeholder="Cerca cliente, numero fattura..."
+            placeholder="Cerca per cliente o numero fattura..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
           />
         </div>
+        <select
+          value={periodFilter}
+          onChange={(e) => setPeriodFilter(e.target.value)}
+          className="px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white"
+          title="Filtra per periodo (mese per mese)"
+        >
+          <option value="ALL">Tutti i periodi</option>
+          {availableMonths.map(k => <option key={k} value={k}>{monthLabel(k)}</option>)}
+        </select>
         <Link
           to="/fatturazione/converti-xml"
           className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white text-sm rounded-lg hover:bg-emerald-700 transition"
@@ -736,9 +721,6 @@ function FattureAttive() {
           <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
         </button>
       </div>
-
-      {/* Legenda stati SDI per operatore */}
-      <SdiLegend tipo="active" />
 
       {/* Tabella */}
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
