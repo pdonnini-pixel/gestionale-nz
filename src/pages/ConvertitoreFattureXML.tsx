@@ -14,8 +14,11 @@ import PageHeader from '../components/PageHeader'
 import { supabase } from '../lib/supabase'
 import {
   ArrowLeft, Upload, FileCode, Download, CheckCircle, AlertTriangle,
-  Loader2, FileSpreadsheet, ClipboardPaste, Archive, RefreshCw,
+  Loader2, FileSpreadsheet, ClipboardPaste, Archive, RefreshCw, Search, Trash2,
 } from 'lucide-react'
+
+const MESI_IT = ['Gennaio', 'Febbraio', 'Marzo', 'Aprile', 'Maggio', 'Giugno', 'Luglio', 'Agosto', 'Settembre', 'Ottobre', 'Novembre', 'Dicembre']
+const monthLabel = (key: string): string => { const [y, m] = key.split('-'); return `${MESI_IT[Number(m) - 1] ?? m} ${y}` }
 
 // ─── Dati fissi cedente ──────────────────────────────────────────────────
 const CEDENTE_PIVA = '07362100484'
@@ -266,6 +269,9 @@ export default function ConvertitoreFattureXML() {
   const [zipping, setZipping] = useState(false)
   const [archive, setArchive] = useState<ArchiveRow[]>([])
   const [archiveLoading, setArchiveLoading] = useState(false)
+  const [archiveSearch, setArchiveSearch] = useState('')
+  const [archivePeriod, setArchivePeriod] = useState('ALL') // 'ALL' o 'YYYY-MM'
+  const [deleting, setDeleting] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Storico progressivo da localStorage
@@ -296,18 +302,49 @@ export default function ConvertitoreFattureXML() {
   }, [])
   useEffect(() => { loadArchive() }, [loadArchive])
 
-  // Raggruppa per batch mantenendo l'ordine (created_at desc, progressivo asc)
+  // Periodi disponibili (mese in mese) dalle date fattura archiviate
+  const archiveMonths = useMemo(() => {
+    const set = new Set<string>()
+    archive.forEach(r => { const k = (r.invoice_date || '').slice(0, 7); if (/^\d{4}-\d{2}$/.test(k)) set.add(k) })
+    return Array.from(set).sort((a, b) => (a < b ? 1 : -1))
+  }, [archive])
+
+  // Filtra (ricerca numero/cliente + periodo mensile) e raggruppa per batch
+  // mantenendo l'ordine (created_at desc, progressivo asc).
   const batches = useMemo(() => {
+    const q = archiveSearch.trim().toLowerCase()
+    const rows = archive.filter(r => {
+      if (archivePeriod !== 'ALL' && (r.invoice_date || '').slice(0, 7) !== archivePeriod) return false
+      if (q) {
+        const hay = `${r.invoice_number || ''} ${r.client_name || ''}`.toLowerCase()
+        if (!hay.includes(q)) return false
+      }
+      return true
+    })
     const map = new Map<string, ArchiveRow[]>()
-    for (const r of archive) {
+    for (const r of rows) {
       if (!map.has(r.batch_id)) map.set(r.batch_id, [])
       map.get(r.batch_id)!.push(r)
     }
-    return Array.from(map.entries()).map(([batch_id, rows]) => ({
-      batch_id, rows, created_at: rows[0].created_at,
-      progFrom: rows[0].progressivo, progTo: rows[rows.length - 1].progressivo,
+    return Array.from(map.entries()).map(([batch_id, brows]) => ({
+      batch_id, rows: brows, created_at: brows[0].created_at,
+      progFrom: brows[0].progressivo, progTo: brows[brows.length - 1].progressivo,
     }))
-  }, [archive])
+  }, [archive, archiveSearch, archivePeriod])
+
+  const deleteBatch = useCallback(async (batchId: string, n: number) => {
+    if (!window.confirm(`Eliminare questa generazione di ${n} file dall'archivio? L'operazione non è reversibile.`)) return
+    setDeleting(batchId)
+    try {
+      const { error } = await supabase.from('fattura_xml_export' as never).delete().eq('batch_id' as never, batchId as never)
+      if (error) throw error
+      await loadArchive()
+    } catch (e) {
+      setAlerts((prev) => [...prev, { kind: 'err', text: 'Eliminazione non riuscita: ' + (e as Error).message }])
+    } finally {
+      setDeleting(null)
+    }
+  }, [loadArchive])
 
   const downloadBatchZip = useCallback(async (rows: ArchiveRow[]) => {
     const zip = new JSZip()
@@ -602,19 +639,34 @@ export default function ConvertitoreFattureXML() {
 
       {/* Archivio generazioni */}
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-        <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
+        <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between gap-3 flex-wrap">
           <div className="flex items-center gap-2 text-sm font-semibold text-slate-800">
             <Archive size={16} className="text-slate-500" />
             Archivio generazioni
-            {archive.length > 0 && <span className="text-slate-400 font-normal">({archive.length} file · {batches.length} generazioni)</span>}
+            {archive.length > 0 && <span className="text-slate-400 font-normal">({archive.length} file)</span>}
           </div>
           <button onClick={loadArchive} className="p-1.5 text-slate-500 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition" title="Aggiorna archivio">
             <RefreshCw size={15} className={archiveLoading ? 'animate-spin' : ''} />
           </button>
         </div>
+        {archive.length > 0 && (
+          <div className="px-4 py-3 border-b border-slate-100 flex flex-wrap items-center gap-3">
+            <div className="relative flex-1 min-w-[200px]">
+              <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input type="text" placeholder="Cerca per numero fattura o cliente…" value={archiveSearch}
+                onChange={(e) => setArchiveSearch(e.target.value)}
+                className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+            </div>
+            <select value={archivePeriod} onChange={(e) => setArchivePeriod(e.target.value)}
+              className="px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white" title="Filtra per periodo (mese per mese)">
+              <option value="ALL">Tutti i periodi</option>
+              {archiveMonths.map(k => <option key={k} value={k}>{monthLabel(k)}</option>)}
+            </select>
+          </div>
+        )}
         {batches.length === 0 ? (
           <div className="px-4 py-8 text-center text-sm text-slate-400">
-            {archiveLoading ? 'Caricamento…' : 'Nessuna generazione archiviata. Ogni volta che premi «Genera XML» i file vengono salvati qui.'}
+            {archiveLoading ? 'Caricamento…' : (archive.length > 0 ? 'Nessun risultato per i filtri selezionati.' : 'Nessuna generazione archiviata. Ogni volta che premi «Genera XML» i file vengono salvati qui.')}
           </div>
         ) : (
           <div className="divide-y divide-slate-100">
@@ -625,10 +677,17 @@ export default function ConvertitoreFattureXML() {
                     <span className="font-medium">{fmtDateTime(b.created_at)}</span>
                     <span className="text-slate-400"> · {b.rows.length} file · progressivi {pad5(b.progFrom)}–{pad5(b.progTo)}</span>
                   </div>
-                  <button onClick={() => downloadBatchZip(b.rows)}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs bg-white border border-blue-600 text-blue-700 rounded-lg hover:bg-blue-50 transition">
-                    <Download size={13} /> Scarica .zip
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => downloadBatchZip(b.rows)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs bg-white border border-blue-600 text-blue-700 rounded-lg hover:bg-blue-50 transition">
+                      <Download size={13} /> Scarica .zip
+                    </button>
+                    <button onClick={() => deleteBatch(b.batch_id, b.rows.length)} disabled={deleting === b.batch_id}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs bg-white border border-red-300 text-red-600 rounded-lg hover:bg-red-50 transition disabled:opacity-50"
+                      title="Elimina questa generazione dall'archivio">
+                      {deleting === b.batch_id ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />} Elimina
+                    </button>
+                  </div>
                 </div>
                 <div className="overflow-x-auto">
                   <table className="w-full text-xs">
