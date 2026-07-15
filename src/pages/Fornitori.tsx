@@ -604,7 +604,7 @@ export default function Fornitori() {
       cap: str('cap'),
       category: str('category'),
       payment_terms: num('payment_terms', num('default_payment_terms', 30)),
-      payment_method: str('payment_method') || str('default_payment_method') || 'bonifico',
+      payment_method: str('payment_method') || str('default_payment_method') || 'bonifico_ordinario',
       cost_center: str('cost_center') || 'all',
       note: str('note') || str('notes'),
       payment_base: str('payment_base'),
