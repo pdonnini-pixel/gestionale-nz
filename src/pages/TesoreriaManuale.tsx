@@ -2555,9 +2555,17 @@ type MatchT = { payable: PayT; score: number; percentDiff: number; remaining: nu
 // a una fattura (commissioni bancarie, stipendi, imposte, finanziamenti, movimenti
 // finanziari, incassi). I movimenti senza categoria restano riconciliabili.
 const NON_RECONCILABLE_CATEGORIES = new Set(['fees', 'wages', 'taxes', 'loans', 'financials', 'income'])
-function isReconcilableTx(t: { category?: string | null }): boolean {
+// Fallback sulla causale: alcune commissioni/spese bancarie arrivano da A-Cube SENZA
+// categoria (category null), quindi le riconosciamo anche dal testo. Il pattern è
+// ancorato all'inizio della causale: i pagamenti a fornitori iniziano con "Bonifico…",
+// "Pagamento…", "SDD…", mai con "Comm."/"Commissioni"/"Competenze"/"Imposta di bollo"/
+// "Canone"/"Spese tenuta conto" → così non si escludono per errore pagamenti reali.
+const FEE_DESC_RE = /^\s*(comm\.|commission|commissioni|competenze|imposta di bollo|bollo\b|canone\b|spese tenuta conto|spese e competenze)/i
+function isReconcilableTx(t: { category?: string | null; description?: string | null }): boolean {
   const c = t.category ? String(t.category) : ''
-  return !NON_RECONCILABLE_CATEGORIES.has(c)
+  if (NON_RECONCILABLE_CATEGORIES.has(c)) return false
+  if (FEE_DESC_RE.test(String(t.description || ''))) return false
+  return true
 }
 
 /* ────────────────────────────────────────
