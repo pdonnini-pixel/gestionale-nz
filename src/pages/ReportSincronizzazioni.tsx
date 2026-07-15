@@ -56,10 +56,11 @@ interface RunMovement {
 }
 
 // Sotto-tabella "cosa è stato scaricato" per una run espansa.
-function RunDetails({ feed, details, movements, loading, showErrors }: {
+function RunDetails({ feed, details, movements, movementsTotal, loading, showErrors }: {
   feed: SyncFeed
   details: SyncRunDetail[] | undefined
   movements: RunMovement[] | undefined
+  movementsTotal: number
   loading: boolean
   showErrors: boolean
 }) {
@@ -135,7 +136,9 @@ function RunDetails({ feed, details, movements, loading, showErrors }: {
       {movements && movements.length > 0 && (
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 mb-1.5">
-            Movimenti scaricati ({movements.length})
+            Movimenti scaricati {movements.length < movementsTotal
+              ? `(primi ${movements.length} di ${movementsTotal})`
+              : `(${movements.length})`}
           </p>
           <table className="w-full text-xs">
             <thead>
@@ -387,6 +390,7 @@ export default function ReportSincronizzazioni() {
                             feed={r.feed}
                             details={detailsByRun[r.id]}
                             movements={movementsByRun[r.id]}
+                            movementsTotal={r.items_downloaded}
                             loading={detailLoading === r.id}
                             showErrors={showErrors}
                           />
