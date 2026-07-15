@@ -1910,6 +1910,12 @@ const ScadenzarioSmart = () => {
       setDistintaSaved(true);
       setSelectedIds(new Set());
       setPaymentPlan({});
+      // Chiudi subito il pop-up dopo la conferma: la distinta è salvata, non deve
+      // ripresentarsi. Azzero anche la bozza in localStorage così, tornando sulla
+      // pagina o ricaricando, l'anteprima non viene ricostruita/ripristinata.
+      setConfirmResult(null);
+      setDistintaSaved(false);
+      if (DRAFT_KEY) { try { localStorage.removeItem(DRAFT_KEY); } catch { /* storage non disponibile */ } }
       fetchData();
     } catch (error) {
       console.error('Error confirming distinta:', error);
