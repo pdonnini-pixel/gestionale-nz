@@ -32,7 +32,7 @@ import PdfViewer from '../components/PdfViewer';
 import { parseFatturaAllegati, downloadBytes, type FatturaAllegato } from '../lib/fatturaAllegati';
 import {
   PAYMENT_METHOD_OPTIONS, PAYMENT_METHOD_LABELS as PAYMENT_LABEL,
-  DEFAULT_PAYMENT_METHOD, isBankRequired,
+  DEFAULT_PAYMENT_METHOD, isBankRequired, normalizePaymentMethod,
 } from '../lib/paymentMethods';
 
 const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316'];
@@ -558,7 +558,12 @@ export default function Fornitori() {
       cap: str('cap'),
       category: str('category'),
       payment_terms: num('payment_terms', num('default_payment_terms', 30)),
-      payment_method: str('payment_method') || str('default_payment_method') || DEFAULT_PAYMENT_METHOD,
+      // Normalizza i valori legacy della colonna text (es. 'bonifico') verso l'enum
+      // valido: senza questo, aprire e salvare un fornitore storico scriverebbe un
+      // valore non-enum su default_payment_method e il salvataggio fallirebbe.
+      payment_method: normalizePaymentMethod(str('payment_method'))
+        || normalizePaymentMethod(str('default_payment_method'))
+        || DEFAULT_PAYMENT_METHOD,
       cost_center: str('cost_center') || 'all',
       note: str('note') || str('notes'),
       payment_base: str('payment_base'),

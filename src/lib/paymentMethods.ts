@@ -61,6 +61,23 @@ export const PAYMENT_METHOD_LABELS: Record<string, string> = (() => {
 // che farebbe fallire il cast sulla colonna enum default_payment_method).
 export const DEFAULT_PAYMENT_METHOD = 'bonifico_ordinario'
 
+// Insieme dei valori VALIDI dell'enum payment_method (esclude i fallback legacy).
+export const VALID_PAYMENT_METHODS = new Set<string>(
+  PAYMENT_METHOD_OPTIONS.flatMap(g => g.items.map(i => i.value)),
+)
+
+// Normalizza un valore metodo verso un valore enum VALIDO.
+// - se e' gia' un valore enum valido -> lo restituisce
+// - mappe legacy note e NON ambigue (colonna text storica) -> valore enum
+// - valori legacy ambigui ('riba', 'carta') o ignoti -> '' (il chiamante ripiega
+//   sulla colonna enum default_payment_method, sempre valida, o sul default)
+export const normalizePaymentMethod = (raw: string | null | undefined): string => {
+  const v = String(raw || '')
+  if (VALID_PAYMENT_METHODS.has(v)) return v
+  if (v === 'bonifico') return 'bonifico_ordinario'
+  return ''
+}
+
 // Metodi per cui la banca di pagamento e' OBBLIGATORIA (serve per lo storno nei
 // cashflow). Deve restare allineato a fn_supplier_config_anomaly nel DB
 // (migration 087): riba_*, rid, sdd_core, sdd_b2b, carta_credito, carta_debito.
