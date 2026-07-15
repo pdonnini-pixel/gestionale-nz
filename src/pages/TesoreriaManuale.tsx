@@ -2551,6 +2551,268 @@ type TxT = TransactionT
 type PayT = PayableT
 type MatchT = { payable: PayT; score: number; percentDiff: number; remaining: number }
 
+// Categorie A-Cube che NON sono pagamenti a fornitori: non vanno mai riconciliate
+// a una fattura (commissioni bancarie, stipendi, imposte, finanziamenti, movimenti
+// finanziari, incassi). I movimenti senza categoria restano riconciliabili.
+const NON_RECONCILABLE_CATEGORIES = new Set(['fees', 'wages', 'taxes', 'loans', 'financials', 'income'])
+function isReconcilableTx(t: { category?: string | null }): boolean {
+  const c = t.category ? String(t.category) : ''
+  return !NON_RECONCILABLE_CATEGORIES.has(c)
+}
+
+/* ────────────────────────────────────────
+   Riepilogo del giorno (controllo operativo)
+   Cosa è stato riconciliato in una data e le uscite ancora senza match
+   (escluse commissioni & simili). Sola lettura: legge reconciliation_log
+   e bank_transactions, non scrive nulla.
+   ──────────────────────────────────────── */
+type ReconLogRowR = {
+  id: string
+  performed_at?: string | null
+  applied_amount?: number | null
+  match_type?: string | null
+  bank_transactions?: { transaction_date?: string | null; amount?: number | null; description?: string | null; counterpart_name?: string | null } | null
+  payables?: { invoice_number?: string | null; supplier_name?: string | null; gross_amount?: number | null } | null
+}
+type PendingMovR = { id: string; transaction_date?: string | null; amount?: number | null; description?: string | null; counterpart_name?: string | null; bank_account_id?: string | null; category?: string | null }
+
+function RiepilogoGiornaliero({ companyId, accounts }: { companyId: string; accounts: AccountT[] }) {
+  const toISO = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  const euro = (n: number) => new Intl.NumberFormat('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)
+  const [day, setDay] = useState<string>(() => toISO(new Date()))
+  const [windowDays, setWindowDays] = useState<number>(90)
+  const [reconRows, setReconRows] = useState<ReconLogRowR[]>([])
+  const [pending, setPending] = useState<PendingMovR[]>([])
+  const [pendingCount, setPendingCount] = useState(0)
+  const [pendingAmount, setPendingAmount] = useState(0)
+  const [loadingRecon, setLoadingRecon] = useState(false)
+  const [loadingPending, setLoadingPending] = useState(false)
+  const [showRecon, setShowRecon] = useState(true)
+  const [showPending, setShowPending] = useState(false)
+
+  const isToday = day === toISO(new Date())
+  const fmtD = (d?: string | null) => d ? new Date(d).toLocaleDateString('it-IT') : '—'
+  const bankName = (id?: string | null) => {
+    const a = accounts.find(x => x.id === id)
+    return a ? (a.bank_name || a.account_name || '—') : '—'
+  }
+  const shiftDay = (delta: number) => {
+    const d = new Date(day + 'T00:00:00'); d.setDate(d.getDate() + delta)
+    if (toISO(d) > toISO(new Date())) return
+    setDay(toISO(d))
+  }
+  const reconTotal = useMemo(
+    () => reconRows.reduce((s, r) => s + Math.abs(Number(r.bank_transactions?.amount ?? r.applied_amount ?? r.payables?.gross_amount ?? 0)), 0),
+    [reconRows],
+  )
+
+  // Riconciliati nella data selezionata (audit reale: reconciliation_log applicati)
+  useEffect(() => {
+    if (!companyId) return
+    let cancelled = false
+    const run = async () => {
+      setLoadingRecon(true)
+      try {
+        const start = `${day}T00:00:00`
+        const nd = new Date(day + 'T00:00:00'); nd.setDate(nd.getDate() + 1)
+        const end = `${toISO(nd)}T00:00:00`
+        // reconciliation_log ha status/bank_transaction_id/applied_amount ma i types sono stale → cast chainable
+        type LogChain = {
+          eq: (k: string, v: string) => LogChain
+          gte: (k: string, v: string) => LogChain
+          lt: (k: string, v: string) => LogChain
+          order: (k: string, o: { ascending: boolean }) => Promise<{ data: ReconLogRowR[] | null }>
+        }
+        const q = supabase
+          .from('reconciliation_log')
+          .select('id, performed_at, applied_amount, match_type, bank_transactions(transaction_date, amount, description, counterpart_name), payables(invoice_number, supplier_name, gross_amount)') as unknown as LogChain
+        const { data } = await q
+          .eq('company_id', companyId).eq('status', 'applied')
+          .gte('performed_at', start).lt('performed_at', end)
+          .order('performed_at', { ascending: false })
+        if (!cancelled) setReconRows((data || []) as unknown as ReconLogRowR[])
+      } catch { if (!cancelled) setReconRows([]) }
+      finally { if (!cancelled) setLoadingRecon(false) }
+    }
+    run(); return () => { cancelled = true }
+  }, [companyId, day])
+
+  // Da riconciliare: uscite non abbinate (finestra recente, escluse commissioni & simili)
+  useEffect(() => {
+    if (!companyId) return
+    let cancelled = false
+    const run = async () => {
+      setLoadingPending(true)
+      try {
+        let q = (supabase
+          .from('bank_transactions')
+          .select('id, transaction_date, amount, description, counterpart_name, bank_account_id, category')
+          .eq('company_id', companyId)
+          .lt('amount', 0)
+          .or('is_reconciled.is.null,is_reconciled.eq.false')
+          .order('transaction_date', { ascending: false })
+          .limit(1000)) as unknown as { gte: (k: string, v: string) => unknown }
+        if (windowDays > 0) {
+          const fd = new Date(); fd.setDate(fd.getDate() - windowDays)
+          q = q.gte('transaction_date', toISO(fd)) as unknown as { gte: (k: string, v: string) => unknown }
+        }
+        const { data } = await (q as unknown as Promise<{ data: PendingMovR[] | null }>)
+        if (!cancelled) {
+          const rows = ((data || []) as PendingMovR[]).filter(isReconcilableTx)
+          setPending(rows.slice(0, 50))
+          setPendingCount(rows.length)
+          setPendingAmount(rows.reduce((s, r) => s + Math.abs(Number(r.amount) || 0), 0))
+        }
+      } catch { if (!cancelled) { setPending([]); setPendingCount(0); setPendingAmount(0) } }
+      finally { if (!cancelled) setLoadingPending(false) }
+    }
+    run(); return () => { cancelled = true }
+  }, [companyId, windowDays])
+
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+      <div className="flex items-center justify-between flex-wrap gap-3 px-4 py-3 border-b border-slate-100 bg-slate-50/60">
+        <div className="flex items-center gap-2">
+          <Calendar size={16} className="text-blue-500" />
+          <span className="font-semibold text-slate-800 text-sm">Riepilogo del giorno</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <button onClick={() => shiftDay(-1)} className="p-1.5 rounded-md border border-slate-200 hover:bg-white transition text-slate-500" title="Giorno precedente">
+            <ChevronLeft size={14} />
+          </button>
+          <input type="date" value={day} max={toISO(new Date())}
+            onChange={e => e.target.value && setDay(e.target.value)}
+            className="px-2 py-1 border border-slate-200 rounded-md text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-slate-700" />
+          <button onClick={() => shiftDay(1)} disabled={isToday} className="p-1.5 rounded-md border border-slate-200 hover:bg-white transition text-slate-500 disabled:opacity-30" title="Giorno successivo">
+            <ChevronRight size={14} />
+          </button>
+          {!isToday && (
+            <button onClick={() => setDay(toISO(new Date()))} className="px-2 py-1 rounded-md border border-slate-200 hover:bg-white transition text-xs text-blue-600 font-medium">Oggi</button>
+          )}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-slate-100">
+        <button onClick={() => setShowRecon(v => !v)} className="flex items-center justify-between gap-3 p-4 text-left hover:bg-emerald-50/30 transition">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-emerald-50 text-emerald-600"><CheckCircle2 size={18} /></div>
+            <div>
+              <div className="text-xs text-slate-500">Riconciliati {isToday ? 'oggi' : `il ${fmtD(day)}`}</div>
+              <div className="text-lg font-bold text-slate-900">{loadingRecon ? '…' : reconRows.length} <span className="text-sm font-medium text-slate-400">pagamenti</span></div>
+            </div>
+          </div>
+          <div className="text-right">
+            <div className="text-sm font-semibold text-emerald-600">{euro(reconTotal)} €</div>
+            {showRecon ? <ChevronUp size={14} className="text-slate-300 inline mt-1" /> : <ChevronDown size={14} className="text-slate-300 inline mt-1" />}
+          </div>
+        </button>
+
+        <button onClick={() => setShowPending(v => !v)} className="flex items-center justify-between gap-3 p-4 text-left hover:bg-amber-50/30 transition">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-amber-50 text-amber-600"><Clock size={18} /></div>
+            <div>
+              <div className="text-xs text-slate-500">Da riconciliare (uscite senza match)</div>
+              <div className="text-lg font-bold text-slate-900">{loadingPending ? '…' : pendingCount} <span className="text-sm font-medium text-slate-400">movimenti</span></div>
+            </div>
+          </div>
+          <div className="text-right">
+            <div className="text-sm font-semibold text-amber-600">{euro(pendingAmount)} €</div>
+            {showPending ? <ChevronUp size={14} className="text-slate-300 inline mt-1" /> : <ChevronDown size={14} className="text-slate-300 inline mt-1" />}
+          </div>
+        </button>
+      </div>
+
+      {showRecon && (
+        <div className="border-t border-slate-100">
+          {loadingRecon ? (
+            <div className="p-6 text-center text-slate-400 text-sm">Caricamento…</div>
+          ) : reconRows.length === 0 ? (
+            <div className="p-6 text-center text-slate-400 text-sm">Nessun pagamento riconciliato in questa data.</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-100 text-xs text-slate-500">
+                    <th className="py-2 px-4 text-left font-medium">Fornitore</th>
+                    <th className="py-2 px-4 text-left font-medium">Fattura</th>
+                    <th className="py-2 px-4 text-left font-medium">Movimento</th>
+                    <th className="py-2 px-4 text-right font-medium">Importo</th>
+                    <th className="py-2 px-4 text-center font-medium">Tipo</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {reconRows.map(r => (
+                    <tr key={r.id} className="border-b border-slate-50 hover:bg-slate-50/50 transition">
+                      <td className="py-2 px-4 text-slate-800 max-w-[220px] truncate">{r.payables?.supplier_name || r.bank_transactions?.counterpart_name || '—'}</td>
+                      <td className="py-2 px-4 text-slate-500 text-xs">{r.payables?.invoice_number || '—'}</td>
+                      <td className="py-2 px-4 text-slate-500 text-xs">{fmtD(r.bank_transactions?.transaction_date)}</td>
+                      <td className="py-2 px-4 text-right font-medium text-slate-900 whitespace-nowrap">{euro(Math.abs(Number(r.bank_transactions?.amount ?? r.applied_amount ?? r.payables?.gross_amount ?? 0)))} €</td>
+                      <td className="py-2 px-4 text-center">
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium ${r.match_type === 'manual' ? 'bg-blue-50 text-blue-600' : 'bg-emerald-50 text-emerald-600'}`}>{r.match_type === 'manual' ? 'a mano' : 'auto'}</span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {showPending && (
+        <div className="border-t border-slate-100">
+          <div className="flex items-center justify-between gap-2 px-4 py-2 bg-amber-50/40 text-xs text-amber-800">
+            <span>Uscite non ancora abbinate a una fattura (commissioni e movimenti non-fornitore esclusi). Abbinale sotto in "Da riconciliare".</span>
+            <select value={windowDays} onChange={e => setWindowDays(Number(e.target.value))}
+              className="px-2 py-1 border border-amber-200 rounded-md text-xs bg-white text-slate-600 focus:outline-none">
+              <option value={30}>Ultimi 30 gg</option>
+              <option value={60}>Ultimi 60 gg</option>
+              <option value={90}>Ultimi 90 gg</option>
+              <option value={180}>Ultimi 6 mesi</option>
+              <option value={0}>Tutte</option>
+            </select>
+          </div>
+          {loadingPending ? (
+            <div className="p-6 text-center text-slate-400 text-sm">Caricamento…</div>
+          ) : pending.length === 0 ? (
+            <div className="p-6 text-center text-slate-400 text-sm">Nessuna uscita da riconciliare nel periodo scelto. Tutto abbinato 🎉</div>
+          ) : (
+            <>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-100 text-xs text-slate-500">
+                      <th className="py-2 px-4 text-left font-medium">Data</th>
+                      <th className="py-2 px-4 text-left font-medium">Banca</th>
+                      <th className="py-2 px-4 text-left font-medium">Descrizione / Controparte</th>
+                      <th className="py-2 px-4 text-right font-medium">Importo</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pending.map(m => (
+                      <tr key={m.id} className="border-b border-slate-50 hover:bg-slate-50/50 transition">
+                        <td className="py-2 px-4 text-slate-500 text-xs whitespace-nowrap">{fmtD(m.transaction_date)}</td>
+                        <td className="py-2 px-4 text-slate-500 text-xs max-w-[140px] truncate">{bankName(m.bank_account_id)}</td>
+                        <td className="py-2 px-4 text-slate-700 text-xs max-w-[280px] truncate">{m.counterpart_name || m.description || '—'}</td>
+                        <td className="py-2 px-4 text-right font-medium text-red-500 whitespace-nowrap">-{euro(Math.abs(Number(m.amount) || 0))} €</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {pendingCount > pending.length && (
+                <div className="px-4 py-2 text-center text-xs text-slate-400 border-t border-slate-100">
+                  Mostrati i {pending.length} più recenti di {pendingCount}. Restringi il periodo o abbinali sotto.
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function TabRiconciliazione({ transactions, payables, accounts, companyId, onRefresh }: {
   transactions: TxT[]
   payables: PayT[]
@@ -2580,7 +2842,7 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
 
   // Get unreconciled outgoing movements
   const unreconciledMovements = useMemo(() => {
-    let items = transactions.filter((t) => !t.is_reconciled && (Number(t.amount) || 0) < 0)
+    let items = transactions.filter((t) => !t.is_reconciled && (Number(t.amount) || 0) < 0 && isReconcilableTx(t))
     if (filterAccount !== 'all') items = items.filter((t) => t.bank_account_id === filterAccount)
     if (search) {
       const q = search.toLowerCase()
@@ -2904,6 +3166,9 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
 
   return (
     <div className="space-y-6">
+      {/* Riepilogo del giorno (controllo operativo) */}
+      <RiepilogoGiornaliero companyId={companyId} accounts={accounts} />
+
       {/* Toggle vista: Da riconciliare / Riconciliati */}
       <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5 shadow-sm">
         <button onClick={() => setViewMode('da_riconciliare')}
@@ -3470,9 +3735,15 @@ export default function TesoreriaManuale() {
             let badge = null
             let suggBadge = null
             if (tab.key === 'riconciliazione') {
-              const unrecCount = transactions.filter(t => !t.is_reconciled && (t.amount || 0) < 0).length
-              if (unrecCount > 0) badge = unrecCount
-              if (suggestCount > 0) suggBadge = suggestCount
+              // Un solo badge, quello azionabile: se ci sono abbinamenti già suggeriti
+              // dal sistema mostra quelli (da confermare); altrimenti il backlog di
+              // uscite da abbinare a mano, escluse commissioni & movimenti non-fornitore.
+              if (suggestCount > 0) {
+                suggBadge = suggestCount
+              } else {
+                const unrecCount = transactions.filter(t => !t.is_reconciled && (Number(t.amount) || 0) < 0 && isReconcilableTx(t)).length
+                if (unrecCount > 0) badge = unrecCount
+              }
             }
 
             return (
