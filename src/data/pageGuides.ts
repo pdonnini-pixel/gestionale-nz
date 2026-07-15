@@ -1423,11 +1423,11 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "Creare o modificare un fornitore",
-        "body": "Con il pulsante \"Nuovo Fornitore\" in alto si apre un modulo per inserire un nuovo fornitore: dati anagrafici (ragione sociale, P.IVA, codice fiscale, codice SDI, PEC), contatti e indirizzo, condizioni di pagamento (IBAN, categoria, termini di pagamento in giorni, metodo di pagamento) e il piano delle scadenze (per le fatture emesse dal 31/07/2026): base di calcolo delle scadenze, banca di pagamento, giorni alla prima scadenza e numero di rate. Per alcuni metodi di pagamento (ad esempio Ri.Ba., RID/SDD, carte) la banca di pagamento è obbligatoria. Lo stesso modulo si apre in modifica cliccando sull'icona della matita nella riga del fornitore.",
+        "body": "Con il pulsante \"Nuovo Fornitore\" in alto si apre un modulo per inserire un nuovo fornitore: dati anagrafici (ragione sociale, P.IVA, codice fiscale, codice SDI, PEC), contatti e indirizzo, condizioni di pagamento (IBAN, categoria, termini di pagamento in giorni, metodo di pagamento) e il piano delle scadenze (per le fatture emesse dal 31/07/2026): base di calcolo delle scadenze, banca di pagamento, giorni alla prima scadenza e numero di rate. Per alcuni metodi di pagamento (Ri.Ba. 30/60/90/120, RID, SDD Core/B2B, carta di credito o debito) la banca di pagamento è obbligatoria, perché serve per lo storno nelle simulazioni di cash flow: in questi casi, se non selezioni una banca il salvataggio viene bloccato con un avviso. Lo stesso modulo si apre in modifica cliccando sull'icona della matita nella riga del fornitore.",
         "steps": [
           "Clicca \"Nuovo Fornitore\" per aggiungerne uno, oppure l'icona della matita su una riga per modificarlo",
           "Compila almeno la Ragione Sociale, che è obbligatoria",
-          "Se scegli un metodo di pagamento che richiede la banca (comparirà un avviso), seleziona anche la banca di pagamento",
+          "Se scegli un metodo di pagamento che richiede la banca (Ri.Ba., RID/SDD, carte), seleziona anche la banca di pagamento: senza di essa il salvataggio non viene consentito",
           "Clicca \"Crea Fornitore\" o \"Salva Modifiche\" per confermare"
         ]
       },

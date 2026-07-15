@@ -25,6 +25,7 @@ import { useToast } from '../components/Toast';
 import PageHeader from '../components/PageHeader';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
+import { PAYMENT_METHOD_LABELS as paymentMethodLabels } from '../lib/paymentMethods';
 import type { Row } from '../types/business';
 
 type Supplier = Row<'suppliers'>;
@@ -63,13 +64,6 @@ function worstStatus(statuses: string[]): string {
   if (statuses.includes('parziale')) return 'parziale';
   return 'pagato';
 }
-
-const paymentMethodLabels: Record<string, string> = {
-  bonifico_ordinario: 'Bonifico', bonifico_urgente: 'Bonifico urgente', bonifico_sepa: 'Bonifico SEPA',
-  riba_30: 'RiBa 30gg', riba_60: 'RiBa 60gg', riba_90: 'RiBa 90gg', riba_120: 'RiBa 120gg',
-  rid: 'RID', sdd_core: 'SDD Core', sdd_b2b: 'SDD B2B', carta_credito: 'Carta',
-  contanti: 'Contanti', compensazione: 'Compensazione', mav: 'MAV', altro: 'Altro',
-};
 
 type OpeningRow = { id: string; company_id: string; supplier_id: string; fiscal_year: number; opening_balance: number; as_of_date: string | null; note: string | null; source: string | null };
 
