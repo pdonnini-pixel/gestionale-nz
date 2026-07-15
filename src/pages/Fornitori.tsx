@@ -42,8 +42,10 @@ const EMPTY_FORM = {
   pec: '', email: '', telefono: '', iban: '', indirizzo: '', citta: '',
   provincia: '', cap: '', category: '', payment_terms: 30,
   payment_method: 'bonifico_ordinario', cost_center: 'all', note: '',
-  // Piano rate scadenze (v2): usato per generare le scadenze delle fatture >= 31/07/2026
-  payment_base: '', prima_scadenza_gg: 30, numero_rate: 1, payment_bank_account_id: '',
+  // Piano rate scadenze (v2): usato per generare le scadenze delle fatture >= 31/07/2026.
+  // Default base = 'fine_mese' (regola standard: le scadenze sono a fine mese, incluse
+  // le rimesse dirette). L'operatrice puo' cambiarla in 'data_fattura' quando serve.
+  payment_base: 'fine_mese', prima_scadenza_gg: 30, numero_rate: 1, payment_bank_account_id: '',
 };
 
 const CATEGORIES = [
