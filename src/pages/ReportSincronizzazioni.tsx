@@ -53,14 +53,16 @@ interface RunMovement {
   amount: number
   description: string | null
   currency: string | null
+  bank_account_id: string | null
 }
 
 // Sotto-tabella "cosa è stato scaricato" per una run espansa.
-function RunDetails({ feed, details, movements, movementsTotal, loading, showErrors }: {
+function RunDetails({ feed, details, movements, movementsTotal, bankNames, loading, showErrors }: {
   feed: SyncFeed
   details: SyncRunDetail[] | undefined
   movements: RunMovement[] | undefined
   movementsTotal: number
+  bankNames: Record<string, string>
   loading: boolean
   showErrors: boolean
 }) {
@@ -144,6 +146,7 @@ function RunDetails({ feed, details, movements, movementsTotal, loading, showErr
             <thead>
               <tr className="text-left text-slate-400 border-b border-slate-200">
                 <th className="py-1.5 pr-4 font-medium">Data</th>
+                <th className="py-1.5 pr-4 font-medium">Banca</th>
                 <th className="py-1.5 pr-4 font-medium">Descrizione</th>
                 <th className="py-1.5 pr-4 font-medium text-right">Importo</th>
               </tr>
@@ -152,7 +155,8 @@ function RunDetails({ feed, details, movements, movementsTotal, loading, showErr
               {movements.map((m) => (
                 <tr key={m.id} className="border-b border-slate-100 last:border-0">
                   <td className="py-1.5 pr-4 text-slate-500 whitespace-nowrap">{fmtDate(m.transaction_date)}</td>
-                  <td className="py-1.5 pr-4 text-slate-600 max-w-[420px] truncate">{m.description ?? '—'}</td>
+                  <td className="py-1.5 pr-4 text-slate-500 whitespace-nowrap">{(m.bank_account_id && bankNames[m.bank_account_id]) || '—'}</td>
+                  <td className="py-1.5 pr-4 text-slate-600 max-w-[380px] truncate">{m.description ?? '—'}</td>
                   <td className={`py-1.5 pr-4 text-right tabular-nums whitespace-nowrap ${m.amount < 0 ? 'text-red-600' : 'text-slate-700'}`}>{fmtEur(m.amount)}</td>
                 </tr>
               ))}
@@ -177,6 +181,7 @@ export default function ReportSincronizzazioni() {
   const [detailsByRun, setDetailsByRun] = useState<Record<string, SyncRunDetail[]>>({})
   const [movementsByRun, setMovementsByRun] = useState<Record<string, RunMovement[]>>({})
   const [detailLoading, setDetailLoading] = useState<string | null>(null)
+  const [bankNames, setBankNames] = useState<Record<string, string>>({})
 
   // filtri
   const [feedFilter, setFeedFilter] = useState<SyncFeed | 'all'>('all')
@@ -212,6 +217,18 @@ export default function ReportSincronizzazioni() {
 
   useEffect(() => { load() }, [load])
 
+  // mappa id conto → nome banca (per la colonna Banca nell'elenco movimenti)
+  useEffect(() => {
+    (async () => {
+      const { data } = await (supabase
+        .from('bank_accounts')
+        .select('id, bank_name') as unknown as Promise<{ data: { id: string; bank_name: string | null }[] | null }>)
+      const map: Record<string, string> = {}
+      for (const b of data ?? []) { if (b.bank_name) map[b.id] = b.bank_name }
+      setBankNames(map)
+    })()
+  }, [])
+
   // scarta la cache dei dettagli quando cambiano i filtri (le run cambiano)
   useEffect(() => { setExpandedId(null); setDetailsByRun({}); setMovementsByRun({}) }, [feedFilter, dateFrom, dateTo])
 
@@ -231,7 +248,7 @@ export default function ReportSincronizzazioni() {
     if (run.feed === 'banche') {
       const { data: mv } = await (supabase
         .from('bank_transactions')
-        .select('id, transaction_date, amount, description, currency')
+        .select('id, transaction_date, amount, description, currency, bank_account_id')
         .eq('sync_run_id', run.id)
         .order('transaction_date', { ascending: false })
         .limit(500) as unknown as Promise<{ data: RunMovement[] | null }>)
@@ -391,6 +408,7 @@ export default function ReportSincronizzazioni() {
                             details={detailsByRun[r.id]}
                             movements={movementsByRun[r.id]}
                             movementsTotal={r.items_downloaded}
+                            bankNames={bankNames}
                             loading={detailLoading === r.id}
                             showErrors={showErrors}
                           />
