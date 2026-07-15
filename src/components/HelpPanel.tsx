@@ -264,7 +264,10 @@ export default function HelpPanel() {
   // Su pagine senza guida, apri direttamente la chat.
   const effectiveTab: 'guida' | 'chat' = guide ? tab : 'chat'
 
+  // Cambiando pagina: chiudi il pannello e torna alla tab Guida. Evita che
+  // un pannello lasciato aperto resti "appeso" o sovrapposto sulla pagina nuova.
   useEffect(() => {
+    setOpen(false)
     setTab('guida')
   }, [location.pathname])
 
