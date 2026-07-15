@@ -1414,11 +1414,12 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "Scheda Anagrafica: cercare e filtrare i fornitori",
-        "body": "La tabella elenca tutti i fornitori con: nome, P.IVA, categoria, divisione tra punti vendita, metodo di pagamento, fatturato dell'anno, importo da pagare e stato di riconciliazione bancaria dei pagamenti. Puoi cercare per nome, P.IVA, categoria o città, filtrare per categoria, per \"Stato\" (attivi/disattivati) e per \"Stato lavorazione\" (fornitori da completare: senza categoria, senza divisione, oppure con importi scaduti).",
+        "body": "La tabella elenca tutti i fornitori con: nome, P.IVA, categoria, divisione tra punti vendita, metodo di pagamento, fatturato dell'anno, importo da pagare e stato di riconciliazione bancaria dei pagamenti. Puoi cercare per nome, P.IVA, categoria o città, filtrare per categoria, per \"Stato\" (attivi/disattivati) e per \"Stato lavorazione\" (fornitori da completare: senza categoria, senza divisione, oppure con importi scaduti). Cliccando su una riga per espanderla vedi, oltre all'anagrafica e alle statistiche, tutto il piano di pagamento caricato: modalità (metodo), base di calcolo delle scadenze (Data fattura o Fine mese), giorni della prima scadenza, numero di rate e banca di pagamento. Con il pulsante \"Esporta\" in alto scarichi l'elenco in Excel/CSV con le stesse informazioni (modalità, base scadenze, 1ª scadenza, n° rate e banca), utile per rivedere in blocco cosa è impostato su ogni fornitore.",
         "steps": [
           "Usa la casella di ricerca per trovare un fornitore per nome, P.IVA, categoria o città",
           "Usa il filtro \"Stato: tutti\" per vedere solo i fornitori da lavorare (senza categoria o divisione) oppure quelli con importi scaduti",
-          "Clicca su una riga per espanderla e vedere i dettagli completi: anagrafica, condizioni di pagamento e statistiche"
+          "Clicca su una riga per espanderla e vedere i dettagli completi: anagrafica, piano di pagamento (modalità, base scadenze, 1ª scadenza, n° rate, banca) e statistiche",
+          "Usa \"Esporta\" per scaricare l'elenco completo con modalità e piano di pagamento di ogni fornitore, da controllare in un foglio Excel"
         ]
       },
       {
@@ -1485,6 +1486,10 @@ export const PAGE_GUIDES: PageGuide[] = [
       {
         "q": "Come faccio a vedere il PDF allegato a una fattura di un fornitore?",
         "a": "Apri il pannello Gestione del fornitore (icona dei cursori), scorri fino a \"Fatture del fornitore\" e clicca il pulsante \"PDF\" sulla riga della fattura che ti interessa. Se il fornitore non ha allegato nessun PDF, il sistema te lo segnala con un messaggio: non è un errore, puoi comunque vedere la fattura con \"Apri\"."
+      },
+      {
+        "q": "Come verifico quale modalità e piano di pagamento è caricato su ogni fornitore?",
+        "a": "Due modi. Per un singolo fornitore: clicca sulla sua riga per espanderla e leggi il blocco pagamenti (modalità, base scadenze Data fattura/Fine mese, giorni della prima scadenza, numero di rate e banca). Per rivedere tutti insieme: clicca \"Esporta\" in alto e scarica il file Excel/CSV, che riporta per ogni fornitore modalità, base scadenze, 1ª scadenza, numero di rate e banca di pagamento — così puoi controllare l'intera anagrafica in un colpo solo."
       }
     ]
   },
