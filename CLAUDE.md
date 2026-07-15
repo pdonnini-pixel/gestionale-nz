@@ -73,6 +73,19 @@ Test mentale prima di chiudere ogni task: "Ho fatto X anche su Made? Su Zago?". 
    - **avvisare Patrizio** che va applicato **A MANO sui 3 tenant** (NZ / Made / Zago) dal dashboard Supabase,
    - i 3 tenant devono restare **IDENTICI**.
 
+### Azioni manuali per Patrizio — SEMPRE passaggi precisi + file da copiare
+Ogni volta che un task lascia **azioni manuali** a Patrizio (migration SQL da
+applicare, secret/Vault da inserire, Edge Function da deployare, accreditamenti,
+consensi, ecc.), NON limitarsi a "va applicato a mano". Dare SEMPRE:
+- **I passaggi precisi**, numerati, click-by-click (dove andare, cosa cliccare).
+- **I file esatti da copiare** (percorso completo nel repo) e in **quale ordine**
+  eseguirli se ci sono dipendenze.
+- I **3 project_id** dei tenant (NZ / Made / Zago) e il promemoria che vanno fatti
+  tutti e 3, identici.
+- Se utile, una **query/verifica finale** da incollare per confermare che ha funzionato.
+Patrizio non apre GitHub e non legge i file da solo: se non gli dico esattamente
+cosa copiare e dove incollarlo, l'azione non viene fatta.
+
 ### Divieti assoluti
 5. **MAI valori hardcoded specifici di un tenant** (company_id, P.IVA, UUID, project_id): usare SEMPRE il tenant attivo. Questo errore ha già causato danni in passato.
 6. **MAI operazioni distruttive sui dati di produzione.**

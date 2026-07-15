@@ -176,9 +176,22 @@ export default function OpenBankingAcube() {
       const r = await acube.syncTransactions(stage, br.fiscal_id, companyId)
       toast({ type: 'success', message: `Aggiornati saldi e ${r.bank_inserted ?? 0} nuovi movimenti${r.duplicates ? ` (${r.duplicates} già presenti)` : ''}.` })
       // Registra il sync manuale in sync_runs così il badge "Dati aggiornati al…"
-      // si allinea alle card dei conti (il cron non è l'unica sorgente).
+      // si allinea alle card dei conti (il cron non è l'unica sorgente). Passa
+      // anche il dettaglio della banca (conti, movimenti, saldo) → traccia
+      // di "cosa scarico" visibile in Report Sincronizzazioni.
       try {
-        await supabase.rpc('log_bank_sync_run', { p_items: r.bank_inserted ?? 0 })
+        const accounts = r.accounts ?? []
+        const bankDetail = [{
+          label: br.business_name || br.fiscal_id,
+          reference: br.fiscal_id,
+          items: r.bank_inserted ?? 0,
+          balance: accounts.reduce((s, a) => s + (a.balance ?? 0), 0),
+          accounts: accounts.length,
+        }]
+        await supabase.rpc('log_bank_sync_run', {
+          p_items: r.bank_inserted ?? 0,
+          p_details: bankDetail,
+        })
         window.dispatchEvent(new CustomEvent('sync-runs-updated', { detail: { feed: 'banche' } }))
       } catch { /* il sync è già andato a buon fine: non bloccare */ }
       await loadData()

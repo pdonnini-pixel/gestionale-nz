@@ -14,6 +14,125 @@ export type Database = {
   }
   public: {
     Tables: {
+      sync_runs: {
+        Row: {
+          company_id: string
+          duration_ms: number | null
+          error_message: string | null
+          feed: Database["public"]["Enums"]["sync_feed"]
+          id: string
+          items_downloaded: number
+          origine: Database["public"]["Enums"]["sync_origin"]
+          period_from: string | null
+          period_to: string | null
+          run_at: string
+          status: Database["public"]["Enums"]["sync_status"]
+        }
+        Insert: {
+          company_id: string
+          duration_ms?: number | null
+          error_message?: string | null
+          feed: Database["public"]["Enums"]["sync_feed"]
+          id?: string
+          items_downloaded?: number
+          origine?: Database["public"]["Enums"]["sync_origin"]
+          period_from?: string | null
+          period_to?: string | null
+          run_at?: string
+          status: Database["public"]["Enums"]["sync_status"]
+        }
+        Update: {
+          company_id?: string
+          duration_ms?: number | null
+          error_message?: string | null
+          feed?: Database["public"]["Enums"]["sync_feed"]
+          id?: string
+          items_downloaded?: number
+          origine?: Database["public"]["Enums"]["sync_origin"]
+          period_from?: string | null
+          period_to?: string | null
+          run_at?: string
+          status?: Database["public"]["Enums"]["sync_status"]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sync_runs_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sync_run_details: {
+        Row: {
+          amount: number | null
+          company_id: string
+          counterparty: string | null
+          created_at: string
+          currency: string | null
+          detail_type: string
+          doc_date: string | null
+          error_message: string | null
+          extra: Json | null
+          feed: Database["public"]["Enums"]["sync_feed"]
+          id: string
+          items_count: number
+          label: string
+          reference: string | null
+          sync_run_id: string
+        }
+        Insert: {
+          amount?: number | null
+          company_id: string
+          counterparty?: string | null
+          created_at?: string
+          currency?: string | null
+          detail_type: string
+          doc_date?: string | null
+          error_message?: string | null
+          extra?: Json | null
+          feed: Database["public"]["Enums"]["sync_feed"]
+          id?: string
+          items_count?: number
+          label: string
+          reference?: string | null
+          sync_run_id: string
+        }
+        Update: {
+          amount?: number | null
+          company_id?: string
+          counterparty?: string | null
+          created_at?: string
+          currency?: string | null
+          detail_type?: string
+          doc_date?: string | null
+          error_message?: string | null
+          extra?: Json | null
+          feed?: Database["public"]["Enums"]["sync_feed"]
+          id?: string
+          items_count?: number
+          label?: string
+          reference?: string | null
+          sync_run_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sync_run_details_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sync_run_details_sync_run_id_fkey"
+            columns: ["sync_run_id"]
+            isOneToOne: false
+            referencedRelation: "sync_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       _deploy_temp: {
         Row: {
           chunk_order: number | null
@@ -943,6 +1062,7 @@ export type Database = {
           statement_id: string | null
           status: string | null
           supplier_id: string | null
+          sync_run_id: string | null
           transaction_date: string
           transaction_type: string | null
           value_date: string | null
@@ -978,6 +1098,7 @@ export type Database = {
           statement_id?: string | null
           status?: string | null
           supplier_id?: string | null
+          sync_run_id?: string | null
           transaction_date: string
           transaction_type?: string | null
           value_date?: string | null
@@ -1013,6 +1134,7 @@ export type Database = {
           statement_id?: string | null
           status?: string | null
           supplier_id?: string | null
+          sync_run_id?: string | null
           transaction_date?: string
           transaction_type?: string | null
           value_date?: string | null
@@ -8033,6 +8155,10 @@ export type Database = {
         }[]
       }
       get_yapily_credentials: { Args: never; Returns: Json }
+      log_bank_sync_run: {
+        Args: { p_items?: number; p_duration_ms?: number; p_details?: Json }
+        Returns: undefined
+      }
       has_jwt_role: { Args: { role_name: string }; Returns: boolean }
       refresh_budget_consuntivo: {
         Args: { p_outlet_id?: string | null; p_year?: number | null }
@@ -8249,6 +8375,9 @@ export type Database = {
         | "bollettino_postale"
         | "altro"
       period_status: "aperto" | "in_chiusura" | "chiuso"
+      sync_feed: "banche" | "fatture_passive" | "corrispettivi" | "cassetto_fiscale"
+      sync_origin: "auto_cron" | "manuale"
+      sync_status: "ok" | "parziale" | "errore" | "vuoto"
       transaction_type: "entrata" | "uscita"
       user_role: "super_advisor" | "cfo" | "coo" | "ceo" | "contabile" | "viewer"
     }
