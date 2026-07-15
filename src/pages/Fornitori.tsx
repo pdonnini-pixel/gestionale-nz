@@ -51,6 +51,12 @@ const CATEGORIES = [
   'Consulenza', 'Manutenzione', 'IT', 'Personale', 'Beni ammortizzabili', 'Altro',
 ];
 
+// Etichetta leggibile della base/tipologia di calcolo scadenze
+const BASE_LABEL: Record<string, string> = {
+  data_fattura: 'Data fattura',
+  fine_mese: 'Fine mese',
+};
+
 // Carica TUTTE le payables del tenant con colonne leggere (mai xml_content),
 // paginando a blocchi da 1000 per superare il cap righe di PostgREST. Gli
 // aggregati per-fornitore e i KPI vengono poi ricalcolati lato client e
@@ -478,6 +484,28 @@ export default function Fornitori() {
     return Array.from(set).sort((a, b) => b - a);
   }, [allPayables, year]);
 
+  // Etichetta banca per id (per dettaglio fornitore + export piano pagamento)
+  const bankLabelById = useMemo(() => {
+    const m: Record<string, string> = {};
+    bankAccounts.forEach(b => { m[b.id] = b.label; });
+    return m;
+  }, [bankAccounts]);
+
+  // Dati export: metodo/piano in forma leggibile, così Sabrina può verificare
+  // la modalità e la tipologia caricate su ogni fornitore (Excel/CSV).
+  const suppliersForExport = useMemo(() => filteredSuppliers.map(s => {
+    const metodoRaw = String(s.payment_method || s.default_payment_method || '');
+    const hasPiano = !!s.payment_base;
+    return {
+      ...s,
+      _metodo: PAYMENT_LABEL[metodoRaw] || metodoRaw || '—',
+      _base: hasPiano ? (BASE_LABEL[String(s.payment_base)] || String(s.payment_base)) : '—',
+      _prima_gg: hasPiano && s.prima_scadenza_gg != null ? String(s.prima_scadenza_gg) : '',
+      _rate: hasPiano && s.numero_rate != null ? String(s.numero_rate) : '',
+      _banca: s.payment_bank_account_id ? (bankLabelById[String(s.payment_bank_account_id)] || '—') : '—',
+    };
+  }), [filteredSuppliers, bankLabelById]);
+
   // KPIs dell'anno selezionato — totali coerenti fra loro, dalle payables filtrate:
   // - totalFatturato: somma gross_amount POSITIVI (esclude note credito negative).
   // - totalPending: amount_remaining di fatture non chiuse (escluse anche NC).
@@ -698,7 +726,7 @@ export default function Fornitori() {
         actions={
           <>
             <ExportMenu
-              data={filteredSuppliers}
+              data={suppliersForExport}
               columns={[
                 { key: 'ragione_sociale', label: 'Ragione Sociale' },
                 { key: 'partita_iva', label: 'P.IVA' },
@@ -710,7 +738,11 @@ export default function Fornitori() {
                 { key: 'iban', label: 'IBAN' },
                 { key: 'category', label: 'Categoria' },
                 { key: 'payment_terms', label: 'Termini Pag.' },
-                { key: 'payment_method', label: 'Metodo Pag.' },
+                { key: '_metodo', label: 'Modalità Pag.' },
+                { key: '_base', label: 'Base scadenze' },
+                { key: '_prima_gg', label: '1ª scad. (gg)' },
+                { key: '_rate', label: 'N° rate' },
+                { key: '_banca', label: 'Banca pag.' },
               ]}
               filename={`Fornitori_${new Date().toISOString().slice(0, 10)}`}
               title="Fornitori"
@@ -1004,6 +1036,10 @@ export default function Fornitori() {
                                 <div className="bg-white rounded-lg border border-slate-200 p-3 space-y-1.5 text-sm">
                                   <Detail label="Termini pag." value={`${(s.payment_terms as number | null) || (s.default_payment_terms as number | null) || 30} giorni`} />
                                   <Detail label="Metodo pag." value={PAYMENT_LABEL[String(s.payment_method || s.default_payment_method || '')] || (s.payment_method as string | null) || (s.default_payment_method as string | null) || '—'} />
+                                  <Detail label="Base scadenze" value={s.payment_base ? (BASE_LABEL[String(s.payment_base)] || String(s.payment_base)) : '—'} />
+                                  <Detail label="1ª scadenza" value={s.payment_base && s.prima_scadenza_gg != null ? `${s.prima_scadenza_gg} gg` : '—'} />
+                                  <Detail label="N° rate" value={s.payment_base && s.numero_rate != null ? String(s.numero_rate) : '—'} />
+                                  <Detail label="Banca pag." value={s.payment_bank_account_id ? (bankLabelById[String(s.payment_bank_account_id)] || '—') : '—'} />
                                   <Detail label="Categoria" value={s.category as string | null | undefined} />
                                   <Detail label="Centro costo" value={s.cost_center === 'all' ? `Tutti gli ${labels.pointOfSalePluralLower}` : (s.cost_center as string | null | undefined)} />
                                   <Detail label="Stato" value={s.is_active !== false ? '✓ Attivo' : '✗ Disattivato'} />
