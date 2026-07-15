@@ -540,6 +540,16 @@ export const PAGE_GUIDES: PageGuide[] = [
         ]
       },
       {
+        "heading": "Riepilogo del giorno",
+        "body": "In cima alla scheda Riconciliazione trovi un riquadro di controllo per tenere sotto controllo il lavoro giorno per giorno. Ha due tessere: \"Riconciliati oggi\" (quanti pagamenti sono stati abbinati a una fattura nella data scelta, con il totale in euro) e \"Da riconciliare\" (quanti movimenti in uscita sono ancora senza abbinamento, con il totale). Puoi scegliere la data con le frecce o il calendario (il pulsante \"Oggi\" ti riporta al giorno corrente). Cliccando su una tessera si apre l'elenco di dettaglio: nei riconciliati vedi fornitore, fattura, data del movimento e se l'abbinamento è avvenuto in automatico o a mano; nei \"da riconciliare\" vedi data, banca, controparte e importo delle uscite ancora aperte. Per i movimenti da riconciliare puoi restringere il periodo (ultimi 30/60/90 giorni, 6 mesi o tutte) così l'elenco resta gestibile.",
+        "steps": [
+          "Al mattino apri Banche → Riconciliazione e guarda il riquadro in alto: \"Riconciliati oggi\" ti dice cosa si è già chiuso, \"Da riconciliare\" cosa resta da abbinare.",
+          "Clicca sulla tessera \"Da riconciliare\" per vedere l'elenco delle uscite ancora senza fattura, e usa il menu del periodo per concentrarti su quelle recenti.",
+          "Cambia la data (frecce o calendario) per vedere cosa è stato riconciliato in un altro giorno; \"Oggi\" ti riporta alla giornata corrente.",
+          "Per abbinare un movimento rimasto aperto, scorri sotto nella sezione Riconciliazione e usa gli abbinamenti suggeriti o la ricerca manuale."
+        ]
+      },
+      {
         "heading": "Riconciliazione",
         "body": "Qui abbini i movimenti in uscita dal conto alle fatture fornitori corrispondenti, così il sistema sa quali fatture sono state effettivamente pagate. La scheda si divide in due viste: \"Da riconciliare\" e \"Riconciliati\". Nella vista \"Da riconciliare\", se il sistema trova un possibile abbinamento (per importo, nome fornitore e data) lo propone nella sezione \"Abbinamenti suggeriti\" con una percentuale di affidabilità: puoi confermarlo o rifiutarlo, anche in blocco per più righe insieme. Se selezioni un movimento dall'elenco a sinistra, a destra vedi le fatture proposte come possibile corrispondenza (o puoi cercarne una manualmente). Nella vista \"Riconciliati\" trovi tutti i movimenti già abbinati, con fornitore e numero fattura: da qui puoi annullare un abbinamento sbagliato con \"Annulla abbinamento\" (la fattura torna aperta, il movimento torna da riconciliare).",
         "steps": [
@@ -584,6 +594,10 @@ export const PAGE_GUIDES: PageGuide[] = [
       {
         "q": "Ho confermato un abbinamento sbagliato, come lo tolgo?",
         "a": "Nella scheda Riconciliazione passa alla vista \"Riconciliati\" e clicca \"Annulla abbinamento\" sul movimento interessato: la fattura torna aperta e il movimento torna disponibile per un nuovo abbinamento."
+      },
+      {
+        "q": "Come faccio a sapere ogni giorno cosa è stato riconciliato e cosa resta da abbinare?",
+        "a": "In cima alla scheda Riconciliazione c'è il \"Riepilogo del giorno\": la tessera \"Riconciliati oggi\" mostra i pagamenti abbinati nella data scelta (con totale), la tessera \"Da riconciliare\" mostra i movimenti in uscita ancora senza fattura. Clicca su una tessera per aprire il dettaglio, cambia la data con le frecce o il calendario e usa il menu del periodo per filtrare le uscite non abbinate."
       },
       {
         "q": "Dove prendo il file da mandare alla commercialista?",
