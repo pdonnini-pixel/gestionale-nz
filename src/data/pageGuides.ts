@@ -2039,6 +2039,10 @@ export const PAGE_GUIDES: PageGuide[] = [
         "body": "Sotto le card c'è una tabella con una riga per ogni sincronizzazione eseguita, dalla più recente. Le colonne sono: Data e ora, Feed (il canale interessato), Origine (Automatica o Manuale), Periodo (l'intervallo di dati controllato), Esito (OK, Parziale, Errore o Vuoto) e Scaricati (quanti documenti/movimenti sono arrivati in quella esecuzione). Per chi ha un profilo da consulente è visibile anche una colonna \"Errore\" con il dettaglio tecnico in caso di problema."
       },
       {
+        "heading": "Il dettaglio: cosa è stato scaricato",
+        "body": "Le righe con almeno un elemento scaricato (colonna \"Scaricati\" maggiore di zero) hanno una freccetta a sinistra e si possono espandere cliccandoci sopra, per vedere esattamente cosa è arrivato in quella sincronizzazione. Le righe con \"0\" non si aprono perché non c'era nulla di nuovo.\n\n• Per le Banche compaiono due tabelle: \"Per banca\" (per ogni banca: numero di conti, movimenti scaricati e saldo) e \"Movimenti scaricati\" (l'elenco dei singoli movimenti con data, descrizione e importo; se sono più di 500 ne vengono mostrati i primi 500).\n• Per le Fatture passive compare l'elenco delle fatture arrivate (numero, fornitore, data e importo).\n\nNota sullo storico: le sincronizzazioni più vecchie, precedenti all'attivazione di questo dettaglio, sono state ricostruite. Per queste righe il saldo per banca non viene mostrato (non sarebbe il saldo di quella data) e l'elenco per banca include solo le banche che in quella sincronizzazione hanno effettivamente portato movimenti. Dalle sincronizzazioni nuove in poi il dato è completo (tutte le banche e il saldo reale del momento)."
+      },
+      {
         "heading": "Come usare i filtri",
         "body": "In alto sopra la tabella si possono filtrare i risultati per canale (\"Feed\"), oppure impostare un intervallo di date (\"Dal\" / \"Al\") per restringere lo storico a un periodo preciso. Il pulsante \"Azzera\" (visibile solo quando almeno un filtro è attivo) rimuove tutti i filtri e torna alla vista completa. Il pulsante \"Aggiorna\" in alto a destra ricarica i dati più recenti.",
         "steps": [
@@ -2069,6 +2073,18 @@ export const PAGE_GUIDES: PageGuide[] = [
       {
         "q": "Posso avviare io una sincronizzazione manuale da questa pagina?",
         "a": "No: questa pagina mostra solo lo storico e lo stato delle sincronizzazioni già avvenute (automatiche o manuali), non permette di avviarne una nuova."
+      },
+      {
+        "q": "Come vedo cosa è stato scaricato in una sincronizzazione?",
+        "a": "Clicca sulla riga (quelle con \"Scaricati\" maggiore di zero hanno una freccetta a sinistra): si apre il dettaglio. Per le banche vedi il riepilogo per banca e l'elenco dei singoli movimenti; per le fatture passive l'elenco delle fatture arrivate."
+      },
+      {
+        "q": "Perché su alcune righe delle banche non vedo il saldo?",
+        "a": "Sono sincronizzazioni più vecchie, ricostruite dopo l'attivazione del dettaglio: per quelle non è disponibile il saldo di quella specifica data (esiste solo il saldo attuale del conto), quindi viene lasciato vuoto per non mostrare un valore fuorviante. Dalle sincronizzazioni nuove in poi il saldo mostrato è quello reale al momento dell'aggiornamento."
+      },
+      {
+        "q": "Perché a volte nel dettaglio compare una sola banca?",
+        "a": "Perché l'elenco \"Per banca\" mostra solo le banche che in quella specifica sincronizzazione hanno portato movimenti nuovi. Se in quella esecuzione i movimenti nuovi arrivavano da un solo conto, vedrai una sola banca; è normale e corretto."
       }
     ]
   },
