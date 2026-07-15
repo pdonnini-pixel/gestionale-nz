@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import PageHelp from '../components/PageHelp';
 import PageHeader from '../components/PageHeader';
 import { useCompanyLabels } from '../hooks/useCompanyLabels';
 import { useToast } from '../components/Toast';
@@ -2102,7 +2101,6 @@ function DrillDownPanel({ items, column, onClose, onEdit, title }: { items: Dril
           <span className="text-slate-400">(modificabile)</span>
         </div>
       )}
-      <PageHelp page="cashflow" />
     </div>
   );
 }

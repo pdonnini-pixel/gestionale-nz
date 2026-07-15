@@ -30,3 +30,18 @@ jobs:
         env:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+
+  guide-alignment:
+    # Blocca la PR se cambia una pagina ma non viene aggiornata la sua guida
+    # utente (src/data/pageGuides.ts). Regola in CLAUDE.md.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Controllo allineamento guide ↔ codice
+        run: node tools/check-guide-alignment.mjs
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}

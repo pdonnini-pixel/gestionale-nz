@@ -9,7 +9,6 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
 import { useCompanyLabels } from '../hooks/useCompanyLabels';
 import { usePeriod } from '../hooks/usePeriod';
-import PageHelp from '../components/PageHelp';
 import PageHeader from '../components/PageHeader';
 
 function fmt(n: number | null | undefined, dec = 0): string {
@@ -406,7 +405,6 @@ export default function Produttivita() {
             <p className="text-slate-600 text-lg">Nessun dato budget trovato per l'anno {year}</p>
           </div>
         </div>
-        <PageHelp page="produttivita" />
       </div>
     );
   }
@@ -788,7 +786,6 @@ export default function Produttivita() {
           </div>
         </div>
       </div>
-      <PageHelp page="produttivita" />
     </div>
   );
 }

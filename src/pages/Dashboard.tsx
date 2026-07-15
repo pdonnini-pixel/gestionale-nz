@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../hooks/useAuth'
 import { useCompanyLabels } from '../hooks/useCompanyLabels'
-import PageHelp from '../components/PageHelp'
 import PageHeader from '../components/PageHeader'
 import { usePeriod } from '../hooks/usePeriod'
 import { supabase } from '../lib/supabase'
@@ -967,7 +966,6 @@ export default function Dashboard() {
           </>
         )}
       </div>
-      <PageHelp page="dashboard" />
       </div>
     </div>
   )

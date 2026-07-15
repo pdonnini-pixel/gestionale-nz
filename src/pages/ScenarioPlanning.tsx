@@ -6,7 +6,6 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
 import { usePeriod } from '../hooks/usePeriod';
 import { useCompanyLabels } from '../hooks/useCompanyLabels';
-import PageHelp from '../components/PageHelp';
 import PageHeader from '../components/PageHeader';
 
 function fmt(n: number, dec = 0) {
@@ -660,7 +659,6 @@ export default function ScenarioPlanning() {
           </div>
         )}
       </div>
-      <PageHelp page="scenario-planning" />
     </div>
   );
 }

@@ -48,6 +48,18 @@ Test mentale prima di chiudere ogni task: "Ho fatto X anche su Made? Su Zago?". 
 
 ---
 
+## 📖 REGOLA GUIDE SEMPRE ALLINEATE (NON NEGOZIABILE)
+
+**Ogni volta che si modifica, aggiunge o crea una funzione/sezione di una pagina, si DEVE aggiornare la guida utente di quella pagina nello stesso commit/PR. La guida e il codice non devono mai divergere.**
+
+- La **fonte unica** delle guide è `src/data/pageGuides.ts` (una voce per pagina, con sezioni + FAQ). La usano sia la tab **Guida** del pannello `?` sia l'**assistente AI** (edge function `help-chat`, che riceve la guida della pagina come contesto). Aggiornare la guida migliora entrambi.
+- **Come si aggiorna**: modifica la voce della pagina toccata in `src/data/pageGuides.ts` (descrizione, sezioni, passi, FAQ) perché rispecchi il nuovo comportamento reale. Niente funzioni inventate: descrivi solo ciò che esiste nel codice.
+- **Controllo automatico (CI, bloccante)**: `tools/check-guide-alignment.mjs` (job `guide-alignment` in `.github/workflows/ci.yml`) fa fallire la PR se cambia una pagina/componente guida-rilevante ma `src/data/pageGuides.ts` non viene toccato. Se un cambiamento è puramente interno e non tocca nulla lato utente, aggiungere `[skip-guide-check]` al messaggio di commit (usare con parsimonia).
+- **Rigenerazione massiva**: le guide sono state generate leggendo il codice reale pagina per pagina. Per rigenerarne diverse in blocco (es. dopo un grosso refactor) si può riusare l'approccio multi-agente (un agente per pagina che legge il codice e riscrive la voce).
+- Vale come tutte le altre: la modifica va su **tutti e 3 i tenant** via frontend Netlify (automatico) — la guida è codice frontend, quindi nessun deploy manuale extra.
+
+---
+
 ## ⚙️ REGOLE OPERATIVE SESSIONE CLOUD (Claude Code) — applicare a OGNI richiesta
 
 > Regole fissate da Patrizio. Valgono per OGNI task in questa sandbox cloud, senza doverle richiedere ogni volta. Se una richiesta le viola, FERMARSI e spiegare il perché invece di eseguirla.

@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useSearchParams, Link } from 'react-router-dom'
-import PageHelp from '../components/PageHelp'
 import PageHeader from '../components/PageHeader'
 import { useToast } from '../components/Toast'
 
@@ -1395,7 +1394,6 @@ export default function Fatturazione() {
       {activeTab === 'passive' && <FatturePassive key={`p-${syncKey}`} />}
       {activeTab === 'active' && <FattureAttive key={`a-${syncKey}`} />}
       {activeTab === 'corrispettivi' && <Corrispettivi key={`c-${syncKey}`} />}
-      <PageHelp page="fatturazione" />
       </div>
     </div>
   )

@@ -10,7 +10,6 @@ import { usePeriod } from '../hooks/usePeriod'
 import { useCompanyLabels } from '../hooks/useCompanyLabels'
 import { useTableSort } from '../hooks/useTableSort'
 import SortableTh from '../components/ui/SortableTh'
-import PageHelp from '../components/PageHelp'
 import PageHeader from '../components/PageHeader'
 import { formatOutletName } from '../lib/formatters'
 
@@ -548,7 +547,6 @@ export default function MarginiOutlet() {
           </>
         )}
       </div>
-      <PageHelp page="margini-outlet" />
     </div>
   )
 }

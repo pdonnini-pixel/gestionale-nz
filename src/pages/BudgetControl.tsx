@@ -19,7 +19,6 @@ import { useRole } from '../hooks/useRole'
 import { usePeriod } from '../hooks/usePeriod'
 import { useCompanyLabels } from '../hooks/useCompanyLabels'
 import { useCompany } from '../hooks/useCompany'
-import PageHelp from '../components/PageHelp'
 import PageHeader from '../components/PageHeader'
 import Tooltip from '../components/Tooltip'
 import { PlaceholderDot, PlaceholderLegend } from '../components/PlaceholderMark'
@@ -3123,7 +3122,6 @@ function ConfrontoPanel({ outletCode, outletLabel, prevEdits, consEdits, onConsE
           </div>
         </div>
       </div>
-      <PageHelp page="budget" />
     </div>
   )
 }
