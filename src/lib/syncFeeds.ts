@@ -28,6 +28,27 @@ export interface SyncRun {
   run_at: string
 }
 
+// Dettaglio "cosa scarico" per singola fonte/documento di una run.
+//   banche          → una riga per banca (items_count = movimenti, amount = saldo)
+//   fatture_passive → una riga per fattura (counterparty = fornitore, amount = importo)
+export interface SyncRunDetail {
+  id: string
+  sync_run_id: string
+  company_id: string
+  feed: SyncFeed
+  detail_type: string
+  label: string
+  reference: string | null
+  counterparty: string | null
+  doc_date: string | null
+  items_count: number
+  amount: number | null
+  currency: string | null
+  error_message: string | null
+  extra: { accounts?: number } | null
+  created_at: string
+}
+
 interface FeedMeta {
   key: SyncFeed
   label: string
