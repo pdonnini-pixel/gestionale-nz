@@ -1005,6 +1005,18 @@ export default function Fornitori() {
                         const avgAmount = supplierPays.length > 0
                           ? supplierPays.reduce((acc, p) => acc + (Number(p.gross_amount) || 0), 0) / supplierPays.length
                           : 0;
+                        // Scadenze ancora DA PAGARE (esclude pagate, annullate, note di
+                        // credito e residui a zero), ordinate dalla piu' recente. Le
+                        // scadute vanno in cima. Serve per il riquadro qui sotto.
+                        const openPays = supplierPays
+                          .filter(p => !['pagato', 'annullato', 'nota_credito'].includes(String(p.status)))
+                          .filter(p => (Number(p.amount_remaining ?? p.gross_amount) || 0) > 0)
+                          .sort((a, b) => {
+                            const sa = a.status === 'scaduto' ? 0 : 1;
+                            const sb = b.status === 'scaduto' ? 0 : 1;
+                            if (sa !== sb) return sa - sb;
+                            return new Date(String(b.due_date || '')).getTime() - new Date(String(a.due_date || '')).getTime();
+                          });
                         return (
                         <tr className="bg-slate-50/50">
                           <td colSpan={9} className="px-4 py-4">
@@ -1077,27 +1089,27 @@ export default function Fornitori() {
                                     <Detail label="Ultima fattura" value={new Date(stats.lastDate).toLocaleDateString('it-IT')} />
                                   )}
                                 </div>
-                                {/* Ultime 5 scadenze */}
-                                {supplierPays.length > 0 && (
+                                {/* Scadenze ancora da pagare (max 5, scadute in cima) */}
+                                {openPays.length > 0 && (
                                   <div className="mt-3">
-                                    <h4 className="text-xs font-semibold text-slate-400 uppercase mb-1.5">Ultime scadenze</h4>
+                                    <h4 className="text-xs font-semibold text-slate-400 uppercase mb-1.5">Scadenze da pagare</h4>
                                     <div className="space-y-1">
-                                      {supplierPays.slice(0, 5).map((pay, i) => (
+                                      {openPays.slice(0, 5).map((pay, i) => (
                                         <div key={i} className="bg-white rounded border border-slate-200 px-2.5 py-1.5 flex items-center justify-between text-xs">
                                           <div className="flex items-center gap-2 min-w-0">
                                             <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                                              pay.status === 'pagato' ? 'bg-emerald-400' : pay.status === 'scaduto' ? 'bg-red-400' : 'bg-amber-400'
+                                              pay.status === 'scaduto' ? 'bg-red-400' : 'bg-amber-400'
                                             }`} />
                                             <TextTooltip content={String(pay.invoice_number || '')}>
                                               <span className="font-medium text-slate-700 truncate">{String(pay.invoice_number || '')}</span>
                                             </TextTooltip>
                                             <span className="text-slate-400">{pay.due_date ? new Date(String(pay.due_date)).toLocaleDateString('it-IT') : ''}</span>
                                           </div>
-                                          <span className="font-semibold text-slate-700 shrink-0 ml-2">€ {(Number(pay.gross_amount) || 0).toLocaleString('de-DE', { minimumFractionDigits: 2 })}</span>
+                                          <span className="font-semibold text-slate-700 shrink-0 ml-2">€ {(Number(pay.amount_remaining ?? pay.gross_amount) || 0).toLocaleString('de-DE', { minimumFractionDigits: 2 })}</span>
                                         </div>
                                       ))}
-                                      {supplierPays.length > 5 && (
-                                        <div className="text-xs text-slate-400 text-center pt-0.5">+ altre {supplierPays.length - 5} scadenze</div>
+                                      {openPays.length > 5 && (
+                                        <div className="text-xs text-slate-400 text-center pt-0.5">+ altre {openPays.length - 5} da pagare</div>
                                       )}
                                     </div>
                                   </div>

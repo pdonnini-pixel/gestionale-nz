@@ -1418,7 +1418,7 @@ export const PAGE_GUIDES: PageGuide[] = [
         "steps": [
           "Usa la casella di ricerca per trovare un fornitore per nome, P.IVA, categoria o città",
           "Usa il filtro \"Stato: tutti\" per vedere solo i fornitori da lavorare (senza categoria o divisione) oppure quelli con importi scaduti",
-          "Clicca su una riga per espanderla e vedere i dettagli completi: anagrafica, piano di pagamento (modalità, base scadenze, 1ª scadenza, n° rate, banca) e statistiche",
+          "Clicca su una riga per espanderla e vedere i dettagli completi: anagrafica, piano di pagamento (modalità, base scadenze, 1ª scadenza, n° rate, banca), statistiche e l'elenco delle scadenze ancora da pagare (le scadute per prime)",
           "Usa \"Esporta\" per scaricare l'elenco completo con modalità e piano di pagamento di ogni fornitore, da controllare in un foglio Excel"
         ]
       },
