@@ -104,65 +104,64 @@ function RunDetails({ feed, details, movements, movementsTotal, bankNames, loadi
     )
   }
 
-  // banche (e fallback): riepilogo per banca + elenco dei singoli movimenti
-  return (
-    <div className="px-6 py-3 space-y-4">
-      <div>
-        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 mb-1.5">Per banca</p>
+  // banche: ogni banca con i SUOI movimenti raggruppati sotto, così a colpo
+  // d'occhio si vede da quale banca proviene ciascun movimento.
+  const movesByBank: Record<string, RunMovement[]> = {}
+  for (const m of movements ?? []) {
+    const b = (m.bank_account_id && bankNames[m.bank_account_id]) || 'Altra banca'
+    ;(movesByBank[b] ||= []).push(m)
+  }
+  const detailLabels = new Set(details.map((d) => d.label))
+  const extraBanks = Object.keys(movesByBank).filter((b) => !detailLabels.has(b))
+
+  const bankBlock = (key: string, name: string, summary: string, moves: RunMovement[], error?: string | null) => (
+    <div key={key} className="rounded-lg border border-slate-200 overflow-hidden">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-0.5 bg-slate-50 px-3 py-2">
+        <span className="text-sm font-semibold text-slate-800">{name}</span>
+        <span className="text-xs text-slate-500 tabular-nums">{summary}</span>
+      </div>
+      {showErrors && error && (
+        <p className="px-3 py-1.5 text-xs text-red-700 border-b border-slate-100">{error}</p>
+      )}
+      {moves.length > 0 ? (
         <table className="w-full text-xs">
           <thead>
-            <tr className="text-left text-slate-400 border-b border-slate-200">
-              <th className="py-1.5 pr-4 font-medium">Banca</th>
-              <th className="py-1.5 pr-4 font-medium text-right">Conti</th>
-              <th className="py-1.5 pr-4 font-medium text-right">Movimenti scaricati</th>
-              <th className="py-1.5 pr-4 font-medium text-right">Saldo</th>
-              {showErrors && <th className="py-1.5 pr-4 font-medium">Errore</th>}
+            <tr className="text-left text-slate-400 border-b border-slate-100">
+              <th className="py-1.5 px-3 font-medium">Data</th>
+              <th className="py-1.5 px-3 font-medium">Descrizione</th>
+              <th className="py-1.5 px-3 font-medium text-right">Importo</th>
             </tr>
           </thead>
           <tbody>
-            {details.map((d) => (
-              <tr key={d.id} className="border-b border-slate-100 last:border-0">
-                <td className="py-1.5 pr-4 text-slate-700">{d.label}</td>
-                <td className="py-1.5 pr-4 text-slate-500 text-right tabular-nums">{d.extra?.accounts ?? '—'}</td>
-                <td className="py-1.5 pr-4 text-slate-700 text-right tabular-nums">{d.items_count}</td>
-                <td className="py-1.5 pr-4 text-slate-700 text-right tabular-nums whitespace-nowrap">{fmtEur(d.amount)}</td>
-                {showErrors && (
-                  <td className="py-1.5 pr-4 text-red-700">{d.error_message ?? <span className="text-slate-300">—</span>}</td>
-                )}
+            {moves.map((m) => (
+              <tr key={m.id} className="border-b border-slate-50 last:border-0">
+                <td className="py-1.5 px-3 text-slate-500 whitespace-nowrap">{fmtDate(m.transaction_date)}</td>
+                <td className="py-1.5 px-3 text-slate-600 max-w-[560px] truncate">{m.description ?? '—'}</td>
+                <td className={`py-1.5 px-3 text-right tabular-nums whitespace-nowrap ${m.amount < 0 ? 'text-red-600' : 'text-slate-700'}`}>{fmtEur(m.amount)}</td>
               </tr>
             ))}
           </tbody>
         </table>
-      </div>
+      ) : (
+        <p className="px-3 py-2 text-xs text-slate-400">Nessun movimento nuovo in questa sincronizzazione.</p>
+      )}
+    </div>
+  )
 
-      {movements && movements.length > 0 && (
-        <div>
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 mb-1.5">
-            Movimenti scaricati {movements.length < movementsTotal
-              ? `(primi ${movements.length} di ${movementsTotal})`
-              : `(${movements.length})`}
-          </p>
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="text-left text-slate-400 border-b border-slate-200">
-                <th className="py-1.5 pr-4 font-medium">Data</th>
-                <th className="py-1.5 pr-4 font-medium">Banca</th>
-                <th className="py-1.5 pr-4 font-medium">Descrizione</th>
-                <th className="py-1.5 pr-4 font-medium text-right">Importo</th>
-              </tr>
-            </thead>
-            <tbody>
-              {movements.map((m) => (
-                <tr key={m.id} className="border-b border-slate-100 last:border-0">
-                  <td className="py-1.5 pr-4 text-slate-500 whitespace-nowrap">{fmtDate(m.transaction_date)}</td>
-                  <td className="py-1.5 pr-4 text-slate-500 whitespace-nowrap">{(m.bank_account_id && bankNames[m.bank_account_id]) || '—'}</td>
-                  <td className="py-1.5 pr-4 text-slate-600 max-w-[380px] truncate">{m.description ?? '—'}</td>
-                  <td className={`py-1.5 pr-4 text-right tabular-nums whitespace-nowrap ${m.amount < 0 ? 'text-red-600' : 'text-slate-700'}`}>{fmtEur(m.amount)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+  return (
+    <div className="px-6 py-3 space-y-3">
+      {details.map((d) => {
+        const parts = [
+          `${d.items_count} ${d.items_count === 1 ? 'movimento' : 'movimenti'}`,
+          d.extra?.accounts ? `${d.extra.accounts} ${d.extra.accounts === 1 ? 'conto' : 'conti'}` : null,
+          d.amount != null ? `saldo ${fmtEur(d.amount)}` : null,
+        ].filter(Boolean).join(' · ')
+        return bankBlock(d.id, d.label, parts, movesByBank[d.label] ?? [], d.error_message)
+      })}
+      {extraBanks.map((b) =>
+        bankBlock(b, b, `${movesByBank[b].length} ${movesByBank[b].length === 1 ? 'movimento' : 'movimenti'}`, movesByBank[b]))}
+      {movements && movements.length < movementsTotal && (
+        <p className="text-xs text-slate-400">Mostrati i primi {movements.length} movimenti di {movementsTotal}.</p>
       )}
     </div>
   )
