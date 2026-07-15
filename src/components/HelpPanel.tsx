@@ -141,16 +141,43 @@ const HELP_CONTENT: Record<string, HelpContent> = {
     ]
   },
   '/fatturazione': {
-    title: 'Fatturazione',
+    title: 'Fatturazione Elettronica',
     icon: FileCode,
-    description: 'Gestione fatture elettroniche attive e passive con tracking SDI.',
+    description: 'La sezione ha tre schede: FATTURE PASSIVE (ricevute dai fornitori), FATTURE ATTIVE (di vendita, emesse dall\'azienda) e CORRISPETTIVI (incassi giornalieri). Le fatture passive e attive arrivano da sole dal Cassetto Fiscale tramite A-Cube: qui le consulti, cerchi e filtri. Per produrre gli XML delle vendite da caricare in Agenzia delle Entrate usi lo strumento "Converti Excel → XML".',
     tips: [
-      'Le fatture ricevute via SDI appaiono automaticamente con stato aggiornato.',
-      'Puoi filtrare per direzione (attive/passive) e stato SDI.',
-      'Lo stato SDI si aggiorna automaticamente quando arrivano le notifiche dall\'Agenzia delle Entrate.',
+      '① FATTURE PASSIVE: le fatture ricevute dai fornitori via SDI. Vengono scaricate in automatico dal Cassetto Fiscale ogni 6 ore. Il pulsante "Sincronizza SDI" in alto a destra forza un aggiornamento immediato. Puoi anche importare a mano un XML con "Importa XML". Clic su una riga = fattura formattata leggibile.',
+      '② FATTURE ATTIVE: le fatture di vendita emesse dall\'azienda, anch\'esse scaricate in automatico dal Cassetto. Cerca per cliente o numero, filtra per periodo (mese per mese), la lista è sempre ordinata dalla più recente. La colonna "Stato SDI" mostra il percorso della fattura (Inviata, Consegnata, Accettata…).',
+      '③ CONVERTI EXCEL → XML: nel tab Attive, il pulsante verde apre lo strumento che trasforma l\'export Excel del gestionale in XML FatturaPA (FPR12), uno per fattura, pronti per l\'import in AdE. Ogni generazione resta in archivio. La guida di dettaglio si apre dentro quella pagina.',
+      '④ NUOVA VIA A-CUBE è temporaneamente disattivato (grigio): per ora le fatture di vendita si producono con "Converti Excel → XML".',
+      '⑤ CORRISPETTIVI: gli incassi giornalieri (POS / corrispettivi telematici dell\'Agenzia delle Entrate).',
+      '⑥ Il numero accanto a ogni scheda (badge) conta le fatture del periodo/anno selezionato in alto nella pagina.',
     ],
     faq: [
-      { q: 'Come invio una fattura?', a: 'Crea la fattura dalla sezione "Nuova fattura" e il sistema la invierà automaticamente all\'SDI.' },
+      { q: 'Da dove arrivano le fatture che vedo?', a: 'Dal Cassetto Fiscale tramite A-Cube: sia le passive (acquisti) sia le attive (vendite) vengono scaricate in automatico ogni 6 ore. Il pulsante "Sincronizza SDI" in alto forza subito un aggiornamento.' },
+      { q: 'Come genero gli XML da caricare in Agenzia delle Entrate?', a: 'Tab Fatture Attive → pulsante verde "Converti Excel → XML" → carica il file Excel esportato dal gestionale (oppure incolla le righe) → "Genera XML" → "Scarica tutti (.zip)". Ogni generazione resta salvata nell\'archivio in fondo alla pagina.' },
+      { q: 'Perché "Nuova via A-Cube" è grigio e non si clicca?', a: 'L\'emissione diretta via A-Cube è temporaneamente disattivata. Per ora le fatture di vendita si producono con il convertitore "Converti Excel → XML".' },
+      { q: 'Cosa significano gli stati SDI delle fatture attive?', a: 'Sono lo stato di trasmissione: Inviata (trasmessa all\'AdE), Consegnata (recapitata al cliente), Accettata (validata dall\'AdE), Scartata (rifiutata, da correggere).' },
+      { q: 'Il numero sulla scheda non coincide con le righe in tabella. Perché?', a: 'Il badge della scheda conta le fatture del periodo/anno selezionato in alto; la tabella può avere un filtro periodo diverso (o "Tutti i periodi"). Allinea i due filtri per farli coincidere.' },
+      { q: 'Come importo una fattura passiva a mano?', a: 'Nel tab Fatture Passive usa "Importa XML" e carica il file XML FatturaPA del fornitore.' },
+    ]
+  },
+  '/fatturazione/converti-xml': {
+    title: 'Converti Excel → XML',
+    icon: FileCode,
+    description: 'Trasforma l\'export Excel del gestionale in file XML Fattura Elettronica (formato FPR12), uno per fattura, pronti per l\'import in Agenzia delle Entrate. Funziona tutto sul tuo computer: nessuna fattura viene inviata da qui.',
+    tips: [
+      '① NUMERO DI PARTENZA: è il progressivo di invio (a 5 cifre) da assegnare. Lo strumento ricorda l\'ultimo numero usato e propone in automatico il successivo; puoi comunque sovrascriverlo.',
+      '② DATI IN INGRESSO: due modi. "Carica file Excel" (.xls/.xlsx esportato dal gestionale) oppure "Incolla righe" copiate da Excel — meglio includendo la riga di intestazione, così le colonne vengono riconosciute per nome.',
+      '③ GENERA XML: le fatture vengono ordinate per data, numerate progressivamente e trasformate in un XML ciascuna. Nel riepilogo, le righe dove Imponibile + Imposta ≠ Totale sono evidenziate in rosso (l\'XML si genera lo stesso).',
+      '④ SCARICA: usa "Scarica tutti (.zip)" per l\'intero blocco, poi importa i singoli XML in Agenzia delle Entrate.',
+      '⑤ ARCHIVIO GENERAZIONI: ogni "Genera XML" resta salvato qui. Puoi cercare per numero o cliente, filtrare per mese, ri-scaricare il singolo XML o l\'intero .zip, oppure eliminare una generazione sbagliata.',
+    ],
+    faq: [
+      { q: 'I file generati restano salvati?', a: 'Sì. Ogni generazione viene archiviata (visibile solo alla tua azienda). La ritrovi in "Archivio generazioni" in fondo, con ricerca, filtro per mese e download del singolo file o dell\'intero .zip.' },
+      { q: 'Che numerazione usa?', a: 'Il progressivo di invio a 5 cifre (es. 00021), che finisce sia nel nome del file sia nel campo ProgressivoInvio dell\'XML. Il numero della fattura vera resta quello del gestionale (es. 4/2026/A/TOR).' },
+      { q: 'Gli XML sono già firmati e pronti?', a: 'No: NON sono firmati digitalmente (.p7m) né validati contro lo schema XSD ufficiale. Hanno la stessa forma del file modello già usato per l\'import manuale in AdE.' },
+      { q: 'Una fattura è segnata in rosso ("NO" nella colonna Quadra): che faccio?', a: 'Vuol dire che Imponibile + Imposta non fa il Totale (oltre 1 centesimo di differenza). L\'XML viene comunque generato: se serve, correggi l\'importo nell\'export Excel e rigenera.' },
+      { q: 'Ho generato per errore: come annullo?', a: 'In "Archivio generazioni" premi "Elimina" sulla generazione sbagliata. Il numero progressivo ricordato non cambia: al prossimo giro puoi reimpostare a mano il "Numero di partenza".' },
     ]
   },
   '/scadenze-fiscali': {
