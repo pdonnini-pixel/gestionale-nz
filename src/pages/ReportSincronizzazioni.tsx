@@ -66,6 +66,9 @@ function RunDetails({ feed, details, movements, movementsTotal, bankNames, loadi
   loading: boolean
   showErrors: boolean
 }) {
+  // stato apri/chiudi per ciascuna banca (default: aperta se ha movimenti)
+  const [openBanks, setOpenBanks] = useState<Record<string, boolean>>({})
+
   if (loading) {
     return <div className="px-6 py-4 text-sm text-slate-400">Caricamento dettaglio…</div>
   }
@@ -114,39 +117,55 @@ function RunDetails({ feed, details, movements, movementsTotal, bankNames, loadi
   const detailLabels = new Set(details.map((d) => d.label))
   const extraBanks = Object.keys(movesByBank).filter((b) => !detailLabels.has(b))
 
-  const bankBlock = (key: string, name: string, summary: string, moves: RunMovement[], error?: string | null) => (
-    <div key={key} className="rounded-lg border border-slate-200 overflow-hidden">
-      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-0.5 bg-slate-50 px-3 py-2">
-        <span className="text-sm font-semibold text-slate-800">{name}</span>
-        <span className="text-xs text-slate-500 tabular-nums">{summary}</span>
+  const bankBlock = (key: string, name: string, summary: string, moves: RunMovement[], error?: string | null) => {
+    const isOpen = openBanks[key] ?? (moves.length > 0)
+    return (
+      <div key={key} className="rounded-lg border border-slate-200 overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setOpenBanks((p) => ({ ...p, [key]: !isOpen }))}
+          className="w-full flex flex-wrap items-baseline justify-between gap-x-4 gap-y-0.5 bg-slate-50 px-3 py-2 text-left hover:bg-slate-100 transition"
+        >
+          <span className="flex items-center gap-1.5 text-sm font-semibold text-slate-800">
+            {isOpen
+              ? <ChevronDown size={14} className="shrink-0 text-slate-400" />
+              : <ChevronRight size={14} className="shrink-0 text-slate-400" />}
+            {name}
+          </span>
+          <span className="text-xs text-slate-500 tabular-nums">{summary}</span>
+        </button>
+        {isOpen && (
+          <>
+            {showErrors && error && (
+              <p className="px-3 py-1.5 text-xs text-red-700 border-b border-slate-100">{error}</p>
+            )}
+            {moves.length > 0 ? (
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-left text-slate-400 border-b border-slate-100">
+                    <th className="py-1.5 px-3 font-medium">Data</th>
+                    <th className="py-1.5 px-3 font-medium">Descrizione</th>
+                    <th className="py-1.5 px-3 font-medium text-right">Importo</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {moves.map((m) => (
+                    <tr key={m.id} className="border-b border-slate-50 last:border-0">
+                      <td className="py-1.5 px-3 text-slate-500 whitespace-nowrap">{fmtDate(m.transaction_date)}</td>
+                      <td className="py-1.5 px-3 text-slate-600 max-w-[560px] truncate">{m.description ?? '—'}</td>
+                      <td className={`py-1.5 px-3 text-right tabular-nums whitespace-nowrap ${m.amount < 0 ? 'text-red-600' : 'text-slate-700'}`}>{fmtEur(m.amount)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <p className="px-3 py-2 text-xs text-slate-400">Nessun movimento nuovo in questa sincronizzazione.</p>
+            )}
+          </>
+        )}
       </div>
-      {showErrors && error && (
-        <p className="px-3 py-1.5 text-xs text-red-700 border-b border-slate-100">{error}</p>
-      )}
-      {moves.length > 0 ? (
-        <table className="w-full text-xs">
-          <thead>
-            <tr className="text-left text-slate-400 border-b border-slate-100">
-              <th className="py-1.5 px-3 font-medium">Data</th>
-              <th className="py-1.5 px-3 font-medium">Descrizione</th>
-              <th className="py-1.5 px-3 font-medium text-right">Importo</th>
-            </tr>
-          </thead>
-          <tbody>
-            {moves.map((m) => (
-              <tr key={m.id} className="border-b border-slate-50 last:border-0">
-                <td className="py-1.5 px-3 text-slate-500 whitespace-nowrap">{fmtDate(m.transaction_date)}</td>
-                <td className="py-1.5 px-3 text-slate-600 max-w-[560px] truncate">{m.description ?? '—'}</td>
-                <td className={`py-1.5 px-3 text-right tabular-nums whitespace-nowrap ${m.amount < 0 ? 'text-red-600' : 'text-slate-700'}`}>{fmtEur(m.amount)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      ) : (
-        <p className="px-3 py-2 text-xs text-slate-400">Nessun movimento nuovo in questa sincronizzazione.</p>
-      )}
-    </div>
-  )
+    )
+  }
 
   return (
     <div className="px-6 py-3 space-y-3">
