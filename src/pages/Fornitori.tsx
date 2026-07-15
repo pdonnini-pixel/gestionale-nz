@@ -30,6 +30,10 @@ import SupplierAllocationEditor, { MODE_META, type AllocationMode } from '../com
 import InvoiceViewer from '../components/InvoiceViewer';
 import PdfViewer from '../components/PdfViewer';
 import { parseFatturaAllegati, downloadBytes, type FatturaAllegato } from '../lib/fatturaAllegati';
+import {
+  PAYMENT_METHOD_OPTIONS, PAYMENT_METHOD_LABELS as PAYMENT_LABEL,
+  DEFAULT_PAYMENT_METHOD, isBankRequired,
+} from '../lib/paymentMethods';
 
 const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316'];
 
@@ -41,55 +45,6 @@ const EMPTY_FORM = {
   // Piano rate scadenze (v2): usato per generare le scadenze delle fatture >= 31/07/2026
   payment_base: '', prima_scadenza_gg: 30, numero_rate: 1, payment_bank_account_id: '',
 };
-
-// Metodi per cui la banca di pagamento è OBBLIGATORIA (serve per lo storno nei cashflow)
-const BANK_REQUIRED_METHODS = new Set([
-  'riba_30', 'riba_60', 'riba_90', 'riba_120',
-  'rid', 'sdd_core', 'sdd_b2b', 'carta_credito', 'carta_debito',
-]);
-const isBankRequired = (method: string) => BANK_REQUIRED_METHODS.has(method);
-
-// v2 payment method enum options for dropdown
-const PAYMENT_METHOD_OPTIONS = [
-  { group: 'Bonifico', items: [
-    { value: 'bonifico_ordinario', label: 'Bonifico Ordinario' },
-    { value: 'bonifico_urgente', label: 'Bonifico Urgente' },
-    { value: 'bonifico_sepa', label: 'Bonifico SEPA' },
-  ]},
-  { group: 'RIBA', items: [
-    { value: 'riba_30', label: 'Ri.Ba. 30gg' },
-    { value: 'riba_60', label: 'Ri.Ba. 60gg' },
-    { value: 'riba_90', label: 'Ri.Ba. 90gg' },
-    { value: 'riba_120', label: 'Ri.Ba. 120gg' },
-  ]},
-  { group: 'RID / SDD', items: [
-    { value: 'rid', label: 'RID' },
-    { value: 'sdd_core', label: 'SDD Core' },
-    { value: 'sdd_b2b', label: 'SDD B2B' },
-  ]},
-  { group: 'Altro', items: [
-    { value: 'rimessa_diretta', label: 'Rimessa Diretta' },
-    { value: 'carta_credito', label: 'Carta di Credito' },
-    { value: 'carta_debito', label: 'Carta di Debito' },
-    { value: 'assegno', label: 'Assegno' },
-    { value: 'contanti', label: 'Contanti' },
-    { value: 'compensazione', label: 'Compensazione' },
-    { value: 'f24', label: 'F24' },
-    { value: 'mav', label: 'MAV' },
-    { value: 'rav', label: 'RAV' },
-    { value: 'bollettino_postale', label: 'Bollettino Postale' },
-    { value: 'altro', label: 'Altro' },
-  ]},
-];
-
-// Human-readable label for payment method enum
-const PAYMENT_LABEL: Record<string, string> = {};
-PAYMENT_METHOD_OPTIONS.forEach(g => g.items.forEach(i => { PAYMENT_LABEL[i.value] = i.label; }));
-// v1 fallbacks
-PAYMENT_LABEL.bonifico = 'Bonifico';
-PAYMENT_LABEL.riba = 'Ri.Ba.';
-PAYMENT_LABEL.rid = 'RID';
-PAYMENT_LABEL.carta = 'Carta';
 
 const CATEGORIES = [
   'Merci', 'Servizi', 'Affitti', 'Utenze', 'Marketing', 'Logistica',
@@ -603,7 +558,7 @@ export default function Fornitori() {
       cap: str('cap'),
       category: str('category'),
       payment_terms: num('payment_terms', num('default_payment_terms', 30)),
-      payment_method: str('payment_method') || str('default_payment_method') || 'bonifico',
+      payment_method: str('payment_method') || str('default_payment_method') || DEFAULT_PAYMENT_METHOD,
       cost_center: str('cost_center') || 'all',
       note: str('note') || str('notes'),
       payment_base: str('payment_base'),
@@ -616,6 +571,13 @@ export default function Fornitori() {
 
   async function handleSave() {
     if (!form.ragione_sociale.trim()) { showToast('Ragione sociale obbligatoria', 'error'); return; }
+    // Banca obbligatoria per metodi che escono da un conto specifico (RiBa/RID/SDD/carta):
+    // serve per lo storno nelle simulazioni di cashflow. Blocca al salvataggio invece di
+    // lasciar passare una config incompleta (che poi genererebbe l'anomalia 'banca_mancante').
+    if (isBankRequired(form.payment_method) && !form.payment_bank_account_id) {
+      showToast(`Con metodo ${PAYMENT_LABEL[form.payment_method] || form.payment_method} la banca di pagamento è obbligatoria`, 'error');
+      return;
+    }
     setSaving(true);
 
     try {
@@ -639,8 +601,8 @@ export default function Fornitori() {
         category: form.category || null,
         payment_terms: parseInt(String(form.payment_terms)) || 30,
         default_payment_terms: parseInt(String(form.payment_terms)) || 30,
-        payment_method: form.payment_method || 'bonifico_ordinario',
-        default_payment_method: form.payment_method || 'bonifico_ordinario',
+        payment_method: form.payment_method || DEFAULT_PAYMENT_METHOD,
+        default_payment_method: form.payment_method || DEFAULT_PAYMENT_METHOD,
         // Piano rate scadenze (v2)
         payment_base: form.payment_base || null,
         prima_scadenza_gg: Number(form.prima_scadenza_gg) || null,
