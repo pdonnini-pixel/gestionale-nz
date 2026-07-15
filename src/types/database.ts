@@ -1062,6 +1062,7 @@ export type Database = {
           statement_id: string | null
           status: string | null
           supplier_id: string | null
+          sync_run_id: string | null
           transaction_date: string
           transaction_type: string | null
           value_date: string | null
@@ -1097,6 +1098,7 @@ export type Database = {
           statement_id?: string | null
           status?: string | null
           supplier_id?: string | null
+          sync_run_id?: string | null
           transaction_date: string
           transaction_type?: string | null
           value_date?: string | null
@@ -1132,6 +1134,7 @@ export type Database = {
           statement_id?: string | null
           status?: string | null
           supplier_id?: string | null
+          sync_run_id?: string | null
           transaction_date?: string
           transaction_type?: string | null
           value_date?: string | null

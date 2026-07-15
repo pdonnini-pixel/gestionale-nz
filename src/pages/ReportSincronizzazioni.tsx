@@ -46,10 +46,20 @@ const fmtEur = (n: number | null): string => {
 const fmtDate = (iso: string | null): string =>
   iso ? new Date(iso).toLocaleDateString('it-IT') : '—'
 
+// Singolo movimento bancario scaricato in una run (per l'espansione banche).
+interface RunMovement {
+  id: string
+  transaction_date: string
+  amount: number
+  description: string | null
+  currency: string | null
+}
+
 // Sotto-tabella "cosa è stato scaricato" per una run espansa.
-function RunDetails({ feed, details, loading, showErrors }: {
+function RunDetails({ feed, details, movements, loading, showErrors }: {
   feed: SyncFeed
   details: SyncRunDetail[] | undefined
+  movements: RunMovement[] | undefined
   loading: boolean
   showErrors: boolean
 }) {
@@ -91,33 +101,62 @@ function RunDetails({ feed, details, loading, showErrors }: {
     )
   }
 
-  // banche (e fallback): banca, conti, movimenti, saldo
+  // banche (e fallback): riepilogo per banca + elenco dei singoli movimenti
   return (
-    <div className="px-6 py-3">
-      <table className="w-full text-xs">
-        <thead>
-          <tr className="text-left text-slate-400 border-b border-slate-200">
-            <th className="py-1.5 pr-4 font-medium">Banca</th>
-            <th className="py-1.5 pr-4 font-medium text-right">Conti</th>
-            <th className="py-1.5 pr-4 font-medium text-right">Movimenti scaricati</th>
-            <th className="py-1.5 pr-4 font-medium text-right">Saldo</th>
-            {showErrors && <th className="py-1.5 pr-4 font-medium">Errore</th>}
-          </tr>
-        </thead>
-        <tbody>
-          {details.map((d) => (
-            <tr key={d.id} className="border-b border-slate-100 last:border-0">
-              <td className="py-1.5 pr-4 text-slate-700">{d.label}</td>
-              <td className="py-1.5 pr-4 text-slate-500 text-right tabular-nums">{d.extra?.accounts ?? '—'}</td>
-              <td className="py-1.5 pr-4 text-slate-700 text-right tabular-nums">{d.items_count}</td>
-              <td className="py-1.5 pr-4 text-slate-700 text-right tabular-nums whitespace-nowrap">{fmtEur(d.amount)}</td>
-              {showErrors && (
-                <td className="py-1.5 pr-4 text-red-700">{d.error_message ?? <span className="text-slate-300">—</span>}</td>
-              )}
+    <div className="px-6 py-3 space-y-4">
+      <div>
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 mb-1.5">Per banca</p>
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="text-left text-slate-400 border-b border-slate-200">
+              <th className="py-1.5 pr-4 font-medium">Banca</th>
+              <th className="py-1.5 pr-4 font-medium text-right">Conti</th>
+              <th className="py-1.5 pr-4 font-medium text-right">Movimenti scaricati</th>
+              <th className="py-1.5 pr-4 font-medium text-right">Saldo</th>
+              {showErrors && <th className="py-1.5 pr-4 font-medium">Errore</th>}
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {details.map((d) => (
+              <tr key={d.id} className="border-b border-slate-100 last:border-0">
+                <td className="py-1.5 pr-4 text-slate-700">{d.label}</td>
+                <td className="py-1.5 pr-4 text-slate-500 text-right tabular-nums">{d.extra?.accounts ?? '—'}</td>
+                <td className="py-1.5 pr-4 text-slate-700 text-right tabular-nums">{d.items_count}</td>
+                <td className="py-1.5 pr-4 text-slate-700 text-right tabular-nums whitespace-nowrap">{fmtEur(d.amount)}</td>
+                {showErrors && (
+                  <td className="py-1.5 pr-4 text-red-700">{d.error_message ?? <span className="text-slate-300">—</span>}</td>
+                )}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {movements && movements.length > 0 && (
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 mb-1.5">
+            Movimenti scaricati ({movements.length})
+          </p>
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="text-left text-slate-400 border-b border-slate-200">
+                <th className="py-1.5 pr-4 font-medium">Data</th>
+                <th className="py-1.5 pr-4 font-medium">Descrizione</th>
+                <th className="py-1.5 pr-4 font-medium text-right">Importo</th>
+              </tr>
+            </thead>
+            <tbody>
+              {movements.map((m) => (
+                <tr key={m.id} className="border-b border-slate-100 last:border-0">
+                  <td className="py-1.5 pr-4 text-slate-500 whitespace-nowrap">{fmtDate(m.transaction_date)}</td>
+                  <td className="py-1.5 pr-4 text-slate-600 max-w-[420px] truncate">{m.description ?? '—'}</td>
+                  <td className={`py-1.5 pr-4 text-right tabular-nums whitespace-nowrap ${m.amount < 0 ? 'text-red-600' : 'text-slate-700'}`}>{fmtEur(m.amount)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   )
 }
@@ -133,6 +172,7 @@ export default function ReportSincronizzazioni() {
   // riga espansa + dettaglio "cosa scarico" (lazy-load per run)
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [detailsByRun, setDetailsByRun] = useState<Record<string, SyncRunDetail[]>>({})
+  const [movementsByRun, setMovementsByRun] = useState<Record<string, RunMovement[]>>({})
   const [detailLoading, setDetailLoading] = useState<string | null>(null)
 
   // filtri
@@ -169,8 +209,8 @@ export default function ReportSincronizzazioni() {
 
   useEffect(() => { load() }, [load])
 
-  // ricarica i dettagli scarta la cache quando cambiano i filtri (le run cambiano)
-  useEffect(() => { setExpandedId(null); setDetailsByRun({}) }, [feedFilter, dateFrom, dateTo])
+  // scarta la cache dei dettagli quando cambiano i filtri (le run cambiano)
+  useEffect(() => { setExpandedId(null); setDetailsByRun({}); setMovementsByRun({}) }, [feedFilter, dateFrom, dateTo])
 
   const toggleExpand = useCallback(async (run: SyncRun) => {
     if (expandedId === run.id) { setExpandedId(null); return }
@@ -183,6 +223,17 @@ export default function ReportSincronizzazioni() {
       .eq('sync_run_id', run.id)
       .order('created_at', { ascending: true }) as unknown as Promise<{ data: SyncRunDetail[] | null }>)
     setDetailsByRun((prev) => ({ ...prev, [run.id]: data ?? [] }))
+
+    // per le banche, carica anche l'elenco dei singoli movimenti scaricati
+    if (run.feed === 'banche') {
+      const { data: mv } = await (supabase
+        .from('bank_transactions')
+        .select('id, transaction_date, amount, description, currency')
+        .eq('sync_run_id', run.id)
+        .order('transaction_date', { ascending: false })
+        .limit(500) as unknown as Promise<{ data: RunMovement[] | null }>)
+      setMovementsByRun((prev) => ({ ...prev, [run.id]: mv ?? [] }))
+    }
     setDetailLoading(null)
   }, [expandedId, detailsByRun])
 
@@ -335,6 +386,7 @@ export default function ReportSincronizzazioni() {
                           <RunDetails
                             feed={r.feed}
                             details={detailsByRun[r.id]}
+                            movements={movementsByRun[r.id]}
                             loading={detailLoading === r.id}
                             showErrors={showErrors}
                           />
