@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, Suspense } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import PageHelp from '../components/PageHelp'
 import PageHeader from '../components/PageHeader'
 import { useToast } from '../components/Toast'
 import { useCompanyLabels } from '../hooks/useCompanyLabels'
@@ -2999,7 +2998,6 @@ export default function ContoEconomico() {
           <span className="ml-2 text-slate-600">Caricamento dati...</span>
         </div>
       )}
-      <PageHelp page="conto-economico" />
       </div>
     </div>
   )

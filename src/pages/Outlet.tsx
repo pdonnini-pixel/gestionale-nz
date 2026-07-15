@@ -1,6 +1,5 @@
 import { useState, useEffect, lazy, Suspense } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
-import PageHelp from '../components/PageHelp'
 import PageHeader from '../components/PageHeader'
 import TextTooltip from '../components/Tooltip'
 import { PlaceholderDot, PlaceholderLegend } from '../components/PlaceholderMark'
@@ -2348,7 +2347,6 @@ export default function Outlet() {
           </div>
         </div>
       )}
-      <PageHelp page="outlet" />
       </div>
     </div>
   )

@@ -4,7 +4,6 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 // Tab Fornitori — persistito in URL come ?tab=
 type FornitoriTab = 'anagrafica' | 'analytics';
 const VALID_FORNITORI_TABS: FornitoriTab[] = ['anagrafica', 'analytics'];
-import PageHelp from '../components/PageHelp';
 import PageHeader from '../components/PageHeader';
 import { useCompanyLabels } from '../hooks/useCompanyLabels';
 import {
@@ -1602,7 +1601,6 @@ export default function Fornitori() {
           <span>{toast.msg}</span>
         </div>
       )}
-      <PageHelp page="fornitori" />
       </div>
     </div>
   );

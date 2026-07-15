@@ -5,7 +5,6 @@ import { useSearchParams } from 'react-router-dom'
 // Tab principale Banche — persistito in URL come ?tab=
 type BancheTab = 'conti' | 'movimenti' | 'riconciliazione'
 const VALID_BANCHE_TABS: BancheTab[] = ['conti', 'movimenti', 'riconciliazione']
-import PageHelp from '../components/PageHelp'
 import { useToast } from '../components/Toast'
 import {
   Landmark, Building2, Wallet, CreditCard, TrendingUp,
@@ -2654,7 +2653,6 @@ export default function Banche() {
         }}
         onSave={handleSaveLoan}
       />
-      <PageHelp page="tesoreria" />
     </div>
   )
 }

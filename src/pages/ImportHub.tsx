@@ -4,7 +4,6 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 // Tab ImportHub — persistito in URL come ?tab=
 type ImportHubTab = 'sources' | 'overview' | 'history';
 const VALID_IMPORT_HUB_TABS: ImportHubTab[] = ['sources', 'overview', 'history'];
-import PageHelp from '../components/PageHelp';
 import PageHeader from '../components/PageHeader';
 import TextTooltip from '../components/Tooltip';
 import { useCompanyLabels } from '../hooks/useCompanyLabels';
@@ -1745,7 +1744,6 @@ export default function ImportHub() {
           </div>
         </div>
       )}
-      <PageHelp page="import-hub" />
       </div>
     </div>
   );
