@@ -1471,12 +1471,12 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "Revisione pagamenti (controllo veloce di tutti i fornitori)",
-        "body": "Il pulsante \"Revisione pagamenti\" in alto apre una schermata dedicata dove scorri tutti i fornitori attivi in ordine alfabetico e controlli, riga per riga, la Tipologia di pagamento (bonifico, Ri.Ba., RID…), la Modalità delle scadenze (es. \"60/90/120 gg DFFM\", \"A Vista\", \"Data fissa mese\" con il giorno) e la Banca. Modifichi solo i fornitori sbagliati (la riga diventa gialla) e premi \"Salva modifiche\": le correzioni vengono inviate come proposte. Un responsabile (super advisor, CFO o CEO) le vede in cima alla stessa pagina come \"proposte in attesa\" e può applicarle ai fornitori (con backup del valore precedente) oppure scartarle.",
+        "body": "Il pulsante \"Revisione pagamenti\" in alto apre una schermata dedicata dove scorri tutti i fornitori attivi in ordine alfabetico e controlli, riga per riga, la Tipologia di pagamento (bonifico, Ri.Ba., RID…), la Modalità delle scadenze (es. \"60/90/120 gg DFFM\", \"A Vista\", \"Data fissa mese\" con il giorno) e la Banca. Modifichi solo i fornitori sbagliati (la riga diventa gialla) e premi \"Salva e applica\": le correzioni vengono applicate subito ai fornitori. Ogni modifica salva anche il valore precedente, quindi è sempre annullabile. I fornitori che lasci invariati restano come sono.",
         "steps": [
           "Clicca \"Revisione pagamenti\" nell'intestazione della pagina Fornitori",
           "Correggi Tipologia, Modalità e Banca solo dove serve; le righe modificate diventano gialle",
-          "Premi \"Salva modifiche\" per inviare le correzioni al responsabile",
-          "Se sei un responsabile, usa \"Applica\" o \"Applica tutte\" sulle proposte in attesa per aggiornare i fornitori"
+          "Premi \"Salva e applica\" per aggiornare subito i fornitori",
+          "Usa \"Annulla modifiche\" per scartare le correzioni non ancora salvate"
         ]
       },
       {

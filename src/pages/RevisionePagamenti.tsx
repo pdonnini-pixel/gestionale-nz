@@ -189,7 +189,10 @@ export default function RevisionePagamenti() {
       const { error } = await supabase.from('supplier_payment_proposals' as never)
         .upsert(payload as never, { onConflict: 'company_id,supplier_id' })
       if (error) throw error
-      toast({ type: 'success', message: `${payload.length} modifiche inviate al responsabile.` })
+      // Applica subito ai fornitori (con backup del valore precedente per il rollback).
+      const { data: applied, error: applyErr } = await supabase.rpc('rpc_apply_all_payment_proposals' as never)
+      if (applyErr) throw applyErr
+      toast({ type: 'success', message: `${applied ?? payload.length} modifiche salvate e applicate ai fornitori.` })
       await load()
     } catch (e) {
       console.warn('[revisione-pagamenti:save]', e)
@@ -241,48 +244,6 @@ export default function RevisionePagamenti() {
         }
       />
 
-      {/* Pannello responsabile: proposte in attesa */}
-      {isManager && proposals.length > 0 && (
-        <div className="rounded-xl border border-indigo-200 bg-indigo-50/60 overflow-hidden">
-          <div className="flex items-center justify-between px-4 py-3 border-b border-indigo-100">
-            <span className="font-semibold text-indigo-800">{proposals.length} {proposals.length === 1 ? 'proposta' : 'proposte'} in attesa di approvazione</span>
-            <button onClick={applyAll} disabled={saving}
-              className="px-3 py-1.5 text-sm rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 inline-flex items-center gap-2">
-              <CheckCircle2 size={15} /> Applica tutte
-            </button>
-          </div>
-          <div className="divide-y divide-indigo-100">
-            {proposals.map(p => {
-              const s = supById[p.supplier_id]
-              const oldTxt = s ? `${familyFromEnum(String(s.default_payment_method || s.payment_method || ''))} · ${scadLabel(s.payment_base as string, s.prima_scadenza_gg as number, s.numero_rate as number)} · ${bankLabel(s.payment_bank_account_id as string)}` : '—'
-              const newTxt = `${familyFromEnum(String(p.proposed_method || ''))} · ${p.proposed_scad_label || '—'} · ${bankLabel(p.proposed_bank_account_id as string)}`
-              return (
-                <div key={p.id} className="flex flex-col md:flex-row md:items-center gap-2 px-4 py-2.5 text-sm">
-                  <div className="flex-1 min-w-0">
-                    <div className="font-medium text-slate-800 truncate">{String(p.supplier_name || '')}</div>
-                    <div className="text-xs text-slate-500 flex items-center gap-2 flex-wrap">
-                      <span className="line-through">{oldTxt}</span>
-                      <ArrowRight size={12} className="text-indigo-400" />
-                      <span className="text-indigo-700 font-medium">{newTxt}</span>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <button onClick={() => applyOne(p.id)} disabled={applyingId === p.id}
-                      className="px-2.5 py-1.5 text-xs rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50 inline-flex items-center gap-1">
-                      {applyingId === p.id ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />} Applica
-                    </button>
-                    <button onClick={() => discardOne(p.id)} disabled={applyingId === p.id}
-                      className="px-2.5 py-1.5 text-xs rounded-lg border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 inline-flex items-center gap-1">
-                      <XCircle size={13} /> Scarta
-                    </button>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        </div>
-      )}
-
       {/* Toolbar */}
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex-1 min-w-[200px] flex items-center gap-2 bg-white border border-slate-200 rounded-lg px-3 py-2">
@@ -299,12 +260,12 @@ export default function RevisionePagamenti() {
         )}
         <button onClick={saveChanges} disabled={saving || editedList.length === 0}
           className="px-4 py-2 text-sm font-semibold rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 inline-flex items-center gap-2">
-          {saving ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />} Salva modifiche{editedList.length ? ` (${editedList.length})` : ''}
+          {saving ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />} Salva e applica{editedList.length ? ` (${editedList.length})` : ''}
         </button>
       </div>
 
       <p className="text-xs text-slate-500">
-        Modifica solo i fornitori sbagliati (la riga diventa gialla) e premi <b>Salva modifiche</b>: le correzioni vanno al responsabile che le applica. I fornitori che lasci invariati sono già a posto.
+        Modifica solo i fornitori sbagliati (la riga diventa gialla) e premi <b>Salva e applica</b>: le correzioni vengono applicate subito ai fornitori. I fornitori che lasci invariati sono già a posto. Ogni modifica salva il valore precedente, così è sempre annullabile.
       </p>
 
       {/* Griglia */}
@@ -370,11 +331,6 @@ export default function RevisionePagamenti() {
         </div>
       </div>
 
-      {!isManager && (
-        <p className="text-xs text-slate-400 flex items-center gap-1.5">
-          <AlertTriangle size={13} /> Le modifiche salvate vengono inviate al responsabile, che le applica ai fornitori.
-        </p>
-      )}
     </div>
   )
 }
