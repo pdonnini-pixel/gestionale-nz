@@ -209,6 +209,7 @@ export default function Profilo() {
               <button
                 type="button"
                 onClick={() => setShowNew((s) => !s)}
+                title={showNew ? 'Nascondi password' : 'Mostra password'}
                 className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600"
                 tabIndex={-1}
               >
@@ -233,6 +234,7 @@ export default function Profilo() {
               <button
                 type="button"
                 onClick={() => setShowConfirm((s) => !s)}
+                title={showConfirm ? 'Nascondi password' : 'Mostra password'}
                 className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600"
                 tabIndex={-1}
               >

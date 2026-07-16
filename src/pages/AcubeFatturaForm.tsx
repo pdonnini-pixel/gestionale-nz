@@ -208,7 +208,7 @@ export default function AcubeFatturaForm() {
                   </select>
                 </label>
                 <button type="button" disabled={lines.length === 1} onClick={() => setLines(lines.filter((_, idx) => idx !== i))}
-                  className="col-span-1 p-1.5 text-red-600 disabled:text-slate-300 hover:bg-red-50 rounded">
+                  className="col-span-1 p-1.5 text-red-600 disabled:text-slate-300 hover:bg-red-50 rounded" title="Rimuovi linea">
                   <Trash2 size={16} />
                 </button>
               </div>

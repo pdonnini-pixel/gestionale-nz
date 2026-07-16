@@ -339,7 +339,7 @@ export default function ContractUploader({ onDataExtracted, onCancel }: Contract
             <h2 className="text-lg font-semibold text-slate-900">Crea {labels.pointOfSaleLower} da contratto</h2>
             <p className="text-xs text-slate-400 mt-0.5">Carica il contratto e i dati verranno estratti automaticamente</p>
           </div>
-          <button onClick={onCancel} className="p-1 hover:bg-slate-100 rounded-lg"><X size={20} /></button>
+          <button onClick={onCancel} title="Chiudi" className="p-1 hover:bg-slate-100 rounded-lg"><X size={20} /></button>
         </div>
 
         {/* Content */}
@@ -348,7 +348,7 @@ export default function ContractUploader({ onDataExtracted, onCancel }: Contract
           {error && (
             <div className="flex items-center gap-2 p-3 bg-red-50 text-red-700 rounded-lg text-sm">
               <AlertCircle size={16} /><span>{error}</span>
-              <button onClick={() => setError(null)} className="ml-auto"><X size={14} /></button>
+              <button onClick={() => setError(null)} title="Chiudi" className="ml-auto"><X size={14} /></button>
             </div>
           )}
 

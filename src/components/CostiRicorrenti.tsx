@@ -478,6 +478,7 @@ function CostiRicorrenti() {
           <button
             onClick={() => setError(null)}
             className="ml-auto text-red-600 hover:text-red-800"
+            title="Chiudi"
           >
             <X className="w-4 h-4" />
           </button>
@@ -491,6 +492,7 @@ function CostiRicorrenti() {
           <button
             onClick={() => setSuccess(null)}
             className="ml-auto text-green-600 hover:text-green-800"
+            title="Chiudi"
           >
             <X className="w-4 h-4" />
           </button>
@@ -746,6 +748,7 @@ function CostiRicorrenti() {
               <button
                 onClick={closeModal}
                 className="p-1 hover:bg-slate-100 rounded transition-colors"
+                title="Chiudi"
               >
                 <X className="w-5 h-5" />
               </button>

@@ -204,7 +204,9 @@ function ImportHistory({ batches, onRefresh }: { batches: any[]; onRefresh: () =
                     <div className="text-red-500 text-xs">{batch.error_rows} errori</div>
                   )}
                 </div>
-                {expandedId === batch.id ? <ChevronUp size={16} className="text-slate-400" /> : <ChevronDown size={16} className="text-slate-400" />}
+                <span title={expandedId === batch.id ? 'Nascondi dettaglio' : 'Mostra dettaglio'}>
+                  {expandedId === batch.id ? <ChevronUp size={16} className="text-slate-400" /> : <ChevronDown size={16} className="text-slate-400" />}
+                </span>
               </div>
 
               {expandedId === batch.id && (
@@ -394,7 +396,7 @@ export default function Importazioni() {
         }`}>
           {message.type === 'success' ? <Check size={18} /> : <AlertCircle size={18} />}
           <span className="flex-1">{message.text}</span>
-          <button onClick={() => setMessage(null)} className="hover:opacity-70">
+          <button onClick={() => setMessage(null)} className="hover:opacity-70" title="Chiudi">
             <X size={16} />
           </button>
         </div>

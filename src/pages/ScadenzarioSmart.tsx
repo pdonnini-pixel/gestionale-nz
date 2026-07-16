@@ -201,7 +201,7 @@ function Modal({ open, onClose, title, children, wide }: { open: boolean; onClos
       <div className={`bg-white rounded-2xl shadow-2xl w-full ${wide ? 'max-w-2xl' : 'max-w-lg'} mx-4 max-h-[90vh] overflow-y-auto`} onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between p-5 border-b border-slate-100">
           <h3 className="text-lg font-semibold text-slate-900">{title}</h3>
-          <button onClick={onClose} className="p-1 rounded-lg hover:bg-slate-100 text-slate-400"><X size={20} /></button>
+          <button onClick={onClose} title="Chiudi" className="p-1 rounded-lg hover:bg-slate-100 text-slate-400"><X size={20} /></button>
         </div>
         <div className="p-5">{children}</div>
       </div>
@@ -2969,11 +2969,13 @@ const ScadenzarioSmart = () => {
                 {/* Month navigation */}
                 <div className="flex items-center justify-between">
                   <button onClick={() => setCalendarMonth(new Date(year, month - 1, 1))}
+                    title="Mese precedente"
                     className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 transition">
                     <ChevronLeft size={18} />
                   </button>
                   <h3 className="text-sm font-semibold text-slate-800 capitalize">{monthLabel}</h3>
                   <button onClick={() => setCalendarMonth(new Date(year, month + 1, 1))}
+                    title="Mese successivo"
                     className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 transition">
                     <ChevronRight size={18} />
                   </button>
@@ -3100,9 +3102,9 @@ const ScadenzarioSmart = () => {
             return (
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
-                  <button onClick={() => setCalendarMonth(new Date(year, month - 1, 1))} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 transition"><ChevronLeft size={18} /></button>
+                  <button onClick={() => setCalendarMonth(new Date(year, month - 1, 1))} title="Mese precedente" className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 transition"><ChevronLeft size={18} /></button>
                   <h3 className="text-sm font-semibold text-slate-800 capitalize">{monthLabel}</h3>
-                  <button onClick={() => setCalendarMonth(new Date(year, month + 1, 1))} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 transition"><ChevronRight size={18} /></button>
+                  <button onClick={() => setCalendarMonth(new Date(year, month + 1, 1))} title="Mese successivo" className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 transition"><ChevronRight size={18} /></button>
                 </div>
                 <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
                   <div className="grid grid-cols-7 border-b border-slate-100">
@@ -3313,7 +3315,7 @@ const ScadenzarioSmart = () => {
                   <thead className="sticky top-0 bg-white z-10">
                     <tr className="border-b border-slate-100">
                       <th className="py-2.5 px-3 text-center w-10">
-                        <button onClick={toggleSelectAll} className="text-slate-300 hover:text-slate-600">
+                        <button onClick={toggleSelectAll} title="Seleziona/deseleziona tutte" className="text-slate-300 hover:text-slate-600">
                           {selectedIds.size > 0 ? <CheckSquare size={15} /> : <Square size={15} />}
                         </button>
                       </th>
@@ -3386,7 +3388,7 @@ const ScadenzarioSmart = () => {
                         <tr className={`border-b border-slate-50 hover:bg-blue-50/50 transition-colors group ${idx % 2 === 1 ? 'even:bg-slate-50/50' : ''}`}>
                           <td className="py-2.5 px-3 text-center">
                             {p.status !== 'pagato' && (p.gross_amount || 0) >= 0 && p.id && (
-                              <button onClick={() => p.id && toggleSelect(p.id, p)}>
+                              <button onClick={() => p.id && toggleSelect(p.id, p)} title="Seleziona per la distinta">
                                 {selectedIds.has(p.id) ? <CheckSquare size={15} className="text-slate-700" /> : <Square size={15} className="text-slate-300" />}
                               </button>
                             )}
@@ -3810,7 +3812,7 @@ const ScadenzarioSmart = () => {
                           <tr key={p.id} className={`border-b border-slate-50 hover:bg-blue-50/50 transition-colors ${idx % 2 === 1 ? 'bg-slate-50/50' : ''}`}>
                             <td className="py-2 px-3 text-center">
                               {p.status !== 'pagato' && (p.gross_amount || 0) >= 0 && p.id && (
-                                <button onClick={() => p.id && toggleSelect(p.id, p)}>
+                                <button onClick={() => p.id && toggleSelect(p.id, p)} title="Seleziona per la distinta">
                                   {selectedIds.has(p.id) ? <CheckSquare size={16} /> : <Square size={16} />}
                                 </button>
                               )}
@@ -3879,7 +3881,7 @@ const ScadenzarioSmart = () => {
                           <tr key={p.id} className={`border-b border-slate-50 hover:bg-blue-50/50 transition-colors ${idx % 2 === 1 ? 'bg-slate-50/50' : ''}`}>
                             <td className="py-2 px-3 text-center">
                               {p.status !== 'pagato' && (p.gross_amount || 0) >= 0 && p.id && (
-                                <button onClick={() => p.id && toggleSelect(p.id, p)}>
+                                <button onClick={() => p.id && toggleSelect(p.id, p)} title="Seleziona per la distinta">
                                   {selectedIds.has(p.id) ? <CheckSquare size={16} /> : <Square size={16} />}
                                 </button>
                               )}

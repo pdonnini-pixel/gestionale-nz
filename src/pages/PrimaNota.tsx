@@ -262,7 +262,7 @@ export default function PrimaNota() {
             ))}
           </select>
         </label>
-        <button onClick={loadMovements} disabled={loading}
+        <button onClick={loadMovements} disabled={loading} title="Aggiorna"
           className="px-3 py-2 text-slate-500 hover:text-slate-700 rounded-lg hover:bg-slate-100">
           {loading ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
         </button>

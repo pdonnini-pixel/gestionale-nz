@@ -1289,7 +1289,7 @@ export default function ImportHub() {
                       return (
                         <div key={String(f.id)} className={`flex items-center justify-between p-3 bg-white rounded-xl border group hover:border-indigo-200 transition ${isSelected ? 'border-indigo-300 bg-indigo-50/30' : 'border-slate-200'}`}>
                           <div className="flex items-center gap-3 min-w-0">
-                            <button onClick={() => f.id && toggleBatchSelect(f.id)} className="shrink-0 text-slate-400 hover:text-indigo-600">
+                            <button onClick={() => f.id && toggleBatchSelect(f.id)} className="shrink-0 text-slate-400 hover:text-indigo-600" title="Seleziona file">
                               {isSelected ? <CheckSquare size={18} className="text-indigo-600" /> : <Square size={18} />}
                             </button>
                             <div className={`p-2 rounded-lg ${isPdf ? 'bg-red-50' : 'bg-blue-50'}`}>
@@ -1382,7 +1382,7 @@ export default function ImportHub() {
                       {processResult.success ? `${processResult.processed} record importati con successo` : 'Errori durante l\'elaborazione'}
                     </span>
                   </div>
-                  <button onClick={() => setProcessResult(null)} className="text-slate-400 hover:text-slate-600"><X size={16} /></button>
+                  <button onClick={() => setProcessResult(null)} className="text-slate-400 hover:text-slate-600" title="Chiudi"><X size={16} /></button>
                 </div>
                 {(processResult.errors?.length ?? 0) > 0 && (
                   <div className="mt-2 max-h-32 overflow-y-auto">
@@ -1433,7 +1433,7 @@ export default function ImportHub() {
                       </span>
                     )}
                   </div>
-                  <button onClick={() => setPreviewData(null)} className="text-slate-400 hover:text-slate-600"><X size={16} /></button>
+                  <button onClick={() => setPreviewData(null)} className="text-slate-400 hover:text-slate-600" title="Chiudi"><X size={16} /></button>
                 </div>
 
                 {/* CSV Preview Table */}
@@ -1596,7 +1596,7 @@ export default function ImportHub() {
                 </div>
               </div>
               {!computingMatches && (
-                <button onClick={() => setMatchModal(null)} className="p-1.5 hover:bg-slate-100 rounded-lg">
+                <button onClick={() => setMatchModal(null)} className="p-1.5 hover:bg-slate-100 rounded-lg" title="Chiudi">
                   <X size={18} className="text-slate-500" />
                 </button>
               )}
@@ -1728,7 +1728,7 @@ export default function ImportHub() {
                 <span className="font-semibold text-slate-900 text-sm">{previewFile.file_name}</span>
                 {previewFile.file_size && <span className="text-xs text-slate-400">{(previewFile.file_size / 1024).toFixed(0)} KB</span>}
               </div>
-              <button onClick={closePreview} className="p-1.5 hover:bg-slate-100 rounded-lg">
+              <button onClick={closePreview} className="p-1.5 hover:bg-slate-100 rounded-lg" title="Chiudi">
                 <X size={18} className="text-slate-500" />
               </button>
             </div>

@@ -450,7 +450,7 @@ function Modal({ isOpen, onClose, title, children, maxWidth = 'max-w-lg' }: { is
       <div className={`bg-white rounded-2xl shadow-xl w-full ${maxWidth} max-h-[90vh] overflow-y-auto`} onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between p-6 border-b border-slate-100">
           <h2 className="text-lg font-bold text-slate-900">{title}</h2>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-100 transition text-slate-400">
+          <button onClick={onClose} title="Chiudi" className="p-1.5 rounded-lg hover:bg-slate-100 transition text-slate-400">
             <X size={18} />
           </button>
         </div>
@@ -496,6 +496,7 @@ function Pagination({ page, totalPages, onPageChange }: { page: number; totalPag
         <button
           disabled={page <= 1}
           onClick={() => onPageChange(page - 1)}
+          title="Pagina precedente"
           className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
         >
           <ChevronLeft size={16} />
@@ -527,6 +528,7 @@ function Pagination({ page, totalPages, onPageChange }: { page: number; totalPag
         <button
           disabled={page >= totalPages}
           onClick={() => onPageChange(page + 1)}
+          title="Pagina successiva"
           className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
         >
           <ChevronRight size={16} />
@@ -2215,7 +2217,7 @@ function TabPagamenti({ payables, accounts, companyId, onRefresh, preSelectId }:
                         <div className="text-xs text-slate-400" title={String(p.invoice_number || '')}>{String(p.invoice_number || '')}</div>
                       </div>
                       <div className="text-sm font-semibold text-slate-900 whitespace-nowrap ml-2">{fmt(remaining)} &euro;</div>
-                      <button onClick={() => toggleSelect(p.id)} className="ml-2 p-1 hover:bg-red-100 rounded text-slate-400 hover:text-red-500">
+                      <button onClick={() => toggleSelect(p.id)} title="Rimuovi dalla distinta" className="ml-2 p-1 hover:bg-red-100 rounded text-slate-400 hover:text-red-500">
                         <X size={14} />
                       </button>
                     </div>
@@ -3552,7 +3554,7 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
               <div className="flex items-center justify-between p-5 border-b border-slate-100">
                 <h3 className="text-lg font-semibold text-slate-900">Conferma abbinamenti</h3>
-                <button onClick={() => setSummaryModal(null)} className="p-1 rounded-lg hover:bg-slate-100 text-slate-400"><X size={20} /></button>
+                <button onClick={() => setSummaryModal(null)} title="Chiudi" className="p-1 rounded-lg hover:bg-slate-100 text-slate-400"><X size={20} /></button>
               </div>
               <div className="p-5 space-y-3 overflow-hidden flex flex-col">
                 <div className="flex items-center justify-between text-sm">
@@ -3588,7 +3590,7 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between p-5 border-b border-slate-100">
               <h3 className="text-lg font-semibold text-slate-900">Annullare l'abbinamento?</h3>
-              <button onClick={() => setUndoModal(null)} className="p-1 rounded-lg hover:bg-slate-100 text-slate-400"><X size={20} /></button>
+              <button onClick={() => setUndoModal(null)} title="Chiudi" className="p-1 rounded-lg hover:bg-slate-100 text-slate-400"><X size={20} /></button>
             </div>
             <div className="p-5 space-y-4">
               <p className="text-sm text-slate-700">La fattura <strong>{undoModal.label}</strong> tornerà aperta per <strong>{fmt(undoModal.amount)} €</strong> e il movimento tornerà fra quelli da riconciliare.</p>

@@ -367,7 +367,7 @@ export default function ExportBilancioDialog({
               <p className="text-sm text-slate-500">Vista gerarchica previsionale (macro + sottoconti esplosi) per outlet e Totale azienda</p>
             </div>
           </div>
-          <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-lg">
+          <button onClick={onClose} title="Chiudi" className="p-2 hover:bg-slate-100 rounded-lg">
             <X size={20} className="text-slate-500" />
           </button>
         </div>

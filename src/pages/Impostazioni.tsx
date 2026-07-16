@@ -269,7 +269,7 @@ function CompanySection({ showToast, companyId: COMPANY_ID }: SectionProps) {
                   className="w-32 px-3 py-2 text-sm border border-slate-200 rounded-lg" />
                 <input value={s.quota} onChange={(e) => updateSocio(i, 'quota', e.target.value)} placeholder="Quota %"
                   className="w-24 px-3 py-2 text-sm border border-slate-200 rounded-lg" />
-                <button onClick={() => removeSocio(i)} className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg">
+                <button onClick={() => removeSocio(i)} title="Rimuovi socio" className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg">
                   <Trash2 size={14} />
                 </button>
               </div>
@@ -614,21 +614,21 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
               <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${getRoleStyle(u.ruolo)}`}>
                 {getRoleLabel(u.ruolo)}
               </span>
-              <button onClick={() => handleEdit(u)}
+              <button onClick={() => handleEdit(u)} title="Modifica"
                 className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition opacity-0 group-hover:opacity-100">
                 <Pencil size={14} />
               </button>
               {confirmDelete === u.id ? (
                 <div className="flex items-center gap-1">
-                  <button onClick={() => handleDelete(u.id)} className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg transition">
+                  <button onClick={() => handleDelete(u.id)} title="Conferma eliminazione" className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg transition">
                     <Check size={14} />
                   </button>
-                  <button onClick={() => setConfirmDelete(null)} className="p-1.5 text-slate-400 hover:bg-slate-50 rounded-lg transition">
+                  <button onClick={() => setConfirmDelete(null)} title="Annulla" className="p-1.5 text-slate-400 hover:bg-slate-50 rounded-lg transition">
                     <X size={14} />
                   </button>
                 </div>
               ) : (
-                <button onClick={() => setConfirmDelete(u.id)}
+                <button onClick={() => setConfirmDelete(u.id)} title="Elimina"
                   className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition opacity-0 group-hover:opacity-100">
                   <Trash2 size={14} />
                 </button>
@@ -1020,19 +1020,19 @@ function CostSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
                             <td className="px-4 py-2.5 text-xs text-slate-400 max-w-[150px] truncate" title={c.note || '—'}>{c.note || '—'}</td>
                             <td className="px-4 py-2.5 text-center">
                               <div className="flex justify-center gap-1">
-                                <button onClick={(e) => { e.stopPropagation(); handleEdit(c) }}
+                                <button onClick={(e) => { e.stopPropagation(); handleEdit(c) }} title="Modifica"
                                   className="p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded transition opacity-0 group-hover/row:opacity-100">
                                   <Pencil size={13} />
                                 </button>
                                 {confirmDelete === c.id ? (
                                   <>
-                                    <button onClick={(e) => { e.stopPropagation(); handleDelete(c.id) }}
+                                    <button onClick={(e) => { e.stopPropagation(); handleDelete(c.id) }} title="Conferma eliminazione"
                                       className="p-1 text-red-600 hover:bg-red-50 rounded transition"><Check size={13} /></button>
-                                    <button onClick={(e) => { e.stopPropagation(); setConfirmDelete(null) }}
+                                    <button onClick={(e) => { e.stopPropagation(); setConfirmDelete(null) }} title="Annulla"
                                       className="p-1 text-slate-400 hover:bg-slate-50 rounded transition"><X size={13} /></button>
                                   </>
                                 ) : (
-                                  <button onClick={(e) => { e.stopPropagation(); setConfirmDelete(c.id) }}
+                                  <button onClick={(e) => { e.stopPropagation(); setConfirmDelete(c.id) }} title="Elimina"
                                     className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition opacity-0 group-hover/row:opacity-100">
                                     <Trash2 size={13} />
                                   </button>
@@ -1262,6 +1262,7 @@ function CentriDiCostoSection({ showToast, companyId: COMPANY_ID }: SectionProps
             <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition">
               <button
                 onClick={() => handleEdit(c)}
+                title="Modifica"
                 className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition"
               >
                 <Pencil size={14} />
@@ -1270,12 +1271,14 @@ function CentriDiCostoSection({ showToast, companyId: COMPANY_ID }: SectionProps
                 <>
                   <button
                     onClick={() => handleDelete(c.id)}
+                    title="Conferma eliminazione"
                     className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg transition"
                   >
                     <Check size={14} />
                   </button>
                   <button
                     onClick={() => setConfirmDelete(null)}
+                    title="Annulla"
                     className="p-1.5 text-slate-400 hover:bg-slate-50 rounded-lg transition"
                   >
                     <X size={14} />
@@ -1284,6 +1287,7 @@ function CentriDiCostoSection({ showToast, companyId: COMPANY_ID }: SectionProps
               ) : (
                 <button
                   onClick={() => setConfirmDelete(c.id)}
+                  title="Elimina"
                   className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition"
                 >
                   <Trash2 size={14} />

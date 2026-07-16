@@ -955,7 +955,7 @@ ${mode !== 'fatture' ? `      <h2>PARTITARIO — CONTO FORNITORE</h2>
                     <tr className={`border-b border-slate-50 hover:bg-slate-25 transition ${idx % 2 === 0 ? '' : 'bg-slate-25/50'}`}>
                       <td className="px-2 py-2">
                         {hasRate && (
-                          <button onClick={() => toggleExpand(f.invoice_number ?? '')} className="p-0.5 rounded hover:bg-slate-100 text-slate-400">
+                          <button onClick={() => toggleExpand(f.invoice_number ?? '')} title="Mostra/Nascondi rate" className="p-0.5 rounded hover:bg-slate-100 text-slate-400">
                             {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                           </button>
                         )}

@@ -181,7 +181,7 @@ function ReconciliationModal({ isOpen, onClose, transaction, onReconcile }: { is
                 {formatDate(transaction.transaction_date)} · <TextTooltip content={transaction.description || ''}><span>{transaction.description?.slice(0, 40)}...</span></TextTooltip> · {fmt(Math.abs(transaction.amount))} €
               </p>
             </div>
-            <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg">
+            <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg" title="Chiudi">
               <X className="w-4 h-4 text-gray-400" />
             </button>
           </div>
@@ -496,6 +496,7 @@ export default function AccountDetail({ isOpen, onClose, account, onSync }: Acco
               <button
                 onClick={onClose}
                 className="p-2 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+                title="Chiudi"
               >
                 <X className="w-5 h-5" />
               </button>

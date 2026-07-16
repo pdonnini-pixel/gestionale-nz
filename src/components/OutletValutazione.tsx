@@ -66,7 +66,8 @@ function TreeNodeEdit({ node, depth = 0, edits, onEdit }: { node: CETreeNode; de
   return (
     <div>
       <div className={`flex items-center py-1 px-1 rounded transition ${hasKids ? 'cursor-pointer hover:bg-slate-50' : ''} ${isMacro ? 'bg-slate-50/80 mt-1' : ''}`}
-        style={{ paddingLeft: `${4 + depth * 16}px` }} onClick={() => hasKids && setOpen(!open)}>
+        style={{ paddingLeft: `${4 + depth * 16}px` }} onClick={() => hasKids && setOpen(!open)}
+        title={hasKids ? 'Mostra/Nascondi dettaglio' : undefined}>
         <span className="w-4 shrink-0 text-center text-[10px] text-slate-400">{hasKids ? (open ? '▾' : '▸') : ''}</span>
         {/* Solo etichetta umana + riferimento CE: niente codici tecnici in UI */}
         <span className={`truncate ml-1 flex-1 ${isMacro ? 'text-[11px] font-bold text-slate-900' : 'text-[11px] text-slate-600'}`} title={description}>{description}</span>

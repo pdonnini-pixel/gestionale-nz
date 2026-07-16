@@ -1078,7 +1078,7 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
                 >
                   <Download size={13} /> Scarica file
                 </button>
-                <button onClick={() => setEcPreview(null)} className="p-1.5 hover:bg-slate-100 rounded-lg">
+                <button onClick={() => setEcPreview(null)} className="p-1.5 hover:bg-slate-100 rounded-lg" title="Chiudi">
                   <X size={18} className="text-slate-500" />
                 </button>
               </div>
@@ -1246,7 +1246,7 @@ function ConservazioneTab({ docs, stats, loading, filter, setFilter, search, set
               className="w-full pl-9 pr-8 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
             {search && (
-              <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+              <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600" title="Cancella ricerca">
                 <X size={14} />
               </button>
             )}

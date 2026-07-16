@@ -199,7 +199,7 @@ function ModalNuovoContratto({ outlets, onClose, onSave, editingContract = null,
       <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between p-5 border-b border-slate-100">
           <h3 className="text-lg font-semibold text-slate-900">{isEditing ? 'Modifica contratto' : 'Nuovo contratto'}</h3>
-          <button onClick={onClose} className="p-1 hover:bg-slate-100 rounded-lg"><X size={20} /></button>
+          <button onClick={onClose} title="Chiudi" className="p-1 hover:bg-slate-100 rounded-lg"><X size={20} /></button>
         </div>
         <div className="p-5 space-y-4">
           {error && (
@@ -287,7 +287,7 @@ function ModalNuovoContratto({ outlets, onClose, onSave, editingContract = null,
                 {attachments.map((f, i) => (
                   <div key={i} className="flex items-center justify-between text-xs p-1.5 bg-slate-50 rounded-lg">
                     <span className="text-slate-600 truncate" title={f.name}>{f.name}</span>
-                    <button onClick={() => setAttachments(prev => prev.filter((_, j) => j !== i))} className="text-slate-400 hover:text-red-500"><X size={14} /></button>
+                    <button onClick={() => setAttachments(prev => prev.filter((_, j) => j !== i))} title="Rimuovi" className="text-slate-400 hover:text-red-500"><X size={14} /></button>
                   </div>
                 ))}
               </div>
@@ -461,7 +461,7 @@ function PdfPreviewModal({ file, onClose }: { file: ContractDoc; onClose: () => 
             <FileText size={18} className="text-red-500" />
             <span className="font-semibold text-slate-900 text-sm">{file.file_name}</span>
           </div>
-          <button onClick={onClose} className="p-1.5 hover:bg-slate-100 rounded-lg"><X size={18} /></button>
+          <button onClick={onClose} title="Chiudi" className="p-1.5 hover:bg-slate-100 rounded-lg"><X size={18} /></button>
         </div>
         <div className="flex-1 overflow-hidden">
           {loadingUrl ? (
@@ -678,7 +678,7 @@ export default function Contratti() {
                       )}
                     </div>
                   </div>
-                  <div className="flex justify-center mt-2 text-slate-400 cursor-pointer" onClick={() => handleExpand(contract.id)}>
+                  <div className="flex justify-center mt-2 text-slate-400 cursor-pointer" onClick={() => handleExpand(contract.id)} title="Mostra/Nascondi dettaglio">
                     {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
                   </div>
                 </div>

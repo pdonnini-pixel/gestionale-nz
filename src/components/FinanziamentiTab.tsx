@@ -518,7 +518,7 @@ export default function FinanziamentiTab({ accounts, companyId, uploadedByName }
                 <div className="p-2 bg-emerald-50 rounded-lg"><Banknote size={18} className="text-emerald-600" /></div>
                 <h3 className="font-semibold text-slate-900">{isNew ? 'Nuovo finanziamento' : 'Modifica finanziamento'}</h3>
               </div>
-              <button onClick={closeForm} className="p-1.5 hover:bg-slate-100 rounded-lg"><X size={18} className="text-slate-500" /></button>
+              <button onClick={closeForm} className="p-1.5 hover:bg-slate-100 rounded-lg" title="Chiudi"><X size={18} className="text-slate-500" /></button>
             </div>
 
             <div className="flex-1 overflow-y-auto p-5 space-y-5">

@@ -2057,7 +2057,7 @@ function DrillDownPanel({ items, column, onClose, onEdit, title }: { items: Dril
           {(isEntrate ? 'Dettaglio Entrate' : 'Dettaglio Uscite')}{title ? ` — ${title}` : ''}
           {items.length > 0 && <span className="ml-1 font-normal text-slate-500">· {formatCurrency(total)}</span>}
         </h4>
-        <button onClick={onClose} className="text-slate-400 hover:text-slate-600 transition">
+        <button onClick={onClose} className="text-slate-400 hover:text-slate-600 transition" title="Chiudi dettaglio">
           <X size={16} />
         </button>
       </div>
