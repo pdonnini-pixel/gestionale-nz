@@ -388,6 +388,7 @@ export default function ScenarioPlanning() {
                     </div>
                     <button
                       onClick={() => setNuovoOutlet(!nuovoOutlet)}
+                      title="Attiva/Disattiva simulazione"
                       className="flex items-center gap-2"
                     >
                       {nuovoOutlet ? (

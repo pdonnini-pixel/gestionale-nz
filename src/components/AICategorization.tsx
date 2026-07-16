@@ -656,6 +656,7 @@ export default function AICategorization({ companyId }: AICategorizationProps) {
                             <button
                               onClick={() => { setEditingId(null); setEditCategory('') }}
                               className="inline-flex items-center gap-0.5 px-2 py-1 text-[10px] font-medium text-slate-500 border border-slate-200 rounded-md hover:bg-slate-50 transition"
+                              title="Annulla"
                             >
                               <X size={10} />
                             </button>

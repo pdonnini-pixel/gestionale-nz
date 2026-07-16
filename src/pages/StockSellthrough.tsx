@@ -446,6 +446,7 @@ export default function StockSellthrough() {
                 {/* Header */}
                 <button
                   onClick={() => setExpandedOutlet(isExpanded ? null : outletName)}
+                  title="Mostra/Nascondi dettaglio"
                   className="w-full px-6 py-4 flex items-center justify-between hover:bg-slate-50 transition"
                 >
                   <div className="flex items-center gap-4 flex-1 text-left">

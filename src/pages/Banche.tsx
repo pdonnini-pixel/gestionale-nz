@@ -428,12 +428,14 @@ function SezioneBanche({ accounts, totalBanks, search, onAddEdit, onDelete, load
                           <button
                             onClick={() => onAddEdit(c)}
                             className="p-1 text-blue-600 hover:bg-blue-50 rounded transition"
+                            title="Modifica"
                           >
                             <Edit2 size={14} />
                           </button>
                           <button
                             onClick={() => onDelete(c.id)}
                             className="p-1 text-red-600 hover:bg-red-50 rounded transition"
+                            title="Elimina"
                           >
                             <Trash2 size={14} />
                           </button>
@@ -2083,7 +2085,7 @@ function SezioneRiconciliazione({ companyId, accounts }: { companyId: string; ac
                               <div className="absolute right-0 top-full mt-1 w-96 bg-white border border-slate-200 rounded-xl shadow-xl z-50 p-3 space-y-2">
                                 <div className="flex items-center justify-between">
                                   <span className="text-xs font-semibold text-slate-700">Cerca fattura da collegare</span>
-                                  <button onClick={() => setManualSearchOpen(null)} className="p-1 hover:bg-slate-100 rounded transition">
+                                  <button onClick={() => setManualSearchOpen(null)} className="p-1 hover:bg-slate-100 rounded transition" title="Chiudi">
                                     <X size={14} className="text-slate-400" />
                                   </button>
                                 </div>

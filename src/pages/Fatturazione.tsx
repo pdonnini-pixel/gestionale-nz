@@ -455,7 +455,7 @@ function FatturePassive() {
           Associa XML
           <input type="file" accept=".xml" multiple onChange={handleBulkXmlUpdate} className="hidden" />
         </label>
-        <button onClick={loadInvoices} className="p-2 text-slate-500 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition">
+        <button onClick={loadInvoices} title="Ricarica" className="p-2 text-slate-500 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition">
           <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
         </button>
       </div>
@@ -472,7 +472,7 @@ function FatturePassive() {
               {xmlUpdateProgress.errors > 0 && ` — ${xmlUpdateProgress.errors} errori`}
             </span>
             {xmlUpdateProgress.finished && (
-              <button onClick={() => setXmlUpdateProgress(null)} className="text-amber-600 hover:text-amber-800">
+              <button onClick={() => setXmlUpdateProgress(null)} title="Chiudi" className="text-amber-600 hover:text-amber-800">
                 <X size={14} />
               </button>
             )}
@@ -716,7 +716,7 @@ function FattureAttive() {
           <Send size={16} />
           Nuova via A-Cube
         </button>
-        <button onClick={loadInvoices} className="p-2 text-slate-500 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition">
+        <button onClick={loadInvoices} title="Ricarica" className="p-2 text-slate-500 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition">
           <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
         </button>
       </div>
@@ -805,7 +805,7 @@ function FattureAttive() {
                   <span className="text-xs text-slate-400 font-medium">{selectedInvoice.tipo_documento}</span>
                 </div>
               </div>
-              <button onClick={() => setSelectedInvoice(null)} className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition"><X size={20} /></button>
+              <button onClick={() => setSelectedInvoice(null)} title="Chiudi" className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition"><X size={20} /></button>
             </div>
 
             {/* Content */}
@@ -1085,7 +1085,7 @@ function Corrispettivi() {
           <option value="ALL">Tutti gli {labels.pointOfSalePluralLower}</option>
           {outlets.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
         </select>
-        <button onClick={loadData} className="p-2 text-slate-500 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition">
+        <button onClick={loadData} title="Ricarica" className="p-2 text-slate-500 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition">
           <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
         </button>
       </div>

@@ -659,6 +659,7 @@ function DocumentArchive({ outletId, companyId }: { outletId: string; companyId:
                 <button
                   onClick={() => closePreviewDoc()}
                   className="p-2 rounded-lg hover:bg-slate-100 transition"
+                  title="Chiudi"
                 >
                   <X size={20} />
                 </button>
@@ -710,7 +711,7 @@ function DocumentArchive({ outletId, companyId }: { outletId: string; companyId:
                 <History size={18} />
                 Storico versioni
               </h3>
-              <button onClick={() => setVersionHistory(null)} className="p-1.5 rounded-lg hover:bg-slate-100">
+              <button onClick={() => setVersionHistory(null)} className="p-1.5 rounded-lg hover:bg-slate-100" title="Chiudi">
                 <X size={18} />
               </button>
             </div>
@@ -1069,6 +1070,7 @@ function OutletAllegati({ outletId, companyId }: { outletId: string; companyId: 
           <button
             onClick={() => { setShowAddForm(false); setNewLabel('') }}
             className="p-1.5 rounded-lg hover:bg-slate-100 transition text-slate-400"
+            title="Annulla"
           >
             <X size={16} />
           </button>
@@ -1212,7 +1214,7 @@ function OutletAllegati({ outletId, companyId }: { outletId: string; companyId: 
                   <Download size={14} />
                   Scarica
                 </button>
-                <button onClick={() => closePreviewAtt()} className="p-2 rounded-lg hover:bg-slate-100 transition">
+                <button onClick={() => closePreviewAtt()} className="p-2 rounded-lg hover:bg-slate-100 transition" title="Chiudi">
                   <X size={20} />
                 </button>
               </div>
@@ -1676,7 +1678,7 @@ function OutletDetail({ outlet, revenue, confronto, revPlaceholder, year, onBack
     <div className="space-y-4">
       {/* Back + header */}
       <div className="flex items-center gap-3 sm:gap-4 flex-wrap">
-        <button onClick={onBack} className="p-2 rounded-lg hover:bg-slate-100 transition text-slate-600">
+        <button onClick={onBack} className="p-2 rounded-lg hover:bg-slate-100 transition text-slate-600" title="Torna indietro">
           <ArrowLeft size={20} />
         </button>
         <div className="flex-1 min-w-0">

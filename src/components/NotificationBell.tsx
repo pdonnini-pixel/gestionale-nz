@@ -144,6 +144,7 @@ export default function NotificationBell() {
       <button
         onClick={() => setOpen(!open)}
         className="relative p-2 rounded-lg hover:bg-slate-100 transition text-slate-500 hover:text-slate-700"
+        title="Notifiche"
       >
         <Bell size={20} />
         {unreadCount > 0 && (
@@ -207,6 +208,7 @@ export default function NotificationBell() {
                         <button
                           onClick={(e) => { e.stopPropagation(); dismiss(n.id); }}
                           className="p-0.5 rounded hover:bg-slate-200 text-slate-300 hover:text-slate-500 shrink-0"
+                          title="Elimina notifica"
                         >
                           <X size={12} />
                         </button>

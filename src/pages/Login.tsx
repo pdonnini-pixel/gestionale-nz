@@ -92,6 +92,7 @@ export default function Login() {
                 <button
                   type="button"
                   onClick={() => setShowPw(!showPw)}
+                  title={showPw ? 'Nascondi password' : 'Mostra password'}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
                 >
                   {showPw ? <EyeOff size={18} /> : <Eye size={18} />}

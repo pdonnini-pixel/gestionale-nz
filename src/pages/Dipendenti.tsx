@@ -1083,7 +1083,7 @@ export default function Dipendenti() {
                     className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 pr-7 tabular-nums" />
                   <Percent size={13} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400" />
                 </div>
-                <button onClick={() => setAllocEdits((prev) => prev.filter((_, j) => j !== i))} className="text-slate-400 hover:text-red-600"><Trash2 size={16} /></button>
+                <button onClick={() => setAllocEdits((prev) => prev.filter((_, j) => j !== i))} className="text-slate-400 hover:text-red-600" title="Rimuovi outlet"><Trash2 size={16} /></button>
               </div>
             ))}
             <button onClick={() => setAllocEdits((prev) => [...prev, { outlet_code: '', allocation_pct: 0 }])} className="text-sm text-blue-600 hover:text-blue-700 flex items-center gap-1"><Plus size={14} /> Aggiungi outlet</button>

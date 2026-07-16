@@ -435,6 +435,7 @@ export default function Sidebar({ mobileOpen, setMobileOpen, badges = {} }: Side
           </div>
           <button
             onClick={() => setMobileOpen(false)}
+            title="Chiudi menu"
             className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition shrink-0 md:hidden"
           >
             <X size={18} />

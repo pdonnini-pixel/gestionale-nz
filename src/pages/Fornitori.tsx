@@ -986,7 +986,7 @@ export default function Fornitori() {
                             <button onClick={(e) => { e.stopPropagation(); handleDelete(s.id); }} className="p-1 rounded hover:bg-red-50 text-slate-400 hover:text-red-500 transition" title="Disattiva">
                               <Trash2 size={14} />
                             </button>
-                            {isExpanded ? <ChevronUp size={14} className="text-slate-400" /> : <ChevronDown size={14} className="text-slate-400" />}
+                            <span title={isExpanded ? 'Nascondi dettaglio' : 'Mostra dettaglio'}>{isExpanded ? <ChevronUp size={14} className="text-slate-400" /> : <ChevronDown size={14} className="text-slate-400" />}</span>
                             <button
                               onClick={(e) => { e.stopPropagation(); toggleGestione(s.id); }}
                               className={`p-1 rounded transition ${gestioneId === s.id ? 'bg-violet-600 text-white' : 'text-violet-500 hover:bg-violet-50 hover:text-violet-700'}`}

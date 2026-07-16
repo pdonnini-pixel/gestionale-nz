@@ -502,7 +502,7 @@ export default function InvoiceViewer({ xmlContent, onClose, autoPrint = false }
             <button onClick={handleDownloadXml} className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-slate-200 text-slate-700 rounded-lg hover:bg-slate-300 transition">
               <Download size={13} /> XML
             </button>
-            <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition">
+            <button onClick={onClose} title="Chiudi" className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition">
               <X size={18} />
             </button>
           </div>

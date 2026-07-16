@@ -318,6 +318,7 @@ export default function Layout() {
             <button
               onClick={() => setMobileOpen(true)}
               className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 md:hidden shrink-0"
+              title="Apri menu"
             >
               <Menu size={20} />
             </button>

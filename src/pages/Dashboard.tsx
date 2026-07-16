@@ -901,7 +901,7 @@ export default function Dashboard() {
                         </td>
                         <td className="py-2.5 px-4 text-right text-slate-600">{o.budget_anno ? `${fmt(o.budget_anno)} €` : '—'}</td>
                         <td className="py-2.5 px-4">
-                          <Link to={outletHref(o)} className="opacity-0 group-hover:opacity-100 transition">
+                          <Link to={outletHref(o)} className="opacity-0 group-hover:opacity-100 transition" title="Vedi dettaglio">
                             <ChevronRight size={14} className="text-slate-400" />
                           </Link>
                         </td>

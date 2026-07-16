@@ -1868,7 +1868,7 @@ export default function ContoEconomico() {
               )}
             </h3>
             <button onClick={() => { setShowImportForm(false); setParsedFields(null); setPdfPreview(null); setFormErrors({}) }}
-              className="text-slate-400 hover:text-slate-600"><X size={18} /></button>
+              title="Chiudi" className="text-slate-400 hover:text-slate-600"><X size={18} /></button>
           </div>
 
           {/* PDF preview + form side by side */}
