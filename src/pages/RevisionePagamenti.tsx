@@ -9,7 +9,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { useToast } from '../components/Toast'
 import {
-  Search, Save, RotateCcw, CheckCircle2, XCircle, ArrowLeft, Loader2, AlertTriangle, ArrowRight,
+  Search, Save, RotateCcw, ArrowLeft, Loader2, ChevronLeft, ChevronRight,
 } from 'lucide-react'
 
 // Famiglie di metodo mostrate all'operatrice (la "Tipologia")
@@ -19,6 +19,7 @@ const SCAD_OPTS = ['A Vista', '30 gg DFFM', '60 gg DFFM', '90 gg DFFM', '120 gg 
   '30/60 gg DFFM', '30/60/90 gg DFFM', '60/90 gg DFFM', '60/90/120 gg DFFM', 'Data fissa mese']
 
 const MANAGER_ROLES = ['super_advisor', 'cfo', 'ceo']
+const PER_PAGE = 20
 
 // enum payment_method -> famiglia leggibile
 function familyFromEnum(m: string): string {
@@ -95,6 +96,7 @@ export default function RevisionePagamenti() {
   const [saving, setSaving] = useState(false)
   const [applyingId, setApplyingId] = useState<string | null>(null)
   const [search, setSearch] = useState('')
+  const [page, setPage] = useState(1)
 
   const bankLabel = useCallback((id: string | null | undefined) => {
     if (!id) return '—'
@@ -159,6 +161,13 @@ export default function RevisionePagamenti() {
     if (!q) return suppliers
     return suppliers.filter(s => String(s.ragione_sociale || s.name || '').toLowerCase().includes(q))
   }, [suppliers, search])
+
+  // Paginazione: 20 fornitori per pagina
+  useEffect(() => { setPage(1) }, [search])
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PER_PAGE))
+  const pageSafe = Math.min(page, totalPages)
+  const pageStart = (pageSafe - 1) * PER_PAGE
+  const pageRows = filtered.slice(pageStart, pageStart + PER_PAGE)
 
   async function saveChanges() {
     if (!COMPANY_ID || editedList.length === 0) { toast({ type: 'warning', message: 'Nessuna modifica da salvare.' }); return }
@@ -233,7 +242,8 @@ export default function RevisionePagamenti() {
   }, [suppliers])
 
   return (
-    <div className="space-y-4">
+    <div className="min-h-screen bg-white">
+      <div className="p-4 sm:p-6 space-y-4 max-w-[1600px] mx-auto">
       <PageHeader
         title="Revisione pagamenti fornitori"
         subtitle="Controlla Tipologia, Modalità (scadenze) e Banca, poi salva le modifiche"
@@ -285,14 +295,15 @@ export default function RevisionePagamenti() {
               {loading && (
                 <tr><td colSpan={5} className="px-4 py-10 text-center text-slate-400"><Loader2 className="inline animate-spin mr-2" size={16} />Caricamento…</td></tr>
               )}
-              {!loading && filtered.map((s, i) => {
+              {!loading && pageRows.map((s, i) => {
+                const rowNum = pageStart + i + 1
                 const c = current(s), edited = isEdited(s)
                 const scadOpts = SCAD_OPTS.slice()
                 const isFissa = c.scad === 'Data fissa mese' || /^Data fissa/i.test(c.scad)
                 if (!isFissa && !scadOpts.includes(c.scad)) scadOpts.unshift(c.scad)
                 return (
                   <tr key={s.id} className={`border-t border-slate-100 ${edited ? 'bg-amber-50' : ''}`}>
-                    <td className="px-3 py-2 text-right text-xs text-slate-400 tabular-nums">{i + 1}</td>
+                    <td className="px-3 py-2 text-right text-xs text-slate-400 tabular-nums">{rowNum}</td>
                     <td className="px-3 py-2 font-medium text-slate-800">{String(s.ragione_sociale || s.name || '')}</td>
                     <td className="px-3 py-2">
                       <select value={c.fam} onChange={e => setEdit(s, { fam: e.target.value })}
@@ -331,6 +342,26 @@ export default function RevisionePagamenti() {
         </div>
       </div>
 
+      {/* Paginazione — 20 fornitori per pagina */}
+      {!loading && filtered.length > PER_PAGE && (
+        <div className="flex items-center justify-between gap-3 text-sm">
+          <span className="text-slate-500">
+            {pageStart + 1}–{Math.min(pageStart + PER_PAGE, filtered.length)} di {filtered.length}
+          </span>
+          <div className="flex items-center gap-2">
+            <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={pageSafe <= 1}
+              className="px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center gap-1">
+              <ChevronLeft size={15} /> Precedente
+            </button>
+            <span className="text-slate-600 tabular-nums px-1">Pagina {pageSafe} di {totalPages}</span>
+            <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={pageSafe >= totalPages}
+              className="px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center gap-1">
+              Successiva <ChevronRight size={15} />
+            </button>
+          </div>
+        </div>
+      )}
+      </div>
     </div>
   )
 }
