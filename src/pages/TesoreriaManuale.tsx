@@ -3039,9 +3039,14 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
   }, [payables])
 
   const OPEN_STATUSES = ['da_pagare', 'in_scadenza', 'scaduto', 'parziale']
+  // Un suggerimento si mostra solo se: importo del movimento coincide col residuo
+  // della fattura (entro il 5%) E affidabilità >= 70%. Così spariscono gli
+  // abbinamenti assurdi (importo lontano, proposti solo per nome/data).
+  const SUGGEST_MIN_CONFIDENCE = 70
+  const SUGGEST_AMOUNT_TOLERANCE = 0.05
 
   // Suggerimenti validi: log 'to_confirm' la cui fattura è ancora aperta e il
-  // cui movimento non è ancora riconciliato. Gli stantii vengono nascosti.
+  // cui movimento non è ancora riconciliato. Gli stantii/deboli vengono nascosti.
   const suggestions = useMemo<SugRow[]>(() => {
     const out: SugRow[] = []
     for (const log of logRows) {
@@ -3053,7 +3058,12 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
       if (!payable || !OPEN_STATUSES.includes(String(payable.status))) continue
       const rem = payable.amount_remaining != null ? Number(payable.amount_remaining) : Number(payable.gross_amount || 0) - Number(payable.amount_paid || 0)
       if (rem <= 0) continue
-      out.push({ log, bt, payable, confidence: Number(log.confidence) || 0 })
+      const conf = Number(log.confidence) || 0
+      if (conf < SUGGEST_MIN_CONFIDENCE) continue
+      // importo del movimento deve coincidere col residuo (entro tolleranza)
+      const mov = Math.abs(Number(bt.amount) || 0)
+      if (Math.abs(mov - rem) / rem > SUGGEST_AMOUNT_TOLERANCE) continue
+      out.push({ log, bt, payable, confidence: conf })
     }
     return out.sort((a, b) => b.confidence - a.confidence)
   }, [logRows, txById, payById])
@@ -3673,7 +3683,7 @@ export default function TesoreriaManuale() {
           supabase.from('payables').select('*, suppliers(id, name, ragione_sociale, iban)').eq('company_id', companyId).order('due_date'),
           supabase.from('payment_batches').select('*').eq('company_id', companyId).order('created_at', { ascending: false }),
           supabase.from('payment_batch_items').select('*').eq('company_id', companyId).order('priority'),
-          (supabase.from('reconciliation_log') as any).select('id', { count: 'exact', head: true }).eq('company_id', companyId).eq('status', 'to_confirm'),
+          (supabase.from('reconciliation_log') as any).select('id', { count: 'exact', head: true }).eq('company_id', companyId).eq('status', 'to_confirm').gte('confidence', 70),
         ])
 
         if (!cancelled) {
