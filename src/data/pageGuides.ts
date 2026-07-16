@@ -1470,6 +1470,16 @@ export const PAGE_GUIDES: PageGuide[] = [
         ]
       },
       {
+        "heading": "Revisione pagamenti (controllo veloce di tutti i fornitori)",
+        "body": "Il pulsante \"Revisione pagamenti\" in alto apre una schermata dedicata dove scorri tutti i fornitori attivi in ordine alfabetico e controlli, riga per riga, la Tipologia di pagamento (bonifico, Ri.Ba., RID…), la Modalità delle scadenze (es. \"60/90/120 gg DFFM\", \"A Vista\", \"Data fissa mese\" con il giorno) e la Banca. Modifichi solo i fornitori sbagliati (la riga diventa gialla) e premi \"Salva modifiche\": le correzioni vengono inviate come proposte. Un responsabile (super advisor, CFO o CEO) le vede in cima alla stessa pagina come \"proposte in attesa\" e può applicarle ai fornitori (con backup del valore precedente) oppure scartarle.",
+        "steps": [
+          "Clicca \"Revisione pagamenti\" nell'intestazione della pagina Fornitori",
+          "Correggi Tipologia, Modalità e Banca solo dove serve; le righe modificate diventano gialle",
+          "Premi \"Salva modifiche\" per inviare le correzioni al responsabile",
+          "Se sei un responsabile, usa \"Applica\" o \"Applica tutte\" sulle proposte in attesa per aggiornare i fornitori"
+        ]
+      },
+      {
         "heading": "Il pannello Gestione: categoria, divisione tra punti vendita e fatture",
         "body": "Cliccando sull'icona a forma di cursori (\"Gestione fornitore\") in una riga si apre un pannello con tre blocchi. Il primo permette di assegnare o cambiare la categoria merceologica del fornitore (salvata subito, senza bisogno di aprire il modulo di modifica). Il secondo permette di impostare come il costo di questo fornitore viene ripartito tra i punti vendita: Diretto (tutto a un solo punto vendita), Split % (percentuali libere che devono sommare a 100%), Split Valore (un importo fisso per ciascun punto vendita) oppure Quote Uguali (diviso in parti uguali tra i punti vendita selezionati; se in futuro cambia il numero di punti vendita attivi, la quota si ricalcola automaticamente). Questa sezione è disponibile solo se l'azienda ha almeno due punti vendita attivi. Il terzo blocco mostra l'elenco delle fatture elettroniche di quel fornitore, con la possibilità di aprirle in formato leggibile o di aprire l'eventuale PDF allegato.",
         "steps": [
