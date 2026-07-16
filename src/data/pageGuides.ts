@@ -473,6 +473,10 @@ export const PAGE_GUIDES: PageGuide[] = [
       {
         "q": "Perdo il lavoro se cambio pagina o chiudo il browser prima di confermare la distinta?",
         "a": "No, il gestionale salva automaticamente una bozza nel tuo browser mentre selezioni le fatture. Quando torni sulla pagina la ritrovi già pronta con un messaggio di conferma. Attenzione: la bozza è legata al tuo browser/computer, non è condivisa con le colleghe che usano un altro postazione."
+      },
+      {
+        "q": "Come sposto in avanti la scadenza di una fattura?",
+        "a": "Usa l'icona calendario \"Rimanda\" sulla riga della fattura: si apre una finestra con un tasto rapido \"Fine mese successivo\" (imposta come nuova scadenza l'ultimo giorno del mese successivo a quello corrente) e l'opzione \"Scegli data\" per indicare una data qualsiasi. La fattura prende la nuova scadenza e, se era scaduta, torna tra quelle da pagare."
       }
     ]
   },
