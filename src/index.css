@@ -21,3 +21,15 @@ body {
   color: var(--color-text);
   margin: 0;
 }
+
+/* Campi importo (euro): niente frecce su/giù e niente cambio con la rotella —
+   l'importo si modifica solo scrivendo. */
+input.no-spin::-webkit-outer-spin-button,
+input.no-spin::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input.no-spin {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
