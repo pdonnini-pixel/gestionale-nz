@@ -38,6 +38,7 @@ const ScadenzeFiscali = lazy(() => import('./pages/ScadenzeFiscali'))
 const StoricoDistinte = lazy(() => import('./pages/StoricoDistinte'))
 const AICategoriePage = lazy(() => import('./pages/AICategoriePage'))
 const SchedaContabileFornitore = lazy(() => import('./pages/SchedaContabileFornitore'))
+const RevisionePagamenti = lazy(() => import('./pages/RevisionePagamenti'))
 const Profilo = lazy(() => import('./pages/Profilo'))
 const Ticket = lazy(() => import('./pages/Ticket'))
 const TicketAdmin = lazy(() => import('./pages/TicketAdmin'))
@@ -126,6 +127,7 @@ function AppRoutes() {
           <Route path="store-manager" element={<StoreManager />} />
           <Route path="import-hub" element={<ImportHub />} />
           <Route path="fornitori" element={<Fornitori />} />
+          <Route path="fornitori/revisione" element={<RevisionePagamenti />} />
           <Route path="fornitori/:supplierId/scheda-contabile" element={<SchedaContabileFornitore />} />
           {/* /allocazione-fornitori assorbita dal pannello "Gestione" in /fornitori */}
           <Route path="allocazione-fornitori" element={<Navigate to="/fornitori" replace />} />

@@ -749,6 +749,9 @@ export default function Fornitori() {
               filename={`Fornitori_${new Date().toISOString().slice(0, 10)}`}
               title="Fornitori"
             />
+            <button onClick={() => navigate('/fornitori/revisione')} className="px-4 py-2 bg-white border border-slate-300 text-slate-700 rounded-lg text-sm font-semibold hover:bg-slate-50 flex items-center gap-2 shadow-sm" title="Rivedi metodo, scadenze e banca di tutti i fornitori">
+              <SlidersHorizontal size={16} /> Revisione pagamenti
+            </button>
             <button onClick={openNew} className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 flex items-center gap-2 shadow-sm">
               <Plus size={16} /> Nuovo Fornitore
             </button>
