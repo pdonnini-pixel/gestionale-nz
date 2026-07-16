@@ -2389,16 +2389,30 @@ const ScadenzarioSmart = () => {
 
   // Lista "appiattita" per il render: sezioni-mese (header) + righe, in ordine
   // cronologico (inclusi mesi passati con scaduto). I mesi derivano dai dati,
-  // niente anni/mesi hardcoded. Le righe seguono l'ordinamento attivo della
-  // tabella; 'N/D' (senza data) va in fondo. Se un mese è collassato, le sue
-  // righe non vengono emesse (resta solo l'header con subtotale e conteggio).
+  // niente anni/mesi hardcoded. 'N/D' (senza data) va in fondo. Se un mese è
+  // collassato, le sue righe non vengono emesse (resta solo l'header con
+  // subtotale e conteggio).
+  // Ordinamento DENTRO al mese: di default le righe sono raggruppate per
+  // FORNITORE in ordine alfabetico (aggregato), con la data di scadenza come
+  // criterio secondario. Se l'utente attiva un ordinamento personalizzato
+  // dalle colonne (SortableTh), quello ha la precedenza e le righe seguono
+  // l'ordine globale della tabella.
   // Subtotale/conteggio del mese tengono SEPARATE le scadenze reali dalle
   // STIME (azzurre): il subtotale "da saldare" resta reale, le stime sono un
   // di-cui previsionale a parte. Niente somma reale+stima.
   type MonthRenderItem =
     | { kind: 'header'; key: string; label: string; count: number; subtotal: number; estimateCount: number; estimateSubtotal: number; collapsed: boolean }
     | { kind: 'row'; p: AnyRow };
+  // Nome fornitore normalizzato per l'ordinamento alfabetico (vuoto in fondo).
+  const supplierSortName = (p: AnyRow): string =>
+    ((p.suppliers?.ragione_sociale || p.suppliers?.name || '') as string).trim().toLowerCase() || '￿';
   const monthRenderItems = useMemo<MonthRenderItem[]>(() => {
+    // Il default della vista Mese è: scadenza più vecchia in cima (due_date asc,
+    // criterio unico). Solo in quel caso applichiamo l'aggregazione alfabetica
+    // per fornitore dentro ogni mese; con un sort personalizzato la rispettiamo.
+    const isDefaultSort = sortByPayables.length === 1
+      && sortByPayables[0].key === 'due_date'
+      && sortByPayables[0].dir === 'asc';
     const map = new Map<string, { key: string; label: string; items: AnyRow[]; subtotal: number; estimateCount: number; estimateSubtotal: number }>();
     sortedDisplayPayables.forEach(p => {
       const d = p.due_date ? new Date(p.due_date) : null;
@@ -2417,10 +2431,23 @@ const ScadenzarioSmart = () => {
       const g = map.get(k)!;
       const collapsed = collapsedMonths.has(k);
       out.push({ kind: 'header', key: k, label: g.label, count: g.items.length - g.estimateCount, subtotal: g.subtotal, estimateCount: g.estimateCount, estimateSubtotal: g.estimateSubtotal, collapsed });
-      if (!collapsed) g.items.forEach(p => out.push({ kind: 'row', p }));
+      if (!collapsed) {
+        // Con l'ordinamento di default: dentro il mese ordina per fornitore
+        // (alfabetico, aggregato) e a parità di fornitore per data crescente.
+        const rows = isDefaultSort
+          ? [...g.items].sort((a, b) => {
+              const byName = supplierSortName(a).localeCompare(supplierSortName(b), 'it');
+              if (byName !== 0) return byName;
+              const da = a.due_date ? new Date(a.due_date).getTime() : Infinity;
+              const db = b.due_date ? new Date(b.due_date).getTime() : Infinity;
+              return da - db;
+            })
+          : g.items;
+        rows.forEach(p => out.push({ kind: 'row', p }));
+      }
     });
     return out;
-  }, [sortedDisplayPayables, collapsedMonths]);
+  }, [sortedDisplayPayables, collapsedMonths, sortByPayables]);
 
   // ===== INCASSI — stessa pipeline dei pagamenti, dataset bankIncomes =====
   // Filtri unificati: ricerca (descrizione/importo) + banca + periodo. Niente
