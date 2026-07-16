@@ -381,6 +381,17 @@ export const PAGE_GUIDES: PageGuide[] = [
         "body": "Lo Scadenzario raccoglie tutte le scadenze di pagamento verso i fornitori (e, se attive, le scadenze fiscali come F24). In alto trovi tre schede: \"Situazione\" mostra un riepilogo generale (quanto c'è da pagare, quanto è scaduto, la liquidità disponibile), \"Scadenzario\" è la lista operativa delle fatture con cui lavori ogni giorno, \"Ricorrenze\" mostra i costi che si ripetono nel tempo (affitti, utenze, abbonamenti). Nella scheda \"Scadenzario\" ogni riga è una scadenza: fornitore, numero fattura, importo, data di scadenza e stato colorato (Scaduto in rosso, In scadenza in arancio, Da pagare in blu, Parziale in arancio scuro, Pagato in verde, In sospeso con un'etichetta a orologio). Puoi filtrare per outlet, per stato, per metodo di pagamento (Bonifici, RiBa, Addebito diretto, Altro) e cercare per nome fornitore o numero fattura. Le note di credito compaiono con l'importo in rosso col segno meno: non si pagano, ma si possono usare per abbassare l'importo di una fattura dello stesso fornitore (vedi più sotto). È questa la scheda che usi per selezionare le fatture e creare la distinta dei bonifici."
       },
       {
+        "heading": "Aggiungere una scadenza a mano (es. un proforma)",
+        "body": "Per una scadenza che non arriva dalle fatture elettroniche (per esempio un proforma o un pagamento concordato) usa il pulsante \"Aggiungi scadenza\". Scegli il nominativo (un fornitore già a sistema oppure aggiungine uno nuovo al volo), il tipo, il numero documento, la data documento e l'importo totale. La data di scadenza NON si scrive a mano: viene calcolata in automatico dalle REGOLE INTERNE, cioè dal piano di pagamento del fornitore (base a data fattura o fine mese, giorni, numero di rate) oppure, se quel fornitore non ha un piano impostato, dalla regola predefinita \"a vista\" = 30 giorni data fattura a fine mese, in un'unica rata. Le scadenze così proposte restano correggibili: puoi modificare date e importi, aggiungere o togliere rate, e il pulsante \"Ricalcola dalle regole\" rimette il calcolo automatico. La somma delle rate deve sempre coincidere con l'importo totale (un avviso te lo segnala se non torna).",
+        "steps": [
+          "Premi \"Aggiungi scadenza\" in alto nella scheda Scadenzario.",
+          "Scegli il nominativo, imposta data documento e importo: le scadenze si calcolano da sole con le regole del fornitore (o \"a vista\" 30 gg fine mese di default).",
+          "Se serve, correggi le date/importi delle rate a mano, oppure premi \"Ricalcola dalle regole\" per ripristinare il calcolo automatico.",
+          "Lascia \"Una tantum\" per inserire solo questa scadenza; scegli una periodicità (mensile, trimestrale…) solo se il costo va registrato anche tra le Ricorrenze.",
+          "Premi \"Crea scadenza\": vengono create tante righe quante sono le rate."
+        ]
+      },
+      {
         "heading": "Passo 1 — Selezionare le fatture da pagare",
         "body": "Ogni volta che selezioni una fattura, il gestionale apre sotto la riga un piccolo pannello per impostare come pagarla; in fondo alla pagina compare una barra con il totale selezionato e, per ogni banca coinvolta, il saldo attuale e il saldo che resterebbe dopo il pagamento — così controlli sempre a colpo d'occhio di non andare in rosso.",
         "steps": [
@@ -427,6 +438,18 @@ export const PAGE_GUIDES: PageGuide[] = [
       }
     ],
     "faq": [
+      {
+        "q": "Quando aggiungo una scadenza a mano, perché non posso scrivere io la data di scadenza?",
+        "a": "Perché la scadenza segue le regole interne, non una data personalizzata: il gestionale la calcola dal piano del fornitore (base data fattura o fine mese, giorni, numero rate) o, se il fornitore non ha un piano, dalla regola predefinita \"a vista\" = 30 giorni data fattura a fine mese. Esempio: un documento del 30/06 a vista scade il 31/07. Se un caso particolare lo richiede puoi comunque correggere date e importi a mano dopo il calcolo; \"Ricalcola dalle regole\" ripristina i valori automatici."
+      },
+      {
+        "q": "Come inserisco un pagamento a più rate?",
+        "a": "Se il fornitore ha un piano con più rate, aggiungendo la scadenza le rate vengono già proposte tutte, con date e importi calcolati (parti uguali, l'ultima quadra il totale). Puoi anche costruirle a mano con \"Aggiungi rata\" e il cestino per toglierne: l'importante è che la somma delle rate coincida con l'importo totale. Alla creazione ogni rata diventa una riga dello scadenzario, numerata (rata 1/3, 2/3…)."
+      },
+      {
+        "q": "\"Una tantum\" vuol dire che quel costo non si ripeterà mai?",
+        "a": "No. \"Una tantum\" significa solo che in questa occasione stai inserendo una singola scadenza; lo stesso costo potrà ripresentarsi in futuro e lo reinserirai allo stesso modo. Se invece vuoi registrarlo come costo che si ripete automaticamente, scegli una periodicità (mensile, trimestrale, ecc.): oltre alla prima scadenza verrà creata anche una Ricorrenza."
+      },
       {
         "q": "Quando una fattura risulta davvero pagata?",
         "a": "Mai al momento della conferma della distinta. Una fattura diventa \"pagata\" solo quando il movimento bancario in uscita viene riconosciuto e abbinato a lei (in automatico o a mano in Riconciliazione), oppure se la chiudi tu manualmente. Fino ad allora resta \"in sospeso\"."
