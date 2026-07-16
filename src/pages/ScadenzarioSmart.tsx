@@ -1467,13 +1467,22 @@ const ScadenzarioSmart = () => {
     }
   }, [today, modals, fetchData, toast]);
 
-  type InvoiceData = { supplierId: string; newSupplierName?: string; supplierType?: string; invoiceNumber: string; invoiceDate: string; dueDate: string; grossAmount: number; paymentMethod?: string; frequency?: string; costCenter?: string; endDate?: string }
-  const handleCreateInvoice = useCallback(async (invoiceData: InvoiceData) => {
-    // Validazione minima (niente dialog nativi): nominativo + scadenza + importo.
+  const handleCreateInvoice = useCallback(async (invoiceData: InvoiceFormState) => {
+    // Validazione minima (niente dialog nativi): nominativo + scadenze + importo.
     const newName = (invoiceData.newSupplierName || '').trim();
     if (!invoiceData.supplierId && !newName) { toast({ type: 'warning', message: 'Indica un fornitore esistente o un nuovo nominativo.' }); return; }
-    if (!invoiceData.dueDate) { toast({ type: 'warning', message: 'Indica la data di scadenza pagamento.' }); return; }
+    // Le scadenze arrivano già calcolate dalle REGOLE INTERNE (piano del fornitore o
+    // default aziendale "a vista"), ma restano correggibili a mano: qui validiamo il minimo.
+    const rate = Array.isArray(invoiceData.rate) ? invoiceData.rate.filter(r => r && r.dueDate) : [];
+    if (rate.length === 0) { toast({ type: 'warning', message: 'Indica almeno una scadenza di pagamento.' }); return; }
     if (!(Number(invoiceData.grossAmount) > 0)) { toast({ type: 'warning', message: 'Indica un importo maggiore di zero.' }); return; }
+    // La somma delle rate deve quadrare col totale (tolleranza 1 cent).
+    const sumRate = rate.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+    if (Math.abs(sumRate - Number(invoiceData.grossAmount)) > 0.01) {
+      toast({ type: 'warning', message: `La somma delle rate (€ ${sumRate.toFixed(2)}) non corrisponde all'importo totale (€ ${Number(invoiceData.grossAmount).toFixed(2)}).` });
+      return;
+    }
+    const firstDue = rate[0].dueDate;
     const isRecurring = !!invoiceData.frequency && invoiceData.frequency !== 'una_tantum';
     if (isRecurring && !invoiceData.costCenter) { toast({ type: 'warning', message: 'Per una scadenza ricorrente scegli il centro di costo / outlet.' }); return; }
     try {
@@ -1507,7 +1516,7 @@ const ScadenzarioSmart = () => {
       let recurringMsg = '';
       if (isRecurring) {
         const supplierName = effectiveName;
-        const dueDay = invoiceData.dueDate ? new Date(invoiceData.dueDate).getDate() : 1;
+        const dueDay = firstDue ? new Date(firstDue).getDate() : 1;
         const { data: recData, error: recErr } = await supabase.from('recurring_costs').insert([{
           company_id: COMPANY_ID,
           cost_center: invoiceData.costCenter,
@@ -1517,7 +1526,7 @@ const ScadenzarioSmart = () => {
           day_of_month: Math.min(28, Math.max(1, dueDay)),
           payment_method: invoiceData.paymentMethod || 'bonifico_ordinario',
           supplier_name: supplierName || null,
-          start_date: invoiceData.dueDate,
+          start_date: firstDue,
           end_date: invoiceData.endDate || null,
           is_active: true,
         } as never]).select('id');
@@ -1529,20 +1538,26 @@ const ScadenzarioSmart = () => {
         recurringMsg = ' — ricorrenza registrata in Ricorrenze';
       }
 
-      // 2) Crea la prima scadenza (payable), collegata alla ricorrenza se esiste.
-      const { error: payErr } = await supabase.from('payables').insert([{
+      // 2) Crea le scadenze: una payable per rata. Con rata unica lascio
+      //    installment_number/total a null (coerente con le fatture a rata singola
+      //    esistenti); la ricorrenza si collega solo alla prima rata (come il bridge A-Cube).
+      const nRate = rate.length;
+      const rows = rate.map((r, idx) => ({
         company_id: COMPANY_ID,
         supplier_id: supplierId,
         supplier_name: effectiveName || null,
         invoice_number: invoiceData.invoiceNumber,
         invoice_date: invoiceData.invoiceDate,
-        due_date: invoiceData.dueDate,
-        original_due_date: invoiceData.dueDate,
-        gross_amount: invoiceData.grossAmount,
-        amount_remaining: invoiceData.grossAmount,
+        due_date: r.dueDate,
+        original_due_date: r.dueDate,
+        gross_amount: Number(r.amount) || 0,
+        amount_remaining: Number(r.amount) || 0,
         payment_method: invoiceData.paymentMethod || 'bonifico',
-        recurring_cost_id: recurringId,
-      } as never]);
+        installment_number: nRate > 1 ? idx + 1 : null,
+        installment_total: nRate > 1 ? nRate : null,
+        recurring_cost_id: idx === 0 ? recurringId : null,
+      }));
+      const { error: payErr } = await supabase.from('payables').insert(rows as never);
       if (payErr) {
         // Rollback ricorrenza per non lasciare orfani.
         if (recurringId) await supabase.from('recurring_costs').delete().eq('id', recurringId);
@@ -1551,7 +1566,7 @@ const ScadenzarioSmart = () => {
       }
 
       setModals(prev => ({ ...prev, invoice: { open: false, data: null } }));
-      toast({ type: 'success', message: 'Scadenza creata' + recurringMsg + '.' });
+      toast({ type: 'success', message: (rate.length > 1 ? `${rate.length} rate create` : 'Scadenza creata') + recurringMsg + '.' });
       fetchData();
     } catch (error) {
       console.error('Error creating scadenza:', error);
@@ -4497,7 +4512,8 @@ const EditScheduleModal = ({ schedule, onUpdate: _onUpdate, onSave }: { schedule
 };
 
 // Invoice Modal Component
-type InvoiceFormState = { supplierId: string; newSupplierName: string; supplierType: string; invoiceNumber: string; invoiceDate: string; dueDate: string; grossAmount: number; paymentMethod: string; frequency: string; costCenter: string; endDate: string }
+type RataInput = { dueDate: string; amount: number }
+type InvoiceFormState = { supplierId: string; newSupplierName: string; supplierType: string; invoiceNumber: string; invoiceDate: string; grossAmount: number; paymentMethod: string; frequency: string; costCenter: string; endDate: string; rate: RataInput[] }
 
 // Tipo del nominativo/scadenza. Diventa la `category` del fornitore quando si crea
 // un'anagrafica leggera al volo (nominativo non a sistema).
@@ -4512,13 +4528,68 @@ type CostCenterLite = { code?: string; label?: string | null; [k: string]: unkno
 // Frequenze della scadenza ricorrente — allineate a recurring_costs.frequency
 // (stessi valori della tab Ricorrenze). 'una_tantum' = scadenza singola.
 const scadenzaFrequencyOptions: { value: string; label: string }[] = [
-  { value: 'una_tantum', label: 'Una tantum (non si ripete)' },
+  { value: 'una_tantum', label: 'Una tantum (inserisci solo questa)' },
   { value: 'monthly', label: 'Mensile' },
   { value: 'bimonthly', label: 'Bimestrale' },
   { value: 'quarterly', label: 'Trimestrale' },
   { value: 'semiannual', label: 'Semestrale' },
   { value: 'annual', label: 'Annuale' },
 ];
+
+// ─── Scadenze dalle REGOLE INTERNE ───────────────────────────────────────────
+// Replica lato client di fn_supplier_installment_schedule (migration 087): dato il
+// piano del fornitore (base data-fattura/fine-mese, giorni, n° rate) e la data
+// documento, calcola le scadenze. Default aziendale quando il fornitore non ha un
+// piano: "a vista" = 30 gg data fattura, fine mese, rata unica. Le scadenze così
+// ottenute pre-compilano il form ma restano correggibili a mano.
+type SupplierPlan = { base: 'data_fattura' | 'fine_mese'; gg: number; nRate: number; hasPlan: boolean };
+const derivePlan = (sup: SupplierLite | undefined): SupplierPlan => {
+  const rawBase = String((sup?.payment_base as string | undefined) || '').trim();
+  const gg = Number(sup?.prima_scadenza_gg);
+  const nRate = Number(sup?.numero_rate);
+  const hasPlan = !!sup && rawBase !== '' && gg > 0 && nRate > 0;
+  return {
+    base: rawBase === 'data_fattura' ? 'data_fattura' : 'fine_mese',
+    gg: gg > 0 ? gg : 30,
+    nRate: nRate > 0 ? nRate : 1,
+    hasPlan,
+  };
+};
+const pad2 = (n: number) => String(n).padStart(2, '0');
+const toISODate = (d: Date): string => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+const round2 = (n: number): number => Math.round((n + Number.EPSILON) * 100) / 100;
+// Ultimo giorno di (mese di `emissioneISO` + `months`).
+const lastDayOfMonthPlus = (emissioneISO: string, months: number): string => {
+  const d = new Date(emissioneISO + 'T00:00:00');
+  return toISODate(new Date(d.getFullYear(), d.getMonth() + months + 1, 0));
+};
+const addDaysISO = (emissioneISO: string, days: number): string => {
+  const d = new Date(emissioneISO + 'T00:00:00');
+  d.setDate(d.getDate() + days);
+  return toISODate(d);
+};
+const computeInstallments = (emissioneISO: string, plan: SupplierPlan, gross: number): RataInput[] => {
+  if (!emissioneISO) return [];
+  const n = Math.max(plan.nRate || 1, 1);
+  const quota = round2((Number(gross) || 0) / n);
+  let acc = 0;
+  const out: RataInput[] = [];
+  for (let i = 1; i <= n; i++) {
+    let due: string;
+    if (plan.base === 'fine_mese') {
+      // N mesi solari da aggiungere al mese di emissione (= giorni/30 + rate precedenti).
+      const months = Math.floor(plan.gg / 30) + (i - 1);
+      due = lastDayOfMonthPlus(emissioneISO, months);
+    } else {
+      // Data fattura: a giorni.
+      due = addDaysISO(emissioneISO, plan.gg + 30 * (i - 1));
+    }
+    const amount = i < n ? quota : round2((Number(gross) || 0) - acc);
+    if (i < n) acc = round2(acc + quota);
+    out.push({ dueDate: due, amount });
+  }
+  return out;
+};
 type SupplierLite = { id?: string; name?: string | null; ragione_sociale?: string | null; [k: string]: unknown }
 type PaymentGroup = { label: string; methods: string[] }
 const InvoiceModal = ({ suppliers, costCenters, paymentGroups, paymentMethodLabels, onSave, onClose }: { suppliers: SupplierLite[]; costCenters: CostCenterLite[]; paymentGroups: PaymentGroup[]; paymentMethodLabels: Record<string, string>; onSave: (data: InvoiceFormState) => void; onClose: () => void }) => {
@@ -4528,12 +4599,12 @@ const InvoiceModal = ({ suppliers, costCenters, paymentGroups, paymentMethodLabe
     supplierType: 'fornitore',
     invoiceNumber: '',
     invoiceDate: new Date().toISOString().split('T')[0],
-    dueDate: '',
     grossAmount: 0,
     paymentMethod: 'bonifico_ordinario',
     frequency: 'una_tantum',
     costCenter: '',
     endDate: '',
+    rate: [],
   });
 
   // Selettore fornitore con RICERCA (typeahead): NON mostra l'intera lista quando
@@ -4563,6 +4634,32 @@ const InvoiceModal = ({ suppliers, costCenters, paymentGroups, paymentMethodLabe
   const canAddNew = trimmedQuery.length >= MIN_QUERY && !hasExactMatch;
 
   const isRecurring = formData.frequency !== 'una_tantum';
+
+  // Piano applicato per il nominativo scelto (per l'etichetta informativa).
+  const selectedPlan = derivePlan(selectedSupplier);
+  // Ricalcolo le scadenze dalle REGOLE INTERNE quando cambia il fornitore, la data
+  // documento o l'importo. Restano poi correggibili a mano (le modifiche persistono
+  // finché non cambia uno di questi input).
+  useEffect(() => {
+    const sup = suppliers.find(s => s.id === formData.supplierId);
+    const plan = derivePlan(sup);
+    const nextRate = computeInstallments(formData.invoiceDate, plan, formData.grossAmount);
+    setFormData(prev => ({ ...prev, rate: nextRate }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formData.supplierId, formData.invoiceDate, formData.grossAmount, suppliers]);
+
+  const updateRata = (i: number, patch: Partial<RataInput>) =>
+    setFormData(prev => ({ ...prev, rate: prev.rate.map((r, idx) => idx === i ? { ...r, ...patch } : r) }));
+  const addRata = () =>
+    setFormData(prev => ({ ...prev, rate: [...prev.rate, { dueDate: prev.rate[prev.rate.length - 1]?.dueDate || prev.invoiceDate, amount: 0 }] }));
+  const removeRata = (i: number) =>
+    setFormData(prev => ({ ...prev, rate: prev.rate.filter((_, idx) => idx !== i) }));
+  const recalcFromRules = () => {
+    const plan = derivePlan(selectedSupplier);
+    setFormData(prev => ({ ...prev, rate: computeInstallments(prev.invoiceDate, plan, prev.grossAmount) }));
+  };
+  const rateSum = round2(formData.rate.reduce((s, r) => s + (Number(r.amount) || 0), 0));
+  const rateMismatch = Math.abs(rateSum - (Number(formData.grossAmount) || 0)) > 0.01;
 
   return (
     <div className="space-y-3">
@@ -4651,16 +4748,57 @@ const InvoiceModal = ({ suppliers, costCenters, paymentGroups, paymentMethodLabe
             className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none" />
         </div>
         <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1">Scadenza pagamento *</label>
-          <input type="date" value={formData.dueDate} onChange={e => setFormData({ ...formData, dueDate: e.target.value })}
-            className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none" />
+          <label className="block text-sm font-medium text-slate-700 mb-1">Importo *</label>
+          <input type="number" step="0.01" value={formData.grossAmount || ''} onChange={e => setFormData({ ...formData, grossAmount: Number(e.target.value) })}
+            placeholder="0,00"
+            className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm text-right focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none" />
         </div>
       </div>
+      {/* SCADENZE — calcolate dalle REGOLE INTERNE (piano del fornitore o default
+          aziendale "a vista"), correggibili a mano. */}
       <div>
-        <label className="block text-sm font-medium text-slate-700 mb-1">Importo *</label>
-        <input type="number" step="0.01" value={formData.grossAmount || ''} onChange={e => setFormData({ ...formData, grossAmount: Number(e.target.value) })}
-          placeholder="0,00"
-          className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none" />
+        <div className="flex items-center justify-between mb-1">
+          <label className="block text-sm font-medium text-slate-700">Scadenze pagamento *</label>
+          <button type="button" onClick={recalcFromRules}
+            className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 font-medium">
+            <RefreshCw size={12} /> Ricalcola dalle regole
+          </button>
+        </div>
+        <p className="text-[11px] text-slate-400 mb-2">
+          {selectedPlan.hasPlan
+            ? `Piano fornitore: ${selectedPlan.base === 'fine_mese' ? 'fine mese' : 'data fattura'} · ${selectedPlan.gg} gg · ${selectedPlan.nRate} ${selectedPlan.nRate > 1 ? 'rate' : 'rata'}. Puoi correggere date e importi.`
+            : 'Regola predefinita: a vista (30 gg data fattura, fine mese). Puoi correggere date e importi.'}
+        </p>
+        <div className="space-y-2">
+          {formData.rate.length === 0 && (
+            <p className="text-xs text-slate-400 italic">Inserisci la data documento e l'importo per calcolare le scadenze.</p>
+          )}
+          {formData.rate.map((r, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <span className="text-xs text-slate-400 w-9 shrink-0">{formData.rate.length > 1 ? `#${i + 1}` : 'Rata'}</span>
+              <input type="date" value={r.dueDate} onChange={e => updateRata(i, { dueDate: e.target.value })}
+                className="flex-1 px-3 py-2 rounded-lg border border-slate-300 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none" />
+              <input type="number" step="0.01" value={r.amount || ''} onChange={e => updateRata(i, { amount: Number(e.target.value) })}
+                placeholder="0,00"
+                className="w-28 px-3 py-2 rounded-lg border border-slate-300 text-sm text-right focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none" />
+              <button type="button" disabled={formData.rate.length <= 1} onClick={() => removeRata(i)}
+                className="p-1.5 text-red-500 disabled:text-slate-200 hover:bg-red-50 rounded" aria-label="Rimuovi rata">
+                <Trash2 size={15} />
+              </button>
+            </div>
+          ))}
+        </div>
+        <div className="flex items-center justify-between mt-2">
+          <button type="button" onClick={addRata}
+            className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 font-medium">
+            <Plus size={13} /> Aggiungi rata
+          </button>
+          {formData.rate.length > 0 && (
+            <span className={`text-xs font-medium ${rateMismatch ? 'text-amber-600' : 'text-slate-400'}`}>
+              Somma rate: € {rateSum.toFixed(2)}{rateMismatch ? ` ≠ € ${(Number(formData.grossAmount) || 0).toFixed(2)}` : ''}
+            </span>
+          )}
+        </div>
       </div>
       <div>
         <label className="block text-sm font-medium text-slate-700 mb-1">Metodo Pagamento</label>
@@ -4695,7 +4833,7 @@ const InvoiceModal = ({ suppliers, costCenters, paymentGroups, paymentMethodLabe
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Fine periodicità <span className="text-slate-400 font-normal">(opzionale)</span></label>
-              <input type="date" value={formData.endDate} min={formData.dueDate || undefined}
+              <input type="date" value={formData.endDate} min={formData.rate[0]?.dueDate || undefined}
                 onChange={e => setFormData({ ...formData, endDate: e.target.value })}
                 className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none" />
             </div>
