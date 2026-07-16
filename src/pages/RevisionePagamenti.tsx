@@ -76,8 +76,15 @@ function parseScad(label: string): { base: string | null; prima: number | null; 
   return { base: null, prima: null, rate: null, dataFissa: false }
 }
 
+// Nome banca breve e leggibile (nome completo resta nel tooltip)
+function shortBank(name: string, iban: string): string {
+  const head = String(name || '').split(/\s[-–·]\s/)[0].trim()
+  const w = head.split(/\s+/).filter(Boolean).slice(0, 2).join(' ')
+  return w || (iban ? iban.slice(-6) : '—')
+}
+
 type Supplier = Record<string, unknown> & { id: string }
-type Bank = { id: string; label: string }
+type Bank = { id: string; label: string; full: string }
 type Proposal = Record<string, unknown> & { id: string; supplier_id: string; status: string }
 type Edit = { fam: string; scad: string; bank: string }
 
@@ -97,11 +104,13 @@ export default function RevisionePagamenti() {
   const [applyingId, setApplyingId] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
+  const [bankResolve, setBankResolve] = useState<Record<string, string>>({})
 
   const bankLabel = useCallback((id: string | null | undefined) => {
     if (!id) return '—'
-    return banks.find(b => b.id === id)?.label || '—'
-  }, [banks])
+    const key = bankResolve[String(id)] || String(id)
+    return banks.find(b => b.id === key)?.label || '—'
+  }, [banks, bankResolve])
 
   const load = useCallback(async () => {
     if (!COMPANY_ID) return
@@ -121,10 +130,27 @@ export default function RevisionePagamenti() {
       const rows = (sup || []) as Supplier[]
       rows.sort((a, b) => String(a.ragione_sociale || a.name || '').localeCompare(String(b.ragione_sociale || b.name || ''), 'it'))
       setSuppliers(rows)
-      setBanks(((ba || []) as Record<string, unknown>[]).map(b => ({
-        id: String(b.id),
-        label: [b.bank_name, b.account_name].filter(Boolean).join(' · ') || (b.iban ? String(b.iban) : String(b.id).slice(0, 8)),
-      })))
+      // Deduplica le banche per IBAN (in anagrafica può esserci lo stesso conto
+      // ripetuto) e usa un nome breve; mappa gli id "doppioni" a quello canonico.
+      const rawB = ((ba || []) as Record<string, unknown>[]).map(b => ({
+        id: String(b.id), name: String(b.bank_name || ''), iban: String(b.iban || ''),
+        full: [b.bank_name, b.iban].filter(Boolean).join(' · ') || String(b.id).slice(0, 8),
+      }))
+      const seen: Record<string, string> = {}; const resolve: Record<string, string> = {}
+      const dedup: typeof rawB = []
+      for (const b of rawB) {
+        const key = b.iban || b.id
+        if (seen[key]) { resolve[b.id] = seen[key]; continue }
+        seen[key] = b.id; resolve[b.id] = b.id; dedup.push(b)
+      }
+      const shortCount: Record<string, number> = {}
+      dedup.forEach(b => { const s = shortBank(b.name, b.iban); shortCount[s] = (shortCount[s] || 0) + 1 })
+      setBanks(dedup.map(b => {
+        let label = shortBank(b.name, b.iban)
+        if (shortCount[label] > 1 && b.iban) label += ' ·' + b.iban.slice(-4)
+        return { id: b.id, label, full: b.full }
+      }))
+      setBankResolve(resolve)
       setProposals((pr || []) as Proposal[])
       setEdits({}); setDayFisso({})
     } catch (e) {
@@ -138,12 +164,13 @@ export default function RevisionePagamenti() {
   // stato "originale" (dal DB) di una riga
   const orig = useCallback((s: Supplier): Edit => {
     const method = String(s.default_payment_method || s.payment_method || '')
+    const rawBank = String(s.payment_bank_account_id || '')
     return {
       fam: familyFromEnum(method),
       scad: scadLabel(s.payment_base as string | null, s.prima_scadenza_gg as number | null, s.numero_rate as number | null),
-      bank: String(s.payment_bank_account_id || ''),
+      bank: rawBank ? (bankResolve[rawBank] || rawBank) : '',
     }
-  }, [])
+  }, [bankResolve])
   const current = useCallback((s: Supplier): Edit => edits[s.id] || orig(s), [edits, orig])
   const isEdited = useCallback((s: Supplier): boolean => {
     const o = orig(s), c = current(s)
@@ -288,7 +315,7 @@ export default function RevisionePagamenti() {
                 <th className="px-3 py-2.5">Ragione sociale</th>
                 <th className="px-3 py-2.5 w-40">Tipologia</th>
                 <th className="px-3 py-2.5 w-56">Modalità (scadenze)</th>
-                <th className="px-3 py-2.5 w-44">Banca</th>
+                <th className="px-3 py-2.5 w-48">Banca</th>
               </tr>
             </thead>
             <tbody>
@@ -326,9 +353,10 @@ export default function RevisionePagamenti() {
                     </td>
                     <td className="px-3 py-2">
                       <select value={c.bank} onChange={e => setEdit(s, { bank: e.target.value })}
+                        title={banks.find(b => b.id === c.bank)?.full || ''}
                         className={`w-full px-2 py-1.5 border rounded-lg text-sm ${c.bank !== orig(s).bank ? 'border-amber-300 bg-amber-50' : 'border-slate-200'}`}>
                         <option value="">— nessuna —</option>
-                        {banks.map(b => <option key={b.id} value={b.id}>{b.label}</option>)}
+                        {banks.map(b => <option key={b.id} value={b.id} title={b.full}>{b.label}</option>)}
                       </select>
                     </td>
                   </tr>
