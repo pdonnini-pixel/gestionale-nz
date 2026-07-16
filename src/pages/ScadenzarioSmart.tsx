@@ -3732,7 +3732,8 @@ const ScadenzarioSmart = () => {
                                     <label className="text-xs font-medium text-slate-600 block mb-1">Acconto (lordo)</label>
                                     <input type="number" step="0.01" value={plan.baseAmount ?? plan.amount}
                                       onChange={e => recomputePlan(pid, { baseAmount: Math.min(Number(e.target.value) || 0, residuo) })}
-                                      className="px-2 py-1.5 border border-slate-300 rounded-lg text-sm w-32" />
+                                      onWheel={e => e.currentTarget.blur()}
+                                      className="no-spin px-2 py-1.5 border border-slate-300 rounded-lg text-sm w-32" />
                                   </div>
                                 )}
                                 {/* Scala note di credito — NC aperte dello stesso fornitore. Selezionandole,
@@ -4202,7 +4203,8 @@ const ScadenzarioSmart = () => {
                 <div className="flex gap-2">
                   <input type="number" step="0.01" min="0" max={remaining} value={manualCloseAmount}
                     onChange={(e) => setManualCloseAmount(e.target.value)}
-                    className="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-violet-500" />
+                    onWheel={e => e.currentTarget.blur()}
+                    className="no-spin flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-violet-500" />
                   <button type="button" onClick={() => setManualCloseAmount(String(remaining.toFixed(2)))}
                     className="px-3 py-2 rounded-lg border border-slate-200 text-xs font-medium text-slate-600 hover:bg-slate-50 whitespace-nowrap">
                     Tutto il residuo
@@ -4486,7 +4488,8 @@ const EditScheduleModal = ({ schedule, onUpdate: _onUpdate, onSave }: { schedule
       <div>
         <label className="text-sm font-medium text-slate-700 mb-1 block">Importo</label>
         <input type="number" step="0.01" value={formData.amount} onChange={e => setFormData({ ...formData, amount: Number(e.target.value) })}
-          className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none" />
+          onWheel={e => e.currentTarget.blur()}
+          className="no-spin w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none" />
       </div>
       <div>
         <label className="text-sm font-medium text-slate-700 mb-1 block">Scadenza</label>
@@ -4748,8 +4751,9 @@ const InvoiceModal = ({ suppliers, costCenters, paymentGroups, paymentMethodLabe
         <div>
           <label className="block text-sm font-medium text-slate-700 mb-1">Importo *</label>
           <input type="number" step="0.01" value={formData.grossAmount || ''} onChange={e => setFormData({ ...formData, grossAmount: Number(e.target.value) })}
+            onWheel={e => e.currentTarget.blur()}
             placeholder="0,00"
-            className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm text-right focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none" />
+            className="no-spin w-full px-3 py-2 rounded-lg border border-slate-300 text-sm text-right focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none" />
         </div>
       </div>
       {/* SCADENZE — calcolate dalle REGOLE INTERNE (piano del fornitore o default
@@ -4777,8 +4781,9 @@ const InvoiceModal = ({ suppliers, costCenters, paymentGroups, paymentMethodLabe
               <input type="date" value={r.dueDate} onChange={e => updateRata(i, { dueDate: e.target.value })}
                 className="flex-1 px-3 py-2 rounded-lg border border-slate-300 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none" />
               <input type="number" step="0.01" value={r.amount || ''} onChange={e => updateRata(i, { amount: Number(e.target.value) })}
+                onWheel={e => e.currentTarget.blur()}
                 placeholder="0,00"
-                className="w-28 px-3 py-2 rounded-lg border border-slate-300 text-sm text-right focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none" />
+                className="no-spin w-28 px-3 py-2 rounded-lg border border-slate-300 text-sm text-right focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none" />
               <button type="button" disabled={formData.rate.length <= 1} onClick={() => removeRata(i)}
                 className="p-1.5 text-red-500 disabled:text-slate-200 hover:bg-red-50 rounded" aria-label="Rimuovi rata">
                 <Trash2 size={15} />
