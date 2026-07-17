@@ -20,8 +20,26 @@ import {
 const MESI_IT = ['Gennaio', 'Febbraio', 'Marzo', 'Aprile', 'Maggio', 'Giugno', 'Luglio', 'Agosto', 'Settembre', 'Ottobre', 'Novembre', 'Dicembre']
 const monthLabel = (key: string): string => { const [y, m] = key.split('-'); return `${MESI_IT[Number(m) - 1] ?? m} ${y}` }
 
-// ─── Dati fissi cedente ──────────────────────────────────────────────────
-const CEDENTE_PIVA = '07362100484'
+// ─── Dati cedente ────────────────────────────────────────────────────────
+// Caricati dall'anagrafica del tenant attivo (company_settings + companies):
+// MAI hardcoded, la pagina e' condivisa dai 3 tenant.
+interface Cedente {
+  denominazione: string
+  piva: string
+  indirizzo: string
+  cap: string
+  comune: string
+  provincia: string
+  regime: string
+}
+// P.IVA valida = esattamente 11 cifre: scarta segnaposto tipo '07XXXXXXXXX'
+const pivaValida = (v: string | null | undefined): boolean => /^\d{11}$/.test((v ?? '').replace(/\s/g, '').replace(/^IT/i, ''))
+const pulisciPiva = (v: string | null | undefined): string => (v ?? '').replace(/\s/g, '').replace(/^IT/i, '')
+const cedenteCompleto = (c: Cedente | null): boolean =>
+  !!c && !!c.denominazione && pivaValida(c.piva) && !!c.indirizzo && !!c.cap && !!c.comune && !!c.provincia
+
+// Fallback SOLO offline/non loggato: il progressivo di riferimento e' il massimo
+// archiviato in fattura_xml_export (per-azienda via RLS, condiviso tra browser).
 const LS_KEY = 'nz_fe_last_prog'
 const DEFAULT_START = 21
 
@@ -193,7 +211,7 @@ function rowToRecord(cells: unknown[], map: ColMap): Rec {
 }
 
 // ─── Costruzione XML (template FPR12) ────────────────────────────────────
-function buildXml(rec: Rec, prog: number): string {
+function buildXml(rec: Rec, prog: number, ced: Cedente): string {
   const progS = pad5(prog)
   let idBlock: string
   if (rec.piva) idBlock = `<IdFiscaleIVA><IdPaese>IT</IdPaese><IdCodice>${xmlEsc(rec.piva)}</IdCodice></IdFiscaleIVA>`
@@ -203,18 +221,18 @@ function buildXml(rec: Rec, prog: number): string {
 <p:FatturaElettronica versione="FPR12" xmlns:ds="http://www.w3.org/2000/09/xmldsig#" xmlns:p="http://ivaservizi.agenziaentrate.gov.it/docs/xsd/fatture/v1.2" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
   <FatturaElettronicaHeader>
     <DatiTrasmissione>
-      <IdTrasmittente><IdPaese>IT</IdPaese><IdCodice>07362100484</IdCodice></IdTrasmittente>
+      <IdTrasmittente><IdPaese>IT</IdPaese><IdCodice>${xmlEsc(ced.piva)}</IdCodice></IdTrasmittente>
       <ProgressivoInvio>${progS}</ProgressivoInvio>
       <FormatoTrasmissione>FPR12</FormatoTrasmissione>
       <CodiceDestinatario>0000000</CodiceDestinatario>
     </DatiTrasmissione>
     <CedentePrestatore>
       <DatiAnagrafici>
-        <IdFiscaleIVA><IdPaese>IT</IdPaese><IdCodice>07362100484</IdCodice></IdFiscaleIVA>
-        <Anagrafica><Denominazione>NEW ZAGO S.R.L.</Denominazione></Anagrafica>
-        <RegimeFiscale>RF01</RegimeFiscale>
+        <IdFiscaleIVA><IdPaese>IT</IdPaese><IdCodice>${xmlEsc(ced.piva)}</IdCodice></IdFiscaleIVA>
+        <Anagrafica><Denominazione>${xmlEsc(ced.denominazione)}</Denominazione></Anagrafica>
+        <RegimeFiscale>${xmlEsc(ced.regime)}</RegimeFiscale>
       </DatiAnagrafici>
-      <Sede><Indirizzo>VIA IX FEBBRAIO 7</Indirizzo><CAP>50129</CAP><Comune>FIRENZE</Comune><Provincia>FI</Provincia><Nazione>IT</Nazione></Sede>
+      <Sede><Indirizzo>${xmlEsc(ced.indirizzo)}</Indirizzo><CAP>${xmlEsc(ced.cap)}</CAP><Comune>${xmlEsc(ced.comune)}</Comune><Provincia>${xmlEsc(ced.provincia)}</Provincia><Nazione>IT</Nazione></Sede>
     </CedentePrestatore>
     <CessionarioCommittente>
       <DatiAnagrafici>
@@ -262,7 +280,9 @@ export default function ConvertitoreFattureXML() {
   const [pasteText, setPasteText] = useState('')
   const [startNum, setStartNum] = useState<string>(String(DEFAULT_START))
   const [touched, setTouched] = useState(false)
-  const [history, setHistory] = useState<{ last: number | null }>({ last: null })
+  const [history, setHistory] = useState<{ last: number | null; source: 'archivio' | 'browser' | null }>({ last: null, source: null })
+  const [cedente, setCedente] = useState<Cedente | null>(null)
+  const [cedenteLoading, setCedenteLoading] = useState(true)
   const [generated, setGenerated] = useState<GenFile[]>([])
   const [alerts, setAlerts] = useState<Alert[]>([])
   const [busy, setBusy] = useState(false)
@@ -274,12 +294,74 @@ export default function ConvertitoreFattureXML() {
   const [deleting, setDeleting] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  // Storico progressivo da localStorage
+  // Dati cedente dall'anagrafica del tenant attivo (company_settings, fallback companies)
   useEffect(() => {
-    const raw = localStorage.getItem(LS_KEY)
-    const last = raw != null && raw !== '' && isFinite(parseInt(raw, 10)) ? parseInt(raw, 10) : null
-    setHistory({ last })
-    if (!touched) setStartNum(String((last ?? (DEFAULT_START - 1)) + 1))
+    let alive = true
+    ;(async () => {
+      try {
+        const [{ data: cs }, { data: co }] = await Promise.all([
+          supabase
+            .from('company_settings' as never)
+            .select('ragione_sociale,partita_iva,sede_indirizzo,sede_cap,sede_comune,sede_provincia,regime_fiscale')
+            .limit(1)
+            .maybeSingle(),
+          supabase.from('companies').select('name,vat_number').limit(1).maybeSingle(),
+        ])
+        if (!alive) return
+        const c = cs as unknown as {
+          ragione_sociale?: string; partita_iva?: string; sede_indirizzo?: string
+          sede_cap?: string; sede_comune?: string; sede_provincia?: string; regime_fiscale?: string
+        } | null
+        // P.IVA: prima companies.vat_number (fonte usata dai flussi A-Cube in
+        // produzione), poi company_settings; si accetta solo un valore a 11
+        // cifre, cosi' un segnaposto in una delle due tabelle non finisce mai
+        // in un XML fiscale.
+        const pivaCandidata = [co?.vat_number, c?.partita_iva].map(pulisciPiva).find(pivaValida) ?? ''
+        setCedente({
+          denominazione: (c?.ragione_sociale || co?.name || '').trim(),
+          piva: pivaCandidata,
+          indirizzo: (c?.sede_indirizzo || '').trim(),
+          cap: (c?.sede_cap || '').trim(),
+          comune: (c?.sede_comune || '').trim(),
+          provincia: (c?.sede_provincia || '').trim().toUpperCase(),
+          regime: (c?.regime_fiscale || 'RF01').trim(),
+        })
+      } catch {
+        if (alive) setCedente(null)
+      } finally {
+        if (alive) setCedenteLoading(false)
+      }
+    })()
+    return () => { alive = false }
+  }, [])
+
+  // Storico progressivo: fonte primaria il MASSIMO archiviato in DB per l'azienda
+  // (condiviso tra browser e operatori); localStorage solo come fallback offline.
+  useEffect(() => {
+    let alive = true
+    ;(async () => {
+      let last: number | null = null
+      let source: 'archivio' | 'browser' | null = null
+      try {
+        const { data } = await supabase
+          .from('fattura_xml_export' as never)
+          .select('progressivo')
+          .order('progressivo' as never, { ascending: false })
+          .limit(1)
+          .maybeSingle()
+        const p = (data as unknown as { progressivo?: number } | null)?.progressivo
+        if (typeof p === 'number' && isFinite(p)) { last = p; source = 'archivio' }
+      } catch { /* offline o non loggato: si passa al fallback browser */ }
+      if (last == null) {
+        const raw = localStorage.getItem(LS_KEY)
+        const v = raw != null && raw !== '' && isFinite(parseInt(raw, 10)) ? parseInt(raw, 10) : null
+        if (v != null) { last = v; source = 'browser' }
+      }
+      if (!alive) return
+      setHistory({ last, source })
+      if (!touched) setStartNum(String((last ?? (DEFAULT_START - 1)) + 1))
+    })()
+    return () => { alive = false }
   }, [touched])
 
   // Archivio generazioni (tabella fattura_xml_export, isolata per company via RLS)
@@ -405,6 +487,11 @@ export default function ConvertitoreFattureXML() {
     setAlerts([])
     setGenerated([])
     try {
+      if (!cedenteCompleto(cedente)) {
+        setAlerts([{ kind: 'err', text: "Dati cedente incompleti nell'anagrafica azienda (ragione sociale, P.IVA e sede completa sono obbligatori per l'XML). Completa l'anagrafica e ricarica la pagina." }])
+        return
+      }
+      const ced = cedente as Cedente
       const recs = getRecords()
       if (!recs.length) { setAlerts([{ kind: 'err', text: 'Nessuna fattura valida trovata.' }]); return }
       recs.sort((a, b) => {
@@ -424,7 +511,7 @@ export default function ConvertitoreFattureXML() {
         if (!quadra) nBad++
         if (!rec.provincia) nProvBad++
         if (!rec.dataISO) nDateBad++
-        out.push({ filename: `IT${CEDENTE_PIVA}_${pad5(prog)}.xml`, xml: buildXml(rec, prog), rec, prog, quadra })
+        out.push({ filename: `IT${ced.piva}_${pad5(prog)}.xml`, xml: buildXml(rec, prog, ced), rec, prog, quadra })
       })
       setGenerated(out)
 
@@ -435,7 +522,7 @@ export default function ConvertitoreFattureXML() {
       if (nDateBad) msgs.push({ kind: 'warn', text: `${nDateBad} fattura/e senza data valida.` })
 
       localStorage.setItem(LS_KEY, String(last))
-      setHistory({ last })
+      setHistory({ last, source: 'browser' })
 
       // Archivia in DB (ogni generazione = un batch). Se fallisce, i file restano scaricabili.
       // company_id lo valorizza il DB (DEFAULT get_my_company_id()), coerente con la RLS.
@@ -459,6 +546,7 @@ export default function ConvertitoreFattureXML() {
         const { error: insErr } = await supabase.from('fattura_xml_export' as never).insert(payload as never)
         if (insErr) throw insErr
         msgs.push({ kind: 'info', text: `Archiviati ${out.length} file: li ritrovi in «Archivio generazioni» qui sotto.` })
+        setHistory({ last, source: 'archivio' })
         await loadArchive()
       } catch (e) {
         msgs.push({ kind: 'warn', text: 'File generati ma NON archiviati (' + (e as Error).message + '). Puoi comunque scaricarli ora con «Scarica tutti (.zip)».' })
@@ -470,7 +558,7 @@ export default function ConvertitoreFattureXML() {
     } finally {
       setBusy(false)
     }
-  }, [getRecords, startNum, loadArchive])
+  }, [getRecords, startNum, loadArchive, cedente])
 
   const downloadZip = useCallback(async () => {
     if (!generated.length) return
@@ -503,15 +591,44 @@ export default function ConvertitoreFattureXML() {
       </Link>
       <PageHeader
         title="Converti Excel → XML Fattura Elettronica"
-        subtitle="NEW ZAGO S.R.L. — genera un XML FPR12 per fattura dall'export del gestionale, pronto per l'import in Agenzia delle Entrate"
+        subtitle={`${cedenteLoading ? 'Caricamento anagrafica…' : (cedente?.denominazione || 'Anagrafica azienda non configurata')} — genera un XML FPR12 per fattura dall'export del gestionale, pronto per l'import in Agenzia delle Entrate`}
       />
+
+      {/* Dati cedente (dall'anagrafica del tenant attivo) */}
+      <div className="bg-white rounded-xl border border-slate-200 p-5 space-y-2">
+        <div className="text-sm font-semibold text-slate-800">Dati cedente (dall'anagrafica azienda)</div>
+        {cedenteLoading ? (
+          <div className="text-sm text-slate-500 flex items-center gap-2"><Loader2 size={15} className="animate-spin" /> Caricamento…</div>
+        ) : cedenteCompleto(cedente) ? (
+          <div className="text-sm text-slate-600">
+            <b className="text-slate-800">{cedente!.denominazione}</b> — P.IVA {cedente!.piva} — {cedente!.indirizzo}, {cedente!.cap} {cedente!.comune} ({cedente!.provincia}) — Regime {cedente!.regime}
+            <div className="text-xs text-slate-400 mt-1">Questi dati finiscono nel blocco CedentePrestatore di ogni XML. Se sono sbagliati vanno corretti nell'anagrafica azienda, non qui.</div>
+          </div>
+        ) : (
+          <div className="rounded-lg border p-3 text-sm bg-amber-50 border-amber-200 text-amber-800 flex items-start gap-2">
+            <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+            <span>
+              <b>Dati cedente incompleti: la generazione è bloccata.</b> Per creare gli XML servono ragione sociale, P.IVA e sede completa
+              (indirizzo, CAP, comune, provincia) nell'anagrafica azienda. Mancano:{' '}
+              {[
+                !cedente?.denominazione && 'ragione sociale',
+                !pivaValida(cedente?.piva) && 'P.IVA valida (11 cifre)',
+                !cedente?.indirizzo && 'indirizzo sede',
+                !cedente?.cap && 'CAP',
+                !cedente?.comune && 'comune',
+                !cedente?.provincia && 'provincia',
+              ].filter(Boolean).join(', ')}.
+            </span>
+          </div>
+        )}
+      </div>
 
       {/* Progressivo */}
       <div className="bg-white rounded-xl border border-slate-200 p-5 space-y-3">
         <div className={`rounded-lg border p-3 text-sm ${history.last != null ? 'bg-blue-50 border-blue-200 text-blue-800' : 'bg-amber-50 border-amber-200 text-amber-800'}`}>
           {history.last != null
-            ? <>L'ultima fattura generata aveva il numero <b>{pad5(history.last)}</b>. La prossima partirà da <b>{pad5(history.last + 1)}</b>.</>
-            : <>Nessuno storico in questo browser: inserisci il <b>numero di partenza</b> (proposto: {pad5(DEFAULT_START)}).</>}
+            ? <>L'ultima fattura {history.source === 'archivio' ? "archiviata per l'azienda" : 'generata da questo browser'} aveva il numero <b>{pad5(history.last)}</b>. La prossima partirà da <b>{pad5(history.last + 1)}</b>.</>
+            : <>Nessuno storico trovato (né in archivio né in questo browser): inserisci il <b>numero di partenza</b> (proposto: {pad5(DEFAULT_START)}).</>}
         </div>
         <div className="max-w-[240px]">
           <label className="block text-xs font-medium text-slate-600 mb-1">Numero di partenza (ProgressivoInvio)</label>
@@ -566,7 +683,7 @@ export default function ConvertitoreFattureXML() {
 
       {/* Azioni */}
       <div className="flex flex-wrap items-center gap-3">
-        <button onClick={generate} disabled={busy}
+        <button onClick={generate} disabled={busy || cedenteLoading || !cedenteCompleto(cedente)}
           className="inline-flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white text-sm rounded-lg font-medium transition">
           {busy ? <Loader2 size={16} className="animate-spin" /> : <FileCode size={16} />}
           Genera XML
@@ -719,7 +836,7 @@ export default function ConvertitoreFattureXML() {
       {/* Note */}
       <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-xs text-slate-500 space-y-1.5 leading-relaxed">
         <div><b>Strumento provvisorio.</b> Gli XML <b>non sono firmati</b> (.p7m) né validati contro lo schema XSD ufficiale: hanno la stessa forma del modello già usato per l'import manuale.</div>
-        <div>La riga di dettaglio è <b>unica e sintetica</b> («Fornitura merce vs/ordine»), non articolo per articolo. Cedente fisso: NEW ZAGO S.R.L., P.IVA 07362100484, VIA IX FEBBRAIO 7, 50129 FIRENZE (FI), RF01, aliquota 22%.</div>
+        <div>La riga di dettaglio è <b>unica e sintetica</b> («Fornitura merce vs/ordine»), non articolo per articolo. Il cedente è <b>l'azienda del tenant attivo</b> (dati letti dall'anagrafica, mostrati in alto); l'aliquota è fissa al 22%.</div>
         <div>Prima di generare, per ogni riga si verifica che <b>Imponibile + Imposta = Totale</b> (tolleranza 0,01); le righe che non quadrano sono evidenziate ma generate comunque.</div>
       </div>
     </div>

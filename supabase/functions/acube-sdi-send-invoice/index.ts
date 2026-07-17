@@ -23,6 +23,12 @@
 //
 // Risposta:
 //   { acube_uuid, sdi_file_id, marking, total }
+//
+// Prerequisito: company_settings con sede legale strutturata (migration 105):
+// sede_indirizzo, sede_cap, sede_comune, sede_provincia (+ regime_fiscale).
+// Senza sede configurata → 400 (mai indirizzi di default su fatture fiscali).
+// Anti-doppia-emissione: stesso invoice_number gia' presente in
+// acube_sdi_invoices (direction=active, stesso sender_vat) → 409.
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
@@ -95,9 +101,46 @@ Deno.serve(async (req: Request) => {
 
     const stage = body.stage ?? "sandbox";
 
-    // Recupera company corrente (cedente)
+    // Recupera company corrente (cedente) — dati SEMPRE dal tenant attivo, mai hardcoded
     const { data: company } = await supabase.from("companies").select("name, vat_number, fiscal_code").limit(1).maybeSingle();
     if (!company?.vat_number) return jsonError(500, "Company vat_number not configured");
+    const senderVat = String(company.vat_number).replace(/\s/g, "").replace(/^IT/i, "");
+    // 11 cifre esatte: un segnaposto (es. '07XXXXXXXXX') non deve mai finire su una fattura fiscale
+    if (!/^\d{11}$/.test(senderVat)) {
+      return jsonError(400, `companies.vat_number non valida ('${company.vat_number}'): attese 11 cifre. Correggere l'anagrafica prima di emettere fatture.`);
+    }
+
+    // Anagrafica estesa: ragione sociale, sede legale strutturata e regime fiscale
+    // (migration 105). La sede e' OBBLIGATORIA: su una fattura fiscale un indirizzo
+    // di default inventato non e' accettabile.
+    const { data: cs } = await supabase
+      .from("company_settings")
+      .select("ragione_sociale, sede_indirizzo, sede_cap, sede_comune, sede_provincia, regime_fiscale")
+      .limit(1)
+      .maybeSingle();
+    const sedeIndirizzo = cs?.sede_indirizzo?.trim();
+    const sedeCap = cs?.sede_cap?.trim();
+    const sedeComune = cs?.sede_comune?.trim();
+    const sedeProvincia = cs?.sede_provincia?.trim()?.toUpperCase();
+    if (!sedeIndirizzo || !sedeCap || !sedeComune || !sedeProvincia) {
+      return jsonError(400, "Sede legale del cedente non configurata (company_settings.sede_indirizzo/sede_cap/sede_comune/sede_provincia). Completare l'anagrafica azienda prima di emettere fatture.");
+    }
+    const cedenteDenominazione = cs?.ragione_sociale?.trim() || company.name;
+    const regimeFiscale = cs?.regime_fiscale?.trim() || "RF01";
+
+    // Guardia anti-doppia-emissione: stesso numero fattura attiva gia' inviato
+    // (retry di rete, doppio click) → 409, mai una seconda emissione a SDI.
+    const { data: dup } = await supabase
+      .from("acube_sdi_invoices")
+      .select("acube_uuid, marking")
+      .eq("direction", "active")
+      .eq("sender_vat", senderVat)
+      .eq("invoice_number", body.invoice.number)
+      .limit(1)
+      .maybeSingle();
+    if (dup) {
+      return jsonError(409, `Fattura ${body.invoice.number} gia' emessa via SDI (uuid ${dup.acube_uuid}, stato ${dup.marking ?? "n/d"}). Doppia emissione bloccata: usare un nuovo numero fattura.`);
+    }
 
     // Recupera JWT A-Cube cachato
     const { data: tokenRow } = await supabase.from("acube_tokens").select("jwt").eq("stage", stage).maybeSingle();
@@ -136,16 +179,16 @@ Deno.serve(async (req: Request) => {
         dati_trasmissione: { codice_destinatario: "0000000" },
         cedente_prestatore: {
           dati_anagrafici: {
-            id_fiscale_iva: { id_paese: "IT", id_codice: company.vat_number },
-            anagrafica: { denominazione: company.name },
-            regime_fiscale: "RF01",
+            id_fiscale_iva: { id_paese: "IT", id_codice: senderVat },
+            anagrafica: { denominazione: cedenteDenominazione },
+            regime_fiscale: regimeFiscale,
           },
-          // Sede cedente: usa valori della company se presenti, altrimenti default Milano (provincia DEVE essere 2 char per A-Cube)
+          // Sede cedente: SEMPRE dall'anagrafica del tenant (provincia 2 char per A-Cube)
           sede: {
-            indirizzo: "Via Outlet 1",
-            cap: "20100",
-            comune: "Milano",
-            provincia: "MI",
+            indirizzo: sedeIndirizzo,
+            cap: sedeCap,
+            comune: sedeComune,
+            provincia: sedeProvincia.slice(0, 2),
             nazione: "IT",
           },
         },
@@ -209,7 +252,7 @@ Deno.serve(async (req: Request) => {
     // INSERT in acube_sdi_invoices (trigger DB poi popola electronic_invoices)
     const { error: insErr } = await supabase.from("acube_sdi_invoices").insert({
       acube_uuid: acubeData.uuid,
-      business_fiscal_id: company.vat_number,
+      business_fiscal_id: senderVat,
       direction: "active",
       type: detail.type,
       marking: detail.marking ?? "sent",
@@ -222,8 +265,8 @@ Deno.serve(async (req: Request) => {
       currency: body.invoice.currency ?? "EUR",
       total_amount: totalDocument,
       to_pa: false,
-      sender_vat: company.vat_number,
-      sender_name: company.name,
+      sender_vat: senderVat,
+      sender_name: cedenteDenominazione,
       recipient_vat: body.cessionario.fiscal_id,
       recipient_name: body.cessionario.name,
       recipient_code: "0000000",
