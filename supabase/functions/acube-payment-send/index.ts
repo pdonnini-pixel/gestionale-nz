@@ -13,10 +13,15 @@
 //
 // Risposta:
 //   {
-//     batch_id, total_items, initiated, failed,
+//     batch_id, total_items, initiated, failed, skipped,
 //     items: [{ item_id, payable_id, amount, beneficiary,
-//               acube_payment_uuid?, acube_authorize_url?, error? }]
+//               acube_payment_uuid?, acube_authorize_url?, error?, skipped? }]
 //   }
+//
+// Idempotenza: ogni item viene "claimato" con un UPDATE condizionale atomico
+// (status pending/draft + acube_payment_uuid IS NULL → processing) prima della
+// chiamata A-Cube. Un'invocazione concorrente (doppio click, retry di rete)
+// trova 0 righe e salta l'item: mai doppio pagamento SEPA.
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
@@ -49,7 +54,7 @@ Deno.serve(async (req: Request) => {
     if (!isServiceRole) {
       const { data: userData, error: userErr } = await supabase.auth.getUser(token);
       if (userErr || !userData?.user) return jsonError(401, "Invalid JWT");
-      const roleData = userData.user.app_metadata?.role ?? userData.user.user_metadata?.role;
+      const roleData = userData.user.app_metadata?.role; // SOLO app_metadata: user_metadata e modificabile dal client (privilege escalation)
       const userRoles: string[] = Array.isArray(roleData) ? roleData : (roleData ? [roleData] : []);
       const allowedRoles = ["super_advisor", "cfo"];
       if (!userRoles.some((r) => allowedRoles.includes(r))) {
@@ -61,6 +66,7 @@ Deno.serve(async (req: Request) => {
     if (!body?.batch_id) return jsonError(400, "Missing batch_id");
 
     const stage = body.stage ?? "sandbox";
+    if (!OB_BASE_URL[stage]) return jsonError(400, `Stage non valido: ${stage}`);
 
     // 1. Recupera batch + items + bank_account sorgente
     const { data: batch, error: batchErr } = await supabase
@@ -106,6 +112,7 @@ Deno.serve(async (req: Request) => {
     const results: Array<Record<string, unknown>> = [];
     let initiated = 0;
     let failed = 0;
+    let skipped = 0;
 
     for (const item of items as Array<Record<string, string | number>>) {
       const itemId = item.id as string;
@@ -116,6 +123,27 @@ Deno.serve(async (req: Request) => {
       if (!beneficiaryIban) {
         results.push({ item_id: itemId, error: "Manca IBAN beneficiario" });
         failed++;
+        continue;
+      }
+
+      // Claim atomico anti-doppio-pagamento: l'UPDATE condizionale riesce per
+      // UNA sola invocazione concorrente (doppio click, retry di rete). Se
+      // un'altra richiesta ha gia' preso in carico l'item, 0 righe → skip.
+      const { data: claimedRows, error: claimErr } = await supabase
+        .from("payment_batch_items")
+        .update({ status: "processing", acube_status: "sending" })
+        .eq("id", itemId)
+        .in("status", ["pending", "draft"])
+        .is("acube_payment_uuid", null)
+        .select("id");
+      if (claimErr) {
+        results.push({ item_id: itemId, error: `Claim error: ${claimErr.message}` });
+        failed++;
+        continue;
+      }
+      if (!claimedRows || claimedRows.length === 0) {
+        results.push({ item_id: itemId, skipped: "Gia' in elaborazione da un'altra richiesta" });
+        skipped++;
         continue;
       }
 
@@ -170,7 +198,12 @@ Deno.serve(async (req: Request) => {
         initiated++;
       } else {
         const errMsg = (respJson.detail as string) ?? (respJson.message as string) ?? respBody.slice(0, 300);
+        // A-Cube ha rifiutato: rilascia il claim (status torna 'pending') cosi'
+        // un nuovo invio puo' riprendere l'item. Se invece la function crasha
+        // DOPO il claim ma PRIMA della risposta, l'item resta 'processing' e
+        // NON verra' mai re-inviato in automatico (fail-safe: mai doppio SEPA).
         await supabase.from("payment_batch_items").update({
+          status: "pending",
           acube_status: "failed",
           execution_notes: errMsg,
         }).eq("id", itemId);
@@ -191,6 +224,7 @@ Deno.serve(async (req: Request) => {
       total_items: items.length,
       initiated,
       failed,
+      skipped,
       items: results,
     });
   } catch (e) {

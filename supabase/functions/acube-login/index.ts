@@ -66,9 +66,11 @@ Deno.serve(async (req: Request) => {
       const { data: userData, error: userErr } = await supabase.auth.getUser(token);
       if (userErr || !userData?.user) return jsonError(401, "Invalid JWT");
 
-      const role = userData.user.app_metadata?.role
-        ?? userData.user.user_metadata?.role;
-      if (role !== "super_advisor") {
+      // SOLO app_metadata: user_metadata e modificabile dal client (privilege escalation).
+      // role puo essere stringa o array (multi-role), come nelle altre functions.
+      const roleData = userData.user.app_metadata?.role;
+      const userRoles: string[] = Array.isArray(roleData) ? roleData : (roleData ? [roleData] : []);
+      if (!userRoles.includes("super_advisor")) {
         return jsonError(403, "Only super_advisor can refresh A-Cube token manually");
       }
     }

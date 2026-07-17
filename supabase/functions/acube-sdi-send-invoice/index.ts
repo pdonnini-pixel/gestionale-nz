@@ -80,7 +80,7 @@ Deno.serve(async (req: Request) => {
       const { data: userData, error: userErr } = await supabase.auth.getUser(token);
       if (userErr || !userData?.user) return jsonError(401, "Invalid JWT");
       // role può essere stringa O array (es. ["super_advisor", "budget_approver"])
-      const roleData = userData.user.app_metadata?.role ?? userData.user.user_metadata?.role;
+      const roleData = userData.user.app_metadata?.role; // SOLO app_metadata: user_metadata e modificabile dal client (privilege escalation)
       const userRoles: string[] = Array.isArray(roleData) ? roleData : (roleData ? [roleData] : []);
       const allowedRoles = ["super_advisor", "contabile", "cfo"];
       if (!userRoles.some((r) => allowedRoles.includes(r))) {
