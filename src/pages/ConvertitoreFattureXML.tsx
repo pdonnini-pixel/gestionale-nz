@@ -32,8 +32,11 @@ interface Cedente {
   provincia: string
   regime: string
 }
+// P.IVA valida = esattamente 11 cifre: scarta segnaposto tipo '07XXXXXXXXX'
+const pivaValida = (v: string | null | undefined): boolean => /^\d{11}$/.test((v ?? '').replace(/\s/g, '').replace(/^IT/i, ''))
+const pulisciPiva = (v: string | null | undefined): string => (v ?? '').replace(/\s/g, '').replace(/^IT/i, '')
 const cedenteCompleto = (c: Cedente | null): boolean =>
-  !!c && !!c.denominazione && !!c.piva && !!c.indirizzo && !!c.cap && !!c.comune && !!c.provincia
+  !!c && !!c.denominazione && pivaValida(c.piva) && !!c.indirizzo && !!c.cap && !!c.comune && !!c.provincia
 
 // Fallback SOLO offline/non loggato: il progressivo di riferimento e' il massimo
 // archiviato in fattura_xml_export (per-azienda via RLS, condiviso tra browser).
@@ -309,9 +312,14 @@ export default function ConvertitoreFattureXML() {
           ragione_sociale?: string; partita_iva?: string; sede_indirizzo?: string
           sede_cap?: string; sede_comune?: string; sede_provincia?: string; regime_fiscale?: string
         } | null
+        // P.IVA: prima companies.vat_number (fonte usata dai flussi A-Cube in
+        // produzione), poi company_settings; si accetta solo un valore a 11
+        // cifre, cosi' un segnaposto in una delle due tabelle non finisce mai
+        // in un XML fiscale.
+        const pivaCandidata = [co?.vat_number, c?.partita_iva].map(pulisciPiva).find(pivaValida) ?? ''
         setCedente({
           denominazione: (c?.ragione_sociale || co?.name || '').trim(),
-          piva: (c?.partita_iva || co?.vat_number || '').replace(/\s/g, '').replace(/^IT/i, ''),
+          piva: pivaCandidata,
           indirizzo: (c?.sede_indirizzo || '').trim(),
           cap: (c?.sede_cap || '').trim(),
           comune: (c?.sede_comune || '').trim(),
@@ -604,7 +612,7 @@ export default function ConvertitoreFattureXML() {
               (indirizzo, CAP, comune, provincia) nell'anagrafica azienda. Mancano:{' '}
               {[
                 !cedente?.denominazione && 'ragione sociale',
-                !cedente?.piva && 'P.IVA',
+                !pivaValida(cedente?.piva) && 'P.IVA valida (11 cifre)',
                 !cedente?.indirizzo && 'indirizzo sede',
                 !cedente?.cap && 'CAP',
                 !cedente?.comune && 'comune',

@@ -104,6 +104,11 @@ Deno.serve(async (req: Request) => {
     // Recupera company corrente (cedente) — dati SEMPRE dal tenant attivo, mai hardcoded
     const { data: company } = await supabase.from("companies").select("name, vat_number, fiscal_code").limit(1).maybeSingle();
     if (!company?.vat_number) return jsonError(500, "Company vat_number not configured");
+    const senderVat = String(company.vat_number).replace(/\s/g, "").replace(/^IT/i, "");
+    // 11 cifre esatte: un segnaposto (es. '07XXXXXXXXX') non deve mai finire su una fattura fiscale
+    if (!/^\d{11}$/.test(senderVat)) {
+      return jsonError(400, `companies.vat_number non valida ('${company.vat_number}'): attese 11 cifre. Correggere l'anagrafica prima di emettere fatture.`);
+    }
 
     // Anagrafica estesa: ragione sociale, sede legale strutturata e regime fiscale
     // (migration 105). La sede e' OBBLIGATORIA: su una fattura fiscale un indirizzo
@@ -129,7 +134,7 @@ Deno.serve(async (req: Request) => {
       .from("acube_sdi_invoices")
       .select("acube_uuid, marking")
       .eq("direction", "active")
-      .eq("sender_vat", company.vat_number)
+      .eq("sender_vat", senderVat)
       .eq("invoice_number", body.invoice.number)
       .limit(1)
       .maybeSingle();
@@ -174,7 +179,7 @@ Deno.serve(async (req: Request) => {
         dati_trasmissione: { codice_destinatario: "0000000" },
         cedente_prestatore: {
           dati_anagrafici: {
-            id_fiscale_iva: { id_paese: "IT", id_codice: company.vat_number },
+            id_fiscale_iva: { id_paese: "IT", id_codice: senderVat },
             anagrafica: { denominazione: cedenteDenominazione },
             regime_fiscale: regimeFiscale,
           },
@@ -247,7 +252,7 @@ Deno.serve(async (req: Request) => {
     // INSERT in acube_sdi_invoices (trigger DB poi popola electronic_invoices)
     const { error: insErr } = await supabase.from("acube_sdi_invoices").insert({
       acube_uuid: acubeData.uuid,
-      business_fiscal_id: company.vat_number,
+      business_fiscal_id: senderVat,
       direction: "active",
       type: detail.type,
       marking: detail.marking ?? "sent",
@@ -260,7 +265,7 @@ Deno.serve(async (req: Request) => {
       currency: body.invoice.currency ?? "EUR",
       total_amount: totalDocument,
       to_pa: false,
-      sender_vat: company.vat_number,
+      sender_vat: senderVat,
       sender_name: cedenteDenominazione,
       recipient_vat: body.cessionario.fiscal_id,
       recipient_name: body.cessionario.name,
