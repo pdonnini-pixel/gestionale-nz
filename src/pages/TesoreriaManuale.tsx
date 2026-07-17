@@ -542,18 +542,26 @@ function Pagination({ page, totalPages, onPageChange }: { page: number; totalPag
 // ═══ TAB 1: PANORAMICA ═══
 // ═══════════════════════════════════════════════════════════════════
 
-type AccountT = Record<string, unknown> & { id: string; bank_name?: string | null; account_name?: string | null; current_balance?: number | null; credit_line?: number | null; iban?: string | null; account_type?: string | null; last_balance_update?: string | null }
+type AccountT = Record<string, unknown> & { id: string; bank_name?: string | null; account_name?: string | null; current_balance?: number | null; credit_line?: number | null; iban?: string | null; account_type?: string | null; last_balance_update?: string | null; is_active?: boolean | null }
 type TransactionT = Record<string, unknown> & { id: string; transaction_date?: string | null; amount?: number | null; type?: string | null; description?: string | null; bank_account_id?: string | null; reconciliation_status?: string | null; counterpart_name?: string | null; is_reconciled?: boolean | null; note?: string | null; reconciled_at?: string | null; reconciled_invoice_id?: string | null; category?: string | null }
 type PayableT = Record<string, unknown> & { id: string; due_date?: string | null; amount?: number | null; gross_amount?: number | null; amount_paid?: number | null; amount_remaining?: number | null; supplier_name?: string | null; invoice_number?: string | null; status?: string | null; suppliers?: { ragione_sociale?: string | null; name?: string | null; iban?: string | null } | null }
 function TabPanoramica({ accounts, transactions, payables, onNavigate }: { accounts: AccountT[]; transactions: TransactionT[]; payables: PayableT[]; onNavigate: (tab: string) => void }) {
-  const totalBalance = useMemo(() =>
-    accounts.reduce<number>((sum, a) => sum + (Number(a.current_balance) || 0), 0),
+  // Conta solo i conti attivi: un conto disattivato (es. doppione lasciato dal
+  // ri-collegamento A-Cube con lo stesso IBAN) NON deve gonfiare la cassa. Coerente
+  // con lo Scadenzario e le altre viste, che filtrano tutte is_active.
+  const activeAccounts = useMemo(() =>
+    accounts.filter(a => a.is_active !== false),
     [accounts]
   )
 
+  const totalBalance = useMemo(() =>
+    activeAccounts.reduce<number>((sum, a) => sum + (Number(a.current_balance) || 0), 0),
+    [activeAccounts]
+  )
+
   const totalCreditLine = useMemo(() =>
-    accounts.reduce<number>((sum, a) => sum + (Number(a.credit_line) || 0), 0),
-    [accounts]
+    activeAccounts.reduce<number>((sum, a) => sum + (Number(a.credit_line) || 0), 0),
+    [activeAccounts]
   )
 
   const last30 = useMemo(() => {
@@ -607,7 +615,7 @@ function TabPanoramica({ accounts, transactions, payables, onNavigate }: { accou
   type BankSummaryT = { name: string; balance: number; count: number; accounts: AccountT[] }
   const bankSummary = useMemo<BankSummaryT[]>(() => {
     const banks: Record<string, BankSummaryT> = {}
-    accounts.forEach(a => {
+    activeAccounts.forEach(a => {
       const key = a.bank_name || 'Altro'
       if (!banks[key]) banks[key] = { name: key, balance: 0, count: 0, accounts: [] }
       banks[key].balance += Number(a.current_balance) || 0
@@ -615,7 +623,7 @@ function TabPanoramica({ accounts, transactions, payables, onNavigate }: { accou
       banks[key].accounts.push(a)
     })
     return Object.values(banks).sort((a, b) => b.balance - a.balance)
-  }, [accounts])
+  }, [activeAccounts])
 
   return (
     <div className="space-y-6">
@@ -625,7 +633,7 @@ function TabPanoramica({ accounts, transactions, payables, onNavigate }: { accou
           icon={Wallet}
           title="Posizione di cassa"
           value={`${fmt(totalBalance)} \u20AC`}
-          subtitle={`${accounts.length} conti attivi`}
+          subtitle={`${activeAccounts.length} conti attivi`}
           color="blue"
           onClick={() => onNavigate('conti')}
         />
