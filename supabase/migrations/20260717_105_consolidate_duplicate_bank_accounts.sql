@@ -77,6 +77,12 @@ WHERE ba.iban IS NOT NULL AND trim(ba.iban) <> ''
 -- ---------------------------------------------------------------------
 -- 2) Funzione riusabile di consolidamento
 -- ---------------------------------------------------------------------
+-- DROP esplicito: un'eventuale versione precedente con firma OUT diversa (es. da un
+-- run parziale su un tenant SENZA doppioni, dove il vecchio CREATE era arrivato al
+-- COMMIT) impedirebbe il CREATE OR REPLACE ("cannot change return type of existing
+-- function"). Il DROP la rimuove prima di ricrearla. Idempotente.
+DROP FUNCTION IF EXISTS public.fn_consolidate_duplicate_bank_accounts();
+
 CREATE OR REPLACE FUNCTION public.fn_consolidate_duplicate_bank_accounts()
 RETURNS TABLE(
   out_company_id uuid,
