@@ -79,17 +79,18 @@ WHERE ba.iban IS NOT NULL AND trim(ba.iban) <> ''
 -- ---------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.fn_consolidate_duplicate_bank_accounts()
 RETURNS TABLE(
-  company_id uuid,
-  iban text,
-  canonical_id uuid,
-  dups_merged int,
-  refs_repointed bigint,
-  movements_repointed bigint,
-  movements_left_on_dup bigint
+  out_company_id uuid,
+  out_iban text,
+  out_canonical_id uuid,
+  out_dups_merged int,
+  out_refs_repointed bigint,
+  out_movements_repointed bigint,
+  out_movements_left_on_dup bigint
 )
 LANGUAGE plpgsql
 SET search_path = public, pg_temp
 AS $$
+#variable_conflict use_column
 DECLARE
   g            RECORD;   -- gruppo (company_id, iban)
   v_canonical  uuid;
@@ -232,13 +233,13 @@ BEGIN
       WHERE id = v_dup;
     END LOOP;
 
-    company_id := g.cid;
-    iban := g.iban;
-    canonical_id := v_canonical;
-    dups_merged := array_length(v_dups, 1);
-    refs_repointed := v_refs_tot;
-    movements_repointed := v_moved_tot;
-    movements_left_on_dup := v_left_tot;
+    out_company_id := g.cid;
+    out_iban := g.iban;
+    out_canonical_id := v_canonical;
+    out_dups_merged := array_length(v_dups, 1);
+    out_refs_repointed := v_refs_tot;
+    out_movements_repointed := v_moved_tot;
+    out_movements_left_on_dup := v_left_tot;
     RETURN NEXT;
   END LOOP;
 END;
@@ -252,7 +253,7 @@ DECLARE r RECORD;
 BEGIN
   FOR r IN SELECT * FROM public.fn_consolidate_duplicate_bank_accounts() LOOP
     RAISE NOTICE '[105] Consolidato IBAN % (company %): canonico=%, doppioni=%, refs=%, movimenti spostati=%, movimenti residui sul doppione=%',
-      r.iban, r.company_id, r.canonical_id, r.dups_merged, r.refs_repointed, r.movements_repointed, r.movements_left_on_dup;
+      r.out_iban, r.out_company_id, r.out_canonical_id, r.out_dups_merged, r.out_refs_repointed, r.out_movements_repointed, r.out_movements_left_on_dup;
   END LOOP;
 END $$;
 
