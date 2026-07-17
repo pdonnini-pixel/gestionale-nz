@@ -1765,13 +1765,21 @@ export const PAGE_GUIDES: PageGuide[] = [
     "sections": [
       {
         "heading": "Attenzione: è uno strumento provvisorio",
-        "body": "Gli XML generati NON sono firmati digitalmente (niente file .p7m) e non sono validati contro lo schema ufficiale dell'Agenzia delle Entrate: hanno comunque la stessa forma già usata in passato per l'importazione manuale. Ogni fattura ha un'unica riga di dettaglio generica (\"Fornitura merce vs/ordine\"), non articolo per articolo. I dati dell'azienda cedente (NEW ZAGO S.R.L., P.IVA 07362100484) e l'aliquota IVA al 22% sono fissi e non modificabili da questa pagina."
+        "body": "Gli XML generati NON sono firmati digitalmente (niente file .p7m) e non sono validati contro lo schema ufficiale dell'Agenzia delle Entrate: hanno comunque la stessa forma già usata in passato per l'importazione manuale. Ogni fattura ha un'unica riga di dettaglio generica (\"Fornitura merce vs/ordine\"), non articolo per articolo. L'aliquota IVA al 22% è fissa e non modificabile da questa pagina."
+      },
+      {
+        "heading": "I dati del cedente (la tua azienda)",
+        "body": "I dati dell'azienda che emette le fatture — ragione sociale, P.IVA, sede legale e regime fiscale — vengono letti automaticamente dall'anagrafica aziendale e mostrati nel riquadro \"Dati cedente\" in alto. Sono quelli che finiscono in ogni XML generato. Se l'anagrafica è incompleta (ad esempio manca la sede legale), la pagina lo segnala con un avviso e il pulsante \"Genera XML\" resta disattivato finché i dati non vengono completati: gli XML non vengono mai creati con dati cedente mancanti o inventati.",
+        "steps": [
+          "Controlla il riquadro \"Dati cedente\" in alto: deve mostrare ragione sociale, P.IVA, sede e regime della tua azienda",
+          "Se compare l'avviso di dati incompleti, l'anagrafica azienda va completata prima di poter generare gli XML"
+        ]
       },
       {
         "heading": "Il numero di partenza (progressivo)",
-        "body": "Ogni fattura elettronica ha bisogno di un numero progressivo di trasmissione, che deve sempre aumentare rispetto all'ultimo usato. La pagina ricorda in automatico, nel browser che stai usando, l'ultimo numero generato e propone già il numero successivo. Se non c'è nessuno storico salvato, viene proposto un numero di partenza di default che puoi comunque modificare.",
+        "body": "Ogni fattura elettronica ha bisogno di un numero progressivo di trasmissione, che deve sempre aumentare rispetto all'ultimo usato. La pagina propone in automatico il numero successivo all'ultimo progressivo salvato nell'Archivio generazioni dell'azienda: lo storico è quindi condiviso, anche se cambi computer o browser. Solo se l'archivio non è raggiungibile viene usato come ripiego l'ultimo numero ricordato dal browser. Se non c'è nessuno storico, viene proposto un numero di partenza di default che puoi comunque modificare.",
         "steps": [
-          "Controlla il riquadro in alto: ti dice qual era l'ultimo numero generato e quale sarà il prossimo",
+          "Controlla il riquadro in alto: ti dice qual era l'ultimo numero (e da dove arriva: archivio dell'azienda o questo browser) e quale sarà il prossimo",
           "Modifica il \"Numero di partenza\" solo se sei sicura che il valore proposto non sia corretto"
         ]
       },
@@ -1823,11 +1831,11 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "q": "Perché il numero di partenza proposto cambia da una volta all'altra?",
-        "a": "Il sistema ricorda, nel browser che stai usando, l'ultimo numero progressivo generato e propone automaticamente il numero successivo, per evitare di riutilizzare per errore un numero già assegnato."
+        "a": "Il sistema propone il numero successivo all'ultimo progressivo salvato nell'Archivio generazioni dell'azienda (condiviso tra computer e browser diversi), per evitare di riutilizzare per errore un numero già assegnato. Solo se l'archivio non è raggiungibile viene usato l'ultimo numero ricordato dal browser."
       },
       {
         "q": "Posso modificare l'aliquota IVA o i dati dell'azienda che emette la fattura?",
-        "a": "No, in questa pagina l'aliquota IVA (22%) e i dati del cedente (NEW ZAGO S.R.L.) sono fissi e non modificabili."
+        "a": "L'aliquota IVA (22%) è fissa e non modificabile. I dati del cedente invece non sono più fissi: vengono letti dall'anagrafica della tua azienda e mostrati nel riquadro \"Dati cedente\" in alto; per correggerli va aggiornata l'anagrafica aziendale, non questa pagina."
       },
       {
         "q": "Se elimino per sbaglio una generazione dall'archivio, posso recuperarla?",
