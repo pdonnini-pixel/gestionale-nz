@@ -1932,8 +1932,12 @@ export const PAGE_GUIDES: PageGuide[] = [
         "a": "È il codice tributo da riportare sul modello F24 per quel pagamento (ad esempio 6001 per l'IVA). Se lo inserisci, comparirà anche sotto il titolo nella tabella come promemoria."
       },
       {
-        "q": "Quando segno una scadenza come pagata o la elimino, come so se è andata a buon fine?",
-        "a": "Ora compare un messaggio di conferma ('Scadenza segnata come pagata' / 'Scadenza eliminata') oppure, se qualcosa va storto, un messaggio d'errore chiaro. Prima, in caso di problema (rete o permessi), l'operazione poteva non riuscire senza alcun avviso e la lista si ricaricava come se fosse tutto a posto."
+        "q": "Quando segno una scadenza come pagata o la annullo, come so se è andata a buon fine?",
+        "a": "Ora compare un messaggio di conferma ('Scadenza segnata come pagata' / 'Scadenza annullata') oppure, se qualcosa va storto, un messaggio d'errore chiaro. Prima, in caso di problema (rete o permessi), l'operazione poteva non riuscire senza alcun avviso e la lista si ricaricava come se fosse tutto a posto."
+      },
+      {
+        "q": "Cosa succede quando 'elimino' (cestino) una scadenza fiscale?",
+        "a": "La scadenza NON viene cancellata definitivamente: viene messa nello stato 'Annullato'. Sparisce dall'elenco 'Da pagare', ma resta consultabile nella scheda 'Tutti' come promemoria storico. È una scelta voluta per non perdere dati: se serve, la scadenza è sempre rintracciabile."
       }
     ]
   },
@@ -2214,6 +2218,10 @@ export const PAGE_GUIDES: PageGuide[] = [
       {
         "q": "La nuova password deve rispettare regole particolari?",
         "a": "L'unico requisito richiesto dalla pagina è la lunghezza minima di 8 caratteri e che le due password inserite coincidano tra loro."
+      },
+      {
+        "q": "Perché non riesco a eliminare una voce di costo o un centro di costo?",
+        "a": "Per sicurezza (nessuna perdita di dati) l'eliminazione viene bloccata se la voce o il centro è ancora collegato a qualcosa: righe di budget, voci figlie, altre voci che lo usano come centro predefinito, o utenti che ne hanno l'accesso. Un messaggio indica quanti collegamenti esistono. Rimuovi prima quei collegamenti (o lascia la voce inutilizzata): così non restano dati 'orfani' che puntano a qualcosa che non esiste più."
       }
     ]
   },
@@ -2369,6 +2377,10 @@ export const PAGE_GUIDES: PageGuide[] = [
       {
         "q": "Se cancello un ticket per sbaglio, posso recuperarlo?",
         "a": "No, la cancellazione è definitiva e irreversibile: per questo il sistema chiede sempre una conferma esplicita prima di procedere, sia per un singolo ticket che per una selezione multipla."
+      },
+      {
+        "q": "Cancellando un ticket, cosa succede ai suoi allegati (screenshot)?",
+        "a": "Vengono rimossi anche gli allegati dallo spazio di archiviazione, sia cancellando un singolo ticket sia una selezione multipla. Prima i file restavano abbandonati nello storage occupando spazio inutilmente; ora la pulizia è automatica."
       }
     ]
   }
