@@ -425,8 +425,8 @@ function CreateTicketModal({ open, onClose, onCreated }: CreateTicketModalProps)
             failures.push(f.name)
             continue
           }
-          const { data: pub } = supabase.storage.from('media').getPublicUrl(path)
-          uploaded.push({ url: pub.publicUrl, name: f.name, size: f.size, type: f.type })
+          // Bucket privato: salviamo il PATH; l'URL firmato si genera alla visualizzazione.
+          uploaded.push({ path, name: f.name, size: f.size, type: f.type })
         }
         if (uploaded.length > 0) {
           const { data: updated } = await supabase
@@ -1023,6 +1023,27 @@ function TicketDetail({ ticket, onBack, onUpdated, onDeleted }: TicketDetailProp
     return []
   }, [ticket.allegati, ticket.screenshot_url])
 
+  // Bucket 'media' PRIVATO: per ogni allegato genero un URL firmato (valido 1h) al
+  // momento della visualizzazione. Allegati nuovi → firmati dal `path`; vecchi
+  // allegati con solo URL pubblico → ricavo il path (dopo '/media/') e firmo comunque.
+  const [signedUrls, setSignedUrls] = useState<Record<number, string>>({})
+  useEffect(() => {
+    let alive = true
+    ;(async () => {
+      const out: Record<number, string> = {}
+      await Promise.all(allegatiVisualizzati.map(async (att, idx) => {
+        let path = att.path ?? null
+        if (!path && att.url) { const i = att.url.indexOf('/media/'); if (i >= 0) path = att.url.slice(i + 7) }
+        if (!path) { if (att.url) out[idx] = att.url; return }
+        const { data } = await supabase.storage.from('media').createSignedUrl(path, 3600)
+        if (data?.signedUrl) out[idx] = data.signedUrl
+        else if (att.url) out[idx] = att.url
+      }))
+      if (alive) setSignedUrls(out)
+    })()
+    return () => { alive = false }
+  }, [allegatiVisualizzati])
+
   const autoreLabel: string =
     (profile?.full_name as string | undefined) ??
     (session?.user?.email as string | undefined) ??
@@ -1327,20 +1348,24 @@ function TicketDetail({ ticket, onBack, onUpdated, onDeleted }: TicketDetailProp
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
                 {allegatiVisualizzati.map((att, idx) => {
                   const isImage = att.type.startsWith('image/')
+                  const src = signedUrls[idx]
                   if (isImage) {
                     return (
                       <button
-                        key={`${att.url}-${idx}`}
+                        key={`att-${idx}`}
                         type="button"
-                        onClick={() => setLightboxUrl(att.url)}
-                        className="block group relative aspect-video bg-slate-100 rounded-lg overflow-hidden border border-slate-200"
+                        disabled={!src}
+                        onClick={() => src && setLightboxUrl(src)}
+                        className="block group relative aspect-video bg-slate-100 rounded-lg overflow-hidden border border-slate-200 disabled:cursor-default"
                         title={att.name}
                       >
-                        <img
-                          src={att.url}
-                          alt={att.name}
-                          className="w-full h-full object-cover"
-                        />
+                        {src ? (
+                          <img src={src} alt={att.name} className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center">
+                            <div className="w-5 h-5 border-2 border-slate-300 border-t-slate-500 rounded-full animate-spin" />
+                          </div>
+                        )}
                         <div className="absolute inset-0 flex items-center justify-center bg-slate-900/0 group-hover:bg-slate-900/30 transition-colors">
                           <Eye className="w-5 h-5 text-white opacity-0 group-hover:opacity-100" />
                         </div>
@@ -1349,11 +1374,11 @@ function TicketDetail({ ticket, onBack, onUpdated, onDeleted }: TicketDetailProp
                   }
                   return (
                     <a
-                      key={`${att.url}-${idx}`}
-                      href={att.url}
+                      key={`att-${idx}`}
+                      href={src || undefined}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="flex items-center gap-2 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg hover:bg-slate-100 text-sm text-slate-700"
+                      className={`flex items-center gap-2 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-700 ${src ? 'hover:bg-slate-100' : 'opacity-50 pointer-events-none'}`}
                       title={att.name}
                     >
                       <FileText className="w-5 h-5 text-slate-400 shrink-0" />
