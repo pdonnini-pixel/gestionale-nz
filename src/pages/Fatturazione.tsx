@@ -9,6 +9,7 @@ const VALID_FATTURAZIONE_TABS: FatturazioneTab[] = ['passive', 'active', 'corris
 import InvoiceViewer from '../components/InvoiceViewer'
 import StatusBadge from '../components/ui/StatusBadge'
 import { supabase } from '../lib/supabase'
+import { fetchAllPaged } from '../lib/fetchAllPaged'
 import { useCompany } from '../hooks/useCompany'
 import { useCompanyLabels } from '../hooks/useCompanyLabels'
 import { getCurrentTenant } from '../lib/tenants'
@@ -271,13 +272,19 @@ function FatturePassive() {
       // carica lazy per-id solo al click "Visualizza" (vedi fetchXmlFor).
       // Niente .limit(500): la vista esclude xml_content (leggera), quindi
       // carichiamo l'intero set → KPI e conteggi coincidono col badge tab.
-      const { data, error } = await supabase
-        .from('v_electronic_invoices_list')
-        .select('*')
-        .order('invoice_date', { ascending: false })
-        .limit(10000)
-      if (error) throw error
-      setInvoices((data || []) as InvoiceRow[])
+      // Paginato: `.limit(10000)` NON aggira il cap PostgREST di 1000 righe -> oltre
+      // 1000 fatture l'elenco (e i KPI/badge) veniva troncato senza errore. Ordine
+      // stabile (data + id) per una paginazione affidabile.
+      const data = await fetchAllPaged<InvoiceRow>(
+        (from, to) => supabase
+          .from('v_electronic_invoices_list')
+          .select('*')
+          .order('invoice_date', { ascending: false })
+          .order('id', { ascending: false })
+          .range(from, to),
+        'v_electronic_invoices_list',
+      )
+      setInvoices(data as InvoiceRow[])
     } catch (err: unknown) {
       console.error('Errore caricamento fatture passive:', err)
     } finally {
@@ -996,22 +1003,32 @@ function Corrispettivi() {
   const loadData = useCallback(async () => {
     setLoading(true)
     try {
-      // Limit alzato a 5000 per evitare troncamento (con 7 outlet x 365 gg
-      // si arriva a 2555 all'anno). Embed outlets(name) rimosso per evitare
-      // fallimento 400 se FK non definita: lookup client-side piu' robusto.
-      const [{ data: revenue }, { data: outs }, { data: corrLog }] = await Promise.all([
-        supabase.from('daily_revenue').select('*').order('date', { ascending: false }).limit(5000),
+      // Paginato: `.limit(5000)` NON aggira il cap PostgREST di 1000 righe. Con 7
+      // outlet x 365 gg si superano le 2555 righe/anno e, oltre le 1000, i
+      // corrispettivi venivano troncati senza errore (totali incompleti). Ora si
+      // scarica tutto in blocchi da 1000 (ordine stabile data + id).
+      // Embed outlets(name) rimosso per evitare 400 se FK non definita: lookup client.
+      const [revenue, { data: outs }, corrLog] = await Promise.all([
+        fetchAllPaged<RevenueRow>(
+          (from, to) => supabase.from('daily_revenue').select('*')
+            .order('date', { ascending: false }).order('id', { ascending: false }).range(from, to),
+          'daily_revenue',
+        ),
         supabase.from('outlets').select('id, name').order('name'),
-        supabase.from('corrispettivi_log').select('*').order('date', { ascending: false }).limit(5000),
+        fetchAllPaged<RevenueRow>(
+          (from, to) => supabase.from('corrispettivi_log').select('*')
+            .order('date', { ascending: false }).order('id', { ascending: false }).range(from, to),
+          'corrispettivi_log',
+        ),
       ])
       const outletMap = new Map<string, string>((outs || []).map(o => [o.id, o.name || '']))
       const enrich = (rows: RevenueRow[] | null): RevenueRow[] => (rows || []).map(r => ({
         ...r,
         outlets: { name: (r.outlet_id ? outletMap.get(r.outlet_id) : null) || r.outlet_name || 'Sconosciuto' },
       }))
-      setDailyRevenue(enrich(revenue as RevenueRow[] | null))
+      setDailyRevenue(enrich(revenue as RevenueRow[]))
       setOutlets((outs || []) as OutletLite[])
-      setCorrispettiviLog(enrich(corrLog as RevenueRow[] | null))
+      setCorrispettiviLog(enrich(corrLog as RevenueRow[]))
     } catch (err: unknown) {
       console.error('Errore caricamento corrispettivi:', err)
     } finally {

@@ -308,7 +308,7 @@ export const PAGE_GUIDES: PageGuide[] = [
     "faq": [
       {
         "q": "Da dove arrivano i dati di ricavi e costi mostrati in questa pagina?",
-        "a": "Vengono dai dati di budget (budget_entries): i conti che iniziano per 5 sono considerati ricavi, quelli che iniziano per 6 o 7 sono considerati costi."
+        "a": "Vengono dai dati di budget (budget_entries): i conti che iniziano per 5 sono considerati ricavi, quelli che iniziano per 6 o 7 sono considerati costi. Vengono considerati SOLO i punti vendita reali dell'anagrafica: le voci tecniche di budget non riferite a un punto vendita (es. costi non divisi, rettifiche di bilancio, sede/magazzino) sono escluse da margini, medie e avvisi, così non compaiono come falsi punti vendita 'in perdita'."
       },
       {
         "q": "Cosa significa il colore rosso nella mappa mensile?",
@@ -340,7 +340,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "Scheda Per Outlet",
-        "body": "Mostra un grafico a barre con ricavi, costi e margine di ciascun outlet, seguito da una tabella ordinabile (clicca sulle intestazioni delle colonne) con ricavi, costi, margine, margine percentuale, numero di scontrini, scontrino medio, budget assegnato con lo scostamento percentuale, e un pallino colorato che indica se l'outlet ha raggiunto il proprio margine obiettivo (verde) o no (ambra); il pallino è grigio se l'outlet non ha ancora ricavi nel periodo."
+        "body": "Mostra un grafico a barre con ricavi, costi e margine di ciascun outlet, seguito da una tabella ordinabile (clicca sulle intestazioni delle colonne) con ricavi, costi, margine, margine percentuale, numero di scontrini, scontrino medio, budget assegnato con lo scostamento percentuale, e un pallino colorato che indica se l'outlet ha raggiunto il proprio margine obiettivo (verde) o no (ambra); il pallino è grigio se l'outlet non ha ancora ricavi nel periodo. Lo scostamento dal budget confronta i costi del periodo con il budget dello STESSO periodo (pro-rata sui mesi trascorsi per 'YTD', 12 mesi per 'Ultimi 12 mesi'), così il confronto è tra grandezze omogenee e non risulta falsamente negativo a inizio anno."
       },
       {
         "heading": "Scheda Struttura Costi",
@@ -367,6 +367,10 @@ export const PAGE_GUIDES: PageGuide[] = [
       {
         "q": "Come cambio il periodo analizzato?",
         "a": "Usa i due pulsanti in alto: 'YTD' mostra l'anno corrente da gennaio a oggi, 'Ultimi 12 mesi' mostra invece i dodici mesi precedenti alla data odierna."
+      },
+      {
+        "q": "Le fatture annullate e le note di credito influenzano i costi?",
+        "a": "Le fatture annullate NON vengono conteggiate tra i costi (non sono un costo reale). Le note di credito invece sì, ma con segno negativo: riducono correttamente il costo del periodo, come deve essere."
       }
     ]
   },
@@ -1069,7 +1073,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "Da dove arrivano i numeri",
-        "body": "Il saldo iniziale è la somma dei conti bancari collegati. Le entrate previste vengono soprattutto dai ricavi inseriti in Budget & Controllo. Le uscite previste sommano: le fatture fornitori e le scadenze dello Scadenzario, le scadenze fiscali, i costi ricorrenti (es. affitti), le rate dei finanziamenti e le previsioni manuali che inserisci tu in questa pagina. Nella vista Mensile, i mesi già passati mostrano il dato reale ('Consuntivo', preso dai movimenti bancari), il mese in corso è etichettato 'In corso' e i mesi futuri sono etichettati 'Previsione'."
+        "body": "Il saldo iniziale è la somma dei conti bancari collegati. Le entrate previste vengono soprattutto dai ricavi inseriti in Budget & Controllo. Le uscite previste sommano: le fatture fornitori e le scadenze dello Scadenzario (comprese quelle pagate solo in parte, di cui viene contato il residuo ancora da pagare), le scadenze fiscali, gli stipendi e i compensi amministratori stimati, i costi ricorrenti (es. affitti), le rate dei finanziamenti e le previsioni manuali che inserisci tu in questa pagina. Le tre viste (Giornaliero, Settimanale, Mensile) usano gli stessi componenti, così i totali sono coerenti tra loro; la settimana in corso parte da oggi e non riconteggia i giorni già passati. Nella vista Mensile, i mesi già passati mostrano il dato reale ('Consuntivo', preso dai movimenti bancari), il mese in corso è etichettato 'In corso' e i mesi futuri sono etichettati 'Previsione'."
       },
       {
         "heading": "Vedere il dettaglio di una riga (entrate o uscite)",
@@ -1192,7 +1196,7 @@ export const PAGE_GUIDES: PageGuide[] = [
     "sections": [
       {
         "heading": "Da dove arrivano i numeri",
-        "body": "I ricavi e il costo del personale vengono dal budget dell'anno selezionato (in alto a destra puoi cambiare anno). Il numero di dipendenti per sede viene dalle allocazioni impostate nella pagina Personale (icona Allocazione): se un dipendente lavora al 50% in un outlet e al 50% in un altro, viene conteggiato come mezza persona in ciascuno. Se per un outlet non ci sono dipendenti allocati, le metriche che dipendono dal personale mostrano \"N/D\" (dato non disponibile) invece di un numero inventato."
+        "body": "I ricavi e il costo del personale vengono dal budget dell'anno selezionato (in alto a destra puoi cambiare anno). Vengono considerati SOLO i punti vendita reali dell'anagrafica: le voci tecniche di budget non riferite a un punto vendita (es. costi non divisi, rettifiche, sede/magazzino) sono escluse da classifiche, medie e raccomandazioni. Il numero di dipendenti per sede viene dalle allocazioni impostate nella pagina Personale (icona Allocazione): se un dipendente lavora al 50% in un outlet e al 50% in un altro, viene conteggiato come mezza persona in ciascuno. Se per un outlet non ci sono dipendenti allocati, le metriche che dipendono dal personale mostrano \"N/D\" (dato non disponibile) invece di un numero inventato — anche nel grafico del trend mensile, dove quell'outlet viene semplicemente saltato."
       },
       {
         "heading": "Fatturato medio per dipendente",
@@ -1293,7 +1297,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "q": "Come viene stimato il ricavo del nuovo punto vendita quando attivo l'interruttore?",
-        "a": "Il sistema calcola automaticamente la media dei ricavi dei punti vendita esistenti e la usa come stima per il nuovo punto vendita; i costi invece li indichi tu nel campo che compare."
+        "a": "Il sistema calcola automaticamente la media dei ricavi dei SOLI punti vendita reali esistenti (le voci tecniche di budget non riferite a un negozio — costi non divisi, rettifiche, sede/magazzino — non contano né nella media né nel numero di punti vendita) e la usa come stima per il nuovo punto vendita; i costi invece li indichi tu nel campo che compare. I Ricavi e Costi Totali della Baseline restano invece quelli complessivi dell'azienda."
       },
       {
         "q": "Cosa significa 'Mesi al Break-Even'?",
@@ -1583,7 +1587,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "Partitario — Conto Fornitore",
-        "body": "Il partitario è il registro contabile del fornitore: in colonna AVERE trovi le fatture ricevute (che aumentano il debito verso il fornitore), in colonna DARE i pagamenti effettuati e le note di credito (che lo riducono). Ogni riga mostra anche il saldo progressivo: se scende sotto zero (evidenziato in rosso) significa che l'azienda è ancora in debito. Puoi scegliere se ordinare i movimenti per data di emissione fattura o per data effettiva di pagamento, con il menu \"Ordina per\" in alto a destra della tabella. In fondo trovi i totali dei movimenti selezionati e il saldo corrente della scheda.",
+        "body": "Il partitario è il registro contabile del fornitore: in colonna AVERE trovi le fatture ricevute (che aumentano il debito verso il fornitore), in colonna DARE i pagamenti effettuati e le note di credito (che lo riducono). Se una fattura è divisa in più rate e ne hai pagata solo una parte, il DARE registra SOLO l'importo effettivamente pagato (non l'intero totale della fattura) e la riga è etichettata \"Pagamento parziale\": così il saldo mostra correttamente il residuo delle rate ancora aperte. Ogni riga mostra anche il saldo progressivo: se scende sotto zero (evidenziato in rosso) significa che l'azienda è ancora in debito. Puoi scegliere se ordinare i movimenti per data di emissione fattura o per data effettiva di pagamento, con il menu \"Ordina per\" in alto a destra della tabella. In fondo trovi i totali dei movimenti selezionati e il saldo corrente della scheda.",
         "steps": [
           "Scegli \"Data fattura\" o \"Data pagamento\" dal menu \"Ordina per\" in alto alla tabella",
           "Leggi la colonna Saldo: un valore in rosso indica un debito residuo verso il fornitore",

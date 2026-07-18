@@ -3,6 +3,8 @@ import { TrendingUp, AlertCircle, Target, Loader2, ToggleLeft, ToggleRight, Save
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { GlassTooltip, AXIS_STYLE, GRID_STYLE } from '../components/ChartTheme';
 import { supabase } from '../lib/supabase';
+import { fetchAllPaged } from '../lib/fetchAllPaged';
+import { buildOutletCostCenterSet, isOutletCostCenter } from '../lib/outletCostCenters';
 import { useAuth } from '../hooks/useAuth';
 import { usePeriod } from '../hooks/usePeriod';
 import { useCompanyLabels } from '../hooks/useCompanyLabels';
@@ -23,6 +25,10 @@ export default function ScenarioPlanning() {
   useEffect(() => { if (globalYear) setYear(globalYear); }, [globalYear]);
   // TODO: tighten type
   const [rawEntries, setRawEntries] = useState<any[]>([]);
+  // Cost_center che sono outlet reali (code+name): per contare i punti vendita e
+  // stimare i ricavi medi SENZA includere gli aggregati virtuali (costi non divisi,
+  // rettifiche, "all") che altrimenti gonfiano numOutlet e sottostimano la media.
+  const [outletSet, setOutletSet] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<{ type: string; text: string } | null>(null);
 
@@ -39,17 +45,27 @@ export default function ScenarioPlanning() {
       setError(null);
       try {
         const companyId = profile?.company_id;
-        let query = supabase
-          .from('budget_entries')
-          .select('cost_center, account_code, budget_amount')
-          .eq('year', year)
-          .range(0, 9999); // override default Supabase limit 1000
+        // Paginato: .range(0,9999) NON aggira il cap PostgREST di 1000 righe -> oltre
+        // 1000 righe i totali del baseline venivano troncati senza errore.
+        const data = await fetchAllPaged(
+          (from, to) => {
+            let q = supabase
+              .from('budget_entries')
+              .select('id, cost_center, account_code, budget_amount')
+              .eq('year', year)
+              .order('id', { ascending: true });
+            if (companyId) q = q.eq('company_id', companyId);
+            return q.range(from, to);
+          },
+          'budget_entries',
+        );
+        setRawEntries(data);
 
-        if (companyId) query = query.eq('company_id', companyId);
-
-        const { data, error: fetchError } = await query;
-        if (fetchError) throw fetchError;
-        setRawEntries(data || []);
+        // Anagrafica outlet reali (attivi) per distinguere i cost_center virtuali.
+        let outletsQuery = supabase.from('outlets').select('code, name').eq('is_active', true);
+        if (companyId) outletsQuery = outletsQuery.eq('company_id', companyId);
+        const { data: outletsData } = await outletsQuery;
+        setOutletSet(buildOutletCostCenterSet((outletsData || []) as { code?: string; name?: string }[]));
       } catch (err: unknown) {
         console.error('[ScenarioPlanning] fetch error:', err);
         setError((err as Error).message);
@@ -62,18 +78,29 @@ export default function ScenarioPlanning() {
 
   // Compute baseline totals
   const baseline = useMemo(() => {
+    // Totali AZIENDALI: includono TUTTI i cost_center (anche i virtuali 'all',
+    // 'sede_magazzino', 'rettifica_bilancio'), perche' sono costi/ricavi reali
+    // dell'azienda che devono quadrare con il conto economico. NON si escludono.
     let ricaviTotali = 0;
     let costiPersonale = 0;
     let costiTotali = 0;
-    let outletCount = new Set();
+    // Aggregati dei soli OUTLET REALI: servono per contare i punti vendita e stimare
+    // i ricavi medi per un nuovo outlet, senza inquinamento dei cost_center virtuali.
+    const outletCount = new Set<string>();
+    let ricaviOutletReali = 0;
+    // Fail-safe: se l'anagrafica outlet non e' caricata (set vuoto), si considera
+    // ogni cost_center come outlet (comportamento precedente) per non rompere la stima.
+    const hasOutletAnagrafica = outletSet.size > 0;
 
     rawEntries.forEach(row => {
       const code = (row.account_code || '').toString();
       const amount = parseFloat(row.budget_amount) || 0;
-      if (row.cost_center) outletCount.add(row.cost_center);
+      const isRealOutlet = hasOutletAnagrafica ? isOutletCostCenter(row.cost_center, outletSet) : !!row.cost_center;
+      if (row.cost_center && isRealOutlet) outletCount.add(row.cost_center);
 
       if (code.startsWith('5')) {
         ricaviTotali += amount;
+        if (isRealOutlet) ricaviOutletReali += amount;
       }
       if (code.startsWith('63')) {
         costiPersonale += amount;
@@ -84,7 +111,8 @@ export default function ScenarioPlanning() {
     });
 
     const numOutlet = outletCount.size || 1;
-    const avgRicaviOutlet = ricaviTotali / numOutlet;
+    // Media ricavi per outlet basata sui SOLI outlet reali (stima per nuovo outlet).
+    const avgRicaviOutlet = ricaviOutletReali / numOutlet;
     const avgCostiOutlet = costiTotali / numOutlet;
     const avgPersonaleOutlet = costiPersonale / numOutlet;
     const marginePercent = ricaviTotali > 0 ? ((ricaviTotali - costiTotali) / ricaviTotali) * 100 : 0;
@@ -100,7 +128,7 @@ export default function ScenarioPlanning() {
       utile: ricaviTotali - costiTotali,
       marginePercent,
     };
-  }, [rawEntries]);
+  }, [rawEntries, outletSet]);
 
   // Compute scenario
   const scenario = useMemo(() => {

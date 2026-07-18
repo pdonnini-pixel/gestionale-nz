@@ -116,10 +116,20 @@ export default function MarginiCategoria() {
     return map
   }, [revenue])
 
+  // Fatture ANNULLATE escluse dai costi: hanno gross_amount positivo ma non sono
+  // un costo reale (gonfiavano i costi e i margini). Le note di credito NON si
+  // escludono: sono gia' registrate con importo negativo e riducono correttamente
+  // il costo. Whitelist di stati "annullato" tollerante alle varianti tra tenant.
+  const CANCELLED_STATUSES = ['annullato', 'cancelled', 'stornato', 'annulled']
+  const activeCosts = useMemo(
+    () => costs.filter(c => !CANCELLED_STATUSES.includes(String(c.status || '').toLowerCase())),
+    [costs],
+  )
+
   // Costs per outlet (from payables)
   const costsByOutlet = useMemo(() => {
     const map: Record<string, CostAgg> = {}
-    costs.forEach(c => {
+    activeCosts.forEach(c => {
       const oid = c.outlet_id || '_company'
       if (!map[oid]) map[oid] = { total: 0, byCategory: {} }
       const amt = Number(c.gross_amount) || 0
@@ -128,7 +138,7 @@ export default function MarginiCategoria() {
       map[oid].byCategory[catId] = (map[oid].byCategory[catId] || 0) + amt
     })
     return map
-  }, [costs])
+  }, [activeCosts])
 
   // Bank costs per outlet (from cash_movements uscite)
   const bankCostsByOutlet = useMemo(() => {
@@ -144,23 +154,33 @@ export default function MarginiCategoria() {
     return map
   }, [bankCosts])
 
-  // Budget annuale per outlet
+  // Budget del PERIODO per outlet (pro-rata sui mesi selezionati).
+  // Prima il budget da template era sempre annuale (12 mesi) mentre i costi sono
+  // YTD (solo i mesi trascorsi): budgetVar risultava fortemente negativo per gran
+  // parte dell'anno anche con costi in linea. Ora entrambi i rami (template e
+  // fallback da anagrafica outlet) sono pro-ratati sugli stessi mesi del periodo.
   const budgetByOutlet = useMemo(() => {
-    const map: Record<string, number> = {}
+    // Mesi coperti dal periodo selezionato: ultimi 12m -> 12; YTD -> mesi trascorsi.
+    const months = period === 'last12' ? 12 : new Date().getMonth() + 1
+    // 1) Budget MENSILE da template, sommato per outlet.
+    const monthlyByOutlet: Record<string, number> = {}
     budgets.forEach(b => {
       const id = b.outlet_id
       if (!id) return
-      if (!map[id]) map[id] = 0
-      map[id] += Number(b.budget_annual) || (Number(b.budget_monthly) || 0) * 12
+      const monthly = (Number(b.budget_annual) || 0) > 0
+        ? (Number(b.budget_annual) || 0) / 12
+        : (Number(b.budget_monthly) || 0)
+      monthlyByOutlet[id] = (monthlyByOutlet[id] || 0) + monthly
     })
-    // Also add from outlets table (rent, staff, etc.)
+    const map: Record<string, number> = {}
+    Object.entries(monthlyByOutlet).forEach(([id, monthly]) => {
+      map[id] = monthly * months
+    })
+    // 2) Fallback da anagrafica outlet (rent, staff, ecc.) se manca il template.
     outlets.forEach(o => {
       const monthlyTotal = (Number(o.rent_monthly) || 0) + (Number(o.staff_budget_monthly) || 0) +
         (Number(o.condo_marketing_monthly) || 0) + (Number(o.admin_cost_monthly) || 0)
-      if (!map[o.id]) map[o.id] = 0
-      // Only add if no template budget exists
-      if (map[o.id] === 0 && monthlyTotal > 0) {
-        const months = period === 'last12' ? 12 : new Date().getMonth() + 1
+      if (!map[o.id] && monthlyTotal > 0) {
         map[o.id] = monthlyTotal * months
       }
     })
@@ -249,7 +269,7 @@ export default function MarginiCategoria() {
       if (!map[m]) map[m] = { month: m, revenue: 0, costs: 0 }
       map[m].revenue += Number(r.gross_revenue) || 0
     })
-    costs.forEach(c => {
+    activeCosts.forEach(c => {
       const m = c.invoice_date?.slice(0, 7)
       if (!m) return
       if (!map[m]) map[m] = { month: m, revenue: 0, costs: 0 }
@@ -263,7 +283,7 @@ export default function MarginiCategoria() {
         margin: m.revenue - m.costs,
         marginPct: m.revenue > 0 ? ((m.revenue - m.costs) / m.revenue) * 100 : 0,
       }))
-  }, [revenue, costs])
+  }, [revenue, activeCosts])
 
   // Best / worst outlet
   const bestOutlet = outletData.length ? outletData.reduce((a, b) => a.marginPct > b.marginPct ? a : b) : null
