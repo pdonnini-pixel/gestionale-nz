@@ -352,19 +352,39 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
     loadCostCenters()
   }, [])
 
+  // Chiamata alla funzione admin (unico punto che tocca i login reali).
+  const callAdmin = async (action: string, payload: Record<string, unknown> = {}) => {
+    const { data, error } = await supabase.functions.invoke('admin-manage-user', { body: { action, ...payload } })
+    if (error) {
+      // Estrai il messaggio applicativo se presente nel corpo della risposta
+      let msg = error.message
+      try { const ctx = (error as { context?: { body?: string } }).context; if (ctx?.body) { const j = JSON.parse(ctx.body); if (j?.error) msg = j.error } } catch { /* */ }
+      throw new Error(msg)
+    }
+    if (data && (data as { error?: string }).error) throw new Error((data as { error: string }).error)
+    return data
+  }
+
+  // Carica i VERI utenti (login) dell'azienda via funzione admin, mappandoli sulla
+  // struttura già usata dalla lista (nome/cognome/email/ruolo/is_active).
   const loadUsers = async () => {
     try {
       setLoading(true)
-      const { data, error } = await supabase
-        .from('app_users')
-        .select('*')
-        .eq('company_id', COMPANY_ID || '')
-        .order('nome', { ascending: true })
-
-      if (error) throw error
-      setUsers(data || [])
+      const res = await callAdmin('list') as { users?: Array<Record<string, unknown>> }
+      const mapped = (res.users || []).map(u => ({
+        id: u.id,
+        nome: (u.first_name as string) || '',
+        cognome: (u.last_name as string) || '',
+        email: (u.email as string) || '',
+        ruolo: (u.role as string) || 'operatrice',
+        is_active: u.active !== false,
+        last_sign_in_at: u.last_sign_in_at || null,
+        outlet_access: [] as string[],
+      }))
+      mapped.sort((a, b) => (a.nome + a.cognome).localeCompare(b.nome + b.cognome))
+      setUsers(mapped)
     } catch (err) {
-      showToast?.('Errore caricamento utenti', 'error')
+      showToast?.('Errore caricamento utenti: ' + (err as Error).message, 'error')
     } finally {
       setLoading(false)
     }
@@ -391,41 +411,29 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
     setEditingId(null)
   }
 
+  // Nuovo utente = INVITO: crea il login e invia l'email per impostare la password.
+  // In modifica, cambia solo il ruolo (nome/email di un login esistente non si toccano qui).
   const handleSave = async () => {
-    if (!form.nome.trim() || !form.cognome.trim() || !form.email.trim()) return
-
     try {
       setSaving(true)
-      const payload = {
-        nome: form.nome,
-        cognome: form.cognome,
-        email: form.email,
-        ruolo: form.ruolo,
-        is_active: form.is_active,
-        outlet_access: form.outlet_access,
-        company_id: COMPANY_ID,
-      }
-
       if (editingId) {
-        const { error } = await supabase
-          .from('app_users')
-          .update(payload)
-          .eq('id', editingId)
-
-        if (error) throw error
+        await callAdmin('set_role', { user_id: editingId, role: form.ruolo })
+        showToast?.('Ruolo aggiornato')
       } else {
-        const { error } = await supabase
-          .from('app_users')
-          .insert([payload])
-
-        if (error) throw error
+        if (!form.email.trim()) { showToast?.('Email obbligatoria', 'error'); return }
+        await callAdmin('invite', {
+          email: form.email.trim(),
+          first_name: form.nome.trim(),
+          last_name: form.cognome.trim(),
+          role: form.ruolo,
+          redirectTo: `${window.location.origin}/reset-password`,
+        })
+        showToast?.(`Invito inviato a ${form.email.trim()}`)
       }
-
       await loadUsers()
       resetForm()
-      showToast?.(editingId ? 'Utente aggiornato' : 'Utente creato')
     } catch (err) {
-      showToast?.('Errore salvataggio utente', 'error')
+      showToast?.('Errore: ' + (err as Error).message, 'error')
     } finally {
       setSaving(false)
     }
@@ -445,19 +453,25 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
     setShowForm(true)
   }
 
+  // Blocca/sblocca l'accesso (login) di un utente.
+  const handleToggleActive = async (id: string, active: boolean) => {
+    try {
+      await callAdmin('set_active', { user_id: id, active })
+      await loadUsers()
+      showToast?.(active ? 'Accesso riattivato' : 'Accesso bloccato')
+    } catch (err) {
+      showToast?.('Errore: ' + (err as Error).message, 'error')
+    }
+  }
+
   const handleDelete = async (id: string) => {
     try {
-      const { error } = await supabase
-        .from('app_users')
-        .delete()
-        .eq('id', id)
-
-      if (error) throw error
+      await callAdmin('delete', { user_id: id })
       await loadUsers()
       setConfirmDelete(null)
-      showToast?.('Utente eliminato')
+      showToast?.('Utente eliminato: accesso revocato')
     } catch (err) {
-      showToast?.('Errore eliminazione utente', 'error')
+      showToast?.('Errore eliminazione: ' + (err as Error).message, 'error')
     }
   }
 
@@ -494,16 +508,14 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
 
   return (
     <div className="px-5 py-4 space-y-4">
-      {/* Avviso: questa sezione gestisce l'ANAGRAFICA interna (nomi, ruoli, accessi ai
-          dati per outlet), NON le credenziali di login. Creare o eliminare qui una
-          persona non crea né revoca l'accesso all'applicazione: per abilitare o
-          disattivare davvero un login serve l'intervento sull'autenticazione. */}
-      <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-start gap-2 text-xs text-amber-800">
-        <AlertCircle size={16} className="mt-0.5 shrink-0" />
+      {/* Questa sezione gestisce i LOGIN reali: invitare crea un accesso e manda
+          l'email per impostare la password; bloccare/eliminare revoca l'accesso. */}
+      <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 flex items-start gap-2 text-xs text-blue-800">
+        <ShieldCheck size={16} className="mt-0.5 shrink-0" />
         <span>
-          Qui gestisci l'<strong>anagrafica interna</strong> (nomi, ruoli, accessi ai dati per punto vendita).
-          Questa lista <strong>non crea e non revoca le credenziali di accesso</strong>: eliminare una persona qui
-          non le impedisce di accedere. Per abilitare o bloccare davvero un login, contatta l'amministratore del sistema.
+          Qui gestisci gli <strong>accessi reali</strong> all'applicazione. <strong>Invita utente</strong> crea il login e
+          invia un'email per impostare la password; <strong>Blocca</strong> impedisce l'accesso senza eliminare nulla;
+          <strong> Elimina</strong> revoca definitivamente il login. Le azioni valgono solo per la tua azienda.
         </span>
       </div>
       {/* Toolbar */}
@@ -523,7 +535,7 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
           className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition"
         >
           <Plus size={16} />
-          Nuovo utente
+          Invita utente
         </button>
       </div>
 
@@ -531,69 +543,46 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
       {showForm && (
         <div className="bg-blue-50/50 border border-blue-200 rounded-xl p-5 space-y-4">
           <h4 className="text-sm font-semibold text-slate-800">
-            {editingId ? 'Modifica utente' : 'Nuovo utente'}
+            {editingId ? 'Modifica ruolo utente' : 'Invita nuovo utente'}
           </h4>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">Nome *</label>
-              <input value={form.nome} onChange={e => setForm(p => ({ ...p, nome: e.target.value }))}
-                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500" />
+              <label className="block text-xs font-medium text-slate-600 mb-1">Nome</label>
+              <input value={form.nome} onChange={e => setForm(p => ({ ...p, nome: e.target.value }))} disabled={!!editingId}
+                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 disabled:bg-slate-100 disabled:text-slate-400" />
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">Cognome *</label>
-              <input value={form.cognome} onChange={e => setForm(p => ({ ...p, cognome: e.target.value }))}
-                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500" />
+              <label className="block text-xs font-medium text-slate-600 mb-1">Cognome</label>
+              <input value={form.cognome} onChange={e => setForm(p => ({ ...p, cognome: e.target.value }))} disabled={!!editingId}
+                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 disabled:bg-slate-100 disabled:text-slate-400" />
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">Email *</label>
-              <input type="email" value={form.email} onChange={e => setForm(p => ({ ...p, email: e.target.value }))}
-                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500" />
+              <label className="block text-xs font-medium text-slate-600 mb-1">Email {editingId ? '' : '*'}</label>
+              <input type="email" value={form.email} onChange={e => setForm(p => ({ ...p, email: e.target.value }))} disabled={!!editingId}
+                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 disabled:bg-slate-100 disabled:text-slate-400" />
             </div>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">Ruolo</label>
-              <select value={form.ruolo} onChange={e => setForm(p => ({ ...p, ruolo: e.target.value }))}
-                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500">
-                {ROLE_OPTIONS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
-              </select>
-            </div>
-            <div className="flex items-end">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" checked={form.is_active} onChange={e => setForm(p => ({ ...p, is_active: e.target.checked }))}
-                  className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500" />
-                <span className="text-sm text-slate-700">Utente attivo</span>
-              </label>
-            </div>
+          <div className="max-w-xs">
+            <label className="block text-xs font-medium text-slate-600 mb-1">Ruolo</label>
+            <select value={form.ruolo} onChange={e => setForm(p => ({ ...p, ruolo: e.target.value }))}
+              className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500">
+              {ROLE_OPTIONS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+            </select>
           </div>
-          {/* Outlet assegnati */}
-          <div>
-            <label className="block text-xs font-medium text-slate-600 mb-2">{labels.pointOfSalePlural} visibili</label>
-            <div className="flex flex-wrap gap-2">
-              {[{ code: 'all', label: 'Tutti gli outlet' }, ...costCenters].map(c => {
-                const selected = form.outlet_access.includes(c.code)
-                return (
-                  <button key={c.code}
-                    onClick={() => toggleOutlet(c.code)}
-                    className={`px-3 py-1.5 text-xs font-medium rounded-full border transition ${
-                      selected ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-200 hover:border-blue-300'
-                    }`}
-                  >
-                    {c.label}
-                  </button>
-                )
-              })}
-            </div>
-          </div>
+          {!editingId && (
+            <p className="text-xs text-slate-500">
+              All'utente arriverà un'email per impostare la propria password e accedere. Blocco/eliminazione si gestiscono poi dalla lista.
+            </p>
+          )}
           <div className="flex justify-end gap-2 pt-2">
             <button onClick={resetForm} className="px-4 py-2 text-sm text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50">
               Annulla
             </button>
             <button onClick={handleSave}
-              disabled={!form.nome.trim() || !form.cognome.trim() || !form.email.trim() || saving}
+              disabled={saving || (!editingId && !form.email.trim())}
               className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-40 transition">
               {saving ? <Loader size={14} className="animate-spin" /> : <Save size={14} />}
-              {editingId ? 'Aggiorna' : 'Aggiungi'}
+              {editingId ? 'Aggiorna ruolo' : 'Invia invito'}
             </button>
           </div>
         </div>
@@ -610,7 +599,7 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
                   <span className="font-medium text-sm text-slate-900">{u.nome} {u.cognome}</span>
-                  {!u.is_active && <span className="text-[10px] text-slate-400 uppercase tracking-wide">inattivo</span>}
+                  {!u.is_active && <span className="text-[10px] text-red-500 uppercase tracking-wide font-semibold">accesso bloccato</span>}
                 </div>
                 <div className="text-xs text-slate-400 truncate" title={u.email}>{u.email}</div>
                 <div className="flex flex-wrap gap-1 mt-1">
@@ -626,7 +615,17 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
               <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${getRoleStyle(u.ruolo)}`}>
                 {getRoleLabel(u.ruolo)}
               </span>
-              <button onClick={() => handleEdit(u)} title="Modifica"
+              <button
+                onClick={() => handleToggleActive(u.id, !u.is_active)}
+                title={u.is_active ? 'Blocca accesso' : 'Sblocca accesso'}
+                className={`px-2.5 py-1 text-xs font-medium rounded-lg border transition ${
+                  u.is_active
+                    ? 'text-amber-700 border-amber-200 hover:bg-amber-50'
+                    : 'text-emerald-700 border-emerald-200 hover:bg-emerald-50'
+                }`}>
+                {u.is_active ? 'Blocca' : 'Sblocca'}
+              </button>
+              <button onClick={() => handleEdit(u)} title="Modifica ruolo"
                 className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition opacity-0 group-hover:opacity-100">
                 <Pencil size={14} />
               </button>
