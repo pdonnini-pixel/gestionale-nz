@@ -17,6 +17,7 @@ interface AuthContextValue {
   profile: UserProfile | null
   loading: boolean
   signIn: (email: string, password: string) => Promise<{ error: unknown }>
+  resetPassword: (email: string) => Promise<{ error: unknown }>
   signOut: () => Promise<void>
   refreshProfile: () => Promise<void>
 }
@@ -80,6 +81,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { error }
   }
 
+  // Recupero password: invia la mail con il link di reset. Il link riporta a
+  // /reset-password sul dominio del tenant corrente (window.location.origin),
+  // dove l'utente imposta la nuova password. redirectTo va incluso tra i
+  // "Redirect URLs" consentiti nelle impostazioni Auth di ciascun tenant.
+  async function resetPassword(email: string) {
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+      redirectTo: `${window.location.origin}/reset-password`,
+    })
+    return { error }
+  }
+
   async function signOut() {
     await supabase.auth.signOut()
     setSession(null)
@@ -97,7 +109,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ session, profile, loading, signIn, signOut, refreshProfile }}>
+    <AuthContext.Provider value={{ session, profile, loading, signIn, resetPassword, signOut, refreshProfile }}>
       {children}
     </AuthContext.Provider>
   )

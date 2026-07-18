@@ -7,6 +7,7 @@ import { lazy, Suspense, type ReactNode } from 'react'
 import { ToastProvider } from './components/Toast'
 import Layout from './components/Layout'
 import Login from './pages/Login'
+import ResetPassword from './pages/ResetPassword'
 import Dashboard from './pages/Dashboard'
 
 // Lazy-loaded pages — code splitting per ridurre il bundle iniziale
@@ -101,6 +102,9 @@ function AppRoutes() {
     <Suspense fallback={<PageLoader />}>
       <Routes>
         <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
+        {/* Reset password: NON sotto PublicRoute — la sessione temporanea di recupero
+            verrebbe rimbalzata via. La pagina gestisce da sé i propri stati. */}
+        <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/onboarding" element={<ProtectedRoute><Onboarding /></ProtectedRoute>} />
         <Route element={<ProtectedRoute><OnboardingGate><Layout /></OnboardingGate></ProtectedRoute>}>
           <Route index element={<Dashboard />} />
