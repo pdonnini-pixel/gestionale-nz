@@ -43,7 +43,6 @@ import { GlassTooltip, AXIS_STYLE, GRID_STYLE } from '../components/ChartTheme';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
 import { processImport, previewImport } from '../lib/parsers/importEngine';
-import { runAutoReconciliation, applyReconciliation } from '../lib/reconciliationEngine';
 
 // Storage bucket mapping for each import source
 type ImportSourceConfig = { name: string; description: string; formats: string; bucket: string; table: string; acceptedExt: string[]; requiresSelect?: string; category?: string; icon: string }
@@ -127,15 +126,16 @@ export default function ImportHub() {
   const COMPANY_ID = profile?.company_id;
   const navigate = useNavigate();
 
-  // ─── POST-IMPORT EC MATCH MODAL STATE ─────────────────────────
-  // Dopo un import EC mostra il riepilogo dei match automatici
-  // calcolati tra cash_movements (uscite) e payables (da_pagare)
-  type ReconciledMatch = { movement?: { id?: string; date?: string; amount?: number; description?: string }; payable?: { id?: string; supplier_name?: string; gross_amount?: number; due_date?: string; invoice_number?: string }; score?: number }
+  // ─── POST-IMPORT EC: ESITO RICONCILIAZIONE AUTOMATICA ─────────
+  // Dopo un import EC bancario, la riconciliazione server-side (rerun_reconciliation
+  // → try_match_bank_transaction) applica gli abbinamenti a importo esatto (score>=80)
+  // e mette gli incerti (50-79) in coda "da confermare" nel tab Riconciliazione.
+  // Il modale mostra l'ESITO REALE (non un'anteprima): quanti movimenti analizzati,
+  // quanti riconciliati in automatico, quanti restano da confermare a mano.
   type MatchModal = {
-    reconciled?: ReconciledMatch[]
-    suggested?: ReconciledMatch[]
-    unmatched?: Array<{ id?: string; description?: string; amount?: number; date?: string }>
-    stats?: { reconciled?: number; suggested?: number; unmatched?: number; reconciledAmount?: number; suggestedAmount?: number; unmatchedAmount?: number; total?: number; totalMovements?: number; skippedPOS?: number }
+    processed: number
+    appliedNow: number
+    toConfirmNow: number
     bankAccountId?: string | null
   } | null
   type ImportDoc = Record<string, unknown> & { id?: string; file_name?: string | null; file_path?: string | null; file_size?: number | null; source_type?: string | null; created_at?: string | null }
@@ -144,7 +144,6 @@ export default function ImportHub() {
   type Toast = { msg: string; type: string } | null
   const [matchModal, setMatchModal] = useState<MatchModal>(null);
   const [computingMatches, setComputingMatches] = useState(false);
-  const [applyingMatches, setApplyingMatches] = useState(false);
 
   // activeTab persistito in URL come ?tab=… (default 'sources')
   const [searchParams, setSearchParams] = useSearchParams();
@@ -655,7 +654,7 @@ export default function ImportHub() {
         // Il modal mostra il riepilogo e permette di confermare i match sicuri.
         if (selectedSource === 'bank' && (result.imported || 0) > 0) {
           const bankAccountId = (selectedBankAccount || fileRecord.bank_account_id) as string | null;
-          await computeMatchesAfterBankImport(bankAccountId);
+          await runReconciliationAfterBankImport(bankAccountId);
         }
       } else {
         showToast(`Errori durante l'elaborazione`, 'error');
@@ -686,76 +685,51 @@ export default function ImportHub() {
     }
   }
 
-  // ─── POST-IMPORT EC: calcolo + applicazione match ─────────────
+  // ─── POST-IMPORT EC: riconciliazione automatica ───────────────
 
   /**
-   * Lancia la riconciliazione in DRY-RUN subito dopo l'import EC.
-   * Serve a mostrare in un modal quanti movimenti hanno trovato una
-   * controparte sicura (score >= 80, match automatico), quanti probabili
-   * (score 50-79, richiedono revisione manuale) e quanti senza match.
+   * Lancia la riconciliazione server-side subito dopo l'import EC e mostra l'ESITO REALE.
+   *
+   * `rerun_reconciliation` (RPC transazionale) scorre i movimenti in uscita non ancora
+   * riconciliati e per ognuno chiama `try_match_bank_transaction`:
+   *  - score >= 80 (importo esatto + fornitore) → applicato subito (fattura → pagato);
+   *  - score 50-79 → registrato come 'to_confirm', da confermare a mano nel tab
+   *    Riconciliazione (dove `reconcile_movement` gestisce correttamente acconti e note
+   *    di credito — il bonifico può essere NETTO, ≠ lordo fattura);
+   *  - le fatture con note di credito 'pending' sono ESCLUSE dall'auto-match (migration 090):
+   *    vanno sempre riconciliate a mano.
+   *
+   * Niente più falso "dry-run" né conferma client-side: tutta la logica passa dalle RPC.
+   * Per contare quanti abbinamenti sono stati applicati vs quanti restano da confermare,
+   * leggo le righe di reconciliation_log create da questo run (performed_at >= startedAt).
    */
-  async function computeMatchesAfterBankImport(bankAccountId: string | null) {
+  async function runReconciliationAfterBankImport(bankAccountId: string | null) {
     if (!COMPANY_ID) return;
     setComputingMatches(true);
+    const startedAt = new Date().toISOString();
     try {
-      type ReconciliationResult = { reconciled?: unknown[]; suggested?: unknown[]; unmatched?: unknown[]; stats?: NonNullable<MatchModal>['stats']; errors?: unknown[] }
-      const res = await (runAutoReconciliation as unknown as (companyId: string, bankAccountId: string | null, opts: Record<string, unknown>) => Promise<ReconciliationResult>)(COMPANY_ID, bankAccountId || null, {
-        dryRun: true,
-        performedBy: profile?.id || null,
-      });
-      setMatchModal({
-        bankAccountId: bankAccountId || null,
-        reconciled: (res.reconciled || []) as ReconciledMatch[],
-        suggested: (res.suggested || []) as ReconciledMatch[],
-        unmatched: (res.unmatched || []) as Array<{ id?: string; description?: string; amount?: number; date?: string }>,
-        stats: res.stats || {},
-      });
+      const { data: runData, error: runErr } = await (supabase.rpc as unknown as (name: string) => Promise<{ data: { processed?: number; matched?: number } | null; error: { message: string } | null }>)('rerun_reconciliation');
+      if (runErr) throw new Error(runErr.message);
+      const processed = runData?.processed ?? 0;
+
+      // Conta gli esiti di QUESTO run dal log (applied = auto-applicati, to_confirm = da rivedere)
+      let appliedNow = 0, toConfirmNow = 0;
+      const { data: logRows } = await supabase
+        .from('reconciliation_log')
+        .select('status')
+        .eq('company_id', COMPANY_ID)
+        .gte('performed_at', startedAt);
+      for (const r of (logRows as Array<{ status?: string }> | null) || []) {
+        if (r.status === 'applied') appliedNow++;
+        else if (r.status === 'to_confirm') toConfirmNow++;
+      }
+
+      setMatchModal({ bankAccountId: bankAccountId || null, processed, appliedNow, toConfirmNow });
     } catch (err: unknown) {
-      console.error('Errore calcolo match post-import:', err);
-      showToast('Errore nel calcolo match: ' + (err as Error).message, 'error');
+      console.error('Errore riconciliazione post-import:', err);
+      showToast('Errore nella riconciliazione automatica: ' + (err as Error).message, 'error');
     } finally {
       setComputingMatches(false);
-    }
-  }
-
-  /**
-   * Conferma TUTTI i match sicuri calcolati nel dry-run.
-   * Per ogni coppia movimento<->payable con score >= 80 esegue:
-   *  - payables.status = 'pagato' + payment_date
-   *  - cash_movements.is_reconciled = true
-   *  - log in reconciliation_log
-   */
-  async function handleConfirmSafeMatches() {
-    type ReconciledItem = { movement?: { id?: string }; payable?: { id?: string }; score?: number }
-    const reconciledList = (matchModal?.reconciled as ReconciledItem[] | undefined) || [];
-    if (!matchModal || reconciledList.length === 0) return;
-    setApplyingMatches(true);
-    let ok = 0;
-    const errs: unknown[] = [];
-    try {
-      for (const m of reconciledList) {
-        const movementId = m.movement?.id;
-        const payableId = m.payable?.id;
-        if (!movementId || !payableId) continue;
-        type ApplyResult = { success?: boolean; error?: unknown }
-        const res = await (applyReconciliation as unknown as (mId: string, pId: string, kind: string, msg: string, opts: Record<string, unknown>) => Promise<ApplyResult>)(movementId, payableId, 'auto_exact', `Conferma post-import EC (score ${m.score})`, {
-          performedBy: profile?.id || null,
-          companyId: COMPANY_ID,
-        });
-        if (res.success) ok++;
-        else errs.push(res.error);
-      }
-      if (errs.length === 0) {
-        showToast(`Confermati ${ok} match. Fatture marcate come pagate.`);
-      } else {
-        showToast(`Confermati ${ok} su ${reconciledList.length}. ${errs.length} errori.`, 'error');
-      }
-    } catch (err: unknown) {
-      console.error('Errore applicazione match:', err);
-      showToast('Errore applicazione match: ' + (err as Error).message, 'error');
-    } finally {
-      setApplyingMatches(false);
-      setMatchModal(null);
     }
   }
 
@@ -1591,7 +1565,7 @@ export default function ImportHub() {
                   <Zap size={20} className="text-blue-600" />
                 </div>
                 <div>
-                  <h2 className="text-lg font-bold text-slate-900">Match automatici post-import</h2>
+                  <h2 className="text-lg font-bold text-slate-900">Riconciliazione automatica post-import</h2>
                   <p className="text-xs text-slate-500">Abbinamento movimenti bancari ↔ scadenze fornitori</p>
                 </div>
               </div>
@@ -1606,82 +1580,49 @@ export default function ImportHub() {
               {computingMatches ? (
                 <div className="text-center py-10">
                   <Loader2 size={40} className="animate-spin text-blue-600 mx-auto mb-4" />
-                  <p className="text-sm text-slate-600 font-medium">Calcolo match in corso...</p>
-                  <p className="text-xs text-slate-400 mt-1">Confronto i movimenti importati con le scadenze aperte</p>
+                  <p className="text-sm text-slate-600 font-medium">Riconciliazione in corso...</p>
+                  <p className="text-xs text-slate-400 mt-1">Abbino i movimenti importati con le scadenze aperte</p>
                 </div>
               ) : matchModal && (
                 <>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">
+                    <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Zap size={16} className="text-slate-500" />
+                        <span className="text-xs font-semibold text-slate-600 uppercase">Analizzati</span>
+                      </div>
+                      <div className="text-3xl font-bold text-slate-700">{matchModal.processed}</div>
+                      <p className="text-[11px] text-slate-500 mt-1">movimenti in uscita</p>
+                    </div>
                     <div className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-4">
                       <div className="flex items-center gap-2 mb-2">
                         <CheckCircle size={16} className="text-emerald-600" />
-                        <span className="text-xs font-semibold text-emerald-700 uppercase">Match sicuri</span>
+                        <span className="text-xs font-semibold text-emerald-700 uppercase">Riconciliati</span>
                       </div>
-                      <div className="text-3xl font-bold text-emerald-800">{(matchModal.reconciled?.length ?? 0)}</div>
-                      <p className="text-[11px] text-emerald-600 mt-1">importo esatto + nome fornitore</p>
+                      <div className="text-3xl font-bold text-emerald-800">{matchModal.appliedNow}</div>
+                      <p className="text-[11px] text-emerald-600 mt-1">automatici (importo esatto)</p>
                     </div>
                     <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-4">
                       <div className="flex items-center gap-2 mb-2">
                         <AlertCircle size={16} className="text-amber-600" />
-                        <span className="text-xs font-semibold text-amber-700 uppercase">Probabili</span>
+                        <span className="text-xs font-semibold text-amber-700 uppercase">Da confermare</span>
                       </div>
-                      <div className="text-3xl font-bold text-amber-800">{(matchModal.suggested?.length ?? 0)}</div>
-                      <p className="text-[11px] text-amber-600 mt-1">da verificare manualmente</p>
-                    </div>
-                    <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-4">
-                      <div className="flex items-center gap-2 mb-2">
-                        <XCircle size={16} className="text-slate-500" />
-                        <span className="text-xs font-semibold text-slate-600 uppercase">Senza match</span>
-                      </div>
-                      <div className="text-3xl font-bold text-slate-700">{(matchModal.unmatched?.length ?? 0)}</div>
-                      <p className="text-[11px] text-slate-500 mt-1">nessuna scadenza corrispondente</p>
+                      <div className="text-3xl font-bold text-amber-800">{matchModal.toConfirmNow}</div>
+                      <p className="text-[11px] text-amber-600 mt-1">nel tab Riconciliazione</p>
                     </div>
                   </div>
 
-                  {matchModal.stats?.totalMovements != null && (
-                    <div className="bg-slate-50 border border-slate-200 rounded-lg px-4 py-3 text-xs text-slate-600 mb-5">
-                      Movimenti in uscita analizzati: <b className="text-slate-900">{matchModal.stats.totalMovements}</b>
-                      {(matchModal.stats.skippedPOS ?? 0) > 0 && <> · saltati (POS/commissioni): <b>{matchModal.stats.skippedPOS}</b></>}
-                    </div>
-                  )}
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 text-xs text-blue-800 leading-relaxed">
+                    Gli abbinamenti a <b>importo esatto</b> sono già stati applicati (la fattura risulta pagata).
+                    {matchModal.toConfirmNow > 0
+                      ? <> I <b>{matchModal.toConfirmNow}</b> incerti, gli acconti e i pagamenti al netto di note di credito vanno confermati a mano nel tab <b>Riconciliazione</b>, dove l'importo effettivo del bonifico viene gestito correttamente.</>
+                      : <> Non ci sono abbinamenti incerti da confermare.</>}
+                  </div>
 
-                  {(matchModal.reconciled?.length ?? 0) > 0 && (
-                    <div className="mb-4">
-                      <div className="text-xs font-semibold text-slate-600 uppercase mb-2">Anteprima match sicuri</div>
-                      <div className="border border-slate-200 rounded-lg divide-y divide-slate-100 max-h-48 overflow-y-auto">
-                        {(matchModal.reconciled || []).slice(0, 8).map((m: ReconciledMatch & { details?: { movementAmount?: number }; payable?: { suppliers?: { ragione_sociale?: string; name?: string } } & ReconciledMatch['payable'] }, i: number) => (
-                          <div key={i} className="px-3 py-2 text-xs flex items-center justify-between">
-                            <div className="flex-1 min-w-0">
-                              <TextTooltip content={m.movement?.description || ''}>
-                                <div className="font-medium text-slate-800 truncate">
-                                  {m.movement?.description || '—'}
-                                </div>
-                              </TextTooltip>
-                              <div className="text-slate-500 mt-0.5">
-                                {m.movement?.date} · {m.payable?.suppliers?.ragione_sociale || m.payable?.suppliers?.name || 'Fornitore'} · Fatt. {m.payable?.invoice_number || '—'}
-                              </div>
-                            </div>
-                            <div className="ml-3 text-right shrink-0">
-                              <div className="font-semibold text-slate-900">
-                                {(m.details?.movementAmount || 0).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
-                              </div>
-                              <div className="text-[10px] text-emerald-600">score {m.score}</div>
-                            </div>
-                          </div>
-                        ))}
-                        {(matchModal.reconciled?.length ?? 0) > 8 && (
-                          <div className="px-3 py-2 text-xs text-slate-500 italic">
-                            ...e altri {(matchModal.reconciled?.length ?? 0) - 8} match
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-
-                  {(matchModal.reconciled?.length ?? 0) === 0 && (matchModal.suggested?.length ?? 0) === 0 && (matchModal.unmatched?.length ?? 0) === 0 && (
+                  {matchModal.processed === 0 && (
                     <div className="text-center py-8">
                       <FileWarning size={32} className="text-slate-300 mx-auto mb-3" />
-                      <p className="text-sm text-slate-500">Nessun movimento in uscita da analizzare.</p>
+                      <p className="text-sm text-slate-500">Nessun movimento in uscita da riconciliare.</p>
                     </div>
                   )}
                 </>
@@ -1696,20 +1637,12 @@ export default function ImportHub() {
                 >
                   Chiudi
                 </button>
-                <button
-                  onClick={goToReconciliation}
-                  className="px-4 py-2 text-sm font-medium text-blue-700 bg-white border border-blue-200 rounded-lg hover:bg-blue-50 flex items-center gap-2"
-                >
-                  Vai alla Riconciliazione
-                </button>
-                {(matchModal.reconciled?.length ?? 0) > 0 && (
+                {matchModal.toConfirmNow > 0 && (
                   <button
-                    onClick={handleConfirmSafeMatches}
-                    disabled={applyingMatches}
-                    className="px-4 py-2 text-sm font-semibold text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-2"
+                    onClick={goToReconciliation}
+                    className="px-4 py-2 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 flex items-center gap-2"
                   >
-                    {applyingMatches ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle size={14} />}
-                    Conferma {(matchModal.reconciled?.length ?? 0)} match sicuri
+                    Vai alla Riconciliazione ({matchModal.toConfirmNow})
                   </button>
                 )}
               </div>
