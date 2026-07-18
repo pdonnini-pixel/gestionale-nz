@@ -79,6 +79,7 @@ Deno.serve(async (req: Request) => {
     const token = authHeader.replace(/^Bearer\s+/i, "");
     if (!token) return jsonError(401, "Missing authorization");
     const isServiceRole = token === supabaseServiceKey;
+    let callerCompanyId: string | null = null;
     if (!isServiceRole) {
       const { data: userData, error: userErr } = await supabase.auth.getUser(token);
       if (userErr || !userData?.user) return jsonError(401, "Invalid JWT");
@@ -86,12 +87,21 @@ Deno.serve(async (req: Request) => {
       const userRoles: string[] = Array.isArray(roleData) ? roleData : (roleData ? [roleData] : []);
       const allowed = ["super_advisor", "contabile", "cfo"];
       if (!userRoles.some((r) => allowed.includes(r))) return jsonError(403, `Roles [${userRoles.join(", ")}] not allowed.`);
+      const { data: prof } = await supabase.from("user_profiles").select("company_id").eq("id", userData.user.id).maybeSingle();
+      callerCompanyId = (prof as { company_id?: string } | null)?.company_id ?? null;
+      if (!callerCompanyId) return jsonError(403, "Utente senza azienda associata");
     }
 
     const body = await req.json().catch(() => ({}));
     const stage: string = body.stage ?? "sandbox";
     const fiscalId: string = (body.fiscalId ?? "").toString().trim();
-    const companyId: string = (body.companyId ?? "").toString().trim();
+    let companyId: string = (body.companyId ?? "").toString().trim();
+    // Isolamento tenant: company_id SEMPRE dal profilo del chiamante (il body è
+    // indicativo). I job service-role (cron) restano fidati col companyId passato.
+    if (!isServiceRole) {
+      if (companyId && companyId !== callerCompanyId) return jsonError(403, "companyId non corrisponde alla tua azienda");
+      companyId = callerCompanyId!;
+    }
     if (!fiscalId || !companyId) return jsonError(400, "Missing fiscalId or companyId");
     const baseUrl = OB_BASE_URL[stage];
     if (!baseUrl) return jsonError(400, `Invalid stage: ${stage}`);
