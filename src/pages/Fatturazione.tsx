@@ -216,6 +216,10 @@ function FatturePassive() {
   }
   const [invoices, setInvoices] = useState<InvoiceRow[]>([])
   const [loading, setLoading] = useState(true)
+  // Errore di caricamento: distingue "archivio vuoto" da "errore di rete/RLS".
+  // Prima il catch faceva solo console.error e la tabella mostrava "Nessuna
+  // fattura trovata" -> su una pagina fiscale un errore sembrava 0 fatture reali.
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
   // Filtro anno: si allinea al filtro globale del PeriodContext (header
   // in alto). Quando l'utente cambia anno nell'header, qui si aggiorna
@@ -266,6 +270,7 @@ function FatturePassive() {
 
   const loadInvoices = useCallback(async () => {
     setLoading(true)
+    setLoadError(null)
     try {
       // Lista da v_electronic_invoices_list: tutte le colonne TRANNE xml_content
       // (54 MB complessivi, causa del timeout 15s) + flag has_xml. L'XML si
@@ -287,10 +292,13 @@ function FatturePassive() {
       setInvoices(data as InvoiceRow[])
     } catch (err: unknown) {
       console.error('Errore caricamento fatture passive:', err)
+      const msg = err instanceof Error ? err.message : 'Errore di caricamento'
+      setLoadError(msg)
+      toast({ type: 'error', message: `Errore nel caricamento delle fatture: ${msg}` })
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [toast])
 
   useEffect(() => { loadInvoices() }, [loadInvoices])
 
@@ -488,6 +496,14 @@ function FatturePassive() {
       )}
 
 
+      {/* Errore di caricamento (distinto dall'archivio vuoto) */}
+      {loadError && !loading && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm flex items-center justify-between gap-3">
+          <span className="text-red-800">Errore nel caricamento delle fatture: {loadError}. I dati mostrati potrebbero essere incompleti.</span>
+          <button onClick={loadInvoices} className="shrink-0 px-3 py-1.5 rounded-lg bg-red-600 text-white text-xs font-medium hover:bg-red-700">Riprova</button>
+        </div>
+      )}
+
       {/* Tabella */}
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
         {ftSortBy.length > 0 && !(ftSortBy.length === 1 && ftSortBy[0].key === 'invoice_date' && ftSortBy[0].dir === 'desc') && (
@@ -593,6 +609,7 @@ function FattureAttive() {
   const { toast } = useToast()
   const [invoices, setInvoices] = useState<ActiveInvoiceRow[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [sending, setSending] = useState<string | null>(null) // invoiceId in corso di invio
   const [searchTerm, setSearchTerm] = useState('')
   const [periodFilter, setPeriodFilter] = useState('ALL') // 'ALL' o 'YYYY-MM'
@@ -602,20 +619,29 @@ function FattureAttive() {
 
   const loadInvoices = useCallback(async () => {
     setLoading(true)
+    setLoadError(null)
     try {
-      const { data, error } = await supabase
-        .from('active_invoices')
-        .select('*')
-        .order('invoice_date', { ascending: false })
-        .limit(500)
-      if (error) throw error
-      setInvoices((data || []) as ActiveInvoiceRow[])
+      // Paginato (no .limit(500)) + errore mostrato: prima un errore rete/RLS
+      // faceva vedere "Nessuna fattura attiva" come se non ce ne fossero.
+      const data = await fetchAllPaged<ActiveInvoiceRow>(
+        (from, to) => supabase
+          .from('active_invoices')
+          .select('*')
+          .order('invoice_date', { ascending: false })
+          .order('id', { ascending: false })
+          .range(from, to),
+        'active_invoices',
+      )
+      setInvoices(data as ActiveInvoiceRow[])
     } catch (err: unknown) {
       console.error('Errore caricamento fatture attive:', err)
+      const msg = err instanceof Error ? err.message : 'Errore di caricamento'
+      setLoadError(msg)
+      toast({ type: 'error', message: `Errore nel caricamento delle fatture: ${msg}` })
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [toast])
 
   useEffect(() => { loadInvoices() }, [loadInvoices])
 
@@ -727,6 +753,14 @@ function FattureAttive() {
           <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
         </button>
       </div>
+
+      {/* Errore di caricamento (distinto dall'archivio vuoto) */}
+      {loadError && !loading && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm flex items-center justify-between gap-3">
+          <span className="text-red-800">Errore nel caricamento delle fatture: {loadError}. I dati mostrati potrebbero essere incompleti.</span>
+          <button onClick={loadInvoices} className="shrink-0 px-3 py-1.5 rounded-lg bg-red-600 text-white text-xs font-medium hover:bg-red-700">Riprova</button>
+        </div>
+      )}
 
       {/* Tabella */}
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
@@ -997,11 +1031,13 @@ function Corrispettivi() {
   const [corrispettiviLog, setCorrispettiviLog] = useState<RevenueRow[]>([])
   const [outlets, setOutlets] = useState<OutletLite[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [selectedOutlet, setSelectedOutlet] = useState('ALL')
   const [viewSource, setViewSource] = useState('pos') // 'pos' | 'ade'
 
   const loadData = useCallback(async () => {
     setLoading(true)
+    setLoadError(null)
     try {
       // Paginato: `.limit(5000)` NON aggira il cap PostgREST di 1000 righe. Con 7
       // outlet x 365 gg si superano le 2555 righe/anno e, oltre le 1000, i
@@ -1031,6 +1067,7 @@ function Corrispettivi() {
       setCorrispettiviLog(enrich(corrLog as RevenueRow[]))
     } catch (err: unknown) {
       console.error('Errore caricamento corrispettivi:', err)
+      setLoadError(err instanceof Error ? err.message : 'Errore di caricamento')
     } finally {
       setLoading(false)
     }
@@ -1076,6 +1113,13 @@ function Corrispettivi() {
 
   return (
     <div className="space-y-4">
+      {/* Errore di caricamento (distinto dall'assenza di dati) */}
+      {loadError && !loading && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm flex items-center justify-between gap-3">
+          <span className="text-red-800">Errore nel caricamento dei corrispettivi: {loadError}. I totali potrebbero essere incompleti.</span>
+          <button onClick={loadData} className="shrink-0 px-3 py-1.5 rounded-lg bg-red-600 text-white text-xs font-medium hover:bg-red-700">Riprova</button>
+        </div>
+      )}
       {/* KPI */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <KpiCard icon={Store} label="Giorni registrati" value={stats.total} sub={`${new Set(dailyRevenue.map(r => r.outlet_id)).size} outlet`} color="blue" />

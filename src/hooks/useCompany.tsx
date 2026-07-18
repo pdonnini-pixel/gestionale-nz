@@ -41,34 +41,45 @@ export function CompanyProvider({ children }: { children: ReactNode }) {
     // I tipi auto-generati da `supabase gen types` non includono ancora
     // `point_of_sale_label` (introdotta in migrazione 011). Cast minimo per
     // accedere alla colonna a runtime senza propagare `any`.
-    const { data, error } = await (supabase.from('companies').select(
-      'id, name, vat_number, pec, sdi_code, point_of_sale_label',
-    ) as unknown as Promise<{
-      data: Array<{
-        id: string
-        name: string
-        vat_number: string | null
-        pec: string | null
-        sdi_code: string | null
-        point_of_sale_label: string | null
-      }> | null
-      error: { message: string } | null
-    }>)
+    // Retry su errori transitori (rete/RLS): prima un singolo errore lasciava
+    // company=null in silenzio -> etichette e selettore azienda degradati senza
+    // avviso. Ora si riprova qualche volta con backoff.
+    const delays = [0, 400, 1000]
+    for (let attempt = 0; attempt < delays.length; attempt++) {
+      if (delays[attempt] > 0) await new Promise(r => setTimeout(r, delays[attempt]))
+      const { data, error } = await (supabase.from('companies').select(
+        'id, name, vat_number, pec, sdi_code, point_of_sale_label',
+      ) as unknown as Promise<{
+        data: Array<{
+          id: string
+          name: string
+          vat_number: string | null
+          pec: string | null
+          sdi_code: string | null
+          point_of_sale_label: string | null
+        }> | null
+        error: { message: string } | null
+      }>)
 
-    if (!error && data) {
-      // Defensive default: per tenant pre-migrazione 011 la colonna potrebbe
-      // tornare null in vecchie cache; normalizziamo a "Punto vendita".
-      const normalized: Company[] = data.map((c) => ({
-        id: c.id,
-        name: c.name,
-        vat_number: c.vat_number,
-        pec: c.pec,
-        sdi_code: c.sdi_code,
-        point_of_sale_label: c.point_of_sale_label ?? 'Punto vendita',
-      }))
-      setCompanies(normalized)
-      const current = normalized.find((c) => c.id === profile!.company_id) || normalized[0]
-      setCompany(current)
+      if (!error && data) {
+        // Defensive default: per tenant pre-migrazione 011 la colonna potrebbe
+        // tornare null in vecchie cache; normalizziamo a "Punto vendita".
+        const normalized: Company[] = data.map((c) => ({
+          id: c.id,
+          name: c.name,
+          vat_number: c.vat_number,
+          pec: c.pec,
+          sdi_code: c.sdi_code,
+          point_of_sale_label: c.point_of_sale_label ?? 'Punto vendita',
+        }))
+        setCompanies(normalized)
+        const current = normalized.find((c) => c.id === profile!.company_id) || normalized[0]
+        setCompany(current)
+        break
+      }
+      if (attempt === delays.length - 1) {
+        console.error('[useCompany] loadCompanies fallito dopo i retry:', error?.message)
+      }
     }
     setLoading(false)
   }

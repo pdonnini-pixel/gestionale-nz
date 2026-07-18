@@ -145,6 +145,11 @@ export default function Dashboard() {
 
   // State
   const [loading, setLoading] = useState(true)
+  // Segnala che almeno una query del cruscotto è fallita: prima gli errori erano
+  // ingoiati (catch vuoto) e le card mostravano "0" come fosse un dato reale, su
+  // un cruscotto direzionale. Ora un banner avvisa che i numeri sono incompleti.
+  const [dataError, setDataError] = useState(false)
+  const [reloadKey, setReloadKey] = useState(0)
   const [ricavi, setRicavi] = useState(0)
   const [ricaviPrevYear, setRicaviPrevYear] = useState(0)
   const [utile, setUtile] = useState(0)
@@ -178,6 +183,7 @@ export default function Dashboard() {
     const fetchData = async () => {
       try {
         setLoading(true)
+        setDataError(false)
         // Reset esplicito al cambio anno: senza questo, se la query del
         // nuovo anno non trova dati, gli state mantengono il valore
         // dell'anno precedente e si vede lo stesso ricavo su piu' anni.
@@ -299,7 +305,7 @@ export default function Dashboard() {
               setTotalCosti(invData.reduce((s, r) => s + Number(r.gross_amount || 0), 0))
               setDataSource('fatture')
             }
-          } catch (e) {}
+          } catch (e) { setDataError(true) }
         }
 
         // 2. Previous year for trend
@@ -312,7 +318,7 @@ export default function Dashboard() {
             .eq('year', YEAR - 1)
             .maybeSingle()
           prevRicavi = dashPrev?.total_revenue || 0
-        } catch (e) {}
+        } catch (e) { setDataError(true) }
         if (!prevRicavi) {
           const { data: bsPrev } = await supabase
             .from('balance_sheet_data')
@@ -438,10 +444,13 @@ export default function Dashboard() {
 
         // 4. Cash position
         try {
-          const { data: cashData } = await supabase
+          const { data: cashData, error: cashErr } = await supabase
             .from('v_cash_position')
             .select('current_balance, last_updated_at')
             .eq('company_id', COMPANY_ID)
+          // Se la query fallisce (rete/RLS/vista mancante) NON mostrare 0 come
+          // fosse liquidità reale: segnala l'errore e non azzerare la card.
+          if (cashErr) throw cashErr
           // last_updated_at non è ancora nei tipi generati della vista -> cast esplicito
           const cashRows = (cashData || []) as unknown as Array<{ current_balance?: number | null; last_updated_at?: string | null }>
           setLiquidita(cashRows.reduce((s, c) => s + (c.current_balance || 0), 0))
@@ -450,16 +459,17 @@ export default function Dashboard() {
             return ts && (!m || ts > m) ? ts : m
           }, null)
           setLiquiditaUpdatedAt(maxTs)
-        } catch (e) {}
+        } catch (e) { console.warn('v_cash_position:', (e as Error).message); setDataError(true) }
 
         // 5. Loans
         try {
-          const { data: loansData } = await supabase
+          const { data: loansData, error: loansErr } = await supabase
             .from('v_loans_overview')
             .select('total_amount')
             .eq('company_id', COMPANY_ID)
+          if (loansErr) throw loansErr
           setDebtiFin((loansData || []).reduce((s, l) => s + (l.total_amount || 0), 0))
-        } catch (e) {}
+        } catch (e) { console.warn('v_loans_overview:', (e as Error).message); setDataError(true) }
 
         // 6. Cash flow daily (last 30 days) — sparkline
         try {
@@ -501,7 +511,7 @@ export default function Dashboard() {
             setCashFlowDaily(daily)
             setCashFlowTotals({ entrate: totE, uscite: totU })
           }
-        } catch (e) {}
+        } catch (e) { setDataError(true) }
 
         // 7. Scadenze count
         try {
@@ -518,7 +528,7 @@ export default function Dashboard() {
           ])
           setScaduteCount(scadRes.count || 0)
           setProssimeCount(prossRes.count || 0)
-        } catch (e) {}
+        } catch (e) { setDataError(true) }
 
         // 8. Movimenti bancari senza categoria contabile (campo reale 'category').
         // NB: nella vista cash_movements le colonne cost_category_id/ai_category_id sono
@@ -531,7 +541,7 @@ export default function Dashboard() {
             .eq('company_id', COMPANY_ID)
             .is('category', null)
           setUncategorizedMov(count || 0)
-        } catch (e) {}
+        } catch (e) { setDataError(true) }
 
         // 9. Daily revenue (most recent record per outlet) for ranking
         try {
@@ -556,18 +566,19 @@ export default function Dashboard() {
             revenue: Number(r.gross_revenue) || 0,
             date: r.date ?? '',
           })))
-        } catch (e) {}
+        } catch (e) { setDataError(true) }
 
         setLastUpdate(new Date())
         setLoading(false)
       } catch (err: unknown) {
         console.error('Dashboard fetch error:', err)
+        setDataError(true)
         setLoading(false)
       }
     }
 
     fetchData()
-  }, [COMPANY_ID, year, quarter])
+  }, [COMPANY_ID, year, quarter, reloadKey])
 
   // Derived
   const deltaRicaviPct = ricaviPrevYear > 0 ? ((ricavi - ricaviPrevYear) / ricaviPrevYear * 100) : 0
@@ -681,6 +692,22 @@ export default function Dashboard() {
         subtitle={`Cruscotto direzionale — ${periodRange.label}${dataSource === 'bilancio' ? ' · Dati da bilancio importato' : ''}`}
         actions={lastUpdate ? <DataFreshness lastUpdate={lastUpdate} source="Dati" /> : undefined}
       />
+
+      {/* Avviso dati incompleti: una o più query del cruscotto sono fallite. Meglio
+          dirlo che mostrare "0" come se fosse un dato reale (decisioni sbagliate). */}
+      {dataError && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm flex items-center justify-between gap-3">
+          <span className="text-amber-800">
+            Attenzione: alcuni dati potrebbero non essere stati caricati (connessione instabile o servizio momentaneamente non disponibile). I numeri mostrati potrebbero essere incompleti.
+          </span>
+          <button
+            onClick={() => setReloadKey(k => k + 1)}
+            className="shrink-0 px-3 py-1.5 rounded-lg bg-amber-600 text-white text-xs font-medium hover:bg-amber-700"
+          >
+            Ricarica
+          </button>
+        </div>
+      )}
 
       {/* ─── 4 KPI PRINCIPALI ─── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">

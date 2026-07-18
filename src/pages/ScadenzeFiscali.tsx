@@ -330,14 +330,20 @@ export default function ScadenzeFiscali() {
   // TODO: tighten type
   const markPaid = async (dl: { id: string; amount?: number | null }) => {
     try {
-      await supabase.from('fiscal_deadlines').update({
+      // supabase-js NON lancia: bisogna controllare `error`, altrimenti in caso di
+      // fallimento (rete/RLS) la lista si ricaricava senza avviso e l'utente
+      // credeva di aver segnato "pagato".
+      const { error } = await supabase.from('fiscal_deadlines').update({
         status: 'paid',
         paid_date: todayYMD(),
         amount_paid: dl.amount || 0,
       }).eq('id', dl.id)
+      if (error) throw error
+      toast({ type: 'success', message: 'Scadenza segnata come pagata' })
       await loadData()
     } catch (e) {
       console.error('Mark paid error:', e)
+      toast({ type: 'error', message: 'Impossibile segnare come pagata: ' + (e instanceof Error ? e.message : '') })
     }
   }
 
@@ -345,10 +351,13 @@ export default function ScadenzeFiscali() {
   const handleDelete = async (id: string) => {
     if (!confirm('Eliminare questa scadenza?')) return
     try {
-      await supabase.from('fiscal_deadlines').delete().eq('id', id)
+      const { error } = await supabase.from('fiscal_deadlines').delete().eq('id', id)
+      if (error) throw error
+      toast({ type: 'success', message: 'Scadenza eliminata' })
       await loadData()
     } catch (e) {
       console.error('Delete error:', e)
+      toast({ type: 'error', message: 'Eliminazione non riuscita: ' + (e instanceof Error ? e.message : '') })
     }
   }
 
