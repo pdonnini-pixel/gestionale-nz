@@ -494,6 +494,18 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
 
   return (
     <div className="px-5 py-4 space-y-4">
+      {/* Avviso: questa sezione gestisce l'ANAGRAFICA interna (nomi, ruoli, accessi ai
+          dati per outlet), NON le credenziali di login. Creare o eliminare qui una
+          persona non crea né revoca l'accesso all'applicazione: per abilitare o
+          disattivare davvero un login serve l'intervento sull'autenticazione. */}
+      <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-start gap-2 text-xs text-amber-800">
+        <AlertCircle size={16} className="mt-0.5 shrink-0" />
+        <span>
+          Qui gestisci l'<strong>anagrafica interna</strong> (nomi, ruoli, accessi ai dati per punto vendita).
+          Questa lista <strong>non crea e non revoca le credenziali di accesso</strong>: eliminare una persona qui
+          non le impedisce di accedere. Per abilitare o bloccare davvero un login, contatta l'amministratore del sistema.
+        </span>
+      </div>
       {/* Toolbar */}
       <div className="flex items-center justify-between gap-3">
         <div className="relative flex-1 max-w-xs">
@@ -1334,25 +1346,6 @@ function SdiSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
     }
   }
 
-  const handleToggleEnvironment = async () => {
-    if (!config) return
-    const newEnv = config.environment === 'TEST' ? 'PRODUCTION' : 'TEST'
-    setSaving(true)
-    try {
-      const { error } = await supabase
-        .from('sdi_config')
-        .update({ environment: newEnv, updated_at: new Date().toISOString() })
-        .eq('id', config.id)
-      if (error) throw error
-      setConfig({ ...config, environment: newEnv })
-      showToast?.(`Ambiente SDI impostato su ${newEnv === 'PRODUCTION' ? 'Produzione' : 'Test'}`)
-    } catch (err: unknown) {
-      showToast?.('Errore aggiornamento: ' + (err instanceof Error ? err.message : ''), 'error')
-    } finally {
-      setSaving(false)
-    }
-  }
-
   const handleUpdateField = async (field: string, value: string | null) => {
     if (!config) return
     setSaving(true)
@@ -1522,30 +1515,23 @@ function SdiSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
         </div>
       </div>
 
-      {/* Toggle ambiente */}
+      {/* Ambiente (sola lettura). Il cambio ambiente è stato rimosso: le fatture
+          passano da A-Cube, non dal canale SDI diretto, quindi un toggle
+          TEST→PRODUZIONE con un click qui non deve poter cambiare nulla. */}
       <div className="border-t border-slate-100 pt-4">
         <div className="flex items-center justify-between">
           <div>
             <h4 className="text-sm font-medium text-slate-700">Ambiente</h4>
             <p className="text-xs text-slate-400 mt-0.5">
-              {config.environment === 'TEST'
-                ? 'In test le fatture vengono inviate all\'ambiente di validazione AdE.'
-                : 'In produzione le fatture vengono inviate al Sistema di Interscambio reale.'}
+              Le fatture attive vengono emesse tramite A-Cube. Questo canale SDI diretto
+              non è operativo: l'ambiente qui è solo informativo.
             </p>
           </div>
-          <button
-            onClick={handleToggleEnvironment}
-            disabled={saving}
-            className={`relative inline-flex h-8 w-[120px] items-center rounded-full transition-colors ${
-              config.environment === 'PRODUCTION' ? 'bg-green-500' : 'bg-amber-400'
-            }`}
-          >
-            <span className={`inline-block h-6 w-[56px] transform rounded-full bg-white shadow-sm transition-transform text-xs font-medium flex items-center justify-center ${
-              config.environment === 'PRODUCTION' ? 'translate-x-[60px]' : 'translate-x-1'
-            }`}>
-              {config.environment === 'PRODUCTION' ? 'PROD' : 'TEST'}
-            </span>
-          </button>
+          <span className={`inline-flex items-center px-3 py-1.5 rounded-full text-xs font-semibold ${
+            config.environment === 'PRODUCTION' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'
+          }`}>
+            {config.environment === 'PRODUCTION' ? 'Produzione' : 'Test'}
+          </span>
         </div>
       </div>
 
@@ -1585,9 +1571,12 @@ function SdiSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
 // PAGINA PRINCIPALE
 // ==========================================
 export default function Impostazioni() {
-  const { profile } = useAuth()
+  const { profile, loading: authLoading } = useAuth()
   const COMPANY_ID = profile?.company_id
-  const userRole = profile?.role || 'super_advisor'
+  // Fail-safe: in assenza di un ruolo caricato NON si assume super_advisor (era un
+  // "fail-open" che dava tutti i permessi a un profilo non caricato). Default = nessun
+  // accesso; le sezioni compaiono solo per i ruoli davvero autorizzati.
+  const userRole = profile?.role || ''
   const allowedSections = ROLE_PERMISSIONS[userRole] || []
   const [toast, setToast] = useState<{ msg: string; type: string } | null>(null)
 
@@ -1611,7 +1600,14 @@ export default function Impostazioni() {
       <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
       <PageHeader title="Impostazioni" subtitle="Configurazione azienda, utenti e struttura costi" />
 
-      {allowedSections.length === 0 && (
+      {authLoading && (
+        <div className="bg-slate-50 border border-slate-200 rounded-xl p-6 flex items-center gap-3">
+          <Loader size={20} className="text-slate-400 animate-spin shrink-0" />
+          <p className="text-sm text-slate-600">Verifica permessi in corso…</p>
+        </div>
+      )}
+
+      {!authLoading && allowedSections.length === 0 && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-6 flex items-center gap-3">
           <Lock size={20} className="text-amber-600 shrink-0" />
           <div>
