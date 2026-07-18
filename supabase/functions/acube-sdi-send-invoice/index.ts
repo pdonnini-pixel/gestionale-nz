@@ -24,7 +24,7 @@
 // Risposta:
 //   { acube_uuid, sdi_file_id, marking, total }
 //
-// Prerequisito: company_settings con sede legale strutturata (migration 105):
+// Prerequisito: company_settings con sede legale strutturata (migration 106):
 // sede_indirizzo, sede_cap, sede_comune, sede_provincia (+ regime_fiscale).
 // Senza sede configurata → 400 (mai indirizzi di default su fatture fiscali).
 // Anti-doppia-emissione: stesso invoice_number gia' presente in
@@ -111,7 +111,7 @@ Deno.serve(async (req: Request) => {
     }
 
     // Anagrafica estesa: ragione sociale, sede legale strutturata e regime fiscale
-    // (migration 105). La sede e' OBBLIGATORIA: su una fattura fiscale un indirizzo
+    // (migration 106). La sede e' OBBLIGATORIA: su una fattura fiscale un indirizzo
     // di default inventato non e' accettabile.
     const { data: cs } = await supabase
       .from("company_settings")
