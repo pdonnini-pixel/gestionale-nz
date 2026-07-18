@@ -347,17 +347,22 @@ export default function ScadenzeFiscali() {
     }
   }
 
-  // Delete
+  // Annulla (soft-delete): NO DATA LOSS. Invece di cancellare fisicamente la riga
+  // (fiscal_deadlines è tabella viva citata nella regola), si imposta status
+  // 'cancelled' — coerente con ScadenzarioSmart. La scadenza sparisce da "Da
+  // pagare" ma resta consultabile nello storico ("Tutti") come "Annullato".
   const handleDelete = async (id: string) => {
-    if (!confirm('Eliminare questa scadenza?')) return
+    if (!confirm('Annullare questa scadenza? Non verrà cancellata definitivamente: resterà nello storico con stato "Annullato".')) return
     try {
-      const { error } = await supabase.from('fiscal_deadlines').delete().eq('id', id)
+      const { error } = await supabase.from('fiscal_deadlines')
+        .update({ status: 'cancelled' })
+        .eq('id', id)
       if (error) throw error
-      toast({ type: 'success', message: 'Scadenza eliminata' })
+      toast({ type: 'success', message: 'Scadenza annullata' })
       await loadData()
     } catch (e) {
-      console.error('Delete error:', e)
-      toast({ type: 'error', message: 'Eliminazione non riuscita: ' + (e instanceof Error ? e.message : '') })
+      console.error('Cancel error:', e)
+      toast({ type: 'error', message: 'Operazione non riuscita: ' + (e instanceof Error ? e.message : '') })
     }
   }
 
@@ -549,7 +554,7 @@ export default function ScadenzeFiscali() {
                             </button>
                             <button onClick={() => handleDelete(dl.id)}
                               className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition"
-                              title="Elimina">
+                              title="Annulla (resta nello storico)">
                               <Trash2 size={12} />
                             </button>
                           </div>

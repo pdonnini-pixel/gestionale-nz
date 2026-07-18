@@ -792,6 +792,31 @@ function CostSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
 
   const handleDelete = async (id: string) => {
     try {
+      // NO DATA LOSS: prima di cancellare fisicamente una voce del piano dei conti
+      // si contano i riferimenti. Se ce ne sono, si BLOCCA (l'eliminazione
+      // lascerebbe orfani: voci di budget con un account_code inesistente, voci
+      // figlie con parent_id pendente). L'utente puo' invece disattivarla.
+      const item = costs.find(c => c.id === id)
+      const code = item?.code || ''
+      const [childRes, beRes] = await Promise.all([
+        supabase.from('chart_of_accounts').select('id', { count: 'exact', head: true })
+          .eq('company_id', COMPANY_ID || '').eq('parent_id', id),
+        code
+          ? supabase.from('budget_entries').select('id', { count: 'exact', head: true })
+              .eq('company_id', COMPANY_ID || '').eq('account_code', code)
+          : Promise.resolve({ count: 0 }),
+      ])
+      const nChildren = childRes.count || 0
+      const nBudget = (beRes as { count: number | null }).count || 0
+      if (nChildren > 0 || nBudget > 0) {
+        const parts: string[] = []
+        if (nChildren > 0) parts.push(`${nChildren} voci figlie`)
+        if (nBudget > 0) parts.push(`${nBudget} righe di budget collegate`)
+        showToast?.(`Impossibile eliminare: ci sono ${parts.join(' e ')}. Rimuovi prima i collegamenti o disattiva la voce.`, 'error')
+        setConfirmDelete(null)
+        return
+      }
+
       const { error } = await supabase
         .from('chart_of_accounts')
         .delete()
@@ -1172,6 +1197,35 @@ function CentriDiCostoSection({ showToast, companyId: COMPANY_ID }: SectionProps
 
   const handleDelete = async (id: string) => {
     try {
+      // NO DATA LOSS: prima di cancellare un centro di costo si contano i
+      // riferimenti. Se ce ne sono si BLOCCA (l'eliminazione lascerebbe orfani:
+      // righe di budget con cost_center inesistente, voci di costo con quel
+      // centro tra i default, utenti con quel centro tra gli accessi).
+      const code = centers.find(c => c.id === id)?.code || ''
+      let nBudget = 0, nDefault = 0, nUsers = 0
+      if (code) {
+        const [beRes, coaRes, usrRes] = await Promise.all([
+          supabase.from('budget_entries').select('id', { count: 'exact', head: true })
+            .eq('company_id', COMPANY_ID || '').eq('cost_center', code),
+          supabase.from('chart_of_accounts').select('id', { count: 'exact', head: true })
+            .eq('company_id', COMPANY_ID || '').contains('default_centers', [code]),
+          supabase.from('app_users').select('id', { count: 'exact', head: true })
+            .eq('company_id', COMPANY_ID || '').contains('outlet_access', [code]),
+        ])
+        nBudget = beRes.count || 0
+        nDefault = coaRes.count || 0
+        nUsers = usrRes.count || 0
+      }
+      if (nBudget > 0 || nDefault > 0 || nUsers > 0) {
+        const parts: string[] = []
+        if (nBudget > 0) parts.push(`${nBudget} righe di budget`)
+        if (nDefault > 0) parts.push(`${nDefault} voci di costo`)
+        if (nUsers > 0) parts.push(`${nUsers} utenti`)
+        showToast?.(`Impossibile eliminare: il centro è collegato a ${parts.join(', ')}. Rimuovi prima i collegamenti.`, 'error')
+        setConfirmDelete(null)
+        return
+      }
+
       const { error } = await supabase
         .from('cost_centers')
         .delete()
