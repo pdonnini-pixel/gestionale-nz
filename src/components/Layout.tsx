@@ -228,12 +228,17 @@ export default function Layout() {
   const location = useLocation()
   const { profile } = useAuth()
   const isViewer = profile?.role === 'viewer'
-  // Lo Scadenzario è un flusso "giorno-1" su un singolo elenco di scadenze:
-  // il selettore anni globale non filtra la lista (le scadenze derivano dalle
-  // loro date, non dall'anno selezionato) e ingannava l'utente. Nascosto SOLO
-  // qui; resta attivo su tutte le altre pagine.
+  // Il selettore anno/periodo globale va mostrato SOLO dove ha davvero effetto.
+  // Su queste pagine cambiare anno non filtra nulla (non consumano usePeriod):
+  // mostrarlo ingannava l'utente (stesso problema gia' risolto per lo Scadenzario).
+  // Lo nascondiamo qui; resta attivo sulle pagine che filtrano per periodo.
   const path = '/' + location.pathname.split('/').filter(Boolean).join('/')
-  const hidePeriodSelector = path === '/scadenzario'
+  const NO_PERIOD_PATHS = new Set([
+    '/scadenzario', '/scadenze-fiscali', '/impostazioni', '/archivio',
+    '/import-hub', '/storico-distinte', '/report-sincronizzazioni',
+    '/profilo', '/ai-categorie',
+  ])
+  const hidePeriodSelector = NO_PERIOD_PATHS.has(path) || path.startsWith('/ticket')
   const [mobileOpen, setMobileOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   // Badge sidebar: numero ticket dell'autore con aggiornamenti non visti.

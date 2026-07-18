@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback } from 'react'
+import React, { createContext, useContext, useState, useCallback, useRef } from 'react'
 import { CheckCircle, XCircle, AlertTriangle, Info, X } from 'lucide-react'
 
 // ═══════════════════════════════════════
@@ -36,9 +36,15 @@ interface ToastProviderProps {
 
 export function ToastProvider({ children }: ToastProviderProps) {
   const [toasts, setToasts] = useState<ToastData[]>([])
+  // Id incrementale (non Date.now(), che collideva per due toast nello stesso ms
+  // -> key React duplicata e dismiss che rimuoveva entrambi).
+  const idCounter = useRef(0)
 
-  const toast = useCallback(({ type = 'info', message, duration = 10000 }: ToastOptions) => {
-    const id = Date.now()
+  const toast = useCallback(({ type = 'info', message, duration }: ToastOptions) => {
+    const id = ++idCounter.current
+    // Durata di default per tipo: i success spariscono in fretta (meno frizione
+    // nei flussi ripetitivi), gli errori/avvisi restano piu' a lungo per leggerli.
+    const ttl = duration ?? (type === 'success' || type === 'info' ? 4500 : 8000)
 
     setToasts(prev => {
       const updated = [...prev, { id, type, message }]
@@ -49,7 +55,7 @@ export function ToastProvider({ children }: ToastProviderProps) {
     // Auto-dismiss after duration
     const timeout = setTimeout(() => {
       setToasts(prev => prev.filter(t => t.id !== id))
-    }, duration)
+    }, ttl)
 
     // Return dismiss function for manual removal
     return () => {
@@ -87,27 +93,26 @@ interface ToastContainerProps {
 
 function ToastContainer({ toasts, onRemove }: ToastContainerProps) {
   // Top-center: pattern Sibill/Linear. Non copre la sidebar.
-  // Backdrop invisibile: click ovunque fuori dal toast = chiude tutto.
-  const dismissAll = () => toasts.forEach(t => onRemove(t.id))
+  // NIENTE piu' backdrop a tutto schermo: prima intercettava il PRIMO click
+  // ovunque nella pagina per ~10s dopo ogni toast, costringendo a cliccare due
+  // volte (frizione forte nei flussi ripetitivi). Ora il container e' pointer-
+  // events-none e solo i singoli toast (X + auto-dismiss) sono cliccabili.
+  // role=status + aria-live: gli screen reader annunciano i messaggi.
   return (
-    <>
-      {toasts.length > 0 && (
-        <div
-          className="fixed inset-0 z-[99] cursor-pointer"
-          onClick={dismissAll}
-          aria-hidden="true"
+    <div
+      className="fixed top-6 left-1/2 -translate-x-1/2 z-[100] flex flex-col gap-3 items-center pointer-events-none"
+      role="status"
+      aria-live="polite"
+      aria-atomic="false"
+    >
+      {toasts.map((toast) => (
+        <ToastItem
+          key={toast.id}
+          toast={toast}
+          onRemove={() => onRemove(toast.id)}
         />
-      )}
-      <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[100] flex flex-col gap-3 items-center pointer-events-none">
-        {toasts.map((toast) => (
-          <ToastItem
-            key={toast.id}
-            toast={toast}
-            onRemove={() => onRemove(toast.id)}
-          />
-        ))}
-      </div>
-    </>
+      ))}
+    </div>
   )
 }
 

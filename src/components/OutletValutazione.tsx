@@ -5,6 +5,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import { ConfirmModal } from './ui/Modal'
 import { useAuth } from '../hooks/useAuth'
 import { useCompanyLabels } from '../hooks/useCompanyLabels'
 import { usePeriod } from '../hooks/usePeriod'
@@ -463,21 +464,16 @@ export default function OutletValutazione() {
       )}
 
       {/* MODAL CONFERMA ELIMINAZIONE (custom del progetto, niente confirm nativo) */}
-      {deleteTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setDeleteTarget(null)}>
-          <div className="bg-white rounded-xl shadow-xl max-w-sm w-full p-6" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center gap-3 mb-3">
-              <div className="p-2 rounded-full bg-red-50"><AlertTriangle size={20} className="text-red-500" /></div>
-              <h3 className="text-base font-bold text-slate-900">Elimina simulazione</h3>
-            </div>
-            <p className="text-sm text-slate-600 mb-5">Vuoi eliminare la simulazione <span className="font-semibold text-slate-900">«{deleteTarget.name}»</span>? L'operazione non è reversibile.</p>
-            <div className="flex justify-end gap-2">
-              <button onClick={() => setDeleteTarget(null)} className="px-4 py-2 text-sm font-medium text-slate-600 rounded-lg hover:bg-slate-100">Annulla</button>
-              <button onClick={confirmDeleteSimulation} className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 flex items-center gap-1.5"><Trash2 size={14} /> Elimina</button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Conferma eliminazione: usa il Modal condiviso accessibile (Escape, focus
+          trap, role=dialog) — prima adozione del componente ui/Modal (audit A25). */}
+      <ConfirmModal
+        open={!!deleteTarget}
+        title="Elimina simulazione"
+        message={<>Vuoi eliminare la simulazione <span className="font-semibold text-slate-900">«{deleteTarget?.name}»</span>? L'operazione non è reversibile.</>}
+        confirmLabel="Elimina"
+        onConfirm={confirmDeleteSimulation}
+        onClose={() => setDeleteTarget(null)}
+      />
 
       {/* TOAST */}
       {toast && (
