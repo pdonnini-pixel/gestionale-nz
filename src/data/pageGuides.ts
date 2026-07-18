@@ -1069,7 +1069,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "Da dove arrivano i numeri",
-        "body": "Il saldo iniziale è la somma dei conti bancari collegati. Le entrate previste vengono soprattutto dai ricavi inseriti in Budget & Controllo. Le uscite previste sommano: le fatture fornitori e le scadenze dello Scadenzario, le scadenze fiscali, i costi ricorrenti (es. affitti), le rate dei finanziamenti e le previsioni manuali che inserisci tu in questa pagina. Nella vista Mensile, i mesi già passati mostrano il dato reale ('Consuntivo', preso dai movimenti bancari), il mese in corso è etichettato 'In corso' e i mesi futuri sono etichettati 'Previsione'."
+        "body": "Il saldo iniziale è la somma dei conti bancari collegati. Le entrate previste vengono soprattutto dai ricavi inseriti in Budget & Controllo. Le uscite previste sommano: le fatture fornitori e le scadenze dello Scadenzario (comprese quelle pagate solo in parte, di cui viene contato il residuo ancora da pagare), le scadenze fiscali, gli stipendi e i compensi amministratori stimati, i costi ricorrenti (es. affitti), le rate dei finanziamenti e le previsioni manuali che inserisci tu in questa pagina. Le tre viste (Giornaliero, Settimanale, Mensile) usano gli stessi componenti, così i totali sono coerenti tra loro; la settimana in corso parte da oggi e non riconteggia i giorni già passati. Nella vista Mensile, i mesi già passati mostrano il dato reale ('Consuntivo', preso dai movimenti bancari), il mese in corso è etichettato 'In corso' e i mesi futuri sono etichettati 'Previsione'."
       },
       {
         "heading": "Vedere il dettaglio di una riga (entrate o uscite)",

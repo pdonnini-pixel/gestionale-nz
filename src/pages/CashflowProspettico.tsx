@@ -417,7 +417,10 @@ export default function CashflowProspettico() {
           .from('payables')
           .select('id, due_date, gross_amount, amount_paid, outlet_id, status, supplier_id, supplier_name, invoice_number, installment_number, installment_total')
           .eq('company_id', companyId)
-          .in('status', ['da_pagare', 'in_scadenza', 'scaduto']),
+          // 'parziale' incluso: le fatture con pagamento parziale hanno ancora un
+          // residuo dovuto e vanno nelle proiezioni (entra il residuo, non il lordo,
+          // perché le viste sommano solo gross_amount - amount_paid > 0).
+          .in('status', ['da_pagare', 'in_scadenza', 'scaduto', 'parziale']),
         // Daily revenue for daily/weekly views
         supabase
           .from('daily_revenue')
@@ -604,9 +607,14 @@ export default function CashflowProspettico() {
         payablesData.forEach(payable => {
           const p = payable as Record<string, unknown>
           if (!['pagato', 'annullato'].includes(String(p.status || ''))) {
-            const month = parseMonth(String(p.due_date || ''));
-            if (month !== null && (!filteredOutlet || p.cost_center_code === filteredOutlet)) {
-              const outstandingAmount = (Number(p.amount_total) || 0) - (Number(p.amount_paid) || 0);
+            const dueRaw = String(p.due_date || '');
+            // La vista v_payables_operative non filtra per anno: escludo gli altri anni.
+            if (dueRaw && new Date(dueRaw).getFullYear() !== year) return;
+            const month = parseMonth(dueRaw);
+            // Colonne reali della vista: outlet_code (non cost_center_code) e
+            // amount_remaining/gross_amount (non amount_total, che non esiste).
+            if (month !== null && (!filteredOutlet || p.outlet_code === filteredOutlet)) {
+              const outstandingAmount = (Number(p.gross_amount) || 0) - (Number(p.amount_paid) || 0);
               monthData[month].uscite_sdi += outstandingAmount;
             }
           }
@@ -888,6 +896,19 @@ export default function CashflowProspettico() {
       });
     });
 
+    // Scadenze fiscali per data (residuo non pagato): la vista mensile le include,
+    // giornaliera/settimanale le ignoravano. Stessa logica della mensile (riga ~1365).
+    type FiscalItem = { title: string; amount: number };
+    const fiscalByDate: Record<string, FiscalItem[]> = {};
+    (rawFiscal || []).forEach(f => {
+      if (['paid', 'cancelled', 'pagato', 'annullato'].includes(String(f.status || '').toLowerCase())) return;
+      if (!f.due_date) return;
+      const residuo = (Number(f.amount) || 0) - (Number(f.amount_paid) || 0);
+      if (residuo <= 0) return;
+      const dateKey = String(f.due_date).slice(0, 10);
+      (fiscalByDate[dateKey] ||= []).push({ title: String(f.title || f.deadline_type || 'Scadenza fiscale'), amount: residuo });
+    });
+
     // Build budget-based daily revenue estimate (monthly budget / days in month)
     const monthlyBudgetRevenue: number[] = Array(12).fill(0);
     let hasConfrontoRev = false;
@@ -937,7 +958,12 @@ export default function CashflowProspettico() {
       // (pro-rata) + ricorrenti + rate finanziamenti. Niente stima costi-a-budget.
       const payableItems = payablesByDate[dateKey] || [];
       const payablesTotal = payableItems.reduce((sum, p) => sum + p.gross_amount, 0);
-      const uscite = Math.round(payablesTotal + totalDailyRent + dailyRecurring + dailyLoan);
+      // Scadenze fiscali e stipendi/amministratori del giorno (allineato alla vista mensile).
+      const fiscalItems = fiscalByDate[dateKey] || [];
+      const fiscalTotal = fiscalItems.reduce((sum, f) => sum + f.amount, 0);
+      const salaryItems = estimateVoices.filter(v => v.day === date.getDate() && v.amount > 0);
+      const salaryTotal = salaryItems.reduce((sum, v) => sum + v.amount, 0);
+      const uscite = Math.round(payablesTotal + fiscalTotal + salaryTotal + totalDailyRent + dailyRecurring + dailyLoan);
 
       const flusso = entrate - uscite;
       cumBalance += flusso;
@@ -965,6 +991,8 @@ export default function CashflowProspettico() {
           : [{ label: 'Stima da budget', amount: Math.round(budgetDaily * multiplier) }],
         usciteItems: [
           ...payableItems.map(p => ({ label: `Fatt. ${p.invoice_number}`, amount: Math.round(p.gross_amount) })),
+          ...fiscalItems.map(f => ({ label: `Fiscale: ${f.title}`, amount: Math.round(f.amount) })),
+          ...salaryItems.map(v => ({ label: v.label, amount: Math.round(v.amount) })),
           ...costBaseItems,
           ...(dailyRecurring > 0 ? [{ label: 'Costi ricorrenti (pro-rata)', amount: Math.round(dailyRecurring) }] : []),
           ...(dailyLoan > 0 ? [{ label: 'Rate finanziamenti (pro-rata)', amount: Math.round(dailyLoan) }] : [])
@@ -973,7 +1001,7 @@ export default function CashflowProspettico() {
     }
 
     return days;
-  }, [viewMode, rawDailyRevenue, rawPayables, rawOutlets, rawRecurringCosts, rawLoans, rawBudgetConfronto, rawBudgetEntries, coaCashMap, initialBalance, selectedOutlet, scenario]);
+  }, [viewMode, rawDailyRevenue, rawPayables, rawFiscal, estimateVoices, rawOutlets, rawRecurringCosts, rawLoans, rawBudgetConfronto, rawBudgetEntries, coaCashMap, initialBalance, selectedOutlet, scenario]);
 
   // ===== WEEKLY VIEW COMPUTATION =====
   const weeklyData = useMemo(() => {
@@ -1047,6 +1075,19 @@ export default function CashflowProspettico() {
       });
     });
 
+    // Scadenze fiscali per data (residuo non pagato): in modo speculare alla vista
+    // giornaliera e mensile. Prima la settimanale le ignorava.
+    type FiscalItem = { title: string; amount: number };
+    const fiscalByDate: Record<string, FiscalItem[]> = {};
+    (rawFiscal || []).forEach(f => {
+      if (['paid', 'cancelled', 'pagato', 'annullato'].includes(String(f.status || '').toLowerCase())) return;
+      if (!f.due_date) return;
+      const residuo = (Number(f.amount) || 0) - (Number(f.amount_paid) || 0);
+      if (residuo <= 0) return;
+      const dateKey = String(f.due_date).slice(0, 10);
+      (fiscalByDate[dateKey] ||= []).push({ title: String(f.title || f.deadline_type || 'Scadenza fiscale'), amount: residuo });
+    });
+
     const monthlyBudgetRevenue: number[] = Array(12).fill(0);
     let hasConfrontoRevW = false;
     (rawBudgetConfronto || []).forEach(entry => {
@@ -1096,6 +1137,10 @@ export default function CashflowProspettico() {
       for (let d = 0; d < 7; d++) {
         const date = new Date(wStart);
         date.setDate(wStart.getDate() + d);
+        // La prima settimana parte dal lunedì: salta i giorni già passati per non
+        // conteggiare ricavi/costi di giorni trascorsi (allineato alla vista giornaliera
+        // che parte da oggi). Evita il "doppio conteggio" della settimana corrente.
+        if (date < today) continue;
         const dateKey = toISODate(date);
         const month = date.getMonth();
         const daysInMonth = new Date(date.getFullYear(), month + 1, 0).getDate();
@@ -1115,13 +1160,24 @@ export default function CashflowProspettico() {
 
         const payableItems = payablesByDate[dateKey] || [];
         const payablesTotal = payableItems.reduce((sum, p) => sum + p.gross_amount, 0);
+        // Scadenze fiscali e stipendi/amministratori del giorno (allineato a giornaliera/mensile).
+        const fiscalItems = fiscalByDate[dateKey] || [];
+        const fiscalTotal = fiscalItems.reduce((sum, f) => sum + f.amount, 0);
+        const salaryItems = estimateVoices.filter(v => v.day === date.getDate() && v.amount > 0);
+        const salaryTotal = salaryItems.reduce((sum, v) => sum + v.amount, 0);
         // Modello A: canoni reali (pro-rata), niente stima costi-a-budget.
         weekCostBase += totalDailyRent;
-        const dayUscite = Math.round(payablesTotal + totalDailyRent + dailyRecurring + dailyLoan);
+        const dayUscite = Math.round(payablesTotal + fiscalTotal + salaryTotal + totalDailyRent + dailyRecurring + dailyLoan);
         weekUscite += dayUscite;
 
         payableItems.forEach(p => {
           weekUsciteItems.push({ label: `${formatDate(date)} - Fatt. ${p.invoice_number}`, amount: Math.round(p.gross_amount) });
+        });
+        fiscalItems.forEach(f => {
+          weekUsciteItems.push({ label: `${formatDate(date)} - Fiscale: ${f.title}`, amount: Math.round(f.amount) });
+        });
+        salaryItems.forEach(v => {
+          weekUsciteItems.push({ label: `${formatDate(date)} - ${v.label}`, amount: Math.round(v.amount) });
         });
       }
 
@@ -1149,7 +1205,7 @@ export default function CashflowProspettico() {
     }
 
     return weeks;
-  }, [viewMode, rawDailyRevenue, rawPayables, rawOutlets, rawRecurringCosts, rawLoans, rawBudgetConfronto, rawBudgetEntries, coaCashMap, initialBalance, selectedOutlet, scenario]);
+  }, [viewMode, rawDailyRevenue, rawPayables, rawFiscal, estimateVoices, rawOutlets, rawRecurringCosts, rawLoans, rawBudgetConfronto, rawBudgetEntries, coaCashMap, initialBalance, selectedOutlet, scenario]);
 
   // Force daily computation for weekly view by making dailyData not depend on viewMode for weekly
   // Actually, weeklyData computes independently. Let's fix the dependency:
