@@ -3177,21 +3177,18 @@ function InserimentoRapidoMatrice({ year, companyId, outlets, phRevByCenterMonth
   // Save on blur per singola cella (entry_type rev_monthly o cons_monthly)
   const saveCell = async (outlet: OutletForRapido, kind: 'prev' | 'cons', value: number) => {
     const entryType = kind === 'prev' ? 'rev_monthly' : 'cons_monthly'
-    // DELETE riga esistente (idempotente), poi INSERT se valore non zero
-    await supabase.from('budget_confronto').delete()
-      .eq('company_id', companyId).eq('cost_center', outlet.code)
-      .eq('account_code', outlet.accountCode).eq('year', year)
-      .eq('month', mese + 1).eq('entry_type', entryType)
-    if (value !== 0) {
-      const { error } = await supabase.from('budget_confronto').insert({
-        company_id: companyId, cost_center: outlet.code, account_code: outlet.accountCode,
-        year, month: mese + 1, entry_type: entryType, amount: value,
-        // riga Consuntivo = granitico (mese chiuso reale); riga Preventivo = preventivo
-        stato: kind === 'cons' ? 'granitico' : 'preventivo',
-        updated_at: new Date().toISOString(),
-      } as never)
-      if (error) throw error
-    }
+    // Salvataggio ATOMICO (migration 107): valore 0 → cancella, altrimenti upsert
+    // sull'indice unico, in un'unica transazione lato DB. Prima era DELETE-poi-INSERT
+    // sciolto (una cella poteva restare cancellata se l'INSERT falliva).
+    // riga Consuntivo = granitico (mese chiuso reale); riga Preventivo = preventivo.
+    const { error } = await (supabase.rpc as unknown as (n: string, a: Record<string, unknown>) => Promise<{ error: { message: string } | null }>)(
+      'save_budget_confronto_cell', {
+        p_cost_center: outlet.code, p_account_code: outlet.accountCode,
+        p_year: year, p_month: mese + 1, p_entry_type: entryType,
+        p_amount: value, p_stato: kind === 'cons' ? 'granitico' : 'preventivo',
+      }
+    )
+    if (error) throw error
   }
 
   const totalePrev = outlets.reduce((s, o) => s + (matrix[o.code]?.prev || 0), 0)

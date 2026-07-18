@@ -1429,18 +1429,11 @@ export default function ContoEconomico() {
   const commitImportedData = async (records: Array<Record<string, unknown>>) => {
     try {
       if (!COMPANY_ID) return
-      await supabase
-        .from('balance_sheet_data')
-        .delete()
-        .eq('company_id', COMPANY_ID!)
-        .eq('year', year)
-        .eq('period_type', periodType)
-        .eq('section', 'conto_economico')
-
-      const { error } = await supabase
-        .from('balance_sheet_data')
-        .insert(records as never)
-
+      // Salvataggio ATOMICO (migration 107): sostituisce l'intera sezione
+      // conto_economico in un'unica transazione (DELETE+INSERT tutto-o-niente).
+      const { error } = await (supabase.rpc as unknown as (n: string, a: Record<string, unknown>) => Promise<{ error: { message: string } | null }>)(
+        'save_balance_sheet', { p_records: records, p_replace_sections: ['conto_economico'] }
+      )
       if (error) throw error
 
       setShowImportForm(false)
@@ -1528,23 +1521,13 @@ export default function ContoEconomico() {
           }
         })
 
-      // Upsert each record (delete existing, then insert)
-      for (const record of records) {
-        await supabase
-          .from('balance_sheet_data')
-          .delete()
-          .eq('company_id', COMPANY_ID!)
-          .eq('year', year)
-          .eq('period_type', periodType)
-          .eq('section', 'conto_economico')
-          .eq('account_code', record.account_code)
-
-        const { error } = await supabase
-          .from('balance_sheet_data')
-          .insert(record)
-
-        if (error) throw error
-      }
+      // Salvataggio ATOMICO (migration 107) in MODO "per chiave" (p_replace_sections
+      // vuoto): cancella e reinserisce SOLO i record modificati, in un'unica
+      // transazione. Le altre righe della sezione restano intatte.
+      const { error } = await (supabase.rpc as unknown as (n: string, a: Record<string, unknown>) => Promise<{ error: { message: string } | null }>)(
+        'save_balance_sheet', { p_records: records, p_replace_sections: [] }
+      )
+      if (error) throw error
 
       setSaveMessage({ type: 'success', text: `Salvate ${records.length} modifiche` })
       setDirtyFields({})
@@ -1568,22 +1551,14 @@ export default function ContoEconomico() {
     if (!COMPANY_ID) return
     setBilancioSaving(true)
     try {
-      for (const section of sectionsToWrite) {
-        await supabase
-          .from('balance_sheet_data')
-          .delete()
-          .eq('company_id', COMPANY_ID!)
-          .eq('year', year)
-          .eq('period_type', periodType)
-          .eq('section', section)
-      }
-
-      // Insert in batches of 100
-      for (let i = 0; i < records.length; i += 100) {
-        const batch = records.slice(i, i + 100)
-        const { error } = await supabase.from('balance_sheet_data').insert(batch as never)
-        if (error) throw error
-      }
+      // Salvataggio ATOMICO (migration 107): DELETE delle sezioni + INSERT dei nuovi
+      // record in un'unica transazione lato DB. Se qualcosa fallisce, NIENTE viene
+      // cancellato (prima il pattern DELETE-poi-INSERT sciolto poteva svuotare una
+      // sezione e non riscriverla → perdita dati). company_id lo impone la RPC dal JWT.
+      const { error } = await (supabase.rpc as unknown as (n: string, a: Record<string, unknown>) => Promise<{ error: { message: string } | null }>)(
+        'save_balance_sheet', { p_records: records, p_replace_sections: sectionsToWrite }
+      )
+      if (error) throw error
 
       setBilancioSaved(true)
       loadPeriodData()
