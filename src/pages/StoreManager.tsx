@@ -96,12 +96,14 @@ const StoreManager = () => {
     { ora: '20:00', vendite: 0 },
   ];
 
-  // Staff on duty
+  // Staff on duty (DEMO: nomi generici, non persone reali. Prima c'erano nomi e
+  // cognomi reali del tenant NZ hardcoded, visibili anche su Made e Zago — viola
+  // la regola "mai valori hardcoded specifici di un tenant").
   const staffData = [
-    { id: 1, nome: 'Felici Silvia', turno: 'mattina', ore: 6, vendite: 920 },
-    { id: 2, nome: 'Lorenzini Martina', turno: 'mattina', ore: 6, vendite: 850 },
-    { id: 3, nome: 'Mucciarelli Ginevra', turno: 'pomeriggio', ore: 4, vendite: 680 },
-    { id: 4, nome: 'Tavanti Sara', turno: 'giornata', ore: 8, vendite: 1400 },
+    { id: 1, nome: 'Dipendente 1', turno: 'mattina', ore: 6, vendite: 920 },
+    { id: 2, nome: 'Dipendente 2', turno: 'mattina', ore: 6, vendite: 850 },
+    { id: 3, nome: 'Dipendente 3', turno: 'pomeriggio', ore: 4, vendite: 680 },
+    { id: 4, nome: 'Dipendente 4', turno: 'giornata', ore: 8, vendite: 1400 },
   ];
 
   // Top 5 products
@@ -204,6 +206,15 @@ const StoreManager = () => {
           </div>
         }
       />
+
+      {/* Badge "Dati simulati": questa pagina mostra numeri e personale di ESEMPIO,
+          non collegati alla cassa o alle presenze reali. Coerente con AnalyticsPOS /
+          StockSellthrough / OpenToBuy. Evita che i valori credibili siano scambiati
+          per dati veri. */}
+      <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-lg px-4 py-2.5 text-sm text-amber-800">
+        <AlertTriangle size={16} className="shrink-0" />
+        <span><strong>Dati simulati (demo).</strong> Incassi, personale in turno e prodotti sono valori di esempio: questa pagina non è ancora collegata alla cassa né alle presenze reali del punto vendita.</span>
+      </div>
 
       {/* Main Grid */}
       <div className="grid grid-cols-12 gap-6">

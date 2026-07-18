@@ -210,7 +210,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "Stato ed eliminazione di una simulazione",
-        "body": "Ogni simulazione nasce come 'Bozza'. Dall'elenco puoi farla avanzare di stato con le icone a fianco: la stella la porta ad 'Approvato', l'icona archivio la porta ad 'Archiviato'. L'icona del cestino elimina la simulazione, con una richiesta di conferma perché l'operazione non è reversibile."
+        "body": "Ogni simulazione nasce come 'Bozza'. Dall'elenco puoi farla avanzare di stato con le icone a fianco: la stella la porta ad 'Approvato', l'icona archivio la porta ad 'Archiviato'. L'icona del cestino elimina la simulazione, con una finestra di conferma perché l'operazione non è reversibile. La finestra di conferma si può chiudere anche con il tasto Esc o cliccando fuori, ed è utilizzabile da tastiera e con i lettori di schermo."
       }
     ],
     "faq": [
@@ -1317,7 +1317,7 @@ export const PAGE_GUIDES: PageGuide[] = [
     "sections": [
       {
         "heading": "Importante: al momento i numeri sono di esempio",
-        "body": "Questa pagina, così com'è oggi, mostra dei dati dimostrativi fissi (incasso, scontrini, personale in turno, top prodotti, meteo) e non è ancora collegata alla cassa o alle presenze reali del punto vendita. Il selettore in alto a destra permette comunque di cambiare punto vendita tra quelli reali dell'azienda, ma i numeri mostrati sotto non cambiano di conseguenza: sono sempre gli stessi valori di esempio, indipendentemente dall'outlet scelto."
+        "body": "In cima alla pagina è ora mostrato un badge 'Dati simulati (demo)' che lo rende esplicito: questa pagina mostra dati dimostrativi fissi (incasso, scontrini, personale in turno, top prodotti, meteo) e non è ancora collegata alla cassa o alle presenze reali del punto vendita. Anche i nomi del personale in turno sono generici ('Dipendente 1', 'Dipendente 2', …), non persone reali. Il selettore in alto a destra permette di cambiare punto vendita, ma i numeri sotto non cambiano di conseguenza: sono sempre gli stessi valori di esempio, indipendentemente dall'outlet scelto."
       },
       {
         "heading": "KPI della giornata",
