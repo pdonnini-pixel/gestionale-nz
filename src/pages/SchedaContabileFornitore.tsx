@@ -164,20 +164,29 @@ export default function SchedaContabileFornitore() {
       // net/vat non valorizzati (solo gross). I valori corretti stanno in
       // electronic_invoices. Costruiamo la mappa invoice_number → {net, vat}
       // per riempire lo split mancante in visualizzazione (non modifica il DB).
-      const numbers = [...new Set(allPayables.map(p => p.invoice_number).filter(Boolean))] as string[];
+      //
+      // AGGANCIO PER P.IVA: il numero fattura NON è univoco tra fornitori diversi
+      // (es. due fornitori con fattura n.4). Filtriamo electronic_invoices per la
+      // P.IVA del fornitore, altrimenti lo split rischia di prendere imponibile/IVA
+      // dalla fattura di UN ALTRO fornitore. Senza P.IVA non riempiamo lo split.
+      const supplierVat = sup.partita_iva || sup.vat_number || null;
       const splitMap: Record<string, { net: number; vat: number }> = {};
-      for (let i = 0; i < numbers.length; i += 200) {
-        const chunk = numbers.slice(i, i + 200);
-        const { data: eis } = await supabase
-          .from('electronic_invoices')
-          .select('invoice_number, net_amount, vat_amount')
-          .eq('company_id', COMPANY_ID)
-          .in('invoice_number', chunk);
-        (eis || []).forEach((e: { invoice_number: string | null; net_amount: number | null; vat_amount: number | null }) => {
-          if (e.invoice_number && (e.net_amount != null || e.vat_amount != null)) {
-            splitMap[e.invoice_number] = { net: Number(e.net_amount || 0), vat: Number(e.vat_amount || 0) };
-          }
-        });
+      if (supplierVat) {
+        const numbers = [...new Set(allPayables.map(p => p.invoice_number).filter(Boolean))] as string[];
+        for (let i = 0; i < numbers.length; i += 200) {
+          const chunk = numbers.slice(i, i + 200);
+          const { data: eis } = await supabase
+            .from('electronic_invoices')
+            .select('invoice_number, net_amount, vat_amount')
+            .eq('company_id', COMPANY_ID)
+            .eq('supplier_vat', supplierVat)
+            .in('invoice_number', chunk);
+          (eis || []).forEach((e: { invoice_number: string | null; net_amount: number | null; vat_amount: number | null }) => {
+            if (e.invoice_number && (e.net_amount != null || e.vat_amount != null)) {
+              splitMap[e.invoice_number] = { net: Number(e.net_amount || 0), vat: Number(e.vat_amount || 0) };
+            }
+          });
+        }
       }
       setEinvSplit(splitMap);
 
@@ -356,6 +365,7 @@ export default function SchedaContabileFornitore() {
       paymentDate: string | null;  // ultima data pagamento se status pagato
       paymentBankId: string | null;
       isPaid: boolean;
+      paidAmount: number;          // somma amount_paid delle SOLE rate pagate (non il totale fattura)
       tipoDoc: string | null;
       closedManually: boolean;       // true se almeno una rata e' stata chiusa a mano
       manualCloseReason: string | null;
@@ -376,6 +386,7 @@ export default function SchedaContabileFornitore() {
           paymentDate: null,
           paymentBankId: null,
           isPaid: false,
+          paidAmount: 0,
           tipoDoc: (p as Payable & { tipo_documento?: string | null }).tipo_documento || null,
           closedManually: false,
           manualCloseReason: null,
@@ -399,6 +410,9 @@ export default function SchedaContabileFornitore() {
       }
       if (p.status === 'pagato' && p.payment_date) {
         agg.isPaid = true;
+        // Somma SOLO l'importo effettivamente pagato di questa rata (non il totale
+        // fattura): con fatture rateizzate, una sola rata pagata non chiude tutto.
+        agg.paidAmount += Number(p.amount_paid ?? p.gross_amount ?? 0);
         if (!agg.paymentDate || p.payment_date > agg.paymentDate) {
           agg.paymentDate = p.payment_date;
           agg.paymentBankId = p.payment_bank_account_id || null;
@@ -483,16 +497,20 @@ export default function SchedaContabileFornitore() {
             aliquotaIVA: '—',
             tipo: 'pagamento',
           });
-        } else if (agg.isPaid && agg.paymentDate) {
-          // Pagamento normale con banca.
+        } else if (agg.paidAmount > 0 && agg.paymentDate) {
+          // Pagamento normale con banca. DARE = importo EFFETTIVAMENTE pagato
+          // (somma delle rate saldate), NON il totale fattura: con fatture rateizzate
+          // una sola rata pagata non deve chiudere l'intero importo -> il saldo del
+          // fornitore mostra correttamente il residuo delle rate ancora aperte.
           const bankName = agg.paymentBankId ? (bankAccountById[agg.paymentBankId] || 'Banca non specificata') : 'Banca non specificata';
+          const isPartial = agg.paidAmount < Math.abs(agg.grossTotal) - 0.005;
           movimenti.push({
             data: agg.invoiceDate,           // data principale = emissione fattura
             dataPagamento: agg.paymentDate,  // mostrata sotto in piccolo
             numero: agg.invoiceNumber,
-            dare: agg.grossTotal,
+            dare: agg.paidAmount,
             avere: 0,
-            descrizione: `Pagamento — ${bankName} — rif. Fatt. ${agg.invoiceNumber}`,
+            descrizione: `Pagamento${isPartial ? ' parziale' : ''} — ${bankName} — rif. Fatt. ${agg.invoiceNumber}`,
             aliquotaIVA: '—',
             tipo: 'pagamento',
           });

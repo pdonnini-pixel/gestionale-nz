@@ -7,6 +7,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react'
 import { Download, FileSpreadsheet, Calendar, Filter, RefreshCw, Loader2 } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import { supabase } from '../lib/supabase'
+import { fetchAllPaged } from '../lib/fetchAllPaged'
 import { lastDayOfMonthYMD } from '../lib/dateLocal'
 import { useCompany } from '../hooks/useCompany'
 import Tooltip from '../components/Tooltip'
@@ -92,27 +93,32 @@ export default function PrimaNota() {
 
       // Embed payables tramite bank_transaction_id FK omesso: PostgREST non risolve auto.
       // Fetch separato dei payables collegati e join lato client.
-      let q = supabase
-        .from('bank_transactions')
-        .select(`
-          id, transaction_date, amount, currency, description, reference, category,
-          counterpart, merchant_name, supplier_id, invoice_id, bank_account_id,
-          bank_accounts!inner(id, bank_name, account_name, iban),
-          suppliers(id, ragione_sociale, name, partita_iva)
-        `)
-        .eq('company_id', companyId)
-        .gte('transaction_date', dateStart)
-        .lte('transaction_date', dateEnd)
-        .order('transaction_date', { ascending: true })
-        .limit(5000)
-
-      if (bankAccountId !== 'all') {
-        q = q.eq('bank_account_id', bankAccountId)
-      }
-
-      const { data, error: err } = await q
-      if (err) throw err
-      const baseMovs = (data as unknown as Movement[]) ?? []
+      //
+      // Paginato: prima un `.limit(5000)` troncava SILENZIOSAMENTE l'estratto (su piu'
+      // conti "Tutto l'anno" e' realistico superare 5.000 movimenti): KPI ed export
+      // CSV/XLSX per la commercialista risultavano incompleti senza alcun avviso. Ora
+      // si scarica tutto in blocchi da 1000. Ordine stabile (data + id) per non
+      // perdere/duplicare righe al confine tra le pagine.
+      const baseMovs = await fetchAllPaged<Movement>(
+        (from, to) => {
+          let q = supabase
+            .from('bank_transactions')
+            .select(`
+              id, transaction_date, amount, currency, description, reference, category,
+              counterpart, merchant_name, supplier_id, invoice_id, bank_account_id,
+              bank_accounts!inner(id, bank_name, account_name, iban),
+              suppliers(id, ragione_sociale, name, partita_iva)
+            `)
+            .eq('company_id', companyId)
+            .gte('transaction_date', dateStart)
+            .lte('transaction_date', dateEnd)
+            .order('transaction_date', { ascending: true })
+            .order('id', { ascending: true })
+          if (bankAccountId !== 'all') q = q.eq('bank_account_id', bankAccountId)
+          return q.range(from, to)
+        },
+        'bank_transactions',
+      ) as unknown as Movement[]
 
       // Fetch separato payables collegati. types stale per bank_transaction_id (col aggiunta in 028).
       // CHUNKED: PostgREST IN() ha limite ~16KB URL → spacchetta in batch da 200 UUID

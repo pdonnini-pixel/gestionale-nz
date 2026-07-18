@@ -6,6 +6,8 @@ import {
 import { TrendingUp, Users, Euro, Target, AlertCircle, CheckCircle, Loader2, Award } from 'lucide-react';
 import { GlassTooltip, AXIS_STYLE, GRID_STYLE, PALETTE } from '../components/ChartTheme';
 import { supabase } from '../lib/supabase';
+import { fetchAllPaged } from '../lib/fetchAllPaged';
+import { buildOutletCostCenterSet, isOutletCostCenter } from '../lib/outletCostCenters';
 import { useAuth } from '../hooks/useAuth';
 import { useCompanyLabels } from '../hooks/useCompanyLabels';
 import { usePeriod } from '../hooks/usePeriod';
@@ -36,6 +38,9 @@ export default function Produttivita() {
   const [employees, setEmployees] = useState<any[]>([]);
   const [allocations, setAllocations] = useState<any[]>([]);
   const [outletMap, setOutletMap] = useState<Record<string, string>>({});
+  // Insieme dei cost_center che sono outlet reali (code+name), per escludere gli
+  // aggregati virtuali (costi non divisi, rettifiche, "all") da classifiche e medie.
+  const [outletSet, setOutletSet] = useState<Set<string>>(new Set());
   const [simulazioneAttiva, setSimulazioneAttiva] = useState(false);
   const [moved, setMoved] = useState<{ from: string | null; to: string | null; count: number }>({ from: null, to: null, count: 1 });
 
@@ -47,13 +52,21 @@ export default function Produttivita() {
       try {
         const companyId = profile?.company_id;
 
-        // Fetch budget entries (with month for trend)
-        let budgetQuery = supabase
-          .from('budget_entries')
-          .select('cost_center, account_code, budget_amount, month')
-          .eq('year', year)
-          .range(0, 9999); // override default Supabase limit 1000
-        if (companyId) budgetQuery = budgetQuery.eq('company_id', companyId);
+        // Fetch budget entries (with month for trend). Paginato: .range(0,9999)
+        // NON aggira il cap PostgREST di 1000 righe -> oltre 1000 righe i dati
+        // venivano troncati senza errore (totali/margini sbagliati). Ora blocchi da 1000.
+        const budgetData = await fetchAllPaged(
+          (from, to) => {
+            let q = supabase
+              .from('budget_entries')
+              .select('id, cost_center, account_code, budget_amount, month')
+              .eq('year', year)
+              .order('id', { ascending: true });
+            if (companyId) q = q.eq('company_id', companyId);
+            return q.range(from, to);
+          },
+          'budget_entries',
+        );
 
         // Fetch employees (outlet name risolto via outletMap: lo schema reale
         // post-PR #150 non ha piu' outlet_name/cost_center, solo outlet_id).
@@ -69,19 +82,19 @@ export default function Produttivita() {
           .select('employee_id, outlet_code, allocation_pct');
         if (companyId) allocQuery = allocQuery.eq('company_id', companyId);
 
-        // Mappa outlet_id -> nome per il fallback employees.
+        // Mappa outlet_id -> nome per il fallback employees + code/name per il set
+        // dei cost_center reali.
         let outletsQuery = supabase
           .from('outlets')
-          .select('id, name');
+          .select('id, code, name');
         if (companyId) outletsQuery = outletsQuery.eq('company_id', companyId);
 
-        const [budgetRes, empRes, allocRes, outletsRes] = await Promise.all([budgetQuery, empQuery, allocQuery, outletsQuery]);
+        const [empRes, allocRes, outletsRes] = await Promise.all([empQuery, allocQuery, outletsQuery]);
 
-        if (budgetRes.error) throw budgetRes.error;
         // Sprint 2 hotfix (29/05/2026 sera): rollback override budget_confronto.
         // Stesso bug di MarginiOutlet (override /12 esplodeva). Per ora budget_entries
         // come prima dello Sprint 2; il fix corretto richiede aggregato post-reduce.
-        setRawEntries(budgetRes.data || []);
+        setRawEntries(budgetData);
 
         // Employees may not exist as a table - graceful fallback
         if (!empRes.error && empRes.data) {
@@ -93,11 +106,12 @@ export default function Produttivita() {
           setAllocations(allocRes.data);
         }
 
-        // Outlet id -> name map (per fallback employees)
+        // Outlet id -> name map (per fallback employees) + set cost_center reali
         if (!outletsRes.error && outletsRes.data) {
           const map: Record<string, string> = {};
           outletsRes.data.forEach((o: any) => { if (o.id) map[o.id] = o.name; });
           setOutletMap(map);
+          setOutletSet(buildOutletCostCenterSet(outletsRes.data as { code?: string; name?: string }[]));
         }
       } catch (err: unknown) {
         console.error('[Produttivita] fetch error:', err);
@@ -132,14 +146,22 @@ export default function Produttivita() {
     return counts;
   }, [allocations, employees, outletMap]);
 
+  // Righe dei soli outlet REALI: esclude i cost_center virtuali (costi non divisi,
+  // rettifiche, sede/magazzino, "all") da classifiche, medie e raccomandazioni.
+  // Fail-safe: set vuoto (anagrafica non caricata) -> nessun filtro (mostra tutto).
+  const outletEntries = useMemo(() => {
+    if (outletSet.size === 0) return rawEntries;
+    return rawEntries.filter(r => isOutletCostCenter(r.cost_center, outletSet));
+  }, [rawEntries, outletSet]);
+
   // Compute per-outlet productivity metrics from budget_entries
   interface OutletAggregate { ricavi: number; costo_personale: number; costi_totali: number }
   interface OutletBaseRow { nome: string; ricavi: number; costo_personale: number; costi_totali: number; dipendenti: number | null; colore: string }
   const outletBaseData = useMemo<OutletBaseRow[]>(() => {
-    if (!rawEntries.length) return [];
+    if (!outletEntries.length) return [];
 
     const byOutlet: Record<string, OutletAggregate> = {};
-    rawEntries.forEach(row => {
+    outletEntries.forEach(row => {
       const outlet = row.cost_center || 'Sconosciuto';
       if (!byOutlet[outlet]) byOutlet[outlet] = { ricavi: 0, costo_personale: 0, costi_totali: 0 };
 
@@ -169,17 +191,17 @@ export default function Produttivita() {
         colore: colors[idx % colors.length],
       }))
       .sort((a, b) => b.ricavi - a.ricavi);
-  }, [rawEntries, empCountByOutlet]);
+  }, [outletEntries, empCountByOutlet]);
 
   // Monthly trend data for fatturato/dipendente per outlet
   type MonthRow = { mese: string } & Record<string, number | string>
   const monthlyTrendData = useMemo<MonthRow[]>(() => {
-    if (!rawEntries.length) return [];
+    if (!outletEntries.length) return [];
 
     // Group revenue by outlet and month
     const byOutletMonth: Record<string, number> = {};
-    const outletSet = new Set<string>();
-    rawEntries.forEach(row => {
+    const trendOutlets = new Set<string>();
+    outletEntries.forEach(row => {
       const outlet = row.cost_center || 'Sconosciuto';
       const month = parseInt(row.month) || 0;
       if (month < 1 || month > 12) return;
@@ -190,7 +212,7 @@ export default function Produttivita() {
       if (code.startsWith('5')) {
         const key = `${outlet}__${month}`;
         byOutletMonth[key] = (byOutletMonth[key] || 0) + amount;
-        outletSet.add(outlet);
+        trendOutlets.add(outlet);
       }
     });
 
@@ -199,10 +221,13 @@ export default function Produttivita() {
     for (let m = 1; m <= 12; m++) {
       const row: MonthRow = { mese: MONTHS[m - 1] };
       let hasData = false;
-      outletSet.forEach(outlet => {
+      trendOutlets.forEach(outlet => {
         const rev = byOutletMonth[`${outlet}__${m}`] || 0;
-        const dip = empCountByOutlet[outlet] || 4; // fallback
-        if (rev > 0) {
+        // Niente fallback inventato: senza dato dipendenti il valore resta assente
+        // (Recharts con connectNulls salta il punto), coerente con la 'N/D' del resto
+        // della pagina. Prima c'era un '|| 4' che inventava fatturato/dipendente.
+        const dip = empCountByOutlet[outlet];
+        if (rev > 0 && dip && dip > 0) {
           row[outlet] = Math.round(rev / dip);
           hasData = true;
         }
@@ -210,7 +235,7 @@ export default function Produttivita() {
       if (hasData) months.push(row);
     }
     return months;
-  }, [rawEntries, empCountByOutlet]);
+  }, [outletEntries, empCountByOutlet]);
 
   // Calcolo metriche per ogni outlet (with simulation support)
   const metriche = useMemo(() => {
