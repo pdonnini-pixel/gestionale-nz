@@ -1,4 +1,4 @@
--- Migration 105 — Sede legale strutturata + regime fiscale in company_settings
+-- Migration 106 — Sede legale strutturata + regime fiscale in company_settings
 --
 -- Contesto (audit 2026-07-17, finding critici C3/C4 + alto "sede cedente hardcoded"):
 -- la fattura elettronica FPR12 richiede la sede del cedente in forma strutturata
