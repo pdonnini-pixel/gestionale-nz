@@ -24,7 +24,12 @@ export interface TicketCommento {
 }
 
 export interface TicketAllegato {
-  url: string
+  // Percorso nello storage (bucket privato 'media'), es. 'tickets/<id>/00_file.png'.
+  // I nuovi allegati salvano il path; l'URL firmato si genera al momento della
+  // visualizzazione. `url` resta per retrocompatibilità coi vecchi allegati
+  // (URL pubblico salvato quando il bucket era pubblico).
+  path?: string
+  url?: string
   name: string
   size: number
   type: string  // MIME, es. 'image/png', 'application/pdf'
