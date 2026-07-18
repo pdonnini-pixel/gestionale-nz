@@ -106,6 +106,10 @@ export const PAGE_GUIDES: PageGuide[] = [
       {
         "q": "Cosa devo fare se vedo l'avviso 'movimenti bancari senza categoria contabile'?",
         "a": "Clicca su 'Vai ai movimenti' nell'avviso: ti porta direttamente all'elenco dei movimenti bancari senza categoria, dove puoi assegnarla."
+      },
+      {
+        "q": "Cosa significa il banner giallo 'alcuni dati potrebbero non essere stati caricati'?",
+        "a": "Vuol dire che, mentre la Dashboard caricava, almeno una delle richieste al sistema non è andata a buon fine (di solito per connessione instabile). In quel caso alcuni numeri potrebbero essere incompleti o mostrare 0 non reale: premi 'Ricarica' nel banner per riprovare. Prima questo tipo di errore era silenzioso e i valori a 0 sembravano dati veri."
       }
     ]
   },
@@ -1440,6 +1444,10 @@ export const PAGE_GUIDES: PageGuide[] = [
       {
         "q": "Perché per alcune fonti devo scegliere prima un'opzione (conto, mese, punto vendita)?",
         "a": "Perché quel dato serve al sistema per collegare correttamente il file: ad esempio un estratto conto deve sapere a quale conto bancario appartiene, un cedolino a quale mese si riferisce. Senza questa scelta il caricamento non parte."
+      },
+      {
+        "q": "Se carico più file insieme e qualcuno non viene caricato, come me ne accorgo?",
+        "a": "Il messaggio finale ora dice esattamente quanti file sono stati caricati e quali no (es. 'Caricati 2 di 5 file — 3 non riusciti: …'), e ogni file fallito genera un avviso di errore. Prima veniva sempre mostrato 'tutti caricati con successo' anche se alcuni erano falliti: i file mancanti restavano fuori senza che te ne accorgessi."
       }
     ]
   },
@@ -1684,6 +1692,10 @@ export const PAGE_GUIDES: PageGuide[] = [
       {
         "q": "Perché nella vista Cassetto Fiscale non vedo nessun dato?",
         "a": "Il canale di sincronizzazione automatica dei corrispettivi telematici con il cassetto fiscale dell'Agenzia delle Entrate non è ancora attivo per questo tenant: è normale se la lista risulta vuota."
+      },
+      {
+        "q": "Se le fatture non si caricano per un problema di connessione, come lo capisco?",
+        "a": "Se il caricamento fallisce compare un banner rosso con il messaggio d'errore e un pulsante 'Riprova' (sia sulle fatture passive/attive sia sui corrispettivi). In questo modo un errore di rete non viene scambiato per 'nessuna fattura presente': prima l'elenco mostrava 'Nessuna fattura trovata' anche quando in realtà c'era stato un errore."
       }
     ]
   },
@@ -1918,6 +1930,10 @@ export const PAGE_GUIDES: PageGuide[] = [
       {
         "q": "A cosa serve il campo \"Codice F24\"?",
         "a": "È il codice tributo da riportare sul modello F24 per quel pagamento (ad esempio 6001 per l'IVA). Se lo inserisci, comparirà anche sotto il titolo nella tabella come promemoria."
+      },
+      {
+        "q": "Quando segno una scadenza come pagata o la elimino, come so se è andata a buon fine?",
+        "a": "Ora compare un messaggio di conferma ('Scadenza segnata come pagata' / 'Scadenza eliminata') oppure, se qualcosa va storto, un messaggio d'errore chiaro. Prima, in caso di problema (rete o permessi), l'operazione poteva non riuscire senza alcun avviso e la lista si ricaricava come se fosse tutto a posto."
       }
     ]
   },
