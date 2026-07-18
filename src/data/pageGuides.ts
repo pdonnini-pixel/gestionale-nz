@@ -1395,13 +1395,12 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "Cosa succede dopo l'import di un estratto conto bancario",
-        "body": "Subito dopo aver elaborato con successo un estratto conto, il gestionale confronta automaticamente i movimenti in uscita con le fatture fornitori ancora da pagare e apre una finestra con il riepilogo: \"Match sicuri\" (importo e fornitore coincidono esattamente), \"Probabili\" (da controllare a mano) e \"Senza match\" (nessuna fattura corrispondente trovata). Da questa finestra si può confermare in blocco tutti i match sicuri — le relative fatture vengono segnate come pagate — oppure passare alla pagina Riconciliazione per gestire i casi dubbi uno per uno.",
+        "body": "Subito dopo aver elaborato con successo un estratto conto, il gestionale riconcilia automaticamente i movimenti in uscita con le fatture fornitori ancora da pagare e apre una finestra con l'esito reale: \"Analizzati\" (movimenti in uscita esaminati), \"Riconciliati\" (abbinamenti a importo esatto già applicati, con la fattura marcata come pagata) e \"Da confermare\" (abbinamenti incerti che restano da verificare a mano). Gli abbinamenti sicuri — dove l'importo del bonifico coincide con il totale della fattura — vengono applicati subito. Gli acconti e i pagamenti al netto di note di credito NON vengono chiusi in automatico: il loro importo è diverso dal totale della fattura, quindi finiscono tra i \"Da confermare\" e vanno abbinati nel tab Riconciliazione, dove il gestionale gestisce correttamente l'importo effettivo del bonifico e chiude anche le note di credito collegate.",
         "steps": [
-          "Attendere il calcolo automatico dei match (compare un messaggio di caricamento)",
-          "Controllare i tre riquadri con i conteggi: match sicuri, probabili, senza match",
-          "Cliccare \"Conferma [N] match sicuri\" per marcare automaticamente come pagate le fatture corrispondenti",
-          "Oppure cliccare \"Vai alla Riconciliazione\" per rivedere manualmente i casi probabili",
-          "Cliccare \"Chiudi\" per chiudere la finestra senza confermare nulla, se si preferisce controllare più tardi"
+          "Attendere il completamento della riconciliazione (compare un messaggio di caricamento)",
+          "Controllare i tre riquadri: movimenti analizzati, riconciliati in automatico, da confermare",
+          "Se ci sono abbinamenti da confermare, cliccare \"Vai alla Riconciliazione\" per rivederli uno per uno",
+          "Cliccare \"Chiudi\" per proseguire: gli abbinamenti a importo esatto sono comunque già stati applicati"
         ]
       },
       {
@@ -1428,7 +1427,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "q": "Perché dopo aver caricato un estratto conto si apre una finestra con dei \"match\"?",
-        "a": "È il calcolo automatico delle corrispondenze tra i movimenti bancari in uscita e le fatture dei fornitori ancora da pagare. Serve a velocizzare la riconciliazione: i match sicuri si possono confermare subito, quelli probabili vanno controllati a mano nella pagina Riconciliazione."
+        "a": "È l'esito della riconciliazione automatica tra i movimenti bancari in uscita e le fatture dei fornitori ancora da pagare. Gli abbinamenti a importo esatto vengono applicati subito (la fattura risulta pagata); gli acconti, i pagamenti al netto di note di credito e i casi incerti restano \"da confermare\" e vanno chiusi a mano nel tab Riconciliazione, che gestisce correttamente l'importo effettivo del bonifico."
       },
       {
         "q": "Dove trovo tutti i file caricati in passato, anche di tipi diversi?",
