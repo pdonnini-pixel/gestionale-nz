@@ -6,6 +6,7 @@ import {
   ArrowRight, Eye, Landmark
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import { daysUntilLocal, todayYMD } from '../lib/dateLocal'
 import { useAuth } from '../hooks/useAuth'
 import { useToast } from '../components/Toast'
 import PageHeader from '../components/PageHeader'
@@ -16,10 +17,9 @@ function fmt(n: number | null | undefined) {
   return new Intl.NumberFormat('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)
 }
 const fmtDate = (d: string | null | undefined) => d ? new Date(d).toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '—'
-const daysUntil = (d: string | null | undefined) => {
-  if (!d) return null
-  return Math.round((new Date(d).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))
-}
+// Giorni a scadenza normalizzati a mezzanotte locale (una scadenza di oggi resta
+// 0 tutto il giorno, non "scaduta" dal pomeriggio). Vedi lib/dateLocal.
+const daysUntil = (d: string | null | undefined) => daysUntilLocal(d)
 
 /* ───── configs ───── */
 const TYPE_CONFIG = {
@@ -332,7 +332,7 @@ export default function ScadenzeFiscali() {
     try {
       await supabase.from('fiscal_deadlines').update({
         status: 'paid',
-        paid_date: new Date().toISOString().split('T')[0],
+        paid_date: todayYMD(),
         amount_paid: dl.amount || 0,
       }).eq('id', dl.id)
       await loadData()

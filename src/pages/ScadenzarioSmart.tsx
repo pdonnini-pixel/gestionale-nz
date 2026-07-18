@@ -26,6 +26,7 @@ import {
 } from 'recharts';
 import { GlassTooltip, AXIS_STYLE, GRID_STYLE } from '../components/ChartTheme';
 import { supabase } from '../lib/supabase';
+import { todayYMD } from '../lib/dateLocal';
 import { useAuth } from '../hooks/useAuth';
 
 // Utility functions
@@ -1185,7 +1186,7 @@ const ScadenzarioSmart = () => {
   const openManualCloseModal = (p: AnyRow) => {
     setStatusDropdownId(null);
     setManualCloseModal({ open: true, payable: p });
-    setManualCloseDate(new Date().toISOString().split('T')[0]);
+    setManualCloseDate(todayYMD());
     setManualCloseReason('');
     const gross = Number(p.gross_amount ?? 0) || 0;
     const isNC = p.status === 'nota_credito' || gross < 0;
@@ -1198,7 +1199,7 @@ const ScadenzarioSmart = () => {
   // fattura si chiude piu' senza traccia contabile.
   const handleSetStatus = async (payableId: string, newStatus: string) => {
     if (newStatus === 'pagato') {
-      const today = new Date().toISOString().split('T')[0];
+      const today = todayYMD();
       await closePayableManually(payableId, today, null);
       setStatusDropdownId(null);
       return;
@@ -2040,7 +2041,7 @@ const ScadenzarioSmart = () => {
     if (!(await askConfirm(`Lanciare ${Array.from(groupsByBank.values()).reduce((n, g) => n + g.items.length, 0)} bonifico/i via A-Cube su ${groupsByBank.size} banca/banche?\n\nVerrà generata 1 distinta per banca. Si apriranno gli URL di autorizzazione PSD2 da firmare sulla banca.`))) return;
 
     setIsSaving(true);
-    const today_str = new Date().toISOString().split('T')[0];
+    const today_str = todayYMD();
     const allAuthorizeUrls: Array<{ batchNumber: string; bankName: string; url: string }> = [];
     const errors: string[] = [];
 

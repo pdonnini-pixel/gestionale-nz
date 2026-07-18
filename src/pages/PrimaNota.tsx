@@ -7,6 +7,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react'
 import { Download, FileSpreadsheet, Calendar, Filter, RefreshCw, Loader2 } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import { supabase } from '../lib/supabase'
+import { lastDayOfMonthYMD } from '../lib/dateLocal'
 import { useCompany } from '../hooks/useCompany'
 import Tooltip from '../components/Tooltip'
 
@@ -83,8 +84,10 @@ export default function PrimaNota() {
     setLoading(true); setError(null)
     try {
       const dateStart = month ? `${year}-${String(month).padStart(2, '0')}-01` : `${year}-01-01`
+      // Ultimo giorno del mese in LOCALE: prima `.toISOString()` lo spostava a UTC,
+      // escludendo l'ultimo giorno del mese dai movimenti (bug fuso orario).
       const dateEnd = month
-        ? new Date(year, month, 0).toISOString().slice(0, 10)
+        ? lastDayOfMonthYMD(year, month)
         : `${year}-12-31`
 
       // Embed payables tramite bank_transaction_id FK omesso: PostgREST non risolve auto.
