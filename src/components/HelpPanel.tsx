@@ -208,7 +208,10 @@ function GuideView({ guide }: { guide: PageGuide }) {
           {guide.sections.map((s, i) => (
             <div key={i}>
               <h4 className="text-sm font-bold text-slate-900 mb-1">{s.heading}</h4>
-              <p className="text-sm text-slate-600 leading-relaxed">{s.body}</p>
+              {/* whitespace-pre-line: alcune guide usano \n per gli elenchi
+                  puntati (es. Report Sincronizzazioni) che altrimenti
+                  collassano in un unico blocco */}
+              <p className="text-sm text-slate-600 leading-relaxed whitespace-pre-line">{s.body}</p>
               {s.steps && s.steps.length > 0 && (
                 <ul className="mt-2 space-y-1.5">
                   {s.steps.map((step, j) => (
