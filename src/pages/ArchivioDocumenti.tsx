@@ -1062,7 +1062,7 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
         bare
         ariaLabel="Anteprima estratto conto"
         containerClassName="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4"
-        panelClassName="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] flex flex-col overflow-hidden"
+        panelClassName="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90dvh] flex flex-col overflow-hidden"
       >
         {ecPreview && (
           <>
@@ -1358,7 +1358,7 @@ function ConservazioneTab({ docs, stats, loading, filter, setFilter, search, set
                           )}
                         </td>
                         <td className="px-4 py-3 text-right">
-                          <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition">
+                          <div className="flex items-center justify-end gap-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition">
                             {status === 'expired' && doc.retention_status !== 'extended' && (
                               <button
                                 onClick={() => updateStatus(doc.id, doc._source, 'extended')}

@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, lazy, Suspense } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import * as XLSX from 'xlsx';
 import type { Row } from '../types/business';
 import { usePeriod } from '../hooks/usePeriod';
 import PageHeader from '../components/PageHeader';
@@ -40,7 +39,8 @@ import { Modal as UIModal } from '../components/ui/Modal';
 import { GlassTooltip, AXIS_STYLE, GRID_STYLE, PALETTE, getOutletColor, fmtEuro } from '../components/ChartTheme';
 import { useAuth } from '../hooks/useAuth';
 import { useCompany } from '../hooks/useCompany';
-import { extractPdfLines, extractPdfItems, extractPdfItemsOriented } from '../lib/pdfText';
+// lib/pdfText importa pdfjs-dist a livello modulo (~350KB gzip): la si carica
+// on-demand con import() solo quando l'utente seleziona davvero un PDF.
 import {
   parseItNum, norm,
   parseInfinityNettiItems, parsePdfLordi, parseSpreadsheet,
@@ -247,7 +247,7 @@ function Modal({ title, onClose, children, maxW = 'max-w-lg' }: { title: string;
       bare
       ariaLabel={title}
       containerClassName="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm"
-      panelClassName={`bg-white rounded-2xl shadow-2xl w-full ${maxW} max-h-[90vh] overflow-y-auto`}
+      panelClassName={`bg-white rounded-2xl shadow-2xl w-full ${maxW} max-h-[90dvh] overflow-y-auto`}
     >
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 sticky top-0 bg-white rounded-t-2xl z-10">
           <h3 className="font-semibold text-slate-900">{title}</h3>
@@ -1989,6 +1989,7 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
       let parsed: ParsedImport;
       let rawLines: string[] = [];
       if (isPdf) {
+        const { extractPdfLines, extractPdfItems } = await import('../lib/pdfText');
         if (isNetto) {
           // PDF ruotato: righe per asse X. Una filiale per pagina, nome+matricola+netto sulla stessa riga.
           const pages = await extractPdfItems(file);
@@ -2006,6 +2007,7 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
         }
       } else {
         const buf = await file.arrayBuffer();
+        const XLSX = await import('xlsx');
         const wb = XLSX.read(buf, { type: 'array' });
         const ws = wb.Sheets[wb.SheetNames[0]];
         const matrix: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, blankrows: false, raw: false });
@@ -2343,6 +2345,7 @@ function CostiLordoDipendentiBlock({ companyId, userId, outlets, year, month, mo
     const isPdf = /\.pdf$/i.test(file.name) || file.type === 'application/pdf';
     if (!isPdf) { toast({ type: 'error', message: 'Carica la «Statistica costo orario» in formato PDF.' }); return; }
     try {
+      const { extractPdfItemsOriented } = await import('../lib/pdfText');
       const pages = await extractPdfItemsOriented(file);
       const companies = listStatisticaCompanies(pages);
       if (companies.length === 0) { toast({ type: 'error', message: 'Il PDF non sembra una «Statistica costo orario»: nessuna azienda riconosciuta.' }); return; }
@@ -2624,6 +2627,7 @@ function CostiLordoTab({ companyId, userId, outlets, year, month, monthLabel }: 
     if (!isPdf) { toast({ type: 'error', message: 'Carica il Prospetto paghe in formato PDF.' }); return; }
     (async () => {
       try {
+        const { extractPdfLines } = await import('../lib/pdfText');
         const lines = await extractPdfLines(file);
         const parsed = parseProspettoPaghe(lines, outlets as any);
         if (!parsed.isProspetto || parsed.rows.length === 0) {

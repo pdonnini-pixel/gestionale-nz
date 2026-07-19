@@ -20,6 +20,7 @@ import {
   RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar,
 } from 'recharts'
 import { GlassTooltip, ChartGradients, AXIS_STYLE, GRID_STYLE, BAR_RADIUS, ModernLegend, fmtEuro, fmtK } from '../components/ChartTheme'
+import { useIsMobile } from '../hooks/useIsMobile'
 import { PlaceholderDot, PlaceholderLegend } from '../components/PlaceholderMark'
 import { formatOutletName, shortOutletName } from '../lib/formatters'
 import {
@@ -540,6 +541,7 @@ const PERIOD_OPTIONS = [
 ]
 
 export default function ConfrontoOutlet() {
+  const isMobile = useIsMobile()
   const { profile } = useAuth()
   const labels = useCompanyLabels()
   const navigate = useNavigate()
@@ -1291,7 +1293,14 @@ export default function ConfrontoOutlet() {
                   ))}
                 </defs>
                 <CartesianGrid {...GRID_STYLE} />
-                <XAxis dataKey="name" {...AXIS_STYLE} />
+                {/* Su mobile recharts nasconderebbe i tick che si sovrappongono:
+                    si forzano tutti, inclinati e più piccoli */}
+                <XAxis dataKey="name" {...AXIS_STYLE}
+                  interval={isMobile ? 0 : undefined}
+                  angle={isMobile ? -35 : 0}
+                  textAnchor={isMobile ? 'end' : 'middle'}
+                  height={isMobile ? 56 : 30}
+                  tick={{ ...AXIS_STYLE.tick, fontSize: isMobile ? 9 : AXIS_STYLE.tick.fontSize }} />
                 <YAxis {...AXIS_STYLE} tickFormatter={v => `${(v/1000).toFixed(0)}k`} />
                 <Tooltip content={<GlassTooltip />} cursor={{ fill: 'rgba(99,102,241,0.04)', radius: 8 }} />
                 <Bar dataKey="ricavi" radius={[8, 8, 0, 0]} animationDuration={800}>
@@ -1318,7 +1327,14 @@ export default function ConfrontoOutlet() {
                   })}
                 </defs>
                 <CartesianGrid {...GRID_STYLE} />
-                <XAxis dataKey="name" {...AXIS_STYLE} />
+                {/* Su mobile recharts nasconderebbe i tick che si sovrappongono:
+                    si forzano tutti, inclinati e più piccoli */}
+                <XAxis dataKey="name" {...AXIS_STYLE}
+                  interval={isMobile ? 0 : undefined}
+                  angle={isMobile ? -35 : 0}
+                  textAnchor={isMobile ? 'end' : 'middle'}
+                  height={isMobile ? 56 : 30}
+                  tick={{ ...AXIS_STYLE.tick, fontSize: isMobile ? 9 : AXIS_STYLE.tick.fontSize }} />
                 <YAxis {...AXIS_STYLE} tickFormatter={v => `${(v/1000).toFixed(0)}k`} />
                 <Tooltip content={<GlassTooltip />} cursor={{ fill: 'rgba(99,102,241,0.04)', radius: 8 }} />
                 <Bar dataKey="margine" radius={[8, 8, 0, 0]} animationDuration={800}>

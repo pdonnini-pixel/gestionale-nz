@@ -5,6 +5,7 @@ import {
 } from 'recharts';
 import { TrendingUp, Users, Euro, Target, AlertCircle, CheckCircle, Loader2, Award } from 'lucide-react';
 import { GlassTooltip, AXIS_STYLE, GRID_STYLE, PALETTE } from '../components/ChartTheme';
+import { useIsMobile } from '../hooks/useIsMobile';
 import { supabase } from '../lib/supabase';
 import { fetchAllPaged } from '../lib/fetchAllPaged';
 import { buildOutletCostCenterSet, isOutletCostCenter } from '../lib/outletCostCenters';
@@ -25,6 +26,7 @@ const MONTHS = ['Gen', 'Feb', 'Mar', 'Apr', 'Mag', 'Giu', 'Lug', 'Ago', 'Set', '
 const MEDAL = ['', '\u{1F947}', '\u{1F948}', '\u{1F949}'];
 
 export default function Produttivita() {
+  const isMobile = useIsMobile();
   const { profile } = useAuth();
   const labels = useCompanyLabels();
   // Anno sincronizzato col PeriodContext globale (selettore header).
@@ -578,13 +580,17 @@ export default function Produttivita() {
         {monthlyTrendData.length > 0 && (
           <div className="rounded-2xl p-6 shadow-lg mb-8" style={{ background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)', border: '1px solid rgba(99,102,241,0.08)' }}>
             <h2 className="text-lg font-semibold text-slate-900 mb-4">Trend Mensile Fatturato/Dipendente</h2>
-            <ResponsiveContainer width="100%" height={350}>
+            {/* Su mobile la legenda (fino a 7 serie) va su pi\u00f9 righe: il
+                contenitore cresce cos\u00ec la legenda non mangia l'area del grafico */}
+            <ResponsiveContainer width="100%" height={isMobile ? 430 : 350}>
               <LineChart data={monthlyTrendData}>
                 <CartesianGrid {...GRID_STYLE} />
-                <XAxis dataKey="mese" {...AXIS_STYLE} />
-                <YAxis {...AXIS_STYLE} tickFormatter={(v) => `${Math.round(v / 1000)}k`} />
+                <XAxis dataKey="mese" {...AXIS_STYLE}
+                  interval={isMobile ? 1 : undefined}
+                  tick={{ ...AXIS_STYLE.tick, fontSize: isMobile ? 10 : AXIS_STYLE.tick.fontSize }} />
+                <YAxis {...AXIS_STYLE} width={isMobile ? 34 : 60} tickFormatter={(v) => `${Math.round(v / 1000)}k`} />
                 <Tooltip content={<GlassTooltip formatter={(value) => fmt(value, 0) + ' \u20ac'} />} />
-                <Legend />
+                <Legend wrapperStyle={isMobile ? { fontSize: 11 } : undefined} />
                 {outletNamesForTrend.map((name, idx) => (
                   <Line
                     key={name}

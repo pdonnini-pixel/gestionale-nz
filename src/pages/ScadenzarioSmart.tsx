@@ -2687,23 +2687,23 @@ const ScadenzarioSmart = () => {
             <h3 className="text-sm font-semibold text-slate-700 mb-3">Riepilogo banche</h3>
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4 text-center">
               <div>
-                <span className="text-[10px] text-slate-400 uppercase block">Saldo oggi</span>
+                <span className="text-xs text-slate-500 uppercase block">Saldo oggi</span>
                 <span className={`text-lg font-bold ${cashPosition >= 0 ? 'text-slate-800' : 'text-red-600'}`}>{fmt(cashPosition)} €</span>
               </div>
               <div>
-                <span className="text-[10px] text-slate-400 uppercase block">Da pagare</span>
+                <span className="text-xs text-slate-500 uppercase block">Da pagare</span>
                 <span className="text-lg font-bold text-red-500">{fmt(kpis.totalToPay)} €</span>
               </div>
               <div>
-                <span className="text-[10px] text-slate-400 uppercase block">Scaduto</span>
+                <span className="text-xs text-slate-500 uppercase block">Scaduto</span>
                 <span className="text-lg font-bold text-amber-600">{fmt(kpis.totalOverdue)} €</span>
               </div>
               <div>
-                <span className="text-[10px] text-slate-400 uppercase block">Prossimi 7gg</span>
+                <span className="text-xs text-slate-500 uppercase block">Prossimi 7gg</span>
                 <span className="text-lg font-bold text-blue-600">{fmt(kpis.nextSevenDays)} €</span>
               </div>
               <div>
-                <span className="text-[10px] text-slate-400 uppercase block">Saldo proiettato</span>
+                <span className="text-xs text-slate-500 uppercase block">Saldo proiettato</span>
                 <span className={`text-lg font-bold ${(cashPosition - kpis.totalToPay) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>{fmt(cashPosition - kpis.totalToPay)} €</span>
               </div>
             </div>
@@ -3567,7 +3567,7 @@ const ScadenzarioSmart = () => {
                                 title={p.status === 'pagato' ? 'Scadenza pagata' : 'Click per modificare importo'}
                               >
                                 {(p.amount_remaining ?? 0) > 0 && p.amount_remaining !== p.gross_amount
-                                  ? <><span className="text-slate-300 line-through text-[11px] mr-1">{fmt(p.gross_amount)}</span>{fmt(p.amount_remaining)} €</>
+                                  ? <><span className="text-slate-500 line-through text-xs mr-1">{fmt(p.gross_amount)}</span>{fmt(p.amount_remaining)} €</>
                                   : (Number(p.gross_amount) || 0) === 0 ? <>Importo da definire</> : <>{fmt(p.gross_amount)} €</>
                                 }
                               </span>
@@ -3618,15 +3618,15 @@ const ScadenzarioSmart = () => {
                                 c) non pagata -> trattino */}
                           <td className="py-2.5 px-3 text-center">
                             {p.payment_bank_name ? (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-50 text-[10px] text-emerald-700 font-medium border border-emerald-200" title={`Pagato su ${p.payment_bank_name}`}>
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-50 text-xs text-emerald-700 font-medium border border-emerald-200" title={`Pagato su ${p.payment_bank_name}`}>
                                 <Landmark size={10} /> {p.payment_bank_name}
                               </span>
                             ) : p.status === 'pagato' ? (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-50 text-[10px] text-amber-700 font-medium border border-amber-200" title="Pagata ma senza banca tracciata in Supabase. Probabilmente saldata fuori dall'app o tramite riconciliazione legacy.">
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-50 text-xs text-amber-700 font-medium border border-amber-200" title="Pagata ma senza banca tracciata in Supabase. Probabilmente saldata fuori dall'app o tramite riconciliazione legacy.">
                                 Off-system
                               </span>
                             ) : (
-                              <span className="text-[11px] text-slate-300">—</span>
+                              <span className="text-xs text-slate-400">—</span>
                             )}
                           </td>
                           {/* CATEGORIA — dropdown con ricerca Sibill */}
@@ -3635,7 +3635,7 @@ const ScadenzarioSmart = () => {
                               const cat = categories.find(c => c.id === p.cost_category_id);
                               return (
                                 <button onClick={(e) => { e.stopPropagation(); setCategoryDropdownId(categoryDropdownId === p.id ? null : (p.id || null)); setCategorySearch(''); setStatusDropdownId(null); }}
-                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border transition hover:shadow-sm"
+                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border transition hover:shadow-sm"
                                   style={cat ? { backgroundColor: String(cat.color) + '18', color: String(cat.color || ''), borderColor: String(cat.color) + '40' } : { backgroundColor: '#f8fafc', color: '#94a3b8', borderColor: '#e2e8f0' }}>
                                   {cat ? <><span className="w-2 h-2 rounded-full" style={{ backgroundColor: String(cat.color || '') }} />{String(cat.name || '')}</> : 'Non categorizzata'}
                                 </button>
@@ -4005,12 +4005,15 @@ const ScadenzarioSmart = () => {
                 <h3 className="font-medium text-slate-900 mb-1 text-sm">Categoria</h3>
                 <ResponsiveContainer width="100%" height={300}>
                   <PieChart>
-                    <Pie data={categoryData} cx="50%" cy="50%" outerRadius={80} dataKey="value">
+                    <Pie data={categoryData} cx="50%" cy="50%" outerRadius={80} dataKey="value" nameKey="name">
                       {categoryData.map((entry, index) => (
                         <Cell key={`cell-${index}`} fill={['#6366f1', '#ec4899', '#14b8a6', '#f59e0b', '#ef4444'][index % 5]} />
                       ))}
                     </Pie>
                     <RechartsTooltip />
+                    {/* Senza legenda le fette erano leggibili solo passando sul
+                        tooltip: su touch la torta era muta */}
+                    <Legend wrapperStyle={{ fontSize: 12 }} />
                   </PieChart>
                 </ResponsiveContainer>
               </div>

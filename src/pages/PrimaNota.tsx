@@ -5,12 +5,12 @@
 
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { Download, FileSpreadsheet, Calendar, Filter, RefreshCw, Loader2 } from 'lucide-react'
-import * as XLSX from 'xlsx'
 import { supabase } from '../lib/supabase'
 import { fetchAllPaged } from '../lib/fetchAllPaged'
 import { lastDayOfMonthYMD } from '../lib/dateLocal'
 import { useCompany } from '../hooks/useCompany'
 import Tooltip from '../components/Tooltip'
+import TableScroll from '../components/ui/TableScroll'
 
 type BankAccount = { id: string; bank_name: string; account_name: string | null; iban: string | null }
 type Supplier = { id: string; ragione_sociale: string | null; name: string | null; partita_iva: string | null }
@@ -203,8 +203,10 @@ export default function PrimaNota() {
     URL.revokeObjectURL(url)
   }
 
-  const exportXlsx = () => {
+  const exportXlsx = async () => {
     if (rows.length === 0) return
+    // xlsx caricata on-demand: ~140KB gzip che non devono pesare sull'apertura pagina
+    const XLSX = await import('xlsx')
     const ws = XLSX.utils.json_to_sheet(rows)
     // Larghezza colonne suggerita
     ws['!cols'] = [
@@ -300,9 +302,52 @@ export default function PrimaNota() {
         </div>
       )}
 
-      {/* Tabella — max-height 70vh + sticky header per gestire bene 200+ movimenti */}
-      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-        <div className="overflow-auto max-h-[70vh]">
+      {/* Lista mobile a schede (sotto md): stessa fonte dati della tabella,
+          una card per movimento con i dati chiave. La tabella resta su desktop. */}
+      <div className="md:hidden space-y-2">
+        {loading ? (
+          <div className="bg-white rounded-xl border border-slate-200 p-8 text-center text-slate-500 text-sm">
+            <Loader2 size={20} className="inline animate-spin mr-2" /> Caricamento…
+          </div>
+        ) : movements.length === 0 ? (
+          <div className="bg-white rounded-xl border border-slate-200 p-8 text-center text-slate-500 text-sm">
+            Nessun movimento nel periodo selezionato
+          </div>
+        ) : movements.map(m => (
+          <div key={m.id} className="bg-white rounded-xl border border-slate-200 p-3">
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-xs text-slate-500">
+                {fmtDate(m.transaction_date)}
+                <span className="mx-1 text-slate-300">·</span>
+                {m.bank_accounts?.bank_name ?? '—'}
+                {m.bank_accounts?.iban && <span className="text-slate-400"> ***{m.bank_accounts.iban.slice(-6)}</span>}
+              </div>
+              <span className={`shrink-0 inline-block px-2 py-0.5 rounded text-xs font-medium ${m.amount > 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
+                {m.amount > 0 ? 'Entrata' : 'Uscita'}
+              </span>
+            </div>
+            <div className={`text-lg font-bold mt-1 ${m.amount > 0 ? 'text-emerald-700' : 'text-red-700'}`}>
+              € {fmt(Math.abs(m.amount))}
+            </div>
+            <div className="text-sm font-medium text-slate-800 mt-0.5 break-words">{getCounterpart(m)}</div>
+            {getCausale(m) !== '—' && (
+              <div className="text-xs text-slate-600 mt-0.5 break-words">{getCausale(m)}</div>
+            )}
+            <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+              {m.category && (
+                <span className="inline-block px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-xs">{m.category}</span>
+              )}
+              {(m.suppliers?.partita_iva ?? m.payables?.supplier_vat) && (
+                <span className="text-xs text-slate-500 font-mono">P.IVA {m.suppliers?.partita_iva ?? m.payables?.supplier_vat}</span>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Tabella desktop — max-height 70vh + sticky header per gestire bene 200+ movimenti */}
+      <div className="hidden md:block bg-white rounded-xl border border-slate-200 overflow-hidden">
+        <TableScroll className="max-h-[70vh] overflow-y-auto">
           <table className="w-full text-sm">
             <thead className="bg-slate-50 text-xs uppercase text-slate-600 sticky top-0 z-10 shadow-sm">
               <tr>
@@ -360,7 +405,7 @@ export default function PrimaNota() {
               ))}
             </tbody>
           </table>
-        </div>
+        </TableScroll>
       </div>
     </div>
   )

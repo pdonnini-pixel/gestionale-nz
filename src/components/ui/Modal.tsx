@@ -141,7 +141,7 @@ export function Modal({
         aria-labelledby={title ? titleId.current : undefined}
         aria-label={!title ? ariaLabel : undefined}
         tabIndex={-1}
-        className={`bg-white rounded-xl shadow-xl w-full ${maxWidthClass} max-h-[90vh] overflow-auto outline-none`}
+        className={`bg-white rounded-xl shadow-xl w-full ${maxWidthClass} max-h-[90dvh] overflow-auto outline-none`}
       >
         {(title || !hideCloseButton) && (
           <div className="flex items-center justify-between gap-4 px-5 py-4 border-b border-slate-200">

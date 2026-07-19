@@ -469,7 +469,9 @@ function CreateTicketModal({ open, onClose, onCreated }: CreateTicketModalProps)
       bare
       ariaLabel="Nuova segnalazione"
       closeOnBackdrop={false}
-      containerClassName="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 overflow-y-auto"
+      // items-start: con items-center un form più alto del viewport rendeva
+      // la testata irraggiungibile (il contenuto centrato sborda sopra e sotto)
+      containerClassName="fixed inset-0 z-50 flex items-start justify-center bg-slate-900/50 p-4 overflow-y-auto"
       panelClassName="bg-white rounded-xl shadow-2xl max-w-2xl w-full my-8"
     >
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">

@@ -1608,7 +1608,7 @@ export default function CashflowProspettico() {
         bare
         ariaLabel="Elimina previsione"
         containerClassName="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
-        panelClassName="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6"
+        panelClassName="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6 max-h-[90dvh] overflow-y-auto"
       >
         <h2 className="text-lg font-bold text-slate-900 mb-2">Elimina previsione?</h2>
         <p className="text-sm text-slate-600 mb-5">Verrà eliminata: <span className="font-medium text-slate-900">{forecastToDelete?.descr}</span></p>
@@ -1631,7 +1631,7 @@ export default function CashflowProspettico() {
         bare
         ariaLabel={editingForecastId ? 'Modifica previsione' : 'Aggiungi previsione uscita'}
         containerClassName="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
-        panelClassName="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6"
+        panelClassName="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6 max-h-[90dvh] overflow-y-auto"
       >
         <h2 className="text-lg font-bold text-slate-900 mb-1">{editingForecastId ? 'Modifica previsione' : 'Aggiungi previsione uscita'}</h2>
             <p className="text-xs text-slate-500 mb-4">Entra solo nel cashflow prospettico, NON nel Conto Economico</p>

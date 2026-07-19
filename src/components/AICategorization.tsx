@@ -638,7 +638,7 @@ export default function AICategorization({ companyId }: AICategorizationProps) {
                             {catName}
                           </span>
                         ) : (
-                          <span className="text-xs text-slate-300">Non categorizzato</span>
+                          <span className="text-xs text-slate-500">Non categorizzato</span>
                         )}
                       </td>
                       <td className="py-2.5 px-4 text-center">

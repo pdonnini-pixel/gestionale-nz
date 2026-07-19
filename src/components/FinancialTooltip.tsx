@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react'
+import React, { useState, useRef, useEffect, useLayoutEffect } from 'react'
 import { HelpCircle } from 'lucide-react'
 
 interface GlossaryEntry {
@@ -34,7 +34,21 @@ interface FinancialTooltipProps {
 export default function FinancialTooltip({ term, children, size = 13 }: FinancialTooltipProps) {
   const [show, setShow] = useState(false)
   const ref = useRef<HTMLSpanElement>(null)
+  const popRef = useRef<HTMLDivElement>(null)
+  // Spostamento orizzontale (px) per tenere il popover dentro il viewport:
+  // centrato sull'icona, su mobile i 256px di larghezza uscivano dai bordi.
+  const [shift, setShift] = useState(0)
   const entry = GLOSSARY[term]
+
+  useLayoutEffect(() => {
+    if (!show) { setShift(0); return }
+    const el = popRef.current
+    if (!el) return
+    const r = el.getBoundingClientRect()
+    const pad = 8
+    if (r.left < pad) setShift(pad - r.left)
+    else if (r.right > window.innerWidth - pad) setShift(window.innerWidth - pad - r.right)
+  }, [show])
 
   useEffect(() => {
     if (!show) return
@@ -60,10 +74,18 @@ export default function FinancialTooltip({ term, children, size = 13 }: Financia
         <HelpCircle size={size} />
       </button>
       {show && (
-        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 p-3 bg-slate-800 text-white text-xs leading-relaxed rounded-lg shadow-xl z-50 pointer-events-none">
+        <div
+          ref={popRef}
+          style={{ transform: `translateX(calc(-50% + ${shift}px))` }}
+          className="absolute bottom-full left-1/2 mb-2 w-64 max-w-[calc(100vw-1rem)] p-3 bg-slate-800 text-white text-xs leading-relaxed rounded-lg shadow-xl z-50 pointer-events-none"
+        >
           <strong className="text-amber-300">{entry.term}</strong>
           <span className="block mt-1 text-slate-200">{entry.def}</span>
-          <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-px w-2 h-2 bg-slate-800 rotate-45" />
+          {/* La freccia compensa lo shift per restare centrata sull'icona */}
+          <div
+            style={{ transform: `translateX(calc(-50% - ${shift}px)) rotate(45deg)` }}
+            className="absolute top-full left-1/2 -mt-px w-2 h-2 bg-slate-800"
+          />
         </div>
       )}
     </span>

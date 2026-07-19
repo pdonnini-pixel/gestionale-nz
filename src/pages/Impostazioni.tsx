@@ -626,7 +626,7 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
                 {u.is_active ? 'Blocca' : 'Sblocca'}
               </button>
               <button onClick={() => handleEdit(u)} title="Modifica ruolo"
-                className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition opacity-0 group-hover:opacity-100">
+                className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition opacity-100 md:opacity-0 md:group-hover:opacity-100">
                 <Pencil size={14} />
               </button>
               {confirmDelete === u.id ? (
@@ -640,7 +640,7 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
                 </div>
               ) : (
                 <button onClick={() => setConfirmDelete(u.id)} title="Elimina"
-                  className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition opacity-0 group-hover:opacity-100">
+                  className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition opacity-100 md:opacity-0 md:group-hover:opacity-100">
                   <Trash2 size={14} />
                 </button>
               )}
@@ -1324,7 +1324,7 @@ function CentriDiCostoSection({ showToast, companyId: COMPANY_ID }: SectionProps
                 <div className="text-xs text-slate-400">{c.code}</div>
               </div>
             </div>
-            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition">
+            <div className="flex items-center gap-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition">
               <button
                 onClick={() => handleEdit(c)}
                 title="Modifica"

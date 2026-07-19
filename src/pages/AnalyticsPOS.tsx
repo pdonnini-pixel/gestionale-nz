@@ -10,6 +10,7 @@ import {
 } from 'recharts';
 import { TrendingUp, TrendingDown, ShoppingCart, DollarSign, Package, Eye, Store } from 'lucide-react';
 import { GlassTooltip, AXIS_STYLE, GRID_STYLE } from '../components/ChartTheme';
+import { useIsMobile } from '../hooks/useIsMobile';
 import { useCompanyLabels } from '../hooks/useCompanyLabels';
 import { useOutlets } from '../hooks/useOutlets';
 import PageHeader from '../components/PageHeader';
@@ -222,6 +223,7 @@ function getPerformers(posData: POSData, outlets: OutletConfig[]) {
 
 export default function AnalyticsPOS() {
   const labels = useCompanyLabels();
+  const isMobile = useIsMobile();
   const { outlets: tenantOutlets, loading: outletsLoading } = useOutlets();
   const [selectedOutlet, setSelectedOutlet] = useState<string | null>(null);
 
@@ -464,8 +466,10 @@ export default function AnalyticsPOS() {
                   cx="50%"
                   cy="50%"
                   labelLine={false}
-                  label={({ name, value }) => `${name}: ${fmt(value)}`}
-                  outerRadius={100}
+                  // Su mobile le etichette esterne (nome + valore) escono dal
+                  // riquadro e vengono tagliate: al loro posto c'è la legenda sotto.
+                  label={isMobile ? false : ({ name, value }) => `${name}: ${fmt(value)}`}
+                  outerRadius={isMobile ? 80 : 100}
                   fill="#8884d8"
                   dataKey="value"
                   paddingAngle={3}
@@ -482,6 +486,7 @@ export default function AnalyticsPOS() {
                   ))}
                 </Pie>
                 <Tooltip content={<GlassTooltip formatter={(value) => fmt(value)} />} cursor={{ fill: 'rgba(99,102,241,0.04)', radius: 8 }} />
+                {isMobile && <Legend wrapperStyle={{ fontSize: 12 }} />}
               </PieChart>
             </ResponsiveContainer>
           </div>
@@ -519,10 +524,14 @@ export default function AnalyticsPOS() {
                 </linearGradient>
               </defs>
               <CartesianGrid {...GRID_STYLE} />
-              <XAxis dataKey="month_label" {...AXIS_STYLE} />
-              <YAxis {...AXIS_STYLE} />
+              {/* Su mobile 12 etichette mese x N outlet sono illeggibili: si
+                  mostra un tick su 2 con font ridotto e legenda più compatta */}
+              <XAxis dataKey="month_label" {...AXIS_STYLE}
+                interval={isMobile ? 1 : undefined}
+                tick={{ ...AXIS_STYLE.tick, fontSize: isMobile ? 10 : AXIS_STYLE.tick.fontSize }} />
+              <YAxis {...AXIS_STYLE} width={isMobile ? 34 : 60} />
               <Tooltip content={<GlassTooltip formatter={(value) => fmt(value)} />} cursor={{ fill: 'rgba(99,102,241,0.04)', radius: 8 }} />
-              <Legend />
+              <Legend wrapperStyle={isMobile ? { fontSize: 11 } : undefined} />
               {outletData.map((outlet, idx) => {
                 const gradientId = `grad-scontrini-${idx + 1}`;
                 return (

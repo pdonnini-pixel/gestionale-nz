@@ -116,8 +116,8 @@ export const PAGE_GUIDES: PageGuide[] = [
   {
     "path": "/outlet/operativi",
     "icon": "Store",
-    "title": "Outlet operativi",
-    "description": "Questa pagina raccoglie tutti i punti vendita già aperti: da qui puoi vedere i ricavi dell'anno, aprire la scheda di dettaglio di ciascun outlet, creare un nuovo outlet e gestirne i documenti e le scadenze contrattuali.",
+    "title": "Punti vendita operativi (Outlet)",
+    "description": "Questa pagina raccoglie tutti i punti vendita (Outlet) già aperti: da qui puoi vedere i ricavi dell'anno, aprire la scheda di dettaglio di ciascun punto vendita, crearne uno nuovo e gestirne i documenti e le scadenze contrattuali.",
     "sections": [
       {
         "heading": "La griglia degli outlet",
@@ -182,8 +182,8 @@ export const PAGE_GUIDES: PageGuide[] = [
   {
     "path": "/outlet/valutazione",
     "icon": "Store",
-    "title": "Outlet in valutazione",
-    "description": "In questa pagina puoi costruire delle simulazioni di conto economico per ipotesi di nuovi outlet non ancora aperti, per valutare in anticipo se convengono, senza toccare i dati reali degli outlet già operativi.",
+    "title": "Punti vendita in valutazione (Outlet)",
+    "description": "In questa pagina puoi costruire delle simulazioni di conto economico per ipotesi di nuovi punti vendita non ancora aperti, per valutare in anticipo se convengono, senza toccare i dati reali dei punti vendita già operativi.",
     "sections": [
       {
         "heading": "Simulazioni salvate",
@@ -215,8 +215,8 @@ export const PAGE_GUIDES: PageGuide[] = [
     ],
     "faq": [
       {
-        "q": "Che differenza c'è tra 'Outlet operativi' e 'Outlet in valutazione'?",
-        "a": "'Outlet operativi' mostra i punti vendita già aperti con i loro dati reali. 'Outlet in valutazione' serve invece a simulare, con numeri ipotetici, come potrebbe andare un outlet non ancora esistente, prima di decidere se aprirlo."
+        "q": "Che differenza c'è tra punti vendita 'operativi' e 'in valutazione'?",
+        "a": "La pagina degli operativi mostra i punti vendita già aperti con i loro dati reali. Quella 'in valutazione' serve invece a simulare, con numeri ipotetici, come potrebbe andare un punto vendita non ancora esistente, prima di decidere se aprirlo."
       },
       {
         "q": "Da dove partono gli importi di una nuova simulazione?",
@@ -235,8 +235,8 @@ export const PAGE_GUIDES: PageGuide[] = [
   {
     "path": "/confronto-outlet",
     "icon": "GitCompare",
-    "title": "Confronto Outlet",
-    "description": "Questa pagina mette a confronto, fianco a fianco, il conto economico di tutti gli outlet: puoi vedere chi fattura di più, chi ha il margine migliore e come si scostano i risultati reali rispetto al preventivo.",
+    "title": "Confronto punti vendita (Outlet)",
+    "description": "Questa pagina mette a confronto, fianco a fianco, il conto economico di tutti i punti vendita (Outlet): puoi vedere chi fattura di più, chi ha il margine migliore e come si scostano i risultati reali rispetto al preventivo.",
     "sections": [
       {
         "heading": "Filtri: periodo e vista",
@@ -281,8 +281,8 @@ export const PAGE_GUIDES: PageGuide[] = [
   {
     "path": "/margini",
     "icon": "BarChart3",
-    "title": "Analisi Margini per Outlet",
-    "description": "Questa pagina calcola, a partire dai dati di budget, il margine di ciascun outlet mese per mese, evidenziando con colori chi sta andando bene e chi ha margini bassi o negativi.",
+    "title": "Analisi Margini per punto vendita (Outlet)",
+    "description": "Questa pagina calcola, a partire dai dati di budget, il margine di ciascun punto vendita mese per mese, evidenziando con colori chi sta andando bene e chi ha margini bassi o negativi.",
     "sections": [
       {
         "heading": "Selezione dell'anno",
@@ -357,8 +357,8 @@ export const PAGE_GUIDES: PageGuide[] = [
     ],
     "faq": [
       {
-        "q": "Che differenza c'è tra questa pagina e 'Analisi Margini per Outlet'?",
-        "a": "Questa pagina calcola i margini sui dati realmente registrati (incassi giornalieri e fatture/costi bancari nel periodo scelto), mentre 'Analisi Margini per Outlet' li calcola sui dati inseriti a budget. Possono quindi mostrare numeri diversi."
+        "q": "Che differenza c'è tra questa pagina e 'Analisi Margini per punto vendita'?",
+        "a": "Questa pagina calcola i margini sui dati realmente registrati (incassi giornalieri e fatture/costi bancari nel periodo scelto), mentre 'Analisi Margini per punto vendita' li calcola sui dati inseriti a budget. Possono quindi mostrare numeri diversi."
       },
       {
         "q": "Perché vedo il messaggio 'Nessun dato nel periodo selezionato'?",
@@ -1466,7 +1466,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "Scheda Anagrafica: cercare e filtrare i fornitori",
-        "body": "La tabella elenca tutti i fornitori con: nome, P.IVA, categoria, divisione tra punti vendita, metodo di pagamento, fatturato dell'anno, importo da pagare e stato di riconciliazione bancaria dei pagamenti. Puoi cercare per nome, P.IVA, categoria o città, filtrare per categoria, per \"Stato\" (attivi/disattivati) e per \"Stato lavorazione\" (fornitori da completare: senza categoria, senza divisione, oppure con importi scaduti). Cliccando su una riga per espanderla vedi, oltre all'anagrafica e alle statistiche, tutto il piano di pagamento caricato: modalità (metodo), base di calcolo delle scadenze (Data fattura o Fine mese), giorni della prima scadenza, numero di rate e banca di pagamento. Con il pulsante \"Esporta\" in alto scarichi l'elenco in Excel/CSV con le stesse informazioni (modalità, base scadenze, 1ª scadenza, n° rate e banca), utile per rivedere in blocco cosa è impostato su ogni fornitore.",
+        "body": "La tabella elenca tutti i fornitori con: nome, P.IVA, categoria, divisione tra punti vendita, metodo di pagamento, fatturato dell'anno, importo da pagare e stato di riconciliazione bancaria dei pagamenti. Da smartphone l'elenco compare come schede compatte, una per fornitore, con gli stessi dati chiave e i pulsanti Scheda, Modifica, Gestione e Disattiva sempre visibili; toccando la scheda si apre il dettaglio completo. Puoi cercare per nome, P.IVA, categoria o città, filtrare per categoria, per \"Stato\" (attivi/disattivati) e per \"Stato lavorazione\" (fornitori da completare: senza categoria, senza divisione, oppure con importi scaduti). Cliccando su una riga per espanderla vedi, oltre all'anagrafica e alle statistiche, tutto il piano di pagamento caricato: modalità (metodo), base di calcolo delle scadenze (Data fattura o Fine mese), giorni della prima scadenza, numero di rate e banca di pagamento. Con il pulsante \"Esporta\" in alto scarichi l'elenco in Excel/CSV con le stesse informazioni (modalità, base scadenze, 1ª scadenza, n° rate e banca), utile per rivedere in blocco cosa è impostato su ogni fornitore.",
         "steps": [
           "Usa la casella di ricerca per trovare un fornitore per nome, P.IVA, categoria o città",
           "Usa il filtro \"Stato: tutti\" per vedere solo i fornitori da lavorare (senza categoria o divisione) oppure quelli con importi scaduti",
@@ -1883,7 +1883,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "Leggere la tabella delle scadenze",
-        "body": "Ogni riga della tabella mostra: la data di scadenza, il tipo (con un'etichetta colorata), il titolo (es. \"IVA mensile — Maggio 2026\"), il periodo di riferimento, l'importo, lo stato attuale e quanti giorni mancano alla scadenza. Le righe scadute hanno uno sfondo rosso chiaro, quelle urgenti (entro 7 giorni) uno sfondo giallo chiaro, così le riconosci a colpo d'occhio."
+        "body": "Ogni riga della tabella mostra: la data di scadenza, il tipo (con un'etichetta colorata), il titolo (es. \"IVA mensile — Maggio 2026\"), il periodo di riferimento, l'importo, lo stato attuale e quanti giorni mancano alla scadenza. Le righe scadute hanno uno sfondo rosso chiaro, quelle urgenti (entro 7 giorni) uno sfondo giallo chiaro, così le riconosci a colpo d'occhio. Da smartphone l'elenco compare come schede compatte, una per scadenza, con le stesse informazioni e i pulsanti Pagato, Modifica e Annulla ben toccabili."
       },
       {
         "heading": "Gli stati possibili di una scadenza",

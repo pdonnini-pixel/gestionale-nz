@@ -25,7 +25,6 @@ import { useNavigate } from 'react-router-dom'
 import {
   ArrowLeft, Clock, Download, MessageSquare, RefreshCw, Shield, Sparkles, Trash2, Upload, X, XCircle,
 } from 'lucide-react'
-import * as XLSX from 'xlsx'
 import { supabase } from '../lib/supabase'
 import { useToast } from '../components/Toast'
 import { useAuth } from '../hooks/useAuth'
@@ -307,10 +306,11 @@ export default function TicketAdminPage() {
 
   const handleImportFile = (file: File) => {
     const reader = new FileReader()
-    reader.onload = (ev) => {
+    reader.onload = async (ev) => {
       try {
         const data = ev.target?.result
         if (!data || typeof data === 'string') return
+        const XLSX = await import('xlsx')
         const wb = XLSX.read(data, { type: 'array' })
         const sheet = wb.Sheets[wb.SheetNames[0]]
         const raw = XLSX.utils.sheet_to_json(sheet, { defval: '' }) as Array<Record<string, unknown>>

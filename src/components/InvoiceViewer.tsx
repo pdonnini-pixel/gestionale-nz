@@ -488,7 +488,7 @@ export default function InvoiceViewer({ xmlContent, onClose, autoPrint = false }
 
   return (
     <Modal open onClose={onClose} bare ariaLabel="Anteprima fattura"
-      panelClassName="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-hidden mx-4 flex flex-col">
+      panelClassName="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[90dvh] overflow-hidden mx-4 flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3 border-b bg-slate-50 rounded-t-xl flex-shrink-0">
           <div className="flex items-center gap-2 text-sm font-medium text-slate-700">
