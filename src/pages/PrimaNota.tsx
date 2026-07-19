@@ -5,7 +5,6 @@
 
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { Download, FileSpreadsheet, Calendar, Filter, RefreshCw, Loader2 } from 'lucide-react'
-import * as XLSX from 'xlsx'
 import { supabase } from '../lib/supabase'
 import { fetchAllPaged } from '../lib/fetchAllPaged'
 import { lastDayOfMonthYMD } from '../lib/dateLocal'
@@ -204,8 +203,10 @@ export default function PrimaNota() {
     URL.revokeObjectURL(url)
   }
 
-  const exportXlsx = () => {
+  const exportXlsx = async () => {
     if (rows.length === 0) return
+    // xlsx caricata on-demand: ~140KB gzip che non devono pesare sull'apertura pagina
+    const XLSX = await import('xlsx')
     const ws = XLSX.utils.json_to_sheet(rows)
     // Larghezza colonne suggerita
     ws['!cols'] = [

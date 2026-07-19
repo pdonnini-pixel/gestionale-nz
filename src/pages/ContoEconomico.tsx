@@ -32,7 +32,8 @@ import { GlassTooltip, AXIS_STYLE, GRID_STYLE } from '../components/ChartTheme'
 import TextTooltip from '../components/Tooltip'
 import { PlaceholderDot, PlaceholderLegend } from '../components/PlaceholderMark'
 
-import PdfViewer from '../components/PdfViewer'
+// pdfjs-dist (~350KB gzip) caricata solo all'apertura di un allegato PDF
+const PdfViewer = React.lazy(() => import('../components/PdfViewer'))
 import { Modal } from '../components/ui/Modal'
 import { parseBilancio, toSupabaseRecords } from '../lib/parsers/bilancioParser'
 

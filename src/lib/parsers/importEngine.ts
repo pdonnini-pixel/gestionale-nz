@@ -13,7 +13,8 @@ import { supabase } from '../supabase';
 import { parseCSV, autoDetectBankMapping, transformBankRows, transformPOSRows, parseItalianNumber } from './csvParser';
 import { parseFatturaPA, transformInvoiceToRecords } from './xmlInvoiceParser';
 import { parseBilancio, toSupabaseRecords as bilancioToRecords } from './bilancioParser';
-import * as XLSX from 'xlsx';
+// NB: xlsx (SheetJS) è caricata on-demand dentro excelToHeadersRows: import
+// statico = ~140KB gzip nel chunk dell'ImportHub anche senza file Excel.
 
 const BATCH_SIZE = 100; // max rows per insert
 
@@ -265,7 +266,8 @@ function findDeclaredMovementCount(allRows: unknown[]): number | null {
   return null;
 }
 
-function excelToHeadersRows(arrayBuffer: ArrayBuffer | string): { headers: string[]; rows: Record<string, string>[]; declaredCount: number | null } {
+async function excelToHeadersRows(arrayBuffer: ArrayBuffer | string): Promise<{ headers: string[]; rows: Record<string, string>[]; declaredCount: number | null }> {
+  const XLSX = await import('xlsx');
   // Read with cellDates so date cells become JS Date objects
   const workbook = XLSX.read(arrayBuffer, { type: 'array', cellDates: true });
   const sheetName = workbook.SheetNames[0];
@@ -350,7 +352,7 @@ async function processBankStatement(content: string | ArrayBuffer, context: Impo
     // Parse Excel file
     onProgress(25, 'Conversione file Excel...');
     try {
-      const result = excelToHeadersRows(content);
+      const result = await excelToHeadersRows(content);
       headers = result.headers;
       rows = result.rows;
       declaredCount = result.declaredCount;
@@ -1106,7 +1108,7 @@ export async function previewImport({ file, sourceType, context, maxRows = 10 }:
 
       if (isExcel) {
         const arrayBuf = await readFileContent(file, null, null, { asBinary: true });
-        const result = excelToHeadersRows(arrayBuf);
+        const result = await excelToHeadersRows(arrayBuf);
         headers = result.headers;
         rows = result.rows;
       } else {

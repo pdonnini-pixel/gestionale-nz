@@ -8,7 +8,6 @@
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import * as XLSX from 'xlsx'
 import JSZip from 'jszip'
 import PageHeader from '../components/PageHeader'
 import { supabase } from '../lib/supabase'
@@ -443,6 +442,7 @@ export default function ConvertitoreFattureXML() {
     setFileInfo(`File: ${file.name} — lettura…`)
     try {
       const buf = await file.arrayBuffer()
+      const XLSX = await import('xlsx')
       const wb = XLSX.read(new Uint8Array(buf), { type: 'array', cellDates: false, raw: true })
       const ws = wb.Sheets[wb.SheetNames[0]]
       const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: '' }) as unknown[][]

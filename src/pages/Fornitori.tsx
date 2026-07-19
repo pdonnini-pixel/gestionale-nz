@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, lazy, Suspense } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
 // Tab Fornitori — persistito in URL come ?tab=
@@ -29,7 +29,8 @@ import { useOutlets } from '../hooks/useOutlets';
 import { usePeriod } from '../hooks/usePeriod';
 import SupplierAllocationEditor, { MODE_META, type AllocationMode } from '../components/SupplierAllocationEditor';
 import InvoiceViewer from '../components/InvoiceViewer';
-import PdfViewer from '../components/PdfViewer';
+// pdfjs-dist (~350KB gzip) caricata solo all'apertura di un allegato PDF
+const PdfViewer = lazy(() => import('../components/PdfViewer'));
 import { Modal } from '../components/ui/Modal';
 import { parseFatturaAllegati, downloadBytes, type FatturaAllegato } from '../lib/fatturaAllegati';
 import {
@@ -1731,7 +1732,9 @@ export default function Fornitori() {
               </div>
             </div>
             <div className="flex-1 min-h-0">
-              <PdfViewer pdfData={pdfViewerData} className="h-full" />
+              <Suspense fallback={<div className="p-4 text-center text-slate-500 text-sm">Caricamento anteprima…</div>}>
+                <PdfViewer pdfData={pdfViewerData} className="h-full" />
+              </Suspense>
             </div>
       </Modal>
 

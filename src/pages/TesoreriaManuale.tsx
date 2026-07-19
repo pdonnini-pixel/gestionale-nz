@@ -137,8 +137,8 @@ function GlassTooltipContent({ active, payload, label }: { active?: boolean; pay
 }
 
 // CSV Parser utilities
-// ═══ IMPORT XLSX LIBRARY (SheetJS) ═══
-import * as XLSX from 'xlsx'
+// NB: xlsx (SheetJS) è caricata on-demand con import() dentro le funzioni che
+// la usano: import statico = ~140KB gzip pagati all'apertura pagina.
 
 function detectSeparator(text: string) {
   const firstLines = text.split('\n').slice(0, 5).join('\n')
@@ -279,8 +279,9 @@ function parseCSV(text: string) {
   return { headers, rows, separator, skippedRows: headerIdx }
 }
 
-// Parser per file Excel (XLSX/XLS) via SheetJS
-function parseExcelFile(arrayBuffer: ArrayBuffer) {
+// Parser per file Excel (XLSX/XLS) via SheetJS (caricata on-demand)
+async function parseExcelFile(arrayBuffer: ArrayBuffer) {
+  const XLSX = await import('xlsx')
   const wb = XLSX.read(arrayBuffer, { type: 'array', cellDates: true })
   const sheetName = wb.SheetNames[0]
   const ws = wb.Sheets[sheetName]
@@ -1035,11 +1036,11 @@ function UploadStatementModal({ isOpen, onClose, account, companyId, onImported 
     if (ext === 'xlsx' || ext === 'xls') {
       // Excel: leggi come ArrayBuffer e usa SheetJS
       const reader = new FileReader()
-      reader.onload = (ev) => {
+      reader.onload = async (ev) => {
         try {
           const buf = ev.target?.result
           if (!buf || typeof buf === 'string') return
-          const result = parseExcelFile(buf as ArrayBuffer)
+          const result = await parseExcelFile(buf as ArrayBuffer)
           setParsed(result)
           const map = autoMapColumns(result.headers)
           setColumnMap(map)
