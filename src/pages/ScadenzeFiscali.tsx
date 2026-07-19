@@ -91,11 +91,20 @@ function ModalDeadline({ isOpen, isEdit, deadline, onClose, onSave, saving }: { 
     }
   }, [isOpen, isEdit, deadline])
 
+  // Chiusura con Escape (il modal prima non era chiudibile né con Esc né
+  // con tap sull'overlay: su mobile restava solo il bottone Annulla in fondo)
+  useEffect(() => {
+    if (!isOpen) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [isOpen, onClose])
+
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-2xl shadow-xl p-6 max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto space-y-4">
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={onClose}>
+      <div role="dialog" aria-modal="true" onClick={e => e.stopPropagation()} className="bg-white rounded-2xl shadow-xl p-6 max-w-lg w-full mx-4 max-h-[90dvh] overflow-y-auto overscroll-contain space-y-4">
         <h2 className="text-lg font-bold text-slate-900">
           {isEdit ? 'Modifica Scadenza' : 'Nuova Scadenza Fiscale'}
         </h2>
@@ -536,20 +545,20 @@ export default function ScadenzeFiscali() {
                           <div className="flex items-center gap-1 justify-center">
                             {dl.status !== 'paid' && (
                               <button onClick={() => markPaid(dl)}
-                                className="inline-flex items-center gap-0.5 px-2 py-1 text-[10px] font-medium bg-emerald-600 text-white rounded-md hover:bg-emerald-700 transition"
+                                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium bg-emerald-600 text-white rounded-md hover:bg-emerald-700 transition"
                                 title="Segna come pagato">
-                                <CheckCircle2 size={10} /> Pagato
+                                <CheckCircle2 size={12} /> Pagato
                               </button>
                             )}
                             <button onClick={() => { setEditingDeadline(dl); setModalOpen(true) }}
-                              className="p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded transition"
+                              className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded transition"
                               title="Modifica">
-                              <Edit2 size={12} />
+                              <Edit2 size={14} />
                             </button>
                             <button onClick={() => handleDelete(dl.id)}
-                              className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition"
+                              className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition"
                               title="Elimina">
-                              <Trash2 size={12} />
+                              <Trash2 size={14} />
                             </button>
                           </div>
                         </td>

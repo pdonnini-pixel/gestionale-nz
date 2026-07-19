@@ -653,7 +653,7 @@ export default function OutletWizard({ onClose, onSaved, initialData, allegati, 
           <h2 className="text-lg font-semibold text-slate-900">
             {editId ? `Modifica ${labels.pointOfSaleLower}` : initialData ? `Nuovo ${labels.pointOfSaleLower} da contratto` : `Nuovo ${labels.pointOfSaleLower}`}
           </h2>
-          <button onClick={onClose} className="p-1 hover:bg-slate-100 rounded-lg" title="Chiudi"><X size={20} /></button>
+          <button onClick={onClose} className="p-2.5 hover:bg-slate-100 rounded-lg" title="Chiudi"><X size={20} /></button>
         </div>
 
         {/* Step indicator */}

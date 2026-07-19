@@ -320,7 +320,7 @@ export default function Layout() {
           <div className="flex items-center gap-2 min-w-0">
             <button
               onClick={() => setMobileOpen(true)}
-              className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 md:hidden shrink-0"
+              className="p-2.5 rounded-lg hover:bg-slate-100 text-slate-500 md:hidden shrink-0"
               title="Apri menu"
             >
               <Menu size={20} />

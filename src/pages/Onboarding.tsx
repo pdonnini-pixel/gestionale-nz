@@ -523,6 +523,7 @@ function StepCompany({
             <Hash size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
               value={company.vat_number}
+              inputMode="numeric"
               onChange={(e) => up('vat_number', e.target.value.replace(/\D/g, '').slice(0, 11))}
               placeholder="12345678901"
               maxLength={11}
