@@ -5,6 +5,7 @@ import {
   AlertCircle,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import { fetchAllPaged } from '../lib/fetchAllPaged'
 import { getCurrentTenant } from '../lib/tenants'
 import { useToast } from './Toast'
 import Tooltip from './Tooltip'
@@ -169,13 +170,20 @@ export default function AICategorization({ companyId }: AICategorizationProps) {
     try {
       // BUG-003 fix (PROMPT_TS_STRICT_COMPLETION Fase 2): allineato a schema
       // reale di ai_anomaly_log (is_resolved + created_at).
-      const [movRes, catRes, anomRes] = await Promise.all([
-        supabase
-          .from('cash_movements')
-          .select('id, date, description, counterpart, amount, type, cost_category_id, ai_category_id, ai_confidence, ai_method, ai_categorized_at, verified, bank_account_id')
-          .eq('company_id', companyId)
-          .order('date', { ascending: false })
-          .limit(500),
+      // cash_movements paginato: prima `.limit(500)` calcolava i KPI e i contatori
+      // dei tab solo sui 500 movimenti piu' recenti (il resto restava fuori senza
+      // avviso, e "Conferma tutti" agiva solo su quei 500). Ora l'intero dataset.
+      const [movData, catRes, anomRes] = await Promise.all([
+        fetchAllPaged<CashMovement>(
+          (from, to) => supabase
+            .from('cash_movements')
+            .select('id, date, description, counterpart, amount, type, cost_category_id, ai_category_id, ai_confidence, ai_method, ai_categorized_at, verified, bank_account_id')
+            .eq('company_id', companyId)
+            .order('date', { ascending: false })
+            .order('id', { ascending: false })
+            .range(from, to),
+          'cash_movements (AI categorie)',
+        ),
         supabase
           .from('cost_categories')
           .select('id, name')
@@ -189,12 +197,12 @@ export default function AICategorization({ companyId }: AICategorizationProps) {
           .order('created_at', { ascending: false })
           .limit(50),
       ])
-      if (movRes.data) setMovements(movRes.data as unknown as CashMovement[])
+      setMovements(movData as unknown as CashMovement[])
       if (catRes.data) setCategories(catRes.data)
       if (anomRes.data) setAnomalies(anomRes.data as unknown as AnomalyEntry[])
 
       // Compute stats
-      const all = movRes.data || []
+      const all = movData || []
       const categorized = all.filter(m => m.cost_category_id || m.ai_category_id)
       const aiCat = all.filter(m => m.ai_category_id && !m.cost_category_id)
       const confirmed = all.filter(m => m.cost_category_id)

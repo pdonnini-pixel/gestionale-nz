@@ -716,6 +716,10 @@ export const PAGE_GUIDES: PageGuide[] = [
       {
         "q": "Cosa devo fare quando vedo un'anomalia segnalata?",
         "a": "Leggi la descrizione e il suggerimento su come risolverla, verifica il movimento (ad esempio se è davvero un duplicato), sistema il dato se necessario e poi clicca \"Risolvi\" per toglierla dall'elenco."
+      },
+      {
+        "q": "I contatori in alto (confermati, da verificare, non categorizzati) considerano tutti i movimenti?",
+        "a": "Sì: i contatori e i totali si basano sull'intero elenco dei movimenti dell'azienda, non solo su una parte. Prima venivano calcolati solo sui movimenti più recenti (fino a 500) e potevano risultare incompleti; ora rispecchiano tutti i movimenti presenti."
       }
     ]
   },
