@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback, type ComponentProps } from 'react'
 import ExportMenu from '../components/ExportMenu'
 import PageHeader from '../components/PageHeader'
 import {
@@ -20,7 +20,7 @@ import { fetchAllPaged } from '../lib/fetchAllPaged'
 import { useAuth } from '../hooks/useAuth'
 import { usePeriod } from '../hooks/usePeriod'
 import { useCompanyLabels } from '../hooks/useCompanyLabels'
-import TextTooltip from '../components/Tooltip'
+import StatKpi from '../components/ui/StatKpi'
 
 // ═══ HELPERS ═══
 const fmt = (n: number | null | undefined): string => n == null ? '—' : new Intl.NumberFormat('de-DE', { maximumFractionDigits: 0 }).format(n)
@@ -773,22 +773,5 @@ function groupLabel(macro: string | null): string {
   return (macro && labels[macro]) || macro || 'Altro'
 }
 
-function Kpi({ icon: Icon, label, value, sub, color }: { icon: React.ComponentType<{ size?: number }>; label: string; value: string | number; sub?: string; color: string }) {
-  const colors: Record<string, string> = {
-    blue: 'bg-blue-50 text-blue-600', green: 'bg-emerald-50 text-emerald-600',
-    amber: 'bg-amber-50 text-amber-600', red: 'bg-red-50 text-red-600',
-    indigo: 'bg-indigo-50 text-indigo-600', purple: 'bg-purple-50 text-purple-600',
-  }
-  return (
-    <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
-      <div className="flex items-center gap-3">
-        <div className={`p-2 rounded-lg ${colors[color] || colors.indigo}`}><Icon size={18} /></div>
-        <div className="min-w-0">
-          <TextTooltip content={value === '' || value == null ? '' : String(value)}><div className="text-lg font-bold text-slate-900 truncate">{value}</div></TextTooltip>
-          <div className="text-xs text-slate-500">{label}</div>
-          {sub && <div className="text-xs text-slate-400">{sub}</div>}
-        </div>
-      </div>
-    </div>
-  )
-}
+// Kpi locale sostituita dal componente condiviso ui/StatKpi (audit KpiCard duplicata)
+const Kpi = (props: Omit<ComponentProps<typeof StatKpi>, 'size'>) => <StatKpi {...props} size="sm" />

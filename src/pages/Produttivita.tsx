@@ -552,8 +552,9 @@ export default function Produttivita() {
                       <td className="px-4 py-3 text-slate-900 font-medium">{m.nome}</td>
                       <td className="px-4 py-3 text-right text-slate-700">{fmt(m.ricavi, 0)} &euro;</td>
                       <td className="px-4 py-3 text-right text-slate-700">
-                        {fmt(m.dipendenti, m.has_employee_data ? 1 : 0)}
-                        {!m.has_employee_data && <span className="text-xs text-slate-400 ml-1">(stima)</span>}
+                        {/* Niente piu' '(stima)': quando il dato manca si mostra N/D,
+                            coerente con la colonna Ricavo/dipendente (audit A39) */}
+                        {m.has_employee_data ? fmt(m.dipendenti, 1) : <span className="text-slate-400 text-xs">N/D</span>}
                       </td>
                       <td className="px-4 py-3 text-right font-semibold text-slate-900">
                         {m.ricavo_per_dip != null ? `${fmt(m.ricavo_per_dip, 0)} €` : <span className="text-slate-400 text-xs">N/D</span>}

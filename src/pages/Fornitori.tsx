@@ -32,6 +32,7 @@ import InvoiceViewer from '../components/InvoiceViewer';
 // pdfjs-dist (~350KB gzip) caricata solo all'apertura di un allegato PDF
 const PdfViewer = lazy(() => import('../components/PdfViewer'));
 import { Modal } from '../components/ui/Modal';
+import StatKpi from '../components/ui/StatKpi';
 import { parseFatturaAllegati, downloadBytes, type FatturaAllegato } from '../lib/fatturaAllegati';
 import {
   PAYMENT_METHOD_OPTIONS, PAYMENT_METHOD_LABELS as PAYMENT_LABEL,
@@ -1561,24 +1562,24 @@ export default function Fornitori() {
                 <h3 className="text-xs font-semibold text-slate-500 uppercase mb-3">Dati anagrafici</h3>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="col-span-2">
-                    <label className="text-xs font-medium text-slate-600">Ragione Sociale *</label>
-                    <input value={form.ragione_sociale} onChange={e => setForm(f => ({ ...f, ragione_sociale: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" placeholder="Es. ACME S.R.L." />
+                    <label htmlFor="forn-ragione-sociale" className="text-xs font-medium text-slate-600">Ragione Sociale *</label>
+                    <input id="forn-ragione-sociale" value={form.ragione_sociale} onChange={e => setForm(f => ({ ...f, ragione_sociale: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" placeholder="Es. ACME S.R.L." />
                   </div>
                   <div>
-                    <label className="text-xs font-medium text-slate-600">Partita IVA</label>
-                    <input value={form.partita_iva} onChange={e => setForm(f => ({ ...f, partita_iva: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono" placeholder="01234567890" />
+                    <label htmlFor="forn-partita-iva" className="text-xs font-medium text-slate-600">Partita IVA</label>
+                    <input id="forn-partita-iva" value={form.partita_iva} onChange={e => setForm(f => ({ ...f, partita_iva: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono" placeholder="01234567890" />
                   </div>
                   <div>
-                    <label className="text-xs font-medium text-slate-600">Codice Fiscale</label>
-                    <input value={form.codice_fiscale} onChange={e => setForm(f => ({ ...f, codice_fiscale: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono" />
+                    <label htmlFor="forn-codice-fiscale" className="text-xs font-medium text-slate-600">Codice Fiscale</label>
+                    <input id="forn-codice-fiscale" value={form.codice_fiscale} onChange={e => setForm(f => ({ ...f, codice_fiscale: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono" />
                   </div>
                   <div>
-                    <label className="text-xs font-medium text-slate-600">Codice SDI</label>
-                    <input value={form.codice_sdi} onChange={e => setForm(f => ({ ...f, codice_sdi: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono" placeholder="0000000" />
+                    <label htmlFor="forn-codice-sdi" className="text-xs font-medium text-slate-600">Codice SDI</label>
+                    <input id="forn-codice-sdi" value={form.codice_sdi} onChange={e => setForm(f => ({ ...f, codice_sdi: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono" placeholder="0000000" />
                   </div>
                   <div>
-                    <label className="text-xs font-medium text-slate-600">PEC</label>
-                    <input value={form.pec} onChange={e => setForm(f => ({ ...f, pec: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" placeholder="pec@fornitore.it" />
+                    <label htmlFor="forn-pec" className="text-xs font-medium text-slate-600">PEC</label>
+                    <input id="forn-pec" value={form.pec} onChange={e => setForm(f => ({ ...f, pec: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" placeholder="pec@fornitore.it" />
                   </div>
                 </div>
               </div>
@@ -1588,29 +1589,29 @@ export default function Fornitori() {
                 <h3 className="text-xs font-semibold text-slate-500 uppercase mb-3">Contatti & indirizzo</h3>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="text-xs font-medium text-slate-600">Email</label>
-                    <input value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
+                    <label htmlFor="forn-email" className="text-xs font-medium text-slate-600">Email</label>
+                    <input id="forn-email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
                   </div>
                   <div>
-                    <label className="text-xs font-medium text-slate-600">Telefono</label>
-                    <input value={form.telefono} onChange={e => setForm(f => ({ ...f, telefono: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
+                    <label htmlFor="forn-telefono" className="text-xs font-medium text-slate-600">Telefono</label>
+                    <input id="forn-telefono" value={form.telefono} onChange={e => setForm(f => ({ ...f, telefono: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
                   </div>
                   <div className="col-span-2">
-                    <label className="text-xs font-medium text-slate-600">Indirizzo</label>
-                    <input value={form.indirizzo} onChange={e => setForm(f => ({ ...f, indirizzo: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
+                    <label htmlFor="forn-indirizzo" className="text-xs font-medium text-slate-600">Indirizzo</label>
+                    <input id="forn-indirizzo" value={form.indirizzo} onChange={e => setForm(f => ({ ...f, indirizzo: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
                   </div>
                   <div>
-                    <label className="text-xs font-medium text-slate-600">Città</label>
-                    <input value={form.citta} onChange={e => setForm(f => ({ ...f, citta: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
+                    <label htmlFor="forn-citta" className="text-xs font-medium text-slate-600">Città</label>
+                    <input id="forn-citta" value={form.citta} onChange={e => setForm(f => ({ ...f, citta: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <label className="text-xs font-medium text-slate-600">Provincia</label>
-                      <input value={form.provincia} onChange={e => setForm(f => ({ ...f, provincia: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" maxLength={2} placeholder="FI" />
+                      <label htmlFor="forn-provincia" className="text-xs font-medium text-slate-600">Provincia</label>
+                      <input id="forn-provincia" value={form.provincia} onChange={e => setForm(f => ({ ...f, provincia: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" maxLength={2} placeholder="FI" />
                     </div>
                     <div>
-                      <label className="text-xs font-medium text-slate-600">CAP</label>
-                      <input value={form.cap} onChange={e => setForm(f => ({ ...f, cap: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" maxLength={5} />
+                      <label htmlFor="forn-cap" className="text-xs font-medium text-slate-600">CAP</label>
+                      <input id="forn-cap" value={form.cap} onChange={e => setForm(f => ({ ...f, cap: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" maxLength={5} />
                     </div>
                   </div>
                 </div>
@@ -1621,23 +1622,23 @@ export default function Fornitori() {
                 <h3 className="text-xs font-semibold text-slate-500 uppercase mb-3">Condizioni & classificazione</h3>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="text-xs font-medium text-slate-600">IBAN</label>
-                    <input value={form.iban} onChange={e => setForm(f => ({ ...f, iban: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono" placeholder="IT..." />
+                    <label htmlFor="forn-iban" className="text-xs font-medium text-slate-600">IBAN</label>
+                    <input id="forn-iban" value={form.iban} onChange={e => setForm(f => ({ ...f, iban: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono" placeholder="IT..." />
                   </div>
                   <div>
-                    <label className="text-xs font-medium text-slate-600">Categoria</label>
-                    <select value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm">
+                    <label htmlFor="forn-categoria" className="text-xs font-medium text-slate-600">Categoria</label>
+                    <select id="forn-categoria" value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm">
                       <option value="">Seleziona...</option>
                       {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
                     </select>
                   </div>
                   <div>
-                    <label className="text-xs font-medium text-slate-600">Termini pagamento (gg)</label>
-                    <input type="number" value={form.payment_terms} onChange={e => setForm(f => ({ ...f, payment_terms: Number(e.target.value) || 0 }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" min={0} max={365} />
+                    <label htmlFor="forn-termini-pagamento-gg" className="text-xs font-medium text-slate-600">Termini pagamento (gg)</label>
+                    <input id="forn-termini-pagamento-gg" type="number" value={form.payment_terms} onChange={e => setForm(f => ({ ...f, payment_terms: Number(e.target.value) || 0 }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" min={0} max={365} />
                   </div>
                   <div>
-                    <label className="text-xs font-medium text-slate-600">Metodo pagamento</label>
-                    <select value={form.payment_method} onChange={e => setForm(f => ({ ...f, payment_method: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm">
+                    <label htmlFor="forn-metodo-pagamento" className="text-xs font-medium text-slate-600">Metodo pagamento</label>
+                    <select id="forn-metodo-pagamento" value={form.payment_method} onChange={e => setForm(f => ({ ...f, payment_method: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm">
                       {PAYMENT_METHOD_OPTIONS.map(g => (
                         <optgroup key={g.group} label={g.group}>
                           {g.items.map(i => <option key={i.value} value={i.value}>{i.label}</option>)}
@@ -1653,8 +1654,8 @@ export default function Fornitori() {
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                       <div>
-                        <label className="text-xs font-medium text-slate-600">Base di calcolo</label>
-                        <select value={form.payment_base} onChange={e => setForm(f => ({ ...f, payment_base: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm">
+                        <label htmlFor="forn-base-di-calcolo" className="text-xs font-medium text-slate-600">Base di calcolo</label>
+                        <select id="forn-base-di-calcolo" value={form.payment_base} onChange={e => setForm(f => ({ ...f, payment_base: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm">
                           <option value="">— non impostata —</option>
                           <option value="data_fattura">Data fattura (a giorni)</option>
                           <option value="fine_mese">Fine mese (a mesi)</option>
@@ -1668,12 +1669,12 @@ export default function Fornitori() {
                         </select>
                       </div>
                       <div>
-                        <label className="text-xs font-medium text-slate-600">1ª scadenza (gg)</label>
-                        <input type="number" value={form.prima_scadenza_gg} onChange={e => setForm(f => ({ ...f, prima_scadenza_gg: Number(e.target.value) || 0 }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" min={0} max={365} step={30} />
+                        <label htmlFor="forn-1a-scadenza-gg" className="text-xs font-medium text-slate-600">1ª scadenza (gg)</label>
+                        <input id="forn-1a-scadenza-gg" type="number" value={form.prima_scadenza_gg} onChange={e => setForm(f => ({ ...f, prima_scadenza_gg: Number(e.target.value) || 0 }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" min={0} max={365} step={30} />
                       </div>
                       <div>
-                        <label className="text-xs font-medium text-slate-600">Numero rate</label>
-                        <input type="number" value={form.numero_rate} onChange={e => setForm(f => ({ ...f, numero_rate: Number(e.target.value) || 1 }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" min={1} max={12} />
+                        <label htmlFor="forn-numero-rate" className="text-xs font-medium text-slate-600">Numero rate</label>
+                        <input id="forn-numero-rate" type="number" value={form.numero_rate} onChange={e => setForm(f => ({ ...f, numero_rate: Number(e.target.value) || 1 }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" min={1} max={12} />
                       </div>
                     </div>
                     {isBankRequired(form.payment_method) && !form.payment_bank_account_id && (
@@ -1684,8 +1685,8 @@ export default function Fornitori() {
                     <p className="mt-2 text-[11px] text-slate-400">Le rate successive sono +30gg (data fattura) o +1 mese (fine mese). Importo diviso equamente tra le rate.</p>
                   </div>
                   <div className="col-span-2">
-                    <label className="text-xs font-medium text-slate-600">Note</label>
-                    <textarea value={form.note} onChange={e => setForm(f => ({ ...f, note: e.target.value }))} rows={2} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
+                    <label htmlFor="forn-note" className="text-xs font-medium text-slate-600">Note</label>
+                    <textarea id="forn-note" value={form.note} onChange={e => setForm(f => ({ ...f, note: e.target.value }))} rows={2} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
                   </div>
                 </div>
               </div>
@@ -1756,27 +1757,8 @@ export default function Fornitori() {
 
 // ─── SUB-COMPONENTS ─────────────────────────────────────────────
 
-function KpiCard({ icon: Icon, label, value, sub, color }: { icon: React.ElementType; label: string; value: string | number; sub?: string; color: string }) {
-  const colorMap: Record<string, string> = {
-    indigo: 'bg-indigo-50 text-indigo-600', blue: 'bg-blue-50 text-blue-600',
-    green: 'bg-emerald-50 text-emerald-600', red: 'bg-red-50 text-red-600',
-    amber: 'bg-amber-50 text-amber-600', purple: 'bg-purple-50 text-purple-600',
-  };
-  const cls = colorMap[color] || colorMap.indigo;
-
-  return (
-    <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
-      <div className="flex items-center gap-3">
-        <div className={`p-2 rounded-lg ${cls}`}><Icon size={20} /></div>
-        <div>
-          <div className="text-xl font-bold text-slate-900">{value}</div>
-          <div className="text-xs text-slate-500">{label}</div>
-          {sub && <div className="text-xs text-slate-400">{sub}</div>}
-        </div>
-      </div>
-    </div>
-  );
-}
+// KpiCard locale sostituita dal componente condiviso ui/StatKpi
+const KpiCard = (props: Omit<React.ComponentProps<typeof StatKpi>, 'size'>) => <StatKpi {...props} size="md" />
 
 function Detail({ label, value, mono }: { label: string; value?: string | number | null; mono?: boolean }) {
   return (

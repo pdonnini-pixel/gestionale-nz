@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, type ComponentProps } from 'react'
 import { useSearchParams, Link } from 'react-router-dom'
 import PageHeader from '../components/PageHeader'
+import StatKpi from '../components/ui/StatKpi'
 import { useToast } from '../components/Toast'
 
 // Tab principale Fatturazione — persistito in URL come ?tab=
@@ -87,30 +88,8 @@ function SdiStatusBadge({ status, configMap = SDI_STATUS_CONFIG as StatusConfigM
   )
 }
 
-type KpiColor = 'blue' | 'green' | 'red' | 'amber' | 'slate'
-function KpiCard({ icon: Icon, label, value, sub, color = 'blue' }: { icon: React.ComponentType<{ size?: number }>; label: string; value: string | number; sub?: string; color?: KpiColor }) {
-  const colorMap: Record<KpiColor, string> = {
-    blue: 'bg-blue-50 text-blue-600',
-    green: 'bg-green-50 text-green-600',
-    red: 'bg-red-50 text-red-600',
-    amber: 'bg-amber-50 text-amber-600',
-    slate: 'bg-slate-50 text-slate-600',
-  }
-  return (
-    <div className="bg-white rounded-xl border border-slate-200 p-4">
-      <div className="flex items-center gap-3">
-        <div className={`w-10 h-10 rounded-lg ${colorMap[color]} flex items-center justify-center`}>
-          <Icon size={20} />
-        </div>
-        <div>
-          <div className="text-2xl font-bold text-slate-900">{value}</div>
-          <div className="text-xs text-slate-500">{label}</div>
-          {sub && <div className="text-xs text-slate-400 mt-0.5">{sub}</div>}
-        </div>
-      </div>
-    </div>
-  )
-}
+// KpiCard locale sostituita dal componente condiviso ui/StatKpi
+const KpiCard = (props: Omit<ComponentProps<typeof StatKpi>, 'size'>) => <StatKpi {...props} size="lg" />
 
 // ─── callFunction helper (same pattern as useYapily) ────────────────────
 

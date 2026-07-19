@@ -124,9 +124,14 @@ export default function OpenToBuy() {
   const kpis = useMemo(() => {
     const totalOTB = summaryData.reduce((sum, d) => sum + d.otb, 0);
     const avgOTB = summaryData.length ? totalOTB / summaryData.length : 0;
-    const totalSales = summaryData.reduce((sum, d) => sum + d.vendite_previste, 0);
     const totalMarkdown = summaryData.reduce((sum, d) => sum + (d.vendite_previste * d.markdown_previsto) / 100, 0);
-    const sellThrough = (totalSales / (totalSales + totalMarkdown)) * 100;
+    // Sell-through VERO = costo del venduto previsto / merce disponibile al costo
+    // (scorta iniziale + acquisti OTB). La vecchia formula
+    // vendite/(vendite+markdown) non era un sell-through: con markdown 12%
+    // mostrava sempre ~89% qualunque fossero scorte e vendite (audit A37).
+    const totalSoldCost = summaryData.reduce((sum, d) => sum + d.vendite_previste / (1 + d.ricarico_target / 100), 0);
+    const totalAvailable = summaryData.reduce((sum, d) => sum + d.scorta_iniziale, 0) + Math.max(totalOTB, 0);
+    const sellThrough = totalAvailable > 0 ? (totalSoldCost / totalAvailable) * 100 : null;
 
     return { totalOTB, avgOTB, sellThrough, totalMarkdown };
   }, [summaryData]);
@@ -215,8 +220,8 @@ export default function OpenToBuy() {
               <h3 className="text-sm font-medium text-slate-600">Target Sell-Through</h3>
               <Percent className="w-5 h-5 text-purple-600" />
             </div>
-            <p className="text-3xl font-bold text-slate-900">{fmt(kpis.sellThrough, 1)}%</p>
-            <p className="text-xs text-slate-500 mt-1">% vendite su totale</p>
+            <p className="text-3xl font-bold text-slate-900">{kpis.sellThrough == null ? '—' : `${fmt(kpis.sellThrough, 1)}%`}</p>
+            <p className="text-xs text-slate-500 mt-1">Costo del venduto previsto su merce disponibile (scorta iniziale + acquisti OTB)</p>
           </div>
 
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
@@ -236,9 +241,9 @@ export default function OpenToBuy() {
             <div>
               <h4 className="font-medium text-blue-900 mb-1">Formula Open-to-Buy</h4>
               <p className="text-sm text-blue-800">
-                <strong>OTB = Vendite Previste + Markdown Previsto + Scorta Finale Target − Scorta Iniziale</strong>
+                <strong>OTB = Costo del venduto previsto + Costo del markdown + Scorta Finale Target − Scorta Iniziale</strong>
                 <br />
-                Rappresenta il budget disponibile (al costo) per nuovi acquisti nel periodo stagionale.
+                Vendite e markdown sono convertiti al costo dividendo per (1 + ricarico target). Rappresenta il budget disponibile (al costo) per nuovi acquisti nel periodo stagionale.
               </p>
             </div>
           </div>
