@@ -7,6 +7,7 @@ import { fetchAllPaged } from '../lib/fetchAllPaged';
 import { buildOutletCostCenterSet, isOutletCostCenter } from '../lib/outletCostCenters';
 import { useAuth } from '../hooks/useAuth';
 import { usePeriod } from '../hooks/usePeriod';
+import { useAvailableYears } from '../hooks/useAvailableYears';
 import { useCompanyLabels } from '../hooks/useCompanyLabels';
 import PageHeader from '../components/PageHeader';
 
@@ -18,11 +19,13 @@ export default function ScenarioPlanning() {
   const { profile } = useAuth();
   const labels = useCompanyLabels();
   // Anno sincronizzato col PeriodContext globale (selettore header).
-  const { year: globalYear } = usePeriod();
+  const { year: globalYear, setYear: setGlobalYear } = usePeriod();
+  const availableYears = useAvailableYears();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [year, setYear] = useState(globalYear || 2026);
-  useEffect(() => { if (globalYear) setYear(globalYear); }, [globalYear]);
+  // Anno dal selettore periodo globale (persiste in URL/localStorage — M54)
+  const year = globalYear;
+  const setYear = setGlobalYear;
   // TODO: tighten type
   const [rawEntries, setRawEntries] = useState<any[]>([]);
   // Cost_center che sono outlet reali (code+name): per contare i punti vendita e
@@ -279,7 +282,7 @@ export default function ScenarioPlanning() {
                   onChange={(e) => setYear(parseInt(e.target.value))}
                   className="px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                 >
-                  {[2024, 2025, 2026, 2027].map(y => (
+                  {(availableYears.includes(year) ? availableYears : [year, ...availableYears]).map(y => (
                     <option key={y} value={y}>{y}</option>
                   ))}
                 </select>

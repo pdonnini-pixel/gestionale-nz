@@ -3568,8 +3568,9 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
         const rows = summaryModal.rows
         const total = rows.reduce((s, r) => s + Math.abs(Number(r.bt.amount) || 0), 0)
         return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setSummaryModal(null)}>
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 max-h-[85dvh] flex flex-col" onClick={e => e.stopPropagation()}>
+          <UIModal open onClose={() => setSummaryModal(null)} bare ariaLabel="Conferma abbinamenti"
+            containerClassName="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+            panelClassName="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 max-h-[85dvh] flex flex-col">
               <div className="flex items-center justify-between p-5 border-b border-slate-100">
                 <h3 className="text-lg font-semibold text-slate-900">Conferma abbinamenti</h3>
                 <button onClick={() => setSummaryModal(null)} title="Chiudi" className="p-1 rounded-lg hover:bg-slate-100 text-slate-400"><X size={20} /></button>
@@ -3597,15 +3598,15 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
                   </button>
                 </div>
               </div>
-            </div>
-          </div>
+          </UIModal>
         )
       })()}
 
       {/* Modal conferma annullo abbinamento */}
       {undoModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setUndoModal(null)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4" onClick={e => e.stopPropagation()}>
+        <UIModal open onClose={() => setUndoModal(null)} bare ariaLabel="Annulla abbinamento"
+          containerClassName="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+          panelClassName="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4">
             <div className="flex items-center justify-between p-5 border-b border-slate-100">
               <h3 className="text-lg font-semibold text-slate-900">Annullare l'abbinamento?</h3>
               <button onClick={() => setUndoModal(null)} title="Chiudi" className="p-1 rounded-lg hover:bg-slate-100 text-slate-400"><X size={20} /></button>
@@ -3620,8 +3621,7 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
                 </button>
               </div>
             </div>
-          </div>
-        </div>
+        </UIModal>
       )}
     </div>
   )

@@ -12,6 +12,7 @@ import { buildOutletCostCenterSet, isOutletCostCenter } from '../lib/outletCostC
 import { useAuth } from '../hooks/useAuth';
 import { useCompanyLabels } from '../hooks/useCompanyLabels';
 import { usePeriod } from '../hooks/usePeriod';
+import { useAvailableYears } from '../hooks/useAvailableYears';
 import PageHeader from '../components/PageHeader';
 
 function fmt(n: number | null | undefined, dec = 0): string {
@@ -30,11 +31,13 @@ export default function Produttivita() {
   const { profile } = useAuth();
   const labels = useCompanyLabels();
   // Anno sincronizzato col PeriodContext globale (selettore header).
-  const { year: globalYear } = usePeriod();
+  const { year: globalYear, setYear: setGlobalYear } = usePeriod();
+  const availableYears = useAvailableYears();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [year, setYear] = useState(globalYear || 2026);
-  useEffect(() => { if (globalYear) setYear(globalYear); }, [globalYear]);
+  // Anno dal selettore periodo globale (persiste in URL/localStorage — M54)
+  const year = globalYear;
+  const setYear = setGlobalYear;
   // TODO: tighten type — Supabase data
   const [rawEntries, setRawEntries] = useState<any[]>([]);
   const [employees, setEmployees] = useState<any[]>([]);
@@ -450,7 +453,7 @@ export default function Produttivita() {
                 onChange={(e) => setYear(parseInt(e.target.value))}
                 className="px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
               >
-                {[2024, 2025, 2026, 2027].map(y => (
+                {(availableYears.includes(year) ? availableYears : [year, ...availableYears]).map(y => (
                   <option key={y} value={y}>{y}</option>
                 ))}
               </select>

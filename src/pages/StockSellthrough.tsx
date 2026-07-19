@@ -101,8 +101,8 @@ interface AlertEntry {
 export default function StockSellthrough() {
   const labels = useCompanyLabels()
   const { outlets: tenantOutlets, loading: outletsLoading } = useOutlets()
-  const [selectedOutlet, setSelectedOutlet] = useState<string | null>(null)
-  const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
+  // Rimossi selectedOutlet/selectedCategory: dichiarati ma senza alcun filtro
+  // collegato in UI (audit M54) — niente stati fantasma.
   const [expandedOutlet, setExpandedOutlet] = useState<string | null>(null)
 
   // Dati simulati per-tenant: generati dagli outlet reali del tenant.
