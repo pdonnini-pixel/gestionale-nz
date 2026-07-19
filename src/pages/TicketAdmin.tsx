@@ -530,13 +530,23 @@ export default function TicketAdminPage() {
             <button
               type="button"
               disabled={busy}
-              onClick={() => setConfirm({
-                title: 'Cancellare definitivamente?',
-                message: `Stai per CANCELLARE ${selectedIds.length} ticket. L'operazione e' irreversibile.`,
-                confirmLabel: 'Cancella',
-                destructive: true,
-                onConfirm: () => { setConfirm(null); void bulkDelete(selectedIds, clear) },
-              })}
+              onClick={() => {
+                // Audit 2026-07-19: nel modal di conferma elenchiamo QUALI ticket
+                // stanno per essere cancellati, non solo quanti — cosi' una
+                // selezione dimenticata si riconosce prima del danno.
+                const titoli = selectedIds
+                  .map(id => tickets.find(t => t.id === id)?.titolo)
+                  .filter((t): t is string => Boolean(t))
+                const anteprima = titoli.slice(0, 5).map(t => `«${t}»`).join(', ')
+                const extra = titoli.length > 5 ? ` e altri ${titoli.length - 5}` : ''
+                setConfirm({
+                  title: 'Cancellare definitivamente?',
+                  message: `Stai per CANCELLARE ${selectedIds.length} ticket: ${anteprima}${extra}. L'operazione e' irreversibile.`,
+                  confirmLabel: 'Cancella',
+                  destructive: true,
+                  onConfirm: () => { setConfirm(null); void bulkDelete(selectedIds, clear) },
+                })
+              }}
               className="px-3 py-1.5 text-xs font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg disabled:opacity-50 flex items-center gap-1"
             >
               <Trash2 className="w-3 h-3" /> Cancella
