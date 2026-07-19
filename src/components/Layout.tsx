@@ -304,7 +304,10 @@ export default function Layout() {
   }, [])
 
   return (
-    <div className="flex h-screen overflow-hidden">
+    // h-dvh (non h-screen/100vh): con lo scroll solo interno la barra URL dei
+    // browser mobile non si ritrae mai e 100vh lascerebbe gli ultimi ~50-80px
+    // di ogni pagina coperti e irraggiungibili. dvh segue il viewport reale.
+    <div className="flex h-dvh overflow-hidden">
       <Sidebar mobileOpen={mobileOpen} setMobileOpen={setMobileOpen} badges={{ 'ticket-unseen': ticketUnseen, 'fatt-anomalie': fattAnomalie }} />
 
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
