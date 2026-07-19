@@ -1015,8 +1015,8 @@ function CostSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
                   </div>
                 </div>
                 {isOpen && (
-                  <div className="border-t border-slate-100">
-                    <table className="w-full text-sm">
+                  <div className="border-t border-slate-100 overflow-x-auto">
+                    <table className="w-full min-w-[640px] text-sm">
                       <thead>
                         <tr className="bg-slate-50/80 text-xs text-slate-500 uppercase tracking-wide">
                           <th className="px-4 py-2 text-left font-medium">Codice</th>

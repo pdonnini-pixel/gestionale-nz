@@ -82,8 +82,8 @@ function RunDetails({ feed, details, movements, movementsTotal, bankNames, loadi
 
   if (feed === 'fatture_passive') {
     return (
-      <div className="px-6 py-3">
-        <table className="w-full text-xs">
+      <div className="px-6 py-3 overflow-x-auto">
+        <table className="w-full min-w-[480px] text-xs">
           <thead>
             <tr className="text-left text-slate-400 border-b border-slate-200">
               <th className="py-1.5 pr-4 font-medium">Numero</th>
@@ -140,7 +140,8 @@ function RunDetails({ feed, details, movements, movementsTotal, bankNames, loadi
               <p className="px-3 py-1.5 text-xs text-red-700 border-b border-slate-100">{error}</p>
             )}
             {moves.length > 0 ? (
-              <table className="w-full text-xs">
+              <div className="overflow-x-auto">
+              <table className="w-full min-w-[480px] text-xs">
                 <thead>
                   <tr className="text-left text-slate-400 border-b border-slate-100">
                     <th className="py-1.5 px-3 font-medium">Data</th>
@@ -158,6 +159,7 @@ function RunDetails({ feed, details, movements, movementsTotal, bankNames, loadi
                   ))}
                 </tbody>
               </table>
+              </div>
             ) : (
               <p className="px-3 py-2 text-xs text-slate-400">Nessun movimento nuovo in questa sincronizzazione.</p>
             )}

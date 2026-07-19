@@ -180,7 +180,7 @@ function ToastItem({ toast, onRemove }: ToastItemProps) {
     >
       <div
         className={`
-          relative rounded-lg p-4 w-96 max-w-sm
+          relative rounded-lg p-4 w-96 max-w-[calc(100vw-2rem)]
           backdrop-blur-xl
           bg-gradient-to-br ${config.bgGradient}
           shadow-lg

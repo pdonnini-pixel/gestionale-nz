@@ -145,7 +145,7 @@ export default function AcubeFatturaForm() {
 
         <div className="bg-white rounded-xl border border-slate-200 p-5 space-y-4">
           <h2 className="font-semibold text-slate-900">Dati Documento</h2>
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <label className="block">
               <span className="text-sm text-slate-700">Numero *</span>
               <input required value={invoiceNumber} onChange={e => setInvoiceNumber(e.target.value)}
@@ -178,25 +178,25 @@ export default function AcubeFatturaForm() {
           </div>
           <div className="space-y-2">
             {lines.map((l, i) => (
-              <div key={i} className="grid grid-cols-12 gap-2 items-end">
-                <label className="block col-span-5">
+              <div key={i} className="grid grid-cols-2 sm:grid-cols-12 gap-2 items-end">
+                <label className="block col-span-2 sm:col-span-5">
                   <span className="text-xs text-slate-600">Descrizione</span>
                   <input required value={l.description} onChange={e => updateLine(i, { description: e.target.value })}
                     className="mt-1 w-full px-2 py-1.5 border border-slate-300 rounded text-sm" />
                 </label>
-                <label className="block col-span-2">
+                <label className="block col-span-1 sm:col-span-2">
                   <span className="text-xs text-slate-600">Quantità</span>
-                  <input type="number" step="0.01" value={l.quantity}
+                  <input type="number" inputMode="decimal" step="0.01" value={l.quantity}
                     onChange={e => updateLine(i, { quantity: parseFloat(e.target.value) || 0 })}
                     className="mt-1 w-full px-2 py-1.5 border border-slate-300 rounded text-sm" />
                 </label>
-                <label className="block col-span-2">
+                <label className="block col-span-1 sm:col-span-2">
                   <span className="text-xs text-slate-600">Prezzo unit.</span>
-                  <input type="number" step="0.01" value={l.unit_price}
+                  <input type="number" inputMode="decimal" step="0.01" value={l.unit_price}
                     onChange={e => updateLine(i, { unit_price: parseFloat(e.target.value) || 0 })}
                     className="mt-1 w-full px-2 py-1.5 border border-slate-300 rounded text-sm" />
                 </label>
-                <label className="block col-span-2">
+                <label className="block col-span-1 sm:col-span-2">
                   <span className="text-xs text-slate-600">IVA %</span>
                   <select value={l.vat_rate} onChange={e => updateLine(i, { vat_rate: parseFloat(e.target.value) })}
                     className="mt-1 w-full px-2 py-1.5 border border-slate-300 rounded text-sm bg-white">
@@ -208,7 +208,7 @@ export default function AcubeFatturaForm() {
                   </select>
                 </label>
                 <button type="button" disabled={lines.length === 1} onClick={() => setLines(lines.filter((_, idx) => idx !== i))}
-                  className="col-span-1 p-1.5 text-red-600 disabled:text-slate-300 hover:bg-red-50 rounded" title="Rimuovi linea">
+                  className="col-span-1 p-2.5 text-red-600 disabled:text-slate-300 hover:bg-red-50 rounded" title="Rimuovi linea">
                   <Trash2 size={16} />
                 </button>
               </div>

@@ -211,6 +211,14 @@ export default function Sidebar({ mobileOpen, setMobileOpen, badges = {} }: Side
   const location = useLocation()
   const role = profile?.role || 'ceo'
 
+  // Escape chiude il drawer mobile (prima si chiudeva solo col tap sull'overlay)
+  useEffect(() => {
+    if (!mobileOpen) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setMobileOpen(false) }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [mobileOpen, setMobileOpen])
+
   const roleLabels: Record<string, string> = {
     super_advisor: 'Super Advisor',
     ceo: 'CEO', cfo: 'CFO', coo: 'COO',
@@ -452,6 +460,7 @@ export default function Sidebar({ mobileOpen, setMobileOpen, badges = {} }: Side
             <div key={section.key}>
               <button
                 onClick={() => toggleSection(section.key)}
+                aria-expanded={isOpen}
                 className={`flex items-center justify-between w-full px-3 py-2 mt-1.5 rounded-lg text-xs font-semibold uppercase tracking-wider transition ${
                   hasActiveItem
                     ? 'text-slate-300 hover:text-white'
@@ -516,9 +525,9 @@ export default function Sidebar({ mobileOpen, setMobileOpen, badges = {} }: Side
       </aside>
 
       {mobileOpen && (
-        <div className="fixed inset-0 z-50 md:hidden">
+        <div className="fixed inset-0 z-50 md:hidden" role="dialog" aria-modal="true" aria-label="Menu di navigazione">
           <div className="absolute inset-0 bg-black/50" onClick={() => setMobileOpen(false)} />
-          <aside className="absolute left-0 top-0 bottom-0 w-72 bg-slate-900 text-white flex flex-col shadow-2xl">
+          <aside className="absolute left-0 top-0 bottom-0 w-72 bg-slate-900 text-white flex flex-col shadow-2xl overscroll-contain">
             {expandedContent}
           </aside>
         </div>

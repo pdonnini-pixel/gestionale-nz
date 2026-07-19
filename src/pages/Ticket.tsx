@@ -28,6 +28,7 @@ import {
   MessageSquare, Paperclip, Plus, RefreshCw, Send, Sparkles, Square, Trash2, Upload, X,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import { getCurrentTenant } from '../lib/tenants'
 import { useToast } from '../components/Toast'
 import { useAuth } from '../hooks/useAuth'
 import { errorMessage } from '../types/business'
@@ -1132,7 +1133,9 @@ function TicketDetail({ ticket, onBack, onUpdated, onDeleted }: TicketDetailProp
         toast({ type: 'error', message: 'Sessione scaduta, ricarica la pagina' })
         return
       }
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
+      // URL del tenant attivo via tenants.ts: la env non suffissata puo'
+      // mancare sui site Made/Zago (che usano VITE_SUPABASE_URL_MADE/_ZAGO).
+      const supabaseUrl = getCurrentTenant().supabaseUrl
       const resp = await fetch(`${supabaseUrl}/functions/v1/ticket-resolve-now`, {
         method: 'POST',
         headers: {

@@ -2165,7 +2165,7 @@ function CopyMonthPopover({ fromMonth, onCopy, onClose }: { fromMonth: number; o
       <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-2">
         Copia {MESI_SHORT[fromMonth]} in:
       </div>
-      <div className="grid grid-cols-4 gap-1 mb-2">
+      <div className="grid grid-cols-3 sm:grid-cols-4 gap-1 mb-2">
         {MESI_SHORT.map((m, i) => (
           <button key={i} disabled={i === fromMonth}
             onClick={() => toggle(i)}

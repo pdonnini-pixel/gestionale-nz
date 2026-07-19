@@ -820,8 +820,8 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
                 </button>
 
                 {expanded && (
-                  <div className="bg-slate-50/60 border-t border-slate-100">
-                    <table className="w-full">
+                  <div className="bg-slate-50/60 border-t border-slate-100 overflow-x-auto">
+                    <table className="w-full min-w-[560px]">
                       <thead>
                         <tr className="text-[10px] uppercase text-slate-500">
                           <th className="px-5 py-2 text-left font-semibold">Numero</th>

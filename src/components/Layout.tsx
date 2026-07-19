@@ -31,8 +31,9 @@ function TenantBadge() {
       <Building2 size={14} className="opacity-90 shrink-0" />
       <span className="opacity-90">Tenant attivo:</span>
       <span className="font-bold tracking-wide truncate" title={tenant.displayName}>{tenant.displayName}</span>
-      <span className="ml-auto opacity-80 hidden md:inline truncate">
-        Per cambiare tenant, apri una nuova tab.
+      <span className="ml-auto opacity-80 truncate">
+        <span className="hidden md:inline">Per cambiare tenant, apri una nuova tab.</span>
+        <span className="md:hidden">Cambio tenant: nuova tab</span>
       </span>
     </div>
   )
@@ -93,14 +94,16 @@ function Breadcrumb() {
 
 // ─── BOTTOM NAV (Mobile) ──────────────────────────────────────
 function BottomNav() {
+  // Terminologia del tenant (es. "Outlet" su NZ, altro su Made/Zago)
+  const labels = useCompanyLabels()
   return (
     <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 z-40 safe-area-pb">
       <div className="flex items-center justify-around h-14">
         {[
           { to: '/', icon: LayoutDashboard, label: 'Home', end: true },
-          { to: '/outlet', icon: Store, label: 'Outlet' },
+          { to: '/outlet', icon: Store, label: labels.pointOfSale },
           { to: '/scadenzario', icon: Receipt, label: 'Scadenze' },
-          { to: '/impostazioni', icon: User, label: 'Profilo' },
+          { to: '/profilo', icon: User, label: 'Profilo' },
         ].map(item => (
           <NavLink
             key={item.to}
@@ -309,7 +312,10 @@ export default function Layout() {
   }, [])
 
   return (
-    <div className="flex h-screen overflow-hidden">
+    // h-dvh (non h-screen/100vh): con lo scroll solo interno la barra URL dei
+    // browser mobile non si ritrae mai e 100vh lascerebbe gli ultimi ~50-80px
+    // di ogni pagina coperti e irraggiungibili. dvh segue il viewport reale.
+    <div className="flex h-dvh overflow-hidden">
       <Sidebar mobileOpen={mobileOpen} setMobileOpen={setMobileOpen} badges={{ 'ticket-unseen': ticketUnseen, 'fatt-anomalie': fattAnomalie }} />
 
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
@@ -322,7 +328,7 @@ export default function Layout() {
           <div className="flex items-center gap-2 min-w-0">
             <button
               onClick={() => setMobileOpen(true)}
-              className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 md:hidden shrink-0"
+              className="p-2.5 rounded-lg hover:bg-slate-100 text-slate-500 md:hidden shrink-0"
               title="Apri menu"
             >
               <Menu size={20} />

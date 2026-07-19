@@ -5,6 +5,7 @@ import {
   AlertCircle,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import { getCurrentTenant } from '../lib/tenants'
 import { useToast } from './Toast'
 import Tooltip from './Tooltip'
 
@@ -61,7 +62,10 @@ function fmt(n: number | null | undefined, dec = 2): string {
 const fmtDate = (d: string | null | undefined) => d ? new Date(d).toLocaleDateString('it-IT') : '—'
 
 async function callEdgeFunction(fnName: string, method = 'GET', body: Record<string, unknown> | null = null, params: Record<string, string> | null = null): Promise<Record<string, unknown>> {
-  const baseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://xfvfxsvqpnpvibgeqpqp.supabase.co'
+  // URL del tenant attivo via tenants.ts (hostname → env suffissate).
+  // Niente fallback hardcoded sul progetto NZ: su Made/Zago punterebbe
+  // le Edge Function al progetto sbagliato.
+  const baseUrl = getCurrentTenant().supabaseUrl
   let url = `${baseUrl}/functions/v1/${fnName}`
   if (params) {
     url += '?' + new URLSearchParams(params).toString()

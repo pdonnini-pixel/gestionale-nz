@@ -200,7 +200,7 @@ export default function Login() {
         </div>
 
         <p className="text-center text-blue-300/60 text-xs mt-6">
-          Gestionale NZ v1.0 · {tenant.alias}
+          {tenant.displayName} · Gestionale v1.0
         </p>
       </div>
       </div>

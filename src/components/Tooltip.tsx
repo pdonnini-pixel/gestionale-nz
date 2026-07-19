@@ -1,10 +1,12 @@
-import React, { useState, useCallback, cloneElement, isValidElement } from 'react'
+import React, { useState, useCallback, useEffect, useRef, cloneElement, isValidElement } from 'react'
 import { createPortal } from 'react-dom'
 
 /**
  * Tooltip — componente condiviso a testo libero.
  *
  * Mostra il contenuto integrale al passaggio del mouse su una cella troncata.
+ * Su touch (dove l'hover non esiste) il tooltip appare al tocco e si nasconde
+ * da solo dopo qualche secondo, senza bloccare il tap del figlio.
  * Sostituisce i `title` nativi (vietati dal design system) per le descrizioni,
  * causali, note, ragioni sociali, nomi file e qualsiasi testo di fonte primaria
  * mostrato troncato in UI.
@@ -44,6 +46,10 @@ export default function Tooltip({ content, children, maxWidth = 380 }: TooltipPr
   }, [])
   const hide = useCallback(() => setPos(null), [])
 
+  // Touch: mostra al tocco e auto-nascondi (niente mouseleave su mobile).
+  const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => () => { if (hideTimer.current) clearTimeout(hideTimer.current) }, [])
+
   const empty =
     content == null ||
     content === '' ||
@@ -60,6 +66,12 @@ export default function Tooltip({ content, children, maxWidth = 380 }: TooltipPr
     onMouseLeave: (e: React.MouseEvent<HTMLElement>) => {
       hide()
       childProps.onMouseLeave?.(e)
+    },
+    onTouchStart: (e: React.TouchEvent<HTMLElement>) => {
+      show(e.currentTarget)
+      if (hideTimer.current) clearTimeout(hideTimer.current)
+      hideTimer.current = setTimeout(() => setPos(null), 2500)
+      childProps.onTouchStart?.(e)
     },
   })
 

@@ -1565,8 +1565,8 @@ export default function CashflowProspettico() {
             <span className="text-indigo-500 text-sm">{showForecastList ? '▼ Nascondi' : '▶ Mostra'}</span>
           </button>
           {showForecastList && (
-            <div className="border-t border-indigo-100 max-h-[400px] overflow-y-auto">
-              <table className="w-full text-sm">
+            <div className="border-t border-indigo-100 max-h-[400px] overflow-y-auto overflow-x-auto">
+              <table className="w-full min-w-[560px] text-sm">
                 <thead className="bg-indigo-50/50 text-xs text-indigo-700 uppercase">
                   <tr>
                     <th className="px-4 py-2 text-left">Data</th>
@@ -2020,7 +2020,7 @@ export default function CashflowProspettico() {
 
       {/* Summary row */}
       <div className="mt-4 bg-indigo-50 border border-indigo-200 rounded-xl p-4">
-        <div className="grid grid-cols-5 gap-4 text-center">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4 text-center">
           <div>
             <p className="text-xs font-medium text-indigo-700 mb-1">TOTALE ENTRATE</p>
             <p className="text-lg font-bold text-indigo-900">{formatCurrency(totalInflows)}</p>

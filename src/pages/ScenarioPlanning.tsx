@@ -466,7 +466,7 @@ export default function ScenarioPlanning() {
                   : 'bg-gradient-to-r from-red-50 to-orange-50 border-red-200'
               }`}>
                 <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wide mb-4">Risultati Scenario in Tempo Reale</h3>
-                <div className="grid grid-cols-3 gap-6">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6">
                   <div>
                     <p className="text-xs text-slate-500 mb-1">Margine Previsto</p>
                     <p className={`text-2xl font-bold ${scenario.marginePercent >= 0 ? 'text-green-700' : 'text-red-700'}`}>

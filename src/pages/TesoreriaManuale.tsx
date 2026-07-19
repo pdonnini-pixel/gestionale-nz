@@ -872,7 +872,7 @@ function AddAccountModal({ isOpen, onClose, onSave, editAccount }: { isOpen: boo
           <input type="text" value={form.iban} onChange={e => setForm({ ...form, iban: e.target.value.toUpperCase() })}
             className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="IT..." />
         </div>
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div>
             <label className="block text-xs font-medium text-slate-500 mb-1">Tipo</label>
             <select value={form.account_type} onChange={e => setForm({ ...form, account_type: e.target.value })}
@@ -882,12 +882,12 @@ function AddAccountModal({ isOpen, onClose, onSave, editAccount }: { isOpen: boo
           </div>
           <div>
             <label className="block text-xs font-medium text-slate-500 mb-1">Saldo attuale</label>
-            <input type="number" step="0.01" value={form.current_balance} onChange={e => setForm({ ...form, current_balance: parseFloat(e.target.value) || 0 })}
+            <input type="number" inputMode="decimal" step="0.01" value={form.current_balance} onChange={e => setForm({ ...form, current_balance: parseFloat(e.target.value) || 0 })}
               className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
           </div>
           <div>
             <label className="block text-xs font-medium text-slate-500 mb-1">Fido</label>
-            <input type="number" step="0.01" value={form.credit_line} onChange={e => setForm({ ...form, credit_line: parseFloat(e.target.value) || 0 })}
+            <input type="number" inputMode="decimal" step="0.01" value={form.credit_line} onChange={e => setForm({ ...form, credit_line: parseFloat(e.target.value) || 0 })}
               className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
           </div>
         </div>
