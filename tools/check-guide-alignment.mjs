@@ -93,8 +93,12 @@ function main() {
     changed = sh(`git diff --name-only ${base} HEAD`).split('\n').filter(Boolean)
   }
 
-  // Bypass esplicito nel messaggio dell'ultimo commit
-  const lastMsg = sh('git log -1 --pretty=%B')
+  // Bypass esplicito nel messaggio dell'ultimo commit.
+  // In CI su pull_request il checkout è il MERGE ref sintetico (refs/pull/N/merge):
+  // lì `git log -1` restituisce "Merge X into Y", non l'ultimo commit del branch.
+  // Il tag va quindi cercato anche sul secondo parent (HEAD^2 = head della PR).
+  let lastMsg = sh('git log -1 --pretty=%B')
+  try { lastMsg += '\n' + sh('git log -1 --pretty=%B HEAD^2') } catch { /* HEAD non è un merge: ok */ }
   if (lastMsg.includes('[skip-guide-check]')) {
     console.log('✓ [skip-guide-check] presente: controllo guide saltato volontariamente.')
     return
