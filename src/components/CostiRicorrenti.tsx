@@ -7,6 +7,7 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
 import { useCompanyLabels } from '../hooks/useCompanyLabels';
 import Tooltip from './Tooltip';
+import { Modal } from './ui/Modal';
 
 const paymentMethodLabels: Record<string, string> = {
   bonifico_ordinario: 'Bonifico ordinario',
@@ -738,9 +739,15 @@ function CostiRicorrenti() {
       </div>
 
       {/* Add/Edit Modal */}
-      {showModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-lg max-w-2xl w-full max-h-96 overflow-y-auto">
+      <Modal
+        open={showModal}
+        onClose={closeModal}
+        bare
+        closeOnBackdrop={false}
+        ariaLabel={editingId ? 'Modifica costo ricorrente' : 'Nuovo costo ricorrente'}
+        containerClassName="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
+        panelClassName="bg-white rounded-xl shadow-lg max-w-2xl w-full max-h-96 overflow-y-auto"
+      >
             <div className="flex items-center justify-between p-6 border-b border-slate-200 sticky top-0 bg-white">
               <h2 className="text-lg font-semibold text-slate-900">
                 {editingId ? 'Modifica costo ricorrente' : 'Nuovo costo ricorrente'}
@@ -964,14 +971,17 @@ function CostiRicorrenti() {
                 Salva
               </button>
             </div>
-          </div>
-        </div>
-      )}
+      </Modal>
 
       {/* Delete Confirmation Modal */}
-      {deleteConfirmId && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-lg max-w-sm w-full">
+      <Modal
+        open={!!deleteConfirmId}
+        onClose={() => setDeleteConfirmId(null)}
+        bare
+        ariaLabel="Elimina costo ricorrente?"
+        containerClassName="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
+        panelClassName="bg-white rounded-xl shadow-lg max-w-sm w-full"
+      >
             <div className="p-6">
               <h2 className="text-lg font-semibold text-slate-900 mb-2">
                 Elimina costo ricorrente?
@@ -989,16 +999,14 @@ function CostiRicorrenti() {
                   Annulla
                 </button>
                 <button
-                  onClick={() => deleteRecurringCost(deleteConfirmId)}
+                  onClick={() => { if (deleteConfirmId) deleteRecurringCost(deleteConfirmId) }}
                   className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 transition-colors"
                 >
                   Elimina
                 </button>
               </div>
             </div>
-          </div>
-        </div>
-      )}
+      </Modal>
     </div>
   );
 }

@@ -41,6 +41,7 @@ import {
 import { BarChart, Bar, PieChart as RechartsPieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { GlassTooltip, AXIS_STYLE, GRID_STYLE } from '../components/ChartTheme';
 import { supabase } from '../lib/supabase';
+import { Modal } from '../components/ui/Modal';
 import { useAuth } from '../hooks/useAuth';
 import { processImport, previewImport } from '../lib/parsers/importEngine';
 
@@ -1573,9 +1574,7 @@ export default function ImportHub() {
           Mostrato subito dopo l'import di un estratto conto bancario.
           Riepiloga quanti movimenti sono stati automaticamente abbinati
           a scadenze payables. */}
-      {(computingMatches || matchModal) && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden">
+      <Modal open={!!(computingMatches || matchModal)} onClose={() => setMatchModal(null)} bare closeOnBackdrop={false} ariaLabel="Riconciliazione automatica post-import" panelClassName="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden">
             <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className="p-2 bg-blue-100 rounded-xl">
@@ -1664,19 +1663,15 @@ export default function ImportHub() {
                 )}
               </div>
             )}
-          </div>
-        </div>
-      )}
+      </Modal>
 
       {/* PDF Preview Modal */}
-      {previewFile && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={closePreview}>
-          <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
+      <Modal open={!!previewFile} onClose={closePreview} bare ariaLabel="Anteprima documento" panelClassName="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] flex flex-col overflow-hidden">
             <div className="flex items-center justify-between px-5 py-3 border-b border-slate-100 shrink-0">
               <div className="flex items-center gap-2">
                 <FileText size={18} className="text-red-500" />
-                <span className="font-semibold text-slate-900 text-sm">{previewFile.file_name}</span>
-                {previewFile.file_size && <span className="text-xs text-slate-400">{(previewFile.file_size / 1024).toFixed(0)} KB</span>}
+                <span className="font-semibold text-slate-900 text-sm">{previewFile?.file_name}</span>
+                {previewFile?.file_size && <span className="text-xs text-slate-400">{(previewFile.file_size / 1024).toFixed(0)} KB</span>}
               </div>
               <button onClick={closePreview} className="p-1.5 hover:bg-slate-100 rounded-lg" title="Chiudi">
                 <X size={18} className="text-slate-500" />
@@ -1691,9 +1686,7 @@ export default function ImportHub() {
                 </div>
               )}
             </div>
-          </div>
-        </div>
-      )}
+      </Modal>
       </div>
     </div>
   );

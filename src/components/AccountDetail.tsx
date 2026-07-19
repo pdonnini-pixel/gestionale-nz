@@ -40,6 +40,7 @@ import {
   Filter, Calendar, CheckCircle2, Link2, Loader2, ChevronDown
 } from 'lucide-react'
 import TextTooltip from './Tooltip'
+import { Modal } from './ui/Modal'
 
 const PAGE_SIZE = 50
 
@@ -171,8 +172,15 @@ function ReconciliationModal({ isOpen, onClose, transaction, onReconcile }: { is
     : null
 
   return (
-    <div className="fixed inset-0 z-[60] bg-black/50 flex items-center justify-center">
-      <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full mx-4 max-h-[70vh] flex flex-col">
+    <Modal
+      open
+      onClose={onClose}
+      bare
+      closeOnBackdrop={false}
+      ariaLabel="Riconcilia movimento"
+      containerClassName="fixed inset-0 z-[60] bg-black/50 flex items-center justify-center"
+      panelClassName="bg-white rounded-2xl shadow-xl max-w-lg w-full mx-4 max-h-[70vh] flex flex-col"
+    >
         <div className="p-5 border-b border-gray-100">
           <div className="flex items-center justify-between">
             <div>
@@ -250,8 +258,7 @@ function ReconciliationModal({ isOpen, onClose, transaction, onReconcile }: { is
             </div>
           )}
         </div>
-      </div>
-    </div>
+    </Modal>
   )
 }
 

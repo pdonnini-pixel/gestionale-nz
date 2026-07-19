@@ -2381,6 +2381,10 @@ export const PAGE_GUIDES: PageGuide[] = [
       {
         "q": "Cancellando un ticket, cosa succede ai suoi allegati (screenshot)?",
         "a": "Vengono rimossi anche gli allegati dallo spazio di archiviazione, sia cancellando un singolo ticket sia una selezione multipla. Prima i file restavano abbandonati nello storage occupando spazio inutilmente; ora la pulizia è automatica."
+      },
+      {
+        "q": "Le finestre di dialogo (conferme, form) si possono usare da tastiera?",
+        "a": "Sì. In tutta l'app le finestre che si aprono sopra la pagina ora si chiudono con il tasto Esc, mantengono il focus della tastiera al loro interno (il Tab non 'scappa' dietro) e sono annunciate dai lettori di schermo. È un miglioramento di accessibilità trasversale: le funzioni e i passaggi restano identici."
       }
     ]
   }

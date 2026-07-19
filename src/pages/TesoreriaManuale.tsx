@@ -31,6 +31,7 @@ import OpenBankingAcube from '../components/OpenBankingAcube'
 import FinanziamentiTab from '../components/FinanziamentiTab'
 import CellTooltip from '../components/Tooltip'
 import SyncStatusBadge from '../components/SyncStatusBadge'
+import { Modal as UIModal } from '../components/ui/Modal'
 
 // ═══════════════════════════════════════════════════════════════════
 // ═══ HELPERS ═══
@@ -444,46 +445,54 @@ function EmptyState({ icon: Icon, title, description, action }: { icon: React.Co
 }
 
 function Modal({ isOpen, onClose, title, children, maxWidth = 'max-w-lg' }: { isOpen: boolean; onClose: () => void; title: string; children: React.ReactNode; maxWidth?: string }) {
-  if (!isOpen) return null
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <div className={`bg-white rounded-2xl shadow-xl w-full ${maxWidth} max-h-[90vh] overflow-y-auto`} onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between p-6 border-b border-slate-100">
-          <h2 className="text-lg font-bold text-slate-900">{title}</h2>
-          <button onClick={onClose} title="Chiudi" className="p-1.5 rounded-lg hover:bg-slate-100 transition text-slate-400">
-            <X size={18} />
-          </button>
-        </div>
-        <div className="p-6">{children}</div>
+    <UIModal
+      open={isOpen}
+      onClose={onClose}
+      bare
+      ariaLabel={title}
+      containerClassName="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+      panelClassName={`bg-white rounded-2xl shadow-xl w-full ${maxWidth} max-h-[90vh] overflow-y-auto`}
+    >
+      <div className="flex items-center justify-between p-6 border-b border-slate-100">
+        <h2 className="text-lg font-bold text-slate-900">{title}</h2>
+        <button onClick={onClose} title="Chiudi" className="p-1.5 rounded-lg hover:bg-slate-100 transition text-slate-400">
+          <X size={18} />
+        </button>
       </div>
-    </div>
+      <div className="p-6">{children}</div>
+    </UIModal>
   )
 }
 
 function ConfirmDialog({ isOpen, onClose, onConfirm, title, message, confirmLabel = 'Conferma', danger = false }: { isOpen: boolean; onClose: () => void; onConfirm: () => void; title: string; message: string; confirmLabel?: string; danger?: boolean }) {
-  if (!isOpen) return null
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6" onClick={e => e.stopPropagation()}>
-        <div className="flex items-start gap-3 mb-4">
-          <div className={`p-2 rounded-lg ${danger ? 'bg-red-100' : 'bg-amber-100'}`}>
-            <AlertTriangle size={20} className={danger ? 'text-red-600' : 'text-amber-600'} />
-          </div>
-          <div>
-            <h3 className="font-semibold text-slate-900">{title}</h3>
-            <p className="text-sm text-slate-500 mt-1">{message}</p>
-          </div>
+    <UIModal
+      open={isOpen}
+      onClose={onClose}
+      bare
+      ariaLabel={title}
+      containerClassName="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+      panelClassName="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6"
+    >
+      <div className="flex items-start gap-3 mb-4">
+        <div className={`p-2 rounded-lg ${danger ? 'bg-red-100' : 'bg-amber-100'}`}>
+          <AlertTriangle size={20} className={danger ? 'text-red-600' : 'text-amber-600'} />
         </div>
-        <div className="flex gap-2 justify-end">
-          <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-slate-700 border border-slate-200 rounded-lg hover:bg-slate-50">
-            Annulla
-          </button>
-          <button onClick={onConfirm} className={`px-4 py-2 text-sm font-medium text-white rounded-lg ${danger ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700'}`}>
-            {confirmLabel}
-          </button>
+        <div>
+          <h3 className="font-semibold text-slate-900">{title}</h3>
+          <p className="text-sm text-slate-500 mt-1">{message}</p>
         </div>
       </div>
-    </div>
+      <div className="flex gap-2 justify-end">
+        <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-slate-700 border border-slate-200 rounded-lg hover:bg-slate-50">
+          Annulla
+        </button>
+        <button onClick={onConfirm} className={`px-4 py-2 text-sm font-medium text-white rounded-lg ${danger ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700'}`}>
+          {confirmLabel}
+        </button>
+      </div>
+    </UIModal>
   )
 }
 

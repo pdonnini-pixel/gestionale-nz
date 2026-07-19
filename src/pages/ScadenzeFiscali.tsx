@@ -6,6 +6,7 @@ import {
   ArrowRight, Eye, Landmark
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import { Modal } from '../components/ui/Modal'
 import { daysUntilLocal, todayYMD } from '../lib/dateLocal'
 import { useAuth } from '../hooks/useAuth'
 import { useToast } from '../components/Toast'
@@ -103,8 +104,7 @@ function ModalDeadline({ isOpen, isEdit, deadline, onClose, onSave, saving }: { 
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={onClose}>
-      <div role="dialog" aria-modal="true" onClick={e => e.stopPropagation()} className="bg-white rounded-2xl shadow-xl p-6 max-w-lg w-full mx-4 max-h-[90dvh] overflow-y-auto overscroll-contain space-y-4">
+    <Modal open onClose={onClose} bare closeOnBackdrop={false} ariaLabel={isEdit ? 'Modifica Scadenza' : 'Nuova Scadenza Fiscale'} panelClassName="bg-white rounded-2xl shadow-xl p-6 max-w-lg w-full mx-4 max-h-[90dvh] overflow-y-auto overscroll-contain space-y-4">
         <h2 className="text-lg font-bold text-slate-900">
           {isEdit ? 'Modifica Scadenza' : 'Nuova Scadenza Fiscale'}
         </h2>
@@ -211,8 +211,7 @@ function ModalDeadline({ isOpen, isEdit, deadline, onClose, onSave, saving }: { 
             {saving ? 'Salvataggio...' : isEdit ? 'Salva modifiche' : 'Crea scadenza'}
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   )
 }
 

@@ -18,6 +18,7 @@ import OutletWizard from '../components/OutletWizard'
 import OutletValutazione from '../components/OutletValutazione'
 const PdfViewer = lazy(() => import('../components/PdfViewer'))
 import ContractUploader from '../components/ContractUploader'
+import { Modal } from '../components/ui/Modal'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, LineChart, Line, Legend
@@ -162,8 +163,7 @@ function OutletGrid({ outlets, revenue, year, onSelect }: { outlets: any[]; reve
 // ====== MODAL CONFERMA ELIMINAZIONE ======
 function DeleteConfirmModal({ title, message, onConfirm, onCancel, loading: delLoading }: { title: string; message: string; onConfirm: () => void; onCancel: () => void; loading: boolean }) {
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={onCancel}>
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6" onClick={e => e.stopPropagation()}>
+    <Modal open onClose={onCancel} bare ariaLabel="Conferma eliminazione" panelClassName="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
         <div className="flex items-center gap-3 mb-4">
           <div className="p-2.5 rounded-full bg-red-50">
             <Trash2 size={22} className="text-red-600" />
@@ -189,8 +189,7 @@ function DeleteConfirmModal({ title, message, onConfirm, onCancel, loading: delL
             {delLoading ? 'Eliminazione...' : 'Elimina'}
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   )
 }
 
@@ -642,8 +641,7 @@ function DocumentArchive({ outletId, companyId }: { outletId: string; companyId:
 
       {/* Preview Modal */}
       {previewDoc && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => closePreviewDoc()}>
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-5xl overflow-hidden flex flex-col" style={{ height: '90vh' }} onClick={e => e.stopPropagation()}>
+        <Modal open onClose={() => closePreviewDoc()} bare ariaLabel="Anteprima documento" containerClassName="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" panelClassName="bg-white rounded-2xl shadow-xl w-full max-w-5xl overflow-hidden flex flex-col h-[90vh]">
             <div className="flex items-center justify-between p-4 border-b border-slate-200 shrink-0">
               <div className="flex-1 min-w-0">
                 <TextTooltip content={String(previewDoc.file_name || '')}><h3 className="text-lg font-semibold text-slate-900 truncate">{String(previewDoc.file_name || '')}</h3></TextTooltip>
@@ -698,14 +696,12 @@ function DocumentArchive({ outletId, companyId }: { outletId: string; companyId:
                 </div>
               )}
             </div>
-          </div>
-        </div>
+        </Modal>
       )}
 
       {/* Version History Modal */}
       {versionHistory && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setVersionHistory(null)}>
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6" onClick={e => e.stopPropagation()}>
+        <Modal open onClose={() => setVersionHistory(null)} bare ariaLabel="Storico versioni" panelClassName="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold text-slate-900 flex items-center gap-2">
                 <History size={18} />
@@ -739,8 +735,7 @@ function DocumentArchive({ outletId, companyId }: { outletId: string; companyId:
                 ))}
               </div>
             )}
-          </div>
-        </div>
+        </Modal>
       )}
 
       {/* Delete Confirm Modal */}
@@ -1199,8 +1194,7 @@ function OutletAllegati({ outletId, companyId }: { outletId: string; companyId: 
 
       {/* Preview Modal per allegati */}
       {previewAtt && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => closePreviewAtt()}>
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-5xl overflow-hidden flex flex-col" style={{ height: '90vh' }} onClick={e => e.stopPropagation()}>
+        <Modal open onClose={() => closePreviewAtt()} bare ariaLabel="Anteprima allegato" containerClassName="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" panelClassName="bg-white rounded-2xl shadow-xl w-full max-w-5xl overflow-hidden flex flex-col h-[90vh]">
             <div className="flex items-center justify-between p-4 border-b border-slate-200 shrink-0">
               <div className="flex-1 min-w-0">
                 <TextTooltip content={String(previewAtt.label || '')}><h3 className="text-lg font-semibold text-slate-900 truncate">{String(previewAtt.label || '')}</h3></TextTooltip>
@@ -1252,8 +1246,7 @@ function OutletAllegati({ outletId, companyId }: { outletId: string; companyId: 
                 </div>
               )}
             </div>
-          </div>
-        </div>
+        </Modal>
       )}
     </div>
   )

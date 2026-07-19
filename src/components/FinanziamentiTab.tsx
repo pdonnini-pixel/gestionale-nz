@@ -12,6 +12,7 @@ import {
   computeAmortization, normalizeFrequency, isValidAmortizationParams,
   type AmortizationFrequency, type AmortizationParams,
 } from '../lib/amortization'
+import { Modal } from './ui/Modal'
 
 // ─── Tipi locali ───────────────────────────────────────────────
 interface BankAccountLite {
@@ -513,8 +514,14 @@ export default function FinanziamentiTab({ accounts, companyId, uploadedByName }
 
       {/* ── MODALE FORM ──────────────────────────────────────── */}
       {editing && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={closeForm}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[92vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <Modal
+          open
+          onClose={closeForm}
+          bare
+          ariaLabel={isNew ? 'Nuovo finanziamento' : 'Modifica finanziamento'}
+          containerClassName="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+          panelClassName="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[92vh] flex flex-col"
+        >
             <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between shrink-0">
               <div className="flex items-center gap-2">
                 <div className="p-2 bg-emerald-50 rounded-lg"><Banknote size={18} className="text-emerald-600" /></div>
@@ -671,22 +678,26 @@ export default function FinanziamentiTab({ accounts, companyId, uploadedByName }
                 {isNew ? 'Crea finanziamento' : 'Salva modifiche'}
               </button>
             </div>
-          </div>
-        </div>
+        </Modal>
       )}
 
       {/* Conferma elimina documento */}
       {deleteDoc && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4" onClick={() => setDeleteDoc(null)}>
-          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-5" onClick={e => e.stopPropagation()}>
+        <Modal
+          open
+          onClose={() => setDeleteDoc(null)}
+          bare
+          ariaLabel="Eliminare il documento?"
+          containerClassName="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4"
+          panelClassName="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-5"
+        >
             <h4 className="font-semibold text-slate-900 mb-1">Eliminare il documento?</h4>
             <p className="text-sm text-slate-500 mb-4 truncate" title={deleteDoc.file_name}>{deleteDoc.file_name}</p>
             <div className="flex items-center justify-end gap-2">
               <button onClick={() => setDeleteDoc(null)} className="px-4 py-2 text-sm rounded-lg border border-slate-200 hover:bg-slate-50">Annulla</button>
               <button onClick={confirmDeleteDoc} className="px-4 py-2 text-sm rounded-lg bg-red-600 text-white hover:bg-red-700">Elimina</button>
             </div>
-          </div>
-        </div>
+        </Modal>
       )}
 
       <style>{`.form-inp{width:100%;padding:0.5rem 0.625rem;border:1px solid rgb(226 232 240);border-radius:0.5rem;font-size:0.875rem}.form-inp:focus{outline:none;border-color:rgb(59 130 246);box-shadow:0 0 0 1px rgb(59 130 246)}`}</style>

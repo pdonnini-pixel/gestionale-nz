@@ -32,6 +32,7 @@ import {
   BarChart3, Copy, Lock, Unlock, Info, RefreshCw, FileSpreadsheet, Zap
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import { Modal } from '../components/ui/Modal'
 import { computeConfrontoDiff, type ConfrontoRow, type ExistingConfrontoRow, type ConfrontoDiff } from './budgetConfrontoDiff'
 
 // Workflow approvazione preventivo per outlet x anno
@@ -181,8 +182,7 @@ function WorkflowBadge({ status, meta }: { status: WorkflowStatus; meta?: Workfl
 /* ─── Dialog conferma approvazione preventivo ──────────────── */
 function ApproveDialog({ outletLabel, year, onConfirm, onCancel, working }: { outletLabel: string; year: number; onConfirm: () => void; onCancel: () => void; working: boolean }) {
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={working ? undefined : onCancel}>
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6" onClick={e => e.stopPropagation()}>
+    <Modal open onClose={onCancel} bare ariaLabel="Approva preventivo" closeOnBackdrop={!working} panelClassName="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
         <div className="flex items-center gap-3 mb-4">
           <div className="p-2.5 rounded-full bg-emerald-50">
             <Lock size={22} className="text-emerald-600" />
@@ -205,8 +205,7 @@ function ApproveDialog({ outletLabel, year, onConfirm, onCancel, working }: { ou
             <Lock size={14} /> {working ? 'Approvazione...' : 'Approva preventivo'}
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   )
 }
 
@@ -216,8 +215,7 @@ function UnlockDialog({ outletLabel, year, onConfirm, onCancel, working }: { out
   const trimmed = reason.trim()
   const valid = trimmed.length >= 5
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={working ? undefined : onCancel}>
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6" onClick={e => e.stopPropagation()}>
+    <Modal open onClose={onCancel} bare ariaLabel="Sblocca preventivo" closeOnBackdrop={false} panelClassName="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
         <div className="flex items-center gap-3 mb-4">
           <div className="p-2.5 rounded-full bg-amber-50">
             <Unlock size={22} className="text-amber-600" />
@@ -251,15 +249,13 @@ function UnlockDialog({ outletLabel, year, onConfirm, onCancel, working }: { out
             <Unlock size={14} /> {working ? 'Sblocco...' : 'Sblocca preventivo'}
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   )
 }
 
 function ConfirmDialog({ title, message, onConfirm, onCancel, confirmLabel = 'Svuota', destructive = true }: { title: string; message: string; onConfirm: () => void; onCancel: () => void; confirmLabel?: string; destructive?: boolean }) {
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={onCancel}>
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6" onClick={e => e.stopPropagation()}>
+    <Modal open onClose={onCancel} bare ariaLabel={title} panelClassName="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
         <div className="flex items-center gap-3 mb-4">
           <div className={`p-2.5 rounded-full ${destructive ? 'bg-red-50' : 'bg-amber-50'}`}>
             <Trash2 size={22} className={destructive ? 'text-red-600' : 'text-amber-600'} />
@@ -275,8 +271,7 @@ function ConfirmDialog({ title, message, onConfirm, onCancel, confirmLabel = 'Sv
             {confirmLabel}
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   )
 }
 

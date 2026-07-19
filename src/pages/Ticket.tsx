@@ -30,6 +30,7 @@ import {
 import { supabase } from '../lib/supabase'
 import { getCurrentTenant } from '../lib/tenants'
 import { useToast } from '../components/Toast'
+import { Modal } from '../components/ui/Modal'
 import { useAuth } from '../hooks/useAuth'
 import { errorMessage } from '../types/business'
 import {
@@ -138,10 +139,16 @@ function ConfirmModal({
   confirmLabel = 'Conferma', cancelLabel = 'Annulla',
   destructive, onConfirm, onCancel,
 }: ConfirmModalProps) {
-  if (!open) return null
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 px-4">
-      <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6">
+    <Modal
+      open={open}
+      onClose={onCancel}
+      bare
+      ariaLabel={title}
+      closeOnBackdrop={false}
+      containerClassName="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 px-4"
+      panelClassName="bg-white rounded-xl shadow-2xl max-w-md w-full p-6"
+    >
         <h3 className="text-lg font-semibold text-slate-900 mb-2">{title}</h3>
         <p className="text-sm text-slate-600 mb-6">{message}</p>
         <div className="flex justify-end gap-2">
@@ -162,8 +169,7 @@ function ConfirmModal({
             {confirmLabel}
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   )
 }
 
@@ -457,8 +463,15 @@ function CreateTicketModal({ open, onClose, onCreated }: CreateTicketModalProps)
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 overflow-y-auto">
-      <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full my-8">
+    <Modal
+      open={open}
+      onClose={onClose}
+      bare
+      ariaLabel="Nuova segnalazione"
+      closeOnBackdrop={false}
+      containerClassName="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 overflow-y-auto"
+      panelClassName="bg-white rounded-xl shadow-2xl max-w-2xl w-full my-8"
+    >
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
           <h3 className="text-lg font-semibold text-slate-900">Nuova segnalazione</h3>
           <button
@@ -589,8 +602,7 @@ function CreateTicketModal({ open, onClose, onCreated }: CreateTicketModalProps)
             {submitting ? 'Salvataggio…' : 'Apri segnalazione'}
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   )
 }
 
