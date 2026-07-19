@@ -56,12 +56,42 @@ function PageLoader() {
 }
 
 function ProtectedRoute({ children }: { children: ReactNode }) {
-  const { session, loading } = useAuth()
+  const { session, loading, profile, profileError, refreshProfile, signOut } = useAuth()
 
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="w-8 h-8 border-3 border-blue-200 border-t-blue-600 rounded-full animate-spin" />
+      </div>
+    )
+  }
+
+  // Sessione valida ma profilo non caricato (rete/RLS) dopo i retry: invece di
+  // lasciare l'app su uno spinner infinito (COMPANY_ID mancante -> ogni pagina
+  // resta in loading), mostriamo una schermata chiara con "Riprova".
+  if (session && profileError && !profile) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-6">
+        <div className="bg-red-50 border border-red-200 rounded-xl p-6 max-w-md text-center">
+          <p className="text-red-800 font-semibold">Impossibile caricare il tuo profilo</p>
+          <p className="text-red-600 text-sm mt-1">
+            Può dipendere da una connessione instabile. Riprova; se il problema persiste, esci e rientra.
+          </p>
+          <div className="mt-4 flex gap-2 justify-center">
+            <button
+              onClick={() => refreshProfile()}
+              className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700"
+            >
+              Riprova
+            </button>
+            <button
+              onClick={() => signOut()}
+              className="px-4 py-2 rounded-lg bg-white border border-slate-300 text-slate-700 text-sm font-medium hover:bg-slate-50"
+            >
+              Esci
+            </button>
+          </div>
+        </div>
       </div>
     )
   }

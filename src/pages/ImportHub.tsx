@@ -390,6 +390,11 @@ export default function ImportHub() {
     setUploading(true);
     setUploadProgress(0);
 
+    // Conteggio reale dei successi e dei fallimenti: prima il toast finale
+    // diceva sempre "${files.length} file caricati con successo" anche quando
+    // alcuni upload fallivano (file mai processati, l'utente non se ne accorgeva).
+    let okCount = 0;
+    const failedNames: string[] = [];
     try {
       for (let idx = 0; idx < files.length; idx++) {
         const file = files[idx];
@@ -404,6 +409,9 @@ export default function ImportHub() {
 
         if (storageErr) {
           console.error('Storage error:', storageErr);
+          // Feedback esplicito anche sul fallimento di storage (come già per l'insert).
+          showToast(`Errore caricamento ${file.name}: ${storageErr.message}`, 'error');
+          failedNames.push(file.name);
           setUploadProgress(((idx + 1) / files.length) * 100);
           continue;
         }
@@ -460,6 +468,7 @@ export default function ImportHub() {
         if (insertErr) {
           console.error(`Insert error for ${config.table}:`, insertErr);
           showToast(`Errore salvataggio ${file.name}: ${insertErr.message}`, 'error');
+          failedNames.push(file.name);
           setUploadProgress(((idx + 1) / files.length) * 100);
           continue; // Skip to next file — don't log incomplete upload
         }
@@ -477,12 +486,20 @@ export default function ImportHub() {
           } as never,
         ]);
 
+        okCount++;
         setUploadProgress(((idx + 1) / files.length) * 100);
       }
 
-      showToast(`${files.length} file caricati con successo${canProcess(sourceId) ? ' — premi "Processa" per importare i dati' : ''}`);
+      // Toast differenziato: successo pieno solo se TUTTI i file sono passati.
+      if (failedNames.length === 0) {
+        showToast(`${okCount} file caricati con successo${canProcess(sourceId) ? ' — premi "Processa" per importare i dati' : ''}`);
+      } else if (okCount > 0) {
+        showToast(`Caricati ${okCount} di ${files.length} file — ${failedNames.length} non riusciti: ${failedNames.join(', ')}`, 'error');
+      } else {
+        showToast(`Nessun file caricato — ${failedNames.length} falliti: ${failedNames.join(', ')}`, 'error');
+      }
       // Keep last file reference for immediate processing
-      if (files.length === 1 && canProcess(sourceId)) {
+      if (okCount === 1 && files.length === 1 && canProcess(sourceId)) {
         pendingFileRef.current = files[0];
       }
       await loadImportDocs();

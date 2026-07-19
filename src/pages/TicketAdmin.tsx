@@ -262,6 +262,25 @@ export default function TicketAdminPage() {
     if (ids.length === 0) return
     setBusy(true)
     try {
+      // Prima rimuovo gli allegati dallo storage dei ticket selezionati, per non
+      // lasciare file orfani nel bucket 'media' (prima la cancellazione in blocco
+      // li abbandonava tutti). Best-effort: non blocca la cancellazione.
+      const idSet = new Set(ids)
+      const paths: string[] = []
+      for (const t of tickets) {
+        if (!idSet.has(t.id)) continue
+        for (const att of (t.allegati || [])) {
+          let p = att.path ?? null
+          if (!p && att.url) { const i = att.url.indexOf('/media/'); if (i >= 0) p = att.url.slice(i + 7) }
+          if (p) paths.push(p)
+        }
+        if (t.screenshot_url) { const i = t.screenshot_url.indexOf('/media/'); if (i >= 0) paths.push(t.screenshot_url.slice(i + 7)) }
+      }
+      if (paths.length > 0) {
+        const { error: rmErr } = await supabase.storage.from('media').remove(paths)
+        if (rmErr) console.warn('[ticket-admin] pulizia allegati storage:', rmErr.message)
+      }
+
       const { error } = await supabase
         .from('tickets' as never)
         .delete()

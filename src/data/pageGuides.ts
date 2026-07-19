@@ -106,6 +106,10 @@ export const PAGE_GUIDES: PageGuide[] = [
       {
         "q": "Cosa devo fare se vedo l'avviso 'movimenti bancari senza categoria contabile'?",
         "a": "Clicca su 'Vai ai movimenti' nell'avviso: ti porta direttamente all'elenco dei movimenti bancari senza categoria, dove puoi assegnarla."
+      },
+      {
+        "q": "Cosa significa il banner giallo 'alcuni dati potrebbero non essere stati caricati'?",
+        "a": "Vuol dire che, mentre la Dashboard caricava, almeno una delle richieste al sistema non è andata a buon fine (di solito per connessione instabile). In quel caso alcuni numeri potrebbero essere incompleti o mostrare 0 non reale: premi 'Ricarica' nel banner per riprovare. Prima questo tipo di errore era silenzioso e i valori a 0 sembravano dati veri."
       }
     ]
   },
@@ -206,7 +210,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "Stato ed eliminazione di una simulazione",
-        "body": "Ogni simulazione nasce come 'Bozza'. Dall'elenco puoi farla avanzare di stato con le icone a fianco: la stella la porta ad 'Approvato', l'icona archivio la porta ad 'Archiviato'. L'icona del cestino elimina la simulazione, con una richiesta di conferma perché l'operazione non è reversibile."
+        "body": "Ogni simulazione nasce come 'Bozza'. Dall'elenco puoi farla avanzare di stato con le icone a fianco: la stella la porta ad 'Approvato', l'icona archivio la porta ad 'Archiviato'. L'icona del cestino elimina la simulazione, con una finestra di conferma perché l'operazione non è reversibile. La finestra di conferma si può chiudere anche con il tasto Esc o cliccando fuori, ed è utilizzabile da tastiera e con i lettori di schermo."
       }
     ],
     "faq": [
@@ -1313,7 +1317,7 @@ export const PAGE_GUIDES: PageGuide[] = [
     "sections": [
       {
         "heading": "Importante: al momento i numeri sono di esempio",
-        "body": "Questa pagina, così com'è oggi, mostra dei dati dimostrativi fissi (incasso, scontrini, personale in turno, top prodotti, meteo) e non è ancora collegata alla cassa o alle presenze reali del punto vendita. Il selettore in alto a destra permette comunque di cambiare punto vendita tra quelli reali dell'azienda, ma i numeri mostrati sotto non cambiano di conseguenza: sono sempre gli stessi valori di esempio, indipendentemente dall'outlet scelto."
+        "body": "In cima alla pagina è ora mostrato un badge 'Dati simulati (demo)' che lo rende esplicito: questa pagina mostra dati dimostrativi fissi (incasso, scontrini, personale in turno, top prodotti, meteo) e non è ancora collegata alla cassa o alle presenze reali del punto vendita. Anche i nomi del personale in turno sono generici ('Dipendente 1', 'Dipendente 2', …), non persone reali. Il selettore in alto a destra permette di cambiare punto vendita, ma i numeri sotto non cambiano di conseguenza: sono sempre gli stessi valori di esempio, indipendentemente dall'outlet scelto."
       },
       {
         "heading": "KPI della giornata",
@@ -1440,6 +1444,10 @@ export const PAGE_GUIDES: PageGuide[] = [
       {
         "q": "Perché per alcune fonti devo scegliere prima un'opzione (conto, mese, punto vendita)?",
         "a": "Perché quel dato serve al sistema per collegare correttamente il file: ad esempio un estratto conto deve sapere a quale conto bancario appartiene, un cedolino a quale mese si riferisce. Senza questa scelta il caricamento non parte."
+      },
+      {
+        "q": "Se carico più file insieme e qualcuno non viene caricato, come me ne accorgo?",
+        "a": "Il messaggio finale ora dice esattamente quanti file sono stati caricati e quali no (es. 'Caricati 2 di 5 file — 3 non riusciti: …'), e ogni file fallito genera un avviso di errore. Prima veniva sempre mostrato 'tutti caricati con successo' anche se alcuni erano falliti: i file mancanti restavano fuori senza che te ne accorgessi."
       }
     ]
   },
@@ -1684,6 +1692,10 @@ export const PAGE_GUIDES: PageGuide[] = [
       {
         "q": "Perché nella vista Cassetto Fiscale non vedo nessun dato?",
         "a": "Il canale di sincronizzazione automatica dei corrispettivi telematici con il cassetto fiscale dell'Agenzia delle Entrate non è ancora attivo per questo tenant: è normale se la lista risulta vuota."
+      },
+      {
+        "q": "Se le fatture non si caricano per un problema di connessione, come lo capisco?",
+        "a": "Se il caricamento fallisce compare un banner rosso con il messaggio d'errore e un pulsante 'Riprova' (sia sulle fatture passive/attive sia sui corrispettivi). In questo modo un errore di rete non viene scambiato per 'nessuna fattura presente': prima l'elenco mostrava 'Nessuna fattura trovata' anche quando in realtà c'era stato un errore."
       }
     ]
   },
@@ -1918,6 +1930,14 @@ export const PAGE_GUIDES: PageGuide[] = [
       {
         "q": "A cosa serve il campo \"Codice F24\"?",
         "a": "È il codice tributo da riportare sul modello F24 per quel pagamento (ad esempio 6001 per l'IVA). Se lo inserisci, comparirà anche sotto il titolo nella tabella come promemoria."
+      },
+      {
+        "q": "Quando segno una scadenza come pagata o la annullo, come so se è andata a buon fine?",
+        "a": "Ora compare un messaggio di conferma ('Scadenza segnata come pagata' / 'Scadenza annullata') oppure, se qualcosa va storto, un messaggio d'errore chiaro. Prima, in caso di problema (rete o permessi), l'operazione poteva non riuscire senza alcun avviso e la lista si ricaricava come se fosse tutto a posto."
+      },
+      {
+        "q": "Cosa succede quando 'elimino' (cestino) una scadenza fiscale?",
+        "a": "La scadenza NON viene cancellata definitivamente: viene messa nello stato 'Annullato'. Sparisce dall'elenco 'Da pagare', ma resta consultabile nella scheda 'Tutti' come promemoria storico. È una scelta voluta per non perdere dati: se serve, la scadenza è sempre rintracciabile."
       }
     ]
   },
@@ -2198,6 +2218,10 @@ export const PAGE_GUIDES: PageGuide[] = [
       {
         "q": "La nuova password deve rispettare regole particolari?",
         "a": "L'unico requisito richiesto dalla pagina è la lunghezza minima di 8 caratteri e che le due password inserite coincidano tra loro."
+      },
+      {
+        "q": "Perché non riesco a eliminare una voce di costo o un centro di costo?",
+        "a": "Per sicurezza (nessuna perdita di dati) l'eliminazione viene bloccata se la voce o il centro è ancora collegato a qualcosa: righe di budget, voci figlie, altre voci che lo usano come centro predefinito, o utenti che ne hanno l'accesso. Un messaggio indica quanti collegamenti esistono. Rimuovi prima quei collegamenti (o lascia la voce inutilizzata): così non restano dati 'orfani' che puntano a qualcosa che non esiste più."
       }
     ]
   },
@@ -2353,6 +2377,10 @@ export const PAGE_GUIDES: PageGuide[] = [
       {
         "q": "Se cancello un ticket per sbaglio, posso recuperarlo?",
         "a": "No, la cancellazione è definitiva e irreversibile: per questo il sistema chiede sempre una conferma esplicita prima di procedere, sia per un singolo ticket che per una selezione multipla."
+      },
+      {
+        "q": "Cancellando un ticket, cosa succede ai suoi allegati (screenshot)?",
+        "a": "Vengono rimossi anche gli allegati dallo spazio di archiviazione, sia cancellando un singolo ticket sia una selezione multipla. Prima i file restavano abbandonati nello storage occupando spazio inutilmente; ora la pulizia è automatica."
       }
     ]
   }

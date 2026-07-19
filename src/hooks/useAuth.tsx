@@ -16,6 +16,10 @@ interface AuthContextValue {
   session: Session | null
   profile: UserProfile | null
   loading: boolean
+  /** Errore di caricamento profilo (rete/RLS) dopo i retry: se valorizzato con
+   *  sessione valida, l'app mostra una schermata "Riprova" invece di uno spinner
+   *  infinito (prima il profilo restava null per sempre e ogni pagina girava). */
+  profileError: string | null
   signIn: (email: string, password: string) => Promise<{ error: unknown }>
   resetPassword: (email: string) => Promise<{ error: unknown }>
   signOut: () => Promise<void>
@@ -28,6 +32,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null)
   const [profile, setProfile] = useState<UserProfile | null>(null)
   const [loading, setLoading] = useState(true)
+  const [profileError, setProfileError] = useState<string | null>(null)
   // Id dell'utente per cui il profilo è già stato caricato. Serve a NON
   // rifare la fetch del profilo (e quindi evitare re-render a cascata) sugli
   // eventi di puro refresh token che Supabase emette al ritorno sul tab del
@@ -63,15 +68,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   async function fetchProfile(userId: string) {
-    const { data, error } = await supabase
-      .from('user_profiles')
-      .select('*')
-      .eq('id', userId)
-      .single()
+    // Retry su errori transitori (rete instabile, glitch RLS): prima un singolo
+    // errore lasciava profile=null PER SEMPRE -> ogni pagina (COMPANY_ID mancante)
+    // restava su spinner infinito, con sessione valida. Ora si riprova qualche
+    // volta con backoff e, se proprio non si carica, si espone profileError così
+    // l'app puo' mostrare una schermata "Riprova" invece di bloccarsi.
+    setProfileError(null)
+    const delays = [0, 400, 1000]
+    for (let attempt = 0; attempt < delays.length; attempt++) {
+      if (delays[attempt] > 0) await new Promise(r => setTimeout(r, delays[attempt]))
+      const { data, error } = await supabase
+        .from('user_profiles')
+        .select('*')
+        .eq('id', userId)
+        .single()
 
-    if (!error && data) {
-      setProfile(data as unknown as UserProfile)
-      loadedProfileId.current = userId
+      if (!error && data) {
+        setProfile(data as unknown as UserProfile)
+        loadedProfileId.current = userId
+        setProfileError(null)
+        setLoading(false)
+        return
+      }
+      // Ultimo tentativo fallito -> esponi l'errore (con sessione valida)
+      if (attempt === delays.length - 1) {
+        console.error('[useAuth] fetchProfile fallito dopo i retry:', error?.message)
+        setProfileError(error?.message || 'Impossibile caricare il profilo utente.')
+      }
     }
     setLoading(false)
   }
@@ -105,11 +128,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // dalla pagina /profilo per riflettere subito i nuovi dati nel topbar)
   async function refreshProfile() {
     if (!session?.user?.id) return
+    setLoading(true)
     await fetchProfile(session.user.id)
   }
 
   return (
-    <AuthContext.Provider value={{ session, profile, loading, signIn, resetPassword, signOut, refreshProfile }}>
+    <AuthContext.Provider value={{ session, profile, loading, profileError, signIn, resetPassword, signOut, refreshProfile }}>
       {children}
     </AuthContext.Provider>
   )

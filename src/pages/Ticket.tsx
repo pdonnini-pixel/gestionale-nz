@@ -1186,10 +1186,28 @@ function TicketDetail({ ticket, onBack, onUpdated, onDeleted }: TicketDetailProp
     }
   }, [ticket.id, onUpdated, toast, aiOnCooldown, lastAiCommentAgeSec])
 
-  // Admin-only: cancella ticket (solo per ticket di prova o aperti per errore)
+  // Admin-only: cancella ticket (solo per ticket di prova o aperti per errore).
+  // Rimuove PRIMA gli allegati dallo storage per non lasciare file orfani nel
+  // bucket 'media' (prima venivano abbandonati a ogni cancellazione), poi la riga.
   const cancellaTicket = useCallback(async () => {
     setBusy(true)
     try {
+      // Path degli allegati: nuovo campo `path`, oppure ricavato dai vecchi URL
+      // pubblici (parte dopo '/media/'), inclusa la deprecata screenshot_url.
+      const paths: string[] = []
+      for (const att of (ticket.allegati || [])) {
+        let p = att.path ?? null
+        if (!p && att.url) { const i = att.url.indexOf('/media/'); if (i >= 0) p = att.url.slice(i + 7) }
+        if (p) paths.push(p)
+      }
+      if (ticket.screenshot_url) { const i = ticket.screenshot_url.indexOf('/media/'); if (i >= 0) paths.push(ticket.screenshot_url.slice(i + 7)) }
+      if (paths.length > 0) {
+        const { error: rmErr } = await supabase.storage.from('media').remove(paths)
+        // Best-effort: se la pulizia storage fallisce non blocco la cancellazione
+        // del ticket (l'intento dell'utente), ma lo segnalo nei log.
+        if (rmErr) console.warn('[ticket] pulizia allegati storage:', rmErr.message)
+      }
+
       const { error } = await supabase
         .from('tickets' as never)
         .delete()
@@ -1202,7 +1220,7 @@ function TicketDetail({ ticket, onBack, onUpdated, onDeleted }: TicketDetailProp
       toast({ type: 'error', message: errorMessage(e, 'Cancellazione fallita') })
       setBusy(false)
     }
-  }, [ticket.id, onBack, onDeleted, toast])
+  }, [ticket.id, ticket.allegati, ticket.screenshot_url, onBack, onDeleted, toast])
 
   const azioniDisponibili = useMemo(() => {
     const actions: Array<{ label: string; stato: TicketStato; primary?: boolean; destructive?: boolean }> = []
