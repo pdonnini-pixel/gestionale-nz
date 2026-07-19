@@ -177,7 +177,9 @@ function AssistantChat({ path, pageTitle, pageContext }: { path: string; pageTit
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(input) }
+            // Enter invia solo su dispositivi con mouse: da telefono Enter fa
+          // l'a-capo (non c'e' Shift) e si invia col bottone.
+          if (e.key === 'Enter' && !e.shiftKey && window.matchMedia('(hover: hover)').matches) { e.preventDefault(); void send(input) }
           }}
           placeholder="Scrivi la tua domanda…"
           rows={1}

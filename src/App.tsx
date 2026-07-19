@@ -8,9 +8,10 @@ import { ToastProvider } from './components/Toast'
 import Layout from './components/Layout'
 import Login from './pages/Login'
 import ResetPassword from './pages/ResetPassword'
-import Dashboard from './pages/Dashboard'
-
 // Lazy-loaded pages — code splitting per ridurre il bundle iniziale
+// (Dashboard inclusa: importata eager trascinava recharts nel bundle
+// iniziale, pagato anche sulla pagina Login su rete mobile)
+const Dashboard = lazy(() => import('./pages/Dashboard'))
 const Scadenzario = lazy(() => import('./pages/ScadenzarioSmart'))
 const Banche = lazy(() => import('./pages/TesoreriaManuale'))
 const Outlet = lazy(() => import('./pages/Outlet'))

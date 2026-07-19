@@ -65,7 +65,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "Cashflow ultimi 30 giorni",
-        "body": "A fianco degli Alert trovi un grafico con l'andamento di entrate e uscite bancarie degli ultimi 30 giorni, con il totale di entrate, uscite e il saldo netto. Passando il mouse sul grafico puoi vedere il dettaglio giorno per giorno. Se non ci sono ancora estratti conto importati, il riquadro ti suggerisce di importarli da ImportHub."
+        "body": "A fianco degli Alert trovi un grafico con l'andamento di entrate e uscite bancarie degli ultimi 30 giorni, con il totale di entrate, uscite e il saldo netto. Toccando il grafico (o passandoci sopra il mouse) puoi vedere il dettaglio giorno per giorno. Se non ci sono ancora estratti conto importati, il riquadro ti suggerisce di importarli da ImportHub."
       },
       {
         "heading": "Performance dei punti vendita",
@@ -382,7 +382,7 @@ export const PAGE_GUIDES: PageGuide[] = [
     "sections": [
       {
         "heading": "A cosa serve questa pagina e come leggere l'elenco",
-        "body": "Lo Scadenzario raccoglie tutte le scadenze di pagamento verso i fornitori (e, se attive, le scadenze fiscali come F24). In alto trovi tre schede: \"Situazione\" mostra un riepilogo generale (quanto c'è da pagare, quanto è scaduto, la liquidità disponibile), \"Scadenzario\" è la lista operativa delle fatture con cui lavori ogni giorno, \"Ricorrenze\" mostra i costi che si ripetono nel tempo (affitti, utenze, abbonamenti). Nella scheda \"Scadenzario\" ogni riga è una scadenza: fornitore, numero fattura, importo, data di scadenza e stato colorato (Scaduto in rosso, In scadenza in arancio, Da pagare in blu, Parziale in arancio scuro, Pagato in verde, In sospeso con un'etichetta a orologio). Puoi filtrare per outlet, per stato, per metodo di pagamento (Bonifici, RiBa, Addebito diretto, Altro) e cercare per nome fornitore o numero fattura. Con il pulsante di vista in alto a destra scegli come vedere l'elenco: \"Mese\" (predefinita) raggruppa le scadenze in sezioni mensili collassabili, \"Lista piatta\" mostra tutte le righe di seguito, \"Calendario\" le dispone sul calendario. Nella vista Mese, dentro ogni mese le scadenze sono ordinate per fornitore in ordine alfabetico (le righe dello stesso fornitore restano vicine, aggregate); a parità di fornitore compaiono dalla fattura più vecchia, ordinate prima per data di emissione fattura e poi per numero fattura. Se clicchi le intestazioni di colonna per un ordinamento personalizzato, quello ha la precedenza (con il pulsante \"Reset\" torni all'ordine predefinito). Le note di credito compaiono con l'importo in rosso col segno meno: non si pagano, ma si possono usare per abbassare l'importo di una fattura dello stesso fornitore (vedi più sotto). È questa la scheda che usi per selezionare le fatture e creare la distinta dei bonifici."
+        "body": "Lo Scadenzario raccoglie tutte le scadenze di pagamento verso i fornitori (e, se attive, le scadenze fiscali come F24). In alto trovi tre schede: \"Situazione\" mostra un riepilogo generale (quanto c'è da pagare, quanto è scaduto, la liquidità disponibile), \"Scadenzario\" è la lista operativa delle fatture con cui lavori ogni giorno, \"Ricorrenze\" mostra i costi che si ripetono nel tempo (affitti, utenze, abbonamenti).\n\nNella scheda \"Scadenzario\" ogni riga è una scadenza: fornitore, numero fattura, importo, data di scadenza e stato colorato (Scaduto in rosso, In scadenza in arancio, Da pagare in blu, Parziale in arancio scuro, Pagato in verde, In sospeso con un'etichetta a orologio). Puoi filtrare per outlet, per stato, per metodo di pagamento (Bonifici, RiBa, Addebito diretto, Altro) e cercare per nome fornitore o numero fattura.\n\nCon il pulsante di vista in alto a destra scegli come vedere l'elenco: \"Mese\" (predefinita) raggruppa le scadenze in sezioni mensili collassabili, \"Lista piatta\" mostra tutte le righe di seguito, \"Calendario\" le dispone sul calendario.\n\nNella vista Mese, dentro ogni mese le scadenze sono ordinate per fornitore in ordine alfabetico (le righe dello stesso fornitore restano vicine, aggregate); a parità di fornitore compaiono dalla fattura più vecchia, ordinate prima per data di emissione fattura e poi per numero fattura. Se clicchi le intestazioni di colonna per un ordinamento personalizzato, quello ha la precedenza (con il pulsante \"Reset\" torni all'ordine predefinito).\n\nLe note di credito compaiono con l'importo in rosso col segno meno: non si pagano, ma si possono usare per abbassare l'importo di una fattura dello stesso fornitore (vedi più sotto). È questa la scheda che usi per selezionare le fatture e creare la distinta dei bonifici."
       },
       {
         "heading": "Aggiungere una scadenza a mano (es. un proforma)",
@@ -755,7 +755,7 @@ export const PAGE_GUIDES: PageGuide[] = [
         "body": "Qui trovi, raggruppati per sede, tutti i cedolini (netti) caricati per il mese selezionato, con il totale pagato e la possibilità di aprire il PDF del cedolino di ogni persona. In fondo alla pagina ci sono due corsie di importazione: una per i netti (buste paga) e una per i costi lordi, entrambe accettano file PDF oppure fogli Excel/CSV.",
         "steps": [
           "Scegli la corsia giusta: \"netto\" per il file con gli stipendi netti, \"lordi\" per il file con i costi lordi aziendali.",
-          "Trascina il file oppure selezionalo dal tuo computer.",
+          "Tocca l'area per selezionare il file dal tuo dispositivo, oppure (da computer) trascinalo dentro.",
           "Il sistema prova a riconoscere automaticamente ogni dipendente (per matricola o per nome e cognome); se non lo trova, propone di crearne uno nuovo.",
           "Controlla l'anteprima: viene mostrato anche lo scostamento tra il totale calcolato e il totale dichiarato nel file, così puoi accorgerti subito di eventuali errori.",
           "Conferma l'importazione: i dati salvati per il mese vengono aggiornati (se esistevano già dei netti per quel mese, vengono sovrascritti)."
@@ -1381,7 +1381,7 @@ export const PAGE_GUIDES: PageGuide[] = [
           "Aprire la scheda \"Fonti di importazioni\"",
           "Cliccare sulla fonte desiderata (es. Estratti Conto Bancari) e poi sul pulsante \"Importa\"",
           "Se richiesto, selezionare l'opzione obbligatoria: conto bancario, mese/anno, anno fiscale, categoria documento o punto vendita a seconda della fonte scelta",
-          "Trascinare il file nell'area tratteggiata oppure cliccare \"Seleziona File\" e sceglierlo dal computer",
+          "Toccare \"Seleziona File\" e sceglierlo dal dispositivo, oppure (da computer) trascinarlo nell'area tratteggiata",
           "Attendere il completamento della barra di caricamento",
           "Il file compare nell'elenco \"File Importati\" con lo stato \"uploaded\" (caricato)"
         ]
@@ -1791,7 +1791,7 @@ export const PAGE_GUIDES: PageGuide[] = [
         "body": "Puoi fornire i dati in due modi, scegliendo la modalità con i due pulsanti in alto: \"Carica file Excel\" per trascinare o selezionare il file .xls/.xlsx esportato dal gestionale (il file deve avere il titolo in riga 1, le intestazioni delle colonne in riga 2 e i dati dalla riga 3 in poi); oppure \"Incolla righe\" per incollare direttamente da Excel una o più righe di dati copiate negli appunti (meglio includere anche la riga di intestazione, così le colonne vengono riconosciute per nome anziché per posizione).",
         "steps": [
           "Scegli \"Carica file Excel\" oppure \"Incolla righe\" a seconda di come hai i dati a disposizione",
-          "Per il file Excel: trascinalo nel riquadro tratteggiato oppure clicca per selezionarlo dal computer",
+          "Per il file Excel: tocca il riquadro per selezionarlo dal dispositivo, oppure (da computer) trascinalo dentro",
           "Per l'incolla: copia le righe da Excel (con intestazione, se possibile) e incollale nella casella di testo"
         ]
       },
@@ -2099,7 +2099,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "Le card di riepilogo per ciascun canale",
-        "body": "In alto ci sono quattro riquadri, uno per ogni canale (\"feed\") di sincronizzazione: Banche, Fatture passive, Corrispettivi e Cassetto Fiscale. Ogni riquadro mostra un pallino colorato e un'etichetta di stato:\n\n• \"Aggiornato\" (pallino scuro) — l'ultimo aggiornamento è recente e regolare.\n• \"In ritardo\" (pallino arancione) — l'ultimo aggiornamento riuscito è un po' più vecchio del previsto, oppure l'ultima esecuzione è stata completata con avvisi.\n• \"Fermo\" (pallino rosso) — l'ultima esecuzione è fallita, oppure non si aggiorna da troppo tempo.\n• \"Nessuna sincronizzazione\" (pallino grigio) — quel canale non ha ancora mai girato.\n\nBanche, Fatture passive e Corrispettivi si aggiornano automaticamente ogni 6 ore; il Cassetto Fiscale una volta al giorno. Il canale Corrispettivi risulta \"non ancora attivo\" finché non viene collegato. Passando il mouse sopra una card compare il dettaglio (data/ora dell'ultimo aggiornamento e, se presente, la descrizione dell'errore)."
+        "body": "In alto ci sono quattro riquadri, uno per ogni canale (\"feed\") di sincronizzazione: Banche, Fatture passive, Corrispettivi e Cassetto Fiscale. Ogni riquadro mostra un pallino colorato e un'etichetta di stato:\n\n• \"Aggiornato\" (pallino scuro) — l'ultimo aggiornamento è recente e regolare.\n• \"In ritardo\" (pallino arancione) — l'ultimo aggiornamento riuscito è un po' più vecchio del previsto, oppure l'ultima esecuzione è stata completata con avvisi.\n• \"Fermo\" (pallino rosso) — l'ultima esecuzione è fallita, oppure non si aggiorna da troppo tempo.\n• \"Nessuna sincronizzazione\" (pallino grigio) — quel canale non ha ancora mai girato.\n\nBanche, Fatture passive e Corrispettivi si aggiornano automaticamente ogni 6 ore; il Cassetto Fiscale una volta al giorno. Il canale Corrispettivi risulta \"non ancora attivo\" finché non viene collegato. Toccando una card (o passandoci sopra il mouse) compare il dettaglio (data/ora dell'ultimo aggiornamento e, se presente, la descrizione dell'errore)."
       },
       {
         "heading": "La tabella dello storico delle esecuzioni",
@@ -2221,7 +2221,7 @@ export const PAGE_GUIDES: PageGuide[] = [
           "Scrivi un titolo breve e chiaro (obbligatorio, almeno 3 caratteri), ad esempio \"il pulsante Salva non si vede in Banche\"",
           "Se vuoi, aggiungi una descrizione più dettagliata di cosa è successo o cosa vorresti",
           "Scegli la priorità: Basso, Medio o Alto",
-          "Se utile, allega uno o più file: puoi trascinarli nell'area apposita, cliccare per selezionarli dal computer, oppure incollare direttamente uno screenshot con Ctrl+V (o Cmd+V su Mac). Sono accettati immagini e PDF fino a 10 MB ciascuno",
+          "Se utile, allega uno o più file: tocca l'area per sceglierli dal dispositivo (da telefono anche una foto dalla galleria); da computer puoi anche trascinarli dentro o incollare uno screenshot con Ctrl+V (Cmd+V su Mac). Sono accettati immagini e PDF fino a 10 MB ciascuno",
           "Clicca \"Apri segnalazione\" per inviarla"
         ]
       },
@@ -2263,7 +2263,7 @@ export const PAGE_GUIDES: PageGuide[] = [
     "faq": [
       {
         "q": "Devo per forza allegare uno screenshot?",
-        "a": "No, l'allegato è facoltativo. Aiuta però chi legge la segnalazione a capire subito il problema. Puoi incollare uno screenshot direttamente con Ctrl+V oppure trascinare un file nell'area apposita."
+        "a": "No, l'allegato è facoltativo. Aiuta però chi legge la segnalazione a capire subito il problema. Da telefono tocca l'area allegati e scegli una foto dalla galleria; da computer puoi incollare uno screenshot con Ctrl+V oppure trascinare un file nell'area apposita."
       },
       {
         "q": "Quanto tempo ci vuole prima che qualcuno veda la mia segnalazione?",

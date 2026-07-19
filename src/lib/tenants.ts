@@ -86,13 +86,15 @@ function resolveTenantForHost(host: string): TenantConfig {
     h === 'made-gestionale-nz.netlify.app' ||
     h.endsWith('--made-gestionale-nz.netlify.app')
   ) {
-    return buildConfig('made-retail', 'Made Retail Srl', 'MADE', '#1d4ed8', '#3b82f6')
+    // accentBg scuro (700): con testo bianco i toni 500 non superavano il
+    // contrasto minimo WCAG sul badge tenant.
+    return buildConfig('made-retail', 'Made Retail Srl', 'MADE', '#1d4ed8', '#1d4ed8')
   }
   if (
     h === 'zago-gestionale-nz.netlify.app' ||
     h.endsWith('--zago-gestionale-nz.netlify.app')
   ) {
-    return buildConfig('zago', 'Zago Srl', 'ZAGO', '#c2410c', '#f97316')
+    return buildConfig('zago', 'Zago Srl', 'ZAGO', '#c2410c', '#c2410c')
   }
   // NZ default: dominio principale, deploy preview, e tutto il dev locale.
   // In prod usa le env vars; il fallback esiste solo in dev (vedi devNzFallback).
@@ -101,7 +103,7 @@ function resolveTenantForHost(host: string): TenantConfig {
     'New Zago Srl',
     'NEWZAGO',
     '#047857',
-    '#10b981',
+    '#047857',
     devNzFallback()
   )
 }
