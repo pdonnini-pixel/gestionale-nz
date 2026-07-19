@@ -212,14 +212,10 @@ export default function TicketAdminPage() {
     if (ids.length === 0) return
     setBusy(true)
     try {
-      // Per ogni ticket, leggi commenti correnti e aggiungi il commento admin
-      const { data: existing, error: readErr } = await supabase
-        .from('tickets' as never)
-        .select('id, commenti')
-        .in('id', ids)
-      if (readErr) throw readErr
-
-      const updates = (existing as unknown as Array<{ id: string; commenti: TicketCommento[] | null }>).map(t => {
+      // Commento admin per ogni ticket via RPC append_ticket_comment (migration
+      // 111): append atomico lato DB, niente piu' read-modify-write dell'intero
+      // array jsonb che perdeva i commenti concorrenti (audit 2026-07-19).
+      for (const id of ids) {
         const nuovoCommento: TicketCommento = {
           id: `c_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
           autore: autoreAdminLabel,
@@ -227,24 +223,19 @@ export default function TicketAdminPage() {
           testo: `[Admin] Ticket chiuso senza lavorazione. Motivo: ${motivo.trim() || '(non specificato)'}`,
           creato_il: new Date().toISOString(),
         }
-        return {
-          id: t.id,
-          commenti: [...(t.commenti ?? []), nuovoCommento],
-        }
-      })
-
-      // Update riga-per-riga (Supabase non supporta update bulk con valori diversi per riga)
-      for (const u of updates) {
-        const { error: updErr } = await supabase
-          .from('tickets' as never)
-          .update({
-            stato: 'chiuso',
-            risolto_il: null,
-            commenti: u.commenti,
-          } as never)
-          .eq('id', u.id)
-        if (updErr) throw updErr
+        const { error: rpcErr } = await supabase
+          .rpc('append_ticket_comment' as never, { p_ticket_id: id, p_commento: nuovoCommento } as never)
+        if (rpcErr) throw rpcErr
       }
+
+      // Poi un unico update bulk dello stato. NON tocchiamo risolto_il:
+      // azzerarlo cancellava il timestamp storico di risoluzione dei ticket
+      // gia' risolti ("Chiudi" dal dettaglio lo conserva — audit, finding 25).
+      const { error: updErr } = await supabase
+        .from('tickets' as never)
+        .update({ stato: 'chiuso' } as never)
+        .in('id', ids)
+      if (updErr) throw updErr
 
       toast({ type: 'success', message: `${ids.length} ticket chius${ids.length === 1 ? 'o' : 'i'} senza lavorazione` })
       clear()
