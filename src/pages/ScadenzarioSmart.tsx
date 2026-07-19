@@ -4034,8 +4034,8 @@ const ScadenzarioSmart = () => {
 
           {/* Floating Action Bar for Bulk Payments */}
           {selectedIds.size > 0 && (
-            {/* bottom-20 su mobile: sta sopra la bottom nav (h-14) e il
-                pulsante ? dell'aiuto, che altrimenti coprirebbe. */}
+            // bottom-20 su mobile: sta sopra la bottom nav (h-14) e il
+            // pulsante ? dell'aiuto, che altrimenti coprirebbe.
             <div className="fixed bottom-20 md:bottom-6 left-1/2 -translate-x-1/2 z-40 w-[min(92vw,880px)]">
               <div className="bg-white border border-slate-200 rounded-xl shadow-lg px-6 py-4">
                 {/* Saldi progressivi per banca — SEMPRE visibili mentre si spuntano le fatture,
