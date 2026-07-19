@@ -182,29 +182,36 @@ Ordine indicativo di valore/urgenza. Riferimenti ai finding in
   chiudersi cliccando fuori e perdere l'input).
 
 ### 3.2 Cancellazioni/dead code (NO DATA LOSS)
-- **M55 — 5 pagine morte non instradate** (`Scadenzario.tsx`, `Banche.tsx`,
-  `CashFlow.tsx`, `Importazioni.tsx`, e `Contratti.tsx`): ~7.700 righe con logica
-  divergente e pericolosa (insert senza company_id, fetch non paginati). ⚠️
-  **`PrimaNota.tsx` NON è morta** (riusata come tab in TesoreriaManuale). Rimuoverle in
-  una PR dedicata dopo aver verificato con grep che nessun import residuo esista.
+- ✅ **M55 — 5 pagine morte rimosse** (`Scadenzario.tsx`, `Banche.tsx`, `CashFlow.tsx`,
+  `Importazioni.tsx`, `Contratti.tsx`): **già rimosse dall'audit mobile (#320,
+  commit `[mobile-7]`)**. Verificato 2026-07-19: i file non esistono più.
+  `PrimaNota.tsx` correttamente conservata (tab viva in TesoreriaManuale).
 
-### 3.3 Numeri/logica non ancora affrontati (P2 estesa)
-- **A34/A35 — MarginiCategoria**: costo per outlet come `max(payables, banca)` è
-  euristica errata quando le fonti sono disgiunte; bucket `_company` incoerente tra KPI
-  e "Struttura Costi". Serve dedup reale (usare `reconciliation_log`). **Rimandato**
-  perché rischioso sui dati di Lilian.
-- **A41 — Scadenzario/ModalRateizza**: ultima rata calcolata con quota non arrotondata
-  (somma rate ≠ totale). Fix già presente in `ScadenzarioSmart.computeInstallments`.
-- **A43/A44 — ScadenzarioSmart**: fetch `cash_movements`/`payable_actions` non paginati
-  (colonna CONTO parziale oltre 1000 righe); chiusura manuale fatture su stato client
-  stale → **lost update** con più operatrici (serve RPC atomica).
-- **A37 — OpenToBuy**: il KPI "sell-through" non è un sell-through (formula errata).
-- **A39 — Produttività**: (fatto il trend) verificare la nota "(stima)" residua in tabella.
+### 3.3 Numeri/logica (P2 estesa)
+- ✅ **A43 — ScadenzarioSmart**: fetch `cash_movements` e `payable_actions` ora
+  **paginati** (colonna CONTO e badge "In distinta" completi oltre 1000 righe).
+- ✅ **A41 — ModalRateizza**: era in `Scadenzario.tsx`, **pagina morta rimossa** →
+  non più rilevante (il fix corretto è già in `ScadenzarioSmart.computeInstallments`).
+- ⏸️ **A34/A35 — MarginiCategoria** (RIMANDATO, decisione di prodotto): costo per outlet
+  come `max(payables, banca)` è euristica errata quando le fonti sono disgiunte; bucket
+  `_company` incoerente tra KPI e "Struttura Costi". Serve dedup reale via
+  `reconciliation_log`. **Non auto-applicato: tocca i numeri finanziari di Lilian e va
+  concordato/testato** (rischio di cambiare margini mostrati).
+- ⏸️ **A44 — ScadenzarioSmart lost update** (RIMANDATO, richiede DB): la chiusura manuale
+  fatture usa stato client stale → con più operatrici in parallelo un pagamento può
+  cancellarne un altro. Fix corretto = **RPC transazionale** `close_payable_manually`
+  (UPDATE `amount_paid = amount_paid + x` server-side) → serve migration + test. Da fare
+  con cautela (NO DATA LOSS).
+- ⏸️ **A37 — OpenToBuy**: il KPI "sell-through" non è un sell-through (formula errata).
+  Pagina analytics con dati simulati → priorità bassa.
+- **A39 — Produttività**: (trend già sistemato) verificare la nota "(stima)" residua.
 
 ### 3.4 Errori silenziati residui (P3 estesa)
-- Molte altre query con `catch` vuoti / `console.warn` (AICategorization limit 500,
-  GlobalSearch race, ecc.). Estrarre un helper `fetchOrNull(query,label)` che propaga
-  gli errori a uno stato mostrato in pagina (proposto in A19/A20).
+- ✅ **AICategorization — limit 500**: ora `cash_movements` è **paginato** (KPI e
+  contatori dei tab sull'intero dataset, non solo sugli ultimi 500).
+- ⏸️ Restano query minori con `catch` vuoti / `console.warn` (es. `GlobalSearch` race).
+  Idea: helper `fetchOrNull(query,label)` che propaga l'errore a uno stato in pagina
+  (A19/A20). Priorità bassa.
 
 ### 3.5 Accessibilità/UX (P5 estesa)
 - **Migrare le ~45 modali storiche restanti** al componente (in corso: fatte ~30).
@@ -222,6 +229,19 @@ Ordine indicativo di valore/urgenza. Riferimenti ai finding in
   edge function deployata, email config fatta).
 - Se si riattiva **A-Cube PSD2/open banking** o **SDI invio reale**: servono
   credenziali/accreditamento (vedi protocolli STOP & ASK in CLAUDE.md).
+
+### 3.7 Stato di chiusura (2026-07-19)
+Tutti gli item **chiaramente sicuri e delimitati** sono chiusi (M55, A43, A41,
+AICategorization, oltre a tutta P1–P5 e la migrazione modali). Ciò che resta è
+**deliberatamente lasciato** perché NON va toccato di fretta:
+- richiede una **decisione di prodotto** (A34/A35 metodo costi margini, A40 flusso
+  revisione pagamenti);
+- richiede **lavoro DB con test** e tocca dati vivi (A44 RPC lost-update);
+- è **rifinitura a bassa priorità** (A37 OpenToBuy, tabelle/righe da tastiera,
+  KpiCard unificato M18, selettori filtri M54, drawer non-modali).
+
+Non ci sono più "quick win" in sospeso: aprire uno di questi blocchi richiede una
+scelta esplicita (concordare il comportamento o fare una migration + test).
 
 ---
 

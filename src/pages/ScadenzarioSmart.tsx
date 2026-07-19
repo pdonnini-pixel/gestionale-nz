@@ -563,10 +563,17 @@ const ScadenzarioSmart = () => {
       if (movementIds.length > 0) {
         // Filtro per azienda invece di .in(movementIds): la lista cresce con i payables
         // riconciliati e l'URL .in(...) rischia il 400 oltre i ~25KB. Bounded per azienda.
-        const { data: movs } = await supabase
-          .from('cash_movements')
-          .select('id, bank_account_id')
-          .eq('company_id', COMPANY_ID!);
+        // Paginato: oltre 1000 movimenti la mappa era parziale e la colonna CONTO
+        // mostrava una banca mancante/errata (cash_movements cresce a ogni import EC).
+        const movs = await fetchAllPaged(
+          (from, to) => supabase
+            .from('cash_movements')
+            .select('id, bank_account_id')
+            .eq('company_id', COMPANY_ID!)
+            .order('id', { ascending: true })
+            .range(from, to),
+          'cash_movements bank map',
+        );
         (movs || []).forEach(m => {
           if (m.bank_account_id) cashMovBankMap.set(m.id, m.bank_account_id);
         });
@@ -580,12 +587,20 @@ const ScadenzarioSmart = () => {
         // Filtro per azienda via embedded join (payables!inner) invece di .in(payableIds):
         // con molti payables (>~700) l'URL .in(...) superava i ~25KB e Supabase rispondeva
         // 400. Il join filtrato e' bounded e indipendente dalla crescita dei dati.
-        const { data: dispActions } = await supabase
-          .from('payable_actions')
-          .select('payable_id, bank_account_id, performed_at, payables!inner(company_id)')
-          .eq('action_type', 'disposizione')
-          .eq('payables.company_id', COMPANY_ID!)
-          .order('performed_at', { ascending: false });
+        // Paginato: oltre 1000 disposizioni il badge "In distinta" spariva per
+        // alcune fatture. Ordine stabile (performed_at desc + payable_id) per non
+        // perdere/duplicare righe al confine tra le pagine.
+        const dispActions = await fetchAllPaged(
+          (from, to) => supabase
+            .from('payable_actions')
+            .select('payable_id, bank_account_id, performed_at, payables!inner(company_id)')
+            .eq('action_type', 'disposizione')
+            .eq('payables.company_id', COMPANY_ID!)
+            .order('performed_at', { ascending: false })
+            .order('payable_id', { ascending: true })
+            .range(from, to),
+          'payable_actions disposizione',
+        );
         (dispActions || []).forEach(a => {
           // La riga include la chiave nidificata `payables` (solo per il filtro): ignorata.
           if (a.payable_id && !dispMap.has(a.payable_id)) {
