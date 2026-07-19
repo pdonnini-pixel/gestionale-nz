@@ -2311,8 +2311,9 @@ export default function Outlet() {
       )}
 
       {showDeleteConfirm && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setShowDeleteConfirm(null)}>
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6" onClick={e => e.stopPropagation()}>
+        <Modal open onClose={() => setShowDeleteConfirm(null)} bare ariaLabel="Conferma eliminazione"
+          containerClassName="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
+          panelClassName="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
             <div className="flex items-center gap-3 mb-4">
               <div className="p-2.5 rounded-full bg-red-50">
                 <Trash2 size={22} className="text-red-600" />
@@ -2341,8 +2342,7 @@ export default function Outlet() {
                 {deleting ? 'Eliminazione...' : 'Elimina outlet'}
               </button>
             </div>
-          </div>
-        </div>
+        </Modal>
       )}
       </div>
     </div>

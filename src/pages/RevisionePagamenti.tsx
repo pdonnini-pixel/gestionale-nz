@@ -1,7 +1,12 @@
 // @ts-nocheck
-// Revisione pagamenti fornitori: un'operatrice rivede metodo/scadenze/banca e
-// SALVA le proposte (tabella supplier_payment_proposals). Un responsabile
-// (super_advisor/cfo/ceo) le VEDE e le APPLICA o le scarta.
+// Revisione pagamenti fornitori: chi rivede metodo/scadenze/banca preme
+// "Salva e applica" e le SUE modifiche vengono applicate subito ai fornitori
+// (flusso a un passo, deciso 2026-07-19 — audit A40: il doppio passo con
+// approvazione del responsabile non veniva usato ed e' stato rimosso).
+// Responsabilita' e tracciabilita' restano sul DB (supplier_payment_proposals):
+// reviewed_by = chi ha proposto, applied_by/applied_at = chi ha applicato,
+// prev_* = valori precedenti per l'annullo. Vengono applicate SOLO le proposte
+// appena salvate (RPC per singolo id), mai quelle in sospeso di altri.
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import PageHeader from '../components/PageHeader'
@@ -18,7 +23,6 @@ const FAMIGLIE = ['Bonifico', 'RI.BA', 'RID', 'SDD', 'Contanti', 'Carta/Bancomat
 const SCAD_OPTS = ['A Vista', '30 gg DFFM', '60 gg DFFM', '90 gg DFFM', '120 gg DFFM',
   '30/60 gg DFFM', '30/60/90 gg DFFM', '60/90 gg DFFM', '60/90/120 gg DFFM', 'Data fissa mese']
 
-const MANAGER_ROLES = ['super_advisor', 'cfo', 'ceo']
 const PER_PAGE = 20
 
 // enum payment_method -> famiglia leggibile
@@ -85,23 +89,19 @@ function shortBank(name: string, iban: string): string {
 
 type Supplier = Record<string, unknown> & { id: string }
 type Bank = { id: string; label: string; full: string }
-type Proposal = Record<string, unknown> & { id: string; supplier_id: string; status: string }
 type Edit = { fam: string; scad: string; bank: string }
 
 export default function RevisionePagamenti() {
   const { profile } = useAuth()
   const { toast } = useToast()
   const COMPANY_ID = profile?.company_id as string | undefined
-  const isManager = MANAGER_ROLES.includes(String(profile?.role || ''))
 
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [banks, setBanks] = useState<Bank[]>([])
-  const [proposals, setProposals] = useState<Proposal[]>([])
   const [edits, setEdits] = useState<Record<string, Edit>>({})
   const [dayFisso, setDayFisso] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [applyingId, setApplyingId] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
   const [bankResolve, setBankResolve] = useState<Record<string, string>>({})
@@ -116,7 +116,7 @@ export default function RevisionePagamenti() {
     if (!COMPANY_ID) return
     setLoading(true)
     try {
-      const [{ data: sup }, { data: ba }, { data: pr }] = await Promise.all([
+      const [{ data: sup }, { data: ba }] = await Promise.all([
         supabase.from('suppliers')
           .select('id, ragione_sociale, name, payment_method, default_payment_method, payment_base, prima_scadenza_gg, numero_rate, payment_bank_account_id')
           .eq('company_id', COMPANY_ID)
@@ -124,8 +124,6 @@ export default function RevisionePagamenti() {
           .or('is_active.is.null,is_active.eq.true'),
         supabase.from('bank_accounts').select('id, bank_name, account_name, iban')
           .eq('company_id', COMPANY_ID).or('is_active.is.null,is_active.eq.true'),
-        supabase.from('supplier_payment_proposals' as never)
-          .select('*').eq('company_id', COMPANY_ID).eq('status', 'inviata'),
       ])
       const rows = (sup || []) as Supplier[]
       rows.sort((a, b) => String(a.ragione_sociale || a.name || '').localeCompare(String(b.ragione_sociale || b.name || ''), 'it'))
@@ -151,7 +149,6 @@ export default function RevisionePagamenti() {
         return { id: b.id, label, full: b.full }
       }))
       setBankResolve(resolve)
-      setProposals((pr || []) as Proposal[])
       setEdits({}); setDayFisso({})
     } catch (e) {
       console.warn('[revisione-pagamenti]', e)
@@ -222,51 +219,35 @@ export default function RevisionePagamenti() {
           updated_at: new Date().toISOString(),
         }
       })
-      const { error } = await supabase.from('supplier_payment_proposals' as never)
+      // L'upsert restituisce gli id delle SOLE proposte appena salvate: sono le
+      // uniche che verranno applicate. Prima si chiamava
+      // rpc_apply_all_payment_proposals, che applicava TUTTE le proposte
+      // 'inviata' dell'azienda — comprese eventuali proposte pendenti di altri
+      // (audit A40): chi salvava si prendeva la responsabilita' anche di
+      // modifiche mai viste.
+      const { data: savedRows, error } = await supabase.from('supplier_payment_proposals' as never)
         .upsert(payload as never, { onConflict: 'company_id,supplier_id' })
+        .select('id')
       if (error) throw error
-      // Applica subito ai fornitori (con backup del valore precedente per il rollback).
-      const { data: applied, error: applyErr } = await supabase.rpc('rpc_apply_all_payment_proposals' as never)
-      if (applyErr) throw applyErr
-      toast({ type: 'success', message: `${applied ?? payload.length} modifiche salvate e applicate ai fornitori.` })
+      const ids: string[] = ((savedRows || []) as Array<{ id: string }>).map(r => r.id)
+      let applied = 0
+      const failed: string[] = []
+      for (const id of ids) {
+        const { data: ok, error: applyErr } = await supabase.rpc('rpc_apply_payment_proposal' as never, { p_id: id } as never)
+        if (applyErr || ok === false) failed.push(id)
+        else applied++
+      }
+      if (failed.length > 0) {
+        toast({ type: 'error', message: `${applied} modifiche applicate, ${failed.length} NON applicate: ricontrolla le righe evidenziate e riprova.` })
+      } else {
+        toast({ type: 'success', message: `${applied} modifiche salvate e applicate ai fornitori.` })
+      }
       await load()
     } catch (e) {
       console.warn('[revisione-pagamenti:save]', e)
-      toast({ type: 'error', message: 'Salvataggio non riuscito. Riprova.' })
+      toast({ type: 'error', message: 'Salvataggio non riuscito. Nessuna modifica applicata: riprova.' })
     } finally { setSaving(false) }
   }
-
-  async function applyOne(id: string) {
-    setApplyingId(id)
-    try {
-      const { data, error } = await supabase.rpc('rpc_apply_payment_proposal' as never, { p_id: id } as never)
-      if (error || data === false) throw error || new Error('non applicata')
-      toast({ type: 'success', message: 'Proposta applicata.' })
-      await load()
-    } catch (e) { console.warn(e); toast({ type: 'error', message: 'Applicazione non riuscita.' }) }
-    finally { setApplyingId(null) }
-  }
-  async function discardOne(id: string) {
-    setApplyingId(id)
-    try {
-      await supabase.rpc('rpc_discard_payment_proposal' as never, { p_id: id } as never)
-      await load()
-    } catch (e) { console.warn(e) } finally { setApplyingId(null) }
-  }
-  async function applyAll() {
-    if (!confirm(`Applicare tutte le ${proposals.length} proposte in attesa?`)) return
-    setSaving(true)
-    try {
-      const { data } = await supabase.rpc('rpc_apply_all_payment_proposals' as never)
-      toast({ type: 'success', message: `${data ?? 0} proposte applicate.` })
-      await load()
-    } catch (e) { console.warn(e); toast({ type: 'error', message: 'Applicazione non riuscita.' }) }
-    finally { setSaving(false) }
-  }
-
-  const supById = useMemo(() => {
-    const m: Record<string, Supplier> = {}; suppliers.forEach(s => { m[s.id] = s }); return m
-  }, [suppliers])
 
   return (
     <div className="min-h-screen bg-white">
@@ -302,7 +283,7 @@ export default function RevisionePagamenti() {
       </div>
 
       <p className="text-xs text-slate-500">
-        Modifica solo i fornitori sbagliati (la riga diventa gialla) e premi <b>Salva e applica</b>: le correzioni vengono applicate subito ai fornitori. I fornitori che lasci invariati sono già a posto. Ogni modifica salva il valore precedente, così è sempre annullabile.
+        Modifica solo i fornitori sbagliati (la riga diventa gialla) e premi <b>Salva e applica</b>: le TUE correzioni vengono applicate subito ai fornitori, sotto la tua responsabilità. Ogni applicazione resta tracciata (chi ha proposto, chi ha applicato, quando) e salva il valore precedente, così è sempre annullabile.
       </p>
 
       {/* Griglia */}

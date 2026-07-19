@@ -45,24 +45,34 @@ export function SortableTh({
   const hint = active
     ? `Ordinato ${dir === 'asc' ? 'crescente' : 'decrescente'}. Click per ${dir === 'asc' ? 'invertire' : 'rimuovere'}. Shift+Click per ordinamento multiplo.`
     : 'Click per ordinare. Shift+Click per ordinamento multiplo.'
+  // Con flex-row-reverse (colonne a destra) justify-start allinea al bordo destro
+  const justify = align === 'center' ? 'justify-center' : 'justify-start'
   return (
+    // Il controllo interattivo e' un vero <button> dentro il th (audit M18):
+    // Enter/Space e focus arrivano gratis dal browser, e gli screen reader
+    // annunciano un pulsante con etichetta, non una cella anonima.
+    // aria-sort resta sul th, dove ha valore semantico.
     <th
-      onClick={(e) => onSort?.(sortKey, e.shiftKey)}
-      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSort?.(sortKey, e.shiftKey) } }}
-      tabIndex={0}
       aria-sort={active ? (dir === 'asc' ? 'ascending' : 'descending') : 'none'}
-      className={`px-3 py-2 ${alignClass} font-semibold text-[11px] uppercase tracking-wider cursor-pointer select-none transition hover:bg-slate-50 ${
-        active ? 'text-blue-700' : 'text-slate-500'
-      } ${className}`}
-      title={hint}
+      className={`p-0 ${alignClass} ${className}`}
     >
-      <span className={`inline-flex items-center gap-1.5 ${align === 'right' ? 'flex-row-reverse' : ''}`}>
-        <span>{children}</span>
-        <Icon size={12} className={active ? 'text-blue-600' : 'text-slate-300'} />
-        {sortBy.length > 1 && active && (
-          <span className="text-[9px] font-bold text-blue-600 leading-none">{idx + 1}</span>
-        )}
-      </span>
+      <button
+        type="button"
+        onClick={(e) => onSort?.(sortKey, e.shiftKey)}
+        title={hint}
+        aria-label={`Ordina per ${typeof children === 'string' ? children : sortKey}${active ? ` (${dir === 'asc' ? 'crescente' : 'decrescente'})` : ''}`}
+        className={`w-full px-3 py-2 font-semibold text-[11px] uppercase tracking-wider cursor-pointer select-none transition hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-400 ${
+          active ? 'text-blue-700' : 'text-slate-500'
+        }`}
+      >
+        <span className={`flex items-center gap-1.5 ${justify} ${align === 'right' ? 'flex-row-reverse' : ''}`}>
+          <span>{children}</span>
+          <Icon size={12} className={active ? 'text-blue-600' : 'text-slate-300'} />
+          {sortBy.length > 1 && active && (
+            <span className="text-[10px] font-bold text-blue-600 leading-none">{idx + 1}</span>
+          )}
+        </span>
+      </button>
     </th>
   )
 }

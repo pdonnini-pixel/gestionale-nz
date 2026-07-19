@@ -717,8 +717,9 @@ export default function TicketAdminPage() {
 
       {/* Modal conferma generica (per Cancella) */}
       {confirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 px-4">
-          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6">
+        <Modal open onClose={() => setConfirm(null)} bare ariaLabel={confirm.title}
+          containerClassName="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 px-4"
+          panelClassName="bg-white rounded-xl shadow-2xl max-w-md w-full p-6">
             <h3 className="text-lg font-semibold text-slate-900 mb-2">{confirm.title}</h3>
             <p className="text-sm text-slate-600 mb-6">{confirm.message}</p>
             <div className="flex justify-end gap-2">
@@ -739,8 +740,7 @@ export default function TicketAdminPage() {
                 {confirm.confirmLabel ?? 'Conferma'}
               </button>
             </div>
-          </div>
-        </div>
+        </Modal>
       )}
     </PageShell>
   )
