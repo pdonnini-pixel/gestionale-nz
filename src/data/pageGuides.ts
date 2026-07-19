@@ -2323,7 +2323,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "La lista dei ticket con selezione multipla",
-        "body": "La tabella è la stessa che vedono anche le operatrici, ma qui ogni riga ha una casella di selezione. Puoi selezionare uno o più ticket insieme (anche tutti con il pulsante in testa alla colonna) per applicare un'azione a tutti contemporaneamente.",
+        "body": "La tabella è la stessa che vedono anche le operatrici, ma qui ogni riga ha una casella di selezione. Puoi selezionare uno o più ticket insieme (anche tutti con il pulsante in testa alla colonna) per applicare un'azione a tutti contemporaneamente. Per sicurezza, se cambi un filtro (stato, tipo o modulo) la selezione si azzera: le azioni si applicano sempre e solo ai ticket selezionati che stai vedendo in tabella.",
         "steps": [
           "Spunta la casella sulle righe dei ticket che vuoi gestire insieme",
           "Oppure clicca l'icona in testa alla colonna per selezionarli tutti quelli visibili con i filtri attuali",
@@ -2336,7 +2336,7 @@ export const PAGE_GUIDES: PageGuide[] = [
         "steps": [
           "Seleziona i ticket su cui vuoi agire",
           "Scegli l'azione desiderata dalla barra che appare sopra la tabella",
-          "Per \"Cancella\" ti verrà chiesta una conferma esplicita perché l'operazione non è reversibile",
+          "Per \"Cancella\" ti verrà chiesta una conferma esplicita che elenca i titoli dei ticket che stai per eliminare, perché l'operazione non è reversibile",
           "Per \"Chiudi senza lavorare\" si apre una finestra dove puoi scrivere il motivo della chiusura (facoltativo) prima di confermare"
         ]
       },

@@ -673,6 +673,13 @@ export function TicketList({
     if (initialStato) setFiltroStato(initialStato)
   }, [initialStato])
 
+  // Sicurezza bulk (audit 2026-07-19): al cambio di un filtro la selezione viene
+  // azzerata, altrimenti le azioni bulk (inclusa Cancella, irreversibile)
+  // agirebbero anche su ticket selezionati prima e non piu' visibili in tabella.
+  useEffect(() => {
+    setSelectedIds(new Set())
+  }, [filtroStato, filtroTipo, filtroModulo])
+
   const stats = useMemo(() => {
     const s = { aperti: 0, in_corso: 0, risolti: 0, chiusi: 0, bug: 0, funzioni: 0, totali: tickets.length }
     for (const t of tickets) {
@@ -697,6 +704,14 @@ export function TicketList({
       return true
     })
   }, [tickets, filtroStato, filtroTipo, filtroModulo])
+
+  // Seconda barriera: alle azioni bulk arrivano SOLO gli id selezionati e ancora
+  // visibili coi filtri correnti (intersezione), mai selezioni "fantasma"
+  // sopravvissute a un reload della lista.
+  const selectedVisibleIds = useMemo(
+    () => filtered.filter(t => selectedIds.has(t.id)).map(t => t.id),
+    [filtered, selectedIds],
+  )
 
   const toggleSelect = (id: string) => {
     setSelectedIds(prev => {
@@ -794,8 +809,8 @@ export function TicketList({
         </div>
       </div>
 
-      {/* Bulk action bar (solo admin con selezione attiva) */}
-      {adminMode && selectedIds.size > 0 && renderAdminBulkBar?.(Array.from(selectedIds), clearSelection)}
+      {/* Bulk action bar (solo admin con selezione attiva e visibile) */}
+      {adminMode && selectedVisibleIds.length > 0 && renderAdminBulkBar?.(selectedVisibleIds, clearSelection)}
 
       {/* Tabella */}
       <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
@@ -822,7 +837,7 @@ export function TicketList({
                         aria-label="Seleziona tutti"
                         className="p-0.5 text-slate-500 hover:text-slate-900"
                       >
-                        {selectedIds.size === filtered.length && filtered.length > 0
+                        {selectedVisibleIds.length === filtered.length && filtered.length > 0
                           ? <CheckSquare className="w-4 h-4 text-blue-600" />
                           : <Square className="w-4 h-4" />}
                       </button>
