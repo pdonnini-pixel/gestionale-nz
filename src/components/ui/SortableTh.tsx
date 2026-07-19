@@ -48,6 +48,9 @@ export function SortableTh({
   return (
     <th
       onClick={(e) => onSort?.(sortKey, e.shiftKey)}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSort?.(sortKey, e.shiftKey) } }}
+      tabIndex={0}
+      aria-sort={active ? (dir === 'asc' ? 'ascending' : 'descending') : 'none'}
       className={`px-3 py-2 ${alignClass} font-semibold text-[11px] uppercase tracking-wider cursor-pointer select-none transition hover:bg-slate-50 ${
         active ? 'text-blue-700' : 'text-slate-500'
       } ${className}`}

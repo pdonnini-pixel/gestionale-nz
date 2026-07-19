@@ -196,10 +196,22 @@ function StatusPill({ status }: { status: string | null | undefined }) {
 
 // Modal component
 function Modal({ open, onClose, title, children, wide }: { open: boolean; onClose: () => void; title: string; children: React.ReactNode; wide?: boolean }) {
+  // Escape chiude il modale (prima solo overlay/X). Hook prima dell'early
+  // return per rispettare le regole dei hook.
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [open, onClose])
+
   if (!open) return null
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={onClose}>
-      <div className={`bg-white rounded-2xl shadow-2xl w-full ${wide ? 'max-w-2xl' : 'max-w-lg'} mx-4 max-h-[90vh] overflow-y-auto`} onClick={e => e.stopPropagation()}>
+      {/* max-h in dvh (non vh): con la barra URL mobile il footer del modale
+          finiva dietro la barra. overscroll-contain evita che lo scroll a
+          fine corsa si incateni alla pagina sottostante. */}
+      <div role="dialog" aria-modal="true" aria-label={title} className={`bg-white rounded-2xl shadow-2xl w-full ${wide ? 'max-w-2xl' : 'max-w-lg'} mx-4 max-h-[90dvh] overflow-y-auto overscroll-contain`} onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between p-5 border-b border-slate-100">
           <h3 className="text-lg font-semibold text-slate-900">{title}</h3>
           <button onClick={onClose} title="Chiudi" className="p-1 rounded-lg hover:bg-slate-100 text-slate-400"><X size={20} /></button>

@@ -74,6 +74,17 @@ export default function GlobalSearch({ open: openProp, onClose }: GlobalSearchPr
     return () => document.removeEventListener('keydown', onKeyDown)
   }, [openProp])
 
+  // Escape chiude anche in modalita' controllata (open/onClose da Layout):
+  // prima il listener sopra veniva saltato e ESC non faceva nulla.
+  useEffect(() => {
+    if (openProp === undefined || !openProp) return
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') onClose?.()
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [openProp, onClose])
+
   // Focus input when opened
   useEffect(() => {
     if (open) {

@@ -207,10 +207,11 @@ export default function NotificationBell() {
                         </p>
                         <button
                           onClick={(e) => { e.stopPropagation(); dismiss(n.id); }}
-                          className="p-0.5 rounded hover:bg-slate-200 text-slate-300 hover:text-slate-500 shrink-0"
+                          className="p-2 -m-1 rounded hover:bg-slate-200 text-slate-300 hover:text-slate-500 shrink-0"
+                          aria-label="Elimina notifica"
                           title="Elimina notifica"
                         >
-                          <X size={12} />
+                          <X size={14} />
                         </button>
                       </div>
                       {sanitizeMessage(n.message) && (

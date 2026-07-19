@@ -516,7 +516,7 @@ function FatturePassive() {
               ) : sortedFiltered.length === 0 ? (
                 <tr><td colSpan={8} className="text-center py-12 text-slate-400">Nessuna fattura trovata</td></tr>
               ) : sortedFiltered.map((inv, idx) => (
-                <tr key={inv.id} onClick={() => openFormatted(inv)} className={`border-b border-slate-100 hover:bg-blue-50/50 transition-colors cursor-pointer ${idx % 2 === 1 ? 'bg-slate-50/50' : ''}`}>
+                <tr key={inv.id} onClick={() => openFormatted(inv)} tabIndex={0} onKeyDown={e => { if (e.key === 'Enter') openFormatted(inv) }} className={`border-b border-slate-100 hover:bg-blue-50/50 transition-colors cursor-pointer ${idx % 2 === 1 ? 'bg-slate-50/50' : ''}`}>
                   <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{fmtDate(inv.invoice_date)}</td>
                   <Tooltip content={inv.invoice_number || ''}>
                     <td className="px-4 py-3 font-medium text-slate-900 truncate min-w-[120px] max-w-[180px]">{inv.invoice_number || '—'}</td>
@@ -758,7 +758,7 @@ function FattureAttive() {
                   Nessuna fattura attiva. Crea la prima!
                 </td></tr>
               ) : sortedFiltered.map((inv, idx) => (
-                <tr key={inv.id} onClick={() => { setSelectedInvoice(inv); setShowXml(false) }} className={`border-b border-slate-100 hover:bg-blue-50/50 transition-colors cursor-pointer ${idx % 2 === 1 ? 'bg-slate-50/50' : ''}`}>
+                <tr key={inv.id} onClick={() => { setSelectedInvoice(inv); setShowXml(false) }} tabIndex={0} onKeyDown={e => { if (e.key === 'Enter') { setSelectedInvoice(inv); setShowXml(false) } }} className={`border-b border-slate-100 hover:bg-blue-50/50 transition-colors cursor-pointer ${idx % 2 === 1 ? 'bg-slate-50/50' : ''}`}>
                   <td className="px-4 py-3 text-slate-600">{fmtDate(inv.invoice_date)}</td>
                   <td className="px-4 py-3 font-medium text-slate-900">{inv.invoice_number}</td>
                   <td className="px-4 py-3">
