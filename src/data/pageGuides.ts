@@ -336,11 +336,11 @@ export const PAGE_GUIDES: PageGuide[] = [
     "sections": [
       {
         "heading": "Filtri periodo ed esportazione",
-        "body": "In alto puoi scegliere il periodo di analisi tra 'YTD' (da inizio anno corrente a oggi) e 'Ultimi 12 mesi'. Il pulsante di esportazione accanto ti permette di scaricare i dati mostrati."
+        "body": "In alto puoi scegliere il periodo di analisi tra 'YTD' (l'anno selezionato) e 'Ultimi 12 mesi'. Con 'YTD' compare anche un menu a tendina per cambiare anno: gli anni proposti sono quelli realmente presenti nei dati, e la scelta vale per tutto il gestionale (resta memorizzata anche cambiando pagina). Il pulsante di esportazione accanto ti permette di scaricare i dati mostrati."
       },
       {
         "heading": "Riepilogo numerico",
-        "body": "Una riga di riquadri mostra ricavi totali, costi totali, margine (in euro e percentuale), numero di outlet attivi, l'outlet con il margine migliore e quello con il margine peggiore, con relativa percentuale."
+        "body": "Una riga di riquadri mostra ricavi totali, costi totali, margine (in euro e percentuale), numero di outlet attivi, l'outlet con il margine migliore e quello con il margine peggiore, con relativa percentuale. I costi di ogni punto vendita sommano le fatture fornitori e le uscite bancarie NON collegate a una fattura (stipendi, F24, commissioni…): i movimenti già riconciliati a una fattura non vengono contati due volte."
       },
       {
         "heading": "Scheda Per Outlet",
@@ -371,6 +371,10 @@ export const PAGE_GUIDES: PageGuide[] = [
       {
         "q": "Come cambio il periodo analizzato?",
         "a": "Usa i due pulsanti in alto: 'YTD' mostra l'anno corrente da gennaio a oggi, 'Ultimi 12 mesi' mostra invece i dodici mesi precedenti alla data odierna."
+      },
+      {
+        "q": "Cos'è la riga 'Non assegnato'?",
+        "a": "Raccoglie i ricavi e i costi che non risultano assegnati a nessun punto vendita attivo (per esempio fatture senza punto vendita, o voci di punti vendita disattivati). Prima queste cifre erano escluse dai totali ma comparivano nella Struttura Costi, creando due numeri diversi nella stessa pagina; ora sono visibili e i totali quadrano con il dettaglio."
       },
       {
         "q": "Le fatture annullate e le note di credito influenzano i costi?",
@@ -1168,7 +1172,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "KPI di riepilogo",
-        "body": "Quattro caselle mostrano il budget OTB totale su tutti i punti vendita, l'OTB medio per punto vendita, il target di sell-through (percentuale di vendite attese sul totale disponibile) e il budget stimato per i markdown (sconti)."
+        "body": "Quattro caselle mostrano il budget OTB totale su tutti i punti vendita, l'OTB medio per punto vendita, il target di sell-through e il budget stimato per i markdown (sconti). Il sell-through è calcolato come costo del venduto previsto diviso la merce disponibile al costo (scorta iniziale + acquisti OTB): indica quanta parte della merce disponibile ci si aspetta di vendere nella stagione."
       },
       {
         "heading": "Parametri modificabili per punto vendita",
@@ -1208,7 +1212,7 @@ export const PAGE_GUIDES: PageGuide[] = [
     "sections": [
       {
         "heading": "Da dove arrivano i numeri",
-        "body": "I ricavi e il costo del personale vengono dal budget dell'anno selezionato (in alto a destra puoi cambiare anno). Vengono considerati SOLO i punti vendita reali dell'anagrafica: le voci tecniche di budget non riferite a un punto vendita (es. costi non divisi, rettifiche, sede/magazzino) sono escluse da classifiche, medie e raccomandazioni. Il numero di dipendenti per sede viene dalle allocazioni impostate nella pagina Personale (icona Allocazione): se un dipendente lavora al 50% in un outlet e al 50% in un altro, viene conteggiato come mezza persona in ciascuno. Se per un outlet non ci sono dipendenti allocati, le metriche che dipendono dal personale mostrano \"N/D\" (dato non disponibile) invece di un numero inventato — anche nel grafico del trend mensile, dove quell'outlet viene semplicemente saltato."
+        "body": "I ricavi e il costo del personale vengono dal budget dell'anno selezionato (in alto a destra puoi cambiare anno: gli anni proposti sono quelli realmente presenti nei dati e la scelta resta memorizzata anche cambiando pagina). Vengono considerati SOLO i punti vendita reali dell'anagrafica: le voci tecniche di budget non riferite a un punto vendita (es. costi non divisi, rettifiche, sede/magazzino) sono escluse da classifiche, medie e raccomandazioni. Il numero di dipendenti per sede viene dalle allocazioni impostate nella pagina Personale (icona Allocazione): se un dipendente lavora al 50% in un outlet e al 50% in un altro, viene conteggiato come mezza persona in ciascuno. Se per un outlet non ci sono dipendenti allocati, le metriche che dipendono dal personale mostrano \"N/D\" (dato non disponibile) invece di un numero inventato — anche nel grafico del trend mensile, dove quell'outlet viene semplicemente saltato."
       },
       {
         "heading": "Fatturato medio per dipendente",
@@ -1271,7 +1275,7 @@ export const PAGE_GUIDES: PageGuide[] = [
         "heading": "Il punto di partenza (Baseline)",
         "body": "Nel riquadro 'Baseline' a sinistra trovi il quadro reale dell'anno scelto, così come risulta da Budget & Controllo: numero di punti vendita attivi, Ricavi Totali, Costi Totali (di cui quanto è costo del personale), Utile Base e Margine %. È il punto di partenza da cui parte ogni simulazione. Se per l'anno scelto non ci sono ancora dati di budget, la pagina lo segnala chiaramente invece di mostrare numeri inventati.",
         "steps": [
-          "Scegli l'anno da simulare dal menu 'Anno' in alto a destra."
+          "Scegli l'anno da simulare dal menu 'Anno' in alto a destra: gli anni proposti sono quelli presenti nei dati e la scelta resta memorizzata anche cambiando pagina."
         ]
       },
       {
