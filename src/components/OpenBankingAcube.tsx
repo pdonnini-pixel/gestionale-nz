@@ -371,7 +371,7 @@ export default function OpenBankingAcube() {
                   type="text"
                   value={onboardForm.fiscalId}
                   onChange={(e) => setOnboardForm((s) => ({ ...s, fiscalId: e.target.value }))}
-                  placeholder="07362100484"
+                  placeholder="es. 01234567890"
                   className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-blue-400 focus:border-blue-400"
                 />
               </div>
@@ -381,7 +381,7 @@ export default function OpenBankingAcube() {
                   type="text"
                   value={onboardForm.businessName}
                   onChange={(e) => setOnboardForm((s) => ({ ...s, businessName: e.target.value }))}
-                  placeholder="New Zago Srl"
+                  placeholder="Ragione sociale azienda"
                   className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-blue-400 focus:border-blue-400"
                 />
               </div>
