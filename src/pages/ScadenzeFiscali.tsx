@@ -7,6 +7,7 @@ import {
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { Modal } from '../components/ui/Modal'
+import TableScroll from '../components/ui/TableScroll'
 import { daysUntilLocal, todayYMD } from '../lib/dateLocal'
 import { useAuth } from '../hooks/useAuth'
 import { useToast } from '../components/Toast'
@@ -486,7 +487,73 @@ export default function ScadenzeFiscali() {
               Nessuna scadenza trovata. Crea una nuova scadenza per iniziare.
             </div>
           ) : (
-            <div className="overflow-x-auto">
+            <>
+            {/* Lista mobile a schede (sotto md): dati chiave + azioni con touch
+                target >=44px. La tabella completa resta invariata su desktop. */}
+            <div className="md:hidden divide-y divide-slate-100">
+              {filtered.map(dl => {
+                const days = daysUntil(dl.due_date)
+                const isOverdue = days !== null && days < 0 && dl.status !== 'paid'
+                const isUrgent = days !== null && days >= 0 && days <= 7 && dl.status !== 'paid'
+                const typeConfig = (TYPE_CONFIG as Record<string, { label: string; color: string; icon: typeof FileText }>)[dl.deadline_type] || TYPE_CONFIG.altro
+                const statusCfg = (STATUS_CONFIG as Record<string, { label: string; color: string }>)[dl.status] || STATUS_CONFIG.pending
+                const TypeIcon = typeConfig.icon
+                return (
+                  <div key={dl.id} className={`p-3 ${isOverdue ? 'bg-red-50/30' : isUrgent ? 'bg-amber-50/20' : ''}`}>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${typeConfig.color}`}>
+                        <TypeIcon size={10} />
+                        {typeConfig.label}
+                      </span>
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${statusCfg.color}`}>
+                        {statusCfg.label}
+                      </span>
+                    </div>
+                    <div className="text-sm font-medium text-slate-800 mt-1.5 break-words">{dl.title}</div>
+                    {(dl.f24_code || dl.tax_period) && (
+                      <div className="text-xs text-slate-500 mt-0.5">
+                        {dl.f24_code ? `Cod. ${dl.f24_code}` : ''}
+                        {dl.f24_code && dl.tax_period ? ' · ' : ''}
+                        {dl.tax_period || ''}
+                      </div>
+                    )}
+                    <div className="flex items-center justify-between gap-2 mt-1.5">
+                      <div className="text-xs text-slate-600">
+                        Scade il <span className="font-medium">{fmtDate(dl.due_date)}</span>
+                        {dl.status !== 'paid' && days !== null && (
+                          <span className={`ml-1.5 font-medium ${days < 0 ? 'text-red-600' : days <= 7 ? 'text-amber-600' : 'text-slate-500'}`}>
+                            {days < 0 ? `${Math.abs(days)}gg fa` : days === 0 ? 'OGGI' : `tra ${days}gg`}
+                          </span>
+                        )}
+                        {dl.status === 'paid' && <span className="ml-1.5 text-emerald-500">✓</span>}
+                      </div>
+                      <div className="font-semibold text-slate-800 whitespace-nowrap">
+                        {dl.amount ? `${fmt(dl.amount)} €` : '—'}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 mt-2.5">
+                      {dl.status !== 'paid' && (
+                        <button onClick={() => markPaid(dl)}
+                          className="flex-1 inline-flex items-center justify-center gap-1.5 min-h-[44px] px-3 text-xs font-medium bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition">
+                          <CheckCircle2 size={14} /> Pagato
+                        </button>
+                      )}
+                      <button onClick={() => { setEditingDeadline(dl); setModalOpen(true) }}
+                        className="flex-1 inline-flex items-center justify-center gap-1.5 min-h-[44px] px-3 text-xs font-medium border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-50 transition">
+                        <Edit2 size={14} /> Modifica
+                      </button>
+                      <button onClick={() => handleDelete(dl.id)}
+                        className="inline-flex items-center justify-center min-w-[44px] min-h-[44px] text-slate-400 border border-slate-200 rounded-lg hover:text-red-600 hover:bg-red-50 transition"
+                        title="Annulla (resta nello storico)" aria-label="Annulla scadenza">
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+
+            <TableScroll wrapperClassName="hidden md:block">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-slate-100 text-[11px] text-slate-400 uppercase tracking-wider">
@@ -574,7 +641,8 @@ export default function ScadenzeFiscali() {
                   })}
                 </tbody>
               </table>
-            </div>
+            </TableScroll>
+            </>
           )}
         </div>
       </div>

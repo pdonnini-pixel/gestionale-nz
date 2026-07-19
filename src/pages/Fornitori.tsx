@@ -24,6 +24,7 @@ import { useAuth } from '../hooks/useAuth';
 import { useTableSort } from '../hooks/useTableSort';
 import SortableTh from '../components/ui/SortableTh';
 import TextTooltip from '../components/Tooltip';
+import TableScroll from '../components/ui/TableScroll';
 import { useOutlets } from '../hooks/useOutlets';
 import { usePeriod } from '../hooks/usePeriod';
 import SupplierAllocationEditor, { MODE_META, type AllocationMode } from '../components/SupplierAllocationEditor';
@@ -709,6 +710,278 @@ export default function Fornitori() {
   const getName = (s: SupplierRow) => String(s.ragione_sociale || s.name || 'N/D');
   const getVat = (s: SupplierRow) => String(s.partita_iva || s.vat_number || '');
 
+  // ─── DETTAGLIO + PANNELLO GESTIONE ────────────────────────────
+  // Estratti in funzioni di render perché sono usati in DUE punti: nella riga
+  // espansa della tabella desktop e dentro le card della vista mobile.
+  const renderSupplierDetail = (s: SupplierRow) => {
+    const name = getName(s);
+    const vat = getVat(s);
+    const stats = supplierStats[s.id] || { grossTotal: 0, overdue: 0, pending: 0, paid: 0, count: 0, lastDate: null, methods: new Set(), paidCount: 0, reconciledCount: 0 };
+    // Scadenze del fornitore dell'anno selezionato, derivate da
+    // allPayables (già ordinate per invoice_date desc) — coerenti
+    // con KPI e statistiche year-aware.
+    const supplierPays = allPayables.filter(p => p.supplier_id === s.id && yearOf(p.invoice_date) === year);
+    const avgAmount = supplierPays.length > 0
+      ? supplierPays.reduce((acc, p) => acc + (Number(p.gross_amount) || 0), 0) / supplierPays.length
+      : 0;
+    // Scadenze ancora DA PAGARE (esclude pagate, annullate, note di
+    // credito e residui a zero), ordinate dalla piu' recente. Le
+    // scadute vanno in cima. Serve per il riquadro qui sotto.
+    const openPays = supplierPays
+      .filter(p => !['pagato', 'annullato', 'nota_credito'].includes(String(p.status)))
+      .filter(p => (Number(p.amount_remaining ?? p.gross_amount) || 0) > 0)
+      .sort((a, b) => {
+        const sa = a.status === 'scaduto' ? 0 : 1;
+        const sb = b.status === 'scaduto' ? 0 : 1;
+        if (sa !== sb) return sa - sb;
+        return new Date(String(b.due_date || '')).getTime() - new Date(String(a.due_date || '')).getTime();
+      });
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+        {/* Col 1: Anagrafica completa */}
+        <div>
+          <h4 className="text-xs font-semibold text-slate-500 uppercase mb-2 flex items-center gap-1.5">
+            <Building2 size={14} className="text-indigo-500" /> Anagrafica
+          </h4>
+          <div className="bg-white rounded-lg border border-slate-200 p-3 space-y-1.5 text-sm">
+            <Detail label="Ragione Sociale" value={name} />
+            <Detail label="P.IVA" value={vat} mono />
+            <Detail label="Cod. Fiscale" value={(s.codice_fiscale || s.fiscal_code) as string | null | undefined} mono />
+            <Detail label="Codice SDI" value={s.codice_sdi as string | null | undefined} mono />
+            <Detail label="PEC" value={s.pec as string | null | undefined} />
+            <Detail label="IBAN" value={s.iban as string | null | undefined} mono />
+            <div className="border-t border-slate-100 pt-1.5 mt-1.5" />
+            <Detail label="Indirizzo" value={s.indirizzo as string | null | undefined} />
+            <Detail label="Città" value={[s.cap, s.citta, s.provincia ? `(${s.provincia})` : ''].filter(Boolean).join(' ')} />
+            <Detail label="Email" value={s.email as string | null | undefined} />
+            <Detail label="Telefono" value={s.telefono as string | null | undefined} />
+          </div>
+        </div>
+        {/* Col 2: Condizioni & classificazione */}
+        <div>
+          <h4 className="text-xs font-semibold text-slate-500 uppercase mb-2 flex items-center gap-1.5">
+            <CreditCard size={14} className="text-indigo-500" /> Condizioni
+          </h4>
+          <div className="bg-white rounded-lg border border-slate-200 p-3 space-y-1.5 text-sm">
+            <Detail label="Termini pag." value={`${(s.payment_terms as number | null) || (s.default_payment_terms as number | null) || 30} giorni`} />
+            <Detail label="Metodo pag." value={PAYMENT_LABEL[String(s.payment_method || s.default_payment_method || '')] || (s.payment_method as string | null) || (s.default_payment_method as string | null) || '—'} />
+            <Detail label="Base scadenze" value={s.payment_base ? (BASE_LABEL[String(s.payment_base)] || String(s.payment_base)) : '—'} />
+            <Detail label="1ª scadenza" value={s.payment_base && s.prima_scadenza_gg != null ? `${s.prima_scadenza_gg} gg` : '—'} />
+            <Detail label="N° rate" value={s.payment_base && s.numero_rate != null ? String(s.numero_rate) : '—'} />
+            <Detail label="Banca pag." value={s.payment_bank_account_id ? (bankLabelById[String(s.payment_bank_account_id)] || '—') : '—'} />
+            <Detail label="Categoria" value={s.category as string | null | undefined} />
+            <Detail label="Centro costo" value={s.cost_center === 'all' ? `Tutti gli ${labels.pointOfSalePluralLower}` : (s.cost_center as string | null | undefined)} />
+            <Detail label="Stato" value={s.is_active !== false ? '✓ Attivo' : '✗ Disattivato'} />
+            {(s.note || s.notes) ? (
+              <>
+                <div className="border-t border-slate-100 pt-1.5 mt-1.5" />
+                <div className="text-xs text-slate-500 italic">{String(s.note || s.notes || '')}</div>
+              </>
+            ) : null}
+          </div>
+        </div>
+        {/* Col 3: Statistiche & ultime fatture */}
+        <div>
+          <h4 className="text-xs font-semibold text-slate-500 uppercase mb-2 flex items-center gap-1.5">
+            <BarChart3 size={14} className="text-indigo-500" /> Statistiche
+          </h4>
+          <div className="bg-white rounded-lg border border-slate-200 p-3 space-y-1.5 text-sm">
+            <Detail label="Tot. fatture" value={stats.count || 0} />
+            <Detail label="Tot. fatturato" value={stats.grossTotal > 0 ? `€ ${stats.grossTotal.toLocaleString('de-DE', { minimumFractionDigits: 2 })}` : '—'} />
+            <Detail label="Già pagato" value={stats.paid > 0 ? `€ ${stats.paid.toLocaleString('de-DE', { minimumFractionDigits: 2 })}` : '—'} />
+            {stats.paidCount > 0 && (
+              <Detail label="Riconciliati" value={`${stats.reconciledCount}/${stats.paidCount} in banca`} />
+            )}
+            <Detail label="Da pagare" value={stats.pending > 0 ? `€ ${stats.pending.toLocaleString('de-DE', { minimumFractionDigits: 2 })}` : '—'} />
+            {stats.overdue > 0 && (
+              <div className="flex">
+                <span className="text-red-500 w-28 shrink-0 text-xs font-medium">Scaduto</span>
+                <span className="text-red-600 text-xs font-semibold">€ {stats.overdue.toLocaleString('de-DE', { minimumFractionDigits: 2 })}</span>
+              </div>
+            )}
+            {avgAmount > 0 && (
+              <Detail label="Media fattura" value={`€ ${avgAmount.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} />
+            )}
+            {stats.lastDate && (
+              <Detail label="Ultima fattura" value={new Date(stats.lastDate).toLocaleDateString('it-IT')} />
+            )}
+          </div>
+          {/* Scadenze ancora da pagare (max 5, scadute in cima) */}
+          {openPays.length > 0 && (
+            <div className="mt-3">
+              <h4 className="text-xs font-semibold text-slate-400 uppercase mb-1.5">Scadenze da pagare</h4>
+              <div className="space-y-1">
+                {openPays.slice(0, 5).map((pay, i) => (
+                  <div key={i} className="bg-white rounded border border-slate-200 px-2.5 py-1.5 flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                        pay.status === 'scaduto' ? 'bg-red-400' : 'bg-amber-400'
+                      }`} />
+                      <TextTooltip content={String(pay.invoice_number || '')}>
+                        <span className="font-medium text-slate-700 truncate">{String(pay.invoice_number || '')}</span>
+                      </TextTooltip>
+                      <span className="text-slate-400">{pay.due_date ? new Date(String(pay.due_date)).toLocaleDateString('it-IT') : ''}</span>
+                    </div>
+                    <span className="font-semibold text-slate-700 shrink-0 ml-2">€ {(Number(pay.amount_remaining ?? pay.gross_amount) || 0).toLocaleString('de-DE', { minimumFractionDigits: 2 })}</span>
+                  </div>
+                ))}
+                {openPays.length > 5 && (
+                  <div className="text-xs text-slate-400 text-center pt-0.5">+ altre {openPays.length - 5} da pagare</div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const renderGestionePanel = (s: SupplierRow) => {
+    const name = getName(s);
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center gap-2 text-xs text-slate-500 flex-wrap">
+          <span className="inline-flex items-center px-2 py-0.5 bg-violet-100 text-violet-700 rounded-full text-[11px] font-semibold border border-violet-200">Pannello Gestione</span>
+          <span className="font-medium text-slate-700">{name}</span>
+          <span>— categoria, divisione e fatture nello stesso punto</span>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.5fr] gap-4">
+          {/* Blocco A — Categoria merceologica */}
+          <div className="bg-white rounded-xl border border-slate-200 p-4">
+            <h3 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2"><Tag size={15} className="text-violet-600" /> Categoria merceologica</h3>
+            <select
+              value={String(s.category || '')}
+              onChange={e => saveCategory(s.id, e.target.value)}
+              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white"
+            >
+              <option value="">— scegli categoria —</option>
+              {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+            <p className="text-[11.5px] text-slate-400 mt-2 leading-relaxed">Salvataggio immediato sull'anagrafica fornitore. Alimenta il grafico "Spesa per categoria" del tab Analytics.</p>
+          </div>
+
+          {/* Blocco B — Divisione tra outlet */}
+          <div className="bg-white rounded-xl border border-slate-200 p-4">
+            <h3 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2"><Split size={15} className="text-violet-600" /> Divisione tra {labels.pointOfSalePluralLower}</h3>
+            {activeOutletCount >= 2 ? (
+              <SupplierAllocationEditor
+                supplierId={s.id}
+                onSaved={(m) => onAllocationSaved(s.id, m)}
+                onCancel={() => setGestioneId(null)}
+              />
+            ) : (
+              <p className="text-xs text-slate-500 bg-slate-50 rounded-lg p-3 leading-relaxed">
+                La divisione tra {labels.pointOfSalePluralLower} è disponibile solo con almeno 2 {labels.pointOfSalePluralLower} attivi.
+                {activeOutletCount === 1 ? ` Questo tenant ne ha 1: tutti i costi sono attribuiti all'unica sede.` : ' Nessun outlet attivo configurato.'}
+              </p>
+            )}
+          </div>
+        </div>
+
+        {/* Blocco C — Fatture del fornitore */}
+        <div className="bg-white rounded-xl border border-slate-200 p-4">
+          <h3 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
+            <FileText size={15} className="text-violet-600" /> Fatture del fornitore
+            {!gestInvLoading && gestInvoices.length > 0 && (
+              <span className="font-normal text-slate-400">({Math.min(gestInvoices.length, showAllInvoices ? gestInvoices.length : 20)} di {gestInvoices.length})</span>
+            )}
+          </h3>
+          {gestInvLoading ? (
+            <div className="flex items-center gap-2 py-6 text-sm text-slate-400"><Loader2 size={16} className="animate-spin" /> Caricamento fatture…</div>
+          ) : gestInvoices.length === 0 ? (
+            <p className="text-sm text-slate-400 py-4 text-center">
+              {getVat(s) ? 'Nessuna fattura elettronica per questo fornitore.' : 'Fornitore senza P.IVA: impossibile agganciare le fatture elettroniche.'}
+            </p>
+          ) : (
+            <TableScroll>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-[10.5px] uppercase tracking-wider text-slate-400 border-b border-slate-100">
+                    <th className="py-1.5 px-2 font-semibold">Numero</th>
+                    <th className="py-1.5 px-2 font-semibold">Data</th>
+                    <th className="py-1.5 px-2 font-semibold text-right">Importo</th>
+                    <th className="py-1.5 px-2 font-semibold text-center">Tipo</th>
+                    <th className="py-1.5 px-2 font-semibold text-center">Stato</th>
+                    <th className="py-1.5 px-2 font-semibold text-center">Documento</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(showAllInvoices ? gestInvoices : gestInvoices.slice(0, 20)).map(inv => {
+                    const amt = Number(inv.gross_amount) || 0;
+                    const st = inv.invoice_number ? gestPayStatus[inv.invoice_number] : undefined;
+                    const stInfo = st === 'pagato' ? { t: 'Pagata', c: 'bg-emerald-100 text-emerald-700' }
+                      : st === 'scaduto' ? { t: 'Scaduta', c: 'bg-red-100 text-red-700' }
+                      : st ? { t: 'In scadenza', c: 'bg-amber-100 text-amber-700' }
+                      : { t: '—', c: 'bg-slate-100 text-slate-400' };
+                    const allg = allegatiCache[inv.id];
+                    const known = allg !== undefined;
+                    const hasAttach = known && allg.length > 0;
+                    const busy = busyInvoiceId === inv.id;
+                    return (
+                      <tr key={inv.id} className="border-b border-slate-50 hover:bg-slate-50/60">
+                        <td className="py-1.5 px-2 font-mono text-xs text-slate-700">
+                          <TextTooltip content={String(inv.invoice_number || '')}>
+                            <span className="truncate inline-block max-w-[160px] align-bottom">{inv.invoice_number || '—'}</span>
+                          </TextTooltip>
+                        </td>
+                        <td className="py-1.5 px-2 text-slate-500 text-xs whitespace-nowrap">{inv.invoice_date ? new Date(inv.invoice_date).toLocaleDateString('it-IT') : '—'}</td>
+                        <td className={`py-1.5 px-2 text-right font-semibold whitespace-nowrap ${amt < 0 ? 'text-red-600' : 'text-slate-700'}`}>€ {amt.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                        <td className="py-1.5 px-2 text-center"><span className="text-[10.5px] font-mono text-slate-500">{inv.tipo_documento || '—'}</span></td>
+                        <td className="py-1.5 px-2 text-center"><span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-medium ${stInfo.c}`}>{stInfo.t}</span></td>
+                        <td className="py-1.5 px-2">
+                          <div className="flex items-center justify-center gap-1.5">
+                            <button
+                              onClick={() => handleOpenInvoice(inv)}
+                              disabled={busy}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 border border-slate-200 rounded-md text-[11.5px] font-medium text-slate-600 hover:border-slate-400 disabled:opacity-50"
+                              title="Apri la fattura elettronica formattata"
+                            >
+                              {busy ? <Loader2 size={12} className="animate-spin" /> : <Eye size={12} />} Apri
+                            </button>
+                            {(!known || hasAttach) ? (
+                              <button
+                                onClick={() => handleOpenPdf(inv)}
+                                disabled={busy}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 border border-violet-200 bg-violet-50 rounded-md text-[11.5px] font-medium text-violet-700 hover:bg-violet-100 disabled:opacity-50"
+                                title="Apri il PDF allegato alla fattura"
+                              >
+                                {busy ? <Loader2 size={12} className="animate-spin" /> : <Paperclip size={12} />} PDF
+                              </button>
+                            ) : (
+                              // Nessun allegato: il bottone resta cliccabile a fini
+                              // informativi — spiega col toast (oltre al tooltip) che
+                              // l'assenza del PDF non è un errore. L'utente non deve
+                              // ricordarsi le spiegazioni: le dà il sistema nel dubbio.
+                              <TextTooltip content="Nessun PDF allegato a questa fattura">
+                                <button
+                                  onClick={() => showToast("Questo fornitore non ha allegato il PDF alla fattura elettronica. Non è un errore: puoi vedere la fattura con 'Apri'.", 'info')}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 border border-slate-100 rounded-md text-[11.5px] font-medium text-slate-300 hover:text-slate-500 hover:border-slate-200"
+                                >
+                                  <Paperclip size={12} /> PDF
+                                </button>
+                              </TextTooltip>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              {gestInvoices.length > 20 && !showAllInvoices && (
+                <button onClick={() => setShowAllInvoices(true)} className="mt-2 text-xs font-medium text-violet-600 hover:text-violet-800">
+                  Mostra tutte ({gestInvoices.length})
+                </button>
+              )}
+              <p className="text-[11.5px] text-slate-400 mt-2 leading-relaxed">"Apri" mostra la fattura XML formattata (stampa/PDF, download XML). "PDF" apre l'eventuale allegato della fattura senza uscire dalla pagina.</p>
+            </TableScroll>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   // ─── RENDER ───────────────────────────────────────────────────
 
   if (loading) {
@@ -845,8 +1118,8 @@ export default function Fornitori() {
                 <button onClick={suResetSort} className="ml-auto text-blue-600 hover:text-blue-800 font-medium">Reset</button>
               </div>
             )}
-            {/* Table */}
-            <div className="overflow-x-auto">
+            {/* Table (solo desktop: sotto md c'è la vista a schede) */}
+            <TableScroll wrapperClassName="hidden md:block">
             <table className="w-full text-sm min-w-[920px]">
               <thead className="sticky top-0 bg-slate-50 border-b border-slate-200 z-10">
                 <tr>
@@ -1003,275 +1276,16 @@ export default function Fornitori() {
                       </tr>
 
                       {/* Expanded detail */}
-                      {isExpanded && (() => {
-                        // Scadenze del fornitore dell'anno selezionato, derivate da
-                        // allPayables (già ordinate per invoice_date desc) — coerenti
-                        // con KPI e statistiche year-aware.
-                        const supplierPays = allPayables.filter(p => p.supplier_id === s.id && yearOf(p.invoice_date) === year);
-                        const avgAmount = supplierPays.length > 0
-                          ? supplierPays.reduce((acc, p) => acc + (Number(p.gross_amount) || 0), 0) / supplierPays.length
-                          : 0;
-                        // Scadenze ancora DA PAGARE (esclude pagate, annullate, note di
-                        // credito e residui a zero), ordinate dalla piu' recente. Le
-                        // scadute vanno in cima. Serve per il riquadro qui sotto.
-                        const openPays = supplierPays
-                          .filter(p => !['pagato', 'annullato', 'nota_credito'].includes(String(p.status)))
-                          .filter(p => (Number(p.amount_remaining ?? p.gross_amount) || 0) > 0)
-                          .sort((a, b) => {
-                            const sa = a.status === 'scaduto' ? 0 : 1;
-                            const sb = b.status === 'scaduto' ? 0 : 1;
-                            if (sa !== sb) return sa - sb;
-                            return new Date(String(b.due_date || '')).getTime() - new Date(String(a.due_date || '')).getTime();
-                          });
-                        return (
+                      {isExpanded && (
                         <tr className="bg-slate-50/50">
-                          <td colSpan={9} className="px-4 py-4">
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-                              {/* Col 1: Anagrafica completa */}
-                              <div>
-                                <h4 className="text-xs font-semibold text-slate-500 uppercase mb-2 flex items-center gap-1.5">
-                                  <Building2 size={14} className="text-indigo-500" /> Anagrafica
-                                </h4>
-                                <div className="bg-white rounded-lg border border-slate-200 p-3 space-y-1.5 text-sm">
-                                  <Detail label="Ragione Sociale" value={name} />
-                                  <Detail label="P.IVA" value={vat} mono />
-                                  <Detail label="Cod. Fiscale" value={(s.codice_fiscale || s.fiscal_code) as string | null | undefined} mono />
-                                  <Detail label="Codice SDI" value={s.codice_sdi as string | null | undefined} mono />
-                                  <Detail label="PEC" value={s.pec as string | null | undefined} />
-                                  <Detail label="IBAN" value={s.iban as string | null | undefined} mono />
-                                  <div className="border-t border-slate-100 pt-1.5 mt-1.5" />
-                                  <Detail label="Indirizzo" value={s.indirizzo as string | null | undefined} />
-                                  <Detail label="Città" value={[s.cap, s.citta, s.provincia ? `(${s.provincia})` : ''].filter(Boolean).join(' ')} />
-                                  <Detail label="Email" value={s.email as string | null | undefined} />
-                                  <Detail label="Telefono" value={s.telefono as string | null | undefined} />
-                                </div>
-                              </div>
-                              {/* Col 2: Condizioni & classificazione */}
-                              <div>
-                                <h4 className="text-xs font-semibold text-slate-500 uppercase mb-2 flex items-center gap-1.5">
-                                  <CreditCard size={14} className="text-indigo-500" /> Condizioni
-                                </h4>
-                                <div className="bg-white rounded-lg border border-slate-200 p-3 space-y-1.5 text-sm">
-                                  <Detail label="Termini pag." value={`${(s.payment_terms as number | null) || (s.default_payment_terms as number | null) || 30} giorni`} />
-                                  <Detail label="Metodo pag." value={PAYMENT_LABEL[String(s.payment_method || s.default_payment_method || '')] || (s.payment_method as string | null) || (s.default_payment_method as string | null) || '—'} />
-                                  <Detail label="Base scadenze" value={s.payment_base ? (BASE_LABEL[String(s.payment_base)] || String(s.payment_base)) : '—'} />
-                                  <Detail label="1ª scadenza" value={s.payment_base && s.prima_scadenza_gg != null ? `${s.prima_scadenza_gg} gg` : '—'} />
-                                  <Detail label="N° rate" value={s.payment_base && s.numero_rate != null ? String(s.numero_rate) : '—'} />
-                                  <Detail label="Banca pag." value={s.payment_bank_account_id ? (bankLabelById[String(s.payment_bank_account_id)] || '—') : '—'} />
-                                  <Detail label="Categoria" value={s.category as string | null | undefined} />
-                                  <Detail label="Centro costo" value={s.cost_center === 'all' ? `Tutti gli ${labels.pointOfSalePluralLower}` : (s.cost_center as string | null | undefined)} />
-                                  <Detail label="Stato" value={s.is_active !== false ? '✓ Attivo' : '✗ Disattivato'} />
-                                  {(s.note || s.notes) ? (
-                                    <>
-                                      <div className="border-t border-slate-100 pt-1.5 mt-1.5" />
-                                      <div className="text-xs text-slate-500 italic">{String(s.note || s.notes || '')}</div>
-                                    </>
-                                  ) : null}
-                                </div>
-                              </div>
-                              {/* Col 3: Statistiche & ultime fatture */}
-                              <div>
-                                <h4 className="text-xs font-semibold text-slate-500 uppercase mb-2 flex items-center gap-1.5">
-                                  <BarChart3 size={14} className="text-indigo-500" /> Statistiche
-                                </h4>
-                                <div className="bg-white rounded-lg border border-slate-200 p-3 space-y-1.5 text-sm">
-                                  <Detail label="Tot. fatture" value={stats.count || 0} />
-                                  <Detail label="Tot. fatturato" value={stats.grossTotal > 0 ? `€ ${stats.grossTotal.toLocaleString('de-DE', { minimumFractionDigits: 2 })}` : '—'} />
-                                  <Detail label="Già pagato" value={stats.paid > 0 ? `€ ${stats.paid.toLocaleString('de-DE', { minimumFractionDigits: 2 })}` : '—'} />
-                                  {stats.paidCount > 0 && (
-                                    <Detail label="Riconciliati" value={`${stats.reconciledCount}/${stats.paidCount} in banca`} />
-                                  )}
-                                  <Detail label="Da pagare" value={stats.pending > 0 ? `€ ${stats.pending.toLocaleString('de-DE', { minimumFractionDigits: 2 })}` : '—'} />
-                                  {stats.overdue > 0 && (
-                                    <div className="flex">
-                                      <span className="text-red-500 w-28 shrink-0 text-xs font-medium">Scaduto</span>
-                                      <span className="text-red-600 text-xs font-semibold">€ {stats.overdue.toLocaleString('de-DE', { minimumFractionDigits: 2 })}</span>
-                                    </div>
-                                  )}
-                                  {avgAmount > 0 && (
-                                    <Detail label="Media fattura" value={`€ ${avgAmount.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} />
-                                  )}
-                                  {stats.lastDate && (
-                                    <Detail label="Ultima fattura" value={new Date(stats.lastDate).toLocaleDateString('it-IT')} />
-                                  )}
-                                </div>
-                                {/* Scadenze ancora da pagare (max 5, scadute in cima) */}
-                                {openPays.length > 0 && (
-                                  <div className="mt-3">
-                                    <h4 className="text-xs font-semibold text-slate-400 uppercase mb-1.5">Scadenze da pagare</h4>
-                                    <div className="space-y-1">
-                                      {openPays.slice(0, 5).map((pay, i) => (
-                                        <div key={i} className="bg-white rounded border border-slate-200 px-2.5 py-1.5 flex items-center justify-between text-xs">
-                                          <div className="flex items-center gap-2 min-w-0">
-                                            <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                                              pay.status === 'scaduto' ? 'bg-red-400' : 'bg-amber-400'
-                                            }`} />
-                                            <TextTooltip content={String(pay.invoice_number || '')}>
-                                              <span className="font-medium text-slate-700 truncate">{String(pay.invoice_number || '')}</span>
-                                            </TextTooltip>
-                                            <span className="text-slate-400">{pay.due_date ? new Date(String(pay.due_date)).toLocaleDateString('it-IT') : ''}</span>
-                                          </div>
-                                          <span className="font-semibold text-slate-700 shrink-0 ml-2">€ {(Number(pay.amount_remaining ?? pay.gross_amount) || 0).toLocaleString('de-DE', { minimumFractionDigits: 2 })}</span>
-                                        </div>
-                                      ))}
-                                      {openPays.length > 5 && (
-                                        <div className="text-xs text-slate-400 text-center pt-0.5">+ altre {openPays.length - 5} da pagare</div>
-                                      )}
-                                    </div>
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          </td>
+                          <td colSpan={9} className="px-4 py-4">{renderSupplierDetail(s)}</td>
                         </tr>
-                        );
-                      })()}
+                      )}
 
                       {/* Pannello GESTIONE (categoria + divisione + fatture) */}
                       {gestioneId === s.id && (
                         <tr className="bg-violet-50/40">
-                          <td colSpan={9} className="px-4 py-4 border-t-2 border-violet-300">
-                            <div className="space-y-4">
-                              <div className="flex items-center gap-2 text-xs text-slate-500 flex-wrap">
-                                <span className="inline-flex items-center px-2 py-0.5 bg-violet-100 text-violet-700 rounded-full text-[11px] font-semibold border border-violet-200">Pannello Gestione</span>
-                                <span className="font-medium text-slate-700">{name}</span>
-                                <span>— categoria, divisione e fatture nello stesso punto</span>
-                              </div>
-
-                              <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.5fr] gap-4">
-                                {/* Blocco A — Categoria merceologica */}
-                                <div className="bg-white rounded-xl border border-slate-200 p-4">
-                                  <h3 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2"><Tag size={15} className="text-violet-600" /> Categoria merceologica</h3>
-                                  <select
-                                    value={String(s.category || '')}
-                                    onChange={e => saveCategory(s.id, e.target.value)}
-                                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white"
-                                  >
-                                    <option value="">— scegli categoria —</option>
-                                    {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-                                  </select>
-                                  <p className="text-[11.5px] text-slate-400 mt-2 leading-relaxed">Salvataggio immediato sull'anagrafica fornitore. Alimenta il grafico "Spesa per categoria" del tab Analytics.</p>
-                                </div>
-
-                                {/* Blocco B — Divisione tra outlet */}
-                                <div className="bg-white rounded-xl border border-slate-200 p-4">
-                                  <h3 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2"><Split size={15} className="text-violet-600" /> Divisione tra {labels.pointOfSalePluralLower}</h3>
-                                  {activeOutletCount >= 2 ? (
-                                    <SupplierAllocationEditor
-                                      supplierId={s.id}
-                                      onSaved={(m) => onAllocationSaved(s.id, m)}
-                                      onCancel={() => setGestioneId(null)}
-                                    />
-                                  ) : (
-                                    <p className="text-xs text-slate-500 bg-slate-50 rounded-lg p-3 leading-relaxed">
-                                      La divisione tra {labels.pointOfSalePluralLower} è disponibile solo con almeno 2 {labels.pointOfSalePluralLower} attivi.
-                                      {activeOutletCount === 1 ? ` Questo tenant ne ha 1: tutti i costi sono attribuiti all'unica sede.` : ' Nessun outlet attivo configurato.'}
-                                    </p>
-                                  )}
-                                </div>
-                              </div>
-
-                              {/* Blocco C — Fatture del fornitore */}
-                              <div className="bg-white rounded-xl border border-slate-200 p-4">
-                                <h3 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
-                                  <FileText size={15} className="text-violet-600" /> Fatture del fornitore
-                                  {!gestInvLoading && gestInvoices.length > 0 && (
-                                    <span className="font-normal text-slate-400">({Math.min(gestInvoices.length, showAllInvoices ? gestInvoices.length : 20)} di {gestInvoices.length})</span>
-                                  )}
-                                </h3>
-                                {gestInvLoading ? (
-                                  <div className="flex items-center gap-2 py-6 text-sm text-slate-400"><Loader2 size={16} className="animate-spin" /> Caricamento fatture…</div>
-                                ) : gestInvoices.length === 0 ? (
-                                  <p className="text-sm text-slate-400 py-4 text-center">
-                                    {getVat(s) ? 'Nessuna fattura elettronica per questo fornitore.' : 'Fornitore senza P.IVA: impossibile agganciare le fatture elettroniche.'}
-                                  </p>
-                                ) : (
-                                  <div className="overflow-x-auto">
-                                    <table className="w-full text-sm">
-                                      <thead>
-                                        <tr className="text-left text-[10.5px] uppercase tracking-wider text-slate-400 border-b border-slate-100">
-                                          <th className="py-1.5 px-2 font-semibold">Numero</th>
-                                          <th className="py-1.5 px-2 font-semibold">Data</th>
-                                          <th className="py-1.5 px-2 font-semibold text-right">Importo</th>
-                                          <th className="py-1.5 px-2 font-semibold text-center">Tipo</th>
-                                          <th className="py-1.5 px-2 font-semibold text-center">Stato</th>
-                                          <th className="py-1.5 px-2 font-semibold text-center">Documento</th>
-                                        </tr>
-                                      </thead>
-                                      <tbody>
-                                        {(showAllInvoices ? gestInvoices : gestInvoices.slice(0, 20)).map(inv => {
-                                          const amt = Number(inv.gross_amount) || 0;
-                                          const st = inv.invoice_number ? gestPayStatus[inv.invoice_number] : undefined;
-                                          const stInfo = st === 'pagato' ? { t: 'Pagata', c: 'bg-emerald-100 text-emerald-700' }
-                                            : st === 'scaduto' ? { t: 'Scaduta', c: 'bg-red-100 text-red-700' }
-                                            : st ? { t: 'In scadenza', c: 'bg-amber-100 text-amber-700' }
-                                            : { t: '—', c: 'bg-slate-100 text-slate-400' };
-                                          const allg = allegatiCache[inv.id];
-                                          const known = allg !== undefined;
-                                          const hasAttach = known && allg.length > 0;
-                                          const busy = busyInvoiceId === inv.id;
-                                          return (
-                                            <tr key={inv.id} className="border-b border-slate-50 hover:bg-slate-50/60">
-                                              <td className="py-1.5 px-2 font-mono text-xs text-slate-700">
-                                                <TextTooltip content={String(inv.invoice_number || '')}>
-                                                  <span className="truncate inline-block max-w-[160px] align-bottom">{inv.invoice_number || '—'}</span>
-                                                </TextTooltip>
-                                              </td>
-                                              <td className="py-1.5 px-2 text-slate-500 text-xs whitespace-nowrap">{inv.invoice_date ? new Date(inv.invoice_date).toLocaleDateString('it-IT') : '—'}</td>
-                                              <td className={`py-1.5 px-2 text-right font-semibold whitespace-nowrap ${amt < 0 ? 'text-red-600' : 'text-slate-700'}`}>€ {amt.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                                              <td className="py-1.5 px-2 text-center"><span className="text-[10.5px] font-mono text-slate-500">{inv.tipo_documento || '—'}</span></td>
-                                              <td className="py-1.5 px-2 text-center"><span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-medium ${stInfo.c}`}>{stInfo.t}</span></td>
-                                              <td className="py-1.5 px-2">
-                                                <div className="flex items-center justify-center gap-1.5">
-                                                  <button
-                                                    onClick={() => handleOpenInvoice(inv)}
-                                                    disabled={busy}
-                                                    className="inline-flex items-center gap-1 px-2.5 py-1 border border-slate-200 rounded-md text-[11.5px] font-medium text-slate-600 hover:border-slate-400 disabled:opacity-50"
-                                                    title="Apri la fattura elettronica formattata"
-                                                  >
-                                                    {busy ? <Loader2 size={12} className="animate-spin" /> : <Eye size={12} />} Apri
-                                                  </button>
-                                                  {(!known || hasAttach) ? (
-                                                    <button
-                                                      onClick={() => handleOpenPdf(inv)}
-                                                      disabled={busy}
-                                                      className="inline-flex items-center gap-1 px-2.5 py-1 border border-violet-200 bg-violet-50 rounded-md text-[11.5px] font-medium text-violet-700 hover:bg-violet-100 disabled:opacity-50"
-                                                      title="Apri il PDF allegato alla fattura"
-                                                    >
-                                                      {busy ? <Loader2 size={12} className="animate-spin" /> : <Paperclip size={12} />} PDF
-                                                    </button>
-                                                  ) : (
-                                                    // Nessun allegato: il bottone resta cliccabile a fini
-                                                    // informativi — spiega col toast (oltre al tooltip) che
-                                                    // l'assenza del PDF non è un errore. L'utente non deve
-                                                    // ricordarsi le spiegazioni: le dà il sistema nel dubbio.
-                                                    <TextTooltip content="Nessun PDF allegato a questa fattura">
-                                                      <button
-                                                        onClick={() => showToast("Questo fornitore non ha allegato il PDF alla fattura elettronica. Non è un errore: puoi vedere la fattura con 'Apri'.", 'info')}
-                                                        className="inline-flex items-center gap-1 px-2.5 py-1 border border-slate-100 rounded-md text-[11.5px] font-medium text-slate-300 hover:text-slate-500 hover:border-slate-200"
-                                                      >
-                                                        <Paperclip size={12} /> PDF
-                                                      </button>
-                                                    </TextTooltip>
-                                                  )}
-                                                </div>
-                                              </td>
-                                            </tr>
-                                          );
-                                        })}
-                                      </tbody>
-                                    </table>
-                                    {gestInvoices.length > 20 && !showAllInvoices && (
-                                      <button onClick={() => setShowAllInvoices(true)} className="mt-2 text-xs font-medium text-violet-600 hover:text-violet-800">
-                                        Mostra tutte ({gestInvoices.length})
-                                      </button>
-                                    )}
-                                    <p className="text-[11.5px] text-slate-400 mt-2 leading-relaxed">"Apri" mostra la fattura XML formattata (stampa/PDF, download XML). "PDF" apre l'eventuale allegato della fattura senza uscire dalla pagina.</p>
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          </td>
+                          <td colSpan={9} className="px-4 py-4 border-t-2 border-violet-300">{renderGestionePanel(s)}</td>
                         </tr>
                       )}
                     </React.Fragment>
@@ -1281,6 +1295,110 @@ export default function Fornitori() {
             )}
               </tbody>
             </table>
+            </TableScroll>
+
+            {/* Vista mobile a schede (sotto md): dati chiave + azioni con touch
+                target >=44px. Dettaglio e pannello Gestione riusano le stesse
+                funzioni di render della tabella desktop. */}
+            <div className="md:hidden divide-y divide-slate-100">
+              {sortedSuppliers.length === 0 ? (
+                <div className="p-8 text-center">
+                  <Building2 className="mx-auto text-slate-300 mb-3" size={40} />
+                  <p className="text-slate-500 font-medium text-sm">Nessun fornitore trovato</p>
+                  <p className="text-slate-400 text-xs mt-1">
+                    {suppliers.length === 0
+                      ? 'Importa fatture XML dall\'Import Hub per creare fornitori automaticamente'
+                      : 'Prova a modificare i filtri di ricerca'}
+                  </p>
+                </div>
+              ) : sortedSuppliers.map(s => {
+                const name = getName(s);
+                const vat = getVat(s);
+                const stats = supplierStats[s.id] || { grossTotal: 0, overdue: 0, pending: 0, paid: 0, count: 0, lastDate: null, methods: new Set(), paidCount: 0, reconciledCount: 0 };
+                const isExpanded = expandedId === s.id;
+                const pm = s.payment_method || s.default_payment_method;
+                return (
+                  <div key={s.id} className={`p-3 ${isExpanded ? 'bg-indigo-50/30' : ''}`}>
+                    <button onClick={() => setExpandedId(isExpanded ? null : s.id)} className="w-full text-left">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${s.is_active !== false ? 'bg-emerald-400' : 'bg-slate-300'}`} />
+                          <div className="min-w-0">
+                            <div className="font-medium text-slate-800 break-words">{name}</div>
+                            {vat && <div className="text-xs text-slate-500 font-mono">{vat}</div>}
+                          </div>
+                        </div>
+                        {isExpanded
+                          ? <ChevronUp size={16} className="text-slate-400 shrink-0 mt-1" />
+                          : <ChevronDown size={16} className="text-slate-400 shrink-0 mt-1" />}
+                      </div>
+                      <div className="flex items-center gap-1.5 flex-wrap mt-1.5">
+                        {s.category ? (
+                          <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-xs">{String(s.category)}</span>
+                        ) : null}
+                        {ruleModeBySupplier[s.id] ? (
+                          <span className="px-2 py-0.5 bg-violet-100 text-violet-700 rounded-full text-xs font-medium">{MODE_META[ruleModeBySupplier[s.id]].label}</span>
+                        ) : activeOutletCount >= 2 ? (
+                          <span className="px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full text-xs font-medium">divisione da definire</span>
+                        ) : null}
+                        {pm ? <span className="text-xs text-slate-500">{PAYMENT_LABEL[String(pm)] || String(pm)}</span> : null}
+                      </div>
+                      <div className="flex items-center justify-between gap-3 mt-2">
+                        <div className="text-xs text-slate-500">
+                          Fatturato{' '}
+                          <span className="font-medium text-slate-700">
+                            {stats.grossTotal > 0 ? `€ ${stats.grossTotal.toLocaleString('de-DE', { minimumFractionDigits: 0 })}` : '—'}
+                          </span>
+                          {stats.count > 0 && <span className="text-slate-400"> · {stats.count} fatt.</span>}
+                        </div>
+                        <div className="text-right text-sm">
+                          {stats.overdue > 0 ? (
+                            <span className="font-semibold text-red-600">
+                              € {stats.pending.toLocaleString('de-DE', { minimumFractionDigits: 0 })}
+                              <span className="block text-[11px] font-medium text-red-500">di cui {stats.overdue.toLocaleString('de-DE', { minimumFractionDigits: 0 })} scaduto</span>
+                            </span>
+                          ) : stats.pending > 0 ? (
+                            <span className="font-medium text-amber-600">€ {stats.pending.toLocaleString('de-DE', { minimumFractionDigits: 0 })} da pagare</span>
+                          ) : stats.grossTotal > 0 ? (
+                            <span className="text-xs text-emerald-500 font-medium">Saldato</span>
+                          ) : null}
+                        </div>
+                      </div>
+                    </button>
+                    <div className="flex items-center gap-2 mt-2.5">
+                      <button
+                        onClick={() => navigate(`/fornitori/${(s as { slug?: string }).slug || s.id}/scheda-contabile`)}
+                        className="flex-1 inline-flex items-center justify-center gap-1.5 min-h-[44px] px-2 text-xs font-medium border border-slate-200 text-slate-600 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition">
+                        <BookOpen size={14} /> Scheda
+                      </button>
+                      <button
+                        onClick={() => openEdit(s)}
+                        className="flex-1 inline-flex items-center justify-center gap-1.5 min-h-[44px] px-2 text-xs font-medium border border-slate-200 text-slate-600 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 transition">
+                        <Edit3 size={14} /> Modifica
+                      </button>
+                      <button
+                        onClick={() => toggleGestione(s.id)}
+                        className={`flex-1 inline-flex items-center justify-center gap-1.5 min-h-[44px] px-2 text-xs font-medium rounded-lg transition ${
+                          gestioneId === s.id ? 'bg-violet-600 text-white border border-violet-600' : 'border border-violet-200 text-violet-600 hover:bg-violet-50'
+                        }`}>
+                        <SlidersHorizontal size={14} /> Gestione
+                      </button>
+                      <button
+                        onClick={() => handleDelete(s.id)}
+                        className="inline-flex items-center justify-center min-w-[44px] min-h-[44px] border border-slate-200 text-slate-400 rounded-lg hover:text-red-500 hover:bg-red-50 transition"
+                        title="Disattiva" aria-label="Disattiva fornitore">
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                    {isExpanded && (
+                      <div className="mt-3 pt-3 border-t border-slate-200">{renderSupplierDetail(s)}</div>
+                    )}
+                    {gestioneId === s.id && (
+                      <div className="mt-3 pt-3 border-t-2 border-violet-300">{renderGestionePanel(s)}</div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
 
             {/* Footer */}
