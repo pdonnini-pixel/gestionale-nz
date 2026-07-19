@@ -36,6 +36,8 @@ import { StatusPill, Modal } from './scadenzario/SharedUI';
 import { EditScheduleModal, InvoiceModal, SupplierModal, type InvoiceFormState } from './scadenzario/modals';
 import { SituazioneTab } from './scadenzario/SituazioneTab';
 import { ScadenzeCharts } from './scadenzario/ScadenzeCharts';
+import { BulkPaymentBar } from './scadenzario/BulkPaymentBar';
+import { SupplierDetailModal } from './scadenzario/SupplierDetailModal';
 
 // Main component
 const ScadenzarioSmart = () => {
@@ -3734,78 +3736,18 @@ const ScadenzarioSmart = () => {
           )}
 
           {/* Floating Action Bar for Bulk Payments */}
-          {selectedIds.size > 0 && (
-            // bottom-20 su mobile: sta sopra la bottom nav (h-14) e il
-            // pulsante ? dell'aiuto, che altrimenti coprirebbe.
-            <div className="fixed bottom-20 md:bottom-6 left-1/2 -translate-x-1/2 z-40 w-[min(92vw,880px)]">
-              <div className="bg-white border border-slate-200 rounded-xl shadow-lg px-6 py-4">
-                {/* Saldi progressivi per banca — SEMPRE visibili mentre si spuntano le fatture,
-                    così si tiene d'occhio quanto resta su ogni conto (saldo attuale → residuo stimato). */}
-                {Object.keys(bankSpending).length > 0 && (
-                  <div className="flex flex-wrap gap-x-5 gap-y-1.5 mb-3 pb-3 border-b border-slate-100">
-                    {Object.keys(bankSpending).map(bid => {
-                      const ba = bankAccounts.find(b => String(b.id) === String(bid));
-                      if (!ba) return null;
-                      const saldo0 = Number(ba.current_balance) || 0;
-                      const residuoStimato = bankBalances[bid] ?? saldo0;
-                      const neg = residuoStimato < 0;
-                      return (
-                        <div key={bid} className="flex items-center gap-1.5 text-xs">
-                          <Landmark size={13} className="text-slate-400" />
-                          <span className="font-medium text-slate-700">{ba.bank_name}</span>
-                          <span className="text-slate-400">{fmt(saldo0)} €</span>
-                          <ChevronRight size={12} className="text-slate-300" />
-                          <span className={neg ? 'font-bold text-red-600' : 'font-semibold text-emerald-600'}>{fmt(residuoStimato)} €</span>
-                          <span className="text-slate-400">(−{fmt(bankSpending[bid] || 0)})</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-                <div className="flex items-center justify-between gap-8">
-                  <div className="flex items-center gap-4">
-                    <span className="text-sm font-medium text-slate-900">{selectedIds.size} fattura{selectedIds.size !== 1 ? 'e' : ''}</span>
-                    <span className="text-lg font-bold">{fmt(selectedTotal)} €</span>
-                    {hasNegativeBalance && <span className="text-sm font-medium text-red-600">Saldo insufficiente</span>}
-                    {!hasNegativeBalance && missingBankCount > 0 && (
-                      <span className="text-sm font-medium text-amber-600">
-                        {missingBankCount === 1 ? '1 fattura senza banca' : `${missingBankCount} fatture senza banca`}
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex gap-3">
-                    <button onClick={() => { setSelectedIds(new Set()); setPaymentPlan({}); }}
-                      className="px-4 py-2 text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg text-sm font-medium">
-                      Annulla
-                    </button>
-                    {hasNegativeBalance && (
-                      <div className="flex items-center gap-1.5 px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700 font-medium">
-                        <AlertTriangle size={14} /> Saldo insufficiente su una o più banche
-                      </div>
-                    )}
-                    {!hasNegativeBalance && missingBankCount > 0 && (
-                      <div className="flex items-center gap-1.5 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-700 font-medium">
-                        <AlertTriangle size={14} /> Assegna una banca a ogni fattura selezionata
-                      </div>
-                    )}
-                    <button onClick={confirmPayments} disabled={isSaving || hasNegativeBalance || missingBankCount > 0}
-                      className="px-6 py-2 bg-emerald-600 text-white hover:bg-emerald-700 rounded-lg text-sm font-bold disabled:opacity-50 disabled:cursor-not-allowed"
-                      title={missingBankCount > 0
-                        ? 'Assegna una banca a ogni fattura selezionata per abilitare la creazione della distinta.'
-                        : "Genera l'email-distinta di pagamento. La fattura resterà aperta finché il movimento bancario non verrà importato e riconciliato."}>
-                      {isSaving ? 'Elaborazione...' : 'Crea distinta'}
-                    </button>
-                    <button disabled
-                      className="px-6 py-2 bg-slate-200 text-slate-400 rounded-lg text-sm font-bold cursor-not-allowed flex items-center gap-1.5"
-                      title="In arrivo: bonifico SEPA diretto dal gestionale via A-Cube PSD2">
-                      <Wallet size={14} />
-                      Paga via A-Cube — Prossima feature
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
+          <BulkPaymentBar
+            selectedCount={selectedIds.size}
+            selectedTotal={selectedTotal}
+            bankSpending={bankSpending}
+            bankBalances={bankBalances}
+            bankAccounts={bankAccounts}
+            hasNegativeBalance={hasNegativeBalance}
+            missingBankCount={missingBankCount}
+            isSaving={isSaving}
+            onClear={() => { setSelectedIds(new Set()); setPaymentPlan({}); }}
+            onConfirm={confirmPayments}
+          />
         </>
       ) : null}
       </div>{/* chiude content wrapper */}
@@ -3842,40 +3784,7 @@ const ScadenzarioSmart = () => {
       )}
 
       {/* Supplier Detail Popup */}
-      {supplierDetail && (
-        <Modal open={true} onClose={() => setSupplierDetail(null)} title="Dettaglio Fornitore">
-          <div className="space-y-3">
-            <div>
-              <div className="text-xs text-slate-500 uppercase">Ragione Sociale</div>
-              <div className="text-base font-semibold text-slate-900">{supplierDetail.ragione_sociale || supplierDetail.name || '—'}</div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <div className="text-xs text-slate-500 uppercase">P.IVA</div>
-                <div className="text-sm text-slate-800 mt-0.5">{supplierDetail.partita_iva || '—'}</div>
-              </div>
-              <div>
-                <div className="text-xs text-slate-500 uppercase">CF</div>
-                <div className="text-sm text-slate-800 mt-0.5">{supplierDetail.codice_fiscale || '—'}</div>
-              </div>
-            </div>
-            <div>
-              <div className="text-xs text-slate-500 uppercase">IBAN</div>
-              <div className="text-sm text-slate-800 mt-0.5">{supplierDetail.iban || '—'}</div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <div className="text-xs text-slate-500 uppercase">Email</div>
-                <div className="text-sm text-slate-800 mt-0.5">{supplierDetail.email || '—'}</div>
-              </div>
-              <div>
-                <div className="text-xs text-slate-500 uppercase">Telefono</div>
-                <div className="text-sm text-slate-800 mt-0.5">{supplierDetail.telefono || '—'}</div>
-              </div>
-            </div>
-          </div>
-        </Modal>
-      )}
+      <SupplierDetailModal supplier={supplierDetail} onClose={() => setSupplierDetail(null)} />
 
       {/* Rimanda Scadenza Modal — default "fine mese successivo" o data scelta */}
       {rinviaModal.open && (() => {
