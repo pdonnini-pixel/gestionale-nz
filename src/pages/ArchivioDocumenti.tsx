@@ -821,7 +821,7 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
                 </button>
 
                 {expanded && (
-                  <div className="bg-slate-50/60 border-t border-slate-100 overflow-x-auto">
+                  <div className="bg-slate-50/60 border-t border-slate-100 overflow-x-auto scroll-shadow-x">
                     <table className="w-full min-w-[560px]">
                       <thead>
                         <tr className="text-[10px] uppercase text-slate-500">
@@ -1294,7 +1294,7 @@ function ConservazioneTab({ docs, stats, loading, filter, setFilter, search, set
               <p className="text-slate-500 font-medium">Nessun documento in conservazione</p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto scroll-shadow-x">
               <table className="w-full">
                 <thead className="bg-slate-50 border-b border-slate-200">
                   <tr>

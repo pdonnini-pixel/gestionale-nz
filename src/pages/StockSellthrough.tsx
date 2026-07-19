@@ -471,7 +471,7 @@ export default function StockSellthrough() {
                 {/* Content */}
                 {isExpanded && (
                   <div className="px-6 py-4 border-t border-slate-200 bg-slate-50">
-                    <div className="overflow-x-auto">
+                    <div className="overflow-x-auto scroll-shadow-x">
                       <table className="w-full text-sm">
                         <thead>
                           <tr className="border-b border-slate-200">

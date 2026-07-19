@@ -3285,7 +3285,7 @@ const ScadenzarioSmart = () => {
               </div>
             ) : (
               <div className="bg-white rounded-xl border border-slate-200/80 overflow-hidden">
-                <div className="overflow-x-auto">
+                <div className="overflow-x-auto scroll-shadow-x">
                   <table className="w-full">
                     <thead className="sticky top-0 bg-white z-10">
                       <tr className="border-b border-slate-100 text-[11px] uppercase tracking-wider text-slate-500">
@@ -3872,7 +3872,7 @@ const ScadenzarioSmart = () => {
                       </div>
                     </div>
                   </div>
-                  <div className="overflow-x-auto">
+                  <div className="overflow-x-auto scroll-shadow-x">
                     <table className="w-full text-sm">
                       <thead className="sticky top-0 bg-slate-50 border-b border-slate-100 z-10">
                         <tr>
@@ -3941,7 +3941,7 @@ const ScadenzarioSmart = () => {
                       </div>
                     </div>
                   </div>
-                  <div className="overflow-x-auto">
+                  <div className="overflow-x-auto scroll-shadow-x">
                     <table className="w-full text-sm">
                       <thead className="sticky top-0 bg-slate-50 border-b border-slate-100 z-10">
                         <tr>

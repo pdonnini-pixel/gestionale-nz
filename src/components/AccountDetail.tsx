@@ -179,7 +179,7 @@ function ReconciliationModal({ isOpen, onClose, transaction, onReconcile }: { is
       closeOnBackdrop={false}
       ariaLabel="Riconcilia movimento"
       containerClassName="fixed inset-0 z-[60] bg-black/50 flex items-center justify-center"
-      panelClassName="bg-white rounded-2xl shadow-xl max-w-lg w-full mx-4 max-h-[70vh] flex flex-col"
+      panelClassName="bg-white rounded-2xl shadow-xl max-w-lg w-full mx-4 max-h-[70dvh] flex flex-col"
     >
         <div className="p-5 border-b border-gray-100">
           <div className="flex items-center justify-between">
@@ -660,7 +660,7 @@ export default function AccountDetail({ isOpen, onClose, account, onSync }: Acco
 
           {/* Transactions Table */}
           <div className="px-6 py-4">
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto scroll-shadow-x">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-gray-200">

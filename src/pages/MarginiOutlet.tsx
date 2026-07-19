@@ -413,7 +413,7 @@ export default function MarginiOutlet() {
               <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm mb-8">
                 <h2 className="text-lg font-semibold text-slate-900 mb-4">Heatmap Margini Mensili</h2>
                 <p className="text-sm text-slate-500 mb-4">Colore per margine %: verde = alto, giallo = medio, rosso = basso/negativo</p>
-                <div className="overflow-x-auto">
+                <div className="overflow-x-auto scroll-shadow-x">
                   <table className="w-full text-sm">
                     <thead>
                       <tr>
@@ -477,7 +477,7 @@ export default function MarginiOutlet() {
                   <button onClick={moResetSort} className="ml-auto text-blue-600 hover:text-blue-800 font-medium">Reset</button>
                 </div>
               )}
-              <div className="overflow-x-auto">
+              <div className="overflow-x-auto scroll-shadow-x">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-slate-200 bg-slate-50">

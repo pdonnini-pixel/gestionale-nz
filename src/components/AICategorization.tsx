@@ -574,7 +574,7 @@ export default function AICategorization({ companyId }: AICategorizationProps) {
                 : 'Nessun movimento trovato.'}
           </div>
         ) : (
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto scroll-shadow-x">
             <table className="w-full text-sm">
               <thead className="sticky top-0 bg-white z-10">
                 <tr className="border-b border-slate-100 text-[11px] text-slate-400 uppercase tracking-wider">

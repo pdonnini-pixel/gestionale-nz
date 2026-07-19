@@ -462,7 +462,7 @@ function TabellaBenchmark({ outletMetrics }: { outletMetrics: OutletMetric[] }) 
         <Target size={18} className="text-blue-600" />
         <h3 className="font-semibold text-slate-900">Benchmark comparativo</h3>
       </div>
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto scroll-shadow-x">
         <table className="w-full">
           <thead className="bg-slate-50">
             <tr className="text-xs text-slate-500 uppercase tracking-wider">

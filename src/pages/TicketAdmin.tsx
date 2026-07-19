@@ -587,7 +587,7 @@ export default function TicketAdminPage() {
           ariaLabel="Importa ticket — anteprima"
           closeOnBackdrop={false}
           containerClassName="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 px-4"
-          panelClassName="bg-white rounded-xl shadow-2xl max-w-4xl w-full p-6 max-h-[85vh] flex flex-col"
+          panelClassName="bg-white rounded-xl shadow-2xl max-w-4xl w-full p-6 max-h-[85dvh] flex flex-col"
         >
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-lg font-semibold text-slate-900 flex items-center gap-2">

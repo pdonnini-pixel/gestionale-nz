@@ -39,6 +39,23 @@ body {
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
+/* Indicatore di scroll orizzontale per le tabelle larghe (versione solo-CSS,
+   complementare al componente ui/TableScroll usato dove serve anche il
+   max-height): ombre sfumate ai bordi del contenitore overflow-x-auto,
+   visibili solo quando c'e' contenuto nascosto in quella direzione
+   (background-attachment: local/scroll — nessun JS). */
+.scroll-shadow-x {
+  background-image:
+    linear-gradient(to right, #fff, #fff),
+    linear-gradient(to left, #fff, #fff),
+    linear-gradient(to right, rgba(15, 23, 42, 0.14), rgba(255, 255, 255, 0)),
+    linear-gradient(to left, rgba(15, 23, 42, 0.14), rgba(255, 255, 255, 0));
+  background-position: left center, right center, left center, right center;
+  background-repeat: no-repeat;
+  background-size: 24px 100%, 24px 100%, 12px 100%, 12px 100%;
+  background-attachment: local, local, scroll, scroll;
+}
+
 /* Campi importo (euro): niente frecce su/giù e niente cambio con la rotella —
    l'importo si modifica solo scrivendo. */
 input.no-spin::-webkit-outer-spin-button,

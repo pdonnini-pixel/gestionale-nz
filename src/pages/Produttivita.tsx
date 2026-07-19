@@ -527,7 +527,7 @@ export default function Produttivita() {
             <Award className="w-5 h-5 text-amber-500" />
             Classifica Produttività per Outlet
           </h2>
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto scroll-shadow-x">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50">
@@ -666,7 +666,7 @@ export default function Produttivita() {
         {/* Full Metrics Table */}
         <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm mb-8">
           <h2 className="text-lg font-semibold text-slate-900 mb-4">Confronto Metriche Completo</h2>
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto scroll-shadow-x">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50">

@@ -460,7 +460,7 @@ function OutletTab({ outletData, totals }: { outletData: any[]; totals: any }) {
 
       {/* Table */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto scroll-shadow-x">
           <table className="w-full">
             <thead className="bg-slate-50 border-b border-slate-200">
               <tr>

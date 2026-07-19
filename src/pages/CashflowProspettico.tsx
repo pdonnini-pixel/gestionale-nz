@@ -1566,7 +1566,7 @@ export default function CashflowProspettico() {
             <span className="text-indigo-500 text-sm">{showForecastList ? '▼ Nascondi' : '▶ Mostra'}</span>
           </button>
           {showForecastList && (
-            <div className="border-t border-indigo-100 max-h-[400px] overflow-y-auto overflow-x-auto">
+            <div className="border-t border-indigo-100 max-h-[400px] overflow-y-auto overflow-x-auto scroll-shadow-x">
               <table className="w-full min-w-[560px] text-sm">
                 <thead className="bg-indigo-50/50 text-xs text-indigo-700 uppercase">
                   <tr>
@@ -1830,7 +1830,7 @@ export default function CashflowProspettico() {
 
       {/* Detail Table */}
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto scroll-shadow-x">
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-slate-50 border-b border-slate-200">

@@ -1430,7 +1430,7 @@ export default function ImportHub() {
 
                 {/* CSV Preview Table */}
                 {previewData.headers && (
-                  <div className="overflow-x-auto mb-3">
+                  <div className="overflow-x-auto scroll-shadow-x mb-3">
                     <table className="w-full text-xs border-collapse">
                       <thead>
                         <tr>
@@ -1500,7 +1500,7 @@ export default function ImportHub() {
         {/* HISTORY TAB */}
         {activeTab === 'history' && (
           <div className="bg-white rounded-lg shadow overflow-hidden">
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto scroll-shadow-x">
               <table className="w-full">
                 <thead className="bg-gray-50 border-b border-gray-200">
                   <tr>
@@ -1679,9 +1679,9 @@ export default function ImportHub() {
             </div>
             <div className="flex-1 overflow-hidden">
               {previewUrl ? (
-                <iframe src={previewUrl} className="w-full h-full min-h-[70vh]" title="Anteprima PDF" />
+                <iframe src={previewUrl} className="w-full h-full min-h-[70dvh]" title="Anteprima PDF" />
               ) : (
-                <div className="flex items-center justify-center h-[70vh]">
+                <div className="flex items-center justify-center h-[70dvh]">
                   <RefreshCw size={24} className="animate-spin text-blue-600" />
                 </div>
               )}

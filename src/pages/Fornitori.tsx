@@ -1492,7 +1492,7 @@ export default function Fornitori() {
               {/* Aging Analysis */}
               <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm lg:col-span-2">
                 <h3 className="text-sm font-semibold text-slate-700 mb-4">Analisi aging fornitori</h3>
-                <div className="overflow-x-auto">
+                <div className="overflow-x-auto scroll-shadow-x">
                   <table className="w-full text-sm">
                     <thead className="sticky top-0 bg-white z-10">
                       <tr className="border-b border-slate-200">
@@ -1712,7 +1712,7 @@ export default function Fornitori() {
         bare
         ariaLabel={pdfModal?.nome ?? 'Anteprima PDF'}
         containerClassName="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-        panelClassName="bg-white rounded-xl shadow-2xl w-full max-w-4xl h-[85vh] flex flex-col overflow-hidden"
+        panelClassName="bg-white rounded-xl shadow-2xl w-full max-w-4xl h-[85dvh] flex flex-col overflow-hidden"
       >
             <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 shrink-0">
               <div className="flex items-center gap-2 min-w-0">

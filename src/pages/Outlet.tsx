@@ -1474,7 +1474,7 @@ function CorrispettiviTab({ outletId, companyId }: { outletId: string; companyId
 
           {/* Daily table */}
           <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto scroll-shadow-x">
               <table className="w-full text-sm">
                 <thead className="bg-slate-50">
                   <tr className="text-[11px] text-slate-500 uppercase tracking-wider">
@@ -1564,7 +1564,7 @@ function StaffTab({ outletId, companyId }: { outletId: string; companyId: string
         </div>
       ) : (
         <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto scroll-shadow-x">
           <table className="w-full min-w-[560px] text-sm">
             <thead className="bg-slate-50">
               <tr className="text-[11px] text-slate-500 uppercase tracking-wider">

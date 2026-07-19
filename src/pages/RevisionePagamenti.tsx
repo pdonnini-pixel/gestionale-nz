@@ -307,7 +307,7 @@ export default function RevisionePagamenti() {
 
       {/* Griglia */}
       <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto scroll-shadow-x">
           <table className="w-full text-sm min-w-[820px]">
             <thead>
               <tr className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">

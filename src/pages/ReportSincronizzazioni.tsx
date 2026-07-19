@@ -82,7 +82,7 @@ function RunDetails({ feed, details, movements, movementsTotal, bankNames, loadi
 
   if (feed === 'fatture_passive') {
     return (
-      <div className="px-6 py-3 overflow-x-auto">
+      <div className="px-6 py-3 overflow-x-auto scroll-shadow-x">
         <table className="w-full min-w-[480px] text-xs">
           <thead>
             <tr className="text-left text-slate-400 border-b border-slate-200">
@@ -140,7 +140,7 @@ function RunDetails({ feed, details, movements, movementsTotal, bankNames, loadi
               <p className="px-3 py-1.5 text-xs text-red-700 border-b border-slate-100">{error}</p>
             )}
             {moves.length > 0 ? (
-              <div className="overflow-x-auto">
+              <div className="overflow-x-auto scroll-shadow-x">
               <table className="w-full min-w-[480px] text-xs">
                 <thead>
                   <tr className="text-left text-slate-400 border-b border-slate-100">
@@ -356,7 +356,7 @@ export default function ReportSincronizzazioni() {
 
       {/* Tabella run */}
       <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto scroll-shadow-x">
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-xs font-semibold text-slate-500 border-b border-slate-200 bg-slate-50">

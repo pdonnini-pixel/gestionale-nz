@@ -458,7 +458,7 @@ export default function FinanziamentiTab({ accounts, companyId, uploadedByName }
         </div>
       ) : (
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto scroll-shadow-x">
           <table className="w-full min-w-[720px]">
             <thead>
               <tr className="text-[10px] uppercase text-slate-500 bg-slate-50 border-b border-slate-100">
