@@ -485,6 +485,10 @@ export const PAGE_GUIDES: PageGuide[] = [
       {
         "q": "Come sposto in avanti la scadenza di una fattura?",
         "a": "Usa l'icona calendario \"Rimanda\" sulla riga della fattura: si apre una finestra con un tasto rapido \"Fine mese successivo\" (imposta come nuova scadenza l'ultimo giorno del mese successivo a quello corrente) e l'opzione \"Scegli data\" per indicare una data qualsiasi. La fattura prende la nuova scadenza e, se era scaduta, torna tra quelle da pagare."
+      },
+      {
+        "q": "Se io e un'altra collega chiudiamo a mano la stessa fattura nello stesso momento, si rischia di perdere un pagamento?",
+        "a": "No. La chiusura manuale registra l'importo pagato in modo protetto: il conteggio viene fatto al momento del salvataggio sul valore aggiornato, sommando l'importo (non sovrascrivendolo). Così, se nel frattempo qualcun altro (o la riconciliazione bancaria) ha già registrato un pagamento parziale su quella fattura, il tuo non lo cancella: i due importi si sommano correttamente."
       }
     ]
   },
