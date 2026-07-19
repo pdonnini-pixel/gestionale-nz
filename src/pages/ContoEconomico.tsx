@@ -33,6 +33,7 @@ import TextTooltip from '../components/Tooltip'
 import { PlaceholderDot, PlaceholderLegend } from '../components/PlaceholderMark'
 
 import PdfViewer from '../components/PdfViewer'
+import { Modal } from '../components/ui/Modal'
 import { parseBilancio, toSupabaseRecords } from '../lib/parsers/bilancioParser'
 
 // ===== TYPES =====
@@ -2910,15 +2911,20 @@ export default function ContoEconomico() {
       </Section>
 
       {/* Approval confirmation modal */}
-      {showApproveConfirm && (
-        <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={() => setShowApproveConfirm(null)}>
-          <div className="bg-white rounded-xl shadow-xl p-6 max-w-md w-full mx-4" onClick={e => e.stopPropagation()}>
+      <Modal
+        open={!!showApproveConfirm}
+        onClose={() => setShowApproveConfirm(null)}
+        bare
+        ariaLabel="Conferma approvazione"
+        containerClassName="fixed inset-0 bg-black/30 flex items-center justify-center z-50"
+        panelClassName="bg-white rounded-xl shadow-xl p-6 max-w-md w-full mx-4"
+      >
             <h3 className="text-lg font-bold text-slate-900 mb-2">Conferma approvazione</h3>
             <p className="text-sm text-slate-600 mb-1">
               Stai per approvare il bilancio:
             </p>
             <p className="text-sm font-medium text-slate-900 mb-3">
-              {showApproveConfirm.file_name} — {showApproveConfirm.period_label}
+              {showApproveConfirm?.file_name} — {showApproveConfirm?.period_label}
             </p>
             <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4">
               <p className="text-xs text-amber-800 flex items-center gap-1.5">
@@ -2931,24 +2937,27 @@ export default function ContoEconomico() {
                 className="px-4 py-2 rounded-lg text-sm border border-slate-300 text-slate-700 hover:bg-slate-50">
                 Annulla
               </button>
-              <button onClick={() => handleApproveImport(showApproveConfirm)}
+              <button onClick={() => { if (showApproveConfirm) handleApproveImport(showApproveConfirm) }}
                 className="px-4 py-2 rounded-lg text-sm bg-green-600 text-white hover:bg-green-700 font-medium flex items-center gap-1">
                 <CheckCircle size={14} /> Approva bilancio
               </button>
             </div>
-          </div>
-        </div>
-      )}
+      </Modal>
 
       {/* Modale conferma sovrascrittura (NO DATA LOSS) */}
-      {saveConfirm && (
-        <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50 p-4" onClick={() => setSaveConfirm(null)}>
-          <div className="bg-white rounded-xl shadow-xl p-6 max-w-md w-full mx-4" onClick={e => e.stopPropagation()}>
-            <h3 className="text-lg font-bold text-slate-900 mb-2">{saveConfirm.title}</h3>
+      <Modal
+        open={!!saveConfirm}
+        onClose={() => setSaveConfirm(null)}
+        bare
+        ariaLabel={saveConfirm?.title ?? 'Conferma sovrascrittura'}
+        containerClassName="fixed inset-0 bg-black/30 flex items-center justify-center z-50 p-4"
+        panelClassName="bg-white rounded-xl shadow-xl p-6 max-w-md w-full mx-4"
+      >
+            <h3 className="text-lg font-bold text-slate-900 mb-2">{saveConfirm?.title}</h3>
             <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4">
               <p className="text-xs text-amber-800 flex items-start gap-1.5">
                 <AlertTriangle size={14} className="mt-0.5 shrink-0" />
-                <span>{saveConfirm.message}</span>
+                <span>{saveConfirm?.message}</span>
               </p>
             </div>
             <div className="flex gap-2 justify-end">
@@ -2957,14 +2966,12 @@ export default function ContoEconomico() {
                 Annulla
               </button>
               <button
-                onClick={() => { const cb = saveConfirm.onConfirm; setSaveConfirm(null); cb() }}
+                onClick={() => { if (saveConfirm) { const cb = saveConfirm.onConfirm; setSaveConfirm(null); cb() } }}
                 className="px-4 py-2 rounded-lg text-sm bg-red-600 text-white hover:bg-red-700 font-medium">
-                {saveConfirm.confirmLabel || 'Sovrascrivi'}
+                {saveConfirm?.confirmLabel || 'Sovrascrivi'}
               </button>
             </div>
-          </div>
-        </div>
-      )}
+      </Modal>
 
       {/* Loading indicator */}
       {loading && (

@@ -19,6 +19,7 @@ import StatusBadge from '../components/ui/StatusBadge';
 import SortableTh from '../components/ui/SortableTh';
 import InvoiceViewer from '../components/InvoiceViewer';
 import { UiTooltip } from '../components/Tooltip';
+import { Modal as UIModal } from '../components/ui/Modal';
 import { useTableSort } from '../hooks/useTableSort';
 import {
   BarChart, Bar, PieChart, Pie, Cell, AreaChart, Area,
@@ -207,18 +208,21 @@ function Modal({ open, onClose, title, children, wide }: { open: boolean; onClos
 
   if (!open) return null
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={onClose}>
-      {/* max-h in dvh (non vh): con la barra URL mobile il footer del modale
-          finiva dietro la barra. overscroll-contain evita che lo scroll a
-          fine corsa si incateni alla pagina sottostante. */}
-      <div role="dialog" aria-modal="true" aria-label={title} className={`bg-white rounded-2xl shadow-2xl w-full ${wide ? 'max-w-2xl' : 'max-w-lg'} mx-4 max-h-[90dvh] overflow-y-auto overscroll-contain`} onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between p-5 border-b border-slate-100">
-          <h3 className="text-lg font-semibold text-slate-900">{title}</h3>
-          <button onClick={onClose} title="Chiudi" className="p-1 rounded-lg hover:bg-slate-100 text-slate-400"><X size={20} /></button>
-        </div>
-        <div className="p-5">{children}</div>
+    <UIModal
+      open={open}
+      onClose={onClose}
+      bare
+      closeOnBackdrop={false}
+      ariaLabel={title}
+      containerClassName="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+      panelClassName={`bg-white rounded-2xl shadow-2xl w-full ${wide ? 'max-w-2xl' : 'max-w-lg'} mx-4 max-h-[90dvh] overflow-y-auto overscroll-contain`}
+    >
+      <div className="flex items-center justify-between p-5 border-b border-slate-100">
+        <h3 className="text-lg font-semibold text-slate-900">{title}</h3>
+        <button onClick={onClose} title="Chiudi" className="p-1 rounded-lg hover:bg-slate-100 text-slate-400"><X size={20} /></button>
       </div>
-    </div>
+      <div className="p-5">{children}</div>
+    </UIModal>
   )
 }
 

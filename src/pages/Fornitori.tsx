@@ -29,6 +29,7 @@ import { usePeriod } from '../hooks/usePeriod';
 import SupplierAllocationEditor, { MODE_META, type AllocationMode } from '../components/SupplierAllocationEditor';
 import InvoiceViewer from '../components/InvoiceViewer';
 import PdfViewer from '../components/PdfViewer';
+import { Modal } from '../components/ui/Modal';
 import { parseFatturaAllegati, downloadBytes, type FatturaAllegato } from '../lib/fatturaAllegati';
 import {
   PAYMENT_METHOD_OPTIONS, PAYMENT_METHOD_LABELS as PAYMENT_LABEL,
@@ -1421,9 +1422,14 @@ export default function Fornitori() {
       )}
 
       {/* MODAL FORNITORE */}
-      {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowModal(false)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto m-4" onClick={e => e.stopPropagation()}>
+      <Modal
+        open={showModal}
+        onClose={() => setShowModal(false)}
+        bare
+        ariaLabel={editingId ? 'Modifica Fornitore' : 'Nuovo Fornitore'}
+        containerClassName="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+        panelClassName="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto m-4"
+      >
             <div className="flex items-center justify-between p-6 border-b">
               <h2 className="text-lg font-bold text-slate-900">
                 {editingId ? 'Modifica Fornitore' : 'Nuovo Fornitore'}
@@ -1575,27 +1581,30 @@ export default function Fornitori() {
                 {editingId ? 'Salva Modifiche' : 'Crea Fornitore'}
               </button>
             </div>
-          </div>
-        </div>
-      )}
+      </Modal>
 
       {/* INVOICE VIEWER (XML fattura formattato) */}
       {viewerXml && <InvoiceViewer xmlContent={viewerXml} onClose={() => setViewerXml(null)} />}
 
       {/* PDF VIEWER (allegato PDF della fattura) in modal custom */}
-      {pdfModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setPdfModal(null)}>
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl h-[85vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
+      <Modal
+        open={!!pdfModal}
+        onClose={() => setPdfModal(null)}
+        bare
+        ariaLabel={pdfModal?.nome ?? 'Anteprima PDF'}
+        containerClassName="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+        panelClassName="bg-white rounded-xl shadow-2xl w-full max-w-4xl h-[85vh] flex flex-col overflow-hidden"
+      >
             <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 shrink-0">
               <div className="flex items-center gap-2 min-w-0">
                 <Paperclip size={16} className="text-violet-600 shrink-0" />
-                <TextTooltip content={pdfModal.nome}>
-                  <span className="font-semibold text-slate-800 truncate">{pdfModal.nome}</span>
+                <TextTooltip content={pdfModal?.nome ?? ''}>
+                  <span className="font-semibold text-slate-800 truncate">{pdfModal?.nome}</span>
                 </TextTooltip>
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 <button
-                  onClick={() => downloadBytes(pdfModal.data, pdfModal.nome, 'application/pdf')}
+                  onClick={() => { if (pdfModal) downloadBytes(pdfModal.data, pdfModal.nome, 'application/pdf') }}
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-slate-200 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-50"
                 >
                   <Download size={15} /> Scarica PDF
@@ -1606,9 +1615,7 @@ export default function Fornitori() {
             <div className="flex-1 min-h-0">
               <PdfViewer pdfData={pdfViewerData} className="h-full" />
             </div>
-          </div>
-        </div>
-      )}
+      </Modal>
 
       {/* TOAST */}
       {toast && (

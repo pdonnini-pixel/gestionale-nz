@@ -16,6 +16,7 @@ import { useAuth } from '../hooks/useAuth';
 import Tooltip from '../components/Tooltip';
 import InvoiceViewer from '../components/InvoiceViewer';
 import PageHeader from '../components/PageHeader';
+import { Modal } from '../components/ui/Modal';
 
 // ─── HELPERS ───────────────────────────────────────────────────
 function formatDate(d: string | null | undefined) {
@@ -1055,9 +1056,16 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
       )}
 
       {/* ═══════════ EC PREVIEW MODAL ═══════════ */}
-      {ecPreview && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={() => setEcPreview(null)}>
-          <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
+      <Modal
+        open={!!ecPreview}
+        onClose={() => setEcPreview(null)}
+        bare
+        ariaLabel="Anteprima estratto conto"
+        containerClassName="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4"
+        panelClassName="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] flex flex-col overflow-hidden"
+      >
+        {ecPreview && (
+          <>
             <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between shrink-0">
               <div className="flex items-center gap-3">
                 <div className="p-2 bg-emerald-50 rounded-lg">
@@ -1140,9 +1148,9 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
                 </button>
               )}
             </div>
-          </div>
-        </div>
-      )}
+          </>
+        )}
+      </Modal>
     </div>
   );
 }

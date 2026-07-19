@@ -743,6 +743,7 @@ function CostiRicorrenti() {
         open={showModal}
         onClose={closeModal}
         bare
+        closeOnBackdrop={false}
         ariaLabel={editingId ? 'Modifica costo ricorrente' : 'Nuovo costo ricorrente'}
         containerClassName="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
         panelClassName="bg-white rounded-xl shadow-lg max-w-2xl w-full max-h-96 overflow-y-auto"

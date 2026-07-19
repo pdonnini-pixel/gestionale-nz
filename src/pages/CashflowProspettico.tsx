@@ -37,6 +37,7 @@ import { usePeriod } from '../hooks/usePeriod';
 import { GlassTooltip, AXIS_STYLE, GRID_STYLE } from '../components/ChartTheme';
 import TextTooltip from '../components/Tooltip';
 import { PlaceholderDot, PlaceholderLegend } from '../components/PlaceholderMark';
+import { Modal } from '../components/ui/Modal';
 
 const MONTHS = ['Gen', 'Feb', 'Mar', 'Apr', 'Mag', 'Giu', 'Lug', 'Ago', 'Set', 'Ott', 'Nov', 'Dic'];
 const DAYS_SHORT = ['Dom', 'Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab'];
@@ -1601,30 +1602,38 @@ export default function CashflowProspettico() {
       )}
 
       {/* Modal conferma elimina previsione (sostituisce confirm() nativo) */}
-      {forecastToDelete && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setForecastToDelete(null)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6" onClick={(e) => e.stopPropagation()}>
-            <h2 className="text-lg font-bold text-slate-900 mb-2">Elimina previsione?</h2>
-            <p className="text-sm text-slate-600 mb-5">Verrà eliminata: <span className="font-medium text-slate-900">{forecastToDelete.descr}</span></p>
-            <div className="flex gap-2">
-              <button onClick={() => setForecastToDelete(null)}
-                className="flex-1 py-2.5 text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg">
-                Annulla
-              </button>
-              <button onClick={handleConfirmDeleteForecast}
-                className="flex-1 py-2.5 text-sm font-bold text-white bg-red-600 hover:bg-red-700 rounded-lg">
-                Elimina
-              </button>
-            </div>
-          </div>
+      <Modal
+        open={!!forecastToDelete}
+        onClose={() => setForecastToDelete(null)}
+        bare
+        ariaLabel="Elimina previsione"
+        containerClassName="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+        panelClassName="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6"
+      >
+        <h2 className="text-lg font-bold text-slate-900 mb-2">Elimina previsione?</h2>
+        <p className="text-sm text-slate-600 mb-5">Verrà eliminata: <span className="font-medium text-slate-900">{forecastToDelete?.descr}</span></p>
+        <div className="flex gap-2">
+          <button onClick={() => setForecastToDelete(null)}
+            className="flex-1 py-2.5 text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg">
+            Annulla
+          </button>
+          <button onClick={handleConfirmDeleteForecast}
+            className="flex-1 py-2.5 text-sm font-bold text-white bg-red-600 hover:bg-red-700 rounded-lg">
+            Elimina
+          </button>
         </div>
-      )}
+      </Modal>
 
       {/* Modal Previsione uscita inline (creazione o modifica) */}
-      {showForecastModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => !forecastSaving && setShowForecastModal(false)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6" onClick={(e) => e.stopPropagation()}>
-            <h2 className="text-lg font-bold text-slate-900 mb-1">{editingForecastId ? 'Modifica previsione' : 'Aggiungi previsione uscita'}</h2>
+      <Modal
+        open={showForecastModal}
+        onClose={() => !forecastSaving && setShowForecastModal(false)}
+        bare
+        ariaLabel={editingForecastId ? 'Modifica previsione' : 'Aggiungi previsione uscita'}
+        containerClassName="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+        panelClassName="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6"
+      >
+        <h2 className="text-lg font-bold text-slate-900 mb-1">{editingForecastId ? 'Modifica previsione' : 'Aggiungi previsione uscita'}</h2>
             <p className="text-xs text-slate-500 mb-4">Entra solo nel cashflow prospettico, NON nel Conto Economico</p>
             <div className="space-y-3">
               {/* B.1 — Tipo: una tantum o ricorrente (solo in creazione) */}
@@ -1694,9 +1703,7 @@ export default function CashflowProspettico() {
                 {forecastSaving ? 'Salvataggio...' : 'Aggiungi previsione'}
               </button>
             </div>
-          </div>
-        </div>
-      )}
+      </Modal>
       <div className="mb-8">
         {/* View Mode Selector */}
         <div className="flex gap-1 mb-4 bg-slate-200 rounded-lg p-1 w-fit">
