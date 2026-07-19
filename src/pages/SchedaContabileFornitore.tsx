@@ -911,7 +911,7 @@ ${mode !== 'fatture' ? `      <h2>PARTITARIO — CONTO FORNITORE</h2>
             </div>
           )}
         </div>
-        <p className="text-[11px] text-slate-400 mt-2">Segno contabile: <b>negativo = debito</b> (quanto dobbiamo noi), positivo = credito a nostro favore.</p>
+        <p className="text-xs text-slate-500 mt-2">Segno contabile: <b>negativo = debito</b> (quanto dobbiamo noi), positivo = credito a nostro favore.</p>
       </div>
       )}
 

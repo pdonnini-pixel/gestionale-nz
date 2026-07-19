@@ -3537,7 +3537,7 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
                             {fmt(p.gross_amount)} €
                           </div>
                           {isClose && (
-                            <div className="text-[9px] text-emerald-600 font-semibold uppercase">match importo</div>
+                            <div className="text-xs text-emerald-600 font-semibold uppercase">match importo</div>
                           )}
                         </div>
                       </button>

@@ -3105,20 +3105,21 @@ function TreeNode({ node, depth = 0, prevByCode, showYoY, isCost }: { node: Tree
           </span>
           {showYoY && prevByCode && (
             <>
-              <span className={`tabular-nums text-right w-24 ${
-                isMacroRow ? 'text-[11px] font-medium text-slate-500' : 'text-[10px] text-slate-400'
+              {/* Minimo 12px (text-xs): 9-10px erano illeggibili su smartphone */}
+              <span className={`tabular-nums text-right w-24 text-xs ${
+                isMacroRow ? 'font-medium text-slate-500' : 'text-slate-500'
               }`}>
                 {prevAmount != null ? `${fmtAmount(prevAmount)} \u20AC` : '\u2014'}
               </span>
               <span className="w-16 text-right">
                 {delta != null ? (
-                  <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full font-semibold ${
-                    isMacroRow ? 'text-[10px]' : 'text-[9px]'
-                  } ${isPositiveImprovement ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
+                  <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full font-semibold text-xs ${
+                    isPositiveImprovement ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'
+                  }`}>
                     {delta >= 0 ? '+' : ''}{delta.toFixed(1)}%
                   </span>
                 ) : (
-                  <span className="text-[10px] text-slate-300">{prevAmount == null ? '\u2014' : ''}</span>
+                  <span className="text-xs text-slate-400">{prevAmount == null ? '\u2014' : ''}</span>
                 )}
               </span>
             </>
