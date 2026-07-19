@@ -1115,12 +1115,14 @@ function TicketDetail({ ticket, onBack, onUpdated, onDeleted }: TicketDetailProp
         testo,
         creato_il: new Date().toISOString(),
       }
-      const nuoviCommenti = [...(ticket.commenti ?? []), commento]
+      // Append atomico lato DB (RPC, migration 111): evita il lost update del
+      // vecchio read-modify-write dell'intero array jsonb, che sovrascriveva i
+      // commenti aggiunti nel frattempo da altri utenti o dall'AutoFix.
       const { data, error } = await supabase
-        .from('tickets' as never)
-        .update({ commenti: nuoviCommenti } as never)
-        .eq('id', ticket.id)
-        .select('*')
+        .rpc('append_ticket_comment' as never, {
+          p_ticket_id: ticket.id,
+          p_commento: commento,
+        } as never)
         .single()
       if (error || !data) throw new Error(errorMessage(error, 'Salvataggio commento fallito'))
 
@@ -1132,7 +1134,7 @@ function TicketDetail({ ticket, onBack, onUpdated, onDeleted }: TicketDetailProp
     } finally {
       setBusy(false)
     }
-  }, [autoreLabel, nuovoCommento, onUpdated, ticket.commenti, ticket.id, toast])
+  }, [autoreLabel, nuovoCommento, onUpdated, ticket.id, toast])
 
   // Calcola se ultimo commento AI e' < 60s fa: in tal caso bottone disabled
   // (protezione click duplicati come fa anche l'edge function lato server)
