@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { X, Printer, Download, FileText, AlertCircle } from 'lucide-react'
+import { Modal } from './ui/Modal'
 
 // ─── FatturaPA XML → HTML (parser manuale) ───────────────────────
 // Supporta TD01 (Fattura), TD04 (Nota credito), TD06 (Parcella), TD24 (Differita)
@@ -486,9 +487,8 @@ export default function InvoiceViewer({ xmlContent, onClose, autoPrint = false }
   if (!xmlContent) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-hidden mx-4 flex flex-col"
-        onClick={e => e.stopPropagation()}>
+    <Modal open onClose={onClose} bare ariaLabel="Anteprima fattura"
+      panelClassName="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-hidden mx-4 flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3 border-b bg-slate-50 rounded-t-xl flex-shrink-0">
           <div className="flex items-center gap-2 text-sm font-medium text-slate-700">
@@ -524,7 +524,6 @@ export default function InvoiceViewer({ xmlContent, onClose, autoPrint = false }
             <div className="text-center py-8 text-slate-400">Nessun contenuto XML disponibile</div>
           )}
         </div>
-      </div>
-    </div>
+    </Modal>
   )
 }

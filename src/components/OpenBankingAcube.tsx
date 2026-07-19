@@ -12,6 +12,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Landmark, RefreshCw, Link2, Plus, Loader2, CheckCircle2, AlertCircle, Clock, ExternalLink, Settings } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import { Modal } from './ui/Modal'
 import { useToast } from './Toast'
 import { useAuth } from '../hooks/useAuth'
 import { useAcubeOB, AcubeStage } from '../hooks/useAcubeOB'
@@ -351,9 +352,14 @@ export default function OpenBankingAcube() {
       )}
 
       {/* Modal onboarding */}
-      {showOnboardModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => !acube.loading && setShowOnboardModal(false)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6" onClick={(e) => e.stopPropagation()}>
+      <Modal
+        open={showOnboardModal}
+        onClose={() => { if (!acube.loading) setShowOnboardModal(false) }}
+        bare
+        ariaLabel="Collega banca via A-Cube"
+        panelClassName="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6"
+        containerClassName="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+      >
             <h2 className="text-lg font-bold text-slate-900 mb-1">Collega banca via A-Cube</h2>
             <p className="text-xs text-slate-500 mb-4">
               Compila i dati dell'azienda. Successivamente si aprirà una pagina sicura A-Cube dove sceglierai la banca e darai il consenso PSD2.
@@ -407,9 +413,7 @@ export default function OpenBankingAcube() {
                 Avvia consenso
               </button>
             </div>
-          </div>
-        </div>
-      )}
+      </Modal>
     </div>
   )
 }

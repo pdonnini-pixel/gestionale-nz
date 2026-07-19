@@ -24,6 +24,7 @@ import * as XLSX from 'xlsx'
 import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { X, FileSpreadsheet, FileText, Download } from 'lucide-react'
+import { Modal } from './ui/Modal'
 import { useToast } from './Toast'
 import {
   buildSheets,
@@ -354,8 +355,14 @@ export default function ExportBilancioDialog({
   if (!open) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
+    <Modal
+      open
+      onClose={onClose}
+      bare
+      ariaLabel="Esporta bilancio previsionale"
+      panelClassName="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-auto"
+      containerClassName="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4"
+    >
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-slate-200">
           <div className="flex items-center gap-3">
@@ -517,7 +524,6 @@ export default function ExportBilancioDialog({
             {generating ? 'Generazione…' : (effectiveFormat === 'excel' ? 'Scarica Excel' : 'Scarica PDF')}
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   )
 }

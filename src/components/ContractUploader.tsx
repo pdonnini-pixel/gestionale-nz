@@ -1,5 +1,6 @@
 import { useState, useRef } from 'react'
 import { parseContract, extractTextFromDoc, extractTextFromDocx, extractTextFromPdf } from '../lib/contractParser'
+import { Modal } from './ui/Modal'
 import { useCompanyLabels } from '../hooks/useCompanyLabels'
 import {
   Upload, FileText, Check, AlertCircle, RefreshCw,
@@ -331,8 +332,14 @@ export default function ContractUploader({ onDataExtracted, onCancel }: Contract
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={onCancel}>
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
+    <Modal
+      open
+      onClose={onCancel}
+      bare
+      closeOnBackdrop={false}
+      ariaLabel={`Crea ${labels.pointOfSaleLower} da contratto`}
+      panelClassName="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col"
+    >
         {/* Header */}
         <div className="flex items-center justify-between p-5 border-b border-slate-100">
           <div>
@@ -437,7 +444,6 @@ export default function ContractUploader({ onDataExtracted, onCancel }: Contract
             </button>
           )}
         </div>
-      </div>
-    </div>
+    </Modal>
   )
 }

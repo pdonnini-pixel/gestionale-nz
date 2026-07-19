@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { Modal } from './ui/Modal'
 import { useCompanyLabels } from '../hooks/useCompanyLabels'
 import { useAuth } from '../hooks/useAuth'
 import {
@@ -646,8 +647,14 @@ export default function OutletWizard({ onClose, onSaved, initialData, allegati, 
     : [...baseSteps, <StepRiepilogo form={form} />]
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
+    <Modal
+      open
+      onClose={onClose}
+      bare
+      closeOnBackdrop={false}
+      ariaLabel={editId ? `Modifica ${labels.pointOfSaleLower}` : `Nuovo ${labels.pointOfSaleLower}`}
+      panelClassName="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col"
+    >
         {/* Header */}
         <div className="flex items-center justify-between px-5 pt-5 pb-2">
           <h2 className="text-lg font-semibold text-slate-900">
@@ -706,7 +713,6 @@ export default function OutletWizard({ onClose, onSaved, initialData, allegati, 
             </button>
           )}
         </div>
-      </div>
-    </div>
+    </Modal>
   )
 }

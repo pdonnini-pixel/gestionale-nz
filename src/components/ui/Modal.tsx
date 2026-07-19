@@ -25,6 +25,26 @@ interface ModalProps {
   closeOnBackdrop?: boolean
   /** Nasconde la X in alto a destra (raro). */
   hideCloseButton?: boolean
+  /**
+   * Modalità "wrap": NON applica header/padding/stile di default. Utile per
+   * migrare una modale esistente conservandone l'aspetto: passa le classi del
+   * pannello in `panelClassName` e il markup interno originale come children.
+   * Aggiunge comunque tutti i comportamenti di accessibilità (Escape, focus trap,
+   * role=dialog). In questo caso passa `ariaLabel` per l'etichetta del dialog.
+   */
+  bare?: boolean
+  /** Classi Tailwind del pannello in modalità bare (es. l'ex `<div className>`). */
+  panelClassName?: string
+  /** Etichetta accessibile del dialog quando non c'è un `title` (modalità bare). */
+  ariaLabel?: string
+  /** Classe z-index (default z-[120]). Alza per impilare sopra un altro overlay. */
+  zClass?: string
+  /**
+   * (bare) Override completo delle classi del contenitore/backdrop. Default:
+   * `fixed inset-0 <zClass> flex items-center justify-center p-4 bg-black/40`.
+   * Utile per slide-over/pannelli non centrati che vogliono conservare il layout.
+   */
+  containerClassName?: string
 }
 
 const FOCUSABLE = 'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
@@ -37,6 +57,11 @@ export function Modal({
   maxWidthClass = 'max-w-lg',
   closeOnBackdrop = true,
   hideCloseButton = false,
+  bare = false,
+  panelClassName,
+  ariaLabel,
+  zClass = 'z-[120]',
+  containerClassName,
 }: ModalProps) {
   const panelRef = useRef<HTMLDivElement>(null)
   const previouslyFocused = useRef<HTMLElement | null>(null)
@@ -83,9 +108,30 @@ export function Modal({
 
   if (!open) return null
 
+  // Modalità "wrap": solo comportamenti a11y, aspetto invariato (panelClassName).
+  if (bare) {
+    return (
+      <div
+        className={containerClassName ?? `fixed inset-0 ${zClass} flex items-center justify-center p-4 bg-black/40`}
+        onMouseDown={(e) => { if (closeOnBackdrop && e.target === e.currentTarget) onClose() }}
+      >
+        <div
+          ref={panelRef}
+          role="dialog"
+          aria-modal="true"
+          aria-label={ariaLabel}
+          tabIndex={-1}
+          className={`outline-none ${panelClassName ?? ''}`}
+        >
+          {children}
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div
-      className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/40"
+      className={`fixed inset-0 ${zClass} flex items-center justify-center p-4 bg-black/40`}
       onMouseDown={(e) => { if (closeOnBackdrop && e.target === e.currentTarget) onClose() }}
     >
       <div
@@ -93,6 +139,7 @@ export function Modal({
         role="dialog"
         aria-modal="true"
         aria-labelledby={title ? titleId.current : undefined}
+        aria-label={!title ? ariaLabel : undefined}
         tabIndex={-1}
         className={`bg-white rounded-xl shadow-xl w-full ${maxWidthClass} max-h-[90vh] overflow-auto outline-none`}
       >

@@ -35,6 +35,7 @@ import {
   TICKET_STATO_LABEL,
 } from '../types/ticket'
 import { TicketList } from './Ticket'
+import { Modal } from '../components/ui/Modal'
 
 function formatDate(iso: string | null): string {
   if (!iso) return '—'
@@ -579,8 +580,15 @@ export default function TicketAdminPage() {
 
       {/* Modal import ticket batch (preview + conferma) */}
       {importModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 px-4">
-          <div className="bg-white rounded-xl shadow-2xl max-w-4xl w-full p-6 max-h-[85vh] flex flex-col">
+        <Modal
+          open
+          onClose={() => setImportModal(null)}
+          bare
+          ariaLabel="Importa ticket — anteprima"
+          closeOnBackdrop={false}
+          containerClassName="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 px-4"
+          panelClassName="bg-white rounded-xl shadow-2xl max-w-4xl w-full p-6 max-h-[85vh] flex flex-col"
+        >
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-lg font-semibold text-slate-900 flex items-center gap-2">
                 <Upload className="w-5 h-5 text-blue-600" />
@@ -652,14 +660,20 @@ export default function TicketAdminPage() {
                 Importa {importModal.rows.filter(r => !r._errors).length} ticket
               </button>
             </div>
-          </div>
-        </div>
+        </Modal>
       )}
 
       {/* Modal chiudi senza lavorare */}
       {closeWithoutWorkModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 px-4">
-          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6">
+        <Modal
+          open
+          onClose={() => { setCloseWithoutWorkModal(null); setCloseMotivo('') }}
+          bare
+          ariaLabel="Chiudi senza lavorare"
+          closeOnBackdrop={false}
+          containerClassName="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 px-4"
+          panelClassName="bg-white rounded-xl shadow-2xl max-w-md w-full p-6"
+        >
             <h3 className="text-lg font-semibold text-slate-900 mb-2 flex items-center gap-2">
               <XCircle className="w-5 h-5 text-orange-600" />
               Chiudi senza lavorare ({closeWithoutWorkModal.ids.length})
@@ -697,8 +711,7 @@ export default function TicketAdminPage() {
                 {busy ? 'Chiusura…' : 'Conferma chiusura'}
               </button>
             </div>
-          </div>
-        </div>
+        </Modal>
       )}
 
       {/* Modal conferma generica (per Cancella) */}
