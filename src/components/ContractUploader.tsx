@@ -338,7 +338,7 @@ export default function ContractUploader({ onDataExtracted, onCancel }: Contract
       bare
       closeOnBackdrop={false}
       ariaLabel={`Crea ${labels.pointOfSaleLower} da contratto`}
-      panelClassName="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col"
+      panelClassName="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90dvh] flex flex-col"
     >
         {/* Header */}
         <div className="flex items-center justify-between p-5 border-b border-slate-100">

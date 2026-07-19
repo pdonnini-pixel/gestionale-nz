@@ -219,6 +219,22 @@ export default function Sidebar({ mobileOpen, setMobileOpen, badges = {} }: Side
     return () => document.removeEventListener('keydown', onKey)
   }, [mobileOpen, setMobileOpen])
 
+  // Back di Android: all'apertura del drawer si pusha uno stato nello history,
+  // così il tasto indietro chiude il drawer invece di cambiare pagina. Se il
+  // drawer si chiude in altro modo (overlay, X, Escape) lo stato pushato viene
+  // consumato con history.back(); dopo una navigazione interna lo stato in cima
+  // non è più il nostro e non si tocca nulla.
+  useEffect(() => {
+    if (!mobileOpen) return
+    window.history.pushState({ ...(window.history.state || {}), sidebarDrawer: true }, '')
+    const onPop = () => setMobileOpen(false)
+    window.addEventListener('popstate', onPop)
+    return () => {
+      window.removeEventListener('popstate', onPop)
+      if ((window.history.state as { sidebarDrawer?: boolean } | null)?.sidebarDrawer) window.history.back()
+    }
+  }, [mobileOpen, setMobileOpen])
+
   const roleLabels: Record<string, string> = {
     super_advisor: 'Super Advisor',
     ceo: 'CEO', cfo: 'CFO', coo: 'COO',

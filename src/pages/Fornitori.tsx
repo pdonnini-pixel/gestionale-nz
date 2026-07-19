@@ -1547,7 +1547,7 @@ export default function Fornitori() {
         bare
         ariaLabel={editingId ? 'Modifica Fornitore' : 'Nuovo Fornitore'}
         containerClassName="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
-        panelClassName="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto m-4"
+        panelClassName="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90dvh] overflow-y-auto m-4"
       >
             <div className="flex items-center justify-between p-6 border-b">
               <h2 className="text-lg font-bold text-slate-900">

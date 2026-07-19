@@ -1574,7 +1574,7 @@ export default function ImportHub() {
           Mostrato subito dopo l'import di un estratto conto bancario.
           Riepiloga quanti movimenti sono stati automaticamente abbinati
           a scadenze payables. */}
-      <Modal open={!!(computingMatches || matchModal)} onClose={() => setMatchModal(null)} bare closeOnBackdrop={false} ariaLabel="Riconciliazione automatica post-import" panelClassName="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden">
+      <Modal open={!!(computingMatches || matchModal)} onClose={() => setMatchModal(null)} bare closeOnBackdrop={false} ariaLabel="Riconciliazione automatica post-import" panelClassName="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90dvh] flex flex-col overflow-hidden">
             <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className="p-2 bg-blue-100 rounded-xl">
@@ -1666,7 +1666,7 @@ export default function ImportHub() {
       </Modal>
 
       {/* PDF Preview Modal */}
-      <Modal open={!!previewFile} onClose={closePreview} bare ariaLabel="Anteprima documento" panelClassName="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] flex flex-col overflow-hidden">
+      <Modal open={!!previewFile} onClose={closePreview} bare ariaLabel="Anteprima documento" panelClassName="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90dvh] flex flex-col overflow-hidden">
             <div className="flex items-center justify-between px-5 py-3 border-b border-slate-100 shrink-0">
               <div className="flex items-center gap-2">
                 <FileText size={18} className="text-red-500" />

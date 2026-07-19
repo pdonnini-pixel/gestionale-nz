@@ -2327,10 +2327,12 @@ function MonthlyTreeNode({ node, depth = 0, prevByCode, consByCode, rettAmtByCod
         {/* Copy */}
         {hasValueToCopy ? (
           <div className="relative">
+            {/* p-2 -m-1.5: area di tocco ~28px senza spostare il layout
+                (prima il trigger era ~16px, quasi impossibile da centrare col dito) */}
             <button onClick={e => { e.stopPropagation(); setShowCopy(!showCopy) }}
               title="Copia in altri mesi"
-              className="p-0.5 rounded hover:bg-indigo-50 text-indigo-400 hover:text-indigo-600 transition">
-              <Copy size={11} />
+              className="p-2 -m-1.5 rounded hover:bg-indigo-50 text-indigo-400 hover:text-indigo-600 transition">
+              <Copy size={12} />
             </button>
             {showCopy && <CopyMonthPopover fromMonth={mese} onCopy={handleCopy} onClose={() => setShowCopy(false)} />}
           </div>

@@ -520,7 +520,7 @@ export default function FinanziamentiTab({ accounts, companyId, uploadedByName }
           bare
           ariaLabel={isNew ? 'Nuovo finanziamento' : 'Modifica finanziamento'}
           containerClassName="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
-          panelClassName="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[92vh] flex flex-col"
+          panelClassName="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[92dvh] flex flex-col"
         >
             <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between shrink-0">
               <div className="flex items-center gap-2">

@@ -79,7 +79,7 @@ function KpiCard({ title, value, subtitle, icon: Icon, color = 'blue', trend, li
         {helpTerm ? <FinancialTooltip term={helpTerm}>{title}</FinancialTooltip> : title}
       </div>
       {subtitle && <div className="text-[11px] text-slate-400 mt-1">{subtitle}</div>}
-      <div className="flex items-center gap-1 text-[11px] text-blue-500 mt-2 font-medium opacity-0 group-hover:opacity-100 transition">
+      <div className="flex items-center gap-1 text-[11px] text-blue-500 mt-2 font-medium opacity-100 md:opacity-0 md:group-hover:opacity-100 transition">
         Dettaglio <ChevronRight size={11} />
       </div>
     </div>
@@ -950,7 +950,7 @@ export default function Dashboard() {
                         </td>
                         <td className="py-2.5 px-4 text-right text-slate-600">{o.budget_anno ? `${fmt(o.budget_anno)} €` : '—'}</td>
                         <td className="py-2.5 px-4">
-                          <Link to={outletHref(o)} className="opacity-0 group-hover:opacity-100 transition" title="Vedi dettaglio">
+                          <Link to={outletHref(o)} className="opacity-100 md:opacity-0 md:group-hover:opacity-100 transition" title="Vedi dettaglio">
                             <ChevronRight size={14} className="text-slate-400" />
                           </Link>
                         </td>

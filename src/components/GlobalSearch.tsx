@@ -168,7 +168,9 @@ export default function GlobalSearch({ open: openProp, onClose }: GlobalSearchPr
   if (!open) return null
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-start justify-center pt-[15vh]" onClick={() => setOpen(false)}>
+    // dvh: con la tastiera aperta le unità vh statiche lasciavano i risultati
+    // coperti; dvh segue il viewport visibile
+    <div className="fixed inset-0 z-[60] flex items-start justify-center pt-[12dvh]" onClick={() => setOpen(false)}>
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
       <div className="relative w-full max-w-lg mx-4 bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden" onClick={e => e.stopPropagation()}>
         {/* Search input */}
@@ -187,7 +189,7 @@ export default function GlobalSearch({ open: openProp, onClose }: GlobalSearchPr
         </div>
 
         {/* Results */}
-        <div className="max-h-[50vh] overflow-y-auto">
+        <div className="max-h-[55dvh] overflow-y-auto">
           {query.length < 2 && (
             <div className="py-8 text-center text-sm text-slate-400">
               Digita almeno 2 caratteri per cercare

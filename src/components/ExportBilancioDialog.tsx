@@ -365,7 +365,7 @@ export default function ExportBilancioDialog({
       onClose={onClose}
       bare
       ariaLabel="Esporta bilancio previsionale"
-      panelClassName="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-auto"
+      panelClassName="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90dvh] overflow-auto"
       containerClassName="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4"
     >
         {/* Header */}

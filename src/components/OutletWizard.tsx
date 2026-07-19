@@ -653,7 +653,7 @@ export default function OutletWizard({ onClose, onSaved, initialData, allegati, 
       bare
       closeOnBackdrop={false}
       ariaLabel={editId ? `Modifica ${labels.pointOfSaleLower}` : `Nuovo ${labels.pointOfSaleLower}`}
-      panelClassName="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col"
+      panelClassName="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90dvh] flex flex-col"
     >
         {/* Header */}
         <div className="flex items-center justify-between px-5 pt-5 pb-2">

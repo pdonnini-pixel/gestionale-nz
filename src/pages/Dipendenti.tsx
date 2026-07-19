@@ -247,7 +247,7 @@ function Modal({ title, onClose, children, maxW = 'max-w-lg' }: { title: string;
       bare
       ariaLabel={title}
       containerClassName="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm"
-      panelClassName={`bg-white rounded-2xl shadow-2xl w-full ${maxW} max-h-[90vh] overflow-y-auto`}
+      panelClassName={`bg-white rounded-2xl shadow-2xl w-full ${maxW} max-h-[90dvh] overflow-y-auto`}
     >
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 sticky top-0 bg-white rounded-t-2xl z-10">
           <h3 className="font-semibold text-slate-900">{title}</h3>
