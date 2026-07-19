@@ -278,7 +278,7 @@ export default function HelpPanel() {
       {/* Floating help button */}
       <button
         onClick={() => setOpen(!open)}
-        className={`fixed bottom-6 right-6 z-40 p-3 rounded-full shadow-lg transition-all ${
+        className={`fixed bottom-20 md:bottom-6 right-4 md:right-6 z-40 p-3 rounded-full shadow-lg transition-all ${
           open ? 'bg-slate-700 text-white rotate-45' : 'bg-blue-600 text-white hover:bg-blue-700 hover:scale-105'
         }`}
         title="Aiuto"
@@ -288,7 +288,7 @@ export default function HelpPanel() {
 
       {/* Help panel */}
       {open && (
-        <div className="fixed bottom-20 right-6 z-40 w-[380px] max-w-[calc(100vw-3rem)] h-[70vh] max-h-[560px] bg-white rounded-2xl border border-slate-200 shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-bottom-2">
+        <div className="fixed bottom-36 md:bottom-20 right-4 md:right-6 z-40 w-[380px] max-w-[calc(100vw-2rem)] h-[70dvh] max-h-[560px] bg-white rounded-2xl border border-slate-200 shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-bottom-2">
           {/* Header */}
           <div className="bg-gradient-to-r from-blue-600 to-blue-700 text-white px-5 py-4 shrink-0">
             <div className="flex items-center gap-3">

@@ -87,17 +87,11 @@ interface ToastContainerProps {
 
 function ToastContainer({ toasts, onRemove }: ToastContainerProps) {
   // Top-center: pattern Sibill/Linear. Non copre la sidebar.
-  // Backdrop invisibile: click ovunque fuori dal toast = chiude tutto.
-  const dismissAll = () => toasts.forEach(t => onRemove(t.id))
+  // Niente backdrop invisibile full-screen: su touch rubava il primo tap
+  // (qualsiasi tocco chiudeva i toast invece di attivare il controllo).
+  // I toast si chiudono con la X o da soli allo scadere della durata.
   return (
     <>
-      {toasts.length > 0 && (
-        <div
-          className="fixed inset-0 z-[99] cursor-pointer"
-          onClick={dismissAll}
-          aria-hidden="true"
-        />
-      )}
       <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[100] flex flex-col gap-3 items-center pointer-events-none">
         {toasts.map((toast) => (
           <ToastItem
@@ -175,7 +169,7 @@ function ToastItem({ toast, onRemove }: ToastItemProps) {
     >
       <div
         className={`
-          relative rounded-lg p-4 w-96 max-w-sm
+          relative rounded-lg p-4 w-96 max-w-[calc(100vw-2rem)]
           backdrop-blur-xl
           bg-gradient-to-br ${config.bgGradient}
           shadow-lg

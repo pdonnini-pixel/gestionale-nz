@@ -156,7 +156,7 @@ export default function NotificationBell() {
 
       {/* Panel */}
       {open && (
-        <div className="absolute right-0 top-full mt-2 w-[400px] max-h-[520px] bg-white rounded-xl border border-slate-200 shadow-2xl z-50 flex flex-col overflow-hidden">
+        <div className="absolute right-0 top-full mt-2 w-[400px] max-w-[calc(100vw-2rem)] max-h-[520px] bg-white rounded-xl border border-slate-200 shadow-2xl z-50 flex flex-col overflow-hidden">
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 shrink-0">
             <div className="flex items-center gap-2">
