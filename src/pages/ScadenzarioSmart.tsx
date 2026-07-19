@@ -2540,13 +2540,15 @@ const ScadenzarioSmart = () => {
     <div className="min-h-screen bg-white">
       {/* ===== TOP BAR — Logo + 4 Tab principali Sibill ===== */}
       <div className="border-b border-slate-200">
-        <div className="max-w-[1600px] mx-auto px-6 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-8">
+        {/* flex-wrap + gap ridotti: su 360-430px la barra si impila invece di
+            forzare lo scroll orizzontale dell'intera pagina. */}
+        <div className="max-w-[1600px] mx-auto px-3 sm:px-6 py-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+          <div className="flex items-center gap-3 sm:gap-8 min-w-0">
             <h1 className="text-base font-bold text-slate-800 tracking-tight">Scadenze</h1>
             {/* Tab principali: Situazione | Scadenzario | Ricorrenze.
                 La tab 'Regole (Coming soon)' è stata rimossa: niente elementi
                 morti cliccabili che confondono Sabrina/Veronica. */}
-            <div className="flex gap-1">
+            <div className="flex gap-1 overflow-x-auto">
               {([
                 { key: 'situazione', label: 'Situazione' },
                 { key: 'scadenze', label: 'Scadenzario' },
@@ -2555,7 +2557,7 @@ const ScadenzarioSmart = () => {
                 <button
                   key={t.key}
                   onClick={() => setSection(t.key)}
-                  className={`px-4 py-2 rounded-full text-sm font-medium transition flex items-center gap-2 ${
+                  className={`shrink-0 px-3 sm:px-4 py-2 rounded-full text-sm font-medium transition flex items-center gap-2 ${
                     section === t.key
                       ? 'bg-slate-800 text-white'
                       : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700'
@@ -2600,18 +2602,18 @@ const ScadenzarioSmart = () => {
             />
             <button onClick={() => setModals({ ...modals, invoice: { open: true, data: null } })}
               className="flex items-center gap-1.5 px-3 py-2 text-xs rounded-lg bg-slate-800 text-white hover:bg-slate-700 transition font-medium">
-              <Plus size={13} /> Aggiungi scadenza
+              <Plus size={13} /> <span className="hidden sm:inline">Aggiungi scadenza</span><span className="sm:hidden">Aggiungi</span>
             </button>
           </div>
         </div>
       </div>
 
-      <div className="max-w-[1600px] mx-auto px-6 py-5 space-y-4">
+      <div className="max-w-[1600px] mx-auto px-3 sm:px-6 py-5 space-y-4">
 
       {/* ===== TAB SITUAZIONE — riepilogo come Sibill ===== */}
       {section === 'situazione' && (
         <div className="space-y-6">
-          <div className="grid grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6">
             {/* DA PAGARE */}
             <div className="bg-white border border-slate-200 rounded-xl p-6">
               <div className="flex items-baseline justify-between mb-1">
@@ -2667,7 +2669,7 @@ const ScadenzarioSmart = () => {
           {/* KPI tesoreria */}
           <div className="bg-slate-50 border border-slate-200 rounded-xl p-5">
             <h3 className="text-sm font-semibold text-slate-700 mb-3">Riepilogo banche</h3>
-            <div className="grid grid-cols-5 gap-4 text-center">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4 text-center">
               <div>
                 <span className="text-[10px] text-slate-400 uppercase block">Saldo oggi</span>
                 <span className={`text-lg font-bold ${cashPosition >= 0 ? 'text-slate-800' : 'text-red-600'}`}>{fmt(cashPosition)} €</span>
@@ -4032,7 +4034,9 @@ const ScadenzarioSmart = () => {
 
           {/* Floating Action Bar for Bulk Payments */}
           {selectedIds.size > 0 && (
-            <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 w-[min(92vw,880px)]">
+            {/* bottom-20 su mobile: sta sopra la bottom nav (h-14) e il
+                pulsante ? dell'aiuto, che altrimenti coprirebbe. */}
+            <div className="fixed bottom-20 md:bottom-6 left-1/2 -translate-x-1/2 z-40 w-[min(92vw,880px)]">
               <div className="bg-white border border-slate-200 rounded-xl shadow-lg px-6 py-4">
                 {/* Saldi progressivi per banca — SEMPRE visibili mentre si spuntano le fatture,
                     così si tiene d'occhio quanto resta su ogni conto (saldo attuale → residuo stimato). */}

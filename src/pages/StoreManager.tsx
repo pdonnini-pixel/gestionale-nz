@@ -45,6 +45,9 @@ const StoreManager = () => {
   }));
 
   const [selectedOutlet, setSelectedOutlet] = useState<string>('');
+  // Apertura del menu cambio-outlet gestita a stato: su touch l'hover non
+  // esiste, il vecchio group-hover rendeva il menu inaffidabile da telefono.
+  const [outletMenuOpen, setOutletMenuOpen] = useState(false);
   const [checklist, setChecklist] = useState<{ id: number; label: string; completed: boolean }[]>([
     { id: 1, label: 'Riordino magazzino', completed: false },
     { id: 2, label: 'Verifica esposizione', completed: true },
@@ -177,40 +180,48 @@ const StoreManager = () => {
         title="Dashboard Punto Vendita"
         subtitle={new Date().toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
         actions={
-          <div className="relative group">
+          <div className="relative">
             <button
-              onClick={() => setSelectedOutlet((current) => current)}
-              className="flex items-center gap-3 bg-white border border-gray-300 rounded-lg px-4 py-3 hover:bg-gray-50 transition"
+              onClick={() => setOutletMenuOpen((o) => !o)}
+              aria-expanded={outletMenuOpen}
+              aria-haspopup="listbox"
+              className="flex items-center gap-3 bg-white border border-gray-300 rounded-lg px-4 py-3 min-h-[44px] hover:bg-gray-50 transition"
             >
               <span className="text-gray-900 font-medium">{currentOutlet?.label ?? ''}</span>
-              <ChevronDown size={18} className="text-gray-500" />
+              <ChevronDown size={18} className={`text-gray-500 transition-transform ${outletMenuOpen ? 'rotate-180' : ''}`} />
             </button>
             {/* Dropdown menu */}
-            <div className="absolute right-0 mt-2 w-48 bg-white border border-gray-200 rounded-lg shadow-lg z-10 hidden group-hover:block">
-              {outlets.map((outlet) => (
-                <button
-                  key={outlet.id}
-                  onClick={() => setSelectedOutlet(outlet.id)}
-                  className={`block w-full text-left px-4 py-2 text-sm transition ${
-                    selectedOutlet === outlet.id
-                      ? 'bg-blue-50 text-blue-900 font-medium'
-                      : 'text-gray-700 hover:bg-gray-50'
-                  }`}
-                >
-                  {outlet.label}
-                </button>
-              ))}
-            </div>
+            {outletMenuOpen && (
+              <>
+                {/* Backdrop: tap fuori dal menu = chiudi (equivalente touch del click-outside) */}
+                <div className="fixed inset-0 z-10" onClick={() => setOutletMenuOpen(false)} aria-hidden="true" />
+                <div className="absolute right-0 mt-2 w-48 bg-white border border-gray-200 rounded-lg shadow-lg z-20">
+                  {outlets.map((outlet) => (
+                    <button
+                      key={outlet.id}
+                      onClick={() => { setSelectedOutlet(outlet.id); setOutletMenuOpen(false); }}
+                      className={`block w-full text-left px-4 py-2.5 min-h-[44px] text-sm transition ${
+                        selectedOutlet === outlet.id
+                          ? 'bg-blue-50 text-blue-900 font-medium'
+                          : 'text-gray-700 hover:bg-gray-50'
+                      }`}
+                    >
+                      {outlet.label}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
         }
       />
 
       {/* Main Grid */}
-      <div className="grid grid-cols-12 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-6">
         {/* Left Column: KPIs and Charts */}
-        <div className="col-span-8 space-y-6">
+        <div className="lg:col-span-8 space-y-6">
           {/* Today's KPIs */}
-          <div className="grid grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4">
             {/* Incasso */}
             <div className="rounded-2xl p-4 shadow-lg" style={{ background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)', border: '1px solid rgba(99,102,241,0.08)' }}>
               <div className="flex items-start justify-between">
@@ -369,7 +380,7 @@ const StoreManager = () => {
           {/* Comparative Table */}
           <div className="rounded-2xl p-6 shadow-lg" style={{ background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)', border: '1px solid rgba(99,102,241,0.08)' }}>
             <h3 className="text-gray-900 font-semibold mb-4">Comparativo Ricavi</h3>
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
                 <p className="text-gray-600 text-sm font-medium">Oggi</p>
                 <p className="text-2xl font-bold text-gray-900 mt-2">
@@ -399,7 +410,7 @@ const StoreManager = () => {
         </div>
 
         {/* Right Column: Staff, Checklist, Weather, Actions */}
-        <div className="col-span-4 space-y-6">
+        <div className="lg:col-span-4 space-y-6">
           {/* Monthly Progress - Circular */}
           <div className="rounded-2xl p-6 shadow-lg" style={{ background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)', border: '1px solid rgba(99,102,241,0.08)' }}>
             <h3 className="text-gray-900 font-semibold mb-6">Ricavo Mese</h3>
