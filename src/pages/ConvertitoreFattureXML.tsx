@@ -709,7 +709,7 @@ export default function ConvertitoreFattureXML() {
       {generated.length > 0 && (
         <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
           <div className="px-4 py-3 border-b border-slate-200 text-sm font-semibold text-slate-800">Riepilogo file generati ({generated.length})</div>
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto scroll-shadow-x">
             <table className="w-full text-sm">
               <thead className="bg-slate-50">
                 <tr className="border-b border-slate-200 text-[11px] uppercase tracking-wider text-slate-500">
@@ -806,7 +806,7 @@ export default function ConvertitoreFattureXML() {
                     </button>
                   </div>
                 </div>
-                <div className="overflow-x-auto">
+                <div className="overflow-x-auto scroll-shadow-x">
                   <table className="w-full text-xs">
                     <tbody>
                       {b.rows.map((r) => (

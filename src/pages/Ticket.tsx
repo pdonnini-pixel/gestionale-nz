@@ -810,7 +810,7 @@ export function TicketList({
             Nessun ticket corrisponde ai filtri.
           </div>
         ) : (
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto scroll-shadow-x">
             <table className="min-w-full text-sm">
               <thead className="bg-slate-50 text-slate-600 text-xs uppercase tracking-wide">
                 <tr>

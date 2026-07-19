@@ -552,7 +552,7 @@ export default function AnalyticsPOS() {
         {/* Table - Outlet Comparison */}
         <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm mb-8">
           <h3 className="text-lg font-bold text-slate-900 mb-6">Confronto {labels.pointOfSalePlural} - Metriche Annuali</h3>
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto scroll-shadow-x">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-slate-200">

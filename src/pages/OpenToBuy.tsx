@@ -376,7 +376,7 @@ export default function OpenToBuy() {
           <div className="p-6 border-b border-slate-200">
             <h3 className="text-lg font-bold text-slate-900">Riepilogo Completo {labels.pointOfSalePlural}</h3>
           </div>
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto scroll-shadow-x">
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200">

@@ -512,7 +512,7 @@ export default function ScenarioPlanning() {
               {/* Comparison Table: Scenario Attuale vs Simulato */}
               <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
                 <h2 className="text-lg font-semibold text-slate-900 mb-4">Confronto Scenario Attuale vs Simulato</h2>
-                <div className="overflow-x-auto">
+                <div className="overflow-x-auto scroll-shadow-x">
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-slate-200 bg-slate-50">

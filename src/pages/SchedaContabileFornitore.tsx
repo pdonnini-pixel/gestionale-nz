@@ -938,7 +938,7 @@ ${mode !== 'fatture' ? `      <h2>PARTITARIO — CONTO FORNITORE</h2>
         </div>
 
         {/* Table */}
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto scroll-shadow-x">
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-slate-50 text-xs text-slate-500 uppercase">
@@ -1079,7 +1079,7 @@ ${mode !== 'fatture' ? `      <h2>PARTITARIO — CONTO FORNITORE</h2>
             </select>
           </div>
         </div>
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto scroll-shadow-x">
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-slate-50 text-xs text-slate-500 uppercase">

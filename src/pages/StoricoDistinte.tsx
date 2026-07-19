@@ -201,7 +201,7 @@ export default function StoricoDistinte() {
                         ))}
                       </div>
                       {/* Lista fatture */}
-                      <div className="overflow-x-auto">
+                      <div className="overflow-x-auto scroll-shadow-x">
                         <table className="w-full text-sm">
                           <thead>
                             <tr className="text-left text-[11px] uppercase tracking-wider text-slate-500 border-b border-slate-100">

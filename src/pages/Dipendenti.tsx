@@ -170,7 +170,7 @@ function AmministratoriAccordion({ admins, nettoCell, lordoTot, mm, year }: {
         <span className="text-sm shrink-0">{totNetto ? <Money v={totNetto} strong /> : <span className="text-slate-300">—</span>}</span>
       </button>
       {open && (
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto scroll-shadow-x">
           <table className="w-full text-sm">
             <thead>
               <tr className="text-xs uppercase tracking-wide text-slate-500 bg-white border-b border-slate-200">
@@ -1497,7 +1497,7 @@ function OrganicoTab(props: {
         const totMese = paidEmps.reduce((s, e) => s + (nettoCell(e.id) || 0), 0);
         return (
           <OutletAccordion key={name} name={name} count={paidEmps.length} total={paidEmps.length ? totMese : null}>
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto scroll-shadow-x">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-xs uppercase tracking-wide text-slate-500 bg-white border-b border-slate-200">
@@ -1585,7 +1585,7 @@ function CostiTab(props: {
               const totMese = emps.reduce((s, e) => s + (nettoCell(e.id) || 0), 0);
               return (
                 <OutletAccordion key={name} name={name} count={emps.length} total={totMese}>
-                  <div className="overflow-x-auto">
+                  <div className="overflow-x-auto scroll-shadow-x">
                     <table className="w-full text-sm">
                       <thead>
                         <tr className="text-xs uppercase tracking-wide text-slate-500 bg-white border-b border-slate-200">
@@ -2494,7 +2494,7 @@ function CostiLordoDipendentiBlock({ companyId, userId, outlets, year, month, mo
                   </div>
                 </button>
                 {isOpen && (
-                  <div className="border-t border-slate-100 overflow-x-auto">
+                  <div className="border-t border-slate-100 overflow-x-auto scroll-shadow-x">
                     <table className="w-full text-sm">
                       <thead className="bg-slate-50 text-slate-500">
                         <tr>
@@ -2828,7 +2828,7 @@ function CostiLordoTab({ companyId, userId, outlets, year, month, monthLabel }: 
       ) : (
         <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
           <div className="px-5 py-3 border-b border-slate-100 text-sm font-semibold text-slate-700">Costo del lavoro per outlet · {monthLabel} {year}</div>
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto scroll-shadow-x">
             <table className="w-full text-sm">
               <thead className="bg-slate-50 text-slate-500">
                 <tr>
@@ -2917,7 +2917,7 @@ function CostiLordoTab({ companyId, userId, outlets, year, month, monthLabel }: 
             <span className="text-xs">Il tasso INAIL si recupera dall'autoliquidazione INAIL annuale, dal portale INAIL o dallo studio paghe (è un'aliquota %, es. 1,2345).</span>
           </div>
         ) : (
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto scroll-shadow-x">
             <table className="w-full text-sm">
               <thead className="bg-slate-50 text-slate-500">
                 <tr>
@@ -2961,7 +2961,7 @@ function CostiLordoTab({ companyId, userId, outlets, year, month, monthLabel }: 
       {preview && (
         <Modal title="Anteprima import — Prospetto paghe" onClose={() => !importing && setPreview(null)} maxW="max-w-4xl">
           <div className="text-xs text-slate-500 mb-3">File: <strong>{preview.fileName}</strong> · {[...new Set(preview.rows.map((r) => `${MESI_LBL[r.month]} ${r.year}`))].join(', ')} · {preview.rows.length} outlet. Controlla i valori prima di salvare.</div>
-          <div className="overflow-x-auto border border-slate-200 rounded-xl">
+          <div className="overflow-x-auto scroll-shadow-x border border-slate-200 rounded-xl">
             <table className="w-full text-sm">
               <thead className="bg-slate-50 text-slate-500">
                 <tr>

@@ -512,7 +512,7 @@ function FatturePassive() {
             <button onClick={ftResetSort} className="ml-auto text-blue-600 hover:text-blue-800 font-medium">Reset</button>
           </div>
         )}
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto scroll-shadow-x">
           <table className="w-full text-sm">
             <thead className="sticky top-0 bg-slate-50 z-10">
               <tr className="bg-slate-50 border-b border-slate-200">
@@ -770,7 +770,7 @@ function FattureAttive() {
             <button onClick={faResetSort} className="ml-auto text-blue-600 hover:text-blue-800 font-medium">Reset</button>
           </div>
         )}
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto scroll-shadow-x">
           <table className="w-full text-sm">
             <thead className="sticky top-0 bg-slate-50 z-10">
               <tr className="bg-slate-50 border-b border-slate-200">
@@ -1154,7 +1154,7 @@ function Corrispettivi() {
       {/* Vista AdE: corrispettivi_log */}
       {viewSource === 'ade' && (
         <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto scroll-shadow-x">
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200">
@@ -1213,7 +1213,7 @@ function Corrispettivi() {
 
       {/* Vista POS: tabella riepilogo mensile */}
       {viewSource === 'pos' && <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto scroll-shadow-x">
           <table className="w-full text-sm">
             <thead className="sticky top-0 bg-slate-50 z-10">
               <tr className="bg-slate-50 border-b border-slate-200">

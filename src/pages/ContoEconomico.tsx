@@ -1975,7 +1975,7 @@ export default function ContoEconomico() {
                     </ResponsiveContainer>
 
                     {/* Monthly table */}
-                    <div className="mt-4 overflow-x-auto">
+                    <div className="mt-4 overflow-x-auto scroll-shadow-x">
                       <table className="w-full text-sm">
                         <thead>
                           <tr className="border-b border-slate-200 text-xs text-slate-500 uppercase tracking-wider">
@@ -2025,7 +2025,7 @@ export default function ContoEconomico() {
                         <Tooltip content={<GlassTooltip formatter={v => `${fmt(v)} €`} suffix="" />} />
                       </RePie>
                     </ResponsiveContainer>
-                    <div className="mt-4 overflow-x-auto">
+                    <div className="mt-4 overflow-x-auto scroll-shadow-x">
                       <table className="w-full text-sm">
                         <thead>
                           <tr className="border-b border-slate-200 text-xs text-slate-500 uppercase tracking-wider">
@@ -2066,7 +2066,7 @@ export default function ContoEconomico() {
               {ricavi25 > 0 && (
                 <Section title="Confronto Competenza vs Cassa" icon={Calculator} defaultOpen={true}>
                   <div className="p-5">
-                    <div className="overflow-x-auto">
+                    <div className="overflow-x-auto scroll-shadow-x">
                       <table className="w-full text-sm">
                         <thead>
                           <tr className="border-b border-slate-200 text-xs text-slate-500 uppercase tracking-wider">
@@ -2423,7 +2423,7 @@ export default function ContoEconomico() {
             </div>
 
             {/* Tabella confronto */}
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto scroll-shadow-x">
               <table className="w-full text-sm">
                 <thead className="bg-slate-50">
                   <tr>
@@ -2496,7 +2496,7 @@ export default function ContoEconomico() {
           badge={prevBilancioData ? `${year - 1} disponibile` : `Nessun dato ${year - 1}`}>
           <div className="p-5">
             {/* CE Summary YoY Table */}
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto scroll-shadow-x">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b-2 border-slate-200 text-xs text-slate-500 uppercase tracking-wider">

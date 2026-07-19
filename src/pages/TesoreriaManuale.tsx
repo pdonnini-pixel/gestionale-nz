@@ -1413,7 +1413,7 @@ function UploadStatementModal({ isOpen, onClose, account, companyId, onImported 
       {step === 'preview' && (
         <div className="space-y-4">
           <p className="text-sm font-medium text-slate-700">Anteprima prime 5 righe:</p>
-          <div className="overflow-x-auto border border-slate-200 rounded-lg">
+          <div className="overflow-x-auto scroll-shadow-x border border-slate-200 rounded-lg">
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-slate-50">
@@ -1929,7 +1929,7 @@ function TabMovimenti({ transactions, accounts, onAssignCategory, initialCategor
               ? 'Tutti i movimenti nel periodo/filtro selezionato hanno già una categoria contabile.'
               : 'Importa un estratto conto o collega una banca per vedere i movimenti.'} />
         ) : (
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto scroll-shadow-x">
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-100">
@@ -2160,7 +2160,7 @@ function TabPagamenti({ payables, accounts, companyId, onRefresh, preSelectId }:
           {filteredPayables.length === 0 ? (
             <EmptyState icon={Receipt} title="Nessuna fattura" description="Non ci sono fatture in attesa di pagamento." />
           ) : (
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto scroll-shadow-x">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-100">
@@ -2757,7 +2757,7 @@ function RiepilogoGiornaliero({ companyId, accounts }: { companyId: string; acco
           ) : reconRows.length === 0 ? (
             <div className="p-6 text-center text-slate-400 text-sm">Nessun pagamento riconciliato in questa data.</div>
           ) : (
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto scroll-shadow-x">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-slate-100 text-xs text-slate-500">
@@ -2806,7 +2806,7 @@ function RiepilogoGiornaliero({ companyId, accounts }: { companyId: string; acco
             <div className="p-6 text-center text-slate-400 text-sm">Nessuna uscita da riconciliare nel periodo scelto. Tutto abbinato 🎉</div>
           ) : (
             <>
-              <div className="overflow-x-auto">
+              <div className="overflow-x-auto scroll-shadow-x">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-slate-100 text-xs text-slate-500">
@@ -3569,7 +3569,7 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
         const total = rows.reduce((s, r) => s + Math.abs(Number(r.bt.amount) || 0), 0)
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setSummaryModal(null)}>
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 max-h-[85dvh] flex flex-col" onClick={e => e.stopPropagation()}>
               <div className="flex items-center justify-between p-5 border-b border-slate-100">
                 <h3 className="text-lg font-semibold text-slate-900">Conferma abbinamenti</h3>
                 <button onClick={() => setSummaryModal(null)} title="Chiudi" className="p-1 rounded-lg hover:bg-slate-100 text-slate-400"><X size={20} /></button>
