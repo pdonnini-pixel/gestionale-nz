@@ -163,6 +163,9 @@ export default function Dashboard() {
   // TODO: tighten type — Supabase data
   const [dailyRevenue, setDailyRevenue] = useState<any[]>([])
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
+  // Errore di caricamento: prima restava solo in console e la Dashboard
+  // mostrava KPI a zero come se fossero dati veri — fuorviante.
+  const [loadError, setLoadError] = useState(false)
   // Anno di gestione (budget_confronto): previsto fine anno + presenza costi + mesi chiusi
   const [ricaviPrevisto, setRicaviPrevisto] = useState(0)
   const [costiPresent, setCostiPresent] = useState(false)
@@ -559,9 +562,11 @@ export default function Dashboard() {
         } catch (e) {}
 
         setLastUpdate(new Date())
+        setLoadError(false)
         setLoading(false)
       } catch (err: unknown) {
         console.error('Dashboard fetch error:', err)
+        setLoadError(true)
         setLoading(false)
       }
     }
@@ -676,6 +681,12 @@ export default function Dashboard() {
   return (
     <div className="min-h-screen bg-white">
       <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
+      {loadError && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-center gap-2 text-sm text-red-700">
+          <AlertTriangle size={16} className="shrink-0" />
+          <span>Errore nel caricamento dei dati: i numeri mostrati potrebbero essere incompleti. Ricarica la pagina per riprovare.</span>
+        </div>
+      )}
       <PageHeader
         title={`Buongiorno, ${profile?.first_name || 'Patrizio'}`}
         subtitle={`Cruscotto direzionale — ${periodRange.label}${dataSource === 'bilancio' ? ' · Dati da bilancio importato' : ''}`}

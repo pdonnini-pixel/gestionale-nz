@@ -457,7 +457,8 @@ export default function FinanziamentiTab({ accounts, companyId, uploadedByName }
         </div>
       ) : (
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-          <table className="w-full">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[720px]">
             <thead>
               <tr className="text-[10px] uppercase text-slate-500 bg-slate-50 border-b border-slate-100">
                 <th className="px-4 py-2.5 text-left font-semibold">Descrizione</th>
@@ -506,6 +507,7 @@ export default function FinanziamentiTab({ accounts, companyId, uploadedByName }
               })}
             </tbody>
           </table>
+          </div>
         </div>
       )}
 

@@ -1571,7 +1571,8 @@ function StaffTab({ outletId, companyId }: { outletId: string; companyId: string
         </div>
       ) : (
         <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[560px] text-sm">
             <thead className="bg-slate-50">
               <tr className="text-[11px] text-slate-500 uppercase tracking-wider">
                 <th className="py-2 px-4 text-left font-medium">Nome</th>
@@ -1597,6 +1598,7 @@ function StaffTab({ outletId, companyId }: { outletId: string; companyId: string
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       )}
     </div>

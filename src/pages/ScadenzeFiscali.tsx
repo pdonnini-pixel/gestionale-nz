@@ -235,8 +235,10 @@ export default function ScadenzeFiscali() {
         .eq('company_id', COMPANY_ID)
         .order('due_date', { ascending: true })
       if (!error) setDeadlines(data || [])
+      else toast({ type: 'error', message: 'Errore nel caricamento delle scadenze fiscali' })
     } catch (e) {
       console.error('Load fiscal deadlines error:', e)
+      toast({ type: 'error', message: 'Errore nel caricamento delle scadenze fiscali' })
     } finally {
       setLoading(false)
     }
@@ -330,14 +332,18 @@ export default function ScadenzeFiscali() {
   // TODO: tighten type
   const markPaid = async (dl: { id: string; amount?: number | null }) => {
     try {
-      await supabase.from('fiscal_deadlines').update({
+      // supabase non lancia in caso di errore API: va controllato `error`,
+      // altrimenti un pagamento non registrato passerebbe sotto silenzio.
+      const { error } = await supabase.from('fiscal_deadlines').update({
         status: 'paid',
         paid_date: todayYMD(),
         amount_paid: dl.amount || 0,
       }).eq('id', dl.id)
+      if (error) throw error
       await loadData()
     } catch (e) {
       console.error('Mark paid error:', e)
+      toast({ type: 'error', message: 'Errore: pagamento NON registrato. Riprova.' })
     }
   }
 
@@ -345,10 +351,12 @@ export default function ScadenzeFiscali() {
   const handleDelete = async (id: string) => {
     if (!confirm('Eliminare questa scadenza?')) return
     try {
-      await supabase.from('fiscal_deadlines').delete().eq('id', id)
+      const { error } = await supabase.from('fiscal_deadlines').delete().eq('id', id)
+      if (error) throw error
       await loadData()
     } catch (e) {
       console.error('Delete error:', e)
+      toast({ type: 'error', message: 'Errore: scadenza NON eliminata. Riprova.' })
     }
   }
 
