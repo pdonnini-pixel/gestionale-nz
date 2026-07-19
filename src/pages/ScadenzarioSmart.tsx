@@ -4005,12 +4005,15 @@ const ScadenzarioSmart = () => {
                 <h3 className="font-medium text-slate-900 mb-1 text-sm">Categoria</h3>
                 <ResponsiveContainer width="100%" height={300}>
                   <PieChart>
-                    <Pie data={categoryData} cx="50%" cy="50%" outerRadius={80} dataKey="value">
+                    <Pie data={categoryData} cx="50%" cy="50%" outerRadius={80} dataKey="value" nameKey="name">
                       {categoryData.map((entry, index) => (
                         <Cell key={`cell-${index}`} fill={['#6366f1', '#ec4899', '#14b8a6', '#f59e0b', '#ef4444'][index % 5]} />
                       ))}
                     </Pie>
                     <RechartsTooltip />
+                    {/* Senza legenda le fette erano leggibili solo passando sul
+                        tooltip: su touch la torta era muta */}
+                    <Legend wrapperStyle={{ fontSize: 12 }} />
                   </PieChart>
                 </ResponsiveContainer>
               </div>
