@@ -938,92 +938,45 @@ const ScadenzarioSmart = () => {
   //   - closeAmount === residuo (o undefined) → chiusura TOTALE: status='pagato'
   //   - closeAmount < residuo               → chiusura PARZIALE: status='parziale'
   const closePayableManually = async (payableId: string, closeDate: string, reason: string | null, closeAmount?: number): Promise<boolean> => {
-    const payable = payables.find(p => p.id === payableId);
-    const prevStatus = (payable?.status as string | null) ?? null;
-    const gross = Number(payable?.gross_amount ?? 0) || 0;
-    const prevPaid = Number(payable?.amount_paid ?? 0) || 0;
-    const remaining = Number(payable?.amount_remaining ?? (gross - prevPaid)) || 0;
-
-    // ───── NOTA DI CREDITO (gross < 0 o status nota_credito) ─────
-    // "Chiudere" una NC = usarla/compensarla: marco closed_manually + data, SENZA
-    // riclassificarla come pagata (resta NC ovunque). Nel partitario comparira'
-    // la riga di chiusura in AVERE che annulla il DARE della nota di credito.
-    const isNotaCredito = prevStatus === 'nota_credito' || gross < 0;
-    if (isNotaCredito) {
-      const ncAmount = Math.abs(gross);
-      const { error } = await supabase
-        .from('payables')
-        .update({
-          payment_date: closeDate,
-          closed_manually: true,
-          manual_close_reason: reason || null,
-          payment_bank_account_id: null,
-        } as never)
-        .eq('id', payableId);
-      if (error) {
-        toast({ type: 'error', message: `Errore chiusura nota di credito: ${error.message}` });
-        return false;
-      }
-      const dateLabelNC = new Date(closeDate).toLocaleDateString('it-IT');
-      await supabase.from('payable_actions').insert({
-        payable_id: payableId,
-        action_type: 'chiusura_manuale',
-        amount: ncAmount,
-        bank_account_id: null,
-        note: `Chiusura nota di credito a mano il ${dateLabelNC}${reason ? ` — ${reason}` : ''} (registrata in AVERE)`,
-        operator_name: operatorName,
-        performed_at: new Date().toISOString(),
-      } as never);
-      setPayables(prev => prev.map(p => p.id === payableId
-        ? { ...p, payment_date: closeDate, closed_manually: true, manual_close_reason: reason || null }
-        : p));
-      return true;
-    }
-
-    // Importo da chiudere: default = residuo. Clamp tra 0 (escluso) e residuo.
-    let amount = (closeAmount === undefined || !Number.isFinite(closeAmount)) ? remaining : closeAmount;
-    if (amount <= 0) { toast({ type: 'error', message: 'Importo di chiusura non valido' }); return false; }
-    if (amount > remaining + 0.005) amount = remaining;
-
-    const newPaid = prevPaid + amount;
-    const newRemaining = Math.max(0, remaining - amount);
-    const isFull = newRemaining <= 0.005;
-    const newStatus = isFull ? 'pagato' : 'parziale';
-
-    const { error } = await supabase
-      .from('payables')
-      .update({
-        status: newStatus,
-        payment_date: closeDate,
-        amount_paid: newPaid,
-        amount_remaining: newRemaining,
-        closed_manually: true,
-        manual_close_reason: reason || null,
-        payment_bank_account_id: null,
-      } as never)
-      .eq('id', payableId);
+    // Chiusura ATOMICA lato DB (audit A44). Prima si calcolava
+    //   amount_paid = amount_paid_LOCALE + importo
+    // con amount_paid_LOCALE preso dallo stato React (foto all'apertura pagina):
+    // con più operatrici in parallelo (o la riconciliazione bancaria) quel valore era
+    // STALE e il salvataggio CANCELLAVA il pagamento registrato nel frattempo da
+    // un'altra (lost update). Ora la RPC blocca la riga (SELECT ... FOR UPDATE), legge
+    // amount_paid FRESCO dal DB e incrementa in transazione. Gestisce anche le note di
+    // credito e scrive la riga di audit in payable_actions lato server.
+    // Cast: la RPC è nuova e non ancora nei tipi generati (database.ts).
+    const { data, error } = await supabase.rpc('close_payable_manually' as never, {
+      p_id: payableId,
+      p_close_date: closeDate,
+      p_reason: reason || null,
+      p_amount: (closeAmount === undefined || !Number.isFinite(closeAmount)) ? null : closeAmount,
+      p_operator: operatorName,
+    } as never);
     if (error) {
       toast({ type: 'error', message: `Errore chiusura manuale: ${error.message}` });
       return false;
     }
-
-    // Registrazione contabile in partitario (audit). Uso solo colonne stabili:
-    // tutta l'informazione (dicitura + data + parziale/totale) sta in note.
-    const dateLabel = new Date(closeDate).toLocaleDateString('it-IT');
-    const tipoChiusura = isFull ? '' : ' — PARZIALE';
-    await supabase.from('payable_actions').insert({
-      payable_id: payableId,
-      action_type: 'chiusura_manuale',
-      amount,
-      bank_account_id: null,
-      note: `Chiusa a mano il ${dateLabel}${tipoChiusura}${reason ? ` — ${reason}` : ''} (${prevStatus || '—'} → ${newStatus})`,
-      operator_name: operatorName,
-      performed_at: new Date().toISOString(),
-    } as never);
-
-    setPayables(prev => prev.map(p => p.id === payableId
-      ? { ...p, status: newStatus, payment_date: closeDate, amount_paid: newPaid, amount_remaining: newRemaining, closed_manually: true, manual_close_reason: reason || null, payment_bank_account_id: null, payment_bank_name: null }
-      : p));
+    // Valori AUTOREVOLI restituiti dal DB → aggiorno lo stato locale senza ricalcolare
+    // da un dato stale. La RPC restituisce una riga (RETURNS TABLE).
+    const row = (Array.isArray(data) ? data[0] : data) as {
+      status?: string; amount_paid?: number; amount_remaining?: number;
+      payment_date?: string | null; closed_manually?: boolean; manual_close_reason?: string | null;
+    } | undefined;
+    if (row) {
+      setPayables(prev => prev.map(p => p.id === payableId
+        ? { ...p,
+            status: row.status ?? p.status,
+            amount_paid: row.amount_paid ?? p.amount_paid,
+            amount_remaining: row.amount_remaining ?? p.amount_remaining,
+            payment_date: row.payment_date ?? closeDate,
+            closed_manually: row.closed_manually ?? true,
+            manual_close_reason: row.manual_close_reason ?? (reason || null),
+            payment_bank_account_id: null,
+            payment_bank_name: null }
+        : p));
+    }
     return true;
   };
 

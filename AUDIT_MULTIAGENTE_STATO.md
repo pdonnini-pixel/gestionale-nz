@@ -165,6 +165,7 @@ UI; la migrazione modali (#319) è stata rebasata sopra e i due lavori sono stat
 | `supabase/migrations/20260717_106_*` | Company settings sede strutturata |
 | `supabase/migrations/20260718_107_*` | RPC atomiche save bilancio/budget |
 | `supabase/migrations/20260718_108_*` | Bucket `media` privato (applicata 3 tenant) |
+| `supabase/migrations/20260719_109_*` | RPC `close_payable_manually` atomica (applicata 3 tenant) |
 
 ---
 
@@ -197,11 +198,11 @@ Ordine indicativo di valore/urgenza. Riferimenti ai finding in
   `_company` incoerente tra KPI e "Struttura Costi". Serve dedup reale via
   `reconciliation_log`. **Non auto-applicato: tocca i numeri finanziari di Lilian e va
   concordato/testato** (rischio di cambiare margini mostrati).
-- ⏸️ **A44 — ScadenzarioSmart lost update** (RIMANDATO, richiede DB): la chiusura manuale
-  fatture usa stato client stale → con più operatrici in parallelo un pagamento può
-  cancellarne un altro. Fix corretto = **RPC transazionale** `close_payable_manually`
-  (UPDATE `amount_paid = amount_paid + x` server-side) → serve migration + test. Da fare
-  con cautela (NO DATA LOSS).
+- ✅ **A44 — ScadenzarioSmart lost update** (RISOLTO 2026-07-19): la chiusura manuale
+  fatture ora passa dalla **RPC transazionale** `close_payable_manually` (migration
+  `20260719_109`) che blocca la riga (`SELECT ... FOR UPDATE`), legge `amount_paid`
+  fresco dal DB e incrementa in transazione → niente più lost update con più operatrici.
+  Testata con rollback (parziale + totale) e **applicata sui 3 tenant** via MCP.
 - ⏸️ **A37 — OpenToBuy**: il KPI "sell-through" non è un sell-through (formula errata).
   Pagina analytics con dati simulati → priorità bassa.
 - **A39 — Produttività**: (trend già sistemato) verificare la nota "(stima)" residua.
