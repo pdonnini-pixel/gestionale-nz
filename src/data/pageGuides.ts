@@ -449,6 +449,16 @@ export const PAGE_GUIDES: PageGuide[] = [
       {
         "heading": "Chiudere una scadenza a mano",
         "body": "Se un pagamento non passerà mai da un movimento bancario tracciato nel gestionale (per esempio pagamento in contanti, compensazione, o un vecchio pagamento fatto fuori sistema), puoi chiuderlo a mano invece di aspettare la riconciliazione. Dal menu di stato di una fattura scegli \"Chiudi a mano\": indichi la data, un importo (puoi chiudere anche solo una parte del residuo, lasciando la fattura \"parziale\" per il resto) e, se vuoi, una motivazione. L'operazione viene registrata nel partitario del fornitore con la dicitura \"Chiusa a mano\" ma non crea nessun movimento bancario: i movimenti reali restano solo quelli davvero importati dall'estratto conto. Per una nota di credito, la chiusura a mano è sempre totale e viene registrata in Avere."
+      },
+      {
+        "heading": "La colonna \"Categoria\" e la gestione delle categorie di costo",
+        "body": "Ogni fattura ha una colonna \"Categoria\": è la categoria di costo (piano dei conti costi) con cui la spesa viene classificata e poi confluisce in Conto Economico, budget e report. Se una fattura è \"Non categorizzata\", clicca la pillola e scegli una categoria dall'elenco (o cerca per nome); \"Rimuovi categoria\" la toglie. Quando assegni una categoria a una fattura, il sistema la imposta come categoria predefinita di quel fornitore e la propaga automaticamente a tutte le altre fatture dello stesso fornitore ancora senza categoria (abbinamento per fornitore, in mancanza per Partita IVA o nome): così categorizzi una volta sola e vale per tutto lo storico e le fatture future.\n\nDal pulsante \"Gestisci categorie\" (sopra l'elenco delle scadenze) apri il pannello delle categorie: vedi tutte le categorie con il loro colore e gruppo contabile e, per ognuna, quanti fornitori vi sono collegati (espandi con \"fornitori\") e quante fatture la usano. Se hai il ruolo di super advisor puoi anche creare una nuova categoria (nome, gruppo contabile, colore) e modificare nome, gruppo o colore di quelle esistenti; il codice interno viene generato in automatico e non è modificabile. Gli altri ruoli vedono il pannello in sola lettura.",
+        "steps": [
+          "Per categorizzare una fattura, clicca la pillola nella colonna \"Categoria\" e scegli la voce giusta: viene propagata alle altre fatture dello stesso fornitore senza categoria.",
+          "Per creare o rinominare categorie, premi \"Gestisci categorie\" sopra l'elenco.",
+          "Nel pannello, usa \"Nuova categoria\" per crearne una, oppure l'icona matita per modificare nome, gruppo contabile e colore di una esistente.",
+          "Espandi \"fornitori\" su una categoria per vedere quali fornitori sono collegati a quella categoria."
+        ]
       }
     ],
     "faq": [
@@ -459,6 +469,10 @@ export const PAGE_GUIDES: PageGuide[] = [
       {
         "q": "Come inserisco un pagamento a più rate?",
         "a": "Se il fornitore ha un piano con più rate, aggiungendo la scadenza le rate vengono già proposte tutte, con date e importi calcolati (parti uguali, l'ultima quadra il totale). Puoi anche costruirle a mano con \"Aggiungi rata\" e il cestino per toglierne: l'importante è che la somma delle rate coincida con l'importo totale. Alla creazione ogni rata diventa una riga dello scadenzario, numerata (rata 1/3, 2/3…)."
+      },
+      {
+        "q": "Come creo o modifico una categoria di costo, e chi può farlo?",
+        "a": "Premi \"Gestisci categorie\" sopra l'elenco delle scadenze: si apre un pannello con tutte le categorie. Con il pulsante \"Nuova categoria\" ne crei una (nome, gruppo contabile, colore); con l'icona matita cambi nome, gruppo o colore di una esistente. Il codice interno è generato in automatico e non si modifica. Creare e modificare categorie è riservato al ruolo super advisor; gli altri ruoli vedono il pannello in sola lettura. Nello stesso pannello, espandendo una categoria, vedi anche i fornitori collegati e quante fatture la usano."
       },
       {
         "q": "\"Una tantum\" vuol dire che quel costo non si ripeterà mai?",

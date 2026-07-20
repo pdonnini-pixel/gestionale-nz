@@ -38,6 +38,7 @@ import { SituazioneTab } from './scadenzario/SituazioneTab';
 import { ScadenzeCharts } from './scadenzario/ScadenzeCharts';
 import { BulkPaymentBar } from './scadenzario/BulkPaymentBar';
 import { SupplierDetailModal } from './scadenzario/SupplierDetailModal';
+import { CategoryManagerModal } from './scadenzario/CategoryManagerModal';
 
 // Main component
 const ScadenzarioSmart = () => {
@@ -197,6 +198,9 @@ const ScadenzarioSmart = () => {
   const [recurringCosts, setRecurringCosts] = useState<AnyRow[]>([]);
   const [categoryDropdownId, setCategoryDropdownId] = useState<any>(null);
   const [categorySearch, setCategorySearch] = useState('');
+  // Pannello "Gestione categorie di costo" (crea/modifica cost_categories,
+  // vede i fornitori collegati). Scrittura riservata a super_advisor (RLS).
+  const [showCategoryManager, setShowCategoryManager] = useState(false);
   const [statusDropdownId, setStatusDropdownId] = useState<any>(null);
   // Inline edit dell'importo: click su cella importo → input numerico
   const [inlineEditAmountId, setInlineEditAmountId] = useState<string | null>(null);
@@ -725,6 +729,31 @@ const ScadenzarioSmart = () => {
   }, [COMPANY_ID]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
+
+  // Ricarica solo le categorie (dopo crea/modifica dal pannello di gestione),
+  // senza rifare l'intero fetch pesante dello scadenzario.
+  const refreshCategories = useCallback(async () => {
+    if (!COMPANY_ID) return;
+    const { data } = await supabase
+      .from('cost_categories')
+      .select('*')
+      .eq('company_id', COMPANY_ID)
+      .order('sort_order', { ascending: true });
+    if (data) setCategories(data as unknown as AnyRow[]);
+  }, [COMPANY_ID]);
+
+  // Solo super_advisor può creare/modificare categorie (RLS cost_cat_write).
+  const canEditCategories = profile?.role === 'super_advisor';
+
+  // Numero di fatture (payables) che usano ciascuna categoria — per il pannello.
+  const payableCountByCat = useMemo(() => {
+    const m: Record<string, number> = {};
+    payables.forEach(p => {
+      const cid = p.cost_category_id;
+      if (cid) m[cid] = (m[cid] || 0) + 1;
+    });
+    return m;
+  }, [payables]);
 
   // Carica incassi reali lazy quando il tab Incassi viene aperto.
   // IMPORTANTE: le importazioni EC vanno in DUE tabelle diverse:
@@ -3191,6 +3220,15 @@ const ScadenzarioSmart = () => {
 
           {scadViewMode === 'lista' && viewMode === 'timeline' && typeFilter !== 'incassi' && displayPayables.length > 0 && (
             <div className="bg-white rounded-xl border border-slate-200/80 overflow-hidden">
+              <div className="flex items-center justify-end px-3 py-2 border-b border-slate-100">
+                <button
+                  onClick={() => setShowCategoryManager(true)}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium text-slate-600 border border-slate-200 hover:bg-slate-100 transition"
+                  title="Crea, modifica e vedi i fornitori collegati alle categorie di costo"
+                >
+                  <Settings size={13} /> Gestisci categorie
+                </button>
+              </div>
               <div className="overflow-x-auto">
                 {/* Bottone reset ordinamento (visibile solo se sort attivo
                     oltre al default) */}
@@ -3859,6 +3897,18 @@ const ScadenzarioSmart = () => {
 
       {/* Supplier Detail Popup */}
       <SupplierDetailModal supplier={supplierDetail} onClose={() => setSupplierDetail(null)} />
+
+      {/* Gestione categorie di costo: crea/modifica + fornitori collegati */}
+      <CategoryManagerModal
+        open={showCategoryManager}
+        onClose={() => setShowCategoryManager(false)}
+        companyId={COMPANY_ID}
+        categories={categories}
+        suppliers={suppliers}
+        payableCountByCat={payableCountByCat}
+        canEdit={canEditCategories}
+        onChanged={refreshCategories}
+      />
 
       {/* Rimanda Scadenza Modal — default "fine mese successivo" o data scelta */}
       {rinviaModal.open && (() => {
