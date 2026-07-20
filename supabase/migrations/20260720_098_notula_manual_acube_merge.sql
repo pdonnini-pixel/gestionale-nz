@@ -329,8 +329,17 @@ BEGIN
   END IF;
 
   -- Altrimenti: sopravvive la NOTULA (mantiene id e, se c'è, il suo pagamento);
-  -- le si innestano numero/data VERI + riferimenti elettronici della fattura A-Cube,
-  -- e la riga A-Cube viene annullata.
+  -- le si innestano numero/data VERI + riferimenti elettronici della fattura A-Cube.
+  -- IMPORTANTE: prima si ANNULLA la riga A-Cube LIBERANDO le sue chiavi uniche
+  -- (acube_uuid ha un vincolo UNIQUE pieno, electronic_invoice_id uno parziale):
+  -- altrimenti per un istante due righe avrebbero lo stesso acube_uuid.
+  UPDATE payables SET status = 'annullato'::payable_status,
+    acube_uuid = NULL, electronic_invoice_id = NULL,
+    notes = COALESCE(NULLIF(notes,''),'') ||
+            CASE WHEN COALESCE(notes,'') <> '' THEN ' ' ELSE '' END ||
+            '[Annullata: assorbita dalla notula manuale ora agganciata]',
+    updated_at = NOW()
+  WHERE id = a.id;
   UPDATE payables SET
     invoice_number        = a.invoice_number,
     invoice_date          = a.invoice_date,
@@ -349,12 +358,6 @@ BEGIN
                             '[Notula agganciata alla fattura SDI ' || COALESCE(a.invoice_number,'') || ']',
     updated_at            = NOW()
   WHERE id = m.id;
-  UPDATE payables SET status = 'annullato'::payable_status,
-    notes = COALESCE(NULLIF(notes,''),'') ||
-            CASE WHEN COALESCE(notes,'') <> '' THEN ' ' ELSE '' END ||
-            '[Annullata: assorbita dalla notula manuale ora agganciata]',
-    updated_at = NOW()
-  WHERE id = a.id;
   RETURN jsonb_build_object('ok', true, 'survivor', m.id, 'annullato', a.id, 'mode', 'notula_survives');
 END;
 $function$;
