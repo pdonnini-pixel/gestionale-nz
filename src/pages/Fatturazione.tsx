@@ -20,6 +20,7 @@ import SortableTh from '../components/ui/SortableTh'
 import Tooltip from '../components/Tooltip'
 import SyncStatusBadge from '../components/SyncStatusBadge'
 import PaymentAnomaliesPanel from '../components/PaymentAnomaliesPanel'
+import NotuleDuplicatePanel from '../components/NotuleDuplicatePanel'
 import {
   FileText, Upload, Send, RefreshCw, Search, Filter, ChevronDown, ChevronUp,
   CheckCircle, XCircle, Clock, AlertTriangle, Eye, Download, X,
@@ -416,6 +417,10 @@ function FatturePassive() {
 
       {/* Segnalazioni: anomalie configurazione pagamento fornitore (badge rosso) */}
       <PaymentAnomaliesPanel />
+
+      {/* Segnalazioni: notule/proforma inserite a mano che potrebbero essere già
+          arrivate come fattura elettronica (possibile doppione da agganciare) */}
+      <NotuleDuplicatePanel />
 
       {/* Toolbar */}
       <div className="flex flex-wrap items-center gap-3">
