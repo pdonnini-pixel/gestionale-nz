@@ -1696,6 +1696,17 @@ export const PAGE_GUIDES: PageGuide[] = [
         ]
       },
       {
+        "heading": "Notule e proforma inserite a mano (e l'avviso \"Notule da verificare\")",
+        "body": "Alcune parcelle — tipicamente del commercialista o di consulenti — arrivano prima come notula/proforma, senza numero di fattura elettronica. Per poterle pianificare e pagare le inserisci a mano nello Scadenzario (nominativo, importo, scadenza), lasciando vuoto o provvisorio il numero documento. Quando lo stesso documento viene poi emesso come fattura elettronica e arriva da A-Cube, porta un numero SDI diverso. Il sistema riconosce da solo che si tratta della stessa spesa e la fattura vera \"assorbe\" la notula: resta una sola riga, che mantiene l'eventuale stato \"pagato\" e la riconciliazione bancaria, ma prende numero e data veri della fattura SDI. Se invece il riconoscimento non è certo (per esempio fornitori che emettono più documenti dello stesso identico importo), la coppia non viene unita in automatico ma compare nell'avviso giallo \"Notule da verificare\", sotto ai riquadri della scheda Fatture Passive: lì controlli la corrispondenza e confermi con il pulsante \"Unisci\".",
+        "steps": [
+          "Inserisci la notula/proforma a mano dallo Scadenzario, con importo e scadenza (il numero documento è opzionale)",
+          "Quando arriva la fattura elettronica, nella maggior parte dei casi l'aggancio è automatico e non devi fare nulla",
+          "Se compare l'avviso giallo \"Notule da verificare\", leggi la coppia notula ↔ fattura SDI proposta",
+          "Se è corretta, clicca \"Unisci\": la fattura vera assorbe la notula tenendo lo stato pagato",
+          "Le coppie marcate \"ambiguo\" vanno controllate con più attenzione prima di unirle"
+        ]
+      },
+      {
         "heading": "Scheda Fatture Attive (le fatture che emetti tu)",
         "body": "Qui trovi le fatture emesse dall'azienda verso i clienti, con data, numero, cliente, tipo documento, totale e stato SDI. Lo stato SDI ti dice a che punto è la fattura: Bozza (non ancora inviata), Inviata, Ricevuta, Consegnata, Accettata, Scartata, Depositata o Errore. Cliccando su una riga si apre un pannello con tutti i dettagli del cliente, gli importi, la scadenza e la cronologia delle notifiche ricevute da SDI (ricevuta di consegna, notifica di scarto, mancata consegna, ecc.).",
         "steps": [
@@ -1740,6 +1751,10 @@ export const PAGE_GUIDES: PageGuide[] = [
       {
         "q": "Se le fatture non si caricano per un problema di connessione, come lo capisco?",
         "a": "Se il caricamento fallisce compare un banner rosso con il messaggio d'errore e un pulsante 'Riprova' (sia sulle fatture passive/attive sia sui corrispettivi). In questo modo un errore di rete non viene scambiato per 'nessuna fattura presente': prima l'elenco mostrava 'Nessuna fattura trovata' anche quando in realtà c'era stato un errore."
+      },
+      {
+        "q": "Ho inserito a mano la notula del commercialista: quando arriva la fattura vera avrò un doppione?",
+        "a": "No, nella maggior parte dei casi no. Quando la fattura elettronica arriva da A-Cube, il sistema riconosce che si tratta della stessa spesa già inserita come notula (per partita IVA del fornitore e per numero documento oppure per importo e data vicina) e la fattura vera assorbe la notula: resta una sola riga, che mantiene l'eventuale stato 'pagato' e la riconciliazione, ma prende numero e data veri della fattura SDI. Solo quando il riconoscimento non è certo la coppia non viene unita da sola e compare l'avviso 'Notule da verificare', dove puoi confermare l'aggancio con 'Unisci'."
       }
     ]
   },
