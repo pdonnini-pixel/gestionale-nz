@@ -27,6 +27,10 @@ interface DispRow {
     due_date: string | null
     payment_date: string | null
   } | null
+  // Riga di scadenza FISCALE (F24/interna): la disposizione sta su fiscal_deadlines,
+  // non su payable_actions → cancellare azzera le colonne disposizione_* di quella riga.
+  _isFiscal?: boolean
+  _fiscalId?: string
 }
 
 interface BankAgg { bankId: string; bankName: string; total: number; count: number; paidTotal: number; paidCount: number }
@@ -76,25 +80,39 @@ export default function StoricoDistinte() {
     if (targetRows.length === 0) { setDeleteTarget(null); return }
     setDeleting(true)
     try {
-      const actionIds = targetRows.map(r => r.id)
-      const payableIds = [...new Set(targetRows.map(r => r.payables?.id).filter(Boolean) as string[])]
+      // Fatture fornitori (payable_actions) vs scadenze fiscali (fiscal_deadlines): trattate a parte.
+      const normalRows = targetRows.filter(r => !r._isFiscal)
+      const fiscalRows = targetRows.filter(r => r._isFiscal)
+      const actionIds = normalRows.map(r => r.id)
+      const payableIds = [...new Set(normalRows.map(r => r.payables?.id).filter(Boolean) as string[])]
+      const fiscalIds = [...new Set(fiscalRows.map(r => r._fiscalId).filter(Boolean) as string[])]
 
-      // 1) Rimuovo i legami NC↔fattura ancora 'pending' (l'intenzione di compensazione
-      //    decade con la distinta). Best-effort: ignoro se la tabella non c'è.
-      try { await pcnl().delete().in('payable_id', payableIds).eq('status', 'pending') } catch { /* tabella assente */ }
+      if (actionIds.length) {
+        // 1) Rimuovo i legami NC↔fattura ancora 'pending' (l'intenzione di compensazione
+        //    decade con la distinta). Best-effort: ignoro se la tabella non c'è.
+        try { await pcnl().delete().in('payable_id', payableIds).eq('status', 'pending') } catch { /* tabella assente */ }
 
-      // 2) Cancello le righe 'disposizione' (la distinta), per id azione.
-      const { error: delErr } = await supabase.from('payable_actions').delete().in('id', actionIds)
-      if (delErr) { toast({ type: 'error', message: 'Errore cancellazione distinta: ' + delErr.message }); setDeleting(false); return }
+        // 2) Cancello le righe 'disposizione' (la distinta), per id azione.
+        const { error: delErr } = await supabase.from('payable_actions').delete().in('id', actionIds)
+        if (delErr) { toast({ type: 'error', message: 'Errore cancellazione distinta: ' + delErr.message }); setDeleting(false); return }
 
-      // 3) Azzero la banca attesa solo sulle fatture ancora "aperte" (guardia lato query:
-      //    nessuna data pagamento, stato non pagato/parziale). Come "Rimuovi dalla distinta".
-      const { error: bankErr } = await supabase.from('payables')
-        .update({ payment_bank_account_id: null } as never)
-        .in('id', payableIds).is('payment_date', null).not('status', 'in', '("pagato","parziale")')
-      if (bankErr) console.warn('[storico-distinte] azzeramento banca attesa:', bankErr.message)
+        // 3) Azzero la banca attesa solo sulle fatture ancora "aperte" (guardia lato query:
+        //    nessuna data pagamento, stato non pagato/parziale). Come "Rimuovi dalla distinta".
+        const { error: bankErr } = await supabase.from('payables')
+          .update({ payment_bank_account_id: null } as never)
+          .in('id', payableIds).is('payment_date', null).not('status', 'in', '("pagato","parziale")')
+        if (bankErr) console.warn('[storico-distinte] azzeramento banca attesa:', bankErr.message)
+      }
 
-      const removed = new Set(actionIds)
+      if (fiscalIds.length) {
+        // Scadenze fiscali: azzero le colonne disposizione_* (solo se non già pagate).
+        const { error: fErr } = await supabase.from('fiscal_deadlines')
+          .update({ disposizione_date: null, disposizione_bank_account_id: null, disposizione_amount: null, disposizione_note: null } as never)
+          .in('id', fiscalIds).neq('status', 'paid')
+        if (fErr) { toast({ type: 'error', message: 'Errore cancellazione distinta fiscale: ' + fErr.message }); setDeleting(false); return }
+      }
+
+      const removed = new Set(targetRows.map(r => r.id))
       setRows(prev => prev.filter(r => !removed.has(r.id)))
       toast({ type: 'success', message: targetRows.length === 1 ? 'Scadenza rimossa dalla distinta.' : `${targetRows.length} scadenze rimosse dalla distinta.` })
       setDeleteTarget(null)
@@ -111,7 +129,7 @@ export default function StoricoDistinte() {
     ;(async () => {
       setLoading(true)
       try {
-        const [{ data: banks }, { data }] = await Promise.all([
+        const [{ data: banks }, { data }, { data: fiscal }] = await Promise.all([
           supabase.from('bank_accounts').select('id, bank_name').eq('company_id', COMPANY_ID),
           supabase
             .from('payable_actions')
@@ -119,12 +137,41 @@ export default function StoricoDistinte() {
             .eq('action_type', 'disposizione')
             .eq('payables.company_id', COMPANY_ID)
             .order('performed_at', { ascending: false }),
+          // Disposizioni delle scadenze fiscali (F24/interne): stanno su fiscal_deadlines.
+          supabase
+            .from('fiscal_deadlines')
+            .select('id, title, deadline_type, amount, status, due_date, paid_date, disposizione_date, disposizione_bank_account_id, disposizione_amount, disposizione_note')
+            .eq('company_id', COMPANY_ID)
+            .not('disposizione_date', 'is', null)
+            .order('disposizione_date', { ascending: false }),
         ])
         if (!active) return
         const bmap: Record<string, string> = {}
         ;(banks as { id: string; bank_name: string | null }[] | null)?.forEach(b => { bmap[b.id] = b.bank_name || '—' })
         setBankNames(bmap)
-        setRows(((data || []) as unknown as DispRow[]))
+        // Scadenze fiscali → stessa forma DispRow, così si raggruppano per giorno come le fatture.
+        const fiscalRows: DispRow[] = ((fiscal || []) as unknown as Record<string, unknown>[]).map(fd => ({
+          id: `fiscaldisp_${String(fd.id)}`,
+          amount: fd.disposizione_amount != null ? Number(fd.disposizione_amount) : (fd.amount != null ? Number(fd.amount) : null),
+          bank_account_id: (fd.disposizione_bank_account_id as string | null) ?? null,
+          note: (fd.disposizione_note as string | null) ?? null,
+          performed_at: String(fd.disposizione_date),
+          operator_name: null,
+          payables: {
+            id: `fiscal_${String(fd.id)}`,
+            invoice_number: (fd.title as string | null) || (fd.deadline_type as string | null) || '—',
+            supplier_name: `📋 ${((fd.deadline_type as string | null) || 'Fiscale').toUpperCase()}`,
+            gross_amount: fd.amount != null ? Number(fd.amount) : null,
+            status: fd.status === 'paid' ? 'pagato' : (fd.status as string | null) ?? null,
+            due_date: (fd.due_date as string | null) ?? null,
+            payment_date: (fd.paid_date as string | null) ?? null,
+          },
+          _isFiscal: true,
+          _fiscalId: String(fd.id),
+        }))
+        const merged = [...((data || []) as unknown as DispRow[]), ...fiscalRows]
+        merged.sort((a, b) => (a.performed_at < b.performed_at ? 1 : -1))
+        setRows(merged)
       } catch (e) {
         console.warn('[storico-distinte]', e)
       } finally {
