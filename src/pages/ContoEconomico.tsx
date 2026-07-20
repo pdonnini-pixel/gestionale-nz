@@ -358,7 +358,7 @@ export default function ContoEconomico() {
   const { hasRole } = useRole()
   const labels = useCompanyLabels()
   const COMPANY_ID = profile?.company_id
-  const { year, quarter, getDateRange } = usePeriod()
+  const { year, quarter, getDateRange, setYear } = usePeriod()
   // periodType persistito in URL come ?periodo=… (default 'annuale')
   const [searchParams, setSearchParams] = useSearchParams()
   const periodoParam = searchParams.get('periodo')
@@ -1683,6 +1683,16 @@ export default function ContoEconomico() {
   const ricavi25 = ce25.ricavi_vendite || 0
   const ricaviPrev = cePrev.ricavi_vendite || 0
 
+  // ═══ Empty-state: nessun bilancio importato per l'anno/periodo selezionato ═══
+  // ce25 ha chiavi solo se balance_sheet_data ha righe per (year, period_type).
+  // Se e' vuoto, tutte le KPI cadono sui fallback a 0 (fuorviante): mostriamo
+  // invece un empty-state esplicito al posto delle card a zero e degli indici.
+  const ceEmpty = Object.keys(ce25).length === 0
+  // Anno piu' recente che ha un bilancio importato, diverso da quello selezionato
+  // (vuoto). availableYears e' gia' ordinato desc e popolato da balance_sheet_data.
+  // null su tenant vergini (nessuno storico) -> nessun bottone di switch.
+  const fallbackYear = availableYears.find(y => y !== year) ?? null
+
   // ═══ DATA QUALITY CHECK ═══════════════════════════════════════════════
   // Confronta valori chiave tra le 2 fonti del Conto Economico:
   //  - balance_sheet_data (bilancio importato, alimenta vista Competenza)
@@ -1913,7 +1923,29 @@ export default function ContoEconomico() {
         </div>
       )}
 
-      {/* KPI Row */}
+      {/* KPI Row — empty-state esplicito quando non c'e' bilancio importato per
+          l'anno/periodo (evita il muro di card a 0,00 € + il badge -100% fuorviante) */}
+      {!loading && ceEmpty ? (
+        <div className="bg-white rounded-xl border border-slate-200 p-8 text-center shadow-sm">
+          <div className="mx-auto w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center mb-3">
+            <FileText size={22} className="text-slate-400" />
+          </div>
+          <h3 className="text-base font-semibold text-slate-900">
+            Nessun bilancio per {periodType} {year}
+          </h3>
+          <p className="text-sm text-slate-500 mt-1 max-w-md mx-auto">
+            Non risultano dati di conto economico caricati per questo periodo.
+            Gli indicatori restano a zero finché non viene importato il bilancio
+            {' '}{periodType} {year}.
+          </p>
+          {fallbackYear != null && (
+            <button onClick={() => setYear(fallbackYear)}
+              className="mt-4 inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 transition">
+              <ArrowUpRight size={15} /> Vedi {fallbackYear}
+            </button>
+          )}
+        </div>
+      ) : (
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
         <Kpi icon={DollarSign} label="Ricavi" value={`${fmt(ricavi25)} €`} color="blue"
           sub={`${periodType} ${year}`} trend={variation(ricavi25, ricaviPrev)} />
@@ -1928,6 +1960,7 @@ export default function ContoEconomico() {
         <Kpi icon={Calculator} label="EBIT" value={`${fmt(ebit25)} €`} color="indigo"
           sub={`${ebitPct25.toFixed(1)}% ricavi`} trend={variation(ebit25, cePrev.differenza_ab)} />
       </div>
+      )}
 
       {/* ═══ CASSA VIEW — Cash-basis metrics from bank movements ═══ */}
       {viewMode === 'cassa' && (
@@ -2302,7 +2335,7 @@ export default function ContoEconomico() {
       )}
 
       {/* ═══ INDICI DI BILANCIO — right after KPIs ═══ */}
-      {viewMode === 'competenza' && (
+      {viewMode === 'competenza' && !ceEmpty && (
       <Section title="Indici di bilancio" icon={ShieldCheck}>
         <div className="p-5">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
