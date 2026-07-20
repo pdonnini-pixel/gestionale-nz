@@ -115,6 +115,9 @@ const ScadenzarioSmart = () => {
   const [loading, setLoading] = useState(true);
   const [payables, setPayables] = useState<AnyRow[]>([]);
   const [fiscalDeadlines, setFiscalDeadlines] = useState<AnyRow[]>([]);
+  // Fiscali caricate almeno una volta (anche se zero): il ripristino della bozza
+  // aspetta questo flag così le scadenze fiscali selezionate NON vengono scartate.
+  const [fiscalLoaded, setFiscalLoaded] = useState(false);
   // Asse TIPO unificato (sostituisce sourceFilter + i sotto-tab Sibill).
   // '' = tutte le scadenze (default) | 'fornitori' | 'fiscali' | 'incassi'.
   // 'incassi' commuta sulla tabella dedicata dei movimenti in entrata.
@@ -377,13 +380,22 @@ const ScadenzarioSmart = () => {
   useEffect(() => {
     if (!DRAFT_KEY || draftReady.current) return;
     if (!payables || payables.length === 0) return;
+    // Aspetto anche il caricamento delle scadenze fiscali: se ripristinassi prima,
+    // gli id `fiscal_…` non troverebbero corrispondenza e verrebbero scartati.
+    if (!fiscalLoaded) return;
     draftReady.current = true;
     try {
       const raw = localStorage.getItem(DRAFT_KEY);
       if (!raw) return;
       const draft = JSON.parse(raw) as { ids?: string[]; plan?: Record<string, PlanEntry> };
-      // Tieni solo le fatture ancora presenti e non pagate/annullate.
+      // Tieni solo le righe ancora presenti e non già pagate. Valido su ENTRAMBE le
+      // sorgenti (fatture fornitori + scadenze fiscali) così fiscali e note di credito
+      // (queste ultime vivono nel piano della fattura) restano in bozza a uscita/rientro.
       const validIds = (draft.ids || []).filter(id => {
+        if (id.startsWith('fiscal_')) {
+          const fd = fiscalDeadlines.find(f => `fiscal_${f.id}` === id);
+          return fd && fd.status !== 'paid' && fd.status !== 'cancelled';
+        }
         const p = payables.find(x => x.id === id);
         return p && p.status !== 'pagato' && p.status !== 'annullato';
       });
@@ -392,10 +404,10 @@ const ScadenzarioSmart = () => {
       validIds.forEach(id => { if (draft.plan && draft.plan[id]) plan[id] = draft.plan[id]; });
       setSelectedIds(new Set(validIds));
       setPaymentPlan(plan);
-      toast({ type: 'info', message: `Bozza distinta ripristinata: ${validIds.length} fattur${validIds.length === 1 ? 'a' : 'e'} in lavorazione.` });
+      toast({ type: 'info', message: `Bozza distinta ripristinata: ${validIds.length} scadenz${validIds.length === 1 ? 'a' : 'e'} in lavorazione.` });
     } catch { /* bozza illeggibile: ignora */ }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [DRAFT_KEY, payables]);
+  }, [DRAFT_KEY, payables, fiscalLoaded, fiscalDeadlines]);
 
   // Salvataggio automatico a ogni modifica (dopo il primo ripristino). Selezione vuota → pulisce.
   useEffect(() => {
@@ -691,6 +703,7 @@ const ScadenzarioSmart = () => {
           .order('due_date', { ascending: true });
         setFiscalDeadlines((fiscalData || []) as AnyRow[]);
       } catch (e: unknown) { console.warn('fiscal_deadlines not available:', (e as Error).message); }
+      finally { setFiscalLoaded(true); }
 
       const totalBalance = (accountsData || []).reduce((sum, acc) => sum + (Number(acc.current_balance) || 0), 0);
       setCashPosition(totalBalance);

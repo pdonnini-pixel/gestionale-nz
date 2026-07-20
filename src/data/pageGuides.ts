@@ -498,7 +498,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "q": "Perdo il lavoro se cambio pagina o chiudo il browser prima di confermare la distinta?",
-        "a": "No, il gestionale salva automaticamente una bozza nel tuo browser mentre selezioni le fatture. Quando torni sulla pagina la ritrovi già pronta con un messaggio di conferma. Attenzione: la bozza è legata al tuo browser/computer, non è condivisa con le colleghe che usano un altro postazione."
+        "a": "No, il gestionale salva automaticamente una bozza nel tuo browser mentre selezioni le scadenze. Quando torni sulla pagina la ritrovi già pronta con un messaggio di conferma: restano selezionate tutte le righe, comprese le scadenze fiscali e le note di credito già scalate su una fattura. Attenzione: la bozza è legata al tuo browser/computer, non è condivisa con le colleghe che usano un'altra postazione."
       },
       {
         "q": "Come sposto in avanti la scadenza di una fattura?",
