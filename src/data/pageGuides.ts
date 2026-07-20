@@ -477,6 +477,10 @@ export const PAGE_GUIDES: PageGuide[] = [
         "a": "Perché prima devi inviare la mail della distinta. La conferma si sblocca solo dopo che la mail è partita (spunta verde \"Email inviata\") oppure dopo aver spuntato la casella di invio manuale. È una garanzia che chi esegue i bonifici abbia ricevuto la disposizione prima che la registri nel gestionale."
       },
       {
+        "q": "Posso mettere in distinta anche le scadenze fiscali (F24, IVA, contributi)?",
+        "a": "Sì. Le scadenze fiscali e interne compaiono nell'elenco con l'icona 📋: puoi selezionarle insieme alle fatture fornitori, assegnare la banca e includerle nella distinta. Entrano nell'anteprima, nell'email ai destinatari e nello Storico Distinte come le fatture, e alla conferma vengono registrate (badge \"In distinta\"). Puoi anche toglierle con \"Rimuovi dalla distinta\". Restano comunque gestibili come prima dalla pagina Scadenze Fiscali (segna pagata, ecc.)."
+      },
+      {
         "q": "Ho confermato la distinta ma avevo scelto la banca sbagliata: come rimedio?",
         "a": "Vai sul filtro \"In sospeso\", trova la fattura e usa il pulsante \"Rimuovi dalla distinta\": torna attiva come prima e puoi rifare la selezione con la banca corretta. Se non hai ancora confermato, basta cambiare la banca nel pannello sotto la riga e ricreare l'anteprima."
       },
@@ -556,6 +560,10 @@ export const PAGE_GUIDES: PageGuide[] = [
       {
         "q": "Perché una fattura risulta ancora \"In distinta\" invece di \"Pagato\"?",
         "a": "Perché il bonifico non è ancora stato riconosciuto sull'estratto conto e abbinato a quella fattura. Appena la riconciliazione avviene (in automatico o a mano dalla pagina Banche), lo stato passa a \"Pagato\" anche qui."
+      },
+      {
+        "q": "Nello Storico vedo anche righe con l'icona 📋: cosa sono?",
+        "a": "Sono le scadenze fiscali e interne (F24, IVA, contributi, stipendi…) messe in distinta dallo Scadenzario. Compaiono insieme alle fatture fornitori, raggruppate per giorno e per banca, ed è possibile eliminarle come le altre finché non risultano pagate."
       },
       {
         "q": "Come sono raggruppate le distinte, per data di scadenza della fattura?",

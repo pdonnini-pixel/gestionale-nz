@@ -168,7 +168,7 @@ const ScadenzarioSmart = () => {
   type ConfirmBank = { bankName: string; iban: string; saldoIniziale: number; totalePagamenti: number; pagamenti: ConfirmPayment[]; saldoFinale?: number }
   // Item grezzo da salvare in distinta SOLO alla conferma esplicita (no side-effect).
   // ncIds: note di credito compensate su questa fattura — alla conferma vengono chiuse in AVERE.
-  type DistintaItem = { payableId: string; bankId: string; amount: number; status: string; note: string; ncIds?: string[] }
+  type DistintaItem = { payableId: string; bankId: string; amount: number; status: string; note: string; ncIds?: string[]; isFiscal?: boolean }
   type ConfirmResult = { results: ConfirmPayment[]; banks: ConfirmBank[]; totaleComplessivo: number; emailBody: string; emailSubject: string; items: DistintaItem[] } | null
   const [confirmResult, setConfirmResult] = useState<ConfirmResult>(null);
   // La distinta è stata effettivamente salvata? (gate per "Conferma distinta")
@@ -1074,6 +1074,14 @@ const ScadenzarioSmart = () => {
       amount_remaining: fd.status === 'paid' ? 0 : (Number(fd.amount) || 0),
       status: fd.status === 'paid' ? 'pagato' : fd.status === 'overdue' ? 'scaduto' : fd.status === 'upcoming' ? 'in_scadenza' : 'da_pagare',
       payment_method: (fd.payment_method as string | null) || 'f24',
+      // Disposizione (distinta) — speculare a payables: la scadenza fiscale può entrare
+      // in distinta come una fattura. Campi popolati alla "Conferma distinta".
+      disposizione_date: (fd.disposizione_date as string | null) ?? null,
+      disposizione_bank_name: (() => {
+        const bid = fd.disposizione_bank_account_id ? String(fd.disposizione_bank_account_id) : '';
+        return bid ? (bankAccounts.find(b => String(b.id) === bid)?.bank_name as string | undefined) || null : null;
+      })(),
+      payment_bank_account_id: (fd.disposizione_bank_account_id as string | null) ?? null,
       outlet_id: null,
       outlet_name: '',
       cost_center: 'fiscale',
@@ -1092,7 +1100,7 @@ const ScadenzarioSmart = () => {
       cost_category_id: null,
       verified: false,
     }));
-  }, [fiscalDeadlines]);
+  }, [fiscalDeadlines, bankAccounts]);
 
   const filteredPayables = useMemo(() => {
     // Combine sources based on TYPE filter (default '' = fornitori + fiscali).
@@ -1559,8 +1567,11 @@ const ScadenzarioSmart = () => {
     try {
       for (const id of selectedIds) {
         const plan = paymentPlan[id];
-        const payable = payables.find(p => p.id === id);
+        // Le scadenze fiscali (id `fiscal_…`) stanno in una lista separata: cercale anche lì
+        // così entrano davvero in distinta (anteprima, email, Storico), non solo nella barra saldi.
+        const payable = payables.find(p => p.id === id) || fiscalAsPayables.find(p => p.id === id);
         if (!plan || !payable) continue;
+        const isFiscal = payable._isFiscal === true;
 
         const bank = bankAccounts.find(b => b.id === plan.bankId);
 
@@ -1583,6 +1594,7 @@ const ScadenzarioSmart = () => {
           status: (payable.status as string) || 'da_pagare',
           note: `Distinta del ${dataStr} — ${bank?.bank_name || 'N/D'} — ${tipoLabel}${ncNote ? ` — ${ncNote}` : ''}`,
           ncIds: plan.ncIds && plan.ncIds.length ? [...plan.ncIds] : undefined,
+          isFiscal,
         });
 
         results.push({
@@ -1657,19 +1669,25 @@ const ScadenzarioSmart = () => {
     if (items.length === 0) return;
     setIsSaving(true);
     try {
-      const ids = items.map(i => i.payableId);
-      // Quali sono già in distinta? (batch piccolo = ids selezionati, nessun rischio URL)
-      const { data: existing } = await supabase
-        .from('payable_actions')
-        .select('payable_id, payables!inner(company_id)')
-        .eq('action_type', 'disposizione')
-        .eq('payables.company_id', COMPANY_ID!)
-        .in('payable_id', ids);
+      // Le fatture fornitori vanno in payable_actions; le scadenze fiscali (id `fiscal_…`)
+      // su fiscal_deadlines (payable_actions ha FK a payables). Split.
+      const payableItems = items.filter(it => !it.isFiscal);
+      const fiscalItems = items.filter(it => it.isFiscal);
+      const payableIds = payableItems.map(i => i.payableId);
+      // Quali fatture sono già in distinta? (solo id reali: gli id fiscali non sono uuid)
+      const { data: existing } = payableIds.length
+        ? await supabase
+            .from('payable_actions')
+            .select('payable_id, payables!inner(company_id)')
+            .eq('action_type', 'disposizione')
+            .eq('payables.company_id', COMPANY_ID!)
+            .in('payable_id', payableIds)
+        : { data: [] as { payable_id: string }[] };
       const already = new Set((existing || []).map(r => r.payable_id));
 
       let inserted = 0, skipped = 0;
       const errors: string[] = [];
-      for (const it of items) {
+      for (const it of payableItems) {
         if (already.has(it.payableId)) { skipped++; continue; }
         const { error: actErr } = await supabase.from('payable_actions').insert({
           payable_id: it.payableId,
@@ -1688,6 +1706,26 @@ const ScadenzarioSmart = () => {
         }
         // Banca attesa per la riconciliazione (nessun altro campo della fattura toccato)
         await supabase.from('payables').update({ payment_bank_account_id: it.bankId || null } as never).eq('id', it.payableId);
+        inserted++;
+      }
+
+      // SCADENZE FISCALI: la disposizione si registra su fiscal_deadlines (colonne
+      // disposizione_*). UPDATE solo se non già in distinta (disposizione_date NULL) → dedup.
+      for (const it of fiscalItems) {
+        const realId = it.payableId.startsWith('fiscal_') ? it.payableId.substring('fiscal_'.length) : it.payableId;
+        const { data: updated, error: fErr } = await supabase
+          .from('fiscal_deadlines')
+          .update({
+            disposizione_date: new Date().toISOString(),
+            disposizione_bank_account_id: it.bankId || null,
+            disposizione_amount: it.amount,
+            disposizione_note: it.note,
+          } as never)
+          .eq('id', realId)
+          .is('disposizione_date', null)
+          .select('id');
+        if (fErr) { errors.push(`${it.payableId}: ${fErr.message}`); continue; }
+        if (!updated || (updated as unknown[]).length === 0) { skipped++; continue; } // già in distinta
         inserted++;
       }
 
@@ -1755,6 +1793,22 @@ const ScadenzarioSmart = () => {
   // scadenza è pagata/parziale o ha già una payment_date (banca dei flussi reali).
   const removeFromDistinta = async (payableId: string) => {
     try {
+      // Scadenza fiscale: la disposizione è sulle colonne di fiscal_deadlines → le azzero.
+      if (payableId.startsWith('fiscal_')) {
+        const realId = payableId.substring('fiscal_'.length);
+        const { error: fErr } = await supabase
+          .from('fiscal_deadlines')
+          .update({ disposizione_date: null, disposizione_bank_account_id: null, disposizione_amount: null, disposizione_note: null } as never)
+          .eq('id', realId);
+        if (fErr) {
+          toast({ type: 'error', message: 'Errore rimozione dalla distinta: ' + fErr.message });
+          return;
+        }
+        toast({ type: 'success', message: 'Scadenza rimossa dalla distinta.' });
+        setRemoveDistintaModal(null);
+        fetchData();
+        return;
+      }
       // Passo 2: rimuovo anche i legami NC↔fattura ancora 'pending' (l'intenzione di
       // compensazione decade con la distinta). Best-effort: ignoro se la tabella non c'è.
       try {
