@@ -1935,8 +1935,8 @@ export default function ContoEconomico() {
           </h3>
           <p className="text-sm text-slate-500 mt-1 max-w-md mx-auto">
             Non risultano dati di conto economico caricati per questo periodo.
-            Gli indicatori restano a zero finché non viene importato il bilancio
-            {' '}{periodType} {year}.
+            Ricavi, margini, utile ed EBIT compariranno qui non appena verrà
+            importato il bilancio {periodType} {year}.
           </p>
           {fallbackYear != null && (
             <button onClick={() => setYear(fallbackYear)}
