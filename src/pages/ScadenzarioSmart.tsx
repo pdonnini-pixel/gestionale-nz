@@ -7,7 +7,7 @@ import {
   AlertTriangle, Clock3, Plus, Edit2, Trash2, Save, X, Download,
   CheckSquare, Square, Settings, Send, Ban, Wallet, Repeat,
   ChevronRight, ChevronLeft, Landmark, Building2, Search, RefreshCw,
-  List, CalendarDays, Receipt
+  List, CalendarDays, Receipt, Loader2
 } from 'lucide-react';
 import CostiRicorrenti from '../components/CostiRicorrenti';
 import ExportMenu from '../components/ExportMenu';
@@ -173,6 +173,13 @@ const ScadenzarioSmart = () => {
   const [confirmResult, setConfirmResult] = useState<ConfirmResult>(null);
   // La distinta è stata effettivamente salvata? (gate per "Conferma distinta")
   const [distintaSaved, setDistintaSaved] = useState(false);
+  // GATE EMAIL: "Conferma distinta" si sblocca SOLO dopo che la mail è partita.
+  //  - emailSent: invio server (Edge Function Resend) andato a buon fine → verificabile.
+  //  - emailManualConfirmed: via di fuga se il server non è disponibile (l'operatrice
+  //    ha inviato a mano da Gmail e lo dichiara con la spunta).
+  const [emailSent, setEmailSent] = useState(false);
+  const [sendingEmail, setSendingEmail] = useState(false);
+  const [emailManualConfirmed, setEmailManualConfirmed] = useState(false);
   // Modale "Rimuovi dalla distinta" (conferma)
   const [removeDistintaModal, setRemoveDistintaModal] = useState<{ payableId: string; invoiceNumber: string } | null>(null);
   const [selectedMethodGroup, setSelectedMethodGroup] = useState<any>(null);
@@ -1630,6 +1637,9 @@ const ScadenzarioSmart = () => {
 
       setConfirmResult({ results, banks, totaleComplessivo, emailBody, emailSubject, items } as unknown as NonNullable<ConfirmResult>);
       setDistintaSaved(false);
+      // Nuova anteprima → il gate email riparte da zero: la mail va (ri)mandata.
+      setEmailSent(false);
+      setEmailManualConfirmed(false);
       setIsSaving(false);
       // NB: nessuna scrittura né fetchData qui — è solo l'anteprima.
     } catch (error) {
@@ -1778,6 +1788,35 @@ const ScadenzarioSmart = () => {
       fetchData();
     } catch (error) {
       toast({ type: 'error', message: 'Errore rimozione dalla distinta: ' + (error instanceof Error ? error.message : String(error)) });
+    }
+  };
+
+  // Invio LATO SERVER della mail-distinta (Edge Function Resend). È la via primaria:
+  // funziona anche per chi non ha Gmail loggato nel browser. Solo un invio riuscito
+  // sblocca "Conferma distinta" (gate verificabile). Se il server non è configurato/
+  // disponibile, l'errore è chiaro e restano le alternative (Gmail / Copia testo /
+  // spunta manuale).
+  const sendDistintaEmail = async () => {
+    if (!confirmResult || sendingEmail) return;
+    if (!emailRecipients || !emailRecipients.trim()) {
+      toast({ type: 'warning', message: 'Imposta prima l\'email dei destinatari.' });
+      return;
+    }
+    setSendingEmail(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('send-distinta-email', {
+        body: { subject: confirmResult.emailSubject, body: confirmResult.emailBody, to: emailRecipients },
+      });
+      const errMsg = (error as { message?: string } | null)?.message
+        || (data as { error?: string } | null)?.error;
+      if (error || errMsg) throw new Error(errMsg || 'Invio non riuscito');
+      setEmailSent(true);
+      toast({ type: 'success', message: `Email della distinta inviata a ${emailRecipients}.` });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      toast({ type: 'error', message: `Invio email non riuscito: ${msg}. Usa "Apri in Gmail"/"Copia testo" oppure spunta l'invio manuale.` });
+    } finally {
+      setSendingEmail(false);
     }
   };
 
@@ -3938,17 +3977,11 @@ const ScadenzarioSmart = () => {
             ) : (
               <div className="flex items-center justify-between p-3 bg-amber-50 rounded-xl border border-amber-200">
                 <p className="text-sm font-semibold text-amber-800 flex items-center gap-2">
-                  <Clock size={18} /> Anteprima: {confirmResult.results.length} scadenze — premi "Conferma distinta" per salvarle
+                  <Clock size={18} /> Anteprima: {confirmResult.results.length} scadenze — invia la mail e poi premi "Conferma distinta"
                 </p>
                 <span className="text-lg font-bold text-amber-700">{fmt(confirmResult.totaleComplessivo)} €</span>
               </div>
             )}
-
-            {/* Conferma distinta (salvataggio esplicito) */}
-            <button onClick={confirmDistinta} disabled={isSaving || distintaSaved}
-              className={`w-full py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition ${distintaSaved ? 'bg-emerald-100 text-emerald-700 cursor-default' : 'bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50'}`}>
-              {distintaSaved ? <><CheckCircle2 size={16} /> Distinta confermata</> : (isSaving ? 'Salvataggio...' : <><CheckCircle2 size={16} /> Conferma distinta</>)}
-            </button>
 
             {/* Dettaglio per banca */}
             {confirmResult.banks.map((bank, bIdx) => {
@@ -4039,31 +4072,56 @@ const ScadenzarioSmart = () => {
               <span className="text-lg font-bold text-slate-900">{fmt(confirmResult.totaleComplessivo)} €</span>
             </div>
 
-            {/* Azioni email */}
-            <div className="border border-slate-200 rounded-xl overflow-hidden">
-              <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+            {/* Passo 1 — Invio email della distinta (obbligatorio prima di confermare) */}
+            <div className={`border rounded-xl overflow-hidden ${emailSent ? 'border-emerald-200' : 'border-indigo-200'}`}>
+              <div className={`px-4 py-3 border-b flex items-center justify-between ${emailSent ? 'bg-emerald-50 border-emerald-200' : 'bg-indigo-50 border-indigo-200'}`}>
                 <div className="flex items-center gap-2">
-                  <Send size={14} className="text-indigo-600" />
-                  <span className="text-sm font-semibold text-slate-700">Disposizione pagamenti via email</span>
+                  {emailSent ? <CheckCircle2 size={15} className="text-emerald-600" /> : <Send size={14} className="text-indigo-600" />}
+                  <span className={`text-sm font-semibold ${emailSent ? 'text-emerald-800' : 'text-indigo-800'}`}>
+                    {emailSent ? '1. Email inviata ai destinatari' : '1. Invia la distinta via email'}
+                  </span>
                 </div>
-                {emailRecipients && <span className="text-xs text-slate-500">A: {emailRecipients}</span>}
+                {emailRecipients && <span className="text-xs text-slate-500 truncate max-w-[45%]">A: {emailRecipients}</span>}
               </div>
               <div className="p-3">
                 <textarea readOnly value={confirmResult.emailBody} rows={8}
                   className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs font-mono bg-slate-50 mb-3" />
-                <div className="flex gap-2">
+                {/* Invio server: via primaria, funziona anche senza Gmail */}
+                <button onClick={sendDistintaEmail} disabled={sendingEmail || emailSent || distintaSaved || !emailRecipients}
+                  className={`w-full py-2.5 rounded-lg text-sm font-semibold flex items-center justify-center gap-2 transition ${emailSent ? 'bg-emerald-100 text-emerald-700 cursor-default' : 'bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50'}`}>
+                  {emailSent ? <><CheckCircle2 size={15} /> Email inviata</> : (sendingEmail ? <><Loader2 size={15} className="animate-spin" /> Invio in corso…</> : <><Send size={14} /> Invia email ai destinatari</>)}
+                </button>
+                {/* Alternative (fallback): Gmail nel browser / copia testo */}
+                <div className="flex gap-2 mt-2">
                   <button onClick={() => { navigator.clipboard.writeText(confirmResult.emailBody); toast({ type: 'success', message: 'Testo della distinta copiato.' }); }}
-                    className="flex-1 py-2.5 bg-slate-200 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-300 flex items-center justify-center gap-2">
-                    <Download size={14} /> Copia testo
+                    className="flex-1 py-2 bg-slate-100 text-slate-600 rounded-lg text-xs font-medium hover:bg-slate-200 flex items-center justify-center gap-2">
+                    <Download size={13} /> Copia testo
                   </button>
                   <button onClick={openDistintaGmail}
-                    className="flex-1 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 flex items-center justify-center gap-2">
-                    <Send size={14} /> Apri in Gmail
+                    className="flex-1 py-2 bg-slate-100 text-slate-600 rounded-lg text-xs font-medium hover:bg-slate-200 flex items-center justify-center gap-2">
+                    <Send size={13} /> Apri in Gmail
                   </button>
                 </div>
-                <p className="text-[11px] text-slate-400 mt-2">Si apre Gmail in una nuova scheda con la distinta già compilata. In alternativa usa "Copia testo".</p>
+                {!emailSent && (
+                  <label className="mt-3 flex items-start gap-2 text-[11px] text-slate-500 cursor-pointer">
+                    <input type="checkbox" checked={emailManualConfirmed} onChange={e => setEmailManualConfirmed(e.target.checked)} className="mt-0.5" />
+                    <span>Solo se non riesci a inviare dal sistema: ho inviato la distinta a mano (es. da Gmail) e confermo di poter proseguire.</span>
+                  </label>
+                )}
+                <p className="text-[11px] text-slate-400 mt-2">L'invio parte dal server e raggiunge i destinatari anche senza Gmail. "Apri in Gmail"/"Copia testo" restano come alternativa.</p>
               </div>
             </div>
+
+            {/* Passo 2 — Conferma distinta (sbloccata solo dopo l'invio della mail) */}
+            {!distintaSaved && !(emailSent || emailManualConfirmed) && (
+              <p className="text-xs text-slate-500 -mb-1 flex items-center gap-1.5">
+                <Clock size={12} className="text-amber-500" /> Invia prima la distinta via email per poterla confermare.
+              </p>
+            )}
+            <button onClick={confirmDistinta} disabled={isSaving || distintaSaved || !(emailSent || emailManualConfirmed)}
+              className={`w-full py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition ${distintaSaved ? 'bg-emerald-100 text-emerald-700 cursor-default' : 'bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50'}`}>
+              {distintaSaved ? <><CheckCircle2 size={16} /> Distinta confermata</> : (isSaving ? 'Salvataggio...' : <><CheckCircle2 size={16} /> 2. Conferma distinta</>)}
+            </button>
           </div>
         </Modal>
       )}
