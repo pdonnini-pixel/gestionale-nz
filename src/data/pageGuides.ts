@@ -422,19 +422,21 @@ export const PAGE_GUIDES: PageGuide[] = [
         "body": "Se il fornitore della fattura selezionata ha anche delle note di credito ancora aperte, nel pannello compaiono dei pulsanti \"Scala note di credito\" con l'importo di ciascuna nota. Selezionandone una o più, l'importo del bonifico si riduce automaticamente di quel valore (il \"netto bonifico\" si aggiorna subito) e la causale del pagamento riporta il riferimento alle note usate, per esempio \"al netto NC n.123 e NC n.456\", pronta da copiare nel bonifico vero e proprio. Le note di credito NON vengono chiuse in questo momento: restano collegate alla fattura e si chiuderanno insieme a lei solo quando il pagamento verrà davvero riconosciuto in banca."
       },
       {
-        "heading": "Passo 4 — Creare la distinta",
-        "body": "Quando hai selezionato tutte le fatture della giornata e impostato banca/tipo per ciascuna, premi il pulsante \"Crea distinta\" nella barra in basso. Si apre un'anteprima con il riepilogo per ogni banca (IBAN, saldo attuale, elenco pagamenti, totale e saldo stimato dopo i pagamenti) e il testo di una email già pronta da inviare. In questo momento non viene ancora scritto nulla nel gestionale: puoi rileggere con calma, correggere qualcosa tornando indietro e rigenerare la distinta quante volte vuoi.",
+        "heading": "Passo 4 — Creare la distinta e inviare la mail",
+        "body": "Quando hai selezionato tutte le fatture della giornata e impostato banca/tipo per ciascuna, premi il pulsante \"Crea distinta\" nella barra in basso. Si apre un'anteprima con il riepilogo per ogni banca (IBAN, saldo attuale, elenco pagamenti, totale e saldo stimato dopo i pagamenti) e il testo di una email già pronta. In questo momento non viene ancora scritto nulla nel gestionale: puoi rileggere con calma, correggere qualcosa tornando indietro e rigenerare la distinta quante volte vuoi.\n\nL'invio della mail è il primo passo obbligatorio: premi \"Invia email ai destinatari\" e la mail parte direttamente dal sistema verso gli indirizzi dell'amministrazione, senza bisogno che tu abbia Gmail aperto o un programma di posta configurato. Quando l'invio va a buon fine compare la spunta verde \"Email inviata\". In alternativa, se preferisci mandarla dal tuo Gmail o incollarla altrove, restano i pulsanti \"Apri in Gmail\" e \"Copia testo\"; in quel caso, dopo aver inviato a mano, metti la spunta \"ho inviato la distinta a mano\" per poter proseguire.",
         "steps": [
           "Premi \"Crea distinta\": si apre l'anteprima con il dettaglio per ogni banca coinvolta.",
           "Controlla fornitori, importi, IBAN beneficiario e causali (comprese le eventuali note di credito).",
           "Se qualcosa non torna, chiudi l'anteprima, correggi la selezione o il pannello di banca/tipo e ricrea la distinta.",
-          "Quando è tutto corretto, apri la mail predisposta con il pulsante dedicato (si apre Gmail con oggetto e testo già compilati) oppure copia il testo per incollarlo altrove, e inviala a chi esegue materialmente i bonifici."
+          "Quando è tutto corretto, premi \"Invia email ai destinatari\": la mail parte dal sistema e arriva all'amministrazione anche se non usi Gmail.",
+          "Se preferisci inviarla a mano (\"Apri in Gmail\" o \"Copia testo\"), dopo l'invio spunta la casella \"ho inviato la distinta a mano\" per sbloccare la conferma."
         ]
       },
       {
         "heading": "Passo 5 — Confermare la distinta",
-        "body": "Solo quando premi \"Conferma distinta\" nella finestra di anteprima, il gestionale registra davvero le fatture selezionate: passano allo stato \"in sospeso\" e spariscono dall'elenco delle scadenze attive. Attenzione: la conferma NON segna le fatture come pagate. Significa solo che è stata predisposta e inviata la disposizione di pagamento; restano in attesa finché il bonifico non arriva davvero in banca. Se chiudi la finestra di anteprima senza premere \"Conferma distinta\", non viene salvato nulla e le fatture restano normalmente selezionabili.",
+        "body": "La conferma si sblocca solo dopo che la mail della distinta è stata inviata (spunta verde \"Email inviata\", oppure la casella di invio manuale spuntata): è una garanzia che chi esegue i pagamenti abbia davvero ricevuto la disposizione. Solo quando premi \"Conferma distinta\" nella finestra di anteprima, il gestionale registra davvero le fatture selezionate: passano allo stato \"in sospeso\" e spariscono dall'elenco delle scadenze attive. Attenzione: la conferma NON segna le fatture come pagate. Significa solo che è stata predisposta e inviata la disposizione di pagamento; restano in attesa finché il bonifico non arriva davvero in banca. Se chiudi la finestra di anteprima senza premere \"Conferma distinta\", non viene salvato nulla e le fatture restano normalmente selezionabili.",
         "steps": [
+          "Assicurati di aver inviato la mail (Passo 4): finché non è partita, il pulsante \"Conferma distinta\" resta bloccato.",
           "Nella finestra di anteprima, premi \"Conferma distinta\".",
           "Le fatture incluse passano allo stato \"in sospeso\" ed escono dall'elenco principale delle scadenze da pagare.",
           "Se torni sulla pagina in un altro momento, ritrovi il lavoro non ancora confermato: il gestionale salva da solo una bozza nel browser (visibile con il messaggio \"Bozza distinta ripristinata\"); si azzera solo dopo la conferma o se premi \"Annulla\"."
@@ -465,6 +467,14 @@ export const PAGE_GUIDES: PageGuide[] = [
       {
         "q": "Quando una fattura risulta davvero pagata?",
         "a": "Mai al momento della conferma della distinta. Una fattura diventa \"pagata\" solo quando il movimento bancario in uscita viene riconosciuto e abbinato a lei (in automatico o a mano in Riconciliazione), oppure se la chiudi tu manualmente. Fino ad allora resta \"in sospeso\"."
+      },
+      {
+        "q": "Come invio la mail della distinta se non uso Gmail?",
+        "a": "Premi \"Invia email ai destinatari\" nell'anteprima della distinta: la mail parte direttamente dal sistema verso gli indirizzi dell'amministrazione, senza bisogno che tu abbia Gmail loggato o un programma di posta configurato. Se l'invio va a buon fine compare la spunta verde \"Email inviata\" e si sblocca \"Conferma distinta\". Se per qualsiasi motivo il sistema non riesce a inviare, puoi usare \"Apri in Gmail\" o \"Copia testo\" e poi spuntare \"ho inviato la distinta a mano\" per proseguire."
+      },
+      {
+        "q": "Perché \"Conferma distinta\" è bloccato/grigio?",
+        "a": "Perché prima devi inviare la mail della distinta. La conferma si sblocca solo dopo che la mail è partita (spunta verde \"Email inviata\") oppure dopo aver spuntato la casella di invio manuale. È una garanzia che chi esegue i bonifici abbia ricevuto la disposizione prima che la registri nel gestionale."
       },
       {
         "q": "Ho confermato la distinta ma avevo scelto la banca sbagliata: come rimedio?",
@@ -524,14 +534,24 @@ export const PAGE_GUIDES: PageGuide[] = [
         "body": "Aprendo una distinta trovi prima un riquadro per ciascuna banca usata quel giorno, con il totale disposto su quella banca e quanto di quel totale è già stato pagato (con il conteggio, per esempio \"3/5\" fatture pagate su 5). Sotto trovi la tabella con ogni singola scadenza inclusa nella distinta: fornitore, numero fattura, banca, importo e stato. Lo stato di ogni riga è \"Pagato\" (etichetta verde) se il pagamento è stato riconosciuto, oppure \"In distinta\" (etichetta arancione) se è ancora in attesa di riscontro bancario."
       },
       {
+        "heading": "Eliminare una distinta o una singola scadenza (finché non è pagata)",
+        "body": "Da questa pagina puoi anche cancellare una distinta, o una singola scadenza al suo interno, purché non sia ancora stata pagata. È utile quando una distinta è stata creata per errore o va rifatta. L'operazione è consentita a tutte le operatrici e non cancella nessuna fattura: rimuove solo la disposizione di pagamento e riporta le scadenze attive nello Scadenzario, esattamente come \"Rimuovi dalla distinta\". Le scadenze già pagate non si possono togliere e restano sempre intoccate.\n\nSulla riga di ogni giornata, in alto a destra, trovi il pulsante \"Elimina\": toglie in un colpo solo tutte le scadenze della distinta non ancora pagate (quelle pagate restano). Aprendo la distinta, invece, ogni riga non ancora pagata ha un cestino per rimuovere solo quella. In entrambi i casi compare una richiesta di conferma prima di procedere.",
+        "steps": [
+          "Per eliminare l'intera distinta: premi \"Elimina\" sulla riga del giorno e conferma.",
+          "Per togliere una sola scadenza: apri la distinta e premi il cestino sulla riga interessata.",
+          "Conferma nella finestra che si apre: le scadenze tornano attive nello Scadenzario e puoi rifare la distinta quando vuoi.",
+          "Se una scadenza è già \"Pagato\", il cestino non compare: quel dato non è modificabile da qui."
+        ]
+      },
+      {
         "heading": "Cosa fare se una distinta non compare",
         "body": "Se l'elenco è vuoto, significa che non è ancora stata confermata nessuna distinta dallo Scadenzario: la pagina mostra un messaggio che rimanda proprio a quel passaggio. Ricorda che una distinta appare qui solo dopo aver premuto \"Conferma distinta\" nello Scadenzario: la semplice anteprima non basta."
       }
     ],
     "faq": [
       {
-        "q": "Posso modificare o cancellare una distinta da questa pagina?",
-        "a": "No, questa pagina serve solo per consultare lo storico. Per correggere una fattura ancora in sospeso (per esempio se hai sbagliato banca), torna nello Scadenzario, filtra per stato \"In sospeso\" e usa \"Rimuovi dalla distinta\" sulla singola fattura."
+        "q": "Posso cancellare una distinta da questa pagina?",
+        "a": "Sì, finché non è pagata. Usa il pulsante \"Elimina\" sulla riga della giornata per togliere tutte le scadenze non ancora pagate di quella distinta, oppure apri la distinta e usa il cestino su una singola scadenza. Non viene cancellata nessuna fattura: la disposizione viene rimossa e le scadenze tornano attive nello Scadenzario. Le scadenze già pagate restano sempre intoccate. In alternativa puoi sempre usare \"Rimuovi dalla distinta\" dallo Scadenzario (filtro \"In sospeso\")."
       },
       {
         "q": "Perché una fattura risulta ancora \"In distinta\" invece di \"Pagato\"?",
