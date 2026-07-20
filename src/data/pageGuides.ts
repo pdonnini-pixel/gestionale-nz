@@ -822,7 +822,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "In alto: i numeri chiave (KPI)",
-        "body": "Sotto i controlli trovi sei riquadri riassuntivi sempre visibili: Ricavi, Margine lordo, Costo personale, Affitti, Utile ed EBIT, ciascuno con la percentuale sui ricavi. Sono un colpo d'occhio rapido sulla salute economica del periodo scelto."
+        "body": "Sotto i controlli trovi sei riquadri riassuntivi: Ricavi, Margine lordo, Costo personale, Affitti, Utile ed EBIT, ciascuno con la percentuale sui ricavi. Sono un colpo d'occhio rapido sulla salute economica del periodo scelto. I numeri si basano sul bilancio importato per l'anno e il tipo di periodo selezionati: se per quel periodo non è ancora stato caricato nessun bilancio, al posto dei riquadri (che sarebbero tutti a zero) compare un avviso 'Nessun bilancio per…', con un pulsante 'Vedi [anno]' che ti porta all'ultimo anno per cui esistono dati."
       },
       {
         "heading": "Vista Cassa: entrate e uscite reali",
@@ -883,6 +883,10 @@ export const PAGE_GUIDES: PageGuide[] = [
       {
         "q": "Le funzioni 'Trend', 'Simulation Mode' e 'Import PDF' non fanno nulla quando ci clicco, perché?",
         "a": "Sono funzioni segnalate come 'Coming soon': sono già visibili in anteprima ma non ancora attive in questa versione del gestionale."
+      },
+      {
+        "q": "Perché i riquadri KPI (Ricavi, Utile, EBIT…) sono tutti a zero?",
+        "a": "Perché per l'anno e il tipo di periodo selezionati non risulta ancora importato nessun bilancio: i KPI leggono i dati del bilancio ufficiale, quindi senza bilancio restano a zero. In quel caso la pagina non mostra le card a zero ma un avviso 'Nessun bilancio per…' con il pulsante 'Vedi [anno]' che passa all'ultimo anno con dati disponibili. Controlla quindi l'anno impostato nel selettore periodo generale in alto."
       }
     ]
   },
