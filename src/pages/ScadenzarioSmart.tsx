@@ -762,6 +762,36 @@ const ScadenzarioSmart = () => {
         });
       }
 
+      // NC IN DISTINTA: una nota di credito scalata su una fattura in fase di pagamento
+      // resta registrata nel legame 'pending' di payable_credit_note_links (Passo 2), ma
+      // NON riceve una propria azione 'disposizione'. Senza questo blocco la NC resterebbe
+      // "aperta" nello scadenzario invece di stare collegata alla distinta in attesa di
+      // riconciliazione. Qui la NC EREDITA data/banca della disposizione della fattura
+      // collegata, così compare nella sezione "In sospeso" accanto alla fattura e sparisce
+      // dalle "Aperte"; si chiude con la fattura alla riconciliazione. Best-effort: se la
+      // migration 090 non e' applicata (tabella assente) l'errore viene ignorato.
+      const ncDispMap = new Map<string, { date: string | null; bankId: string | null }>();
+      try {
+        type PcnlSelect = {
+          select: (cols: string) => {
+            eq: (c: string, v: unknown) => {
+              eq: (c: string, v: unknown) => Promise<{ data: Array<{ payable_id: string | null; credit_note_payable_id: string | null }> | null }>
+            }
+          }
+        };
+        const pcnlSel = (supabase.from as unknown as (t: string) => PcnlSelect)('payable_credit_note_links');
+        const { data: ncLinks } = await pcnlSel
+          .select('payable_id, credit_note_payable_id')
+          .eq('company_id', COMPANY_ID!)
+          .eq('status', 'pending');
+        (ncLinks || []).forEach(l => {
+          const ncId = l.credit_note_payable_id;
+          if (!ncId || ncDispMap.has(ncId)) return;
+          const disp = l.payable_id ? dispMap.get(l.payable_id) : null;
+          if (disp?.date) ncDispMap.set(ncId, disp);
+        });
+      } catch { /* tabella assente o errore non bloccante */ }
+
       const enrichedPayables: AnyRow[] = (viewData || []).map(row => {
         const extra = ((row.id && payablesExtraMap[row.id]) || {}) as AnyRow;
         const baseRow: AnyRow = {
@@ -812,9 +842,9 @@ const ScadenzarioSmart = () => {
           recurring_cost_id: (extra.recurring_cost_id as string | null) ?? null,
           closed_manually: Boolean(extra.closed_manually),
           manual_close_reason: (extra.manual_close_reason as string | null) ?? null,
-          disposizione_date: row.id ? (dispMap.get(row.id)?.date ?? null) : null,
+          disposizione_date: row.id ? (dispMap.get(row.id)?.date ?? ncDispMap.get(row.id)?.date ?? null) : null,
           disposizione_bank_name: (() => {
-            const b = row.id ? dispMap.get(row.id)?.bankId : null;
+            const b = row.id ? (dispMap.get(row.id)?.bankId ?? ncDispMap.get(row.id)?.bankId ?? null) : null;
             return b ? bankNameById.get(b) || null : null;
           })(),
         };
@@ -3653,8 +3683,11 @@ const ScadenzarioSmart = () => {
                                   <Eye size={13} />
                                 </button>
                               )}
-                              {/* Rimuovi dalla distinta — solo se la scadenza è in distinta */}
-                              {!!p.disposizione_date && p.status !== 'pagato' && p.status !== 'annullato' && (
+                              {/* Rimuovi dalla distinta — solo se la scadenza è in distinta. NON sulle
+                                  note di credito: la NC è collegata alla distinta tramite la fattura, quindi
+                                  si stacca rimuovendo la FATTURA (che elimina i legami NC 'pending'). */}
+                              {!!p.disposizione_date && p.status !== 'pagato' && p.status !== 'annullato'
+                                && !(p.status === 'nota_credito' || (Number(p.gross_amount) || 0) < 0) && (
                                 <button onClick={() => p.id && setRemoveDistintaModal({ payableId: p.id, invoiceNumber: p.invoice_number || '' })}
                                   className="p-1 rounded text-amber-500 hover:text-amber-700 hover:bg-amber-50"
                                   title="Rimuovi dalla distinta">

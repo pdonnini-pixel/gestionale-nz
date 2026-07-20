@@ -407,7 +407,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "Passo 3 — Compensare le note di credito (facoltativo)",
-        "body": "Se il fornitore della fattura selezionata ha anche delle note di credito ancora aperte, nel pannello compaiono dei pulsanti \"Scala note di credito\" con l'importo di ciascuna nota. Selezionandone una o più, l'importo del bonifico si riduce automaticamente di quel valore (il \"netto bonifico\" si aggiorna subito) e la causale del pagamento riporta il riferimento alle note usate, per esempio \"al netto NC n.123 e NC n.456\", pronta da copiare nel bonifico vero e proprio. Le note di credito NON vengono chiuse in questo momento: restano collegate alla fattura e si chiuderanno insieme a lei solo quando il pagamento verrà davvero riconosciuto in banca."
+        "body": "Se il fornitore della fattura selezionata ha anche delle note di credito ancora aperte, nel pannello compaiono dei pulsanti \"Scala note di credito\" con l'importo di ciascuna nota. Selezionandone una o più, l'importo del bonifico si riduce automaticamente di quel valore (il \"netto bonifico\" si aggiorna subito) e la causale del pagamento riporta il riferimento alle note usate, per esempio \"al netto NC n.123 e NC n.456\", pronta da copiare nel bonifico vero e proprio. Le note di credito NON vengono chiuse in questo momento: restano collegate alla fattura e si chiuderanno insieme a lei solo quando il pagamento verrà davvero riconosciuto in banca. Dopo aver confermato la distinta, una nota di credito scalata smette di comparire tra le note \"aperte\" dello scadenzario e si sposta nel filtro \"In sospeso\" insieme alla fattura, con l'etichetta \"In distinta\": è impegnata in quella distinta, in attesa di riconciliazione. Per staccarla, rimuovi la fattura dalla distinta (la nota torna disponibile)."
       },
       {
         "heading": "Passo 4 — Creare la distinta",
@@ -464,7 +464,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "q": "Una fattura da 8.000 euro ha due note di credito da 1.000 euro ciascuna: come procedo?",
-        "a": "Seleziona la fattura, poi nel pannello sotto la riga usa \"Scala note di credito\" e spunta le due note: il bonifico da fare diventa 6.000 euro e la causale suggerita cita entrambe le note. Esegui il bonifico per 6.000; quando viene riconciliato, la fattura e le due note di credito si chiudono insieme, in automatico."
+        "a": "Seleziona la fattura, poi nel pannello sotto la riga usa \"Scala note di credito\" e spunta le due note: il bonifico da fare diventa 6.000 euro e la causale suggerita cita entrambe le note. Esegui il bonifico per 6.000; dopo la conferma, la fattura e le due note di credito compaiono insieme nel filtro \"In sospeso\" (le note con l'etichetta \"In distinta\", non più tra le note aperte); quando il movimento viene riconciliato, fattura e note di credito si chiudono insieme, in automatico. Se hai sbagliato e vuoi togliere una nota, rimuovi la fattura dalla distinta: le note collegate tornano disponibili e puoi rifare la selezione."
       },
       {
         "q": "Se chiudo una fattura a mano e poi il bonifico arriva comunque sull'estratto conto, si conta due volte?",
