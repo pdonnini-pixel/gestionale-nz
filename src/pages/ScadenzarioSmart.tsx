@@ -38,7 +38,7 @@ import { SituazioneTab } from './scadenzario/SituazioneTab';
 import { ScadenzeCharts } from './scadenzario/ScadenzeCharts';
 import { BulkPaymentBar } from './scadenzario/BulkPaymentBar';
 import { SupplierDetailModal } from './scadenzario/SupplierDetailModal';
-import { CategoryManagerModal } from './scadenzario/CategoryManagerModal';
+import { CategoryManagerModal, type SupLite } from './scadenzario/CategoryManagerModal';
 
 // Main component
 const ScadenzarioSmart = () => {
@@ -754,6 +754,23 @@ const ScadenzarioSmart = () => {
     });
     return m;
   }, [payables]);
+
+  // Spostamento fornitori tra categorie: la scrittura DB (suppliers.default_cost_category_id
+  // + riallineamento payables) avviene nel pannello; qui aggiorniamo lo stato IN MEMORIA
+  // così il pannello resta aperto (fetchData toglierebbe di mezzo tutta la pagina via `loading`).
+  const applySupplierMove = useCallback((movedSuppliers: SupLite[], targetCatId: string) => {
+    const ids = new Set(movedSuppliers.map(s => s.id).filter(Boolean) as string[]);
+    const vats = new Set(movedSuppliers.flatMap(s => [s.vat_number, s.partita_iva]).filter(Boolean) as string[]);
+    const names = new Set(movedSuppliers.flatMap(s => [s.ragione_sociale, s.name]).filter(Boolean) as string[]);
+    setSuppliers(prev => prev.map(s => (s.id && ids.has(s.id)) ? { ...s, default_cost_category_id: targetCatId } as AnyRow : s));
+    setPayables(prev => prev.map(p => {
+      const match = (p.supplier_id && ids.has(p.supplier_id))
+        || (p.supplier_vat && vats.has(p.supplier_vat))
+        || (p.suppliers?.ragione_sociale && names.has(p.suppliers.ragione_sociale))
+        || (p.suppliers?.name && names.has(p.suppliers.name));
+      return match ? { ...p, cost_category_id: targetCatId } : p;
+    }));
+  }, []);
 
   // Carica incassi reali lazy quando il tab Incassi viene aperto.
   // IMPORTANTE: le importazioni EC vanno in DUE tabelle diverse:
@@ -3908,6 +3925,7 @@ const ScadenzarioSmart = () => {
         payableCountByCat={payableCountByCat}
         canEdit={canEditCategories}
         onChanged={refreshCategories}
+        onMoved={applySupplierMove}
       />
 
       {/* Rimanda Scadenza Modal — default "fine mese successivo" o data scelta */}
