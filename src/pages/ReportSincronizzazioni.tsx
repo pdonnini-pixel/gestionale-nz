@@ -80,7 +80,9 @@ function RunDetails({ feed, details, movements, movementsTotal, bankNames, loadi
     )
   }
 
-  if (feed === 'fatture_passive') {
+  // fatture_passive e cassetto_fiscale hanno lo stesso dettaglio (una riga per
+  // fattura scaricata: numero, fornitore, data, importo).
+  if (feed === 'fatture_passive' || feed === 'cassetto_fiscale') {
     return (
       <div className="px-6 py-3 overflow-x-auto scroll-shadow-x">
         <table className="w-full min-w-[480px] text-xs">
