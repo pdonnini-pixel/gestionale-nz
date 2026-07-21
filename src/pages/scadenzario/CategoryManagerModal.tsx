@@ -12,8 +12,8 @@
 // ce_account_code e dai vincoli di unicità): si genera automaticamente alla
 // creazione e non è modificabile.
 
-import { useMemo, useState } from 'react';
-import { Plus, Pencil, ChevronDown, X, Save, Users } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Plus, Pencil, ChevronDown, X, Save, Users, ArrowRightLeft, CheckSquare, Square } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useToast } from '../../components/Toast';
 import { Modal } from './SharedUI';
@@ -32,6 +32,8 @@ export type SupLite = {
   name?: string | null;
   ragione_sociale?: string | null;
   default_cost_category_id?: string | null;
+  vat_number?: string | null;
+  partita_iva?: string | null;
 };
 
 // Gruppi contabili (enum cost_macro_group) con label italiane.
@@ -74,6 +76,7 @@ export function CategoryManagerModal({
   payableCountByCat,
   canEdit,
   onChanged,
+  onMoved,
 }: {
   open: boolean;
   onClose: () => void;
@@ -83,6 +86,9 @@ export function CategoryManagerModal({
   payableCountByCat: Record<string, number>;
   canEdit: boolean;
   onChanged: () => void | Promise<void>;
+  /** Aggiornamento in memoria dopo lo spostamento di fornitori (evita il refetch
+   *  pesante che chiuderebbe il pannello). Il parent riallinea suppliers+payables. */
+  onMoved: (movedSuppliers: SupLite[], targetCategoryId: string) => void;
 }) {
   const { toast } = useToast();
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -91,6 +97,11 @@ export function CategoryManagerModal({
   const [creating, setCreating] = useState(false);
   const [createForm, setCreateForm] = useState<EditForm>({ name: '', macro_group: 'oneri_diversi', color: DEFAULT_COLOR });
   const [busy, setBusy] = useState(false);
+  // Selezione fornitori da spostare + categoria di destinazione (scoped alla
+  // categoria attualmente espansa: si azzera quando cambia l'espansione).
+  const [selectedSup, setSelectedSup] = useState<Set<string>>(new Set());
+  const [moveTarget, setMoveTarget] = useState('');
+  useEffect(() => { setSelectedSup(new Set()); setMoveTarget(''); }, [expandedId]);
 
   // Fornitori collegati per categoria (suppliers.default_cost_category_id).
   const suppliersByCat = useMemo(() => {
@@ -161,6 +172,54 @@ export function CategoryManagerModal({
     setCreateForm({ name: '', macro_group: 'oneri_diversi', color: DEFAULT_COLOR });
     await onChanged();
     toast({ type: 'success', message: `Categoria "${createForm.name.trim()}" creata` });
+  };
+
+  // Sposta i fornitori selezionati in un'altra categoria: aggiorna la categoria
+  // predefinita del fornitore E riallinea TUTTE le sue fatture alla nuova
+  // categoria (scelta dell'utente). Match come la propagazione dello Scadenzario:
+  // supplier_id, in mancanza P.IVA, in mancanza nome.
+  const handleMoveSuppliers = async () => {
+    if (!companyId || !moveTarget) return;
+    const chosen = suppliers.filter(s => s.id && selectedSup.has(s.id));
+    if (chosen.length === 0) return;
+    setBusy(true);
+    try {
+      for (const s of chosen) {
+        if (!s.id) continue;
+        await supabase.from('suppliers').update({ default_cost_category_id: moveTarget } as never).eq('id', s.id);
+        // Riallinea TUTTE le fatture del fornitore (nessun filtro su cost_category_id).
+        await supabase.from('payables').update({ cost_category_id: moveTarget } as never)
+          .eq('company_id', companyId).eq('supplier_id', s.id);
+        const vat = s.vat_number || s.partita_iva;
+        if (vat) {
+          await supabase.from('payables').update({ cost_category_id: moveTarget } as never)
+            .eq('company_id', companyId).eq('supplier_vat', vat);
+        }
+        const name = s.ragione_sociale || s.name;
+        if (name) {
+          await supabase.from('payables').update({ cost_category_id: moveTarget } as never)
+            .eq('company_id', companyId).eq('supplier_name', name);
+        }
+      }
+    } catch (e) {
+      setBusy(false);
+      toast({ type: 'error', message: `Errore spostamento: ${(e as Error).message}` });
+      return;
+    }
+    setBusy(false);
+    onMoved(chosen, moveTarget);
+    const targetName = categories.find(c => c.id === moveTarget)?.name || 'categoria';
+    setSelectedSup(new Set());
+    setMoveTarget('');
+    toast({ type: 'success', message: `${chosen.length} fornitor${chosen.length === 1 ? 'e' : 'i'} spostat${chosen.length === 1 ? 'o' : 'i'} in "${targetName}"` });
+  };
+
+  const toggleSup = (id: string) => {
+    setSelectedSup(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
   };
 
   const fieldRow = (form: EditForm, setForm: (f: EditForm) => void) => (
@@ -302,11 +361,53 @@ export function CategoryManagerModal({
 
                 {/* Fornitori collegati */}
                 {isExpanded && !isEditing && (
-                  <div className="px-3 pb-3 pt-0">
+                  <div className="px-3 pb-3 pt-0 pl-6 space-y-2">
                     {linked.length === 0 ? (
-                      <div className="text-xs text-slate-400 pl-6">Nessun fornitore collegato a questa categoria.</div>
+                      <div className="text-xs text-slate-400">Nessun fornitore collegato a questa categoria.</div>
+                    ) : canEdit ? (
+                      <>
+                        <div className="text-xs text-slate-400">Seleziona i fornitori da spostare in un'altra categoria (riallinea tutte le loro fatture):</div>
+                        <div className="flex flex-col gap-1">
+                          {linked.map(s => {
+                            const sid = s.id || '';
+                            const checked = selectedSup.has(sid);
+                            return (
+                              <button
+                                key={sid}
+                                onClick={() => sid && toggleSup(sid)}
+                                className="inline-flex items-center gap-2 text-left text-xs text-slate-600 hover:text-slate-900"
+                              >
+                                {checked ? <CheckSquare size={14} className="text-blue-600 flex-shrink-0" /> : <Square size={14} className="text-slate-300 flex-shrink-0" />}
+                                <span className="truncate">{String(s.ragione_sociale || s.name || 'N/D')}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                        {selectedSup.size > 0 && (
+                          <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-slate-100">
+                            <span className="text-xs text-slate-500">Sposta {selectedSup.size} selezionat{selectedSup.size === 1 ? 'o' : 'i'} in:</span>
+                            <select
+                              value={moveTarget}
+                              onChange={e => setMoveTarget(e.target.value)}
+                              className="px-2 py-1 text-xs border border-slate-200 rounded-md bg-white focus:outline-none focus:ring-1 focus:ring-blue-400"
+                            >
+                              <option value="">Scegli categoria…</option>
+                              {categories.filter(t => t.id !== c.id).map(t => (
+                                <option key={t.id} value={t.id}>{String(t.name || '')}</option>
+                              ))}
+                            </select>
+                            <button
+                              onClick={handleMoveSuppliers}
+                              disabled={busy || !moveTarget}
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 disabled:opacity-50"
+                            >
+                              <ArrowRightLeft size={13} /> Sposta
+                            </button>
+                          </div>
+                        )}
+                      </>
                     ) : (
-                      <div className="flex flex-wrap gap-1.5 pl-6">
+                      <div className="flex flex-wrap gap-1.5">
                         {linked.map(s => (
                           <span key={s.id} className="inline-flex items-center px-2 py-0.5 rounded-full bg-slate-100 text-xs text-slate-600">
                             {String(s.ragione_sociale || s.name || 'N/D')}
