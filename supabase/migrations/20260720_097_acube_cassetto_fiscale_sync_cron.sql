@@ -23,10 +23,16 @@
 --   cassetto attive del tenant (nessun valore hardcoded: fiscal_id dalla config).
 --   Schedulata da pg_cron una volta al giorno (il feed cassetto è giornaliero).
 --
---   Parsing DIFENSIVO: la risposta it.api/invoices espone i campi a livello
---   top-level (invoice_number, invoice_date, total_amount, sender/recipient
---   annidati) mentre il canale SDI espone un payload FatturaPA. La funzione fa
---   COALESCE su entrambe le forme per essere robusta.
+--   Dettagli endpoint (confermati con A-Cube, 2026-07-20):
+--     • filtro fatture ricevute = `recipient=<P.IVA>` (NON `fiscal_id`, ignorato);
+--     • filtro data = `invoiceDate[after]` / `invoiceDate[before]`;
+--     • pagina MAX 30 risultati → si scorre `page=1,2,…` finché una pagina < 30;
+--     • `payload` arriva come STRINGA JSON → va riparsato a jsonb, poi numero/data/
+--       importo si leggono dal FatturaPA (come nel canale SDI). Le fatture da
+--       Cassetto sono esposte insieme a quelle SDI (nessun filtro per distinguerle).
+--   NB: il job giornaliero A-Cube copre solo una finestra mobile di ~30 giorni;
+--   il recupero STORICO si attiva con un job di download puntuale su A-Cube (azione
+--   lato A-Cube, fuori da questa migration).
 --
 -- SICUREZZA / NO DATA LOSS:
 --   Solo INSERT idempotente (dedup su acube_uuid già esistente) + logging. Nessun
@@ -166,7 +172,9 @@ BEGIN
       EXIT WHEN v_page > v_max_pages;
       SELECT * INTO v_resp FROM http((
         'GET',
-        format('%s/invoices?fiscal_id=%s&updated_after=%s&itemsPerPage=100&page=%s',
+        -- Filtro CORRETTO per fatture ricevute: recipient=<P.IVA> (NON fiscal_id, che
+        -- A-Cube ignora). Data via invoiceDate[after]. Pagina fissa a 30 (max A-Cube).
+        format('%s/invoices?recipient=%s&invoiceDate[after]=%s&itemsPerPage=30&page=%s',
                v_base_url, v_cfg.fiscal_id, v_since, v_page),
         ARRAY[http_header('Authorization','Bearer '||v_jwt), http_header('Accept','application/json')],
         NULL, NULL
@@ -194,13 +202,17 @@ BEGIN
           CONTINUE;
         END IF;
 
-        -- payload: campo 'payload' se presente, altrimenti l'intero item (NOT NULL)
-        v_payload := COALESCE(v_item->'payload', v_item);
+        -- payload: A-Cube lo restituisce come STRINGA JSON → va riparsato a jsonb
+        -- (come nel canale SDI). Fallback all'intero item se assente (colonna NOT NULL).
         BEGIN
-          v_doc := v_payload #> '{fattura_elettronica_body,0,dati_generali,dati_generali_documento}';
-        EXCEPTION WHEN OTHERS THEN v_doc := NULL; END;
+          v_payload := (v_item->>'payload')::jsonb;
+        EXCEPTION WHEN OTHERS THEN v_payload := NULL; END;
+        IF v_payload IS NULL THEN v_payload := v_item; END IF;
+        v_doc := v_payload #> '{fattura_elettronica_body,0,dati_generali,dati_generali_documento}';
 
-        v_direction := COALESCE(NULLIF(v_item->>'direction',''), NULLIF(v_item->>'type',''), 'passive');
+        -- interroghiamo recipient=<P.IVA> → sono SEMPRE fatture ricevute (passive).
+        -- 'type' (=formato trasmissione, es. "1") NON è la direzione: non usarlo qui.
+        v_direction := 'passive';
         v_inv_num   := COALESCE(v_item->>'invoice_number', v_item->>'number', v_doc->>'numero');
         v_inv_date  := nullif(COALESCE(v_item->>'invoice_date', v_item->>'date', v_doc->>'data'), '')::date;
         v_total     := nullif(COALESCE(v_item->>'total_amount', v_item->>'totale', v_doc->>'importo_totale_documento'), '')::numeric;
@@ -222,7 +234,7 @@ BEGIN
           v_inv_num, v_inv_date, v_currency, v_total,
           COALESCE((v_item->>'to_pa')::boolean, false),
           v_sender_vat, COALESCE(v_item->'sender'->>'country','IT'), v_sender_name,
-          v_recipient_vat, v_recipient_name, v_item->'recipient'->>'code',
+          v_recipient_vat, v_recipient_name, COALESCE(v_item->'recipient'->>'code', v_item->'recipient'->>'recipient_code'),
           true, now(), v_payload,
           nullif(COALESCE(v_item->>'created_at', v_item->>'createdAt'), '')::timestamptz
         );
@@ -244,7 +256,7 @@ BEGIN
         );
       END LOOP;
 
-      EXIT WHEN v_len < 100;   -- ultima pagina
+      EXIT WHEN v_len < 30;   -- pagina non piena → ultima (pagina A-Cube = 30)
       v_page := v_page + 1;
     END LOOP;
   END LOOP;
