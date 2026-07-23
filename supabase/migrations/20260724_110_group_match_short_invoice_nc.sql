@@ -1,0 +1,93 @@
+-- =====================================================================
+-- Migrazione 110 — Granitico: numeri fattura/NC CORTI (con fornitore + somma esatta)
+-- =====================================================================
+-- CASO REALE (Patrizio): "*WOLF GROUP S.R.L SALDO FATTURA 176-NC30" −5.702,28 =
+-- fattura 176 (5.722,78) − NC 30 (20,50). Non scattava perché il matcher granitico
+-- chiedeva numero fattura >= 4 cifre e NC >= 3 cifre: "176" (3) e "30" (2) venivano
+-- scartati.
+--
+-- FIX: abbassate le soglie a fattura >= 3 cifre e NC >= 2 cifre. Le garanzie contro
+-- i falsi positivi restano forti: il FORNITORE dev'essere confermato in causale
+-- (P.IVA o parola >=4 char del nome), il numero dev'essere un TOKEN ISOLATO, e la
+-- SOMMA (fatture − NC) deve coincidere ESATTAMENTE col movimento. Le fatture a 2
+-- cifre restano escluse dal granitico (troppo confondibili con le date), ma restano
+-- gestite come proposta dal matcher a punteggio.
+--
+-- Additiva/idempotente. ⚠️ REGOLA #0 — NZ + Made + Zago.
+-- Dopo l'apply:  SELECT public.rerun_group_reconciliation();
+-- =====================================================================
+
+CREATE OR REPLACE FUNCTION public.try_match_group_bank_transaction(p_bt_id uuid)
+ RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public', 'pg_temp'
+AS $function$
+DECLARE
+  v_bt RECORD; v_descr TEXT; v_mov NUMERIC; v_grp RECORD; v_pay RECORD;
+  v_first UUID := NULL; v_linked INT := 0; v_nc INT := 0; v_applied NUMERIC; v_has_nc BOOLEAN;
+BEGIN
+  SELECT * INTO v_bt FROM public.bank_transactions WHERE id = p_bt_id;
+  IF v_bt IS NULL OR v_bt.amount >= 0 THEN RETURN jsonb_build_object('matched', false, 'reason', 'not_negative_or_missing'); END IF;
+  IF COALESCE(v_bt.is_reconciled, false) THEN RETURN jsonb_build_object('matched', false, 'reason', 'already_reconciled'); END IF;
+  v_descr := lower(coalesce(v_bt.description, '') || ' ' || coalesce(v_bt.counterpart, '') || ' ' || coalesce(v_bt.merchant_name, ''));
+  v_mov := abs(v_bt.amount);
+  v_has_nc := v_descr ~ '\ync\y' OR v_descr ~ 'nota\s*credito' OR v_descr ~ '\yn\.?c\.?[0-9]';
+
+  SELECT g.supplier_name, g.ids, g.tot, g.n_nc INTO v_grp
+  FROM (
+    SELECT q.supplier_name, array_agg(q.id) AS ids, sum(q.amt) AS tot,
+           count(*) FILTER (WHERE q.is_nc) AS n_nc
+    FROM (
+      SELECT p.id, p.supplier_name, false AS is_nc,
+        CASE WHEN p.status = 'pagato' THEN p.gross_amount ELSE COALESCE(p.amount_remaining, p.gross_amount - COALESCE(p.amount_paid, 0), p.gross_amount) END AS amt
+      FROM public.payables p
+      WHERE p.company_id = v_bt.company_id AND p.bank_transaction_id IS NULL AND p.gross_amount > 0
+        AND NOT COALESCE(p.is_placeholder, false)
+        AND ( p.status IN ('da_pagare', 'in_scadenza', 'scaduto') OR (p.status = 'pagato' AND COALESCE(p.closed_manually, false)) )
+        AND ( (p.supplier_vat IS NOT NULL AND v_descr LIKE '%' || lower(p.supplier_vat) || '%')
+          OR EXISTS (SELECT 1 FROM regexp_split_to_table(lower(coalesce(p.supplier_name, '')), '[^a-z0-9]+') w WHERE length(w) >= 4 AND position(w in v_descr) > 0) )
+        AND length(ltrim(regexp_replace(coalesce(p.invoice_number, ''), '[^0-9]', '', 'g'), '0')) >= 3
+        AND v_descr ~ ('(^|[^0-9])' || ltrim(regexp_replace(coalesce(p.invoice_number, ''), '[^0-9]', '', 'g'), '0') || '([^0-9]|$)')
+      UNION ALL
+      SELECT p.id, p.supplier_name, true AS is_nc, p.gross_amount AS amt
+      FROM public.payables p
+      WHERE v_has_nc
+        AND p.company_id = v_bt.company_id AND p.bank_transaction_id IS NULL AND p.gross_amount < 0
+        AND NOT COALESCE(p.is_placeholder, false)
+        AND ( (p.supplier_vat IS NOT NULL AND v_descr LIKE '%' || lower(p.supplier_vat) || '%')
+          OR EXISTS (SELECT 1 FROM regexp_split_to_table(lower(coalesce(p.supplier_name, '')), '[^a-z0-9]+') w WHERE length(w) >= 4 AND position(w in v_descr) > 0) )
+        AND length(ltrim(regexp_replace(coalesce(p.invoice_number, ''), '[^0-9]', '', 'g'), '0')) >= 2
+        AND v_descr ~ ('(^|[^0-9])' || ltrim(regexp_replace(coalesce(p.invoice_number, ''), '[^0-9]', '', 'g'), '0') || '([^0-9]|$)')
+    ) q
+    GROUP BY q.supplier_name
+    HAVING sum(q.amt) FILTER (WHERE NOT q.is_nc) > 0
+       AND abs(sum(q.amt) - v_mov) <= GREATEST(0.02, v_mov * 0.01)
+    ORDER BY count(*) DESC LIMIT 1
+  ) g;
+
+  IF NOT FOUND THEN RETURN jsonb_build_object('matched', false); END IF;
+
+  FOR v_pay IN SELECT * FROM public.payables WHERE id = ANY(v_grp.ids) LOOP
+    IF v_first IS NULL AND v_pay.gross_amount > 0 THEN v_first := v_pay.id; END IF;
+    IF v_pay.gross_amount < 0 THEN
+      UPDATE public.payables SET bank_transaction_id = p_bt_id, updated_at = now() WHERE id = v_pay.id;
+      INSERT INTO public.reconciliation_log (company_id, bank_transaction_id, payable_id, match_type, confidence, status, applied_amount, notes)
+      VALUES (v_bt.company_id, p_bt_id, v_pay.id, 'auto_exact', 100, 'applied', v_pay.gross_amount, 'auto: nota di credito compensata nel pagamento (citata in causale)');
+      v_nc := v_nc + 1;
+    ELSIF v_pay.status = 'pagato' AND COALESCE(v_pay.closed_manually, false) AND v_pay.bank_transaction_id IS NULL THEN
+      UPDATE public.payables SET bank_transaction_id = p_bt_id, updated_at = now() WHERE id = v_pay.id;
+      INSERT INTO public.reconciliation_log (company_id, bank_transaction_id, payable_id, match_type, confidence, status, applied_amount, notes)
+      VALUES (v_bt.company_id, p_bt_id, v_pay.id, 'auto_exact', 100, 'applied', v_pay.gross_amount, 'auto: fattura citata in causale (chiusa a mano — solo aggancio)');
+      v_linked := v_linked + 1;
+    ELSE
+      v_applied := COALESCE(v_pay.amount_remaining, v_pay.gross_amount - COALESCE(v_pay.amount_paid, 0), v_pay.gross_amount);
+      UPDATE public.payables SET amount_paid = COALESCE(amount_paid, 0) + v_applied, payment_date = v_bt.transaction_date, bank_transaction_id = p_bt_id, updated_at = now() WHERE id = v_pay.id;
+      INSERT INTO public.reconciliation_log (company_id, bank_transaction_id, payable_id, match_type, confidence, status, applied_amount, notes)
+      VALUES (v_bt.company_id, p_bt_id, v_pay.id, 'auto_exact', 100, 'applied', v_applied, 'auto: fattura citata in causale (importo esatto)');
+      v_linked := v_linked + 1;
+    END IF;
+  END LOOP;
+
+  UPDATE public.bank_transactions SET is_reconciled = true, reconciled_at = now(), reconciled_invoice_id = v_first WHERE id = p_bt_id;
+  RETURN jsonb_build_object('matched', true, 'auto', true, 'grouped', (v_linked > 1),
+                            'fatture', v_linked, 'note_credito', v_nc, 'supplier', v_grp.supplier_name, 'sum', v_grp.tot, 'movimento', v_mov);
+END;
+$function$;
