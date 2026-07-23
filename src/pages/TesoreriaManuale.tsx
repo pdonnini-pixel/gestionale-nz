@@ -2882,6 +2882,7 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
   const [undoModal, setUndoModal] = useState<{ logId: string; label: string; amount: number } | null>(null)
   const [processingSug, setProcessingSug] = useState(false)
   const [dismissedVerify, setDismissedVerify] = useState<Set<string>>(new Set())
+  const [dismissedGroup, setDismissedGroup] = useState<Set<string>>(new Set())
 
   // Get unreconciled outgoing movements
   const unreconciledMovements = useMemo(() => {
@@ -3199,6 +3200,84 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
       .slice(0, 80)
   }, [unreconciledMovements, unpaidPayables, closedManualPayables, suggestions, dismissedVerify])
 
+  // Pagamenti RAGGRUPPATI: un bonifico che paga N fatture dello stesso fornitore
+  // (es. −466,95 = 155,65 + 311,30). Per i movimenti non abbinati a una fattura
+  // singola, cerca una combinazione di 2-3 fatture dello stesso beneficiario la cui
+  // somma coincide con l'importo del movimento (entro il 2% o 5 cent). Conferma a
+  // mano: l'aggancio passa da reconcile_movement_group (atomico, tutto-o-niente).
+  type GroupItem = { p: PayT; base: number; chiusa: boolean }
+  const findCombo = (pool: GroupItem[], target: number): GroupItem[] | null => {
+    const tol = Math.max(0.05, target * 0.02)
+    // pool limitato per evitare esplosioni combinatorie (fatture per fornitore sono poche)
+    const s = pool.slice().sort((a, b) => b.base - a.base).slice(0, 14)
+    const n = s.length
+    for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) {
+      if (Math.abs(s[i].base + s[j].base - target) <= tol) return [s[i], s[j]]
+    }
+    for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) for (let k = j + 1; k < n; k++) {
+      if (Math.abs(s[i].base + s[j].base + s[k].base - target) <= tol) return [s[i], s[j], s[k]]
+    }
+    return null
+  }
+  const toVerifyGroups = useMemo<{ bt: TxT; items: GroupItem[]; beneficiario: string; total: number }[]>(() => {
+    const singleBtIds = new Set(toVerify.map((v) => String(v.bt.id)))
+    const highConfBtIds = new Set(suggestions.map((s) => String(s.bt.id)))
+    const candidates: GroupItem[] = [
+      ...unpaidPayables.map((p) => ({ p, base: p.amount_remaining != null ? Number(p.amount_remaining) : Number(p.gross_amount || 0) - Number(p.amount_paid || 0), chiusa: false })),
+      ...closedManualPayables.map((p) => ({ p, base: Number(p.gross_amount || 0), chiusa: true })),
+    ].filter((c) => c.base > 0)
+    const out: { bt: TxT; items: GroupItem[]; beneficiario: string; total: number }[] = []
+    for (const m of unreconciledMovements) {
+      const id = String(m.id)
+      if (singleBtIds.has(id) || highConfBtIds.has(id) || dismissedGroup.has(id)) continue
+      const desc = String(m.description || '')
+      if (NON_SUPPLIER_RE.test(desc)) continue
+      const benef = extractBeneficiary(desc)
+      if (!benef || NON_SUPPLIER_BENEF_RE.test(benef)) continue
+      const benefWords = sigWords(benef)
+      if (benefWords.length === 0) continue
+      const mv = Math.abs(Number(m.amount) || 0)
+      if (mv <= 0) continue
+      // candidati dello stesso beneficiario, ognuno più piccolo del movimento
+      const pool = candidates.filter((c) => {
+        if (c.base > mv + 0.01) return false
+        const supWords = new Set(sigWords(getSupplierName(c.p)))
+        return benefWords.some((w) => supWords.has(w))
+      })
+      if (pool.length < 2) continue
+      const combo = findCombo(pool, mv)
+      if (combo) out.push({ bt: m, items: combo, beneficiario: benef, total: combo.reduce((s, c) => s + c.base, 0) })
+    }
+    return out
+      .sort((a, b) => new Date(String(b.bt.transaction_date) || 0).getTime() - new Date(String(a.bt.transaction_date) || 0).getTime())
+      .slice(0, 40)
+  }, [unreconciledMovements, unpaidPayables, closedManualPayables, toVerify, suggestions, dismissedGroup])
+
+  const handleReconcileGroup = async (bt: TxT, payableIds: string[]) => {
+    setReconciling(true)
+    try {
+      const { data, error } = await supabase.rpc('reconcile_movement_group' as never, {
+        p_bt_id: String(bt.id), p_payable_ids: payableIds,
+      } as never)
+      if (error) throw error
+      const res = data as { ok?: boolean; reason?: string; scarto?: number } | null
+      if (!res?.ok) {
+        const msg = res?.reason === 'sum_mismatch'
+          ? `Somma fatture diversa dall'importo (scarto ${res.scarto} €): non abbinato.`
+          : res?.reason === 'stale' ? 'Il movimento risulta già riconciliato.'
+          : 'Gruppo non abbinabile (una fattura non è più valida).'
+        toast({ type: 'warning', message: msg }); return
+      }
+      toast({ type: 'success', message: `Gruppo confermato: ${payableIds.length} fatture abbinate a un unico movimento.` })
+      onRefresh()
+    } catch (err: unknown) {
+      console.error('Reconcile group error:', err)
+      toast({ type: 'error', message: `Errore riconciliazione gruppo: ${(err as Error).message}` })
+    } finally {
+      setReconciling(false)
+    }
+  }
+
   // Mappa bt riconciliato -> riga di log 'applied' con applied_amount (per l'annullo)
   const appliedLogByBt = useMemo(() => {
     const m = new Map<string, LogRow>()
@@ -3491,6 +3570,53 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
                       <Check size={12} /> Conferma
                     </button>
                     <button onClick={() => setDismissedVerify((prev) => new Set(prev).add(String(bt.id)))} disabled={reconciling}
+                      className="flex items-center gap-1 px-2.5 py-1.5 border border-slate-200 text-slate-600 rounded-lg text-xs font-medium hover:bg-slate-50 transition disabled:opacity-50">
+                      <X size={12} /> Nascondi
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {toVerifyGroups.length > 0 && (
+        <div className="bg-white rounded-xl border border-violet-200 shadow-sm overflow-hidden">
+          <div className="px-5 py-3 bg-violet-50/60 border-b border-violet-100 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-sm font-semibold text-violet-800">
+              <Check size={16} /> Pagamenti raggruppati — un bonifico, più fatture ({toVerifyGroups.length})
+            </div>
+            <span className="text-xs text-violet-600/80">Un unico movimento che salda più fatture dello stesso fornitore. Conferma tu il gruppo.</span>
+          </div>
+          <div className="divide-y divide-slate-50 max-h-[460px] overflow-y-auto">
+            {toVerifyGroups.map(({ bt, items, beneficiario, total }) => {
+              const acct = accounts.find((a) => a.id === bt.bank_account_id)
+              const ids = items.map((it) => String(it.p.id))
+              return (
+                <div key={String(bt.id)} className="flex items-start gap-3 px-5 py-3 hover:bg-slate-50/60">
+                  <div className="flex-1 min-w-0">
+                    <CellTooltip content={String(bt.description || 'Movimento')}><div className="text-sm font-medium text-slate-900 truncate">{beneficiario ? `→ ${beneficiario}` : (bt.description || 'Movimento')}</div></CellTooltip>
+                    <div className="text-xs text-slate-400 truncate">{fmtDate(bt.transaction_date)} {acct ? `• ${acct.account_name || acct.bank_name}` : ''}</div>
+                  </div>
+                  <div className="text-sm font-semibold text-red-600 whitespace-nowrap">{fmt(bt.amount)} &euro;</div>
+                  <ArrowRight size={16} className="text-slate-300 flex-shrink-0 mt-0.5" />
+                  <div className="flex-1 min-w-0">
+                    {items.map((it) => (
+                      <div key={String(it.p.id)} className="text-xs text-slate-600 truncate flex items-center gap-1.5">
+                        <span className="text-slate-800 font-medium">Fatt. {it.p.invoice_number || '—'}</span>
+                        <span className="text-slate-400">{fmt(it.base)} €</span>
+                        {it.chiusa && <span className="text-[9px] px-1 py-0.5 rounded-full bg-violet-100 text-violet-700 font-semibold">chiusa a mano</span>}
+                      </div>
+                    ))}
+                    <div className="text-[11px] text-slate-400 mt-0.5">Totale {fmt(total)} € • {getSupplierName(items[0].p)}</div>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <button onClick={() => handleReconcileGroup(bt, ids)} disabled={reconciling}
+                      className="flex items-center gap-1 px-2.5 py-1.5 bg-violet-600 text-white rounded-lg text-xs font-medium hover:bg-violet-700 transition disabled:opacity-50">
+                      <Check size={12} /> Conferma gruppo
+                    </button>
+                    <button onClick={() => setDismissedGroup((prev) => new Set(prev).add(String(bt.id)))} disabled={reconciling}
                       className="flex items-center gap-1 px-2.5 py-1.5 border border-slate-200 text-slate-600 rounded-lg text-xs font-medium hover:bg-slate-50 transition disabled:opacity-50">
                       <X size={12} /> Nascondi
                     </button>
