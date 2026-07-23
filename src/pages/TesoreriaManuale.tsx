@@ -2867,6 +2867,7 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
   const [summaryModal, setSummaryModal] = useState<{ rows: SugRow[] } | null>(null)
   const [undoModal, setUndoModal] = useState<{ logId: string; label: string; amount: number } | null>(null)
   const [processingSug, setProcessingSug] = useState(false)
+  const [dismissedVerify, setDismissedVerify] = useState<Set<string>>(new Set())
 
   // Get unreconciled outgoing movements
   const unreconciledMovements = useMemo(() => {
@@ -3087,6 +3088,42 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
     }
     return out.sort((a, b) => b.confidence - a.confidence)
   }, [logRows, txById, payById])
+
+  // Movimenti che NON sono pagamenti a fornitori (imposte, bolli, giroconti,
+  // commissioni, ricariche): non vanno proposti per abbinamento a una fattura.
+  const NON_SUPPLIER_RE = /\b(F24|CBILL|PAGOPA|GIROCONTO|BOLLO|ONERI|COMMISSION|RICARICA)\b/i
+
+  // "Da verificare (importo compatibile)": per ogni uscita non riconciliata trova
+  // la fattura aperta con residuo che combacia entro il 2%, ANCHE quando il
+  // suggerimento del motore è sotto soglia o assente (es. bonifici "BEU INTERN
+  // BANK …" che non riportano il nome del fornitore). Calcolo lato client → copre
+  // sia i suggerimenti nascosti sia quelli mai generati. Conferma manuale (nessun
+  // "conferma tutti") perché l'abbinamento è solo per importo.
+  const toVerify = useMemo<{ bt: TxT; payable: PayT; rem: number }[]>(() => {
+    const highConfBtIds = new Set(suggestions.map((s) => String(s.bt.id)))
+    const out: { bt: TxT; payable: PayT; rem: number }[] = []
+    for (const m of unreconciledMovements) {
+      if (highConfBtIds.has(String(m.id))) continue
+      if (dismissedVerify.has(String(m.id))) continue
+      if (NON_SUPPLIER_RE.test(String(m.description || ''))) continue
+      const mv = Math.abs(Number(m.amount) || 0)
+      if (mv <= 0) continue
+      let best: PayT | null = null
+      let bestRem = 0
+      let bestDiff = Infinity
+      for (const p of unpaidPayables) {
+        const rem = p.amount_remaining != null ? Number(p.amount_remaining) : Number(p.gross_amount || 0) - Number(p.amount_paid || 0)
+        if (rem <= 0) continue
+        const diff = Math.abs(rem - mv)
+        if (diff / rem > 0.02) continue
+        if (diff < bestDiff) { bestDiff = diff; best = p; bestRem = rem }
+      }
+      if (best) out.push({ bt: m, payable: best, rem: bestRem })
+    }
+    return out
+      .sort((a, b) => new Date(String(b.bt.transaction_date) || 0).getTime() - new Date(String(a.bt.transaction_date) || 0).getTime())
+      .slice(0, 80)
+  }, [unreconciledMovements, unpaidPayables, suggestions, dismissedVerify])
 
   // Mappa bt riconciliato -> riga di log 'applied' con applied_amount (per l'annullo)
   const appliedLogByBt = useMemo(() => {
@@ -3344,6 +3381,50 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
               })}
             </div>
           )}
+        </div>
+      )}
+
+      {toVerify.length > 0 && (
+        <div className="bg-white rounded-xl border border-blue-200 shadow-sm overflow-hidden">
+          <div className="px-5 py-3 bg-blue-50/60 border-b border-blue-100 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-sm font-semibold text-blue-800">
+              <Check size={16} /> Da verificare — importo compatibile ({toVerify.length})
+            </div>
+            <span className="text-xs text-blue-600/80">Fattura aperta con residuo uguale al pagamento. Conferma tu, una per una.</span>
+          </div>
+          <div className="divide-y divide-slate-50 max-h-[460px] overflow-y-auto">
+            {toVerify.map(({ bt, payable, rem }) => {
+              const acct = accounts.find((a) => a.id === bt.bank_account_id)
+              return (
+                <div key={String(bt.id)} className="flex items-center gap-3 px-5 py-3 hover:bg-slate-50/60">
+                  <div className="flex-1 min-w-0">
+                    <CellTooltip content={String(bt.description || 'Movimento')}><div className="text-sm font-medium text-slate-900 truncate">{bt.description || 'Movimento'}</div></CellTooltip>
+                    <div className="text-xs text-slate-400 truncate">
+                      {fmtDate(bt.transaction_date)} {acct ? `• ${acct.account_name || acct.bank_name}` : ''}
+                    </div>
+                  </div>
+                  <div className="text-sm font-semibold text-red-600 whitespace-nowrap">{fmt(bt.amount)} &euro;</div>
+                  <ArrowRight size={16} className="text-slate-300 flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <CellTooltip content={getSupplierName(payable)}><div className="text-sm font-medium text-slate-800 truncate">{getSupplierName(payable)}</div></CellTooltip>
+                    <div className="text-xs text-slate-400 truncate">
+                      Fatt. {payable.invoice_number || '—'} {'•'} residuo {fmt(rem)} €
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <button onClick={() => handleReconcile(bt, payable)} disabled={reconciling}
+                      className="flex items-center gap-1 px-2.5 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-medium hover:bg-emerald-700 transition disabled:opacity-50">
+                      <Check size={12} /> Conferma
+                    </button>
+                    <button onClick={() => setDismissedVerify((prev) => new Set(prev).add(String(bt.id)))} disabled={reconciling}
+                      className="flex items-center gap-1 px-2.5 py-1.5 border border-slate-200 text-slate-600 rounded-lg text-xs font-medium hover:bg-slate-50 transition disabled:opacity-50">
+                      <X size={12} /> Nascondi
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
         </div>
       )}
 
