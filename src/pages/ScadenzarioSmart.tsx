@@ -4021,6 +4021,10 @@ const ScadenzarioSmart = () => {
             </div>
           )}
 
+          {/* Spazio in fondo alla lista: riserva l'altezza della barra fissa "Crea distinta"
+              così le ultime scadenze non restano coperte e si può scrollare fin sotto. */}
+          {selectedIds.size > 0 && <div aria-hidden className="h-56" />}
+
           {/* Floating Action Bar for Bulk Payments */}
           {selectedIds.size > 0 && (
             <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 w-[min(92vw,880px)]">
