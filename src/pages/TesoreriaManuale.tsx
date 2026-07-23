@@ -2596,6 +2596,7 @@ function isReconcilableTx(t: { category?: string | null; description?: string | 
    ──────────────────────────────────────── */
 type ReconLogRowR = {
   id: string
+  bank_transaction_id?: string | null
   performed_at?: string | null
   applied_amount?: number | null
   match_type?: string | null
@@ -2629,9 +2630,22 @@ function RiepilogoGiornaliero({ companyId, accounts }: { companyId: string; acco
     if (toISO(d) > toISO(new Date())) return
     setDay(toISO(d))
   }
+  // Dedup per movimento: se lo stesso movimento ha più righe 'applied' (residui
+  // storici di un vecchio data-fix), va contato UNA sola volta.
+  const reconDistinct = useMemo(() => {
+    const seen = new Set<string>()
+    const out: ReconLogRowR[] = []
+    for (const r of reconRows) {
+      const k = r.bank_transaction_id || r.id
+      if (seen.has(k)) continue
+      seen.add(k)
+      out.push(r)
+    }
+    return out
+  }, [reconRows])
   const reconTotal = useMemo(
-    () => reconRows.reduce((s, r) => s + Math.abs(Number(r.bank_transactions?.amount ?? r.applied_amount ?? r.payables?.gross_amount ?? 0)), 0),
-    [reconRows],
+    () => reconDistinct.reduce((s, r) => s + Math.abs(Number(r.bank_transactions?.amount ?? r.applied_amount ?? r.payables?.gross_amount ?? 0)), 0),
+    [reconDistinct],
   )
 
   // Riconciliati nella data selezionata (audit reale: reconciliation_log applicati)
@@ -2653,7 +2667,7 @@ function RiepilogoGiornaliero({ companyId, accounts }: { companyId: string; acco
         }
         const q = supabase
           .from('reconciliation_log')
-          .select('id, performed_at, applied_amount, match_type, bank_transactions(transaction_date, amount, description, counterpart_name), payables(invoice_number, supplier_name, gross_amount)') as unknown as LogChain
+          .select('id, bank_transaction_id, performed_at, applied_amount, match_type, bank_transactions(transaction_date, amount, description, counterpart_name), payables(invoice_number, supplier_name, gross_amount)') as unknown as LogChain
         const { data } = await q
           .eq('company_id', companyId).eq('status', 'applied')
           .gte('performed_at', start).lt('performed_at', end)
@@ -2726,7 +2740,7 @@ function RiepilogoGiornaliero({ companyId, accounts }: { companyId: string; acco
             <div className="p-2 rounded-lg bg-emerald-50 text-emerald-600"><CheckCircle2 size={18} /></div>
             <div>
               <div className="text-xs text-slate-500">Riconciliati {isToday ? 'oggi' : `il ${fmtD(day)}`}</div>
-              <div className="text-lg font-bold text-slate-900">{loadingRecon ? '…' : reconRows.length} <span className="text-sm font-medium text-slate-400">pagamenti</span></div>
+              <div className="text-lg font-bold text-slate-900">{loadingRecon ? '…' : reconDistinct.length} <span className="text-sm font-medium text-slate-400">pagamenti</span></div>
             </div>
           </div>
           <div className="text-right">
@@ -2754,7 +2768,7 @@ function RiepilogoGiornaliero({ companyId, accounts }: { companyId: string; acco
         <div className="border-t border-slate-100">
           {loadingRecon ? (
             <div className="p-6 text-center text-slate-400 text-sm">Caricamento…</div>
-          ) : reconRows.length === 0 ? (
+          ) : reconDistinct.length === 0 ? (
             <div className="p-6 text-center text-slate-400 text-sm">Nessun pagamento riconciliato in questa data.</div>
           ) : (
             <div className="overflow-x-auto scroll-shadow-x">
@@ -2769,7 +2783,7 @@ function RiepilogoGiornaliero({ companyId, accounts }: { companyId: string; acco
                   </tr>
                 </thead>
                 <tbody>
-                  {reconRows.map(r => (
+                  {reconDistinct.map(r => (
                     <tr key={r.id} className="border-b border-slate-50 hover:bg-slate-50/50 transition">
                       <td className="py-2 px-4 text-slate-800 max-w-[220px] truncate">{r.payables?.supplier_name || r.bank_transactions?.counterpart_name || '—'}</td>
                       <td className="py-2 px-4 text-slate-500 text-xs">{r.payables?.invoice_number || '—'}</td>
