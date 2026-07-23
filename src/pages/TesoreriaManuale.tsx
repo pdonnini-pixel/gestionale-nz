@@ -3106,33 +3106,64 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
   // Movimenti che NON sono pagamenti a fornitori (imposte, bolli, giroconti,
   // commissioni, ricariche): non vanno proposti per abbinamento a una fattura.
   const NON_SUPPLIER_RE = /\b(F24|CBILL|PAGOPA|GIROCONTO|BOLLO|ONERI|COMMISSION|RICARICA)\b/i
+  // Beneficiari che non sono fornitori con fattura (fondi, assicurazioni, banche):
+  // anche se l'importo combacia per caso, NON vanno abbinati a una fattura.
+  const NON_SUPPLIER_BENEF_RE = /\b(AZIMUT|MEDIOLANUM|GENERALI|UNIPOLSAI|ALLIANZ|POSTE VITA|ARCA VITA|INTESA|FINECO|BANCA|SGR|FONDO|ASSICURA)\b/i
 
-  // "Da verificare (importo compatibile)": per ogni uscita non riconciliata trova
-  // la fattura aperta con residuo che combacia entro il 2%, ANCHE quando il
-  // suggerimento del motore è sotto soglia o assente (es. bonifici "BEU INTERN
-  // BANK …" che non riportano il nome del fornitore). Calcolo lato client → copre
-  // sia i suggerimenti nascosti sia quelli mai generati. Conferma manuale (nessun
-  // "conferma tutti") perché l'abbinamento è solo per importo.
-  const toVerify = useMemo<{ bt: TxT; payable: PayT; rem: number }[]>(() => {
+  // Estrae il beneficiario dalla causale dei bonifici ("… a favore di: NOME …").
+  // Il nome è seguito da "SALDO FATTURA", dalla P.IVA del pagatore (11 cifre) o
+  // da "NEW ZAGO". Restituisce '' se non c'è un beneficiario leggibile.
+  const extractBeneficiary = (desc: string): string => {
+    // "a favore di: NOME" (bonifici) oppure "A FAVORE NOME" (addebiti SDD)
+    const m = /a favore(?:\s+di)?:?\s+(.+)/i.exec(String(desc || ''))
+    if (!m) return ''
+    let s = m[1]
+    s = s.split(/\s+SALDO\s+FATTURA/i)[0]
+    s = s.replace(/\s+\d{11}.*$/, '')
+    s = s.split(/\s+NEW ZAGO/i)[0]
+    return s.trim()
+  }
+  const BENEF_STOP = new Set(['SPA', 'SRL', 'SNC', 'SAS', 'SRLS', 'SOCIETA', 'PER', 'AZIONI', 'DEL', 'DELLA', 'THE', 'AND', 'SEMPLIFICATA', 'UNIPERSONALE'])
+  const sigWords = (s: string): string[] =>
+    String(s || '').toUpperCase().replace(/[^A-Z0-9 ]/g, ' ').split(/\s+/).filter((w) => w.length > 3 && !BENEF_STOP.has(w))
+
+  // "Da verificare": abbina l'uscita alla fattura del BENEFICIARIO letto dalla
+  // causale (non per solo importo!). Serve almeno una parola significativa in
+  // comune tra beneficiario e fornitore, e importo entro il 5%. Così spariscono
+  // i falsi positivi da coincidenza di importo (bonifici a fondi/assicurazioni,
+  // beneficiari diversi con lo stesso importo). Copre i casi che il motore non ha
+  // proposto o ha messo sotto soglia. Conferma manuale, una per una.
+  const toVerify = useMemo<{ bt: TxT; payable: PayT; rem: number; beneficiario: string }[]>(() => {
     const highConfBtIds = new Set(suggestions.map((s) => String(s.bt.id)))
-    const out: { bt: TxT; payable: PayT; rem: number }[] = []
+    const out: { bt: TxT; payable: PayT; rem: number; beneficiario: string }[] = []
     for (const m of unreconciledMovements) {
       if (highConfBtIds.has(String(m.id))) continue
       if (dismissedVerify.has(String(m.id))) continue
-      if (NON_SUPPLIER_RE.test(String(m.description || ''))) continue
+      const desc = String(m.description || '')
+      if (NON_SUPPLIER_RE.test(desc)) continue
+      const benef = extractBeneficiary(desc)
+      if (!benef || NON_SUPPLIER_BENEF_RE.test(benef)) continue   // niente beneficiario o non-fornitore
+      const benefWords = sigWords(benef)
+      if (benefWords.length === 0) continue
       const mv = Math.abs(Number(m.amount) || 0)
       if (mv <= 0) continue
       let best: PayT | null = null
       let bestRem = 0
+      let bestOverlap = 0
       let bestDiff = Infinity
       for (const p of unpaidPayables) {
         const rem = p.amount_remaining != null ? Number(p.amount_remaining) : Number(p.gross_amount || 0) - Number(p.amount_paid || 0)
         if (rem <= 0) continue
         const diff = Math.abs(rem - mv)
-        if (diff / rem > 0.02) continue
-        if (diff < bestDiff) { bestDiff = diff; best = p; bestRem = rem }
+        if (diff / rem > 0.05) continue
+        const supWords = new Set(sigWords(getSupplierName(p)))
+        const overlap = benefWords.filter((w) => supWords.has(w)).length
+        if (overlap === 0) continue   // il NOME deve combaciare col beneficiario
+        if (overlap > bestOverlap || (overlap === bestOverlap && diff < bestDiff)) {
+          bestOverlap = overlap; bestDiff = diff; best = p; bestRem = rem
+        }
       }
-      if (best) out.push({ bt: m, payable: best, rem: bestRem })
+      if (best) out.push({ bt: m, payable: best, rem: bestRem, beneficiario: benef })
     }
     return out
       .sort((a, b) => new Date(String(b.bt.transaction_date) || 0).getTime() - new Date(String(a.bt.transaction_date) || 0).getTime())
@@ -3402,17 +3433,17 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
         <div className="bg-white rounded-xl border border-blue-200 shadow-sm overflow-hidden">
           <div className="px-5 py-3 bg-blue-50/60 border-b border-blue-100 flex items-center justify-between gap-3">
             <div className="flex items-center gap-2 text-sm font-semibold text-blue-800">
-              <Check size={16} /> Da verificare — importo compatibile ({toVerify.length})
+              <Check size={16} /> Da verificare — beneficiario dalla causale ({toVerify.length})
             </div>
-            <span className="text-xs text-blue-600/80">Fattura aperta con residuo uguale al pagamento. Conferma tu, una per una.</span>
+            <span className="text-xs text-blue-600/80">Beneficiario del bonifico abbinato alla fattura del fornitore. Conferma tu, una per una.</span>
           </div>
           <div className="divide-y divide-slate-50 max-h-[460px] overflow-y-auto">
-            {toVerify.map(({ bt, payable, rem }) => {
+            {toVerify.map(({ bt, payable, rem, beneficiario }) => {
               const acct = accounts.find((a) => a.id === bt.bank_account_id)
               return (
                 <div key={String(bt.id)} className="flex items-center gap-3 px-5 py-3 hover:bg-slate-50/60">
                   <div className="flex-1 min-w-0">
-                    <CellTooltip content={String(bt.description || 'Movimento')}><div className="text-sm font-medium text-slate-900 truncate">{bt.description || 'Movimento'}</div></CellTooltip>
+                    <CellTooltip content={String(bt.description || 'Movimento')}><div className="text-sm font-medium text-slate-900 truncate">{beneficiario ? `→ ${beneficiario}` : (bt.description || 'Movimento')}</div></CellTooltip>
                     <div className="text-xs text-slate-400 truncate">
                       {fmtDate(bt.transaction_date)} {acct ? `• ${acct.account_name || acct.bank_name}` : ''}
                     </div>
