@@ -3123,7 +3123,19 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
       if (Math.abs(mov - base) / base > SUGGEST_AMOUNT_TOLERANCE) continue
       out.push({ log, bt, payable, confidence: conf, chiusa })
     }
-    return out.sort((a, b) => b.confidence - a.confidence)
+    // Dedup: una stessa fattura non va proposta per più movimenti (costi ricorrenti
+    // a importo fisso). Ordino per affidabilità e tengo, per ogni fattura, solo la
+    // proposta migliore. Così spariscono i doppioni (es. NEXI/SPM stessa fattura ×N).
+    out.sort((a, b) => b.confidence - a.confidence)
+    const seenPayable = new Set<string>()
+    const deduped: SugRow[] = []
+    for (const s of out) {
+      const pid = String(s.payable.id)
+      if (seenPayable.has(pid)) continue
+      seenPayable.add(pid)
+      deduped.push(s)
+    }
+    return deduped
   }, [logRows, txById, payById])
 
   // Movimenti che NON sono pagamenti a fornitori (imposte, bolli, giroconti,
@@ -3195,7 +3207,16 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
       }
       if (best) out.push({ bt: m, payable: best, rem: bestRem, beneficiario: benef, chiusa: bestClosed })
     }
-    return out
+    // Dedup: la stessa fattura non va proposta per più movimenti. Tengo, per ogni
+    // fattura, il movimento con l'importo più vicino (match migliore).
+    const bestByPayable = new Map<string, typeof out[number]>()
+    for (const o of out) {
+      const pid = String(o.payable.id)
+      const prev = bestByPayable.get(pid)
+      const diff = Math.abs(Math.abs(Number(o.bt.amount) || 0) - o.rem)
+      if (!prev || diff < Math.abs(Math.abs(Number(prev.bt.amount) || 0) - prev.rem)) bestByPayable.set(pid, o)
+    }
+    return Array.from(bestByPayable.values())
       .sort((a, b) => new Date(String(b.bt.transaction_date) || 0).getTime() - new Date(String(a.bt.transaction_date) || 0).getTime())
       .slice(0, 80)
   }, [unreconciledMovements, unpaidPayables, closedManualPayables, suggestions, dismissedVerify])
