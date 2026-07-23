@@ -2873,7 +2873,7 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
 
   // Suggerimenti riconciliazione (reconciliation_log) + vista riconciliati + annullo
   type LogRow = { id: string; bank_transaction_id: string | null; payable_id: string | null; confidence: number | null; status: string; applied_amount: number | null }
-  type SugRow = { log: LogRow; bt: TxT; payable: PayT; confidence: number }
+  type SugRow = { log: LogRow; bt: TxT; payable: PayT; confidence: number; chiusa?: boolean }
   const [viewMode, setViewMode] = useState<'da_riconciliare' | 'riconciliati'>('da_riconciliare')
   const [suggCollapsed, setSuggCollapsed] = useState(false)
   const [logRows, setLogRows] = useState<LogRow[]>([])
@@ -2897,6 +2897,13 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
   // Unpaid payables for matching
   const unpaidPayables = useMemo(() =>
     payables.filter((p) => p.status === 'da_pagare' || p.status === 'in_scadenza' || p.status === 'scaduto' || p.status === 'parziale'),
+    [payables]
+  )
+  // Fatture chiuse a mano ma senza movimento agganciato: vanno SEMPRE riverificate
+  // contro ogni movimento (regola Patrizio), perché il bonifico che le ha pagate è
+  // rimasto orfano. Escluse quelle già collegate a un bank_transaction_id.
+  const closedManualPayables = useMemo(() =>
+    payables.filter((p) => String(p.status) === 'pagato' && (p as { closed_manually?: boolean }).closed_manually === true && !(p as { bank_transaction_id?: string | null }).bank_transaction_id),
     [payables]
   )
 
@@ -3080,8 +3087,17 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
   const SUGGEST_MIN_CONFIDENCE = 70
   const SUGGEST_AMOUNT_TOLERANCE = 0.05
 
-  // Suggerimenti validi: log 'to_confirm' la cui fattura è ancora aperta e il
-  // cui movimento non è ancora riconciliato. Gli stantii/deboli vengono nascosti.
+  // Fattura chiusa a mano non ancora agganciata a un movimento: paid + closed_manually
+  // + nessun bank_transaction_id. Regola Patrizio: ogni movimento va SEMPRE verificato
+  // anche contro queste, non solo contro le aperte.
+  const isClosedManualUnlinked = (p: PayT): boolean =>
+    String(p.status) === 'pagato' && (p as { closed_manually?: boolean }).closed_manually === true
+    && !(p as { bank_transaction_id?: string | null }).bank_transaction_id
+
+  // Suggerimenti validi: log 'to_confirm' il cui movimento non è ancora riconciliato e
+  // la cui fattura è ancora aperta OPPURE è chiusa a mano senza aggancio bancario. Gli
+  // stantii/deboli vengono nascosti. Per le chiuse a mano l'importo si confronta col
+  // totale fattura (il residuo è 0 perché già pagata).
   const suggestions = useMemo<SugRow[]>(() => {
     const out: SugRow[] = []
     for (const log of logRows) {
@@ -3090,15 +3106,21 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
       const bt = txById.get(log.bank_transaction_id)
       const payable = payById.get(log.payable_id)
       if (!bt || bt.is_reconciled) continue
-      if (!payable || !OPEN_STATUSES.includes(String(payable.status))) continue
-      const rem = payable.amount_remaining != null ? Number(payable.amount_remaining) : Number(payable.gross_amount || 0) - Number(payable.amount_paid || 0)
-      if (rem <= 0) continue
+      if (!payable) continue
+      const chiusa = isClosedManualUnlinked(payable)
+      const isOpen = OPEN_STATUSES.includes(String(payable.status))
+      if (!isOpen && !chiusa) continue
+      // base di confronto: residuo per le aperte, totale fattura per le chiuse a mano
+      const base = chiusa
+        ? Number(payable.gross_amount || 0)
+        : (payable.amount_remaining != null ? Number(payable.amount_remaining) : Number(payable.gross_amount || 0) - Number(payable.amount_paid || 0))
+      if (base <= 0) continue
       const conf = Number(log.confidence) || 0
       if (conf < SUGGEST_MIN_CONFIDENCE) continue
-      // importo del movimento deve coincidere col residuo (entro tolleranza)
+      // importo del movimento deve coincidere con la base (entro tolleranza)
       const mov = Math.abs(Number(bt.amount) || 0)
-      if (Math.abs(mov - rem) / rem > SUGGEST_AMOUNT_TOLERANCE) continue
-      out.push({ log, bt, payable, confidence: conf })
+      if (Math.abs(mov - base) / base > SUGGEST_AMOUNT_TOLERANCE) continue
+      out.push({ log, bt, payable, confidence: conf, chiusa })
     }
     return out.sort((a, b) => b.confidence - a.confidence)
   }, [logRows, txById, payById])
@@ -3133,9 +3155,16 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
   // i falsi positivi da coincidenza di importo (bonifici a fondi/assicurazioni,
   // beneficiari diversi con lo stesso importo). Copre i casi che il motore non ha
   // proposto o ha messo sotto soglia. Conferma manuale, una per una.
-  const toVerify = useMemo<{ bt: TxT; payable: PayT; rem: number; beneficiario: string }[]>(() => {
+  const toVerify = useMemo<{ bt: TxT; payable: PayT; rem: number; beneficiario: string; chiusa: boolean }[]>(() => {
     const highConfBtIds = new Set(suggestions.map((s) => String(s.bt.id)))
-    const out: { bt: TxT; payable: PayT; rem: number; beneficiario: string }[] = []
+    const out: { bt: TxT; payable: PayT; rem: number; beneficiario: string; chiusa: boolean }[] = []
+    // Candidati: fatture aperte (confronto sul residuo) + fatture chiuse a mano senza
+    // movimento agganciato (confronto sul totale, perché il residuo è 0). Il flag
+    // `chiusa` distingue i due casi per l'aggancio e per l'etichetta in UI.
+    const candidates: { p: PayT; base: number; chiusa: boolean }[] = [
+      ...unpaidPayables.map((p) => ({ p, base: p.amount_remaining != null ? Number(p.amount_remaining) : Number(p.gross_amount || 0) - Number(p.amount_paid || 0), chiusa: false })),
+      ...closedManualPayables.map((p) => ({ p, base: Number(p.gross_amount || 0), chiusa: true })),
+    ]
     for (const m of unreconciledMovements) {
       if (highConfBtIds.has(String(m.id))) continue
       if (dismissedVerify.has(String(m.id))) continue
@@ -3149,26 +3178,26 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
       if (mv <= 0) continue
       let best: PayT | null = null
       let bestRem = 0
+      let bestClosed = false
       let bestOverlap = 0
       let bestDiff = Infinity
-      for (const p of unpaidPayables) {
-        const rem = p.amount_remaining != null ? Number(p.amount_remaining) : Number(p.gross_amount || 0) - Number(p.amount_paid || 0)
-        if (rem <= 0) continue
-        const diff = Math.abs(rem - mv)
-        if (diff / rem > 0.05) continue
-        const supWords = new Set(sigWords(getSupplierName(p)))
+      for (const c of candidates) {
+        if (c.base <= 0) continue
+        const diff = Math.abs(c.base - mv)
+        if (diff / c.base > 0.05) continue
+        const supWords = new Set(sigWords(getSupplierName(c.p)))
         const overlap = benefWords.filter((w) => supWords.has(w)).length
         if (overlap === 0) continue   // il NOME deve combaciare col beneficiario
         if (overlap > bestOverlap || (overlap === bestOverlap && diff < bestDiff)) {
-          bestOverlap = overlap; bestDiff = diff; best = p; bestRem = rem
+          bestOverlap = overlap; bestDiff = diff; best = c.p; bestRem = c.base; bestClosed = c.chiusa
         }
       }
-      if (best) out.push({ bt: m, payable: best, rem: bestRem, beneficiario: benef })
+      if (best) out.push({ bt: m, payable: best, rem: bestRem, beneficiario: benef, chiusa: bestClosed })
     }
     return out
       .sort((a, b) => new Date(String(b.bt.transaction_date) || 0).getTime() - new Date(String(a.bt.transaction_date) || 0).getTime())
       .slice(0, 80)
-  }, [unreconciledMovements, unpaidPayables, suggestions, dismissedVerify])
+  }, [unreconciledMovements, unpaidPayables, closedManualPayables, suggestions, dismissedVerify])
 
   // Mappa bt riconciliato -> riga di log 'applied' con applied_amount (per l'annullo)
   const appliedLogByBt = useMemo(() => {
@@ -3405,9 +3434,9 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
                     <ArrowRight size={16} className="text-slate-300 flex-shrink-0" />
                     {/* Fattura proposta */}
                     <div className="flex-1 min-w-0">
-                      <CellTooltip content={getSupplierName(s.payable)}><div className="text-sm font-medium text-slate-800 truncate">{getSupplierName(s.payable)}</div></CellTooltip>
+                      <CellTooltip content={getSupplierName(s.payable)}><div className="text-sm font-medium text-slate-800 truncate flex items-center gap-1.5">{getSupplierName(s.payable)}{s.chiusa && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700 font-semibold whitespace-nowrap">chiusa a mano</span>}</div></CellTooltip>
                       <div className="text-xs text-slate-400 truncate">
-                        Fatt. {s.payable.invoice_number || '—'} {'•'} residuo {fmt(rem)} €
+                        Fatt. {s.payable.invoice_number || '—'} {'•'} {s.chiusa ? `importo ${fmt(Number(s.payable.gross_amount || 0))} €` : `residuo ${fmt(rem)} €`}
                       </div>
                     </div>
                     <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${confidenceColor(s.confidence)}`}>{Math.round(s.confidence)}%</span>
@@ -3435,10 +3464,10 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
             <div className="flex items-center gap-2 text-sm font-semibold text-blue-800">
               <Check size={16} /> Da verificare — beneficiario dalla causale ({toVerify.length})
             </div>
-            <span className="text-xs text-blue-600/80">Beneficiario del bonifico abbinato alla fattura del fornitore. Conferma tu, una per una.</span>
+            <span className="text-xs text-blue-600/80">Beneficiario del bonifico abbinato alla fattura del fornitore, incluse le fatture già chiuse a mano. Conferma tu, una per una.</span>
           </div>
           <div className="divide-y divide-slate-50 max-h-[460px] overflow-y-auto">
-            {toVerify.map(({ bt, payable, rem, beneficiario }) => {
+            {toVerify.map(({ bt, payable, rem, beneficiario, chiusa }) => {
               const acct = accounts.find((a) => a.id === bt.bank_account_id)
               return (
                 <div key={String(bt.id)} className="flex items-center gap-3 px-5 py-3 hover:bg-slate-50/60">
@@ -3451,9 +3480,9 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
                   <div className="text-sm font-semibold text-red-600 whitespace-nowrap">{fmt(bt.amount)} &euro;</div>
                   <ArrowRight size={16} className="text-slate-300 flex-shrink-0" />
                   <div className="flex-1 min-w-0">
-                    <CellTooltip content={getSupplierName(payable)}><div className="text-sm font-medium text-slate-800 truncate">{getSupplierName(payable)}</div></CellTooltip>
+                    <CellTooltip content={getSupplierName(payable)}><div className="text-sm font-medium text-slate-800 truncate flex items-center gap-1.5">{getSupplierName(payable)}{chiusa && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700 font-semibold whitespace-nowrap">chiusa a mano</span>}</div></CellTooltip>
                     <div className="text-xs text-slate-400 truncate">
-                      Fatt. {payable.invoice_number || '—'} {'•'} residuo {fmt(rem)} €
+                      Fatt. {payable.invoice_number || '—'} {'•'} {chiusa ? 'importo' : 'residuo'} {fmt(rem)} €
                     </div>
                   </div>
                   <div className="flex items-center gap-1.5">
