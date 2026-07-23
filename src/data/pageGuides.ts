@@ -690,6 +690,10 @@ export const PAGE_GUIDES: PageGuide[] = [
         "a": "Significa che quella fattura era già stata segnata come pagata manualmente, ma senza collegarle il movimento bancario. Il sistema ora controlla ogni movimento anche contro queste fatture: quando trova il bonifico che l'ha pagata (stesso importo e stesso fornitore nella causale) propone l'aggancio. Confermandolo la fattura resta pagata e il movimento smette di risultare \"da riconciliare\", senza registrare due volte il pagamento. Questi casi non si chiudono mai da soli: li confermi tu, uno per uno."
       },
       {
+        "q": "Ho un costo che torna ogni mese uguale (Trenitalia, Telepass, NEXI, vigilanza…): come vengono abbinati?",
+        "a": "Questi costi ricorrenti a importo fisso vengono abbinati in automatico fattura-per-movimento in ordine di data: la fattura di gennaio con il pagamento di gennaio, febbraio con febbraio e così via. Una stessa fattura non viene mai proposta per più movimenti. Se in un mese c'è un pagamento ma la fattura non è ancora in gestionale, quel movimento resta \"da riconciliare\" finché la fattura non arriva. Se invece fattura e movimento sono l'uno per l'altro (unico importo, unico movimento, stesso fornitore), l'abbinamento si chiude da solo."
+      },
+      {
         "q": "Un bonifico ha pagato più fatture insieme: come lo abbino?",
         "a": "Nella scheda Riconciliazione, sotto le altre proposte, c'è la sezione \"Pagamenti raggruppati — un bonifico, più fatture\". Il sistema cerca la combinazione di 2-3 fatture dello stesso fornitore la cui somma coincide con l'importo del movimento e te la propone già pronta. Con \"Conferma gruppo\" agganci tutte le fatture del gruppo a quell'unico movimento in una volta sola. È un'operazione tutto-o-niente: se la somma delle fatture non corrisponde esattamente all'importo del bonifico, non abbina nulla e te lo segnala."
       },
