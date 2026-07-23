@@ -4011,7 +4011,7 @@ export default function TesoreriaManuale() {
         if (!cancelled) {
           setAccounts(acctRes.data || [])
           setTransactions(txRes.data || [])
-          setPayables(payRes.data || [])
+          setPayables((payRes.data || []).filter((p: { is_placeholder?: boolean }) => !p.is_placeholder))
           setBatches(batchRes.data || [])
           setBatchItems(itemsRes.data || [])
           setSuggestCount(sugRes.count || 0)
