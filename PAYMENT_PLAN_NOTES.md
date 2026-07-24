@@ -15,6 +15,36 @@
 >   e non tocca il saldo → nessun doppio conteggio in prima nota/cashflow.
 > - Frontend: `src/pages/ScadenzarioSmart.tsx` (distinta, bozza localStorage, ACCONTO/SALDO, scala NC,
 >   "In sospeso"), riuso del tab **Riconciliazione** in `TesoreriaManuale.tsx` per l'abbinamento manuale.
+
+> ## 🔒 REGOLA GRANITICA — RICONCILIAZIONE A OGNI MOVIMENTO (2026-07-24) — NON NEGOZIABILE
+>
+> Regola di Patrizio: **si può chiudere una fattura a mano, ma OGNI volta che arriva un
+> movimento (storico o nuovo) il sistema DEVE verificare la corrispondenza tra fatture
+> APERTE *e* CHIUSE, e NON deve mancare l'abbinamento per colpa delle commissioni bancarie.**
+> L'utente non deve accorgersene a mano: se un pagamento reale esiste, il sistema lo aggancia
+> (se univoco) o lo propone in cima alla coda "da riconciliare".
+>
+> Cosa lo garantisce (motore di riconciliazione, tutto reversibile con `undo_reconcile_movement`):
+> - **Candidati = aperte + chiuse a mano** non ancora agganciate a un movimento (mai solo le aperte).
+>   Fatture chiuse a mano: **solo aggancio** del movimento, restano `pagato`, nessuna doppia scrittura.
+> - **Commissioni scorporate**: i flussi CBI aziendali arrivano col LORDO (es. 2.751,75 = 2.750,00 +
+>   1,75). Il matcher legge dalla causale `IMPORTO BONIFICI` (netto) e `IMPORTO COMMISSIONI`, e confronta
+>   il **netto** — così ±1,75 non fa più saltare l'abbinamento. Cercare l'importo esatto al centesimo è
+>   sbagliato: c'è quasi sempre una commissione.
+> - **Ordine dei tentativi** (a ogni movimento, via trigger + cron notturno 05:45):
+>   1. granitico (`try_match_group_bank_transaction`): fornitore + numero fattura in causale, somma esatta;
+>   2. a punteggio (`try_match_bank_transaction`): fornitore in causale, importo/data/numero;
+>   3. biettivo per data (`rerun_bijective_reconciliation`): ricorrenti 1-a-1;
+>   4. **a importo, causale ANONIMA** (`try_match_amount_bank_transaction`, migration 110): flussi CBI
+>      senza nome/numero. Auto SOLO se il candidato è **UNICO** (e chiuso-a-mano → aggancio, oppure netto
+>      dal dato strutturato `IMPORTO BONIFICI`); altrimenti **propone** (`to_confirm`), niente chiusure al buio.
+> - **Caso reale che ha originato la regola** (New Zago, 13/07/2026): bonifici a SP Contabile (322/E,
+>   2.750) e Studio Poli (SP_54, 3.057,74) arrivati come `DISPOSIZIONE - FILIALE DISPONENTE 2430 …
+>   IMPORTO BONIFICI: 2.750,00 IMPORTO COMMISSIONI: 1,75` — nessun nome, nessun numero, importo lordo:
+>   i tre matcher precedenti non potevano scattare. La migration 110 chiude esattamente questo buco.
+> - Migration: `supabase/migrations/20260724_110_reconcile_anonymous_flux_and_commission.sql`
+>   (+ `_ROLLBACK`). ⚠️ REGOLA #0: applicare a mano su **NZ + Made + Zago**; dopo l'apply, per lo storico:
+>   `SELECT public.rerun_amount_reconciliation();`
 > - **Passo 2 — migration `supabase/migrations/20260713_090_credit_note_links_reconcile.sql`**: tabella
 >   `payable_credit_note_links` + `reconcile_movement` (consuma le NC collegate, aggancia a fatture chiuse
 >   a mano) + `undo_reconcile_movement` (riapre le NC) + `try_match_bank_transaction` (esclude dall'auto
