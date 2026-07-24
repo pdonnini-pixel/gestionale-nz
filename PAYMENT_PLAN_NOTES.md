@@ -32,7 +32,10 @@
 >   il **netto** — così ±1,75 non fa più saltare l'abbinamento. Cercare l'importo esatto al centesimo è
 >   sbagliato: c'è quasi sempre una commissione.
 > - **Ordine dei tentativi** (a ogni movimento, via trigger + cron notturno 05:45):
->   1. granitico (`try_match_group_bank_transaction`): fornitore + numero fattura in causale, somma esatta;
+>   1. granitico (`try_match_group_bank_transaction`): fornitore + numero fattura in causale, somma esatta.
+>      Include i **pagamenti cumulativi** (un movimento = somma di N fatture, es. "SALDO FATTURA 11-12"),
+>      **anche con numeri fattura corti** (2-3 cifre) purché la causale abbia contesto fattura e la somma
+>      del gruppo coincida esatta (migration 111);
 >   2. a punteggio (`try_match_bank_transaction`): fornitore in causale, importo/data/numero;
 >   3. biettivo per data (`rerun_bijective_reconciliation`): ricorrenti 1-a-1;
 >   4. **a importo, causale ANONIMA** (`try_match_amount_bank_transaction`, migration 110): flussi CBI
