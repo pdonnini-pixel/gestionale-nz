@@ -120,19 +120,73 @@ function ConfidenceBadge({ confidence }: { confidence?: number | null }) {
 
 /* ───── method badge ───── */
 type MethodConfig = { label: string; color: string; icon: typeof Brain }
+// NB: lo schema di cash_movements.ai_method ammette solo keyword|pattern|learned|manual
+// (CHECK constraint). 'learned_rule' è tenuto come alias storico per compatibilità.
+const METHOD_CONFIG: Record<string, MethodConfig> = {
+  learned: { label: 'Regola appresa', color: 'bg-blue-50 text-blue-600', icon: Brain },
+  learned_rule: { label: 'Regola appresa', color: 'bg-blue-50 text-blue-600', icon: Brain },
+  keyword: { label: 'Keyword', color: 'bg-purple-50 text-purple-600', icon: Tag },
+  pattern: { label: 'Pattern', color: 'bg-cyan-50 text-cyan-600', icon: Zap },
+  manual: { label: 'Manuale', color: 'bg-slate-100 text-slate-600', icon: Check },
+}
 function MethodBadge({ method }: { method?: string }) {
-  const config: Record<string, MethodConfig> = {
-    learned_rule: { label: 'Regola appresa', color: 'bg-blue-50 text-blue-600', icon: Brain },
-    keyword: { label: 'Keyword', color: 'bg-purple-50 text-purple-600', icon: Tag },
-    pattern: { label: 'Pattern', color: 'bg-cyan-50 text-cyan-600', icon: Zap },
-    manual: { label: 'Manuale', color: 'bg-slate-100 text-slate-600', icon: Check },
-  }
-  const cfg = (method && config[method]) || { label: method || '?', color: 'bg-slate-100 text-slate-500', icon: Tag }
+  const cfg = (method && METHOD_CONFIG[method]) || { label: method || '?', color: 'bg-slate-100 text-slate-500', icon: Tag }
   const Icon = cfg.icon
   return (
     <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium ${cfg.color}`}>
       <Icon size={10} /> {cfg.label}
     </span>
+  )
+}
+
+/* ───── tooltip esteso su Descrizione ─────
+   Spiega, per ogni movimento, la logica del suggerimento IA e l'impatto a valle:
+   quali sezioni conteggiano il dato e perché. La regola chiave: solo la categoria
+   CONFERMATA (cost_category_id) entra nei report; il suggerimento IA (ai_category_id)
+   resta "in attesa" e non muove nessun numero finché non lo confermi. */
+const METHOD_MEANING: Record<string, string> = {
+  learned: 'regola appresa dalle conferme precedenti su movimenti simili',
+  learned_rule: 'regola appresa dalle conferme precedenti su movimenti simili',
+  keyword: 'parola chiave riconosciuta nella descrizione del movimento',
+  pattern: 'pattern ricorrente (stessa controparte o importo tipico)',
+  manual: 'categoria assegnata o confermata a mano da un operatore',
+}
+function confidenceMeaning(pct: number): string {
+  if (pct >= 85) return 'alta, confermabile anche in blocco'
+  if (pct >= 65) return 'media, conviene controllare prima di confermare'
+  return 'bassa, verifica con attenzione'
+}
+function DescriptionTooltipContent(
+  { m, catName, isConfirmed }: { m: CashMovement; catName: string | null; isConfirmed: boolean },
+) {
+  const pct = m.ai_confidence != null ? Math.round(m.ai_confidence * 100) : null
+  const stato = isConfirmed
+    ? 'Confermato'
+    : m.ai_category_id ? "Suggerito dall'IA — da verificare" : 'Non categorizzato'
+  // Impatto a valle: perché e dove conta questo dato.
+  const impatto = isConfirmed
+    ? 'Conteggiato nei report per categoria: Conto Economico (vista cassa), Margini per Categoria e Costi Ricorrenti.'
+    : m.ai_category_id
+      ? 'Il suggerimento NON è ancora conteggiato: entra nei report solo dopo la tua conferma.'
+      : 'Non entra in nessun report per categoria finché non gli assegni una categoria.'
+  return (
+    <div className="space-y-1.5">
+      <div className="font-semibold text-white break-words">{m.description || '—'}</div>
+      <div className="h-px bg-white/15" />
+      <div className="space-y-0.5 text-slate-200">
+        {m.counterpart && <div><span className="text-slate-400">Controparte:</span> {m.counterpart}</div>}
+        <div><span className="text-slate-400">Stato:</span> {stato}</div>
+        <div><span className="text-slate-400">Categoria:</span> {catName || 'nessuna'}</div>
+        {pct != null && (
+          <div><span className="text-slate-400">Confidenza:</span> {pct}% — {confidenceMeaning(pct)}</div>
+        )}
+        {m.ai_method && (
+          <div><span className="text-slate-400">Metodo:</span> {METHOD_MEANING[m.ai_method] || m.ai_method}</div>
+        )}
+      </div>
+      <div className="h-px bg-white/15" />
+      <div className="text-slate-200"><span className="text-slate-400">Impatto:</span> {impatto}</div>
+    </div>
   )
 }
 
@@ -354,8 +408,11 @@ export default function AICategorization({ companyId }: AICategorizationProps) {
         await supabase
           .from('cash_movements')
           .update({
+            // 'manual': il valore riflette la conferma esplicita dell'operatore ed è
+            // ammesso dal CHECK su ai_method (keyword|pattern|learned|manual). Il
+            // vecchio 'auto_confirmed' violava il vincolo e faceva fallire l'update.
             cost_category_id: m.ai_category_id,
-            ai_method: 'auto_confirmed',
+            ai_method: 'manual',
           })
           .eq('id', m.id)
       }
@@ -611,7 +668,10 @@ export default function AICategorization({ companyId }: AICategorizationProps) {
                         {fmtDate(m.date)}
                       </td>
                       <td className="py-2.5 px-4 text-slate-800 max-w-[240px]">
-                        <Tooltip content={m.description || ''}>
+                        <Tooltip
+                          content={<DescriptionTooltipContent m={m} catName={catName} isConfirmed={isConfirmed} />}
+                          maxWidth={440}
+                        >
                           <span className="block truncate text-[13px]">
                             {m.description || '—'}
                           </span>

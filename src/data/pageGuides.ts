@@ -735,7 +735,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "Verificare e correggere i suggerimenti",
-        "body": "I movimenti sono organizzati in quattro schede: \"Da verificare\" (l'IA ha proposto una categoria ma tu non l'hai ancora confermata), \"Non categorizzati\" (nessun suggerimento disponibile), \"Confermati\" (categoria approvata da un'operatrice) e \"Tutti\". Per ogni suggerimento vedi una percentuale di confidenza (verde se alta, arancione se media, rossa se bassa) e il metodo usato dall'IA (regola appresa, parola chiave, pattern o assegnazione manuale). Puoi accettare il suggerimento con \"Conferma\", oppure cliccare \"Correggi\" (o \"Assegna\" se manca) per scegliere tu la categoria giusta da un menu a tendina.",
+        "body": "I movimenti sono organizzati in quattro schede: \"Da verificare\" (l'IA ha proposto una categoria ma tu non l'hai ancora confermata), \"Non categorizzati\" (nessun suggerimento disponibile), \"Confermati\" (categoria approvata da un'operatrice) e \"Tutti\". Per ogni suggerimento vedi una percentuale di confidenza (verde se alta, arancione se media, rossa se bassa) e il metodo usato dall'IA (regola appresa, parola chiave, pattern o assegnazione manuale). Passando il mouse (o toccando, da telefono) sulla descrizione di un movimento compare un riquadro di spiegazione: mostra la descrizione completa, la controparte, lo stato (confermato, suggerito da verificare o non categorizzato), la categoria, il significato della confidenza e del metodo, e soprattutto l'impatto — cioè in quali report entra quel movimento e perché. Il punto chiave è che solo una categoria confermata viene conteggiata nei report (Conto Economico vista cassa, Margini per Categoria, Costi Ricorrenti): finché un suggerimento dell'IA resta \"da verificare\" non muove nessun numero. Puoi accettare il suggerimento con \"Conferma\", oppure cliccare \"Correggi\" (o \"Assegna\" se manca) per scegliere tu la categoria giusta da un menu a tendina.",
         "steps": [
           "Apri la scheda \"Da verificare\" per vedere i movimenti con un suggerimento IA in attesa.",
           "Per ogni riga, clicca \"Conferma\" se la categoria proposta è corretta.",
@@ -779,6 +779,10 @@ export const PAGE_GUIDES: PageGuide[] = [
       {
         "q": "Da dove arrivano i movimenti che vedo in questa pagina?",
         "a": "Sono gli stessi movimenti bancari che vedi nella pagina Banche: qui non c'è nessun caricamento da fare, lavori direttamente sui dati già presenti nel gestionale."
+      },
+      {
+        "q": "Confermare un suggerimento cambia i numeri delle altre pagine?",
+        "a": "Sì, ma solo quando confermi: la categoria confermata fa entrare quel movimento nei report per categoria (Conto Economico nella vista cassa, Margini per Categoria, Costi Ricorrenti). Un suggerimento ancora \"da verificare\" non è conteggiato da nessuna parte. Per vedere l'impatto di ogni movimento passa il mouse sulla sua descrizione: il riquadro spiega stato, categoria, confidenza, metodo e in quali report entra."
       },
       {
         "q": "Cosa devo fare quando vedo un'anomalia segnalata?",
