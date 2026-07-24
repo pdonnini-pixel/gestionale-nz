@@ -3166,6 +3166,22 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
   const sigWords = (s: string): string[] =>
     String(s || '').toUpperCase().replace(/[^A-Z0-9 ]/g, ' ').split(/\s+/).filter((w) => w.length > 3 && !BENEF_STOP.has(w))
 
+  // Netto realmente bonificato: nei flussi CBI aziendali l'importo del movimento è
+  // LORDO (netto + commissione). Si scorpora la commissione dalla causale
+  // ("IMPORTO BONIFICI" / "IMPORTO COMMISSIONI") per confrontare il NETTO con le fatture.
+  const parseItAmount = (s: string): number => Number(String(s).replace(/\./g, '').replace(',', '.')) || 0
+  const movementNet = (m: TxT): number => {
+    const d = String(m.description || '')
+    const mb = /IMPORTO\s+BONIFICI\s*:?\s*([0-9][0-9.]*,[0-9]{2})/i.exec(d)
+    if (mb) return parseItAmount(mb[1])
+    const gross = Math.abs(Number(m.amount) || 0)
+    const mc = /IMPORTO\s+COMMISSIONI\s*:?\s*([0-9][0-9.]*,[0-9]{2})/i.exec(d)
+    return mc ? Math.max(0, gross - parseItAmount(mc[1])) : gross
+  }
+  // Un flusso CBI / disposizione / bonifico è un pagamento reale a fornitore anche se
+  // la causale contiene la parola "commissioni": NON va escluso come non-fornitore.
+  const isRealTransfer = (desc: string): boolean => /IMPORTO BONIFICI|DISPOSIZIONE|A FAVORE|BONIFICO/i.test(String(desc || ''))
+
   // "Da verificare": abbina l'uscita alla fattura del BENEFICIARIO letto dalla
   // causale (non per solo importo!). Serve almeno una parola significativa in
   // comune tra beneficiario e fornitore, e importo entro il 5%. Così spariscono
@@ -3186,12 +3202,12 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
       if (highConfBtIds.has(String(m.id))) continue
       if (dismissedVerify.has(String(m.id))) continue
       const desc = String(m.description || '')
-      if (NON_SUPPLIER_RE.test(desc)) continue
+      if (!isRealTransfer(desc) && NON_SUPPLIER_RE.test(desc)) continue
       const benef = extractBeneficiary(desc)
       if (!benef || NON_SUPPLIER_BENEF_RE.test(benef)) continue   // niente beneficiario o non-fornitore
       const benefWords = sigWords(benef)
       if (benefWords.length === 0) continue
-      const mv = Math.abs(Number(m.amount) || 0)
+      const mv = movementNet(m)
       if (mv <= 0) continue
       let best: PayT | null = null
       let bestRem = 0
@@ -3256,22 +3272,49 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
       const id = String(m.id)
       if (singleBtIds.has(id) || highConfBtIds.has(id) || dismissedGroup.has(id)) continue
       const desc = String(m.description || '')
-      if (NON_SUPPLIER_RE.test(desc)) continue
-      const benef = extractBeneficiary(desc)
-      if (!benef || NON_SUPPLIER_BENEF_RE.test(benef)) continue
-      const benefWords = sigWords(benef)
-      if (benefWords.length === 0) continue
-      const mv = Math.abs(Number(m.amount) || 0)
+      if (!isRealTransfer(desc) && NON_SUPPLIER_RE.test(desc)) continue
+      // Netto: scorpora la commissione (flussi CBI arrivano col lordo).
+      const mv = movementNet(m)
       if (mv <= 0) continue
-      // candidati dello stesso beneficiario, ognuno più piccolo del movimento
-      const pool = candidates.filter((c) => {
-        if (c.base > mv + 0.01) return false
-        const supWords = new Set(sigWords(getSupplierName(c.p)))
-        return benefWords.some((w) => supWords.has(w))
-      })
-      if (pool.length < 2) continue
-      const combo = findCombo(pool, mv)
-      if (combo) out.push({ bt: m, items: combo, beneficiario: benef, total: combo.reduce((s, c) => s + c.base, 0) })
+      const benef = extractBeneficiary(desc)
+      if (benef && NON_SUPPLIER_BENEF_RE.test(benef)) continue
+      const benefWords = benef ? sigWords(benef) : []
+
+      if (benefWords.length > 0) {
+        // Beneficiario NOTO: combinazione tra le fatture di QUEL fornitore.
+        const pool = candidates.filter((c) => {
+          if (c.base > mv + 0.01) return false
+          const supWords = new Set(sigWords(getSupplierName(c.p)))
+          return benefWords.some((w) => supWords.has(w))
+        })
+        if (pool.length < 2) continue
+        const combo = findCombo(pool, mv)
+        if (combo) out.push({ bt: m, items: combo, beneficiario: benef, total: combo.reduce((s, c) => s + c.base, 0) })
+      } else if (isRealTransfer(desc)) {
+        // Bonifico ANONIMO (flusso CBI senza beneficiario in causale): un bonifico è
+        // sempre verso UN solo fornitore, mai un mix. Cerca l'UNICO fornitore le cui
+        // fatture (una singola o una combinazione) sommano al netto. Se ne combacia
+        // più d'uno è ambiguo → non si propone (niente indovinelli).
+        const bySup = new Map<string, GroupItem[]>()
+        for (const c of candidates) {
+          if (c.base > mv + 0.01) continue
+          const k = getSupplierName(c.p)
+          const arr = bySup.get(k); if (arr) arr.push(c); else bySup.set(k, [c])
+        }
+        const tol = Math.max(0.05, mv * 0.005)
+        const hits: GroupItem[][] = []
+        for (const pool of bySup.values()) {
+          const single = pool.find((c) => Math.abs(c.base - mv) <= tol)
+          if (single) { hits.push([single]); continue }
+          if (pool.length >= 2) { const combo = findCombo(pool, mv); if (combo) hits.push(combo) }
+        }
+        // Solo combinazioni (>=2 fatture): il caso a fattura singola lo aggancia già
+        // in automatico il matcher backend (try_match_amount_bank_transaction).
+        if (hits.length === 1 && hits[0].length >= 2) {
+          const items = hits[0]
+          out.push({ bt: m, items, beneficiario: getSupplierName(items[0].p), total: items.reduce((s, c) => s + c.base, 0) })
+        }
+      }
     }
     return out
       .sort((a, b) => new Date(String(b.bt.transaction_date) || 0).getTime() - new Date(String(a.bt.transaction_date) || 0).getTime())
