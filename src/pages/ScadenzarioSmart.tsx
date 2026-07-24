@@ -276,7 +276,8 @@ const ScadenzarioSmart = () => {
   const ncAmountOf = (nc: AnyRow): number => Math.abs(Number(nc.gross_amount) || 0);
 
   // Note di credito APERTE dello stesso fornitore di `payable`, compensabili in distinta.
-  // NC = payable con importo negativo o status 'nota_credito', non ancora chiusa a mano.
+  // NC = payable con importo negativo o status 'nota_credito', non ancora chiusa a mano
+  //      E non ancora consumata (deve avere ancora credito residuo da scalare).
   // Aggancio fornitore per supplier_id o per P.IVA (come da regola PAYMENT_PLAN_NOTES).
   const openCreditNotesFor = (payable: AnyRow): AnyRow[] => {
     const sid = payable.supplier_id ? String(payable.supplier_id) : '';
@@ -285,6 +286,13 @@ const ScadenzarioSmart = () => {
       const g = Number(x.gross_amount) || 0;
       const isNC = x.status === 'nota_credito' || g < 0;
       if (!isNC || x.closed_manually) return false;
+      // Escludi le NC gia' consumate: una NC usata risulta 'pagato'/'annullato'
+      // oppure con residuo azzerato (>= 0). Una NC ancora disponibile ha residuo
+      // negativo (credito da scalare). Senza questo filtro, NC gia' chiuse
+      // ricomparivano a vuoto in ogni distinta dello stesso fornitore.
+      if (x.status === 'pagato' || x.status === 'annullato') return false;
+      const rem = Number(x.amount_remaining);
+      if (Number.isFinite(rem) && rem > -0.005) return false;
       const sameById = sid && String(x.supplier_id || '') === sid;
       const sameByVat = svat && String(x.supplier_vat || '') === svat;
       return Boolean(sameById || sameByVat);
