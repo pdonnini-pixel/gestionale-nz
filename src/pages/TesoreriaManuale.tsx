@@ -1361,7 +1361,7 @@ function UploadStatementModal({ isOpen, onClose, account, companyId, onImported 
         <div className="space-y-4">
           <div className="bg-blue-50 rounded-lg p-3 text-sm text-blue-700">
             <Info size={14} className="inline mr-1" />
-            File: <strong>{file?.name}</strong> \u2014 {parsed.rows.length} righe, {parsed.headers.length} colonne (separatore: &quot;{parsed.separator === '\t' ? 'TAB' : parsed.separator}&quot;)
+            File: <strong>{file?.name}</strong> — {parsed.rows.length} righe, {parsed.headers.length} colonne (separatore: &quot;{parsed.separator === '\t' ? 'TAB' : parsed.separator}&quot;)
           </div>
           <p className="text-sm font-medium text-slate-700">Mappa le colonne:</p>
           <div className="grid grid-cols-2 gap-3">
@@ -1982,7 +1982,7 @@ function TabMovimenti({ transactions, accounts, onAssignCategory, initialCategor
                             assigningId === t.id ? 'opacity-50 cursor-wait' : 'cursor-pointer'
                           )}
                         >
-                          <option value="">\u2014 Senza categoria \u2014</option>
+                          <option value="">— Senza categoria —</option>
                           {/* Slug legacy non in lista (es. "taxi"): mostralo comunque leggibile */}
                           {t.category && !BANK_CATEGORY_OPTIONS.some(o => o.value === t.category) && (
                             <option value={String(t.category)}>{bankCategoryLabel(t.category)}</option>
