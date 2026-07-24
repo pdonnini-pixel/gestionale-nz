@@ -89,6 +89,19 @@ Zago `jxlwvzjreukscnswkbjx`):
 Se qualcosa non torna: esegui il `_ROLLBACK` del 112 (ripristina lo stato esatto),
 poi eventualmente il `_ROLLBACK` del 111.
 
+## Esito applicazione (2026-07-24)
+
+Applicato via MCP:
+- **Migration 111** (categoria "Imposte e tasse"): eseguita su **NZ + Made + Zago** (parità piano dei conti).
+- **Migration 112** (backfill): eseguita **solo su NZ**. Ricognizione slug su Made e Zago
+  → **nessun dato legacy `category`** presente, quindi il backfill lì è un no-op e non è
+  stato eseguito. Il campo legacy è una realtà del solo tenant NZ.
+
+Risultato NZ: **928 uscite categorizzate**, 139 residui (Fase 3). Totali principali:
+Personale dipendente 864.883 €, Imposte e tasse 694.926 €, Commissioni carte e varie
+64.068 €. Residui attesi: spese_banca-bonifici 372k, giroconti 237k (esclusi), financials 28k.
+Tabella di backup `_backup_cash_movements_cat_20260724` presente su NZ per il rollback.
+
 ## Note
 
 - **Reversibile**: il backup fotografa lo stato pre-modifica; il rollback ripristina
