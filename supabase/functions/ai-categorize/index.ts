@@ -125,7 +125,10 @@ Deno.serve(async (req: Request) => {
               categoryId: rule.category_id,
               categoryName: cat.name,
               confidence: Math.min(0.95, Number(rule.confidence) + (rule.times_confirmed > 5 ? 0.05 : 0)),
-              method: 'learned_rule',
+              // 'learned' (non 'learned_rule'): il CHECK su cash_movements.ai_method
+              // ammette solo keyword|pattern|learned|manual. Con 'learned_rule' l'UPDATE
+              // in batch falliva in silenzio e la categorizzazione da regola non veniva salvata.
+              method: 'learned',
               matchedOn: `rule: ${rule.rule_type} (confirmed ${rule.times_confirmed}x)`,
             });
           }
