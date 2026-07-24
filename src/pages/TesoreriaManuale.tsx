@@ -2900,11 +2900,13 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
     payables.filter((p) => p.status === 'da_pagare' || p.status === 'in_scadenza' || p.status === 'scaduto' || p.status === 'parziale'),
     [payables]
   )
-  // Fatture chiuse a mano ma senza movimento agganciato: vanno SEMPRE riverificate
-  // contro ogni movimento (regola Patrizio), perché il bonifico che le ha pagate è
-  // rimasto orfano. Escluse quelle già collegate a un bank_transaction_id.
+  // Fatture GIÀ PAGATE ma senza movimento agganciato — chiuse a mano OPPURE segnate
+  // pagate all'import/go-live: vanno SEMPRE riverificate contro ogni movimento
+  // (regola Patrizio), perché il bonifico che le ha pagate è rimasto orfano. Una
+  // fattura senza bank_transaction_id è sempre abbinabile, a prescindere dallo stato.
+  // Escluse solo quelle già collegate a un bank_transaction_id.
   const closedManualPayables = useMemo(() =>
-    payables.filter((p) => String(p.status) === 'pagato' && (p as { closed_manually?: boolean }).closed_manually === true && !(p as { bank_transaction_id?: string | null }).bank_transaction_id),
+    payables.filter((p) => String(p.status) === 'pagato' && !(p as { bank_transaction_id?: string | null }).bank_transaction_id),
     [payables]
   )
 
@@ -2921,7 +2923,9 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
     const mvAmt = selectedMovement ? Math.abs(Number(selectedMovement.amount) || 0) : null
     const tolerance: number = mvAmt ? mvAmt * 0.05 : 0
 
-    let list = unpaidPayables.slice()
+    // Include anche le fatture GIÀ PAGATE senza aggancio (chiuse a mano o pagate
+    // all'import): il loro bonifico è orfano e va abbinato — vanno trovate qui.
+    let list = unpaidPayables.concat(closedManualPayables)
 
     if (q.length >= 2) {
       list = list.filter((p) =>
@@ -2952,7 +2956,7 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
     })
 
     return list.slice(0, 20)
-  }, [unpaidPayables, manualSearch, selectedMovement])
+  }, [unpaidPayables, closedManualPayables, manualSearch, selectedMovement])
 
   // Auto-match function: match by amount with 5% tolerance, produce confidence score
   const findMatches = useCallback((movement: TxT | null): MatchT[] => {
