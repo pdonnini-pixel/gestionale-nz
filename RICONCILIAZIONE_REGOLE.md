@@ -40,8 +40,9 @@ bonifico che le ha pagate resta orfano e va collegato.
 ### R2 — Una fattura senza aggancio bancario è SEMPRE abbinabile
 Qualsiasi fattura con `bank_transaction_id` nullo è abbinabile, a prescindere dallo stato. Se è
 già pagata (chiusa a mano **o** segnata pagata all'import/go-live) → **solo aggancio**.
-- **Dove:** `reconcile_movement` e `reconcile_movement_group` (migr. 114); pool frontend `closedManualPayables` allargato a tutte le `pagato` senza aggancio (TesoreriaManuale).
-- **Stato:** ✅ (backend) + 🟡 (ricerca manuale le mostra). Le fatture già pagate con movimento restano intoccabili (`stale`).
+- **Dove:** RPC di aggancio `reconcile_movement` / `reconcile_movement_group` (migr. 114) **E** i tre matcher automatici — granitico, a punteggio, biettivo (migr. **116**); pool frontend `closedManualPayables` allargato a tutte le `pagato` senza aggancio (TesoreriaManuale).
+- **Stato:** ✅ AUTO SEMPRE (dopo migr. 116) + 🟡 (ricerca manuale le mostra). Le fatture già pagate con movimento restano intoccabili (`stale`).
+- **Nota costi ricorrenti:** se c'è **una sola fattura** per **N addebiti mensili** dello stesso importo (es. canone San Mauro 3.714,57 ×5 mesi), solo **un** movimento si aggancia a quella fattura (quello che la cita in causale); gli altri mesi restano da riconciliare finché non esiste la fattura del mese.
 
 ### R3 — Scorporo delle COMMISSIONI: si confronta il NETTO
 I flussi CBI aziendali arrivano col **lordo** (netto + commissione). Si legge dalla causale
@@ -145,5 +146,6 @@ Ogni migration e regola va applicata su **NZ + Made + Zago** (3 project distinti
 `100` include chiuse a mano · `101` gruppo · `102` granitico · `103` booked · `104` biettivo ·
 `105` cron · `108` chiusura non-fornitore · `110` importo anonimo · `111` numeri corti ·
 `112` correttiva (importo stretto + fix chiusura) · `113` conferma fornitore stretta ·
-`114` fattura senza aggancio sempre abbinabile · `115` netto di nota di credito.
+`114` fattura senza aggancio abbinabile nelle RPC · `115` netto di nota di credito ·
+`116` fattura senza aggancio abbinabile anche nei matcher automatici (R2 completa).
 Frontend: `src/pages/TesoreriaManuale.tsx` (detector, ricerca manuale, `movementNet`, `isRealTransfer`).
