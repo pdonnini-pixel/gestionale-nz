@@ -86,8 +86,8 @@ Se una distinta contiene una **nota di credito**, il bonifico paga il **netto** 
 note di credito. Il motore sottrae le NC `pending` collegate a ciascuna fattura prima di confrontare,
 e in esecuzione **consuma** quelle NC (link → `applied`).
 - **Esempio:** distinta Torino 1323 (20.740) + 1120 (6.636,80) + 1222 (5.807,20) − NC 1380 (4.771,73) = **28.412,27**.
-- **Dove:** `reconcile_movement_group` (migr. 115); `reconcile_movement` singola via `apply_credit_note_links`.
-- **Stato:** ✅ (RPC di gruppo, quando il gruppo viene confermato) — ⛔ **GAP:** il **detector frontend non carica ancora le NC**, quindi le distinte con NC **non vengono proposte da sole** (vanno agganciate a mano o via SQL finché non completo questo pezzo).
+- **Dove:** `reconcile_movement_group` — NC **collegate** (migr. 115) **e** NC **vaganti** passate nel gruppo (migr. 117); detector frontend che carica le NC e le sottrae dalla base (TesoreriaManuale); `reconcile_movement` singola via `apply_credit_note_links`.
+- **Stato:** ✅ AUTO (propone) — il detector propone le distinte al netto della NC, sia collegata (Torino) sia vagante (Valdichiana: 27.159,16 + 9.382,26 − 457,50 = 36.083,92). Un click e chiude.
 
 ### R9 — Movimenti NON-fornitore: chiusi, MA non i bonifici veri
 F24/imposte, stipendi/emolumenti, carte/POS/prelievi, giroconti, commissioni-spese bancarie,
@@ -127,18 +127,21 @@ Ogni migration e regola va applicata su **NZ + Made + Zago** (3 project distinti
 | R5 conferma fornitore stretta | ✅ | | |
 | R6 1 bonifico = 1 fornitore | | 🟡 | |
 | R7 cumulativi granitici | ✅ | 🟡 (anonimi) | |
-| R8 netto di nota di credito | ✅ (RPC) | | ⛔ detector frontend non propone le distinte con NC |
+| R8 netto di nota di credito | | 🟡 (propone, NC collegate e vaganti) | |
 | R9 non-fornitore (no bonifici veri) | ✅ | | |
 | R10 numeri fattura | ✅ | | limite formati diversi / numeri attaccati |
 
-### Gap aperti (da chiudere)
-1. **R8 nel detector frontend:** caricare `payable_credit_note_links` in TesoreriaManuale e sottrarre
-   le NC pending dalla base delle candidate, così le distinte con nota di credito vengono **proposte
-   da sole**. Oggi la regola vive solo nell'RPC (serve che il gruppo sia già proposto).
-2. **Cross-link su importi duplicati:** più fatture dello stesso fornitore col medesimo importo possono
-   essere agganciate al mese sbagliato. Non c'è rilevamento automatico: solo verifica manuale.
-3. **Distinte non persistite:** creare una distinta è solo anteprima/email, non viene salvata in
-   `payment_batches`. Salvarle permetterebbe l'aggancio automatico movimento↔distinta per importo.
+### Gap — stato aggiornato (2026-07-25)
+1. **R8 detector frontend** — ✅ **CHIUSO** (migr. 117 + TesoreriaManuale): il detector carica le NC,
+   sottrae quelle **collegate** dalla base e include quelle **vaganti** (payable a importo negativo)
+   come voci del gruppo. Le distinte con nota di credito vengono ora **proposte da sole**.
+2. **Cross-link su importi duplicati** — 🟡 **MITIGATO** (migr. 117): il biettivo non aggancia più un
+   movimento a una fattura emessa **dopo** (guardia "non si paga prima di esistere", 15 gg). Resta
+   un margine di ambiguità quando lo stesso fornitore ha più fatture identiche nello stesso periodo:
+   il sistema aggancia alla data più vicina (di norma corretto), altrimenti si corregge a mano.
+3. **Distinte non persistite** — ℹ️ **NON necessario per la riconciliazione:** con R8 chiuso, le distinte
+   con NC si riconciliano già dalle fatture + NC. Salvare le distinte in `payment_batches` resta solo
+   un miglioramento di comodità (aggancio diretto movimento↔distinta), non un buco di riconciliazione.
 
 ---
 
@@ -147,5 +150,6 @@ Ogni migration e regola va applicata su **NZ + Made + Zago** (3 project distinti
 `105` cron · `108` chiusura non-fornitore · `110` importo anonimo · `111` numeri corti ·
 `112` correttiva (importo stretto + fix chiusura) · `113` conferma fornitore stretta ·
 `114` fattura senza aggancio abbinabile nelle RPC · `115` netto di nota di credito ·
-`116` fattura senza aggancio abbinabile anche nei matcher automatici (R2 completa).
+`116` fattura senza aggancio abbinabile anche nei matcher automatici (R2 completa) ·
+`117` note di credito vaganti nel gruppo + guardia anti "pagato prima" (biettivo).
 Frontend: `src/pages/TesoreriaManuale.tsx` (detector, ricerca manuale, `movementNet`, `isRealTransfer`).
