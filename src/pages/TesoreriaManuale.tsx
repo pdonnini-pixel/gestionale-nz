@@ -3268,9 +3268,14 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
   // mano: l'aggancio passa da reconcile_movement_group (atomico, tutto-o-niente).
   type GroupItem = { p: PayT; base: number; chiusa: boolean }
   const findCombo = (pool: GroupItem[], target: number): GroupItem[] | null => {
-    const tol = Math.max(0.05, target * 0.02)
-    // pool limitato per evitare esplosioni combinatorie (fatture per fornitore sono poche)
-    const s = pool.slice().sort((a, b) => b.base - a.base).slice(0, 14)
+    // Tolleranza STRETTA: la somma deve coincidere quasi al centesimo. Così una distinta
+    // con nota di credito NON passa come sola coppia di fatture (scarto = importo NC): la
+    // NC va inclusa nel gruppo per far tornare il netto.
+    const tol = Math.max(0.05, target * 0.003)
+    const sorted = pool.slice().sort((a, b) => b.base - a.base)
+    // Tieni le voci positive più grandi MA sempre TUTTE le note di credito (base < 0),
+    // altrimenti lo slice le taglierebbe e il netto non tornerebbe.
+    const s = sorted.filter((x) => x.base > 0).slice(0, 12).concat(sorted.filter((x) => x.base < 0))
     const n = s.length
     for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) {
       if (Math.abs(s[i].base + s[j].base - target) <= tol) return [s[i], s[j]]
