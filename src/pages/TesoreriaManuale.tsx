@@ -2883,6 +2883,23 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
   const [processingSug, setProcessingSug] = useState(false)
   const [dismissedVerify, setDismissedVerify] = useState<Set<string>>(new Set())
   const [dismissedGroup, setDismissedGroup] = useState<Set<string>>(new Set())
+  // Note di credito COLLEGATE (pending) per fattura: servono a confrontare le distinte
+  // al NETTO della NC (regola R8). Le NC "vaganti" (payable a importo negativo) entrano
+  // invece direttamente come voci del gruppo.
+  const [pendingNc, setPendingNc] = useState<Map<string, number>>(new Map())
+  useEffect(() => {
+    let cancel = false
+    ;(async () => {
+      const { data } = await (supabase.from('payable_credit_note_links') as never as {
+        select: (c: string) => { eq: (k: string, v: string) => { eq: (k: string, v: string) => Promise<{ data: { payable_id: string; amount: number }[] | null }> } }
+      }).select('payable_id, amount').eq('company_id', companyId).eq('status', 'pending')
+      if (cancel || !data) return
+      const m = new Map<string, number>()
+      for (const r of data) m.set(String(r.payable_id), (m.get(String(r.payable_id)) ?? 0) + Number(r.amount || 0))
+      setPendingNc(m)
+    })()
+    return () => { cancel = true }
+  }, [companyId])
 
   // Get unreconciled outgoing movements
   const unreconciledMovements = useMemo(() => {
@@ -3162,7 +3179,10 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
     s = s.split(/\s+NEW ZAGO/i)[0]
     return s.trim()
   }
-  const BENEF_STOP = new Set(['SPA', 'SRL', 'SNC', 'SAS', 'SRLS', 'SOCIETA', 'PER', 'AZIONI', 'DEL', 'DELLA', 'THE', 'AND', 'SEMPLIFICATA', 'UNIPERSONALE'])
+  // Stoplist allineata alla regola R5 (backend supplier_confirmed_in_text): niente
+  // match su parole generiche (PROPCO/GROUP/GRUPPO/HOLDING/ITALIA/SERVIZI…), così i
+  // fornitori "… PROPCO SRL" non si mischiano tra loro (1 bonifico = 1 fornitore, R6).
+  const BENEF_STOP = new Set(['SPA', 'SRL', 'SNC', 'SAS', 'SRLS', 'SAPA', 'SCARL', 'SCRL', 'SOCIETA', 'PER', 'AZIONI', 'DEL', 'DELLA', 'THE', 'AND', 'SEMPLIFICATA', 'UNIPERSONALE', 'PROPCO', 'GROUP', 'GRUPPO', 'HOLDING', 'ITALIA', 'ITALY', 'ITALIANA', 'COOPERATIVA', 'ASSOCIATI', 'ASSOCIATO', 'SERVIZI', 'SERVICE', 'SERVICES'])
   const sigWords = (s: string): string[] =>
     String(s || '').toUpperCase().replace(/[^A-Z0-9 ]/g, ' ').split(/\s+/).filter((w) => w.length > 3 && !BENEF_STOP.has(w))
 
@@ -3263,10 +3283,13 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
   const toVerifyGroups = useMemo<{ bt: TxT; items: GroupItem[]; beneficiario: string; total: number }[]>(() => {
     const singleBtIds = new Set(toVerify.map((v) => String(v.bt.id)))
     const highConfBtIds = new Set(suggestions.map((s) => String(s.bt.id)))
+    // base al NETTO della NC collegata (pendingNc); le NC "vaganti" (base negativo)
+    // restano nel pool come voci che riducono la somma del gruppo (R8).
+    const nc = (p: PayT) => pendingNc.get(String(p.id)) ?? 0
     const candidates: GroupItem[] = [
-      ...unpaidPayables.map((p) => ({ p, base: p.amount_remaining != null ? Number(p.amount_remaining) : Number(p.gross_amount || 0) - Number(p.amount_paid || 0), chiusa: false })),
-      ...closedManualPayables.map((p) => ({ p, base: Number(p.gross_amount || 0), chiusa: true })),
-    ].filter((c) => c.base > 0)
+      ...unpaidPayables.map((p) => ({ p, base: (p.amount_remaining != null ? Number(p.amount_remaining) : Number(p.gross_amount || 0) - Number(p.amount_paid || 0)) - nc(p), chiusa: false })),
+      ...closedManualPayables.map((p) => ({ p, base: Number(p.gross_amount || 0) - nc(p), chiusa: true })),
+    ].filter((c) => c.base !== 0)
     const out: { bt: TxT; items: GroupItem[]; beneficiario: string; total: number }[] = []
     for (const m of unreconciledMovements) {
       const id = String(m.id)
