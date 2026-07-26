@@ -74,12 +74,18 @@ far quadrare un importo. Se la causale è anonima, si cerca l'**unico** fornitor
 
 ### R7 — Pagamenti CUMULATIVI (1 movimento = N fatture)
 Un bonifico che salda più fatture **dello stesso fornitore**:
-- **Granitico** (auto): fornitore **e** numeri fattura citati in causale **e** somma esatta → migr. 102.
+- **Granitico a NOME** (auto): fornitore **e** numeri fattura citati in causale **e** somma esatta → migr. 102.
   Include i **numeri corti** (2-3 cifre, es. "SALDO FATTURA 11-12") se la causale ha contesto fattura → migr. 111.
+- **Granitico a NUMERI** (auto, migr. 120): per gli **SDD cumulativi** dove la causale NON scrive il nome
+  (il campo `supplier_name` della fattura porta il testo grezzo dell'SDD, il legame è via `supplier_id`).
+  Le fatture i cui **numeri (≥6 cifre, token isolato)** sono citati in causale si raggruppano per fornitore;
+  aggancia solo se **un unico fornitore** somma esatto al movimento (R6). Il numero lungo identifica il
+  fornitore da solo: non serve il nome. **Caso reale HERA COMM:** addebito 1.601,60 = 8 fatture
+  (412607309402…309409). Sono le 51 fatture HERA che il matcher a nome non vedeva.
 - **Anonimo** (propone): nessun nome/numero → un unico fornitore la cui combinazione somma al netto → R6.
 Aggancio **atomico** (tutto-o-niente): se la somma non torna, non abbina nulla.
-- **Dove:** `try_match_group_bank_transaction` (auto), `reconcile_movement_group` (esecuzione, migr. 101/114/115).
-- **Stato:** ✅ AUTO (granitico) / 🟡 PROPONE (anonimo).
+- **Dove:** `try_match_group_bank_transaction` (a nome), `try_match_group_numbers_bank_transaction` (a numeri, migr. 120), `reconcile_movement_group` (esecuzione, migr. 101/114/115).
+- **Stato:** ✅ AUTO (granitico, a nome e a numeri) / 🟡 PROPONE (anonimo).
 
 ### R8 — AL NETTO di NOTA DI CREDITO
 Se una distinta contiene una **nota di credito**, il bonifico paga il **netto** = somma fatture −
@@ -130,7 +136,12 @@ caricata come fattura, i matcher la agganciano PRIMA (la funzione utenze salta i
   regex `\y…\y`), non come sottostringa. Senza questo, "HERA **COMM**" matchava "**COMM**ISSIONI"
   e chiudeva quasi tutti i movimenti (caso reale: 720/1096). Le sigle `comm`/`comp`/`cons` sono
   in stoplist.
-- **Stato:** ✅ AUTO SEMPRE (sui fornitori marcati `is_utility`). Reversibile a mano (`is_reconciled=false`).
+- **⚠️ Solo utenze SENZA fattura.** Un fornitore con fatture nel gestionale NON va marcato `is_utility`
+  (le sue fatture si agganciano via R7). Caso reale: **HERA COMM ha 51 fatture** (collegate per `supplier_id`,
+  non per nome) pagate con SDD cumulativi → NON è una utenza-senza-fattura, va riconciliata con R7 a numeri.
+  Salvaguardia (migr. 120): `close_utility_movements` **non chiude** un movimento che cita in causale numeri
+  di fattura reali (≥6 cifre) non ancora agganciati — la fattura ha sempre la precedenza.
+- **Stato:** ✅ AUTO SEMPRE (sui fornitori marcati `is_utility`, e solo dove non c'è fattura). Reversibile (`is_reconciled=false`).
 
 ---
 
@@ -172,6 +183,8 @@ caricata come fattura, i matcher la agganciano PRIMA (la funzione utenze salta i
 `116` fattura senza aggancio abbinabile anche nei matcher automatici (R2 completa) ·
 `117` note di credito vaganti nel gruppo + guardia anti "pagato prima" (biettivo) ·
 `118` utenze (addebiti permanenti RID/SDD): flag `is_utility` + `close_utility_movements` ·
-`119` utenze: match a confine di parola (`supplier_confirmed_in_text_strict`) — fix over-match "COMM".
+`119` utenze: match a confine di parola (`supplier_confirmed_in_text_strict`) — fix over-match "COMM" ·
+`120` SDD cumulativi agganciati per NUMERI di fattura in causale (`try_match_group_numbers_bank_transaction`,
+caso HERA COMM) + salvaguardia utenze (fattura ha la precedenza).
 Frontend: `src/pages/TesoreriaManuale.tsx` (detector, ricerca manuale, `movementNet`, `isRealTransfer`);
 `src/pages/Fornitori.tsx` (toggle "È un'utenza").
