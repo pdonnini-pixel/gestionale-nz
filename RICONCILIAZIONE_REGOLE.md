@@ -114,6 +114,19 @@ movimenti bancari reali: la chiusura a mano non crea movimenti.
 Ogni migration e regola va applicata su **NZ + Made + Zago** (3 project distinti), identici.
 - **Stato:** ✅ obbligatoria (REGOLA #0).
 
+### R13 — UTENZE (addebiti permanenti RID/SDD): chiusura senza fattura
+Le utenze con addebito permanente (HERA, Enel, Enegan, Acea…) di norma **non** si registrano come
+fattura passiva: la bolletta viene addebitata in automatico. Il fornitore va marcato **`is_utility`**
+(spunta in Fornitori). I suoi addebiti in uscita che **non** hanno una fattura agganciata né una
+proposta pendente si **chiudono da soli** come "utenza" (`is_reconciled=true`, categoria `utenze`),
+senza restare per sempre tra i "da riconciliare". **Precedenza alla fattura:** se una bolletta È
+caricata come fattura, i matcher la agganciano PRIMA (la funzione utenze salta i movimenti con
+`reconciliation_log` applied/to_confirm). Il beneficiario è confermato con la stessa regola stretta di R5
+(`supplier_confirmed_in_text`: P.IVA o parola distintiva ≥4 char).
+- **Dove:** `close_utility_movements` (migr. 118), agganciata come ultimo passo di
+  `run_daily_reconciliation`; flag `suppliers.is_utility` + toggle in `src/pages/Fornitori.tsx`.
+- **Stato:** ✅ AUTO SEMPRE (sui fornitori marcati `is_utility`). Reversibile a mano (`is_reconciled=false`).
+
 ---
 
 ## Cosa è AUTOMATICO oggi vs cosa NO (sintesi onesta)
@@ -130,6 +143,7 @@ Ogni migration e regola va applicata su **NZ + Made + Zago** (3 project distinti
 | R8 netto di nota di credito | | 🟡 (propone, NC collegate e vaganti) | |
 | R9 non-fornitore (no bonifici veri) | ✅ | | |
 | R10 numeri fattura | ✅ | | limite formati diversi / numeri attaccati |
+| R13 utenze senza fattura | ✅ (fornitori `is_utility`) | | serve marcare il fornitore |
 
 ### Gap — stato aggiornato (2026-07-25)
 1. **R8 detector frontend** — ✅ **CHIUSO** (migr. 117 + TesoreriaManuale): il detector carica le NC,
@@ -151,5 +165,7 @@ Ogni migration e regola va applicata su **NZ + Made + Zago** (3 project distinti
 `112` correttiva (importo stretto + fix chiusura) · `113` conferma fornitore stretta ·
 `114` fattura senza aggancio abbinabile nelle RPC · `115` netto di nota di credito ·
 `116` fattura senza aggancio abbinabile anche nei matcher automatici (R2 completa) ·
-`117` note di credito vaganti nel gruppo + guardia anti "pagato prima" (biettivo).
-Frontend: `src/pages/TesoreriaManuale.tsx` (detector, ricerca manuale, `movementNet`, `isRealTransfer`).
+`117` note di credito vaganti nel gruppo + guardia anti "pagato prima" (biettivo) ·
+`118` utenze (addebiti permanenti RID/SDD): flag `is_utility` + `close_utility_movements`.
+Frontend: `src/pages/TesoreriaManuale.tsx` (detector, ricerca manuale, `movementNet`, `isRealTransfer`);
+`src/pages/Fornitori.tsx` (toggle "È un'utenza").
