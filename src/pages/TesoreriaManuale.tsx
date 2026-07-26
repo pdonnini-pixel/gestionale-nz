@@ -2883,6 +2883,23 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
   const [processingSug, setProcessingSug] = useState(false)
   const [dismissedVerify, setDismissedVerify] = useState<Set<string>>(new Set())
   const [dismissedGroup, setDismissedGroup] = useState<Set<string>>(new Set())
+  // Note di credito COLLEGATE (pending) per fattura: servono a confrontare le distinte
+  // al NETTO della NC (regola R8). Le NC "vaganti" (payable a importo negativo) entrano
+  // invece direttamente come voci del gruppo.
+  const [pendingNc, setPendingNc] = useState<Map<string, number>>(new Map())
+  useEffect(() => {
+    let cancel = false
+    ;(async () => {
+      const { data } = await (supabase.from('payable_credit_note_links') as never as {
+        select: (c: string) => { eq: (k: string, v: string) => { eq: (k: string, v: string) => Promise<{ data: { payable_id: string; amount: number }[] | null }> } }
+      }).select('payable_id, amount').eq('company_id', companyId).eq('status', 'pending')
+      if (cancel || !data) return
+      const m = new Map<string, number>()
+      for (const r of data) m.set(String(r.payable_id), (m.get(String(r.payable_id)) ?? 0) + Number(r.amount || 0))
+      setPendingNc(m)
+    })()
+    return () => { cancel = true }
+  }, [companyId])
 
   // Get unreconciled outgoing movements
   const unreconciledMovements = useMemo(() => {
@@ -2900,11 +2917,13 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
     payables.filter((p) => p.status === 'da_pagare' || p.status === 'in_scadenza' || p.status === 'scaduto' || p.status === 'parziale'),
     [payables]
   )
-  // Fatture chiuse a mano ma senza movimento agganciato: vanno SEMPRE riverificate
-  // contro ogni movimento (regola Patrizio), perché il bonifico che le ha pagate è
-  // rimasto orfano. Escluse quelle già collegate a un bank_transaction_id.
+  // Fatture GIÀ PAGATE ma senza movimento agganciato — chiuse a mano OPPURE segnate
+  // pagate all'import/go-live: vanno SEMPRE riverificate contro ogni movimento
+  // (regola Patrizio), perché il bonifico che le ha pagate è rimasto orfano. Una
+  // fattura senza bank_transaction_id è sempre abbinabile, a prescindere dallo stato.
+  // Escluse solo quelle già collegate a un bank_transaction_id.
   const closedManualPayables = useMemo(() =>
-    payables.filter((p) => String(p.status) === 'pagato' && (p as { closed_manually?: boolean }).closed_manually === true && !(p as { bank_transaction_id?: string | null }).bank_transaction_id),
+    payables.filter((p) => String(p.status) === 'pagato' && !(p as { bank_transaction_id?: string | null }).bank_transaction_id),
     [payables]
   )
 
@@ -2921,7 +2940,9 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
     const mvAmt = selectedMovement ? Math.abs(Number(selectedMovement.amount) || 0) : null
     const tolerance: number = mvAmt ? mvAmt * 0.05 : 0
 
-    let list = unpaidPayables.slice()
+    // Include anche le fatture GIÀ PAGATE senza aggancio (chiuse a mano o pagate
+    // all'import): il loro bonifico è orfano e va abbinato — vanno trovate qui.
+    let list = unpaidPayables.concat(closedManualPayables)
 
     if (q.length >= 2) {
       list = list.filter((p) =>
@@ -2952,7 +2973,7 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
     })
 
     return list.slice(0, 20)
-  }, [unpaidPayables, manualSearch, selectedMovement])
+  }, [unpaidPayables, closedManualPayables, manualSearch, selectedMovement])
 
   // Auto-match function: match by amount with 5% tolerance, produce confidence score
   const findMatches = useCallback((movement: TxT | null): MatchT[] => {
@@ -3158,9 +3179,28 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
     s = s.split(/\s+NEW ZAGO/i)[0]
     return s.trim()
   }
-  const BENEF_STOP = new Set(['SPA', 'SRL', 'SNC', 'SAS', 'SRLS', 'SOCIETA', 'PER', 'AZIONI', 'DEL', 'DELLA', 'THE', 'AND', 'SEMPLIFICATA', 'UNIPERSONALE'])
+  // Stoplist allineata alla regola R5 (backend supplier_confirmed_in_text): niente
+  // match su parole generiche (PROPCO/GROUP/GRUPPO/HOLDING/ITALIA/SERVIZI…), così i
+  // fornitori "… PROPCO SRL" non si mischiano tra loro (1 bonifico = 1 fornitore, R6).
+  const BENEF_STOP = new Set(['SPA', 'SRL', 'SNC', 'SAS', 'SRLS', 'SAPA', 'SCARL', 'SCRL', 'SOCIETA', 'PER', 'AZIONI', 'DEL', 'DELLA', 'THE', 'AND', 'SEMPLIFICATA', 'UNIPERSONALE', 'PROPCO', 'GROUP', 'GRUPPO', 'HOLDING', 'ITALIA', 'ITALY', 'ITALIANA', 'COOPERATIVA', 'ASSOCIATI', 'ASSOCIATO', 'SERVIZI', 'SERVICE', 'SERVICES'])
   const sigWords = (s: string): string[] =>
     String(s || '').toUpperCase().replace(/[^A-Z0-9 ]/g, ' ').split(/\s+/).filter((w) => w.length > 3 && !BENEF_STOP.has(w))
+
+  // Netto realmente bonificato: nei flussi CBI aziendali l'importo del movimento è
+  // LORDO (netto + commissione). Si scorpora la commissione dalla causale
+  // ("IMPORTO BONIFICI" / "IMPORTO COMMISSIONI") per confrontare il NETTO con le fatture.
+  const parseItAmount = (s: string): number => Number(String(s).replace(/\./g, '').replace(',', '.')) || 0
+  const movementNet = (m: TxT): number => {
+    const d = String(m.description || '')
+    const mb = /IMPORTO\s+BONIFICI\s*:?\s*([0-9][0-9.]*,[0-9]{2})/i.exec(d)
+    if (mb) return parseItAmount(mb[1])
+    const gross = Math.abs(Number(m.amount) || 0)
+    const mc = /IMPORTO\s+COMMISSIONI\s*:?\s*([0-9][0-9.]*,[0-9]{2})/i.exec(d)
+    return mc ? Math.max(0, gross - parseItAmount(mc[1])) : gross
+  }
+  // Un flusso CBI / disposizione / bonifico è un pagamento reale a fornitore anche se
+  // la causale contiene la parola "commissioni": NON va escluso come non-fornitore.
+  const isRealTransfer = (desc: string): boolean => /IMPORTO BONIFICI|DISPOSIZIONE|A FAVORE|BONIFICO/i.test(String(desc || ''))
 
   // "Da verificare": abbina l'uscita alla fattura del BENEFICIARIO letto dalla
   // causale (non per solo importo!). Serve almeno una parola significativa in
@@ -3182,12 +3222,12 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
       if (highConfBtIds.has(String(m.id))) continue
       if (dismissedVerify.has(String(m.id))) continue
       const desc = String(m.description || '')
-      if (NON_SUPPLIER_RE.test(desc)) continue
+      if (!isRealTransfer(desc) && NON_SUPPLIER_RE.test(desc)) continue
       const benef = extractBeneficiary(desc)
       if (!benef || NON_SUPPLIER_BENEF_RE.test(benef)) continue   // niente beneficiario o non-fornitore
       const benefWords = sigWords(benef)
       if (benefWords.length === 0) continue
-      const mv = Math.abs(Number(m.amount) || 0)
+      const mv = movementNet(m)
       if (mv <= 0) continue
       let best: PayT | null = null
       let bestRem = 0
@@ -3228,9 +3268,14 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
   // mano: l'aggancio passa da reconcile_movement_group (atomico, tutto-o-niente).
   type GroupItem = { p: PayT; base: number; chiusa: boolean }
   const findCombo = (pool: GroupItem[], target: number): GroupItem[] | null => {
-    const tol = Math.max(0.05, target * 0.02)
-    // pool limitato per evitare esplosioni combinatorie (fatture per fornitore sono poche)
-    const s = pool.slice().sort((a, b) => b.base - a.base).slice(0, 14)
+    // Tolleranza STRETTA: la somma deve coincidere quasi al centesimo. Così una distinta
+    // con nota di credito NON passa come sola coppia di fatture (scarto = importo NC): la
+    // NC va inclusa nel gruppo per far tornare il netto.
+    const tol = Math.max(0.05, target * 0.003)
+    const sorted = pool.slice().sort((a, b) => b.base - a.base)
+    // Tieni le voci positive più grandi MA sempre TUTTE le note di credito (base < 0),
+    // altrimenti lo slice le taglierebbe e il netto non tornerebbe.
+    const s = sorted.filter((x) => x.base > 0).slice(0, 12).concat(sorted.filter((x) => x.base < 0))
     const n = s.length
     for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) {
       if (Math.abs(s[i].base + s[j].base - target) <= tol) return [s[i], s[j]]
@@ -3243,31 +3288,61 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
   const toVerifyGroups = useMemo<{ bt: TxT; items: GroupItem[]; beneficiario: string; total: number }[]>(() => {
     const singleBtIds = new Set(toVerify.map((v) => String(v.bt.id)))
     const highConfBtIds = new Set(suggestions.map((s) => String(s.bt.id)))
+    // base al NETTO della NC collegata (pendingNc); le NC "vaganti" (base negativo)
+    // restano nel pool come voci che riducono la somma del gruppo (R8).
+    const nc = (p: PayT) => pendingNc.get(String(p.id)) ?? 0
     const candidates: GroupItem[] = [
-      ...unpaidPayables.map((p) => ({ p, base: p.amount_remaining != null ? Number(p.amount_remaining) : Number(p.gross_amount || 0) - Number(p.amount_paid || 0), chiusa: false })),
-      ...closedManualPayables.map((p) => ({ p, base: Number(p.gross_amount || 0), chiusa: true })),
-    ].filter((c) => c.base > 0)
+      ...unpaidPayables.map((p) => ({ p, base: (p.amount_remaining != null ? Number(p.amount_remaining) : Number(p.gross_amount || 0) - Number(p.amount_paid || 0)) - nc(p), chiusa: false })),
+      ...closedManualPayables.map((p) => ({ p, base: Number(p.gross_amount || 0) - nc(p), chiusa: true })),
+    ].filter((c) => c.base !== 0)
     const out: { bt: TxT; items: GroupItem[]; beneficiario: string; total: number }[] = []
     for (const m of unreconciledMovements) {
       const id = String(m.id)
       if (singleBtIds.has(id) || highConfBtIds.has(id) || dismissedGroup.has(id)) continue
       const desc = String(m.description || '')
-      if (NON_SUPPLIER_RE.test(desc)) continue
-      const benef = extractBeneficiary(desc)
-      if (!benef || NON_SUPPLIER_BENEF_RE.test(benef)) continue
-      const benefWords = sigWords(benef)
-      if (benefWords.length === 0) continue
-      const mv = Math.abs(Number(m.amount) || 0)
+      if (!isRealTransfer(desc) && NON_SUPPLIER_RE.test(desc)) continue
+      // Netto: scorpora la commissione (flussi CBI arrivano col lordo).
+      const mv = movementNet(m)
       if (mv <= 0) continue
-      // candidati dello stesso beneficiario, ognuno più piccolo del movimento
-      const pool = candidates.filter((c) => {
-        if (c.base > mv + 0.01) return false
-        const supWords = new Set(sigWords(getSupplierName(c.p)))
-        return benefWords.some((w) => supWords.has(w))
-      })
-      if (pool.length < 2) continue
-      const combo = findCombo(pool, mv)
-      if (combo) out.push({ bt: m, items: combo, beneficiario: benef, total: combo.reduce((s, c) => s + c.base, 0) })
+      const benef = extractBeneficiary(desc)
+      if (benef && NON_SUPPLIER_BENEF_RE.test(benef)) continue
+      const benefWords = benef ? sigWords(benef) : []
+
+      if (benefWords.length > 0) {
+        // Beneficiario NOTO: combinazione tra le fatture di QUEL fornitore.
+        const pool = candidates.filter((c) => {
+          if (c.base > mv + 0.01) return false
+          const supWords = new Set(sigWords(getSupplierName(c.p)))
+          return benefWords.some((w) => supWords.has(w))
+        })
+        if (pool.length < 2) continue
+        const combo = findCombo(pool, mv)
+        if (combo) out.push({ bt: m, items: combo, beneficiario: benef, total: combo.reduce((s, c) => s + c.base, 0) })
+      } else if (isRealTransfer(desc)) {
+        // Bonifico ANONIMO (flusso CBI senza beneficiario in causale): un bonifico è
+        // sempre verso UN solo fornitore, mai un mix. Cerca l'UNICO fornitore le cui
+        // fatture (una singola o una combinazione) sommano al netto. Se ne combacia
+        // più d'uno è ambiguo → non si propone (niente indovinelli).
+        const bySup = new Map<string, GroupItem[]>()
+        for (const c of candidates) {
+          if (c.base > mv + 0.01) continue
+          const k = getSupplierName(c.p)
+          const arr = bySup.get(k); if (arr) arr.push(c); else bySup.set(k, [c])
+        }
+        const tol = Math.max(0.05, mv * 0.005)
+        const hits: GroupItem[][] = []
+        for (const pool of bySup.values()) {
+          const single = pool.find((c) => Math.abs(c.base - mv) <= tol)
+          if (single) { hits.push([single]); continue }
+          if (pool.length >= 2) { const combo = findCombo(pool, mv); if (combo) hits.push(combo) }
+        }
+        // Solo combinazioni (>=2 fatture): il caso a fattura singola lo aggancia già
+        // in automatico il matcher backend (try_match_amount_bank_transaction).
+        if (hits.length === 1 && hits[0].length >= 2) {
+          const items = hits[0]
+          out.push({ bt: m, items, beneficiario: getSupplierName(items[0].p), total: items.reduce((s, c) => s + c.base, 0) })
+        }
+      }
     }
     return out
       .sort((a, b) => new Date(String(b.bt.transaction_date) || 0).getTime() - new Date(String(a.bt.transaction_date) || 0).getTime())

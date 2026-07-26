@@ -38,6 +38,11 @@
 >      del gruppo coincida esatta (migration 111);
 >   2. a punteggio (`try_match_bank_transaction`): fornitore in causale, importo/data/numero;
 >   3. biettivo per data (`rerun_bijective_reconciliation`): ricorrenti 1-a-1;
+>   - **Conferma fornitore (regola stretta, migration 113)**: il fornitore in causale è confermato SOLO
+>     dalla **P.IVA** o da una parola **≥4 lettere NON generica** (stoplist: PROPCO, GRUPPO, GROUP, HOLDING,
+>     SRL, SPA, SOCIETA, SERVIZI, ITALIA…), via helper `supplier_confirmed_in_text`. Evita le collisioni tra
+>     nomi simili (es. "Palmanova **Propco**" ↔ "Valdichiana **Propco**"). I fornitori con nome solo generico
+>     o a sigla (es. "Gruppo FB", "S.I.A.E.") si abbinano per P.IVA / numero+importo esatto, o a mano.
 >   4. **a importo, causale ANONIMA** (`try_match_amount_bank_transaction`, migration 110): flussi CBI
 >      senza nome/numero. Auto SOLO se il candidato è **UNICO** (e chiuso-a-mano → aggancio, oppure netto
 >      dal dato strutturato `IMPORTO BONIFICI`); altrimenti **propone** (`to_confirm`), niente chiusure al buio.
