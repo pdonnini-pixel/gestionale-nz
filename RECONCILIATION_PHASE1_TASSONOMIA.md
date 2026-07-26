@@ -6,6 +6,13 @@
 > progettare il motore (Fase 2). Riferimento normativo primario: **Italia** (SDI, IVA, SEPA).
 >
 > ⛔ Al termine ci si ferma per conferma di Patrizio prima della Fase 2.
+>
+> **Re-audit 2026-07-25** — riallineato dopo le PR #362–#371 (migr. 113–117 + `RICONCILIAZIONE_REGOLE.md`,
+> documento regole R1–R12). Delta principali: chiusi i gap su commissioni CBI (R3), NC nel gruppo
+> collegate e vaganti (R8, migr. 115/117), fatture pagate-senza-aggancio ora abbinate anche dai
+> matcher automatici (R1/R2, migr. 116), conferma fornitore stretta (R5, migr. 113), guardia
+> anti "pagato prima" sul biettivo (migr. 117). **Restano aperti**: ciclo attivo/incassi, PSP,
+> scarto spiegato da XML, apprendimento. Dettaglio in §0.
 
 ---
 
@@ -36,28 +43,57 @@ riscriverlo (regola no-data-loss + parità tenant).
 - `payable_credit_note_links` — intenzione di compensazione fattura↔nota di credito (090,
   stato `pending`/consumato).
 
-**Motore attuale** (RECONCILIATION_NOTES.md — waterfall, trigger su INSERT + cron 05:45 UTC):
-1. **Granitico gruppo** `try_match_group_bank_transaction`: fornitore + numero/i fattura in
-   causale, somma esatta (incl. pagamenti cumulativi e fattura−NC). Auto, no conferma.
-2. **A punteggio** `try_match_bank_transaction` (engine v2, migr. 032): 3 assi —
+**Motore attuale** (fonte autoritativa: **`RICONCILIAZIONE_REGOLE.md`**, agg. 2026-07-25, regole
+R1–R12 — waterfall, trigger su INSERT + cron 05:45 UTC). Waterfall a ogni movimento in uscita:
+1. **Granitico gruppo** `try_match_group_bank_transaction` (migr. 102/111/113/116): fornitore +
+   numero/i fattura in causale, somma esatta (incl. pagamenti cumulativi e **al netto di NC**,
+   collegate e vaganti). Auto, no conferma.
+2. **A punteggio** `try_match_bank_transaction` (engine v2, migr. 032/100/113/116): 3 assi —
    **importo 50pt** (`50 − diff%·5`), **nome/VAT 30pt** (VAT in causale=30, name=25, altrimenti
    `similarity()·30`), **data 20pt** (`20 − giorni_diff`). Soglia match 50, **auto ≥80**,
    50–80 → proposta.
-3. **Biettivo per data** `rerun_bijective_reconciliation`: costi ricorrenti a importo fisso,
-   1-a-1 sulla data più vicina, senza riuso.
-4. **A importo, causale anonima** `try_match_amount_bank_transaction` (migr. 110): flussi CBI
-   senza nome/numero; auto solo se candidato **unico**, altrimenti proposta.
-5. Contorno: `close_non_supplier_movements` (commissioni/carte/F24/stipendi → chiusi senza
-   fattura), `close_paid_fiscal_deadlines` (scadenze fiscali/paga pagate a gruppi).
-- **Commissioni CBI scorporate**: la causale porta `IMPORTO BONIFICI` (netto) + `IMPORTO
-  COMMISSIONI`; si confronta il **netto**, non il lordo (±1,75 non deve rompere il match).
-- Manuali: `reconcile_movement`, `reconcile_movement_group`, `undo_reconcile_movement`.
+3. **Biettivo per data** `rerun_bijective_reconciliation` (migr. 104/113/116): costi ricorrenti a
+   importo fisso, 1-a-1 sulla data più vicina, senza riuso; **guardia anti "pagato prima"** (il
+   movimento non precede la data fattura di >15 gg, migr. 117 → mitiga i cross-link su duplicati).
+4. **A importo, causale anonima** `try_match_amount_bank_transaction` (migr. 110/112): flussi CBI
+   senza nome/numero; auto solo se candidato **unico** ed **esatto** (≤0,02), altrimenti proposta.
+5. Contorno: `close_non_supplier_movements` (migr. 108/112 — F24/carte/stipendi/giroconti chiusi
+   senza fattura, MA i bonifici veri `IMPORTO BONIFICI`/`A FAVORE` NON si chiudono),
+   `close_paid_fiscal_deadlines` (scadenze fiscali/paga pagate a gruppi).
+- **Aggiornamenti chiave 2026-07-24/25** (delta dalla mia prima analisi):
+  - **R1/R2** — pool candidati = aperte **+** chiuse a mano **+** `pagato` senza aggancio
+    bancario, sia nelle RPC manuali (migr. 114) sia nei 3 matcher **automatici** (migr. 116):
+    il bonifico "orfano" di una fattura già pagata off-system ora si aggancia da solo.
+  - **R3** — commissioni CBI scorporate: si confronta il **netto** (`IMPORTO BONIFICI`),
+    backend + frontend `movementNet()`.
+  - **R5** — conferma fornitore **stretta** `supplier_confirmed_in_text()` (migr. 113): solo
+    P.IVA o parola ≥4 lettere **non generica** (esclusi PROPCO/GRUPPO/HOLDING/SRL/SPA/…) →
+    stop collisioni "Palmanova Propco" ↔ "Valdichiana Propco".
+  - **R8** — riconciliazione **al netto di nota di credito**: `reconcile_movement_group`
+    sottrae le NC `pending` **collegate** (migr. 115) e le NC **vaganti** (payable negativo
+    dello stesso fornitore, migr. 117) dal target, e le **consuma** (link→`applied`). Detector
+    frontend carica le NC e propone le distinte al netto (Torino collegata / Valdichiana vagante).
+  - **R6** — 1 bonifico = **1 solo** fornitore (mai mix di fornitori per far quadrare l'importo).
+- Manuali: `reconcile_movement`, `reconcile_movement_group`, `undo_reconcile_movement` (riapre NC).
+- **Hardening sicurezza** (stessa tornata, migr. 113–116 "sicurezza"): `search_path` pinnato +
+  EXECUTE ristretto sulle `SECURITY DEFINER`, RLS sulle tabelle di backup, `v_payables_operative`
+  in `security_invoker`.
 
-**Buchi noti oggi** (cosa la Fase 2 deve chiudere, e che la tassonomia sotto sistematizza):
-il matching è quasi tutto **passivo** (uscite → payables); l'**attivo** (incassi → fatture di
-vendita) è scoperto; ritenuta d'acconto/rivalsa cassa/split payment non hanno uno scarto
-"spiegato" strutturato; i PSP (POS/Nexi/Stripe) non hanno un modello di riconciliazione lordo↔netto
-commissioni; l'apprendimento dalle correzioni manuali non è formalizzato.
+**Buchi noti oggi** (aggiornato 2026-07-25 — cosa la Fase 2 deve ancora chiudere):
+1. **Ciclo ATTIVO (incassi → fatture di vendita): tuttora SCOPERTO.** `RICONCILIAZIONE_REGOLE.md`
+   è esplicitamente "Ciclo Passivo": tutta la waterfall lavora su movimenti in **uscita**. È
+   l'estensione più grande rimasta.
+2. **PSP/POS (Nexi/Stripe/PayPal/Satispay): nessun modello lordo↔netto commissioni** né ponte
+   verso i report di settlement. (Legato al punto 1: è lato incassi.)
+3. **Scarto "spiegato" da XML**: ritenuta d'acconto / rivalsa cassa / split payment / bollo non
+   sono tipizzati come causa dello scarto — oggi li assorbe una tolleranza generica (0,02 / 1–2%),
+   che funziona ma non spiega *perché* e non regge scarti grandi (es. split payment su importi alti).
+4. **Apprendimento dalle correzioni manuali** non formalizzato (alias fornitore, mappe
+   IBAN→fornitore, pattern causale ricorrenti).
+5. **Cross-link su duplicati**: 🟡 mitigato (guardia data migr. 117) ma non eliminato quando lo
+   stesso fornitore ha più fatture identiche nello stesso periodo.
+6. **Distinte non persistite** (`payment_batches`): dichiarato **non necessario** per la
+   riconciliazione (R8 chiuso), resta solo comodità.
 
 ---
 
@@ -349,6 +385,11 @@ subset multi-fornitore, abbuono, competenza/cassa — che il primo elenco non co
    mappe IBAN→fornitore)? Con quale visibilità/controllo?
 7. **Soglia auto vs proposta**: confermi l'attuale (auto ≥80, proposta 50–80)? Nuova soglia per i
    match con scarto spiegato?
+
+> **Nota re-audit 2026-07-25**: le domande #5 (finestra temporale — ora c'è la guardia 15 gg del
+> biettivo, migr. 117) e #7 (soglie — confermate 80/50 dall'engine v2) sono **parzialmente già
+> risposte dal codice**. Restano pienamente aperte #1 (attivo/incassi), #2 (PSP), #3 (tolleranze
+> tipizzate), #4 (scarto XML), #6 (apprendimento) — sono il vero contenuto della Fase 2.
 
 ---
 
