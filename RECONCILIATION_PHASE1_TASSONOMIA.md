@@ -7,12 +7,13 @@
 >
 > ⛔ Al termine ci si ferma per conferma di Patrizio prima della Fase 2.
 >
-> **Re-audit 2026-07-25** — riallineato dopo le PR #362–#371 (migr. 113–117 + `RICONCILIAZIONE_REGOLE.md`,
-> documento regole R1–R12). Delta principali: chiusi i gap su commissioni CBI (R3), NC nel gruppo
+> **Re-audit 2026-07-25** — riallineato dopo le PR #362–#372 (migr. 113–118 + `RICONCILIAZIONE_REGOLE.md`,
+> documento regole R1–R13). Delta principali: chiusi i gap su commissioni CBI (R3), NC nel gruppo
 > collegate e vaganti (R8, migr. 115/117), fatture pagate-senza-aggancio ora abbinate anche dai
 > matcher automatici (R1/R2, migr. 116), conferma fornitore stretta (R5, migr. 113), guardia
-> anti "pagato prima" sul biettivo (migr. 117). **Restano aperti**: ciclo attivo/incassi, PSP,
-> scarto spiegato da XML, apprendimento. Dettaglio in §0.
+> anti "pagato prima" sul biettivo (migr. 117), **utenze ad addebito permanente RID/SDD chiuse
+> senza fattura** (R13, migr. 118, flag `suppliers.is_utility`). **Restano aperti**: ciclo
+> attivo/incassi, PSP, scarto spiegato da XML, apprendimento. Dettaglio in §0.
 
 ---
 
@@ -60,6 +61,11 @@ R1–R12 — waterfall, trigger su INSERT + cron 05:45 UTC). Waterfall a ogni mo
 5. Contorno: `close_non_supplier_movements` (migr. 108/112 — F24/carte/stipendi/giroconti chiusi
    senza fattura, MA i bonifici veri `IMPORTO BONIFICI`/`A FAVORE` NON si chiudono),
    `close_paid_fiscal_deadlines` (scadenze fiscali/paga pagate a gruppi).
+6. **Utenze ad addebito permanente** `close_utility_movements` (migr. 118, **R13**, ultimo passo
+   di `run_daily_reconciliation`): gli addebiti in uscita verso un fornitore marcato
+   `suppliers.is_utility` (HERA/Enel/Enegan/Acea…) **senza** fattura agganciata né proposta
+   pendente si chiudono come `utenze` — con **precedenza alla fattura** (salta i movimenti già in
+   `reconciliation_log` applied/to_confirm) e conferma beneficiario **stretta** (R5).
 - **Aggiornamenti chiave 2026-07-24/25** (delta dalla mia prima analisi):
   - **R1/R2** — pool candidati = aperte **+** chiuse a mano **+** `pagato` senza aggancio
     bancario, sia nelle RPC manuali (migr. 114) sia nei 3 matcher **automatici** (migr. 116):
@@ -172,7 +178,7 @@ Per tutte: (c) un match "importo esatto al centesimo" fallisce; serve uno **scar
 | **1:N** (un bonifico → N fatture) | causale "SALDO FATT 5421+5422"; importo = somma | nessuna singola fattura pareggia | subset-sum su fatture stesso fornitore/finestra (già `try_match_group_*`) |
 | **N:1** (una fattura in più tranche/rate) | acconto+saldo, RiBa mensili | ogni movimento < fattura | accumulo su `amount_paid`; stato `parziale` finché somma = gross |
 | **N:M** | distinta cumulativa che paga più fatture con più NC | esplosione combinatoria | subset-sum bilaterale con vincoli (fornitore, finestra, cap importo) |
-| **Movimento senza fattura** | giroconti tra conti propri, stipendi, F24/imposte, contributi INPS, interessi, prelievi contanti, commissioni | nessun candidato fattura → falsi "non riconciliato" | categorizzare e **chiudere senza fattura** (già `close_non_supplier_movements`) |
+| **Movimento senza fattura** | giroconti tra conti propri, stipendi, F24/imposte, contributi INPS, interessi, prelievi contanti, commissioni, **utenze RID/SDD** (bolletta non registrata come fattura) | nessun candidato fattura → falsi "non riconciliato" | categorizzare e **chiudere senza fattura** (`close_non_supplier_movements`; utenze via `close_utility_movements` su fornitori `is_utility`, R13 — con precedenza alla fattura se caricata) |
 | **Fattura senza movimento** | non pagata, compensata, permuta/baratto, cessione credito/factoring, pagata contanti/altro conto | resta aperta pur essendo "sistemata" | stati: `da_pagare` vs `compensata`/`ceduta`; non forzare match |
 | **Giroconto interno** | uscita conto A = entrata conto B, stesso importo/data | due movimenti, zero fatture, rischio doppio conteggio | rilevare coppia inter-account; marcare `giroconto`, escludere da cashflow |
 
@@ -216,7 +222,7 @@ Per tutte: (c) un match "importo esatto al centesimo" fallisce; serve uno **scar
 | **Bonifico SEPA (SCT)** | causale libera + IBAN controparte + E2E | dipende da chi compila la causale | E2E ref, IBAN, testo causale |
 | **Bonifico istantaneo (SCT Inst)** | come SCT, valuta = contabile | — | data secca affidabile |
 | **RiBa** | "EFFETTI RITIRATI"/"INSOLUTO RIBA", a gruppi mensili | singola fattura spesso non citata | importo+scadenza mensile; insoluto = storno |
-| **SDD/RID** | addebito ricorrente, "SEPA DD", mandato | numero fattura raro | mandato/creditore + importo ricorrente |
+| **SDD/RID** | addebito ricorrente, "SEPA DD", mandato; **utenze** (HERA/Enel…) spesso senza fattura | numero fattura raro; utenza non registrata → resta "da riconciliare" | mandato/creditore + importo ricorrente; se fornitore `is_utility` e nessuna fattura → chiusura come utenza (R13) |
 | **MAV/RAV** | bollettino con codice MAV | fattura non citata | codice MAV ↔ ente |
 | **F24** | "DELEGA F24", importo cumulato tributi | nessuna fattura | chiudere senza fattura (imposte) |
 | **PagoPA** | "PAGOPA"/IUV | fattura non citata | IUV ↔ avviso |
@@ -317,7 +323,7 @@ segnale: alias fornitore, mappe IBAN→fornitore, pattern causale ricorrenti. Og
 
 ---
 
-## Matrice dei casi (30 scenari: reale → perché il match ingenuo fallisce → segnale utile)
+## Matrice dei casi (31 scenari: reale → perché il match ingenuo fallisce → segnale utile)
 
 | # | Situazione reale | Perché il match ingenuo fallisce | Segnale utile per riconoscerla |
 |---|---|---|---|
@@ -351,9 +357,10 @@ segnale: alias fornitore, mappe IBAN→fornitore, pattern causale ricorrenti. Og
 | 28 | Bonifico unico paga fatture di 2 fornitori diversi (raro) | subset-sum monoparte fallisce | subset-sum multi-fornitore (bassa priorità) |
 | 29 | Sconto cassa/abbuono: pagato 995 su 1.000 | −5 rompe l'esatto | tolleranza "abbuono" configurabile |
 | 30 | Fattura fine mese pagata mese dopo | finestra data stretta scarta il partner | finestra a cavallo mese; data solo come score |
+| 31 | Utenza HERA/Enel addebito RID mensile, bolletta non caricata come fattura | nessun candidato fattura → resta per sempre "da riconciliare" (ed è "A FAVORE", quindi non-fornitore non lo chiude) | fornitore `is_utility` → `close_utility_movements` chiude come utenza (R13), con precedenza alla fattura se caricata |
 
-*(auto-critica finale: aggiunti oltre i 25 richiesti i casi 26–30 — compensazione, factoring,
-subset multi-fornitore, abbuono, competenza/cassa — che il primo elenco non copriva.)*
+*(auto-critica finale: aggiunti oltre i 25 richiesti i casi 26–31 — compensazione, factoring,
+subset multi-fornitore, abbuono, competenza/cassa, utenze RID — che il primo elenco non copriva.)*
 
 ---
 
