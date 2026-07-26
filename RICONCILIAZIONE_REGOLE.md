@@ -125,6 +125,11 @@ caricata come fattura, i matcher la agganciano PRIMA (la funzione utenze salta i
 (`supplier_confirmed_in_text`: P.IVA o parola distintiva ≥4 char).
 - **Dove:** `close_utility_movements` (migr. 118), agganciata come ultimo passo di
   `run_daily_reconciliation`; flag `suppliers.is_utility` + toggle in `src/pages/Fornitori.tsx`.
+- **Match a CONFINE DI PAROLA (migr. 119):** poiché la chiusura utenze non ha il vincolo
+  di importo/numero, il nome si confronta come **token isolato** (`supplier_confirmed_in_text_strict`,
+  regex `\y…\y`), non come sottostringa. Senza questo, "HERA **COMM**" matchava "**COMM**ISSIONI"
+  e chiudeva quasi tutti i movimenti (caso reale: 720/1096). Le sigle `comm`/`comp`/`cons` sono
+  in stoplist.
 - **Stato:** ✅ AUTO SEMPRE (sui fornitori marcati `is_utility`). Reversibile a mano (`is_reconciled=false`).
 
 ---
@@ -166,6 +171,7 @@ caricata come fattura, i matcher la agganciano PRIMA (la funzione utenze salta i
 `114` fattura senza aggancio abbinabile nelle RPC · `115` netto di nota di credito ·
 `116` fattura senza aggancio abbinabile anche nei matcher automatici (R2 completa) ·
 `117` note di credito vaganti nel gruppo + guardia anti "pagato prima" (biettivo) ·
-`118` utenze (addebiti permanenti RID/SDD): flag `is_utility` + `close_utility_movements`.
+`118` utenze (addebiti permanenti RID/SDD): flag `is_utility` + `close_utility_movements` ·
+`119` utenze: match a confine di parola (`supplier_confirmed_in_text_strict`) — fix over-match "COMM".
 Frontend: `src/pages/TesoreriaManuale.tsx` (detector, ricerca manuale, `movementNet`, `isRealTransfer`);
 `src/pages/Fornitori.tsx` (toggle "È un'utenza").
