@@ -50,6 +50,9 @@ const EMPTY_FORM = {
   // Default base = 'fine_mese' (regola standard: le scadenze sono a fine mese, incluse
   // le rimesse dirette). L'operatrice puo' cambiarla in 'data_fattura' quando serve.
   payment_base: 'fine_mese', prima_scadenza_gg: 30, numero_rate: 1, payment_bank_account_id: '',
+  // Utenza con addebito permanente (RID/SDD): i suoi addebiti senza fattura si chiudono
+  // automaticamente come "utenza" (categoria utenze), senza agganciarli a una fattura.
+  is_utility: false,
 };
 
 const CATEGORIES = [
@@ -604,6 +607,7 @@ export default function Fornitori() {
       prima_scadenza_gg: num('prima_scadenza_gg', 30),
       numero_rate: num('numero_rate', 1),
       payment_bank_account_id: str('payment_bank_account_id'),
+      is_utility: s['is_utility'] === true,
     });
     setShowModal(true);
   }
@@ -650,6 +654,7 @@ export default function Fornitori() {
         cost_center: form.cost_center || 'all',
         note: form.note.trim() || null,
         notes: form.note.trim() || null,
+        is_utility: !!form.is_utility,
         is_active: true,
         is_deleted: false,
         updated_at: new Date().toISOString(),
@@ -1683,6 +1688,25 @@ export default function Fornitori() {
                       </div>
                     )}
                     <p className="mt-2 text-[11px] text-slate-400">Le rate successive sono +30gg (data fattura) o +1 mese (fine mese). Importo diviso equamente tra le rate.</p>
+                  </div>
+                  <div className="col-span-2 mt-1 pt-3 border-t border-slate-200">
+                    <label className="flex items-start gap-2.5 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={!!form.is_utility}
+                        onChange={e => setForm(f => ({ ...f, is_utility: e.target.checked }))}
+                        className="mt-0.5 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                      />
+                      <span className="text-sm">
+                        <span className="font-medium text-slate-700">È un'utenza (addebito permanente RID/SDD)</span>
+                        <span className="block text-[11px] text-slate-400 mt-0.5">
+                          Es. HERA, Enel, Enegan, Acea. Gli addebiti in uscita a questo fornitore che non
+                          hanno una fattura agganciata si chiudono da soli come «utenza» (categoria utenze),
+                          senza restare in attesa di riconciliazione. Se una bolletta è caricata come fattura,
+                          resta la precedenza alla fattura.
+                        </span>
+                      </span>
+                    </label>
                   </div>
                   <div className="col-span-2">
                     <label htmlFor="forn-note" className="text-xs font-medium text-slate-600">Note</label>
