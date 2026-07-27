@@ -71,34 +71,39 @@ Test mentale prima di chiudere ogni task: "Ho fatto X anche su Made? Su Zago?". 
 - Repo `pdonnini-pixel/gestionale-nz` (pubblico). Deploy automatico via **Netlify**.
 - Sito live di verifica: **gestionale-nz.netlify.app** (le verifiche sui dati le fa Patrizio lì, dopo il deploy).
 
-### Ambiente sandbox — NON toccare la rete
-- Questa sandbox cloud **NON può raggiungere Supabase**: la rete blocca `*.supabase.co` con **403**. È NORMALE e previsto.
-- **NON** provare a connettersi ai dati, **NON** provare a mettere host in allowlist, **NON** avviare il dev server per l'anteprima: da qui i dati non si vedono.
-- In questa sessione si lavora **solo sul CODICE**.
+### Connettori collegati — opera direttamente sui 3 tenant
+- **La vecchia regola "la sandbox non raggiunge Supabase / migration a mano" è SUPERATA.** In questa sessione i connettori **Supabase, GitHub e Netlify** sono collegati, autenticati e funzionanti: si opera direttamente sui 3 tenant, non più solo sul codice.
+- **Verifica all'inizio di ogni task** che i connettori rispondano prima di usarli:
+  - Supabase: `list_projects` deve restituire i **3 tenant** (NZ `xfvfxsvqpnpvibgeqpqp`, Made `wdgoebzvosspjqttitra`, Zago `jxlwvzjreukscnswkbjx`) `ACTIVE_HEALTHY`.
+  - GitHub: `get_me` deve restituire `pdonnini-pixel`.
+  - Netlify: connettore collegato (lettura/rilancio deploy).
+- **Fallback al manuale SOLO se un connettore manca o non risponde**: in quel caso torna alla vecchia procedura (script di migration nel repo + passaggi click-by-click per Patrizio) e dillo esplicitamente.
+- Resta comunque irraggiungibile il **dev server locale** con dati live: l'anteprima/verifica sui dati la fa Patrizio su **gestionale-nz.netlify.app** dopo il deploy.
 
 ### Flusso di lavoro (obbligatorio)
 1. Ogni modifica va su un **BRANCH**. **MAI push diretto su `main`** (è protetto).
 2. Applicare la modifica e **aprire una PR verso `main`**.
 3. **Il merge lo fa Claude Code**, non Patrizio (che non apre mai GitHub): quando Patrizio dice "pubblica" (anche nella stessa richiesta della modifica), fare TU il merge della PR. Se serve il suo ok, chiederlo in chat. Prima della PR verificare che compili con `npm run build`. Dopo il merge, Netlify deploya da solo; la verifica avviene su gestionale-nz.netlify.app.
 
-### Database / migration — NON da qui
-4. **Migration e modifiche al DB non si eseguono da questa sandbox.** Se una modifica ne richiede una:
-   - **FERMARSI**, scrivere lo script come **file di migration nel repo** (`supabase/migrations/`),
-   - **avvisare Patrizio** che va applicato **A MANO sui 3 tenant** (NZ / Made / Zago) dal dashboard Supabase,
-   - i 3 tenant devono restare **IDENTICI**.
+### Database / migration / Edge Function — le esegui TU sui 3 tenant
+4. **Le migration le applichi TU** con `apply_migration` (Supabase MCP), sempre nello stesso ordine e su tutti e 3 i tenant:
+   **NZ (`xfvfxsvqpnpvibgeqpqp`) → Made (`wdgoebzvosspjqttitra`) → Zago (`jxlwvzjreukscnswkbjx`)**.
+   - Salva comunque lo script come **file di migration nel repo** (`supabase/migrations/`, naming `YYYYMMDD_NNN_descrizione.sql` + eventuale `_ROLLBACK`) per lasciare traccia versionata.
+   - Dopo ogni tenant, esegui una **query di verifica con `execute_sql`** su quel tenant per confermare l'esito; i 3 tenant devono restare **IDENTICI**.
+   - I file con prefisso **`NZ_ONLY`** restano l'unica eccezione: solo su NZ.
+5. **Edge Function**: deploy/aggiornamento con `deploy_edge_function` (Supabase MCP) su **tutti e 3** i tenant, stesso ordine NZ → Made → Zago.
+6. **Netlify**: stato e rilancio deploy via connettore Netlify (i 3 site deployano automaticamente da `main`; il rilancio manuale serve solo se un deploy fallisce).
+7. **Operazioni distruttive: MAI in autonomia.** DROP/TRUNCATE/DELETE bulk, DROP COLUMN/TABLE e qualsiasi cosa possa perdere dati vivi ricadono sotto la **REGOLA GRANITICA NO DATA LOSS**: SELECT di backup prima, **conferma binaria di Patrizio**, preferire UPDATE/flag a DELETE. In dubbio, NON eseguire e domandare.
 
-### Azioni manuali per Patrizio — SEMPRE passaggi precisi + file da copiare
-Ogni volta che un task lascia **azioni manuali** a Patrizio (migration SQL da
-applicare, secret/Vault da inserire, Edge Function da deployare, accreditamenti,
-consensi, ecc.), NON limitarsi a "va applicato a mano". Dare SEMPRE:
-- **I passaggi precisi**, numerati, click-by-click (dove andare, cosa cliccare).
-- **I file esatti da copiare** (percorso completo nel repo) e in **quale ordine**
-  eseguirli se ci sono dipendenze.
-- I **3 project_id** dei tenant (NZ / Made / Zago) e il promemoria che vanno fatti
-  tutti e 3, identici.
-- Se utile, una **query/verifica finale** da incollare per confermare che ha funzionato.
-Patrizio non apre GitHub e non legge i file da solo: se non gli dico esattamente
-cosa copiare e dove incollarlo, l'azione non viene fatta.
+### Azioni manuali per Patrizio — ora quasi tutte le fai TU
+Con i connettori collegati, **la maggior parte delle azioni prima manuali le esegui direttamente TU**: migration SQL (`apply_migration`), verifiche (`execute_sql`), Edge Function (`deploy_edge_function`), push/PR/merge (GitHub MCP), stato/rilancio deploy (Netlify MCP). Non lasciarle a Patrizio se un connettore è disponibile.
+
+Restano a Patrizio **solo** due categorie, che io non posso mai gestire:
+- **I VALORI dei segreti**: credenziali/token (es. A-Cube) da inserire nel Vault. Io posso scrivere il segreto nei 3 Vault via `execute_sql` (`vault.create_secret`/`update_secret`), ma **serve che sia Patrizio a fornirmi il valore** — non lo possiedo e non lo invento.
+- **I consensi personali**: consenso bancario Open Banking (redirect alla banca con le SUE credenziali personali) e ogni accreditamento che richiede la sua identità.
+
+Per queste due categorie residue vale ancora la regola vecchia: dare SEMPRE passaggi **numerati, click-by-click**, i **3 project_id** dei tenant (NZ / Made / Zago) con il promemoria che vanno fatti tutti e 3 identici, e — se utile — una **query/verifica finale** da incollare. Patrizio non apre GitHub e non legge i file da solo.
+Se invece un connettore manca/non risponde, ricadono qui anche migration ed Edge Function (fallback manuale, vedi sopra).
 
 ### Divieti assoluti
 5. **MAI valori hardcoded specifici di un tenant** (company_id, P.IVA, UUID, project_id): usare SEMPRE il tenant attivo. Questo errore ha già causato danni in passato.
