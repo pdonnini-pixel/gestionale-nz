@@ -267,7 +267,22 @@ Deno.serve(async (req: Request) => {
         .in("id", touchedBankIds);
     }
 
-    return jsonOk({ fetched: txs.length, acube_inserted: acubeIns, bank_inserted: bankIns, duplicates: dups, since, account_filter: accountUuidFilter, bank_accounts_touched: touchedBankIds.length });
+    // Riconciliazione SUBITO dopo l'import: i movimenti nuovi non devono aspettare il
+    // cron delle 05:45 per essere agganciati alle fatture. Gira solo se ci sono nuovi
+    // movimenti in banca. run_daily_reconciliation è idempotente (granitici a nome/numeri,
+    // biettivo, importo anonimo, chiusura non-fornitore, utenze) e non tocca ciò che è già
+    // riconciliato. Non blocca la risposta se fallisce: l'import è comunque andato a buon fine.
+    let reconciliation: unknown = null;
+    if (bankIns > 0) {
+      try {
+        const { data: recon, error: reconErr } = await supabase.rpc("run_daily_reconciliation");
+        reconciliation = reconErr ? { error: reconErr.message } : recon;
+      } catch (re) {
+        reconciliation = { error: re instanceof Error ? re.message : String(re) };
+      }
+    }
+
+    return jsonOk({ fetched: txs.length, acube_inserted: acubeIns, bank_inserted: bankIns, duplicates: dups, since, account_filter: accountUuidFilter, bank_accounts_touched: touchedBankIds.length, reconciliation });
   } catch (e) {
     return jsonError(500, `Internal error: ${e instanceof Error ? e.message : String(e)}`);
   }
