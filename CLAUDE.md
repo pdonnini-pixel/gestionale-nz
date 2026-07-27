@@ -83,7 +83,7 @@ Test mentale prima di chiudere ogni task: "Ho fatto X anche su Made? Su Zago?". 
 ### Flusso di lavoro (obbligatorio)
 1. Ogni modifica va su un **BRANCH**. **MAI push diretto su `main`** (è protetto).
 2. Applicare la modifica e **aprire una PR verso `main`**.
-3. **Il merge lo fa Claude Code**, non Patrizio (che non apre mai GitHub): quando Patrizio dice "pubblica" (anche nella stessa richiesta della modifica), fare TU il merge della PR. Se serve il suo ok, chiederlo in chat. Prima della PR verificare che compili con `npm run build`. Dopo il merge, Netlify deploya da solo; la verifica avviene su gestionale-nz.netlify.app.
+3. **Il merge lo fa Claude Code**, non Patrizio (che non apre mai GitHub): quando Patrizio dice "pubblica" (anche nella stessa richiesta della modifica), fare TU il merge della PR. Se serve il suo ok, chiederlo in chat. **`npm run build` prima della PR va eseguito SOLO quando la modifica tocca codice (`src/`).** Per PR puramente documentali (solo file `.md`) il build si **salta**: non essendo impattato, sarebbe solo tempo perso. Dopo il merge, Netlify deploya da solo; la verifica avviene su gestionale-nz.netlify.app.
 
 ### Database / migration / Edge Function — le esegui TU sui 3 tenant
 4. **Le migration le applichi TU** con `apply_migration` (Supabase MCP), sempre nello stesso ordine e su tutti e 3 i tenant:
