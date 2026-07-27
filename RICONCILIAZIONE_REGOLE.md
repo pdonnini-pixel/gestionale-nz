@@ -15,16 +15,22 @@
 
 ## Come gira il motore (ordine dei tentativi)
 A ogni movimento in uscita non riconciliato, in quest'ordine:
-1. **Granitico di gruppo** — `try_match_group_bank_transaction` (migr. 102/111/113)
-2. **A punteggio** — `try_match_bank_transaction` (migr. 100/113)
-3. **Biettivo per data** — `rerun_bijective_reconciliation` (migr. 104/113)
-4. **A importo (flussi anonimi)** — `try_match_amount_bank_transaction` (migr. 110/112)
-5. **Chiusura non-fornitore** — `close_non_supplier_movements` (migr. 108/112)
+1. **Granitico di gruppo a NOME** — `try_match_group_bank_transaction` (migr. 102/111/113)
+2. **Granitico di gruppo a NUMERI** — `try_match_group_numbers_bank_transaction` (migr. 120, SDD cumulativi)
+3. **A punteggio** — `try_match_bank_transaction` (migr. 100/113)
+4. **Biettivo per data** — `rerun_bijective_reconciliation` (migr. 104/113)
+5. **A importo (flussi anonimi)** — `try_match_amount_bank_transaction` (migr. 110/112)
+6. **Chiusura non-fornitore** — `close_non_supplier_movements` (migr. 108/112)
+7. **Chiusura utenze** — `close_utility_movements` (migr. 118/119/120, solo fornitori `is_utility`)
 
-Innesco: **trigger** `trg_auto_reconcile_bank_transaction` a ogni INSERT su `bank_transactions`
-(stati `posted` E `booked` — A-Cube arriva `booked`, migr. 103) + **cron** giornaliero
-`run_daily_reconciliation` alle 05:45 (migr. 105, aggiornato 112). Tutto reversibile con
-`undo_reconcile_movement`.
+Innesco (3 vie, tutte attive):
+- **trigger** `trg_auto_reconcile_bank_transaction` a ogni INSERT su `bank_transactions`
+  (stati `posted` E `booked` — A-Cube arriva `booked`, migr. 103; include il matcher a numeri, migr. 121);
+- **dopo ogni import A-Cube**: la edge function `acube-ob-tx-sync` lancia `run_daily_reconciliation`
+  a fine import se ci sono movimenti nuovi (così non si aspetta la notte);
+- **cron** giornaliero `run_daily_reconciliation` alle 05:45 (migr. 105, aggiornato 112/118).
+
+Tutto reversibile con `undo_reconcile_movement`.
 
 ---
 
@@ -185,6 +191,8 @@ caricata come fattura, i matcher la agganciano PRIMA (la funzione utenze salta i
 `118` utenze (addebiti permanenti RID/SDD): flag `is_utility` + `close_utility_movements` ·
 `119` utenze: match a confine di parola (`supplier_confirmed_in_text_strict`) — fix over-match "COMM" ·
 `120` SDD cumulativi agganciati per NUMERI di fattura in causale (`try_match_group_numbers_bank_transaction`,
-caso HERA COMM) + salvaguardia utenze (fattura ha la precedenza).
+caso HERA COMM) + salvaguardia utenze (fattura ha la precedenza) ·
+`121` trigger INSERT include il matcher a numeri.
+Edge: `acube-ob-tx-sync` lancia `run_daily_reconciliation` a fine import (riconciliazione subito, non solo alle 05:45).
 Frontend: `src/pages/TesoreriaManuale.tsx` (detector, ricerca manuale, `movementNet`, `isRealTransfer`);
 `src/pages/Fornitori.tsx` (toggle "È un'utenza").
