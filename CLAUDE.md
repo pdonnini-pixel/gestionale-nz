@@ -128,22 +128,23 @@ pagine effettivamente coinvolti.
   `budget_entries`.
 - Se la modifica tocca i 3 tenant, verifica sui 3.
 
-### PIXEL (UI)
-- Sul sito DEPLOYATO (non `npm run dev`), apri la/e pagina/e toccate.
-- Verifica: nessun errore JS in console, nessuna chiamata di rete fallita
-  (status >= 400), layout integro, e che l'elemento/numero che dovevi
-  cambiare risulti DAVVERO cambiato a schermo.
-
-- **⚠️ PROMEMORIA FISSO — in sandbox cloud il PIXEL non lo puoi fare TU.**
-  Da questa sandbox non ti puoi loggare sul sito live coi dati veri, quindi la
-  verifica pixel la esegue SEMPRE Patrizio. Ma l'obbligo NON decade: a OGNI fix
-  che tocca la UI devi **produrre e consegnare a Patrizio una checklist pixel
-  puntuale** — quali pagine aprire, quale numero/elemento deve risultare
-  cambiato, cosa NON deve più comparire, console senza errori. Finché Patrizio
-  non conferma a video, lo stato del fix è **"numeri-verificato, pixel in
-  attesa"**, NON "fatto". Non dichiarare mai chiuso un fix UI senza aver dato
-  la checklist. (I fix puramente backend/dati, senza effetti a schermo, non
-  richiedono la checklist pixel: basta la verifica NUMERI.)
+### PIXEL (UI) — gira in CI, non a mano
+- La verifica pixel sul sito DEPLOYATO è **automatizzata**: il workflow
+  `.github/workflows/pixel-check.yml` esegue un test Playwright
+  (`tests/e2e/pixel-check.spec.ts`) sui **3 site** a ogni push su `main`, ogni
+  giorno e su richiesta. Fa login con l'utente di test e controlla: login ok,
+  pagine chiave aperte senza **eccezioni JS non gestite**, nessuna risposta
+  **5xx**, sessione non persa.
+- **Non è più compito di Patrizio** né della sandbox loggarsi a mano: la
+  verifica pixel la fa la CI. Quando un fix tocca la UI, il tuo compito è: se
+  aggiungi/rinomini una pagina chiave o cambi un elemento critico, **aggiorna
+  il test** (`PAGES` e le asserzioni in `tests/e2e/pixel-check.spec.ts`) nello
+  stesso PR, così la CI copre anche il nuovo caso.
+- Un fix UI è "fatto" quando la **CI pixel è verde sui 3 tenant**. Se fallisce,
+  il fix NON è chiuso: apri il report (artefatto `pixel-report-*`) e correggi.
+- Prerequisito una tantum: i secret di repo `TEST_USER_EMAIL` /
+  `TEST_USER_PASSWORD` (utente di test presente sui 3 tenant), forniti da
+  Patrizio. Se mancano, il test si salta (skip) invece di fallire.
 
 ### DOPO UN FIX
 - Conferma che il bug specifico sia sparito E che non siano comparse

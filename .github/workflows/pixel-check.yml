@@ -1,0 +1,66 @@
+name: Pixel check (smoke UI)
+
+# Verifica pixel sul SITO DEPLOYATO dei 3 tenant.
+# Gira: dopo ogni push su main (post-deploy), ogni giorno, e a mano.
+# Richiede i secret di repo: TEST_USER_EMAIL, TEST_USER_PASSWORD
+# (stesso utente di test presente su tutti e 3 i tenant).
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '0 6 * * *' # ogni giorno alle 06:00 UTC
+  workflow_dispatch:
+
+jobs:
+  pixel:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - tenant: NZ
+            url: https://gestionale-nz.netlify.app
+          - tenant: Made
+            url: https://made-gestionale-nz.netlify.app
+          - tenant: Zago
+            url: https://zago-gestionale-nz.netlify.app
+    name: pixel-${{ matrix.tenant }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Attendi che il site risponda 200
+        run: |
+          echo "Attendo ${{ matrix.url }} ..."
+          for i in $(seq 1 30); do
+            code=$(curl -s -o /dev/null -w "%{http_code}" "${{ matrix.url }}") || true
+            if [ "$code" = "200" ]; then echo "Online ($code)"; exit 0; fi
+            echo "tentativo $i: HTTP $code — attendo 10s"; sleep 10
+          done
+          echo "Il site non ha risposto 200 in tempo utile"; exit 1
+
+      - name: Installa Playwright
+        working-directory: tests/e2e
+        run: |
+          npm install
+          npx playwright install --with-deps chromium
+
+      - name: Esegui pixel check
+        working-directory: tests/e2e
+        env:
+          BASE_URL: ${{ matrix.url }}
+          TEST_USER_EMAIL: ${{ secrets.TEST_USER_EMAIL }}
+          TEST_USER_PASSWORD: ${{ secrets.TEST_USER_PASSWORD }}
+        run: npm test
+
+      - name: Carica il report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pixel-report-${{ matrix.tenant }}
+          path: tests/e2e/playwright-report
+          retention-days: 7
