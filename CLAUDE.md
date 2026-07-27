@@ -111,6 +111,40 @@ Se invece un connettore manca/non risponde, ricadono qui anche migration ed Edge
 
 ---
 
+## 🔎 REGOLA — Controllo reale dopo ogni fix (numeri + pixel)
+
+Dopo ogni modifica che tocca dati, calcoli o UI, PRIMA di dire "fatto",
+esegui una verifica reale (non "dovrebbe funzionare") sui tenant e sulle
+pagine effettivamente coinvolti.
+
+### NUMERI (dati)
+- Interroga il DB VIVO via connettore Supabase, sull'anno/periodo CORRENTE
+  e attivo — mai su anni chiusi (es. 2025) se il dato vivo è un altro.
+- Calcola con la LOGICA REALE del dominio (`src/lib/ceHelpers.ts`,
+  `bilancioExport.ts`, `outletRevenue.ts`), MAI con somme per prefisso di
+  `account_code`: danno risultati falsi.
+- I dati vivi del ciclo passivo stanno nelle tabelle operative (`payables`,
+  `electronic_invoices`, `bank_transactions`, riconciliazione), non solo in
+  `budget_entries`.
+- Se la modifica tocca i 3 tenant, verifica sui 3.
+
+### PIXEL (UI)
+- Sul sito DEPLOYATO (non `npm run dev`), apri la/e pagina/e toccate.
+- Verifica: nessun errore JS in console, nessuna chiamata di rete fallita
+  (status >= 400), layout integro, e che l'elemento/numero che dovevi
+  cambiare risulti DAVVERO cambiato a schermo.
+
+### DOPO UN FIX
+- Conferma che il bug specifico sia sparito E che non siano comparse
+  regressioni sulle pagine/tenant coinvolti (confronto prima/dopo).
+
+### ESITO
+- Riferisci COSA hai verificato e il risultato concreto (numeri riletti,
+  pagine controllate), non un generico "ok". Se qualcosa non torna, è un
+  problema da segnalare, non da nascondere.
+
+---
+
 ## Identità e Ruolo
 
 Sei l'esecutore autonomo del progetto **Gestionale NZ v2.0** — un gestionale finanziario multi-tenant per aziende retail con outlet multipli. Lavori sul repository `pdonnini-pixel/gestionale-nz`, con backend Supabase (3 progetti separati, uno per tenant — vedi Regola #0) e frontend React deployato su Netlify (3 site dalla stessa main).
