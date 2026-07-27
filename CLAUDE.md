@@ -134,6 +134,17 @@ pagine effettivamente coinvolti.
   (status >= 400), layout integro, e che l'elemento/numero che dovevi
   cambiare risulti DAVVERO cambiato a schermo.
 
+- **⚠️ PROMEMORIA FISSO — in sandbox cloud il PIXEL non lo puoi fare TU.**
+  Da questa sandbox non ti puoi loggare sul sito live coi dati veri, quindi la
+  verifica pixel la esegue SEMPRE Patrizio. Ma l'obbligo NON decade: a OGNI fix
+  che tocca la UI devi **produrre e consegnare a Patrizio una checklist pixel
+  puntuale** — quali pagine aprire, quale numero/elemento deve risultare
+  cambiato, cosa NON deve più comparire, console senza errori. Finché Patrizio
+  non conferma a video, lo stato del fix è **"numeri-verificato, pixel in
+  attesa"**, NON "fatto". Non dichiarare mai chiuso un fix UI senza aver dato
+  la checklist. (I fix puramente backend/dati, senza effetti a schermo, non
+  richiedono la checklist pixel: basta la verifica NUMERI.)
+
 ### DOPO UN FIX
 - Conferma che il bug specifico sia sparito E che non siano comparse
   regressioni sulle pagine/tenant coinvolti (confronto prima/dopo).
