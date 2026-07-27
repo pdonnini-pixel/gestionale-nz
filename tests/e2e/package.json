@@ -1,0 +1,11 @@
+{
+  "name": "gestionale-nz-e2e",
+  "private": true,
+  "description": "Pixel check / smoke UI sui 3 site deployati (isolato dal build dell'app)",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.48.0"
+  }
+}
