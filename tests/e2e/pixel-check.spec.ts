@@ -16,7 +16,7 @@ import { test, expect } from '@playwright/test'
  *
  * Pagine chiave: aggiungere qui le rotte stabili da controllare.
  */
-const PAGES = ['/'] // '/' = dashboard. Es. aggiungere: '/scadenzario', '/fatture'
+const PAGES = ['/', '/scadenzario', '/fatturazione'] // '/' = dashboard; rotte chiave del ciclo passivo
 
 const EMAIL = process.env.TEST_USER_EMAIL
 const PASSWORD = process.env.TEST_USER_PASSWORD
