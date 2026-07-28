@@ -3166,18 +3166,33 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
   // anche se l'importo combacia per caso, NON vanno abbinati a una fattura.
   const NON_SUPPLIER_BENEF_RE = /\b(AZIMUT|MEDIOLANUM|GENERALI|UNIPOLSAI|ALLIANZ|POSTE VITA|ARCA VITA|INTESA|FINECO|BANCA|SGR|FONDO|ASSICURA)\b/i
 
-  // Estrae il beneficiario dalla causale dei bonifici ("… a favore di: NOME …").
-  // Il nome è seguito da "SALDO FATTURA", dalla P.IVA del pagatore (11 cifre) o
-  // da "NEW ZAGO". Restituisce '' se non c'è un beneficiario leggibile.
-  const extractBeneficiary = (desc: string): string => {
-    // "a favore di: NOME" (bonifici) oppure "A FAVORE NOME" (addebiti SDD)
-    const m = /a favore(?:\s+di)?:?\s+(.+)/i.exec(String(desc || ''))
-    if (!m) return ''
-    let s = m[1]
+  // Ripulisce la coda del nome beneficiario: taglia ai marcatori noti (numero fattura,
+  // ID bonifico, codice mandato, P.IVA pagatore) e si ferma al primo token che contiene
+  // una cifra o ":" (= inizio di un codice/numero, non più parte del nome).
+  const trimBenefTail = (s0: string): string => {
+    let s = String(s0 || '').trim()
     s = s.split(/\s+SALDO\s+FATTURA/i)[0]
-    s = s.replace(/\s+\d{11}.*$/, '')
     s = s.split(/\s+NEW ZAGO/i)[0]
-    return s.trim()
+    s = s.split(/\s+(?:ID[.\s]?BON|CRO|TRN|CODICE\s+MANDATO)\b/i)[0]
+    s = s.replace(/\s+\d{11}.*$/, '')   // P.IVA/CF del pagatore
+    const out: string[] = []
+    for (const t of s.split(/\s+/)) { if (/[0-9:]/.test(t)) break; out.push(t) }
+    return out.join(' ').trim()
+  }
+  // Estrae il beneficiario dalla causale. Due pattern:
+  //  1) "a favore di: NOME" / "A FAVORE NOME" (bonifici / addebiti SDD);
+  //  2) bonifico internet-banking "… *NOME SF-1234 ID.BON:…" — il nome è dopo l'asterisco.
+  // Il pattern 2 è essenziale per non trattare come ANONIMO un movimento che nomina
+  // chiaramente il fornitore (es. "*SFORAZZINI SRL SF-11245-11037"): se non lo si legge,
+  // il ramo anonimo lo aggancerebbe per solo-importo a un fornitore diverso la cui somma
+  // combacia per coincidenza (R5/R6: il fornitore va confermato dal nome, mai per importo).
+  // Restituisce '' se non c'è un beneficiario leggibile.
+  const extractBeneficiary = (desc: string): string => {
+    const d = String(desc || '')
+    let m = /a favore(?:\s+di)?:?\s+(.+)/i.exec(d)
+    if (!m) m = /\*\s*([A-Za-zÀ-ÿ][^*]+)/.exec(d)   // "… *NOME …" (dopo l'asterisco)
+    if (!m) return ''
+    return trimBenefTail(m[1])
   }
   // Stoplist allineata alla regola R5 (backend supplier_confirmed_in_text): niente
   // match su parole generiche (PROPCO/GROUP/GRUPPO/HOLDING/ITALIA/SERVIZI…), così i
