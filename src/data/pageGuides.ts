@@ -2206,7 +2206,7 @@ export const PAGE_GUIDES: PageGuide[] = [
     "path": "/report-sincronizzazioni",
     "icon": "DatabaseZap",
     "title": "Report Sincronizzazioni",
-    "description": "Questa pagina mostra lo stato e lo storico degli aggiornamenti automatici dei dati che arrivano da fonti esterne: conti bancari, fatture passive, corrispettivi e Cassetto Fiscale. Serve a capire a colpo d'occhio se tutto funziona regolarmente oppure se qualcosa è fermo da controllare.",
+    "description": "Questa pagina mostra lo stato e lo storico degli aggiornamenti automatici dei dati che arrivano da fonti esterne: conti bancari, fatture passive (fornitori), fatture attive (vendite), corrispettivi e Cassetto Fiscale. Serve a capire a colpo d'occhio se tutto funziona regolarmente oppure se qualcosa è fermo da controllare.",
     "sections": [
       {
         "heading": "A cosa serve questa pagina",
@@ -2214,7 +2214,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "Le card di riepilogo per ciascun canale",
-        "body": "In alto ci sono quattro riquadri, uno per ogni canale (\"feed\") di sincronizzazione: Banche, Fatture passive, Corrispettivi e Cassetto Fiscale. Ogni riquadro mostra un pallino colorato e un'etichetta di stato:\n\n• \"Aggiornato\" (pallino scuro) — l'ultimo aggiornamento è recente e regolare.\n• \"In ritardo\" (pallino arancione) — l'ultimo aggiornamento riuscito è un po' più vecchio del previsto, oppure l'ultima esecuzione è stata completata con avvisi.\n• \"Fermo\" (pallino rosso) — l'ultima esecuzione è fallita, oppure non si aggiorna da troppo tempo.\n• \"Nessuna sincronizzazione\" (pallino grigio) — quel canale non ha ancora mai girato.\n\nBanche, Fatture passive e Corrispettivi si aggiornano automaticamente ogni 6 ore; il Cassetto Fiscale una volta al giorno. Il canale Corrispettivi risulta \"non ancora attivo\" finché non viene collegato. Toccando una card (o passandoci sopra il mouse) compare il dettaglio (data/ora dell'ultimo aggiornamento e, se presente, la descrizione dell'errore)."
+        "body": "In alto ci sono cinque riquadri, uno per ogni canale (\"feed\") di sincronizzazione: Banche, Fatture passive, Fatture attive, Corrispettivi e Cassetto Fiscale. Ogni riquadro mostra un pallino colorato e un'etichetta di stato:\n\n• \"Aggiornato\" (pallino scuro) — l'ultimo aggiornamento è recente e regolare.\n• \"In ritardo\" (pallino arancione) — l'ultimo aggiornamento riuscito è un po' più vecchio del previsto, oppure l'ultima esecuzione è stata completata con avvisi.\n• \"Fermo\" (pallino rosso) — l'ultima esecuzione è fallita, oppure non si aggiorna da troppo tempo.\n• \"Nessuna sincronizzazione\" (pallino grigio) — quel canale non ha ancora mai girato.\n\nBanche, Fatture passive, Fatture attive e Corrispettivi si aggiornano automaticamente ogni 6 ore; il Cassetto Fiscale una volta al giorno. Il canale Corrispettivi risulta \"non ancora attivo\" finché non viene collegato. Toccando una card (o passandoci sopra il mouse) compare il dettaglio (data/ora dell'ultimo aggiornamento e, se presente, la descrizione dell'errore)."
       },
       {
         "heading": "La tabella dello storico delle esecuzioni",
@@ -2222,7 +2222,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "Il dettaglio: cosa è stato scaricato",
-        "body": "Le righe con almeno un elemento scaricato (colonna \"Scaricati\" maggiore di zero) hanno una freccetta a sinistra e si possono espandere cliccandoci sopra, per vedere esattamente cosa è arrivato in quella sincronizzazione. Le righe con \"0\" non si aprono perché non c'era nulla di nuovo.\n\n• Per le Banche il dettaglio è organizzato per banca reale (es. BCC, Intesa, MPS): ogni banca ha una sua intestazione con il riepilogo (numero di conti, movimenti scaricati e saldo) e, subito sotto, l'elenco dei suoi movimenti (data, descrizione, importo). Così si vede a colpo d'occhio da quale banca proviene ciascun movimento. Ogni banca si può aprire o chiudere cliccando sulla sua intestazione (di default è aperta se ha movimenti, chiusa se non ne ha). Se i movimenti totali sono più di 500 ne vengono mostrati i primi 500.\n• Per le Fatture passive e per il Cassetto Fiscale compare l'elenco delle fatture arrivate (numero, fornitore, data e importo).\n\nNota sullo storico: le sincronizzazioni più vecchie, precedenti all'attivazione di questo dettaglio, sono state ricostruite. Per queste righe il saldo per banca non viene mostrato (non sarebbe il saldo di quella data) e sono elencate solo le banche che in quella sincronizzazione hanno effettivamente portato movimenti. Dalle sincronizzazioni nuove in poi il dato è completo (tutte le banche collegate, anche con 0 movimenti nuovi, e il saldo reale del momento)."
+        "body": "Le righe con almeno un elemento scaricato (colonna \"Scaricati\" maggiore di zero) hanno una freccetta a sinistra e si possono espandere cliccandoci sopra, per vedere esattamente cosa è arrivato in quella sincronizzazione. Le righe con \"0\" non si aprono perché non c'era nulla di nuovo.\n\n• Per le Banche il dettaglio è organizzato per banca reale (es. BCC, Intesa, MPS): ogni banca ha una sua intestazione con il riepilogo (numero di conti, movimenti scaricati e saldo) e, subito sotto, l'elenco dei suoi movimenti (data, descrizione, importo). Così si vede a colpo d'occhio da quale banca proviene ciascun movimento. Ogni banca si può aprire o chiudere cliccando sulla sua intestazione (di default è aperta se ha movimenti, chiusa se non ne ha). Se i movimenti totali sono più di 500 ne vengono mostrati i primi 500.\n• Per le Fatture passive e per il Cassetto Fiscale compare l'elenco delle fatture arrivate (numero, fornitore, data e importo).\n• Per le Fatture attive (le tue vendite) compare l'elenco delle fatture emesse scaricate, con la stessa struttura ma la colonna intestata \"Cliente\" invece di \"Fornitore\" (numero, cliente, data e importo).\n\nNota sullo storico: le sincronizzazioni più vecchie, precedenti all'attivazione di questo dettaglio, sono state ricostruite. Per queste righe il saldo per banca non viene mostrato (non sarebbe il saldo di quella data) e sono elencate solo le banche che in quella sincronizzazione hanno effettivamente portato movimenti. Dalle sincronizzazioni nuove in poi il dato è completo (tutte le banche collegate, anche con 0 movimenti nuovi, e il saldo reale del momento)."
       },
       {
         "heading": "Come usare i filtri",
@@ -2250,7 +2250,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "q": "Ogni quanto si aggiornano automaticamente i dati?",
-        "a": "Banche, Fatture passive e Corrispettivi ogni 6 ore; il Cassetto Fiscale una volta al giorno. Il canale Corrispettivi al momento risulta non ancora attivo."
+        "a": "Banche, Fatture passive, Fatture attive e Corrispettivi ogni 6 ore; il Cassetto Fiscale una volta al giorno. Il canale Corrispettivi al momento risulta non ancora attivo."
       },
       {
         "q": "Posso avviare io una sincronizzazione manuale da questa pagina?",
@@ -2258,7 +2258,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "q": "Come vedo cosa è stato scaricato in una sincronizzazione?",
-        "a": "Clicca sulla riga (quelle con \"Scaricati\" maggiore di zero hanno una freccetta a sinistra): si apre il dettaglio. Per le banche vedi il riepilogo per banca e l'elenco dei singoli movimenti; per le fatture passive e per il Cassetto Fiscale l'elenco delle fatture arrivate."
+        "a": "Clicca sulla riga (quelle con \"Scaricati\" maggiore di zero hanno una freccetta a sinistra): si apre il dettaglio. Per le banche vedi il riepilogo per banca e l'elenco dei singoli movimenti; per le fatture passive e per il Cassetto Fiscale l'elenco delle fatture ricevute (con il fornitore); per le fatture attive l'elenco delle fatture di vendita emesse (con il cliente)."
       },
       {
         "q": "Perché su alcune righe delle banche non vedo il saldo?",
