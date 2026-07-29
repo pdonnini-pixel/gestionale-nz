@@ -16,7 +16,7 @@ import { test, expect } from '@playwright/test'
  *
  * Pagine chiave: aggiungere qui le rotte stabili da controllare.
  */
-const PAGES = ['/', '/scadenzario', '/fatturazione', '/banche', '/fornitori'] // '/' = dashboard; rotte chiave del ciclo passivo + banche
+const PAGES = ['/', '/scadenzario', '/fatturazione', '/banche', '/fornitori', '/report-sincronizzazioni'] // '/' = dashboard; rotte chiave del ciclo passivo + banche + report sync
 
 const EMAIL = process.env.TEST_USER_EMAIL
 const PASSWORD = process.env.TEST_USER_PASSWORD
@@ -56,7 +56,15 @@ test.describe('Pixel check', () => {
       await expect(page.locator('input[type="password"]')).toHaveCount(0)
     }
 
-    // 3) Report + asserzioni affidabili
+    // 3) Report Sincronizzazioni: la card del feed "Fatture attive" deve
+    //    comparire su tutti e 3 i tenant (feed di prima classe, sempre reso
+    //    anche senza dati: card grigia "Nessuna sincronizzazione").
+    await page.goto('/report-sincronizzazioni', { waitUntil: 'domcontentloaded' })
+    await expect(page.locator('input[type="password"]')).toHaveCount(0)
+    await expect(page.getByText('Fatture attive', { exact: true }).first())
+      .toBeVisible({ timeout: 15_000 })
+
+    // 4) Report + asserzioni affidabili
     if (consoleErrors.length) {
       console.log(`⚠️ Console errors (${consoleErrors.length}):\n` + consoleErrors.join('\n'))
     }
