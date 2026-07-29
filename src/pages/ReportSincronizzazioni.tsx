@@ -12,7 +12,7 @@ import Tooltip from '../components/Tooltip'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import {
-  RefreshCw, Filter, X, Inbox, Landmark, FileText, Store, Receipt, AlertCircle,
+  RefreshCw, Filter, X, Inbox, Landmark, FileText, FileUp, Store, Receipt, AlertCircle,
   ChevronRight, ChevronDown,
 } from 'lucide-react'
 import {
@@ -24,6 +24,7 @@ import {
 const FEED_ICON: Record<SyncFeed, typeof Inbox> = {
   banche: Landmark,
   fatture_passive: FileText,
+  fatture_attive: FileUp,
   corrispettivi: Store,
   cassetto_fiscale: Receipt,
 }
@@ -80,16 +81,18 @@ function RunDetails({ feed, details, movements, movementsTotal, bankNames, loadi
     )
   }
 
-  // fatture_passive e cassetto_fiscale hanno lo stesso dettaglio (una riga per
-  // fattura scaricata: numero, fornitore, data, importo).
-  if (feed === 'fatture_passive' || feed === 'cassetto_fiscale') {
+  // fatture_passive, cassetto_fiscale e fatture_attive hanno lo stesso dettaglio
+  // (una riga per fattura scaricata: numero, controparte, data, importo). Per le
+  // attive la controparte è il CLIENTE (destinatario), per le altre il fornitore.
+  if (feed === 'fatture_passive' || feed === 'cassetto_fiscale' || feed === 'fatture_attive') {
+    const counterpartyHeader = feed === 'fatture_attive' ? 'Cliente' : 'Fornitore'
     return (
       <div className="px-6 py-3 overflow-x-auto scroll-shadow-x">
         <table className="w-full min-w-[480px] text-xs">
           <thead>
             <tr className="text-left text-slate-400 border-b border-slate-200">
               <th className="py-1.5 pr-4 font-medium">Numero</th>
-              <th className="py-1.5 pr-4 font-medium">Fornitore</th>
+              <th className="py-1.5 pr-4 font-medium">{counterpartyHeader}</th>
               <th className="py-1.5 pr-4 font-medium">Data</th>
               <th className="py-1.5 pr-4 font-medium text-right">Importo</th>
             </tr>

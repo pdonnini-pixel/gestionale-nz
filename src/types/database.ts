@@ -8375,7 +8375,7 @@ export type Database = {
         | "bollettino_postale"
         | "altro"
       period_status: "aperto" | "in_chiusura" | "chiuso"
-      sync_feed: "banche" | "fatture_passive" | "corrispettivi" | "cassetto_fiscale"
+      sync_feed: "banche" | "fatture_passive" | "fatture_attive" | "corrispettivi" | "cassetto_fiscale"
       sync_origin: "auto_cron" | "manuale"
       sync_status: "ok" | "parziale" | "errore" | "vuoto"
       transaction_type: "entrata" | "uscita"
