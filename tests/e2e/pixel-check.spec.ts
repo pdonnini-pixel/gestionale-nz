@@ -25,6 +25,9 @@ test.describe('Pixel check', () => {
   test.skip(!EMAIL || !PASSWORD, 'TEST_USER_EMAIL / TEST_USER_PASSWORD non impostati')
 
   test('login + pagine chiave senza errori', async ({ page }) => {
+    // ⚠️ TEST DI PROVA (branch usa-e-getta): fallimento VOLUTO per verificare
+    // le notifiche di workflow fallito. Questo branch va cancellato dopo il test.
+    expect(false, 'Fallimento voluto — test notifiche run rosso').toBe(true)
     const consoleErrors: string[] = []
     const pageErrors: string[] = []
     const serverErrors: string[] = []
