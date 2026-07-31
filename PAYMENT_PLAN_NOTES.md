@@ -1,5 +1,28 @@
 # Piano di pagamento fornitore + segnalazioni anomalie — Note di implementazione
 
+> ## 🧾 REVERSE CHARGE — i documenti TD16/17/18/19 NON generano scadenze (2026-07-31)
+>
+> **Regola**: i documenti di **integrazione / autofattura reverse charge** — `TD16`
+> (interno), `TD17` (estero), `TD18` (intra-UE), `TD19` (art.17 c.2) — sono documenti
+> IVA **auto-emessi dal cessionario** (numerati col sezionale interno, es. `34/A`) e
+> **NON sono debiti** verso il fornitore. Il debito reale sta sulla fattura originale
+> del fornitore (`TD01`/`TD24`…). ⚠️ I **`TD24`** (fattura differita) sono invece
+> fatture **vere**: non vanno mai confusi coi reverse charge.
+>
+> **Bug storico** (segnalato da Sabrina, New Zago, luglio 2026): il bridge A-Cube
+> `sync_acube_sdi_passive_to_payable` creava un `payable` anche da questi documenti →
+> "fatture fantasma" che sporcavano lo scadenzario e gonfiavano il totale pagato.
+>
+> **Fix** (migration `20260731_131`, applicata NZ+Made+Zago): dopo aver archiviato la
+> `electronic_invoice`, il bridge **esce senza creare payable** se `document_type ∈
+> {TD16,TD17,TD18,TD19}`. Bonifica dati storici **solo NZ** (`NZ_ONLY_20260731_132`):
+> soft-hide **reversibile** via `is_placeholder=true` (la view `v_payables_operative`
+> filtra i placeholder) di **52** payable fantasma (10 aperti + 42 pagati, −€23.944,45
+> dal pagato gonfiato). **Esclusi** i 2 già agganciati a un movimento bancario reale
+> (MILANI `26/A`, GABRIEL IOSUB `10/A`): vanno **ri-agganciati alla fattura vera** a
+> mano prima di nasconderli, per non orfanare il movimento. Made/Zago non avevano
+> payable di questa classe (verificato). Backup dei 54 payable salvato prima.
+
 > ## 🧾 CICLO DISTINTA / "IN SOSPESO" (2026-07-13) — leggere prima di toccare distinta/riconciliazione
 >
 > Flusso a 3 stati: **Predisposizione** (Crea distinta = solo anteprima, nessuna scrittura) →
