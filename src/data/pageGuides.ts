@@ -2069,13 +2069,13 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "Sezione Estratti Conto Bancari",
-        "body": "Elenca gli estratti conto bancari importati, con il nome della banca, il numero di movimenti e la data. Da qui si può vedere un'anteprima dei primi 100 movimenti (data, descrizione, importo, saldo e se il movimento è già riconciliato) oppure scaricare il file originale così come è stato caricato. C'è anche un collegamento diretto alla pagina Banche > Movimenti per vedere l'elenco completo. In cima alla sezione, il pulsante \"Archivia estratto conto\" consente di caricare qui il PDF/XLS di un estratto conto SENZA importarne i movimenti: utile quando i movimenti di quel conto sono già presenti (ad esempio sincronizzati via A-Cube) e si vuole solo conservare il documento originale, evitando di creare movimenti doppi.",
+        "body": "Elenca gli estratti conto archiviati, organizzati per rendere gestibile anche un archivio di centinaia di documenti. I documenti sono raggruppati per FONTE (ogni conto corrente e ogni carta è un gruppo a sé, con un contatore) e ordinati per periodo; i conti correnti appaiono prima delle carte. Una barra in alto permette di filtrare per tipo (Conti correnti / Carte), per anno e di cercare per fonte o nome file. Ogni voce mostra il periodo (es. \"Luglio 2026\") e il formato; per i conti c'è \"Anteprima\" (i movimenti a sistema per quel conto) e per tutti \"Scarica\" (il file originale). In cima alla sezione, il pulsante \"Archivia estratto conto\" consente di caricare qui PDF/XLS/CSV di uno o più estratti conto — anche un'intera cartella o uno ZIP — SENZA importarne i movimenti: utile quando i movimenti sono già presenti (es. sincronizzati via A-Cube) e si vuole solo conservare il documento, evitando doppioni. Tipo, fonte e periodo vengono riconosciuti in automatico dal nome file; le carte sono classificate come categoria a sé, separate dai conti.",
         "steps": [
           "Aprire la sezione \"Estratti Conto Bancari\"",
-          "Per conservare solo il documento: cliccare \"Archivia estratto conto\", scegliere il conto di ripiego, selezionare uno o più file (PDF, XLS, XLSX, CSV) — oppure un'intera cartella zippata (ZIP) — e confermare con \"Archivia\". Lo ZIP viene scompattato nel browser e ogni documento archiviato singolarmente; i file con nome conto riconoscibile (Mugello, Intesa, BCC, MPS) vengono assegnati al conto giusto in automatico",
-          "Cliccare \"Anteprima\" per vedere i movimenti contenuti nel file",
-          "Cliccare \"Scarica\" per ottenere il file originale (es. .xls, .xlsx)",
-          "Cliccare l'icona del collegamento esterno per aprire la pagina Movimenti relativa a quel conto"
+          "Usare la barra filtri per restringere: tipo (Conti/Carte), anno, o ricerca testo; \"Azzera\" toglie i filtri",
+          "Cliccare l'intestazione di un gruppo (una fonte) per espanderlo/chiuderlo",
+          "Per archiviare: cliccare \"Archivia estratto conto\", scegliere un conto di ripiego (usato solo per file senza conto riconoscibile), selezionare file / una cartella / uno ZIP e confermare con \"Archivia\"",
+          "Su ogni documento: \"Anteprima\" (solo conti) per i movimenti a sistema, \"Scarica\" per il file originale"
         ]
       },
       {

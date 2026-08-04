@@ -247,7 +247,7 @@ export default function ArchivioDocumenti() {
 
 interface InvoiceRow { id: string; invoice_date?: string | null; invoice_number?: string | null; supplier_name?: string | null; gross_amount?: number | null; xml_content?: string | null; storage_path?: string | null; sdi_status?: string | null; [key: string]: unknown }
 interface BalanceSheetRow { id: string; created_at?: string | null; [key: string]: unknown }
-interface EcFileRow { id: string; filename?: string | null; bank_account_id?: string | null; file_path?: string | null; file_size?: number | null; status?: string | null; transaction_count?: number | null; created_at?: string | null; bank_accounts?: { bank_name?: string; account_name?: string } | null; [key: string]: unknown }
+interface EcFileRow { id: string; filename?: string | null; bank_account_id?: string | null; file_path?: string | null; file_size?: number | null; status?: string | null; transaction_count?: number | null; created_at?: string | null; doc_kind?: string | null; source_label?: string | null; period_year?: number | null; period_month?: number | null; bank_accounts?: { bank_name?: string; account_name?: string } | null; [key: string]: unknown }
 interface EcPreviewRow { id: string; transaction_date?: string | null; description?: string | null; amount?: number | null; running_balance?: number | null; is_reconciled?: boolean | null }
 interface EcPreviewState { ec: EcFileRow; rows: EcPreviewRow[]; loading: boolean }
 
@@ -280,6 +280,11 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
   const [bankAccounts, setBankAccounts] = useState<Array<{ id: string; bank_name: string | null; account_name: string | null }>>([]);
   // Stato del modal "Archivia estratto conto". null = chiuso.
   const [ecArchive, setEcArchive] = useState<{ files: File[]; bankAccountId: string; busy: boolean } | null>(null);
+  // Filtri/ricerca dell'archivio EC (per reggere centinaia di documenti).
+  const [ecSearch, setEcSearch] = useState('');
+  const [ecKind, setEcKind] = useState<'all' | 'conto_corrente' | 'carta'>('all');
+  const [ecYear, setEcYear] = useState<number | 'all'>('all');
+  const [ecCollapsed, setEcCollapsed] = useState<Set<string>>(new Set());
 
   // Collasso delle 3 sezioni principali. Fatture parte CHIUSA perche'
   // con 199 fatture e' la sezione piu' rumorosa. Bilanci ed EC restano
@@ -349,6 +354,46 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
   }
 
   /**
+   * Deduce tipo documento, fonte e periodo dal percorso/nome file, per
+   * organizzare l'archivio e renderlo ricercabile. I conti vengono agganciati
+   * al bank_account; le carte sono una categoria a sé (bank_account_id = null).
+   */
+  function parseEcMeta(path: string, fallbackAccountId: string): {
+    doc_kind: 'conto_corrente' | 'carta'; source_label: string;
+    bank_account_id: string | null; period_year: number | null; period_month: number | null;
+  } {
+    const up = path.toUpperCase();
+    const MONTHS = ['GENNAIO', 'FEBBRAIO', 'MARZO', 'APRILE', 'MAGGIO', 'GIUGNO', 'LUGLIO', 'AGOSTO', 'SETTEMBRE', 'OTTOBRE', 'NOVEMBRE', 'DICEMBRE'];
+    let month: number | null = null;
+    for (let i = 0; i < 12; i++) if (up.includes(MONTHS[i])) { month = i + 1; break; }
+    // data compatta ddmmYYYY (es. 31072026) → mese dal 3°-4° gruppo
+    const ddmm = up.match(/\b\d{2}(\d{2})(20\d{2})\b/);
+    let year: number | null = null;
+    if (month == null && ddmm) month = parseInt(ddmm[1], 10);
+    const y4 = up.match(/(20\d{2})/);
+    if (y4) year = parseInt(y4[1], 10);
+    else { const y2 = up.match(/_(\d{2})\b/); if (y2) year = 2000 + parseInt(y2[1], 10); }
+
+    const isCard = /CARTA|TASCA|5582/.test(up) && !/CONTI CORRENTI\/EC (MUGELLO|INTESA|BCC|MPS)/.test(up);
+    if (isCard) {
+      let source = 'Carta';
+      if (/3145/.test(up)) source = 'Carta credito BCC *3145';
+      else if (/5388/.test(up)) source = 'Carta credito BCC *5388';
+      else if (/CARTA MPS|CARTA CREDITO MPS/.test(up)) source = 'Carta credito MPS';
+      else if (/TASCA/.test(up)) source = 'Carta prepagata Tasca *0580';
+      return { doc_kind: 'carta', source_label: source, bank_account_id: null, period_year: year, period_month: month };
+    }
+    // conto corrente
+    let source = 'Conto';
+    if (up.includes('EC MUGELLO') || up.includes('MUGELLO')) source = 'Conto Mugello';
+    else if (up.includes('EC INTESA') || up.includes('INTESA')) source = 'Conto Intesa';
+    else if (up.includes('EC BCC') || up.includes('BCC')) source = 'Conto BCC Figline';
+    else if (up.includes('EC MPS') || up.includes('MPS')) source = 'Conto MPS';
+    const acct = autoMatchAccount(path) || fallbackAccountId || null;
+    return { doc_kind: 'conto_corrente', source_label: source, bank_account_id: acct, period_year: year, period_month: month };
+  }
+
+  /**
    * Archivia uno o più estratti conto SENZA importarne i movimenti.
    * Accetta file singoli, selezione multipla e un archivio .zip (scompattato
    * lato browser): in tutti i casi salva SOLO i documenti, mai movimenti.
@@ -400,12 +445,11 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
       }
       if (work.length === 0) { showToast('Nessun documento archiviabile trovato', 'error'); setEcArchive(prev => prev ? { ...prev, busy: false } : prev); return; }
 
-      // 2) Ogni documento: conto = auto-match dal nome, altrimenti il ripiego scelto.
+      // 2) Ogni documento: tipo/fonte/periodo dedotti dal nome; le carte non hanno conto.
       for (const doc of work) {
-        const matched = autoMatchAccount(doc.path);
-        const account = matched || bankAccountId;
-        if (!account) { failed.push(`${doc.path} (nessun conto: scegli un conto di ripiego)`); continue; }
-        if (matched && matched !== bankAccountId) autoAssigned++;
+        const meta = parseEcMeta(doc.path, bankAccountId);
+        const account = meta.bank_account_id; // può essere null (carta o conto non riconosciuto)
+        if (meta.doc_kind === 'carta' || (meta.bank_account_id && meta.bank_account_id !== bankAccountId)) autoAssigned++;
 
         const displayName = doc.path; // mantiene l'eventuale nome cartella (es. "Conti correnti/EC MPS…")
         const ext = (displayName.split('.').pop() || '').toLowerCase();
@@ -452,6 +496,10 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
             filename: displayName,
             file_type: fileType,
             status: 'completed',
+            doc_kind: meta.doc_kind,
+            source_label: meta.source_label,
+            period_year: meta.period_year,
+            period_month: meta.period_month,
           });
         if (stmtErr) {
           // rollback: niente riga metadati → rimuovo file fisico e riga import per non lasciare orfani
@@ -561,10 +609,10 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
       const [stmtRes, impRes] = await Promise.all([
         supabase
           .from('bank_statements')
-          .select('id, filename, file_type, transaction_count, status, bank_account_id, created_at, bank_accounts(bank_name, account_name)')
+          .select('id, filename, file_type, transaction_count, status, bank_account_id, created_at, doc_kind, source_label, period_year, period_month, bank_accounts(bank_name, account_name)')
           .eq('company_id', companyId)
           .order('created_at', { ascending: false })
-          .limit(200),
+          .limit(1000),
         supabase
           .from('bank_imports')
           .select('id, file_name, file_path, file_size, bank_account_id, uploaded_at, created_at')
@@ -591,7 +639,7 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
         }
       }
 
-      const enriched: EcFileRow[] = ((stmtRes.data || []) as Array<{ id: string; filename: string | null; bank_account_id: string | null }>).map(ec => {
+      const enriched: EcFileRow[] = ((stmtRes.data || []) as unknown as EcFileRow[]).map(ec => {
         const fn = (ec.filename || '').toLowerCase();
         const byFull = byAccountAndName.get(`${ec.bank_account_id || ''}::${fn}`);
         const byFn = byName.get(fn);
@@ -777,6 +825,50 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
     [filteredInvoices]
   );
 
+  // ─── ARCHIVIO EC: anni disponibili, filtro e raggruppamento per fonte ───
+  const ecAvailableYears = useMemo(() => {
+    const ys = new Set<number>();
+    for (const ec of ecFiles) if (ec.period_year) ys.add(Number(ec.period_year));
+    return Array.from(ys).sort((a, b) => b - a);
+  }, [ecFiles]);
+
+  const ecFilteredGroups = useMemo(() => {
+    const q = ecSearch.trim().toLowerCase();
+    const rows = ecFiles.filter(ec => {
+      if (ecKind !== 'all' && (ec.doc_kind || 'conto_corrente') !== ecKind) return false;
+      if (ecYear !== 'all' && Number(ec.period_year) !== ecYear) return false;
+      if (q) {
+        const hay = `${ec.source_label || ''} ${ec.filename || ''}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+    // raggruppa per fonte (source_label), fallback al nome banca o "Senza fonte"
+    const map = new Map<string, { label: string; kind: string; items: EcFileRow[] }>();
+    for (const ec of rows) {
+      const label = ec.source_label || ec.bank_accounts?.bank_name || 'Senza fonte';
+      const key = label;
+      if (!map.has(key)) map.set(key, { label, kind: ec.doc_kind || 'conto_corrente', items: [] });
+      map.get(key)!.items.push(ec);
+    }
+    const groups = Array.from(map.values());
+    // ordina: conti prima delle carte, poi alfabetico per fonte
+    groups.sort((a, b) => {
+      if (a.kind !== b.kind) return a.kind === 'conto_corrente' ? -1 : 1;
+      return a.label.localeCompare(b.label);
+    });
+    // dentro ogni gruppo: periodo desc, poi nome
+    for (const g of groups) {
+      g.items.sort((a, b) => {
+        const pa = (Number(a.period_year) || 0) * 100 + (Number(a.period_month) || 0);
+        const pb = (Number(b.period_year) || 0) * 100 + (Number(b.period_month) || 0);
+        if (pa !== pb) return pb - pa;
+        return (a.filename || '').localeCompare(b.filename || '');
+      });
+    }
+    return groups;
+  }, [ecFiles, ecSearch, ecKind, ecYear]);
+
   // Quando l'utente inizia a cercare, espande automaticamente i gruppi che
   // contengono risultati cosi vede subito cosa ha trovato senza click extra.
   // Se cancella la ricerca tornano tutti chiusi.
@@ -879,7 +971,7 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
           sub={`Totale: ${allInvoices.length} su ${availableYears.length} ann${availableYears.length === 1 ? 'o' : 'i'}`}
         />
         <KpiCard label="Bilanci" value={balanceSheets.length} icon={BarChart3} color="indigo" sub="PDF archiviati" />
-        <KpiCard label="Estratti Conto" value={ecFiles.length} icon={Database} color="emerald" sub={`${ecFiles.reduce((s, e) => s + Number(e.transaction_count || 0), 0)} movimenti totali`} />
+        <KpiCard label="Estratti Conto" value={ecFiles.length} icon={Database} color="emerald" sub={`${ecFiles.filter(e => (e.doc_kind || 'conto_corrente') === 'conto_corrente').length} conti · ${ecFiles.filter(e => e.doc_kind === 'carta').length} carte`} />
         <KpiCard label={`Totale ${year}`} value={invoices.length + balanceSheets.length + ecFiles.length} icon={FolderOpen} color="slate" sub="documenti consultabili" />
       </div>
 
@@ -1143,13 +1235,13 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
           </div>
           <div>
             <h2 className="font-semibold text-slate-900">Estratti Conto Bancari</h2>
-            <p className="text-xs text-slate-500">{ecFiles.length} file</p>
+            <p className="text-xs text-slate-500">{ecFiles.length} documenti · {ecFilteredGroups.length} fonti</p>
           </div>
         </button>
         {sectionOpen.ec && (
-        <div className="divide-y divide-slate-100">
+        <div>
           {/* Toolbar: archivia il file EC senza importarne i movimenti */}
-          <div className="px-5 py-3 flex items-center justify-between gap-3 bg-slate-50/60">
+          <div className="px-5 py-3 flex items-center justify-between gap-3 bg-slate-50/60 border-b border-slate-100">
             <p className="text-xs text-slate-500">
               Archivia il PDF/XLS dell'estratto conto <span className="font-medium text-slate-600">senza importarne i movimenti</span> (utile quando i movimenti sono già sincronizzati via A-Cube).
             </p>
@@ -1161,6 +1253,7 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
               <Upload size={13} /> Archivia estratto conto
             </button>
           </div>
+
           {ecFiles.length === 0 ? (
             <div className="text-center py-10">
               <Database size={28} className="text-slate-300 mx-auto mb-2" />
@@ -1168,64 +1261,95 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
               <p className="text-xs text-slate-400">Usa "Archivia estratto conto" qui sopra, oppure importali da Import Hub</p>
             </div>
           ) : (
-            ecFiles.map(ec => {
-              const ba = (ec as { bank_accounts?: { bank_name?: string; account_name?: string } }).bank_accounts
-              const bankLabel = ba?.bank_name
-                ? `${ba.bank_name}${ba.account_name ? ` — ${ba.account_name}` : ''}`
-                : 'Banca';
-              const statusColor = ec.status === 'completed' ? 'text-emerald-600'
-                : ec.status === 'processing' ? 'text-amber-600'
-                : 'text-slate-500';
-              const txCount = (ec as { transaction_count?: number | null }).transaction_count
-              const createdAt = (ec as { created_at?: string | null }).created_at
+          <>
+            {/* Barra filtri/ricerca */}
+            <div className="px-5 py-3 flex flex-wrap items-center gap-2 border-b border-slate-100">
+              <div className="relative flex-1 min-w-[180px]">
+                <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  value={ecSearch}
+                  onChange={e => setEcSearch(e.target.value)}
+                  placeholder="Cerca per fonte o nome file…"
+                  className="w-full pl-8 pr-3 py-1.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-200 focus:border-emerald-400"
+                />
+              </div>
+              <select value={ecKind} onChange={e => setEcKind(e.target.value as typeof ecKind)}
+                className="px-2.5 py-1.5 border border-slate-200 rounded-lg text-sm text-slate-700">
+                <option value="all">Tutti i tipi</option>
+                <option value="conto_corrente">Conti correnti</option>
+                <option value="carta">Carte</option>
+              </select>
+              <select value={String(ecYear)} onChange={e => setEcYear(e.target.value === 'all' ? 'all' : Number(e.target.value))}
+                className="px-2.5 py-1.5 border border-slate-200 rounded-lg text-sm text-slate-700">
+                <option value="all">Tutti gli anni</option>
+                {ecAvailableYears.map(y => <option key={y} value={y}>{y}</option>)}
+              </select>
+              {(ecSearch || ecKind !== 'all' || ecYear !== 'all') && (
+                <button onClick={() => { setEcSearch(''); setEcKind('all'); setEcYear('all'); }}
+                  className="px-2.5 py-1.5 text-xs text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-lg inline-flex items-center gap-1">
+                  <X size={12} /> Azzera
+                </button>
+              )}
+            </div>
+
+            {/* Gruppi per fonte (conto/carta) */}
+            {ecFilteredGroups.length === 0 ? (
+              <div className="text-center py-10 text-sm text-slate-500">Nessun documento con questi filtri.</div>
+            ) : ecFilteredGroups.map(group => {
+              const collapsed = ecCollapsed.has(group.label);
+              const isCard = group.kind === 'carta';
               return (
-                <div key={ec.id} className="px-5 py-3 flex items-center gap-3 hover:bg-slate-50">
-                  <div className="p-2 bg-emerald-50 rounded-lg shrink-0">
-                    <FileText size={16} className="text-emerald-600" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <Tooltip content={ec.filename ?? ''}>
-                      <div className="font-medium text-slate-800 truncate">
-                        {ec.filename || 'EC senza nome'}
-                      </div>
-                    </Tooltip>
-                    <div className="text-xs text-slate-500 flex flex-wrap gap-x-3 gap-y-1">
-                      <span className="font-medium text-slate-700">{bankLabel}</span>
-                      {txCount != null && (
-                        <span>{Number(txCount).toLocaleString('de-DE')} movimenti</span>
-                      )}
-                      <span>{formatDate(createdAt)}</span>
-                      {ec.status && <span className={statusColor}>· {String(ec.status)}</span>}
+                <div key={group.label} className="border-b border-slate-100 last:border-b-0">
+                  <button
+                    onClick={() => setEcCollapsed(prev => { const n = new Set(prev); n.has(group.label) ? n.delete(group.label) : n.add(group.label); return n; })}
+                    className="w-full px-5 py-2.5 flex items-center gap-2 hover:bg-slate-50 text-left"
+                  >
+                    {collapsed ? <ChevronRight size={16} className="text-slate-400" /> : <ChevronDown size={16} className="text-slate-400" />}
+                    <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-semibold ${isCard ? 'bg-violet-50 text-violet-700' : 'bg-emerald-50 text-emerald-700'}`}>
+                      {isCard ? 'Carta' : 'Conto'}
+                    </span>
+                    <span className="font-medium text-slate-800 text-sm">{group.label}</span>
+                    <span className="text-xs text-slate-400">· {group.items.length}</span>
+                  </button>
+                  {!collapsed && (
+                    <div className="divide-y divide-slate-50">
+                      {group.items.map(ec => {
+                        const per = ec.period_month != null ? `${MONTH_FULL[Number(ec.period_month) - 1]} ${ec.period_year ?? ''}`.trim()
+                          : (ec.period_year ? String(ec.period_year) : (ec.filename?.split('/').pop() || 'documento'));
+                        const ft = String(ec.file_type || '').toUpperCase();
+                        return (
+                          <div key={ec.id} className="pl-12 pr-5 py-2 flex items-center gap-3 hover:bg-slate-50">
+                            <FileText size={15} className={isCard ? 'text-violet-500 shrink-0' : 'text-emerald-600 shrink-0'} />
+                            <div className="flex-1 min-w-0">
+                              <div className="text-sm text-slate-800 font-medium">{per}</div>
+                              <Tooltip content={ec.filename ?? ''}>
+                                <div className="text-[11px] text-slate-400 truncate">{ec.filename?.split('/').pop()}</div>
+                              </Tooltip>
+                            </div>
+                            {ft && <span className="text-[10px] font-semibold text-slate-400 shrink-0">{ft}</span>}
+                            <div className="flex items-center gap-1 shrink-0">
+                              {!isCard && (
+                                <button onClick={() => openEcPreview(ec)}
+                                  className="px-2 py-1 bg-emerald-50 text-emerald-700 rounded-lg text-xs font-semibold hover:bg-emerald-100 border border-emerald-200 inline-flex items-center gap-1"
+                                  title="Vedi i movimenti a sistema per questo conto">
+                                  <Eye size={12} /> Anteprima
+                                </button>
+                              )}
+                              <button onClick={() => downloadEcFile(ec)}
+                                className="px-2 py-1 bg-white text-slate-700 rounded-lg text-xs font-semibold hover:bg-slate-50 border border-slate-200 inline-flex items-center gap-1"
+                                title="Scarica il file originale">
+                                <Download size={12} /> Scarica
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
-                  </div>
-                  <div className="flex items-center gap-1 shrink-0">
-                    <button
-                      onClick={() => openEcPreview(ec)}
-                      className="px-2.5 py-1 bg-emerald-50 text-emerald-700 rounded-lg text-xs font-semibold hover:bg-emerald-100 border border-emerald-200 inline-flex items-center gap-1"
-                      title="Vedi i primi 100 movimenti importati"
-                    >
-                      <Eye size={12} /> Anteprima
-                    </button>
-                    <button
-                      onClick={() => downloadEcFile(ec)}
-                      className="px-2.5 py-1 bg-white text-slate-700 rounded-lg text-xs font-semibold hover:bg-slate-50 border border-slate-200 inline-flex items-center gap-1"
-                      title="Scarica il file originale (.xls/.xlsx) dal bucket bank-statements"
-                    >
-                      <Download size={12} /> Scarica
-                    </button>
-                    {ec.bank_account_id && (
-                      <button
-                        onClick={() => navigate(`/banche?tab=movimenti&account=${ec.bank_account_id}`)}
-                        className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg"
-                        title="Apri la pagina Movimenti della banca"
-                      >
-                        <ExternalLink size={14} />
-                      </button>
-                    )}
-                  </div>
+                  )}
                 </div>
               );
-            })
+            })}
+          </>
           )}
         </div>
         )}
