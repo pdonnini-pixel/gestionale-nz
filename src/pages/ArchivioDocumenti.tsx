@@ -389,9 +389,13 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
             work.push({ path: entry.name, blob, size: blob.size });
           }
         } else {
-          const ext = (f.name.split('.').pop() || '').toLowerCase();
-          if (!ARCHIVE_EXTS.includes(ext)) { failed.push(`${f.name} (formato non ammesso)`); continue; }
-          work.push({ path: f.name, blob: f, size: f.size });
+          // path relativo se il file arriva da una cartella (webkitdirectory), altrimenti il nome
+          const rel = (f as unknown as { webkitRelativePath?: string }).webkitRelativePath || f.name;
+          const base = rel.split('/').pop() || rel;
+          const ext = (base.split('.').pop() || '').toLowerCase();
+          if (!ARCHIVE_EXTS.includes(ext)) continue; // salta silenziosamente .md e non ammessi (cartelle miste)
+          if (/^manifest\b/i.test(base) || /report/i.test(base)) continue;
+          work.push({ path: rel, blob: f, size: f.size });
         }
       }
       if (work.length === 0) { showToast('Nessun documento archiviabile trovato', 'error'); setEcArchive(prev => prev ? { ...prev, busy: false } : prev); return; }
@@ -409,13 +413,16 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
         const safeName = displayName.replace(/[^a-zA-Z0-9._-]/g, '_');
         const filePath = `${companyId}/imports/bank/${ts}_${safeName}`;
 
+        // file_type ammesso dal vincolo DB: solo csv | xlsx | pdf (xls → xlsx).
+        const fileType = (ext === 'xls' || ext === 'xlsx') ? 'xlsx' : ext === 'pdf' ? 'pdf' : 'csv';
+
         const { error: upErr } = await supabase.storage
           .from('bank-statements')
           .upload(filePath, doc.blob, { upsert: false });
         if (upErr) { failed.push(`${displayName} (storage: ${upErr.message})`); continue; }
 
-        // File fisico
-        const { error: impErr } = await (supabase as unknown as { from: (t: string) => { insert: (r: Record<string, unknown>) => Promise<{ error: { message: string } | null }> } })
+        // File fisico (bank_imports). Catturo l'id per poter fare rollback se il passo dopo fallisce.
+        const { data: impRow, error: impErr } = await (supabase as unknown as { from: (t: string) => { insert: (r: Record<string, unknown>) => { select: (c: string) => { single: () => Promise<{ data: { id: string } | null; error: { message: string } | null }> } } } })
           .from('bank_imports')
           .insert({
             company_id: companyId,
@@ -426,7 +433,9 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
             file_format: ext,
             import_type: 'archive',
             status: 'archived',
-          });
+          })
+          .select('id')
+          .single();
         if (impErr) {
           await supabase.storage.from('bank-statements').remove([filePath]);
           failed.push(`${displayName} (bank_imports: ${impErr.message})`);
@@ -434,16 +443,23 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
         }
 
         // Metadati (compare nella lista Estratti Conto). transaction_count=null → nessun movimento.
+        // status ammesso dal vincolo: pending|processing|completed|error → uso 'completed'.
         const { error: stmtErr } = await (supabase as unknown as { from: (t: string) => { insert: (r: Record<string, unknown>) => Promise<{ error: { message: string } | null }> } })
           .from('bank_statements')
           .insert({
             company_id: companyId,
             bank_account_id: account,
             filename: displayName,
-            file_type: ext === 'xlsx' ? 'xlsx' : ext === 'xls' ? 'xls' : ext === 'pdf' ? 'pdf' : 'csv',
-            status: 'archived',
+            file_type: fileType,
+            status: 'completed',
           });
-        if (stmtErr) { failed.push(`${displayName} (bank_statements: ${stmtErr.message})`); continue; }
+        if (stmtErr) {
+          // rollback: niente riga metadati → rimuovo file fisico e riga import per non lasciare orfani
+          if (impRow?.id) await supabase.from('bank_imports').delete().eq('id', impRow.id);
+          await supabase.storage.from('bank-statements').remove([filePath]);
+          failed.push(`${displayName} (bank_statements: ${stmtErr.message})`);
+          continue;
+        }
         ok++;
       }
 
@@ -588,13 +604,9 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
         };
       });
 
-      // Deduplica per bank_account_id: tieni l'import piu' recente
-      const latestByAccount = new Map<string, EcFileRow>();
-      for (const ec of enriched) {
-        const key = ec.bank_account_id || ec.id;
-        if (!latestByAccount.has(key)) latestByAccount.set(key, ec);
-      }
-      setEcFiles(Array.from(latestByAccount.values()));
+      // Mostra TUTTI gli estratti conto archiviati (una riga per file), non
+      // solo l'ultimo per conto: l'archivio deve elencare ogni documento.
+      setEcFiles(enriched);
     } catch (e: unknown) {
       console.warn('load ec files:', e instanceof Error ? e.message : e);
       setEcFiles([]);
@@ -1370,7 +1382,7 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
                 )}
               </div>
               <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">File o cartella zippata (PDF, XLS, XLSX, CSV, ZIP)</label>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">File o .zip (PDF, XLS, XLSX, CSV, ZIP)</label>
                 <input
                   type="file"
                   multiple
@@ -1379,10 +1391,23 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
                   onChange={e => setEcArchive(prev => prev ? { ...prev, files: Array.from(e.target.files || []) } : prev)}
                   className="w-full text-sm text-slate-600 file:mr-3 file:px-3 file:py-1.5 file:rounded-lg file:border-0 file:bg-emerald-50 file:text-emerald-700 file:text-xs file:font-semibold hover:file:bg-emerald-100"
                 />
+                <div className="mt-2">
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">…oppure collega un'intera cartella</label>
+                  <input
+                    type="file"
+                    // @ts-expect-error attributi non standard per selezionare una cartella
+                    webkitdirectory=""
+                    directory=""
+                    multiple
+                    disabled={ecArchive.busy}
+                    onChange={e => setEcArchive(prev => prev ? { ...prev, files: Array.from(e.target.files || []) } : prev)}
+                    className="w-full text-sm text-slate-600 file:mr-3 file:px-3 file:py-1.5 file:rounded-lg file:border-0 file:bg-slate-100 file:text-slate-700 file:text-xs file:font-semibold hover:file:bg-slate-200"
+                  />
+                </div>
                 {ecArchive.files.length > 0 && (
-                  <p className="text-[11px] text-slate-500 mt-1">{ecArchive.files.length} elemento/i: {ecArchive.files.map(f => f.name).join(', ')}</p>
+                  <p className="text-[11px] text-slate-500 mt-1">{ecArchive.files.length} elemento/i selezionato/i.</p>
                 )}
-                <p className="text-[11px] text-slate-500 mt-1">Puoi caricare una <span className="font-medium">cartella zippata</span> in un colpo solo: viene scompattata qui e ogni documento archiviato mantenendo il nome della cartella. Il file .zip non viene salvato.</p>
+                <p className="text-[11px] text-slate-500 mt-1">Cartella o <span className="font-medium">.zip</span>: vengono presi solo i documenti EC (PDF/XLS/XLSX/CSV), saltando manifest e file di report. Il nome della cartella resta nel documento archiviato; lo .zip non viene salvato.</p>
               </div>
               <div className="flex items-start gap-2 text-[11px] text-slate-500 bg-slate-50 rounded-lg p-2.5">
                 <AlertCircle size={14} className="text-slate-400 shrink-0 mt-0.5" />
