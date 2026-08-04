@@ -9,7 +9,7 @@ import {
   X, FileWarning, CheckCircle,
   AlertCircle, Database, FolderOpen, Archive, Users, Receipt,
   ShieldCheck, AlertTriangle, Lock, Unlock, BarChart3,
-  ChevronDown, ChevronRight, Building2, ExternalLink
+  ChevronDown, ChevronRight, Building2, ExternalLink, Upload
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
@@ -275,6 +275,12 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
 
   const [ecPreview, setEcPreview] = useState<EcPreviewState | null>(null);
 
+  // ─── Archivio EC (solo archiviazione file, NESSUN import movimenti) ──
+  // Conti attivi per la tendina del modal di archiviazione.
+  const [bankAccounts, setBankAccounts] = useState<Array<{ id: string; bank_name: string | null; account_name: string | null }>>([]);
+  // Stato del modal "Archivia estratto conto". null = chiuso.
+  const [ecArchive, setEcArchive] = useState<{ files: File[]; bankAccountId: string; busy: boolean } | null>(null);
+
   // Collasso delle 3 sezioni principali. Fatture parte CHIUSA perche'
   // con 199 fatture e' la sezione piu' rumorosa. Bilanci ed EC restano
   // aperti perche' sono liste corte (1-5 elementi).
@@ -298,8 +304,105 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
 
   async function loadAll() {
     setLoading(true);
-    await Promise.all([loadAllInvoicesMinimal(), loadBalanceSheets(), loadEcFiles()]);
+    await Promise.all([loadAllInvoicesMinimal(), loadBalanceSheets(), loadEcFiles(), loadBankAccounts()]);
     setLoading(false);
+  }
+
+  /** Conti bancari attivi — alimentano la tendina del modal "Archivia estratto conto". */
+  async function loadBankAccounts() {
+    if (!companyId) return;
+    try {
+      const { data } = await supabase
+        .from('bank_accounts')
+        .select('id, bank_name, account_name')
+        .eq('company_id', companyId)
+        .eq('is_active', true)
+        .order('bank_name', { ascending: true });
+      setBankAccounts((data || []) as Array<{ id: string; bank_name: string | null; account_name: string | null }>);
+    } catch (e: unknown) {
+      console.warn('load bank accounts:', e instanceof Error ? e.message : e);
+      setBankAccounts([]);
+    }
+  }
+
+  /**
+   * Archivia uno o più estratti conto SENZA importarne i movimenti.
+   *
+   * Perché serve: i movimenti dei conti sincronizzati (A-Cube) sono già in
+   * `bank_transactions`. Reimportare l'EC dal file per archiviarlo creerebbe
+   * doppioni (il dedup dell'import banca confronta anche la descrizione, che
+   * differisce da quella A-Cube). Questa funzione salva SOLO il file originale:
+   *  - upload nel bucket privato `bank-statements` (stessa convenzione di ImportHub);
+   *  - riga in `bank_imports` (file fisico) con status='archived';
+   *  - riga in `bank_statements` (metadati elencati in questa pagina) con status='archived'
+   *    e transaction_count=null → nessun movimento viene creato.
+   * Reversibile: eliminando le due righe + l'oggetto storage si torna indietro.
+   */
+  async function archiveEcFiles() {
+    if (!companyId || !ecArchive) return;
+    const { files, bankAccountId } = ecArchive;
+    if (files.length === 0) { showToast('Seleziona almeno un file', 'error'); return; }
+    if (!bankAccountId) { showToast('Seleziona il conto di appartenenza', 'error'); return; }
+    setEcArchive(prev => prev ? { ...prev, busy: true } : prev);
+    let ok = 0;
+    const failed: string[] = [];
+    try {
+      for (const file of files) {
+        const ts = Date.now();
+        const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+        const filePath = `${companyId}/imports/bank/${ts}_${safeName}`;
+        const fileExt = (file.name.split('.').pop() || '').toLowerCase();
+
+        const { error: upErr } = await supabase.storage
+          .from('bank-statements')
+          .upload(filePath, file, { upsert: false });
+        if (upErr) { failed.push(`${file.name} (storage: ${upErr.message})`); continue; }
+
+        // File fisico
+        const { error: impErr } = await (supabase as unknown as { from: (t: string) => { insert: (r: Record<string, unknown>) => Promise<{ error: { message: string } | null }> } })
+          .from('bank_imports')
+          .insert({
+            company_id: companyId,
+            bank_account_id: bankAccountId,
+            file_name: file.name,
+            file_path: filePath,
+            file_size: file.size,
+            file_format: fileExt,
+            import_type: 'archive',
+            status: 'archived',
+          });
+        if (impErr) {
+          await supabase.storage.from('bank-statements').remove([filePath]);
+          failed.push(`${file.name} (bank_imports: ${impErr.message})`);
+          continue;
+        }
+
+        // Metadati (compare nella lista Estratti Conto). transaction_count=null → nessun movimento.
+        const { error: stmtErr } = await (supabase as unknown as { from: (t: string) => { insert: (r: Record<string, unknown>) => Promise<{ error: { message: string } | null }> } })
+          .from('bank_statements')
+          .insert({
+            company_id: companyId,
+            bank_account_id: bankAccountId,
+            filename: file.name,
+            file_type: fileExt === 'xlsx' ? 'xlsx' : fileExt === 'xls' ? 'xls' : fileExt === 'pdf' ? 'pdf' : 'csv',
+            status: 'archived',
+          });
+        if (stmtErr) { failed.push(`${file.name} (bank_statements: ${stmtErr.message})`); continue; }
+        ok++;
+      }
+
+      await loadEcFiles();
+      if (failed.length === 0) {
+        showToast(`${ok} estratto/i conto archiviato/i (nessun movimento importato)`);
+        setEcArchive(null);
+      } else {
+        showToast(`${ok} archiviati, ${failed.length} falliti: ${failed.join(' · ')}`, 'error');
+        setEcArchive(prev => prev ? { ...prev, busy: false } : prev);
+      }
+    } catch (err: unknown) {
+      showToast('Errore archiviazione: ' + (err instanceof Error ? err.message : ''), 'error');
+      setEcArchive(prev => prev ? { ...prev, busy: false } : prev);
+    }
   }
 
   /**
@@ -976,11 +1079,24 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
         </button>
         {sectionOpen.ec && (
         <div className="divide-y divide-slate-100">
+          {/* Toolbar: archivia il file EC senza importarne i movimenti */}
+          <div className="px-5 py-3 flex items-center justify-between gap-3 bg-slate-50/60">
+            <p className="text-xs text-slate-500">
+              Archivia il PDF/XLS dell'estratto conto <span className="font-medium text-slate-600">senza importarne i movimenti</span> (utile quando i movimenti sono già sincronizzati via A-Cube).
+            </p>
+            <button
+              onClick={() => setEcArchive({ files: [], bankAccountId: bankAccounts[0]?.id || '', busy: false })}
+              className="shrink-0 px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-semibold hover:bg-emerald-700 inline-flex items-center gap-1.5"
+              title="Carica e archivia un estratto conto (nessun movimento verrà importato)"
+            >
+              <Upload size={13} /> Archivia estratto conto
+            </button>
+          </div>
           {ecFiles.length === 0 ? (
             <div className="text-center py-10">
               <Database size={28} className="text-slate-300 mx-auto mb-2" />
               <p className="text-sm text-slate-500">Nessun estratto conto</p>
-              <p className="text-xs text-slate-400">Importali da Import Hub → Estratti Conto</p>
+              <p className="text-xs text-slate-400">Usa "Archivia estratto conto" qui sopra, oppure importali da Import Hub</p>
             </div>
           ) : (
             ecFiles.map(ec => {
@@ -1147,6 +1263,88 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
                   Apri tutti in Movimenti <ExternalLink size={11} />
                 </button>
               )}
+            </div>
+          </>
+        )}
+      </Modal>
+
+      {/* ═══════════ MODAL ARCHIVIA ESTRATTO CONTO (no import movimenti) ═══════════ */}
+      <Modal
+        open={!!ecArchive}
+        onClose={() => { if (!ecArchive?.busy) setEcArchive(null); }}
+        bare
+        ariaLabel="Archivia estratto conto"
+        containerClassName="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4"
+        panelClassName="bg-white rounded-2xl shadow-2xl max-w-lg w-full flex flex-col overflow-hidden"
+      >
+        {ecArchive && (
+          <>
+            <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-emerald-50 rounded-lg"><Upload size={18} className="text-emerald-600" /></div>
+                <div>
+                  <h3 className="font-semibold text-slate-900 text-sm">Archivia estratto conto</h3>
+                  <p className="text-xs text-slate-500">Salva il file originale. Nessun movimento verrà importato.</p>
+                </div>
+              </div>
+              <button onClick={() => { if (!ecArchive.busy) setEcArchive(null); }} className="p-1.5 hover:bg-slate-100 rounded-lg" title="Chiudi">
+                <X size={18} className="text-slate-500" />
+              </button>
+            </div>
+            <div className="p-5 space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Conto di appartenenza</label>
+                <select
+                  value={ecArchive.bankAccountId}
+                  onChange={e => setEcArchive(prev => prev ? { ...prev, bankAccountId: e.target.value } : prev)}
+                  disabled={ecArchive.busy}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-200 focus:border-emerald-400"
+                >
+                  <option value="">— Seleziona conto —</option>
+                  {bankAccounts.map(ba => (
+                    <option key={ba.id} value={ba.id}>
+                      {ba.bank_name || 'Banca'}{ba.account_name ? ` — ${ba.account_name}` : ''}
+                    </option>
+                  ))}
+                </select>
+                {bankAccounts.length === 0 && (
+                  <p className="text-[11px] text-amber-600 mt-1">Nessun conto attivo trovato. Crea il conto in Banche prima di archiviare.</p>
+                )}
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">File (PDF, XLS, XLSX, CSV) — anche più di uno</label>
+                <input
+                  type="file"
+                  multiple
+                  accept=".pdf,.xls,.xlsx,.csv"
+                  disabled={ecArchive.busy}
+                  onChange={e => setEcArchive(prev => prev ? { ...prev, files: Array.from(e.target.files || []) } : prev)}
+                  className="w-full text-sm text-slate-600 file:mr-3 file:px-3 file:py-1.5 file:rounded-lg file:border-0 file:bg-emerald-50 file:text-emerald-700 file:text-xs file:font-semibold hover:file:bg-emerald-100"
+                />
+                {ecArchive.files.length > 0 && (
+                  <p className="text-[11px] text-slate-500 mt-1">{ecArchive.files.length} file selezionati: {ecArchive.files.map(f => f.name).join(', ')}</p>
+                )}
+              </div>
+              <div className="flex items-start gap-2 text-[11px] text-slate-500 bg-slate-50 rounded-lg p-2.5">
+                <AlertCircle size={14} className="text-slate-400 shrink-0 mt-0.5" />
+                <span>Questa azione archivia solo il documento (bucket <code>bank-statements</code>). I movimenti restano quelli già presenti: non vengono né creati né duplicati.</span>
+              </div>
+            </div>
+            <div className="px-5 py-3 border-t border-slate-100 bg-slate-50 flex items-center justify-end gap-2 shrink-0">
+              <button
+                onClick={() => { if (!ecArchive.busy) setEcArchive(null); }}
+                disabled={ecArchive.busy}
+                className="px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white rounded-lg hover:bg-slate-50 border border-slate-200 disabled:opacity-50"
+              >
+                Annulla
+              </button>
+              <button
+                onClick={archiveEcFiles}
+                disabled={ecArchive.busy || ecArchive.files.length === 0 || !ecArchive.bankAccountId}
+                className="px-3 py-1.5 text-xs font-semibold text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 disabled:opacity-50 inline-flex items-center gap-1.5"
+              >
+                {ecArchive.busy ? (<><RefreshCw size={13} className="animate-spin" /> Archiviazione…</>) : (<><Upload size={13} /> Archivia</>)}
+              </button>
             </div>
           </>
         )}

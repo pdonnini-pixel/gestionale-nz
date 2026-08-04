@@ -2044,7 +2044,7 @@ export const PAGE_GUIDES: PageGuide[] = [
     "sections": [
       {
         "heading": "A cosa serve questa pagina",
-        "body": "In alto ci sono due schede: \"Archivio\", dove si consultano fatture, bilanci ed estratti conto già presenti nel gestionale, e \"Conservazione Sostitutiva\", dove si controlla lo stato di conservazione a norma dei documenti fiscali per i 10 anni previsti dalla legge. I documenti mostrati in questa pagina arrivano dai caricamenti fatti nella pagina Hub Importazioni: qui si consultano, non si caricano nuovi file."
+        "body": "In alto ci sono due schede: \"Archivio\", dove si consultano fatture, bilanci ed estratti conto già presenti nel gestionale, e \"Conservazione Sostitutiva\", dove si controlla lo stato di conservazione a norma dei documenti fiscali per i 10 anni previsti dalla legge. I documenti mostrati in questa pagina arrivano dai caricamenti fatti nella pagina Hub Importazioni; l'unica eccezione è il pulsante \"Archivia estratto conto\" (nella sezione Estratti Conto Bancari), che permette di salvare qui il file di un estratto conto senza importarne i movimenti."
       },
       {
         "heading": "Sezione Fatture Ricevute",
@@ -2069,9 +2069,10 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "Sezione Estratti Conto Bancari",
-        "body": "Elenca gli estratti conto bancari importati, con il nome della banca, il numero di movimenti e la data. Da qui si può vedere un'anteprima dei primi 100 movimenti (data, descrizione, importo, saldo e se il movimento è già riconciliato) oppure scaricare il file originale così come è stato caricato. C'è anche un collegamento diretto alla pagina Banche > Movimenti per vedere l'elenco completo.",
+        "body": "Elenca gli estratti conto bancari importati, con il nome della banca, il numero di movimenti e la data. Da qui si può vedere un'anteprima dei primi 100 movimenti (data, descrizione, importo, saldo e se il movimento è già riconciliato) oppure scaricare il file originale così come è stato caricato. C'è anche un collegamento diretto alla pagina Banche > Movimenti per vedere l'elenco completo. In cima alla sezione, il pulsante \"Archivia estratto conto\" consente di caricare qui il PDF/XLS di un estratto conto SENZA importarne i movimenti: utile quando i movimenti di quel conto sono già presenti (ad esempio sincronizzati via A-Cube) e si vuole solo conservare il documento originale, evitando di creare movimenti doppi.",
         "steps": [
           "Aprire la sezione \"Estratti Conto Bancari\"",
+          "Per conservare solo il documento: cliccare \"Archivia estratto conto\", scegliere il conto di appartenenza, selezionare uno o più file (PDF, XLS, XLSX, CSV) e confermare con \"Archivia\"",
           "Cliccare \"Anteprima\" per vedere i movimenti contenuti nel file",
           "Cliccare \"Scarica\" per ottenere il file originale (es. .xls, .xlsx)",
           "Cliccare l'icona del collegamento esterno per aprire la pagina Movimenti relativa a quel conto"
@@ -2111,7 +2112,11 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "q": "Da dove arrivano le fatture, i bilanci e gli estratti conto che vedo in questa pagina?",
-        "a": "Tutti i documenti mostrati qui sono stati caricati in precedenza dalla pagina Hub Importazioni Dati. L'Archivio Documenti serve solo a consultarli, non a caricarne di nuovi."
+        "a": "Fatture, bilanci ed estratti conto importati arrivano dalla pagina Hub Importazioni Dati. Fa eccezione il pulsante \"Archivia estratto conto\" nella sezione Estratti Conto Bancari, con cui puoi caricare qui direttamente il file di un estratto conto (senza importarne i movimenti)."
+      },
+      {
+        "q": "Se archivio un estratto conto da qui, rischio di duplicare i movimenti già presenti?",
+        "a": "No. Il pulsante \"Archivia estratto conto\" salva soltanto il file originale (nel deposito documenti sicuro) e lo aggiunge all'elenco: non legge né crea alcun movimento. È pensato proprio per conservare il documento quando i movimenti di quel conto sono già a sistema (ad esempio sincronizzati via A-Cube), senza il rischio di doppioni. Se invece devi importare i movimenti da un file, usa l'Hub Importazioni."
       },
       {
         "q": "Come faccio a trovare velocemente le fatture di un fornitore specifico?",
