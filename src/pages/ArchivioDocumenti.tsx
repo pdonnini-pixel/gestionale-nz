@@ -325,13 +325,38 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
     }
   }
 
+  // Estensioni EC ammesse in archiviazione (documenti, non import).
+  const ARCHIVE_EXTS = ['pdf', 'xls', 'xlsx', 'csv'];
+
+  /**
+   * Prova ad assegnare automaticamente il conto a un file dal suo nome/percorso,
+   * confrontandolo con le parole distintive (≥4 lettere, non generiche) del
+   * bank_name dei conti attivi. Serve per gli zip/cartelle che contengono EC di
+   * conti diversi: i 4 conti noti (Mugello/Intesa/BCC/MPS) vengono riconosciuti
+   * dal nome file; il resto (es. carte) ricade sul conto di ripiego scelto.
+   */
+  function autoMatchAccount(path: string): string | null {
+    const up = path.toUpperCase();
+    const STOP = new Set(['BANCA', 'BANCO', 'CRED', 'COOP', 'SMALL', 'BUSINESS', 'CORPORATE', 'PERSONE', 'FAMIGLIE', 'MONTE', 'PASCHI', 'SIENA', 'SANPAOLO', 'FIORENTINO', 'IMPRUNETA']);
+    for (const ba of bankAccounts) {
+      const words = (ba.bank_name || '').toUpperCase().split(/[^A-Z]+/).filter(w => w.length >= 3 && !STOP.has(w));
+      // token forti tipici: MUGELLO, INTESA, MPS, BCC, VALDARNO, CASCIA
+      for (const w of words) {
+        if (up.includes(w)) return ba.id;
+      }
+    }
+    return null;
+  }
+
   /**
    * Archivia uno o più estratti conto SENZA importarne i movimenti.
+   * Accetta file singoli, selezione multipla e un archivio .zip (scompattato
+   * lato browser): in tutti i casi salva SOLO i documenti, mai movimenti.
    *
    * Perché serve: i movimenti dei conti sincronizzati (A-Cube) sono già in
    * `bank_transactions`. Reimportare l'EC dal file per archiviarlo creerebbe
    * doppioni (il dedup dell'import banca confronta anche la descrizione, che
-   * differisce da quella A-Cube). Questa funzione salva SOLO il file originale:
+   * differisce da quella A-Cube). Per ogni documento:
    *  - upload nel bucket privato `bank-statements` (stessa convenzione di ImportHub);
    *  - riga in `bank_imports` (file fisico) con status='archived';
    *  - riga in `bank_statements` (metadati elencati in questa pagina) con status='archived'
@@ -341,39 +366,70 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
   async function archiveEcFiles() {
     if (!companyId || !ecArchive) return;
     const { files, bankAccountId } = ecArchive;
-    if (files.length === 0) { showToast('Seleziona almeno un file', 'error'); return; }
-    if (!bankAccountId) { showToast('Seleziona il conto di appartenenza', 'error'); return; }
+    if (files.length === 0) { showToast('Seleziona almeno un file o uno zip', 'error'); return; }
     setEcArchive(prev => prev ? { ...prev, busy: true } : prev);
     let ok = 0;
     const failed: string[] = [];
+    let autoAssigned = 0;
     try {
-      for (const file of files) {
+      // 1) Espandi eventuali .zip in una lista piatta { path, blob }.
+      const work: Array<{ path: string; blob: Blob; size: number }> = [];
+      for (const f of files) {
+        if (f.name.toLowerCase().endsWith('.zip')) {
+          const JSZip = (await import('jszip')).default;
+          const zip = await JSZip.loadAsync(f);
+          for (const entry of Object.values(zip.files) as Array<{ dir: boolean; name: string; async: (t: 'blob') => Promise<Blob> }>) {
+            if (entry.dir) continue;
+            const base = entry.name.split('/').pop() || entry.name;
+            if (base.startsWith('.') || base.startsWith('__MACOSX')) continue;
+            const ext = (base.split('.').pop() || '').toLowerCase();
+            if (!ARCHIVE_EXTS.includes(ext)) continue; // salta MANIFEST.csv? no: csv ammesso → ma escludo manifest/report per nome
+            if (/^manifest\b/i.test(base) || /report/i.test(base)) continue;
+            const blob = await entry.async('blob');
+            work.push({ path: entry.name, blob, size: blob.size });
+          }
+        } else {
+          const ext = (f.name.split('.').pop() || '').toLowerCase();
+          if (!ARCHIVE_EXTS.includes(ext)) { failed.push(`${f.name} (formato non ammesso)`); continue; }
+          work.push({ path: f.name, blob: f, size: f.size });
+        }
+      }
+      if (work.length === 0) { showToast('Nessun documento archiviabile trovato', 'error'); setEcArchive(prev => prev ? { ...prev, busy: false } : prev); return; }
+
+      // 2) Ogni documento: conto = auto-match dal nome, altrimenti il ripiego scelto.
+      for (const doc of work) {
+        const matched = autoMatchAccount(doc.path);
+        const account = matched || bankAccountId;
+        if (!account) { failed.push(`${doc.path} (nessun conto: scegli un conto di ripiego)`); continue; }
+        if (matched && matched !== bankAccountId) autoAssigned++;
+
+        const displayName = doc.path; // mantiene l'eventuale nome cartella (es. "Conti correnti/EC MPS…")
+        const ext = (displayName.split('.').pop() || '').toLowerCase();
         const ts = Date.now();
-        const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+        const safeName = displayName.replace(/[^a-zA-Z0-9._-]/g, '_');
         const filePath = `${companyId}/imports/bank/${ts}_${safeName}`;
-        const fileExt = (file.name.split('.').pop() || '').toLowerCase();
 
         const { error: upErr } = await supabase.storage
           .from('bank-statements')
-          .upload(filePath, file, { upsert: false });
-        if (upErr) { failed.push(`${file.name} (storage: ${upErr.message})`); continue; }
+          .upload(filePath, doc.blob, { upsert: false });
+        if (upErr) { failed.push(`${displayName} (storage: ${upErr.message})`); continue; }
 
         // File fisico
         const { error: impErr } = await (supabase as unknown as { from: (t: string) => { insert: (r: Record<string, unknown>) => Promise<{ error: { message: string } | null }> } })
           .from('bank_imports')
           .insert({
             company_id: companyId,
-            bank_account_id: bankAccountId,
-            file_name: file.name,
+            bank_account_id: account,
+            file_name: displayName,
             file_path: filePath,
-            file_size: file.size,
-            file_format: fileExt,
+            file_size: doc.size,
+            file_format: ext,
             import_type: 'archive',
             status: 'archived',
           });
         if (impErr) {
           await supabase.storage.from('bank-statements').remove([filePath]);
-          failed.push(`${file.name} (bank_imports: ${impErr.message})`);
+          failed.push(`${displayName} (bank_imports: ${impErr.message})`);
           continue;
         }
 
@@ -382,21 +438,22 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
           .from('bank_statements')
           .insert({
             company_id: companyId,
-            bank_account_id: bankAccountId,
-            filename: file.name,
-            file_type: fileExt === 'xlsx' ? 'xlsx' : fileExt === 'xls' ? 'xls' : fileExt === 'pdf' ? 'pdf' : 'csv',
+            bank_account_id: account,
+            filename: displayName,
+            file_type: ext === 'xlsx' ? 'xlsx' : ext === 'xls' ? 'xls' : ext === 'pdf' ? 'pdf' : 'csv',
             status: 'archived',
           });
-        if (stmtErr) { failed.push(`${file.name} (bank_statements: ${stmtErr.message})`); continue; }
+        if (stmtErr) { failed.push(`${displayName} (bank_statements: ${stmtErr.message})`); continue; }
         ok++;
       }
 
       await loadEcFiles();
+      const autoNote = autoAssigned > 0 ? ` (${autoAssigned} assegnati al conto giusto in automatico)` : '';
       if (failed.length === 0) {
-        showToast(`${ok} estratto/i conto archiviato/i (nessun movimento importato)`);
+        showToast(`${ok} documento/i archiviato/i${autoNote} — nessun movimento importato`);
         setEcArchive(null);
       } else {
-        showToast(`${ok} archiviati, ${failed.length} falliti: ${failed.join(' · ')}`, 'error');
+        showToast(`${ok} archiviati${autoNote}, ${failed.length} falliti: ${failed.slice(0, 3).join(' · ')}${failed.length > 3 ? '…' : ''}`, 'error');
         setEcArchive(prev => prev ? { ...prev, busy: false } : prev);
       }
     } catch (err: unknown) {
@@ -1293,7 +1350,7 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
             </div>
             <div className="p-5 space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Conto di appartenenza</label>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Conto di ripiego</label>
                 <select
                   value={ecArchive.bankAccountId}
                   onChange={e => setEcArchive(prev => prev ? { ...prev, bankAccountId: e.target.value } : prev)}
@@ -1307,27 +1364,29 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
                     </option>
                   ))}
                 </select>
+                <p className="text-[11px] text-slate-500 mt-1">I file con nome conto riconoscibile (Mugello, Intesa, BCC, MPS) vengono assegnati al conto giusto in automatico; gli altri (es. carte) finiscono su questo conto di ripiego.</p>
                 {bankAccounts.length === 0 && (
                   <p className="text-[11px] text-amber-600 mt-1">Nessun conto attivo trovato. Crea il conto in Banche prima di archiviare.</p>
                 )}
               </div>
               <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">File (PDF, XLS, XLSX, CSV) — anche più di uno</label>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">File o cartella zippata (PDF, XLS, XLSX, CSV, ZIP)</label>
                 <input
                   type="file"
                   multiple
-                  accept=".pdf,.xls,.xlsx,.csv"
+                  accept=".pdf,.xls,.xlsx,.csv,.zip"
                   disabled={ecArchive.busy}
                   onChange={e => setEcArchive(prev => prev ? { ...prev, files: Array.from(e.target.files || []) } : prev)}
                   className="w-full text-sm text-slate-600 file:mr-3 file:px-3 file:py-1.5 file:rounded-lg file:border-0 file:bg-emerald-50 file:text-emerald-700 file:text-xs file:font-semibold hover:file:bg-emerald-100"
                 />
                 {ecArchive.files.length > 0 && (
-                  <p className="text-[11px] text-slate-500 mt-1">{ecArchive.files.length} file selezionati: {ecArchive.files.map(f => f.name).join(', ')}</p>
+                  <p className="text-[11px] text-slate-500 mt-1">{ecArchive.files.length} elemento/i: {ecArchive.files.map(f => f.name).join(', ')}</p>
                 )}
+                <p className="text-[11px] text-slate-500 mt-1">Puoi caricare una <span className="font-medium">cartella zippata</span> in un colpo solo: viene scompattata qui e ogni documento archiviato mantenendo il nome della cartella. Il file .zip non viene salvato.</p>
               </div>
               <div className="flex items-start gap-2 text-[11px] text-slate-500 bg-slate-50 rounded-lg p-2.5">
                 <AlertCircle size={14} className="text-slate-400 shrink-0 mt-0.5" />
-                <span>Questa azione archivia solo il documento (bucket <code>bank-statements</code>). I movimenti restano quelli già presenti: non vengono né creati né duplicati.</span>
+                <span>Questa azione archivia solo i documenti (bucket <code>bank-statements</code>). I movimenti restano quelli già presenti: non vengono né creati né duplicati.</span>
               </div>
             </div>
             <div className="px-5 py-3 border-t border-slate-100 bg-slate-50 flex items-center justify-end gap-2 shrink-0">

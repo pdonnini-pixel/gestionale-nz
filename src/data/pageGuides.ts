@@ -2072,7 +2072,7 @@ export const PAGE_GUIDES: PageGuide[] = [
         "body": "Elenca gli estratti conto bancari importati, con il nome della banca, il numero di movimenti e la data. Da qui si può vedere un'anteprima dei primi 100 movimenti (data, descrizione, importo, saldo e se il movimento è già riconciliato) oppure scaricare il file originale così come è stato caricato. C'è anche un collegamento diretto alla pagina Banche > Movimenti per vedere l'elenco completo. In cima alla sezione, il pulsante \"Archivia estratto conto\" consente di caricare qui il PDF/XLS di un estratto conto SENZA importarne i movimenti: utile quando i movimenti di quel conto sono già presenti (ad esempio sincronizzati via A-Cube) e si vuole solo conservare il documento originale, evitando di creare movimenti doppi.",
         "steps": [
           "Aprire la sezione \"Estratti Conto Bancari\"",
-          "Per conservare solo il documento: cliccare \"Archivia estratto conto\", scegliere il conto di appartenenza, selezionare uno o più file (PDF, XLS, XLSX, CSV) e confermare con \"Archivia\"",
+          "Per conservare solo il documento: cliccare \"Archivia estratto conto\", scegliere il conto di ripiego, selezionare uno o più file (PDF, XLS, XLSX, CSV) — oppure un'intera cartella zippata (ZIP) — e confermare con \"Archivia\". Lo ZIP viene scompattato nel browser e ogni documento archiviato singolarmente; i file con nome conto riconoscibile (Mugello, Intesa, BCC, MPS) vengono assegnati al conto giusto in automatico",
           "Cliccare \"Anteprima\" per vedere i movimenti contenuti nel file",
           "Cliccare \"Scarica\" per ottenere il file originale (es. .xls, .xlsx)",
           "Cliccare l'icona del collegamento esterno per aprire la pagina Movimenti relativa a quel conto"
@@ -2116,7 +2116,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "q": "Se archivio un estratto conto da qui, rischio di duplicare i movimenti già presenti?",
-        "a": "No. Il pulsante \"Archivia estratto conto\" salva soltanto il file originale (nel deposito documenti sicuro) e lo aggiunge all'elenco: non legge né crea alcun movimento. È pensato proprio per conservare il documento quando i movimenti di quel conto sono già a sistema (ad esempio sincronizzati via A-Cube), senza il rischio di doppioni. Se invece devi importare i movimenti da un file, usa l'Hub Importazioni."
+        "a": "No. Il pulsante \"Archivia estratto conto\" salva soltanto i file originali (nel deposito documenti sicuro) e li aggiunge all'elenco: non legge né crea alcun movimento. È pensato proprio per conservare i documenti quando i movimenti di quel conto sono già a sistema (ad esempio sincronizzati via A-Cube), senza il rischio di doppioni. Puoi anche caricare un'intera cartella zippata in un'unica volta: lo ZIP viene scompattato nel browser e ogni documento archiviato singolarmente (il file .zip non viene conservato). Se invece devi importare i movimenti da un file, usa l'Hub Importazioni."
       },
       {
         "q": "Come faccio a trovare velocemente le fatture di un fornitore specifico?",
