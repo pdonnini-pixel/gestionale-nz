@@ -190,6 +190,10 @@ const ScadenzarioSmart = () => {
   const [confirmResult, setConfirmResult] = useState<ConfirmResult>(null);
   // La distinta è stata effettivamente salvata? (gate per "Conferma distinta")
   const [distintaSaved, setDistintaSaved] = useState(false);
+  // Chiusura anteprima con distinta NON confermata: chiede conferma invece di
+  // perdere in silenzio il lavoro (l'email inviata non salva la distinta: serve
+  // il passo 2 "Conferma distinta"). Evita la trappola del toast verde d'invio.
+  const [confirmDiscardDistinta, setConfirmDiscardDistinta] = useState(false);
   // GATE EMAIL: "Conferma distinta" si sblocca SOLO dopo che la mail è partita.
   //  - emailSent: invio server (Edge Function Resend) andato a buon fine → verificabile.
   //  - emailManualConfirmed: via di fuga se il server non è disponibile (l'operatrice
@@ -1807,6 +1811,7 @@ const ScadenzarioSmart = () => {
 
       setConfirmResult({ results, banks, totaleComplessivo, emailBody, emailSubject, items } as unknown as NonNullable<ConfirmResult>);
       setDistintaSaved(false);
+      setConfirmDiscardDistinta(false);
       // Nuova anteprima → il gate email riparte da zero: la mail va (ri)mandata.
       setEmailSent(false);
       setEmailManualConfirmed(false);
@@ -1943,6 +1948,26 @@ const ScadenzarioSmart = () => {
       toast({ type: 'error', message: 'Errore conferma distinta: ' + (error instanceof Error ? error.message : String(error)) });
       setIsSaving(false);
     }
+  };
+
+  // Chiusura effettiva dell'anteprima distinta (azzera stato + ricarica).
+  const closeDistintaPreview = () => {
+    setConfirmResult(null);
+    setDistintaSaved(false);
+    setConfirmDiscardDistinta(false);
+    fetchData();
+  };
+
+  // Chiusura RICHIESTA (X / Esc): se la distinta non è ancora stata confermata
+  // (passo 2), NON chiudere in silenzio — chiedi conferma, così l'anteprima non
+  // si perde per errore dopo aver solo inviato l'email (passo 1). Se è già
+  // confermata (o non c'è nulla da salvare), chiudi direttamente.
+  const requestCloseDistinta = () => {
+    if (confirmResult && !distintaSaved) {
+      setConfirmDiscardDistinta(true);
+      return;
+    }
+    closeDistintaPreview();
   };
 
   // "Rimuovi dalla distinta": cancella la SINGOLA riga disposizione di quel payable e
@@ -4279,8 +4304,33 @@ const ScadenzarioSmart = () => {
 
       {/* Confirm Result Modal */}
       {confirmResult && (
-        <Modal open={true} onClose={() => { setConfirmResult(null); setDistintaSaved(false); fetchData(); }} title={distintaSaved ? 'Distinta confermata' : 'Anteprima distinta'} wide>
+        <Modal open={true} onClose={requestCloseDistinta} title={distintaSaved ? 'Distinta confermata' : 'Anteprima distinta'} wide>
           <div className="space-y-4">
+            {/* Conferma chiusura: la distinta NON è ancora salvata (serve il passo 2).
+                Evita di perdere il lavoro chiudendo dopo aver solo inviato l'email. */}
+            {confirmDiscardDistinta && !distintaSaved && (
+              <div className="p-3 rounded-xl border border-rose-300 bg-rose-50">
+                <p className="text-sm font-semibold text-rose-800 flex items-center gap-2">
+                  <AlertTriangle size={18} /> La distinta non è ancora stata confermata
+                </p>
+                <p className="text-xs text-rose-700 mt-1">
+                  {emailSent
+                    ? 'L’email è stata inviata, ma la distinta si salva solo con il passo 2 "Conferma distinta". Se chiudi ora, questa distinta non verrà creata (le scadenze restano da pagare).'
+                    : 'Se chiudi ora perdi l’anteprima e la distinta non verrà creata (le scadenze restano da pagare).'}
+                </p>
+                <div className="flex gap-2 mt-3">
+                  <button onClick={() => setConfirmDiscardDistinta(false)}
+                    className="flex-1 py-2 rounded-lg bg-emerald-600 text-white text-sm font-bold hover:bg-emerald-700 flex items-center justify-center gap-1.5">
+                    <CheckCircle2 size={15} /> Torna e conferma la distinta
+                  </button>
+                  <button onClick={closeDistintaPreview}
+                    className="py-2 px-4 rounded-lg border border-rose-300 text-rose-700 text-sm font-medium hover:bg-rose-100">
+                    Chiudi senza salvare
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* Header riepilogo */}
             {distintaSaved ? (
               <div className="flex items-center justify-between p-3 bg-emerald-50 rounded-xl border border-emerald-200">
@@ -4433,8 +4483,16 @@ const ScadenzarioSmart = () => {
                 <Clock size={12} className="text-amber-500" /> Invia prima la distinta via email per poterla confermare.
               </p>
             )}
+            {/* Email partita ma distinta non ancora salvata: passaggio mancante ben visibile.
+                Il verde dell'invio email NON basta — serve premere Conferma distinta. */}
+            {!distintaSaved && (emailSent || emailManualConfirmed) && (
+              <div className="p-2.5 rounded-lg bg-amber-50 border border-amber-300 text-xs text-amber-800 font-medium flex items-center gap-2 -mb-1">
+                <AlertTriangle size={14} className="text-amber-600 shrink-0" />
+                Manca un solo passaggio: premi <span className="font-bold">"Conferma distinta"</span> qui sotto per salvarla. L’email inviata da sola non la crea.
+              </div>
+            )}
             <button onClick={confirmDistinta} disabled={isSaving || distintaSaved || !(emailSent || emailManualConfirmed)}
-              className={`w-full py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition ${distintaSaved ? 'bg-emerald-100 text-emerald-700 cursor-default' : 'bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50'}`}>
+              className={`w-full py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition ${distintaSaved ? 'bg-emerald-100 text-emerald-700 cursor-default' : `bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50 ${!distintaSaved && (emailSent || emailManualConfirmed) ? 'ring-2 ring-amber-400 ring-offset-2 animate-pulse' : ''}`}`}>
               {distintaSaved ? <><CheckCircle2 size={16} /> Distinta confermata</> : (isSaving ? 'Salvataggio...' : <><CheckCircle2 size={16} /> 2. Conferma distinta</>)}
             </button>
           </div>
