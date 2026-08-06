@@ -1,5 +1,40 @@
 # Piano di pagamento fornitore + segnalazioni anomalie — Note di implementazione
 
+> ## 🧾 RICEVUTA BANCARIA (RiBa) — chiusura PROVVISORIA alla scadenza (2026-08-06) — FASE 1
+>
+> **Regola (Patrizio)**: un fornitore che paga con **ricevuta bancaria** (`riba_*`) viene
+> addebitato dalla banca **alla scadenza di ogni rata**, a prescindere dalla divisione
+> 30/60/90. Quindi ALLA DATA DI SCADENZA la scadenza si dà per **pagata e chiusa in via
+> PROVVISORIA**. Resta provvisoria finché non arriva **(a)** l'upload/conferma di una
+> **distinta** della ricevuta bancaria, oppure **(b)** un **movimento bancario** riconciliato.
+> Se non arriva né l'una né l'altra, resta pagata di default.
+>
+> **Modello** (migration `20260806_143_riba_provisional_close.sql`, applicata NZ+Made+Zago):
+> - Nuovo flag `payables.is_provisional_paid` (+ `provisional_paid_at`). La chiusura provvisoria
+>   imposta `amount_paid = gross`, `payment_date = due_date`, **nessun** `bank_transaction_id`
+>   (come una chiusura a mano: prima nota intatta). Il trigger `update_payable_status` porta
+>   quindi `status = 'pagato'`. Il flag si azzera **da solo** quando si aggancia un movimento
+>   (nel trigger: `bank_transaction_id NOT NULL` → `is_provisional_paid = false`) → PAGATO definitivo.
+> - `fn_riba_provisional_close(company, include_backlog)`: chiude le RiBa aperte con `gross > 0`
+>   (le **NC sono escluse**), non placeholder/closed_manually, senza movimento, `status` aperto,
+>   `due_date <= today`. **Guardia forward-only**: in automatico solo `due_date >= 2026-08-06`
+>   (data attivazione) → lo **storico** già scaduto NON viene toccato in automatico.
+> - `rerun_riba_provisional_close()` agganciata al cron notturno `run_daily_reconciliation`
+>   (05:45), **per ultima** (la riconciliazione reale ha la precedenza).
+> - `rpc_riba_provisional_close_backlog()` (ruoli contabile/super_advisor): chiude in blocco lo
+>   **storico** già scaduto → pulsante "Chiudi storico RiBa" in Scadenzario. `rpc_riba_provisional_undo(id)`
+>   riapre una singola provvisoria (reversibile). Al 2026-08-06 su NZ: 0 forward, 12 backlog.
+>
+> **Frontend**: stato sintetico `pagato_provvisorio` (badge verde acqua "Pagato (provvisorio)"),
+> escluso dalla lista attiva (come `addebito_automatico`), pill "RiBa provvisorie", filtro stato
+> dedicato, riga partitario "Pagamento RiBa (provvisorio)" in `SchedaContabileFornitore`.
+> Parità #0: **meccanismo** identico sui 3 tenant; i fornitori RiBa restano dato NZ-specifico.
+>
+> **FASE 2 (da fare)** — upload distinta: NON "a fiducia". Il file va **letto/verificato nel
+> contenuto e negli importi** e si chiude **solo ciò che riscontra al centesimo**; il resto resta
+> aperto. **FASE 3 (da fare)** — coda NC manuale: le note di credito dei fornitori RiBa vanno
+> **abbinate a mano** a una scadenza/pagamento (mai compensate in automatico), tracciate nel partitario.
+
 > ## ⚠️ AUTO-MATCH A IMPORTO — scramble su fornitore a importo unico (2026-08-06)
 >
 > **Sintomo** (segnalato da Patrizio, New Zago): fatture di un fornitore che

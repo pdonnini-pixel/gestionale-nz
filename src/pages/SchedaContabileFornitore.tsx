@@ -371,6 +371,7 @@ export default function SchedaContabileFornitore() {
       manualCloseReason: string | null;
       manualClosedAmount: number;    // importo complessivo chiuso a mano (totale o parziale)
       manualCloseDate: string | null;
+      isProvisional: boolean;        // true se il pagamento e' una RiBa chiusa in via provvisoria
     }
     const map = new Map<string, InvoiceAgg>();
     for (const p of filteredPayables) {
@@ -392,6 +393,7 @@ export default function SchedaContabileFornitore() {
           manualCloseReason: null,
           manualClosedAmount: 0,
           manualCloseDate: null,
+          isProvisional: false,
         };
         map.set(key, agg);
       }
@@ -410,6 +412,7 @@ export default function SchedaContabileFornitore() {
       }
       if (p.status === 'pagato' && p.payment_date) {
         agg.isPaid = true;
+        if ((p as Payable & { is_provisional_paid?: boolean | null }).is_provisional_paid) agg.isProvisional = true;
         // Somma SOLO l'importo effettivamente pagato di questa rata (non il totale
         // fattura): con fatture rateizzate, una sola rata pagata non chiude tutto.
         agg.paidAmount += Number(p.amount_paid ?? p.gross_amount ?? 0);
@@ -504,13 +507,18 @@ export default function SchedaContabileFornitore() {
           // fornitore mostra correttamente il residuo delle rate ancora aperte.
           const bankName = agg.paymentBankId ? (bankAccountById[agg.paymentBankId] || 'Banca non specificata') : 'Banca non specificata';
           const isPartial = agg.paidAmount < Math.abs(agg.grossTotal) - 0.005;
+          // RiBa chiusa in via provvisoria: nessun movimento bancario, in attesa
+          // di distinta o riconciliazione. La riga resta tracciata nel partitario.
+          const descrizione = agg.isProvisional
+            ? `Pagamento RiBa (provvisorio)${isPartial ? ' parziale' : ''} — in attesa di distinta o movimento — rif. Fatt. ${agg.invoiceNumber}`
+            : `Pagamento${isPartial ? ' parziale' : ''} — ${bankName} — rif. Fatt. ${agg.invoiceNumber}`;
           movimenti.push({
             data: agg.invoiceDate,           // data principale = emissione fattura
             dataPagamento: agg.paymentDate,  // mostrata sotto in piccolo
             numero: agg.invoiceNumber,
             dare: agg.paidAmount,
             avere: 0,
-            descrizione: `Pagamento${isPartial ? ' parziale' : ''} — ${bankName} — rif. Fatt. ${agg.invoiceNumber}`,
+            descrizione,
             aliquotaIVA: '—',
             tipo: 'pagamento',
           });

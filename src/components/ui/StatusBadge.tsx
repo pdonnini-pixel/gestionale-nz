@@ -36,6 +36,8 @@ const statusColorMap: Record<string, string> = {
   rimandato: 'purple',
   // Indigo — addebito automatico (carta MP08): non è né scaduto né pagato
   addebito_automatico: 'indigo',
+  // Teal — RiBa pagata in via provvisoria alla scadenza (in attesa di conferma)
+  pagato_provvisorio: 'teal',
   // Slate (gray)
   bozza: 'slate',
   draft: 'slate',
@@ -94,6 +96,12 @@ const colorStyles: Record<string, { bg: string; text: string; dot: string; borde
     text: 'text-indigo-700',
     dot: 'bg-indigo-500',
     border: 'border-indigo-200',
+  },
+  teal: {
+    bg: 'bg-teal-50',
+    text: 'text-teal-700',
+    dot: 'bg-teal-500',
+    border: 'border-teal-200',
   },
 }
 
