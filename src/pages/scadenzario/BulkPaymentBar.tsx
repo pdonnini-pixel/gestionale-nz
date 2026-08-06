@@ -12,15 +12,17 @@ export type BankAccountLite = {
 }
 
 export function BulkPaymentBar({
-  selectedCount, selectedTotal, bankSpending, bankBalances, bankAccounts,
+  selectedCount, selectedTotal, bankSpending, bankBalances, bankBaseBalances, bankAccounts,
   hasNegativeBalance, missingBankCount, isSaving, onClear, onConfirm,
 }: {
   selectedCount: number
   selectedTotal: number
   /** id banca -> importo in uscita stimato per la selezione corrente */
   bankSpending: Record<string, number>
-  /** id banca -> residuo stimato (saldo attuale - spesa selezionata) */
+  /** id banca -> residuo stimato (previsionale di partenza - spesa selezionata) */
   bankBalances: Record<string, number>
+  /** id banca -> saldo previsionale di partenza (reale - distinte già disposte non pagate) */
+  bankBaseBalances?: Record<string, number>
   bankAccounts: BankAccountLite[]
   hasNegativeBalance: boolean
   missingBankCount: number
@@ -41,14 +43,23 @@ export function BulkPaymentBar({
             {Object.keys(bankSpending).map(bid => {
               const ba = bankAccounts.find(b => String(b.id) === String(bid));
               if (!ba) return null;
-              const saldo0 = Number(ba.current_balance) || 0;
+              const saldoReale = Number(ba.current_balance) || 0;
+              // Partenza = previsionale (reale − distinte già disposte non pagate); se non
+              // disponibile, si ricade sul saldo reale pieno.
+              const saldo0 = bankBaseBalances?.[bid] ?? saldoReale;
+              const hasCommitted = saldo0 < saldoReale;
               const residuoStimato = bankBalances[bid] ?? saldo0;
               const neg = residuoStimato < 0;
               return (
                 <div key={bid} className="flex items-center gap-1.5 text-xs">
                   <Landmark size={13} className="text-slate-400" />
                   <span className="font-medium text-slate-700">{ba.bank_name}</span>
-                  <span className="text-slate-400">{fmt(saldo0)} €</span>
+                  <span
+                    className="text-slate-400"
+                    title={hasCommitted ? `Saldo previsionale (reale ${fmt(saldoReale)} € − distinte già disposte)` : 'Saldo attuale'}
+                  >
+                    {fmt(saldo0)} €{hasCommitted ? ' prev.' : ''}
+                  </span>
                   <ChevronRight size={12} className="text-slate-300" />
                   <span className={neg ? 'font-bold text-red-600' : 'font-semibold text-emerald-600'}>{fmt(residuoStimato)} €</span>
                   <span className="text-slate-400">(−{fmt(bankSpending[bid] || 0)})</span>
