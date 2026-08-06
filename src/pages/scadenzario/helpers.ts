@@ -21,6 +21,10 @@ export const VALID_SCADENZARIO_SECTIONS: ScadenzarioSection[] = ['situazione', '
  */
 // TODO: tighten type
 export function calculatePayableStatus(p: any): string {
+  // RiBa chiusa in via provvisoria alla scadenza: badge dedicato, ha
+  // precedenza sul 'pagato' terminale (la riga in DB e' gia' 'pagato').
+  // Si conferma (perde il flag) quando arriva distinta o movimento bancario.
+  if (p.is_provisional_paid) return 'pagato_provvisorio';
   const TERMINAL = new Set(['pagato', 'nota_credito', 'sospeso', 'rimandato', 'annullato', 'parziale']);
   if (p.status && TERMINAL.has(p.status)) return p.status;
   if (p.payment_date) return 'pagato';
@@ -92,6 +96,7 @@ export const statusConfig = {
   in_scadenza: { label: 'In scadenza', bg: 'bg-amber-100 text-amber-700' },
   da_pagare: { label: 'Da pagare', bg: 'bg-blue-100 text-blue-700' },
   parziale: { label: 'Parziale', bg: 'bg-orange-100 text-orange-700' },
+  pagato_provvisorio: { label: 'Pagato (provvisorio)', bg: 'bg-teal-100 text-teal-700' },
   sospeso: { label: 'Sospeso', bg: 'bg-slate-100 text-slate-600' },
   rimandato: { label: 'Rimandato', bg: 'bg-purple-100 text-purple-700' },
   pagato: { label: 'Pagato', bg: 'bg-emerald-100 text-emerald-700' },

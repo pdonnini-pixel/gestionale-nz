@@ -570,7 +570,7 @@ const ScadenzarioSmart = () => {
       const payablesRaw = await fetchAllPaged(
         (from, to) => supabase
           .from('payables')
-          .select('id, cash_movement_id, cost_category_id, verified, payment_date, payment_bank_account_id, installment_number, installment_total, recurring_cost_id, closed_manually, manual_close_reason')
+          .select('id, cash_movement_id, cost_category_id, verified, payment_date, payment_bank_account_id, installment_number, installment_total, recurring_cost_id, closed_manually, manual_close_reason, is_provisional_paid, provisional_paid_at')
           .eq('company_id', COMPANY_ID!)
           .order('id', { ascending: true })
           .range(from, to),
@@ -590,6 +590,8 @@ const ScadenzarioSmart = () => {
           recurring_cost_id: (p as { recurring_cost_id?: string | null }).recurring_cost_id ?? null,
           closed_manually: (p as { closed_manually?: boolean | null }).closed_manually ?? false,
           manual_close_reason: (p as { manual_close_reason?: string | null }).manual_close_reason ?? null,
+          is_provisional_paid: (p as { is_provisional_paid?: boolean | null }).is_provisional_paid ?? false,
+          provisional_paid_at: (p as { provisional_paid_at?: string | null }).provisional_paid_at ?? null,
         };
       });
 
@@ -781,6 +783,10 @@ const ScadenzarioSmart = () => {
           recurring_cost_id: (extra.recurring_cost_id as string | null) ?? null,
           closed_manually: Boolean(extra.closed_manually),
           manual_close_reason: (extra.manual_close_reason as string | null) ?? null,
+          // RiBa chiusa in via provvisoria alla scadenza: guida il badge
+          // 'Pagato (provvisorio)' in calculatePayableStatus.
+          is_provisional_paid: Boolean(extra.is_provisional_paid),
+          provisional_paid_at: (extra.provisional_paid_at as string | null) ?? null,
           // Addebito automatico carta (MP08): guida il badge dedicato e il
           // ricalcolo stato (mai 'scaduto') in calculatePayableStatus.
           is_auto_debit: Boolean((row as { is_auto_debit?: boolean | null }).is_auto_debit),
@@ -1392,6 +1398,25 @@ const ScadenzarioSmart = () => {
     const list = payables.filter(p => p.status === 'addebito_automatico');
     return { count: list.length, total: list.reduce((s, p) => s + (Number(p.amount_remaining) || 0), 0) };
   }, [payables]);
+
+  // RiBa chiuse in via provvisoria alla scadenza (in attesa di distinta o
+  // movimento bancario). Residuo = 0 (pagate), quindi il totale usa il lordo.
+  const provisionalInfo = useMemo(() => {
+    const list = payables.filter(p => p.status === 'pagato_provvisorio');
+    return { count: list.length, total: list.reduce((s, p) => s + (Number(p.gross_amount) || 0), 0) };
+  }, [payables]);
+  const canManageRiba = profile?.role === 'super_advisor' || profile?.role === 'contabile';
+
+  // Chiude in blocco lo STORICO RiBa gia' scaduto (due_date < 06/08/2026) in via
+  // provvisoria. L'automatico copre solo il futuro: questo e' il recupero manuale.
+  const handleCloseRibaBacklog = useCallback(async () => {
+    if (!confirm('Chiudo in via PROVVISORIA tutte le RiBa storiche gia\' scadute e ancora aperte?\n\nRestano riaperte automaticamente appena arriva una distinta o un movimento bancario. L\'operazione e\' reversibile.')) return;
+    const { data, error } = await supabase.rpc('rpc_riba_provisional_close_backlog' as never);
+    if (error) { toast({ type: 'error', message: 'Errore: ' + error.message }); return; }
+    const n = (data as { riba_provisional_closed?: number } | null)?.riba_provisional_closed ?? 0;
+    toast({ type: n > 0 ? 'success' : 'info', message: n > 0 ? `${n} scadenze RiBa chiuse in via provvisoria` : 'Nessuna RiBa storica da chiudere' });
+    fetchData();
+  }, [toast, fetchData]);
 
   // Totali per singolo metodo di pagamento (stessa base filtrata dei KPI)
   type MethodAgg = { key: string; label: string; total: number; count: number }
@@ -2395,6 +2420,9 @@ const ScadenzarioSmart = () => {
       // attiva (non c'è nulla da disporre a mano). Restano nel saldo/cashflow e
       // si vedono solo nel filtro dedicato "In attesa (carta)".
       if (p.status === 'addebito_automatico' && selectedStatus !== 'addebito_automatico') return false;
+      // RiBa chiuse in via provvisoria alla scadenza: contano come pagate, tolte
+      // dalla lista attiva. Visibili solo col filtro dedicato 'pagato_provvisorio'.
+      if (p.status === 'pagato_provvisorio' && selectedStatus !== 'pagato_provvisorio') return false;
       // Pagate nascoste di default.
       if (p.status === 'pagato') return false;
       // NC CHIUSA a mano (registrata in partitario): esce dalle Aperte come una pagata,
@@ -2766,6 +2794,7 @@ const ScadenzarioSmart = () => {
               <option value="in_scadenza">In scadenza</option>
               <option value="da_pagare">Da pagare</option>
               <option value="parziale">Parziale</option>
+              <option value="pagato_provvisorio">Pagato (provvisorio — RiBa)</option>
               <option value="pagato">Pagato</option>
               <option value="in_distinta">In sospeso (in attesa di riscontro)</option>
               <option value="sospeso">Sospeso</option>
@@ -2793,6 +2822,26 @@ const ScadenzarioSmart = () => {
                 className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium ${selectedStatus === 'addebito_automatico' ? 'bg-indigo-500 text-white border-indigo-500' : 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100'}`}>
                 <Clock size={12} />
                 In attesa carta: {autoDebitInfo.count} ({fmt(autoDebitInfo.total)} €)
+              </button>
+            )}
+            {/* Accesso rapido "RiBa provvisorie": pagate in automatico alla scadenza,
+                in attesa di distinta o riscontro bancario. Contano come pagate. */}
+            {provisionalInfo.count > 0 && (
+              <button
+                onClick={() => setSelectedStatus(selectedStatus === 'pagato_provvisorio' ? '' : 'pagato_provvisorio')}
+                title="RiBa chiuse in via provvisoria alla scadenza: in attesa di distinta o movimento bancario. Si confermano da sole quando arriva il riscontro."
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium ${selectedStatus === 'pagato_provvisorio' ? 'bg-teal-500 text-white border-teal-500' : 'bg-teal-50 text-teal-700 border-teal-200 hover:bg-teal-100'}`}>
+                <Clock size={12} />
+                RiBa provvisorie: {provisionalInfo.count} ({fmt(provisionalInfo.total)} €)
+              </button>
+            )}
+            {canManageRiba && (
+              <button
+                onClick={handleCloseRibaBacklog}
+                title="Chiude in via provvisoria lo storico RiBa gia' scaduto e ancora aperto (recupero manuale, reversibile). L'automatico copre solo le scadenze da oggi in poi."
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium bg-white text-slate-600 border-slate-200 hover:bg-slate-50">
+                <Clock size={12} />
+                Chiudi storico RiBa
               </button>
             )}
             <input type="date" value={dateRange.start} onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })}
