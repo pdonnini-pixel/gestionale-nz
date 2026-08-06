@@ -88,6 +88,17 @@ const ScadenzarioSmart = () => {
     last_action_type?: string | null
     last_action_note?: string | null
     last_action_date?: string | null
+    last_action_by?: string | null
+    // Realtà del pagamento (dalla vista v_payables_operative, migration 143)
+    payment_source?: string | null           // 'movimento' | 'manuale' | 'storico' | null
+    payment_real_bank_name?: string | null   // banca reale del movimento riconciliato
+    payment_movement_date?: string | null    // data del movimento bancario reale
+    payment_movement_amount?: number | null
+    payment_movement_description?: string | null
+    payment_planned_bank_name?: string | null // banca "prevista" (solo etichetta)
+    bank_transaction_id?: string | null
+    closed_manually?: boolean | null
+    manual_close_reason?: string | null
     cash_movement_id?: string | null
     cost_category_id?: string | null
     verified?: boolean | null
@@ -715,9 +726,22 @@ const ScadenzarioSmart = () => {
           payment_method: row.payment_method,
           payment_date: (extra.payment_date as string | null) ?? null,
           payment_bank_account_id: (extra.payment_bank_account_id as string | null) ?? null,
-          // Nome banca per la colonna CONTO. Provo prima il banca diretta,
-          // poi via cash_movement (per riconciliazioni automatiche).
+          // REALTÀ DEL PAGAMENTO (dalla vista, migration 143): come/quando/da dove
+          // è stata pagata davvero. La colonna CONTO le usa per non spacciare più la
+          // banca "prevista" per quella reale del movimento.
+          payment_source: (row.payment_source as string | null) ?? null,
+          payment_real_bank_name: (row.payment_real_bank_name as string | null) ?? null,
+          payment_movement_date: (row.payment_movement_date as string | null) ?? null,
+          payment_movement_amount: (row.payment_movement_amount as number | null) ?? null,
+          payment_movement_description: (row.payment_movement_description as string | null) ?? null,
+          payment_planned_bank_name: (row.payment_planned_bank_name as string | null) ?? null,
+          bank_transaction_id: (row.bank_transaction_id as string | null) ?? null,
+          // Nome banca per la colonna CONTO / ordinamento. Priorità alla REALTÀ del
+          // movimento: (1) banca reale del movimento riconciliato, poi i fallback
+          // storici (2) banca diretta payment_bank_account_id, (3) via cash_movement.
           payment_bank_name: (() => {
+            const real = (row.payment_real_bank_name as string | null) || null;
+            if (real) return real;
             const direct = extra.payment_bank_account_id ? bankNameById.get(String(extra.payment_bank_account_id)) : null;
             if (direct) return direct;
             const viaCM = extra.cash_movement_id ? cashMovBankMap.get(String(extra.cash_movement_id)) : null;
@@ -742,6 +766,7 @@ const ScadenzarioSmart = () => {
           last_action_type: row.last_action_type,
           last_action_note: row.last_action_note,
           last_action_date: row.last_action_date,
+          last_action_by: (row.last_action_by as string | null) ?? null,
           cash_movement_id: (extra.cash_movement_id as string | null) ?? null,
           cost_category_id: (extra.cost_category_id as string | null) ?? null,
           verified: Boolean(extra.verified),
@@ -1120,7 +1145,12 @@ const ScadenzarioSmart = () => {
             closed_manually: row.closed_manually ?? true,
             manual_close_reason: row.manual_close_reason ?? (reason || null),
             payment_bank_account_id: null,
-            payment_bank_name: null }
+            payment_bank_name: null,
+            // Realtà pagamento: chiusura a mano. Allinea subito la colonna CONTO
+            // (operatore + data) senza attendere il refetch della vista.
+            payment_source: 'manuale',
+            payment_real_bank_name: null,
+            last_action_by: operatorName || p.last_action_by || null }
         : p));
     }
     return true;
@@ -3608,24 +3638,85 @@ const ScadenzarioSmart = () => {
                               </div>
                             )}
                           </td>
-                          {/* CONTO — banca su cui è stata saldata.
-                              3 stati visivi:
-                                a) banca nota -> pillola verde con nome
-                                b) pagata MA banca non tracciata -> badge ambra
-                                   'Off-system' (es. cash/altro non riconciliato)
-                                c) non pagata -> trattino */}
+                          {/* CONTO — REALTÀ del pagamento (non la banca "prevista").
+                              Guidato da payment_source (vista, migration 143):
+                                movimento -> banca REALE del movimento + data (verde)
+                                manuale   -> operatore che ha chiuso + data (viola)
+                                storico   -> registrata pagata, nessun movimento (slate)
+                                non pagata-> trattino
+                              La banca prevista non viene più spacciata per reale: se
+                              esiste, compare solo come "prevista" nel tooltip. */}
                           <td className="py-2.5 px-3 text-center">
-                            {p.payment_bank_name ? (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-50 text-xs text-emerald-700 font-medium border border-emerald-200" title={`Pagato su ${p.payment_bank_name}`}>
-                                <Landmark size={10} /> {p.payment_bank_name}
-                              </span>
-                            ) : p.status === 'pagato' ? (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-50 text-xs text-amber-700 font-medium border border-amber-200" title="Pagata ma senza banca tracciata in Supabase. Probabilmente saldata fuori dall'app o tramite riconciliazione legacy.">
-                                Off-system
-                              </span>
-                            ) : (
-                              <span className="text-xs text-slate-400">—</span>
-                            )}
+                            {(() => {
+                              const d2 = (s?: string | null) => s ? new Date(s).toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit' }) : '';
+                              const dFull = (s?: string | null) => s ? new Date(s).toLocaleDateString('it-IT') : '';
+                              const src = p.payment_source as string | null;
+                              const viaDistinta = Boolean(p.disposizione_date) || p.last_action_type === 'disposizione';
+
+                              // 1) Riconciliata da un MOVIMENTO bancario reale
+                              if (src === 'movimento' && p.payment_real_bank_name) {
+                                const mDate = p.payment_movement_date || p.payment_date;
+                                const tip = `Pagato da movimento bancario${mDate ? ' del ' + dFull(mDate) : ''} su ${p.payment_real_bank_name}`
+                                  + (p.payment_movement_amount != null ? ` — ${fmt(Math.abs(Number(p.payment_movement_amount)))} €` : '')
+                                  + (p.payment_movement_description ? ` — ${p.payment_movement_description}` : '')
+                                  + (viaDistinta ? ' (via distinta / RI.BA)' : '');
+                                return (
+                                  <UiTooltip content={tip}>
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-50 text-xs text-emerald-700 font-medium border border-emerald-200">
+                                      <Landmark size={10} /> {p.payment_real_bank_name}
+                                      {mDate ? <span className="text-emerald-500 font-normal">· {d2(mDate)}</span> : null}
+                                      {viaDistinta ? <span className="text-emerald-500 font-normal">· distinta</span> : null}
+                                    </span>
+                                  </UiTooltip>
+                                );
+                              }
+
+                              // 2) Chiusa a MANO da un operatore (nessun movimento tracciato)
+                              if (src === 'manuale') {
+                                const who = p.last_action_by || null;
+                                const when = p.payment_date || p.last_action_date;
+                                const tip = `Chiusa a mano${who ? ' da ' + who : ''}${when ? ' il ' + dFull(when) : ''}`
+                                  + (p.manual_close_reason ? ` — ${p.manual_close_reason}` : '')
+                                  + (p.payment_planned_bank_name ? ` — banca prevista: ${p.payment_planned_bank_name}` : '');
+                                return (
+                                  <UiTooltip content={tip}>
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-violet-50 text-xs text-violet-700 font-medium border border-violet-200">
+                                      ✎ A mano{who ? <span className="font-normal">· {who}</span> : null}
+                                      {when ? <span className="text-violet-400 font-normal">· {d2(when)}</span> : null}
+                                    </span>
+                                  </UiTooltip>
+                                );
+                              }
+
+                              // 3) STORICO: risulta pagata ma senza traccia di movimento (import/pregresso)
+                              if (src === 'storico') {
+                                const when = p.payment_date;
+                                const tip = `Registrata come pagata${when ? ' il ' + dFull(when) : ''} — nessun movimento bancario tracciato (import/pregresso)`
+                                  + (p.payment_planned_bank_name ? ` — banca prevista: ${p.payment_planned_bank_name}` : '');
+                                return (
+                                  <UiTooltip content={tip}>
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-50 text-xs text-slate-500 font-medium border border-slate-200">
+                                      <CheckCircle2 size={10} /> Pagato{when ? <span className="text-slate-400 font-normal">· {d2(when)}</span> : null}
+                                    </span>
+                                  </UiTooltip>
+                                );
+                              }
+
+                              // 4) Fallback: pagata ma non classificata (raro)
+                              if (p.status === 'pagato') {
+                                return p.payment_bank_name ? (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-50 text-xs text-emerald-700 font-medium border border-emerald-200" title={`Pagato su ${p.payment_bank_name}`}>
+                                    <Landmark size={10} /> {p.payment_bank_name}
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-50 text-xs text-amber-700 font-medium border border-amber-200" title="Pagata ma senza banca tracciata in Supabase. Probabilmente saldata fuori dall'app o tramite riconciliazione legacy.">
+                                    Off-system
+                                  </span>
+                                );
+                              }
+
+                              return <span className="text-xs text-slate-400">—</span>;
+                            })()}
                           </td>
                           {/* CATEGORIA — dropdown con ricerca Sibill */}
                           <td className="py-2.5 px-3 text-center relative">
