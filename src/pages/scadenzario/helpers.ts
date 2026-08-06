@@ -11,7 +11,10 @@ export const VALID_SCADENZARIO_SECTIONS: ScadenzarioSection[] = ['situazione', '
 /**
  * Calcola lo stato di una payable in base alle sue date.
  * Stati terminali (pagato, nota_credito, sospeso, rimandato, annullato,
- * parziale) rispettati. Altrimenti deduce da due_date:
+ * parziale) rispettati. Gli addebiti automatici (carta MP08, is_auto_debit)
+ * hanno uno stato dedicato 'addebito_automatico' e non risultano mai 'scaduto'
+ * (sono automatici: si chiudono con la riconciliazione bancaria, ma restano
+ * nel saldo come uscita prevista). Altrimenti deduce da due_date:
  *   - oggi > due_date  -> 'scaduto'
  *   - 0..30 giorni     -> 'in_scadenza' (allineato al filtro 'Prossimi 30gg')
  *   - oltre 30 giorni  -> 'da_pagare'
@@ -21,6 +24,8 @@ export function calculatePayableStatus(p: any): string {
   const TERMINAL = new Set(['pagato', 'nota_credito', 'sospeso', 'rimandato', 'annullato', 'parziale']);
   if (p.status && TERMINAL.has(p.status)) return p.status;
   if (p.payment_date) return 'pagato';
+  // Addebito automatico carta (MP08): mai scaduto, badge dedicato.
+  if (p.is_auto_debit) return 'addebito_automatico';
   if (!p.due_date) return p.status || 'da_pagare';
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -83,6 +88,7 @@ export function fmtDate(d: string | null | undefined): string {
 // Status config
 export const statusConfig = {
   scaduto: { label: 'Scaduto', bg: 'bg-red-100 text-red-700' },
+  addebito_automatico: { label: 'Addebito automatico', bg: 'bg-indigo-100 text-indigo-700' },
   in_scadenza: { label: 'In scadenza', bg: 'bg-amber-100 text-amber-700' },
   da_pagare: { label: 'Da pagare', bg: 'bg-blue-100 text-blue-700' },
   parziale: { label: 'Parziale', bg: 'bg-orange-100 text-orange-700' },

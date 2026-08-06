@@ -720,6 +720,9 @@ const ScadenzarioSmart = () => {
           recurring_cost_id: (extra.recurring_cost_id as string | null) ?? null,
           closed_manually: Boolean(extra.closed_manually),
           manual_close_reason: (extra.manual_close_reason as string | null) ?? null,
+          // Addebito automatico carta (MP08): guida il badge dedicato e il
+          // ricalcolo stato (mai 'scaduto') in calculatePayableStatus.
+          is_auto_debit: Boolean((row as { is_auto_debit?: boolean | null }).is_auto_debit),
           disposizione_date: row.id ? (dispMap.get(row.id)?.date ?? ncDispMap.get(row.id)?.date ?? null) : null,
           disposizione_bank_name: (() => {
             const b = row.id ? (dispMap.get(row.id)?.bankId ?? ncDispMap.get(row.id)?.bankId ?? null) : null;
@@ -2642,6 +2645,7 @@ const ScadenzarioSmart = () => {
               <option value="">Aperte</option>
               <option value="all">Tutti gli stati</option>
               <option value="scaduto">Scaduto</option>
+              <option value="addebito_automatico">Addebito automatico (carta)</option>
               <option value="in_scadenza">In scadenza</option>
               <option value="da_pagare">Da pagare</option>
               <option value="parziale">Parziale</option>
@@ -2919,6 +2923,7 @@ const ScadenzarioSmart = () => {
             const dotColor = (p: AnyRow) => {
               if (p._isEstimate) return 'bg-sky-400'; // stima da ricorrenza
               if (p.status === 'scaduto') return 'bg-red-500';
+              if (p.status === 'addebito_automatico') return 'bg-indigo-500';
               if (p.status === 'in_scadenza') return 'bg-amber-500';
               if (p.status === 'pagato') return 'bg-emerald-500';
               return 'bg-blue-500'; // da_pagare, parziale, etc.
@@ -3003,6 +3008,7 @@ const ScadenzarioSmart = () => {
                 {/* Legend */}
                 <div className="flex items-center gap-4 text-xs text-slate-500">
                   <div className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-red-500" /> Scaduto</div>
+                  <div className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-indigo-500" /> Addebito automatico</div>
                   <div className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-amber-500" /> In scadenza</div>
                   <div className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500" /> Pagato</div>
                   <div className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-blue-500" /> Da pagare</div>
