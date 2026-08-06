@@ -30,10 +30,35 @@
 > dedicato, riga partitario "Pagamento RiBa (provvisorio)" in `SchedaContabileFornitore`.
 > Parità #0: **meccanismo** identico sui 3 tenant; i fornitori RiBa restano dato NZ-specifico.
 >
-> **FASE 2 (da fare)** — upload distinta: NON "a fiducia". Il file va **letto/verificato nel
-> contenuto e negli importi** e si chiude **solo ciò che riscontra al centesimo**; il resto resta
-> aperto. **FASE 3 (da fare)** — coda NC manuale: le note di credito dei fornitori RiBa vanno
+> **FASE 3 (da fare)** — coda NC manuale: le note di credito dei fornitori RiBa vanno
 > **abbinate a mano** a una scadenza/pagamento (mai compensate in automatico), tracciate nel partitario.
+
+> ## 🧾 RiBa — FASE 2: upload distinta con riscontro AL CENTESIMO (2026-08-06) — FATTA
+>
+> **Regola (Patrizio)**: caricando la distinta della banca il sistema deve **verificare
+> contenuto e importi** e chiudere **solo ciò che riscontra al centesimo**, mai a fiducia.
+>
+> **DB** (migration `20260806_145_riba_distinta_upload.sql`, applicata NZ+Made+Zago):
+> - bucket storage privato `riba-distinte` (policy autenticati) + tabelle `riba_distinte`
+>   (testata) e `riba_distinta_lines` (righe: raw_supplier/raw_invoice/raw_amount/raw_due_date,
+>   matched_payable_id, match_status ∈ unmatched|matched|ambiguous|confirmed). RLS company-scoped.
+> - `rpc_automatch_riba_distinta(distinta)`: aggancia ogni riga a una RiBa (aperta o provvisoria,
+>   senza movimento) con `round(gross*100)=round(amount*100)` — importo **esatto**. Disambigua per
+>   numero fattura, poi nome fornitore. 1 candidato → matched; >1 → ambiguous; 0 → unmatched.
+> - `rpc_confirm_riba_distinta_line(line, payable)`: **gate al centesimo** (`IMPORTO_NON_QUADRA` se
+>   diverso), verifica che sia RiBa, poi rende la scadenza **pagata definitiva** (amount_paid=gross,
+>   `is_provisional_paid=false`, payable_action `conferma_distinta_riba`). Ruoli contabile/super_advisor.
+> - `rpc_confirm_riba_distinta(distinta)`: conferma in blocco le righe `matched`, salta (skipped) quelle
+>   che non quadrano più. Testato end-to-end su NZ in rollback (gate + matched→pagato).
+>
+> **Edge** `extract-distinta` (deploy NZ+Made+Zago): PDF→testo (pdfjs lato client) → AI (Vault, come
+> `extract-scadenza`) → righe. **Solo estrazione**: il riscontro/chiusura al centesimo è lato DB.
+>
+> **Frontend**: `src/lib/ribaDistintaExtract.ts` (PDF via edge; **CSV/XLSX deterministico** lato client),
+> `src/components/RibaDistintaModal.tsx` (upload → riscontro → conferma), pulsante "Carica distinta RiBa"
+> in `ScadenzarioSmart` (ruoli scrittura). Guida `/scadenzario` aggiornata.
+>
+> **FASE 3 (da fare)** — coda NC manuale (vedi sopra).
 
 > ## ⚠️ AUTO-MATCH A IMPORTO — scramble su fornitore a importo unico (2026-08-06)
 >
