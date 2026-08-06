@@ -1,5 +1,30 @@
 # Piano di pagamento fornitore + segnalazioni anomalie — Note di implementazione
 
+> ## ⚠️ DEDUP 106 vs RATE UGUALI — falso positivo che nasconde le rate (2026-08-06)
+>
+> **Regola**: il dedup doppioni (migration `106`) clusterizza per
+> `(company_id, supplier_name, invoice_number, round(gross_amount))` **senza**
+> `installment_number`. Un piano a **rate uguali** (es. 2 rate da €2.627,27 su
+> fattura da €5.254,54) ha tutte le rate con lo **stesso importo** → stesso
+> cluster → il dedup ne tiene una e marca le altre `is_placeholder=true`,
+> facendole sparire da scadenzario (`v_payables_operative`) e riconciliazione.
+> **Le rate NON sono doppioni**: si distinguono per `installment_number`.
+>
+> **Sintomo utente** (segnalato da Patrizio): fattura con acconto pagato che
+> appare "pagata per pieno", il **saldo** (rata successiva) è invisibile.
+> Caso originario: **999 SRL, fattura 32** (rata 2/2 nascosta) — fix in
+> `NZ_ONLY_20260806_141`.
+>
+> **Regole**:
+> - Chi scrive un dedup che marca `is_placeholder` DEVE partizionare anche per
+>   `installment_number` (o escludere le righe con `installment_number IS NOT NULL`).
+> - Ambito **NZ_ONLY**: i piani a rate sono dato solo di New Zago (Made/Zago: 0).
+> - Bonifica dati storici: ripristino `is_placeholder=false` delle rate genuine
+>   (una sola riga per `(fornitore, fattura, importo_arrotondato, installment_number)`,
+>   escluse le `annullato` e i cluster con una riga NON-rata visibile — es. SP
+>   CONTABILE 322/E, doppione `annullato` che resta nascosto). Backup:
+>   `public.payables_installment_placeholder_backup_20260806`.
+
 > ## 🧾 REVERSE CHARGE — i documenti TD16/17/18/19 NON generano scadenze (2026-07-31)
 >
 > **Regola**: i documenti di **integrazione / autofattura reverse charge** — `TD16`
