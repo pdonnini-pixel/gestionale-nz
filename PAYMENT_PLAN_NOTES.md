@@ -1,5 +1,47 @@
 # Piano di pagamento fornitore + segnalazioni anomalie — Note di implementazione
 
+> ## ⚠️ AUTO-MATCH A IMPORTO — scramble su fornitore a importo unico (2026-08-06)
+>
+> **Sintomo** (segnalato da Patrizio, New Zago): fatture di un fornitore che
+> risultano `pagato` ma **agganciate al bonifico sbagliato**; una fattura chiusa
+> senza avere un pagamento reale. Caso originario: **SPM Investigazioni srl** —
+> FPR 436/26 di ATENA idem (bonifico "SALDO FATTURA 350" finito sulla 436).
+>
+> **Causa radice**: quando un fornitore emette **fatture tutte dello stesso
+> importo** (SPM: tutte da €110), il matcher **a importo/data** (`try_match_bank_transaction`
+> / `try_match_amount_bank_transaction`, ordine 2-4 del motore) può agganciare un
+> bonifico a una qualsiasi delle fatture con quell'importo, **non necessariamente
+> quella citata in causale**. Su una serie mensile ripetuta questo produce uno
+> **scramble a catena**: ogni pagamento scala di una posizione e chiude la fattura
+> sbagliata; l'ultima fattura della serie viene marcata `pagato` pur non avendo
+> alcun bonifico reale.
+>
+> **La causale è la fonte di verità**: `SALDO FATTURA <n>` / `SF-<n>` indica la
+> fattura effettivamente pagata. Il match a solo importo/data è debole e va
+> **sempre** verificato contro il numero fattura in causale prima di fidarsi.
+> ⚠️ Attenzione al **reset di numerazione a inizio anno**: le fatture 2026 di SPM
+> ripartono da numeri bassi (13, 45, 63, 81…) mentre nei bonifici 2025 comparivano
+> numeri alti (166, 265, 303, 321, 341…). Un bonifico 2025 "SF-321" **non** è la
+> fattura 2026 n° 31: è una fattura 2025 non presente tra le payables correnti.
+>
+> **Bonifico cumulativo**: "SF-45-63" (−€220) paga **due** fatture (45 + 63). Il
+> group-matcher `try_match_group_bank_transaction` **non scatta** se la causale non
+> contiene la keyword `saldo|fattura|fatt|nota|parcella` e i numeri sono a 2 cifre
+> (caso "SF-45-63"): va agganciato a mano alle due fatture (stesso `bank_transaction_id`).
+>
+> **Bonifica** (solo NZ, reversibile, tutto UPDATE — nessun DELETE): per ogni
+> bonifico rimettere l'aggancio sulla fattura citata in causale; rigettare i log
+> `reconciliation_log` errati (`status='rejected'`) e inserirne di corretti
+> (`status='applied'`); liberare (`is_reconciled=false`) i bonifici che citano
+> fatture di anni chiusi non più in payables; **riaprire** (amount_paid=0,
+> bank_transaction_id=NULL) le fatture rimaste senza pagamento reale. Backup delle
+> righe toccate PRIMA: `public.spm_reconcile_backup_20260806_{payables,banktx,logs}`.
+> Esito SPM 2026: 13←"FATT 13", 45+63←"SF-45-63", 81←"FATT 81"; riaperte 31/103/125
+> (nessun bonifico reale le nomina); liberati i bonifici 2025 (303/321/341).
+>
+> **Ambito**: dato specifico dei fornitori di un tenant → **NON** si replica su
+> Made/Zago (come il resto dei dati-fornitore). La parità #0 vale per codice/migration.
+
 > ## ⚠️ DEDUP 106 vs RATE UGUALI — falso positivo che nasconde le rate (2026-08-06)
 >
 > **Regola**: il dedup doppioni (migration `106`) clusterizza per
