@@ -34,6 +34,8 @@ const statusColorMap: Record<string, string> = {
   // Purple
   contestato: 'purple',
   rimandato: 'purple',
+  // Indigo — addebito automatico (carta MP08): non è né scaduto né pagato
+  addebito_automatico: 'indigo',
   // Slate (gray)
   bozza: 'slate',
   draft: 'slate',
@@ -86,6 +88,12 @@ const colorStyles: Record<string, { bg: string; text: string; dot: string; borde
     text: 'text-purple-700',
     dot: 'bg-purple-500',
     border: 'border-purple-200',
+  },
+  indigo: {
+    bg: 'bg-indigo-50',
+    text: 'text-indigo-700',
+    dot: 'bg-indigo-500',
+    border: 'border-indigo-200',
   },
 }
 

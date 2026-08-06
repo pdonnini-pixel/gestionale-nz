@@ -11,7 +11,12 @@ export const EditScheduleModal = ({ schedule, onUpdate: _onUpdate, onSave }: { s
     id: schedule.id || '',
     amount: schedule.gross_amount || 0,
     due_date: schedule.due_date || '',
-    status: schedule.status || 'da_pagare',
+    // Il select supporta solo stati "editabili"; gli stati calcolati (es.
+    // 'addebito_automatico', sintetico e non presente nell'enum DB) vengono
+    // riportati a 'da_pagare' per non scriverli mai a database.
+    status: ['da_pagare', 'pagato', 'parziale'].includes(String(schedule.status || ''))
+      ? String(schedule.status)
+      : 'da_pagare',
   });
 
   return (

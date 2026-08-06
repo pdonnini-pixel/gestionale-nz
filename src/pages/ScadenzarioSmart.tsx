@@ -726,6 +726,9 @@ const ScadenzarioSmart = () => {
           recurring_cost_id: (extra.recurring_cost_id as string | null) ?? null,
           closed_manually: Boolean(extra.closed_manually),
           manual_close_reason: (extra.manual_close_reason as string | null) ?? null,
+          // Addebito automatico carta (MP08): guida il badge dedicato e il
+          // ricalcolo stato (mai 'scaduto') in calculatePayableStatus.
+          is_auto_debit: Boolean((row as { is_auto_debit?: boolean | null }).is_auto_debit),
           disposizione_date: row.id ? (dispMap.get(row.id)?.date ?? ncDispMap.get(row.id)?.date ?? null) : null,
           disposizione_bank_name: (() => {
             const b = row.id ? (dispMap.get(row.id)?.bankId ?? ncDispMap.get(row.id)?.bankId ?? null) : null;
@@ -1302,6 +1305,13 @@ const ScadenzarioSmart = () => {
   // Conteggio/totale globali (indipendenti dal filtro attivo), per l'accesso rapido.
   const suspendedInfo = useMemo(() => {
     const list = payables.filter(p => !!p.disposizione_date && p.status !== 'pagato' && p.status !== 'annullato');
+    return { count: list.length, total: list.reduce((s, p) => s + (Number(p.amount_remaining) || 0), 0) };
+  }, [payables]);
+
+  // Addebiti automatici carta (MP08 / categorie a carta): in attesa dell'estratto
+  // conto carte. Tolti dalla lista attiva, richiamabili col chip dedicato.
+  const autoDebitInfo = useMemo(() => {
+    const list = payables.filter(p => p.status === 'addebito_automatico');
     return { count: list.length, total: list.reduce((s, p) => s + (Number(p.amount_remaining) || 0), 0) };
   }, [payables]);
 
@@ -2168,7 +2178,7 @@ const ScadenzarioSmart = () => {
     return {
       tutte: filteredPayables.length,
       scadute: filteredPayables.filter(p => p.status === 'scaduto').length,
-      da_saldare: filteredPayables.filter(p => p.status !== 'pagato' && p.status !== 'annullato').length,
+      da_saldare: filteredPayables.filter(p => p.status !== 'pagato' && p.status !== 'annullato' && p.status !== 'addebito_automatico').length,
       saldate: filteredPayables.filter(p => p.status === 'pagato').length,
       in_distinta: filteredPayables.filter(p => !!p.disposizione_date && p.status !== 'pagato' && p.status !== 'annullato').length,
     };
@@ -2281,6 +2291,10 @@ const ScadenzarioSmart = () => {
       // (da_pagare/scaduto) così il motore di riconciliazione le aggancia comunque.
       const isInDistinta = !!p.disposizione_date && p.status !== 'pagato' && p.status !== 'annullato';
       if (isInDistinta && selectedStatus !== 'in_distinta') return false;
+      // Addebiti automatici carta (MP08 / categorie a carta): tolti dalla lista
+      // attiva (non c'è nulla da disporre a mano). Restano nel saldo/cashflow e
+      // si vedono solo nel filtro dedicato "In attesa (carta)".
+      if (p.status === 'addebito_automatico' && selectedStatus !== 'addebito_automatico') return false;
       // Pagate nascoste di default.
       if (p.status === 'pagato') return false;
       // NC CHIUSA a mano (registrata in partitario): esce dalle Aperte come una pagata,
@@ -2648,6 +2662,7 @@ const ScadenzarioSmart = () => {
               <option value="">Aperte</option>
               <option value="all">Tutti gli stati</option>
               <option value="scaduto">Scaduto</option>
+              <option value="addebito_automatico">In attesa (carta)</option>
               <option value="in_scadenza">In scadenza</option>
               <option value="da_pagare">Da pagare</option>
               <option value="parziale">Parziale</option>
@@ -2666,6 +2681,18 @@ const ScadenzarioSmart = () => {
                 className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium ${selectedStatus === 'in_distinta' ? 'bg-amber-500 text-white border-amber-500' : 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100'}`}>
                 <Clock size={12} />
                 In sospeso: {suspendedInfo.count} ({fmt(suspendedInfo.total)} €)
+              </button>
+            )}
+            {/* Accesso rapido "In attesa (carta)": gli addebiti automatici (MP08 /
+                categorie a carta) sono tolti dalla lista attiva; questo pill li
+                richiama (o torna alle Aperte se già attivo). */}
+            {autoDebitInfo.count > 0 && (
+              <button
+                onClick={() => setSelectedStatus(selectedStatus === 'addebito_automatico' ? '' : 'addebito_automatico')}
+                title="Fatture pagate con carta (addebito automatico): in attesa dell'estratto conto carte, restano nel saldo finché non si riconciliano"
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium ${selectedStatus === 'addebito_automatico' ? 'bg-indigo-500 text-white border-indigo-500' : 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100'}`}>
+                <Clock size={12} />
+                In attesa carta: {autoDebitInfo.count} ({fmt(autoDebitInfo.total)} €)
               </button>
             )}
             <input type="date" value={dateRange.start} onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })}
@@ -2925,6 +2952,7 @@ const ScadenzarioSmart = () => {
             const dotColor = (p: AnyRow) => {
               if (p._isEstimate) return 'bg-sky-400'; // stima da ricorrenza
               if (p.status === 'scaduto') return 'bg-red-500';
+              if (p.status === 'addebito_automatico') return 'bg-indigo-500';
               if (p.status === 'in_scadenza') return 'bg-amber-500';
               if (p.status === 'pagato') return 'bg-emerald-500';
               return 'bg-blue-500'; // da_pagare, parziale, etc.
@@ -3009,6 +3037,7 @@ const ScadenzarioSmart = () => {
                 {/* Legend */}
                 <div className="flex items-center gap-4 text-xs text-slate-500">
                   <div className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-red-500" /> Scaduto</div>
+                  <div className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-indigo-500" /> Addebito automatico</div>
                   <div className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-amber-500" /> In scadenza</div>
                   <div className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500" /> Pagato</div>
                   <div className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-blue-500" /> Da pagare</div>
