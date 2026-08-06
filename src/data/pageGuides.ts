@@ -606,11 +606,11 @@ export const PAGE_GUIDES: PageGuide[] = [
     "path": "/banche",
     "icon": "Landmark",
     "title": "Banche",
-    "description": "La pagina Banche è il punto in cui vedi tutta la liquidità dell'azienda: saldi dei conti, movimenti in entrata e uscita, abbinamento dei pagamenti alle fatture fornitori e i finanziamenti in corso. I dati bancari arrivano automaticamente dalle banche collegate, non servono più caricamenti manuali di file.",
+    "description": "La pagina Banche è il punto in cui vedi tutta la liquidità dell'azienda: saldi dei conti, movimenti in entrata e uscita, abbinamento dei pagamenti alle fatture fornitori e i finanziamenti in corso. Accanto al saldo reale di ogni conto viene mostrato anche il saldo previsionale, cioè il saldo al netto delle distinte di pagamento (fornitori e F24) ancora da pagare su quel conto. I dati bancari arrivano automaticamente dalle banche collegate, non servono più caricamenti manuali di file.",
     "sections": [
       {
         "heading": "Panoramica",
-        "body": "È la prima schermata che vedi aprendo Banche: un riepilogo veloce della situazione di cassa. In alto trovi quattro numeri: quanto c'è disponibile in banca in questo momento, quanto è entrato e quanto è uscito negli ultimi 30 giorni, e quanti movimenti sono ancora da riconciliare con le fatture fornitori. Sotto trovi un grafico con l'andamento di entrate e uscite, i saldi per singola banca, le scadenze fornitori dei prossimi 30 giorni e gli ultimi movimenti registrati.",
+        "body": "È la prima schermata che vedi aprendo Banche: un riepilogo veloce della situazione di cassa. In alto trovi quattro numeri: quanto c'è disponibile in banca in questo momento, quanto è entrato e quanto è uscito negli ultimi 30 giorni, e quanti movimenti sono ancora da riconciliare con le fatture fornitori. Se hai creato delle distinte di pagamento non ancora saldate, sotto la \"Posizione di cassa\" compare anche il saldo previsionale, cioè quanto resterebbe dopo aver pagato tutte le distinte in sospeso. Sotto trovi un grafico con l'andamento di entrate e uscite, i saldi per singola banca (con il previsionale accanto al reale), le scadenze fornitori dei prossimi 30 giorni e gli ultimi movimenti registrati.",
         "steps": [
           "Dai un'occhiata al numero \"Da riconciliare\": se è alto, conviene passare alla scheda Riconciliazione.",
           "Clicca su una delle quattro card in alto (o su \"Vedi tutto\") per essere portata direttamente nella scheda corrispondente."
@@ -618,7 +618,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "Conti Bancari e Open Banking",
-        "body": "In questa scheda colleghi le banche vere dell'azienda tramite Open Banking (fornitore A-Cube): una volta collegata, il gestionale riceve automaticamente saldi e movimenti, senza bisogno di caricare estratti conto a mano. Per ogni banca collegata vedi il nome, l'IBAN, il saldo aggiornato e da quanto tempo non viene sincronizzata. In alto viene mostrato anche lo stato del consenso della banca (attivo, in attesa, scaduto o revocato) e il totale disponibile su tutti i conti collegati.",
+        "body": "In questa scheda colleghi le banche vere dell'azienda tramite Open Banking (fornitore A-Cube): una volta collegata, il gestionale riceve automaticamente saldi e movimenti, senza bisogno di caricare estratti conto a mano. Per ogni banca collegata vedi il nome, l'IBAN, il saldo aggiornato e da quanto tempo non viene sincronizzata. Se su quel conto ci sono distinte di pagamento ancora da saldare, sotto il saldo reale compare anche il previsionale (\"prev.\"), cioè il saldo al netto di quelle distinte: il saldo reale resta il numero principale e non viene mai modificato. In alto viene mostrato anche lo stato del consenso della banca (attivo, in attesa, scaduto o revocato) e il totale disponibile su tutti i conti collegati (con il previsionale complessivo quando ci sono distinte aperte).",
         "steps": [
           "Per collegare la prima banca, clicca \"Collega prima banca\" e compila P.IVA, ragione sociale ed email dell'azienda.",
           "Clicca \"Avvia consenso\": si apre una nuova finestra sul sito della banca, dove dai il consenso PSD2 (accesso in sola lettura ai conti).",
@@ -708,6 +708,14 @@ export const PAGE_GUIDES: PageGuide[] = [
       {
         "q": "Come faccio a sapere ogni giorno cosa è stato riconciliato e cosa resta da abbinare?",
         "a": "In cima alla scheda Riconciliazione c'è il \"Riepilogo del giorno\": la tessera \"Riconciliati oggi\" mostra i pagamenti abbinati nella data scelta (con totale), la tessera \"Da riconciliare\" mostra i movimenti in uscita ancora senza fattura. Clicca su una tessera per aprire il dettaglio, cambia la data con le frecce o il calendario e usa il menu del periodo per filtrare le uscite non abbinate."
+      },
+      {
+        "q": "Ho creato una distinta di pagamento ma il saldo del conto non è cambiato: perché?",
+        "a": "È corretto: il saldo reale rispecchia sempre e solo i soldi effettivamente in banca (sincronizzati via Open Banking), e finché il pagamento non è davvero uscito il saldo non si muove. La distinta è un impegno, non un pagamento eseguito. Per vedere l'effetto della distinta guarda il saldo previsionale (\"prev.\") mostrato accanto al saldo reale nella card del conto, nei \"Saldi per banca\" e sotto la \"Posizione di cassa\": è il saldo reale meno le distinte (fornitori + F24) ancora da pagare su quel conto. Quando il pagamento avviene ed è riconciliato, quell'importo esce dal previsionale ed è già dentro il saldo reale."
+      },
+      {
+        "q": "Che differenza c'è tra saldo reale e saldo previsionale?",
+        "a": "Il saldo reale è la liquidità effettivamente presente sul conto in questo momento (dato che arriva dalla banca). Il saldo previsionale è il saldo reale meno le distinte di pagamento ancora da saldare (fatture fornitori e scadenze fiscali/F24 messe in distinta ma non ancora pagate) assegnate a quel conto: ti dice quanto ti resterebbe una volta pagato tutto ciò che hai già disposto. Il previsionale è solo un aiuto di lettura: non modifica mai il saldo reale."
       },
       {
         "q": "Dove prendo il file da mandare alla commercialista?",
