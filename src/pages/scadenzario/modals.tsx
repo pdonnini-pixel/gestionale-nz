@@ -77,12 +77,17 @@ const scadenzaFrequencyOptions: { value: string; label: string }[] = [
 type SupplierPlan = { base: 'data_fattura' | 'fine_mese'; gg: number; nRate: number; hasPlan: boolean };
 const derivePlan = (sup: SupplierLite | undefined): SupplierPlan => {
   const rawBase = String((sup?.payment_base as string | undefined) || '').trim();
-  const gg = Number(sup?.prima_scadenza_gg);
+  // prima_scadenza_gg == null => non impostato; 0 è un valore VALIDO (fine mese
+  // data fattura = ultimo giorno del mese della fattura). Attenzione: Number(null)
+  // è 0, quindi il "set" va deciso su != null, non sul valore.
+  const ggRaw = sup?.prima_scadenza_gg;
+  const ggSet = ggRaw != null && Number.isFinite(Number(ggRaw));
+  const gg = ggSet ? Number(ggRaw) : 30;
   const nRate = Number(sup?.numero_rate);
-  const hasPlan = !!sup && rawBase !== '' && gg > 0 && nRate > 0;
+  const hasPlan = !!sup && rawBase !== '' && ggSet && gg >= 0 && nRate > 0;
   return {
     base: rawBase === 'data_fattura' ? 'data_fattura' : 'fine_mese',
-    gg: gg > 0 ? gg : 30,
+    gg: gg >= 0 ? gg : 30,
     nRate: nRate > 0 ? nRate : 1,
     hasPlan,
   };
