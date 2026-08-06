@@ -275,24 +275,30 @@ const ScadenzarioSmart = () => {
   // Importo (valore assoluto) di una nota di credito
   const ncAmountOf = (nc: AnyRow): number => Math.abs(Number(nc.gross_amount) || 0);
 
-  // Note di credito APERTE dello stesso fornitore di `payable`, compensabili in distinta.
+  // Elenco NC APERTE (disponibili da scalare), memoizzato UNA volta sui payables.
   // NC = payable con importo negativo o status 'nota_credito', non ancora chiusa a mano
   //      E non ancora consumata (deve avere ancora credito residuo da scalare).
+  // Escludi le NC gia' consumate: una NC usata risulta 'pagato'/'annullato' oppure con
+  // residuo azzerato (>= 0). Una NC ancora disponibile ha residuo negativo (credito da
+  // scalare). Fonte unica per il chip "Scala note di credito" (riga selezionata) E per il
+  // badge "a colpo d'occhio" sulle fatture: cosi' le due viste non possono divergere.
+  const openCreditNotes = useMemo(() => payables.filter(x => {
+    const g = Number(x.gross_amount) || 0;
+    const isNC = x.status === 'nota_credito' || g < 0;
+    if (!isNC || x.closed_manually) return false;
+    if (x.status === 'pagato' || x.status === 'annullato') return false;
+    const rem = Number(x.amount_remaining);
+    if (Number.isFinite(rem) && rem > -0.005) return false;
+    return true;
+  }), [payables]);
+
+  // Note di credito APERTE dello stesso fornitore di `payable`, compensabili in distinta.
   // Aggancio fornitore per supplier_id o per P.IVA (come da regola PAYMENT_PLAN_NOTES).
   const openCreditNotesFor = (payable: AnyRow): AnyRow[] => {
     const sid = payable.supplier_id ? String(payable.supplier_id) : '';
     const svat = payable.supplier_vat ? String(payable.supplier_vat) : '';
-    return payables.filter(x => {
-      const g = Number(x.gross_amount) || 0;
-      const isNC = x.status === 'nota_credito' || g < 0;
-      if (!isNC || x.closed_manually) return false;
-      // Escludi le NC gia' consumate: una NC usata risulta 'pagato'/'annullato'
-      // oppure con residuo azzerato (>= 0). Una NC ancora disponibile ha residuo
-      // negativo (credito da scalare). Senza questo filtro, NC gia' chiuse
-      // ricomparivano a vuoto in ogni distinta dello stesso fornitore.
-      if (x.status === 'pagato' || x.status === 'annullato') return false;
-      const rem = Number(x.amount_remaining);
-      if (Number.isFinite(rem) && rem > -0.005) return false;
+    if (!sid && !svat) return [];
+    return openCreditNotes.filter(x => {
       const sameById = sid && String(x.supplier_id || '') === sid;
       const sameByVat = svat && String(x.supplier_vat || '') === svat;
       return Boolean(sameById || sameByVat);
@@ -3398,6 +3404,13 @@ const ScadenzarioSmart = () => {
                               // visibile quando le rate sono >1, così tre righe della stessa fattura
                               // non sembrano un doppione.
                               const isRata = (Number(p.installment_total) || 0) > 1
+                              // NC disponibili del fornitore, mostrate "a colpo d'occhio" sulla riga
+                              // fattura (NON sulla riga NC stessa) e solo se la fattura e' ancora aperta:
+                              // cosi' si vede che ci sono note di credito da scalare senza dover prima
+                              // selezionare la fattura. Stessa fonte del chip "Scala note di credito".
+                              const availNc = (!isNotaCredito && p.status !== 'pagato' && p.status !== 'annullato')
+                                ? openCreditNotesFor(p) : []
+                              const availNcTot = availNc.reduce((s, nc) => s + ncAmountOf(nc), 0)
                               // Riga primaria: fornitore se presente, altrimenti la nota, altrimenti la fattura
                               const mainText = supplierLabel || note || (p.invoice_number && p.invoice_number !== '-' ? p.invoice_number : '') || 'N/A'
                               // Riga secondaria: SEMPRE il numero fattura/NC (così si sceglie
@@ -3423,6 +3436,13 @@ const ScadenzarioSmart = () => {
                                       <span className="shrink-0 inline-flex items-center px-1.5 py-0.5 rounded-md bg-indigo-50 text-[10px] font-semibold text-indigo-700 border border-indigo-100">
                                         rata {String(p.installment_number)}/{String(p.installment_total)}
                                       </span>
+                                    )}
+                                    {availNc.length > 0 && (
+                                      <UiTooltip content={`Note di credito disponibili da scalare su questo fornitore: ${availNc.map(n => `NC ${n.invoice_number || 's/n'} −${fmt(ncAmountOf(n))} €`).join(' · ')}. Seleziona la fattura per scalarle.`}>
+                                        <span className="shrink-0 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-emerald-50 text-[10px] font-semibold text-emerald-700 border border-emerald-200">
+                                          {availNc.length > 1 ? `${availNc.length} NC` : 'NC'} −{fmt(availNcTot)}
+                                        </span>
+                                      </UiTooltip>
                                     )}
                                   </div>
                                   {subText && (
