@@ -26,6 +26,7 @@ import { usePeriod } from '../hooks/usePeriod'
 import { useCompanyLabels } from '../hooks/useCompanyLabels'
 import { useToast } from '../components/Toast'
 import { BANK_CATEGORY_OPTIONS, bankCategoryLabel } from '../lib/bankCategories'
+import { fetchCommittedByAccount, type CommittedByAccount } from '../lib/committedBalance'
 import { NON_SUPPLIER_RE, NON_SUPPLIER_BENEF_RE, extractBeneficiary, sigWords, movementNet, isRealTransfer } from '../lib/reconcileMatch'
 import PrimaNota from './PrimaNota'
 import OpenBankingAcube from '../components/OpenBankingAcube'
@@ -556,7 +557,7 @@ function Pagination({ page, totalPages, onPageChange }: { page: number; totalPag
 type AccountT = Record<string, unknown> & { id: string; bank_name?: string | null; account_name?: string | null; current_balance?: number | null; credit_line?: number | null; iban?: string | null; account_type?: string | null; last_balance_update?: string | null; is_active?: boolean | null }
 type TransactionT = Record<string, unknown> & { id: string; transaction_date?: string | null; amount?: number | null; type?: string | null; description?: string | null; bank_account_id?: string | null; reconciliation_status?: string | null; counterpart_name?: string | null; is_reconciled?: boolean | null; note?: string | null; reconciled_at?: string | null; reconciled_invoice_id?: string | null; category?: string | null }
 type PayableT = Record<string, unknown> & { id: string; due_date?: string | null; amount?: number | null; gross_amount?: number | null; amount_paid?: number | null; amount_remaining?: number | null; supplier_name?: string | null; invoice_number?: string | null; status?: string | null; suppliers?: { ragione_sociale?: string | null; name?: string | null; iban?: string | null } | null }
-function TabPanoramica({ accounts, transactions, payables, onNavigate }: { accounts: AccountT[]; transactions: TransactionT[]; payables: PayableT[]; onNavigate: (tab: string) => void }) {
+function TabPanoramica({ accounts, transactions, payables, committedByAccount, onNavigate }: { accounts: AccountT[]; transactions: TransactionT[]; payables: PayableT[]; committedByAccount: CommittedByAccount; onNavigate: (tab: string) => void }) {
   // Conta solo i conti attivi: un conto disattivato (es. doppione lasciato dal
   // ri-collegamento A-Cube con lo stesso IBAN) NON deve gonfiare la cassa. Coerente
   // con lo Scadenzario e le altre viste, che filtrano tutte is_active.
@@ -568,6 +569,13 @@ function TabPanoramica({ accounts, transactions, payables, onNavigate }: { accou
   const totalBalance = useMemo(() =>
     activeAccounts.reduce<number>((sum, a) => sum + (Number(a.current_balance) || 0), 0),
     [activeAccounts]
+  )
+
+  // Totale impegni distinta ancora da pagare (fornitori + F24) sui conti attivi.
+  // Il saldo previsionale = reale − impegni. Non altera il saldo reale.
+  const totalCommitted = useMemo(() =>
+    activeAccounts.reduce<number>((sum, a) => sum + (committedByAccount[a.id] || 0), 0),
+    [activeAccounts, committedByAccount]
   )
 
   const totalCreditLine = useMemo(() =>
@@ -623,18 +631,19 @@ function TabPanoramica({ accounts, transactions, payables, onNavigate }: { accou
   )
 
   // Per-bank balances for mini cards
-  type BankSummaryT = { name: string; balance: number; count: number; accounts: AccountT[] }
+  type BankSummaryT = { name: string; balance: number; committed: number; count: number; accounts: AccountT[] }
   const bankSummary = useMemo<BankSummaryT[]>(() => {
     const banks: Record<string, BankSummaryT> = {}
     activeAccounts.forEach(a => {
       const key = a.bank_name || 'Altro'
-      if (!banks[key]) banks[key] = { name: key, balance: 0, count: 0, accounts: [] }
+      if (!banks[key]) banks[key] = { name: key, balance: 0, committed: 0, count: 0, accounts: [] }
       banks[key].balance += Number(a.current_balance) || 0
+      banks[key].committed += committedByAccount[a.id] || 0
       banks[key].count++
       banks[key].accounts.push(a)
     })
     return Object.values(banks).sort((a, b) => b.balance - a.balance)
-  }, [activeAccounts])
+  }, [activeAccounts, committedByAccount])
 
   return (
     <div className="space-y-6">
@@ -644,7 +653,9 @@ function TabPanoramica({ accounts, transactions, payables, onNavigate }: { accou
           icon={Wallet}
           title="Posizione di cassa"
           value={`${fmt(totalBalance)} \u20AC`}
-          subtitle={`${activeAccounts.length} conti attivi`}
+          subtitle={totalCommitted > 0
+            ? `previsionale ${fmt(totalBalance - totalCommitted)} \u20AC (\u2212 distinte)`
+            : `${activeAccounts.length} conti attivi`}
           color="blue"
           onClick={() => onNavigate('conti')}
         />
@@ -692,8 +703,16 @@ function TabPanoramica({ accounts, transactions, payables, onNavigate }: { accou
                     <div className="font-semibold text-slate-900 text-sm">{bank.name}</div>
                     <div className="text-xs text-slate-400">{bank.count} cont{bank.count === 1 ? 'o' : 'i'}</div>
                   </div>
-                  <div className={`text-right font-bold ${bank.balance >= 0 ? 'text-slate-900' : 'text-red-600'}`}>
-                    {fmt(bank.balance)} &euro;
+                  <div className="text-right">
+                    <div className={`font-bold ${bank.balance >= 0 ? 'text-slate-900' : 'text-red-600'}`}>
+                      {fmt(bank.balance)} &euro;
+                    </div>
+                    {/* Saldo previsionale = reale − distinte da pagare su questa banca. */}
+                    {bank.committed > 0 && (
+                      <div className="text-[11px] text-amber-600 tabular-nums" title="Saldo previsionale = saldo reale − distinte (fornitori + F24) ancora da pagare">
+                        prev. {fmt(bank.balance - bank.committed)} &euro;
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -4003,6 +4022,9 @@ export default function TesoreriaManuale() {
   const [batches, setBatches] = useState<any[]>([])
   const [batchItems, setBatchItems] = useState<any[]>([])
   const [suggestCount, setSuggestCount] = useState(0)
+  // Impegni "in distinta" non ancora pagati, per conto → saldo previsionale
+  // affiancato al reale nella Panoramica. Non tocca il saldo vero.
+  const [committedByAccount, setCommittedByAccount] = useState<CommittedByAccount>({})
 
   const refresh = useCallback(() => setRefreshKey(k => k + 1), [])
 
@@ -4052,6 +4074,15 @@ export default function TesoreriaManuale() {
           setBatches(batchRes.data || [])
           setBatchItems(itemsRes.data || [])
           setSuggestCount(sugRes.count || 0)
+        }
+
+        // Impegni distinta per il saldo previsionale (best-effort: non blocca la pagina).
+        try {
+          const committed = await fetchCommittedByAccount(companyId)
+          if (!cancelled) setCommittedByAccount(committed)
+        } catch (e) {
+          console.warn('TesoreriaManuale committed load error:', e)
+          if (!cancelled) setCommittedByAccount({})
         }
       } catch (err: unknown) {
         console.error('TesoreriaManuale load error:', err)
@@ -4154,7 +4185,7 @@ export default function TesoreriaManuale() {
 
       {/* Tab content */}
       {activeTab === 'panoramica' && (
-        <TabPanoramica accounts={accounts} transactions={transactions} payables={payables} onNavigate={handleNavigate} />
+        <TabPanoramica accounts={accounts} transactions={transactions} payables={payables} committedByAccount={committedByAccount} onNavigate={handleNavigate} />
       )}
       {activeTab === 'conti' && (
         <TabContiBancari accounts={accounts} companyId={companyId} onRefresh={refresh} />

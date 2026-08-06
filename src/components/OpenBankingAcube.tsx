@@ -16,6 +16,7 @@ import { Modal } from './ui/Modal'
 import { useToast } from './Toast'
 import { useAuth } from '../hooks/useAuth'
 import { useAcubeOB, AcubeStage } from '../hooks/useAcubeOB'
+import { fetchCommittedByAccount, type CommittedByAccount } from '../lib/committedBalance'
 
 interface BusinessRegistry {
   uuid: string
@@ -74,6 +75,9 @@ export default function OpenBankingAcube() {
   const setStage = (_: AcubeStage) => { /* no-op, sandbox disabilitato */ }
   const [br, setBr] = useState<BusinessRegistry | null>(null)
   const [accounts, setAccounts] = useState<BankAccountRow[]>([])
+  // Impegni "in distinta" non ancora pagati, per conto → saldo previsionale
+  // affiancato al reale. Non tocca il saldo vero (vedi lib/committedBalance).
+  const [committed, setCommitted] = useState<CommittedByAccount>({})
   const [consents, setConsents] = useState<ConsentRow[]>([])
   const [loadingData, setLoadingData] = useState(false)
   const [pendingConnectUrl, setPendingConnectUrl] = useState<string | null>(null)
@@ -100,6 +104,14 @@ export default function OpenBankingAcube() {
         .not('acube_account_uuid', 'is', null)
         .order('account_name')
       setAccounts((accs as BankAccountRow[] | null) ?? [])
+
+      // Impegni distinta per il saldo previsionale (best-effort: non blocca la lista conti).
+      try {
+        setCommitted(await fetchCommittedByAccount(companyId))
+      } catch (e) {
+        console.warn('[OpenBankingAcube] impegni previsionali non caricati:', e)
+        setCommitted({})
+      }
 
       const brUuid = (brData as { uuid?: string } | null)?.uuid
       if (brUuid) {
@@ -287,6 +299,7 @@ export default function OpenBankingAcube() {
               Spinge a destra (ml-auto) e mostra somma di tutti i saldi correnti. */}
           {accounts.length > 0 && (() => {
             const totale = accounts.reduce<number>((s, a) => s + (Number(a.current_balance) || 0), 0)
+            const totCommitted = accounts.reduce<number>((s, a) => s + (committed[a.id] || 0), 0)
             const currency = accounts[0]?.currency || 'EUR'
             return (
               <div className="ml-auto bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-1.5 flex items-center gap-3">
@@ -295,6 +308,12 @@ export default function OpenBankingAcube() {
                   <div className="text-base font-bold text-emerald-900 tabular-nums leading-tight">
                     {fmt(totale, currency)}
                   </div>
+                  {/* Previsionale = reale − distinte da pagare. Il reale resta il numero grande. */}
+                  {totCommitted > 0 && (
+                    <div className="text-[10px] text-amber-700 tabular-nums leading-tight" title="Saldo previsionale = saldo reale − distinte (fornitori + F24) ancora da pagare">
+                      previsionale {fmt(totale - totCommitted, currency)}
+                    </div>
+                  )}
                 </div>
                 <div className="text-[10px] text-emerald-600 border-l border-emerald-300 pl-3">
                   {accounts.length} {accounts.length === 1 ? 'conto' : 'conti'}
@@ -333,8 +352,16 @@ export default function OpenBankingAcube() {
                     <div className="text-xs text-slate-500 truncate" title={a.account_name}>{a.account_name}</div>
                   ) : null}
                 </div>
-                <div className={`text-sm font-bold ${(a.current_balance ?? 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                  {fmt(a.current_balance, a.currency || 'EUR')}
+                <div className="text-right shrink-0">
+                  <div className={`text-sm font-bold ${(a.current_balance ?? 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                    {fmt(a.current_balance, a.currency || 'EUR')}
+                  </div>
+                  {/* Saldo previsionale: reale − impegni distinta ancora da pagare su questo conto. */}
+                  {(committed[a.id] || 0) > 0 && (
+                    <div className="text-[10px] text-amber-600 tabular-nums leading-tight" title="Saldo previsionale = saldo reale − distinte (fornitori + F24) ancora da pagare su questo conto">
+                      prev. {fmt((Number(a.current_balance) || 0) - (committed[a.id] || 0), a.currency || 'EUR')}
+                    </div>
+                  )}
                 </div>
               </div>
               <div className="text-xs text-slate-400 flex items-center justify-between">
