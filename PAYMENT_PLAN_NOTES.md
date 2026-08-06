@@ -47,6 +47,17 @@
 > (MILANI `26/A`, GABRIEL IOSUB `10/A`): vanno **ri-agganciati alla fattura vera** a
 > mano prima di nasconderli, per non orfanare il movimento. Made/Zago non avevano
 > payable di questa classe (verificato). Backup dei 54 payable salvato prima.
+>
+> **Fix robusto (migration `20260806_133`, NZ+Made+Zago)**: affidarsi al solo
+> `is_placeholder` si è rivelato fragile — un job/bonifica che ripristina
+> `is_placeholder=false` (es. il restore rate della `NZ_ONLY_141`) fa **riemergere**
+> le autofatture (caso reale: Scopa Magica `34/A`, `42/A` + altre 15 ricomparse il
+> 2026-08-06). La vista `v_payables_operative` ora **esclude STRUTTURALMENTE** ogni
+> payable la cui `electronic_invoice` è `TD16/17/18/19` (`NOT EXISTS … tipo_documento IN …`):
+> così le autofatture non compaiono MAI nello scadenzario, qualunque valore abbia
+> `is_placeholder`. I 2 casi bancari (MILANI `26/A`, IOSUB `10/A`) sono stati risolti:
+> sono le integrazioni IVA delle fatture vere 921 (1.000) e 9 (10.500); riconciliazioni
+> errate annullate con `undo_reconcile_movement`, autofatture nascoste, movimenti liberati.
 
 > ## 🧾 CICLO DISTINTA / "IN SOSPESO" (2026-07-13) — leggere prima di toccare distinta/riconciliazione
 >
