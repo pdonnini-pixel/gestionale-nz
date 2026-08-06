@@ -40,6 +40,13 @@ import { BulkPaymentBar } from './scadenzario/BulkPaymentBar';
 import { SupplierDetailModal } from './scadenzario/SupplierDetailModal';
 import { CategoryManagerModal, type SupLite } from './scadenzario/CategoryManagerModal';
 
+// Categorie di nominativo che identificano una scadenza FISCALE/INTERNA creata da
+// "Aggiungi scadenza" (il "tipo" scelto nel modale: Fiscale / Interno). Un payable
+// con questa categoria vive nella tabella payables ma va mostrato sotto il filtro
+// "Fiscali / Interni", non tra i Fornitori. Allineato a supplierTypeOptions in
+// scadenzario/modals.tsx.
+const FISCAL_INTERNAL_CATEGORIES = new Set(['fiscale', 'interno']);
+
 // Main component
 const ScadenzarioSmart = () => {
   const { toast } = useToast();
@@ -1212,9 +1219,18 @@ const ScadenzarioSmart = () => {
     // Combine sources based on TYPE filter (default '' = fornitori + fiscali).
     // 'incassi' usa una tabella dedicata (bank_transactions in entrata), quindi
     // qui resta sull'unione: il ramo incassi non legge questa lista.
+    // NB: un payable con nominativo classificato "Fiscale"/"Interno" (tipo scelto
+    // in "Aggiungi scadenza", es. una TARI pagata con F24) vive in `payables` ma è
+    // a tutti gli effetti una scadenza fiscale/interna: va mostrato sotto "Fiscali
+    // / Interni", non tra i Fornitori. Prima veniva classificato solo per tabella
+    // di provenienza, quindi una TARI/F24 creata a mano spariva dal filtro
+    // "Fiscali / Interni" (sembrava non creata). Classifico per categoria del
+    // nominativo, non solo per tabella.
+    const isFiscalePayable = (p: AnyRow) =>
+      FISCAL_INTERNAL_CATEGORIES.has(String(p.suppliers?.category || '').toLowerCase());
     let source: AnyRow[] = [];
-    if (typeFilter === 'fornitori') source = payables;
-    else if (typeFilter === 'fiscali') source = fiscalAsPayables;
+    if (typeFilter === 'fornitori') source = payables.filter(p => !isFiscalePayable(p));
+    else if (typeFilter === 'fiscali') source = [...payables.filter(isFiscalePayable), ...fiscalAsPayables];
     else source = [...payables, ...fiscalAsPayables];
 
     return source.filter((p) => {
