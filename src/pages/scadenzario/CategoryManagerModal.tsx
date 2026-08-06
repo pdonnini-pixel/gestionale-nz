@@ -25,6 +25,7 @@ export type CatRow = {
   macro_group?: string | null;
   color?: string | null;
   sort_order?: number | null;
+  auto_debit_card?: boolean | null;
 };
 
 export type SupLite = {
@@ -64,8 +65,9 @@ function makeCode(name: string, existing: Set<string>): string {
   return code;
 }
 
-type EditForm = { name: string; macro_group: string; color: string };
+type EditForm = { name: string; macro_group: string; color: string; auto_debit_card: boolean };
 const DEFAULT_COLOR = '#6b7280';
+const EMPTY_FORM: EditForm = { name: '', macro_group: 'oneri_diversi', color: DEFAULT_COLOR, auto_debit_card: false };
 
 export function CategoryManagerModal({
   open,
@@ -93,9 +95,9 @@ export function CategoryManagerModal({
   const { toast } = useToast();
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState<EditForm>({ name: '', macro_group: 'oneri_diversi', color: DEFAULT_COLOR });
+  const [editForm, setEditForm] = useState<EditForm>(EMPTY_FORM);
   const [creating, setCreating] = useState(false);
-  const [createForm, setCreateForm] = useState<EditForm>({ name: '', macro_group: 'oneri_diversi', color: DEFAULT_COLOR });
+  const [createForm, setCreateForm] = useState<EditForm>(EMPTY_FORM);
   const [busy, setBusy] = useState(false);
   // Selezione fornitori da spostare + categoria di destinazione (scoped alla
   // categoria attualmente espansa: si azzera quando cambia l'espansione).
@@ -123,6 +125,7 @@ export function CategoryManagerModal({
       name: String(c.name || ''),
       macro_group: String(c.macro_group || 'oneri_diversi'),
       color: String(c.color || DEFAULT_COLOR),
+      auto_debit_card: Boolean(c.auto_debit_card),
     });
   };
 
@@ -131,7 +134,7 @@ export function CategoryManagerModal({
     setBusy(true);
     const { error } = await supabase
       .from('cost_categories')
-      .update({ name: editForm.name.trim(), macro_group: editForm.macro_group, color: editForm.color } as never)
+      .update({ name: editForm.name.trim(), macro_group: editForm.macro_group, color: editForm.color, auto_debit_card: editForm.auto_debit_card } as never)
       .eq('id', id);
     setBusy(false);
     if (error) {
@@ -158,6 +161,7 @@ export function CategoryManagerModal({
         name: createForm.name.trim(),
         macro_group: createForm.macro_group,
         color: createForm.color,
+        auto_debit_card: createForm.auto_debit_card,
         is_fixed: true,
         is_recurring: false,
         is_system: false,
@@ -169,7 +173,7 @@ export function CategoryManagerModal({
       return;
     }
     setCreating(false);
-    setCreateForm({ name: '', macro_group: 'oneri_diversi', color: DEFAULT_COLOR });
+    setCreateForm(EMPTY_FORM);
     await onChanged();
     toast({ type: 'success', message: `Categoria "${createForm.name.trim()}" creata` });
   };
@@ -253,6 +257,15 @@ export function CategoryManagerModal({
           className="h-9 w-12 rounded-md border border-slate-200 cursor-pointer"
         />
       </label>
+      <label className="flex items-center gap-2 min-w-[220px] cursor-pointer pb-1.5" title="Le fatture di questa categoria si pagano con carta: diventano addebiti automatici (non compaiono come scadenza da pagare a mano, si chiudono con l'estratto conto carte).">
+        <input
+          type="checkbox"
+          checked={form.auto_debit_card}
+          onChange={e => setForm({ ...form, auto_debit_card: e.target.checked })}
+          className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-400"
+        />
+        <span className="text-xs font-medium text-slate-600">💳 Si paga con carta (addebito automatico)</span>
+      </label>
     </div>
   );
 
@@ -274,7 +287,7 @@ export function CategoryManagerModal({
               {fieldRow(createForm, setCreateForm)}
               <div className="flex justify-end gap-2">
                 <button
-                  onClick={() => { setCreating(false); setCreateForm({ name: '', macro_group: 'oneri_diversi', color: DEFAULT_COLOR }); }}
+                  onClick={() => { setCreating(false); setCreateForm(EMPTY_FORM); }}
                   disabled={busy}
                   className="px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 text-sm font-medium hover:bg-white disabled:opacity-50"
                 >
@@ -335,7 +348,12 @@ export function CategoryManagerModal({
                   <div className="flex items-center gap-3 px-3 py-2.5">
                     <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: String(c.color || DEFAULT_COLOR) }} />
                     <div className="min-w-0 flex-1">
-                      <div className="text-sm font-medium text-slate-800 truncate">{String(c.name || '—')}</div>
+                      <div className="text-sm font-medium text-slate-800 truncate flex items-center gap-1.5">
+                        {String(c.name || '—')}
+                        {c.auto_debit_card && (
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-indigo-50 text-[10px] text-indigo-700 font-medium border border-indigo-200" title="Si paga con carta: addebito automatico">💳 carta</span>
+                        )}
+                      </div>
                       <div className="text-xs text-slate-400">{macroLabel(c.macro_group)} · {String(c.code || '')}</div>
                     </div>
                     <button

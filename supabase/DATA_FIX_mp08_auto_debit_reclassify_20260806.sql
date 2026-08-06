@@ -43,3 +43,29 @@ WHERE p.id IN (
     AND (p2.payment_method_code='MP08' OR e.xml_content ~ '<ModalitaPagamento>MP08</ModalitaPagamento>')
     AND COALESCE(p2.installment_total,1) <= 1
 );
+
+-- ── Riclassifica anche i payable APERTI di una CATEGORIA a carta
+--    (auto_debit_card=true, es. "mezzi e carburante"). Migration 134.
+--    All'esecuzione: NZ 9 righe (mezzi e carburante scadute), Made/Zago 0.
+INSERT INTO public.payables_bkp_mp08_autodebit_20260806
+SELECT p.* FROM public.payables p
+JOIN public.cost_categories c ON c.id = p.cost_category_id
+WHERE c.auto_debit_card = true
+  AND COALESCE(p.is_forecast,false)=false
+  AND COALESCE(p.amount_paid,0)=0
+  AND p.status IN ('da_pagare','in_scadenza','scaduto')
+  AND COALESCE(p.installment_total,1) <= 1
+  AND p.id NOT IN (SELECT id FROM public.payables_bkp_mp08_autodebit_20260806);
+
+UPDATE public.payables p
+SET is_auto_debit  = true,
+    payment_method = 'carta_credito'::payment_method,
+    due_date       = (date_trunc('month', p.invoice_date) + interval '1 month' + interval '19 days')::date
+FROM public.cost_categories c
+WHERE c.id = p.cost_category_id
+  AND c.auto_debit_card = true
+  AND COALESCE(p.is_forecast,false)=false
+  AND COALESCE(p.amount_paid,0)=0
+  AND p.status IN ('da_pagare','in_scadenza','scaduto')
+  AND COALESCE(p.installment_total,1) <= 1
+  AND NOT COALESCE(p.is_auto_debit,false);
