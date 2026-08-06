@@ -1,8 +1,9 @@
 // Modali dello Scadenzario: modifica scadenza, nuova scadenza (fattura/rate),
 // nuovo fornitore. Estratti da ScadenzarioSmart.tsx (spezzatura ondata 9)
 // senza cambi funzionali: componenti autosufficienti, comunicano solo via props.
-import { useState, useEffect } from 'react';
-import { Search, Plus, RefreshCw, Trash2 } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { Search, Plus, RefreshCw, Trash2, FileUp, Loader2, Sparkles, CheckCircle2, AlertCircle } from 'lucide-react';
+import { extractScadenzaFromPdf, ScadenzaExtractError, type ExtractedScadenza } from '../../lib/scadenzaPdfExtract';
 
 export type EditSchedulePayload = { id: string; amount: number; due_date: string; status: string }
 export type ScheduleLike = Record<string, unknown> & { id?: string; gross_amount?: number | null; due_date?: string | null; status?: string | null; invoice_number?: string | null }
@@ -82,12 +83,17 @@ const scadenzaFrequencyOptions: { value: string; label: string }[] = [
 type SupplierPlan = { base: 'data_fattura' | 'fine_mese'; gg: number; nRate: number; hasPlan: boolean };
 const derivePlan = (sup: SupplierLite | undefined): SupplierPlan => {
   const rawBase = String((sup?.payment_base as string | undefined) || '').trim();
-  const gg = Number(sup?.prima_scadenza_gg);
+  // prima_scadenza_gg == null => non impostato; 0 è un valore VALIDO (fine mese
+  // data fattura = ultimo giorno del mese della fattura). Attenzione: Number(null)
+  // è 0, quindi il "set" va deciso su != null, non sul valore.
+  const ggRaw = sup?.prima_scadenza_gg;
+  const ggSet = ggRaw != null && Number.isFinite(Number(ggRaw));
+  const gg = ggSet ? Number(ggRaw) : 30;
   const nRate = Number(sup?.numero_rate);
-  const hasPlan = !!sup && rawBase !== '' && gg > 0 && nRate > 0;
+  const hasPlan = !!sup && rawBase !== '' && ggSet && gg >= 0 && nRate > 0;
   return {
     base: rawBase === 'data_fattura' ? 'data_fattura' : 'fine_mese',
-    gg: gg > 0 ? gg : 30,
+    gg: gg >= 0 ? gg : 30,
     nRate: nRate > 0 ? nRate : 1,
     hasPlan,
   };
@@ -174,10 +180,16 @@ export const InvoiceModal = ({ suppliers, costCenters, paymentGroups, paymentMet
 
   // Piano applicato per il nominativo scelto (per l'etichetta informativa).
   const selectedPlan = derivePlan(selectedSupplier);
+  // Quando applichiamo le scadenze lette da un PDF, saltiamo UNA volta il
+  // ricalcolo automatico dalle regole (l'effect qui sotto) così non sovrascrive
+  // le rate del documento con quelle di default. Le modifiche manuali successive
+  // all'importo/data ricalcolano normalmente.
+  const skipRecalcRef = useRef(false);
   // Ricalcolo le scadenze dalle REGOLE INTERNE quando cambia il fornitore, la data
   // documento o l'importo. Restano poi correggibili a mano (le modifiche persistono
   // finché non cambia uno di questi input).
   useEffect(() => {
+    if (skipRecalcRef.current) { skipRecalcRef.current = false; return; }
     const sup = suppliers.find(s => s.id === formData.supplierId);
     const plan = derivePlan(sup);
     const nextRate = computeInstallments(formData.invoiceDate, plan, formData.grossAmount);
@@ -198,8 +210,137 @@ export const InvoiceModal = ({ suppliers, costCenters, paymentGroups, paymentMet
   const rateSum = round2(formData.rate.reduce((s, r) => s + (Number(r.amount) || 0), 0));
   const rateMismatch = Math.abs(rateSum - (Number(formData.grossAmount) || 0)) > 0.01;
 
+  // ─── LETTURA DA PDF (estrazione automatica) ──────────────────────────────
+  // L'operatrice carica un documento (proforma/notula/fattura) e il sistema
+  // pre-compila il form leggendone i dati. Resta tutto correggibile a mano.
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [pdfLoading, setPdfLoading] = useState(false);
+  const [pdfError, setPdfError] = useState<string | null>(null);
+  const [pdfInfo, setPdfInfo] = useState<{ fields: string[]; supplierMatched: boolean; confidence: number | null; creditNote: boolean } | null>(null);
+
+  // Normalizza P.IVA/CF per il confronto (solo alfanumerici, via "IT").
+  const normVat = (v: unknown): string =>
+    String(v ?? '').replace(/[^0-9A-Za-z]/g, '').replace(/^IT/i, '').toLowerCase();
+
+  const applyExtracted = (ext: ExtractedScadenza) => {
+    const filled: string[] = [];
+    // 1) Fornitore: match per P.IVA sull'anagrafica (regola aggancio per P.IVA).
+    let matchedSupplier: SupplierLite | undefined;
+    if (ext.supplierVat) {
+      const target = normVat(ext.supplierVat);
+      matchedSupplier = suppliers.find(s =>
+        normVat((s as { partita_iva?: unknown }).partita_iva) === target ||
+        normVat((s as { vat_number?: unknown }).vat_number) === target,
+      );
+    }
+    // Fallback: match per nome esatto (case-insensitive) se manca la P.IVA.
+    if (!matchedSupplier && ext.supplierName) {
+      const nm = ext.supplierName.trim().toLowerCase();
+      matchedSupplier = suppliers.find(s => `${s.ragione_sociale || s.name || ''}`.trim().toLowerCase() === nm);
+    }
+
+    // 2) Scadenze dal documento (se presenti e quadrano con l'importo).
+    const gross = ext.grossAmount != null && ext.grossAmount > 0 ? round2(ext.grossAmount) : 0;
+    const rate: RataInput[] = (ext.installments || [])
+      .filter(r => r.dueDate && Number.isFinite(r.amount))
+      .map(r => ({ dueDate: r.dueDate, amount: round2(r.amount) }));
+    const useDocRate = rate.length > 0;
+    if (useDocRate) skipRecalcRef.current = true;
+
+    setFormData(prev => {
+      const next = { ...prev };
+      if (matchedSupplier) {
+        next.supplierId = String(matchedSupplier.id);
+        next.newSupplierName = '';
+        const cat = String((matchedSupplier as { category?: unknown }).category || '');
+        if (supplierTypeValues.includes(cat)) next.supplierType = cat;
+        filled.push('nominativo');
+      } else if (ext.supplierName) {
+        next.supplierId = '';
+        next.newSupplierName = ext.supplierName;
+        filled.push('nominativo (nuovo)');
+      }
+      if (ext.invoiceNumber) { next.invoiceNumber = ext.invoiceNumber; filled.push('numero documento'); }
+      if (ext.invoiceDate) { next.invoiceDate = ext.invoiceDate; filled.push('data documento'); }
+      if (gross > 0) { next.grossAmount = gross; filled.push('importo'); }
+      if (ext.paymentMethod) { next.paymentMethod = ext.paymentMethod; filled.push('metodo'); }
+      if (useDocRate) { next.rate = rate; filled.push(rate.length > 1 ? `${rate.length} scadenze` : 'scadenza'); }
+      return next;
+    });
+
+    setPdfInfo({
+      fields: filled,
+      supplierMatched: !!matchedSupplier,
+      confidence: ext.confidence,
+      creditNote: ext.isCreditNote,
+    });
+  };
+
+  const handlePdfFile = async (file: File | null | undefined) => {
+    if (!file) return;
+    setPdfError(null);
+    setPdfInfo(null);
+    setPdfLoading(true);
+    try {
+      const ext = await extractScadenzaFromPdf(file);
+      applyExtracted(ext);
+    } catch (e) {
+      setPdfError(e instanceof ScadenzaExtractError ? e.message : 'Estrazione non riuscita. Inserisci i dati a mano.');
+    } finally {
+      setPdfLoading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
   return (
     <div className="space-y-3">
+      {/* LETTURA DA PDF — carica un documento e il sistema pre-compila il form */}
+      <div className="rounded-xl border border-indigo-200 bg-indigo-50/60 p-3">
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="application/pdf,.pdf"
+          className="hidden"
+          onChange={e => handlePdfFile(e.target.files?.[0])}
+        />
+        <div className="flex items-start gap-3">
+          <div className="mt-0.5 shrink-0 w-8 h-8 rounded-lg bg-indigo-100 flex items-center justify-center">
+            {pdfLoading ? <Loader2 size={16} className="text-indigo-600 animate-spin" /> : <Sparkles size={16} className="text-indigo-600" />}
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-indigo-800">Compila da PDF</p>
+            <p className="text-[11px] text-indigo-600/80 mb-2">Carica un documento (proforma, notula, fattura…) e i dati vengono letti in automatico. Controlla sempre prima di salvare.</p>
+            <button type="button" disabled={pdfLoading}
+              onClick={() => fileInputRef.current?.click()}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-medium hover:bg-indigo-700 disabled:opacity-60 disabled:cursor-not-allowed">
+              {pdfLoading ? <><Loader2 size={13} className="animate-spin" /> Lettura in corso…</> : <><FileUp size={13} /> Scegli un PDF</>}
+            </button>
+          </div>
+        </div>
+        {pdfError && (
+          <div className="mt-2 flex items-start gap-1.5 text-[11px] text-red-600">
+            <AlertCircle size={13} className="shrink-0 mt-px" /> <span>{pdfError}</span>
+          </div>
+        )}
+        {pdfInfo && !pdfError && (
+          <div className="mt-2 space-y-1">
+            <div className="flex items-start gap-1.5 text-[11px] text-emerald-700">
+              <CheckCircle2 size={13} className="shrink-0 mt-px" />
+              <span>
+                Compilati: {pdfInfo.fields.length ? pdfInfo.fields.join(', ') : 'nessun campo riconosciuto'}. Verifica e correggi dove serve.
+                {pdfInfo.confidence != null && pdfInfo.confidence < 0.6 ? ' Attenzione: lettura poco sicura.' : ''}
+              </span>
+            </div>
+            {pdfInfo.fields.includes('nominativo (nuovo)') && (
+              <p className="text-[11px] text-amber-600 flex items-start gap-1.5"><AlertCircle size={13} className="shrink-0 mt-px" /> Nominativo non a sistema: verrà creato. Controlla nome e tipo.</p>
+            )}
+            {pdfInfo.creditNote && (
+              <p className="text-[11px] text-amber-600 flex items-start gap-1.5"><AlertCircle size={13} className="shrink-0 mt-px" /> Il documento sembra una NOTA DI CREDITO: verifica importo e gestione prima di salvare.</p>
+            )}
+          </div>
+        )}
+      </div>
+
       {/* FORNITORE / NOMINATIVO — combobox con ricerca + aggiunta al volo */}
       <div className="relative">
         <label className="block text-sm font-medium text-slate-700 mb-1">Nominativo *</label>

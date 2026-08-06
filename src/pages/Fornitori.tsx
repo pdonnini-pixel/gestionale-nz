@@ -648,7 +648,10 @@ export default function Fornitori() {
         default_payment_method: form.payment_method || DEFAULT_PAYMENT_METHOD,
         // Piano rate scadenze (v2)
         payment_base: form.payment_base || null,
-        prima_scadenza_gg: Number(form.prima_scadenza_gg) || null,
+        // Con base impostata lo 0 è un valore VALIDO (fine mese = ultimo giorno
+        // del mese della fattura, "fine mese data fattura"): non va confuso con
+        // "assente" (che diventerebbe null e farebbe scattare 'piano_incompleto').
+        prima_scadenza_gg: form.payment_base ? (Number(form.prima_scadenza_gg) || 0) : null,
         numero_rate: Number(form.numero_rate) || null,
         payment_bank_account_id: form.payment_bank_account_id || null,
         cost_center: form.cost_center || 'all',
@@ -1687,7 +1690,7 @@ export default function Fornitori() {
                         <AlertTriangle size={13} /> Con metodo {PAYMENT_LABEL[form.payment_method] || form.payment_method} la banca è obbligatoria (serve per il cashflow).
                       </div>
                     )}
-                    <p className="mt-2 text-[11px] text-slate-400">Le rate successive sono +30gg (data fattura) o +1 mese (fine mese). Importo diviso equamente tra le rate.</p>
+                    <p className="mt-2 text-[11px] text-slate-400">Fine mese: <b>0 gg</b> = ultimo giorno del mese della fattura (fine mese data fattura); 30 gg = fine mese del mese successivo. Data fattura: a giorni. Rate successive +30gg (data fattura) o +1 mese (fine mese); importo diviso equamente tra le rate.</p>
                   </div>
                   <div className="col-span-2 mt-1 pt-3 border-t border-slate-200">
                     <label className="flex items-start gap-2.5 cursor-pointer">
