@@ -1652,6 +1652,10 @@ export const PAGE_GUIDES: PageGuide[] = [
       {
         "q": "Come verifico quale modalità e piano di pagamento è caricato su ogni fornitore?",
         "a": "Due modi. Per un singolo fornitore: clicca sulla sua riga per espanderla e leggi il blocco pagamenti (modalità, base scadenze Data fattura/Fine mese, giorni della prima scadenza, numero di rate e banca). Per rivedere tutti insieme: clicca \"Esporta\" in alto e scarica il file Excel/CSV, che riporta per ogni fornitore modalità, base scadenze, 1ª scadenza, numero di rate e banca di pagamento — così puoi controllare l'intera anagrafica in un colpo solo."
+      },
+      {
+        "q": "Come imposto un fornitore \"fine mese data fattura\" (es. RiBa a fine mese)?",
+        "a": "Nel blocco \"Piano scadenze\" scegli base \"Fine mese\" e metti la \"1ª scadenza (gg)\" a 0: la scadenza cade l'ultimo giorno del mese della fattura (fattura del 3 agosto → scadenza 31 agosto). Se invece metti 30 gg, la scadenza slitta a fine mese del mese successivo (è il classico \"30 gg data fattura fine mese\"); con 60 o 90 gg si aggiunge un mese in più ogni 30 gg. Il piano serve alle fatture emesse dal 31/07/2026 solo quando la fattura non porta già una propria data di scadenza: se ce l'ha, vale sempre quella indicata dal fornitore."
       }
     ]
   },

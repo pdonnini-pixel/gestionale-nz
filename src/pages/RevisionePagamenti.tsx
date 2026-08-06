@@ -20,7 +20,7 @@ import {
 // Famiglie di metodo mostrate all'operatrice (la "Tipologia")
 const FAMIGLIE = ['Bonifico', 'RI.BA', 'RID', 'SDD', 'Contanti', 'Carta/Bancomat', 'Bollettino', 'Assegno', 'Altro']
 // Opzioni scadenze (la "Modalità"), notazione DFFM
-const SCAD_OPTS = ['A Vista', '30 gg DFFM', '60 gg DFFM', '90 gg DFFM', '120 gg DFFM',
+const SCAD_OPTS = ['A Vista', 'Fine mese', '30 gg DFFM', '60 gg DFFM', '90 gg DFFM', '120 gg DFFM',
   '30/60 gg DFFM', '30/60/90 gg DFFM', '60/90 gg DFFM', '60/90/120 gg DFFM', 'Data fissa mese']
 
 const PER_PAGE = 20
@@ -62,7 +62,9 @@ function enumFromFamily(fam: string, prima: number | null): string {
 function scadLabel(base: string | null, gg: number | null, rate: number | null): string {
   if (gg == null) return 'da definire'
   const g = Number(gg); const n = Math.max(Number(rate) || 1, 1)
-  if (g === 0) return 'A Vista'
+  // 0 gg: su base "fine mese" = fine mese data fattura (ultimo giorno del mese
+  // della fattura); su base "data fattura" = A Vista (pagamento immediato).
+  if (g === 0) return base === 'fine_mese' ? 'Fine mese' : 'A Vista'
   const parts: number[] = []; for (let i = 0; i < n; i++) parts.push(g + 30 * i)
   return parts.join('/') + (base === 'data_fattura' ? ' gg D.F.' : ' gg DFFM')
 }
@@ -71,6 +73,7 @@ function parseScad(label: string): { base: string | null; prima: number | null; 
   const l = String(label || '').trim()
   if (/^Data fissa/i.test(l)) return { base: null, prima: null, rate: null, dataFissa: true }
   if (/^A Vista$/i.test(l)) return { base: 'data_fattura', prima: 0, rate: 1, dataFissa: false }
+  if (/^Fine mese$/i.test(l)) return { base: 'fine_mese', prima: 0, rate: 1, dataFissa: false }
   const m = l.match(/^([\d/]+)\s*gg\s*(DFFM|D\.F\.)$/i)
   if (m) {
     const parts = m[1].split('/').map(Number).filter(n => !isNaN(n))
