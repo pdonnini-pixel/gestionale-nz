@@ -165,6 +165,135 @@ function parseFatturaPA(xmlString: string): FatturaData {
   return { fornitore, cliente, documento, linee, riepilogo, pagamento: dettaglioPag }
 }
 
+// ─── Parse fattura in formato JSON strutturato (A-Cube) ──────────
+// Alcune fatture importate dal Cassetto Fiscale A-Cube salvano in `xml_content`
+// la rappresentazione JSON strutturata della fattura (snake_case), non l'XML
+// FatturaPA grezzo. Contiene gli stessi dati (header + body): la mappiamo sulla
+// stessa struttura FatturaData usata dal renderer, così l'anteprima funziona
+// per entrambi i formati senza toccare i dati salvati.
+type JsonObj = Record<string, unknown>
+
+function asObj(v: unknown): JsonObj {
+  return v && typeof v === 'object' && !Array.isArray(v) ? (v as JsonObj) : {}
+}
+
+function asArr(v: unknown): unknown[] {
+  return Array.isArray(v) ? v : []
+}
+
+function str(v: unknown): string {
+  if (v == null) return ''
+  if (Array.isArray(v)) return v.filter((x) => x != null).map((x) => str(x)).join(' ')
+  return String(v).trim()
+}
+
+export function parseFatturaJson(jsonString: string): FatturaData {
+  let root: unknown
+  try {
+    root = JSON.parse(jsonString)
+  } catch {
+    throw new Error('XML non valido')
+  }
+
+  const header = asObj(asObj(root).fattura_elettronica_header)
+  const bodiesRaw = asObj(root).fattura_elettronica_body
+  const body = asObj(Array.isArray(bodiesRaw) ? bodiesRaw[0] : bodiesRaw)
+
+  if (Object.keys(header).length === 0 && Object.keys(body).length === 0) {
+    throw new Error('Struttura FatturaPA non riconosciuta')
+  }
+
+  const mapParty = (p: JsonObj) => {
+    const anag = asObj(p.dati_anagrafici)
+    const nome = asObj(anag.anagrafica)
+    const sede = asObj(p.sede)
+    const idIva = asObj(anag.id_fiscale_iva)
+    return {
+      denominazione: str(nome.denominazione) || `${str(nome.nome)} ${str(nome.cognome)}`.trim(),
+      partitaIva: str(idIva.id_codice),
+      codiceFiscale: str(anag.codice_fiscale),
+      indirizzo: [str(sede.indirizzo), str(sede.numero_civico)].filter(Boolean).join(' '),
+      cap: str(sede.cap),
+      comune: str(sede.comune),
+      provincia: str(sede.provincia),
+      nazione: str(sede.nazione),
+    }
+  }
+
+  const fornitore = mapParty(asObj(header.cedente_prestatore))
+  const cliente = mapParty(asObj(header.cessionario_committente))
+
+  const dg = asObj(asObj(body.dati_generali).dati_generali_documento)
+  const tipoDoc = str(dg.tipo_documento)
+  const documento = {
+    tipo: tipoDoc,
+    tipoLabel: TIPO_DOCUMENTO[tipoDoc] || tipoDoc,
+    numero: str(dg.numero),
+    data: str(dg.data),
+    divisa: str(dg.divisa) || 'EUR',
+    importoTotale: str(dg.importo_totale_documento),
+    causale: str(dg.causale),
+  }
+
+  const beni = asObj(body.dati_beni_servizi)
+  const linee = asArr(beni.dettaglio_linee).map((raw) => {
+    const l = asObj(raw)
+    return {
+      numero: str(l.numero_linea),
+      descrizione: str(l.descrizione),
+      quantita: str(l.quantita),
+      unitaMisura: str(l.unita_misura),
+      prezzoUnitario: str(l.prezzo_unitario),
+      prezzoTotale: str(l.prezzo_totale),
+      aliquotaIva: str(l.aliquota_iva),
+    }
+  })
+
+  const riepilogo = asArr(beni.dati_riepilogo).map((raw) => {
+    const r = asObj(raw)
+    return {
+      aliquota: str(r.aliquota_iva),
+      imponibile: str(r.imponibile_importo),
+      imposta: str(r.imposta),
+      natura: str(r.natura),
+      esigibilita: str(r.esigibilita_iva),
+    }
+  })
+
+  // Legge TUTTI i blocchi dati_pagamento e i relativi dettagli (come per l'XML)
+  const pagamento: Array<Record<string, string>> = []
+  for (const dpRaw of asArr(body.dati_pagamento)) {
+    const dp = asObj(dpRaw)
+    const condizioni = str(dp.condizioni_pagamento)
+    for (const dRaw of asArr(dp.dettaglio_pagamento)) {
+      const d = asObj(dRaw)
+      const mod = str(d.modalita_pagamento)
+      pagamento.push({
+        condizioni,
+        modalita: mod,
+        modalitaLabel: MODALITA_PAGAMENTO[mod] || mod,
+        scadenza: str(d.data_scadenza_pagamento),
+        importo: str(d.importo_pagamento),
+        iban: str(d.iban),
+        istituto: str(d.istituto_finanziario),
+      })
+    }
+  }
+
+  return { fornitore, cliente, documento, linee, riepilogo, pagamento }
+}
+
+// Il contenuto salvato può essere XML FatturaPA grezzo oppure il JSON
+// strutturato A-Cube: scegliamo il parser giusto dal primo carattere utile.
+function isJsonContent(content: string): boolean {
+  const t = content.trimStart()
+  return t.startsWith('{') || t.startsWith('[')
+}
+
+export function parseInvoiceContent(content: string): FatturaData {
+  return isJsonContent(content) ? parseFatturaJson(content) : parseFatturaPA(content)
+}
+
 // ─── Render fattura come HTML ────────────────────────────────────
 function FatturaRendered({ data }: { data: FatturaData }) {
   const { fornitore, cliente, documento, linee, riepilogo, pagamento } = data
@@ -337,7 +466,7 @@ export default function InvoiceViewer({ xmlContent, onClose, autoPrint = false }
   const parsed = useMemo(() => {
     if (!xmlContent) return null
     try {
-      return parseFatturaPA(xmlContent)
+      return parseInvoiceContent(xmlContent)
     } catch (err: unknown) {
       setError((err as Error).message)
       return null
@@ -476,10 +605,13 @@ export default function InvoiceViewer({ xmlContent, onClose, autoPrint = false }
 
   const handleDownloadXml = () => {
     if (!xmlContent) return
-    const blob = new Blob([xmlContent], { type: 'application/xml' })
+    // Il sorgente può essere XML FatturaPA oppure JSON strutturato A-Cube:
+    // scarichiamo con estensione/MIME coerenti col contenuto reale.
+    const isJson = isJsonContent(xmlContent)
+    const blob = new Blob([xmlContent], { type: isJson ? 'application/json' : 'application/xml' })
     const a = document.createElement('a')
     a.href = URL.createObjectURL(blob)
-    a.download = `fattura_${parsed?.documento?.numero || 'xml'}.xml`
+    a.download = `fattura_${parsed?.documento?.numero || 'doc'}.${isJson ? 'json' : 'xml'}`
     a.click()
     URL.revokeObjectURL(a.href)
   }
