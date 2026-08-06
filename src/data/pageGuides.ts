@@ -405,7 +405,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "Passo 1 — Selezionare le fatture da pagare",
-        "body": "Ogni volta che selezioni una fattura, il gestionale apre sotto la riga un piccolo pannello per impostare come pagarla; in fondo alla pagina compare una barra con il totale selezionato e, per ogni banca coinvolta, il saldo attuale e il saldo che resterebbe dopo il pagamento — così controlli sempre a colpo d'occhio di non andare in rosso.",
+        "body": "Ogni volta che selezioni una fattura, il gestionale apre sotto la riga un piccolo pannello per impostare come pagarla; in fondo alla pagina compare una barra con il totale selezionato e, per ogni banca coinvolta, il saldo di partenza e il saldo che resterebbe dopo il pagamento — così controlli sempre a colpo d'occhio di non andare in rosso. Il saldo di partenza è il saldo previsionale del conto, cioè quello reale già al netto delle distinte precedenti ancora da pagare su quel conto (contrassegnato \"prev.\"): così i conti tengono conto anche degli impegni già presi, non solo di quello che stai selezionando ora. Anche la banca proposta nella tendina \"Seleziona banca…\" mostra questo saldo previsionale, non quello pieno.",
         "steps": [
           "Vai sulla scheda \"Scadenzario\" (in alto) e, se vuoi, filtra per stato \"Da pagare\", \"Scaduto\" o simili per vedere solo ciò che ti interessa.",
           "Spunta la casella a sinistra di ogni fattura che vuoi mettere in pagamento.",
@@ -510,6 +510,10 @@ export const PAGE_GUIDES: PageGuide[] = [
       {
         "q": "Ho confermato la distinta ma avevo scelto la banca sbagliata: come rimedio?",
         "a": "Vai sul filtro \"In sospeso\", trova la fattura e usa il pulsante \"Rimuovi dalla distinta\": torna attiva come prima e puoi rifare la selezione con la banca corretta. Se non hai ancora confermato, basta cambiare la banca nel pannello sotto la riga e ricreare l'anteprima."
+      },
+      {
+        "q": "Il saldo della banca mostrato quando creo la distinta è quello vero in banca?",
+        "a": "È il saldo previsionale, non quello pieno: il gestionale parte dal saldo reale del conto e ne sottrae le distinte già disposte ma non ancora pagate su quello stesso conto (contrassegnate \"prev.\"). Serve a non farti impegnare due volte gli stessi soldi: se avevi già messo in distinta dei pagamenti su quella banca, quelli sono già scontati dal saldo di partenza. Il saldo reale (quello che vedi nell'home banking) non viene mai modificato: lo trovi nella pagina Banche. Man mano che spunti nuove fatture, il saldo scende ancora dell'importo che stai per pagare."
       },
       {
         "q": "Che differenza c'è tra ACCONTO e SALDO nella distinta?",

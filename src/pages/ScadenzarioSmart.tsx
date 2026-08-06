@@ -22,6 +22,7 @@ import {
 import { GlassTooltip, AXIS_STYLE, GRID_STYLE } from '../components/ChartTheme';
 import { supabase } from '../lib/supabase';
 import { todayYMD } from '../lib/dateLocal';
+import { fetchCommittedByAccount, type CommittedByAccount } from '../lib/committedBalance';
 import { useAuth } from '../hooks/useAuth';
 // Spezzatura (ondata 9): helper/config, UI condivisa e modali dello Scadenzario
 // vivono in src/pages/scadenzario/ — estrazione senza cambi funzionali.
@@ -150,6 +151,11 @@ const ScadenzarioSmart = () => {
   const [incomeBankFilter, setIncomeBankFilter] = useState('all');
   const [suppliers, setSuppliers] = useState<AnyRow[]>([]);
   const [bankAccounts, setBankAccounts] = useState<AnyRow[]>([]);
+  // Impegni "in distinta" già disposti ma non ancora pagati, per conto: servono a
+  // partire dal SALDO PREVISIONALE (reale − impegni) invece che dal saldo pieno,
+  // così i saldi mostrati mentre si crea una nuova distinta non ignorano le
+  // distinte precedenti. Non tocca il saldo reale (vedi lib/committedBalance).
+  const [committedByAccount, setCommittedByAccount] = useState<CommittedByAccount>({});
   const [cashPosition, setCashPosition] = useState(0);
 
   const [viewMode, setViewMode] = useState('timeline');
@@ -370,17 +376,28 @@ const ScadenzarioSmart = () => {
 
   const [dateRange, setDateRange] = useState(getDynamicDateRange());
 
-  // Bank balances
+  // Saldo PREVISIONALE di partenza per conto = saldo reale − distinte già disposte
+  // ma non ancora pagate su quel conto. È la base da cui si sottrae la selezione
+  // corrente: così i saldi mostrati in fase di distinta non ignorano gli impegni
+  // già presi. Il saldo reale (bank_accounts.current_balance) non viene toccato.
+  const bankBaseBalances = useMemo<Record<string, number>>(() => {
+    const base: Record<string, number> = {};
+    bankAccounts.forEach(ba => {
+      if (ba.id) base[ba.id] = (Number(ba.current_balance) || 0) - (committedByAccount[ba.id] || 0);
+    });
+    return base;
+  }, [bankAccounts, committedByAccount]);
+
+  // Bank balances: previsionale di partenza − spesa della selezione corrente.
   const bankBalances = useMemo<Record<string, number>>(() => {
-    const balances: Record<string, number> = {};
-    bankAccounts.forEach(ba => { if (ba.id) balances[ba.id] = Number(ba.current_balance) || 0; });
+    const balances: Record<string, number> = { ...bankBaseBalances };
     Object.values(paymentPlan).forEach(plan => {
       if (plan.bankId && balances[plan.bankId] !== undefined) {
         balances[plan.bankId] -= (plan.amount || 0);
       }
     });
     return balances;
-  }, [bankAccounts, paymentPlan]);
+  }, [bankBaseBalances, paymentPlan]);
 
   // Totale allocato per banca (quanto si sta pagando)
   const bankSpending = useMemo<Record<string, number>>(() => {
@@ -750,6 +767,15 @@ const ScadenzarioSmart = () => {
       setPayables(enrichedPayables);
       setSuppliers((suppliersData || []) as AnyRow[]);
       setBankAccounts((accountsData || []) as AnyRow[]);
+
+      // Impegni distinta già disposti (non pagati) per il saldo previsionale.
+      // Best-effort: se fallisce, si ricade sul saldo reale pieno.
+      try {
+        setCommittedByAccount(await fetchCommittedByAccount(COMPANY_ID!));
+      } catch (e) {
+        console.warn('[scadenzario] impegni previsionali non caricati:', e);
+        setCommittedByAccount({});
+      }
 
       // Load fiscal deadlines for unified view
       try {
@@ -3980,6 +4006,7 @@ const ScadenzarioSmart = () => {
             selectedTotal={selectedTotal}
             bankSpending={bankSpending}
             bankBalances={bankBalances}
+            bankBaseBalances={bankBaseBalances}
             bankAccounts={bankAccounts}
             hasNegativeBalance={hasNegativeBalance}
             missingBankCount={missingBankCount}
