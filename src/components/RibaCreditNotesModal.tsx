@@ -8,7 +8,7 @@ import { Modal } from './ui/Modal'
 import { supabase } from '../lib/supabase'
 import { useToast } from './Toast'
 import { fmt, fmtDate } from '../pages/scadenzario/helpers'
-import { Link2, Loader2, CheckCircle2, AlertTriangle, ChevronRight, ArrowLeft } from 'lucide-react'
+import { Link2, Loader2, CheckCircle2, AlertTriangle, ChevronRight, ArrowLeft, Search } from 'lucide-react'
 
 type NcRow = { id: string; supplier_id: string | null; supplier: string | null; invoice_number: string | null; invoice_date: string | null; amount: number }
 type TargetRow = { id: string; supplier_id: string | null; invoice_number: string | null; gross_amount: number; due_date: string | null; status: string; provisional: boolean }
@@ -32,6 +32,8 @@ export default function RibaCreditNotesModal({
   // Passo 1 → Passo 2: prima si sceglie il FORNITORE (ordine alfabetico), poi si
   // abbinano solo le sue note di credito. Evita la lista unica e lunghissima.
   const [selSupplier, setSelSupplier] = useState<string | null>(null)
+  // Ricerca scadenze nel Passo 2 (per numero fattura / importo / data).
+  const [search, setSearch] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -91,6 +93,8 @@ export default function RibaCreditNotesModal({
   }, [companyId])
 
   useEffect(() => { if (open) { setSelSupplier(null); load() } }, [open, load])
+  // Azzera la ricerca ogni volta che si cambia fornitore (o si torna indietro).
+  useEffect(() => { setSearch('') }, [selSupplier])
 
   // Chiave di raggruppamento fornitore (per id; fallback sul nome se manca l'id).
   const supKey = useCallback((n: NcRow) => n.supplier_id || `name:${n.supplier || '—'}`, [])
@@ -188,9 +192,24 @@ export default function RibaCreditNotesModal({
               </button>
               <div className="text-sm font-semibold text-slate-800 truncate">{ncsForSel[0]?.supplier || '—'}</div>
             </div>
+            <div className="relative">
+              <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                placeholder="Cerca scadenza: numero fattura, importo o data…"
+                className="w-full pl-8 pr-3 py-2 rounded-lg border border-slate-200 text-xs bg-white"
+              />
+            </div>
             <div className="max-h-[56vh] overflow-auto rounded-lg border border-slate-200 divide-y divide-slate-100">
               {ncsForSel.map(n => {
-                const opts = targetsFor(n)
+                const q = search.trim().toLowerCase()
+                // Filtra le scadenze per la ricerca, ma tiene sempre quella già scelta.
+                const opts = targetsFor(n).filter(t =>
+                  !q
+                  || t.id === pick[n.id]
+                  || `fatt ${t.invoice_number || ''} ${fmt(t.gross_amount)} ${fmtDate(t.due_date)}`.toLowerCase().includes(q))
                 return (
                   <div key={n.id} className="p-3 flex flex-col sm:flex-row sm:items-center gap-2">
                     <div className="min-w-0 flex-1">
@@ -199,7 +218,10 @@ export default function RibaCreditNotesModal({
                     <div className="text-sm font-semibold text-rose-600 shrink-0 sm:w-28 sm:text-right">−{fmt(n.amount)} €</div>
                     <div className="shrink-0 sm:w-72 flex items-center gap-2">
                       {opts.length === 0 ? (
-                        <span className="text-[11px] text-amber-700 inline-flex items-center gap-1"><AlertTriangle size={12} /> nessuna scadenza aperta del fornitore</span>
+                        <span className="text-[11px] text-amber-700 inline-flex items-center gap-1">
+                          <AlertTriangle size={12} />
+                          {targetsFor(n).length === 0 ? 'nessuna scadenza aperta del fornitore' : 'nessun risultato per la ricerca'}
+                        </span>
                       ) : (
                         <select value={pick[n.id] || ''} onChange={e => setPick(p => ({ ...p, [n.id]: e.target.value }))}
                           className="flex-1 px-2 py-1.5 rounded-lg border border-slate-200 text-xs bg-white">
