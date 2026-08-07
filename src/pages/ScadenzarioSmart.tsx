@@ -147,6 +147,9 @@ const ScadenzarioSmart = () => {
   };
   const [loading, setLoading] = useState(true);
   const [payables, setPayables] = useState<AnyRow[]>([]);
+  // NC già impegnate in una distinta (link 'pending'): escluse dalle opzioni di
+  // compensazione così non si scalano due volte (acconto + residuo stessa fattura).
+  const [pendingLinkedNcIds, setPendingLinkedNcIds] = useState<Set<string>>(new Set());
   const [fiscalDeadlines, setFiscalDeadlines] = useState<AnyRow[]>([]);
   // Fiscali caricate almeno una volta (anche se zero): il ripristino della bozza
   // aspetta questo flag così le scadenze fiscali selezionate NON vengono scartate.
@@ -276,20 +279,24 @@ const ScadenzarioSmart = () => {
       next.delete(id);
       delete nextPlan[id];
     } else {
+      const isDisposed = Boolean(payable.disposizione_date) && payable.status !== 'pagato' && payable.status !== 'annullato';
+      // Fattura già disposta PER INTERO (saldo, nessun residuo): non c'è nulla da
+      // aggiungere. Non la selezioniamo e lo spieghiamo (per modificarla → "Rimuovi
+      // dalla distinta").
+      if (isDisposed && !payable.is_partial_distinta) {
+        toast({ type: 'warning', message: `Fattura ${payable.invoice_number || ''} è già interamente in distinta: non c'è residuo da disporre. Per modificarla usa "Rimuovi dalla distinta".` });
+        return;
+      }
       next.add(id);
       // Default piano sul residuo ANCORA aperto (per un acconto parziale è la
       // differenza da pagare, non l'intero lordo già in parte disposto).
       const residuo0 = rowOpenAmount(payable);
-      nextPlan[id] = { bankId: defaultBankIdFor(payable), type: 'saldo', amount: residuo0, baseAmount: residuo0, note: '', ncIds: [] };
-      if (payable.disposizione_date && payable.status !== 'pagato' && payable.status !== 'annullato') {
-        if (payable.is_partial_distinta) {
-          // Un acconto è già in distinta: il residuo non può ricevere una seconda
-          // disposizione finché l'acconto non è riscontrato in banca (vincolo 1 sola
-          // disposizione attiva per fattura). Lo spieghiamo invece di fallire in silenzio.
-          toast({ type: 'warning', message: `Fattura ${payable.invoice_number || ''}: acconto di ${fmt(payable.disposizione_amount_pending)} € già in distinta. Il residuo di ${fmt(payable.residuo_aperto)} € si potrà disporre dopo il riscontro bancario dell'acconto.` });
-        } else {
-          toast({ type: 'warning', message: `Fattura ${payable.invoice_number || ''} è già in distinta dal ${new Date(payable.disposizione_date as string).toLocaleDateString('it-IT')}: non verrà aggiunta di nuovo.` });
-        }
+      // Per il RESIDUO di un acconto la banca NON è pre-caricata: la sceglie l'operatrice
+      // (può essere diversa da quella dell'acconto). Per il resto vale il default consueto.
+      const bank0 = payable.is_partial_distinta ? '' : defaultBankIdFor(payable);
+      nextPlan[id] = { bankId: bank0, type: 'saldo', amount: residuo0, baseAmount: residuo0, note: '', ncIds: [] };
+      if (payable.is_partial_distinta) {
+        toast({ type: 'info', message: `Fattura ${payable.invoice_number || ''}: stai disponendo il residuo di ${fmt(residuo0)} € (acconto di ${fmt(payable.disposizione_amount_pending)} € già in distinta). Scegli la banca.` });
       }
     }
     setSelectedIds(next);
@@ -297,7 +304,14 @@ const ScadenzarioSmart = () => {
   };
 
   const toggleSelectAll = () => {
-    const nonPaid = filteredPayables.filter(p => p.status !== 'pagato' && (Number(p.gross_amount) || 0) >= 0);
+    // Selezionabili = non pagate, non NC, e non già disposte PER INTERO (le parziali con
+    // residuo restano selezionabili per disporne il residuo).
+    const nonPaid = filteredPayables.filter(p => {
+      if (p.status === 'pagato' || (Number(p.gross_amount) || 0) < 0) return false;
+      const isDisposed = Boolean(p.disposizione_date) && p.status !== 'pagato' && p.status !== 'annullato';
+      if (isDisposed && !p.is_partial_distinta) return false; // interamente in distinta
+      return true;
+    });
     if (selectedIds.size === nonPaid.length) {
       setSelectedIds(new Set());
       setPaymentPlan({});
@@ -307,8 +321,9 @@ const ScadenzarioSmart = () => {
       nonPaid.forEach(p => {
         if (!p.id) return;
         next.add(p.id);
-        const residuo0 = Number(p.amount_remaining) || 0;
-        nextPlan[p.id] = paymentPlan[p.id] || { bankId: defaultBankIdFor(p), type: 'saldo', amount: residuo0, baseAmount: residuo0, note: '', ncIds: [] };
+        const residuo0 = rowOpenAmount(p);
+        const bank0 = p.is_partial_distinta ? '' : defaultBankIdFor(p);
+        nextPlan[p.id] = paymentPlan[p.id] || { bankId: bank0, type: 'saldo', amount: residuo0, baseAmount: residuo0, note: '', ncIds: [] };
       });
       setSelectedIds(next);
       setPaymentPlan(nextPlan);
@@ -345,10 +360,12 @@ const ScadenzarioSmart = () => {
     const isNC = x.status === 'nota_credito' || g < 0;
     if (!isNC || x.closed_manually) return false;
     if (x.status === 'pagato' || x.status === 'annullato') return false;
+    // NC già impegnata in una distinta (link 'pending'): non più disponibile da scalare.
+    if (x.id && pendingLinkedNcIds.has(x.id)) return false;
     const rem = Number(x.amount_remaining);
     if (Number.isFinite(rem) && rem > -0.005) return false;
     return true;
-  }), [payables]);
+  }), [payables, pendingLinkedNcIds]);
 
   // Note di credito APERTE dello stesso fornitore di `payable`, compensabili in distinta.
   // Aggancio fornitore per supplier_id o per P.IVA (come da regola PAYMENT_PLAN_NOTES).
@@ -369,7 +386,9 @@ const ScadenzarioSmart = () => {
     setPaymentPlan(prev => {
       const cur = { ...prev[pid], ...patch } as PlanEntry;
       const payable = payables.find(p => p.id === pid);
-      const residuo = Number(payable?.amount_remaining) || 0;
+      // Residuo su cui si calcola l'acconto/saldo = quota ANCORA aperta (per una fattura
+      // con acconto già in distinta è il residuo, non l'intero lordo).
+      const residuo = payable ? rowOpenAmount(payable) : 0;
       const base = cur.type === 'saldo' ? residuo : Math.min(Number(cur.baseAmount) || 0, residuo);
       const ncTot = (cur.ncIds || []).reduce((s, nid) => {
         const nc = payables.find(p => p.id === nid);
@@ -714,8 +733,15 @@ const ScadenzarioSmart = () => {
         (dispActions || []).forEach(a => {
           // La riga include la chiave nidificata `payables` (solo per il filtro): ignorata.
           // `amount` = importo NETTO disposto in banca (al netto delle NC compensate).
-          if (a.payable_id && !dispMap.has(a.payable_id)) {
+          // Una fattura può avere PIÙ disposizioni (acconto + residuo): la data/banca
+          // del badge è quella dell'ultima (ordine desc → prima vista), l'importo è la
+          // SOMMA di tutte le disposizioni aperte (quanto della fattura è già in distinta).
+          if (!a.payable_id) return;
+          const prev = dispMap.get(a.payable_id);
+          if (!prev) {
             dispMap.set(a.payable_id, { date: a.performed_at, bankId: a.bank_account_id || null, amount: Number(a.amount) || 0 });
+          } else {
+            prev.amount += Number(a.amount) || 0;
           }
         });
       }
@@ -733,6 +759,7 @@ const ScadenzarioSmart = () => {
       // coperta da nota di credito, da sommare al netto bancario per ottenere il
       // LORDO disposto (quanto della fattura è stato messo in distinta).
       const ncPendingByPayable = new Map<string, number>();
+      const linkedNc = new Set<string>();
       try {
         type PcnlSelect = {
           select: (cols: string) => {
@@ -751,11 +778,16 @@ const ScadenzarioSmart = () => {
             ncPendingByPayable.set(l.payable_id, (ncPendingByPayable.get(l.payable_id) || 0) + (Math.abs(Number(l.amount)) || 0));
           }
           const ncId = l.credit_note_payable_id;
+          // NC già impegnata in una distinta (link 'pending'): va esclusa dalle opzioni
+          // di compensazione, altrimenti la si potrebbe scalare due volte (es. sull'acconto
+          // e poi di nuovo sul residuo della stessa fattura).
+          if (ncId) linkedNc.add(ncId);
           if (!ncId || ncDispMap.has(ncId)) return;
           const disp = l.payable_id ? dispMap.get(l.payable_id) : null;
           if (disp?.date) ncDispMap.set(ncId, disp);
         });
       } catch { /* tabella assente o errore non bloccante */ }
+      setPendingLinkedNcIds(linkedNc);
 
       const enrichedPayables: AnyRow[] = (viewData || []).map(row => {
         const extra = ((row.id && payablesExtraMap[row.id]) || {}) as AnyRow;
@@ -1944,8 +1976,11 @@ const ScadenzarioSmart = () => {
     }
   };
 
-  // "Conferma distinta": salva le disposizioni (azione esplicita). Dedup: non inserisce
-  // se la fattura è già in distinta (controllo applicativo + indice unique parziale lato DB).
+  // "Conferma distinta": salva le disposizioni (azione esplicita). Una fattura può avere
+  // PIÙ disposizioni (acconto + residuo): l'anti-doppione non è più l'unicità dell'indice
+  // ma una guardia sull'IMPORTO — la somma (già disposto + nuovo) non può superare il
+  // residuo della fattura. Così un secondo invio identico o un importo oltre il residuo
+  // viene saltato invece di sballare i conti.
   const confirmDistinta = async () => {
     if (!confirmResult || distintaSaved) return;
     const items = confirmResult.items || [];
@@ -1957,21 +1992,27 @@ const ScadenzarioSmart = () => {
       const payableItems = items.filter(it => !it.isFiscal);
       const fiscalItems = items.filter(it => it.isFiscal);
       const payableIds = payableItems.map(i => i.payableId);
-      // Quali fatture sono già in distinta? (solo id reali: gli id fiscali non sono uuid)
+      // Quanto è GIÀ disposto (somma netti) per ciascuna fattura, per la guardia sull'importo.
       const { data: existing } = payableIds.length
         ? await supabase
             .from('payable_actions')
-            .select('payable_id, payables!inner(company_id)')
+            .select('payable_id, amount, payables!inner(company_id)')
             .eq('action_type', 'disposizione')
             .eq('payables.company_id', COMPANY_ID!)
             .in('payable_id', payableIds)
-        : { data: [] as { payable_id: string }[] };
-      const already = new Set((existing || []).map(r => r.payable_id));
+        : { data: [] as { payable_id: string; amount: number | null }[] };
+      const disposedByPayable = new Map<string, number>();
+      (existing || []).forEach(r => disposedByPayable.set(r.payable_id, (disposedByPayable.get(r.payable_id) || 0) + (Number(r.amount) || 0)));
 
       let inserted = 0, skipped = 0;
       const errors: string[] = [];
       for (const it of payableItems) {
-        if (already.has(it.payableId)) { skipped++; continue; }
+        // Guardia importo: (già disposto + questo) non deve superare il residuo della
+        // fattura. Blocca i doppioni e le disposizioni oltre il dovuto (niente da disporre).
+        const pay = payables.find(p => p.id === it.payableId);
+        const remaining = Number(pay?.amount_remaining) || 0;
+        const disposed = disposedByPayable.get(it.payableId) || 0;
+        if ((Number(it.amount) || 0) <= 0 || disposed + (Number(it.amount) || 0) > remaining + 0.01) { skipped++; continue; }
         const { error: actErr } = await supabase.from('payable_actions').insert({
           payable_id: it.payableId,
           action_type: 'disposizione',
@@ -1982,13 +2023,13 @@ const ScadenzarioSmart = () => {
           note: it.note,
         } as never);
         if (actErr) {
-          // 23505 = violazione unique (indice parziale): già in distinta, non è un errore
-          if ((actErr as { code?: string }).code === '23505') { skipped++; continue; }
           errors.push(`${it.payableId}: ${actErr.message}`);
           continue;
         }
-        // Banca attesa per la riconciliazione (nessun altro campo della fattura toccato)
-        await supabase.from('payables').update({ payment_bank_account_id: it.bankId || null } as never).eq('id', it.payableId);
+        disposedByPayable.set(it.payableId, disposed + (Number(it.amount) || 0));
+        // Banca attesa per la riconciliazione: la impostiamo solo la PRIMA volta (se assente),
+        // per non sovrascrivere la banca dell'acconto quando si dispone il residuo su un'altra banca.
+        await supabase.from('payables').update({ payment_bank_account_id: it.bankId || null } as never).eq('id', it.payableId).is('payment_bank_account_id', null);
         inserted++;
       }
 
@@ -4041,7 +4082,9 @@ const ScadenzarioSmart = () => {
                         {p.id && selectedIds.has(p.id) && paymentPlan[p.id] && (() => {
                           const pid = p.id;
                           const plan = paymentPlan[pid];
-                          const residuo = Number(p.amount_remaining) || 0;
+                          // Residuo su cui si imposta acconto/saldo = quota ancora aperta
+                          // (per una fattura con acconto già in distinta è il residuo).
+                          const residuo = rowOpenAmount(p);
                           const ncOpts = openCreditNotesFor(p);
                           // PERIODO = mese di SCADENZA della fattura che si sta pagando, cioè il mese
                           // sotto cui la fattura compare nello scadenzario (raggruppamento per due_date).
