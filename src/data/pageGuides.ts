@@ -740,7 +740,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "q": "Un bonifico ha pagato più fatture insieme: come lo abbino?",
-        "a": "Nella scheda Riconciliazione, sotto le altre proposte, c'è la sezione \"Pagamenti raggruppati — un bonifico, più fatture\". Il sistema cerca la combinazione di 2-3 fatture dello stesso fornitore la cui somma coincide con l'importo del movimento e te la propone già pronta. Con \"Conferma gruppo\" agganci tutte le fatture del gruppo a quell'unico movimento in una volta sola. È un'operazione tutto-o-niente: se la somma delle fatture non corrisponde esattamente all'importo del bonifico, non abbina nulla e te lo segnala."
+        "a": "Nella scheda Riconciliazione, sotto le altre proposte, c'è la sezione \"Pagamenti raggruppati — un bonifico, più fatture\". Il sistema cerca la combinazione di fatture dello stesso fornitore la cui somma coincide con l'importo del movimento e te la propone già pronta; propone il gruppo più piccolo che quadra e riconosce anche gli addebiti che saldano molte fatture insieme (es. un unico addebito SDD di utenza che chiude cinque bollette). Con \"Conferma gruppo\" agganci tutte le fatture del gruppo a quell'unico movimento in una volta sola. È un'operazione tutto-o-niente: se la somma delle fatture non corrisponde esattamente all'importo del bonifico, non abbina nulla e te lo segnala. Molti di questi addebiti, quando la banca elenca in causale i numeri delle fatture, ora si chiudono già da soli senza doverli confermare a mano."
       },
       {
         "q": "Come faccio a sapere ogni giorno cosa è stato riconciliato e cosa resta da abbinare?",

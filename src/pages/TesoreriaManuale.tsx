@@ -3258,13 +3258,25 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
     // altrimenti lo slice le taglierebbe e il netto non tornerebbe.
     const s = sorted.filter((x) => x.base > 0).slice(0, 12).concat(sorted.filter((x) => x.base < 0))
     const n = s.length
-    for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) {
-      if (Math.abs(s[i].base + s[j].base - target) <= tol) return [s[i], s[j]]
+    // Cerca un sottoinsieme (2..MAX voci) la cui somma coincide col target entro la tolleranza.
+    // Approfondimento per DIMENSIONE crescente: restituisce il gruppo più piccolo che quadra
+    // (es. una coppia prima di una cinquina). Un addebito SDD può saldare N fatture in un colpo
+    // (caso reale ENEGAN: 5 fatture in un unico movimento), quindi non ci si ferma a 2-3.
+    const MAX = Math.min(n, 6)
+    const chosen: GroupItem[] = []
+    let found: GroupItem[] | null = null
+    const rec = (start: number, sum: number, limit: number): void => {
+      if (found) return
+      if (chosen.length === limit) {
+        if (Math.abs(sum - target) <= tol) found = chosen.slice()
+        return
+      }
+      for (let i = start; i < n && !found; i++) {
+        chosen.push(s[i]); rec(i + 1, sum + s[i].base, limit); chosen.pop()
+      }
     }
-    for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) for (let k = j + 1; k < n; k++) {
-      if (Math.abs(s[i].base + s[j].base + s[k].base - target) <= tol) return [s[i], s[j], s[k]]
-    }
-    return null
+    for (let limit = 2; limit <= MAX && !found; limit++) rec(0, 0, limit)
+    return found
   }
   const toVerifyGroups = useMemo<{ bt: TxT; items: GroupItem[]; beneficiario: string; total: number }[]>(() => {
     const singleBtIds = new Set(toVerify.map((v) => String(v.bt.id)))
