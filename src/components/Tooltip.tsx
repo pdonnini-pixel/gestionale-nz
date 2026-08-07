@@ -59,6 +59,9 @@ export default function Tooltip({ content, children, maxWidth = 380 }: TooltipPr
 
   const childProps = (children as React.ReactElement<any>).props
   const child = cloneElement(children as React.ReactElement<any>, {
+    // Marca il figlio: il tooltip globale (TruncationTooltip) salta gli elementi
+    // dentro un [data-tt], cosi' questa cella non riceve un secondo tooltip.
+    'data-tt': '',
     onMouseEnter: (e: React.MouseEvent<HTMLElement>) => {
       show(e.currentTarget)
       childProps.onMouseEnter?.(e)
