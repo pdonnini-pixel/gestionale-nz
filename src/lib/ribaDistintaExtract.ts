@@ -14,9 +14,15 @@ import { extractTextFromPdf } from './contractParser';
 
 export type DistintaLine = {
   supplier: string | null;
+  vat: string | null;      // P.IVA o codice fiscale del creditore (chiave di aggancio piu' affidabile)
   invoice: string | null;
   amount: number;          // sempre valorizzato (le righe senza importo sono scartate)
   dueDate: string | null;  // ISO YYYY-MM-DD se noto
+};
+
+const cleanVat = (raw: unknown): string | null => {
+  const s = String(raw ?? '').replace(/[^0-9A-Za-z]/g, '').replace(/^IT/i, '');
+  return s ? s : null;
 };
 
 export type DistintaExtract = {
@@ -72,6 +78,7 @@ function detectCols(headers: unknown[]) {
   const find = (keys: string[]) => headers.findIndex(h => keys.some(k => norm(h).includes(k)));
   return {
     supplier: find(['fornitor', 'beneficiar', 'ragione', 'denominaz', 'creditor', 'debitor', 'nominativ', 'cliente']),
+    vat: find(['p.iva', 'piva', 'partita', 'codice fiscale', 'cod.fisc', 'cod fisc', 'c.f.', 'vat']),
     invoice: find(['fattura', 'documento', 'num.', 'numero', 'fatt', 'rif']),
     amount: find(['importo', 'ammontare', 'totale', 'saldo']),
     due: find(['scadenz', 'data']),
@@ -101,6 +108,7 @@ function rowsToLines(rows: unknown[][]): DistintaLine[] {
     if (amount == null || amount === 0) continue; // righe di totale/vuote scartate
     out.push({
       supplier: cols.supplier >= 0 ? (norm(r[cols.supplier]) ? String(r[cols.supplier]).trim() : null) : null,
+      vat: cols.vat >= 0 ? cleanVat(r[cols.vat]) : null,
       invoice: cols.invoice >= 0 ? (norm(r[cols.invoice]) ? String(r[cols.invoice]).trim() : null) : null,
       amount: Math.abs(amount),
       dueDate: cols.due >= 0 ? toIsoDate(r[cols.due]) : null,
@@ -154,10 +162,11 @@ async function extractPdf(file: File): Promise<DistintaExtract> {
   const rawLines = Array.isArray(d?.lines) ? d!.lines : [];
   const lines: DistintaLine[] = rawLines
     .map((it) => {
-      const o = (it ?? {}) as { supplier?: unknown; invoice?: unknown; amount?: unknown; dueDate?: unknown };
+      const o = (it ?? {}) as { supplier?: unknown; vat?: unknown; invoice?: unknown; amount?: unknown; dueDate?: unknown };
       const amount = parseItAmount(o.amount);
       return {
         supplier: o.supplier ? String(o.supplier) : null,
+        vat: cleanVat(o.vat),
         invoice: o.invoice ? String(o.invoice) : null,
         amount: amount == null ? NaN : Math.abs(amount),
         dueDate: toIsoDate(o.dueDate),

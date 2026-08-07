@@ -55,26 +55,29 @@ async function getSecret(supabase: SupabaseClient, rpcName: string, key: string)
 }
 
 function buildSystemPrompt(): string {
-  return `Sei un estrattore di dati da DISTINTE di ricevute bancarie (RiBa) / effetti / disposizioni di incasso-pagamento italiane. Ricevi il TESTO grezzo di una distinta e devi estrarre l'ELENCO DELLE RIGHE, una per ogni effetto/fattura presente.
+  return `Sei un estrattore di dati da DISTINTE di ricevute bancarie (RiBa) / effetti / disposizioni italiane (es. "Distinta Di Ritiro Effetti Pagati" di banche come MPS). Ricevi il TESTO grezzo e devi estrarre l'ELENCO DELLE DISPOSIZIONI, una riga per ogni effetto.
 
 Rispondi ESCLUSIVAMENTE con un oggetto JSON valido (nessun testo prima o dopo, niente markdown, niente \`\`\`). Schema:
 {
-  "declaredTotal": number|null,   // totale della distinta se indicato, punto decimale
+  "declaredTotal": number|null,   // "Totale distinta" se indicato, punto decimale
   "lines": [
     {
-      "supplier": string|null,    // ragione sociale del fornitore/creditore della riga
-      "invoice": string|null,     // numero fattura/documento della riga, se presente
-      "amount": number|null,      // IMPORTO della riga (effetto) — punto decimale, niente separatore migliaia
-      "dueDate": string|null      // scadenza della riga in formato YYYY-MM-DD, se presente
+      "supplier": string|null,    // ragione sociale/nominativo del CREDITORE (beneficiario) dell'effetto
+      "vat": string|null,         // il valore dopo "cod.fiscale/P.iva creditore:" — P.IVA o CODICE FISCALE, solo cifre/lettere, senza spazi ne' "IT"
+      "invoice": string|null,     // riferimento fattura/documento della riga, se presente (anche sporco: "FT 73", "Rif- 5.7 8.962", "DOC.N...")
+      "amount": number|null,      // IMPORTO dell'effetto (colonna Importo) — punto decimale, niente separatore migliaia
+      "dueDate": string|null      // scadenza (colonna Scad.) in formato YYYY-MM-DD, se presente
     }
   ]
 }
 
 REGOLE:
-- Estrai UNA riga per ogni effetto/fattura elencato nella distinta. Non raggruppare, non sommare righe diverse.
-- Gli IMPORTI sono la cosa piu' importante: riportali ESATTI come nel documento. Formato italiano 1.234,56 => 1234.56. Mai arrotondare o inventare.
+- Ogni disposizione ha: colonne Creaz./Scad./Stato/Importo e un blocco "Dati Beneficiario" col nome, "cod.fiscale/P.iva creditore: <valore>", "Domiciliataria: ..." e un riferimento. Estrai UNA riga per disposizione.
+- Abbina con cura ogni IMPORTO al SUO beneficiario: nel testo grezzo importi e beneficiari possono comparire in blocchi separati, rispettane l'ORDINE (il 1° importo col 1° beneficiario, ecc.).
+- Il campo piu' importante e' "amount": riportalo ESATTO. Formato italiano 1.234,56 => 1234.56. Mai arrotondare o inventare.
+- "vat": prendi ESATTAMENTE il valore dopo "cod.fiscale/P.iva creditore:" (puo' essere una P.IVA di 11 cifre o un codice fiscale alfanumerico di 16). Niente spazi, niente "IT".
 - Non includere righe di totale/subtotale tra le "lines": il totale va in "declaredTotal".
-- Se un campo non c'e' nella riga, mettilo a null. Non inventare fornitori o numeri.
+- Se un campo non c'e', mettilo a null. Non inventare.
 - Rispondi SOLO col JSON.`;
 }
 
@@ -173,9 +176,10 @@ Deno.serve(async (req: Request) => {
       ? (parsed as { lines: unknown[] }).lines : [];
     const lines = rawLines
       .map((it) => {
-        const o = (it ?? {}) as { supplier?: unknown; invoice?: unknown; amount?: unknown; dueDate?: unknown };
+        const o = (it ?? {}) as { supplier?: unknown; vat?: unknown; invoice?: unknown; amount?: unknown; dueDate?: unknown };
         return {
           supplier: asStr(o.supplier),
+          vat: (() => { const v = asStr(o.vat); return v ? v.replace(/[^0-9A-Za-z]/g, '').replace(/^IT/i, '') || null : null; })(),
           invoice: asStr(o.invoice),
           amount: asNum(o.amount),
           dueDate: isISODate(asStr(o.dueDate)),

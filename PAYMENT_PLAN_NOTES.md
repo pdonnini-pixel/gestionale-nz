@@ -60,6 +60,29 @@
 >
 > **FASE 3 (da fare)** — coda NC manuale (vedi sopra).
 
+> ## 🧾 RiBa — FASE 2.1: match per FORNITORE + effetti CUMULATIVI (2026-08-06)
+>
+> Sui dati reali (distinta MPS "Ritiro Effetti Pagati", esempi di Patrizio) il match
+> automatico a importo singolo NON basta:
+> - la chiave affidabile e' la **P.IVA/CF del creditore** ("cod.fiscale/P.iva creditore:"),
+>   non il numero fattura (in distinta e' sporco: "FT 73", "Rif- 5.7 8.962", "DOC.N…", e
+>   **non corrisponde** ai numeri dei payables);
+> - molti effetti sono **cumulativi** (un importo = somma di N fatture del fornitore; es.
+>   TANESINI 5.447,91 = subset di 42 RiBa aperte);
+> - a volte la P.IVA in distinta e' un **codice fiscale** (persona fisica) che non combacia
+>   con `partita_iva`/`vat_number` (es. NIGRO: distinta `NGRPRZ…`, anagrafica P.IVA `02063730978`)
+>   → serve fallback sul **nome**.
+>
+> **Soluzione** (migration `20260806_146_riba_distinta_group_match.sql`, NZ+Made+Zago):
+> - `riba_distinta_lines` + `raw_vat`, `matched_supplier_id`, `matched_payable_ids uuid[]`.
+> - **automatico conservativo**: pre-aggancia SOLO il caso a importo singolo univoco (per fornitore).
+> - **composizione manuale**: `rpc_confirm_riba_distinta_line(line, payable_ids[])` chiude N scadenze
+>   ma **solo se la SOMMA quadra al centesimo** (`IMPORTO_NON_QUADRA` altrimenti). Testato su NZ
+>   (TANESINI, subset da 3) in rollback: chiusura gruppo OK + gate che rifiuta la somma parziale.
+> - Edge `extract-distinta` v2: estrae anche `vat`, prompt tarato sul layout MPS.
+> - Frontend: risoluzione fornitore per P.IVA/nome lato client; il modale mostra per ogni effetto
+>   le RiBa aperte del fornitore con **selezione multipla** e somma live/gate al centesimo.
+
 > ## ⚠️ AUTO-MATCH A IMPORTO — scramble su fornitore a importo unico (2026-08-06)
 >
 > **Sintomo** (segnalato da Patrizio, New Zago): fatture di un fornitore che
