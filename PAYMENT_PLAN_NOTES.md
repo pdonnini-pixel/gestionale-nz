@@ -30,8 +30,22 @@
 > dedicato, riga partitario "Pagamento RiBa (provvisorio)" in `SchedaContabileFornitore`.
 > Parità #0: **meccanismo** identico sui 3 tenant; i fornitori RiBa restano dato NZ-specifico.
 >
-> **FASE 3 (da fare)** — coda NC manuale: le note di credito dei fornitori RiBa vanno
-> **abbinate a mano** a una scadenza/pagamento (mai compensate in automatico), tracciate nel partitario.
+> ## 🧾 RiBa — FASE 3: note di credito abbinate A MANO (2026-08-06) — FATTA
+>
+> Regola (Patrizio): le NC dei fornitori RiBa NON si compensano in automatico; vanno
+> messe a disposizione dell'operatrice per **abbinarle a un pagamento/scadenza**, tracciate
+> nel partitario.
+>
+> **DB** (migration `20260806_147_riba_credit_note_manual_link.sql`, NZ+Made+Zago):
+> - `rpc_link_riba_credit_note(nc, target)`: riusa `payable_credit_note_links` (payable=target,
+>   credit_note=NC, `applied`), **chiude la NC a mano** (registrata in AVERE nel partitario) con
+>   riferimento alla scadenza; rifiuta se NC e scadenza sono di fornitori diversi.
+> - `rpc_unlink_riba_credit_note(nc)`: riapre la NC e annulla il link (reversibile).
+> - Testato su NZ in rollback: link (chiude NC + link applied) / unlink (riapre) / reject cross-fornitore.
+>
+> **Frontend**: `src/components/RibaCreditNotesModal.tsx` (coda NC RiBa aperte + scelta scadenza
+> destinazione + Abbina), pulsante "NC RiBa da abbinare" in `ScadenzarioSmart` (ruoli scrittura).
+> Guida `/scadenzario` aggiornata. Le NC RiBa restano ESCLUSE da ogni compensazione automatica.
 
 > ## 🧾 RiBa — FASE 2: upload distinta con riscontro AL CENTESIMO (2026-08-06) — FATTA
 >
