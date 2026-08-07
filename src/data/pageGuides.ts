@@ -666,8 +666,9 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "Movimenti",
-        "body": "Qui trovi l'elenco di tutti i movimenti bancari (entrate e uscite) con data, conto, descrizione, importo, saldo e stato di riconciliazione. Puoi cercare per descrizione o controparte, filtrare per conto, tipo (entrate/uscite), stato di riconciliazione, categoria contabile e periodo. A ogni movimento puoi assegnare una categoria contabile dal menu a tendina nella colonna \"Categoria contabile\": se manca, la casella è evidenziata in arancione. L'elenco si può esportare in PDF, CSV o Excel.",
+        "body": "Qui trovi l'elenco di tutti i movimenti bancari (entrate e uscite) con data, conto, descrizione, importo, saldo e stato di riconciliazione. Puoi cercare per descrizione o controparte, filtrare per conto, tipo (entrate/uscite), stato di riconciliazione, categoria contabile e periodo. A ogni movimento puoi assegnare una categoria contabile dal menu a tendina nella colonna \"Categoria contabile\": se manca, la casella è evidenziata in arancione. L'elenco si può esportare in PDF, CSV o Excel. Importante sul periodo: quando apri la scheda, l'elenco è ristretto all'anno selezionato nel selettore Anno in alto (quello globale, memorizzato nel browser). Se quel selettore è rimasto su un anno passato, vedrai solo i movimenti di quell'anno e sembrerà che manchino movimenti (spesso le entrate, che sono le più numerose): un banner azzurro te lo segnala con il pulsante \"Mostra tutti gli anni\" per sganciare il filtro. Anche \"Pulisci filtri\" azzera le date e mostra i movimenti di tutti gli anni. L'elenco carica sempre TUTTI i movimenti del conto, senza tetti nascosti.",
         "steps": [
+          "Se ti sembra che manchino dei movimenti (es. le entrate recenti), controlla il selettore Anno in alto: portalo sull'anno giusto, oppure clicca \"Mostra tutti gli anni\" nel banner azzurro / \"Pulisci filtri\".",
           "Usa la barra di ricerca e i filtri in alto per restringere l'elenco (ad esempio solo un conto o solo le uscite di un mese).",
           "Clicca sull'intestazione di una colonna (Data, Descrizione, Importo) per ordinare la tabella.",
           "Per assegnare o cambiare la categoria di un movimento, apri il menu a tendina nella riga corrispondente e scegli la voce giusta.",
@@ -714,6 +715,10 @@ export const PAGE_GUIDES: PageGuide[] = [
       }
     ],
     "faq": [
+      {
+        "q": "Nella scheda Movimenti mancano dei movimenti in entrata: perché io ne vedo meno di un collega?",
+        "a": "Quasi sempre è il filtro Anno. La scheda Movimenti mostra solo i movimenti dell'anno selezionato nel selettore Anno in alto, che è memorizzato nel tuo browser: se sul tuo computer è rimasto impostato su un anno passato, vedi solo quell'anno e le entrate dell'anno in corso spariscono dall'elenco (mentre un collega con l'anno corretto le vede). I dati non sono persi e le banche continuano a sincronizzarsi normalmente. Soluzione: porta il selettore Anno in alto sull'anno corrente, oppure clicca \"Mostra tutti gli anni\" nel banner azzurro sopra l'elenco (o \"Pulisci filtri\")."
+      },
       {
         "q": "Perché non trovo più il pulsante per caricare l'estratto conto in CSV?",
         "a": "Non serve più: dal collegamento con l'Open Banking, saldi e movimenti arrivano automaticamente dalle banche collegate. Il caricamento manuale è stato disattivato nella scheda Conti Bancari."

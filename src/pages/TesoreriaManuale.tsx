@@ -27,6 +27,7 @@ import { useCompanyLabels } from '../hooks/useCompanyLabels'
 import { useToast } from '../components/Toast'
 import { BANK_CATEGORY_OPTIONS, bankCategoryLabel } from '../lib/bankCategories'
 import { fetchCommittedByAccount, type CommittedByAccount } from '../lib/committedBalance'
+import { fetchAllPaged } from '../lib/fetchAllPaged'
 import { NON_SUPPLIER_RE, NON_SUPPLIER_BENEF_RE, extractBeneficiary, sigWords, movementNet, isRealTransfer } from '../lib/reconcileMatch'
 import PrimaNota from './PrimaNota'
 import OpenBankingAcube from '../components/OpenBankingAcube'
@@ -1735,6 +1736,15 @@ function TabMovimenti({ transactions, accounts, onAssignCategory, initialCategor
   const rangeStart = filtered.length === 0 ? 0 : (page - 1) * perPage + 1
   const rangeEnd = Math.min(page * perPage, filtered.length)
 
+  // Il range date corrisponde a un anno intero (`YYYY-01-01`..`YYYY-12-31`)?
+  // In tal caso la lista sta mostrando solo quell'anno: lo segnaliamo con un banner
+  // e un'azione per sganciare il filtro, perché è la causa n.1 di "mancano i movimenti".
+  const yearScope = useMemo<number | null>(() => {
+    const m = /^(\d{4})-01-01$/.exec(dateFrom)
+    if (m && dateTo === `${m[1]}-12-31`) return Number(m[1])
+    return null
+  }, [dateFrom, dateTo])
+
   const totalEntrate = useMemo(() => filtered.reduce<number>((s, t) => s + ((t.amount || 0) > 0 ? (t.amount || 0) : 0), 0), [filtered])
   const totalUscite = useMemo(() => filtered.reduce<number>((s, t) => s + ((t.amount || 0) < 0 ? Math.abs(t.amount || 0) : 0), 0), [filtered])
   const totalFiltered = useMemo(() => filtered.reduce<number>((s, t) => s + (t.amount || 0), 0), [filtered])
@@ -1761,15 +1771,19 @@ function TabMovimenti({ transactions, accounts, onAssignCategory, initialCategor
     }
   }
 
-  // Reset di TUTTI i filtri ai valori di default (utile quando i numeri non tornano)
+  // Reset di TUTTI i filtri ai valori di default. Le date vengono AZZERATE (non
+  // ri-bloccate sull'anno selezionato): così "Pulisci filtri" mostra davvero tutti
+  // i movimenti di ogni anno. In passato il reset re-impostava l'anno corrente e
+  // nascondeva le entrate degli altri anni, dando l'impressione di dati mancanti.
   const handleResetFilters = () => {
     setSearchInput('')
     setSearch('')
     setFilterAccount('all')
     setFilterType('all')
     setFilterReconciled('all')
-    setDateFrom(`${year}-01-01`)
-    setDateTo(`${year}-12-31`)
+    setFilterCategory('all')
+    setDateFrom('')
+    setDateTo('')
     setPage(1)
   }
 
@@ -1898,7 +1912,7 @@ function TabMovimenti({ transactions, accounts, onAssignCategory, initialCategor
           <button onClick={handleCerca} className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white">
             <Search size={14} /> Cerca
           </button>
-          <button onClick={handleResetFilters} title="Ripristina tutti i filtri al default (mese corrente, tutti i conti)" className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-50">
+          <button onClick={handleResetFilters} title="Azzera tutti i filtri e mostra i movimenti di tutti gli anni" className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-50">
             Pulisci filtri
           </button>
           <button onClick={handleExportPDF} className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-50" title="Esporta in PDF">
@@ -1911,6 +1925,23 @@ function TabMovimenti({ transactions, accounts, onAssignCategory, initialCategor
             <Download size={14} /> Excel
           </button>
         </div>
+        {/* Banner scope-anno: la lista è ristretta a un solo anno (dal Period Selector
+            globale). È la causa più comune del "non vedo più i movimenti in entrata":
+            le entrate degli altri anni restano nascoste finché non si sgancia il filtro. */}
+        {yearScope != null && (
+          <div className="mt-3 flex flex-wrap items-center gap-2 text-xs bg-blue-50 border border-blue-200 rounded-md px-3 py-2">
+            <Calendar size={14} className="text-blue-600 shrink-0" />
+            <span className="text-blue-800">
+              Stai vedendo <strong>solo i movimenti dell'anno {yearScope}</strong>. I movimenti degli altri anni (entrate incluse) sono nascosti dal filtro periodo.
+            </span>
+            <button
+              onClick={() => { setDateFrom(''); setDateTo(''); setPage(1) }}
+              className="ml-auto px-2.5 py-1 rounded-md bg-blue-600 text-white font-medium hover:bg-blue-700"
+            >
+              Mostra tutti gli anni
+            </button>
+          </div>
+        )}
         {/* Riga 1: riepilogo numeri (sempre dei filtri attivi) */}
         <div className="flex flex-wrap items-center gap-x-5 gap-y-1 mt-3 text-xs">
           <span className="text-slate-600"><strong className="text-slate-900">{filtered.length.toLocaleString('de-DE')}</strong> movimenti dal <strong>{fmtDate(dateFrom) || '—'}</strong> al <strong>{fmtDate(dateTo) || '—'}</strong></span>
@@ -1933,11 +1964,6 @@ function TabMovimenti({ transactions, accounts, onAssignCategory, initialCategor
             </select>
           </div>
         </div>
-        {transactions.length >= 10000 && (
-          <div className="mt-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
-            Stai vedendo i 10.000 movimenti più recenti. Restringi il periodo per non perdere dati storici.
-          </div>
-        )}
       </div>
 
       {/* Table */}
@@ -4058,9 +4084,22 @@ export default function TesoreriaManuale() {
     async function load() {
       setLoading(true)
       try {
-        const [acctRes, txRes, payRes, batchRes, itemsRes, sugRes] = await Promise.all([
+        const [acctRes, txAll, payRes, batchRes, itemsRes, sugRes] = await Promise.all([
           supabase.from('bank_accounts').select('*').eq('company_id', companyId).order('bank_name'),
-          supabase.from('bank_transactions').select('*').eq('company_id', companyId).order('transaction_date', { ascending: false }).limit(10000),
+          // Tutti i movimenti, paginati in blocchi da 1000: un semplice .limit()
+          // TRONCA SILENZIOSAMENTE oltre il cap PostgREST e faceva sparire i movimenti
+          // (es. entrate) più vecchi appena superate le ~10k righe. Ordine stabile
+          // (data + id univoco) per non perdere/duplicare righe al confine di pagina.
+          fetchAllPaged<TransactionT>(
+            (from, to) => supabase
+              .from('bank_transactions')
+              .select('*')
+              .eq('company_id', companyId)
+              .order('transaction_date', { ascending: false })
+              .order('id', { ascending: false })
+              .range(from, to),
+            'bank_transactions',
+          ),
           supabase.from('payables').select('*, suppliers(id, name, ragione_sociale, iban)').eq('company_id', companyId).order('due_date'),
           supabase.from('payment_batches').select('*').eq('company_id', companyId).order('created_at', { ascending: false }),
           supabase.from('payment_batch_items').select('*').eq('company_id', companyId).order('priority'),
@@ -4069,7 +4108,7 @@ export default function TesoreriaManuale() {
 
         if (!cancelled) {
           setAccounts(acctRes.data || [])
-          setTransactions(txRes.data || [])
+          setTransactions(txAll || [])
           setPayables((payRes.data || []).filter((p: { is_placeholder?: boolean }) => !p.is_placeholder))
           setBatches(batchRes.data || [])
           setBatchItems(itemsRes.data || [])
