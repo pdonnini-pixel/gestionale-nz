@@ -56,21 +56,33 @@ export default function RibaCreditNotesModal({
         }))
       setNcs(openNcs)
 
-      // scadenze RiBa (qualsiasi stato) dei fornitori con NC aperte, come destinazione
+      // Scadenze APERTE dei fornitori con NC aperte, come destinazione.
+      // Una nota di credito si abbina a un debito ANCORA DOVUTO, mai a una
+      // fattura gia' saldata: quindi si escludono le scadenze pagate/chiuse
+      // (payment_date valorizzata, closed_manually, pagata in via provvisoria)
+      // e gli stati terminali non piu' dovuti (pagato, annullato, nota_credito).
       const supIds = Array.from(new Set(openNcs.map(n => n.supplier_id).filter(Boolean))) as string[]
       if (supIds.length) {
         const { data: pd } = await supabase
           .from('payables')
-          .select('id, supplier_id, invoice_number, gross_amount, due_date, status, is_provisional_paid')
+          .select('id, supplier_id, invoice_number, gross_amount, due_date, status, is_provisional_paid, payment_date, closed_manually')
           .eq('company_id', companyId)
           .gt('gross_amount', 0)
           .in('supplier_id', supIds)
-        setTargets(((pd || []) as unknown as Array<Record<string, unknown>>).map(r => ({
-          id: String(r.id), supplier_id: (r.supplier_id as string) ?? null,
-          invoice_number: (r.invoice_number as string) ?? null,
-          gross_amount: Number(r.gross_amount) || 0, due_date: (r.due_date as string) ?? null,
-          status: String(r.status), provisional: Boolean(r.is_provisional_paid),
-        })))
+        const CLOSED_STATUS = new Set(['pagato', 'annullato', 'nota_credito'])
+        const isOpenTarget = (r: Record<string, unknown>) =>
+          !r.closed_manually &&
+          !r.payment_date &&
+          !r.is_provisional_paid &&
+          !CLOSED_STATUS.has(String(r.status || ''))
+        setTargets(((pd || []) as unknown as Array<Record<string, unknown>>)
+          .filter(isOpenTarget)
+          .map(r => ({
+            id: String(r.id), supplier_id: (r.supplier_id as string) ?? null,
+            invoice_number: (r.invoice_number as string) ?? null,
+            gross_amount: Number(r.gross_amount) || 0, due_date: (r.due_date as string) ?? null,
+            status: String(r.status), provisional: Boolean(r.is_provisional_paid),
+          })))
       } else setTargets([])
     } finally { setLoading(false) }
   }, [companyId])
@@ -128,7 +140,7 @@ export default function RibaCreditNotesModal({
                     <div className="text-sm font-semibold text-rose-600 shrink-0 sm:w-28 sm:text-right">−{fmt(n.amount)} €</div>
                     <div className="shrink-0 sm:w-72 flex items-center gap-2">
                       {opts.length === 0 ? (
-                        <span className="text-[11px] text-amber-700 inline-flex items-center gap-1"><AlertTriangle size={12} /> nessuna scadenza RiBa del fornitore</span>
+                        <span className="text-[11px] text-amber-700 inline-flex items-center gap-1"><AlertTriangle size={12} /> nessuna scadenza aperta del fornitore</span>
                       ) : (
                         <select value={pick[n.id] || ''} onChange={e => setPick(p => ({ ...p, [n.id]: e.target.value }))}
                           className="flex-1 px-2 py-1.5 rounded-lg border border-slate-200 text-xs bg-white">
