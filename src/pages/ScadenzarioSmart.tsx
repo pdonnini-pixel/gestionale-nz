@@ -4293,6 +4293,7 @@ const ScadenzarioSmart = () => {
           onClose={() => setRibaDistintaOpen(false)}
           companyId={COMPANY_ID}
           bankAccounts={bankAccounts as { id: string; name?: string | null }[]}
+          suppliers={suppliers as unknown as { id: string; name?: string | null; partita_iva?: string | null; vat_number?: string | null }[]}
           onDone={fetchData}
         />
       )}
