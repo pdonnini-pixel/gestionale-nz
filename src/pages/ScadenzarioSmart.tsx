@@ -4062,12 +4062,26 @@ const ScadenzarioSmart = () => {
                             const m = monthIdx(nc.due_date);
                             return invDueMonth != null && m != null && m > invDueMonth;
                           };
+                          // Ordine a 3 livelli richiesto: prima le NC di mesi PRECEDENTI alla fattura
+                          // (le più vecchie da smaltire), poi quelle del mese CORRENTE, infine le
+                          // SUCCESSIVE. Precedenti e correnti sono entrambe "da compensare ora" (verdi);
+                          // le successive restano ambra.
+                          const ncRank = (nc: AnyRow): number => {
+                            const m = monthIdx(nc.due_date);
+                            if (invDueMonth == null || m == null) return 1; // ignoto → tratta come corrente
+                            if (m < invDueMonth) return 0; // precedenti → in cima
+                            if (m > invDueMonth) return 2; // successive → in coda
+                            return 1;                       // mese corrente → in mezzo
+                          };
                           const ncOptsSorted = [...ncOpts].sort((a, b) => {
-                            const sa = ncIsSuccessive(a) ? 1 : 0, sb = ncIsSuccessive(b) ? 1 : 0;
-                            if (sa !== sb) return sa - sb; // prima quelle del periodo, poi le successive
+                            const ra = ncRank(a), rb = ncRank(b);
+                            if (ra !== rb) return ra - rb; // precedenti → correnti → successive
+                            const da = a.due_date ? new Date(a.due_date as string).getTime() : 0;
+                            const db = b.due_date ? new Date(b.due_date as string).getTime() : 0;
+                            if (da !== db) return da - db; // poi per scadenza crescente
                             const ta = a.invoice_date ? new Date(a.invoice_date as string).getTime() : 0;
                             const tb = b.invoice_date ? new Date(b.invoice_date as string).getTime() : 0;
-                            return ta - tb; // poi per data di emissione crescente
+                            return ta - tb; // infine per data di emissione crescente
                           });
                           const ncHasSameMonth = ncOptsSorted.some(nc => !ncIsSuccessive(nc));
                           const ncHasOtherMonth = ncOptsSorted.some(ncIsSuccessive);
