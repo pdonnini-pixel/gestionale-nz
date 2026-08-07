@@ -206,10 +206,14 @@ export default function RibaCreditNotesModal({
               {ncsForSel.map(n => {
                 const q = search.trim().toLowerCase()
                 // Filtra le scadenze per la ricerca, ma tiene sempre quella già scelta.
-                const opts = targetsFor(n).filter(t =>
-                  !q
-                  || t.id === pick[n.id]
-                  || `fatt ${t.invoice_number || ''} ${fmt(t.gross_amount)} ${fmtDate(t.due_date)}`.toLowerCase().includes(q))
+                // L'importo è cercabile in tutte le forme in cui l'operatrice può
+                // digitarlo: formattato "4.053,45", grezzo "4053.45" e "4053,45".
+                const opts = targetsFor(n).filter(t => {
+                  if (!q || t.id === pick[n.id]) return true
+                  const raw = String(t.gross_amount)
+                  const hay = `fatt ${t.invoice_number || ''} ${fmt(t.gross_amount)} ${raw} ${raw.replace('.', ',')} ${fmtDate(t.due_date)}`.toLowerCase()
+                  return hay.includes(q)
+                })
                 return (
                   <div key={n.id} className="p-3 flex flex-col sm:flex-row sm:items-center gap-2">
                     <div className="min-w-0 flex-1">
