@@ -56,7 +56,7 @@ export default function RibaDistintaModal({
   open: boolean
   onClose: () => void
   companyId: string
-  bankAccounts: { id: string; name?: string | null }[]
+  bankAccounts: { id: string; bank_name?: string | null; account_name?: string | null; iban?: string | null }[]
   suppliers: SupplierLite[]
   onDone: () => void
 }) {
@@ -220,7 +220,10 @@ export default function RibaDistintaModal({
             <label className="block text-xs font-medium text-slate-500 mb-1">Banca di addebito (facoltativa)</label>
             <select value={bankId} onChange={e => setBankId(e.target.value)} className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm bg-white">
               <option value="">— nessuna —</option>
-              {bankAccounts.map(b => <option key={b.id} value={b.id}>{b.name || b.id}</option>)}
+              {bankAccounts.map(b => {
+                const label = [b.bank_name, b.account_name].filter(Boolean).join(' — ') || b.iban || b.id
+                return <option key={b.id} value={b.id}>{label}</option>
+              })}
             </select>
           </div>
           <div>
