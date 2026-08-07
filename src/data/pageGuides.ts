@@ -546,7 +546,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "q": "Ho messo in distinta solo un acconto: perché la fattura resta comunque tra le aperte?",
-        "a": "Perché con un acconto la fattura NON è chiusa: solo la quota-acconto va \"in sospeso\" (in attesa del riscontro bancario), mentre la differenza ancora da pagare resta fra le fatture aperte con il suo importo residuo. Sulla riga vedi il badge giallo \"Acconto … € in distinta\" e, come importo, il residuo che resta da saldare (col lordo barrato). Quando arriva l'addebito dell'acconto in banca e viene riconciliato, il pagato sale e il residuo scende da solo: la fattura si chiude del tutto solo quando anche il residuo viene pagato."
+        "a": "Perché con un acconto la fattura NON è chiusa: solo la quota-acconto va \"in sospeso\" (in attesa del riscontro bancario), mentre la differenza ancora da pagare resta fra le fatture aperte con il suo importo residuo. Sulla riga vedi il badge giallo \"Acconto … € in distinta\" e, come importo, il residuo che resta da saldare (col lordo barrato). Quando l'acconto viene pagato — riconciliato in banca oppure chiuso a mano — il pagato sale e il residuo scende da solo, ma la fattura NON sparisce: resta comunque fra le aperte con il suo residuo (senza più il badge dell'acconto, perché ormai è saldato) finché non paghi anche quello. Si chiude del tutto solo quando anche il residuo viene pagato."
       },
       {
         "q": "Come dispongo il residuo di una fattura su cui ho già messo in distinta un acconto?",
