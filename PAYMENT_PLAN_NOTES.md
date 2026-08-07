@@ -72,7 +72,28 @@
 > `src/components/RibaDistintaModal.tsx` (upload → riscontro → conferma), pulsante "Carica distinta RiBa"
 > in `ScadenzarioSmart` (ruoli scrittura). Guida `/scadenzario` aggiornata.
 >
-> **FASE 3 (da fare)** — coda NC manuale (vedi sopra).
+> ## 🧾 RiBa — FASE 2.2: effetti AL NETTO di note di credito (2026-08-07)
+>
+> Dai PDF reali (distinta MPS): molti effetti sono al **netto di NC** — "ACC FATT 3480 MENO
+> NC 3438 3439" → 4.053,45 − 1.134,60 − 1.220,00 = 1.698,85; "FATT 3657 MENO NC 3797" →
+> 3.205,34 − 2.914,90 = 290,44 (verificato al centesimo sui dati veri).
+>
+> **DB** (migration `20260807_148_riba_distinta_net_of_credit_notes.sql`, NZ+Made+Zago):
+> `rpc_confirm_riba_distinta_line(line, ids[])` accetta un MIX di scadenze dello stesso
+> fornitore: le **fatture** (gross>0) chiuse come pagate, le **NC** (gross<0) chiuse a mano
+> (AVERE) e collegate alla fattura del gruppo (`payable_credit_note_links=applied`). Il **gate**
+> resta al centesimo su `sum(gross)` (le NC pesano negative = netto). Vincoli: stesso fornitore,
+> almeno una fattura. Testato su NZ in rollback (MIAN 883 − NC 56 = 2.933,49; gate rifiuta la
+> sola fattura). Frontend: il compose mostra anche le NC del fornitore (rosso, sottraggono).
+>
+> ⚠️ **DATO — duplicati payables**: emerso che alcuni fornitori (es. GRUPPO FB) hanno **payables
+> DUPLICATI per fattura** con `payment_method` incoerente (riba_60 vs bonifico_ordinario vs null)
+> e importi a **1 centesimo** di distanza (3657: 3205,34 riba vs 3205,35 bonifico; NC 3797:
+> −2914,90 vs −2914,91), in stati diversi (la copia RiBa spesso già chiusa, le copie bonifico
+> aperte). È un problema di IMPORT preesistente che rende confusa la composizione distinta e va
+> **bonificato a parte** (dedup, NO DATA LOSS: conferma binaria + backup). Da decidere con Patrizio.
+
+> **FASE 3** — coda NC manuale (vedi sotto): fatta.
 
 > ## 🧾 RiBa — FASE 2.1: match per FORNITORE + effetti CUMULATIVI (2026-08-06)
 >

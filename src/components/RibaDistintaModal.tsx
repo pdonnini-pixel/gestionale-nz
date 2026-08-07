@@ -84,15 +84,23 @@ export default function RibaDistintaModal({
   const loadPayables = useCallback(async () => {
     const { data } = await supabase
       .from('payables')
-      .select('id, supplier_id, invoice_number, supplier_name, gross_amount, due_date, payment_method, is_provisional_paid, status, bank_transaction_id, is_placeholder, suppliers(name)')
+      .select('id, supplier_id, invoice_number, supplier_name, gross_amount, due_date, payment_method, default_payment_method, is_provisional_paid, status, bank_transaction_id, is_placeholder, closed_manually, suppliers(name, payment_method, default_payment_method)')
       .eq('company_id', companyId)
-      .gt('gross_amount', 0)
     const rows = (data || []) as unknown as Array<Record<string, unknown>>
     const list: RibaPayable[] = rows
       .filter(r => {
-        const pm = String((r.payment_method as string) || '')
+        if (r.is_placeholder) return false
+        const sup = (r.suppliers as { payment_method?: string; default_payment_method?: string } | null) || {}
+        const pm = String(r.payment_method || sup.payment_method || sup.default_payment_method || '')
+        if (!pm.startsWith('riba')) return false
+        const gross = Number(r.gross_amount) || 0
+        if (gross < 0) {
+          // nota di credito RiBa: disponibile finché non chiusa/compensata
+          return !r.closed_manually
+        }
+        // fattura RiBa: aperta o già provvisoria, senza movimento reale
         const openOrProv = ['da_pagare', 'in_scadenza', 'scaduto'].includes(String(r.status)) || Boolean(r.is_provisional_paid)
-        return pm.startsWith('riba') && openOrProv && !r.bank_transaction_id && !r.is_placeholder
+        return gross > 0 && openOrProv && !r.bank_transaction_id
       })
       .map(r => ({
         id: String(r.id),
@@ -163,8 +171,9 @@ export default function RibaDistintaModal({
   }, [file, bankId, companyId, suppliers, toast, loadPayables, reloadLines, sb])
 
   const candidatesFor = useCallback((l: LineRow): RibaPayable[] => {
-    if (l.matched_supplier_id) return payables.filter(p => p.supplier_id === l.matched_supplier_id)
-    return payables
+    const base = l.matched_supplier_id ? payables.filter(p => p.supplier_id === l.matched_supplier_id) : payables
+    // fatture prima, note di credito (che scalano) in fondo
+    return [...base].sort((a, b) => (b.gross_amount > 0 ? 1 : 0) - (a.gross_amount > 0 ? 1 : 0))
   }, [payables])
 
   const selSum = useCallback((lineId: string) => {
@@ -276,16 +285,17 @@ export default function RibaDistintaModal({
                         <div className="text-xs text-amber-700 inline-flex items-center gap-1 py-1"><AlertTriangle size={13} /> nessuna RiBa aperta per questo fornitore</div>
                       ) : (
                         <>
-                          <div className="text-[11px] text-slate-400 mb-1">Seleziona le fatture che compongono l'effetto (somma = importo):</div>
+                          <div className="text-[11px] text-slate-400 mb-1">Seleziona le fatture e le eventuali note di credito (che scalano) che compongono l'effetto — il netto deve fare l'importo:</div>
                           <div className="max-h-52 overflow-auto divide-y divide-slate-50">
                             {cands.map(p => {
                               const checked = sel[l.id]?.has(p.id) || false
+                              const isNc = p.gross_amount < 0
                               return (
                                 <label key={p.id} className="flex items-center gap-2 py-1 text-xs cursor-pointer hover:bg-slate-50 rounded px-1">
                                   <input type="checkbox" checked={checked} onChange={() => toggle(l.id, p.id)} className="rounded border-slate-300" />
-                                  <span className="text-slate-500 w-24 shrink-0">fatt. {p.invoice_number || '—'}</span>
+                                  <span className={`w-24 shrink-0 ${isNc ? 'text-rose-500' : 'text-slate-500'}`}>{isNc ? 'NC' : 'fatt.'} {p.invoice_number || '—'}</span>
                                   <span className="text-slate-400 flex-1 truncate">{p.supplier || ''}</span>
-                                  <span className="text-slate-700 font-medium">{fmt(p.gross_amount)} €</span>
+                                  <span className={`font-medium ${isNc ? 'text-rose-600' : 'text-slate-700'}`}>{isNc ? '−' : ''}{fmt(Math.abs(p.gross_amount))} €</span>
                                 </label>
                               )
                             })}
