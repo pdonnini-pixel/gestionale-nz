@@ -4,7 +4,7 @@ import { useToast } from '../components/Toast';
 import {
   Calendar, TrendingUp, TrendingDown, Filter, AlertCircle, Clock,
   DollarSign, BarChart3, Eye, EyeOff, ChevronDown, CheckCircle2,
-  AlertTriangle, Clock3, Plus, Edit2, Trash2, Save, X, Download, Upload,
+  AlertTriangle, Clock3, Plus, Edit2, Trash2, Save, X, Download, Upload, Link2,
   CheckSquare, Square, Settings, Send, Ban, Wallet, Repeat,
   ChevronRight, ChevronLeft, Landmark, Building2, Search, RefreshCw,
   List, CalendarDays, Receipt, Loader2
@@ -25,6 +25,7 @@ import { todayYMD } from '../lib/dateLocal';
 import { fetchCommittedByAccount, type CommittedByAccount } from '../lib/committedBalance';
 import { useAuth } from '../hooks/useAuth';
 import RibaDistintaModal from '../components/RibaDistintaModal';
+import RibaCreditNotesModal from '../components/RibaCreditNotesModal';
 // Spezzatura (ondata 9): helper/config, UI condivisa e modali dello Scadenzario
 // vivono in src/pages/scadenzario/ — estrazione senza cambi funzionali.
 import {
@@ -1408,6 +1409,7 @@ const ScadenzarioSmart = () => {
   }, [payables]);
   const canManageRiba = profile?.role === 'super_advisor' || profile?.role === 'contabile';
   const [ribaDistintaOpen, setRibaDistintaOpen] = useState(false);
+  const [ribaNcOpen, setRibaNcOpen] = useState(false);
 
   // Chiude in blocco lo STORICO RiBa gia' scaduto (due_date < 06/08/2026) in via
   // provvisoria. L'automatico copre solo il futuro: questo e' il recupero manuale.
@@ -2853,6 +2855,15 @@ const ScadenzarioSmart = () => {
                 className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium bg-teal-50 text-teal-700 border-teal-200 hover:bg-teal-100">
                 <Upload size={12} />
                 Carica distinta RiBa
+              </button>
+            )}
+            {canManageRiba && (
+              <button
+                onClick={() => setRibaNcOpen(true)}
+                title="Note di credito dei fornitori RiBa da abbinare a mano a una scadenza/pagamento (non si compensano in automatico)."
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100">
+                <Link2 size={12} />
+                NC RiBa da abbinare
               </button>
             )}
             <input type="date" value={dateRange.start} onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })}
@@ -4305,6 +4316,16 @@ const ScadenzarioSmart = () => {
           companyId={COMPANY_ID}
           bankAccounts={bankAccounts as { id: string; name?: string | null }[]}
           suppliers={suppliers as unknown as { id: string; name?: string | null; partita_iva?: string | null; vat_number?: string | null }[]}
+          onDone={fetchData}
+        />
+      )}
+
+      {/* Note di credito RiBa da abbinare a mano (Fase 3) */}
+      {ribaNcOpen && COMPANY_ID && (
+        <RibaCreditNotesModal
+          open={ribaNcOpen}
+          onClose={() => setRibaNcOpen(false)}
+          companyId={COMPANY_ID}
           onDone={fetchData}
         />
       )}
