@@ -6,6 +6,7 @@ import { useCompanyLabels } from '../hooks/useCompanyLabels'
 import NotificationBell from './NotificationBell'
 import HelpPanel from './HelpPanel'
 import GlobalSearch from './GlobalSearch'
+import TruncationTooltip from './TruncationTooltip'
 import { useAuth } from '../hooks/useAuth'
 import { usePeriod } from '../hooks/usePeriod'
 import { getCurrentTenant } from '../lib/tenants'
@@ -372,6 +373,9 @@ export default function Layout() {
 
       {/* Global search overlay */}
       <GlobalSearch open={searchOpen} onClose={() => setSearchOpen(false)} />
+
+      {/* Tooltip globale automatico su ogni testo troncato ("scrittura interrotta") */}
+      <TruncationTooltip />
     </div>
   )
 }
