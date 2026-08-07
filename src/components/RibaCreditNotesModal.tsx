@@ -8,7 +8,7 @@ import { Modal } from './ui/Modal'
 import { supabase } from '../lib/supabase'
 import { useToast } from './Toast'
 import { fmt, fmtDate } from '../pages/scadenzario/helpers'
-import { Link2, Loader2, CheckCircle2, AlertTriangle } from 'lucide-react'
+import { Link2, Loader2, CheckCircle2, AlertTriangle, ChevronRight, ArrowLeft } from 'lucide-react'
 
 type NcRow = { id: string; supplier_id: string | null; supplier: string | null; invoice_number: string | null; invoice_date: string | null; amount: number }
 type TargetRow = { id: string; supplier_id: string | null; invoice_number: string | null; gross_amount: number; due_date: string | null; status: string; provisional: boolean }
@@ -29,6 +29,9 @@ export default function RibaCreditNotesModal({
   const [ncs, setNcs] = useState<NcRow[]>([])
   const [targets, setTargets] = useState<TargetRow[]>([])
   const [pick, setPick] = useState<Record<string, string>>({}) // ncId -> targetPayableId
+  // Passo 1 → Passo 2: prima si sceglie il FORNITORE (ordine alfabetico), poi si
+  // abbinano solo le sue note di credito. Evita la lista unica e lunghissima.
+  const [selSupplier, setSelSupplier] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -87,9 +90,35 @@ export default function RibaCreditNotesModal({
     } finally { setLoading(false) }
   }, [companyId])
 
-  useEffect(() => { if (open) load() }, [open, load])
+  useEffect(() => { if (open) { setSelSupplier(null); load() } }, [open, load])
 
-  const targetsFor = useCallback((n: NcRow) => targets.filter(t => t.supplier_id === n.supplier_id), [targets])
+  // Chiave di raggruppamento fornitore (per id; fallback sul nome se manca l'id).
+  const supKey = useCallback((n: NcRow) => n.supplier_id || `name:${n.supplier || '—'}`, [])
+
+  // Passo 1: fornitori con NC RiBa aperte, in ORDINE ALFABETICO, con conteggio e totale.
+  const suppliers = useMemo(() => {
+    const map = new Map<string, { key: string; name: string; count: number; total: number }>()
+    for (const n of ncs) {
+      const key = supKey(n)
+      const cur = map.get(key) || { key, name: n.supplier || '—', count: 0, total: 0 }
+      cur.count += 1; cur.total += n.amount
+      map.set(key, cur)
+    }
+    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name, 'it'))
+  }, [ncs, supKey])
+
+  // Passo 2: NC del solo fornitore selezionato.
+  const ncsForSel = useMemo(
+    () => (selSupplier ? ncs.filter(n => supKey(n) === selSupplier) : []),
+    [ncs, selSupplier, supKey],
+  )
+
+  // Scadenze del fornitore, ORDINATE per data (poi numero fattura): più leggibili.
+  const targetsFor = useCallback((n: NcRow) => targets
+    .filter(t => t.supplier_id === n.supplier_id)
+    .sort((a, b) => (a.due_date || '').localeCompare(b.due_date || '')
+      || (a.invoice_number || '').localeCompare(b.invoice_number || '', 'it', { numeric: true })),
+    [targets])
 
   const link = useCallback(async (n: NcRow) => {
     const tgt = pick[n.id]
@@ -99,12 +128,17 @@ export default function RibaCreditNotesModal({
       const { error } = await sb.rpc('rpc_link_riba_credit_note', { p_credit_note_id: n.id, p_target_payable_id: tgt })
       if (error) throw new Error(error.message)
       toast({ type: 'success', message: `Nota di credito ${n.invoice_number || ''} abbinata e registrata nel partitario.` })
-      setNcs(prev => prev.filter(x => x.id !== n.id))
+      setNcs(prev => {
+        const next = prev.filter(x => x.id !== n.id)
+        // Se il fornitore non ha più NC aperte, torna alla lista fornitori.
+        if (selSupplier && !next.some(x => supKey(x) === selSupplier)) setSelSupplier(null)
+        return next
+      })
       onDone()
     } catch (e) {
       toast({ type: 'error', message: (e as Error)?.message || 'Abbinamento fallito' })
     } finally { setBusy(false) }
-  }, [pick, toast, onDone, sb])
+  }, [pick, toast, onDone, sb, selSupplier, supKey])
 
   const totalOpen = useMemo(() => ncs.reduce((s, n) => s + n.amount, 0), [ncs])
 
@@ -125,16 +159,41 @@ export default function RibaCreditNotesModal({
           <div className="py-8 text-center text-slate-500 text-sm inline-flex items-center gap-2 justify-center w-full">
             <CheckCircle2 size={16} className="text-emerald-500" /> Nessuna nota di credito RiBa da abbinare.
           </div>
-        ) : (
+        ) : !selSupplier ? (
+          /* PASSO 1 — scelta del fornitore (ordine alfabetico) */
           <>
-            <div className="text-xs text-slate-500">{ncs.length} note di credito aperte · totale {fmt(totalOpen)} €</div>
+            <div className="text-xs text-slate-500">{ncs.length} note di credito aperte · {suppliers.length} fornitori · totale {fmt(totalOpen)} €</div>
+            <div className="text-xs text-slate-500">Scegli prima il fornitore, poi abbini le sue note di credito.</div>
             <div className="max-h-[56vh] overflow-auto rounded-lg border border-slate-200 divide-y divide-slate-100">
-              {ncs.map(n => {
+              {suppliers.map(s => (
+                <button key={s.key} onClick={() => setSelSupplier(s.key)}
+                  className="w-full p-3 flex items-center gap-3 text-left hover:bg-slate-50 transition">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-medium text-slate-800 truncate">{s.name}</div>
+                    <div className="text-[11px] text-slate-400">{s.count} nota{s.count === 1 ? '' : 'e'} di credito da abbinare</div>
+                  </div>
+                  <div className="text-sm font-semibold text-rose-600 shrink-0">−{fmt(s.total)} €</div>
+                  <ChevronRight size={16} className="text-slate-300 shrink-0" />
+                </button>
+              ))}
+            </div>
+          </>
+        ) : (
+          /* PASSO 2 — abbinamento delle NC del fornitore scelto */
+          <>
+            <div className="flex items-center justify-between gap-2">
+              <button onClick={() => setSelSupplier(null)}
+                className="inline-flex items-center gap-1 text-xs text-slate-600 hover:text-slate-900">
+                <ArrowLeft size={14} /> Tutti i fornitori
+              </button>
+              <div className="text-sm font-semibold text-slate-800 truncate">{ncsForSel[0]?.supplier || '—'}</div>
+            </div>
+            <div className="max-h-[56vh] overflow-auto rounded-lg border border-slate-200 divide-y divide-slate-100">
+              {ncsForSel.map(n => {
                 const opts = targetsFor(n)
                 return (
                   <div key={n.id} className="p-3 flex flex-col sm:flex-row sm:items-center gap-2">
                     <div className="min-w-0 flex-1">
-                      <div className="text-sm font-medium text-slate-800 truncate">{n.supplier || '—'}</div>
                       <div className="text-[11px] text-slate-400">NC {n.invoice_number || '—'}{n.invoice_date ? ` · ${fmtDate(n.invoice_date)}` : ''}</div>
                     </div>
                     <div className="text-sm font-semibold text-rose-600 shrink-0 sm:w-28 sm:text-right">−{fmt(n.amount)} €</div>
