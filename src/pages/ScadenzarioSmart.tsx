@@ -3941,30 +3941,34 @@ const ScadenzarioSmart = () => {
                           const plan = paymentPlan[pid];
                           const residuo = Number(p.amount_remaining) || 0;
                           const ncOpts = openCreditNotesFor(p);
-                          // Mese di emissione della fattura che si sta pagando. Le NC dello STESSO
-                          // mese sono la compensazione "naturale" (di solito si paga la fattura del
-                          // mese scalando la NC dello stesso mese): vanno in cima ed evidenziate in
-                          // verde. Le NC di altri mesi restano scalabili ma con colore diverso
-                          // (ambra), così si distinguono a colpo d'occhio. Ordino per data.
-                          const ncMonthIdx = (d: unknown): number | null => {
+                          // PERIODO = mese di SCADENZA della fattura che si sta pagando, cioè il mese
+                          // sotto cui la fattura compare nello scadenzario (raggruppamento per due_date).
+                          // Le NC con scadenza nello STESSO mese (o precedente) fanno parte del periodo
+                          // che si sta saldando → verdi, in cima. Le NC con scadenza in un mese
+                          // SUCCESSIVO sono "quelle successive": ambra, scalabili comunque ma distinte a
+                          // colpo d'occhio. NB: sul chip resta mostrata la DATA DI EMISSIONE della NC;
+                          // il colore dipende dal periodo di scadenza (una fattura di febbraio con
+                          // scadenza a giugno si abbina alle NC che scadono a giugno, non a febbraio).
+                          const monthIdx = (d: unknown): number | null => {
                             if (!d) return null;
                             const dt = new Date(d as string);
                             return Number.isNaN(dt.getTime()) ? null : dt.getFullYear() * 12 + dt.getMonth();
                           };
-                          const invMonth = ncMonthIdx(p.invoice_date);
-                          const ncSameMonth = (nc: AnyRow): boolean => {
-                            const m = ncMonthIdx(nc.invoice_date);
-                            return invMonth != null && m != null && m === invMonth;
+                          const invDueMonth = monthIdx(p.due_date);
+                          // "Successiva" = scadenza in un mese oltre quello della fattura pagata.
+                          const ncIsSuccessive = (nc: AnyRow): boolean => {
+                            const m = monthIdx(nc.due_date);
+                            return invDueMonth != null && m != null && m > invDueMonth;
                           };
                           const ncOptsSorted = [...ncOpts].sort((a, b) => {
-                            const sa = ncSameMonth(a) ? 0 : 1, sb = ncSameMonth(b) ? 0 : 1;
-                            if (sa !== sb) return sa - sb; // stesso mese prima
+                            const sa = ncIsSuccessive(a) ? 1 : 0, sb = ncIsSuccessive(b) ? 1 : 0;
+                            if (sa !== sb) return sa - sb; // prima quelle del periodo, poi le successive
                             const ta = a.invoice_date ? new Date(a.invoice_date as string).getTime() : 0;
                             const tb = b.invoice_date ? new Date(b.invoice_date as string).getTime() : 0;
                             return ta - tb; // poi per data di emissione crescente
                           });
-                          const ncHasSameMonth = ncOptsSorted.some(ncSameMonth);
-                          const ncHasOtherMonth = ncOptsSorted.some(nc => !ncSameMonth(nc));
+                          const ncHasSameMonth = ncOptsSorted.some(nc => !ncIsSuccessive(nc));
+                          const ncHasOtherMonth = ncOptsSorted.some(ncIsSuccessive);
                           const ncTot = (plan.ncIds || []).reduce((s, nid) => { const nc = payables.find(x => x.id === nid); return s + (nc ? ncAmountOf(nc) : 0); }, 0);
                           const baseAmt = plan.type === 'saldo' ? residuo : (Number(plan.baseAmount) || 0);
                           // Residuo della FATTURA che resterà da pagare in un secondo momento
@@ -4019,23 +4023,25 @@ const ScadenzarioSmart = () => {
                                   </div>
                                 )}
                                 {/* Scala note di credito — NC aperte dello stesso fornitore, ordinate per
-                                    data con quelle dello STESSO mese della fattura in cima (verdi) e quelle
-                                    di altri mesi in coda (ambra), comunque scalabili. Selezionandole,
-                                    l'importo del bonifico scende del loro valore e la causale le cita. */}
+                                    data: quelle dello STESSO periodo di scadenza della fattura in cima
+                                    (verdi), quelle con scadenza SUCCESSIVA in coda (ambra), comunque
+                                    scalabili. Selezionandole, l'importo del bonifico scende del loro
+                                    valore e la causale le cita. */}
                                 {ncOptsSorted.length > 0 && (
                                   <div className="min-w-48">
                                     <label className="text-xs font-medium text-slate-600 block mb-1">
                                       Scala note di credito
                                       {ncHasSameMonth && ncHasOtherMonth && (
-                                        <span className="ml-1 font-normal text-slate-400">— verde: stesso mese · ambra: altri mesi</span>
+                                        <span className="ml-1 font-normal text-slate-400">— verde: stesso periodo · ambra: scadenze successive</span>
                                       )}
                                     </label>
                                     <div className="flex flex-wrap gap-1">
                                       {ncOptsSorted.map(nc => {
                                         const on = (plan.ncIds || []).includes(nc.id as string);
-                                        const same = ncSameMonth(nc);
-                                        // Verde = stesso mese (compensazione naturale); ambra = altro mese.
-                                        const cls = same
+                                        const successive = ncIsSuccessive(nc);
+                                        // Verde = stesso periodo di scadenza (compensazione del mese);
+                                        // ambra = scadenza successiva (scalabile comunque).
+                                        const cls = !successive
                                           ? (on ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100')
                                           : (on ? 'bg-amber-500 text-white border-amber-500' : 'bg-white text-amber-700 border-amber-300 hover:bg-amber-50');
                                         return (
@@ -4046,7 +4052,7 @@ const ScadenzarioSmart = () => {
                                               recomputePlan(pid, { ncIds: Array.from(cur) });
                                             }}
                                             className={`px-2 py-1 rounded-md text-xs font-medium border ${cls}`}
-                                            title={`Nota di credito ${nc.invoice_number || ''}${nc.invoice_date ? ` del ${fmtDate(nc.invoice_date as string)}` : ''} — ${fmt(ncAmountOf(nc))} €${same ? ' — stesso mese della fattura' : ' — altro mese (scalabile comunque)'}`}>
+                                            title={`Nota di credito ${nc.invoice_number || ''}${nc.invoice_date ? ` del ${fmtDate(nc.invoice_date as string)}` : ''} — ${fmt(ncAmountOf(nc))} €${successive ? ' — scadenza successiva (scalabile comunque)' : ' — stesso periodo di scadenza della fattura'}`}>
                                             {on ? '✓ ' : ''}NC {nc.invoice_number || 's/n'}{nc.invoice_date ? ` del ${fmtDate(nc.invoice_date as string)}` : ''} −{fmt(ncAmountOf(nc))}
                                           </button>
                                         );
