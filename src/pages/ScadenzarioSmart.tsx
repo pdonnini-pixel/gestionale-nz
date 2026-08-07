@@ -3705,7 +3705,12 @@ const ScadenzarioSmart = () => {
                                 </span>
                               </UiTooltip>
                             )}
-                            {Boolean(p.closed_manually) && (
+                            {/* Badge "Chiusa a mano" solo finché NON è arrivato il
+                                movimento bancario reale: se poi il bonifico viene
+                                riconciliato (payment_source='movimento'), la verità è
+                                il movimento (colonna Conto) e il badge sparisce, per
+                                non mostrare due messaggi in conflitto. */}
+                            {Boolean(p.closed_manually) && p.payment_source !== 'movimento' && (
                               <div className="mt-1">
                                 <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-violet-50 text-[9px] text-violet-700 font-medium border border-violet-200"
                                   title={`Chiusa a mano${p.payment_date ? ' il ' + new Date(p.payment_date as string).toLocaleDateString('it-IT') : ''}${p.manual_close_reason ? ' — ' + String(p.manual_close_reason) : ''}`}>
