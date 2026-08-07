@@ -3665,10 +3665,14 @@ const ScadenzarioSmart = () => {
                               const supplierLabel = (p.suppliers?.ragione_sociale || p.suppliers?.name || '').trim()
                               const note = (p.notes || '').trim()
                               const isNotaCredito = p.status === 'nota_credito' || (Number(p.gross_amount) || 0) < 0
-                              // Per le note di credito mostro SEMPRE la data di emissione accanto
-                              // al numero (regola: numero + data + importo insieme ovunque).
+                              // Riga fattura in descrizione: numero + data emissione (se presente)
+                              // + scadenza naturale (original_due_date, se presente). La scadenza
+                              // naturale è la scadenza originale della fattura, distinta dalla
+                              // data mostrata nella colonna DATA (che può essere stata rinviata).
                               const invoiceLabel = p.invoice_number && p.invoice_number !== '-'
-                                ? `${isNotaCredito ? 'Nota di credito' : 'Fattura'} • ${p.invoice_number}${isNotaCredito && p.invoice_date ? ` del ${fmtDate(p.invoice_date as string)}` : ''}`
+                                ? `${isNotaCredito ? 'Nota di credito' : 'Fattura'} • ${p.invoice_number}`
+                                  + (p.invoice_date ? ` del ${fmtDate(p.invoice_date as string)}` : '')
+                                  + (p.original_due_date ? ` · scad. naturale ${fmtDate(p.original_due_date as string)}` : '')
                                 : ''
                               // Fattura a rate (split dall'XML): badge dedicato "rata X/N", sempre
                               // visibile quando le rate sono >1, così tre righe della stessa fattura
