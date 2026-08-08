@@ -7,7 +7,7 @@ import {
   AlertTriangle, Clock3, Plus, Edit2, Trash2, Save, X, Download, Upload, Link2,
   CheckSquare, Square, Settings, Send, Ban, Wallet, Repeat,
   ChevronRight, ChevronLeft, Landmark, Building2, Search, RefreshCw,
-  List, CalendarDays, Receipt, Loader2
+  List, CalendarDays, Receipt, Loader2, RotateCcw
 } from 'lucide-react';
 import CostiRicorrenti from '../components/CostiRicorrenti';
 import ExportMenu from '../components/ExportMenu';
@@ -260,6 +260,11 @@ const ScadenzarioSmart = () => {
   const [manualCloseDate, setManualCloseDate] = useState<string>('');
   const [manualCloseReason, setManualCloseReason] = useState<string>('');
   const [manualCloseAmount, setManualCloseAmount] = useState<string>(''); // importo da chiudere (totale o parziale)
+  // Modale "Riapri" — riapertura di una scadenza chiusa per errore (a mano o
+  // riconciliata male dal sistema). Riporta la fattura allo stato aperto e, se
+  // era agganciata a un movimento bancario, lo libera per il riabbinamento.
+  const [reopenModal, setReopenModal] = useState<{ open: boolean; payable: AnyRow | null }>({ open: false, payable: null });
+  const [reopenReason, setReopenReason] = useState<string>('');
 
   // Selection helpers
   // Banca di default alla selezione: se la fattura ha gia' un conto di pagamento
@@ -1332,6 +1337,86 @@ const ScadenzarioSmart = () => {
       setManualCloseReason('');
       setManualCloseAmount('');
     }
+  };
+
+  // Una scadenza e' "riapribile" quando risulta chiusa: pagata/parziale, chiusa a
+  // mano, chiusa in via provvisoria (RiBa) o agganciata a un movimento bancario.
+  // Le righe fiscali e quelle annullate non si riaprono da qui.
+  const isReopenable = (p: AnyRow): boolean => {
+    if (!p.id || p._isFiscal) return false;
+    if (p.status === 'annullato') return false;
+    const gross = Number(p.gross_amount ?? 0) || 0;
+    const isNC = p.status === 'nota_credito' || gross < 0;
+    if (isNC) return Boolean(p.closed_manually);
+    return p.status === 'pagato'
+      || p.status === 'parziale'
+      || Boolean(p.closed_manually)
+      || Boolean(p.is_provisional_paid)
+      || p.payment_source === 'movimento';
+  };
+
+  // Apre la modale di conferma riapertura.
+  const openReopenModal = (p: AnyRow) => {
+    setStatusDropdownId(null);
+    setReopenModal({ open: true, payable: p });
+    setReopenReason('');
+  };
+
+  // Handler: riapre la scadenza chiusa (RPC atomica reopen_payable). Riporta la
+  // fattura ad aperta, libera l'eventuale movimento bancario e riapre le NC
+  // compensate. Registra la riga di audit in partitario.
+  const handleReopenSubmit = async () => {
+    const p = reopenModal.payable;
+    if (!p?.id) return;
+    setIsSaving(true);
+    // Cast: RPC nuova, non ancora nei tipi generati (database.ts).
+    const { data, error } = await supabase.rpc('reopen_payable' as never, {
+      p_id: p.id,
+      p_reason: reopenReason.trim() || null,
+      p_operator: operatorName,
+    } as never);
+    setIsSaving(false);
+    if (error) {
+      toast({ type: 'error', message: `Errore riapertura: ${error.message}` });
+      return;
+    }
+    const row = (Array.isArray(data) ? data[0] : data) as {
+      status?: string; amount_paid?: number; amount_remaining?: number;
+      payment_date?: string | null; closed_manually?: boolean;
+      undone_reconciliations?: number; reopened_credit_notes?: number; reopened?: boolean;
+    } | undefined;
+    if (row && row.reopened === false) {
+      toast({ type: 'info', message: 'La scadenza non risultava chiusa: niente da riaprire' });
+      setReopenModal({ open: false, payable: null });
+      setReopenReason('');
+      return;
+    }
+    if (row) {
+      setPayables(prev => prev.map(x => x.id === p.id
+        ? { ...x,
+            status: row.status ?? x.status,
+            amount_paid: row.amount_paid ?? 0,
+            amount_remaining: row.amount_remaining ?? x.amount_remaining,
+            payment_date: null,
+            closed_manually: row.closed_manually ?? false,
+            manual_close_reason: null,
+            is_provisional_paid: false,
+            provisional_paid_at: null,
+            payment_source: null,
+            payment_real_bank_name: null,
+            payment_movement_date: null,
+            last_action_by: operatorName || x.last_action_by || null }
+        : x));
+    }
+    const freed = Number(row?.undone_reconciliations ?? 0);
+    const ncs = Number(row?.reopened_credit_notes ?? 0);
+    const extra = [
+      freed > 0 ? `${freed} movimento/i liberato/i (da riabbinare)` : '',
+      ncs > 0 ? `${ncs} nota/e di credito riaperta/e` : '',
+    ].filter(Boolean).join(' · ');
+    toast({ type: 'success', message: `Fattura riaperta${extra ? ' — ' + extra : ''}` });
+    setReopenModal({ open: false, payable: null });
+    setReopenReason('');
   };
 
   // Filter payables
@@ -3869,6 +3954,12 @@ const ScadenzarioSmart = () => {
                                   className="w-full text-left px-3 py-1.5 text-xs hover:bg-violet-50 text-violet-700 font-medium flex items-center gap-2">
                                   ✎ Chiudi a mano…
                                 </button>
+                                {isReopenable(p) && (
+                                  <button onClick={() => openReopenModal(p)}
+                                    className="w-full text-left px-3 py-1.5 text-xs hover:bg-amber-50 text-amber-700 font-medium flex items-center gap-2">
+                                    <RotateCcw size={12} /> Riapri fattura…
+                                  </button>
+                                )}
                               </div>
                             )}
                           </td>
@@ -4063,6 +4154,15 @@ const ScadenzarioSmart = () => {
                                     ? 'Chiudi a mano la nota di credito — registra in AVERE nel partitario'
                                     : 'Chiudi a mano (totale o parziale) — registra in partitario'}>
                                   <CheckCircle2 size={13} />
+                                </button>
+                              )}
+                              {/* Riapri — riporta ad aperta una scadenza chiusa per errore (a mano o
+                                  riconciliata male): libera l'eventuale movimento bancario per il riabbinamento */}
+                              {isReopenable(p) && (
+                                <button onClick={() => openReopenModal(p)}
+                                  className="p-1 rounded text-slate-400 hover:text-amber-600 hover:bg-amber-50"
+                                  title="Riapri fattura (chiusa per errore o riconciliata male)">
+                                  <RotateCcw size={13} />
                                 </button>
                               )}
                               <button onClick={() => setModals({ ...modals, editSchedule: { open: true, schedule: p } })}
@@ -4612,6 +4712,52 @@ const ScadenzarioSmart = () => {
               <button onClick={handleManualCloseSubmit} disabled={isSaving || !manualCloseDate || invalid}
                 className="flex-1 py-2.5 rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-sm font-medium disabled:opacity-50">
                 {isSaving ? 'Chiusura…' : (isNC ? 'Chiudi NC a mano' : (isPartial ? 'Chiudi parziale' : 'Chiudi a mano'))}
+              </button>
+            </div>
+          </div>
+        </Modal>
+        );
+      })()}
+
+      {/* Riapri Modal — riapre una scadenza chiusa per errore (a mano o riconciliata male) */}
+      {reopenModal.open && (() => {
+        const p = reopenModal.payable;
+        const closeModal = () => { setReopenModal({ open: false, payable: null }); setReopenReason(''); };
+        const grossR = Number(p?.gross_amount ?? 0) || 0;
+        const isNC = p?.status === 'nota_credito' || grossR < 0;
+        const viaMovimento = p?.payment_source === 'movimento';
+        const viaProvvisorio = Boolean(p?.is_provisional_paid);
+        return (
+        <Modal open={true} onClose={closeModal}
+          title={`Riapri: ${p?.invoice_number || (isNC ? 'NC' : 'fattura')}`}>
+          <div className="space-y-4">
+            <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2.5 text-xs text-amber-800">
+              {isNC
+                ? <>La nota di credito verrà <span className="font-semibold">riaperta</span>: si annulla la chiusura a mano e torna disponibile per l'abbinamento. Operazione reversibile.</>
+                : viaMovimento
+                ? <>La fattura verrà <span className="font-semibold">riportata ad aperta</span> e il <span className="font-semibold">movimento bancario</span> agganciato verrà <span className="font-semibold">liberato</span> (torna nella coda «da riconciliare»), così potrai riabbinarlo alla fattura giusta. Le eventuali note di credito compensate tornano disponibili. Nessun dato viene perso.</>
+                : viaProvvisorio
+                ? <>La fattura (chiusa in via <span className="font-semibold">provvisoria</span> RiBa) verrà <span className="font-semibold">riportata ad aperta</span>. Operazione reversibile.</>
+                : <>La fattura verrà <span className="font-semibold">riportata ad aperta</span>: si azzera il pagato e si toglie la chiusura a mano. Lo stato torna a «da pagare» / «scaduto» secondo la scadenza. Nessun movimento bancario è coinvolto.</>}
+            </div>
+            <p className="text-sm text-slate-600">
+              {isNC
+                ? <>Nota di credito {p?.invoice_number || ''} — importo: <span className="font-medium text-slate-900">{fmt(Math.abs(grossR))} €</span></>
+                : <>Importo fattura: <span className="font-medium text-slate-900">{fmt(grossR)} €</span>{p?.supplier_name ? <> — {String(p.supplier_name)}</> : null}</>}
+            </p>
+            <div>
+              <label className="text-xs font-semibold text-slate-700 mb-2 block uppercase tracking-wide">Motivazione (opzionale)</label>
+              <input type="text" value={reopenReason} onChange={(e) => setReopenReason(e.target.value)}
+                placeholder="es. chiusa per errore, riconciliata sul bonifico sbagliato…"
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-amber-500" />
+              <p className="text-[11px] text-slate-500 mt-1">Verrà registrata una riga «Riaperta a mano» nel partitario fornitore, con la tua firma e la data.</p>
+            </div>
+            <div className="flex gap-2 pt-1">
+              <button onClick={closeModal}
+                className="flex-1 py-2.5 rounded-lg border border-slate-200 text-sm font-medium hover:bg-slate-50">Annulla</button>
+              <button onClick={handleReopenSubmit} disabled={isSaving}
+                className="flex-1 py-2.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-sm font-medium disabled:opacity-50 flex items-center justify-center gap-2">
+                <RotateCcw size={14} /> {isSaving ? 'Riapertura…' : 'Riapri fattura'}
               </button>
             </div>
           </div>
