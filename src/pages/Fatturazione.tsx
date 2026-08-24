@@ -55,6 +55,24 @@ const tipoDocLabel = (code?: string | null): string => {
   return TIPO_DOC_LABEL[code.toUpperCase()] ?? code
 }
 
+// Etichetta CORTA per la colonna Tipo della tabella fatture passive.
+// Le descrizioni ufficiali dei documenti di integrazione/reverse charge sono
+// lunghissime ("Integrazione/autofattura acquisti estero servizi"): in una
+// cella su riga singola bastavano poche fatture TD16/TD17 per allargare la
+// colonna a ~360px e mandare l'intera tabella fuori schermo. In tabella si
+// mostra la versione breve, la descrizione completa resta nel tooltip.
+const TIPO_DOC_SHORT: Record<string, string> = {
+  TD01: 'Fattura', TD02: 'Acconto fatt.', TD03: 'Acconto parc.',
+  TD04: 'Nota credito', TD05: 'Nota debito', TD06: 'Parcella',
+  TD16: 'Reverse charge', TD17: 'Autofatt. estero', TD18: 'Acquisti UE',
+  TD19: 'Autofatt. art.17', TD24: 'Fatt. differita', TD25: 'Fatt. differita',
+  TD26: 'Cessione beni', TD27: 'Autoconsumo',
+}
+const tipoDocShort = (code?: string | null): string => {
+  if (!code) return '—'
+  return TIPO_DOC_SHORT[code.toUpperCase()] ?? tipoDocLabel(code)
+}
+
 const SDI_STATUS_CONFIG = {
   DRAFT: { label: 'Bozza', color: 'bg-slate-100 text-slate-700', icon: FileText },
   SENT: { label: 'Inviata', color: 'bg-blue-100 text-blue-700', icon: Send },
@@ -501,13 +519,13 @@ function FatturePassive() {
             <thead className="sticky top-0 bg-slate-50 z-10">
               <tr className="bg-slate-50 border-b border-slate-200">
                 <SortableTh sortKey="invoice_date" sortBy={ftSortBy} onSort={ftOnSort}>Data</SortableTh>
-                <SortableTh sortKey="invoice_number" sortBy={ftSortBy} onSort={ftOnSort} className="min-w-[120px]">Numero</SortableTh>
-                <SortableTh sortKey="supplier_name" sortBy={ftSortBy} onSort={ftOnSort} className="min-w-[200px]">Fornitore</SortableTh>
+                <SortableTh sortKey="invoice_number" sortBy={ftSortBy} onSort={ftOnSort}>Numero</SortableTh>
+                <SortableTh sortKey="supplier_name" sortBy={ftSortBy} onSort={ftOnSort}>Fornitore</SortableTh>
                 <SortableTh sortKey="tipo_documento" sortBy={ftSortBy} onSort={ftOnSort}>Tipo</SortableTh>
-                <SortableTh sortKey="net_amount" sortBy={ftSortBy} onSort={ftOnSort} align="right" className="min-w-[100px]">Imponibile</SortableTh>
-                <SortableTh sortKey="vat_amount" sortBy={ftSortBy} onSort={ftOnSort} align="right" className="min-w-[100px]">IVA</SortableTh>
-                <SortableTh sortKey="gross_amount" sortBy={ftSortBy} onSort={ftOnSort} align="right" className="min-w-[100px]">Totale</SortableTh>
-                <th className="text-center px-4 py-3 font-medium text-slate-600 text-[11px] uppercase tracking-wider">Azioni</th>
+                <SortableTh sortKey="net_amount" sortBy={ftSortBy} onSort={ftOnSort} align="right">Imponibile</SortableTh>
+                <SortableTh sortKey="vat_amount" sortBy={ftSortBy} onSort={ftOnSort} align="right">IVA</SortableTh>
+                <SortableTh sortKey="gross_amount" sortBy={ftSortBy} onSort={ftOnSort} align="right">Totale</SortableTh>
+                <th className="text-center px-2 py-3 font-medium text-slate-600 text-[11px] uppercase tracking-wider">Azioni</th>
               </tr>
             </thead>
             <tbody>
@@ -517,23 +535,30 @@ function FatturePassive() {
                 <tr><td colSpan={8} className="text-center py-12 text-slate-400">Nessuna fattura trovata</td></tr>
               ) : sortedFiltered.map((inv, idx) => (
                 <tr key={inv.id} onClick={() => openFormatted(inv)} tabIndex={0} onKeyDown={e => { if (e.key === 'Enter') openFormatted(inv) }} className={`border-b border-slate-100 hover:bg-blue-50/50 transition-colors cursor-pointer ${idx % 2 === 1 ? 'bg-slate-50/50' : ''}`}>
-                  <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{fmtDate(inv.invoice_date)}</td>
-                  <Tooltip content={inv.invoice_number || ''}>
-                    <td className="px-4 py-3 font-medium text-slate-900 truncate min-w-[120px] max-w-[180px]">{inv.invoice_number || '—'}</td>
-                  </Tooltip>
-                  <td className="px-4 py-3 min-w-[200px]">
-                    <Tooltip content={inv.supplier_name || ''}>
-                      <div className="font-medium text-slate-800 truncate max-w-[200px]">{inv.supplier_name || '—'}</div>
+                  <td className="px-3 py-3 text-slate-600 whitespace-nowrap">{fmtDate(inv.invoice_date)}</td>
+                  <td className="px-3 py-3 font-medium text-slate-900">
+                    {/* Il truncate va sul div interno: su un <td> con table-layout auto
+                        il browser allarga comunque la colonna al contenuto (numeri SDI
+                        lunghi tipo 120260000000628 sfondavano la tabella). */}
+                    <Tooltip content={inv.invoice_number || ''}>
+                      <div className="truncate max-w-[130px]">{inv.invoice_number || '—'}</div>
                     </Tooltip>
-                    {inv.supplier_vat && <div className="text-xs text-slate-400">P.IVA {inv.supplier_vat}</div>}
                   </td>
-                  <Tooltip content={inv.tipo_documento ? `Codice ${inv.tipo_documento}` : ''}>
-                    <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{tipoDocLabel(inv.tipo_documento)}</td>
-                  </Tooltip>
-                  <td className="px-4 py-3 text-right text-slate-700 min-w-[100px] whitespace-nowrap">{fmt(inv.net_amount)}</td>
-                  <td className="px-4 py-3 text-right text-slate-500 min-w-[100px] whitespace-nowrap">{fmt(inv.vat_amount)}</td>
-                  <td className="px-4 py-3 text-right font-semibold text-slate-900 min-w-[100px] whitespace-nowrap">{fmt(inv.gross_amount)}</td>
-                  <td className="px-4 py-3 text-center">
+                  <td className="px-3 py-3">
+                    <Tooltip content={inv.supplier_name || ''}>
+                      <div className="font-medium text-slate-800 truncate max-w-[180px]">{inv.supplier_name || '—'}</div>
+                    </Tooltip>
+                    {inv.supplier_vat && <div className="text-xs text-slate-400 whitespace-nowrap">P.IVA {inv.supplier_vat}</div>}
+                  </td>
+                  <td className="px-3 py-3 text-slate-600">
+                    <Tooltip content={inv.tipo_documento ? `${inv.tipo_documento} · ${tipoDocLabel(inv.tipo_documento)}` : ''}>
+                      <div className="truncate max-w-[120px]">{tipoDocShort(inv.tipo_documento)}</div>
+                    </Tooltip>
+                  </td>
+                  <td className="px-3 py-3 text-right text-slate-700 whitespace-nowrap">{fmt(inv.net_amount)}</td>
+                  <td className="px-3 py-3 text-right text-slate-500 whitespace-nowrap">{fmt(inv.vat_amount)}</td>
+                  <td className="px-3 py-3 text-right font-semibold text-slate-900 whitespace-nowrap">{fmt(inv.gross_amount)}</td>
+                  <td className="px-2 py-3 text-center">
                     <button
                       onClick={(e) => { e.stopPropagation(); openFormatted(inv) }}
                       disabled={openingId === inv.id}
