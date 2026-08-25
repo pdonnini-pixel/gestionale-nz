@@ -1788,13 +1788,23 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "Scheda Fatture Passive (le fatture che ricevi dai fornitori)",
-        "body": "Qui trovi l'elenco delle fatture elettroniche ricevute dai fornitori, con data, numero, fornitore, tipo documento, imponibile, IVA e totale. In alto vedi quattro riquadri riepilogativi: numero di fatture passive, numero di note di credito, totale lordo e totale IVA dell'anno selezionato. Sotto ai riquadri, se ci sono anomalie nella configurazione dei pagamenti di qualche fornitore, compare un avviso apposito. Puoi cercare per fornitore, numero fattura o codice SDI, e filtrare per anno. Cliccando su una riga (o sull'icona dell'occhio) si apre la fattura formattata, leggibile come un documento normale.",
+        "body": "Qui trovi l'elenco delle fatture elettroniche ricevute dai fornitori, con data, numero, fornitore, tipo documento, imponibile, IVA e totale. Nella colonna Tipo l'etichetta è in forma breve (per esempio \"Reverse charge\", \"Autofatt. estero\", \"Nota credito\"): passando il mouse sopra compare il codice ufficiale e la descrizione per esteso (per esempio \"TD17 · Integrazione/autofattura acquisti estero servizi\"). Le colonne più lunghe (numero, fornitore, tipo) vengono accorciate con i puntini e il testo completo si legge nel suggerimento al passaggio del mouse: così la tabella resta leggibile senza doverla scorrere in orizzontale. In alto vedi quattro riquadri riepilogativi: numero di fatture passive, numero di note di credito, totale lordo e totale IVA dell'anno selezionato. Sotto ai riquadri, se ci sono anomalie nella configurazione dei pagamenti di qualche fornitore, compare un avviso apposito. Puoi cercare per fornitore, numero fattura o codice SDI, e filtrare per anno. Cliccando su una riga (o sull'icona dell'occhio) si apre la fattura formattata, leggibile come un documento normale.",
         "steps": [
           "Usa la casella di ricerca per trovare una fattura per fornitore, numero o codice SDI",
           "Scegli l'anno dal menu a tendina per filtrare l'elenco",
           "Clicca su una riga della tabella per aprire la fattura in formato leggibile",
           "Usa \"Importa XML\" per caricare manualmente un file XML di fattura ricevuto fuori dal circuito automatico",
           "Usa \"Associa XML\" per collegare uno o più file XML già presenti sul computer a fatture già importate ma prive del documento originale (l'abbinamento avviene per numero fattura e P.IVA)"
+        ]
+      },
+      {
+        "heading": "L'avviso rosso \"anomalie sui fornitori da sistemare\"",
+        "body": "Sotto ai riquadri riepilogativi può comparire un riquadro rosso con l'elenco dei fornitori da sistemare; lo stesso numero appare come pallino rosso sulla voce Fatturazione nel menu di sinistra. Le segnalazioni riguardano solo le fatture dal 31/07/2026 in poi e sono di due famiglie. \"Fornitore non riconosciuto\" significa che il fornitore è stato creato in automatico quando è arrivata la sua prima fattura da SDI: ha il metodo di pagamento standard (bonifico) ma nessun piano rate deciso da te, quindi va aperto in Fornitori, controllato e completato. Compare una volta sola per fornitore e sparisce da sé appena imposti il piano di pagamento. \"Importo non quadra\" significa che, per almeno una fattura di quel fornitore, la somma delle rate in Scadenzario non corrisponde al totale della fattura: vanno controllate e corrette le scadenze a mano. Le note di credito non fanno più scattare questa segnalazione: il loro importo in Scadenzario è negativo per costruzione (riducono il debito) e il controllo ora ne tiene conto. Il pulsante \"Risolto\" chiude la segnalazione per tutte le operatrici, non solo per te.",
+        "steps": [
+          "Leggi il tipo di segnalazione nell'etichetta rossa a sinistra del nome fornitore",
+          "Clicca \"Vai al fornitore\" per aprire la scheda e sistemare metodo, banca o piano rate",
+          "Per un importo che non quadra, controlla le rate del fornitore in Scadenzario e correggile",
+          "Clicca \"Risolto\" quando hai sistemato: la segnalazione sparisce per tutti gli utenti"
         ]
       },
       {
@@ -1853,6 +1863,10 @@ export const PAGE_GUIDES: PageGuide[] = [
       {
         "q": "Se le fatture non si caricano per un problema di connessione, come lo capisco?",
         "a": "Se il caricamento fallisce compare un banner rosso con il messaggio d'errore e un pulsante 'Riprova' (sia sulle fatture passive/attive sia sui corrispettivi). In questo modo un errore di rete non viene scambiato per 'nessuna fattura presente': prima l'elenco mostrava 'Nessuna fattura trovata' anche quando in realtà c'era stato un errore."
+      },
+      {
+        "q": "Perché mi segnala \"importo non quadra\" su un fornitore che sembra a posto?",
+        "a": "Vuol dire che per almeno una sua fattura emessa dal 31/07/2026 la somma delle rate presenti in Scadenzario non corrisponde al totale della fattura: di solito perché le scadenze sono state modificate a mano o la fattura non porta un piano rate leggibile. Apri il fornitore, controlla le rate in Scadenzario e correggile; la segnalazione si chiude da sola quando gli importi tornano a quadrare. Le note di credito, che in Scadenzario hanno importo negativo, non generano più questa segnalazione."
       },
       {
         "q": "Ho inserito a mano la notula del commercialista: quando arriva la fattura vera avrò un doppione?",
