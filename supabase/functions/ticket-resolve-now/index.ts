@@ -48,9 +48,12 @@ const MODULE_TO_PATH: Record<string, string> = {
   "Confronto Outlet": "src/pages/ConfrontoOutlet.tsx",
   "Budget & Controllo": "src/pages/BudgetControl.tsx",
   "Fornitori": "src/pages/Fornitori.tsx",
-  "Divisione Fornitori": "src/pages/AllocazioneFornitori.tsx",
+  // La pagina AllocazioneFornitori e' stata assorbita dal pannello "Gestione"
+  // di /fornitori (App.tsx fa Navigate): il file non esiste piu' su main.
+  "Divisione Fornitori": "src/pages/Fornitori.tsx",
   "Fatturazione": "src/pages/Fatturazione.tsx",
-  "Scadenzario": "src/pages/Scadenzario.tsx",
+  // /scadenzario monta ScadenzarioSmart.tsx (Scadenzario.tsx non esiste piu')
+  "Scadenzario": "src/pages/ScadenzarioSmart.tsx",
   "Scadenze Fiscali": "src/pages/ScadenzeFiscali.tsx",
   "Dipendenti": "src/pages/Dipendenti.tsx",
   "AI Categorie": "src/pages/AICategoriePage.tsx",
