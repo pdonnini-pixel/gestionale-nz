@@ -4,7 +4,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Search, Plus, RefreshCw, Trash2, FileUp, Loader2, Sparkles, CheckCircle2, AlertCircle } from 'lucide-react';
 import { extractScadenzaFromPdf, ScadenzaExtractError, type ExtractedScadenza } from '../../lib/scadenzaPdfExtract';
-import { SCHEDULE_MODE_GROUPS, findScheduleMode } from '../../lib/paymentSchedule';
+import { SCHEDULE_MODE_GROUPS, findScheduleMode, derivePlan, computeInstallments, scheduleModeText, SCHEDULE_GROUP_TEXT } from '../../lib/paymentSchedule';
 
 export type EditSchedulePayload = { id: string; amount: number; due_date: string; status: string }
 export type ScheduleLike = Record<string, unknown> & { id?: string; gross_amount?: number | null; due_date?: string | null; status?: string | null; invoice_number?: string | null }
@@ -76,64 +76,11 @@ const scadenzaFrequencyOptions: { value: string; label: string }[] = [
 ];
 
 // ─── Scadenze dalle REGOLE INTERNE ───────────────────────────────────────────
-// Replica lato client di fn_supplier_installment_schedule (migration 087): dato il
-// piano del fornitore (base data-fattura/fine-mese, giorni, n° rate) e la data
-// documento, calcola le scadenze. Default aziendale quando il fornitore non ha un
-// piano: "a vista" = 30 gg data fattura, fine mese, rata unica. Le scadenze così
-// ottenute pre-compilano il form ma restano correggibili a mano.
-type SupplierPlan = { base: 'data_fattura' | 'fine_mese'; gg: number; nRate: number; hasPlan: boolean };
-const derivePlan = (sup: SupplierLite | undefined): SupplierPlan => {
-  const rawBase = String((sup?.payment_base as string | undefined) || '').trim();
-  // prima_scadenza_gg == null => non impostato; 0 è un valore VALIDO (fine mese
-  // data fattura = ultimo giorno del mese della fattura). Attenzione: Number(null)
-  // è 0, quindi il "set" va deciso su != null, non sul valore.
-  const ggRaw = sup?.prima_scadenza_gg;
-  const ggSet = ggRaw != null && Number.isFinite(Number(ggRaw));
-  const gg = ggSet ? Number(ggRaw) : 30;
-  const nRate = Number(sup?.numero_rate);
-  const hasPlan = !!sup && rawBase !== '' && ggSet && gg >= 0 && nRate > 0;
-  return {
-    base: rawBase === 'data_fattura' ? 'data_fattura' : 'fine_mese',
-    gg: gg >= 0 ? gg : 30,
-    nRate: nRate > 0 ? nRate : 1,
-    hasPlan,
-  };
-};
-const pad2 = (n: number) => String(n).padStart(2, '0');
-const toISODate = (d: Date): string => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+// derivePlan/computeInstallments vivono in src/lib/paymentSchedule.ts: le usa
+// anche l'anteprima nel form fornitore, e due copie divergerebbero. Default
+// quando il fornitore non ha un piano: 30 gg fine mese, rata unica.
 const round2 = (n: number): number => Math.round((n + Number.EPSILON) * 100) / 100;
-// Ultimo giorno di (mese di `emissioneISO` + `months`).
-const lastDayOfMonthPlus = (emissioneISO: string, months: number): string => {
-  const d = new Date(emissioneISO + 'T00:00:00');
-  return toISODate(new Date(d.getFullYear(), d.getMonth() + months + 1, 0));
-};
-const addDaysISO = (emissioneISO: string, days: number): string => {
-  const d = new Date(emissioneISO + 'T00:00:00');
-  d.setDate(d.getDate() + days);
-  return toISODate(d);
-};
-const computeInstallments = (emissioneISO: string, plan: SupplierPlan, gross: number): RataInput[] => {
-  if (!emissioneISO) return [];
-  const n = Math.max(plan.nRate || 1, 1);
-  const quota = round2((Number(gross) || 0) / n);
-  let acc = 0;
-  const out: RataInput[] = [];
-  for (let i = 1; i <= n; i++) {
-    let due: string;
-    if (plan.base === 'fine_mese') {
-      // N mesi solari da aggiungere al mese di emissione (= giorni/30 + rate precedenti).
-      const months = Math.floor(plan.gg / 30) + (i - 1);
-      due = lastDayOfMonthPlus(emissioneISO, months);
-    } else {
-      // Data fattura: a giorni.
-      due = addDaysISO(emissioneISO, plan.gg + 30 * (i - 1));
-    }
-    const amount = i < n ? quota : round2((Number(gross) || 0) - acc);
-    if (i < n) acc = round2(acc + quota);
-    out.push({ dueDate: due, amount });
-  }
-  return out;
-};
+
 export type SupplierLite = { id?: string; name?: string | null; ragione_sociale?: string | null; [k: string]: unknown }
 export type PaymentGroup = { label: string; methods: string[] }
 export const InvoiceModal = ({ suppliers, costCenters, paymentGroups, paymentMethodLabels, onSave, onClose }: { suppliers: SupplierLite[]; costCenters: CostCenterLite[]; paymentGroups: PaymentGroup[]; paymentMethodLabels: Record<string, string>; onSave: (data: InvoiceFormState) => void; onClose: () => void }) => {
@@ -601,8 +548,8 @@ export const SupplierModal = ({ onSave, onClose }: { onSave: (data: SupplierForm
           }}
           className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none">
           {SCHEDULE_MODE_GROUPS.filter(g => g.group !== 'Personalizzata').map(g => (
-            <optgroup key={g.group} label={g.group}>
-              {g.items.map(o => <option key={o.label} value={o.label}>{o.label}</option>)}
+            <optgroup key={g.group} label={SCHEDULE_GROUP_TEXT[g.group] || g.group}>
+              {g.items.map(o => <option key={o.label} value={o.label}>{scheduleModeText(o)}</option>)}
             </optgroup>
           ))}
         </select>
