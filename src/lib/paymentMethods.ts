@@ -20,10 +20,11 @@ export const PAYMENT_METHOD_OPTIONS: PaymentMethodOptionGroup[] = [
     { value: 'bonifico_sepa', label: 'Bonifico SEPA' },
   ] },
   { group: 'RIBA', items: [
-    { value: 'riba_30', label: 'Ri.Ba. 30gg' },
-    { value: 'riba_60', label: 'Ri.Ba. 60gg' },
-    { value: 'riba_90', label: 'Ri.Ba. 90gg' },
-    { value: 'riba_120', label: 'Ri.Ba. 120gg' },
+    // Una voce sola: il termine (30/60/90/120) NON si sceglie qui, si ricava
+    // dalla modalità delle scadenze. Prima i giorni si impostavano in due punti
+    // diversi e potevano contraddirsi (fornitori con "Ri.Ba. 30gg" e piano a
+    // 40 o 41 giorni). Il valore enum scritto a database resta riba_30/60/90/120.
+    { value: 'riba_30', label: 'Ri.Ba.' },
   ] },
   { group: 'RID / SDD', items: [
     { value: 'rid', label: 'RID' },
@@ -49,6 +50,12 @@ export const PAYMENT_METHOD_OPTIONS: PaymentMethodOptionGroup[] = [
 export const PAYMENT_METHOD_LABELS: Record<string, string> = (() => {
   const map: Record<string, string> = {}
   PAYMENT_METHOD_OPTIONS.forEach(g => g.items.forEach(i => { map[i.value] = i.label }))
+  // I quattro termini Ri.Ba. non sono più voci scegliibili (vedi sopra), ma
+  // vanno letti: restano nell'enum e sui fornitori già configurati.
+  map.riba_30 = 'Ri.Ba. 30gg'
+  map.riba_60 = 'Ri.Ba. 60gg'
+  map.riba_90 = 'Ri.Ba. 90gg'
+  map.riba_120 = 'Ri.Ba. 120gg'
   // fallback per vecchi valori text non presenti nell'enum
   map.bonifico = 'Bonifico'
   map.riba = 'Ri.Ba.'
@@ -92,3 +99,23 @@ export const isBankRequired = (method: string | null | undefined): boolean =>
 // Etichetta leggibile per un metodo (con fallback al valore grezzo).
 export const paymentMethodLabel = (method: string | null | undefined): string =>
   PAYMENT_METHOD_LABELS[String(method || '')] || String(method || '')
+
+// Il metodo Ri.Ba. a database porta con sé il termine (riba_30/60/90/120): lo si
+// ricava dai giorni della PRIMA scadenza del piano, così non può contraddire la
+// modalità scelta. Usato dal form fornitore e dalla revisione pagamenti.
+export const isRiba = (method: string | null | undefined): boolean =>
+  String(method || '').startsWith('riba')
+
+export const ribaMethodForDays = (primaScadenzaGg: number | null | undefined): string => {
+  const g = Number(primaScadenzaGg)
+  if (!Number.isFinite(g) || g <= 30) return 'riba_30'
+  if (g <= 60) return 'riba_60'
+  if (g <= 90) return 'riba_90'
+  return 'riba_120'
+}
+
+/** Allinea il metodo al piano: per le Ri.Ba. il termine segue la prima scadenza. */
+export const methodForPlan = (method: string | null | undefined, primaScadenzaGg: number | null | undefined): string => {
+  const m = String(method || '')
+  return isRiba(m) ? ribaMethodForDays(primaScadenzaGg) : m
+}

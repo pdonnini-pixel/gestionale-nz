@@ -37,6 +37,7 @@ import { parseFatturaAllegati, downloadBytes, type FatturaAllegato } from '../li
 import {
   PAYMENT_METHOD_OPTIONS, PAYMENT_METHOD_LABELS as PAYMENT_LABEL,
   DEFAULT_PAYMENT_METHOD, isBankRequired, normalizePaymentMethod,
+  isRiba, methodForPlan,
 } from '../lib/paymentMethods';
 import {
   SCHEDULE_MODE_GROUPS, SCHEDULE_GROUP_TEXT, scheduleLabel, scheduleModeText,
@@ -689,8 +690,10 @@ export default function Fornitori() {
         // allineato al piano, così la colonna storica smette di divergere.
         payment_terms: form.payment_base ? (Number(form.prima_scadenza_gg) || 0) : (parseInt(String(form.payment_terms)) || 30),
         default_payment_terms: form.payment_base ? (Number(form.prima_scadenza_gg) || 0) : (parseInt(String(form.payment_terms)) || 30),
-        payment_method: form.payment_method || DEFAULT_PAYMENT_METHOD,
-        default_payment_method: form.payment_method || DEFAULT_PAYMENT_METHOD,
+        // Per le Ri.Ba. il termine (riba_30/60/90/120) si ricava dalla prima
+        // scadenza del piano: i giorni si impostano in un punto solo.
+        payment_method: methodForPlan(form.payment_method, form.prima_scadenza_gg) || DEFAULT_PAYMENT_METHOD,
+        default_payment_method: methodForPlan(form.payment_method, form.prima_scadenza_gg) || DEFAULT_PAYMENT_METHOD,
         // Piano rate scadenze (v2)
         payment_base: form.payment_base || null,
         // Con base impostata lo 0 è un valore VALIDO (fine mese = ultimo giorno
@@ -1708,13 +1711,26 @@ export default function Fornitori() {
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label htmlFor="forn-metodo-pagamento" className="text-xs font-medium text-slate-600">Metodo di pagamento</label>
-                    <select id="forn-metodo-pagamento" value={form.payment_method} onChange={e => setForm(f => ({ ...f, payment_method: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm">
+                    <select
+                      id="forn-metodo-pagamento"
+                      // riba_60/90/120 puntano tutti alla voce unica "Ri.Ba.":
+                      // il termine lo decide la modalità, qui si sceglie solo
+                      // COME si paga.
+                      value={isRiba(form.payment_method) ? 'riba_30' : form.payment_method}
+                      onChange={e => setForm(f => ({ ...f, payment_method: e.target.value }))}
+                      className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
+                    >
                       {PAYMENT_METHOD_OPTIONS.map(g => (
                         <optgroup key={g.group} label={g.group}>
                           {g.items.map(i => <option key={i.value} value={i.value}>{i.label}</option>)}
                         </optgroup>
                       ))}
                     </select>
+                    {isRiba(form.payment_method) && (
+                      <p className="mt-1 text-[11px] text-slate-400">
+                        Il termine della Ri.Ba. segue la modalità scelta qui sotto: verrà salvata come <b>{PAYMENT_LABEL[methodForPlan(form.payment_method, form.prima_scadenza_gg)]}</b>.
+                      </p>
+                    )}
                   </div>
                   <div>
                     <label htmlFor="forn-banca-addebito" className="text-xs font-medium text-slate-600">Banca di addebito{isBankRequired(form.payment_method) && <span className="text-rose-500"> *</span>}</label>

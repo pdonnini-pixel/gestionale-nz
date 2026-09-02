@@ -20,6 +20,7 @@ import {
   SCHEDULE_MODE_GROUPS, SCHEDULE_MODE_LABELS, SCHEDULE_GROUP_TEXT,
   scheduleLabel, parseScheduleLabel,
 } from '../lib/paymentSchedule'
+import { ribaMethodForDays } from '../lib/paymentMethods'
 
 // Famiglie di metodo mostrate all'operatrice (la "Tipologia")
 const FAMIGLIE = ['Bonifico', 'RI.BA', 'RID', 'SDD', 'Contanti', 'Carta/Bancomat', 'Bollettino', 'Assegno', 'Altro']
@@ -56,13 +57,9 @@ function enumFromFamily(fam: string, prima: number | null): string {
     case 'Carta/Bancomat': return 'carta_debito'
     case 'Bollettino': return 'bollettino_postale'
     case 'Assegno': return 'assegno'
-    case 'RI.BA': {
-      const g = Number(prima) || 30
-      if (g <= 30) return 'riba_30'
-      if (g <= 60) return 'riba_60'
-      if (g <= 90) return 'riba_90'
-      return 'riba_120'
-    }
+    // Termine della Ri.Ba. dai giorni della prima scadenza (logica condivisa
+    // col form fornitore: i giorni si impostano solo nella modalità).
+    case 'RI.BA': return ribaMethodForDays(prima)
     default: return 'altro'
   }
 }

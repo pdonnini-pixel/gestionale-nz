@@ -4,6 +4,9 @@ import {
   scheduleLabel, parseScheduleLabel, installmentDays, findScheduleMode,
   planStatus, derivePlan, computeInstallments, scheduleModeText,
 } from './paymentSchedule'
+import {
+  PAYMENT_METHOD_OPTIONS, PAYMENT_METHOD_LABELS, ribaMethodForDays, methodForPlan,
+} from './paymentMethods'
 
 describe('paymentSchedule', () => {
   it('espone tutte le dilazioni multiple fino a 120 gg (fine mese)', () => {
@@ -106,5 +109,29 @@ describe('testi leggibili', () => {
     expect(scheduleModeText(modo('90 gg D.F.'))).toBe('90 gg dalla data fattura')
     expect(scheduleModeText(modo('A Vista'))).toBe('A vista (si paga subito)')
     expect(scheduleModeText(modo('Fine mese'))).toBe('Fine mese della fattura')
+  })
+})
+
+describe('metodo Ri.Ba. allineato al piano', () => {
+  it('ricava il termine dai giorni della prima scadenza', () => {
+    expect(ribaMethodForDays(30)).toBe('riba_30')
+    expect(ribaMethodForDays(0)).toBe('riba_30')
+    expect(ribaMethodForDays(41)).toBe('riba_60')
+    expect(ribaMethodForDays(90)).toBe('riba_90')
+    expect(ribaMethodForDays(120)).toBe('riba_120')
+    expect(ribaMethodForDays(null)).toBe('riba_30')
+  })
+
+  it('allinea solo le Ri.Ba., gli altri metodi restano come sono', () => {
+    expect(methodForPlan('riba_30', 90)).toBe('riba_90')
+    expect(methodForPlan('bonifico_ordinario', 90)).toBe('bonifico_ordinario')
+    expect(methodForPlan('rid', 0)).toBe('rid')
+  })
+
+  it('la tendina del metodo non chiede più i giorni', () => {
+    const riba = PAYMENT_METHOD_OPTIONS.find(g => g.group === 'RIBA')!
+    expect(riba.items.map(i => i.label)).toEqual(['Ri.Ba.'])
+    // le etichette complete restano leggibili per i dati già a sistema
+    expect(PAYMENT_METHOD_LABELS.riba_90).toBe('Ri.Ba. 90gg')
   })
 })
