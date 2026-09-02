@@ -895,7 +895,7 @@ export default function Dipendenti() {
   return (
     <div className="p-6 space-y-6">
       <PageHeader
-        title="Personale"
+        title="Dipendenti"
         subtitle={`Organico e costo del personale per outlet${companyName ? ` · ${companyName}` : ''}`}
         actions={
           <div className="flex items-center gap-2">

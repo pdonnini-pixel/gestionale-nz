@@ -579,7 +579,7 @@ export default function ImportHub() {
   // Check if source type supports processing
   // 'payroll' NON è elaborabile da qui (audit personale 2026-09-02, finding F1):
   // il processore cancellava employee_costs del mese e reinseriva su colonne
-  // inesistenti. I cedolini si caricano dalla pagina Personale → «Costi &
+  // inesistenti. I cedolini si caricano dalla pagina Dipendenti → «Costi &
   // cedolini»; qui il file viene solo archiviato.
   const canProcess = (sourceId: string | null) => ['bank', 'invoices', 'pos_data', 'receipts', 'balance_sheet'].includes(sourceId || '');
 
@@ -1099,7 +1099,7 @@ export default function ImportHub() {
               {selectedSource === 'payroll' && (
                 <div className="mb-4 p-4 bg-amber-50 rounded-lg border border-amber-200 text-sm text-amber-900">
                   <strong>Qui i cedolini vengono solo archiviati.</strong> I netti che fanno l'organico
-                  del mese si caricano dalla pagina <a href="/dipendenti?view=costi" className="underline font-semibold">Personale → «Costi &amp; cedolini»</a>:
+                  del mese si caricano dalla pagina <a href="/dipendenti?view=costi" className="underline font-semibold">Dipendenti → «Costi &amp; cedolini»</a>:
                   quel carico è ciò che rende granitico il numero di dipendenti per punto vendita.
                 </div>
               )}

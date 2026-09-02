@@ -859,8 +859,8 @@ export const PAGE_GUIDES: PageGuide[] = [
   {
     "path": "/dipendenti",
     "icon": "Users",
-    "title": "Personale",
-    "description": "La pagina Personale raccoglie l'anagrafica dei dipendenti, i cedolini mensili (netto e costo lordo) e il confronto con il budget del personale, tutto suddiviso per punto vendita. È il punto dove tenere aggiornati organico, stipendi e allocazioni.",
+    "title": "Dipendenti",
+    "description": "La pagina Dipendenti raccoglie l'anagrafica delle persone, i cedolini mensili (netto e costo lordo) e il confronto con il budget del personale, tutto suddiviso per punto vendita. È il punto dove tenere aggiornati organico, stipendi e allocazioni.",
     "sections": [
       {
         "heading": "Come è organizzata la pagina",
@@ -1345,7 +1345,7 @@ export const PAGE_GUIDES: PageGuide[] = [
     "sections": [
       {
         "heading": "Da dove arrivano i numeri",
-        "body": "I ricavi e il costo del personale vengono dal budget dell'anno selezionato (in alto a destra puoi cambiare anno: gli anni proposti sono quelli realmente presenti nei dati e la scelta resta memorizzata anche cambiando pagina). Ricavi e costi sono riconosciuti dal piano dei conti dell'azienda: il costo del personale è la somma delle voci classificate come personale, non un gruppo di codici scelto a mano. Vengono considerati SOLO i punti vendita reali dell'anagrafica: le voci tecniche di budget non riferite a un punto vendita (es. costi non divisi, rettifiche, sede/magazzino) sono escluse da classifiche, medie e raccomandazioni. Il numero di dipendenti per sede viene dai cedolini dell'ultimo mese caricato nella pagina Personale, che è la stessa fonte usata lì: il riquadro in alto dichiara di quale mese si tratta. Se per un outlet non risulta nessuna persona in forza, le metriche che dipendono dal personale mostrano \"N/D\" (dato non disponibile) invece di un numero inventato, anche nel grafico del trend mensile, dove quell'outlet viene semplicemente saltato."
+        "body": "I ricavi e il costo del personale vengono dal budget dell'anno selezionato (in alto a destra puoi cambiare anno: gli anni proposti sono quelli realmente presenti nei dati e la scelta resta memorizzata anche cambiando pagina). Ricavi e costi sono riconosciuti dal piano dei conti dell'azienda: il costo del personale è la somma delle voci classificate come personale, non un gruppo di codici scelto a mano. Vengono considerati SOLO i punti vendita reali dell'anagrafica: le voci tecniche di budget non riferite a un punto vendita (es. costi non divisi, rettifiche, sede/magazzino) sono escluse da classifiche, medie e raccomandazioni. Il numero di dipendenti per sede viene dai cedolini dell'ultimo mese caricato nella pagina Dipendenti, che è la stessa fonte usata lì: il riquadro in alto dichiara di quale mese si tratta. Se per un outlet non risulta nessuna persona in forza, le metriche che dipendono dal personale mostrano \"N/D\" (dato non disponibile) invece di un numero inventato, anche nel grafico del trend mensile, dove quell'outlet viene semplicemente saltato."
       },
       {
         "heading": "Fatturato medio per dipendente",
@@ -1382,11 +1382,11 @@ export const PAGE_GUIDES: PageGuide[] = [
     "faq": [
       {
         "q": "Perché per alcuni outlet vedo \"N/D\" invece di un numero?",
-        "a": "Significa che per quell'outlet non risultano persone in forza nell'ultimo mese con cedolini caricati (pagina Personale, scheda \"Costi & cedolini\"), oppure che le persone non sono assegnate a quel punto vendita. Senza quel dato non è possibile calcolare fatturato per dipendente o ricavo/costo per ora in modo corretto, quindi la pagina non inventa un valore ma mostra \"N/D\"."
+        "a": "Significa che per quell'outlet non risultano persone in forza nell'ultimo mese con cedolini caricati (pagina Dipendenti, scheda \"Costi & cedolini\"), oppure che le persone non sono assegnate a quel punto vendita. Senza quel dato non è possibile calcolare fatturato per dipendente o ricavo/costo per ora in modo corretto, quindi la pagina non inventa un valore ma mostra \"N/D\"."
       },
       {
         "q": "Il simulatore di spostamento dipendenti modifica davvero l'organico?",
-        "a": "No. È solo un esercizio di simulazione a video per valutare l'impatto di un'ipotesi. Per spostare davvero una persona tra punti vendita bisogna modificarne l'allocazione nella pagina Personale; il numero in forza si aggiorna comunque al carico dei cedolini del mese."
+        "a": "No. È solo un esercizio di simulazione a video per valutare l'impatto di un'ipotesi. Per spostare davvero una persona tra punti vendita bisogna modificarne l'allocazione nella pagina Dipendenti; il numero in forza si aggiorna comunque al carico dei cedolini del mese."
       },
       {
         "q": "Come viene contato un dipendente part-time o su più sedi?",
@@ -1521,7 +1521,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "Le fonti di importazione disponibili e cosa alimentano",
-        "body": "Ogni \"fonte\" corrisponde a un tipo di documento diverso. Scegliere quella giusta è importante perché ogni fonte alimenta una parte diversa del gestionale:\n\n• Estratti Conto Bancari — formati CSV, XLSX, PDF. Contengono i movimenti bancari e servono per la riconciliazione con le fatture da pagare. Richiede di indicare a quale conto bancario appartiene il file.\n\n• Fatture Elettroniche — formati XML, PDF. Sono le fatture ricevute dai fornitori tramite il canale Agenzia delle Entrate/SDI e alimentano l'archivio fatture e lo scadenzario.\n\n• Cedolini / Personale — formati PDF, XLSX. Sono i cedolini e i riepiloghi dei dipendenti. Qui vengono soltanto archiviati: i netti che fanno l'organico del mese si caricano dalla pagina Personale, scheda «Costi & cedolini». Richiede di indicare mese e anno di riferimento.\n\n• Bilanci — formati PDF, XLSX. Sono i bilanci annuali dell'azienda. Richiede di indicare l'anno fiscale.\n\n• Documenti Generali — tutti i formati (PDF, Word, Excel, testo, immagini). Per contratti, comunicazioni e altri documenti che non rientrano nelle altre categorie. Richiede di scegliere una categoria (Contratto, Comunicazione, Altro).\n\n• POS Data — formati CSV, Excel. Sono i dati delle vendite dei singoli punti vendita. Richiede di indicare il punto vendita.\n\n• Corrispettivi — formati CSV, XML. Sono i corrispettivi giornalieri comunicati all'Agenzia delle Entrate. Richiede di indicare il punto vendita."
+        "body": "Ogni \"fonte\" corrisponde a un tipo di documento diverso. Scegliere quella giusta è importante perché ogni fonte alimenta una parte diversa del gestionale:\n\n• Estratti Conto Bancari — formati CSV, XLSX, PDF. Contengono i movimenti bancari e servono per la riconciliazione con le fatture da pagare. Richiede di indicare a quale conto bancario appartiene il file.\n\n• Fatture Elettroniche — formati XML, PDF. Sono le fatture ricevute dai fornitori tramite il canale Agenzia delle Entrate/SDI e alimentano l'archivio fatture e lo scadenzario.\n\n• Cedolini / Personale — formati PDF, XLSX. Sono i cedolini e i riepiloghi dei dipendenti. Qui vengono soltanto archiviati: i netti che fanno l'organico del mese si caricano dalla pagina Dipendenti, scheda «Costi & cedolini». Richiede di indicare mese e anno di riferimento.\n\n• Bilanci — formati PDF, XLSX. Sono i bilanci annuali dell'azienda. Richiede di indicare l'anno fiscale.\n\n• Documenti Generali — tutti i formati (PDF, Word, Excel, testo, immagini). Per contratti, comunicazioni e altri documenti che non rientrano nelle altre categorie. Richiede di scegliere una categoria (Contratto, Comunicazione, Altro).\n\n• POS Data — formati CSV, Excel. Sono i dati delle vendite dei singoli punti vendita. Richiede di indicare il punto vendita.\n\n• Corrispettivi — formati CSV, XML. Sono i corrispettivi giornalieri comunicati all'Agenzia delle Entrate. Richiede di indicare il punto vendita."
       },
       {
         "heading": "Come caricare un file",

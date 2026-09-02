@@ -136,11 +136,11 @@ export async function processImport({
         // `processPayrollCSV` cancellava `employee_costs` del mese e poi
         // reinseriva su colonne inesistenti (outlet_id, allocation_pct): il
         // netto già caricato spariva e non veniva rimpiazzato. Il carico dei
-        // cedolini vive nella pagina Personale, scheda «Costi & cedolini», che
+        // cedolini vive nella pagina Dipendenti, scheda «Costi & cedolini», che
         // fa upsert non distruttivo e tiene l'audit in employee_cost_imports.
         result = {
           imported: 0,
-          errors: [{ message: 'Import cedolini disattivato qui: usa la pagina Personale → «Costi & cedolini». Il file caricato resta comunque archiviato.' }],
+          errors: [{ message: 'Import cedolini disattivato qui: usa la pagina Dipendenti → «Costi & cedolini». Il file caricato resta comunque archiviato.' }],
         };
         break;
       default:
@@ -713,7 +713,7 @@ async function processReceiptsCSV(text: string | ArrayBuffer, context: ImportCon
 
 // ATTENZIONE — funzione NON collegata (vedi case 'payroll' in processImport).
 // Contiene un DELETE su employee_costs e insert su colonne inesistenti: non va
-// riattivata così com'è. Il percorso vivo è la pagina Personale.
+// riattivata così com'è. Il percorso vivo è la pagina Dipendenti.
 async function processPayrollCSV(content: string | ArrayBuffer, context: ImportContext & { month?: number }, batchId: string, mappingOverride: Record<string, string> | null, onProgress: (percent: number, message: string) => void): Promise<ProcessorResult> {
   // If PDF, we can't parse payroll PDFs yet — need structured CSV
   if (content instanceof ArrayBuffer) {
@@ -902,14 +902,14 @@ async function processPayrollCSV(content: string | ArrayBuffer, context: ImportC
   // comunque rifiutato per chi lavora su più outlet: il risultato era la
   // perdita dei netti del mese senza nulla in cambio. Il parsing resta come
   // base per una futura riscrittura non distruttiva; la scrittura vive nella
-  // pagina Personale, scheda «Costi & cedolini».
+  // pagina Dipendenti, scheda «Costi & cedolini».
   onProgress(95, 'Import cedolini non eseguito da qui.');
   const uniqueEmployeeIds = [...new Set(costRecords.map(r => r.employee_id))];
   return {
     imported: 0,
     errors: [
       ...errors,
-      { message: 'Import cedolini disattivato in Import Hub: usa la pagina Personale → «Costi & cedolini».' },
+      { message: 'Import cedolini disattivato in Import Hub: usa la pagina Dipendenti → «Costi & cedolini».' },
     ],
     details: {
       headers,

@@ -526,7 +526,7 @@ export default function Produttivita() {
                 <p className="text-blue-200/80 text-xs mt-1">
                   {granitedPeriod
                     ? `Dipendenti in forza ai cedolini di ${headcountLabel}`
-                    : 'Nessun cedolino caricato: carica i netti dalla pagina Personale'}
+                    : 'Nessun cedolino caricato: carica i netti dalla pagina Dipendenti'}
                 </p>
               </div>
               <div className="bg-white/20 rounded-xl p-4">
