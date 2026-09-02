@@ -3,8 +3,12 @@
 // Invocata dal bottone "Risolvi" admin in /ticket/admin per risolvere
 // istantaneamente un ticket via Claude API + GitHub API.
 //
+// Innesco: bottone admin (JWT super_advisor), oppure il cron orario
+// `ticket-autofix-hourly` (:07 di ogni ora) che passa il segreto condiviso
+// nell'header x-autofix-cron — vedi migration 156.
+//
 // Flusso:
-// 1. Auth super_advisor
+// 1. Auth super_advisor (o service_role, o segreto cron)
 // 2. Carica ticket dal DB
 // 3. Mappa modulo -> file path (es. "Banche" -> "frontend/src/pages/TesoreriaManuale.tsx")
 // 4. Scarica file via GitHub Contents API
@@ -331,7 +335,21 @@ Deno.serve(async (req: Request) => {
     const token = authHeader.replace(/^Bearer\s+/i, "");
     if (!token) return jsonError(401, "Missing authorization");
     const isServiceRole = token === supabaseServiceKey;
-    if (!isServiceRole) {
+
+    // Innesco automatico (cron orario, migration 156): dal DB non abbiamo la
+    // service key, quindi pg_net chiama con la anon key come Bearer — che
+    // serve solo a passare il gateway verify_jwt — e si identifica con il
+    // segreto condiviso 'autofix_cron_secret' nell'header x-autofix-cron.
+    let isCron = false;
+    const cronHeader = req.headers.get("x-autofix-cron") ?? "";
+    if (cronHeader) {
+      const { data: cronSecret } = await supabase.rpc("get_autofix_cron_secret");
+      const expected = Array.isArray(cronSecret) ? String(cronSecret[0]?.secret ?? "") : "";
+      isCron = expected.length > 0 && cronHeader === expected;
+      if (!isCron) return jsonError(403, "Segreto x-autofix-cron non valido");
+    }
+
+    if (!isServiceRole && !isCron) {
       const { data: userData, error: userErr } = await supabase.auth.getUser(token);
       if (userErr || !userData?.user) return jsonError(401, "Invalid JWT");
       // Lettura ruolo da public.user_profiles (campo testo pulito) invece
