@@ -1183,7 +1183,12 @@ export default function Fornitori() {
                         <td className="px-3 py-2.5">
                           <div className="flex items-center gap-2">
                             <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${s.is_active !== false ? 'bg-emerald-400' : 'bg-slate-300'}`} />
-                            <div className="min-w-0">
+                            {/* max-w obbligatorio: dentro una cella di tabella (table-layout
+                                auto) il solo `truncate` non limita nulla — la colonna si allarga
+                                al testo intero e con le ragioni sociali lunghe (fino a 70 caratteri
+                                nei dati reali) la tabella sfondava lo schermo. Il nome completo
+                                resta nel tooltip. */}
+                            <div className="min-w-0 max-w-[220px]">
                               <TextTooltip content={name}>
                                 <div className="font-medium text-slate-800 truncate">{name}</div>
                               </TextTooltip>
