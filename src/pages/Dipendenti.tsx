@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef, lazy, Suspense } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import type { Row } from '../types/business';
 import { usePeriod } from '../hooks/usePeriod';
@@ -89,6 +89,16 @@ const MONTHS = [
   { num: 7, label: 'Luglio' }, { num: 8, label: 'Agosto' }, { num: 9, label: 'Settembre' },
   { num: 10, label: 'Ottobre' }, { num: 11, label: 'Novembre' }, { num: 12, label: 'Dicembre' },
 ];
+
+// I cedolini che possono arrivare per uno stesso mese. Il mese vale la somma
+// dei cedolini caricati, salvo una correzione manuale che vince su tutti.
+const TIPI_CEDOLINO = [
+  { key: 'normale', label: 'Mensilità normale' },
+  { key: 'tredicesima', label: 'Tredicesima' },
+  { key: 'quattordicesima', label: 'Quattordicesima' },
+  { key: 'aggiuntivo', label: 'Cedolino aggiuntivo' },
+] as const;
+const labelTipo = (t: string) => TIPI_CEDOLINO.find((x) => x.key === t)?.label || (t === 'manuale' ? 'Correzione manuale' : t);
 
 // Conti 67xx del personale → colonna employee_costs corrispondente.
 const COSTO_CONTI = [
@@ -338,6 +348,8 @@ export default function Dipendenti() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [allocations, setAllocations] = useState<EmployeeOutletAllocation[]>([]);
   const [costs, setCosts] = useState<EmployeeCost[]>([]);
+  // I cedolini che compongono ogni mese: il totale non deve restare inspiegato.
+  const [slips, setSlips] = useState<{ employee_id: string; year: number; month: number; tipo: string; netto: number | null }[]>([]);
   const [costCenters, setCostCenters] = useState<CostCenterRow[]>([]);
   const [outlets, setOutlets] = useState<OutletRow[]>([]);
   const [employeeDocs, setEmployeeDocs] = useState<EmployeeDocument[]>([]);
@@ -401,6 +413,9 @@ export default function Dipendenti() {
         supabase.from('outlets').select('id, name, code, cost_center_key, is_active, mall_name, city').eq('company_id', COMPANY_ID).eq('is_active', true).order('name'),
         supabase.from('employee_documents').select('*').eq('company_id', COMPANY_ID).order('created_at', { ascending: false }),
       ]);
+      const { data: slipRes } = await supabase.from('employee_cost_slips')
+        .select('employee_id, year, month, tipo, netto').eq('company_id', COMPANY_ID);
+      setSlips((slipRes as any[]) || []);
       setEmployees((empRes.data as Employee[]) || []);
       setAllocations((allocRes.data as EmployeeOutletAllocation[]) || []);
       setCosts((costRes.data as EmployeeCost[]) || []);
@@ -531,6 +546,12 @@ export default function Dipendenti() {
     return c && c.netto != null ? Number(c.netto) : null;
   };
   const nettoOf = (empId: string) => Number(nettoCell(empId) || 0);
+
+  // Da cosa e' composto il netto del mese: serve a spiegare un dicembre che vale
+  // il doppio, invece di lasciare l'utente a chiedersi se e' un errore.
+  const cedoliniDelMese = (empId: string) => slips
+    .filter((s) => s.employee_id === empId && s.year === selectedYear && s.month === selectedMonth)
+    .sort((a, b) => Number(b.netto || 0) - Number(a.netto || 0));
 
   // Costo lordo aziendale = somma componenti; null se nessun componente caricato
   const lordoCell = (empId: string): number | null => {
@@ -796,21 +817,33 @@ export default function Dipendenti() {
     if (!COMPANY_ID) return;
     if (!payload.employee_id) { toast({ type: 'error', message: 'Seleziona un dipendente' }); return; }
     try {
+      // Il mese puo' essere composto da piu' cedolini. La correzione a mano non
+      // li cancella: diventa un cedolino «manuale» che vale come totale del mese,
+      // e gli altri restano come storico (migration 161).
       const realCols = {
         employee_id: payload.employee_id,
         company_id: COMPANY_ID,
         year: payload.year,
         month: payload.month,
+        tipo: 'manuale',
         retribuzione: payload.retribuzione,
         contributi: payload.contributi,
         inail: payload.inail,
         tfr: payload.tfr,
         altri_costi: payload.altri_costi,
         netto: payload.netto,
+        source: 'manuale',
+        updated_at: new Date().toISOString(),
       };
-      const { error } = await supabase.from('employee_costs').upsert(realCols, { onConflict: 'employee_id,year,month' });
+      const { error } = await supabase.from('employee_cost_slips').upsert(realCols, { onConflict: 'company_id,employee_id,year,month,tipo' });
       if (error) throw error;
-      toast({ type: 'success', message: 'Costo salvato' });
+      const { count: nAltri } = await supabase.from('employee_cost_slips')
+        .select('id', { count: 'exact', head: true })
+        .eq('company_id', COMPANY_ID).eq('employee_id', payload.employee_id)
+        .eq('year', payload.year).eq('month', payload.month).neq('tipo', 'manuale');
+      toast({ type: 'success', message: nAltri
+        ? `Costo salvato. Il mese aveva ${nAltri} cedolin${nAltri === 1 ? 'o' : 'i'} caricat${nAltri === 1 ? 'o' : 'i'}: restano come storico, ma il totale del mese è ora il valore che hai scritto.`
+        : 'Costo salvato' });
       setShowCostForm(false); setEditingCost(null); setCostFormEmp(null);
       await reloadAll();
     } catch (err: any) {
@@ -1057,6 +1090,7 @@ export default function Dipendenti() {
               outlets={outlets}
               isPaid={isPaid}
               nettoCell={nettoCell}
+              cedoliniDelMese={cedoliniDelMese}
               admins={admins}
               lordoAmministratori={lordoAmministratori}
               costForMonth={costForMonth}
@@ -1600,6 +1634,7 @@ function CostiTab(props: {
   outlets: OutletRow[];
   isPaid: (id: string) => boolean;
   nettoCell: (id: string) => number | null;
+  cedoliniDelMese: (id: string) => { tipo: string; netto: number | null }[];
   admins: Employee[];
   lordoAmministratori: number;
   costForMonth: (id: string) => EmployeeCost | undefined;
@@ -1612,7 +1647,7 @@ function CostiTab(props: {
   uploadingEmployee: string | null;
   importPanel: React.ReactNode;
 }) {
-  const { contiMese, totalNettoMese, monthLabel, mm, year, employees, allocByEmp, outlets, isPaid, nettoCell, admins, lordoAmministratori, costForMonth, docsForEmp, onAddCost, onEditCost, onDeleteCost, onCedolino, onViewDoc, uploadingEmployee, importPanel } = props;
+  const { contiMese, totalNettoMese, monthLabel, mm, year, employees, allocByEmp, outlets, isPaid, nettoCell, cedoliniDelMese, admins, lordoAmministratori, costForMonth, docsForEmp, onAddCost, onEditCost, onDeleteCost, onCedolino, onViewDoc, uploadingEmployee, importPanel } = props;
   // NO-ZERO: solo chi ha il cedolino del mese; raggruppato in accordion per outlet (admin a parte).
   const paid = employees.filter((e) => isPaid(e.id));
   const cedGroups: Record<string, Employee[]> = {};
@@ -1663,7 +1698,26 @@ function CostiTab(props: {
                           return (
                             <tr key={e.id} className="border-b border-slate-100 hover:bg-slate-50">
                               <td className="px-4 py-2.5 font-semibold text-slate-800">{empName(e)}</td>
-                              <td className="px-4 py-2.5 text-right"><Money v={nettoCell(e.id)} /></td>
+                              <td className="px-4 py-2.5 text-right">
+                                <Money v={nettoCell(e.id)} />
+                                {(() => {
+                                  // Un mese composto da piu' cedolini (13a, aggiuntivo) non deve
+                                  // sembrare un errore: si dice da cosa e' fatto.
+                                  const cd = cedoliniDelMese(e.id);
+                                  if (cd.length < 2) return null;
+                                  const manuale = cd.find((x) => x.tipo === 'manuale');
+                                  const testo = manuale
+                                    ? `Totale corretto a mano. Cedolini caricati: ${cd.filter((x) => x.tipo !== 'manuale').map((x) => `${labelTipo(x.tipo)} ${eurFmt.format(Number(x.netto || 0))} €`).join(' · ')}`
+                                    : `Somma di ${cd.length} cedolini: ${cd.map((x) => `${labelTipo(x.tipo)} ${eurFmt.format(Number(x.netto || 0))} €`).join(' + ')}`;
+                                  return (
+                                    <UiTooltip content={testo}>
+                                      <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 cursor-help align-middle">
+                                        {manuale ? 'corretto' : `${cd.length} cedolini`}
+                                      </span>
+                                    </UiTooltip>
+                                  );
+                                })()}
+                              </td>
                               <td className="px-4 py-2.5 text-center">
                                 {docs.length > 0 ? (
                                   <button onClick={() => onViewDoc(docs[0])} className="px-2.5 py-1 rounded-lg border border-slate-300 text-xs text-blue-600 hover:bg-blue-50 inline-flex items-center gap-1"><Eye size={13} /> Vedi</button>
@@ -1851,12 +1905,15 @@ function SchedaDipendenteModal({ employee, year, costs, allocs, outlets, company
       for (let m = 1; m <= 12; m++) {
         const n = parseItNum(vals[m]);
         const had = initial[m] !== '';
-        if (n != null) payloads.push({ employee_id: employee.id, company_id: companyId, year, month: m, netto: n, source: 'scheda_dipendente' });
-        else if (had) payloads.push({ employee_id: employee.id, company_id: companyId, year, month: m, netto: null, source: 'scheda_dipendente' });
+        // Cedolino «manuale»: vale come totale del mese e non cancella i cedolini
+        // caricati dagli import, che restano visibili come storico.
+        const base = { employee_id: employee.id, company_id: companyId, year, month: m, tipo: 'manuale', source: 'scheda_dipendente', updated_at: new Date().toISOString() };
+        if (n != null) payloads.push({ ...base, netto: n });
+        else if (had) payloads.push({ ...base, netto: null });
       }
       if (payloads.length) {
-        const { rows: uniq } = keepLastByKey(payloads, (r: any) => `${r.employee_id}|${r.year}|${r.month}`);
-        const { error } = await supabase.from('employee_costs').upsert(uniq, { onConflict: 'employee_id,year,month' });
+        const { rows: uniq } = keepLastByKey(payloads, (r: any) => `${r.employee_id}|${r.year}|${r.month}|${r.tipo}`);
+        const { error } = await supabase.from('employee_cost_slips').upsert(uniq, { onConflict: 'company_id,employee_id,year,month,tipo' });
         if (error) throw error;
       }
       toast({ type: 'success', message: 'Scheda salvata' });
@@ -2032,19 +2089,44 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
   const [removeMissing, setRemoveMissing] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [rawPreview, setRawPreview] = useState<string[] | null>(null);
+  // Che cedolino stiamo caricando. A giugno e dicembre ne arrivano due.
+  const [tipoCedolino, setTipoCedolino] = useState<string>('normale');
+  // Registro matricole: una persona puo' averne piu' di una (trasformazione
+  // del contratto). La ricerca deve guardarle tutte, altrimenti la stessa
+  // persona diventa due schede e l'organico conta una testa di troppo.
+  const [matricoleReg, setMatricoleReg] = useState<{ matricola: string; employee_id: string }[]>([]);
+  // Cedolini gia' a database per il mese scelto, per dire cosa c'e' gia'.
+  const [slipsMese, setSlipsMese] = useState<{ employee_id: string; tipo: string; netto: number | null }[]>([]);
+
+  const caricaRegistroECedolini = useCallback(async () => {
+    if (!companyId) return;
+    const [{ data: mats }, { data: slips }] = await Promise.all([
+      supabase.from('employee_matricole').select('matricola, employee_id').eq('company_id', companyId),
+      supabase.from('employee_cost_slips').select('employee_id, tipo, netto')
+        .eq('company_id', companyId).eq('year', impYear).eq('month', impMonth),
+    ]);
+    setMatricoleReg((mats as any[]) || []);
+    setSlipsMese((slips as any[]) || []);
+  }, [companyId, impYear, impMonth]);
+
+  useEffect(() => { void caricaRegistroECedolini(); }, [caricaRegistroECedolini]);
 
   // ATTENZIONE: retribuzione/contributi/inail/tfr/altri_costi hanno DEFAULT 0 a
   // database. Un carico di soli netti le riempie di zeri, quindi "non nulla" non
   // vuol dire "compilata": la corsia lordi deve guardare gli importi veri.
-  const monthHasData = existingCosts.some((c) => {
-    if (c.year !== impYear || c.month !== impMonth) return false;
-    if (isNetto) return Number(c.netto || 0) !== 0;
-    return (Number(c.retribuzione || 0) + Number(c.contributi || 0) + Number(c.inail || 0)
-      + Number(c.tfr || 0) + Number(c.altri_costi || 0)) !== 0;
-  });
+  const monthHasData = slipsMese.some((s) => s.tipo === tipoCedolino);
+  // Gli altri cedolini gia' presenti nel mese: non vengono toccati, e si dice.
+  const altriCedolini = useMemo(() => {
+    const tipi = Array.from(new Set(slipsMese.filter((s) => s.tipo !== tipoCedolino).map((s) => s.tipo)));
+    return tipi.map((t) => ({ tipo: t, label: labelTipo(t), persone: slipsMese.filter((s) => s.tipo === t).length,
+      totale: slipsMese.filter((s) => s.tipo === t).reduce((a, s) => a + Number(s.netto || 0), 0) }));
+  }, [slipsMese, tipoCedolino]);
 
   const matchEmployee = (matricola: string, cognome: string, nome: string): string | null => {
     if (matricola) {
+      // prima il registro (comprende le matricole precedenti), poi l'anagrafica
+      const reg = matricoleReg.find((m) => norm(m.matricola) === norm(matricola));
+      if (reg) return reg.employee_id;
       const byMat = employees.find((e) => norm(e.matricola) === norm(matricola));
       if (byMat) return byMat.id;
     }
@@ -2156,7 +2238,11 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
       const exact = r.outlet ? outletByNormPrev[norm(r.outlet)] : '';
       if (exact) outletNelFile[r.matchedId] = exact;
     });
-    const aDb = existingCosts.filter((c) => c.year === impYear && c.month === impMonth && c.netto != null && c.employee_id);
+    // Confronto con i cedolini dello STESSO tipo: la tredicesima non c'entra
+    // niente con la mensilita' normale e non deve risultare «uscita».
+    const outletDi = (id: string) => existingCosts.find((c) => c.employee_id === id && c.year === impYear && c.month === impMonth)?.outlet_code || null;
+    const aDb = slipsMese.filter((s) => s.tipo === tipoCedolino && s.netto != null)
+      .map((s) => ({ employee_id: s.employee_id, netto: s.netto, outlet_code: outletDi(s.employee_id) }));
     const nomeDi = (id: string) => { const e = employees.find((x) => x.id === id); return e ? empName(e) : '—'; };
 
     const usciti = aDb
@@ -2177,7 +2263,7 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
       .filter((x): x is { id: string; nome: string; da: string; a: string } => x !== null);
 
     return { usciti, entrati, cambioOutlet, presenti: aDb.length };
-  }, [rows, isNetto, existingCosts, impYear, impMonth, employees, outlets]);
+  }, [rows, isNetto, existingCosts, slipsMese, tipoCedolino, impYear, impMonth, employees, outlets]);
 
   const doImport = async () => {
     if (!rows) return;
@@ -2189,9 +2275,15 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
       // Anagrafica FRESCA dal database. Se un tentativo precedente e' fallito DOPO
       // aver creato le persone nuove, qui le ritroviamo per matricola e non le
       // duplichiamo: senza questo, ogni ritentativo aggiunge doppioni in anagrafica.
-      const { data: freshEmps } = await supabase.from('employees').select('id, matricola').eq('company_id', companyId);
+      const [{ data: freshEmps }, { data: freshMats }] = await Promise.all([
+        supabase.from('employees').select('id, matricola').eq('company_id', companyId),
+        supabase.from('employee_matricole').select('matricola, employee_id').eq('company_id', companyId),
+      ]);
       const idByMatricola = new Map<string, string>();
       (freshEmps || []).forEach((e: any) => { if (e?.matricola) idByMatricola.set(norm(String(e.matricola)), e.id); });
+      // Il registro vince: contiene anche le matricole precedenti di chi ha avuto
+      // una trasformazione di contratto.
+      (freshMats || []).forEach((m: any) => { if (m?.matricola) idByMatricola.set(norm(String(m.matricola)), m.employee_id); });
 
       const { data: logRow, error: logErr } = await supabase.from('employee_cost_imports').insert([{
         company_id: companyId, year: impYear, month: impMonth, file_name: fileName,
@@ -2225,7 +2317,14 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
             continue;
           }
           empId = newEmp?.id || null;
-          if (empId && row.matricola) idByMatricola.set(norm(row.matricola), empId);
+          if (empId && row.matricola) {
+            idByMatricola.set(norm(row.matricola), empId);
+            // la matricola entra nel registro: da qui in poi la persona e' trovabile
+            // anche se domani il software paghe gliene assegna una nuova.
+            await supabase.from('employee_matricole').insert([{
+              company_id: companyId, employee_id: empId, matricola: String(row.matricola).trim(), is_current: true,
+            }]);
+          }
           if (empId && row.outlet) {
             const exact = outletByNorm[norm(row.outlet)];
             if (exact) await supabase.from('employee_outlet_allocations').insert([{ employee_id: empId, company_id: companyId, outlet_code: exact, allocation_pct: 100, is_primary: true }]);
@@ -2233,7 +2332,12 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
         }
         if (!empId) continue;
         // Payload con SOLO i campi della corsia (l'altra corsia non viene toccata).
-        const payload: any = { employee_id: empId, company_id: companyId, year: impYear, month: impMonth, source: isNetto ? 'import_busta_paga' : 'import_lordi', import_id: importId };
+        const payload: any = {
+          employee_id: empId, company_id: companyId, year: impYear, month: impMonth,
+          tipo: tipoCedolino, matricola: row.matricola || null, file_name: fileName,
+          source: isNetto ? 'import_busta_paga' : 'import_lordi', import_id: importId,
+          updated_at: new Date().toISOString(),
+        };
         if (isNetto) {
           payload.netto = Number(row.netto || 0);
           // FASE 2 — la filiale del file diventa l'outlet DI QUEL MESE. È il
@@ -2252,11 +2356,15 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
       // il totale del file resta quadrato e nessun netto va perso.
       const sumCols = isNetto ? ['netto'] : lordiPresent.map((f) => f.col);
       const { rows: uniquePayloads, mergedKeys } = mergeSumByKey(
-        payloads, (r) => `${r.employee_id}|${r.year}|${r.month}`, sumCols,
+        payloads, (r) => `${r.employee_id}|${r.year}|${r.month}|${r.tipo}`, sumCols,
       );
 
+      // Si scrive il CEDOLINO. Il totale del mese in employee_costs lo ricalcola
+      // il database sommando i cedolini (migration 161), cosi' tredicesima e
+      // mensilita' normale convivono invece di sovrascriversi.
       if (uniquePayloads.length) {
-        const { error: upErr } = await supabase.from('employee_costs').upsert(uniquePayloads, { onConflict: 'employee_id,year,month' });
+        const { error: upErr } = await supabase.from('employee_cost_slips')
+          .upsert(uniquePayloads, { onConflict: 'company_id,employee_id,year,month,tipo' });
         if (upErr) throw upErr;
       }
 
@@ -2270,9 +2378,10 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
           .update({ removed_snapshot: snapshot, rows_removed: snapshot.length })
           .eq('id', importId);
         if (snapErr) throw snapErr;
-        const { error: rmErr } = await supabase.from('employee_costs')
-          .update({ netto: null })
-          .eq('company_id', companyId).eq('year', impYear).eq('month', impMonth)
+        // Si toglie solo il cedolino di QUESTO tipo: gli altri del mese restano.
+        const { error: rmErr } = await supabase.from('employee_cost_slips')
+          .delete()
+          .eq('company_id', companyId).eq('year', impYear).eq('month', impMonth).eq('tipo', tipoCedolino)
           .in('employee_id', diff.usciti.map((u) => u.id));
         if (rmErr) throw rmErr;
         removedCount = snapshot.length;
@@ -2285,6 +2394,7 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
         toast({ type: 'error', message: `Non sono riuscito a creare in anagrafica: ${failedNew.join(', ')}. Di solito la matricola è già usata da un'altra persona: controlla in Organico, poi ripeti l'import.` });
       }
       reset();
+      await caricaRegistroECedolini();
       await onDone();
     } catch (err: any) {
       toast({ type: 'error', message: 'Errore import: ' + readableDbError(err) });
@@ -2318,7 +2428,23 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
         <select value={impMonth} onChange={(e) => setImpMonth(Number(e.target.value))} className="px-3 py-2 text-sm rounded-lg border border-slate-300">
           {MONTHS.map((m) => <option key={m.num} value={m.num}>{m.label}</option>)}
         </select>
+        <select value={tipoCedolino} onChange={(e) => { setTipoCedolino(e.target.value); setOverwriteAck(false); }}
+          className="px-3 py-2 text-sm rounded-lg border border-slate-300" title="Quale cedolino stai caricando">
+          {TIPI_CEDOLINO.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
+        </select>
       </div>
+
+      {altriCedolini.length > 0 && (
+        <div className="mb-3 p-3 rounded-lg bg-slate-50 border border-slate-200 text-sm text-slate-600 flex items-start gap-2">
+          <FileText size={15} className="mt-0.5 shrink-0 text-slate-400" />
+          <span>
+            {MONTHS.find((m) => m.num === impMonth)?.label} {impYear} contiene già:{' '}
+            {altriCedolini.map((c, i) => (
+              <span key={c.tipo}>{i > 0 ? ', ' : ''}<strong>{c.label}</strong> ({c.persone} persone{c.totale ? `, ${eurFmt.format(c.totale)} €` : ''})</span>
+            ))}. Questo carico <strong>si aggiunge</strong>: il mese varrà la somma dei cedolini.
+          </span>
+        </div>
+      )}
 
       {/* Zona drag & drop */}
       <input ref={fileRef} type="file" accept=".pdf,.csv,.txt,.xlsx,.xls" className="hidden" onChange={handleFile} />
@@ -2344,7 +2470,7 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
       {monthHasData && (
         <div className="mb-4 p-3 rounded-lg bg-amber-50 border border-amber-200 text-sm text-amber-800 flex items-start gap-2">
           <AlertCircle size={16} className="mt-0.5 shrink-0" />
-          <span>Il mese {MONTHS.find((m) => m.num === impMonth)?.label} {impYear} contiene già {isNetto ? 'netti' : 'costi lordi'}. Confermando, <strong>sovrascriverai solo questa corsia per questo mese</strong> (l'altra corsia e gli altri mesi non vengono toccati).</span>
+          <span>Per {MONTHS.find((m) => m.num === impMonth)?.label} {impYear} il cedolino «{labelTipo(tipoCedolino)}» è già stato caricato. Confermando <strong>sostituisci solo quello</strong>: gli altri cedolini dello stesso mese, l'altra corsia e gli altri mesi non vengono toccati.</span>
         </div>
       )}
 
@@ -2453,7 +2579,7 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
             {monthHasData ? (
               <label className="flex items-center gap-2 text-sm text-slate-600">
                 <input type="checkbox" checked={overwriteAck} onChange={(e) => setOverwriteAck(e.target.checked)} />
-                Confermo la sovrascrittura del mese già presente
+                Confermo la sostituzione del cedolino «{labelTipo(tipoCedolino)}» già presente
               </label>
             ) : <span />}
             <div className="flex items-center gap-2 ml-auto">
