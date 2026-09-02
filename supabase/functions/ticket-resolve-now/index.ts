@@ -315,7 +315,15 @@ Analizza il ticket e il file, poi chiama il tool submit_resolution.`;
 
   const result = toolUse.input;
   if (result.action === "fix" && !result.new_file_content) {
-    throw new Error("Claude: action=fix but no new_file_content");
+    // Risposta troncata a max_tokens: prima diventava un'eccezione, quindi
+    // nessun commento sul ticket e tre tentativi identici del cron. Ora
+    // degrada a cant_fix, cosi' l'utente legge cos'e' successo e il ticket
+    // non viene ripassato all'infinito.
+    return {
+      action: "cant_fix",
+      explanation_for_user: "Ho capito il problema, ma la correzione era troppo lunga da scrivere tutta in una volta: se ne deve occupare Patrizio.",
+      technical_notes: `Claude ha risposto action=fix senza new_file_content: risposta troncata a max_tokens su ${filePath} (${fileContent.length} caratteri).`,
+    };
   }
   return result;
 }
@@ -416,6 +424,27 @@ Deno.serve(async (req: Request) => {
 
     // Scarica file dal main
     const { content: fileContent, sha: fileSha } = await getFileFromMain(ghToken, filePath);
+
+    // ─────────── Limite di riscrittura ───────────
+    // Il fix chiede a Claude il file INTERO riscritto, con max_tokens 16000
+    // (~50.000 caratteri di TSX). Sopra la soglia la risposta si tronca a
+    // meta': prima del 2026-09-02 questo si vedeva come 2 minuti di attesa
+    // e poi un errore muto ("action=fix but no new_file_content") su
+    // Fornitori.tsx (105 KB). Meglio dirlo subito e lasciare un commento
+    // utile invece di bruciare il tentativo.
+    const MAX_FILE_CHARS = 40000;
+    if (fileContent.length > MAX_FILE_CHARS) {
+      await appendCommentToTicket(supabase, ticket, {
+        autore: "AutoFix",
+        origine: "ai",
+        testo: `🤖 Non posso correggere automaticamente questa segnalazione: la pagina "${ticket.modulo}" e' troppo grande perche' io possa riscriverla per intero in una volta sola. Serve l'intervento di Patrizio.\n\n_Note tecniche: ${filePath} pesa ${Math.round(fileContent.length / 1000)} KB, oltre il limite di ${MAX_FILE_CHARS / 1000} KB per la riscrittura integrale (max_tokens 16000)._`,
+      });
+      return jsonOk({
+        ok: true,
+        action: "cant_fix",
+        message: `File troppo grande per la riscrittura automatica (${filePath}, ${Math.round(fileContent.length / 1000)} KB)`,
+      });
+    }
 
     // Chiama Claude
     const resolution = await callClaudeForResolution(anthropicKey, ticket, filePath, fileContent);
