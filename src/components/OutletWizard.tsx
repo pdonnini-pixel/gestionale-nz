@@ -592,7 +592,9 @@ export default function OutletWizard({ onClose, onSaved, initialData, allegati, 
       const uploadResults: Record<string, string> = {}
       for (const [code, file] of Object.entries(wizardUploadedFiles)) {
         const ext = file.name.split('.').pop() ?? ''
-        const filePath = `${storagePath}/allegato_${code.toLowerCase()}.${ext}`
+        const filePath = code === '__CONTRATTO__'
+          ? `${storagePath}/contratto.${ext}`
+          : `${storagePath}/allegato_${code.toLowerCase()}.${ext}`
         const { data: uploadData, error: uploadErr } = await supabase.storage
           .from('outlet-attachments')
           .upload(filePath, file, { upsert: true })
@@ -608,12 +610,13 @@ export default function OutletWizard({ onClose, onSaved, initialData, allegati, 
           outlet_id: outletId,
           attachment_type: 'contratto',
           label: `Contratto di affitto — ${contractFileName || 'Documento'}`,
-          file_name: contractFileName || null,
+          file_name: contractFileName || wizardUploadedFiles.__CONTRATTO__?.name || null,
+          file_path: uploadResults.__CONTRATTO__ || null,
           is_required: true,
-          is_uploaded: false,
+          is_uploaded: !!uploadResults.__CONTRATTO__,
         },
         // Ogni allegato menzionato
-        ...allegati.map(a => {
+        ...allegati.filter(a => a.code !== '__CONTRATTO__').map(a => {
           const filePath = uploadResults[a.code]
           return {
             company_id: payload.company_id,
@@ -629,6 +632,27 @@ export default function OutletWizard({ onClose, onSaved, initialData, allegati, 
       ]
 
       await supabase.from('outlet_attachments').insert(attachmentRows)
+
+      // Registro unico dei caricamenti: il contratto e gli allegati diventano
+      // riapribili anche dall'Archivio documenti, non solo dalla scheda outlet.
+      const oraIso = new Date().toISOString()
+      const righeArchivio = Object.entries(wizardUploadedFiles)
+        .filter(([code]) => !!uploadResults[code])
+        .map(([code, file]) => ({
+          company_id: payload.company_id,
+          file_name: file.name,
+          file_path: uploadResults[code],
+          file_size: file.size,
+          file_type: (file.name.split('.').pop() || '').toLowerCase(),
+          storage_bucket: 'outlet-attachments',
+          source: code === '__CONTRATTO__' ? 'Contratto di affitto' : `Allegato ${code}`,
+          modulo: 'Outlet',
+          funzione: code === '__CONTRATTO__' ? 'Contratto di affitto' : `Allegato ${code} del contratto`,
+          reference_table: 'outlets',
+          reference_id: outletId,
+          uploaded_at: oraIso,
+        }))
+      if (righeArchivio.length) await supabase.from('import_documents').insert(righeArchivio)
     }
 
     onSaved()

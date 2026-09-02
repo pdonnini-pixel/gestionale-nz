@@ -35,6 +35,7 @@ import {
 } from '../types/ticket'
 import { TicketList } from './Ticket'
 import { Modal } from '../components/ui/Modal'
+import { archiviaFile } from '../lib/archivioFile'
 
 function formatDate(iso: string | null): string {
   if (!iso) return '—'
@@ -312,6 +313,16 @@ export default function TicketAdminPage() {
   const VALID_TIPO = ['bug', 'funzione'] as const
 
   const handleImportFile = (file: File) => {
+    // Il foglio importato resta in archivio: senza, di un import massivo di
+    // ticket non restava nessuna traccia del file di partenza.
+    if (profile?.company_id) {
+      const oggi = new Date()
+      void archiviaFile({
+        file, companyId: profile.company_id, userId: profile.id ?? null, modulo: 'Ticket',
+        funzione: 'Import ticket da foglio', bucket: 'general-documents',
+        year: oggi.getFullYear(), month: oggi.getMonth() + 1, referenceTable: 'tickets',
+      })
+    }
     const reader = new FileReader()
     reader.onload = async (ev) => {
       try {

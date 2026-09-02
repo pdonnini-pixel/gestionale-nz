@@ -21,6 +21,8 @@ import Tooltip from '../components/Tooltip'
 import SyncStatusBadge from '../components/SyncStatusBadge'
 import PaymentAnomaliesPanel from '../components/PaymentAnomaliesPanel'
 import NotuleDuplicatePanel from '../components/NotuleDuplicatePanel'
+import { archiviaFile } from '../lib/archivioFile'
+import { useAuth } from '../hooks/useAuth'
 import {
   FileText, Upload, Send, RefreshCw, Search, Filter, ChevronDown, ChevronUp,
   CheckCircle, XCircle, Clock, AlertTriangle, Eye, Download, X,
@@ -236,6 +238,7 @@ function FatturePassive() {
   useEffect(() => {
     if (globalYear) setYearFilter(String(globalYear))
   }, [globalYear])
+  const { profile } = useAuth()
   const [viewingXml, setViewingXml] = useState<string | null>(null) // XML content for InvoiceViewer
   const [uploading, setUploading] = useState(false)
   const [openingId, setOpeningId] = useState<string | null>(null) // id fattura in apertura (spinner occhio)
@@ -311,6 +314,18 @@ function FatturePassive() {
         toast({ type: 'warning', message: 'Il file non sembra essere un XML FatturaPA valido.' })
         return
       }
+      // L'XML originale finisce in archivio: prima restava solo il contenuto
+      // dentro la fattura, il file consegnato dallo SDI si perdeva.
+      if (profile?.company_id) {
+        const oggi = new Date()
+        const archiviato = await archiviaFile({
+          file, companyId: profile.company_id, userId: profile.id ?? null, modulo: 'Fatturazione',
+          funzione: 'XML FatturaPA caricato a mano', bucket: 'invoices',
+          year: oggi.getFullYear(), month: oggi.getMonth() + 1,
+          referenceTable: 'electronic_invoices',
+        })
+        if (archiviato.errore) toast({ type: 'warning', message: `Fattura importata, ma il file XML non è finito in archivio (${archiviato.errore}).` })
+      }
       const result = await callEdgeFunction('sdi-receive', 'POST', { xmlContent }) as { data?: { action?: string; invoice?: { invoice_number?: string } } }
       if (result.data) {
         toast({ type: 'success', message: `Fattura ${result.data.action === 'created' ? 'importata' : 'aggiornata'}: ${result.data.invoice?.invoice_number}` })
@@ -337,6 +352,15 @@ function FatturePassive() {
       try {
         const xmlText = await file.text()
         if (!xmlText.includes('FatturaElettronica')) { done++; errors++; continue }
+        if (profile?.company_id) {
+          const oggi = new Date()
+          await archiviaFile({
+            file, companyId: profile.company_id, userId: profile.id ?? null, modulo: 'Fatturazione',
+            funzione: 'XML FatturaPA caricato in blocco', bucket: 'invoices',
+            year: oggi.getFullYear(), month: oggi.getMonth() + 1,
+            referenceTable: 'electronic_invoices',
+          })
+        }
 
         // Estrai numero fattura e P.IVA dal XML per match
         const parser = new DOMParser()

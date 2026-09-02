@@ -50,6 +50,7 @@ import {
   type PreviewRow, type ParsedImport, type ProspettoOutletRow, type StatEmpMonth,
 } from '../lib/payrollParse';
 import { mergeSumByKey, keepLastByKey, duplicateKeys, readableDbError } from '../lib/upsertDedupe';
+import { archiviaFile, avvisoArchiviazioneFallita } from '../lib/archivioFile';
 import { UiTooltip } from '../components/Tooltip'; // alias: 'Tooltip' collide con recharts
 import ExportMenu from '../components/ExportMenu';
 // Organico granitico: fonte unica del conteggio dipendenti (vedi src/lib/headcount.ts).
@@ -2079,6 +2080,9 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
   const [impMonth, setImpMonth] = useState(defaultMonth);
   const fileRef = useRef<HTMLInputElement>(null);
   const [fileName, setFileName] = useState('');
+  // Il File resta a disposizione fino alla conferma: alla conferma va in archivio,
+  // cosi' il mese si puo' sempre riaprire dal documento che l'ha prodotto.
+  const [fileObj, setFileObj] = useState<File | null>(null);
   const [rows, setRows] = useState<PreviewRow[] | null>(null);
   const [fileTotal, setFileTotal] = useState<number | null>(null);
   const [parsing, setParsing] = useState(false);
@@ -2137,7 +2141,7 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
   const amountOf = (r: PreviewRow) => (isNetto ? Number(r.netto || 0) : rowLordo(r));
 
   const processFile = async (file: File) => {
-    setParsing(true); setFileName(file.name);
+    setParsing(true); setFileName(file.name); setFileObj(file);
     setRows(null); setFileTotal(null); setOverwriteAck(false); setRawPreview(null);
     try {
       const isPdf = /\.pdf$/i.test(file.name) || file.type === 'application/pdf';
@@ -2219,7 +2223,7 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
     const dupKeys = duplicateKeys(keyed, (r) => r.k);
     return Array.from(new Set(keyed.filter((r) => dupKeys.includes(r.k)).map((r) => r.label)));
   }, [rows]);
-  const reset = () => { setRows(null); setFileName(''); setFileTotal(null); setOverwriteAck(false); setRawPreview(null); setRemoveMissing(false); };
+  const reset = () => { setRows(null); setFileName(''); setFileObj(null); setFileTotal(null); setOverwriteAck(false); setRawPreview(null); setRemoveMissing(false); };
 
   // ── FASE 3 — il carico è una SOSTITUZIONE del mese, non un'aggiunta ─────────
   // Prima di confermare si mostra cosa cambia rispetto a quello che c'è già:
@@ -2285,13 +2289,31 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
       // una trasformazione di contratto.
       (freshMats || []).forEach((m: any) => { if (m?.matricola) idByMatricola.set(norm(String(m.matricola)), m.employee_id); });
 
+      // Il file va in archivio PRIMA dei dati: se l'archiviazione fallisce si va
+      // avanti lo stesso, ma l'utente lo viene a sapere (mai in silenzio).
+      let documentId: string | null = null;
+      if (fileObj) {
+        const archiviato = await archiviaFile({
+          file: fileObj, companyId, userId, modulo: 'Personale',
+          funzione: isNetto ? `Elenco netti per dipendente · ${labelTipo(tipoCedolino)}` : 'Costi lordi per dipendente',
+          bucket: 'employee-documents', year: impYear, month: impMonth,
+          referenceTable: 'employee_cost_imports',
+        });
+        documentId = archiviato.id;
+        if (archiviato.errore) toast({ type: 'error', message: avvisoArchiviazioneFallita(fileName, archiviato.errore) });
+      }
+
       const { data: logRow, error: logErr } = await supabase.from('employee_cost_imports').insert([{
         company_id: companyId, year: impYear, month: impMonth, file_name: fileName,
         rows_total: rows.length, rows_new_employees: newCount, total_netto: total,
         file_total: fileTotal, scostamento, imported_by: userId, note: isNetto ? 'busta_paga' : 'lordi',
+        import_document_id: documentId,
       }]).select('id').single();
       if (logErr) throw logErr;
       const importId = logRow?.id || null;
+      if (documentId && importId) {
+        await supabase.from('import_documents').update({ reference_id: importId }).eq('id', documentId);
+      }
 
       const payloads: any[] = [];
       const failedNew: string[] = [];
@@ -2336,6 +2358,7 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
           employee_id: empId, company_id: companyId, year: impYear, month: impMonth,
           tipo: tipoCedolino, matricola: row.matricola || null, file_name: fileName,
           source: isNetto ? 'import_busta_paga' : 'import_lordi', import_id: importId,
+          import_document_id: documentId,
           updated_at: new Date().toISOString(),
         };
         if (isNetto) {
@@ -2643,6 +2666,8 @@ function CostiLordoDipendentiBlock({ companyId, userId, outlets, year, month, mo
   const [importing, setImporting] = useState(false);
   const [companyPick, setCompanyPick] = useState<{ pages: any[][]; companies: { code: string; name: string }[]; fileName: string } | null>(null);
   const [preview, setPreview] = useState<{ companyCode: string; companyName: string; res: ReturnType<typeof parseStatisticaCostoOrario>; fileName: string } | null>(null);
+  // Il PDF resta a disposizione fino alla conferma, poi va in archivio.
+  const [fileObj, setFileObj] = useState<File | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
 
   const load = async () => {
@@ -2696,6 +2721,7 @@ function CostiLordoDipendentiBlock({ companyId, userId, outlets, year, month, mo
     if (!file) return;
     const isPdf = /\.pdf$/i.test(file.name) || file.type === 'application/pdf';
     if (!isPdf) { toast({ type: 'error', message: 'Carica la «Statistica costo orario» in formato PDF.' }); return; }
+    setFileObj(file);
     try {
       const { extractPdfItemsOriented } = await import('../lib/pdfText');
       const pages = await extractPdfItemsOriented(file);
@@ -2723,6 +2749,18 @@ function CostiLordoDipendentiBlock({ companyId, userId, outlets, year, month, mo
     setImporting(true);
     try {
       // Risoluzione data-driven: matricola → employee_id, outlet (allocazione primaria), is_admin (ruolo).
+      let documentId: string | null = null;
+      if (fileObj) {
+        const archiviato = await archiviaFile({
+          file: fileObj, companyId, userId, modulo: 'Personale',
+          funzione: 'Statistica costo orario (costo lordo per dipendente)',
+          bucket: 'employee-documents', year: res.rows[0]?.year ?? null, month: null,
+          referenceTable: 'personnel_gross_cost_employee_imports',
+        });
+        documentId = archiviato.id;
+        if (archiviato.errore) toast({ type: 'error', message: avvisoArchiviazioneFallita(fileName, archiviato.errore) });
+      }
+
       const [{ data: emps }, { data: allocs }] = await Promise.all([
         sb.from('employees').select('id, matricola, role_description, qualifica, notes, note').eq('company_id', companyId),
         sb.from('employee_outlet_allocations').select('employee_id, outlet_code, is_primary').eq('company_id', companyId),
@@ -2739,9 +2777,11 @@ function CostiLordoDipendentiBlock({ companyId, userId, outlets, year, month, mo
       const { data: imp, error: impErr } = await sb.from('personnel_gross_cost_employee_imports').insert({
         company_id: companyId, file_name: fileName, period_label: periodTxt,
         rows_total: res.rows.length, employees_total: res.employees, file_total: res.totalLordo, imported_by: userId,
+        import_document_id: documentId,
       }).select('id').single();
       if (impErr) throw impErr;
       const importId = (imp as any)?.id ?? null;
+      if (documentId && importId) await supabase.from('import_documents').update({ reference_id: importId }).eq('id', documentId);
 
       const payload = res.rows.map((r) => {
         const e = empByMat.get(r.matricola);
@@ -2765,7 +2805,7 @@ function CostiLordoDipendentiBlock({ companyId, userId, outlets, year, month, mo
       const unmatched = uniquePayload.filter((p: any) => !p.employee_id).length;
       const mergedTxt = mergedKeys.length ? ` · ${mergedKeys.length} righe doppie sommate` : '';
       toast({ type: 'success', message: `Importati ${res.employees} dipendenti · ${uniquePayload.length} righe mese · totale ${eurFmt.format(res.totalLordo)} €${unmatched ? ` · ${unmatched} righe da assegnare` : ''}${mergedTxt}.` });
-      setPreview(null);
+      setPreview(null); setFileObj(null);
       await load();
     } catch (e: any) {
       console.error(e);
@@ -2955,6 +2995,7 @@ function CostiLordoTab({ companyId, userId, outlets, year, month, monthLabel }: 
   const [dragOver, setDragOver] = useState(false);
   const [importing, setImporting] = useState(false);
   const [preview, setPreview] = useState<{ rows: ProspettoOutletRow[]; fileName: string } | null>(null);
+  const [fileObj, setFileObj] = useState<File | null>(null);
   const [rateDraft, setRateDraft] = useState<Record<string, string>>({});
   const fileRef = useRef<HTMLInputElement | null>(null);
 
@@ -2993,6 +3034,7 @@ function CostiLordoTab({ companyId, userId, outlets, year, month, monthLabel }: 
           toast({ type: 'error', message: 'Il PDF non sembra un «Prospetto riepilogativo elaborazione paghe». Nessun dato per outlet riconosciuto.' });
           return;
         }
+        setFileObj(file);
         setPreview({ rows: parsed.rows, fileName: file.name });
       } catch (e) {
         console.error(e);
@@ -3009,12 +3051,26 @@ function CostiLordoTab({ companyId, userId, outlets, year, month, monthLabel }: 
       const fileTotal = pr.reduce((s, r) => s + (r.totaleRetribuzioni || 0), 0);
       const first = pr[0];
       // Log import (uno per file). I mesi reali sono comunque sulle singole righe.
+      let documentId: string | null = null;
+      if (fileObj) {
+        const archiviato = await archiviaFile({
+          file: fileObj, companyId, userId, modulo: 'Personale',
+          funzione: 'Prospetto riepilogativo elaborazione paghe (costo lordo per outlet)',
+          bucket: 'employee-documents', year: first.year, month: first.month,
+          referenceTable: 'personnel_gross_cost_imports',
+        });
+        documentId = archiviato.id;
+        if (archiviato.errore) toast({ type: 'error', message: avvisoArchiviazioneFallita(preview.fileName, archiviato.errore) });
+      }
+
       const { data: imp, error: impErr } = await sb.from('personnel_gross_cost_imports').insert({
         company_id: companyId, year: first.year, month: first.month, file_name: preview.fileName,
         outlets_total: pr.length, file_total: fileTotal, imported_by: userId,
+        import_document_id: documentId,
       }).select('id').single();
       if (impErr) throw impErr;
       const importId = (imp as any)?.id ?? null;
+      if (documentId && importId) await supabase.from('import_documents').update({ reference_id: importId }).eq('id', documentId);
 
       const payload = pr.map((r) => ({
         company_id: companyId,
@@ -3057,7 +3113,7 @@ function CostiLordoTab({ companyId, userId, outlets, year, month, monthLabel }: 
 
       const monthsLbl = [...new Set(pr.map((r) => `${MESI_LBL[r.month]} ${r.year}`))].join(', ');
       toast({ type: 'success', message: `Salvati ${pr.length} outlet (${monthsLbl}). Totale retribuzioni ${eurFmt.format(fileTotal)} €.` });
-      setPreview(null);
+      setPreview(null); setFileObj(null);
       await load();
     } catch (e: any) {
       console.error(e);

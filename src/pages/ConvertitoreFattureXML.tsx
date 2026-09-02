@@ -11,6 +11,8 @@ import { Link } from 'react-router-dom'
 import JSZip from 'jszip'
 import PageHeader from '../components/PageHeader'
 import { supabase } from '../lib/supabase'
+import { archiviaFile } from '../lib/archivioFile'
+import { useAuth } from '../hooks/useAuth'
 import {
   ArrowLeft, Upload, FileCode, Download, CheckCircle, AlertTriangle,
   Loader2, FileSpreadsheet, ClipboardPaste, Archive, RefreshCw, Search, Trash2,
@@ -273,6 +275,7 @@ function downloadXmlString(name: string, xml: string): void {
 
 // ═════════════════════════════════════════════════════════════════════════
 export default function ConvertitoreFattureXML() {
+  const { profile } = useAuth()
   const [mode, setMode] = useState<'file' | 'paste'>('file')
   const [fileRows, setFileRows] = useState<unknown[][] | null>(null)
   const [fileInfo, setFileInfo] = useState('')
@@ -440,6 +443,16 @@ export default function ConvertitoreFattureXML() {
 
   const readFile = useCallback(async (file: File) => {
     setFileInfo(`File: ${file.name} — lettura…`)
+    // Il foglio di partenza resta in archivio insieme all'XML che ne esce:
+    // senza, di una conversione restava solo il risultato.
+    if (profile?.company_id) {
+      const oggi = new Date()
+      void archiviaFile({
+        file, companyId: profile.company_id, userId: profile.id ?? null, modulo: 'Strumenti',
+        funzione: 'Foglio convertito in XML FatturaPA', bucket: 'general-documents',
+        year: oggi.getFullYear(), month: oggi.getMonth() + 1, referenceTable: 'fattura_xml_export',
+      })
+    }
     try {
       const buf = await file.arrayBuffer()
       const XLSX = await import('xlsx')
@@ -453,7 +466,7 @@ export default function ConvertitoreFattureXML() {
       setFileInfo('')
       setAlerts([{ kind: 'err', text: 'Errore lettura file: ' + (err as Error).message }])
     }
-  }, [])
+  }, [profile])
 
   const getRecords = useCallback((): Rec[] => {
     if (mode === 'file') {

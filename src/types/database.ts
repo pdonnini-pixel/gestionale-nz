@@ -943,6 +943,7 @@ export type Database = {
       }
       bank_statements: {
         Row: {
+          import_document_id: string | null
           bank_account_id: string
           closing_balance: number | null
           company_id: string
@@ -960,6 +961,7 @@ export type Database = {
           uploaded_by: string | null
         }
         Insert: {
+          import_document_id?: string | null
           bank_account_id: string
           closing_balance?: number | null
           company_id: string
@@ -977,6 +979,7 @@ export type Database = {
           uploaded_by?: string | null
         }
         Update: {
+          import_document_id?: string | null
           bank_account_id?: string
           closing_balance?: number | null
           company_id?: string
@@ -3125,6 +3128,7 @@ export type Database = {
       }
       employee_cost_slips: {
         Row: {
+          import_document_id: string | null
           altri_costi: number | null
           company_id: string
           contributi: number | null
@@ -3147,6 +3151,7 @@ export type Database = {
           year: number
         }
         Insert: {
+          import_document_id?: string | null
           altri_costi?: number | null
           company_id: string
           contributi?: number | null
@@ -3169,6 +3174,7 @@ export type Database = {
           year: number
         }
         Update: {
+          import_document_id?: string | null
           altri_costi?: number | null
           company_id?: string
           contributi?: number | null
@@ -3254,6 +3260,7 @@ export type Database = {
       }
       employee_cost_imports: {
         Row: {
+          import_document_id: string | null
           company_id: string
           file_name: string | null
           file_total: number | null
@@ -3271,6 +3278,7 @@ export type Database = {
           year: number
         }
         Insert: {
+          import_document_id?: string | null
           company_id: string
           file_name?: string | null
           file_total?: number | null
@@ -3288,6 +3296,7 @@ export type Database = {
           year: number
         }
         Update: {
+          import_document_id?: string | null
           company_id?: string
           file_name?: string | null
           file_total?: number | null
@@ -3877,6 +3886,15 @@ export type Database = {
           id: string
           source: string | null
           uploaded_at: string | null
+          modulo: string | null
+          month: number | null
+          note: string | null
+          funzione: string | null
+          reference_id: string | null
+          reference_table: string | null
+          storage_bucket: string | null
+          uploaded_by: string | null
+          year: number | null
         }
         Insert: {
           company_id?: string
@@ -3888,6 +3906,15 @@ export type Database = {
           id?: string
           source?: string | null
           uploaded_at?: string | null
+          modulo?: string | null
+          month?: number | null
+          note?: string | null
+          funzione?: string | null
+          reference_id?: string | null
+          reference_table?: string | null
+          storage_bucket?: string | null
+          uploaded_by?: string | null
+          year?: number | null
         }
         Update: {
           company_id?: string
@@ -3899,6 +3926,15 @@ export type Database = {
           id?: string
           source?: string | null
           uploaded_at?: string | null
+          modulo?: string | null
+          month?: number | null
+          note?: string | null
+          funzione?: string | null
+          reference_id?: string | null
+          reference_table?: string | null
+          storage_bucket?: string | null
+          uploaded_by?: string | null
+          year?: number | null
         }
         Relationships: []
       }

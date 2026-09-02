@@ -2,8 +2,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
 // Tab ArchivioDocumenti — persistito in URL come ?tab=
-type ArchivioTab = 'archivio' | 'conservazione';
-const VALID_ARCHIVIO_TABS: ArchivioTab[] = ['archivio', 'conservazione'];
+type ArchivioTab = 'archivio' | 'caricamenti' | 'conservazione';
+const VALID_ARCHIVIO_TABS: ArchivioTab[] = ['archivio', 'caricamenti', 'conservazione'];
 import {
   FileText, Search, Download, Eye, RefreshCw,
   X, FileWarning, CheckCircle,
@@ -64,6 +64,164 @@ interface RetentionDoc {
 
 const MONTH_LABELS = ['Gen', 'Feb', 'Mar', 'Apr', 'Mag', 'Giu', 'Lug', 'Ago', 'Set', 'Ott', 'Nov', 'Dic'];
 const MONTH_FULL = ['Gennaio', 'Febbraio', 'Marzo', 'Aprile', 'Maggio', 'Giugno', 'Luglio', 'Agosto', 'Settembre', 'Ottobre', 'Novembre', 'Dicembre'];
+
+// ═══════════════════════════════════════════════════════════════
+// SCHEDA "CARICAMENTI" — il registro unico dei file caricati.
+// Risponde alla domanda «questo numero da quale file viene?»: per ogni
+// caricamento si vede il modulo, la funzione, il periodo, chi e quando, e si
+// riapre il documento originale.
+// ═══════════════════════════════════════════════════════════════
+type RigaCaricamento = {
+  id: string;
+  file_name: string;
+  file_path: string | null;
+  file_size: number | null;
+  file_type: string | null;
+  storage_bucket: string | null;
+  modulo: string | null;
+  funzione: string | null;
+  source: string | null;
+  year: number | null;
+  month: number | null;
+  reference_table: string | null;
+  reference_id: string | null;
+  note: string | null;
+  uploaded_at: string | null;
+};
+
+function CaricamentiTab({ companyId, showToast }: { companyId?: string; showToast: (m: string, t?: string) => void }) {
+  const [righe, setRighe] = useState<RigaCaricamento[]>([]);
+  const [caricando, setCaricando] = useState(false);
+  const [filtroModulo, setFiltroModulo] = useState('tutti');
+  const [filtroAnno, setFiltroAnno] = useState('tutti');
+  const [ricerca, setRicerca] = useState('');
+  const [aprendo, setAprendo] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!companyId) return;
+    let vivo = true;
+    (async () => {
+      setCaricando(true);
+      // Mai select('*'): su queste tabelle finirebbe per trascinare colonne pesanti.
+      const { data, error } = await supabase
+        .from('import_documents')
+        .select('id, file_name, file_path, file_size, file_type, storage_bucket, modulo, funzione, source, year, month, reference_table, reference_id, note, uploaded_at')
+        .eq('company_id', companyId)
+        .order('uploaded_at', { ascending: false })
+        .limit(1000);
+      if (!vivo) return;
+      if (error) showToast(`Impossibile leggere l'archivio dei caricamenti: ${error.message}`, 'error');
+      setRighe(((data as unknown) as RigaCaricamento[]) || []);
+      setCaricando(false);
+    })();
+    return () => { vivo = false; };
+  }, [companyId, showToast]);
+
+  const moduli = useMemo(() => Array.from(new Set(righe.map(r => r.modulo).filter(Boolean))).sort() as string[], [righe]);
+  const anni = useMemo(() => Array.from(new Set(righe.map(r => r.year).filter(Boolean))).sort((a, b) => Number(b) - Number(a)) as number[], [righe]);
+
+  const filtrate = useMemo(() => righe.filter(r => {
+    if (filtroModulo !== 'tutti' && r.modulo !== filtroModulo) return false;
+    if (filtroAnno !== 'tutti' && String(r.year || '') !== filtroAnno) return false;
+    if (ricerca.trim()) {
+      const q = ricerca.toLowerCase();
+      return (r.file_name || '').toLowerCase().includes(q)
+        || (r.funzione || r.source || '').toLowerCase().includes(q)
+        || (r.modulo || '').toLowerCase().includes(q);
+    }
+    return true;
+  }), [righe, filtroModulo, filtroAnno, ricerca]);
+
+  const apri = async (r: RigaCaricamento) => {
+    if (!r.storage_bucket || !r.file_path) {
+      showToast('Di questo caricamento è rimasta solo la registrazione: il file non era stato archiviato.', 'error');
+      return;
+    }
+    setAprendo(r.id);
+    const { data, error } = await supabase.storage.from(r.storage_bucket).createSignedUrl(r.file_path, 3600);
+    setAprendo(null);
+    if (error || !data?.signedUrl) { showToast(`Impossibile aprire il file: ${error?.message || 'link non disponibile'}`, 'error'); return; }
+    window.open(data.signedUrl, '_blank', 'noopener');
+  };
+
+  const periodo = (r: RigaCaricamento) => {
+    if (!r.year) return '—';
+    return r.month ? `${MONTH_LABELS[r.month - 1]} ${r.year}` : String(r.year);
+  };
+  const peso = (b: number | null) => (b == null ? '—' : b > 1048576 ? `${(b / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`);
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm flex flex-wrap items-center gap-2">
+        <select value={filtroModulo} onChange={e => setFiltroModulo(e.target.value)} className="px-3 py-2 text-sm rounded-lg border border-slate-300">
+          <option value="tutti">Tutti i moduli</option>
+          {moduli.map(m => <option key={m} value={m}>{m}</option>)}
+        </select>
+        <select value={filtroAnno} onChange={e => setFiltroAnno(e.target.value)} className="px-3 py-2 text-sm rounded-lg border border-slate-300">
+          <option value="tutti">Tutti gli anni</option>
+          {anni.map(a => <option key={a} value={String(a)}>{a}</option>)}
+        </select>
+        <input value={ricerca} onChange={e => setRicerca(e.target.value)} placeholder="Cerca per nome file o funzione…"
+          className="flex-1 min-w-[220px] px-3 py-2 text-sm rounded-lg border border-slate-300" />
+        <span className="text-sm text-slate-500">{filtrate.length} caricamenti</span>
+      </div>
+
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        {caricando ? (
+          <div className="p-10 text-center text-slate-400 text-sm">Lettura dell&rsquo;archivio…</div>
+        ) : filtrate.length === 0 ? (
+          <div className="p-10 text-center text-slate-500 text-sm">
+            <Upload size={28} className="mx-auto mb-3 text-slate-300" />
+            Nessun caricamento registrato{righe.length ? ' con questi filtri' : ' finora'}.
+            {!righe.length && <div className="mt-1 text-xs text-slate-400">I file caricati d&rsquo;ora in avanti compariranno qui, con la funzione e il periodo a cui si riferiscono.</div>}
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+                <tr>
+                  <th className="px-4 py-2.5 text-left font-medium">Quando</th>
+                  <th className="px-4 py-2.5 text-left font-medium">Modulo</th>
+                  <th className="px-4 py-2.5 text-left font-medium">Funzione</th>
+                  <th className="px-4 py-2.5 text-left font-medium">Periodo</th>
+                  <th className="px-4 py-2.5 text-left font-medium">File</th>
+                  <th className="px-4 py-2.5 text-right font-medium">Peso</th>
+                  <th className="px-4 py-2.5 text-center font-medium">Apri</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtrate.map(r => (
+                  <tr key={r.id} className="border-t border-slate-100 hover:bg-slate-50">
+                    <td className="px-4 py-2.5 text-slate-500 whitespace-nowrap">
+                      {r.uploaded_at ? new Date(r.uploaded_at).toLocaleString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <span className="text-[11px] px-2 py-0.5 rounded bg-slate-100 text-slate-600">{r.modulo || '—'}</span>
+                    </td>
+                    <td className="px-4 py-2.5 text-slate-700">
+                      <Tooltip content={r.note || r.funzione || r.source || ''}>
+                        <span>{r.funzione || r.source || '—'}</span>
+                      </Tooltip>
+                    </td>
+                    <td className="px-4 py-2.5 text-slate-600 whitespace-nowrap">{periodo(r)}</td>
+                    <td className="px-4 py-2.5 text-slate-700 max-w-[280px] truncate" title={r.file_name}>{r.file_name}</td>
+                    <td className="px-4 py-2.5 text-right text-slate-500 whitespace-nowrap">{peso(r.file_size)}</td>
+                    <td className="px-4 py-2.5 text-center">
+                      <button onClick={() => apri(r)} disabled={aprendo === r.id || !r.file_path}
+                        className="px-2.5 py-1 rounded-lg border border-slate-300 text-xs text-blue-600 hover:bg-blue-50 disabled:opacity-40 inline-flex items-center gap-1">
+                        <ExternalLink size={13} /> {aprendo === r.id ? 'apro…' : 'apri'}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 // ═══════════════════════════════════════════════════════════════
 // COMPONENTE PRINCIPALE
@@ -185,7 +343,9 @@ export default function ArchivioDocumenti() {
       <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
       <PageHeader
         title="Archivio Documenti"
-        subtitle={activeTab === 'conservazione' ? 'Conservazione sostitutiva — 10 anni' : 'Fatture, bilanci ed estratti conto'}
+        subtitle={activeTab === 'conservazione' ? 'Conservazione sostitutiva — 10 anni'
+          : activeTab === 'caricamenti' ? 'Ogni file caricato nel gestionale, con la funzione e il periodo a cui si riferisce'
+          : 'Fatture, bilanci ed estratti conto'}
         noDivider
       />
 
@@ -193,6 +353,7 @@ export default function ArchivioDocumenti() {
       <div className="flex gap-1 bg-white rounded-xl border border-slate-200 p-1 shadow-sm">
         {([
           { key: 'archivio', label: 'Archivio', icon: FolderOpen },
+          { key: 'caricamenti', label: 'Caricamenti', icon: Upload },
           { key: 'conservazione', label: 'Conservazione Sostitutiva', icon: ShieldCheck },
         ] as const).map(tab => {
           const Icon = tab.icon;
@@ -213,6 +374,8 @@ export default function ArchivioDocumenti() {
       </div>
 
       {activeTab === 'archivio' && <ArchivioTab companyId={COMPANY_ID ?? undefined} showToast={showToast} />}
+
+      {activeTab === 'caricamenti' && <CaricamentiTab companyId={COMPANY_ID ?? undefined} showToast={showToast} />}
 
       {activeTab === 'conservazione' && (
         <ConservazioneTab

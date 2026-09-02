@@ -35,6 +35,7 @@ import FinanziamentiTab from '../components/FinanziamentiTab'
 import CellTooltip from '../components/Tooltip'
 import SyncStatusBadge from '../components/SyncStatusBadge'
 import { Modal as UIModal } from '../components/ui/Modal'
+import { archiviaFile, avvisoArchiviazioneFallita } from '../lib/archivioFile'
 
 // ═══════════════════════════════════════════════════════════════════
 // ═══ HELPERS ═══
@@ -1153,6 +1154,21 @@ function UploadStatementModal({ isOpen, onClose, account, companyId, onImported 
     let stmt: { id: string } | null = null
     try {
       if (!file) return
+      // L'estratto conto finisce in archivio: se domani un saldo non torna, il
+      // file da riaprire c'e'. Se l'archiviazione fallisce si prosegue, ma si dice.
+      let documentId: string | null = null
+      {
+        const oggi = new Date()
+        const archiviato = await archiviaFile({
+          file, companyId, userId: null, modulo: 'Banche',
+          funzione: `Estratto conto · ${account.account_name || account.id}`,
+          bucket: 'bank-statements', year: oggi.getFullYear(), month: oggi.getMonth() + 1,
+          referenceTable: 'bank_statements',
+        })
+        documentId = archiviato.id
+        if (archiviato.errore) setParseError(avvisoArchiviazioneFallita(file.name, archiviato.errore))
+      }
+
       // Create bank_statement record
       const { data: stmtData, error: stmtErr } = await supabase.from('bank_statements').insert({
         company_id: companyId,
@@ -1161,10 +1177,12 @@ function UploadStatementModal({ isOpen, onClose, account, companyId, onImported 
         file_type: fileType === 'xlsx' ? 'xlsx' : 'csv',
         transaction_count: parsed.rows.length,
         status: 'processing',
+        import_document_id: documentId,
       } as never).select().single()
 
       if (stmtErr) throw stmtErr
       stmt = stmtData as { id: string } | null
+      if (documentId && stmt?.id) await supabase.from('import_documents').update({ reference_id: stmt.id }).eq('id', documentId)
 
       // Parse all rows
       const transactions = parsed.rows.map((row: string[]) => {

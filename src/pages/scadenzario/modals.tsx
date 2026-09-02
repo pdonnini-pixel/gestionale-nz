@@ -4,6 +4,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { Search, Plus, RefreshCw, Trash2, FileUp, Loader2, Sparkles, CheckCircle2, AlertCircle } from 'lucide-react';
 import { extractScadenzaFromPdf, ScadenzaExtractError, type ExtractedScadenza } from '../../lib/scadenzaPdfExtract';
+import { archiviaFile } from '../../lib/archivioFile';
+import { useAuth } from '../../hooks/useAuth';
 import { SCHEDULE_MODE_GROUPS, findScheduleMode, derivePlan, computeInstallments, scheduleModeText, SCHEDULE_GROUP_TEXT } from '../../lib/paymentSchedule';
 
 export type EditSchedulePayload = { id: string; amount: number; due_date: string; status: string }
@@ -161,6 +163,7 @@ export const InvoiceModal = ({ suppliers, costCenters, paymentGroups, paymentMet
   // ─── LETTURA DA PDF (estrazione automatica) ──────────────────────────────
   // L'operatrice carica un documento (proforma/notula/fattura) e il sistema
   // pre-compila il form leggendone i dati. Resta tutto correggibile a mano.
+  const { profile } = useAuth();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [pdfLoading, setPdfLoading] = useState(false);
   const [pdfError, setPdfError] = useState<string | null>(null);
@@ -232,6 +235,22 @@ export const InvoiceModal = ({ suppliers, costCenters, paymentGroups, paymentMet
     try {
       const ext = await extractScadenzaFromPdf(file);
       applyExtracted(ext);
+      // Il documento da cui nasce la scadenza resta in archivio: senza, della
+      // proforma letta a video non restava traccia da nessuna parte.
+      const companyId = profile?.company_id;
+      if (companyId) {
+        const dataDoc = ext.invoiceDate || ext.installments?.[0]?.dueDate || null;
+        const anno = dataDoc ? Number(String(dataDoc).slice(0, 4)) : null;
+        const mese = dataDoc ? Number(String(dataDoc).slice(5, 7)) : null;
+        const archiviato = await archiviaFile({
+          file, companyId, userId: profile?.id ?? null, modulo: 'Scadenzario',
+          funzione: 'Documento letto per compilare una scadenza',
+          bucket: 'invoices', year: anno, month: mese,
+          referenceTable: 'payables',
+          note: ext.supplierName ? `Fornitore letto dal documento: ${ext.supplierName}` : null,
+        });
+        if (archiviato.errore) setPdfError(`Dati letti dal documento, ma il file non è finito in archivio (${archiviato.errore}).`);
+      }
     } catch (e) {
       setPdfError(e instanceof ScadenzaExtractError ? e.message : 'Estrazione non riuscita. Inserisci i dati a mano.');
     } finally {

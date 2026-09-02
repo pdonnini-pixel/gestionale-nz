@@ -232,6 +232,10 @@ export default function ContractUploader({ onDataExtracted, onCancel }: Contract
     setAnalyzing(true)
     setError(null)
     setFileName(file.name)
+    // Il contratto e' il documento da cui esce mezza anagrafica dell'outlet:
+    // viaggia insieme agli allegati (codice riservato) e finisce in archivio,
+    // invece di restare solo come nome senza file.
+    setUploadedFiles(prev => ({ ...prev, __CONTRATTO__: file }))
 
     try {
       let text = ''
