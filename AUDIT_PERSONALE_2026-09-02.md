@@ -342,12 +342,21 @@ allocazioni, e conferma binaria. Mai cancellazioni in automatico.
 **Fase 4, allineare le pagine e le guide.** Confronto outlet, Produttività,
 scheda Outlet e le rispettive voci di `pageGuides.ts` nello stesso commit.
 
-Due decisioni che servono prima di scrivere codice, e che sono di Patrizio:
+Due decisioni, entrambe prese da Patrizio il 2026-09-02:
 
-1. quando il mese non ha cedolini, l'organico da mostrare è l'ultimo mese
-   granito (con etichetta «al mese X») oppure vuoto?
-2. la sede o magazzino entra nell'organico aziendale mostrato in Confronto
-   outlet, come già fa in Personale, o resta fuori come oggi?
+1. **mese senza cedolini**: si mostra l'ultimo mese granito, dichiarandolo con
+   l'etichetta «al mese X». Non si mostra vuoto e non si mostra zero. Applicata
+   in fase 0;
+2. **sede o magazzino in Confronto outlet**: resta **fuori** dall'organico
+   aziendale, come oggi. Quella pagina confronta i punti vendita, quindi il suo
+   totale è la somma dei soli outlet; il totale che comprende la sede è quello
+   della pagina Dipendenti. Da fase 4 la differenza va dichiarata in pagina,
+   così i due numeri non sembrano in contraddizione.
+
+Terza decisione presa lo stesso giorno, fuori dalle fasi: la pagina si chiama
+**Dipendenti** ovunque (prima il menu diceva «Dipendenti» e il titolo
+«Personale»), e il ruolo `contabile` vede la voce nel menu, allineandolo ai
+permessi che la RLS gli dà già su `employee_costs`.
 
 ---
 
