@@ -413,7 +413,10 @@ export default function AICategorization({ companyId }: AICategorizationProps) {
             // vecchio 'auto_confirmed' violava il vincolo e faceva fallire l'update.
             cost_category_id: m.ai_category_id,
             ai_method: 'manual',
-          })
+            // cash_movements è una VISTA aggiornabile solo via trigger INSTEAD OF
+            // (cash_movements_instead_upd -> cash_movement_ai): i tipi generati non
+            // espongono l'Update di una vista, da qui il cast. Runtime invariato.
+          } as never)
           .eq('id', m.id)
       }
       await loadData()

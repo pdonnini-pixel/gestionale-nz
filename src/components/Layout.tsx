@@ -245,7 +245,10 @@ export default function Layout() {
   const hidePeriodSelector = NO_PERIOD_PATHS.has(path) || path.startsWith('/ticket')
   const [mobileOpen, setMobileOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
-  // Badge sidebar: numero ticket dell'autore con aggiornamenti non visti.
+  // Badge sidebar: numero di segnalazioni APERTE dell'autore (stato 'aperto'
+  // o 'in_corso'). Prima contava gli "aggiornamenti non visti" e restava acceso
+  // anche su ticket già risolti o chiusi: un badge sempre acceso su roba chiusa
+  // insegna a ignorarlo, e la segnalazione vera passa inosservata.
   // Si ricarica all'avvio, e ogni volta che il dettaglio ticket emette
   // l'evento 'ticket-seen' (dopo che l'autore l'ha aperto).
   const [ticketUnseen, setTicketUnseen] = useState(0)
@@ -264,38 +267,44 @@ export default function Layout() {
     return () => document.removeEventListener('keydown', onKeyDown)
   }, [])
 
+  const authorId = profile?.id ?? null
   useEffect(() => {
-    async function fetchUnseen() {
+    // Senza utente non interroghiamo il DB: badge a 0.
+    if (!authorId) { setTicketUnseen(0); return }
+    const uid = authorId
+    async function fetchOpenTickets() {
       try {
         const { supabase } = await import('../lib/supabase')
-        const { data, error } = await supabase.rpc('get_unseen_ticket_updates_count' as never)
-        if (!error && typeof data === 'number') setTicketUnseen(data)
+        // Query diretta sulla tabella (passa dalla RLS) invece della RPC
+        // get_unseen_ticket_updates_count, che non filtra per stato. La RPC
+        // resta nel DB: cambiarla richiederebbe una migration sui tre tenant.
+        // NB: niente condizione "non visto" perché PostgREST non sa confrontare
+        // due colonne fra loro (aggiornato_il > last_seen_by_author_at -> 400).
+        const { count, error } = await supabase
+          .from('tickets')
+          .select('id', { count: 'exact', head: true })
+          .eq('autore_id', uid)
+          .in('stato', ['aperto', 'in_corso'])
+        if (error) { console.warn('[ticket-aperti]', error.message); return }
+        setTicketUnseen(count || 0)
       } catch (e) {
-        console.warn('[ticket-unseen]', e)
+        console.warn('[ticket-aperti]', e)
       }
     }
-    void fetchUnseen()
+    void fetchOpenTickets()
     // Ricalcola dopo che l'autore ha aperto un ticket (mark_ticket_seen)
-    function onSeen() { void fetchUnseen() }
+    function onSeen() { void fetchOpenTickets() }
     window.addEventListener('ticket-seen', onSeen)
-    // Refresh periodico ogni 60s (per nuovi commenti AI mentre l'app è aperta)
-    const t = setInterval(fetchUnseen, 60_000)
+    // Refresh periodico ogni 60s (per ticket aperti/chiusi mentre l'app è aperta)
+    const t = setInterval(fetchOpenTickets, 60_000)
     return () => { window.removeEventListener('ticket-seen', onSeen); clearInterval(t) }
-  }, [])
+  }, [authorId])
 
   useEffect(() => {
     async function fetchAnomalie() {
       try {
         const { supabase } = await import('../lib/supabase')
-        // Tabella non ancora nei tipi generati (database.ts): cast minimale.
-        const sb = supabase as unknown as {
-          from: (t: string) => {
-            select: (c: string, o?: unknown) => {
-              eq: (col: string, val: string) => Promise<{ count: number | null; error: unknown }>
-            }
-          }
-        }
-        const { count, error } = await sb
+        const { count, error } = await supabase
           .from('payment_import_anomalies')
           .select('id', { count: 'exact', head: true })
           .eq('stato', 'aperta')

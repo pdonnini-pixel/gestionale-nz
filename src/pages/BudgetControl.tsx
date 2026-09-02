@@ -847,7 +847,9 @@ export default function BudgetControl() {
     setConsuntivoRefreshing(true)
     try {
       const { data, error } = await supabase.rpc('refresh_budget_consuntivo', {
-        p_outlet_id: outletId,
+        // I tipi generati dichiarano p_outlet_id come `string | undefined`, ma la
+        // RPC accetta NULL ("tutti gli outlet"): manteniamo il null a runtime.
+        p_outlet_id: outletId as unknown as string,
         p_year: year,
       })
       if (error) throw error

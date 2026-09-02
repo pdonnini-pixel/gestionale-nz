@@ -2936,9 +2936,11 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
   useEffect(() => {
     let cancel = false
     ;(async () => {
-      const { data } = await (supabase.from('payable_credit_note_links') as never as {
-        select: (c: string) => { eq: (k: string, v: string) => { eq: (k: string, v: string) => Promise<{ data: { payable_id: string; amount: number }[] | null }> } }
-      }).select('payable_id, amount').eq('company_id', companyId).eq('status', 'pending')
+      const { data } = await supabase
+        .from('payable_credit_note_links')
+        .select('payable_id, amount')
+        .eq('company_id', companyId)
+        .eq('status', 'pending')
       if (cancel || !data) return
       const m = new Map<string, number>()
       for (const r of data) m.set(String(r.payable_id), (m.get(String(r.payable_id)) ?? 0) + Number(r.amount || 0))
@@ -3125,9 +3127,8 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
   useEffect(() => {
     let cancelled = false
     ;(async () => {
-      // NB: i tipi generati di reconciliation_log sono obsoleti (manca bank_transaction_id/
-      // status/applied_amount); cast a any per usare lo schema reale (migration 032/063/064).
-      const { data } = await (supabase.from('reconciliation_log') as any)
+      const { data } = await supabase
+        .from('reconciliation_log')
         .select('id, bank_transaction_id, payable_id, confidence, status, applied_amount')
         .eq('company_id', companyId)
         .in('status', ['to_confirm', 'applied'])
@@ -4115,13 +4116,13 @@ export default function TesoreriaManuale() {
           supabase.from('payables').select('*, suppliers(id, name, ragione_sociale, iban)').eq('company_id', companyId).order('due_date'),
           supabase.from('payment_batches').select('*').eq('company_id', companyId).order('created_at', { ascending: false }),
           supabase.from('payment_batch_items').select('*').eq('company_id', companyId).order('priority'),
-          (supabase.from('reconciliation_log') as any).select('id', { count: 'exact', head: true }).eq('company_id', companyId).eq('status', 'to_confirm').gte('confidence', 70),
+          supabase.from('reconciliation_log').select('id', { count: 'exact', head: true }).eq('company_id', companyId).eq('status', 'to_confirm').gte('confidence', 70),
         ])
 
         if (!cancelled) {
           setAccounts(acctRes.data || [])
           setTransactions(txAll || [])
-          setPayables((payRes.data || []).filter((p: { is_placeholder?: boolean }) => !p.is_placeholder))
+          setPayables((payRes.data || []).filter((p) => !p.is_placeholder))
           setBatches(batchRes.data || [])
           setBatchItems(itemsRes.data || [])
           setSuggestCount(sugRes.count || 0)
