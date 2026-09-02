@@ -181,6 +181,16 @@ export default function TicketAdminPage() {
             errors.push(`${ticketId.slice(0, 8)}: ${error.message}`)
             continue
           }
+          // La edge function risponde SEMPRE HTTP 200 e mette l'errore nel body
+          // ({ ok: false, error }), quindi `error` qui e' null anche quando e'
+          // fallita: senza questo ramo il motivo vero (es. file del modulo non
+          // piu' esistente su GitHub) finiva solo in console e l'utente vedeva
+          // un generico "1 errore".
+          if (data?.ok === false) {
+            failed++
+            errors.push(`${ticketId.slice(0, 8)}: ${data?.error ?? 'errore sconosciuto'}`)
+            continue
+          }
           if (data?.action === 'fix') fixed++
           else if (data?.action === 'cant_fix') cantFix++
           else { failed++; errors.push(`${ticketId.slice(0, 8)}: risposta inattesa`) }
@@ -193,9 +203,15 @@ export default function TicketAdminPage() {
       if (fixed > 0) parts.push(`${fixed} risolt${fixed === 1 ? 'o con PR' : 'i con PR'}`)
       if (cantFix > 0) parts.push(`${cantFix} non risolvibil${cantFix === 1 ? 'e' : 'i'} (commento AI)`)
       if (failed > 0) parts.push(`${failed} error${failed === 1 ? 'e' : 'i'}`)
+      // Il motivo del primo errore va nel toast, non solo in console: e' quasi
+      // sempre l'unica informazione utile per capire perche' il ticket non e'
+      // stato lavorato.
+      const dettaglio = errors.length > 0
+        ? ` — ${errors[0]}${errors.length > 1 ? ` (+${errors.length - 1})` : ''}`
+        : ''
       toast({
         type: failed > 0 ? 'warning' : 'success',
-        message: parts.join(', ') || 'Nessuna azione',
+        message: `${parts.join(', ') || 'Nessuna azione'}${dettaglio}`,
       })
       if (errors.length > 0) console.warn('[ticket-resolve-now] errori:', errors)
       clear()
