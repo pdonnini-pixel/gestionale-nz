@@ -96,8 +96,73 @@ dentro le policy RLS (`get_my_company_id`). Revocarle romperebbe il gestionale:
 per un'app Supabase questo warning è atteso. Già motivato nella migration 116.
 La protezione vera è che ognuna filtri per `company_id`.
 
-**`extension_in_public` (WARN — `pg_trgm` e `http`, più `pg_net` su Made e Zago)**
-Spostarle in uno schema dedicato impone di aggiornare il `search_path` di tutte
-le funzioni che le usano (ricerca fuzzy fornitori, chiamate HTTP delle Edge
-Function). Non è un'esposizione di dati: rimandato a un intervento dedicato, da
-fare con calma e verifica sui 3 tenant.
+**`extension_in_public` (WARN)** — vedi sotto, intervento del 2026-09-02:
+`pg_trgm` è stata spostata, `http` e `pg_net` non sono spostabili.
+
+
+---
+
+## 2026-09-02 (secondo intervento) — extension fuori da `public`
+
+Migration `20260902_156_pg_trgm_out_of_public.sql`. Delle tre extension
+segnalate ne è stata spostata una: le altre due, semplicemente, PostgreSQL non
+le sposta.
+
+### Il punto delicato: il search_path
+
+Spostare un'extension cambia la risoluzione dei nomi. Il `search_path` di
+default del database è `"$user", public, extensions` sui 3 tenant, quindi le
+query normali continuano a risolvere. Il problema erano le funzioni con un
+`search_path` PROPRIO, fissato a `public`: sei di esse usano `http_*` o
+`similarity` e sono il bridge A-Cube più la riconciliazione bancaria
+(`try_match_bank_transaction`, `acube_cf_sync_inbound_production`,
+`acube_sdi_sync_inbound_production`, `acube_sdi_sync_outbound_production`,
+`acube_ob_sync_all_production`, `check_pixel_and_alert`). Spostare pg_trgm
+senza toccarle avrebbe fermato import fatture e riconciliazione.
+
+La migration quindi, PRIMA di spostare, aggiunge `extensions` in **coda** al
+`search_path` di ogni funzione public che ne dichiara uno: in coda, così
+`public` mantiene la precedenza e nessun nome viene mascherato. Restano fuori
+le tre funzioni con `search_path=""` (hardening deliberato, e nessuna usa
+pg_trgm o http): `update_tickets_aggiornato_il`, `suppliers_autoslug`,
+`_suppliers_slugify`.
+
+### Verifica
+
+Dry-run in transazione con `ROLLBACK` su NZ e Made prima di applicare. Dopo,
+sui 3 tenant: `pg_trgm` risulta in `extensions`, l'operatore `%` e
+`similarity()` funzionano, `idx_suppliers_name_trgm` è vivo, le 6 funzioni
+critiche hanno `extensions` nel search_path, e i conteggi di `suppliers` e
+`payables` sono invariati.
+
+La prova sul campo: `try_match_bank_transaction` chiamata su movimenti reali di
+NZ (in transazione, poi rollback) restituisce `match_type: auto_fuzzy` con
+score 58,06 su una rata di mutuo. Il matching a trigram funziona.
+
+### Perché `http` e `pg_net` sono ancora in public
+
+Non è una dimenticanza. PostgreSQL le rifiuta:
+
+```
+ERROR: 0A000: extension "http" does not support SET SCHEMA
+ERROR: 0A000: extension "pg_net" does not support SET SCHEMA
+```
+
+Sono dichiarate non rilocabili dal proprio control file. L'unica strada è
+`DROP EXTENSION` + `CREATE EXTENSION ... SCHEMA extensions`, che ricade sotto
+la REGOLA GRANITICA NO DATA LOSS e vuole conferma esplicita di Patrizio.
+
+Accertamenti già fatti, se un domani si decide di procedere:
+
+- `DROP EXTENSION http` **senza** `CASCADE` riesce in transazione: nessun
+  oggetto persistente dipende da essa, quindi un drop-e-ricrea atomico non
+  perderebbe dati. La finestra in cui `http_*` non esiste dura millisecondi;
+  il rischio è che un job `pg_cron` parta proprio in quell'istante
+  (`check_pixel_and_alert` gira ogni 30 minuti, i sync A-Cube a orari fissi)
+  e fallisca quel giro, ritentando al successivo.
+- Per **pg_net** il guadagno sarebbe nullo: i suoi oggetti
+  (`http_request_queue`, `_http_response`, entrambi a 0 righe) vivono già
+  nello schema `net`, non in `public`. In `public` c'è solo la registrazione
+  dell'extension. In più pg_net ha un background worker, che un drop-e-ricrea
+  lascia in stato incerto finché non riparte. Sconsigliato: rischio reale a
+  fronte di zero beneficio di sicurezza.
