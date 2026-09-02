@@ -4,6 +4,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Search, Plus, RefreshCw, Trash2, FileUp, Loader2, Sparkles, CheckCircle2, AlertCircle } from 'lucide-react';
 import { extractScadenzaFromPdf, ScadenzaExtractError, type ExtractedScadenza } from '../../lib/scadenzaPdfExtract';
+import { SCHEDULE_MODE_GROUPS, findScheduleMode } from '../../lib/paymentSchedule';
 
 export type EditSchedulePayload = { id: string; amount: number; due_date: string; status: string }
 export type ScheduleLike = Record<string, unknown> & { id?: string; gross_amount?: number | null; due_date?: string | null; status?: string | null; invoice_number?: string | null }
@@ -530,11 +531,19 @@ export const InvoiceModal = ({ suppliers, costCenters, paymentGroups, paymentMet
 };
 
 // Supplier Modal Component
-export type SupplierFormState = { name: string; vat: string; fiscal: string; iban: string; category: string; paymentMethod: string; paymentTerms: number }
+export type SupplierFormState = {
+  name: string; vat: string; fiscal: string; iban: string; category: string;
+  paymentMethod: string; paymentTerms: number;
+  // Piano scadenze: stesse colonne del form fornitore completo, cosi' il
+  // nominativo creato al volo nasce gia' con la sua modalita' (anche le
+  // dilazioni multiple: 30/60, 30/60/90/120, 90/120 …).
+  paymentBase: string; primaScadenzaGg: number; numeroRate: number;
+}
 export const SupplierModal = ({ onSave, onClose }: { onSave: (data: SupplierFormState) => void; onClose: () => void }) => {
   const [formData, setFormData] = useState<SupplierFormState>({
     name: '', vat: '', fiscal: '', iban: '', category: 'merce',
     paymentMethod: 'bonifico_ordinario', paymentTerms: 30,
+    paymentBase: 'fine_mese', primaScadenzaGg: 30, numeroRate: 1,
   });
 
   return (
@@ -574,6 +583,30 @@ export const SupplierModal = ({ onSave, onClose }: { onSave: (data: SupplierForm
           <input type="number" value={formData.paymentTerms} onChange={e => setFormData({ ...formData, paymentTerms: parseInt(e.target.value) })}
             className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none" />
         </div>
+      </div>
+      <div>
+        <label className="block text-sm font-medium text-slate-700 mb-1">Modalità (scadenze)</label>
+        <select
+          value={findScheduleMode(formData.paymentBase, formData.primaScadenzaGg, formData.numeroRate)?.label || ''}
+          onChange={e => {
+            const m = SCHEDULE_MODE_GROUPS.flatMap(g => g.items).find(x => x.label === e.target.value);
+            if (!m || !m.base || m.prima == null) return;
+            setFormData(prev => ({
+              ...prev,
+              paymentBase: m.base as string,
+              primaScadenzaGg: m.prima as number,
+              numeroRate: m.rate as number,
+              paymentTerms: m.prima as number,
+            }));
+          }}
+          className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none">
+          {SCHEDULE_MODE_GROUPS.filter(g => g.group !== 'Personalizzata').map(g => (
+            <optgroup key={g.group} label={g.group}>
+              {g.items.map(o => <option key={o.label} value={o.label}>{o.label}</option>)}
+            </optgroup>
+          ))}
+        </select>
+        <p className="mt-1 text-[11px] text-slate-400">Da qui si sceglie anche una dilazione a più rate (es. 30/60/90 gg DFFM): le scadenze delle fatture di questo fornitore verranno create di conseguenza.</p>
       </div>
       <div className="flex gap-3 pt-2">
         <button onClick={onClose} className="flex-1 py-2.5 rounded-lg border border-slate-200 text-sm font-medium hover:bg-slate-50">Annulla</button>

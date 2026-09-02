@@ -16,12 +16,14 @@ import { useToast } from '../components/Toast'
 import {
   Search, Save, RotateCcw, ArrowLeft, Loader2, ChevronLeft, ChevronRight,
 } from 'lucide-react'
+import {
+  SCHEDULE_MODE_GROUPS, SCHEDULE_MODE_LABELS, scheduleLabel, parseScheduleLabel,
+} from '../lib/paymentSchedule'
 
 // Famiglie di metodo mostrate all'operatrice (la "Tipologia")
 const FAMIGLIE = ['Bonifico', 'RI.BA', 'RID', 'SDD', 'Contanti', 'Carta/Bancomat', 'Bollettino', 'Assegno', 'Altro']
-// Opzioni scadenze (la "Modalità"), notazione DFFM
-const SCAD_OPTS = ['A Vista', 'Fine mese', '30 gg DFFM', '60 gg DFFM', '90 gg DFFM', '120 gg DFFM',
-  '30/60 gg DFFM', '30/60/90 gg DFFM', '60/90 gg DFFM', '60/90/120 gg DFFM', 'Data fissa mese']
+// Opzioni scadenze (la "Modalità"): elenco COMPLETO in src/lib/paymentSchedule.ts
+// (dilazioni singole e multiple, DFFM e data fattura), condiviso con Fornitori.
 
 const PER_PAGE = 20
 
@@ -58,30 +60,10 @@ function enumFromFamily(fam: string, prima: number | null): string {
     default: return 'altro'
   }
 }
-// base+gg+rate -> etichetta "60/90/120 gg DFFM"
-function scadLabel(base: string | null, gg: number | null, rate: number | null): string {
-  if (gg == null) return 'da definire'
-  const g = Number(gg); const n = Math.max(Number(rate) || 1, 1)
-  // 0 gg: su base "fine mese" = fine mese data fattura (ultimo giorno del mese
-  // della fattura); su base "data fattura" = A Vista (pagamento immediato).
-  if (g === 0) return base === 'fine_mese' ? 'Fine mese' : 'A Vista'
-  const parts: number[] = []; for (let i = 0; i < n; i++) parts.push(g + 30 * i)
-  return parts.join('/') + (base === 'data_fattura' ? ' gg D.F.' : ' gg DFFM')
-}
+// base+gg+rate -> etichetta "60/90/120 gg DFFM" (logica in lib/paymentSchedule)
+const scadLabel = scheduleLabel
 // etichetta -> {base, prima, rate, dataFissa}
-function parseScad(label: string): { base: string | null; prima: number | null; rate: number | null; dataFissa: boolean } {
-  const l = String(label || '').trim()
-  if (/^Data fissa/i.test(l)) return { base: null, prima: null, rate: null, dataFissa: true }
-  if (/^A Vista$/i.test(l)) return { base: 'data_fattura', prima: 0, rate: 1, dataFissa: false }
-  if (/^Fine mese$/i.test(l)) return { base: 'fine_mese', prima: 0, rate: 1, dataFissa: false }
-  const m = l.match(/^([\d/]+)\s*gg\s*(DFFM|D\.F\.)$/i)
-  if (m) {
-    const parts = m[1].split('/').map(Number).filter(n => !isNaN(n))
-    const base = /D\.F\./i.test(m[2]) ? 'data_fattura' : 'fine_mese'
-    return { base, prima: parts[0] ?? null, rate: parts.length || 1, dataFissa: false }
-  }
-  return { base: null, prima: null, rate: null, dataFissa: false }
-}
+const parseScad = parseScheduleLabel
 
 // Nome banca breve e leggibile (nome completo resta nel tooltip)
 function shortBank(name: string, iban: string): string {
@@ -309,9 +291,10 @@ export default function RevisionePagamenti() {
               {!loading && pageRows.map((s, i) => {
                 const rowNum = pageStart + i + 1
                 const c = current(s), edited = isEdited(s)
-                const scadOpts = SCAD_OPTS.slice()
                 const isFissa = c.scad === 'Data fissa mese' || /^Data fissa/i.test(c.scad)
-                if (!isFissa && !scadOpts.includes(c.scad)) scadOpts.unshift(c.scad)
+                // Se il fornitore ha una combinazione fuori elenco (es. "45/75 gg
+                // DFFM" o "da definire") la si mostra comunque, in testa.
+                const custom = !isFissa && !SCHEDULE_MODE_LABELS.includes(c.scad) ? c.scad : null
                 return (
                   <tr key={s.id} className={`border-t border-slate-100 ${edited ? 'bg-amber-50' : ''}`}>
                     <td className="px-3 py-2 text-right text-xs text-slate-400 tabular-nums">{rowNum}</td>
@@ -326,7 +309,12 @@ export default function RevisionePagamenti() {
                       <div className="flex items-center gap-1.5">
                         <select value={isFissa ? 'Data fissa mese' : c.scad} onChange={e => setEdit(s, { scad: e.target.value })}
                           className={`flex-1 px-2 py-1.5 border rounded-lg text-sm ${c.scad !== orig(s).scad ? 'border-amber-300 bg-amber-50' : 'border-slate-200'}`}>
-                          {scadOpts.map(o => <option key={o} value={o}>{o}</option>)}
+                          {custom && <option value={custom}>{custom}</option>}
+                          {SCHEDULE_MODE_GROUPS.map(g => (
+                            <optgroup key={g.group} label={g.group}>
+                              {g.items.map(o => <option key={o.label} value={o.label}>{o.label}</option>)}
+                            </optgroup>
+                          ))}
                         </select>
                         {(c.scad === 'Data fissa mese' || isFissa) && (
                           <input type="number" min={1} max={31} placeholder="giorno" value={dayFisso[s.id] || ''}

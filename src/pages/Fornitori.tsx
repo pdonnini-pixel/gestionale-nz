@@ -38,6 +38,9 @@ import {
   PAYMENT_METHOD_OPTIONS, PAYMENT_METHOD_LABELS as PAYMENT_LABEL,
   DEFAULT_PAYMENT_METHOD, isBankRequired, normalizePaymentMethod,
 } from '../lib/paymentMethods';
+import {
+  SCHEDULE_MODE_GROUPS, scheduleLabel, findScheduleMode,
+} from '../lib/paymentSchedule';
 
 const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316'];
 
@@ -1668,6 +1671,34 @@ export default function Fornitori() {
                       <span className="text-xs font-semibold text-slate-700">Piano scadenze (fatture dal 31/07/2026)</span>
                     </div>
                     <div className="grid grid-cols-2 gap-4">
+                      {/* Scorciatoia: una sola tendina con tutte le dilazioni
+                          (30/60, 30/60/90, 30/60/90/120, 60/90, 60/90/120,
+                          90/120 …) che compila base, giorni e rate qui sotto. */}
+                      <div className="col-span-2">
+                        <label htmlFor="forn-modalita-scadenze" className="text-xs font-medium text-slate-600">Modalità (scadenze)</label>
+                        <select
+                          id="forn-modalita-scadenze"
+                          value={form.payment_base ? (findScheduleMode(form.payment_base, form.prima_scadenza_gg, form.numero_rate)?.label || '') : ''}
+                          onChange={e => {
+                            const m = SCHEDULE_MODE_GROUPS.flatMap(g => g.items).find(x => x.label === e.target.value);
+                            if (!m || !m.base || m.prima == null) return;
+                            setForm(f => ({ ...f, payment_base: m.base as string, prima_scadenza_gg: m.prima as number, numero_rate: m.rate as number }));
+                          }}
+                          className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
+                        >
+                          <option value="">
+                            {form.payment_base
+                              ? `Personalizzata (${scheduleLabel(form.payment_base, form.prima_scadenza_gg, form.numero_rate)})`
+                              : '— non impostata —'}
+                          </option>
+                          {SCHEDULE_MODE_GROUPS.filter(g => g.group !== 'Personalizzata').map(g => (
+                            <optgroup key={g.group} label={g.group}>
+                              {g.items.map(o => <option key={o.label} value={o.label}>{o.label}</option>)}
+                            </optgroup>
+                          ))}
+                        </select>
+                        <p className="mt-1 text-[11px] text-slate-400">Scegliendo una modalità si compilano da sole base, prima scadenza e numero rate; restano modificabili qui sotto per i casi fuori standard.</p>
+                      </div>
                       <div>
                         <label htmlFor="forn-base-di-calcolo" className="text-xs font-medium text-slate-600">Base di calcolo</label>
                         <select id="forn-base-di-calcolo" value={form.payment_base} onChange={e => setForm(f => ({ ...f, payment_base: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm">
