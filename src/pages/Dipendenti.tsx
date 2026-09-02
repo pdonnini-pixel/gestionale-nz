@@ -2033,7 +2033,15 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
   const [dragOver, setDragOver] = useState(false);
   const [rawPreview, setRawPreview] = useState<string[] | null>(null);
 
-  const monthHasData = existingCosts.some((c) => c.year === impYear && c.month === impMonth && (isNetto ? c.netto != null : (c.retribuzione != null || c.contributi != null || c.inail != null || c.tfr != null || c.altri_costi != null)));
+  // ATTENZIONE: retribuzione/contributi/inail/tfr/altri_costi hanno DEFAULT 0 a
+  // database. Un carico di soli netti le riempie di zeri, quindi "non nulla" non
+  // vuol dire "compilata": la corsia lordi deve guardare gli importi veri.
+  const monthHasData = existingCosts.some((c) => {
+    if (c.year !== impYear || c.month !== impMonth) return false;
+    if (isNetto) return Number(c.netto || 0) !== 0;
+    return (Number(c.retribuzione || 0) + Number(c.contributi || 0) + Number(c.inail || 0)
+      + Number(c.tfr || 0) + Number(c.altri_costi || 0)) !== 0;
+  });
 
   const matchEmployee = (matricola: string, cognome: string, nome: string): string | null => {
     if (matricola) {
@@ -2065,7 +2073,11 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
           // Il "Prospetto riepilogativo elaborazione paghe" è per OUTLET (non per dipendente):
           // si importa dalla scheda «Costo lordo», non da questa corsia per-cedolino.
           if (parseProspettoPaghe(rawLines, outlets).isProspetto) {
-            toast({ type: 'info', message: 'Questo è un «Prospetto paghe» (costo per outlet): importalo dalla scheda «Costo lordo».' });
+            // Mai un messaggio che sparisce: l'estratto resta a video, cosi' si
+            // vede da cosa e' stato riconosciuto e si puo' segnalarlo se sbaglia.
+            setRawPreview(['⚠︎ Riconosciuto come «Prospetto riepilogativo elaborazione paghe» (costo per OUTLET, non per dipendente).',
+              'Va importato dalla scheda «Costo lordo». Se non è quel documento, segnala questo estratto:', '', ...rawLines.slice(0, 25)]);
+            toast({ type: 'info', message: 'Questo è un «Prospetto paghe» (costo per outlet): importalo dalla scheda «Costo lordo». Sotto trovi l’estratto del file.' });
             return;
           }
           parsed = parsePdfLordi(rawLines, outlets);
