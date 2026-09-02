@@ -102,7 +102,7 @@ export default function Produttivita() {
         // Cedolini: sono loro a fare il numero di dipendenti del mese.
         let costsQuery = supabase
           .from('employee_costs')
-          .select('employee_id, year, month, netto')
+          .select('employee_id, year, month, netto, outlet_code')
           .not('netto', 'is', null);
         if (companyId) costsQuery = costsQuery.eq('company_id', companyId);
 

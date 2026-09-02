@@ -3100,6 +3100,8 @@ export type Database = {
           month: number
           netto: number | null
           note: string | null
+          outlet_code: string | null
+          outlet_source: string | null
           retribuzione: number | null
           source: string | null
           tfr: number | null
@@ -3117,6 +3119,8 @@ export type Database = {
           month: number
           netto?: number | null
           note?: string | null
+          outlet_code?: string | null
+          outlet_source?: string | null
           retribuzione?: number | null
           source?: string | null
           tfr?: number | null
@@ -3134,6 +3138,8 @@ export type Database = {
           month?: number
           netto?: number | null
           note?: string | null
+          outlet_code?: string | null
+          outlet_source?: string | null
           retribuzione?: number | null
           source?: string | null
           tfr?: number | null
@@ -3151,7 +3157,9 @@ export type Database = {
           imported_by: string | null
           month: number
           note: string | null
+          removed_snapshot: Json | null
           rows_new_employees: number | null
+          rows_removed: number | null
           rows_total: number | null
           scostamento: number | null
           total_netto: number | null
@@ -3166,7 +3174,9 @@ export type Database = {
           imported_by?: string | null
           month: number
           note?: string | null
+          removed_snapshot?: Json | null
           rows_new_employees?: number | null
+          rows_removed?: number | null
           rows_total?: number | null
           scostamento?: number | null
           total_netto?: number | null
@@ -3181,7 +3191,9 @@ export type Database = {
           imported_by?: string | null
           month?: number
           note?: string | null
+          removed_snapshot?: Json | null
           rows_new_employees?: number | null
+          rows_removed?: number | null
           rows_total?: number | null
           scostamento?: number | null
           total_netto?: number | null

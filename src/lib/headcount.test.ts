@@ -77,6 +77,43 @@ describe('headcount — regola dell organico granitico', () => {
     expect(companyHeadcount(costs, employees, { year: 2026, month: 7 })).toBe(1);
   });
 
+  it('l outlet scritto sul cedolino comanda sull anagrafica', () => {
+    // La persona è allocata a PALMANOVA in anagrafica, ma il cedolino di luglio
+    // dice TORINO: luglio conta su TORINO, e resta così anche se domani
+    // l'allocazione cambia ancora.
+    const costs: HeadcountCost[] = [{ employee_id: 'a', year: 2026, month: 7, netto: 1000, outlet_code: 'TORINO', outlet_source: 'file' }];
+    const byOutlet = headcountCountByOutlet(costs, employees, allocs, { year: 2026, month: 7 });
+    expect(byOutlet['TORINO']).toBe(1);
+    expect(byOutlet['PALMANOVA']).toBeUndefined();
+  });
+
+  it('mesi diversi, outlet diversi: il passato non si riscrive', () => {
+    const costs: HeadcountCost[] = [
+      { employee_id: 'a', year: 2026, month: 6, netto: 1000, outlet_code: 'PALMANOVA', outlet_source: 'file' },
+      { employee_id: 'a', year: 2026, month: 7, netto: 1000, outlet_code: 'TORINO', outlet_source: 'file' },
+    ];
+    expect(headcountCountByOutlet(costs, employees, allocs, { year: 2026, month: 6 })['PALMANOVA']).toBe(1);
+    expect(headcountCountByOutlet(costs, employees, allocs, { year: 2026, month: 7 })['TORINO']).toBe(1);
+    expect(headcountCountByOutlet(costs, employees, allocs, { year: 2026, month: 7 })['PALMANOVA']).toBeUndefined();
+  });
+
+  it('riga senza outlet: ripiega sull anagrafica, come prima', () => {
+    const costs = [cost('a', 2026, 7), cost('c', 2026, 7)];
+    const byOutlet = headcountCountByOutlet(costs, employees, allocs, { year: 2026, month: 7 });
+    expect(byOutlet['PALMANOVA']).toBe(1); // a
+    expect(byOutlet['TORINO']).toBe(1);    // c
+  });
+
+  it('mix: una riga con outlet proprio, una senza', () => {
+    const costs: HeadcountCost[] = [
+      { employee_id: 'a', year: 2026, month: 7, netto: 1000, outlet_code: 'TORINO' },
+      cost('b', 2026, 7),
+    ];
+    const byOutlet = headcountCountByOutlet(costs, employees, allocs, { year: 2026, month: 7 });
+    expect(byOutlet['TORINO']).toBe(1);    // a, dal cedolino
+    expect(byOutlet['PALMANOVA']).toBe(1); // b, dall'anagrafica
+  });
+
   it('lastGranitedPeriod prende il mese più recente, anche entro un anno', () => {
     const costs = [cost('a', 2025, 12), cost('a', 2026, 3), cost('a', 2026, 1)];
     expect(lastGranitedPeriod(costs)).toEqual({ year: 2026, month: 3 });
