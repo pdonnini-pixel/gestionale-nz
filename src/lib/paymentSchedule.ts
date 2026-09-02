@@ -220,19 +220,18 @@ export const computeInstallments = (emissioneISO: string, plan: SupplierPlan, gr
 
 // ─── Testi leggibili (per chi compila, non per chi legge il codice) ──────────
 
-/** "30/60 gg DFFM" -> "30 e 60 gg fine mese"; "90 gg D.F." -> "90 gg dalla data fattura". */
+/**
+ * Testo mostrato nelle tendine. Resta la NOTAZIONE COMPATTA usata in azienda
+ * ("30/60 gg DFFM"), non una riscrittura a parole: è così che le condizioni
+ * vengono dette e scritte con i fornitori. Solo il fine mese secco porta fra
+ * parentesi la sua lettura in giorni, per non lasciarlo fuori dalla serie.
+ */
 export const scheduleModeText = (mode: PaymentScheduleMode): string => {
-  if (mode.label === 'A Vista') return 'A vista (si paga subito)'
-  if (mode.label === 'Fine mese') return 'Fine mese della fattura'
-  if (mode.dataFissa) return 'Data fissa del mese'
-  const giorni = installmentDays(mode.prima ?? 0, mode.rate ?? 1)
-  const elenco = giorni.length === 1
-    ? String(giorni[0])
-    : giorni.slice(0, -1).join(', ') + ' e ' + giorni[giorni.length - 1]
-  return `${elenco} gg ${mode.base === 'data_fattura' ? 'dalla data fattura' : 'fine mese'}`
+  if (mode.label === 'Fine mese') return 'Fine mese (0 gg DFFM)'
+  return mode.label
 }
 
-/** Etichette dei gruppi nella tendina, in italiano corrente. */
+/** Etichette dei gruppi nella tendina. */
 export const SCHEDULE_GROUP_TEXT: Record<string, string> = {
   'Immediato': 'Più usate',
   'Fine mese (DFFM)': 'Fine mese (DFFM)',

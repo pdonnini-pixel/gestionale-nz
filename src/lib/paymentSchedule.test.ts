@@ -101,14 +101,22 @@ describe('calcolo delle scadenze', () => {
   })
 })
 
-describe('testi leggibili', () => {
-  it('trasforma la sigla in italiano corrente', () => {
+describe('testi delle tendine', () => {
+  it('mantiene la notazione compatta usata in azienda', () => {
     const modo = (label: string) => SCHEDULE_MODE_GROUPS.flatMap(g => g.items).find(m => m.label === label)!
-    expect(scheduleModeText(modo('30/60 gg DFFM'))).toBe('30 e 60 gg fine mese')
-    expect(scheduleModeText(modo('30/60/90/120 gg DFFM'))).toBe('30, 60, 90 e 120 gg fine mese')
-    expect(scheduleModeText(modo('90 gg D.F.'))).toBe('90 gg dalla data fattura')
-    expect(scheduleModeText(modo('A Vista'))).toBe('A vista (si paga subito)')
-    expect(scheduleModeText(modo('Fine mese'))).toBe('Fine mese della fattura')
+    expect(scheduleModeText(modo('30/60 gg DFFM'))).toBe('30/60 gg DFFM')
+    expect(scheduleModeText(modo('30/60/90/120 gg DFFM'))).toBe('30/60/90/120 gg DFFM')
+    expect(scheduleModeText(modo('90/120 gg DFFM'))).toBe('90/120 gg DFFM')
+    expect(scheduleModeText(modo('90 gg D.F.'))).toBe('90 gg D.F.')
+    expect(scheduleModeText(modo('A Vista'))).toBe('A Vista')
+    expect(scheduleModeText(modo('Fine mese'))).toBe('Fine mese (0 gg DFFM)')
+  })
+
+  it('il testo mostrato non cambia mai il valore salvato', () => {
+    SCHEDULE_MODE_GROUPS.flatMap(g => g.items).forEach(m => {
+      if (m.dataFissa) return
+      expect(parseScheduleLabel(m.label)).toMatchObject({ base: m.base, prima: m.prima, rate: m.rate })
+    })
   })
 })
 
