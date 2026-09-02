@@ -2512,6 +2512,7 @@ export const PAGE_GUIDES: PageGuide[] = [
         "steps": [
           "Seleziona i ticket su cui vuoi agire",
           "Scegli l'azione desiderata dalla barra che appare sopra la tabella",
+          "Al termine di \"Risolvi con AI\" compare un messaggio con l'esito (quanti risolti con proposta di correzione, quanti non risolvibili, quanti in errore) e, se qualcosa non ha funzionato, anche il motivo del primo errore",
           "Per \"Cancella\" ti verrà chiesta una conferma esplicita che elenca i titoli dei ticket che stai per eliminare, perché l'operazione non è reversibile",
           "Per \"Chiudi senza lavorare\" si apre una finestra dove puoi scrivere il motivo della chiusura (facoltativo) prima di confermare"
         ]
