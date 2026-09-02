@@ -57,7 +57,9 @@ const EMPTY_FORM = {
 
 const CATEGORIES = [
   'Merci', 'Servizi', 'Affitti', 'Utenze', 'Marketing', 'Logistica',
-  'Consulenza', 'Manutenzione', 'IT', 'Personale', 'Beni ammortizzabili', 'Altro',
+  'Consulenza', 'Manutenzione', 'IT', 'Personale', 'Beni ammortizzabili',
+  'Carburante', 'Viaggi e trasferte', 'Pulizie',
+  'Materiale di consumo e cancelleria', 'Altro',
 ];
 
 // Etichetta leggibile della base/tipologia di calcolo scadenze
