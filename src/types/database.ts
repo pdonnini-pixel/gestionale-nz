@@ -3499,6 +3499,107 @@ export type Database = {
           },
         ]
       }
+      help_chat_messages: {
+        Row: {
+          company_id: string
+          content: string
+          created_at: string
+          id: string
+          role: string
+          session_id: string
+        }
+        Insert: {
+          company_id: string
+          content: string
+          created_at?: string
+          id?: string
+          role: string
+          session_id: string
+        }
+        Update: {
+          company_id?: string
+          content?: string
+          created_at?: string
+          id?: string
+          role?: string
+          session_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "help_chat_messages_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "help_chat_messages_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "help_chat_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      help_chat_sessions: {
+        Row: {
+          closed_at: string | null
+          closed_by: string | null
+          company_id: string
+          created_at: string
+          id: string
+          last_message_at: string | null
+          message_count: number
+          page_path: string
+          page_title: string | null
+          status: string
+          title: string | null
+          updated_at: string
+          user_id: string
+          user_name: string | null
+        }
+        Insert: {
+          closed_at?: string | null
+          closed_by?: string | null
+          company_id: string
+          created_at?: string
+          id?: string
+          last_message_at?: string | null
+          message_count?: number
+          page_path: string
+          page_title?: string | null
+          status?: string
+          title?: string | null
+          updated_at?: string
+          user_id: string
+          user_name?: string | null
+        }
+        Update: {
+          closed_at?: string | null
+          closed_by?: string | null
+          company_id?: string
+          created_at?: string
+          id?: string
+          last_message_at?: string | null
+          message_count?: number
+          page_path?: string
+          page_title?: string | null
+          status?: string
+          title?: string | null
+          updated_at?: string
+          user_id?: string
+          user_name?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "help_chat_sessions_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       import_batches: {
         Row: {
           bank_account_id: string | null
