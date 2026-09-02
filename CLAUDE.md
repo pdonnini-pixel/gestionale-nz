@@ -238,9 +238,12 @@ npm run typecheck    # tsc --noEmit (strict mode)
 npm test             # tutti gli unit test (vitest run)
 npx vitest run src/lib/ceHelpers.test.ts   # un singolo file di test
 node tools/check-guide-alignment.mjs       # verifica guide ↔ codice (stesso check della CI)
+node tools/check-view-security-invoker.mjs # verifica security_invoker sulle viste v_* (stesso check della CI)
 ```
 
-La CI (`.github/workflows/ci.yml`) ha 2 job bloccanti sulle PR: `build` (npm run build) e `guide-alignment` (vedi regola guide sopra, bypass con `[skip-guide-check]` nel messaggio di commit).
+La CI (`.github/workflows/ci.yml`) ha 3 job bloccanti sulle PR: `build` (npm run build), `guide-alignment` (vedi regola guide sopra, bypass con `[skip-guide-check]` nel messaggio di commit) e `view-security-invoker`.
+
+**Regola viste**: ogni `CREATE [OR REPLACE] VIEW public.v_*` in una migration DEVE dichiarare `WITH (security_invoker = on)` nella stessa istruzione (oppure un `ALTER VIEW ... SET (security_invoker = on)` subito dopo, nello stesso file). In PostgreSQL il `CREATE OR REPLACE VIEW` azzera i reloptions: senza l'opzione la vista torna a girare come SECURITY DEFINER e ignora la RLS delle tabelle sottostanti, esponendo i dati di tutte le aziende. È già successo tre volte (069 → 106 → 113 → 143/144 → 153); ora il job `view-security-invoker` blocca la PR.
 
 ---
 

@@ -45,3 +45,19 @@ jobs:
         run: node tools/check-guide-alignment.mjs
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
+
+  view-security-invoker:
+    # Blocca la PR se una migration nuova crea una vista public.v_* senza
+    # security_invoker = on (advisor Supabase 0010_security_definer_view).
+    # La regressione si e' gia' ripetuta tre volte: 069 → 106 → 113 → 143/144 → 153.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Controllo security_invoker sulle viste
+        run: node tools/check-view-security-invoker.mjs
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
