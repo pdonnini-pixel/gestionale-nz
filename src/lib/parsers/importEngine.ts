@@ -132,7 +132,16 @@ export async function processImport({
         result = await processReceiptsCSV(content, context, batchId, mappingOverride, onProgress);
         break;
       case 'payroll':
-        result = await processPayrollCSV(content, context, batchId, mappingOverride, onProgress);
+        // DISATTIVATO (audit personale 2026-09-02, finding F1).
+        // `processPayrollCSV` cancellava `employee_costs` del mese e poi
+        // reinseriva su colonne inesistenti (outlet_id, allocation_pct): il
+        // netto già caricato spariva e non veniva rimpiazzato. Il carico dei
+        // cedolini vive nella pagina Personale, scheda «Costi & cedolini», che
+        // fa upsert non distruttivo e tiene l'audit in employee_cost_imports.
+        result = {
+          imported: 0,
+          errors: [{ message: 'Import cedolini disattivato qui: usa la pagina Personale → «Costi & cedolini». Il file caricato resta comunque archiviato.' }],
+        };
         break;
       default:
         return { success: false, imported: 0, errors: [{ message: `Tipo sorgente non supportato: ${sourceType}` }], batchId };
@@ -702,6 +711,9 @@ async function processReceiptsCSV(text: string | ArrayBuffer, context: ImportCon
 
 // ─── PAYROLL CSV/XLSX PROCESSOR ────────────────────────────────
 
+// ATTENZIONE — funzione NON collegata (vedi case 'payroll' in processImport).
+// Contiene un DELETE su employee_costs e insert su colonne inesistenti: non va
+// riattivata così com'è. Il percorso vivo è la pagina Personale.
 async function processPayrollCSV(content: string | ArrayBuffer, context: ImportContext & { month?: number }, batchId: string, mappingOverride: Record<string, string> | null, onProgress: (percent: number, message: string) => void): Promise<ProcessorResult> {
   // If PDF, we can't parse payroll PDFs yet — need structured CSV
   if (content instanceof ArrayBuffer) {
@@ -883,24 +895,22 @@ async function processPayrollCSV(content: string | ArrayBuffer, context: ImportC
     return { imported: 0, errors: [...errors, { message: 'Nessun dipendente corrisponde ai dati del file' }] };
   }
 
-  onProgress(70, `Inserimento costi per ${costRecords.length} record (${new Set(costRecords.map(r => r.employee_id)).size} dipendenti)...`);
-
-  // Upsert: delete existing for same employee/month/year, then insert
+  // SCRITTURA RIMOSSA (audit personale 2026-09-02, finding F1).
+  // Qui c'era un DELETE su employee_costs per employee/anno/mese seguito da un
+  // insert su colonne che in quella tabella non esistono (outlet_id,
+  // allocation_pct) e che l'indice unico (employee_id, year, month) avrebbe
+  // comunque rifiutato per chi lavora su più outlet: il risultato era la
+  // perdita dei netti del mese senza nulla in cambio. Il parsing resta come
+  // base per una futura riscrittura non distruttiva; la scrittura vive nella
+  // pagina Personale, scheda «Costi & cedolini».
+  onProgress(95, 'Import cedolini non eseguito da qui.');
   const uniqueEmployeeIds = [...new Set(costRecords.map(r => r.employee_id))];
-  for (const empId of uniqueEmployeeIds) {
-    await supabase
-      .from('employee_costs')
-      .delete()
-      .eq('employee_id', empId)
-      .eq('year', year)
-      .eq('month', month);
-  }
-
-  const { inserted, insertErrors } = await batchInsert('employee_costs', costRecords, onProgress, 75, 95);
-
   return {
-    imported: inserted,
-    errors: [...errors, ...insertErrors],
+    imported: 0,
+    errors: [
+      ...errors,
+      { message: 'Import cedolini disattivato in Import Hub: usa la pagina Personale → «Costi & cedolini».' },
+    ],
     details: {
       headers,
       mapping,

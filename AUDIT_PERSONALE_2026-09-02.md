@@ -276,6 +276,16 @@ mese e la scheda «Per outlet» vuota, pur avendo un'anagrafica popolata.
 Serve distinguere «zero persone» da «nessun cedolino caricato»: stesso principio
 del segnaposto usato in Budget e Controllo.
 
+### F15 — alto. In Produttività le chiavi degli outlet non combaciano
+
+Emerso mentre correggevo F4. Il conteggio dipendenti veniva indicizzato per nome
+outlet delle allocazioni (`VALDICHIANA`, `SEDE / MAGAZZINO`) ma cercato con il
+centro di costo del budget (`valdichiana`, `sede_magazzino`). Nessuna chiave
+combaciava, quindi il dato dipendenti era `null` per ogni outlet e la pagina
+mostrava «N/D» su fatturato per dipendente, ricavo per ora, costo per ora e
+margine per ora: tutte le metriche che danno il nome alla pagina. Risolto con un
+ponte costruito dall'anagrafica outlet (`cost_center_key`, `code`, `name`).
+
 ### F13 — basso. Le guide raccontano il modello vecchio
 
 `src/data/pageGuides.ts` è allineato al codice di oggi, quindi documenta anche le
@@ -341,7 +351,54 @@ Due decisioni che servono prima di scrivere codice, e che sono di Patrizio:
 
 ---
 
-## 6. Verifiche eseguite
+## 6. Fase 0: cosa è stato applicato
+
+Applicata in questo stesso branch dopo la conferma di Patrizio sulla domanda 1
+(mese senza cedolini: si mostra l'ultimo mese granito, dichiarandolo). Solo
+codice: nessuna migration, nessuna scrittura sul database, nessun deploy di Edge
+Function.
+
+**Nuovo modulo `src/lib/headcount.ts`** (con 12 test in `headcount.test.ts`): la
+regola dell'organico granitico in un punto solo. Espone il mese granito
+(`lastGranitedPeriod`, `resolvePeriod`), l'organico aziendale
+(`companyHeadcount`) e quello per outlet (`headcountByOutlet`,
+`headcountCountByOutlet`). Conta solo chi ha il cedolino, esclude gli
+amministratori, include i cessati nei mesi in cui sono stati pagati, deduplica
+le persone per codice fiscale.
+
+| Finding | Stato | Intervento |
+|---|---|---|
+| F1 import distruttivo | risolto | fonte «Cedolini / Personale» non più elaborabile in Import Hub (il file resta archiviato) e `DELETE` rimosso da `processPayrollCSV`, con avviso in pagina che rimanda a Personale |
+| F4 conti sbagliati | risolto | Produttività classifica ricavi e costi da `chart_of_accounts` (`is_revenue`, `macro_group = 'personale'`), mai per prefisso |
+| F15 chiavi non combacianti | risolto | ponte cost_center → nome outlet dall'anagrafica |
+| F5 scheda Staff | risolto | colonne corrette (`gross_annual_cost`, `net_monthly_salary`, `role_description`), elenco dalle allocazioni, conteggio dai cedolini con etichetta del mese |
+| F6 cessati e totali | risolto | organico e dettaglio per outlet passano dallo stesso helper: i due numeri ora coincidono e i cessati restano nei mesi pagati |
+| F9 mese di default | risolto | la pagina si apre sull'ultimo mese con cedolini; su un mese vuoto compare l'avviso con il salto all'ultimo mese granito |
+| F2 fonte sovrana | in parte | l'helper esiste ed è usato da Personale, Produttività e scheda Outlet. Confronto outlet resta da allineare (dipende dalla domanda 2) |
+| F13 guide | risolto per le pagine toccate | aggiornate le voci Personale, Produttività, Outlet e Import Hub in `pageGuides.ts` |
+| F14 copertura test | in parte | `/dipendenti` e `/produttivita` aggiunte al pixel check |
+| F3, F7, F8, F10, F11, F12 | aperti | sono le fasi 2, 3 e 4: storicizzazione dell'outlet, carico come sostituzione, allineamento di Confronto outlet |
+
+Effetto numerico del fix F4 sul budget 2026 di NZ, costo del personale per
+centro di costo:
+
+| Outlet | Ricavi | Personale (corretto, conti 67) | Vecchio calcolo (conti 63) | Incidenza prima → dopo |
+|---|---:|---:|---:|---|
+| VALDICHIANA | 826.632 | 194.212 | 71.080 | 8,6% → 23,5% |
+| BARBERINO | 354.565 | 173.133 | 67.944 | 19,2% → 48,8% |
+| VALMONTONE | 219.074 | 164.634 | 54.708 | 25,0% → 75,1% |
+
+La pagina dava verde (sotto il 20%) a punti vendita con incidenza reale del 49% e
+del 75%. Le raccomandazioni automatiche in fondo alla pagina cambiano di
+conseguenza.
+
+Verifiche: `npm run build` verde, `npx tsc --noEmit` senza nuovi errori (restano
+i due preesistenti di `TesoreriaManuale.tsx`, già su `main`), 108 unit test
+verdi più i 12 nuovi di `headcount.test.ts`, `check-view-security-invoker` verde.
+La verifica pixel gira in CI sui tre tenant e ora copre anche le due pagine
+toccate.
+
+## 7. Verifiche eseguite (analisi)
 
 - `SELECT` su NZ, Made e Zago per anagrafica, allocazioni, cedolini, costo lordo
   per outlet e per persona, piano dei conti, budget 2026.
