@@ -702,7 +702,13 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
           .order('date', { ascending: false })
           .limit(100);
         if (error) throw error;
-        for (const r of (data || [])) {
+        // ATTENZIONE: la vista cash_movements NON espone balance_after (verificato
+        // sul DB). La select qui sopra fallisce quindi con 400 e questo ramo non
+        // aggiunge righe all'anteprima: comportamento invariato da tempo, lasciato
+        // com'è di proposito (il fix cambierebbe il runtime). Il cast serve solo a
+        // tipizzare le righe, che i tipi generati marcano come SelectQueryError.
+        type CmPreviewRow = { id: string; date: string | null; description: string | null; amount: number | null; balance_after: number | null; is_reconciled: boolean | null };
+        for (const r of ((data || []) as unknown as CmPreviewRow[])) {
           rows.push({
             id: 'cm_' + r.id,
             transaction_date: r.date,

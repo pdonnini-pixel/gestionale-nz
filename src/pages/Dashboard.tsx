@@ -502,7 +502,9 @@ export default function Dashboard() {
               const dayMap: Record<string, DayRow> = {}
               let totE = 0, totU = 0
               cmData.forEach(row => {
-                const dk = row.date
+                // row.date è NOT NULL nella tabella sottostante: la vista
+                // cash_movements lo espone come nullable, da qui il cast.
+                const dk = row.date as string
                 if (!dayMap[dk]) dayMap[dk] = { date: dk, entrate: 0, uscite: 0, netto: 0 }
                 const abs = Math.abs(Number(row.amount) || 0)
                 if (row.type === 'entrata') {

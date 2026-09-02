@@ -1257,7 +1257,9 @@ export default function ContoEconomico() {
     setBudgetRefreshing(true)
     try {
       const { data, error } = await supabase.rpc('refresh_budget_consuntivo', {
-        p_outlet_id: null,
+        // Vedi BudgetControl: i tipi dicono `string | undefined`, la RPC accetta
+        // NULL per "tutti gli outlet". Cast di sola tipizzazione.
+        p_outlet_id: null as unknown as string,
         p_year: year,
       })
       if (error) throw error
