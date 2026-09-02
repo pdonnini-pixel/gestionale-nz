@@ -49,6 +49,7 @@ import {
   LORDI_FIELDS, rowLordo, rowHasLordo,
   type PreviewRow, type ParsedImport, type ProspettoOutletRow, type StatEmpMonth,
 } from '../lib/payrollParse';
+import { mergeSumByKey, keepLastByKey, duplicateKeys, readableDbError } from '../lib/upsertDedupe';
 import { UiTooltip } from '../components/Tooltip'; // alias: 'Tooltip' collide con recharts
 import ExportMenu from '../components/ExportMenu';
 // Organico granitico: fonte unica del conteggio dipendenti (vedi src/lib/headcount.ts).
@@ -1835,7 +1836,8 @@ function SchedaDipendenteModal({ employee, year, costs, allocs, outlets, company
         else if (had) payloads.push({ employee_id: employee.id, company_id: companyId, year, month: m, netto: null, source: 'scheda_dipendente' });
       }
       if (payloads.length) {
-        const { error } = await supabase.from('employee_costs').upsert(payloads, { onConflict: 'employee_id,year,month' });
+        const { rows: uniq } = keepLastByKey(payloads, (r: any) => `${r.employee_id}|${r.year}|${r.month}`);
+        const { error } = await supabase.from('employee_costs').upsert(uniq, { onConflict: 'employee_id,year,month' });
         if (error) throw error;
       }
       toast({ type: 'success', message: 'Scheda salvata' });
@@ -2095,17 +2097,14 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
   const scostamento = fileTotal != null ? total - fileTotal : null;
   const quadra = scostamento == null || Math.abs(scostamento) < 0.01;
   const warnOutlets = rows ? Array.from(new Set(rows.filter((r) => r.warn).map((r) => r.outlet || '—'))) : [];
-  // Righe che finiscono sulla stessa persona: si sommano, non fanno fallire il carico.
-  const duplicatiNelFile = useMemo(() => {
-    if (!rows) return 0;
-    const seen = new Set<string>();
-    let dup = 0;
-    rows.forEach((r) => {
-      const key = r.matchedId || `mat:${r.matricola}` || '';
-      if (!key) return;
-      if (seen.has(key)) dup += 1; else seen.add(key);
-    });
-    return dup;
+  // Persone presenti in piu' righe dello stesso file (tipicamente su due filiali):
+  // il salvataggio le somma, e l'anteprima lo dice prima di confermare.
+  const dupPeople = useMemo(() => {
+    if (!rows) return [] as string[];
+    const keyed = rows.filter((r) => r.matchedId || r.matricola)
+      .map((r) => ({ k: r.matchedId || `mat:${norm(r.matricola)}`, label: `${r.cognome || ''} ${r.nome || ''}`.trim() || r.matricola || '—' }));
+    const dupKeys = duplicateKeys(keyed, (r) => r.k);
+    return Array.from(new Set(keyed.filter((r) => dupKeys.includes(r.k)).map((r) => r.label)));
   }, [rows]);
   const reset = () => { setRows(null); setFileName(''); setFileTotal(null); setOverwriteAck(false); setRawPreview(null); setRemoveMissing(false); };
 
@@ -2140,7 +2139,7 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
       .map((c) => {
         const id = c.employee_id as string;
         const nuovo = outletNelFile[id];
-        const vecchio = (c as any).outlet_code as string | null | undefined;
+        const vecchio = c.outlet_code;
         if (!nuovo || !vecchio || nuovo === vecchio) return null;
         return { id, nome: nomeDi(id), da: vecchio, a: nuovo };
       })
@@ -2156,6 +2155,13 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
       const outletByNorm: Record<string, string> = {};
       outlets.forEach((o) => { outletByNorm[norm(o.name)] = o.name; });
 
+      // Anagrafica FRESCA dal database. Se un tentativo precedente e' fallito DOPO
+      // aver creato le persone nuove, qui le ritroviamo per matricola e non le
+      // duplichiamo: senza questo, ogni ritentativo aggiunge doppioni in anagrafica.
+      const { data: freshEmps } = await supabase.from('employees').select('id, matricola').eq('company_id', companyId);
+      const idByMatricola = new Map<string, string>();
+      (freshEmps || []).forEach((e: any) => { if (e?.matricola) idByMatricola.set(norm(String(e.matricola)), e.id); });
+
       const { data: logRow, error: logErr } = await supabase.from('employee_cost_imports').insert([{
         company_id: companyId, year: impYear, month: impMonth, file_name: fileName,
         rows_total: rows.length, rows_new_employees: newCount, total_netto: total,
@@ -2167,20 +2173,7 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
       const payloads: any[] = [];
       for (const row of rows) {
         let empId = row.matchedId;
-        if (!empId && row.matricola) {
-          // La lista `employees` è quella caricata all'apertura della pagina: due
-          // import ravvicinati la trovano vecchia e ricreano la stessa persona.
-          // È successo con maggio 2026 su NZ (quattro anagrafiche per due
-          // persone), quindi prima di creare si ricontrolla sul database.
-          const { data: alreadyThere } = await supabase
-            .from('employees')
-            .select('id')
-            .eq('company_id', companyId)
-            .eq('matricola', row.matricola)
-            .limit(1)
-            .maybeSingle();
-          if (alreadyThere?.id) empId = alreadyThere.id;
-        }
+        if (!empId && row.matricola) empId = idByMatricola.get(norm(row.matricola)) || null;
         if (!empId) {
           // Il nome arriva dall'import (PDF ruotato → riga completa). Mai la matricola come nome:
           // se davvero manca il testo-nome, usa un placeholder editabile dalla scheda.
@@ -2195,6 +2188,7 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
           }]).select('id').single();
           if (empErr) { console.error('Errore creazione dipendente', empErr); continue; }
           empId = newEmp?.id || null;
+          if (empId && row.matricola) idByMatricola.set(norm(row.matricola), empId);
           if (empId && row.outlet) {
             const exact = outletByNorm[norm(row.outlet)];
             if (exact) await supabase.from('employee_outlet_allocations').insert([{ employee_id: empId, company_id: companyId, outlet_code: exact, allocation_pct: 100, is_primary: true }]);
@@ -2216,30 +2210,16 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
         payloads.push(payload);
       }
 
-      // Una persona può comparire su PIÙ righe dello stesso file (conguagli,
-      // cedolini separati): i valori si sommano. Senza questa aggregazione
-      // l'upsert riceveva due volte la stessa chiave (employee_id, year, month)
-      // e Postgres rifiutava l'INTERO carico con «ON CONFLICT DO UPDATE command
-      // cannot affect row a second time»: è quello che ha fatto fallire il
-      // carico di maggio 2026 su NZ, lasciando il mese vuoto e due anagrafiche
-      // doppie create prima dell'errore.
-      const merged = new Map<string, any>();
-      for (const p of payloads) {
-        const key = `${p.employee_id}|${p.year}|${p.month}`;
-        const prev = merged.get(key);
-        if (!prev) { merged.set(key, p); continue; }
-        const sum = (a: any, b: any) => (a == null && b == null ? null : Number(a || 0) + Number(b || 0));
-        prev.netto = sum(prev.netto, p.netto);
-        LORDI_FIELDS.forEach((f) => { if (p[f.col] != null || prev[f.col] != null) prev[f.col] = sum(prev[f.col], p[f.col]); });
-        // L'outlet resta quello della prima riga: righe della stessa persona
-        // nello stesso mese vengono dalla stessa filiale.
-        prev.outlet_code = prev.outlet_code || p.outlet_code;
-        prev.outlet_source = prev.outlet_source || p.outlet_source;
-      }
-      const finalPayloads = Array.from(merged.values());
+      // Stessa persona su due righe (due filiali nello stesso PDF, oppure due
+      // mensilita'): il database rifiuta l'intero lotto. Le righe si sommano, cosi'
+      // il totale del file resta quadrato e nessun netto va perso.
+      const sumCols = isNetto ? ['netto'] : lordiPresent.map((f) => f.col);
+      const { rows: uniquePayloads, mergedKeys } = mergeSumByKey(
+        payloads, (r) => `${r.employee_id}|${r.year}|${r.month}`, sumCols,
+      );
 
-      if (finalPayloads.length) {
-        const { error: upErr } = await supabase.from('employee_costs').upsert(finalPayloads, { onConflict: 'employee_id,year,month' });
+      if (uniquePayloads.length) {
+        const { error: upErr } = await supabase.from('employee_costs').upsert(uniquePayloads, { onConflict: 'employee_id,year,month' });
         if (upErr) throw upErr;
       }
 
@@ -2261,12 +2241,13 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
         removedCount = snapshot.length;
       }
 
-      const accorpate = payloads.length - finalPayloads.length;
-      toast({ type: 'success', message: `Import ${isNetto ? 'netti' : 'costi lordi'} completato: ${finalPayloads.length} righe${accorpate ? ` (${accorpate} accorpate sulla stessa persona)` : ''}, ${newCount} nuovi dipendenti${removedCount ? `, ${removedCount} tolti dal mese` : ''}.` });
+      const mergedTxt = mergedKeys.length ? ` · ${mergedKeys.length} ${mergedKeys.length === 1 ? 'persona presente' : 'persone presenti'} su più righe: importi sommati` : '';
+      const removedTxt = removedCount ? ` · ${removedCount} tolt${removedCount === 1 ? 'a' : 'e'} dal mese` : '';
+      toast({ type: 'success', message: `Import ${isNetto ? 'netti' : 'costi lordi'} completato: ${uniquePayloads.length} righe, ${newCount} nuovi dipendenti.${mergedTxt}${removedTxt}` });
       reset();
       await onDone();
     } catch (err: any) {
-      toast({ type: 'error', message: 'Errore import: ' + (err?.message || '') });
+      toast({ type: 'error', message: 'Errore import: ' + readableDbError(err) });
     } finally {
       setImporting(false);
     }
@@ -2343,16 +2324,20 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
             </div>
           )}
 
-          {duplicatiNelFile > 0 && (
-            <div className="px-4 py-2 text-sm flex items-center gap-2 bg-sky-50 text-sky-800">
-              <AlertCircle size={15} />
-              {duplicatiNelFile} rig{duplicatiNelFile === 1 ? 'a si riferisce' : 'he si riferiscono'} a una persona già presente nel file (conguagli o cedolini separati): {duplicatiNelFile === 1 ? 'verrà sommata' : 'verranno sommate'} in un unico importo del mese.
-            </div>
-          )}
-
           {warnOutlets.length > 0 && (
             <div className="px-4 py-2 text-sm flex items-center gap-2 bg-amber-50 text-amber-800">
               <AlertCircle size={15} /> Filiali da verificare (somma netti ≠ totale di ripartizione): <strong>{warnOutlets.join(', ')}</strong>
+            </div>
+          )}
+
+          {dupPeople.length > 0 && (
+            <div className="px-4 py-2 text-sm flex items-start gap-2 bg-blue-50 text-blue-800">
+              <AlertCircle size={15} className="mt-0.5 shrink-0" />
+              <span>
+                Nel file {dupPeople.length === 1 ? 'una persona compare' : `${dupPeople.length} persone compaiono`} su più righe
+                (di solito perché lavorano su due filiali): <strong>{dupPeople.join(', ')}</strong>.
+                Confermando, gli importi delle righe doppie vengono <strong>sommati</strong> in un unico dato del mese.
+              </span>
             </div>
           )}
 
@@ -2602,16 +2587,23 @@ function CostiLordoDipendentiBlock({ companyId, userId, outlets, year, month, mo
           inail: r.inail, tfr: r.tfr, lordo: r.lordo, source_file: fileName, import_id: importId, updated_at: new Date().toISOString(),
         };
       });
-      const { error: upErr } = await sb.from('personnel_gross_cost_employee').upsert(payload, { onConflict: 'company_id,matricola,year,month' });
+      // Stessa matricola due volte nello stesso mese (persona su due filiali):
+      // il lotto verrebbe rifiutato in blocco. Si sommano le componenti.
+      const { rows: uniquePayload, mergedKeys } = mergeSumByKey(
+        payload as any[], (r: any) => `${r.company_id}|${r.matricola}|${r.year}|${r.month}`,
+        ['retribuzione', 'contribuzione', 'inail', 'tfr', 'lordo'],
+      );
+      const { error: upErr } = await sb.from('personnel_gross_cost_employee').upsert(uniquePayload, { onConflict: 'company_id,matricola,year,month' });
       if (upErr) throw upErr;
 
-      const unmatched = payload.filter((p) => !p.employee_id).length;
-      toast({ type: 'success', message: `Importati ${res.employees} dipendenti · ${res.rows.length} righe mese · totale ${eurFmt.format(res.totalLordo)} €${unmatched ? ` · ${unmatched} righe da assegnare` : ''}.` });
+      const unmatched = uniquePayload.filter((p: any) => !p.employee_id).length;
+      const mergedTxt = mergedKeys.length ? ` · ${mergedKeys.length} righe doppie sommate` : '';
+      toast({ type: 'success', message: `Importati ${res.employees} dipendenti · ${uniquePayload.length} righe mese · totale ${eurFmt.format(res.totalLordo)} €${unmatched ? ` · ${unmatched} righe da assegnare` : ''}${mergedTxt}.` });
       setPreview(null);
       await load();
     } catch (e: any) {
       console.error(e);
-      toast({ type: 'error', message: `Errore nel salvataggio: ${e?.message || e}` });
+      toast({ type: 'error', message: `Errore nel salvataggio: ${readableDbError(e)}` });
     } finally { setImporting(false); }
   };
 
@@ -2874,8 +2866,15 @@ function CostiLordoTab({ companyId, userId, outlets, year, month, monthLabel }: 
         source_file: preview.fileName, import_id: importId,
         updated_at: new Date().toISOString(),
       }));
+      // Stessa filiale ripetuta nel file per lo stesso mese: si sommano gli importi
+      // invece di far rifiutare l'intero lotto al database.
+      const { rows: uniqueGross } = mergeSumByKey(
+        payload as any[], (r: any) => `${r.company_id}|${r.filiale_code}|${r.year}|${r.month}`,
+        ['numero_dipendenti', 'retribuzioni_lorde', 'totale_retribuzioni', 'compensi_amm',
+         'contr_inps', 'contr_ebinter', 'contr_est', 'contr_gestione_separata', 'tfr_fondo'],
+      );
       const { error: upErr } = await sb.from('personnel_gross_cost')
-        .upsert(payload, { onConflict: 'company_id,filiale_code,year,month' });
+        .upsert(uniqueGross, { onConflict: 'company_id,filiale_code,year,month' });
       if (upErr) throw upErr;
 
       // Seed PAT INAIL (senza mai sovrascrivere i tassi già inseriti da Lilian).
@@ -2896,7 +2895,7 @@ function CostiLordoTab({ companyId, userId, outlets, year, month, monthLabel }: 
       await load();
     } catch (e: any) {
       console.error(e);
-      toast({ type: 'error', message: `Errore nel salvataggio: ${e?.message || e}` });
+      toast({ type: 'error', message: `Errore nel salvataggio: ${readableDbError(e)}` });
     } finally {
       setImporting(false);
     }

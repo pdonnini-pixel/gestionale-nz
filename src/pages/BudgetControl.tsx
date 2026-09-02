@@ -34,6 +34,7 @@ import {
 import { supabase } from '../lib/supabase'
 import { Modal } from '../components/ui/Modal'
 import { computeConfrontoDiff, type ConfrontoRow, type ExistingConfrontoRow, type ConfrontoDiff } from './budgetConfrontoDiff'
+import { keepLastByKey } from '../lib/upsertDedupe'
 
 // Workflow approvazione preventivo per outlet x anno
 type WorkflowStatus = 'bozza' | 'approvato' | 'sbloccato'
@@ -1115,7 +1116,8 @@ export default function BudgetControl() {
           budget_amount: months[i], is_approved: false,
         }))
       }).flat()
-      const { error } = await supabase.from('budget_entries').upsert(entries as never, { onConflict: 'company_id,account_code,cost_center,year,month' })
+      const { rows: uniqEntries } = keepLastByKey(entries as any[], (r: any) => `${r.company_id}|${r.account_code}|${r.cost_center}|${r.year}|${r.month}`)
+      const { error } = await supabase.from('budget_entries').upsert(uniqEntries as never, { onConflict: 'company_id,account_code,cost_center,year,month' })
       if (error) throw error
 
       // NB: i RICAVI mensili (budget_confronto.rev_monthly/cons_monthly) NON vengono
@@ -1143,7 +1145,8 @@ export default function BudgetControl() {
       cost_center: outletCode, year, month: i + 1,
       budget_amount: months[i], is_approved: false,
     }))
-    const { error } = await supabase.from('budget_entries').upsert(rows as never, { onConflict: 'company_id,account_code,cost_center,year,month' })
+    const { rows: uniqRows } = keepLastByKey(rows as any[], (r: any) => `${r.company_id}|${r.account_code}|${r.cost_center}|${r.year}|${r.month}`)
+    const { error } = await supabase.from('budget_entries').upsert(uniqRows as never, { onConflict: 'company_id,account_code,cost_center,year,month' })
     if (error) throw error
   }
 
@@ -1281,7 +1284,7 @@ export default function BudgetControl() {
       }
       if (diff.toUpsert.length > 0) {
         const { error: upErr } = await supabase.from('budget_confronto')
-          .upsert(diff.toUpsert as never, { onConflict: 'company_id,cost_center,account_code,year,month,entry_type' })
+          .upsert(keepLastByKey(diff.toUpsert as any[], (r: any) => `${r.company_id}|${r.cost_center}|${r.account_code}|${r.year}|${r.month}|${r.entry_type}`).rows as never, { onConflict: 'company_id,cost_center,account_code,year,month,entry_type' })
         if (upErr) throw upErr
       }
       show(`Confronto ${outletCode} salvato ✓ (${diff.toUpsert.length} agg., ${diff.toDeleteIds.length} rim.)`)
