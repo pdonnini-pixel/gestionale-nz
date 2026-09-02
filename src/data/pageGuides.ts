@@ -2456,7 +2456,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "Come funziona la risposta automatica dell'AI (AutoFix)",
-        "body": "Ogni ora, a un orario fisso indicato nel banner in alto alla pagina, un sistema automatico (AutoFix) controlla le segnalazioni aperte, analizza quelle più semplici e, quando riesce, propone e applica una correzione al codice. Quando questo succede, trovi un commento con l'icona del robot nella sezione Commenti del ticket, che ti spiega cosa è stato fatto. Se l'AI non riesce a risolvere automaticamente il problema, lascia comunque un commento per spiegare la situazione, così sai che qualcuno dovrà occuparsene manualmente."
+        "body": "Ogni ora, all'orario fisso indicato nel banner in alto alla pagina, un sistema automatico (AutoFix) prende in carico le segnalazioni ancora senza risposta: ne analizza fino a tre per giro e, quando ci riesce, prepara una correzione al codice. In entrambi i casi ti lascia un commento con l'icona del robot nella sezione Commenti del ticket, che spiega cosa ha fatto o perché non ce l'ha fatta. Da quel momento la segnalazione risulta già vista dall'automatismo e non viene ripresa da sola: se serve insistere, un amministratore può rilanciarla con \"Risolvi con AI\". Attenzione: una correzione proposta non è attiva subito nel gestionale — lo diventa quando Patrizio la rivede e la pubblica."
       },
       {
         "heading": "Scrivere un commento",
