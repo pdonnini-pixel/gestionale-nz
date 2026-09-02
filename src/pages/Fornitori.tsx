@@ -39,10 +39,18 @@ import {
   DEFAULT_PAYMENT_METHOD, isBankRequired, normalizePaymentMethod,
 } from '../lib/paymentMethods';
 import {
-  SCHEDULE_MODE_GROUPS, scheduleLabel, findScheduleMode,
+  SCHEDULE_MODE_GROUPS, SCHEDULE_GROUP_TEXT, scheduleLabel, scheduleModeText,
+  findScheduleMode, planStatus, derivePlan, computeInstallments,
 } from '../lib/paymentSchedule';
 
 const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316'];
+
+// Data ISO -> gg/mm/aaaa (per l'anteprima delle scadenze).
+const fmtDateIt = (iso: string): string => {
+  if (!iso) return '—';
+  const d = new Date(iso + 'T00:00:00');
+  return isNaN(d.getTime()) ? '—' : d.toLocaleDateString('it-IT');
+};
 
 const EMPTY_FORM = {
   ragione_sociale: '', partita_iva: '', codice_fiscale: '', codice_sdi: '',
@@ -174,6 +182,24 @@ export default function Fornitori() {
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState({ ...EMPTY_FORM });
+  // Anteprima scadenze nel modal: fattura di prova (default oggi) e importo
+  // fisso di 1.000 €, così la divisione in rate si legge a colpo d'occhio.
+  const PREVIEW_GROSS = 1000;
+  const [previewDate, setPreviewDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const formPlan = useMemo(() => ({
+    payment_base: form.payment_base,
+    prima_scadenza_gg: form.payment_base ? form.prima_scadenza_gg : null,
+    numero_rate: form.numero_rate,
+  }), [form.payment_base, form.prima_scadenza_gg, form.numero_rate]);
+  const formPlanDerived = useMemo(() => derivePlan(formPlan), [formPlan]);
+  const previewRate = useMemo(
+    () => computeInstallments(previewDate, formPlanDerived, PREVIEW_GROSS),
+    [previewDate, formPlanDerived],
+  );
+  // Piano che non corrisponde a nessuna modalità dell'elenco (es. 45/75 gg):
+  // il blocco "accordo fuori standard" si apre da solo per non nasconderlo.
+  const isPianoFuoriStandard = !!form.payment_base
+    && !findScheduleMode(form.payment_base, form.prima_scadenza_gg, form.numero_rate);
   const [saving, setSaving] = useState(false);
 
   const [toast, setToast] = useState<{ msg: string; type: string } | null>(null);
@@ -465,10 +491,15 @@ export default function Fornitori() {
         const hasCat = !!s.category;
         const hasDiv = !!ruleModeBySupplier[s.id];
         const overdue = (supplierStats[s.id]?.overdue || 0) > 0;
+        // Un fornitore senza modalità paga con la regola standard invece che
+        // con il suo accordo: è lavoro arretrato quanto una categoria mancante.
+        const piano = planStatus(s);
         switch (filterWork) {
-          case 'lavorare': return !hasCat || !hasDiv;
+          case 'lavorare': return !hasCat || !hasDiv || piano !== 'ok';
           case 'nocat':    return !hasCat;
           case 'nosplit':  return !hasDiv;
+          case 'nomod':    return piano === 'assente';
+          case 'modparz':  return piano === 'incompleto';
           case 'scaduto':  return overdue;
           default:         return true;
         }
@@ -513,6 +544,9 @@ export default function Fornitori() {
     return {
       ...s,
       _metodo: PAYMENT_LABEL[metodoRaw] || metodoRaw || '—',
+      _modalita: planStatus(s) === 'ok'
+        ? scheduleLabel(s.payment_base as string | null, s.prima_scadenza_gg as number | null, s.numero_rate as number | null)
+        : planStatus(s) === 'assente' ? 'da impostare' : 'da completare',
       _base: hasPiano ? (BASE_LABEL[String(s.payment_base)] || String(s.payment_base)) : '—',
       _prima_gg: hasPiano && s.prima_scadenza_gg != null ? String(s.prima_scadenza_gg) : '',
       _rate: hasPiano && s.numero_rate != null ? String(s.numero_rate) : '',
@@ -544,7 +578,10 @@ export default function Fornitori() {
     // Copertura lavorazione (sul totale fornitori, non filtrato per anno)
     const withCategory = suppliers.filter(s => !!s.category).length;
     const withDivision = suppliers.filter(s => !!ruleModeBySupplier[s.id]).length;
-    return { active, total: suppliers.length, totalPending, overdue, totalFatturato, totalCrediti, payCount, withPayables: suppliersWithPayables.size, withCategory, withDivision };
+    // Quanti fornitori hanno davvero la loro modalità di pagamento: gli altri
+    // usano la regola standard, e le loro scadenze possono essere sbagliate.
+    const withPlan = suppliers.filter(s => planStatus(s) === 'ok').length;
+    return { active, total: suppliers.length, totalPending, overdue, totalFatturato, totalCrediti, payCount, withPayables: suppliersWithPayables.size, withCategory, withDivision, withPlan };
   }, [suppliers, allPayables, year, ruleModeBySupplier]);
 
   // Charts data
@@ -647,8 +684,11 @@ export default function Fornitori() {
         provincia: form.provincia.trim() || null,
         cap: form.cap.trim() || null,
         category: form.category || null,
-        payment_terms: parseInt(String(form.payment_terms)) || 30,
-        default_payment_terms: parseInt(String(form.payment_terms)) || 30,
+        // payment_terms non si compila più a mano (era un doppione di
+        // "giorni alla prima scadenza" che nessun calcolo leggeva): si tiene
+        // allineato al piano, così la colonna storica smette di divergere.
+        payment_terms: form.payment_base ? (Number(form.prima_scadenza_gg) || 0) : (parseInt(String(form.payment_terms)) || 30),
+        default_payment_terms: form.payment_base ? (Number(form.prima_scadenza_gg) || 0) : (parseInt(String(form.payment_terms)) || 30),
         payment_method: form.payment_method || DEFAULT_PAYMENT_METHOD,
         default_payment_method: form.payment_method || DEFAULT_PAYMENT_METHOD,
         // Piano rate scadenze (v2)
@@ -778,11 +818,15 @@ export default function Fornitori() {
             <CreditCard size={14} className="text-indigo-500" /> Condizioni
           </h4>
           <div className="bg-white rounded-lg border border-slate-200 p-3 space-y-1.5 text-sm">
-            <Detail label="Termini pag." value={`${(s.payment_terms as number | null) || (s.default_payment_terms as number | null) || 30} giorni`} />
             <Detail label="Metodo pag." value={PAYMENT_LABEL[String(s.payment_method || s.default_payment_method || '')] || (s.payment_method as string | null) || (s.default_payment_method as string | null) || '—'} />
-            <Detail label="Base scadenze" value={s.payment_base ? (BASE_LABEL[String(s.payment_base)] || String(s.payment_base)) : '—'} />
-            <Detail label="1ª scadenza" value={s.payment_base && s.prima_scadenza_gg != null ? `${s.prima_scadenza_gg} gg` : '—'} />
-            <Detail label="N° rate" value={s.payment_base && s.numero_rate != null ? String(s.numero_rate) : '—'} />
+            {/* Una riga sola al posto di base + giorni + rate: l'etichetta della
+                modalità le contiene già tutte e tre ("30/60 gg DFFM"). */}
+            <Detail
+              label="Scadenze"
+              value={planStatus(s) === 'ok'
+                ? scheduleLabel(s.payment_base as string | null, s.prima_scadenza_gg as number | null, s.numero_rate as number | null)
+                : planStatus(s) === 'assente' ? 'da impostare' : 'da completare'}
+            />
             <Detail label="Banca pag." value={s.payment_bank_account_id ? (bankLabelById[String(s.payment_bank_account_id)] || '—') : '—'} />
             <Detail label="Categoria" value={s.category as string | null | undefined} />
             <Detail label="Centro costo" value={s.cost_center === 'all' ? `Tutti gli ${labels.pointOfSalePluralLower}` : (s.cost_center as string | null | undefined)} />
@@ -1029,7 +1073,8 @@ export default function Fornitori() {
                 { key: 'iban', label: 'IBAN' },
                 { key: 'category', label: 'Categoria' },
                 { key: 'payment_terms', label: 'Termini Pag.' },
-                { key: '_metodo', label: 'Modalità Pag.' },
+                { key: '_metodo', label: 'Metodo Pag.' },
+                { key: '_modalita', label: 'Modalità scadenze' },
                 { key: '_base', label: 'Base scadenze' },
                 { key: '_prima_gg', label: '1ª scad. (gg)' },
                 { key: '_rate', label: 'N° rate' },
@@ -1064,10 +1109,11 @@ export default function Fornitori() {
       </div>
 
       {/* KPI CARDS — riga unica, nessun numero ripetuto */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
         <KpiCard icon={Building2} label="Fornitori" value={kpis.total} sub={`${kpis.active} attivi`} color="indigo" />
         <KpiCard icon={Tag} label="Con categoria" value={`${kpis.withCategory} / ${kpis.total}`} color="purple" />
         <KpiCard icon={Split} label="Con divisione" value={`${kpis.withDivision} / ${kpis.total}`} color="purple" />
+        <KpiCard icon={Calendar} label="Con modalità pag." value={`${kpis.withPlan} / ${kpis.total}`} color={kpis.withPlan < kpis.total ? 'amber' : 'green'} />
         <KpiCard icon={AlertTriangle} label="Scaduto" value={`€ ${kpis.overdue.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} color={kpis.overdue > 0 ? 'red' : 'green'} />
         <KpiCard icon={FileText} label="Totale fatture" value={`€ ${kpis.totalFatturato.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} sub={`${kpis.payCount.toLocaleString('de-DE')} fatture`} color="blue" />
       </div>
@@ -1113,9 +1159,11 @@ export default function Fornitori() {
             </select>
             <select value={filterWork} onChange={e => setFilterWork(e.target.value)} className="px-3 py-2.5 border border-indigo-200 bg-indigo-50/40 rounded-lg text-sm text-indigo-700">
               <option value="all">Stato: tutti</option>
-              <option value="lavorare">Da lavorare (senza cat. o divisione)</option>
+              <option value="lavorare">Da lavorare (senza cat., divisione o modalità)</option>
               <option value="nocat">Senza categoria</option>
               <option value="nosplit">Senza divisione</option>
+              <option value="nomod">Senza modalità di pagamento</option>
+              <option value="modparz">Piano scadenze da completare</option>
               <option value="scaduto">Con scaduto</option>
             </select>
             <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} className="px-3 py-2.5 border border-slate-200 rounded-lg text-sm text-slate-600">
@@ -1142,7 +1190,7 @@ export default function Fornitori() {
                   <SortableTh sortKey="partita_iva" sortBy={suSortBy} onSort={suOnSort}>P.IVA</SortableTh>
                   <SortableTh sortKey="category" sortBy={suSortBy} onSort={suOnSort} align="center">Cat.</SortableTh>
                   <th className="px-3 py-2.5 text-center text-[11px] uppercase tracking-wider font-semibold text-indigo-600">Divisione</th>
-                  <SortableTh sortKey="payment_method" sortBy={suSortBy} onSort={suOnSort} align="center">Metodo</SortableTh>
+                  <SortableTh sortKey="payment_method" sortBy={suSortBy} onSort={suOnSort} align="center">Pagamento</SortableTh>
                   <th className="px-3 py-2.5 text-right text-[11px] uppercase tracking-wider font-semibold text-slate-500">Fatturato</th>
                   <th className="px-3 py-2.5 text-right text-[11px] uppercase tracking-wider font-semibold text-slate-500">Da pagare</th>
                   <th className="px-3 py-2.5 text-center text-[11px] uppercase tracking-wider font-semibold text-slate-500">Banca</th>
@@ -1225,10 +1273,20 @@ export default function Fornitori() {
                           )}
                         </td>
                         <td className="px-3 py-2.5 text-center">
-                          {pm ? (
-                            <span className="text-xs text-slate-600">{PAYMENT_LABEL[String(pm)] || String(pm)}</span>
+                          <div className="text-xs text-slate-600">{pm ? (PAYMENT_LABEL[String(pm)] || String(pm)) : '—'}</div>
+                          {/* Seconda riga: la modalità delle scadenze. Se manca,
+                              badge ambra: quelle fatture stanno scadendo con la
+                              regola standard, non con l'accordo del fornitore. */}
+                          {planStatus(s) === 'ok' ? (
+                            <div className="text-[11px] text-slate-400">{scheduleLabel(s.payment_base as string | null, s.prima_scadenza_gg as number | null, s.numero_rate as number | null)}</div>
                           ) : (
-                            <span className="text-xs text-slate-300">—</span>
+                            <TextTooltip content={planStatus(s) === 'assente'
+                              ? 'Nessuna modalità impostata: le fatture scadono a 30 giorni fine mese, in una rata sola.'
+                              : 'Piano incompleto: manca il numero di giorni alla prima scadenza.'}>
+                              <span className="inline-block mt-0.5 px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full text-[11px] font-medium">
+                                {planStatus(s) === 'assente' ? 'da impostare' : 'da completare'}
+                              </span>
+                            </TextTooltip>
                           )}
                         </td>
                         <td className="px-3 py-2.5 text-right">
@@ -1362,6 +1420,13 @@ export default function Fornitori() {
                           <span className="px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full text-xs font-medium">divisione da definire</span>
                         ) : null}
                         {pm ? <span className="text-xs text-slate-500">{PAYMENT_LABEL[String(pm)] || String(pm)}</span> : null}
+                        {planStatus(s) === 'ok' ? (
+                          <span className="text-xs text-slate-400">{scheduleLabel(s.payment_base as string | null, s.prima_scadenza_gg as number | null, s.numero_rate as number | null)}</span>
+                        ) : (
+                          <span className="px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full text-xs font-medium">
+                            {planStatus(s) === 'assente' ? 'modalità da impostare' : 'modalità da completare'}
+                          </span>
+                        )}
                       </div>
                       <div className="flex items-center justify-between gap-3 mt-2">
                         <div className="text-xs text-slate-500">
@@ -1635,27 +1700,14 @@ export default function Fornitori() {
                 </div>
               </div>
 
-              {/* Row 3: Pagamento & Classificazione */}
+              {/* Row 3: COME SI PAGA — metodo, banca di addebito, IBAN.
+                  La banca sta accanto al metodo perche' e' il metodo a renderla
+                  obbligatoria (Ri.Ba., RID, SDD, carte). */}
               <div>
-                <h3 className="text-xs font-semibold text-slate-500 uppercase mb-3">Condizioni & classificazione</h3>
+                <h3 className="text-xs font-semibold text-slate-500 uppercase mb-3">Come si paga</h3>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label htmlFor="forn-iban" className="text-xs font-medium text-slate-600">IBAN</label>
-                    <input id="forn-iban" value={form.iban} onChange={e => setForm(f => ({ ...f, iban: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono" placeholder="IT..." />
-                  </div>
-                  <div>
-                    <label htmlFor="forn-categoria" className="text-xs font-medium text-slate-600">Categoria</label>
-                    <select id="forn-categoria" value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm">
-                      <option value="">Seleziona...</option>
-                      {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label htmlFor="forn-termini-pagamento-gg" className="text-xs font-medium text-slate-600">Termini pagamento (gg)</label>
-                    <input id="forn-termini-pagamento-gg" type="number" value={form.payment_terms} onChange={e => setForm(f => ({ ...f, payment_terms: Number(e.target.value) || 0 }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" min={0} max={365} />
-                  </div>
-                  <div>
-                    <label htmlFor="forn-metodo-pagamento" className="text-xs font-medium text-slate-600">Metodo pagamento</label>
+                    <label htmlFor="forn-metodo-pagamento" className="text-xs font-medium text-slate-600">Metodo di pagamento</label>
                     <select id="forn-metodo-pagamento" value={form.payment_method} onChange={e => setForm(f => ({ ...f, payment_method: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm">
                       {PAYMENT_METHOD_OPTIONS.map(g => (
                         <optgroup key={g.group} label={g.group}>
@@ -1664,71 +1716,166 @@ export default function Fornitori() {
                       ))}
                     </select>
                   </div>
-                  {/* ── PIANO RATE SCADENZE (v2) ─────────────────────────── */}
-                  <div className="col-span-2 mt-1 pt-3 border-t border-slate-200">
-                    <div className="flex items-center gap-2 mb-2">
-                      <Calendar size={14} className="text-indigo-500" />
-                      <span className="text-xs font-semibold text-slate-700">Piano scadenze (fatture dal 31/07/2026)</span>
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      {/* Scorciatoia: una sola tendina con tutte le dilazioni
-                          (30/60, 30/60/90, 30/60/90/120, 60/90, 60/90/120,
-                          90/120 …) che compila base, giorni e rate qui sotto. */}
-                      <div className="col-span-2">
-                        <label htmlFor="forn-modalita-scadenze" className="text-xs font-medium text-slate-600">Modalità (scadenze)</label>
-                        <select
-                          id="forn-modalita-scadenze"
-                          value={form.payment_base ? (findScheduleMode(form.payment_base, form.prima_scadenza_gg, form.numero_rate)?.label || '') : ''}
-                          onChange={e => {
-                            const m = SCHEDULE_MODE_GROUPS.flatMap(g => g.items).find(x => x.label === e.target.value);
-                            if (!m || !m.base || m.prima == null) return;
-                            setForm(f => ({ ...f, payment_base: m.base as string, prima_scadenza_gg: m.prima as number, numero_rate: m.rate as number }));
-                          }}
-                          className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
-                        >
-                          <option value="">
-                            {form.payment_base
-                              ? `Personalizzata (${scheduleLabel(form.payment_base, form.prima_scadenza_gg, form.numero_rate)})`
-                              : '— non impostata —'}
-                          </option>
-                          {SCHEDULE_MODE_GROUPS.filter(g => g.group !== 'Personalizzata').map(g => (
-                            <optgroup key={g.group} label={g.group}>
-                              {g.items.map(o => <option key={o.label} value={o.label}>{o.label}</option>)}
-                            </optgroup>
-                          ))}
-                        </select>
-                        <p className="mt-1 text-[11px] text-slate-400">Scegliendo una modalità si compilano da sole base, prima scadenza e numero rate; restano modificabili qui sotto per i casi fuori standard.</p>
-                      </div>
-                      <div>
-                        <label htmlFor="forn-base-di-calcolo" className="text-xs font-medium text-slate-600">Base di calcolo</label>
-                        <select id="forn-base-di-calcolo" value={form.payment_base} onChange={e => setForm(f => ({ ...f, payment_base: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm">
-                          <option value="">— non impostata —</option>
-                          <option value="data_fattura">Data fattura (a giorni)</option>
-                          <option value="fine_mese">Fine mese (a mesi)</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label className="text-xs font-medium text-slate-600">Banca di pagamento{isBankRequired(form.payment_method) && <span className="text-rose-500"> *</span>}</label>
-                        <select value={form.payment_bank_account_id} onChange={e => setForm(f => ({ ...f, payment_bank_account_id: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm">
-                          <option value="">— nessuna —</option>
-                          {bankAccounts.map(b => <option key={b.id} value={b.id}>{b.label}</option>)}
-                        </select>
-                      </div>
-                      <div>
-                        <label htmlFor="forn-1a-scadenza-gg" className="text-xs font-medium text-slate-600">1ª scadenza (gg)</label>
-                        <input id="forn-1a-scadenza-gg" type="number" value={form.prima_scadenza_gg} onChange={e => setForm(f => ({ ...f, prima_scadenza_gg: Number(e.target.value) || 0 }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" min={0} max={365} step={30} />
-                      </div>
-                      <div>
-                        <label htmlFor="forn-numero-rate" className="text-xs font-medium text-slate-600">Numero rate</label>
-                        <input id="forn-numero-rate" type="number" value={form.numero_rate} onChange={e => setForm(f => ({ ...f, numero_rate: Number(e.target.value) || 1 }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" min={1} max={12} />
-                      </div>
-                    </div>
+                  <div>
+                    <label htmlFor="forn-banca-addebito" className="text-xs font-medium text-slate-600">Banca di addebito{isBankRequired(form.payment_method) && <span className="text-rose-500"> *</span>}</label>
+                    <select id="forn-banca-addebito" value={form.payment_bank_account_id} onChange={e => setForm(f => ({ ...f, payment_bank_account_id: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm">
+                      <option value="">Nessuna</option>
+                      {bankAccounts.map(b => <option key={b.id} value={b.id}>{b.label}</option>)}
+                    </select>
+                    <p className="mt-1 text-[11px] text-slate-400">Il conto da cui esce il pagamento. Serve per prevedere le uscite di cassa.</p>
                     {isBankRequired(form.payment_method) && !form.payment_bank_account_id && (
-                      <div className="mt-2 flex items-center gap-1.5 text-xs text-rose-600">
-                        <AlertTriangle size={13} /> Con metodo {PAYMENT_LABEL[form.payment_method] || form.payment_method} la banca è obbligatoria (serve per il cashflow).
+                      <div className="mt-1.5 flex items-start gap-1.5 text-xs text-rose-600">
+                        <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+                        <span>Con {PAYMENT_LABEL[form.payment_method] || form.payment_method} serve la banca di addebito. Senza, il pagamento non entra nelle previsioni di cassa.</span>
                       </div>
                     )}
-                    <p className="mt-2 text-[11px] text-slate-400">Fine mese: <b>0 gg</b> = ultimo giorno del mese della fattura (fine mese data fattura); 30 gg = fine mese del mese successivo. Data fattura: a giorni. Rate successive +30gg (data fattura) o +1 mese (fine mese); importo diviso equamente tra le rate.</p>
+                  </div>
+                  <div className="col-span-2">
+                    <label htmlFor="forn-iban" className="text-xs font-medium text-slate-600">IBAN del fornitore</label>
+                    <input id="forn-iban" value={form.iban} onChange={e => setForm(f => ({ ...f, iban: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono" placeholder="IT..." />
+                  </div>
+                </div>
+              </div>
+
+              {/* Row 4: QUANDO SCADONO LE FATTURE — una sola tendina comanda.
+                  Base, giorni e rate sono i suoi ingredienti: restano visibili
+                  nel riepilogo dell'anteprima e modificabili solo nel blocco
+                  "accordo fuori standard", cosi' chi compila non deve scegliere
+                  fra quattro campi che dicono la stessa cosa. */}
+              <div>
+                <h3 className="text-xs font-semibold text-slate-500 uppercase mb-3 flex items-center gap-1.5">
+                  <Calendar size={14} className="text-indigo-500" /> Quando scadono le fatture
+                </h3>
+
+                <div>
+                  <label htmlFor="forn-modalita-scadenze" className="text-xs font-medium text-slate-600">Modalità di pagamento</label>
+                  <select
+                    id="forn-modalita-scadenze"
+                    value={form.payment_base ? (findScheduleMode(form.payment_base, form.prima_scadenza_gg, form.numero_rate)?.label || '') : ''}
+                    onChange={e => {
+                      const m = SCHEDULE_MODE_GROUPS.flatMap(g => g.items).find(x => x.label === e.target.value);
+                      if (!m || !m.base || m.prima == null) return;
+                      setForm(f => ({ ...f, payment_base: m.base as string, prima_scadenza_gg: m.prima as number, numero_rate: m.rate as number }));
+                    }}
+                    className={`mt-1 w-full px-3 py-2 border rounded-lg text-sm ${planStatus(formPlan) === 'ok' ? 'border-slate-200' : 'border-amber-300 bg-amber-50'}`}
+                  >
+                    <option value="">
+                      {form.payment_base
+                        ? `Accordo fuori standard: ${scheduleLabel(form.payment_base, form.prima_scadenza_gg, form.numero_rate)}`
+                        : 'Non impostata (vale la regola standard)'}
+                    </option>
+                    {SCHEDULE_MODE_GROUPS.filter(g => g.group !== 'Personalizzata').map(g => (
+                      <optgroup key={g.group} label={SCHEDULE_GROUP_TEXT[g.group] || g.group}>
+                        {g.items.map(o => <option key={o.label} value={o.label}>{scheduleModeText(o)}</option>)}
+                      </optgroup>
+                    ))}
+                  </select>
+                  <p className="mt-1 text-[11px] text-slate-400">Decide quando scadono le fatture di questo fornitore. Se una fattura porta già le sue scadenze, valgono quelle.</p>
+                </div>
+
+                {/* Avviso: e' l'unico punto in cui ci si puo' accorgere che il
+                    fornitore sta usando la regola standard invece del suo accordo. */}
+                {planStatus(formPlan) !== 'ok' && (
+                  <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 flex items-start gap-2">
+                    <AlertTriangle size={14} className="text-amber-600 mt-0.5 shrink-0" />
+                    <div className="text-xs text-amber-800">
+                      {planStatus(formPlan) === 'assente' ? (
+                        <>
+                          <span className="font-medium">Modalità non impostata.</span> Per ora le fatture di questo fornitore
+                          scadono a 30 giorni fine mese, in una rata sola. Scegli la modalità giusta, oppure conferma quella standard.
+                          <button
+                            type="button"
+                            onClick={() => setForm(f => ({ ...f, payment_base: 'fine_mese', prima_scadenza_gg: 30, numero_rate: 1 }))}
+                            className="ml-2 px-2 py-0.5 bg-white border border-amber-300 rounded text-[11px] font-semibold text-amber-800 hover:bg-amber-100"
+                          >
+                            Usa la regola standard
+                          </button>
+                        </>
+                      ) : (
+                        <><span className="font-medium">Piano da completare:</span> manca il numero di giorni alla prima scadenza.
+                        Scegli una modalità qui sopra, oppure compila i campi in «Accordo fuori standard».</>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Anteprima con la STESSA logica delle scadenze vere
+                    (computeInstallments), cosi' la sigla diventa una data. */}
+                <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                    <span className="text-xs font-semibold text-slate-700">Anteprima scadenze</span>
+                    <label className="flex items-center gap-1.5 text-[11px] text-slate-500">
+                      Fattura di prova del
+                      <input type="date" value={previewDate} onChange={e => setPreviewDate(e.target.value)} className="px-2 py-1 border border-slate-200 rounded text-[11px] bg-white" />
+                    </label>
+                  </div>
+                  {previewRate.length === 1 ? (
+                    <p className="text-sm text-slate-700">
+                      Una fattura del <b>{fmtDateIt(previewDate)}</b> scade il <b>{fmtDateIt(previewRate[0].dueDate)}</b>.
+                    </p>
+                  ) : previewRate.length > 1 ? (
+                    <>
+                      <p className="text-sm text-slate-700">Una fattura del <b>{fmtDateIt(previewDate)}</b> da <b>1.000 €</b> si divide così:</p>
+                      <div className="mt-1.5 space-y-1">
+                        {previewRate.map((r, i) => (
+                          <div key={r.dueDate + i} className="flex items-center gap-3 text-xs">
+                            <span className="text-slate-400 w-14 shrink-0">{i + 1}ª rata</span>
+                            <span className="font-medium text-slate-700 w-24">{fmtDateIt(r.dueDate)}</span>
+                            <span className="text-slate-500">€ {r.amount.toLocaleString('de-DE', { minimumFractionDigits: 2 })}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  ) : null}
+                  <p className="mt-2 text-[11px] text-slate-400">
+                    Calcolo: {formPlanDerived.base === 'data_fattura' ? 'data della fattura' : 'fine mese'}, prima scadenza
+                    a {formPlanDerived.gg} giorni, {formPlanDerived.nRate > 1 ? `${formPlanDerived.nRate} rate` : 'rata unica'}.
+                  </p>
+                </div>
+                <p className="mt-1.5 text-[11px] text-slate-400">Vale per le fatture dal 31/07/2026 che non portano già una loro scadenza.</p>
+
+                {/* Accordi fuori standard: un clic in piu' per i pochi che ne
+                    hanno bisogno, invece di quattro campi per tutti. */}
+                <details className="mt-3 group" open={planStatus(formPlan) === 'incompleto' || isPianoFuoriStandard}>
+                  <summary className="cursor-pointer text-xs font-medium text-indigo-600 hover:text-indigo-700 list-none flex items-center gap-1.5">
+                    <ChevronDown size={14} className="group-open:rotate-180 transition" />
+                    Accordo fuori standard (per esempio 45 e 75 giorni, oppure 3 rate)
+                  </summary>
+                  <div className="mt-2 grid grid-cols-3 gap-3">
+                    <div>
+                      <label htmlFor="forn-base-di-calcolo" className="text-xs font-medium text-slate-600">Si conta da</label>
+                      <select id="forn-base-di-calcolo" value={form.payment_base} onChange={e => setForm(f => ({ ...f, payment_base: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm">
+                        <option value="">Non impostata</option>
+                        <option value="fine_mese">Fine mese</option>
+                        <option value="data_fattura">Data della fattura</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label htmlFor="forn-1a-scadenza-gg" className="text-xs font-medium text-slate-600">Giorni alla prima scadenza</label>
+                      <input id="forn-1a-scadenza-gg" type="number" value={form.prima_scadenza_gg} onChange={e => setForm(f => ({ ...f, prima_scadenza_gg: Number(e.target.value) || 0 }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" min={0} max={365} />
+                    </div>
+                    <div>
+                      <label htmlFor="forn-numero-rate" className="text-xs font-medium text-slate-600">Numero di rate</label>
+                      <input id="forn-numero-rate" type="number" value={form.numero_rate} onChange={e => setForm(f => ({ ...f, numero_rate: Number(e.target.value) || 1 }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" min={1} max={12} />
+                    </div>
+                  </div>
+                  <p className="mt-1.5 text-[11px] text-slate-400">
+                    Ogni rata dopo la prima slitta di un mese. L'importo si divide in parti uguali.
+                    Con «Fine mese» e 0 giorni la scadenza cade l'ultimo giorno del mese della fattura.
+                  </p>
+                </details>
+              </div>
+
+              {/* Row 5: CLASSIFICAZIONE */}
+              <div>
+                <h3 className="text-xs font-semibold text-slate-500 uppercase mb-3">Classificazione</h3>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="col-span-2">
+                    <label htmlFor="forn-categoria" className="text-xs font-medium text-slate-600">Categoria</label>
+                    <select id="forn-categoria" value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm">
+                      <option value="">Seleziona...</option>
+                      {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
                   </div>
                   <div className="col-span-2 mt-1 pt-3 border-t border-slate-200">
                     <label className="flex items-start gap-2.5 cursor-pointer">

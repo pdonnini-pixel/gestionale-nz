@@ -120,3 +120,122 @@ export const findScheduleMode = (
   const label = scheduleLabel(base, gg, rate)
   return SCHEDULE_MODE_GROUPS.flatMap(g => g.items).find(m => m.label === label)
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Calcolo delle scadenze dal piano del fornitore.
+// Spostato qui da src/pages/scadenzario/modals.tsx (ondata modalità 2026-09):
+// la stessa matematica serve al modal scadenza E all'anteprima nel form
+// fornitore, e due copie diverberebbero. Replica lato client di
+// fn_supplier_installment_schedule (migration 087).
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type SupplierPlan = {
+  base: PaymentBase
+  gg: number
+  nRate: number
+  /** false quando il fornitore non ha un piano: valgono i default qui sotto. */
+  hasPlan: boolean
+}
+
+/** Piano usato quando il fornitore non ne ha uno: 30 gg fine mese, rata unica. */
+export const DEFAULT_PLAN: { base: PaymentBase; gg: number; nRate: number } = {
+  base: 'fine_mese', gg: 30, nRate: 1,
+}
+
+export type PlanFields = {
+  payment_base?: unknown
+  prima_scadenza_gg?: unknown
+  numero_rate?: unknown
+  // L'index signature evita il "weak type check" di TS quando si passa una riga
+  // fornitore generica (Record<string, unknown>) letta da Supabase.
+  [k: string]: unknown
+}
+
+/** Stato del piano di un fornitore, allineato a fn_supplier_config_anomaly. */
+export type PlanStatus = 'ok' | 'assente' | 'incompleto'
+export const planStatus = (s: PlanFields | null | undefined): PlanStatus => {
+  const base = String((s?.payment_base as string | undefined) || '').trim()
+  if (!base) return 'assente'
+  const gg = s?.prima_scadenza_gg
+  const rate = Number(s?.numero_rate)
+  if (gg == null || !Number.isFinite(Number(gg)) || Number(gg) < 0 || !(rate > 0)) return 'incompleto'
+  return 'ok'
+}
+
+export const derivePlan = (sup: PlanFields | null | undefined): SupplierPlan => {
+  const rawBase = String((sup?.payment_base as string | undefined) || '').trim()
+  // prima_scadenza_gg == null => non impostato; 0 è un valore VALIDO (fine mese
+  // data fattura = ultimo giorno del mese della fattura). Attenzione: Number(null)
+  // è 0, quindi il "set" va deciso su != null, non sul valore.
+  const ggRaw = sup?.prima_scadenza_gg
+  const ggSet = ggRaw != null && Number.isFinite(Number(ggRaw))
+  const gg = ggSet ? Number(ggRaw) : DEFAULT_PLAN.gg
+  const nRate = Number(sup?.numero_rate)
+  return {
+    base: rawBase === 'data_fattura' ? 'data_fattura' : DEFAULT_PLAN.base,
+    gg: gg >= 0 ? gg : DEFAULT_PLAN.gg,
+    nRate: nRate > 0 ? nRate : DEFAULT_PLAN.nRate,
+    hasPlan: !!sup && planStatus(sup) === 'ok',
+  }
+}
+
+export type Installment = { dueDate: string; amount: number }
+
+const pad2 = (n: number) => String(n).padStart(2, '0')
+const toISODate = (d: Date): string => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
+const round2 = (n: number): number => Math.round((n + Number.EPSILON) * 100) / 100
+/** Ultimo giorno di (mese di `emissioneISO` + `months`). */
+const lastDayOfMonthPlus = (emissioneISO: string, months: number): string => {
+  const d = new Date(emissioneISO + 'T00:00:00')
+  return toISODate(new Date(d.getFullYear(), d.getMonth() + months + 1, 0))
+}
+const addDaysISO = (emissioneISO: string, days: number): string => {
+  const d = new Date(emissioneISO + 'T00:00:00')
+  d.setDate(d.getDate() + days)
+  return toISODate(d)
+}
+
+export const computeInstallments = (emissioneISO: string, plan: SupplierPlan, gross: number): Installment[] => {
+  if (!emissioneISO) return []
+  const n = Math.max(plan.nRate || 1, 1)
+  const quota = round2((Number(gross) || 0) / n)
+  let acc = 0
+  const out: Installment[] = []
+  for (let i = 1; i <= n; i++) {
+    let due: string
+    if (plan.base === 'fine_mese') {
+      // N mesi solari da aggiungere al mese di emissione (= giorni/30 + rate precedenti).
+      const months = Math.floor(plan.gg / 30) + (i - 1)
+      due = lastDayOfMonthPlus(emissioneISO, months)
+    } else {
+      // Data fattura: a giorni.
+      due = addDaysISO(emissioneISO, plan.gg + 30 * (i - 1))
+    }
+    const amount = i < n ? quota : round2((Number(gross) || 0) - acc)
+    if (i < n) acc = round2(acc + quota)
+    out.push({ dueDate: due, amount })
+  }
+  return out
+}
+
+// ─── Testi leggibili (per chi compila, non per chi legge il codice) ──────────
+
+/** "30/60 gg DFFM" -> "30 e 60 gg fine mese"; "90 gg D.F." -> "90 gg dalla data fattura". */
+export const scheduleModeText = (mode: PaymentScheduleMode): string => {
+  if (mode.label === 'A Vista') return 'A vista (si paga subito)'
+  if (mode.label === 'Fine mese') return 'Fine mese della fattura'
+  if (mode.dataFissa) return 'Data fissa del mese'
+  const giorni = installmentDays(mode.prima ?? 0, mode.rate ?? 1)
+  const elenco = giorni.length === 1
+    ? String(giorni[0])
+    : giorni.slice(0, -1).join(', ') + ' e ' + giorni[giorni.length - 1]
+  return `${elenco} gg ${mode.base === 'data_fattura' ? 'dalla data fattura' : 'fine mese'}`
+}
+
+/** Etichette dei gruppi nella tendina, in italiano corrente. */
+export const SCHEDULE_GROUP_TEXT: Record<string, string> = {
+  'Immediato': 'Più usate',
+  'Fine mese (DFFM)': 'Fine mese (DFFM)',
+  'Data fattura (D.F.)': 'Giorni dalla data fattura (D.F.)',
+  'Personalizzata': 'Personalizzata',
+}

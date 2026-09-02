@@ -14,10 +14,11 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { useToast } from '../components/Toast'
 import {
-  Search, Save, RotateCcw, ArrowLeft, Loader2, ChevronLeft, ChevronRight,
+  Search, Save, RotateCcw, ArrowLeft, Loader2, ChevronLeft, ChevronRight, AlertTriangle,
 } from 'lucide-react'
 import {
-  SCHEDULE_MODE_GROUPS, SCHEDULE_MODE_LABELS, scheduleLabel, parseScheduleLabel,
+  SCHEDULE_MODE_GROUPS, SCHEDULE_MODE_LABELS, SCHEDULE_GROUP_TEXT,
+  scheduleLabel, parseScheduleLabel,
 } from '../lib/paymentSchedule'
 
 // Famiglie di metodo mostrate all'operatrice (la "Tipologia")
@@ -26,6 +27,11 @@ const FAMIGLIE = ['Bonifico', 'RI.BA', 'RID', 'SDD', 'Contanti', 'Carta/Bancomat
 // (dilazioni singole e multiple, DFFM e data fattura), condiviso con Fornitori.
 
 const PER_PAGE = 20
+
+// Un fornitore ha la modalità "da definire" quando il piano non è impostato
+// (nessuna base) o è a metà (base sì, giorni no): in quel caso le scadenze delle
+// sue fatture NON seguono un accordo, ma la regola predefinita dell'azienda.
+const scadMancante = (label: string): boolean => label === 'da definire'
 
 // enum payment_method -> famiglia leggibile
 function familyFromEnum(m: string): string {
@@ -88,6 +94,7 @@ export default function RevisionePagamenti() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [search, setSearch] = useState('')
+  const [soloMancanti, setSoloMancanti] = useState(false)
   const [page, setPage] = useState(1)
   const [bankResolve, setBankResolve] = useState<Record<string, string>>({})
 
@@ -165,14 +172,23 @@ export default function RevisionePagamenti() {
 
   const editedList = useMemo(() => suppliers.filter(isEdited), [suppliers, isEdited])
 
+  // Fornitori la cui modalità è ancora da definire: sono quelli su cui le
+  // scadenze vengono calcolate con la regola predefinita, non con un accordo.
+  const mancantiCount = useMemo(
+    () => suppliers.filter(s => scadMancante(orig(s).scad)).length,
+    [suppliers, orig],
+  )
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
-    if (!q) return suppliers
-    return suppliers.filter(s => String(s.ragione_sociale || s.name || '').toLowerCase().includes(q))
-  }, [suppliers, search])
+    let out = suppliers
+    if (q) out = out.filter(s => String(s.ragione_sociale || s.name || '').toLowerCase().includes(q))
+    if (soloMancanti) out = out.filter(s => scadMancante(current(s).scad))
+    return out
+  }, [suppliers, search, soloMancanti, current])
 
   // Paginazione: 20 fornitori per pagina
-  useEffect(() => { setPage(1) }, [search])
+  useEffect(() => { setPage(1) }, [search, soloMancanti])
   const totalPages = Math.max(1, Math.ceil(filtered.length / PER_PAGE))
   const pageSafe = Math.min(page, totalPages)
   const pageStart = (pageSafe - 1) * PER_PAGE
@@ -255,6 +271,15 @@ export default function RevisionePagamenti() {
             className="w-full text-sm outline-none bg-transparent" />
         </div>
         <span className="text-sm text-slate-500">{suppliers.length} fornitori · <b className="text-amber-600">{editedList.length}</b> modificati</span>
+        {mancantiCount > 0 && (
+          <button
+            onClick={() => setSoloMancanti(v => !v)}
+            className={`px-3 py-2 text-sm rounded-lg border inline-flex items-center gap-2 ${soloMancanti ? 'border-amber-400 bg-amber-100 text-amber-800' : 'border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100'}`}
+            title="Questi fornitori non hanno una modalità: le loro fatture scadono con la regola standard (30 giorni fine mese, rata unica)"
+          >
+            <AlertTriangle size={15} /> {mancantiCount} senza modalità{soloMancanti ? ' (filtro attivo)' : ''}
+          </button>
+        )}
         {editedList.length > 0 && (
           <button onClick={() => { setEdits({}); setDayFisso({}) }}
             className="px-3 py-2 text-sm rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 inline-flex items-center gap-2">
@@ -308,10 +333,11 @@ export default function RevisionePagamenti() {
                     <td className="px-3 py-2">
                       <div className="flex items-center gap-1.5">
                         <select value={isFissa ? 'Data fissa mese' : c.scad} onChange={e => setEdit(s, { scad: e.target.value })}
-                          className={`flex-1 px-2 py-1.5 border rounded-lg text-sm ${c.scad !== orig(s).scad ? 'border-amber-300 bg-amber-50' : 'border-slate-200'}`}>
+                          title={scadMancante(c.scad) ? 'Modalità da definire: intanto le fatture scadono a 30 giorni fine mese, in una rata sola' : undefined}
+                          className={`flex-1 px-2 py-1.5 border rounded-lg text-sm ${c.scad !== orig(s).scad ? 'border-amber-300 bg-amber-50' : scadMancante(c.scad) ? 'border-amber-300 bg-amber-50 text-amber-800' : 'border-slate-200'}`}>
                           {custom && <option value={custom}>{custom}</option>}
                           {SCHEDULE_MODE_GROUPS.map(g => (
-                            <optgroup key={g.group} label={g.group}>
+                            <optgroup key={g.group} label={SCHEDULE_GROUP_TEXT[g.group] || g.group}>
                               {g.items.map(o => <option key={o.label} value={o.label}>{o.label}</option>)}
                             </optgroup>
                           ))}
