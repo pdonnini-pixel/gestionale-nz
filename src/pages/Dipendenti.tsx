@@ -51,6 +51,11 @@ import {
 } from '../lib/payrollParse';
 import { UiTooltip } from '../components/Tooltip'; // alias: 'Tooltip' collide con recharts
 import ExportMenu from '../components/ExportMenu';
+// Organico granitico: fonte unica del conteggio dipendenti (vedi src/lib/headcount.ts).
+import {
+  companyHeadcount, headcountByOutlet as headcountByOutletOf, paidEmployeeIds,
+  lastGranitedPeriod, periodLabel,
+} from '../lib/headcount';
 
 const PdfViewer = lazy(() => import('../components/PdfViewer'));
 
@@ -320,7 +325,13 @@ export default function Dipendenti() {
   };
 
   const [selectedYear, setSelectedYear] = useState(globalYear);
+  // Il mese parte da quello di calendario, ma appena i cedolini sono caricati si
+  // sposta sull'ultimo mese granito dell'anno (a settembre non ha senso aprire su
+  // un mese vuoto). Il salto avviene una sola volta: se l'utente sceglie un mese,
+  // la sua scelta comanda.
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
+  const monthTouched = useRef(false);
+  const pickMonth = (m: number) => { monthTouched.current = true; setSelectedMonth(m); };
 
   // Data state
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -529,10 +540,12 @@ export default function Dipendenti() {
     return parts.reduce<number>((s, p) => s + Number(p || 0), 0);
   };
 
-  // Netto mensile per outlet (via allocazioni, outlet_code == outlet.name)
+  // Netto mensile per outlet (via allocazioni, outlet_code == outlet.name).
+  // Itera su TUTTI i dipendenti, non solo gli attivi di oggi: il netto pagato a
+  // marzo a chi cessa a maggio è comunque un costo di marzo.
   const nettoByOutlet = useMemo(() => {
     const m: Record<string, number> = {};
-    activeEmployees.forEach((e) => {
+    employees.forEach((e) => {
       if (isAdminRole(e)) return; // gli amministratori non entrano nei totali outlet
       const netto = nettoOf(e.id);
       if (!netto) return;
@@ -545,30 +558,39 @@ export default function Dipendenti() {
     });
     return m;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeEmployees, allocByEmp, costs, selectedYear, selectedMonth]);
+  }, [employees, allocByEmp, costs, selectedYear, selectedMonth]);
 
-  // REGOLA NO-ZERO: un dipendente "esiste" per il mese SOLO se ha un netto reale (cedolino).
-  // Tutto ciò che è per-mese (organico, per outlet, cedolini) si basa su questo insieme.
-  // esclude gli amministratori: hanno una sezione dedicata e non contano nell'organico dipendenti
+  // ORGANICO GRANITICO (src/lib/headcount.ts): un dipendente "esiste" per il mese
+  // SOLO se ha un cedolino di quel mese. Amministratori esclusi (sezione dedicata),
+  // cessati inclusi nei mesi in cui sono stati pagati (la cessazione non riscrive
+  // il passato), persone deduplicate per codice fiscale.
+  const period = useMemo(() => ({ year: selectedYear, month: selectedMonth }), [selectedYear, selectedMonth]);
   const paidThisMonth = useMemo(
     () => costs.filter((c) => c.year === selectedYear && c.month === selectedMonth && c.netto != null && c.employee_id != null && !isAdminId(c.employee_id)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [costs, selectedYear, selectedMonth, empById]
   );
-  const paidEmpIds = useMemo(() => new Set(paidThisMonth.map((c) => c.employee_id)), [paidThisMonth]);
+  const paidEmpIds = useMemo(() => paidEmployeeIds(costs, employees, period), [costs, employees, period]);
   const isPaid = (empId: string) => paidEmpIds.has(empId);
-  const organicoAttivo = paidEmpIds.size; // organico attivo del MESE = chi ha il cedolino
+  // organico del MESE = PERSONE distinte con cedolino
+  const organicoAttivo = useMemo(() => companyHeadcount(costs, employees, period), [costs, employees, period]);
+  // Ultimo mese con cedolini caricati: default del selettore e etichetta di fallback.
+  const lastGranited = useMemo(() => lastGranitedPeriod(costs), [costs]);
+  const lastGranitedInYear = useMemo(() => lastGranitedPeriod(costs, selectedYear), [costs, selectedYear]);
+  const meseGranito = paidEmpIds.size > 0;
 
-  const headcountByOutlet = useMemo(() => {
-    const m: Record<string, Set<string>> = {};
-    activeEmployees.forEach((e) => {
-      if (!paidEmpIds.has(e.id)) return; // solo chi ha il cedolino del mese
-      (allocByEmp[e.id] || []).forEach((a) => {
-        (m[a.outlet_code] ||= new Set()).add(e.id);
-      });
-    });
-    return m;
-  }, [activeEmployees, allocByEmp, paidEmpIds]);
+  const headcountByOutlet = useMemo(
+    () => headcountByOutletOf(costs, employees, allocations, period),
+    [costs, employees, allocations, period]
+  );
+
+  // Default granitico: al primo caricamento porta il selettore sull'ultimo mese
+  // con cedolini dell'anno scelto, così la pagina non si apre mai vuota.
+  useEffect(() => {
+    if (monthTouched.current || !lastGranitedInYear) return;
+    if (lastGranitedInYear.month !== selectedMonth) setSelectedMonth(lastGranitedInYear.month);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lastGranitedInYear]);
 
   const bcByOutlet = (o: OutletRow) => (o.cost_center_key ? bcByCenter[o.cost_center_key] || 0 : 0);
 
@@ -873,14 +895,14 @@ export default function Dipendenti() {
   return (
     <div className="p-6 space-y-6">
       <PageHeader
-        title="Personale"
+        title="Dipendenti"
         subtitle={`Organico e costo del personale per outlet${companyName ? ` · ${companyName}` : ''}`}
         actions={
           <div className="flex items-center gap-2">
             <select value={selectedYear} onChange={(e) => setSelectedYear(Number(e.target.value))} className="px-3 py-2 text-sm rounded-lg border border-slate-200 bg-white">
               {yearOptions.map((y) => <option key={y} value={y}>Anno {y}</option>)}
             </select>
-            <select value={selectedMonth} onChange={(e) => setSelectedMonth(Number(e.target.value))} className="px-3 py-2 text-sm rounded-lg border border-slate-200 bg-white">
+            <select value={selectedMonth} onChange={(e) => pickMonth(Number(e.target.value))} className="px-3 py-2 text-sm rounded-lg border border-slate-200 bg-white">
               {MONTHS.map((m) => <option key={m.num} value={m.num}>{m.label}</option>)}
             </select>
             <button onClick={() => { setEditingEmployee(null); setShowEmployeeForm(true); }} className="px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium flex items-center gap-1.5"><Plus size={15} /> Dipendente</button>
@@ -907,6 +929,25 @@ export default function Dipendenti() {
           );
         })}
       </div>
+
+      {/* Mese senza cedolini: il numero NON è zero, è "non ancora caricato".
+          Si dichiara l'ultimo mese granito e si offre il salto. */}
+      {!loading && !meseGranito && (
+        <div className="text-sm text-amber-900 bg-amber-50 border border-amber-200 rounded-xl p-3.5 flex items-start gap-2.5">
+          <AlertCircle size={16} className="text-amber-600 mt-0.5 shrink-0" />
+          <div>
+            <strong>Nessun cedolino caricato per {monthLabel} {selectedYear}.</strong>{' '}
+            {lastGranited
+              ? <>L'organico non è zero: è non ancora caricato. Ultimo mese granito: <strong>{periodLabel(lastGranited)}</strong>.{' '}
+                  <button
+                    onClick={() => { monthTouched.current = true; setSelectedYear(lastGranited.year); setSelectedMonth(lastGranited.month); }}
+                    className="underline font-semibold hover:text-amber-700"
+                  >Vai a {periodLabel(lastGranited)}</button>
+                </>
+              : <>Carica i netti dalla scheda «Costi &amp; cedolini»: è il carico che rende granitico l'organico del mese.</>}
+          </div>
+        </div>
+      )}
 
       {loading ? (
         <div className="text-slate-400 py-12 text-center">Caricamento…</div>
@@ -937,7 +978,7 @@ export default function Dipendenti() {
           {view === 'per_outlet' && (
             <PerOutletTab
               outlets={outlets}
-              activeEmployees={activeEmployees}
+              allEmployees={employees}
               allocByEmp={allocByEmp}
               nettoOf={nettoOf}
               nettoCell={nettoCell}
@@ -991,7 +1032,7 @@ export default function Dipendenti() {
               monthLabel={monthLabel}
               mm={String(selectedMonth).padStart(2, '0')}
               year={selectedYear}
-              employees={activeEmployees}
+              employees={employees}
               allocByEmp={allocByEmp}
               outlets={outlets}
               isPaid={isPaid}
@@ -1282,7 +1323,7 @@ function QuadCard({ label, value, sub, muted = false, color }: { label: string; 
 // ============================================================================
 function PerOutletTab(props: {
   outlets: OutletRow[];
-  activeEmployees: Employee[];
+  allEmployees: Employee[];
   allocByEmp: Record<string, EmployeeOutletAllocation[]>;
   nettoOf: (id: string) => number;
   nettoCell: (id: string) => number | null;
@@ -1297,7 +1338,7 @@ function PerOutletTab(props: {
   year: number;
   nonAttribuito: number;
 }) {
-  const { outlets, activeEmployees, allocByEmp, nettoOf, nettoCell, isPaid, admins, lordoAmministratori, nettoByOutlet, headcountByOutlet, bcByOutlet, mm, year, nonAttribuito } = props;
+  const { outlets, allEmployees, allocByEmp, nettoOf, nettoCell, isPaid, admins, lordoAmministratori, nettoByOutlet, headcountByOutlet, bcByOutlet, mm, year, nonAttribuito } = props;
   if (outlets.length === 0) {
     return <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center text-slate-400">Nessun outlet configurato per questo tenant.</div>;
   }
@@ -1314,7 +1355,7 @@ function PerOutletTab(props: {
         const color = getOutletColor(o.name);
         const isSede = o.cost_center_key === 'sede_magazzino';
         // NO-ZERO: solo chi ha il cedolino del mese viene elencato (amministratori esclusi: sezione dedicata)
-        const persone = activeEmployees.filter((e) => isPaid(e.id) && (allocByEmp[e.id] || []).some((a) => a.outlet_code === o.name));
+        const persone = allEmployees.filter((e) => isPaid(e.id) && (allocByEmp[e.id] || []).some((a) => a.outlet_code === o.name));
         return (
           <div key={o.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
             <div className="flex items-center gap-3 p-4">

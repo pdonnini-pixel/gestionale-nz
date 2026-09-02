@@ -1,4 +1,4 @@
-import { useState, useEffect, lazy, Suspense } from 'react'
+import { useState, useEffect, useMemo, lazy, Suspense } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import PageHeader from '../components/PageHeader'
 import TextTooltip from '../components/Tooltip'
@@ -25,6 +25,11 @@ import {
 } from 'recharts'
 import { GlassTooltip, AXIS_STYLE, GRID_STYLE } from '../components/ChartTheme'
 import { formatOutletName } from '../lib/formatters'
+// Organico granitico: chi è in forza lo dicono i cedolini (src/lib/headcount.ts).
+import {
+  headcountCountByOutlet, lastGranitedPeriod, paidEmployeeIds, periodLabel,
+  type HeadcountCost, type HeadcountEmployee, type HeadcountAllocation,
+} from '../lib/headcount'
 
 const MONTHS = ['Gen','Feb','Mar','Apr','Mag','Giu','Lug','Ago','Set','Ott','Nov','Dic']
 const DOCUMENT_CATEGORIES = [
@@ -1506,27 +1511,75 @@ function CorrispettiviTab({ outletId, companyId }: { outletId: string; companyId
 }
 
 // ====== STAFF TAB ======
-type StaffRow = { id: string; first_name?: string | null; last_name?: string | null; role?: string | null; contract_type?: string | null; annual_gross_salary?: number | null; monthly_net_salary?: number | null; hire_date?: string | null; is_active?: boolean | null }
-function StaffTab({ outletId, companyId }: { outletId: string; companyId: string }) {
+// ORGANICO GRANITICO: chi è "in forza" in questo punto vendita lo dicono i
+// cedolini dell'ultimo mese caricato, non `employees.outlet_id` (che diverge
+// dalle allocazioni su metà degli outlet). L'anagrafica serve per l'elenco e i
+// dati di contratto; il NUMERO viene dal payroll.
+type StaffRow = {
+  id: string
+  first_name?: string | null
+  last_name?: string | null
+  nome?: string | null
+  cognome?: string | null
+  codice_fiscale?: string | null
+  fiscal_code?: string | null
+  role_description?: string | null
+  contratto_tipo?: string | null
+  contract_type?: string | null
+  gross_annual_cost?: number | null
+  net_monthly_salary?: number | null
+  hire_date?: string | null
+  is_active?: boolean | null
+}
+function StaffTab({ outletId, outletName, companyId }: { outletId: string; outletName: string; companyId: string }) {
   const labels = useCompanyLabels()
   const [staff, setStaff] = useState<StaffRow[]>([])
+  const [costs, setCosts] = useState<HeadcountCost[]>([])
+  const [allocs, setAllocs] = useState<HeadcountAllocation[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     loadStaff()
-  }, [outletId])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [outletId, outletName])
 
   async function loadStaff() {
     setLoading(true)
     try {
-      const { data } = await supabase
-        .from('employees')
-        .select('id, first_name, last_name, role, contract_type, annual_gross_salary, monthly_net_salary, hire_date, is_active')
-        .eq('outlet_id', outletId)
+      // Allocazioni di QUESTO outlet (outlet_code = nome dell'outlet).
+      const { data: allocData, error: allocErr } = await supabase
+        .from('employee_outlet_allocations')
+        .select('employee_id, outlet_code')
         .eq('company_id', companyId)
-        .order('last_name')
+        .eq('outlet_code', outletName)
+      if (allocErr) console.error('Staff: errore allocazioni', allocErr)
+      const allocRows = ((allocData || []) as unknown) as HeadcountAllocation[]
+      setAllocs(allocRows)
 
-      setStaff(((data || []) as unknown) as StaffRow[])
+      const ids = allocRows.map(a => a.employee_id).filter((x): x is string => Boolean(x))
+      if (ids.length === 0) { setStaff([]); setCosts([]); return }
+
+      // Nomi delle colonne allineati allo schema reale di `employees`
+      // (gross_annual_cost / net_monthly_salary / role_description): con i nomi
+      // sbagliati la select falliva e la scheda restava vuota su ogni outlet.
+      const [empRes, costRes] = await Promise.all([
+        supabase
+          .from('employees')
+          .select('id, first_name, last_name, nome, cognome, codice_fiscale, fiscal_code, role_description, contratto_tipo, contract_type, gross_annual_cost, net_monthly_salary, hire_date, is_active')
+          .eq('company_id', companyId)
+          .in('id', ids)
+          .order('last_name'),
+        supabase
+          .from('employee_costs')
+          .select('employee_id, year, month, netto')
+          .eq('company_id', companyId)
+          .in('employee_id', ids)
+          .not('netto', 'is', null),
+      ])
+      if (empRes.error) console.error('Staff: errore anagrafica', empRes.error)
+      if (costRes.error) console.error('Staff: errore cedolini', costRes.error)
+      setStaff(((empRes.data || []) as unknown) as StaffRow[])
+      setCosts(((costRes.data || []) as unknown) as HeadcountCost[])
     } catch (e) {
       console.error('Staff load error:', e)
     } finally {
@@ -1534,8 +1587,20 @@ function StaffTab({ outletId, companyId }: { outletId: string; companyId: string
     }
   }
 
-  const totalCost = staff.reduce((s, e) => s + (e.annual_gross_salary || 0), 0)
-  const activeCount = staff.filter(e => e.is_active).length
+  const period = useMemo(() => lastGranitedPeriod(costs), [costs])
+  const inForza = useMemo(
+    () => paidEmployeeIds(costs, staff as unknown as HeadcountEmployee[], period),
+    [costs, staff, period],
+  )
+  const headcount = useMemo(
+    () => (headcountCountByOutlet(costs, staff as unknown as HeadcountEmployee[], allocs, period)[outletName] || 0),
+    [costs, staff, allocs, period, outletName],
+  )
+
+  const anagrafica = staff.filter(e => e.is_active !== false).length
+  const ralRows = staff.filter(e => e.gross_annual_cost != null)
+  const totalCost = ralRows.reduce((s, e) => s + (e.gross_annual_cost || 0), 0)
+  const empLabel = (e: StaffRow) => `${e.nome || e.first_name || ''} ${e.cognome || e.last_name || ''}`.trim() || '—'
 
   if (loading) return <div className="flex items-center justify-center py-12"><RefreshCw size={20} className="animate-spin text-slate-400" /></div>
 
@@ -1543,16 +1608,23 @@ function StaffTab({ outletId, companyId }: { outletId: string; companyId: string
     <div className="space-y-4">
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
         <div className="bg-white rounded-xl border border-slate-200 p-4">
-          <div className="text-xs text-slate-400">Dipendenti attivi</div>
-          <div className="text-xl font-bold text-slate-900">{activeCount}</div>
+          <div className="text-xs text-slate-400">Dipendenti in forza</div>
+          <div className="text-xl font-bold text-slate-900">{period ? headcount : 'N/D'}</div>
+          <div className="text-[11px] text-slate-400 mt-0.5">
+            {period ? `dai cedolini di ${periodLabel(period)}` : 'nessun cedolino caricato'}
+          </div>
+        </div>
+        <div className="bg-white rounded-xl border border-slate-200 p-4">
+          <div className="text-xs text-slate-400">In anagrafica</div>
+          <div className="text-xl font-bold text-slate-900">{anagrafica}</div>
+          <div className="text-[11px] text-slate-400 mt-0.5">persone assegnate a questo {labels.pointOfSaleLower}</div>
         </div>
         <div className="bg-white rounded-xl border border-slate-200 p-4">
           <div className="text-xs text-slate-400">Costo annuo lordo</div>
-          <div className="text-xl font-bold text-amber-600">{fmt(totalCost)} €</div>
-        </div>
-        <div className="bg-white rounded-xl border border-slate-200 p-4">
-          <div className="text-xs text-slate-400">Costo medio/dip.</div>
-          <div className="text-xl font-bold text-blue-600">{activeCount > 0 ? fmt(totalCost / activeCount) : '—'} €</div>
+          <div className="text-xl font-bold text-amber-600">{ralRows.length > 0 ? `${fmt(totalCost)} €` : '—'}</div>
+          <div className="text-[11px] text-slate-400 mt-0.5">
+            {ralRows.length > 0 ? `su ${ralRows.length} schede con RAL` : 'RAL non compilata in anagrafica'}
+          </div>
         </div>
       </div>
 
@@ -1576,19 +1648,25 @@ function StaffTab({ outletId, companyId }: { outletId: string; companyId: string
               </tr>
             </thead>
             <tbody>
-              {staff.map(e => (
-                <tr key={e.id} className="border-t border-slate-50 hover:bg-slate-50/50">
-                  <td className="py-2 px-4 font-medium text-slate-900">{e.first_name} {e.last_name}</td>
-                  <td className="py-2 px-4 text-slate-600">{e.role || '—'}</td>
-                  <td className="py-2 px-4 text-slate-500 text-xs">{e.contract_type || '—'}</td>
-                  <td className="py-2 px-4 text-right font-medium text-slate-900">{fmt(e.annual_gross_salary)} €</td>
-                  <td className="py-2 px-4 text-center">
-                    <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${e.is_active ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
-                      {e.is_active ? 'Attivo' : 'Cessato'}
-                    </span>
-                  </td>
-                </tr>
-              ))}
+              {staff.map(e => {
+                const pagato = inForza.has(e.id)
+                const stato = e.is_active === false
+                  ? { label: 'Cessato', cls: 'bg-slate-100 text-slate-500' }
+                  : pagato
+                    ? { label: 'In forza', cls: 'bg-emerald-50 text-emerald-700' }
+                    : { label: period ? `Nessun cedolino ${periodLabel(period)}` : 'Nessun cedolino', cls: 'bg-amber-50 text-amber-700' }
+                return (
+                  <tr key={e.id} className="border-t border-slate-50 hover:bg-slate-50/50">
+                    <td className="py-2 px-4 font-medium text-slate-900">{empLabel(e)}</td>
+                    <td className="py-2 px-4 text-slate-600">{e.role_description || '—'}</td>
+                    <td className="py-2 px-4 text-slate-500 text-xs">{e.contratto_tipo || e.contract_type || '—'}</td>
+                    <td className="py-2 px-4 text-right font-medium text-slate-900">{e.gross_annual_cost != null ? `${fmt(e.gross_annual_cost)} €` : '—'}</td>
+                    <td className="py-2 px-4 text-center">
+                      <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${stato.cls}`}>{stato.label}</span>
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
           </div>
@@ -1836,7 +1914,7 @@ function OutletDetail({ outlet, revenue, confronto, revPlaceholder, year, onBack
 
       {/* ─── Tab: Staff ─── */}
       {detailTab === 'staff' && (
-        <StaffTab outletId={outlet.id} companyId={outlet.company_id || ''} />
+        <StaffTab outletId={outlet.id} outletName={String(outlet.name || '')} companyId={outlet.company_id || ''} />
       )}
 
       {/* ─── Tab: Documenti ─── */}

@@ -577,7 +577,11 @@ export default function ImportHub() {
   // ─── PROCESSING FUNCTIONS ─────────────────────────────────────
 
   // Check if source type supports processing
-  const canProcess = (sourceId: string | null) => ['bank', 'invoices', 'pos_data', 'receipts', 'balance_sheet', 'payroll'].includes(sourceId || '');
+  // 'payroll' NON è elaborabile da qui (audit personale 2026-09-02, finding F1):
+  // il processore cancellava employee_costs del mese e reinseriva su colonne
+  // inesistenti. I cedolini si caricano dalla pagina Dipendenti → «Costi &
+  // cedolini»; qui il file viene solo archiviato.
+  const canProcess = (sourceId: string | null) => ['bank', 'invoices', 'pos_data', 'receipts', 'balance_sheet'].includes(sourceId || '');
 
   // Preview a file before processing
   async function handlePreview(_file: ImportDoc, fileRecord: ImportDoc) {
@@ -1089,6 +1093,14 @@ export default function ImportHub() {
                     ))}
                   </select>
                   {!selectedBankAccount && <p className="text-xs text-blue-700 mt-2">È obbligatorio selezionare un conto per procedere</p>}
+                </div>
+              )}
+
+              {selectedSource === 'payroll' && (
+                <div className="mb-4 p-4 bg-amber-50 rounded-lg border border-amber-200 text-sm text-amber-900">
+                  <strong>Qui i cedolini vengono solo archiviati.</strong> I netti che fanno l'organico
+                  del mese si caricano dalla pagina <a href="/dipendenti?view=costi" className="underline font-semibold">Dipendenti → «Costi &amp; cedolini»</a>:
+                  quel carico è ciò che rende granitico il numero di dipendenti per punto vendita.
                 </div>
               )}
 
