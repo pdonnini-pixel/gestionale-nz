@@ -1790,9 +1790,14 @@ const ScadenzarioSmart = () => {
     }
   }, [COMPANY_ID, suppliers, toast]);
 
-  type SupplierData = { name: string; vat?: string; fiscal?: string; iban?: string; category?: string; paymentMethod?: string }
+  type SupplierData = {
+    name: string; vat?: string; fiscal?: string; iban?: string; category?: string; paymentMethod?: string
+    paymentTerms?: number; paymentBase?: string; primaScadenzaGg?: number; numeroRate?: number
+  }
   const handleCreateSupplier = useCallback(async (supplierData: SupplierData) => {
     try {
+      // Il piano scadenze scelto nel modal (modalita': 30/60, 30/60/90/120, 90/120 …)
+      // viene salvato subito: le fatture di questo fornitore nascono con le rate giuste.
       const { data } = await supabase.from('suppliers').insert([{
         company_id: COMPANY_ID,
         ragione_sociale: supplierData.name,
@@ -1802,6 +1807,10 @@ const ScadenzarioSmart = () => {
         iban: supplierData.iban,
         category: supplierData.category,
         payment_method: supplierData.paymentMethod || 'bonifico',
+        payment_terms: supplierData.paymentTerms ?? null,
+        payment_base: supplierData.paymentBase || null,
+        prima_scadenza_gg: supplierData.paymentBase ? (supplierData.primaScadenzaGg ?? 0) : null,
+        numero_rate: supplierData.paymentBase ? (supplierData.numeroRate || 1) : null,
         is_active: true,
       } as never]).select();
 
