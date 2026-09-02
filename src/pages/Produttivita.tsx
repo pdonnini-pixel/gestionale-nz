@@ -14,6 +14,11 @@ import { useCompanyLabels } from '../hooks/useCompanyLabels';
 import { usePeriod } from '../hooks/usePeriod';
 import { useAvailableYears } from '../hooks/useAvailableYears';
 import PageHeader from '../components/PageHeader';
+// Organico granitico: le teste vengono dai cedolini, non dall'anagrafica.
+import {
+  headcountCountByOutlet, lastGranitedPeriod, periodLabel,
+  type HeadcountCost, type HeadcountEmployee, type HeadcountAllocation,
+} from '../lib/headcount';
 
 function fmt(n: number | null | undefined, dec = 0): string {
   // null/undefined/NaN → 'N/D' cosi' non compaiono 'NaN €' nella UI e la
@@ -40,12 +45,19 @@ export default function Produttivita() {
   const setYear = setGlobalYear;
   // TODO: tighten type — Supabase data
   const [rawEntries, setRawEntries] = useState<any[]>([]);
-  const [employees, setEmployees] = useState<any[]>([]);
-  const [allocations, setAllocations] = useState<any[]>([]);
-  const [outletMap, setOutletMap] = useState<Record<string, string>>({});
+  const [employees, setEmployees] = useState<HeadcountEmployee[]>([]);
+  const [allocations, setAllocations] = useState<HeadcountAllocation[]>([]);
+  const [payrollCosts, setPayrollCosts] = useState<HeadcountCost[]>([]);
+  // Piano dei conti: classificazione da DB (is_revenue / macro_group), MAI per
+  // prefisso di account_code. Il gruppo '63' è «Per servizi», non il personale.
+  const [revenueCodes, setRevenueCodes] = useState<Set<string>>(new Set());
+  const [costCodes, setCostCodes] = useState<Set<string>>(new Set());
+  const [personaleCodes, setPersonaleCodes] = useState<Set<string>>(new Set());
   // Insieme dei cost_center che sono outlet reali (code+name), per escludere gli
   // aggregati virtuali (costi non divisi, rettifiche, "all") da classifiche e medie.
   const [outletSet, setOutletSet] = useState<Set<string>>(new Set());
+  // cost_center del budget -> nome outlet usato dalle allocazioni del personale.
+  const [outletNameByCostCenter, setOutletNameByCostCenter] = useState<Record<string, string>>({});
   const [simulazioneAttiva, setSimulazioneAttiva] = useState(false);
   const [moved, setMoved] = useState<{ from: string | null; to: string | null; count: number }>({ from: null, to: null, count: 1 });
 
@@ -73,28 +85,44 @@ export default function Produttivita() {
           'budget_entries',
         );
 
-        // Fetch employees (outlet name risolto via outletMap: lo schema reale
-        // post-PR #150 non ha piu' outlet_name/cost_center, solo outlet_id).
+        // Anagrafica: serve solo per riconoscere gli amministratori e per
+        // deduplicare le persone. Il CONTEGGIO viene dai cedolini (vedi sotto).
         let empQuery = supabase
           .from('employees')
-          .select('id, outlet_id');
+          .select('id, role_description, codice_fiscale, fiscal_code, nome, cognome, first_name, last_name');
         if (companyId) empQuery = empQuery.eq('company_id', companyId);
 
-        // Fetch employee_outlet_allocations for per-outlet headcount.
-        // PR #150: outlet_code = NOME outlet, allocation_pct = percentuale.
+        // Allocazioni: dicono a quale outlet appartiene la persona.
+        // PR #150: outlet_code = NOME outlet.
         let allocQuery = supabase
           .from('employee_outlet_allocations')
           .select('employee_id, outlet_code, allocation_pct');
         if (companyId) allocQuery = allocQuery.eq('company_id', companyId);
 
-        // Mappa outlet_id -> nome per il fallback employees + code/name per il set
-        // dei cost_center reali.
+        // Cedolini: sono loro a fare il numero di dipendenti del mese.
+        let costsQuery = supabase
+          .from('employee_costs')
+          .select('employee_id, year, month, netto, outlet_code')
+          .not('netto', 'is', null);
+        if (companyId) costsQuery = costsQuery.eq('company_id', companyId);
+
+        // Piano dei conti per la classificazione (niente prefissi).
+        let coaQuery = supabase
+          .from('chart_of_accounts')
+          .select('code, is_revenue, macro_group')
+          .eq('is_active', true);
+        if (companyId) coaQuery = coaQuery.eq('company_id', companyId);
+
+        // Outlet: code+name per riconoscere i cost_center reali, cost_center_key
+        // per legare il centro di costo del budget al nome usato dalle allocazioni.
         let outletsQuery = supabase
           .from('outlets')
-          .select('id, code, name');
+          .select('id, code, name, cost_center_key');
         if (companyId) outletsQuery = outletsQuery.eq('company_id', companyId);
 
-        const [empRes, allocRes, outletsRes] = await Promise.all([empQuery, allocQuery, outletsQuery]);
+        const [empRes, allocRes, outletsRes, costsRes, coaRes] = await Promise.all([
+          empQuery, allocQuery, outletsQuery, costsQuery, coaQuery,
+        ]);
 
         // Sprint 2 hotfix (29/05/2026 sera): rollback override budget_confronto.
         // Stesso bug di MarginiOutlet (override /12 esplodeva). Per ora budget_entries
@@ -103,20 +131,43 @@ export default function Produttivita() {
 
         // Employees may not exist as a table - graceful fallback
         if (!empRes.error && empRes.data) {
-          setEmployees(empRes.data);
+          setEmployees(empRes.data as unknown as HeadcountEmployee[]);
         }
 
         // Allocations may not exist
         if (!allocRes.error && allocRes.data) {
-          setAllocations(allocRes.data);
+          setAllocations(allocRes.data as unknown as HeadcountAllocation[]);
         }
 
-        // Outlet id -> name map (per fallback employees) + set cost_center reali
+        if (!costsRes.error && costsRes.data) {
+          setPayrollCosts(costsRes.data as unknown as HeadcountCost[]);
+        }
+
+        if (!coaRes.error && coaRes.data) {
+          const rows = coaRes.data as unknown as { code: string; is_revenue: boolean | null; macro_group: string | null }[];
+          setRevenueCodes(new Set(rows.filter(r => r.is_revenue === true).map(r => r.code)));
+          setCostCodes(new Set(rows.filter(r => r.is_revenue !== true).map(r => r.code)));
+          setPersonaleCodes(new Set(rows.filter(r => r.is_revenue !== true && r.macro_group === 'personale').map(r => r.code)));
+        }
+
+        // Set dei cost_center che sono outlet reali + ponte cost_center -> nome outlet
         if (!outletsRes.error && outletsRes.data) {
-          const map: Record<string, string> = {};
-          outletsRes.data.forEach((o: any) => { if (o.id) map[o.id] = o.name; });
-          setOutletMap(map);
-          setOutletSet(buildOutletCostCenterSet(outletsRes.data as { code?: string; name?: string }[]));
+          const rows = outletsRes.data as unknown as { code?: string | null; name?: string | null; cost_center_key?: string | null }[];
+          setOutletSet(buildOutletCostCenterSet(rows as { code?: string; name?: string }[]));
+          // budget_entries.cost_center è 'valdichiana' o 'sede_magazzino', le
+          // allocazioni usano il NOME ('VALDICHIANA', 'SEDE / MAGAZZINO'): senza
+          // questo ponte il conteggio dipendenti non trovava mai l'outlet e la
+          // pagina mostrava N/D ovunque.
+          const bridge: Record<string, string> = {};
+          rows.forEach(o => {
+            const name = (o.name || '').trim();
+            if (!name) return;
+            [o.cost_center_key, o.code, o.name].forEach(k => {
+              const key = (k || '').trim().toLowerCase();
+              if (key) bridge[key] = name;
+            });
+          });
+          setOutletNameByCostCenter(bridge);
         }
       } catch (err: unknown) {
         console.error('[Produttivita] fetch error:', err);
@@ -128,28 +179,19 @@ export default function Produttivita() {
     fetchData();
   }, [year, profile?.company_id]);
 
-  // Compute employee count per outlet from allocations (FTE-weighted) or employees table
-  const empCountByOutlet = useMemo<Record<string, number>>(() => {
-    const counts: Record<string, number> = {};
-
-    // Prefer allocations (FTE-weighted)
-    if (allocations.length > 0) {
-      allocations.forEach(a => {
-        const outlet = a.outlet_code || 'Sconosciuto';
-        const pct = parseFloat(a.allocation_pct) || 100;
-        counts[outlet] = (counts[outlet] || 0) + (pct / 100);
-      });
-    } else if (employees.length > 0) {
-      // Fallback to employee table (outlet name via outletMap)
-      employees.forEach(emp => {
-        const outlet = outletMap[emp.outlet_id] || 'Sconosciuto';
-        counts[outlet] = (counts[outlet] || 0) + 1;
-      });
-    }
-    // If no employee data at all, returns empty - will use fallback of 4
-
-    return counts;
-  }, [allocations, employees, outletMap]);
+  // ORGANICO GRANITICO: il numero di dipendenti di un outlet è chi ha il
+  // cedolino dell'ultimo mese caricato, non quante allocazioni esistono in
+  // anagrafica. Prima si contavano le allocazioni pesate per percentuale, che su
+  // Palmanova dava 7 dove i cedolini di marzo 2026 ne dicevano 4.
+  const granitedPeriod = useMemo(
+    () => lastGranitedPeriod(payrollCosts, year) || lastGranitedPeriod(payrollCosts),
+    [payrollCosts, year],
+  );
+  const headcountLabel = periodLabel(granitedPeriod);
+  const empCountByOutlet = useMemo<Record<string, number>>(
+    () => headcountCountByOutlet(payrollCosts, employees, allocations, granitedPeriod),
+    [payrollCosts, employees, allocations, granitedPeriod],
+  );
 
   // Righe dei soli outlet REALI: esclude i cost_center virtuali (costi non divisi,
   // rettifiche, sede/magazzino, "all") da classifiche, medie e raccomandazioni.
@@ -173,13 +215,17 @@ export default function Produttivita() {
       const code = (row.account_code || '').toString();
       const amount = parseFloat(row.budget_amount) || 0;
 
-      if (code.startsWith('5')) {
+      // Classificazione dal piano dei conti (chart_of_accounts), mai per
+      // prefisso: il gruppo 63 è «Per servizi», il personale è il macro_group
+      // 'personale' (conti 67xx). Sommare i 63 come personale sottostimava il
+      // costo di oltre un milione di euro sul budget 2026 di NZ.
+      if (revenueCodes.has(code)) {
         byOutlet[outlet].ricavi += amount;
       }
-      if (code.startsWith('63')) {
+      if (personaleCodes.has(code)) {
         byOutlet[outlet].costo_personale += amount;
       }
-      if (code.startsWith('6') || code.startsWith('7')) {
+      if (costCodes.has(code)) {
         byOutlet[outlet].costi_totali += amount;
       }
     });
@@ -192,11 +238,11 @@ export default function Produttivita() {
         ricavi: vals.ricavi,
         costo_personale: vals.costo_personale,
         costi_totali: vals.costi_totali,
-        dipendenti: empCountByOutlet[nome] || null,
+        dipendenti: empCountByOutlet[outletNameByCostCenter[nome.trim().toLowerCase()] || nome] || null,
         colore: colors[idx % colors.length],
       }))
       .sort((a, b) => b.ricavi - a.ricavi);
-  }, [outletEntries, empCountByOutlet]);
+  }, [outletEntries, empCountByOutlet, outletNameByCostCenter, revenueCodes, costCodes, personaleCodes]);
 
   // Monthly trend data for fatturato/dipendente per outlet
   type MonthRow = { mese: string } & Record<string, number | string>
@@ -214,7 +260,7 @@ export default function Produttivita() {
       const code = (row.account_code || '').toString();
       const amount = parseFloat(row.budget_amount) || 0;
 
-      if (code.startsWith('5')) {
+      if (revenueCodes.has(code)) {
         const key = `${outlet}__${month}`;
         byOutletMonth[key] = (byOutletMonth[key] || 0) + amount;
         trendOutlets.add(outlet);
@@ -231,7 +277,7 @@ export default function Produttivita() {
         // Niente fallback inventato: senza dato dipendenti il valore resta assente
         // (Recharts con connectNulls salta il punto), coerente con la 'N/D' del resto
         // della pagina. Prima c'era un '|| 4' che inventava fatturato/dipendente.
-        const dip = empCountByOutlet[outlet];
+        const dip = empCountByOutlet[outletNameByCostCenter[outlet.trim().toLowerCase()] || outlet];
         if (rev > 0 && dip && dip > 0) {
           row[outlet] = Math.round(rev / dip);
           hasData = true;
@@ -240,7 +286,7 @@ export default function Produttivita() {
       if (hasData) months.push(row);
     }
     return months;
-  }, [outletEntries, empCountByOutlet]);
+  }, [outletEntries, empCountByOutlet, outletNameByCostCenter, revenueCodes]);
 
   // Calcolo metriche per ogni outlet (with simulation support)
   const metriche = useMemo(() => {
@@ -472,8 +518,15 @@ export default function Produttivita() {
                 </p>
                 <p className="text-blue-200 text-sm mt-2">
                   {kpi.fatturato_medio_dip != null
-                    ? `${fmt(kpi.totRicavi, 0)} € ricavi totali / ${fmt(kpi.totDipendenti, 1)} dipendenti (FTE)`
-                    : 'Nessun dipendente disponibile per il calcolo'}
+                    ? `${fmt(kpi.totRicavi, 0)} € ricavi totali / ${fmt(kpi.totDipendenti, 0)} dipendenti`
+                    : 'Nessun cedolino caricato: il numero di dipendenti non è disponibile'}
+                </p>
+                {/* Il dato dipendenti è granitico: viene dai cedolini di un mese
+                    preciso, e la card lo dichiara invece di lasciarlo implicito. */}
+                <p className="text-blue-200/80 text-xs mt-1">
+                  {granitedPeriod
+                    ? `Dipendenti in forza ai cedolini di ${headcountLabel}`
+                    : 'Nessun cedolino caricato: carica i netti dalla pagina Dipendenti'}
                 </p>
               </div>
               <div className="bg-white/20 rounded-xl p-4">

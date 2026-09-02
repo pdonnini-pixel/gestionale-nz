@@ -13,7 +13,7 @@ import Tooltip from './Tooltip';
  * aggiunge solo un pallino arancio accanto al valore. Stesso token arancio del
  * "bordo-fonte" di Personale (#ea580c = orange-600).
  *
- * NB: in Personale l'arancio indica "fonte = Budget & Controllo"; qui indica
+ * NB: in Dipendenti l'arancio indica "fonte = Budget & Controllo"; qui indica
  * "segnaposto non granito". Stesso colore, significato esplicitato in tooltip/legenda.
  */
 

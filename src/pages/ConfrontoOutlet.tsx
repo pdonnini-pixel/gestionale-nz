@@ -29,6 +29,11 @@ import {
   type OutletConfrontoMap, type Provenance, type ConfrontoRow,
   type CoaMeta, type CostCategory,
 } from '../lib/outletRevenue'
+// Organico granitico: stessa fonte della pagina Dipendenti (src/lib/headcount.ts).
+import {
+  headcountCountByOutlet, lastGranitedPeriod, periodLabel,
+  type HeadcountCost, type HeadcountEmployee, type HeadcountAllocation,
+} from '../lib/headcount'
 
 function fmt(n: number | null | undefined, dec = 0): string {
   if (n == null) return '—'
@@ -69,7 +74,7 @@ function KpiBadge({ label, value, sub, color = 'blue' }: { label: string; value:
    ═══════════════════════════════════════ */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type CalcMetricsT = any
-function OutletCard({ name, outletData, calculatedMetrics, ranking, onNavigate, onOpenBudget, showPlaceholder }: {
+function OutletCard({ name, outletData, calculatedMetrics, ranking, onNavigate, onOpenBudget, showPlaceholder, headcountLabel }: {
   name: string
   outletData: { color?: string | null }
   calculatedMetrics: CalcMetricsT | null | undefined
@@ -77,6 +82,8 @@ function OutletCard({ name, outletData, calculatedMetrics, ranking, onNavigate, 
   onNavigate: () => void
   onOpenBudget: () => void
   showPlaceholder?: boolean
+  /** Mese da cui viene il conteggio dipendenti, per non lasciarlo implicito. */
+  headcountLabel?: string
 }) {
   const [open, setOpen] = useState(false)
 
@@ -171,7 +178,7 @@ function OutletCard({ name, outletData, calculatedMetrics, ranking, onNavigate, 
           {/* Badge dipendenti dell'outlet (stessa fonte del vecchio tile). */}
           <div
             className="shrink-0 flex flex-col items-center justify-center rounded-xl border-2 border-indigo-200 bg-indigo-50 text-indigo-700 px-3 py-1.5 min-w-[64px]"
-            title={`${personaleCount || 0} dipendenti assegnati`}
+            title={`${personaleCount || 0} dipendenti in forza secondo i cedolini${headcountLabel ? ` di ${headcountLabel}` : ''}`}
           >
             <Users size={16} />
             <span className="text-xl font-bold leading-none mt-0.5">{personaleCount || 0}</span>
@@ -549,7 +556,11 @@ export default function ConfrontoOutlet() {
   const { year, quarter } = usePeriod()
   type CostCenterRow = { id?: string; code?: string; label?: string; name?: string; color?: string; sort_order?: number; is_active?: boolean }
   type BudgetEntryRow = { cost_center?: string | null; account_code?: string | null; account_name?: string | null; macro_group?: string | null; budget_amount?: number | null; actual_amount?: number | null; month?: number | null; is_approved?: boolean | null; is_placeholder?: boolean | null }
-  type EmployeeCostRow = { outlet_code?: string | null; employee_id?: string | null; month?: number | null; totale_allocato?: number | null }
+  // Righe di cedolino (employee_costs), la stessa fonte della pagina Dipendenti.
+  // Prima si leggeva la vista v_employee_costs_by_outlet, che incrocia i costi
+  // con le allocazioni di OGGI: il conteggio dei mesi passati cambiava quando
+  // qualcuno veniva spostato di negozio.
+  type EmployeeCostRow = { outlet_code?: string | null; employee_id?: string | null; year?: number | null; month?: number | null; netto?: number | null }
   type BalanceRow = Record<string, unknown>
   type EmpRow = { id: string; role_description?: string | null; is_active?: boolean | null; nome?: string | null; cognome?: string | null; first_name?: string | null; last_name?: string | null; codice_fiscale?: string | null; fiscal_code?: string | null }
   type AllocRow = { employee_id?: string | null; outlet_code?: string | null }
@@ -631,9 +642,11 @@ export default function ConfrontoOutlet() {
           .eq('year', year)
 
         const { data: empCosts } = await supabase
-          .from('v_employee_costs_by_outlet')
-          .select('*')
+          .from('employee_costs')
+          .select('employee_id, year, month, netto, outlet_code')
+          .eq('company_id', companyId)
           .eq('year', year)
+          .not('netto', 'is', null)
 
         // Anagrafica + allocazioni: per contare i dipendenti reali (anche solo-netto)
         // e per il fallback quando nel periodo non c'è alcun cedolino.
@@ -768,33 +781,43 @@ export default function ConfrontoOutlet() {
     () => new Set(empList.filter(e => /amministrat/i.test(e.role_description || '')).map(e => e.id)),
     [empList]
   )
-  // Chiave di dedup PERSONA: stessa persona con più matricole/employee_id = una sola.
-  // Preferisci il codice fiscale; altrimenti cognome+nome normalizzati.
-  const empById = useMemo(() => { const m: Record<string, EmpRow> = {}; empList.forEach(e => { m[e.id] = e }); return m }, [empList])
-  const personKey = (empId: string | null | undefined): string => {
-    if (!empId) return ''
-    const e = empById[empId]
-    if (!e) return empId
-    const cf = (e.codice_fiscale || e.fiscal_code || '').trim().toLowerCase()
-    if (cf) return `cf:${cf}`
-    const cog = (e.cognome || e.last_name || '').trim().toLowerCase().replace(/\s+/g, ' ')
-    const nom = (e.nome || e.first_name || '').trim().toLowerCase().replace(/\s+/g, ' ')
-    const name = `${cog} ${nom}`.trim()
-    return name ? `nm:${name}` : `id:${empId}`
-  }
-  // Fallback anagrafica: PERSONE attive (non admin) allocate per outlet (chiave = cost_center code),
-  // deduplicate per persona. allocations.outlet_code = NOME outlet; cost_center.code = lower(name).
-  const activeNonAdminByCode = useMemo(() => {
-    const activeIds = new Set(empList.filter(e => e.is_active !== false && !adminIds.has(e.id)).map(e => e.id))
-    const m: Record<string, Set<string>> = {}
-    allocList.forEach(a => {
-      if (!a.employee_id || !a.outlet_code || !activeIds.has(a.employee_id)) return
-      const code = String(a.outlet_code).trim().toLowerCase()
-      ;(m[code] ||= new Set()).add(personKey(a.employee_id))
-    })
-    return m
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [empList, allocList, adminIds, empById])
+  // La dedup per persona (stesso codice fiscale, o cognome+nome) e l'esclusione
+  // degli amministratori vivono ora in src/lib/headcount.ts, condivise con la
+  // pagina Dipendenti. Qui non si duplica più la regola, e soprattutto è sparito
+  // il ripiego silenzioso sull'anagrafica quando il mese non ha cedolini.
+
+  // ── ORGANICO GRANITICO (fase 4) ────────────────────────────────────────────
+  // Il numero di dipendenti di un outlet viene dai cedolini, esattamente come
+  // nella pagina Dipendenti: stesso helper, stesse regole (amministratori
+  // esclusi, cessati contati nei mesi in cui erano pagati, persone deduplicate).
+  // Si usa l'ULTIMO MESE con cedolini dentro il periodo scelto; se il periodo non
+  // ne ha, si ripiega sull'ultimo mese granito dell'anno e lo si DICHIARA in
+  // pagina, invece di rimettere di nascosto in gioco l'anagrafica come prima.
+  const headcountPeriod = useMemo(() => {
+    const costs = employeeCosts as unknown as HeadcountCost[]
+    const inRange = selectedMonths
+      ? costs.filter(c => c.month != null && selectedMonths.includes(c.month))
+      : costs
+    return lastGranitedPeriod(inRange) || lastGranitedPeriod(costs)
+  }, [employeeCosts, selectedMonths])
+
+  const headcountInPeriodo = useMemo(() => {
+    if (!headcountPeriod || !selectedMonths) return true
+    return selectedMonths.includes(headcountPeriod.month)
+  }, [headcountPeriod, selectedMonths])
+
+  // Chiavi in minuscolo: qui gli outlet si confrontano per codice lowercase.
+  const headcountByCode = useMemo(() => {
+    const raw = headcountCountByOutlet(
+      employeeCosts as unknown as HeadcountCost[],
+      empList as unknown as HeadcountEmployee[],
+      allocList as unknown as HeadcountAllocation[],
+      headcountPeriod,
+    )
+    const out: Record<string, number> = {}
+    Object.entries(raw).forEach(([k, v]) => { out[k.trim().toLowerCase()] = v })
+    return out
+  }, [employeeCosts, empList, allocList, headcountPeriod])
 
   // Calculate metrics for each outlet (pre-sede)
   const outletMetricsBase = useMemo(() => {
@@ -924,18 +947,11 @@ export default function ConfrontoOutlet() {
             }
           : budget
 
-      // Organico = PERSONE distinte con cedolino nel MESE PIÙ RECENTE del periodo (non l'unione
-      // dei mesi → niente gonfiaggio), deduplicate per persona (stessa persona con più matricole
-      // = 1). View outlet_code = NOME outlet → confronto case-insensitive. Amministratori esclusi.
-      const empRows = employeeCosts
-        .filter(e => String(e.outlet_code || '').trim().toLowerCase() === outletCode)
-        .filter(e => selectedMonths ? (e.month != null && selectedMonths.includes(e.month)) : true)
-        .filter(e => e.employee_id && !adminIds.has(e.employee_id) && e.month != null)
-      const lastMonth = empRows.length ? Math.max(...empRows.map(e => e.month as number)) : null
-      const personeMese = new Set(empRows.filter(e => e.month === lastMonth).map(e => personKey(e.employee_id)))
-      // No-zero: se il mese più recente non ha cedolini, ripiega sull'anagrafica attiva allocata.
-      const personaleCount = personeMese.size > 0 ? personeMese.size : (activeNonAdminByCode[outletCode]?.size || 0)
-      const costoPersonaleFromDb = empRows.filter(e => e.month === lastMonth).reduce((sum, e) => sum + (e.totale_allocato || 0), 0)
+      // Organico dell'outlet: PERSONE con cedolino nel mese granito (vedi
+      // headcountByCode sopra). L'outlet della riga, quando c'è, è quello scritto
+      // dal carico dei cedolini: il passato non si riscrive.
+      const nomeOutlet = (outlet.name || outlet.label || outlet.code || '').trim().toLowerCase()
+      const personaleCount = headcountByCode[nomeOutlet] ?? headcountByCode[outletCode] ?? 0
 
       // Personale = B.9 dal piano dei conti (NON l'allocazione dipendenti, che
       // è un consuntivo a parte): così il preventivo mostra il dato di Lilian.
@@ -1033,7 +1049,7 @@ export default function ConfrontoOutlet() {
       } as OutletMetric
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [outlets, budgetData, balanceData, employeeCosts, adminIds, activeNonAdminByCode, empById, selectedMonths, viewMode, quotaSedePerOutlet, consOverlay, prevOverlay, revenueMap, coaByCode, macroMeta])
+  }, [outlets, budgetData, balanceData, employeeCosts, adminIds, headcountByCode, selectedMonths, viewMode, quotaSedePerOutlet, consOverlay, prevOverlay, revenueMap, coaByCode, macroMeta])
 
   // Quota sede pro-quota netta: il netto sede ripartito sugli outlet in
   // proporzione al fatturato preventivo (budgetRicavi). Aggiunge alla scheda
@@ -1260,8 +1276,15 @@ export default function ConfrontoOutlet() {
         </div>
         <div className="rounded-2xl p-5 shadow-lg" style={{ background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)', border: '1px solid rgba(99,102,241,0.08)' }}>
           <div className="p-2.5 rounded-lg bg-amber-50 text-amber-600 inline-flex mb-3"><Users size={20} /></div>
-          <div className="text-2xl font-bold text-slate-900">{totDipendenti}</div>
+          <div className="text-2xl font-bold text-slate-900">{headcountPeriod ? totDipendenti : 'N/D'}</div>
           <div className="text-sm text-slate-500">Dipendenti {labels.pointOfSalePluralLower}</div>
+          {/* Il numero è granitico: viene dai cedolini di un mese preciso, e la
+              sede resta fuori perché questa pagina confronta i punti vendita. */}
+          <div className="text-xs text-slate-400">
+            {headcountPeriod
+              ? <>In forza ai cedolini di {periodLabel(headcountPeriod)}{!headcountInPeriodo && <span className="text-amber-600"> (fuori dal periodo scelto)</span>}. Sede esclusa.</>
+              : <>Nessun cedolino caricato: caricali dalla pagina Dipendenti.</>}
+          </div>
           <div className="text-xs text-slate-400">Media: {(totDipendenti / (outletMetrics.filter(o => o.calculatedMetrics).length || 1)).toFixed(1)} per {labels.pointOfSaleLower}</div>
         </div>
         <div className="rounded-2xl p-5 shadow-lg" style={{ background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)', border: '1px solid rgba(99,102,241,0.08)' }}>
@@ -1271,7 +1294,7 @@ export default function ConfrontoOutlet() {
           </div>
           <div className="text-sm text-slate-500">Ricavo per dipendente</div>
           <div className="text-xs text-slate-400">
-            {totDipendenti > 0 ? 'KPI produttività media' : 'Nessun dipendente assegnato agli outlet'}
+            {totDipendenti > 0 ? 'KPI produttività media' : 'Nessuna persona in forza nei cedolini caricati'}
           </div>
         </div>
       </div>
@@ -1369,6 +1392,7 @@ export default function ConfrontoOutlet() {
               calculatedMetrics={o.calculatedMetrics}
               ranking={rankings[o.name]}
               showPlaceholder={viewMode !== 'actual' && !!o.hasPlaceholder}
+              headcountLabel={headcountPeriod ? periodLabel(headcountPeriod) : ''}
               onNavigate={() => navigate(`/outlet?id=${o.outletData.id}`)}
               onOpenBudget={() => navigate(`/budget?tab=confronto&outlet=${encodeURIComponent(o.calculatedMetrics?.outletCode || o.outletData.code || '')}&anno=${year}`)}
             />

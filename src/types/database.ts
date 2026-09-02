@@ -3087,6 +3087,111 @@ export type Database = {
           },
         ]
       }
+      employee_matricole: {
+        Row: {
+          company_id: string
+          created_at: string
+          employee_id: string
+          id: string
+          is_current: boolean
+          matricola: string
+          note: string | null
+          valid_from: string | null
+          valid_to: string | null
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          employee_id: string
+          id?: string
+          is_current?: boolean
+          matricola: string
+          note?: string | null
+          valid_from?: string | null
+          valid_to?: string | null
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          employee_id?: string
+          id?: string
+          is_current?: boolean
+          matricola?: string
+          note?: string | null
+          valid_from?: string | null
+          valid_to?: string | null
+        }
+        Relationships: []
+      }
+      employee_cost_slips: {
+        Row: {
+          altri_costi: number | null
+          company_id: string
+          contributi: number | null
+          created_at: string
+          employee_id: string
+          file_name: string | null
+          id: string
+          import_id: string | null
+          inail: number | null
+          matricola: string | null
+          month: number
+          netto: number | null
+          outlet_code: string | null
+          outlet_source: string | null
+          retribuzione: number | null
+          source: string | null
+          tfr: number | null
+          tipo: string
+          updated_at: string
+          year: number
+        }
+        Insert: {
+          altri_costi?: number | null
+          company_id: string
+          contributi?: number | null
+          created_at?: string
+          employee_id: string
+          file_name?: string | null
+          id?: string
+          import_id?: string | null
+          inail?: number | null
+          matricola?: string | null
+          month: number
+          netto?: number | null
+          outlet_code?: string | null
+          outlet_source?: string | null
+          retribuzione?: number | null
+          source?: string | null
+          tfr?: number | null
+          tipo?: string
+          updated_at?: string
+          year: number
+        }
+        Update: {
+          altri_costi?: number | null
+          company_id?: string
+          contributi?: number | null
+          created_at?: string
+          employee_id?: string
+          file_name?: string | null
+          id?: string
+          import_id?: string | null
+          inail?: number | null
+          matricola?: string | null
+          month?: number
+          netto?: number | null
+          outlet_code?: string | null
+          outlet_source?: string | null
+          retribuzione?: number | null
+          source?: string | null
+          tfr?: number | null
+          tipo?: string
+          updated_at?: string
+          year?: number
+        }
+        Relationships: []
+      }
       employee_costs: {
         Row: {
           altri_costi: number | null
@@ -3100,6 +3205,8 @@ export type Database = {
           month: number
           netto: number | null
           note: string | null
+          outlet_code: string | null
+          outlet_source: string | null
           retribuzione: number | null
           source: string | null
           tfr: number | null
@@ -3117,6 +3224,8 @@ export type Database = {
           month: number
           netto?: number | null
           note?: string | null
+          outlet_code?: string | null
+          outlet_source?: string | null
           retribuzione?: number | null
           source?: string | null
           tfr?: number | null
@@ -3134,6 +3243,8 @@ export type Database = {
           month?: number
           netto?: number | null
           note?: string | null
+          outlet_code?: string | null
+          outlet_source?: string | null
           retribuzione?: number | null
           source?: string | null
           tfr?: number | null
@@ -3151,7 +3262,9 @@ export type Database = {
           imported_by: string | null
           month: number
           note: string | null
+          removed_snapshot: Json | null
           rows_new_employees: number | null
+          rows_removed: number | null
           rows_total: number | null
           scostamento: number | null
           total_netto: number | null
@@ -3166,7 +3279,9 @@ export type Database = {
           imported_by?: string | null
           month: number
           note?: string | null
+          removed_snapshot?: Json | null
           rows_new_employees?: number | null
+          rows_removed?: number | null
           rows_total?: number | null
           scostamento?: number | null
           total_netto?: number | null
@@ -3181,7 +3296,9 @@ export type Database = {
           imported_by?: string | null
           month?: number
           note?: string | null
+          removed_snapshot?: Json | null
           rows_new_employees?: number | null
+          rows_removed?: number | null
           rows_total?: number | null
           scostamento?: number | null
           total_netto?: number | null
