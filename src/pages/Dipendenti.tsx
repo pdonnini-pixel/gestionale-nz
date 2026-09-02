@@ -2412,13 +2412,13 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
     <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
       <div className="flex items-center gap-2 mb-1">
         <FileUp size={18} className={accent} />
-        <h3 className="font-bold text-slate-800">{isNetto ? 'Import costi busta paga' : 'Import costi lordi'}</h3>
+        <h3 className="font-bold text-slate-800">{isNetto ? 'Import netti per dipendente' : 'Import costi lordi per dipendente'}</h3>
         {chip}
       </div>
       <p className="text-xs text-slate-500 mb-4">
         {isNetto
           ? 'Netto pagato al dipendente (take-home) → scrive solo employee_costs.netto. Formato tipico: PDF “Elenco netti” del software paghe. Accetta anche CSV/Excel.'
-          : 'Costo lordo aziendale (retribuzione lorda + contributi + INAIL + TFR + altri) → scrive i componenti, non il netto. Accetta PDF, CSV/Excel mapping-driven (tracciato definitivo in arrivo).'}
+          : <>Costo lordo aziendale <strong>persona per persona</strong> (retribuzione lorda + contributi + INAIL + TFR + altri). Il «Prospetto riepilogativo elaborazione paghe», che è per <strong>outlet</strong> e non per persona, va invece nella scheda «Costo lordo»: qui non viene accettato.</>}
       </p>
 
       <div className="flex flex-wrap items-center gap-2 mb-3">
