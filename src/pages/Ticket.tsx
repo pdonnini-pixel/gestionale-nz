@@ -9,11 +9,14 @@
 //   ("Prendi in carico", "Risolvi", "Riapri", "Chiudi").
 //
 // AutoFix:
-// - Un task scheduled Cowork legge i ticket aperti ogni ora, applica
-//   fix banali al codice e chiude il ticket lasciando un commento
-//   semplice per Sabrina + note_fix tecniche per Patrizio.
-// - Vedi `system_deploy_config` (Supabase) per la configurazione di
-//   deploy del task scheduled.
+// - Il cron `ticket-autofix-hourly` (pg_cron, :07 di ogni ora — vedi
+//   migration 156) passa alla edge function ticket-resolve-now i ticket
+//   aperti che non hanno ancora un commento AI: max 3 per giro.
+// - La function apre una PR se sa correggere e lascia sempre un commento
+//   semplice per Sabrina + note_fix tecniche per Patrizio. Il commento AI
+//   e' anche cio' che impedisce al cron di ripassare sullo stesso ticket.
+// - Il countdown mostrato qui sotto (AutoFixCountdown) deve restare
+//   allineato al minuto del cron.
 //
 // Pattern NZ:
 // - Niente alert/confirm nativi: tutte le conferme via Modal custom.
