@@ -183,6 +183,10 @@ export default function Fornitori() {
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState({ ...EMPTY_FORM });
+  // Schede del modal fornitore: "Pagamenti" è quella che si apre in modifica,
+  // "Anagrafica" in creazione. Le altre restano a un clic di distanza.
+  type ModalTab = 'pagamenti' | 'anagrafica' | 'recapiti';
+  const [modalTab, setModalTab] = useState<ModalTab>('pagamenti');
   // Anteprima scadenze nel modal: fattura di prova (default oggi) e importo
   // fisso di 1.000 €, così la divisione in rate si legge a colpo d'occhio.
   const PREVIEW_GROSS = 1000;
@@ -615,6 +619,8 @@ export default function Fornitori() {
   function openNew() {
     setEditingId(null);
     setForm({ ...EMPTY_FORM });
+    // Fornitore nuovo: si parte dal nome, che è l'unico campo obbligatorio.
+    setModalTab('anagrafica');
     setShowModal(true);
   }
 
@@ -623,6 +629,8 @@ export default function Fornitori() {
     const str = (k: string) => (s[k] != null ? String(s[k]) : '')
     const num = (k: string, fallback: number) => (s[k] != null ? Number(s[k]) : fallback)
     setEditingId(supplier.id);
+    // In modifica si apre dove si lavora quasi sempre: le condizioni di pagamento.
+    setModalTab('pagamenti');
     setForm({
       ragione_sociale: str('ragione_sociale') || str('name'),
       partita_iva: str('partita_iva') || str('vat_number'),
@@ -656,11 +664,18 @@ export default function Fornitori() {
   }
 
   async function handleSave() {
-    if (!form.ragione_sociale.trim()) { showToast('Ragione sociale obbligatoria', 'error'); return; }
+    // Se il campo che blocca sta in un'altra scheda, la si apre: altrimenti
+    // l'avviso parlerebbe di qualcosa che non è sullo schermo.
+    if (!form.ragione_sociale.trim()) {
+      setModalTab('anagrafica');
+      showToast('Ragione sociale obbligatoria', 'error');
+      return;
+    }
     // Banca obbligatoria per metodi che escono da un conto specifico (RiBa/RID/SDD/carta):
     // serve per lo storno nelle simulazioni di cashflow. Blocca al salvataggio invece di
     // lasciar passare una config incompleta (che poi genererebbe l'anomalia 'banca_mancante').
     if (isBankRequired(form.payment_method) && !form.payment_bank_account_id) {
+      setModalTab('pagamenti');
       showToast(`Con metodo ${PAYMENT_LABEL[form.payment_method] || form.payment_method} la banca di pagamento è obbligatoria`, 'error');
       return;
     }
@@ -1636,76 +1651,62 @@ export default function Fornitori() {
         containerClassName="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
         panelClassName="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90dvh] overflow-y-auto m-4"
       >
-            <div className="flex items-center justify-between p-6 border-b">
-              <h2 className="text-lg font-bold text-slate-900">
-                {editingId ? 'Modifica Fornitore' : 'Nuovo Fornitore'}
-              </h2>
-              <button onClick={() => setShowModal(false)} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={20} /></button>
+            {/* Testa del modal: nome del fornitore e stato, sempre visibili.
+                Le schede sotto separano il lavoro quotidiano (pagamenti) dai dati
+                che si toccano di rado (anagrafica, recapiti). */}
+            <div className="flex items-start justify-between gap-3 px-6 pt-5 pb-3">
+              <div className="min-w-0">
+                <h2 className="text-lg font-bold text-slate-900 truncate">
+                  {editingId ? (form.ragione_sociale.trim() || 'Modifica Fornitore') : 'Nuovo Fornitore'}
+                </h2>
+                <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                  <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 text-[11px] font-medium">
+                    {PAYMENT_LABEL[methodForPlan(form.payment_method, form.prima_scadenza_gg)] || 'Metodo da scegliere'}
+                  </span>
+                  {planStatus(formPlan) === 'ok' ? (
+                    <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 text-[11px] font-medium">
+                      {scheduleLabel(form.payment_base, form.prima_scadenza_gg, form.numero_rate)}
+                    </span>
+                  ) : (
+                    <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-[11px] font-medium">
+                      {planStatus(formPlan) === 'assente' ? 'modalità da impostare' : 'modalità da completare'}
+                    </span>
+                  )}
+                  {form.category && (
+                    <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 text-[11px] font-medium">{form.category}</span>
+                  )}
+                  {form.is_utility && (
+                    <span className="px-2 py-0.5 rounded-full bg-violet-100 text-violet-700 text-[11px] font-medium">utenza</span>
+                  )}
+                </div>
+              </div>
+              <button onClick={() => setShowModal(false)} className="p-1.5 rounded-lg hover:bg-slate-100 shrink-0"><X size={20} /></button>
             </div>
+
+            <div className="px-6 border-b border-slate-200 flex gap-1" role="tablist" aria-label="Sezioni del fornitore">
+              {([
+                { id: 'pagamenti', label: 'Pagamenti', warn: planStatus(formPlan) !== 'ok' },
+                { id: 'anagrafica', label: 'Anagrafica', warn: !form.ragione_sociale.trim() },
+                { id: 'recapiti', label: 'Recapiti e note', warn: false },
+              ] as const).map(t => (
+                <button
+                  key={t.id}
+                  role="tab"
+                  aria-selected={modalTab === t.id}
+                  onClick={() => setModalTab(t.id)}
+                  className={`px-3 py-2.5 text-sm font-semibold border-b-2 -mb-px inline-flex items-center gap-1.5 ${
+                    modalTab === t.id ? 'border-indigo-600 text-indigo-700' : 'border-transparent text-slate-500 hover:text-slate-700'
+                  }`}
+                >
+                  {t.label}
+                  {t.warn && <span className="w-1.5 h-1.5 rounded-full bg-amber-500" aria-label="da completare" />}
+                </button>
+              ))}
+            </div>
+
             <div className="p-6 space-y-5">
-              {/* Row 1: Anagrafica */}
-              <div>
-                <h3 className="text-xs font-semibold text-slate-500 uppercase mb-3">Dati anagrafici</h3>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="col-span-2">
-                    <label htmlFor="forn-ragione-sociale" className="text-xs font-medium text-slate-600">Ragione Sociale *</label>
-                    <input id="forn-ragione-sociale" value={form.ragione_sociale} onChange={e => setForm(f => ({ ...f, ragione_sociale: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" placeholder="Es. ACME S.R.L." />
-                  </div>
-                  <div>
-                    <label htmlFor="forn-partita-iva" className="text-xs font-medium text-slate-600">Partita IVA</label>
-                    <input id="forn-partita-iva" value={form.partita_iva} onChange={e => setForm(f => ({ ...f, partita_iva: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono" placeholder="01234567890" />
-                  </div>
-                  <div>
-                    <label htmlFor="forn-codice-fiscale" className="text-xs font-medium text-slate-600">Codice Fiscale</label>
-                    <input id="forn-codice-fiscale" value={form.codice_fiscale} onChange={e => setForm(f => ({ ...f, codice_fiscale: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono" />
-                  </div>
-                  <div>
-                    <label htmlFor="forn-codice-sdi" className="text-xs font-medium text-slate-600">Codice SDI</label>
-                    <input id="forn-codice-sdi" value={form.codice_sdi} onChange={e => setForm(f => ({ ...f, codice_sdi: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono" placeholder="0000000" />
-                  </div>
-                  <div>
-                    <label htmlFor="forn-pec" className="text-xs font-medium text-slate-600">PEC</label>
-                    <input id="forn-pec" value={form.pec} onChange={e => setForm(f => ({ ...f, pec: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" placeholder="pec@fornitore.it" />
-                  </div>
-                </div>
-              </div>
-
-              {/* Row 2: Contatti */}
-              <div>
-                <h3 className="text-xs font-semibold text-slate-500 uppercase mb-3">Contatti & indirizzo</h3>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label htmlFor="forn-email" className="text-xs font-medium text-slate-600">Email</label>
-                    <input id="forn-email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
-                  </div>
-                  <div>
-                    <label htmlFor="forn-telefono" className="text-xs font-medium text-slate-600">Telefono</label>
-                    <input id="forn-telefono" value={form.telefono} onChange={e => setForm(f => ({ ...f, telefono: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
-                  </div>
-                  <div className="col-span-2">
-                    <label htmlFor="forn-indirizzo" className="text-xs font-medium text-slate-600">Indirizzo</label>
-                    <input id="forn-indirizzo" value={form.indirizzo} onChange={e => setForm(f => ({ ...f, indirizzo: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
-                  </div>
-                  <div>
-                    <label htmlFor="forn-citta" className="text-xs font-medium text-slate-600">Città</label>
-                    <input id="forn-citta" value={form.citta} onChange={e => setForm(f => ({ ...f, citta: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label htmlFor="forn-provincia" className="text-xs font-medium text-slate-600">Provincia</label>
-                      <input id="forn-provincia" value={form.provincia} onChange={e => setForm(f => ({ ...f, provincia: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" maxLength={2} placeholder="FI" />
-                    </div>
-                    <div>
-                      <label htmlFor="forn-cap" className="text-xs font-medium text-slate-600">CAP</label>
-                      <input id="forn-cap" value={form.cap} onChange={e => setForm(f => ({ ...f, cap: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" maxLength={5} />
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Row 3: COME SI PAGA — metodo, banca di addebito, IBAN.
-                  La banca sta accanto al metodo perche' e' il metodo a renderla
-                  obbligatoria (Ri.Ba., RID, SDD, carte). */}
+              {modalTab === 'pagamenti' && (
+                <>
               <div>
                 <h3 className="text-xs font-semibold text-slate-500 uppercase mb-3">Come si paga</h3>
                 <div className="grid grid-cols-2 gap-3">
@@ -1746,18 +1747,9 @@ export default function Fornitori() {
                       </div>
                     )}
                   </div>
-                  <div className="col-span-2">
-                    <label htmlFor="forn-iban" className="text-xs font-medium text-slate-600">IBAN del fornitore</label>
-                    <input id="forn-iban" value={form.iban} onChange={e => setForm(f => ({ ...f, iban: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono" placeholder="IT..." />
-                  </div>
                 </div>
               </div>
 
-              {/* Row 4: QUANDO SCADONO LE FATTURE — una sola tendina comanda.
-                  Base, giorni e rate sono i suoi ingredienti: restano visibili
-                  nel riepilogo dell'anteprima e modificabili solo nel blocco
-                  "accordo fuori standard", cosi' chi compila non deve scegliere
-                  fra quattro campi che dicono la stessa cosa. */}
               <div>
                 <h3 className="text-xs font-semibold text-slate-500 uppercase mb-3 flex items-center gap-1.5">
                   <Calendar size={14} className="text-indigo-500" /> Quando scadono le fatture
@@ -1882,19 +1874,9 @@ export default function Fornitori() {
                 </details>
               </div>
 
-              {/* Row 5: CLASSIFICAZIONE */}
-              <div>
-                <h3 className="text-xs font-semibold text-slate-500 uppercase mb-3">Classificazione</h3>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="col-span-2">
-                    <label htmlFor="forn-categoria" className="text-xs font-medium text-slate-600">Categoria</label>
-                    <select id="forn-categoria" value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm">
-                      <option value="">Seleziona...</option>
-                      {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-                    </select>
-                  </div>
-                  <div className="col-span-2 mt-1 pt-3 border-t border-slate-200">
-                    <label className="flex items-start gap-2.5 cursor-pointer">
+              <div className="pt-1 border-t border-slate-200">
+                <div className="pt-3">
+                  <label className="flex items-start gap-2.5 cursor-pointer">
                       <input
                         type="checkbox"
                         checked={!!form.is_utility}
@@ -1912,12 +1894,105 @@ export default function Fornitori() {
                       </span>
                     </label>
                   </div>
+                </div>
+                </>
+              )}
+
+              {modalTab === 'anagrafica' && (
+                <>
+                <div>
+                  <h3 className="text-xs font-semibold text-slate-500 uppercase mb-3">Chi è il fornitore</h3>
+                  <div className="grid grid-cols-2 gap-3">
+
                   <div className="col-span-2">
+                    <label htmlFor="forn-ragione-sociale" className="text-xs font-medium text-slate-600">Ragione Sociale *</label>
+                    <input id="forn-ragione-sociale" value={form.ragione_sociale} onChange={e => setForm(f => ({ ...f, ragione_sociale: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" placeholder="Es. ACME S.R.L." />
+                  </div>
+                  <div>
+                    <label htmlFor="forn-partita-iva" className="text-xs font-medium text-slate-600">Partita IVA</label>
+                    <input id="forn-partita-iva" value={form.partita_iva} onChange={e => setForm(f => ({ ...f, partita_iva: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono" placeholder="01234567890" />
+                  </div>
+                  <div>
+                    <label htmlFor="forn-codice-fiscale" className="text-xs font-medium text-slate-600">Codice Fiscale</label>
+                    <input id="forn-codice-fiscale" value={form.codice_fiscale} onChange={e => setForm(f => ({ ...f, codice_fiscale: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono" />
+                  </div>
+                  <div>
+                    <label htmlFor="forn-codice-sdi" className="text-xs font-medium text-slate-600">Codice SDI</label>
+                    <input id="forn-codice-sdi" value={form.codice_sdi} onChange={e => setForm(f => ({ ...f, codice_sdi: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono" placeholder="0000000" />
+                  </div>
+                  <div>
+                    <label htmlFor="forn-pec" className="text-xs font-medium text-slate-600">PEC</label>
+                    <input id="forn-pec" value={form.pec} onChange={e => setForm(f => ({ ...f, pec: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" placeholder="pec@fornitore.it" />
+                  </div>
+                    <div className="col-span-2">
+                    <label htmlFor="forn-iban" className="text-xs font-medium text-slate-600">IBAN del fornitore</label>
+                    <input id="forn-iban" value={form.iban} onChange={e => setForm(f => ({ ...f, iban: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono" placeholder="IT..." />
+                  </div>
+                  </div>
+                  <p className="mt-2 text-[11px] text-slate-400">P.IVA, codice SDI e PEC arrivano dalle fatture elettroniche: di solito non serve toccarli.</p>
+                </div>
+
+                <div>
+                  <h3 className="text-xs font-semibold text-slate-500 uppercase mb-3">Classificazione</h3>
+                  <div className="grid grid-cols-2 gap-3">
+<div className="col-span-2">
+                    <label htmlFor="forn-categoria" className="text-xs font-medium text-slate-600">Categoria</label>
+                    <select id="forn-categoria" value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm">
+                      <option value="">Seleziona...</option>
+                      {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </div>
+                  </div>
+                </div>
+                </>
+              )}
+
+              {modalTab === 'recapiti' && (
+                <>
+                <div>
+                  <h3 className="text-xs font-semibold text-slate-500 uppercase mb-3">Contatti &amp; indirizzo</h3>
+                  <div className="grid grid-cols-2 gap-3">
+
+                  <div>
+                    <label htmlFor="forn-email" className="text-xs font-medium text-slate-600">Email</label>
+                    <input id="forn-email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
+                  </div>
+                  <div>
+                    <label htmlFor="forn-telefono" className="text-xs font-medium text-slate-600">Telefono</label>
+                    <input id="forn-telefono" value={form.telefono} onChange={e => setForm(f => ({ ...f, telefono: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
+                  </div>
+                  <div className="col-span-2">
+                    <label htmlFor="forn-indirizzo" className="text-xs font-medium text-slate-600">Indirizzo</label>
+                    <input id="forn-indirizzo" value={form.indirizzo} onChange={e => setForm(f => ({ ...f, indirizzo: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
+                  </div>
+                  <div>
+                    <label htmlFor="forn-citta" className="text-xs font-medium text-slate-600">Città</label>
+                    <input id="forn-citta" value={form.citta} onChange={e => setForm(f => ({ ...f, citta: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label htmlFor="forn-provincia" className="text-xs font-medium text-slate-600">Provincia</label>
+                      <input id="forn-provincia" value={form.provincia} onChange={e => setForm(f => ({ ...f, provincia: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" maxLength={2} placeholder="FI" />
+                    </div>
+                    <div>
+                      <label htmlFor="forn-cap" className="text-xs font-medium text-slate-600">CAP</label>
+                      <input id="forn-cap" value={form.cap} onChange={e => setForm(f => ({ ...f, cap: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" maxLength={5} />
+                    </div>
+                  </div>
+                  </div>
+                </div>
+
+                <div>
+                  <h3 className="text-xs font-semibold text-slate-500 uppercase mb-3">Note</h3>
+                  <div className="grid grid-cols-2 gap-3">
+<div className="col-span-2">
                     <label htmlFor="forn-note" className="text-xs font-medium text-slate-600">Note</label>
                     <textarea id="forn-note" value={form.note} onChange={e => setForm(f => ({ ...f, note: e.target.value }))} rows={2} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
                   </div>
+                  </div>
                 </div>
-              </div>
+                </>
+              )}
             </div>
 
             <div className="flex justify-end gap-3 p-6 border-t bg-slate-50">
