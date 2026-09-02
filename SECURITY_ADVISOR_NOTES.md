@@ -150,9 +150,15 @@ ERROR: 0A000: extension "pg_net" does not support SET SCHEMA
 
 Sono dichiarate non rilocabili dal proprio control file. L'unica strada è
 `DROP EXTENSION` + `CREATE EXTENSION ... SCHEMA extensions`, che ricade sotto
-la REGOLA GRANITICA NO DATA LOSS e vuole conferma esplicita di Patrizio.
+la REGOLA GRANITICA NO DATA LOSS.
 
-Accertamenti già fatti, se un domani si decide di procedere:
+**Decisione di Patrizio del 2026-09-02: si lasciano dove sono.** Il warning
+resta acceso sull'advisor ed è accettato: nessun dato è esposto (le funzioni
+`http_*` non leggono tabelle, e la segnalazione originale di Supabase non le
+citava). Non è una cosa da riaprire a ogni mail dell'advisor.
+
+Gli accertamenti erano già stati fatti, e restano qui se un domani si cambia
+idea:
 
 - `DROP EXTENSION http` **senza** `CASCADE` riesce in transazione: nessun
   oggetto persistente dipende da essa, quindi un drop-e-ricrea atomico non
@@ -160,7 +166,7 @@ Accertamenti già fatti, se un domani si decide di procedere:
   il rischio è che un job `pg_cron` parta proprio in quell'istante
   (`check_pixel_and_alert` gira ogni 30 minuti, i sync A-Cube a orari fissi)
   e fallisca quel giro, ritentando al successivo.
-- Per **pg_net** il guadagno sarebbe nullo: i suoi oggetti
+- Per **pg_net** il guadagno sarebbe comunque nullo: i suoi oggetti
   (`http_request_queue`, `_http_response`, entrambi a 0 righe) vivono già
   nello schema `net`, non in `public`. In `public` c'è solo la registrazione
   dell'extension. In più pg_net ha un background worker, che un drop-e-ricrea
