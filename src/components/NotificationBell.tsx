@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Bell, X, Check, CheckCheck, ExternalLink,
-  AlertTriangle, AlertCircle, Info, Receipt, Landmark, Shield, Settings,
+  AlertTriangle, AlertCircle, Info, Receipt, Landmark, Shield, Settings, MessageSquare,
   LucideIcon
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
@@ -21,6 +21,9 @@ const CATEGORY_META: Record<string, CategoryMeta> = {
   riconciliazione: { icon: Landmark, color: 'blue', label: 'Riconciliazione' },
   fattura_sdi: { icon: Receipt, color: 'emerald', label: 'Fattura SDI' },
   sistema: { icon: Settings, color: 'slate', label: 'Sistema' },
+  // Segnalazione risolta (trigger notify_ticket_resolved, migrazione 157).
+  // Stessa icona della voce "Segnalazioni" in sidebar.
+  ticket: { icon: MessageSquare, color: 'violet', label: 'Segnalazione' },
   info: { icon: Info, color: 'sky', label: 'Informazione' },
 }
 
