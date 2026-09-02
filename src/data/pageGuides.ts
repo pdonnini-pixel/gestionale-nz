@@ -110,6 +110,14 @@ export const PAGE_GUIDES: PageGuide[] = [
       {
         "q": "Cosa significa il banner giallo 'alcuni dati potrebbero non essere stati caricati'?",
         "a": "Vuol dire che, mentre la Dashboard caricava, almeno una delle richieste al sistema non è andata a buon fine (di solito per connessione instabile). In quel caso alcuni numeri potrebbero essere incompleti o mostrare 0 non reale: premi 'Ricarica' nel banner per riprovare. Prima questo tipo di errore era silenzioso e i valori a 0 sembravano dati veri."
+      },
+      {
+        "q": "Le chat con l'assistente AI si perdono quando cambio pagina?",
+        "a": "No. Il pulsante '?' in basso a destra ha tre schede: 'Guida', 'Chiedi all'AI' e 'Le chat'. La conversazione di ogni sezione resta APERTA finché non sei tu a chiuderla con 'Chiudi chat': cambiare pagina, ricaricare il browser o uscire e rientrare non la chiude, e tornando in quella sezione riprendi da dove eri rimasta. Dalla scheda 'Le chat' vedi l'elenco delle conversazioni (aperte e archiviate) con domande e risposte per intero, cercabili per testo, sezione o persona."
+      },
+      {
+        "q": "Cosa succede quando chiudo una chat con l'assistente?",
+        "a": "La chat viene archiviata: resta consultabile per sempre nella scheda 'Le chat', ma non si possono più aggiungere domande. La domanda successiva che fai in quella sezione apre automaticamente una nuova chat. Le chat sono visibili a tutti i colleghi dell'azienda, così le risposte utili restano patrimonio di tutti."
       }
     ]
   },
