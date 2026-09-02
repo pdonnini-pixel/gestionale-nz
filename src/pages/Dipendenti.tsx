@@ -704,6 +704,22 @@ export default function Dipendenti() {
     if (!formData.nome?.trim() || !formData.cognome?.trim()) { toast({ type: 'error', message: 'Nome e cognome sono obbligatori' }); return; }
     if (!formData.data_assunzione) { toast({ type: 'error', message: 'La data di inizio contratto è obbligatoria' }); return; }
     if (!COMPANY_ID) return;
+    // La matricola identifica la persona nel software paghe: una sola per azienda.
+    // Il vincolo vero e' sul database (indice unico company_id + matricola), qui
+    // lo si dice prima e col nome di chi la sta gia' usando. Mai in silenzio.
+    const matricolaIns = String(formData.matricola || '').trim();
+    if (matricolaIns) {
+      const clash = employees.find((e) => norm(e.matricola) === norm(matricolaIns) && e.id !== editingEmployee?.id);
+      if (clash) {
+        setConfirmState({
+          title: 'Matricola già in uso',
+          message: <>La matricola <strong>{matricolaIns}</strong> è già assegnata a <strong>{empName(clash)}</strong>. Due persone non possono avere la stessa matricola: correggi il numero, oppure apri la scheda di {empName(clash)} se si tratta della stessa persona.</>,
+          confirmLabel: 'Ho capito',
+          onConfirm: () => setConfirmState(null),
+        });
+        return;
+      }
+    }
     const doSave = async () => {
       try {
         const dbPayload = mapFormToDb(formData);
@@ -719,7 +735,10 @@ export default function Dipendenti() {
         setShowEmployeeForm(false); setEditingEmployee(null);
         await reloadAll();
       } catch (err: any) {
-        toast({ type: 'error', message: 'Errore nel salvataggio: ' + (err?.message || '') });
+        const dupMatricola = err?.code === '23505' && /matricola/i.test(err?.message || '');
+        toast({ type: 'error', message: dupMatricola
+          ? `La matricola ${matricolaIns} è già usata da un'altra persona di questa azienda: correggila prima di salvare.`
+          : 'Errore nel salvataggio: ' + readableDbError(err) });
       }
     };
     if (!editingEmployee) {
@@ -2171,6 +2190,7 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
       const importId = logRow?.id || null;
 
       const payloads: any[] = [];
+      const failedNew: string[] = [];
       for (const row of rows) {
         let empId = row.matchedId;
         if (!empId && row.matricola) empId = idByMatricola.get(norm(row.matricola)) || null;
@@ -2186,7 +2206,12 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
             first_name: nome || cognome, last_name: cognome,
             is_active: true,
           }]).select('id').single();
-          if (empErr) { console.error('Errore creazione dipendente', empErr); continue; }
+          if (empErr) {
+            // Mai in silenzio: chi non e' stato creato finisce nel messaggio finale.
+            console.error('Errore creazione dipendente', empErr);
+            failedNew.push(`${cognome} ${nome}`.trim() || row.matricola || '—');
+            continue;
+          }
           empId = newEmp?.id || null;
           if (empId && row.matricola) idByMatricola.set(norm(row.matricola), empId);
           if (empId && row.outlet) {
@@ -2243,7 +2268,10 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
 
       const mergedTxt = mergedKeys.length ? ` · ${mergedKeys.length} ${mergedKeys.length === 1 ? 'persona presente' : 'persone presenti'} su più righe: importi sommati` : '';
       const removedTxt = removedCount ? ` · ${removedCount} tolt${removedCount === 1 ? 'a' : 'e'} dal mese` : '';
-      toast({ type: 'success', message: `Import ${isNetto ? 'netti' : 'costi lordi'} completato: ${uniquePayloads.length} righe, ${newCount} nuovi dipendenti.${mergedTxt}${removedTxt}` });
+      toast({ type: 'success', message: `Import ${isNetto ? 'netti' : 'costi lordi'} completato: ${uniquePayloads.length} righe, ${newCount - failedNew.length} nuovi dipendenti.${mergedTxt}${removedTxt}` });
+      if (failedNew.length) {
+        toast({ type: 'error', message: `Non sono riuscito a creare in anagrafica: ${failedNew.join(', ')}. Di solito la matricola è già usata da un'altra persona: controlla in Organico, poi ripeti l'import.` });
+      }
       reset();
       await onDone();
     } catch (err: any) {
