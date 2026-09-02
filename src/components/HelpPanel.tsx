@@ -259,7 +259,10 @@ function AssistantChat({ path, pageTitle, pageContext }: { path: string; pageTit
   ]
 
   return (
-    <div className="flex flex-col h-full">
+    // flex-1 + min-h-0 (NON h-full): dentro un flex column ad altezza fissa,
+    // h-full vale il 100% del pannello e ignora header e tab già presenti, così
+    // il fondo — cioè il campo per scrivere — finisce tagliato fuori.
+    <div className="flex flex-col flex-1 min-h-0">
       {/* Barra di stato della chat: c'è solo quando una chat esiste davvero */}
       {session && (
         <div className="shrink-0 flex items-center gap-2 px-3 py-2 border-b border-slate-100 bg-slate-50/70">
@@ -312,7 +315,7 @@ function AssistantChat({ path, pageTitle, pageContext }: { path: string; pageTit
         </div>
       )}
 
-      <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-3">
+      <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto p-4 space-y-3">
         {loadingHistory && (
           <div className="flex items-center gap-2 text-sm text-slate-400 justify-center py-6">
             <Loader2 size={14} className="animate-spin" /> Carico la conversazione…
@@ -472,7 +475,7 @@ function ArchiveView({
   const aperteCount = sessions.filter((s) => s.status === 'aperta').length
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col flex-1 min-h-0">
       <div className="shrink-0 p-3 space-y-2 border-b border-slate-100">
         <div className="relative">
           <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -504,7 +507,7 @@ function ArchiveView({
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-3 space-y-2">
+      <div className="flex-1 min-h-0 overflow-y-auto p-3 space-y-2">
         {loading && (
           <div className="flex items-center gap-2 text-sm text-slate-400 justify-center py-6">
             <Loader2 size={14} className="animate-spin" /> Carico l'archivio…
@@ -600,7 +603,7 @@ function ArchiveDetail({
   }
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col flex-1 min-h-0">
       <div className="shrink-0 border-b border-slate-100 p-3">
         <button
           onClick={onBack}
@@ -655,7 +658,7 @@ function ArchiveDetail({
         )}
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-3">
+      <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-3">
         {loading && (
           <div className="flex items-center gap-2 text-sm text-slate-400 justify-center py-6">
             <Loader2 size={14} className="animate-spin" /> Carico la conversazione…
@@ -675,7 +678,7 @@ function ArchiveDetail({
 function GuideView({ guide }: { guide: PageGuide }) {
   const [expandedFaq, setExpandedFaq] = useState<number | null>(null)
   return (
-    <div className="flex-1 overflow-y-auto p-5 space-y-5">
+    <div className="flex-1 min-h-0 overflow-y-auto p-5 space-y-5">
       <p className="text-sm text-slate-600 leading-relaxed">{guide.description}</p>
 
       {guide.sections.length > 0 && (
@@ -771,7 +774,12 @@ export default function HelpPanel() {
 
       {/* Help panel */}
       {open && (
-        <div className="fixed bottom-36 md:bottom-20 right-4 md:right-6 z-40 w-[380px] max-w-[calc(100vw-2rem)] h-[70dvh] max-h-[560px] bg-white rounded-2xl border border-slate-200 shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-bottom-2">
+        /* Altezza: su telefono il pannello è ancorato SIA in alto (top-4) SIA
+           sopra al bottone (bottom-36), così prende tutta l'altezza disponibile
+           senza mai sforare il bordo superiore. Su desktop torna ad altezza
+           fissa ancorata in basso. Prima era sempre h-[70dvh]/560px e su schermi
+           bassi il fondo del pannello finiva fuori schermo. */
+        <div className="fixed top-4 md:top-auto bottom-36 md:bottom-20 right-4 md:right-6 z-40 w-[380px] max-w-[calc(100vw-2rem)] md:h-[75dvh] md:max-h-[640px] bg-white rounded-2xl border border-slate-200 shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-bottom-2">
           {/* Header */}
           <div className="bg-gradient-to-r from-blue-600 to-blue-700 text-white px-5 py-4 shrink-0">
             <div className="flex items-center gap-3">
