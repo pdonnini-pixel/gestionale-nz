@@ -2006,6 +2006,9 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
   const [parsing, setParsing] = useState(false);
   const [importing, setImporting] = useState(false);
   const [overwriteAck, setOverwriteAck] = useState(false);
+  // Fase 3: togliere dal mese chi non è più nel file. Spento di default e mai
+  // automatico: è una scelta esplicita di chi importa.
+  const [removeMissing, setRemoveMissing] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [rawPreview, setRawPreview] = useState<string[] | null>(null);
 
@@ -2092,7 +2095,59 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
   const scostamento = fileTotal != null ? total - fileTotal : null;
   const quadra = scostamento == null || Math.abs(scostamento) < 0.01;
   const warnOutlets = rows ? Array.from(new Set(rows.filter((r) => r.warn).map((r) => r.outlet || '—'))) : [];
-  const reset = () => { setRows(null); setFileName(''); setFileTotal(null); setOverwriteAck(false); setRawPreview(null); };
+  // Righe che finiscono sulla stessa persona: si sommano, non fanno fallire il carico.
+  const duplicatiNelFile = useMemo(() => {
+    if (!rows) return 0;
+    const seen = new Set<string>();
+    let dup = 0;
+    rows.forEach((r) => {
+      const key = r.matchedId || `mat:${r.matricola}` || '';
+      if (!key) return;
+      if (seen.has(key)) dup += 1; else seen.add(key);
+    });
+    return dup;
+  }, [rows]);
+  const reset = () => { setRows(null); setFileName(''); setFileTotal(null); setOverwriteAck(false); setRawPreview(null); setRemoveMissing(false); };
+
+  // ── FASE 3 — il carico è una SOSTITUZIONE del mese, non un'aggiunta ─────────
+  // Prima di confermare si mostra cosa cambia rispetto a quello che c'è già:
+  // chi entra, chi esce, chi cambia punto vendita. Senza questo confronto, un
+  // file ricaricato corretto lasciava a database le persone del file sbagliato
+  // e il mese continuava a contarne una di troppo.
+  const diff = useMemo(() => {
+    if (!rows || !isNetto) return null;
+    const nelFile = new Set<string>();
+    const outletNelFile: Record<string, string> = {};
+    const outletByNormPrev: Record<string, string> = {};
+    outlets.forEach((o) => { outletByNormPrev[norm(o.name)] = o.name; });
+    rows.forEach((r) => {
+      if (!r.matchedId) return;
+      nelFile.add(r.matchedId);
+      const exact = r.outlet ? outletByNormPrev[norm(r.outlet)] : '';
+      if (exact) outletNelFile[r.matchedId] = exact;
+    });
+    const aDb = existingCosts.filter((c) => c.year === impYear && c.month === impMonth && c.netto != null && c.employee_id);
+    const nomeDi = (id: string) => { const e = employees.find((x) => x.id === id); return e ? empName(e) : '—'; };
+
+    const usciti = aDb
+      .filter((c) => !nelFile.has(c.employee_id as string))
+      .map((c) => ({ id: c.employee_id as string, nome: nomeDi(c.employee_id as string), netto: Number(c.netto || 0) }));
+    const idsADb = new Set(aDb.map((c) => c.employee_id as string));
+    const entrati = rows
+      .filter((r) => !r.matchedId || !idsADb.has(r.matchedId))
+      .map((r) => ({ nome: `${r.cognome} ${r.nome}`.trim() || r.matricola || '—' }));
+    const cambioOutlet = aDb
+      .map((c) => {
+        const id = c.employee_id as string;
+        const nuovo = outletNelFile[id];
+        const vecchio = (c as any).outlet_code as string | null | undefined;
+        if (!nuovo || !vecchio || nuovo === vecchio) return null;
+        return { id, nome: nomeDi(id), da: vecchio, a: nuovo };
+      })
+      .filter((x): x is { id: string; nome: string; da: string; a: string } => x !== null);
+
+    return { usciti, entrati, cambioOutlet, presenti: aDb.length };
+  }, [rows, isNetto, existingCosts, impYear, impMonth, employees, outlets]);
 
   const doImport = async () => {
     if (!rows) return;
@@ -2112,6 +2167,20 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
       const payloads: any[] = [];
       for (const row of rows) {
         let empId = row.matchedId;
+        if (!empId && row.matricola) {
+          // La lista `employees` è quella caricata all'apertura della pagina: due
+          // import ravvicinati la trovano vecchia e ricreano la stessa persona.
+          // È successo con maggio 2026 su NZ (quattro anagrafiche per due
+          // persone), quindi prima di creare si ricontrolla sul database.
+          const { data: alreadyThere } = await supabase
+            .from('employees')
+            .select('id')
+            .eq('company_id', companyId)
+            .eq('matricola', row.matricola)
+            .limit(1)
+            .maybeSingle();
+          if (alreadyThere?.id) empId = alreadyThere.id;
+        }
         if (!empId) {
           // Il nome arriva dall'import (PDF ruotato → riga completa). Mai la matricola come nome:
           // se davvero manca il testo-nome, usa un placeholder editabile dalla scheda.
@@ -2136,17 +2205,64 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
         const payload: any = { employee_id: empId, company_id: companyId, year: impYear, month: impMonth, source: isNetto ? 'import_busta_paga' : 'import_lordi', import_id: importId };
         if (isNetto) {
           payload.netto = Number(row.netto || 0);
+          // FASE 2 — la filiale del file diventa l'outlet DI QUEL MESE. È il
+          // fatto storico: se domani la persona cambia negozio, questo mese
+          // resta com'era.
+          const exactOutlet = row.outlet ? outletByNorm[norm(row.outlet)] : '';
+          if (exactOutlet) { payload.outlet_code = exactOutlet; payload.outlet_source = 'file'; }
         } else {
           lordiPresent.forEach((f) => { payload[f.col] = Number((row as any)[f.key] || 0); });
         }
         payloads.push(payload);
       }
 
-      if (payloads.length) {
-        const { error: upErr } = await supabase.from('employee_costs').upsert(payloads, { onConflict: 'employee_id,year,month' });
+      // Una persona può comparire su PIÙ righe dello stesso file (conguagli,
+      // cedolini separati): i valori si sommano. Senza questa aggregazione
+      // l'upsert riceveva due volte la stessa chiave (employee_id, year, month)
+      // e Postgres rifiutava l'INTERO carico con «ON CONFLICT DO UPDATE command
+      // cannot affect row a second time»: è quello che ha fatto fallire il
+      // carico di maggio 2026 su NZ, lasciando il mese vuoto e due anagrafiche
+      // doppie create prima dell'errore.
+      const merged = new Map<string, any>();
+      for (const p of payloads) {
+        const key = `${p.employee_id}|${p.year}|${p.month}`;
+        const prev = merged.get(key);
+        if (!prev) { merged.set(key, p); continue; }
+        const sum = (a: any, b: any) => (a == null && b == null ? null : Number(a || 0) + Number(b || 0));
+        prev.netto = sum(prev.netto, p.netto);
+        LORDI_FIELDS.forEach((f) => { if (p[f.col] != null || prev[f.col] != null) prev[f.col] = sum(prev[f.col], p[f.col]); });
+        // L'outlet resta quello della prima riga: righe della stessa persona
+        // nello stesso mese vengono dalla stessa filiale.
+        prev.outlet_code = prev.outlet_code || p.outlet_code;
+        prev.outlet_source = prev.outlet_source || p.outlet_source;
+      }
+      const finalPayloads = Array.from(merged.values());
+
+      if (finalPayloads.length) {
+        const { error: upErr } = await supabase.from('employee_costs').upsert(finalPayloads, { onConflict: 'employee_id,year,month' });
         if (upErr) throw upErr;
       }
-      toast({ type: 'success', message: `Import ${isNetto ? 'netti' : 'costi lordi'} completato: ${payloads.length} righe, ${newCount} nuovi dipendenti.` });
+
+      // FASE 3 — chi non è più nel file esce dal mese, ma SOLO se richiesto e
+      // senza perdere nulla: si azzera il netto (la riga e gli eventuali costi
+      // lordi restano) dopo aver salvato lo snapshot nell'audit dell'import.
+      let removedCount = 0;
+      if (isNetto && removeMissing && diff && diff.usciti.length > 0 && importId) {
+        const snapshot = diff.usciti.map((u) => ({ employee_id: u.id, nome: u.nome, netto: u.netto, year: impYear, month: impMonth }));
+        const { error: snapErr } = await supabase.from('employee_cost_imports')
+          .update({ removed_snapshot: snapshot, rows_removed: snapshot.length })
+          .eq('id', importId);
+        if (snapErr) throw snapErr;
+        const { error: rmErr } = await supabase.from('employee_costs')
+          .update({ netto: null })
+          .eq('company_id', companyId).eq('year', impYear).eq('month', impMonth)
+          .in('employee_id', diff.usciti.map((u) => u.id));
+        if (rmErr) throw rmErr;
+        removedCount = snapshot.length;
+      }
+
+      const accorpate = payloads.length - finalPayloads.length;
+      toast({ type: 'success', message: `Import ${isNetto ? 'netti' : 'costi lordi'} completato: ${finalPayloads.length} righe${accorpate ? ` (${accorpate} accorpate sulla stessa persona)` : ''}, ${newCount} nuovi dipendenti${removedCount ? `, ${removedCount} tolti dal mese` : ''}.` });
       reset();
       await onDone();
     } catch (err: any) {
@@ -2227,9 +2343,53 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
             </div>
           )}
 
+          {duplicatiNelFile > 0 && (
+            <div className="px-4 py-2 text-sm flex items-center gap-2 bg-sky-50 text-sky-800">
+              <AlertCircle size={15} />
+              {duplicatiNelFile} rig{duplicatiNelFile === 1 ? 'a si riferisce' : 'he si riferiscono'} a una persona già presente nel file (conguagli o cedolini separati): {duplicatiNelFile === 1 ? 'verrà sommata' : 'verranno sommate'} in un unico importo del mese.
+            </div>
+          )}
+
           {warnOutlets.length > 0 && (
             <div className="px-4 py-2 text-sm flex items-center gap-2 bg-amber-50 text-amber-800">
               <AlertCircle size={15} /> Filiali da verificare (somma netti ≠ totale di ripartizione): <strong>{warnOutlets.join(', ')}</strong>
+            </div>
+          )}
+
+          {/* FASE 3 — cosa cambia nel mese rispetto a quello che c'è già. */}
+          {diff && diff.presenti > 0 && (
+            <div className="px-4 py-3 border-t border-slate-100 bg-slate-50 text-sm space-y-2">
+              <div className="font-semibold text-slate-700 flex items-center gap-1.5">
+                <Users size={15} className="text-slate-400" />
+                Cosa cambia in {MONTHS.find((m) => m.num === impMonth)?.label} {impYear}
+              </div>
+              <div className="text-slate-600">
+                Nel mese ci sono già <strong>{diff.presenti}</strong> cedolini. Questo file ne porta <strong>{rows.length}</strong>.
+              </div>
+              <ul className="space-y-1 text-slate-600">
+                <li>
+                  <span className="text-emerald-700 font-medium">Entrano {diff.entrati.length}</span>
+                  {diff.entrati.length > 0 && <span className="text-slate-500">: {diff.entrati.slice(0, 6).map((e) => e.nome).join(', ')}{diff.entrati.length > 6 ? ', …' : ''}</span>}
+                </li>
+                <li>
+                  <span className={diff.usciti.length ? 'text-red-700 font-medium' : 'text-slate-500'}>Escono {diff.usciti.length}</span>
+                  {diff.usciti.length > 0 && <span className="text-slate-500">: {diff.usciti.map((u) => u.nome).join(', ')}</span>}
+                </li>
+                <li>
+                  <span className={diff.cambioOutlet.length ? 'text-amber-700 font-medium' : 'text-slate-500'}>Cambiano sede {diff.cambioOutlet.length}</span>
+                  {diff.cambioOutlet.length > 0 && <span className="text-slate-500">: {diff.cambioOutlet.map((c) => `${c.nome} (${c.da} → ${c.a})`).join(', ')}</span>}
+                </li>
+              </ul>
+              {diff.usciti.length > 0 && (
+                <label className="flex items-start gap-2 pt-1 text-slate-700">
+                  <input type="checkbox" className="mt-0.5" checked={removeMissing} onChange={(e) => setRemoveMissing(e.target.checked)} />
+                  <span>
+                    <strong>Togli dal mese chi non è nel file</strong> ({diff.usciti.length} person{diff.usciti.length === 1 ? 'a' : 'e'}).
+                    Il mese conterà {rows.length} dipendenti invece di {diff.presenti + diff.entrati.length}.
+                    Niente viene cancellato: il netto viene azzerato e i valori restano recuperabili nello storico degli import.
+                  </span>
+                </label>
+              )}
             </div>
           )}
 

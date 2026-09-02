@@ -1571,7 +1571,7 @@ function StaffTab({ outletId, outletName, companyId }: { outletId: string; outle
           .order('last_name'),
         supabase
           .from('employee_costs')
-          .select('employee_id, year, month, netto')
+          .select('employee_id, year, month, netto, outlet_code')
           .eq('company_id', companyId)
           .in('employee_id', ids)
           .not('netto', 'is', null),

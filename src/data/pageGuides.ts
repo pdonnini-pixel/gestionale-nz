@@ -252,7 +252,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "KPI di sintesi",
-        "body": "Quattro riquadri riassumono la situazione della catena: quanti outlet hanno dati disponibili, i ricavi totali (con lo scostamento complessivo rispetto al preventivo, quando ci sono mesi consuntivati), il numero totale di dipendenti assegnati agli outlet, e il ricavo medio per dipendente."
+        "body": "Quattro riquadri riassumono la situazione della catena: quanti outlet hanno dati disponibili, i ricavi totali (con lo scostamento complessivo rispetto al preventivo, quando ci sono mesi consuntivati), il numero totale di dipendenti in forza nei punti vendita, e il ricavo medio per dipendente. Il numero dei dipendenti viene dai cedolini, la stessa fonte della pagina Dipendenti: sotto al numero è scritto di quale mese si tratta, e se quel mese cade fuori dal periodo che hai scelto viene segnalato. La sede o magazzino non è compresa, perché questa pagina confronta i punti vendita fra loro: per il totale che comprende anche la sede guarda la pagina Dipendenti."
       },
       {
         "heading": "Grafici comparativi",
@@ -260,11 +260,11 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "Tabella di benchmark",
-        "body": "Una tabella riassuntiva mette a confronto tutti gli outlet su una serie di indicatori (ricavi, margine in euro e in percentuale, numero dipendenti, ricavo per dipendente, costo personale, affitto, incidenza del personale e dell'affitto sui ricavi). Il valore migliore di ogni riga è evidenziato in verde; in vista 'Scostamento' i colori seguono invece il significato del cambiamento (verde se il numero è andato nella direzione giusta, rosso se in quella sbagliata)."
+        "body": "Una tabella riassuntiva mette a confronto tutti gli outlet su una serie di indicatori (ricavi, margine in euro e in percentuale, numero dipendenti in forza dai cedolini, ricavo per dipendente, costo personale, affitto, incidenza del personale e dell'affitto sui ricavi). Il valore migliore di ogni riga è evidenziato in verde; in vista 'Scostamento' i colori seguono invece il significato del cambiamento (verde se il numero è andato nella direzione giusta, rosso se in quella sbagliata)."
       },
       {
         "heading": "Schede outlet — confronto dettagliato",
-        "body": "Sotto la tabella trovi una scheda per ogni outlet, con i ricavi (o lo scostamento, in vista Scostamento), un'etichetta che indica quanto è affidabile il dato mostrato ('Granitico' = dato reale confermato, 'X reali + Y previsti' = dato misto, 'Preventivo' = solo stima), il numero di dipendenti assegnati, lo scostamento rispetto al preventivo, un link 'Apri in Budget & Controllo' per andare al dettaglio di quell'outlet, quattro riquadri di costo (acquisto merci, costo personale, costo locazioni, costo per servizi), il margine dell'outlet e, quando disponibile, la quota di costi di sede attribuita e il margine dopo la sede (ed eventualmente dopo le imposte). Il pulsante 'Mostra dettaglio' apre l'elenco completo delle voci di costo e ricavo di quell'outlet."
+        "body": "Sotto la tabella trovi una scheda per ogni outlet, con i ricavi (o lo scostamento, in vista Scostamento), un'etichetta che indica quanto è affidabile il dato mostrato ('Granitico' = dato reale confermato, 'X reali + Y previsti' = dato misto, 'Preventivo' = solo stima), il numero di dipendenti in forza secondo i cedolini (passa il mouse sul riquadro per vedere di quale mese), lo scostamento rispetto al preventivo, un link 'Apri in Budget & Controllo' per andare al dettaglio di quell'outlet, quattro riquadri di costo (acquisto merci, costo personale, costo locazioni, costo per servizi), il margine dell'outlet e, quando disponibile, la quota di costi di sede attribuita e il margine dopo la sede (ed eventualmente dopo le imposte). Il pulsante 'Mostra dettaglio' apre l'elenco completo delle voci di costo e ricavo di quell'outlet."
       }
     ],
     "faq": [
@@ -901,12 +901,14 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "Costi & cedolini",
-        "body": "Qui trovi, raggruppati per sede, tutti i cedolini (netti) caricati per il mese selezionato, con il totale pagato e la possibilità di aprire il PDF del cedolino di ogni persona. In fondo alla pagina ci sono due corsie di importazione: una per i netti (buste paga) e una per i costi lordi, entrambe accettano file PDF oppure fogli Excel/CSV.",
+        "body": "Qui trovi, raggruppati per sede, tutti i cedolini (netti) caricati per il mese selezionato, con il totale pagato e la possibilità di aprire il PDF del cedolino di ogni persona. In fondo alla pagina ci sono due corsie di importazione: una per i netti (buste paga) e una per i costi lordi, entrambe accettano file PDF oppure fogli Excel/CSV. Il carico dei netti è ciò che rende definitivo il mese: da ogni riga il sistema prende anche la filiale, che diventa il punto vendita di quella persona PER QUEL MESE. Se in seguito la persona viene spostata, i mesi già caricati restano come erano.",
         "steps": [
           "Scegli la corsia giusta: \"netto\" per il file con gli stipendi netti, \"lordi\" per il file con i costi lordi aziendali.",
           "Tocca l'area per selezionare il file dal tuo dispositivo, oppure (da computer) trascinalo dentro.",
           "Il sistema prova a riconoscere automaticamente ogni dipendente (per matricola o per nome e cognome); se non lo trova, propone di crearne uno nuovo.",
-          "Controlla l'anteprima: viene mostrato anche lo scostamento tra il totale calcolato e il totale dichiarato nel file, così puoi accorgerti subito di eventuali errori.",
+          "Controlla l'anteprima: viene mostrato anche lo scostamento tra il totale calcolato e il totale dichiarato nel file, così puoi accorgerti subito di eventuali errori. Se una persona compare su più righe (conguagli o cedolini separati), l'anteprima lo segnala e gli importi vengono sommati in un'unica riga del mese.",
+          "Prima di confermare leggi il riquadro \"Cosa cambia\": ti dice quante persone entrano nel mese, quante escono (cioè erano a sistema ma non sono in questo file) e chi cambia punto vendita rispetto a quanto risultava.",
+          "Se qualcuno è uscito, puoi spuntare \"Togli dal mese chi non è nel file\": serve quando ricarichi un mese corretto dopo uno sbagliato, altrimenti le persone di troppo continuerebbero a essere contate. La spunta è spenta di default e non cancella niente: il netto viene azzerato e i valori restano recuperabili nello storico degli import.",
           "Conferma l'importazione: i dati salvati per il mese vengono aggiornati (se esistevano già dei netti per quel mese, vengono sovrascritti)."
         ]
       },
@@ -922,7 +924,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "q": "Come si decide quante persone sono in forza in un punto vendita?",
-        "a": "Lo decide il carico dei cedolini di quel mese: le persone con un cedolino caricato per quell'outlet in quel mese. Se a luglio arrivano cinque cedolini dove a giugno ne arrivavano sei, da luglio quell'outlet ha cinque persone, e resta così finché un nuovo carico non dice altro. L'anagrafica serve per i dati della persona, non per fare il numero."
+        "a": "Lo decide il carico dei cedolini di quel mese: le persone con un cedolino caricato per quell'outlet in quel mese. Se a luglio arrivano cinque cedolini dove a giugno ne arrivavano sei, da luglio quell'outlet ha cinque persone, e resta così finché un nuovo carico non dice altro. L'anagrafica serve per i dati della persona, non per fare il numero. Anche il punto vendita è un fatto del mese: viene letto dalla filiale scritta sul cedolino, quindi spostare qualcuno oggi non cambia i mesi già caricati."
       },
       {
         "q": "Perché un dipendente non compare nell'organico del mese anche se è attivo?",

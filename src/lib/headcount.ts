@@ -37,6 +37,15 @@ export interface HeadcountCost {
   year: number;
   month: number;
   netto?: number | null;
+  /**
+   * Outlet di competenza DEL MESE, scritto dal carico dei cedolini (migration
+   * 157). Quando c'è, comanda su tutto: è il fatto storico di quel mese. NULL
+   * sulle righe caricate prima della 157 o inserite a mano: in quel caso si
+   * ripiega sull'allocazione anagrafica, come si faceva prima.
+   */
+  outlet_code?: string | null;
+  /** 'file' = filiale letta dal cedolino; 'anagrafica' = dedotta al backfill. */
+  outlet_source?: string | null;
 }
 
 export interface HeadcountAllocation {
@@ -149,9 +158,16 @@ export function companyHeadcount(
 }
 
 /**
- * Organico per outlet nel mese: chiave = outlet_code delle allocazioni,
- * valore = insieme delle persone. Chi è allocato su più outlet conta in
- * ciascuno (ma una sola volta nel totale aziendale).
+ * Organico per outlet nel mese. Valore = insieme delle PERSONE.
+ *
+ * L'outlet di una riga si legge in quest'ordine:
+ *  1. `outlet_code` sul cedolino stesso, se c'è: è il fatto di quel mese e non
+ *     cambia più, nemmeno se domani la persona viene spostata di negozio;
+ *  2. altrimenti le allocazioni anagrafiche correnti (comportamento storico,
+ *     usato per le righe caricate prima della migration 157).
+ *
+ * Chi è allocato su più outlet conta in ciascuno, ma una volta sola nel totale
+ * aziendale.
  */
 export function headcountByOutlet(
   costs: HeadcountCost[],
@@ -160,11 +176,25 @@ export function headcountByOutlet(
   period: Period | null,
 ): Record<string, Set<string>> {
   const out: Record<string, Set<string>> = {};
+  if (!period) return out;
   const paid = paidEmployeeIds(costs, employees, period);
   if (paid.size === 0) return out;
   const map = byId(employees);
+
+  // 1. righe del mese che portano già il proprio outlet
+  const fromRow = new Set<string>();
+  for (const c of costs) {
+    if (!isGranitedRow(c) || c.year !== period.year || c.month !== period.month) continue;
+    const id = c.employee_id as string;
+    if (!paid.has(id) || !c.outlet_code) continue;
+    fromRow.add(id);
+    (out[c.outlet_code] ||= new Set()).add(personKey(map[id], id));
+  }
+
+  // 2. per le altre, l'allocazione anagrafica
   for (const a of allocations) {
-    if (!a.employee_id || !a.outlet_code || !paid.has(a.employee_id)) continue;
+    if (!a.employee_id || !a.outlet_code) continue;
+    if (!paid.has(a.employee_id) || fromRow.has(a.employee_id)) continue;
     (out[a.outlet_code] ||= new Set()).add(personKey(map[a.employee_id], a.employee_id));
   }
   return out;
