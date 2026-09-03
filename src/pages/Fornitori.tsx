@@ -28,6 +28,11 @@ import TableScroll from '../components/ui/TableScroll';
 import { useOutlets } from '../hooks/useOutlets';
 import { usePeriod } from '../hooks/usePeriod';
 import { isPayableClosed, payableOpenAmount, fetchDisposizioniMap, type DisposizioniMap, type PayableOpenInput } from '../lib/payableOpenAmount';
+// Stato EFFETTIVO ricalcolato dalla data di scadenza (oggi > due_date → 'scaduto'),
+// come fa lo Scadenzario: lo status salvato nel DB non viene aggiornato allo
+// scadere e resterebbe 'da_pagare' (GGZ: 3 fatture del 31/08 lette "a scadere"
+// qui e "scadute" nello Scadenzario).
+import { calculatePayableStatus } from './scadenzario/helpers';
 import SupplierAllocationEditor, { MODE_META, type AllocationMode } from '../components/SupplierAllocationEditor';
 import InvoiceViewer from '../components/InvoiceViewer';
 // pdfjs-dist (~350KB gzip) caricata solo all'apertura di un allegato PDF
@@ -93,7 +98,7 @@ async function fetchAllPayables(companyId: string): Promise<Array<Record<string,
       // amount_paid / closed_manually / payment_date servono a payableOpenAmount
       // (stessa regola "aperta" dello Scadenzario: NC chiuse a mano e quote in
       // distinta in sospeso escono dal "da pagare").
-      .select('id, supplier_id, invoice_number, invoice_date, due_date, gross_amount, amount_paid, amount_remaining, status, payment_method, cash_movement_id, closed_manually, payment_date')
+      .select('id, supplier_id, invoice_number, invoice_date, due_date, gross_amount, amount_paid, amount_remaining, status, payment_method, cash_movement_id, closed_manually, payment_date, is_provisional_paid, is_auto_debit')
       .eq('company_id', companyId)
       .not('supplier_id', 'is', null)
       // Righe NASCOSTE (is_placeholder: autofatture reverse charge TD16-19,
@@ -481,11 +486,12 @@ export default function Fornitori() {
       const gross = Number(p.gross_amount) || 0;
       const open = openAmountOf(p); // 0 se chiusa; residuo − quota in distinta altrimenti
       const status = String(p.status || '');
+      const effStatus = calculatePayableStatus(p); // scaduto per data, come lo Scadenzario
       s.count++;
       s.grossTotal += gross;
       if (status === 'pagato') { s.paid += gross; s.paidCount++; if (p.cash_movement_id) s.reconciledCount++; }
       if (status === 'nota_credito' || gross < 0) { if (open < 0) s.openCredits += open; }
-      else if (status === 'scaduto') s.overdue += open;
+      else if (effStatus === 'scaduto') s.overdue += open;
       else if (open > 0) s.toCome += open;
       s.pending += open;
       if (p.payment_method) s.methods.add(String(p.payment_method));
@@ -608,7 +614,7 @@ export default function Fornitori() {
       if (p.supplier_id) suppliersWithPayables.add(p.supplier_id as string);
       if (!isNC && gross > 0) totalFatturato += gross;        // gross positivi, escluse NC
       if (isNC) totalCrediti += Math.abs(gross);              // abs note credito
-      if (status === 'scaduto') overdue += open;              // aperto scaduto (netto distinte)
+      if (calculatePayableStatus(p) === 'scaduto') overdue += open; // scaduto per data (come Scadenzario), netto distinte
       if (isNC && open < 0) openCredits += open;              // NC ancora da scalare (negativo)
       if (!isNC) totalPending += open;                        // aperto, escluse NC
     }
@@ -836,8 +842,8 @@ export default function Fornitori() {
       .filter(p => !isPayableClosed(p as unknown as PayableOpenInput) && String(p.status) !== 'nota_credito')
       .filter(p => openAmountOf(p) > 0)
       .sort((a, b) => {
-        const sa = a.status === 'scaduto' ? 0 : 1;
-        const sb = b.status === 'scaduto' ? 0 : 1;
+        const sa = calculatePayableStatus(a) === 'scaduto' ? 0 : 1;
+        const sb = calculatePayableStatus(b) === 'scaduto' ? 0 : 1;
         if (sa !== sb) return sa - sb;
         return new Date(String(b.due_date || '')).getTime() - new Date(String(a.due_date || '')).getTime();
       });
