@@ -49,12 +49,34 @@
 > gestionale è nel giusto e la lista di Sabrina va letta come **importo intero della
 > fattura**, non come rata. Vale per 882/26, 972/26, 1066/26, 1085/26 e 916/26.
 >
-> ## 📊 ENTRATE MAI RICONCILIATE (2026-09-03) — da affrontare
+> ## 📊 ENTRATE MAI RICONCILIATE (2026-09-03) — strumento pronto, esecuzione da autorizzare
 >
 > Il motore lavora **solo sulle uscite**: ogni `try_match_*` filtra `amount < 0`. Sul 2026:
 > uscite riconciliate al 56,7% (706 su 1.246), **entrate allo 0,0% (0 su 4.261)**. Gli
 > incassi POS, i versamenti e gli accrediti non vengono agganciati a niente. È un capitolo
 > intero mai aperto, non un bug del v3.
+>
+> **Estendere il motore non serve.** Un incasso POS non ha un documento da agganciare:
+> `daily_revenue`, `invoices` e `pos_imports` sono **vuote**, non esiste un ciclo attivo
+> caricato. Cercare una controparte che non c'è è lavoro sprecato. Quello che serve è
+> separare l'incasso che si spiega da solo da quello che una persona deve guardare.
+>
+> **Strumento** (migration `20260903_167`, NZ+Made+Zago): `close_incoming_movements(dry_run)`,
+> stesso schema di `close_non_supplier_movements` per le uscite. Chiude per natura
+> `incassi_pos` (POS, PagoBancomat, circuiti, Numia), `versamenti` (contante, cassa
+> continua, ATM) e `finanziarie` (interessi, storni). Lascia fuori apposta bonifici in
+> entrata, erogazioni di finanziamento, giroconti e fideiussioni: sono gli unici che
+> possono avere una controparte.
+>
+> **Effetto su NZ** (dry run del 03/09): 7.766 entrate chiuse per 5.888.599,65 €, e
+> **restano 90 movimenti** da guardare a mano — 83 bonifici per 1.211.644,52 €, un
+> finanziamento da 64.100,00 €, 5 fideiussioni, un giroconto.
+>
+> ⚠️ **Non ancora eseguita.** Di default la funzione è in dry run e **non è agganciata al
+> cron**: tocca 7.766 righe di tabella viva, quindi l'esecuzione
+> (`select public.close_incoming_movements(false);`) va fatta solo con l'ok esplicito di
+> Patrizio. Le righe chiuse restano riconoscibili dalla nota, quindi l'operazione è
+> reversibile (vedi il file `_ROLLBACK`).
 
 > ## 💰 ACCONTI — la disposizione si chiude, il partitario li registra (2026-09-03)
 >
