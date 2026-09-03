@@ -1,0 +1,83 @@
+-- =============================================================================
+-- NZ_ONLY — Carte BCC: estratti conto di luglio 2026 riportati sui movimenti
+-- Applicato su NZ il 03/09/2026. Dati NZ-specifici: non si replica su Made/Zago.
+-- =============================================================================
+--
+-- I DOCUMENTI. Tre estratti conto carte di luglio 2026, tutti intestati a
+-- GALLO MASSIMO per NEW ZAGO S.R.L. Dettaglio in docs/carte_bcc_luglio_2026.csv.
+--
+--   5226**0580  prepagata TASCA   21 spese 1.225,91 + 2,00 di commissioni,
+--                                 750,00 di ricariche, saldo mese -477,91
+--   5582**3145  credito           8 operazioni, 1.232,79
+--   5582**5388  credito           1 operazione, 1.129,72
+--
+-- COME SI LEGGONO SUL CONTO. Le due logiche sono diverse e vanno tenute distinte:
+--
+--   PREPAGATA. Le spese non passano dal conto corrente: escono dal saldo della
+--   carta, che viene alimentato dalle ricariche. Sul c/c BCC si vede solo la
+--   ricarica («Ricarica carta prepagata TASCA»), che e' un giroconto e non un
+--   costo. A luglio due ricariche, 13/07 per 250,00 e 21/07 per 500,00, che
+--   coincidono con quelle sull'estratto della carta.
+--
+--   CREDITO. Le spese del mese arrivano cumulate in un unico addebito il mese
+--   dopo, «Carta del Credito Cooperativo ...283 CCP DIRECT ISSUING». Le spese
+--   di luglio delle due carte fanno 2.362,51 e si ritrovano nell'addebito del
+--   25/08 da 2.415,80. La differenza di 53,29 non ha dettaglio negli estratti;
+--   ad agosto 2025 l'addebito fu di soli 51,29, quindi con ogni probabilita' e'
+--   il canone annuo delle carte, che cade in agosto.
+--
+-- COSA E' STATO SCRITTO (solo bank_transactions: categoria, nota, riconciliato)
+--   1. 25/08 -2.415,80  riconciliato, categoria 'carte', nota con la
+--      composizione carta per carta e la voce residua da 53,29
+--   2. 27/07 -1.623,66  aggiunta la nota (rata di giugno, estratto non caricato)
+--   3. 26/05 -1.603,77  era l'unico dei dodici addebiti carte rimasto aperto:
+--      allineato agli altri, categoria 'carte'
+--   4. 13/07 -250,00 e 21/07 -500,00  nota con il riepilogo della prepagata,
+--      e la precisazione che le spese della carta non transitano dal c/c
+--   5. 27/08 -100,00 x2 e 01/09 -200,00  le tre ricariche TASCA rimaste aperte
+--      su 31, chiuse per natura come le altre 28
+--
+-- Nessun importo toccato, nessuna riga cancellata: solo stato di riconciliazione,
+-- categoria e note. Backup: public._bkp_carte_luglio_20260903 (8 righe complete).
+-- =============================================================================
+--
+-- NOTA. Eseguito direttamente sul tenant NZ via MCP il 03/09/2026, dopo backup.
+-- Questo file e' la traccia versionata; gli UUID sono quelli reali di NZ.
+
+-- 1) Backup
+-- create table public._bkp_carte_luglio_20260903 as
+--   select bt.*, now() as bkp_at from public.bank_transactions bt where false;
+-- insert into public._bkp_carte_luglio_20260903
+--   select bt.*, now() from public.bank_transactions bt where bt.id in (<8 uuid>);
+
+-- 2) Addebito del 25/08: rata di luglio, documentata carta per carta
+-- update public.bank_transactions
+-- set is_reconciled = true, reconciled_at = now(), category = 'carte',
+--     note = 'Addebito mensile carte di credito BCC (rapporto ...283) delle spese '
+--            'di LUGLIO 2026. [...] Totale documentato 2.362,51 EUR. Restano 53,29 '
+--            'EUR senza dettaglio: ad agosto 2025 l''addebito fu di soli 51,29 EUR, '
+--            'quindi con ogni probabilita'' e'' il canone annuo delle carte.'
+-- where id = 'f43d2b3b-077c-4d0e-a37b-cb9433a9f3bc';
+
+-- 3) Rata del 26/05, l'unica rimasta aperta: allineata agli altri mesi
+-- update public.bank_transactions
+-- set is_reconciled = true, reconciled_at = now(), category = 'carte', note = note || ' | [...]'
+-- where id = 'ee4f6e40-e074-4a44-b546-5f7da24c5a31';
+
+-- 4) Ricariche TASCA di luglio: riepilogo della carta in nota
+-- update public.bank_transactions set note = note || ' | [...]'
+-- where id in ('3113f910-e623-47f5-80c4-700b2b94cdb2','6e5fcab0-d806-4d2f-b246-ffac4a88fc32');
+
+-- 5) Le tre ricariche TASCA rimaste aperte, chiuse per natura
+-- update public.bank_transactions
+-- set is_reconciled = true, reconciled_at = now(), category = 'carte', note = note || ' | [...]'
+-- where id in ('c63c3008-6a6e-4745-ab8b-78afefd64d28',
+--              '589984e2-6217-4e65-aa5b-9d463304c49c',
+--              '51186cc6-0236-466d-888e-c779a9724676');
+
+-- --- Verifica ---------------------------------------------------------------
+-- select transaction_date, amount, is_reconciled, category from public.bank_transactions
+--   where upper(coalesce(description,'')) like '%CREDITO COOPERATIVO%'
+--      or upper(coalesce(description,'')) like '%RICARICA CARTA PREPAGATA TASCA%'
+--   order by transaction_date;
+-- Atteso: nessuna riga con is_reconciled = false, categoria 'carte' su tutte.
