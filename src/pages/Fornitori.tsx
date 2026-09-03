@@ -463,10 +463,12 @@ export default function Fornitori() {
   // "Da pagare" e "scaduto" usano payableOpenAmount (src/lib/payableOpenAmount):
   // la stessa regola "aperta" dello Scadenzario, cosi' le due pagine tornano
   // uguali (bug GGZ: NC chiusa a mano ancora scalata qui → −174,48 €).
-  // openCredits: note di credito ancora da scalare (somma NEGATIVA). Lo "scaduto"
-  // resta il lordo delle fatture in ritardo: la dicitura "di cui NC" sotto di
-  // esso spiega perché il "da pagare" (netto) può essere più basso.
-  interface SupplierStat { total: number; paid: number; pending: number; overdue: number; count: number; lastDate: string | null; grossTotal: number; methods: Set<string>; paidCount: number; reconciledCount: number; openCredits: number }
+  // Il "da pagare" (pending, netto) si legge come formula in tre righe:
+  //   overdue (scaduto, lordo) + toCome (a scadere, lordo) − |openCredits| (NC da scalare)
+  // Le tre voci sono disgiunte e sommano esattamente a pending: ogni riga aperta
+  // finisce in una sola (scaduto / positiva non scaduta / nota di credito).
+  interface SupplierStat { total: number; paid: number; pending: number; overdue: number; toCome: number; openCredits: number; count: number; lastDate: string | null; grossTotal: number; methods: Set<string>; paidCount: number; reconciledCount: number }
+  const fmt0 = (n: number) => Math.abs(n).toLocaleString('de-DE', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
   const openAmountOf = useCallback((p: PayableRow): number =>
     payableOpenAmount(p as unknown as PayableOpenInput, disposizioni.get(p.id)), [disposizioni]);
   const supplierStats = useMemo<Record<string, SupplierStat>>(() => {
@@ -475,15 +477,16 @@ export default function Fornitori() {
       if (yearOf(p.invoice_date) !== year) continue;
       const key = p.supplier_id as string | null;
       if (!key) continue;
-      const s = stats[key] || (stats[key] = { total: 0, paid: 0, pending: 0, overdue: 0, count: 0, lastDate: null, grossTotal: 0, methods: new Set<string>(), paidCount: 0, reconciledCount: 0, openCredits: 0 });
+      const s = stats[key] || (stats[key] = { total: 0, paid: 0, pending: 0, overdue: 0, count: 0, lastDate: null, grossTotal: 0, methods: new Set<string>(), paidCount: 0, reconciledCount: 0, openCredits: 0, toCome: 0 });
       const gross = Number(p.gross_amount) || 0;
       const open = openAmountOf(p); // 0 se chiusa; residuo − quota in distinta altrimenti
       const status = String(p.status || '');
       s.count++;
       s.grossTotal += gross;
       if (status === 'pagato') { s.paid += gross; s.paidCount++; if (p.cash_movement_id) s.reconciledCount++; }
-      if (status === 'scaduto') s.overdue += open;
-      if ((status === 'nota_credito' || gross < 0) && open < 0) s.openCredits += open;
+      if (status === 'nota_credito' || gross < 0) { if (open < 0) s.openCredits += open; }
+      else if (status === 'scaduto') s.overdue += open;
+      else if (open > 0) s.toCome += open;
       s.pending += open;
       if (p.payment_method) s.methods.add(String(p.payment_method));
       const d = p.invoice_date ? String(p.invoice_date) : null;
@@ -818,7 +821,7 @@ export default function Fornitori() {
   const renderSupplierDetail = (s: SupplierRow) => {
     const name = getName(s);
     const vat = getVat(s);
-    const stats = supplierStats[s.id] || { grossTotal: 0, overdue: 0, pending: 0, paid: 0, count: 0, lastDate: null, methods: new Set(), paidCount: 0, reconciledCount: 0, openCredits: 0 };
+    const stats = supplierStats[s.id] || { grossTotal: 0, overdue: 0, pending: 0, paid: 0, count: 0, lastDate: null, methods: new Set(), paidCount: 0, reconciledCount: 0, openCredits: 0, toCome: 0 };
     // Scadenze del fornitore dell'anno selezionato, derivate da
     // allPayables (già ordinate per invoice_date desc) — coerenti
     // con KPI e statistiche year-aware.
@@ -899,16 +902,23 @@ export default function Fornitori() {
               <Detail label="Riconciliati" value={`${stats.reconciledCount}/${stats.paidCount} in banca`} />
             )}
             <Detail label="Da pagare" value={stats.pending > 0 ? `€ ${stats.pending.toLocaleString('de-DE', { minimumFractionDigits: 2 })}` : '—'} />
+            {/* Formula del "da pagare": scaduto + a scadere − NC da scalare */}
             {stats.overdue > 0 && (
               <div className="flex">
                 <span className="text-red-500 w-28 shrink-0 text-xs font-medium">Scaduto</span>
                 <span className="text-red-600 text-xs font-semibold">€ {stats.overdue.toLocaleString('de-DE', { minimumFractionDigits: 2 })}</span>
               </div>
             )}
+            {stats.toCome > 0 && (
+              <div className="flex">
+                <span className="text-amber-600 w-28 shrink-0 text-xs font-medium">+ A scadere</span>
+                <span className="text-amber-600 text-xs font-semibold">€ {stats.toCome.toLocaleString('de-DE', { minimumFractionDigits: 2 })}</span>
+              </div>
+            )}
             {stats.openCredits < 0 && (
               <div className="flex">
-                <span className="text-emerald-600 w-28 shrink-0 text-xs font-medium">di cui NC</span>
-                <span className="text-emerald-600 text-xs font-semibold">−€ {Math.abs(stats.openCredits).toLocaleString('de-DE', { minimumFractionDigits: 2 })}</span>
+                <span className="text-emerald-600 w-28 shrink-0 text-xs font-medium">− NC da scalare</span>
+                <span className="text-emerald-600 text-xs font-semibold">€ {Math.abs(stats.openCredits).toLocaleString('de-DE', { minimumFractionDigits: 2 })}</span>
               </div>
             )}
             {avgAmount > 0 && (
@@ -1168,7 +1178,7 @@ export default function Fornitori() {
         <KpiCard icon={Split} label="Con divisione" value={`${kpis.withDivision} / ${kpis.total}`} color="purple" />
         <KpiCard icon={Calendar} label="Con modalità pag." value={`${kpis.withPlan} / ${kpis.total}`} color={kpis.withPlan < kpis.total ? 'amber' : 'green'} />
         <KpiCard icon={AlertTriangle} label="Scaduto" value={`€ ${kpis.overdue.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-          sub={kpis.openCredits < 0 ? `di cui NC −${Math.abs(kpis.openCredits).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €` : undefined}
+          sub={kpis.openCredits < 0 ? `NC da scalare −${Math.abs(kpis.openCredits).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €` : undefined}
           color={kpis.overdue > 0 ? 'red' : 'green'} />
         <KpiCard icon={FileText} label="Totale fatture" value={`€ ${kpis.totalFatturato.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} sub={`${kpis.payCount.toLocaleString('de-DE')} fatture`} color="blue" />
       </div>
@@ -1277,7 +1287,7 @@ export default function Fornitori() {
                 {sortedSuppliers.map(s => {
                   const name = getName(s);
                   const vat = getVat(s);
-                  const stats = supplierStats[s.id] || { grossTotal: 0, overdue: 0, pending: 0, paid: 0, count: 0, lastDate: null, methods: new Set(), paidCount: 0, reconciledCount: 0, openCredits: 0 };
+                  const stats = supplierStats[s.id] || { grossTotal: 0, overdue: 0, pending: 0, paid: 0, count: 0, lastDate: null, methods: new Set(), paidCount: 0, reconciledCount: 0, openCredits: 0, toCome: 0 };
                   const isExpanded = expandedId === s.id;
                   const pm = s.payment_method || s.default_payment_method;
 
@@ -1353,16 +1363,16 @@ export default function Fornitori() {
                           ) : <span className="text-xs text-slate-300">—</span>}
                         </td>
                         <td className="px-3 py-2.5 text-right">
-                          {stats.overdue > 0 ? (
+                          {(stats.overdue > 0 || stats.toCome > 0 || stats.openCredits < 0) ? (
                             <div>
-                              <div className="font-semibold text-red-600">€ {stats.pending.toLocaleString('de-DE', { minimumFractionDigits: 0 })}</div>
-                              <div className="text-xs text-red-500">{stats.overdue.toLocaleString('de-DE', { minimumFractionDigits: 0 })} scaduto</div>
-                              {stats.openCredits < 0 && (
-                                <div className="text-[11px] text-emerald-600">di cui NC −{Math.abs(stats.openCredits).toLocaleString('de-DE', { minimumFractionDigits: 0 })}</div>
-                              )}
+                              {/* Netto da pagare, poi la formula che lo spiega (righe solo se ≠ 0) */}
+                              <div className={`font-semibold ${stats.overdue > 0 ? 'text-red-600' : 'text-amber-600'}`}>€ {stats.pending.toLocaleString('de-DE', { minimumFractionDigits: 0 })}</div>
+                              <div className="text-[11px] leading-tight tabular-nums text-slate-500 space-y-px">
+                                {stats.overdue > 0 && <div><span className="text-red-500">scaduto</span> {fmt0(stats.overdue)}</div>}
+                                {stats.toCome > 0 && <div><span className="text-amber-600">+ a scadere</span> {fmt0(stats.toCome)}</div>}
+                                {stats.openCredits < 0 && <div><span className="text-emerald-600">− NC</span> {fmt0(stats.openCredits)}</div>}
+                              </div>
                             </div>
-                          ) : stats.pending > 0 ? (
-                            <div className="font-medium text-amber-600">€ {stats.pending.toLocaleString('de-DE', { minimumFractionDigits: 0 })}</div>
                           ) : stats.grossTotal > 0 ? (
                             <span className="text-xs text-emerald-500 font-medium">Saldato</span>
                           ) : <span className="text-xs text-slate-300">—</span>}
@@ -1450,7 +1460,7 @@ export default function Fornitori() {
               ) : sortedSuppliers.map(s => {
                 const name = getName(s);
                 const vat = getVat(s);
-                const stats = supplierStats[s.id] || { grossTotal: 0, overdue: 0, pending: 0, paid: 0, count: 0, lastDate: null, methods: new Set(), paidCount: 0, reconciledCount: 0, openCredits: 0 };
+                const stats = supplierStats[s.id] || { grossTotal: 0, overdue: 0, pending: 0, paid: 0, count: 0, lastDate: null, methods: new Set(), paidCount: 0, reconciledCount: 0, openCredits: 0, toCome: 0 };
                 const isExpanded = expandedId === s.id;
                 const pm = s.payment_method || s.default_payment_method;
                 return (
@@ -1495,16 +1505,15 @@ export default function Fornitori() {
                           {stats.count > 0 && <span className="text-slate-400"> · {stats.count} fatt.</span>}
                         </div>
                         <div className="text-right text-sm">
-                          {stats.overdue > 0 ? (
-                            <span className="font-semibold text-red-600">
-                              € {stats.pending.toLocaleString('de-DE', { minimumFractionDigits: 0 })}
-                              <span className="block text-[11px] font-medium text-red-500">di cui {stats.overdue.toLocaleString('de-DE', { minimumFractionDigits: 0 })} scaduto</span>
-                              {stats.openCredits < 0 && (
-                                <span className="block text-[11px] font-medium text-emerald-600">di cui NC −{Math.abs(stats.openCredits).toLocaleString('de-DE', { minimumFractionDigits: 0 })}</span>
-                              )}
+                          {(stats.overdue > 0 || stats.toCome > 0 || stats.openCredits < 0) ? (
+                            <span className={`font-semibold ${stats.overdue > 0 ? 'text-red-600' : 'text-amber-600'}`}>
+                              € {stats.pending.toLocaleString('de-DE', { minimumFractionDigits: 0 })} da pagare
+                              <span className="block text-[11px] font-medium leading-tight tabular-nums text-slate-500">
+                                {stats.overdue > 0 && <span className="block"><span className="text-red-500">scaduto</span> {fmt0(stats.overdue)}</span>}
+                                {stats.toCome > 0 && <span className="block"><span className="text-amber-600">+ a scadere</span> {fmt0(stats.toCome)}</span>}
+                                {stats.openCredits < 0 && <span className="block"><span className="text-emerald-600">− NC</span> {fmt0(stats.openCredits)}</span>}
+                              </span>
                             </span>
-                          ) : stats.pending > 0 ? (
-                            <span className="font-medium text-amber-600">€ {stats.pending.toLocaleString('de-DE', { minimumFractionDigits: 0 })} da pagare</span>
                           ) : stats.grossTotal > 0 ? (
                             <span className="text-xs text-emerald-500 font-medium">Saldato</span>
                           ) : null}
