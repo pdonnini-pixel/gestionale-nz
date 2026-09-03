@@ -1115,17 +1115,26 @@ export default function Dipendenti() {
                     defaultMonth={selectedMonth}
                     onDone={reloadAll}
                   />
-                  <ImportLane
-                    mode="lordi"
-                    companyId={COMPANY_ID}
-                    userId={USER_ID}
-                    outlets={outlets}
-                    employees={employees}
-                    existingCosts={costs}
-                    defaultYear={selectedYear}
-                    defaultMonth={selectedMonth}
-                    onDone={reloadAll}
-                  />
+                  {/* La corsia «costi lordi» viveva qui ed era un doppione: lo
+                      stesso numero (costo aziendale per persona e per mese) si
+                      carica dalla scheda «Costo lordo», da un documento preciso
+                      («Statistica costo orario») e con la sua formula. Due strade
+                      per lo stesso dato significano due verita' diverse, quindi
+                      resta una sola porta e qui c'e' l'indicazione di dov'e'.
+                      Il componente ImportLane sa ancora fare mode="lordi": e' la
+                      porta a essere chiusa, non la capacita' a essere stata tolta. */}
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 flex items-start gap-3">
+                    <Percent size={18} className="text-slate-400 mt-0.5 shrink-0" />
+                    <div className="text-sm text-slate-600">
+                      <div className="font-semibold text-slate-800 mb-0.5">I costi lordi si caricano dalla scheda «Costo lordo»</div>
+                      Il costo aziendale per persona (retribuzione + contributi + INAIL + TFR) arriva
+                      dalla «Statistica costo orario» del software paghe. Qui si caricano solo i netti,
+                      così lo stesso numero ha una sola fonte.
+                      <button onClick={() => setView('lordi')} className="ml-1 text-blue-600 hover:text-blue-700 font-medium underline underline-offset-2">
+                        Vai a «Costo lordo»
+                      </button>
+                    </div>
+                  </div>
                 </div>
               }
             />

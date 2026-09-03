@@ -910,9 +910,9 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "Costi & cedolini",
-        "body": "Qui trovi, raggruppati per sede, tutti i cedolini (netti) caricati per il mese selezionato, con il totale pagato e la possibilità di aprire il PDF del cedolino di ogni persona. In fondo alla pagina ci sono due corsie di importazione: una per i netti (buste paga) e una per i costi lordi, entrambe accettano file PDF oppure fogli Excel/CSV. Il carico dei netti è ciò che rende definitivo il mese: da ogni riga il sistema prende anche la filiale, che diventa il punto vendita di quella persona PER QUEL MESE. Se in seguito la persona viene spostata, i mesi già caricati restano come erano.",
+        "body": "Qui trovi, raggruppati per sede, tutti i cedolini (netti) caricati per il mese selezionato, con il totale pagato e la possibilità di aprire il PDF del cedolino di ogni persona. In fondo alla pagina c'è l'importazione dei netti (buste paga), che accetta PDF oppure fogli Excel/CSV. I costi lordi NON si caricano da qui: hanno una porta sola, la scheda «Costo lordo», e in fondo alla pagina c'è il collegamento per andarci. Il carico dei netti è ciò che rende definitivo il mese: da ogni riga il sistema prende anche la filiale, che diventa il punto vendita di quella persona PER QUEL MESE. Se in seguito la persona viene spostata, i mesi già caricati restano come erano.",
         "steps": [
-          "Scegli la corsia giusta: \"netto\" per il file con gli stipendi netti, \"lordi\" per il file con i costi lordi aziendali. Le due corsie sono indipendenti: caricare i netti non riempie i costi lordi e viceversa. L'avviso giallo \"il cedolino è già stato caricato\" compare solo se quel mese ha già dei dati nella corsia in cui stai lavorando.",
+          "Da qui si caricano i netti. Il file con i costi lordi aziendali va invece nella scheda «Costo lordo»: sono due dati distinti con due documenti distinti, e caricare i netti non riempie i costi lordi. L'avviso giallo \"il cedolino è già stato caricato\" compare solo se quel mese ha già dei netti dello stesso tipo di cedolino.",
           "Tocca l'area per selezionare il file dal tuo dispositivo, oppure (da computer) trascinalo dentro.",
           "Il sistema prova a riconoscere automaticamente ogni dipendente (per matricola o per nome e cognome); se non lo trova, propone di crearne uno nuovo.",
           "Controlla l'anteprima: viene mostrato anche lo scostamento tra il totale calcolato e il totale dichiarato nel file, così puoi accorgerti subito di eventuali errori. Se una persona compare su più righe (conguagli o cedolini separati), l'anteprima lo segnala e gli importi vengono sommati in un'unica riga del mese.",
@@ -942,7 +942,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "q": "Qual è la differenza tra la scheda \"Costi & cedolini\" e \"Costo lordo\"?",
-        "a": "\"Costi & cedolini\" gestisce il netto in busta paga per dipendente (quello che la persona riceve). \"Costo lordo\" gestisce il costo aziendale completo (retribuzione, contributi, INAIL, TFR) per outlet, alimentato dal Prospetto paghe del consulente."
+        "a": "\"Costi & cedolini\" gestisce il netto in busta paga per dipendente (quello che la persona riceve) ed è l'unico posto da cui si caricano i netti. \"Costo lordo\" gestisce il costo aziendale completo (retribuzione, contributi, INAIL, TFR) per dipendente e per outlet, alimentato dalla \"Statistica costo orario\" del software paghe, ed è l'unico posto da cui si caricano i lordi. Una porta sola per ogni numero: così non possono esistere due versioni dello stesso costo."
       },
       {
         "q": "Chi sono gli \"Amministratori\" e perché sono separati?",
