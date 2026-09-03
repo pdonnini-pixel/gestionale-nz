@@ -2090,12 +2090,18 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "Segnare una scadenza come pagata",
-        "body": "Per le scadenze non ancora pagate trovi il pulsante \"Pagato\" nella colonna Azioni: cliccandolo la scadenza passa subito allo stato Pagato e viene registrata la data odierna come data di pagamento.",
+        "body": "Per le scadenze non ancora pagate trovi il pulsante \"Pagato\" nella colonna Azioni. Cliccandolo il sistema cerca prima, fra i movimenti bancari non ancora riconciliati, un'uscita dello stesso importo esatto nei dintorni della scadenza (da 30 giorni prima a 60 dopo). Se ne trova, ti mostra l'elenco e ti chiede quale addebito ha pagato quella scadenza: scegliendolo, la scadenza viene chiusa e il movimento agganciato in un colpo solo, così l'addebito non resta orfano in prima nota. Se non trova nulla di corrispondente, la scadenza viene comunque segnata come pagata e ti avvisa che resta da riconciliare.",
         "steps": [
           "Individua la scadenza da segnare come saldata nella tabella",
           "Clicca sul pulsante verde \"Pagato\" nella colonna Azioni",
-          "La scadenza si sposta automaticamente tra quelle pagate e il totale in alto si aggiorna"
+          "Se compare l'elenco degli addebiti, scegli quello giusto guardando data, banca e causale",
+          "Se nessuno corrisponde, usa \"Nessuno di questi: segna solo come pagata\"",
+          "La scadenza si sposta fra quelle pagate e il totale in alto si aggiorna"
         ]
+      },
+      {
+        "heading": "L'etichetta \"in banca\"",
+        "body": "Accanto allo stato di una scadenza pagata puo' comparire l'etichetta azzurra \"in banca\": vuol dire che quella scadenza non e' solo segnata come pagata, ma e' anche agganciata al movimento bancario che l'ha saldata. E' la differenza fra dire \"l'ho pagata\" e poterlo dimostrare con l'addebito in estratto conto. Le scadenze pagate senza questa etichetta sono da riconciliare."
       },
       {
         "heading": "Creare una nuova scadenza",
@@ -2129,6 +2135,14 @@ export const PAGE_GUIDES: PageGuide[] = [
       {
         "q": "A cosa serve il campo \"Codice F24\"?",
         "a": "È il codice tributo da riportare sul modello F24 per quel pagamento (ad esempio 6001 per l'IVA). Se lo inserisci, comparirà anche sotto il titolo nella tabella come promemoria."
+      },
+      {
+        "q": "Perché quando segno una scadenza come pagata mi chiede di scegliere un movimento bancario?",
+        "a": "Perché un F24 o un'IVA lasciano un addebito sul conto, e finché quell'addebito non viene collegato alla scadenza resta in prima nota come uscita senza spiegazione. Il sistema cerca le uscite non ancora riconciliate dello stesso importo esatto e ti chiede quale sia quella giusta: bastano un paio di secondi e la contabilità torna a quadrare da sola. Se preferisci non agganciare nulla, puoi sempre scegliere \"Nessuno di questi\"."
+      },
+      {
+        "q": "Ho agganciato il movimento sbagliato, posso disfare?",
+        "a": "Sì. L'aggancio è reversibile e non cancella niente: chiedi a chi gestisce la contabilità di annullarlo (il sistema stacca il movimento e lo rimette fra quelli da riconciliare, lasciando la scadenza pagata)."
       },
       {
         "q": "Quando segno una scadenza come pagata o la annullo, come so se è andata a buon fine?",

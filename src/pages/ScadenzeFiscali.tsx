@@ -60,6 +60,70 @@ const STATUS_CONFIG = {
 // TODO: tighten type
 type Deadline = Record<string, unknown> & { id?: string }
 
+// Uscita bancaria candidata all'aggancio di una scadenza fiscale.
+type BankMov = {
+  id: string
+  transaction_date: string
+  amount: number
+  description: string | null
+  bank_account_id: string | null
+}
+
+/* ───── Scelta del movimento bancario ─────
+   Un F24 si paga per l'importo esatto: i candidati sono gia' filtrati al
+   centesimo, qui si sceglie solo QUALE addebito e' quello giusto (stessa
+   cifra puo' comparire su piu' conti o piu' date). */
+function ModalAggancioBanca({ dl, movs, bankNames, linking, onPick, onSkip, onClose }: {
+  dl: Deadline
+  movs: BankMov[]
+  bankNames: Record<string, string>
+  linking: boolean
+  onPick: (btId: string) => void
+  onSkip: () => void
+  onClose: () => void
+}) {
+  return (
+    <Modal open onClose={onClose} bare ariaLabel="Aggancia il movimento bancario"
+      panelClassName="bg-white rounded-2xl shadow-xl p-6 max-w-xl w-full mx-4 max-h-[90dvh] overflow-y-auto overscroll-contain space-y-4">
+      <div>
+        <h3 className="text-lg font-semibold text-slate-800">Quale addebito ha pagato questa scadenza?</h3>
+        <p className="text-sm text-slate-500 mt-1">
+          {String(dl.title || '')} · {fmt(Number(dl.amount || 0))} € · scade il {fmtDate(String(dl.due_date || ''))}
+        </p>
+      </div>
+
+      <div className="divide-y divide-slate-100 border border-slate-200 rounded-xl overflow-hidden">
+        {movs.map(m => (
+          <button key={m.id} onClick={() => onPick(m.id)} disabled={linking}
+            className="w-full text-left p-3 hover:bg-emerald-50 transition disabled:opacity-50 flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-sm font-medium text-slate-800">
+                {fmtDate(m.transaction_date)}
+                <span className="ml-2 text-slate-500 font-normal">
+                  {(m.bank_account_id && bankNames[m.bank_account_id]) || 'banca non indicata'}
+                </span>
+              </div>
+              <div className="text-xs text-slate-500 mt-0.5 break-words line-clamp-2">{m.description || '—'}</div>
+            </div>
+            <div className="font-semibold text-slate-800 whitespace-nowrap">{fmt(Math.abs(Number(m.amount)))} €</div>
+          </button>
+        ))}
+      </div>
+
+      <div className="flex items-center justify-between gap-2 pt-1">
+        <button onClick={onSkip} disabled={linking}
+          className="text-sm text-slate-500 hover:text-slate-700 underline underline-offset-2 disabled:opacity-50">
+          Nessuno di questi: segna solo come pagata
+        </button>
+        <button onClick={onClose} disabled={linking}
+          className="px-4 py-2 text-sm font-medium border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-50 transition disabled:opacity-50">
+          Annulla
+        </button>
+      </div>
+    </Modal>
+  )
+}
+
 function ModalDeadline({ isOpen, isEdit, deadline, onClose, onSave, saving }: { isOpen: boolean; isEdit: boolean; deadline: Deadline | null; onClose: () => void; onSave: (form: Record<string, unknown>) => void; saving: boolean }) {
   const [form, setForm] = useState({
     deadline_type: 'f24', title: '', description: '', amount: '',
@@ -233,16 +297,26 @@ export default function ScadenzeFiscali() {
   const [modalOpen, setModalOpen] = useState(false)
   const [editingDeadline, setEditingDeadline] = useState<Deadline | null>(null)
   const [saving, setSaving] = useState(false)
+  // Scelta del movimento bancario da agganciare quando si segna pagata una scadenza
+  const [bankPick, setBankPick] = useState<{ dl: Deadline; movs: BankMov[] } | null>(null)
+  const [linking, setLinking] = useState(false)
+  const [bankNames, setBankNames] = useState<Record<string, string>>({})
 
   const loadData = useCallback(async () => {
     if (!COMPANY_ID) return
     setLoading(true)
     try {
-      const { data, error } = await supabase
-        .from('fiscal_deadlines')
-        .select('*')
-        .eq('company_id', COMPANY_ID)
-        .order('due_date', { ascending: true })
+      const [{ data, error }, { data: banks }] = await Promise.all([
+        supabase
+          .from('fiscal_deadlines')
+          .select('*')
+          .eq('company_id', COMPANY_ID)
+          .order('due_date', { ascending: true }),
+        supabase.from('bank_accounts').select('id, bank_name').eq('company_id', COMPANY_ID),
+      ])
+      const bmap: Record<string, string> = {}
+      ;(banks as { id: string; bank_name: string | null }[] | null)?.forEach(b => { bmap[b.id] = b.bank_name || '—' })
+      setBankNames(bmap)
       if (!error) setDeadlines(data || [])
       else toast({ type: 'error', message: 'Errore nel caricamento delle scadenze fiscali' })
     } catch (e) {
@@ -337,9 +411,38 @@ export default function ScadenzeFiscali() {
     }
   }
 
-  // Quick mark as paid
-  // TODO: tighten type
-  const markPaid = async (dl: { id: string; amount?: number | null }) => {
+  // ── Segna pagata, agganciando il movimento bancario ────────────────────────
+  // Fino alla 165 le scadenze fiscali si chiudevano e basta: l'addebito restava
+  // in prima nota come movimento orfano, per sempre. Non sono spiccioli (39.063,80
+  // di sola IVA a luglio). Ora, prima di chiudere, si cerca l'uscita bancaria che
+  // corrisponde e la si aggancia con reconcile_fiscal_deadline.
+  const findBankMovements = async (dl: Deadline): Promise<BankMov[]> => {
+    const amount = Number(dl.amount || 0)
+    if (!COMPANY_ID || !amount) return []
+    const due = String(dl.due_date || todayYMD())
+    const shift = (days: number) => {
+      const d = new Date(due + 'T12:00:00')
+      d.setDate(d.getDate() + days)
+      return d.toISOString().slice(0, 10)
+    }
+    const { data, error } = await supabase
+      .from('bank_transactions')
+      .select('id, transaction_date, amount, description, bank_account_id')
+      .eq('company_id', COMPANY_ID)
+      .eq('is_reconciled', false)
+      .lt('amount', 0)
+      .gte('transaction_date', shift(-30))
+      .lte('transaction_date', shift(60))
+      .order('transaction_date', { ascending: false })
+      .limit(200)
+    if (error) return []
+    // Importo al centesimo: un F24 si paga per l'importo esatto, senza sconti.
+    return ((data || []) as unknown as BankMov[])
+      .filter(m => Math.abs(Math.abs(Number(m.amount)) - amount) <= 0.02)
+  }
+
+  // Chiusura senza aggancio: nessun movimento trovato, o l'utente ha scelto così.
+  const markPaidOnly = async (dl: Deadline, avvisa: boolean) => {
     try {
       // supabase-js NON lancia: bisogna controllare `error`, altrimenti in caso di
       // fallimento (rete/RLS) la lista si ricaricava senza avviso e l'utente
@@ -347,14 +450,57 @@ export default function ScadenzeFiscali() {
       const { error } = await supabase.from('fiscal_deadlines').update({
         status: 'paid',
         paid_date: todayYMD(),
-        amount_paid: dl.amount || 0,
-      }).eq('id', dl.id)
+        amount_paid: Number(dl.amount || 0),
+      }).eq('id', String(dl.id))
       if (error) throw error
-      toast({ type: 'success', message: 'Scadenza segnata come pagata' })
+      toast({
+        type: avvisa ? 'info' : 'success',
+        message: avvisa
+          ? 'Segnata come pagata. Nessun movimento bancario di pari importo trovato: resta da riconciliare.'
+          : 'Scadenza segnata come pagata',
+      })
       await loadData()
     } catch (e) {
       console.error('Mark paid error:', e)
       toast({ type: 'error', message: 'Impossibile segnare come pagata: ' + (e instanceof Error ? e.message : '') })
+    }
+  }
+
+  const markPaid = async (dl: Deadline) => {
+    const movs = await findBankMovements(dl)
+    if (movs.length === 0) { await markPaidOnly(dl, true); return }
+    setBankPick({ dl, movs })
+  }
+
+  // Aggancio vero e proprio: chiude la scadenza E marca il movimento riconciliato,
+  // in una sola transazione lato DB. Reversibile con undo_reconcile_fiscal_deadline.
+  const linkMovement = async (dl: Deadline, btId: string) => {
+    setLinking(true)
+    try {
+      const { data, error } = await supabase.rpc('reconcile_fiscal_deadline' as never, {
+        p_bt_id: btId, p_fiscal_id: String(dl.id),
+      } as never)
+      if (error) throw error
+      const res = data as { ok?: boolean; reason?: string } | null
+      if (!res?.ok) {
+        toast({
+          type: 'error',
+          message: res?.reason === 'stale'
+            ? 'Quel movimento risulta già riconciliato: ricarica e riprova.'
+            : res?.reason === 'already_linked'
+              ? 'Questa scadenza ha già un movimento agganciato.'
+              : 'Aggancio non riuscito.',
+        })
+        return
+      }
+      toast({ type: 'success', message: 'Scadenza pagata e movimento bancario agganciato' })
+      setBankPick(null)
+      await loadData()
+    } catch (e) {
+      console.error('Link fiscal deadline error:', e)
+      toast({ type: 'error', message: 'Aggancio non riuscito: ' + (e instanceof Error ? e.message : '') })
+    } finally {
+      setLinking(false)
     }
   }
 
@@ -508,6 +654,12 @@ export default function ScadenzeFiscali() {
                       <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${statusCfg.color}`}>
                         {statusCfg.label}
                       </span>
+                      {dl.bank_transaction_id && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-teal-50 text-teal-700 border border-teal-200"
+                          title="Pagamento agganciato al movimento bancario">
+                          <Landmark size={9} /> in banca
+                        </span>
+                      )}
                     </div>
                     <div className="text-sm font-medium text-slate-800 mt-1.5 break-words">{dl.title}</div>
                     {(dl.f24_code || dl.tax_period) && (
@@ -603,6 +755,12 @@ export default function ScadenzeFiscali() {
                           <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium ${statusCfg.color}`}>
                             {statusCfg.label}
                           </span>
+                          {dl.bank_transaction_id && (
+                            <span className="ml-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-teal-50 text-teal-700 border border-teal-200"
+                              title="Pagamento agganciato al movimento bancario">
+                              <Landmark size={9} /> in banca
+                            </span>
+                          )}
                         </td>
                         <td className="py-2.5 px-4 text-center">
                           {dl.status === 'paid' ? (
@@ -656,6 +814,18 @@ export default function ScadenzeFiscali() {
         onSave={handleSave}
         saving={saving}
       />
+
+      {bankPick && (
+        <ModalAggancioBanca
+          dl={bankPick.dl}
+          movs={bankPick.movs}
+          bankNames={bankNames}
+          linking={linking}
+          onPick={(btId) => linkMovement(bankPick.dl, btId)}
+          onSkip={() => { const d = bankPick.dl; setBankPick(null); markPaidOnly(d, false) }}
+          onClose={() => setBankPick(null)}
+        />
+      )}
       </div>
     </div>
   )
