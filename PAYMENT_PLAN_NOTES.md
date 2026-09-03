@@ -49,13 +49,15 @@
 > scadenze riba_90; nessun termine → piano fine mese riba_90; MP08 → carta,
 > addebito automatico al 20/09.
 >
-> **Non fatto, da decidere**: le 70 righe NZ aperte generate dal piano restano con
-> le date/metodi del piano. Un riallineamento ai termini in fattura (solo righe
-> aperte, non pagate, non in distinta) sposta il cashflow previsionale: si fa solo
-> con l'ok binario di Patrizio, con backup. I casi più evidenti: ALFATECNO 119
-> (26/08 vs 30/09), CORPO VIGILI 3 fatture (01/09 vs 30/09), SAN MAURO e CONSORZIO
-> SHOPINN (SDD 07/09 vs 31/10), FAMILY CENTER, memo, TEDi, DX, GRUPPO NEGOZI,
-> VAIMO (carta aperte come bonifico/contanti).
+> **Riallineamento del pregresso (FATTO, ok di Patrizio «pubblica e riallinea le
+> righe aperte con backup»)**: migration `NZ_ONLY_20260903_171`. Perimetro: righe
+> generate dal piano, aperte, senza acconti né movimenti agganciati, non in
+> distinta, con codice MP in fattura e al massimo una scadenza. Backup integrale
+> in `_bkp_riallineo_termini_20260903` (RLS attiva). Date e metodo portati ai
+> termini in fattura, nota con i valori precedenti; le MP08 sono passate da sole in
+> addebito automatico carta (trigger `fn_payable_auto_debit`). Restano dal piano
+> solo le fatture senza termini (MIAN, S.B.A., GLS, CIGIERRE, IP SERVICES, C.C.S.,
+> EniMoov), cioè il caso in cui il piano è giusto.
 
 > ## 🧩 RATE ACCAVALLATE, NON DOPPIONI (2026-09-03) — diagnosi corretta
 >
