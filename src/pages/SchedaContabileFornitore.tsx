@@ -410,16 +410,31 @@ export default function SchedaContabileFornitore() {
           agg.manualCloseDate = p.payment_date;
         }
       }
-      if (p.status === 'pagato' && p.payment_date) {
-        agg.isPaid = true;
+      // Un ACCONTO pagato e' un pagamento a tutti gli effetti e deve stare in
+      // partitario, anche se la fattura resta 'parziale' in attesa del saldo:
+      // quei soldi sono usciti dal conto e il debito verso il fornitore e' sceso.
+      // Prima si guardava solo status='pagato', quindi gli acconti sparivano e il
+      // saldo fornitore restava gonfiato (WOLF GROUP 218: 39.445,90 versati il 7/8
+      // che non comparivano da nessuna parte).
+      // Il fallback a gross_amount vale solo per le rate marcate 'pagato' senza
+      // amount_paid valorizzato (dati vecchi), non per i parziali.
+      const paidHere = Number(p.amount_paid ?? 0) > 0
+        ? Number(p.amount_paid)
+        : (p.status === 'pagato' ? Number(p.gross_amount ?? 0) : 0);
+      if (paidHere > 0) {
+        // 'isPaid' resta il flag di fattura SALDATA: un acconto non chiude niente.
+        if (p.status === 'pagato') agg.isPaid = true;
         if ((p as Payable & { is_provisional_paid?: boolean | null }).is_provisional_paid) agg.isProvisional = true;
         // Somma SOLO l'importo effettivamente pagato di questa rata (non il totale
         // fattura): con fatture rateizzate, una sola rata pagata non chiude tutto.
-        agg.paidAmount += Number(p.amount_paid ?? p.gross_amount ?? 0);
-        if (!agg.paymentDate || p.payment_date > agg.paymentDate) {
+        agg.paidAmount += paidHere;
+        if (p.payment_date && (!agg.paymentDate || p.payment_date > agg.paymentDate)) {
           agg.paymentDate = p.payment_date;
           agg.paymentBankId = p.payment_bank_account_id || null;
         }
+        // Acconto senza data di pagamento registrata: la banca attesa resta comunque
+        // l'informazione migliore che abbiamo per descrivere la riga.
+        if (!agg.paymentBankId && p.payment_bank_account_id) agg.paymentBankId = p.payment_bank_account_id;
       }
     }
 
@@ -500,18 +515,23 @@ export default function SchedaContabileFornitore() {
             aliquotaIVA: '—',
             tipo: 'pagamento',
           });
-        } else if (agg.paidAmount > 0 && agg.paymentDate) {
+        } else if (agg.paidAmount > 0) {
           // Pagamento normale con banca. DARE = importo EFFETTIVAMENTE pagato
           // (somma delle rate saldate), NON il totale fattura: con fatture rateizzate
           // una sola rata pagata non deve chiudere l'intero importo -> il saldo del
           // fornitore mostra correttamente il residuo delle rate ancora aperte.
+          // Nessun vincolo sulla data: un acconto registrato senza payment_date
+          // resta un'uscita reale e va comunque in partitario.
           const bankName = agg.paymentBankId ? (bankAccountById[agg.paymentBankId] || 'Banca non specificata') : 'Banca non specificata';
           const isPartial = agg.paidAmount < Math.abs(agg.grossTotal) - 0.005;
+          // "Acconto" quando la fattura non e' saldata: e' il termine contabile
+          // esatto e dice all'operatrice che il residuo resta da pagare.
+          const voce = isPartial ? 'Acconto' : 'Pagamento';
           // RiBa chiusa in via provvisoria: nessun movimento bancario, in attesa
           // di distinta o riconciliazione. La riga resta tracciata nel partitario.
           const descrizione = agg.isProvisional
-            ? `Pagamento RiBa (provvisorio)${isPartial ? ' parziale' : ''} — in attesa di distinta o movimento — rif. Fatt. ${agg.invoiceNumber}`
-            : `Pagamento${isPartial ? ' parziale' : ''} — ${bankName} — rif. Fatt. ${agg.invoiceNumber}`;
+            ? `${voce} RiBa (provvisorio) — in attesa di distinta o movimento — rif. Fatt. ${agg.invoiceNumber}`
+            : `${voce} — ${bankName} — rif. Fatt. ${agg.invoiceNumber}`;
           movimenti.push({
             data: agg.invoiceDate,           // data principale = emissione fattura
             dataPagamento: agg.paymentDate,  // mostrata sotto in piccolo

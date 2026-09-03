@@ -616,7 +616,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "Il dettaglio di una distinta aperta",
-        "body": "Aprendo una distinta trovi prima un riquadro per ciascuna banca usata quel giorno, con il totale disposto su quella banca e quanto di quel totale è già stato pagato (con il conteggio, per esempio \"3/5\" fatture pagate su 5). Sotto trovi la tabella con ogni singola scadenza inclusa nella distinta: fornitore, numero fattura, banca, importo e stato. Lo stato di ogni riga è \"Pagato\" (etichetta verde) se il pagamento è stato riconosciuto, oppure \"In distinta\" (etichetta arancione) se è ancora in attesa di riscontro bancario."
+        "body": "Aprendo una distinta trovi prima un riquadro per ciascuna banca usata quel giorno, con il totale disposto su quella banca e quanto di quel totale è già stato pagato (con il conteggio, per esempio \"3/5\" fatture pagate su 5). Sotto trovi la tabella con ogni singola scadenza inclusa nella distinta: fornitore, numero fattura, banca, importo e stato. Lo stato di ogni riga può essere \"Pagato\" (etichetta verde) quando la fattura risulta saldata, \"Acconto\" (etichetta azzurra) quando l'importo che era stato disposto è uscito davvero ma la fattura resta aperta per il residuo, oppure \"In distinta\" (etichetta arancione) se il pagamento non è ancora stato riscontrato. Quello che conta per chiudere una riga è l'importo disposto, non l'intera fattura: un acconto versato è una disposizione conclusa."
       },
       {
         "heading": "Eliminare una distinta o una singola scadenza (finché non è pagata)",
@@ -641,6 +641,10 @@ export const PAGE_GUIDES: PageGuide[] = [
       {
         "q": "Perché una fattura risulta ancora \"In distinta\" invece di \"Pagato\"?",
         "a": "Perché il bonifico non è ancora stato riconosciuto sull'estratto conto e abbinato a quella fattura. Appena la riconciliazione avviene (in automatico o a mano dalla pagina Banche), lo stato passa a \"Pagato\" anche qui."
+      },
+      {
+        "q": "Cosa vuol dire l'etichetta \"Acconto\" su una riga della distinta?",
+        "a": "Che con quella distinta è stato disposto un acconto, non il saldo: l'importo disposto è uscito dal conto e quindi la riga è conclusa, ma la fattura resta aperta per la parte che manca. La trovi ancora nello Scadenzario per il residuo, e nel partitario del fornitore l'acconto compare già in DARE."
       },
       {
         "q": "Nello Storico vedo anche righe con l'icona 📋: cosa sono?",
@@ -1770,7 +1774,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "Partitario — Conto Fornitore",
-        "body": "Il partitario è il registro contabile del fornitore: in colonna AVERE trovi le fatture ricevute (che aumentano il debito verso il fornitore), in colonna DARE i pagamenti effettuati e le note di credito (che lo riducono). Se una fattura è divisa in più rate e ne hai pagata solo una parte, il DARE registra SOLO l'importo effettivamente pagato (non l'intero totale della fattura) e la riga è etichettata \"Pagamento parziale\": così il saldo mostra correttamente il residuo delle rate ancora aperte. Ogni riga mostra anche il saldo progressivo: se scende sotto zero (evidenziato in rosso) significa che l'azienda è ancora in debito. Puoi scegliere se ordinare i movimenti per data di emissione fattura o per data effettiva di pagamento, con il menu \"Ordina per\" in alto a destra della tabella. In fondo trovi i totali dei movimenti selezionati e il saldo corrente della scheda.",
+        "body": "Il partitario è il registro contabile del fornitore: in colonna AVERE trovi le fatture ricevute (che aumentano il debito verso il fornitore), in colonna DARE i pagamenti effettuati e le note di credito (che lo riducono). Se una fattura è divisa in più rate e ne hai pagata solo una parte, il DARE registra SOLO l'importo effettivamente pagato (non l'intero totale della fattura) e la riga è etichettata \"Acconto\": così il saldo mostra correttamente il residuo ancora da pagare. Vale anche per gli acconti versati su una fattura unica: appena i soldi escono dal conto la riga entra in partitario, senza aspettare il saldo finale. Ogni riga mostra anche il saldo progressivo: se scende sotto zero (evidenziato in rosso) significa che l'azienda è ancora in debito. Puoi scegliere se ordinare i movimenti per data di emissione fattura o per data effettiva di pagamento, con il menu \"Ordina per\" in alto a destra della tabella. In fondo trovi i totali dei movimenti selezionati e il saldo corrente della scheda.",
         "steps": [
           "Scegli \"Data fattura\" o \"Data pagamento\" dal menu \"Ordina per\" in alto alla tabella",
           "Leggi la colonna Saldo: un valore in rosso indica un debito residuo verso il fornitore",
@@ -1779,6 +1783,10 @@ export const PAGE_GUIDES: PageGuide[] = [
       }
     ],
     "faq": [
+      {
+        "q": "Ho versato un acconto su una fattura: lo vedo nel partitario?",
+        "a": "Sì. Un acconto pagato compare in DARE con la dicitura \"Acconto\" e la data del pagamento, e abbassa subito il saldo del fornitore. Non serve aspettare il saldo finale della fattura: quei soldi sono già usciti dal conto, e il debito verso il fornitore è quello che resta da pagare."
+      },
       {
         "q": "Cosa significa \"AVERE\" e cosa significa \"DARE\" nel partitario?",
         "a": "AVERE raccoglie le fatture ricevute dal fornitore, che aumentano quanto l'azienda gli deve. DARE raccoglie i pagamenti effettuati e le note di credito, che riducono quel debito. Il saldo è la differenza tra le due colonne."
