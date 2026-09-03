@@ -463,7 +463,10 @@ export default function Fornitori() {
   // "Da pagare" e "scaduto" usano payableOpenAmount (src/lib/payableOpenAmount):
   // la stessa regola "aperta" dello Scadenzario, cosi' le due pagine tornano
   // uguali (bug GGZ: NC chiusa a mano ancora scalata qui → −174,48 €).
-  interface SupplierStat { total: number; paid: number; pending: number; overdue: number; count: number; lastDate: string | null; grossTotal: number; methods: Set<string>; paidCount: number; reconciledCount: number }
+  // openCredits: note di credito ancora da scalare (somma NEGATIVA). Lo "scaduto"
+  // resta il lordo delle fatture in ritardo: la dicitura "di cui NC" sotto di
+  // esso spiega perché il "da pagare" (netto) può essere più basso.
+  interface SupplierStat { total: number; paid: number; pending: number; overdue: number; count: number; lastDate: string | null; grossTotal: number; methods: Set<string>; paidCount: number; reconciledCount: number; openCredits: number }
   const openAmountOf = useCallback((p: PayableRow): number =>
     payableOpenAmount(p as unknown as PayableOpenInput, disposizioni.get(p.id)), [disposizioni]);
   const supplierStats = useMemo<Record<string, SupplierStat>>(() => {
@@ -472,7 +475,7 @@ export default function Fornitori() {
       if (yearOf(p.invoice_date) !== year) continue;
       const key = p.supplier_id as string | null;
       if (!key) continue;
-      const s = stats[key] || (stats[key] = { total: 0, paid: 0, pending: 0, overdue: 0, count: 0, lastDate: null, grossTotal: 0, methods: new Set<string>(), paidCount: 0, reconciledCount: 0 });
+      const s = stats[key] || (stats[key] = { total: 0, paid: 0, pending: 0, overdue: 0, count: 0, lastDate: null, grossTotal: 0, methods: new Set<string>(), paidCount: 0, reconciledCount: 0, openCredits: 0 });
       const gross = Number(p.gross_amount) || 0;
       const open = openAmountOf(p); // 0 se chiusa; residuo − quota in distinta altrimenti
       const status = String(p.status || '');
@@ -480,6 +483,7 @@ export default function Fornitori() {
       s.grossTotal += gross;
       if (status === 'pagato') { s.paid += gross; s.paidCount++; if (p.cash_movement_id) s.reconciledCount++; }
       if (status === 'scaduto') s.overdue += open;
+      if ((status === 'nota_credito' || gross < 0) && open < 0) s.openCredits += open;
       s.pending += open;
       if (p.payment_method) s.methods.add(String(p.payment_method));
       const d = p.invoice_date ? String(p.invoice_date) : null;
@@ -589,7 +593,7 @@ export default function Fornitori() {
   // - overdue: importo aperto scaduto. - payCount: n. fatture dell'anno.
   const kpis = useMemo(() => {
     const active = suppliers.filter(s => s.is_active !== false).length;
-    let totalPending = 0, overdue = 0, totalFatturato = 0, totalCrediti = 0, payCount = 0;
+    let totalPending = 0, overdue = 0, totalFatturato = 0, totalCrediti = 0, payCount = 0, openCredits = 0;
     const suppliersWithPayables = new Set<string>();
     for (const p of allPayables) {
       if (yearOf(p.invoice_date) !== year) continue;
@@ -602,6 +606,7 @@ export default function Fornitori() {
       if (!isNC && gross > 0) totalFatturato += gross;        // gross positivi, escluse NC
       if (isNC) totalCrediti += Math.abs(gross);              // abs note credito
       if (status === 'scaduto') overdue += open;              // aperto scaduto (netto distinte)
+      if (isNC && open < 0) openCredits += open;              // NC ancora da scalare (negativo)
       if (!isNC) totalPending += open;                        // aperto, escluse NC
     }
     // Copertura lavorazione (sul totale fornitori, non filtrato per anno)
@@ -610,7 +615,7 @@ export default function Fornitori() {
     // Quanti fornitori hanno davvero la loro modalità di pagamento: gli altri
     // usano la regola standard, e le loro scadenze possono essere sbagliate.
     const withPlan = suppliers.filter(s => planStatus(s) === 'ok').length;
-    return { active, total: suppliers.length, totalPending, overdue, totalFatturato, totalCrediti, payCount, withPayables: suppliersWithPayables.size, withCategory, withDivision, withPlan };
+    return { active, total: suppliers.length, totalPending, overdue, openCredits, totalFatturato, totalCrediti, payCount, withPayables: suppliersWithPayables.size, withCategory, withDivision, withPlan };
   }, [suppliers, allPayables, year, ruleModeBySupplier, openAmountOf]);
 
   // Charts data
@@ -813,7 +818,7 @@ export default function Fornitori() {
   const renderSupplierDetail = (s: SupplierRow) => {
     const name = getName(s);
     const vat = getVat(s);
-    const stats = supplierStats[s.id] || { grossTotal: 0, overdue: 0, pending: 0, paid: 0, count: 0, lastDate: null, methods: new Set(), paidCount: 0, reconciledCount: 0 };
+    const stats = supplierStats[s.id] || { grossTotal: 0, overdue: 0, pending: 0, paid: 0, count: 0, lastDate: null, methods: new Set(), paidCount: 0, reconciledCount: 0, openCredits: 0 };
     // Scadenze del fornitore dell'anno selezionato, derivate da
     // allPayables (già ordinate per invoice_date desc) — coerenti
     // con KPI e statistiche year-aware.
@@ -898,6 +903,12 @@ export default function Fornitori() {
               <div className="flex">
                 <span className="text-red-500 w-28 shrink-0 text-xs font-medium">Scaduto</span>
                 <span className="text-red-600 text-xs font-semibold">€ {stats.overdue.toLocaleString('de-DE', { minimumFractionDigits: 2 })}</span>
+              </div>
+            )}
+            {stats.openCredits < 0 && (
+              <div className="flex">
+                <span className="text-emerald-600 w-28 shrink-0 text-xs font-medium">di cui NC</span>
+                <span className="text-emerald-600 text-xs font-semibold">−€ {Math.abs(stats.openCredits).toLocaleString('de-DE', { minimumFractionDigits: 2 })}</span>
               </div>
             )}
             {avgAmount > 0 && (
@@ -1156,7 +1167,9 @@ export default function Fornitori() {
         <KpiCard icon={Tag} label="Con categoria" value={`${kpis.withCategory} / ${kpis.total}`} color="purple" />
         <KpiCard icon={Split} label="Con divisione" value={`${kpis.withDivision} / ${kpis.total}`} color="purple" />
         <KpiCard icon={Calendar} label="Con modalità pag." value={`${kpis.withPlan} / ${kpis.total}`} color={kpis.withPlan < kpis.total ? 'amber' : 'green'} />
-        <KpiCard icon={AlertTriangle} label="Scaduto" value={`€ ${kpis.overdue.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} color={kpis.overdue > 0 ? 'red' : 'green'} />
+        <KpiCard icon={AlertTriangle} label="Scaduto" value={`€ ${kpis.overdue.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+          sub={kpis.openCredits < 0 ? `di cui NC −${Math.abs(kpis.openCredits).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €` : undefined}
+          color={kpis.overdue > 0 ? 'red' : 'green'} />
         <KpiCard icon={FileText} label="Totale fatture" value={`€ ${kpis.totalFatturato.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} sub={`${kpis.payCount.toLocaleString('de-DE')} fatture`} color="blue" />
       </div>
 
@@ -1264,7 +1277,7 @@ export default function Fornitori() {
                 {sortedSuppliers.map(s => {
                   const name = getName(s);
                   const vat = getVat(s);
-                  const stats = supplierStats[s.id] || { grossTotal: 0, overdue: 0, pending: 0, paid: 0, count: 0, lastDate: null, methods: new Set(), paidCount: 0, reconciledCount: 0 };
+                  const stats = supplierStats[s.id] || { grossTotal: 0, overdue: 0, pending: 0, paid: 0, count: 0, lastDate: null, methods: new Set(), paidCount: 0, reconciledCount: 0, openCredits: 0 };
                   const isExpanded = expandedId === s.id;
                   const pm = s.payment_method || s.default_payment_method;
 
@@ -1344,6 +1357,9 @@ export default function Fornitori() {
                             <div>
                               <div className="font-semibold text-red-600">€ {stats.pending.toLocaleString('de-DE', { minimumFractionDigits: 0 })}</div>
                               <div className="text-xs text-red-500">{stats.overdue.toLocaleString('de-DE', { minimumFractionDigits: 0 })} scaduto</div>
+                              {stats.openCredits < 0 && (
+                                <div className="text-[11px] text-emerald-600">di cui NC −{Math.abs(stats.openCredits).toLocaleString('de-DE', { minimumFractionDigits: 0 })}</div>
+                              )}
                             </div>
                           ) : stats.pending > 0 ? (
                             <div className="font-medium text-amber-600">€ {stats.pending.toLocaleString('de-DE', { minimumFractionDigits: 0 })}</div>
@@ -1434,7 +1450,7 @@ export default function Fornitori() {
               ) : sortedSuppliers.map(s => {
                 const name = getName(s);
                 const vat = getVat(s);
-                const stats = supplierStats[s.id] || { grossTotal: 0, overdue: 0, pending: 0, paid: 0, count: 0, lastDate: null, methods: new Set(), paidCount: 0, reconciledCount: 0 };
+                const stats = supplierStats[s.id] || { grossTotal: 0, overdue: 0, pending: 0, paid: 0, count: 0, lastDate: null, methods: new Set(), paidCount: 0, reconciledCount: 0, openCredits: 0 };
                 const isExpanded = expandedId === s.id;
                 const pm = s.payment_method || s.default_payment_method;
                 return (
@@ -1483,6 +1499,9 @@ export default function Fornitori() {
                             <span className="font-semibold text-red-600">
                               € {stats.pending.toLocaleString('de-DE', { minimumFractionDigits: 0 })}
                               <span className="block text-[11px] font-medium text-red-500">di cui {stats.overdue.toLocaleString('de-DE', { minimumFractionDigits: 0 })} scaduto</span>
+                              {stats.openCredits < 0 && (
+                                <span className="block text-[11px] font-medium text-emerald-600">di cui NC −{Math.abs(stats.openCredits).toLocaleString('de-DE', { minimumFractionDigits: 0 })}</span>
+                              )}
                             </span>
                           ) : stats.pending > 0 ? (
                             <span className="font-medium text-amber-600">€ {stats.pending.toLocaleString('de-DE', { minimumFractionDigits: 0 })} da pagare</span>
