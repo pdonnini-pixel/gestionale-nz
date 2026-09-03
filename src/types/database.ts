@@ -6959,6 +6959,26 @@ export type Database = {
       }
     }
     Views: {
+      v_archivio_documenti: {
+        Row: {
+          anno: number | null
+          company_id: string | null
+          data: string | null
+          file_name: string | null
+          file_size: number | null
+          fonte: string | null
+          funzione: string | null
+          ha_file: boolean | null
+          id: string | null
+          mese: number | null
+          riferimento_id: string | null
+          sezione: string | null
+          storage_bucket: string | null
+          storage_path: string | null
+          titolo: string | null
+        }
+        Relationships: []
+      }
       v_bank_accounts_detail: {
         Row: {
           account_name: string | null

@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
 // Tab ArchivioDocumenti — persistito in URL come ?tab=
-type ArchivioTab = 'archivio' | 'caricamenti' | 'conservazione';
-const VALID_ARCHIVIO_TABS: ArchivioTab[] = ['archivio', 'caricamenti', 'conservazione'];
+type ArchivioTab = 'archivio' | 'banche' | 'conservazione';
+const VALID_ARCHIVIO_TABS: ArchivioTab[] = ['archivio', 'banche', 'conservazione'];
 import {
   FileText, Search, Download, Eye, RefreshCw,
   X, FileWarning, CheckCircle,
@@ -15,6 +15,7 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
 import Tooltip from '../components/Tooltip';
 import InvoiceViewer from '../components/InvoiceViewer';
+import ArchivioUnificato from './archivio/ArchivioUnificato';
 import PageHeader from '../components/PageHeader';
 import { Modal } from '../components/ui/Modal';
 
@@ -66,167 +67,6 @@ const MONTH_LABELS = ['Gen', 'Feb', 'Mar', 'Apr', 'Mag', 'Giu', 'Lug', 'Ago', 'S
 const MONTH_FULL = ['Gennaio', 'Febbraio', 'Marzo', 'Aprile', 'Maggio', 'Giugno', 'Luglio', 'Agosto', 'Settembre', 'Ottobre', 'Novembre', 'Dicembre'];
 
 // ═══════════════════════════════════════════════════════════════
-// SCHEDA "CARICAMENTI" — il registro unico dei file caricati.
-// Risponde alla domanda «questo numero da quale file viene?»: per ogni
-// caricamento si vede il modulo, la funzione, il periodo, chi e quando, e si
-// riapre il documento originale.
-// ═══════════════════════════════════════════════════════════════
-type RigaCaricamento = {
-  id: string;
-  file_name: string;
-  file_path: string | null;
-  file_size: number | null;
-  file_type: string | null;
-  storage_bucket: string | null;
-  modulo: string | null;
-  funzione: string | null;
-  source: string | null;
-  year: number | null;
-  month: number | null;
-  reference_table: string | null;
-  reference_id: string | null;
-  note: string | null;
-  uploaded_at: string | null;
-};
-
-function CaricamentiTab({ companyId, showToast }: { companyId?: string; showToast: (m: string, t?: string) => void }) {
-  const [righe, setRighe] = useState<RigaCaricamento[]>([]);
-  const [caricando, setCaricando] = useState(false);
-  const [filtroModulo, setFiltroModulo] = useState('tutti');
-  const [filtroAnno, setFiltroAnno] = useState('tutti');
-  const [ricerca, setRicerca] = useState('');
-  const [aprendo, setAprendo] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!companyId) return;
-    let vivo = true;
-    (async () => {
-      setCaricando(true);
-      // Mai select('*'): su queste tabelle finirebbe per trascinare colonne pesanti.
-      const { data, error } = await supabase
-        .from('import_documents')
-        .select('id, file_name, file_path, file_size, file_type, storage_bucket, modulo, funzione, source, year, month, reference_table, reference_id, note, uploaded_at')
-        .eq('company_id', companyId)
-        .order('uploaded_at', { ascending: false })
-        .limit(1000);
-      if (!vivo) return;
-      if (error) showToast(`Impossibile leggere l'archivio dei caricamenti: ${error.message}`, 'error');
-      setRighe(((data as unknown) as RigaCaricamento[]) || []);
-      setCaricando(false);
-    })();
-    return () => { vivo = false; };
-    // showToast cambia identita' a ogni render del padre: tenerla qui
-    // rilancerebbe la lettura in continuazione.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [companyId]);
-
-  const moduli = useMemo(() => Array.from(new Set(righe.map(r => r.modulo).filter(Boolean))).sort() as string[], [righe]);
-  const anni = useMemo(() => Array.from(new Set(righe.map(r => r.year).filter(Boolean))).sort((a, b) => Number(b) - Number(a)) as number[], [righe]);
-
-  const filtrate = useMemo(() => righe.filter(r => {
-    if (filtroModulo !== 'tutti' && r.modulo !== filtroModulo) return false;
-    if (filtroAnno !== 'tutti' && String(r.year || '') !== filtroAnno) return false;
-    if (ricerca.trim()) {
-      const q = ricerca.toLowerCase();
-      return (r.file_name || '').toLowerCase().includes(q)
-        || (r.funzione || r.source || '').toLowerCase().includes(q)
-        || (r.modulo || '').toLowerCase().includes(q);
-    }
-    return true;
-  }), [righe, filtroModulo, filtroAnno, ricerca]);
-
-  const apri = async (r: RigaCaricamento) => {
-    if (!r.storage_bucket || !r.file_path) {
-      showToast('Di questo caricamento è rimasta solo la registrazione: il file non era stato archiviato.', 'error');
-      return;
-    }
-    setAprendo(r.id);
-    const { data, error } = await supabase.storage.from(r.storage_bucket).createSignedUrl(r.file_path, 3600);
-    setAprendo(null);
-    if (error || !data?.signedUrl) { showToast(`Impossibile aprire il file: ${error?.message || 'link non disponibile'}`, 'error'); return; }
-    window.open(data.signedUrl, '_blank', 'noopener');
-  };
-
-  const periodo = (r: RigaCaricamento) => {
-    if (!r.year) return '—';
-    return r.month ? `${MONTH_LABELS[r.month - 1]} ${r.year}` : String(r.year);
-  };
-  const peso = (b: number | null) => (b == null ? '—' : b > 1048576 ? `${(b / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`);
-
-  return (
-    <div className="space-y-4">
-      <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm flex flex-wrap items-center gap-2">
-        <select value={filtroModulo} onChange={e => setFiltroModulo(e.target.value)} className="px-3 py-2 text-sm rounded-lg border border-slate-300">
-          <option value="tutti">Tutti i moduli</option>
-          {moduli.map(m => <option key={m} value={m}>{m}</option>)}
-        </select>
-        <select value={filtroAnno} onChange={e => setFiltroAnno(e.target.value)} className="px-3 py-2 text-sm rounded-lg border border-slate-300">
-          <option value="tutti">Tutti gli anni</option>
-          {anni.map(a => <option key={a} value={String(a)}>{a}</option>)}
-        </select>
-        <input value={ricerca} onChange={e => setRicerca(e.target.value)} placeholder="Cerca per nome file o funzione…"
-          className="flex-1 min-w-[220px] px-3 py-2 text-sm rounded-lg border border-slate-300" />
-        <span className="text-sm text-slate-500">{filtrate.length} caricamenti</span>
-      </div>
-
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        {caricando ? (
-          <div className="p-10 text-center text-slate-400 text-sm">Lettura dell&rsquo;archivio…</div>
-        ) : filtrate.length === 0 ? (
-          <div className="p-10 text-center text-slate-500 text-sm">
-            <Upload size={28} className="mx-auto mb-3 text-slate-300" />
-            Nessun caricamento registrato{righe.length ? ' con questi filtri' : ' finora'}.
-            {!righe.length && <div className="mt-1 text-xs text-slate-400">I file caricati d&rsquo;ora in avanti compariranno qui, con la funzione e il periodo a cui si riferiscono.</div>}
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
-                <tr>
-                  <th className="px-4 py-2.5 text-left font-medium">Quando</th>
-                  <th className="px-4 py-2.5 text-left font-medium">Modulo</th>
-                  <th className="px-4 py-2.5 text-left font-medium">Funzione</th>
-                  <th className="px-4 py-2.5 text-left font-medium">Periodo</th>
-                  <th className="px-4 py-2.5 text-left font-medium">File</th>
-                  <th className="px-4 py-2.5 text-right font-medium">Peso</th>
-                  <th className="px-4 py-2.5 text-center font-medium">Apri</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtrate.map(r => (
-                  <tr key={r.id} className="border-t border-slate-100 hover:bg-slate-50">
-                    <td className="px-4 py-2.5 text-slate-500 whitespace-nowrap">
-                      {r.uploaded_at ? new Date(r.uploaded_at).toLocaleString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}
-                    </td>
-                    <td className="px-4 py-2.5">
-                      <span className="text-[11px] px-2 py-0.5 rounded bg-slate-100 text-slate-600">{r.modulo || '—'}</span>
-                    </td>
-                    <td className="px-4 py-2.5 text-slate-700">
-                      <Tooltip content={r.note || r.funzione || r.source || ''}>
-                        <span>{r.funzione || r.source || '—'}</span>
-                      </Tooltip>
-                    </td>
-                    <td className="px-4 py-2.5 text-slate-600 whitespace-nowrap">{periodo(r)}</td>
-                    <td className="px-4 py-2.5 text-slate-700 max-w-[280px] truncate" title={r.file_name}>{r.file_name}</td>
-                    <td className="px-4 py-2.5 text-right text-slate-500 whitespace-nowrap">{peso(r.file_size)}</td>
-                    <td className="px-4 py-2.5 text-center">
-                      <button onClick={() => apri(r)} disabled={aprendo === r.id || !r.file_path}
-                        className="px-2.5 py-1 rounded-lg border border-slate-300 text-xs text-blue-600 hover:bg-blue-50 disabled:opacity-40 inline-flex items-center gap-1">
-                        <ExternalLink size={13} /> {aprendo === r.id ? 'apro…' : 'apri'}
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ═══════════════════════════════════════════════════════════════
 // COMPONENTE PRINCIPALE
 // ═══════════════════════════════════════════════════════════════
 
@@ -247,10 +87,22 @@ export default function ArchivioDocumenti() {
   };
   const [toast, setToast] = useState<{ msg: string; type: string } | null>(null);
 
-  const showToast = (msg: string, type = 'success') => {
+  const showToast = useCallback((msg: string, type = 'success') => {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 3000);
-  };
+  }, []);
+
+  // Le fatture elettroniche non hanno un file su Storage: l'XML sta in colonna
+  // e si legge per id solo quando serve (l'elenco pesava oltre 100 MB).
+  const [xmlFattura, setXmlFattura] = useState<string | null>(null);
+  const apriFatturaDaArchivio = useCallback(async (invoiceId: string) => {
+    if (!invoiceId) return;
+    const { data, error } = await supabase
+      .from('electronic_invoices').select('xml_content').eq('id', invoiceId).maybeSingle();
+    const xml = (data as { xml_content?: string | null } | null)?.xml_content;
+    if (error || !xml) { showToast('XML della fattura non disponibile', 'error'); return; }
+    setXmlFattura(xml);
+  }, [showToast]);
 
   // ── Conservazione state (invariato rispetto alla versione precedente) ──
   const [retentionDocs, setRetentionDocs] = useState<RetentionDoc[]>([]);
@@ -347,8 +199,8 @@ export default function ArchivioDocumenti() {
       <PageHeader
         title="Archivio Documenti"
         subtitle={activeTab === 'conservazione' ? 'Conservazione sostitutiva — 10 anni'
-          : activeTab === 'caricamenti' ? 'Ogni file caricato nel gestionale, con la funzione e il periodo a cui si riferisce'
-          : 'Fatture, bilanci ed estratti conto'}
+          : activeTab === 'banche' ? 'Archiviazione degli estratti conto e anteprima dei movimenti'
+          : 'Ogni documento del gestionale, diviso per sezione'}
         noDivider
       />
 
@@ -356,7 +208,7 @@ export default function ArchivioDocumenti() {
       <div className="flex gap-1 bg-white rounded-xl border border-slate-200 p-1 shadow-sm">
         {([
           { key: 'archivio', label: 'Archivio', icon: FolderOpen },
-          { key: 'caricamenti', label: 'Caricamenti', icon: Upload },
+          { key: 'banche', label: 'Estratti conto e strumenti', icon: Database },
           { key: 'conservazione', label: 'Conservazione Sostitutiva', icon: ShieldCheck },
         ] as const).map(tab => {
           const Icon = tab.icon;
@@ -376,9 +228,19 @@ export default function ArchivioDocumenti() {
         })}
       </div>
 
-      {activeTab === 'archivio' && <ArchivioTab companyId={COMPANY_ID ?? undefined} showToast={showToast} />}
+      {activeTab === 'archivio' && (
+        <ArchivioUnificato
+          companyId={COMPANY_ID ?? undefined}
+          showToast={showToast}
+          onApriFattura={apriFatturaDaArchivio}
+        />
+      )}
 
-      {activeTab === 'caricamenti' && <CaricamentiTab companyId={COMPANY_ID ?? undefined} showToast={showToast} />}
+      {activeTab === 'banche' && <ArchivioTab companyId={COMPANY_ID ?? undefined} showToast={showToast} />}
+
+      {xmlFattura && (
+        <InvoiceViewer xmlContent={xmlFattura} onClose={() => setXmlFattura(null)} />
+      )}
 
       {activeTab === 'conservazione' && (
         <ConservazioneTab
@@ -1137,18 +999,12 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
 
   return (
     <div className="space-y-6">
-      {/* KPI CARDS — conteggi dinamici sull'anno selezionato per le fatture */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <KpiCard
-          label={`Fatture ${year}`}
-          value={invoices.length}
-          icon={Receipt}
-          color="blue"
-          sub={`Totale: ${allInvoices.length} su ${availableYears.length} ann${availableYears.length === 1 ? 'o' : 'i'}`}
-        />
-        <KpiCard label="Bilanci" value={balanceSheets.length} icon={BarChart3} color="indigo" sub="PDF archiviati" />
-        <KpiCard label="Estratti Conto" value={ecFiles.length} icon={Database} color="emerald" sub={`${ecFiles.filter(e => (e.doc_kind || 'conto_corrente') === 'conto_corrente').length} conti · ${ecFiles.filter(e => e.doc_kind === 'carta').length} carte`} />
-        <KpiCard label={`Totale ${year}`} value={invoices.length + balanceSheets.length + ecFiles.length} icon={FolderOpen} color="slate" sub="documenti consultabili" />
+      {/* KPI — qui si guardano solo gli estratti conto: fatture e bilanci
+          stanno nella scheda «Archivio» insieme a tutto il resto. */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+        <KpiCard label="Estratti conto" value={ecFiles.filter(e => (e.doc_kind || 'conto_corrente') === 'conto_corrente').length} icon={Database} color="emerald" sub="file archiviati" />
+        <KpiCard label="Carte" value={ecFiles.filter(e => e.doc_kind === 'carta').length} icon={Receipt} color="blue" sub="estratti carta" />
+        <KpiCard label="Totale file bancari" value={ecFiles.length} icon={FolderOpen} color="slate" sub="consultabili qui" />
       </div>
 
       {loading && (
@@ -1158,245 +1014,9 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
         </div>
       )}
 
-      {/* ═══════════ SEZIONE FATTURE ═══════════ */}
-      <section className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="px-5 py-4 border-b border-slate-100 flex flex-wrap items-center gap-3">
-          <button
-            onClick={() => toggleSection('fatture')}
-            className="flex items-center gap-2 hover:bg-slate-50 -mx-2 -my-1 px-2 py-1 rounded-lg transition text-left"
-            title={sectionOpen.fatture ? 'Chiudi sezione' : 'Apri sezione'}
-          >
-            {sectionOpen.fatture ? <ChevronDown size={18} className="text-slate-400" /> : <ChevronRight size={18} className="text-slate-400" />}
-            <div className="p-2 bg-blue-50 rounded-lg">
-              <Receipt size={18} className="text-blue-600" />
-            </div>
-            <div>
-              <h2 className="font-semibold text-slate-900 flex items-center gap-2">
-                Fatture Ricevute {year}
-                {loadingYear && <RefreshCw size={14} className="animate-spin text-blue-500" />}
-              </h2>
-              <p className="text-xs text-slate-500">
-                {filteredInvoices.length} fattur{filteredInvoices.length === 1 ? 'a' : 'e'} · {formatCurrency(totalInvoicesAmount)}
-              </p>
-            </div>
-          </button>
-
-          <div className={`flex items-center gap-2 ml-auto ${sectionOpen.fatture ? '' : 'opacity-50 pointer-events-none'}`}>
-            <div className="relative">
-              <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
-              <input
-                type="text"
-                placeholder="Cerca fornitore, numero..."
-                value={searchInvoices}
-                onChange={e => setSearchInvoices(e.target.value)}
-                className="pl-8 pr-3 py-1.5 border border-slate-200 rounded-lg text-sm w-56"
-              />
-            </div>
-            {groups.length > 0 && (
-              <button
-                onClick={toggleAllGroups}
-                className="px-3 py-1.5 border border-slate-200 rounded-lg text-sm text-slate-700 hover:bg-slate-50 inline-flex items-center gap-1.5"
-                title={allExpanded ? 'Chiudi tutti i gruppi' : 'Apri tutti i gruppi'}
-              >
-                {allExpanded ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
-                {allExpanded ? 'Comprimi tutti' : 'Espandi tutti'}
-              </button>
-            )}
-            <select
-              value={groupBy}
-              onChange={e => { setGroupBy(e.target.value); setExpandedGroups(new Set()); }}
-              className="px-3 py-1.5 border border-slate-200 rounded-lg text-sm"
-              title="Raggruppa per"
-            >
-              <option value="supplier">Per fornitore</option>
-              <option value="month">Per mese</option>
-            </select>
-            <select
-              value={year}
-              onChange={e => { setYear(Number(e.target.value)); setExpandedGroups(new Set()); }}
-              className="px-3 py-1.5 border border-slate-200 rounded-lg text-sm"
-              title="Anno fatture"
-            >
-              {availableYears.map(y => {
-                const count = invoicesPerYear[String(y)] || 0;
-                return (
-                  <option key={y} value={y}>
-                    {y}{count > 0 ? ` (${count})` : ''}
-                  </option>
-                );
-              })}
-            </select>
-          </div>
-        </div>
-
-        {sectionOpen.fatture && (
-        <div className="divide-y divide-slate-100">
-          {groups.length === 0 && !loading && (
-            <div className="text-center py-12">
-              <FileWarning size={32} className="text-slate-300 mx-auto mb-2" />
-              <p className="text-sm text-slate-500">Nessuna fattura per {year}</p>
-            </div>
-          )}
-
-          {groups.map(group => {
-            const expanded = expandedGroups.has(group.key);
-            return (
-              <div key={group.key}>
-                <button
-                  onClick={() => toggleGroup(group.key)}
-                  className="w-full px-5 py-3 flex items-center gap-3 hover:bg-slate-50 transition text-left"
-                >
-                  {expanded ? <ChevronDown size={16} className="text-slate-500" /> : <ChevronRight size={16} className="text-slate-400" />}
-                  {groupBy === 'supplier'
-                    ? <Building2 size={14} className="text-blue-500 shrink-0" />
-                    : <div className="w-7 h-7 bg-indigo-100 text-indigo-700 rounded font-semibold text-xs flex items-center justify-center">{MONTH_LABELS[new Date(group.invoices[0].invoice_date || '').getMonth()]}</div>
-                  }
-                  <div className="flex-1 min-w-0">
-                    <Tooltip content={group.label}><div className="font-medium text-slate-800 truncate">{group.label}</div></Tooltip>
-                    <div className="text-xs text-slate-500">{group.invoices.length} fattur{group.invoices.length === 1 ? 'a' : 'e'}</div>
-                  </div>
-                  <div className="text-right shrink-0">
-                    <div className="font-semibold text-slate-900">{formatCurrency(group.total)}</div>
-                  </div>
-                </button>
-
-                {expanded && (
-                  <div className="bg-slate-50/60 border-t border-slate-100 overflow-x-auto scroll-shadow-x">
-                    <table className="w-full min-w-[560px]">
-                      <thead>
-                        <tr className="text-[10px] uppercase text-slate-500">
-                          <th className="px-5 py-2 text-left font-semibold">Numero</th>
-                          <th className="px-4 py-2 text-left font-semibold">Data</th>
-                          {groupBy === 'month' && <th className="px-4 py-2 text-left font-semibold">Fornitore</th>}
-                          <th className="px-4 py-2 text-right font-semibold">Importo</th>
-                          <th className="px-4 py-2 text-center font-semibold">SDI</th>
-                          <th className="px-5 py-2 text-right font-semibold">Azioni</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {group.invoices.map(inv => (
-                          <tr key={inv.id} className="border-t border-slate-200/70 hover:bg-white">
-                            <td className="px-5 py-2.5 text-sm font-medium text-slate-800">{inv.invoice_number || '—'}</td>
-                            <td className="px-4 py-2.5 text-sm text-slate-600">{formatDate(inv.invoice_date)}</td>
-                            {groupBy === 'month' && (
-                              <Tooltip content={inv.supplier_name ?? ''}><td className="px-4 py-2.5 text-sm text-slate-600 truncate max-w-xs">{inv.supplier_name || '—'}</td></Tooltip>
-                            )}
-                            <td className="px-4 py-2.5 text-sm text-right font-medium text-slate-900">
-                              {formatCurrency(inv.gross_amount || (inv as { total_amount?: number | null }).total_amount || null)}
-                            </td>
-                            <td className="px-4 py-2.5 text-center">
-                              {inv.sdi_status && (
-                                <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold ${
-                                  inv.sdi_status === 'ACCEPTED' ? 'bg-emerald-50 text-emerald-700' :
-                                  inv.sdi_status === 'REJECTED' ? 'bg-red-50 text-red-700' :
-                                  'bg-slate-100 text-slate-600'
-                                }`}>
-                                  {inv.sdi_status}
-                                </span>
-                              )}
-                            </td>
-                            <td className="px-5 py-2.5 text-right">
-                              <div className="inline-flex items-center gap-1">
-                                <button
-                                  onClick={() => openInvoiceViewer(inv)}
-                                  disabled={loadingXml === inv.id}
-                                  className="px-2.5 py-1 bg-blue-50 text-blue-700 rounded-lg text-xs font-semibold hover:bg-blue-100 border border-blue-200 inline-flex items-center gap-1 disabled:opacity-50"
-                                  title="Apri la fattura in formato leggibile"
-                                >
-                                  {loadingXml === inv.id ? <RefreshCw size={12} className="animate-spin" /> : <Eye size={12} />}
-                                  Anteprima
-                                </button>
-                                <button
-                                  onClick={() => openInvoiceViewer(inv, { autoPrint: true })}
-                                  disabled={loadingXml === inv.id}
-                                  className="px-2.5 py-1 bg-white text-slate-700 rounded-lg text-xs font-semibold hover:bg-slate-50 border border-slate-200 inline-flex items-center gap-1 disabled:opacity-50"
-                                  title="Genera PDF leggibile e apri dialogo di stampa"
-                                >
-                                  <Download size={12} /> Scarica PDF
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-        )}
-      </section>
-
-      {/* ═══════════ SEZIONE BILANCI ═══════════ */}
-      <section className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        <button
-          onClick={() => toggleSection('bilanci')}
-          className="w-full px-5 py-4 border-b border-slate-100 flex items-center gap-2 hover:bg-slate-50 text-left transition"
-          title={sectionOpen.bilanci ? 'Chiudi sezione' : 'Apri sezione'}
-        >
-          {sectionOpen.bilanci ? <ChevronDown size={18} className="text-slate-400" /> : <ChevronRight size={18} className="text-slate-400" />}
-          <div className="p-2 bg-indigo-50 rounded-lg">
-            <BarChart3 size={18} className="text-indigo-600" />
-          </div>
-          <div>
-            <h2 className="font-semibold text-slate-900">Bilanci</h2>
-            <p className="text-xs text-slate-500">{balanceSheets.length} document{balanceSheets.length === 1 ? 'o' : 'i'}</p>
-          </div>
-        </button>
-        {sectionOpen.bilanci && (
-        <div className="divide-y divide-slate-100">
-          {balanceSheets.length === 0 ? (
-            <div className="text-center py-10">
-              <BarChart3 size={28} className="text-slate-300 mx-auto mb-2" />
-              <p className="text-sm text-slate-500">Nessun bilancio caricato</p>
-              <p className="text-xs text-slate-400">Caricali da Import Hub → Bilanci</p>
-            </div>
-          ) : (
-            balanceSheets.map(bs => (
-              <div key={bs.id} className="px-5 py-3 flex items-center gap-3 hover:bg-slate-50">
-                <div className="p-2 bg-red-50 rounded-lg shrink-0">
-                  <FileText size={16} className="text-red-500" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <Tooltip content={String(bs.file_name ?? '')}>
-                    <div className="font-medium text-slate-800 truncate">
-                      {String(bs.file_name ?? 'Bilancio senza nome')}
-                    </div>
-                  </Tooltip>
-                  <div className="text-xs text-slate-500 flex gap-3">
-                    {bs.year != null && <span>Anno {String(bs.year)}</span>}
-                    <span>{formatDate((bs.created_at || (bs.uploaded_at as string | null | undefined)) ?? null)}</span>
-                    {bs.file_size != null && <span>{formatSize(bs.file_size as number)}</span>}
-                    {bs.status != null && <span className="text-indigo-600">· {String(bs.status)}</span>}
-                  </div>
-                </div>
-                <div className="flex items-center gap-1">
-                  {bs.file_path != null && (
-                    <>
-                      <button
-                        onClick={() => openPdfPreview('balance-sheets', String(bs.file_path))}
-                        className="px-2.5 py-1 bg-indigo-50 text-indigo-700 rounded-lg text-xs font-semibold hover:bg-indigo-100 border border-indigo-200 inline-flex items-center gap-1"
-                        title="Apri il PDF in una nuova scheda"
-                      >
-                        <Eye size={12} /> Anteprima
-                      </button>
-                      <button
-                        onClick={() => downloadFile('balance-sheets', String(bs.file_path), bs.file_name ? String(bs.file_name) : undefined)}
-                        className="px-2.5 py-1 bg-white text-slate-700 rounded-lg text-xs font-semibold hover:bg-slate-50 border border-slate-200 inline-flex items-center gap-1"
-                      >
-                        <Download size={12} /> Scarica
-                      </button>
-                    </>
-                  )}
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-        )}
-      </section>
+      {/* Fatture e bilanci vivono nella scheda «Archivio», che li mostra insieme
+          a tutti gli altri documenti. Qui restano gli estratti conto, perché
+          hanno azioni proprie: archiviazione del file e anteprima dei movimenti. */}
 
       {/* ═══════════ SEZIONE ESTRATTI CONTO ═══════════ */}
       <section className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
