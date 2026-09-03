@@ -121,10 +121,23 @@ const ROW_LABEL = /^(totale|totali|nr|n|di|del|della|ripartizione|aziendale|impo
 export function parseInfinityNettiItems(pages: PdfItem[][], outlets: ParserOutlet[]): ParsedImport {
   const rows: PreviewRow[] = [];
   const TOL = 3;
+  // Una filiale puo' occupare PIU' pagine: l'intestazione "Filiale: …" viene
+  // stampata solo sulla prima, la seconda e' un seguito. Senza memoria, le
+  // persone della pagina di seguito restavano senza punto vendita (e la scheda
+  // usciva «da definire»). La filiale si trascina finche' non ne arriva un'altra.
+  let outlet = '';
+  // Righe della filiale in corso, in attesa del "Totale di ripartizione": il
+  // totale sta in fondo alla filiale, non in fondo alla pagina.
+  let pending: PreviewRow[] = [];
+  const flush = (warn: boolean) => {
+    if (warn) pending.forEach((r) => { r.warn = true; });
+    rows.push(...pending);
+    pending = [];
+  };
   for (const items of pages) {
     const fullText = items.map((i) => i.str).join(' ');
     const mf = fullText.match(/Filiale:\s*\d+\s*-\s*(.+?)\s*;/i);
-    const outlet = mf ? matchOutletName(mf[1], outlets) : '';
+    if (mf) { flush(false); outlet = matchOutletName(mf[1], outlets); }
 
     // raggruppa per X (riga)
     const groups: { x: number; items: PdfItem[] }[] = [];
@@ -173,11 +186,15 @@ export function parseInfinityNettiItems(pages: PdfItem[][], outlets: ParserOutle
         if (nm) nrDip = parseInt(nm[1], 10);
       }
     }
-    const sum = pageRows.reduce<number>((s, r) => s + (r.netto || 0), 0);
-    const quadra = (totRip == null || Math.abs(sum - totRip) < 0.01) && (nrDip == null || nrDip === pageRows.length);
-    if (!quadra) pageRows.forEach((r) => { r.warn = true; });
-    rows.push(...pageRows);
+    pending.push(...pageRows);
+    // Il totale chiude la filiale: si verifica su TUTTE le sue righe (anche
+    // quelle arrivate dalla pagina precedente) e poi si scarica.
+    if (totRip != null || nrDip != null) {
+      const sum = pending.reduce<number>((s, r) => s + (r.netto || 0), 0);
+      flush(!((totRip == null || Math.abs(sum - totRip) < 0.01) && (nrDip == null || nrDip === pending.length)));
+    }
   }
+  flush(false); // filiale senza totale stampato: le righe restano, senza avviso
   const fileTotal = rows.reduce<number>((s, r) => s + (r.netto || 0), 0);
   return { rows, fileTotal: rows.length ? fileTotal : null };
 }
@@ -187,10 +204,14 @@ export function parseInfinityNettiItems(pages: PdfItem[][], outlets: ParserOutle
 // Validazione per filiale: somma(netti) == totale di ripartizione e N == Nr dipendenti.
 export function parseInfinityNettiPages(pages: string[], outlets: ParserOutlet[]): ParsedImport {
   const rows: PreviewRow[] = [];
+  // Come nella versione a item: la filiale si trascina sulle pagine di seguito,
+  // che non ripetono l'intestazione. Prima venivano scartate in blocco.
+  let outlet = '';
+  let seenFiliale = false;
   for (const page of pages) {
     const mf = page.match(/Filiale:\s*\d+\s*-\s*(.+?)\s*;/i);
-    if (!mf) continue;
-    const outlet = matchOutletName(mf[1], outlets);
+    if (mf) { outlet = matchOutletName(mf[1], outlets); seenFiliale = true; }
+    else if (!seenFiliale) continue; // copertina o pagina prima di ogni filiale
     // La validazione di filiale ignora tutto DA "Totale aziendale" in poi:
     // sull'ultima pagina ci sono due totali (ripartizione filiale + aziendale documento)
     // e l'aziendale non deve essere scambiato per il totale di filiale.
@@ -208,7 +229,7 @@ export function parseInfinityNettiPages(pages: string[], outlets: ParserOutlet[]
     const nrm = dd.match(/nr\s+dipendenti\s+(\d+)/i);
     const nrDip = nrm ? parseInt(nrm[1], 10) : null;
     const quadra = (totRip == null || Math.abs(sum - totRip) < 0.01) && (nrDip == null || nrDip === N);
-    const names = extractNames(work, mf[0], N);
+    const names = extractNames(work, mf ? mf[0] : null, N);
     for (let i = 0; i < N; i++) {
       const r = blankRow();
       r.matricola = mats[i];

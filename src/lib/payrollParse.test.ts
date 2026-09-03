@@ -132,6 +132,16 @@ describe('parseInfinityNettiPages — abbinamento per colonna (ordine di stream)
     expect(rows.reduce((s, r) => s + (r.netto || 0), 0)).toBeCloseTo(6913.00, 2)
   })
 
+  it('pagina di seguito senza «Filiale:» → righe ereditate, non piu\' scartate', () => {
+    const p1 = 'Filiale: 0000000009 - SEDE / MAGAZZINO ; Cod. dip. Cognome e nome Importo '
+      + '0000001 0000064 GALLO MASSIMO CENI LORENZO 5.000,00 1.448,00'
+    const p2 = '0000084 PASQUALETTI ALESSANDRO 467,81 Totale di ripartizione 6.915,81 Nr dipendenti 1'
+    const { rows } = parseInfinityNettiPages([p1, p2], OUTLETS)
+    expect(rows.length).toBe(3)
+    expect(rows.every((r) => r.outlet === 'SEDE / MAGAZZINO')).toBe(true)
+    expect(rows.map((r) => r.matricola)).toContain('0000084')
+  })
+
   it('filiale che non quadra → righe marcate warn', () => {
     const bad = 'Filiale: 0000000001 - VALDICHIANA VILLAGE ; 0000003 0000004 ROSSI MARIO VERDI ANNA 1.000,00 2.000,00 Totale di ripartizione 9.999,99 Nr dipendenti 2'
     const { rows } = parseInfinityNettiPages([bad], OUTLETS)
@@ -203,6 +213,41 @@ describe('parseInfinityNettiItems — righe per asse X (PDF ruotato)', () => {
     expect(rows.length).toBe(1)
     expect(rows[0]).toMatchObject({ matricola: '0000051', cognome: 'PIANTONI', nome: 'ROSITA FRANCESC', netto: 1417 })
     expect(rows[0].nome).not.toMatch(/IT53|BANCO|BPM|LOMBARDIA/)
+    expect(rows.some((r) => r.warn)).toBe(false)
+  })
+
+  it('filiale su DUE pagine: la seconda non ripete «Filiale:» → outlet ereditato, nessun warn', () => {
+    // Caso reale maggio 2026 NZ: SEDE / MAGAZZINO ha 6 persone, il PDF le spezza
+    // su due pagine e la seconda non ristampa l'intestazione. Prima le ultime due
+    // finivano senza punto vendita e la loro scheda usciva «da definire».
+    const pag1: PI[] = [
+      { str: 'Filiale: 0000000009 - SEDE / MAGAZZINO ;', x: 300, y: 400 },
+      ...person(280, '0000001', 'GALLO MASSIMO', '5.000,00'),
+      ...person(250, '0000064', 'CENI LORENZO', '1.448,00'),
+    ]
+    const pag2: PI[] = [
+      ...person(280, '0000084', 'PASQUALETTI ALESSANDRO', '467,81'),
+      { str: 'Totale di ripartizione', x: 50, y: 55 }, { str: '6.915,81', x: 50, y: 206 }, { str: 'Nr dipendenti 3', x: 50, y: 250 },
+    ]
+    const { rows, fileTotal } = parseInfinityNettiItems([pag1, pag2], OUTLETS)
+    expect(rows.length).toBe(3)
+    expect(rows.every((r) => r.outlet === 'SEDE / MAGAZZINO')).toBe(true)
+    expect(rows.some((r) => r.warn)).toBe(false)
+    expect(fileTotal).toBeCloseTo(6915.81, 2)
+  })
+
+  it('nuova filiale dopo una senza totale: le righe restano, ognuna col suo outlet', () => {
+    const pag1: PI[] = [
+      { str: 'Filiale: 0000000001 - VALDICHIANA VILLAGE ;', x: 300, y: 400 },
+      ...person(280, '0000003', 'FELICI SILVIA', '2.399,00'),
+    ]
+    const pag2: PI[] = [
+      { str: 'Filiale: 0000000002 - BARBERINO ;', x: 300, y: 400 },
+      ...person(280, '0000004', 'GERMANI MARIA', '1.356,00'),
+      { str: 'Totale di ripartizione', x: 50, y: 55 }, { str: '1.356,00', x: 50, y: 206 }, { str: 'Nr dipendenti 1', x: 50, y: 250 },
+    ]
+    const { rows } = parseInfinityNettiItems([pag1, pag2], OUTLETS)
+    expect(rows.map((r) => r.outlet)).toEqual(['VALDICHIANA', 'BARBERINO'])
     expect(rows.some((r) => r.warn)).toBe(false)
   })
 
