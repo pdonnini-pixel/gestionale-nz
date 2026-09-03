@@ -719,9 +719,13 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
     if (!companyId) return;
     setLoadingYear(true);
     try {
+      // MAI select('*') qui: electronic_invoices porta xml_content, e per il
+      // solo 2026 sono 1.250 fatture per oltre 100 MB. La query sfondava il
+      // limite di 8 secondi e la pagina rispondeva «Errore caricamento fatture».
+      // L'XML serve solo quando si apre una fattura, e li' si legge per id.
       const { data, error } = await supabase
         .from('electronic_invoices')
-        .select('*')
+        .select('id, invoice_number, invoice_date, supplier_name, supplier_vat, gross_amount, net_amount, vat_amount, sdi_status, sdi_id, storage_path, xml_file_path, tipo_documento, due_date, retention_start, retention_end, retention_status, created_at')
         .eq('company_id', companyId)
         .gte('invoice_date', `${y}-01-01`)
         .lt('invoice_date', `${y + 1}-01-01`)
@@ -1074,7 +1078,13 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
   async function openInvoiceViewer(inv: any, { autoPrint = false } = {}) {
     setLoadingXml(inv.id);
     try {
+      // L'elenco non porta piu' l'XML (troppo pesante): si legge ora, per id.
       let xml = inv.xml_content;
+      if (!xml) {
+        const { data: riga } = await supabase
+          .from('electronic_invoices').select('xml_content').eq('id', inv.id).maybeSingle();
+        xml = (riga as { xml_content?: string | null } | null)?.xml_content || null;
+      }
       if (!xml && inv.xml_file_path) {
         const { data: blob } = await supabase.storage.from('invoices').download(inv.xml_file_path);
         if (blob) xml = await blob.text();
