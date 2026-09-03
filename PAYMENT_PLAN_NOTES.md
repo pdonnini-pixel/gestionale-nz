@@ -1,5 +1,41 @@
 # Piano di pagamento fornitore + segnalazioni anomalie — Note di implementazione
 
+> ## 🐺 WOLF GROUP — le scadenze aperte seguono la scheda fornitore (2026-09-03) — FATTO
+>
+> **Richiesta di Patrizio**: «definisci le fatture escluse, quelle in parziale, con la
+> modalità di pagamento che ha da scheda fornitore».
+>
+> La scheda WOLF GROUP dice **bonifico ordinario, 60/90 gg DFFM su 2 rate**. Nessuna
+> delle tre fatture aperte lo seguiva: erano tutte a **rata unica alla data della
+> fattura**, quindi due risultavano scadute e la terza, già pagata in parte, restava
+> appesa al 30/06. Il motivo non è un bug ma la **guardia forward-only della migration
+> 089**: il bridge A-Cube genera le rate dal piano fornitore solo per le fatture emesse
+> dal 31/07/2026, e tutte e tre sono precedenti.
+>
+> | fattura | prima | dopo |
+> |---|---|---|
+> | 218 (79.683,24, parziale) | rata unica 30/06 | una riga sola, rata 2/2 al **31/08** |
+> | 285 (19.941,75) | rata unica 30/06 | 9.970,88 al **31/08** + 9.970,87 al **30/09** |
+> | 357 (34.056,67) | rata unica 29/07 | 17.028,34 al **30/09** + 17.028,33 al **31/10** |
+>
+> **La 218 non si spezza.** L'acconto di 39.683,24 (bonifico 39.445,90 + NC n.68 da
+> 237,34) è già uscito dal conto ed è agganciato a un movimento bancario: importi,
+> `amount_paid` e riconciliazione **non si toccano**. Si sposta solo la scadenza sulla
+> rata del piano che copre il residuo di 40.000,00. Spezzarla avrebbe creato una rata 1
+> aperta per 158,38 € di differenza, cioè un residuo fantasma da smaltire a mano.
+>
+> Date e importi vengono da `fn_supplier_installment_schedule`, la stessa funzione che
+> usa il bridge: nessun valore scritto a mano. La somma delle rate coincide **al
+> centesimo** con il lordo di ogni fattura (verificato dopo l'esecuzione), il debito
+> aperto verso il fornitore resta **93.998,42 €** come prima. Migration
+> `NZ_ONLY_20260903_169`, backup in `_bkp_wolf_piano_20260903`, rollback nel file
+> `_ROLLBACK`. Solo NZ: WOLF GROUP non esiste su Made né su Zago (verificato, 0 righe).
+>
+> **Restano fuori, in attesa di indicazione**: le altre due parziali del gestionale,
+> GABRIEL IOSUB `10/A` (12.201,75 residui, scadenza ferma alla data fattura del 31/03)
+> e MINGARDO `48` (2.802,00 residui). Stesso schema, fornitori diversi: valgono la
+> stessa domanda prima di toccarle.
+
 > ## 🧩 RATE ACCAVALLATE, NON DOPPIONI (2026-09-03) — diagnosi corretta
 >
 > Avevo scritto che c'erano «31 gruppi di doppioni per ~43.822 € di eccesso». **Era
