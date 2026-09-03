@@ -27,6 +27,7 @@ import { useCompanyLabels } from '../hooks/useCompanyLabels'
 import { useToast } from '../components/Toast'
 import { BANK_CATEGORY_OPTIONS, bankCategoryLabel } from '../lib/bankCategories'
 import { fetchCommittedByAccount, type CommittedByAccount } from '../lib/committedBalance'
+import { fetchCommittedPayables, COMMITTED_LABEL, type CommittedPayables } from '../lib/committedPayables'
 import { fetchAllPaged } from '../lib/fetchAllPaged'
 import { NON_SUPPLIER_RE, NON_SUPPLIER_BENEF_RE, extractBeneficiary, sigWords, movementNet, isRealTransfer } from '../lib/reconcileMatch'
 import PrimaNota from './PrimaNota'
@@ -559,7 +560,7 @@ function Pagination({ page, totalPages, onPageChange }: { page: number; totalPag
 type AccountT = Record<string, unknown> & { id: string; bank_name?: string | null; account_name?: string | null; current_balance?: number | null; credit_line?: number | null; iban?: string | null; account_type?: string | null; last_balance_update?: string | null; is_active?: boolean | null }
 type TransactionT = Record<string, unknown> & { id: string; transaction_date?: string | null; amount?: number | null; type?: string | null; description?: string | null; bank_account_id?: string | null; reconciliation_status?: string | null; counterpart_name?: string | null; is_reconciled?: boolean | null; note?: string | null; reconciled_at?: string | null; reconciled_invoice_id?: string | null; category?: string | null }
 type PayableT = Record<string, unknown> & { id: string; due_date?: string | null; amount?: number | null; gross_amount?: number | null; amount_paid?: number | null; amount_remaining?: number | null; supplier_name?: string | null; invoice_number?: string | null; status?: string | null; suppliers?: { ragione_sociale?: string | null; name?: string | null; iban?: string | null } | null }
-function TabPanoramica({ accounts, transactions, payables, committedByAccount, onNavigate }: { accounts: AccountT[]; transactions: TransactionT[]; payables: PayableT[]; committedByAccount: CommittedByAccount; onNavigate: (tab: string) => void }) {
+function TabPanoramica({ accounts, transactions, payables, committedByAccount, committedPayables, onNavigate }: { accounts: AccountT[]; transactions: TransactionT[]; payables: PayableT[]; committedByAccount: CommittedByAccount; committedPayables: CommittedPayables; onNavigate: (tab: string) => void }) {
   // Conta solo i conti attivi: un conto disattivato (es. doppione lasciato dal
   // ri-collegamento A-Cube con lo stesso IBAN) NON deve gonfiare la cassa. Coerente
   // con lo Scadenzario e le altre viste, che filtrano tutte is_active.
@@ -778,16 +779,30 @@ function TabPanoramica({ accounts, transactions, payables, committedByAccount, o
               upcomingPayables.slice(0, 8).map(p => {
                 const days = daysUntil(p.due_date) ?? 99
                 const remaining = Number(p.gross_amount || p.amount_remaining || 0)
+                // Scadenza già impegnata in banca: nessuna azione da fare, l'uscita
+                // e' gia' disposta. Il badge la distingue da quelle da pagare a mano.
+                const committed = committedPayables[p.id]
                 return (
                   <div key={p.id} className="flex items-center gap-3 px-5 py-3 hover:bg-slate-50">
                     <div className={classNames(
                       'text-xs font-bold rounded-lg px-2 py-1 min-w-[48px] text-center',
-                      days <= 3 ? 'bg-red-100 text-red-700' : days <= 7 ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600'
+                      committed ? 'bg-slate-100 text-slate-500'
+                        : days <= 3 ? 'bg-red-100 text-red-700' : days <= 7 ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600'
                     )}>
                       {days === 0 ? 'Oggi' : days === 1 ? 'Domani' : `${days}gg`}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <CellTooltip content={getSupplierName(p)}><div className="text-sm font-medium text-slate-900 truncate">{getSupplierName(p)}</div></CellTooltip>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <CellTooltip content={getSupplierName(p)}><div className="text-sm font-medium text-slate-900 truncate">{getSupplierName(p)}</div></CellTooltip>
+                        {committed && (
+                          <span
+                            title={COMMITTED_LABEL[committed].title}
+                            className="shrink-0 text-[10px] font-semibold uppercase tracking-wide rounded-full px-2 py-0.5 bg-sky-50 text-sky-700 border border-sky-200"
+                          >
+                            {COMMITTED_LABEL[committed].label}
+                          </span>
+                        )}
+                      </div>
                       <div className="text-xs text-slate-400" title={String(p.invoice_number || '')}>{String(p.invoice_number || '')} - Scadenza {fmtDate(p.due_date)}</div>
                     </div>
                     <div className="text-sm font-semibold text-slate-900 whitespace-nowrap">{fmt(remaining)} &euro;</div>
@@ -4081,6 +4096,9 @@ export default function TesoreriaManuale() {
   // Impegni "in distinta" non ancora pagati, per conto → saldo previsionale
   // affiancato al reale nella Panoramica. Non tocca il saldo vero.
   const [committedByAccount, setCommittedByAccount] = useState<CommittedByAccount>({})
+  // Scadenze già impegnate in banca (effetto RI.BA presentato o bonifico disposto):
+  // servono solo a marcarle nella lista, per distinguerle da quelle da pagare a mano.
+  const [committedPayables, setCommittedPayables] = useState<CommittedPayables>({})
 
   const refresh = useCallback(() => setRefreshKey(k => k + 1), [])
 
@@ -4152,6 +4170,15 @@ export default function TesoreriaManuale() {
         } catch (e) {
           console.warn('TesoreriaManuale committed load error:', e)
           if (!cancelled) setCommittedByAccount({})
+        }
+
+        // Quali scadenze sono già in distinta (RI.BA o bonifico disposto).
+        try {
+          const marked = await fetchCommittedPayables(companyId)
+          if (!cancelled) setCommittedPayables(marked)
+        } catch (e) {
+          console.warn('TesoreriaManuale committed payables load error:', e)
+          if (!cancelled) setCommittedPayables({})
         }
       } catch (err: unknown) {
         console.error('TesoreriaManuale load error:', err)
@@ -4254,7 +4281,7 @@ export default function TesoreriaManuale() {
 
       {/* Tab content */}
       {activeTab === 'panoramica' && (
-        <TabPanoramica accounts={accounts} transactions={transactions} payables={payables} committedByAccount={committedByAccount} onNavigate={handleNavigate} />
+        <TabPanoramica accounts={accounts} transactions={transactions} payables={payables} committedByAccount={committedByAccount} committedPayables={committedPayables} onNavigate={handleNavigate} />
       )}
       {activeTab === 'conti' && (
         <TabContiBancari accounts={accounts} companyId={companyId} onRefresh={refresh} />

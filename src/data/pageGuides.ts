@@ -668,10 +668,11 @@ export const PAGE_GUIDES: PageGuide[] = [
     "sections": [
       {
         "heading": "Panoramica",
-        "body": "È la prima schermata che vedi aprendo Banche: un riepilogo veloce della situazione di cassa. In alto trovi quattro numeri: quanto c'è disponibile in banca in questo momento, quanto è entrato e quanto è uscito negli ultimi 30 giorni, e quanti movimenti sono ancora da riconciliare con le fatture fornitori. Se hai creato delle distinte di pagamento non ancora saldate, sotto la \"Posizione di cassa\" compare anche il saldo previsionale, cioè quanto resterebbe dopo aver pagato tutte le distinte in sospeso. Sotto trovi un grafico con l'andamento di entrate e uscite, i saldi per singola banca (con il previsionale accanto al reale), le scadenze fornitori dei prossimi 30 giorni e gli ultimi movimenti registrati.",
+        "body": "È la prima schermata che vedi aprendo Banche: un riepilogo veloce della situazione di cassa. In alto trovi quattro numeri: quanto c'è disponibile in banca in questo momento, quanto è entrato e quanto è uscito negli ultimi 30 giorni, e quanti movimenti sono ancora da riconciliare con le fatture fornitori. Se hai creato delle distinte di pagamento non ancora saldate, sotto la \"Posizione di cassa\" compare anche il saldo previsionale, cioè quanto resterebbe dopo aver pagato tutte le distinte in sospeso. Sotto trovi un grafico con l'andamento di entrate e uscite, i saldi per singola banca (con il previsionale accanto al reale), le scadenze fornitori dei prossimi 30 giorni e gli ultimi movimenti registrati. Nell'elenco delle scadenze, quelle gi\u00e0 impegnate in banca portano l'etichetta azzurra \"in distinta\": vuol dire che il pagamento \u00e8 gi\u00e0 partito e non devi fare nulla, o perch\u00e9 la fattura \u00e8 dentro una distinta di pagamento (bonifico gi\u00e0 disposto) o perch\u00e9 l'effetto RI.BA \u00e8 gi\u00e0 stato presentato alla banca, che lo addebiter\u00e0 da sola alla scadenza. Passandoci sopra col mouse compare la spiegazione. Le scadenze senza etichetta sono invece quelle che richiedono ancora un'azione da parte tua.",
         "steps": [
           "Dai un'occhiata al numero \"Da riconciliare\": se è alto, conviene passare alla scheda Riconciliazione.",
-          "Clicca su una delle quattro card in alto (o su \"Vedi tutto\") per essere portata direttamente nella scheda corrispondente."
+          "Clicca su una delle quattro card in alto (o su \"Vedi tutto\") per essere portata direttamente nella scheda corrispondente.",
+          "Nelle scadenze dei prossimi 30 giorni, guarda l'etichetta \"in distinta\": le righe che ce l'hanno sono gi\u00e0 disposte o gi\u00e0 presentate in banca, quindi non richiedono un pagamento da fare a mano."
         ]
       },
       {
