@@ -129,7 +129,12 @@ const ScadenzarioSmart = () => {
     //   fra le APERTE con questo importo.
     // - is_partial_distinta: true se c'è una disposizione parziale (acconto) con
     //   residuo ancora aperto. Guida la classificazione (non nasconderla) e il badge.
+    // - disposizione_amount_gross: LORDO disposto (netti in distinta + NC collegate),
+    //   null se la fattura non ha nessuna disposizione. Serve a ricalcolare i due
+    //   campi sopra dopo un aggiornamento locale di amount_paid/amount_remaining
+    //   (chiusura a mano, riapertura) senza rileggere tutta la pagina.
     disposizione_amount_pending?: number | null
+    disposizione_amount_gross?: number | null
     residuo_aperto?: number | null
     is_partial_distinta?: boolean | null
     [key: string]: unknown
@@ -288,7 +293,12 @@ const ScadenzarioSmart = () => {
       // Niente residuo da disporre (fattura interamente in sospeso/saldata): non la
       // selezioniamo e lo spieghiamo (per modificarla → "Rimuovi dalla distinta").
       if (residuo0 <= 0.005) {
-        toast({ type: 'warning', message: `Fattura ${payable.invoice_number || ''} è già interamente in distinta: non c'è residuo da disporre. Per modificarla usa "Rimuovi dalla distinta".` });
+        // Messaggio coerente con la causa reale: se non c'è nessuna disposizione,
+        // il residuo è zero perché la fattura risulta saldata (non "in distinta").
+        const inDistinta = Boolean(payable.disposizione_date) || (Number(payable.disposizione_amount_pending) || 0) > 0.005;
+        toast({ type: 'warning', message: inDistinta
+          ? `Fattura ${payable.invoice_number || ''} è già interamente in distinta: non c'è residuo da disporre. Per modificarla usa "Rimuovi dalla distinta".`
+          : `Fattura ${payable.invoice_number || ''} non ha residuo da pagare: risulta già saldata. Se è un errore usa "Riapri fattura", poi selezionala di nuovo.` });
         return;
       }
       next.add(id);
@@ -352,6 +362,26 @@ const ScadenzarioSmart = () => {
     // residuo_aperto è calcolato in fetchData per ogni payable (= residuo − quota in
     // sospeso); per stime/fiscali (che non ce l'hanno) si usa il residuo pieno.
     return (ra === null || ra === undefined) ? (Number(p.amount_remaining ?? p.gross_amount) || 0) : Number(ra);
+  };
+
+  // Ricalcola i derivati di distinta (quota in sospeso / residuo da disporre) dopo
+  // un aggiornamento LOCALE di amount_paid/amount_remaining (chiusura a mano,
+  // riapertura). Stessa formula di fetchData: senza questo passaggio la riga
+  // riaperta restava con residuo_aperto = 0 (valore della fattura chiusa) e non
+  // si poteva più selezionare per la distinta finché non si ricaricava la pagina.
+  const recomputeResiduo = (p: AnyRow): AnyRow => {
+    const gross = p.disposizione_amount_gross;
+    const remaining = Number(p.amount_remaining) || 0;
+    const paid = Number(p.amount_paid) || 0;
+    const hasDisp = gross !== null && gross !== undefined;
+    const pending = hasDisp ? Math.max(0, +((Number(gross) || 0) - paid).toFixed(2)) : 0;
+    const residuo = +(remaining - pending).toFixed(2);
+    return {
+      ...p,
+      disposizione_amount_pending: pending,
+      residuo_aperto: residuo,
+      is_partial_distinta: pending > 0.005 && residuo > 0.005,
+    };
   };
 
   // Elenco NC APERTE (disponibili da scalare), memoizzato UNA volta sui payables.
@@ -940,6 +970,7 @@ const ScadenzarioSmart = () => {
           const _dispPending = disp ? Math.max(0, +(_dispostoLordo - _paid).toFixed(2)) : 0;
           const _residuoAperto = +(_remaining - _dispPending).toFixed(2);
           baseRow.disposizione_amount_pending = _dispPending;
+          baseRow.disposizione_amount_gross = disp ? _dispostoLordo : null;
           baseRow.residuo_aperto = _residuoAperto;
           // ACCONTO in sospeso con residuo ancora aperto (guida il badge dedicato).
           baseRow.is_partial_distinta = _dispPending > 0.005 && _residuoAperto > 0.005;
@@ -1297,7 +1328,7 @@ const ScadenzarioSmart = () => {
     } | undefined;
     if (row) {
       setPayables(prev => prev.map(p => p.id === payableId
-        ? { ...p,
+        ? recomputeResiduo({ ...p,
             status: row.status ?? p.status,
             amount_paid: row.amount_paid ?? p.amount_paid,
             amount_remaining: row.amount_remaining ?? p.amount_remaining,
@@ -1310,7 +1341,7 @@ const ScadenzarioSmart = () => {
             // (operatore + data) senza attendere il refetch della vista.
             payment_source: 'manuale',
             payment_real_bank_name: null,
-            last_action_by: operatorName || p.last_action_by || null }
+            last_action_by: operatorName || p.last_action_by || null })
         : p));
     }
     return true;
@@ -1442,7 +1473,7 @@ const ScadenzarioSmart = () => {
     }
     if (row) {
       setPayables(prev => prev.map(x => x.id === p.id
-        ? { ...x,
+        ? recomputeResiduo({ ...x,
             status: row.status ?? x.status,
             amount_paid: row.amount_paid ?? 0,
             amount_remaining: row.amount_remaining ?? x.amount_remaining,
@@ -1454,7 +1485,7 @@ const ScadenzarioSmart = () => {
             payment_source: null,
             payment_real_bank_name: null,
             payment_movement_date: null,
-            last_action_by: operatorName || x.last_action_by || null }
+            last_action_by: operatorName || x.last_action_by || null })
         : x));
     }
     const freed = Number(row?.undone_reconciliations ?? 0);
