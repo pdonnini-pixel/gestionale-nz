@@ -8,7 +8,13 @@ export interface PreviewRow {
   warn?: boolean; // filiale che non quadra (somma netti ≠ totale di ripartizione)
 }
 export type ParsedImport = { rows: PreviewRow[]; fileTotal: number | null };
-export type ParserOutlet = { name: string; cost_center_key: string | null; mall_name?: string | null; city?: string | null };
+export type ParserOutlet = {
+  name: string; cost_center_key: string | null; mall_name?: string | null; city?: string | null;
+  // Nomi di filiale del software paghe non deducibili dall'anagrafica
+  // (migration 168). Es. la sede di NZ che nel file si chiama «LOC PIAN DI RONA
+  // - REGGELLO»: nessun campo anagrafico lo dice, quindi si configura a mano.
+  payroll_filiali?: string[] | null;
+};
 
 // Parsing numero italiano: "1.234,56" → 1234.56 ; gestisce anche "1234.56".
 export function parseItNum(v: unknown): number | null {
@@ -32,6 +38,11 @@ export function matchOutletName(text: string, outlets: ParserOutlet[]): string {
   const t = norm(text);
   if (!t) return '';
   const contains = (a: string, b: string) => a !== '' && b !== '' && (a === b || a.includes(b) || b.includes(a));
+  // 0) alias espliciti: vincono su tutto, perche' sono l'unica fonte quando il
+  // nome della filiale non ha niente a che vedere con l'anagrafica.
+  for (const o of outlets) {
+    if ((o.payroll_filiali || []).some((a) => contains(t, norm(a)))) return o.name;
+  }
   // 1) nome / mall_name / city (campi runtime dell'outlet — alias data-driven, no hardcoded)
   for (const o of outlets) {
     const cands = [o.name, o.mall_name, o.city].map(norm).filter(Boolean);

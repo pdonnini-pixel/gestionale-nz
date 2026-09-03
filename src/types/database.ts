@@ -4894,6 +4894,7 @@ export type Database = {
           opening_confirmed: boolean | null
           opening_date: string | null
           outlet_type: string | null
+          payroll_filiali: string[] | null
           photo_url: string | null
           province: string | null
           region: string | null
@@ -4950,6 +4951,7 @@ export type Database = {
           opening_confirmed?: boolean | null
           opening_date?: string | null
           outlet_type?: string | null
+          payroll_filiali?: string[] | null
           photo_url?: string | null
           province?: string | null
           region?: string | null
@@ -5006,6 +5008,7 @@ export type Database = {
           opening_confirmed?: boolean | null
           opening_date?: string | null
           outlet_type?: string | null
+          payroll_filiali?: string[] | null
           photo_url?: string | null
           province?: string | null
           region?: string | null
