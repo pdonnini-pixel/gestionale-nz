@@ -498,6 +498,10 @@ export const PAGE_GUIDES: PageGuide[] = [
     ],
     "faq": [
       {
+        "q": "La fattura di un professionista (commercialista, avvocato, geometra, consulente) in scadenzario ha un importo più basso del totale della fattura: è un errore?",
+        "a": "No, è la ritenuta d'acconto. Sulle fatture dei professionisti l'azienda trattiene una quota (di solito il 20% del compenso) e la versa allo Stato con l'F24 entro il 16 del mese successivo al pagamento: al fornitore va solo il resto. Lo scadenzario mostra quindi il DOVUTO AL FORNITORE, cioè l'importo del bonifico che esce davvero dalla banca, e sotto l'importo compare l'etichetta viola \"rit. −X € · doc. Y €\" con la ritenuta trattenuta e il totale documento (passaci sopra il mouse per il dettaglio). Esempio: parcella da 8.098,75 € con ritenuta 1.276,60 € → in scadenzario 6.822,15 €, che è anche l'importo che il motore di riconciliazione cerca in banca e quello proposto nella distinta. La ritenuta viene letta in automatico dalla fattura elettronica (dati ritenuta dell'XML) per tutte le fatture nuove, sia da A-Cube sia da import XML; con più rate viene ripartita in proporzione."
+      },
+      {
         "q": "Quando aggiungo una scadenza a mano, perché non posso scrivere io la data di scadenza?",
         "a": "Perché la scadenza segue le regole interne, non una data personalizzata: il gestionale la calcola dal piano del fornitore (base data fattura o fine mese, giorni, numero rate) o, se il fornitore non ha un piano, dalla regola predefinita \"a vista\" = 30 giorni data fattura a fine mese. Esempio: un documento del 30/06 a vista scade il 31/07. Se un caso particolare lo richiede puoi comunque correggere date e importi a mano dopo il calcolo; \"Ricalcola dalle regole\" ripristina i valori automatici."
       },
@@ -737,6 +741,10 @@ export const PAGE_GUIDES: PageGuide[] = [
       }
     ],
     "faq": [
+      {
+        "q": "Un bonifico a un professionista resta \"da riconciliare\" perché l'importo non coincide con la fattura: cosa faccio?",
+        "a": "Controlla prima se è una fattura con ritenuta d'acconto: il bonifico è il totale fattura meno la ritenuta (che si versa con l'F24), per esempio 6.822,15 € pagati contro una parcella da 8.098,75 €. Dal 03/09/2026 lo scadenzario registra queste fatture già al netto (dovuto al fornitore), quindi il motore di riconciliazione trova da solo il movimento con l'importo del bonifico. Se il movimento riguarda una fattura registrata prima di quella data e chiusa a mano al lordo, abbinalo dalla scheda Riconciliazione scegliendo la fattura a mano: la fattura resta pagata e il movimento viene agganciato."
+      },
       {
         "q": "Nella scheda Movimenti mancano dei movimenti in entrata: perché io ne vedo meno di un collega?",
         "a": "Quasi sempre è il filtro Anno. La scheda Movimenti mostra solo i movimenti dell'anno selezionato nel selettore Anno in alto, che è memorizzato nel tuo browser: se sul tuo computer è rimasto impostato su un anno passato, vedi solo quell'anno e le entrate dell'anno in corso spariscono dall'elenco (mentre un collega con l'anno corretto le vede). I dati non sono persi e le banche continuano a sincronizzarsi normalmente. Soluzione: porta il selettore Anno in alto sull'anno corrente, oppure clicca \"Mostra tutti gli anni\" nel banner azzurro sopra l'elenco (o \"Pulisci filtri\")."
@@ -1791,6 +1799,10 @@ export const PAGE_GUIDES: PageGuide[] = [
       }
     ],
     "faq": [
+      {
+        "q": "Nel partitario la riga di una fattura riporta un importo più basso del totale del documento e la dicitura \"al netto di ritenuta d'acconto\": perché?",
+        "a": "Perché per i professionisti il debito verso il fornitore è il totale documento meno la ritenuta d'acconto, che l'azienda versa allo Stato con l'F24 e non al fornitore. In AVERE trovi quindi il dovuto al fornitore, e nella descrizione il totale documento e la ritenuta trattenuta, così i numeri tornano con l'estratto conto del fornitore e con il bonifico in banca."
+      },
       {
         "q": "Ho versato un acconto su una fattura: lo vedo nel partitario?",
         "a": "Sì. Un acconto pagato compare in DARE con la dicitura \"Acconto\" e la data del pagamento, e abbassa subito il saldo del fornitore. Non serve aspettare il saldo finale della fattura: quei soldi sono già usciti dal conto, e il debito verso il fornitore è quello che resta da pagare."

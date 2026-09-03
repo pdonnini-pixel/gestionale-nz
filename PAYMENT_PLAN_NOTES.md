@@ -741,3 +741,31 @@ rata sopra la successiva. Quando si vede quel pattern, prima di toccare le date
 conviene chiedere se una presentazione è saltata.
 
 Dettagli in `supabase/migrations/NZ_ONLY_20260903_169_shine_giugno_slitta_settembre.sql`.
+
+## Ritenuta d'acconto (03/09/2026, migration 170)
+
+Le fatture dei professionisti (studi associati, geometri, consulenti) portano
+`DatiRitenuta` nell'XML: al fornitore va il totale documento meno la ritenuta,
+la ritenuta la versa l'azienda con l'F24. Prima la scadenza nasceva al lordo e
+il motore di riconciliazione non trovava mai il bonifico (Signorini 191:
+scadenza 8.098,75, bonifico 6.822,15, differenza 1.276,60 = ritenuta 20%).
+
+**Convenzione unica, valida ovunque:**
+- `payables.gross_amount` = DOVUTO AL FORNITORE, già al netto della ritenuta
+  (è l'importo che esce dalla banca).
+- `payables.withholding_amount` = quota di ritenuta della rata.
+- totale documento della rata = `gross_amount + withholding_amount`.
+- `electronic_invoices.gross_amount` resta il totale documento;
+  `electronic_invoices.withholding_amount` = ritenuta letta dall'XML.
+
+Così motore di riconciliazione, distinte, chiusure, residui e cashflow, che
+ragionano su `gross_amount` / `amount_remaining`, restano invariati. Cambia
+solo la creazione delle scadenze: `fn_invoice_to_payable`,
+`sync_acube_sdi_passive_to_payable` (con `fn_invoice_withholding` XML +
+fallback payload JSON) e l'import XML frontend (`transformInvoiceToRecords`).
+Le rate dell'XML sono accettate se la loro somma è il netto (standard SDI) o
+il lordo (riproporzionate); la ritenuta si ripartisce pro-quota.
+
+Backfill NZ: 8 fatture (Rubini, Impresa Valdarno, Marchetti, Signorini,
+Boschetti, Valia, Rocciola, Scandella), backup in
+`payables_bak_ritenuta_20260903`. Made e Zago: nessuna fattura con ritenuta.
