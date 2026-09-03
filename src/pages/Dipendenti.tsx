@@ -2214,6 +2214,10 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
   const scostamento = fileTotal != null ? total - fileTotal : null;
   const quadra = scostamento == null || Math.abs(scostamento) < 0.01;
   const warnOutlets = rows ? Array.from(new Set(rows.filter((r) => r.warn).map((r) => r.outlet || '—'))) : [];
+  // Righe di cui il file non dice (o non fa riconoscere) la filiale: senza
+  // punto vendita la persona finisce «da definire» nelle schede. Meglio saperlo
+  // PRIMA di confermare che scoprirlo un mese dopo.
+  const senzaFiliale = rows ? rows.filter((r) => !r.outlet) : [];
   // Persone presenti in piu' righe dello stesso file (tipicamente su due filiali):
   // il salvataggio le somma, e l'anteprima lo dice prima di confermare.
   const dupPeople = useMemo(() => {
@@ -2275,6 +2279,13 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
     try {
       const outletByNorm: Record<string, string> = {};
       outlets.forEach((o) => { outletByNorm[norm(o.name)] = o.name; });
+
+      // Chi ha gia' un punto vendita in anagrafica. Serve per non sovrascrivere
+      // nessuno e, insieme, per non lasciare senza sede chi il file ha appena
+      // collocato in una filiale.
+      const { data: allocNow } = await supabase.from('employee_outlet_allocations')
+        .select('employee_id').eq('company_id', companyId);
+      const conAlloc = new Set(((allocNow as { employee_id: string }[]) || []).map((a) => a.employee_id));
 
       // Anagrafica FRESCA dal database. Se un tentativo precedente e' fallito DOPO
       // aver creato le persone nuove, qui le ritroviamo per matricola e non le
@@ -2347,12 +2358,20 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
               company_id: companyId, employee_id: empId, matricola: String(row.matricola).trim(), is_current: true,
             }]);
           }
-          if (empId && row.outlet) {
-            const exact = outletByNorm[norm(row.outlet)];
-            if (exact) await supabase.from('employee_outlet_allocations').insert([{ employee_id: empId, company_id: companyId, outlet_code: exact, allocation_pct: 100, is_primary: true }]);
-          }
         }
         if (!empId) continue;
+        // Il punto vendita dell'anagrafica si crea SOLO se manca del tutto: chi
+        // ce l'ha gia' non viene mai riscritto dall'import. Vale anche per le
+        // persone gia' presenti, non solo per quelle appena create: altrimenti
+        // chi era entrato senza filiale restava «da definire» per sempre.
+        if (!conAlloc.has(empId) && row.outlet) {
+          const exact = outletByNorm[norm(row.outlet)];
+          if (exact) {
+            const { error: allErr } = await supabase.from('employee_outlet_allocations')
+              .insert([{ employee_id: empId, company_id: companyId, outlet_code: exact, allocation_pct: 100, is_primary: true }]);
+            if (!allErr) conAlloc.add(empId);
+          }
+        }
         // Payload con SOLO i campi della corsia (l'altra corsia non viene toccata).
         const payload: any = {
           employee_id: empId, company_id: companyId, year: impYear, month: impMonth,
@@ -2519,6 +2538,19 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
             </div>
           )}
 
+          {senzaFiliale.length > 0 && (
+            <div className="px-4 py-2 text-sm flex items-start gap-2 bg-amber-50 text-amber-800">
+              <AlertCircle size={15} className="mt-0.5 shrink-0" />
+              <span>
+                {senzaFiliale.length === 1 ? 'Una riga non ha' : `${senzaFiliale.length} righe non hanno`} una filiale
+                riconosciuta: <strong>{senzaFiliale.slice(0, 8).map((r) => `${r.cognome} ${r.nome}`.trim() || r.matricola || '—').join(', ')}</strong>
+                {senzaFiliale.length > 8 ? ', …' : ''}. {senzaFiliale.length === 1 ? 'Questa persona resta' : 'Queste persone restano'} col
+                punto vendita che {senzaFiliale.length === 1 ? 'ha' : 'hanno'} già in anagrafica; chi non ne ha risulta «da assegnare»
+                finché non glielo dai in Organico.
+              </span>
+            </div>
+          )}
+
           {dupPeople.length > 0 && (
             <div className="px-4 py-2 text-sm flex items-start gap-2 bg-blue-50 text-blue-800">
               <AlertCircle size={15} className="mt-0.5 shrink-0" />
@@ -2653,6 +2685,21 @@ type PgceRow = {
 const DA_ASSEGNARE = 'Da assegnare';
 const AMMINISTRATORI = 'Amministratori';
 
+// Indice cognome+nome → dipendente, usato solo quando la matricola non basta.
+// I nomi ripetuti vengono ESCLUSI: meglio una riga da assegnare che una riga
+// attribuita alla persona sbagliata.
+function nameIndex(emps: { id: string; nome: string | null; cognome: string | null }[]): Map<string, string> {
+  const seen = new Map<string, string | null>();
+  for (const e of emps) {
+    const k = norm(`${e.cognome || ''} ${e.nome || ''}`);
+    if (!k) continue;
+    seen.set(k, seen.has(k) ? null : e.id); // seconda occorrenza → nome ambiguo
+  }
+  const out = new Map<string, string>();
+  seen.forEach((id, k) => { if (id) out.set(k, id); });
+  return out;
+}
+
 function CostiLordoDipendentiBlock({ companyId, userId, outlets, year, month, monthLabel, prospettoByOutlet }: {
   companyId: string; userId: string | null; outlets: OutletRow[]; year: number; month: number; monthLabel: string;
   prospettoByOutlet: Map<string, number>;
@@ -2660,6 +2707,17 @@ function CostiLordoDipendentiBlock({ companyId, userId, outlets, year, month, mo
   const { toast } = useToast();
   const sb: any = supabase; // tabelle nuove (082) non ancora nei tipi generati
   const [rows, setRows] = useState<PgceRow[]>([]);
+  // Il punto vendita salvato sulla riga e' una FOTOGRAFIA del momento dell'import.
+  // Chi arriva nuovo col file dei costi lordi non ha ancora una sede: la riga
+  // nasce «da assegnare» e ci restava anche dopo che la sede veniva data in
+  // Organico. Qui si tiene l'anagrafica di oggi per ripiegarci sopra a lettura.
+  const [outletByEmp, setOutletByEmp] = useState<Map<string, string>>(new Map());
+  // Registro matricole: il software paghe puo' cambiare la matricola di una
+  // persona. Senza il registro la riga resta orfana (nessun dipendente, nessuna sede).
+  const [empIdByMat, setEmpIdByMat] = useState<Map<string, string>>(new Map());
+  // Ultima spiaggia: cognome+nome, ma SOLO se in anagrafica c'e' una persona
+  // sola con quel nome. Stesso criterio dell'import dei netti.
+  const [empIdByName, setEmpIdByName] = useState<Map<string, string>>(new Map());
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [dragOver, setDragOver] = useState(false);
@@ -2672,14 +2730,34 @@ function CostiLordoDipendentiBlock({ companyId, userId, outlets, year, month, mo
 
   const load = async () => {
     setLoading(true);
-    const { data } = await sb.from('personnel_gross_cost_employee').select('*').eq('company_id', companyId).eq('year', year);
+    const [{ data }, { data: allocs }, { data: mats }, { data: emps }] = await Promise.all([
+      sb.from('personnel_gross_cost_employee').select('*').eq('company_id', companyId).eq('year', year),
+      sb.from('employee_outlet_allocations').select('employee_id, outlet_code, is_primary').eq('company_id', companyId),
+      sb.from('employee_matricole').select('matricola, employee_id').eq('company_id', companyId),
+      sb.from('employees').select('id, nome, cognome').eq('company_id', companyId),
+    ]);
+    const byEmp = new Map<string, string>();
+    for (const a of ((allocs as { employee_id: string; outlet_code: string; is_primary: boolean }[]) || [])) {
+      if (!byEmp.has(a.employee_id) || a.is_primary) byEmp.set(a.employee_id, a.outlet_code);
+    }
+    setOutletByEmp(byEmp);
+    setEmpIdByMat(new Map(((mats as { matricola: string; employee_id: string }[]) || []).map((m) => [norm(m.matricola), m.employee_id])));
+    setEmpIdByName(nameIndex(((emps as { id: string; nome: string | null; cognome: string | null }[]) || [])));
     setRows(((data as PgceRow[]) || []).map((r) => ({ ...r, lordo: Number(r.lordo), retribuzione: Number(r.retribuzione), contribuzione: Number(r.contribuzione), inail: Number(r.inail), tfr: Number(r.tfr) })));
     setLoading(false);
   };
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [companyId, year]);
 
   const monthRows = useMemo(() => rows.filter((r) => r.month === month), [rows, month]);
-  const bucketOf = (r: PgceRow) => (r.is_admin ? AMMINISTRATORI : (r.outlet_code || DA_ASSEGNARE));
+  // Punto vendita della riga, a cascata: prima quello letto al momento dell'import
+  // (fatto del mese), poi l'anagrafica di oggi — trovata anche per matricola
+  // precedente. Solo se non c'e' nulla la riga e' davvero «da assegnare».
+  const outletOf = (r: PgceRow): string | null => {
+    if (r.outlet_code) return r.outlet_code;
+    const empId = r.employee_id || empIdByMat.get(norm(r.matricola)) || empIdByName.get(norm(r.employee_name)) || null;
+    return (empId && outletByEmp.get(empId)) || null;
+  };
+  const bucketOf = (r: PgceRow) => (r.is_admin ? AMMINISTRATORI : (outletOf(r) || DA_ASSEGNARE));
 
   // Ordine bucket: outlet (alfabetici, SEDE in coda) → Da assegnare → Amministratori.
   const outletRank = useMemo(() => {
@@ -2703,7 +2781,8 @@ function CostiLordoDipendentiBlock({ companyId, userId, outlets, year, month, mo
     return [...byBucket.entries()]
       .map(([name, emps]) => ({ name, emps: emps.sort((a, b) => b.lordo - a.lordo), tot: Math.round(emps.reduce((s, e) => s + e.lordo, 0) * 100) / 100 }))
       .sort((a, b) => outletRank(a.name) - outletRank(b.name) || a.name.localeCompare(b.name, 'it'));
-  }, [monthRows, outletRank]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [monthRows, outletRank, outletByEmp, empIdByMat, empIdByName]);
 
   const monthTotal = useMemo(() => monthRows.reduce((s, r) => s + r.lordo, 0), [monthRows]);
   const periodTotal = useMemo(() => rows.reduce((s, r) => s + r.lordo, 0), [rows]);
@@ -2761,11 +2840,25 @@ function CostiLordoDipendentiBlock({ companyId, userId, outlets, year, month, mo
         if (archiviato.errore) toast({ type: 'error', message: avvisoArchiviazioneFallita(fileName, archiviato.errore) });
       }
 
-      const [{ data: emps }, { data: allocs }] = await Promise.all([
+      const [{ data: emps }, { data: allocs }, { data: mats }] = await Promise.all([
         sb.from('employees').select('id, matricola, role_description, qualifica, notes, note').eq('company_id', companyId),
         sb.from('employee_outlet_allocations').select('employee_id, outlet_code, is_primary').eq('company_id', companyId),
+        sb.from('employee_matricole').select('matricola, employee_id').eq('company_id', companyId),
       ]);
-      const empByMat = new Map<string, any>((emps || []).map((e: any) => [String(e.matricola), e]));
+      const empById = new Map<string, any>((emps || []).map((e: any) => [String(e.id), e]));
+      const empByMat = new Map<string, any>((emps || []).map((e: any) => [norm(e.matricola), e]));
+      // Il registro copre le matricole precedenti: senza, chi cambia matricola
+      // diventa una riga orfana, senza dipendente e senza punto vendita.
+      for (const m of ((mats as { matricola: string; employee_id: string }[]) || [])) {
+        const e = empById.get(String(m.employee_id));
+        if (e && !empByMat.has(norm(m.matricola))) empByMat.set(norm(m.matricola), e);
+      }
+      const byName = nameIndex((emps as { id: string; nome: string | null; cognome: string | null }[]) || []);
+      // Persona trovata: matricola corrente, matricola precedente, e in ultimo il
+      // nome (solo se unico). Senza questa cascata la riga resta senza dipendente
+      // e senza punto vendita ogni volta che il software paghe cambia matricola.
+      const findEmp = (matricola: string, nomeCompleto: string | null) =>
+        empByMat.get(norm(matricola)) || empById.get(String(byName.get(norm(nomeCompleto)) || '')) || undefined;
       const outletByEmp = new Map<string, string>();
       for (const a of (allocs || []) as any[]) {
         if (!outletByEmp.has(a.employee_id) || a.is_primary) outletByEmp.set(a.employee_id, a.outlet_code);
@@ -2784,7 +2877,7 @@ function CostiLordoDipendentiBlock({ companyId, userId, outlets, year, month, mo
       if (documentId && importId) await supabase.from('import_documents').update({ reference_id: importId }).eq('id', documentId);
 
       const payload = res.rows.map((r) => {
-        const e = empByMat.get(r.matricola);
+        const e = findEmp(r.matricola, r.name);
         const admin = isAdminMat(e);
         return {
           company_id: companyId, employee_id: e?.id ?? null, matricola: r.matricola, employee_name: r.name,

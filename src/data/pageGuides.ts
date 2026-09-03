@@ -907,6 +907,7 @@ export const PAGE_GUIDES: PageGuide[] = [
           "Tocca l'area per selezionare il file dal tuo dispositivo, oppure (da computer) trascinalo dentro.",
           "Il sistema prova a riconoscere automaticamente ogni dipendente (per matricola o per nome e cognome); se non lo trova, propone di crearne uno nuovo.",
           "Controlla l'anteprima: viene mostrato anche lo scostamento tra il totale calcolato e il totale dichiarato nel file, così puoi accorgerti subito di eventuali errori. Se una persona compare su più righe (conguagli o cedolini separati), l'anteprima lo segnala e gli importi vengono sommati in un'unica riga del mese.",
+          "Se il file non fa capire la filiale di qualche riga, l'anteprima lo dice con un avviso giallo e i nomi delle persone coinvolte. Quelle persone tengono il punto vendita che hanno già in anagrafica; chi non ne ha resta \"da assegnare\" finché non glielo dai in Organico. Quando invece la filiale c'è, e la persona non ha ancora una sede, il carico gliela assegna da solo: chi ce l'ha già non viene mai riscritto dall'import.",
           "Prima di confermare leggi il riquadro \"Cosa cambia\": ti dice quante persone entrano nel mese, quante escono (cioè erano a sistema ma non sono in questo file) e chi cambia punto vendita rispetto a quanto risultava.",
           "Se qualcuno è uscito, puoi spuntare \"Togli dal mese chi non è nel file\": serve quando ricarichi un mese corretto dopo uno sbagliato, altrimenti le persone di troppo continuerebbero a essere contate. La spunta è spenta di default e non cancella niente: il netto viene azzerato e i valori restano recuperabili nello storico degli import.",
           "Conferma l'importazione: i dati salvati per il mese vengono aggiornati (se esistevano già dei netti per quel mese, vengono sovrascritti)."
@@ -914,7 +915,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "Costo lordo",
-        "body": "Questa scheda mostra il costo aziendale completo (retribuzioni, contributi, INAIL, TFR) per outlet e, quando disponibile, per singolo dipendente. Si alimenta caricando il PDF \"Prospetto riepilogativo elaborazione paghe\" del consulente del lavoro: basta trascinarlo nell'area dedicata. Qui puoi anche controllare e aggiornare i tassi INAIL per ciascuna voce (PAT) usata nel calcolo. In fondo trovi i totali per outlet e, separati, i compensi degli amministratori."
+        "body": "Questa scheda mostra il costo aziendale completo (retribuzioni, contributi, INAIL, TFR) per outlet e, quando disponibile, per singolo dipendente. Si alimenta caricando il PDF \"Prospetto riepilogativo elaborazione paghe\" del consulente del lavoro: basta trascinarlo nell'area dedicata. Qui puoi anche controllare e aggiornare i tassi INAIL per ciascuna voce (PAT) usata nel calcolo. In fondo trovi i totali per outlet e, separati, i compensi degli amministratori. Il dettaglio per dipendente è raggruppato per punto vendita: viene usato quello letto al momento del carico e, se il file non lo diceva, quello dell'anagrafica di oggi. Così basta assegnare la sede in Organico perché la persona esca subito dal gruppo \"Da assegnare\", senza ricaricare il PDF. Le righe si agganciano alla persona anche quando il software paghe le cambia la matricola, perché il gestionale tiene il registro di tutte le matricole avute."
       }
     ],
     "faq": [
@@ -937,6 +938,10 @@ export const PAGE_GUIDES: PageGuide[] = [
       {
         "q": "Chi sono gli \"Amministratori\" e perché sono separati?",
         "a": "Sono le persone con qualifica \"Amministratore\". Non vengono conteggiate nell'organico dipendenti né nel costo medio per addetto, ma hanno una loro sezione dedicata (visibile in Per outlet e in Organico) con netto e costo lordo annuo."
+      },
+      {
+        "q": "Perché una persona finisce in \"Da assegnare\" nel costo lordo?",
+        "a": "Perché non ha un punto vendita: né sul dato caricato, né in anagrafica. Succede tipicamente a chi entra in azienda da poco, quando il file paghe non ne dice la filiale. Basta aprire Organico, cliccare l'icona Allocazione sulla sua riga e indicare la sede: il costo lordo si riallinea subito, senza ricaricare niente. Se invece la riga non si aggancia proprio a nessuna persona, vuol dire che la matricola del file non corrisponde a nessuna di quelle in anagrafica: correggi la matricola sulla scheda della persona e ricarica il file."
       },
       {
         "q": "Posso assegnare una persona a più punti vendita contemporaneamente?",
