@@ -1,5 +1,61 @@
 # Piano di pagamento fornitore + segnalazioni anomalie — Note di implementazione
 
+> ## 🧩 RATE ACCAVALLATE, NON DOPPIONI (2026-09-03) — diagnosi corretta
+>
+> Avevo scritto che c'erano «31 gruppi di doppioni per ~43.822 € di eccesso». **Era
+> sbagliato.** La domanda di Patrizio («ma sono doppioni o sono rate? se le fatture le
+> carica A-Cube com'è possibile?») ha rimesso a fuoco la cosa.
+>
+> **Non sono doppioni.** Per ogni fattura la somma delle rate coincide **al centesimo**
+> con la fattura reale in `electronic_invoices`: GRUPPO FB 2704 → 3 rate = 32.929,02 =
+> fattura; MIAN 424 → 3 rate = 10.609,12 = fattura. Nessun debito gonfiato, nessun
+> importo in eccesso, niente da cancellare. Il mio conteggio moltiplicava l'importo per
+> le righe «in più», ma quelle righe sono rate legittime.
+>
+> **Il difetto vero sta nelle DATE**: 39 piani su 105 hanno rate che si accavallano sulla
+> stessa scadenza invece di distribuirsi. MIAN 424 ha tutte e tre le rate al 31/07 invece
+> di 31/07, 31/08, 30/09. GRUPPO FB 2704 ha rata 1 e rata 3 entrambe al 31/08.
+>
+> **Non è colpa di A-Cube**: A-Cube porta le fatture, le rate le genera il gestionale.
+> La funzione attuale `fn_supplier_installment_schedule` è **corretta** (per `fine_mese`
+> calcola `months = prima_gg/30 + (i-1)`, quindi date sempre distinte). I piani sballati
+> sono retaggio di generazioni precedenti: 34 piani su 105 hanno righe create in giorni
+> diversi, segno che il piano è stato rigenerato o completato più volte con logiche
+> differenti.
+>
+> **Da fare** (non ancora fatto): ricalcolare le sole DATE delle rate ancora aperte con
+> `fn_supplier_installment_schedule`, senza toccare importi né rate già pagate o
+> riconciliate. Prima serve la conferma di Patrizio, perché spostare una scadenza sposta
+> il cashflow previsionale. Anomalia isolata da guardare a parte: MIAN 394 ha 2 righe per
+> 4.506,68 su una fattura da 6.760,02, quindi lì manca davvero una rata.
+>
+> ## 🏷️ ANAGRAFICHE DOPPIE E METODI RI.BA (2026-09-03) — FATTO
+>
+> Migration `NZ_ONLY_20260903_166`, applicata su NZ (dati NZ-specifici).
+>
+> **Anagrafiche doppie.** HUMATICS e PROFASHION erano presenti due volte, una scheda con
+> P.IVA e una senza. Quella di PROFASHION senza P.IVA non aveva fatture ma teneva il
+> **saldo di apertura 2026 da -20.132,44 €**: la scheda vera partiva da zero e il debito
+> risultava sottostimato di quella cifra. Il saldo è passato alla scheda giusta, le schede
+> doppie sono **disattivate e non cancellate** (restano consultabili). Backup in
+> `_bkp_merge_anagrafiche_20260903`.
+>
+> **Metodi di pagamento.** REALCART 555/556/557 → `riba_90`, TOP CASH 3619/A → `riba_30`,
+> come indica la lista di Sabrina. Finché restavano a bonifico ordinario quelle scadenze
+> stavano fuori da tutta la logica RI.BA (chiusura provvisoria, distinta, compensazione
+> NC). Backup in `_bkp_riba_method_20260903`.
+>
+> **SHINE: tre rate, confermato da Patrizio.** L'accordo con SHINE è a tre rate, quindi il
+> gestionale è nel giusto e la lista di Sabrina va letta come **importo intero della
+> fattura**, non come rata. Vale per 882/26, 972/26, 1066/26, 1085/26 e 916/26.
+>
+> ## 📊 ENTRATE MAI RICONCILIATE (2026-09-03) — da affrontare
+>
+> Il motore lavora **solo sulle uscite**: ogni `try_match_*` filtra `amount < 0`. Sul 2026:
+> uscite riconciliate al 56,7% (706 su 1.246), **entrate allo 0,0% (0 su 4.261)**. Gli
+> incassi POS, i versamenti e gli accrediti non vengono agganciati a niente. È un capitolo
+> intero mai aperto, non un bug del v3.
+
 > ## 💰 ACCONTI — la disposizione si chiude, il partitario li registra (2026-09-03)
 >
 > **Segnalazione di Patrizio**: «non è corretto tenere aperta la distinta di WOLF GROUP,
