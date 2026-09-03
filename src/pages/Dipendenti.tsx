@@ -2267,15 +2267,23 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
   // punto vendita la persona finisce «da definire» nelle schede. Meglio saperlo
   // PRIMA di confermare che scoprirlo un mese dopo.
   const senzaFiliale = rows ? rows.filter((r) => !r.outlet) : [];
+  // Chiave PERSONA di una riga: la stessa che usa il salvataggio per sommare le
+  // righe doppie. Serve anche all'anteprima, altrimenti conta righe dove il mese
+  // conta persone e sembra che il carico faccia crescere l'organico.
+  const chiavePersona = (r: PreviewRow) =>
+    r.matchedId || (r.matricola ? `mat:${norm(r.matricola)}` : `nome:${norm(r.cognome)}|${norm(r.nome)}`);
   // Persone presenti in piu' righe dello stesso file (tipicamente su due filiali):
   // il salvataggio le somma, e l'anteprima lo dice prima di confermare.
   const dupPeople = useMemo(() => {
     if (!rows) return [] as string[];
     const keyed = rows.filter((r) => r.matchedId || r.matricola)
-      .map((r) => ({ k: r.matchedId || `mat:${norm(r.matricola)}`, label: `${r.cognome || ''} ${r.nome || ''}`.trim() || r.matricola || '—' }));
+      .map((r) => ({ k: chiavePersona(r), label: `${r.cognome || ''} ${r.nome || ''}`.trim() || r.matricola || '—' }));
     const dupKeys = duplicateKeys(keyed, (r) => r.k);
     return Array.from(new Set(keyed.filter((r) => dupKeys.includes(r.k)).map((r) => r.label)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rows]);
+  // Quante PERSONE porta il file: le righe doppie valgono una sola persona.
+  const personeNelFile = useMemo(() => (rows ? new Set(rows.map(chiavePersona)).size : 0), [rows]);
   const reset = () => { setRows(null); setFileName(''); setFileObj(null); setFileTotal(null); setOverwriteAck(false); setRawPreview(null); setRemoveMissing(false); };
 
   // ── FASE 3 — il carico è una SOSTITUZIONE del mese, non un'aggiunta ─────────
@@ -2306,9 +2314,12 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
       .filter((c) => !nelFile.has(c.employee_id as string))
       .map((c) => ({ id: c.employee_id as string, nome: nomeDi(c.employee_id as string), netto: Number(c.netto || 0) }));
     const idsADb = new Set(aDb.map((c) => c.employee_id as string));
-    const entrati = rows
-      .filter((r) => !r.matchedId || !idsADb.has(r.matchedId))
-      .map((r) => ({ nome: `${r.cognome} ${r.nome}`.trim() || r.matricola || '—' }));
+    // Chi ENTRA e' una persona, non una riga: chi lavora su due filiali compare
+    // due volte nel file ma entra una volta sola.
+    const entratiMap = new Map<string, { nome: string }>();
+    rows.filter((r) => !r.matchedId || !idsADb.has(r.matchedId))
+      .forEach((r) => { entratiMap.set(chiavePersona(r), { nome: `${r.cognome} ${r.nome}`.trim() || r.matricola || '—' }); });
+    const entrati = [...entratiMap.values()];
     const cambioOutlet = aDb
       .map((c) => {
         const id = c.employee_id as string;
@@ -2619,7 +2630,8 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
                 Cosa cambia in {MONTHS.find((m) => m.num === impMonth)?.label} {impYear}
               </div>
               <div className="text-slate-600">
-                Nel mese ci sono già <strong>{diff.presenti}</strong> cedolini. Questo file ne porta <strong>{rows.length}</strong>.
+                Nel mese ci sono già <strong>{diff.presenti}</strong> cedolini. Questo file ne porta <strong>{personeNelFile}</strong>
+                {personeNelFile !== rows.length && <> ({rows.length} righe nel file, {rows.length - personeNelFile} sommate perché la stessa persona compare su più filiali)</>}.
               </div>
               <ul className="space-y-1 text-slate-600">
                 <li>
