@@ -369,6 +369,22 @@ export const MODALITA_TO_DB_ENUM: Record<string, string> = {
  * @param {Object} context - { company_id, import_batch_id }
  * @returns {{ invoiceRecords: Object[], supplierRecord: Object|null, payableRecords: Object[] }}
  */
+const round2 = (n: number): number => Math.round(n * 100) / 100;
+
+/**
+ * Scompone il totale documento di una fattura in DOVUTO AL FORNITORE e RITENUTA
+ * D'ACCONTO. Con ritenuta (RT01/RT02...) il fornitore incassa il totale meno la
+ * ritenuta; la ritenuta la versa l'azienda all'Erario (F24). Senza ritenuta il
+ * dovuto coincide con il totale documento. Valori sempre positivi (il segno NC
+ * lo mette il chiamante).
+ */
+export function splitWithholding(inv: Pick<FatturaInvoice, 'gross_amount' | 'ritenuta_acconto'>): { docTotal: number; dueTotal: number; ritenuta: number } {
+  const docTotal = Math.abs(inv.gross_amount || 0);
+  const raw = Math.max(0, inv.ritenuta_acconto?.importo || 0);
+  const ritenuta = raw > docTotal ? 0 : round2(raw);
+  return { docTotal, dueTotal: round2(docTotal - ritenuta), ritenuta };
+}
+
 export function transformInvoiceToRecords(
   invoices: FatturaInvoice[],
   supplier: FatturaSupplier | null,
@@ -412,6 +428,9 @@ export function transformInvoiceToRecords(
     net_amount: inv.net_amount,
     vat_amount: inv.vat_amount,
     gross_amount: inv.gross_amount,
+    // Ritenuta d'acconto dichiarata nel documento (professionisti): resta a
+    // parte, il totale documento (gross_amount) non cambia.
+    withholding_amount: Math.max(0, inv.ritenuta_acconto?.importo || 0),
     description: inv.causale || inv.line_items.map(l => l.descrizione).filter(Boolean).join('; '),
     source: 'xml_sdi',
     is_reconciled: false,
@@ -434,14 +453,30 @@ export function transformInvoiceToRecords(
     // veniva importata come una normale fattura 'da_pagare' positiva.
     const isNotaCredito = inv.tipo_documento === 'TD04';
     const ncSign = isNotaCredito ? -1 : 1;
+    // RITENUTA D'ACCONTO (professionisti): la scadenza nasce al NETTO, cioe'
+    // per il DOVUTO AL FORNITORE (= cio' che esce dalla banca). La ritenuta va
+    // in withholding_amount e si versa all'Erario con F24. Totale documento
+    // della rata = gross_amount + withholding_amount. Stessa regola dei trigger
+    // DB (migration 170).
+    const { docTotal, dueTotal, ritenuta } = splitWithholding(inv);
     if (inv.payment_details.length > 0) {
+      const sumPd = inv.payment_details.reduce((s, pd) => s + Math.abs(pd.importo || 0), 0);
+      const tol = Math.max(0.05, docTotal * 0.001);
+      // Rate espresse al LORDO (somma = totale documento) con ritenuta: vanno
+      // riproporzionate sul netto dovuto. Se la somma e' gia' il netto (standard
+      // SDI, es. <ImportoPagamento>) si usano cosi' come sono.
+      const scaleToNet = ritenuta > 0 && sumPd > 0 && Math.abs(sumPd - docTotal) <= tol && Math.abs(sumPd - dueTotal) > tol;
       inv.payment_details.forEach((pd, idx) => {
         const modKey = pd.modalita ?? '';
         const dbEnum = MODALITA_TO_DB_ENUM[modKey] || 'altro';
         const label = MODALITA_PAGAMENTO_MAP[modKey] || modKey;
-        const grossAmt = ncSign * Math.abs(pd.importo || inv.gross_amount);
-        // Quota imponibile/IVA proporzionale all'importo della riga (gestisce rate e segno NC)
-        const ratio = inv.gross_amount ? (grossAmt / inv.gross_amount) : ncSign;
+        const rawAmt = Math.abs(pd.importo || dueTotal);
+        const dueAmt = scaleToNet && docTotal ? round2(rawAmt * dueTotal / docTotal) : rawAmt;
+        const whShare = ritenuta > 0 && dueTotal > 0 ? round2(ritenuta * dueAmt / dueTotal) : 0;
+        const grossAmt = ncSign * dueAmt;
+        // Quota imponibile/IVA proporzionale al TOTALE DOCUMENTO della riga
+        // (dovuto + ritenuta), cosi' le rate e le NC mantengono il segno giusto.
+        const ratio = docTotal ? (ncSign * (dueAmt + whShare) / docTotal) : ncSign;
         const isAlreadyPaid = !isNotaCredito && ALREADY_PAID_METHODS.has(dbEnum);
         payableRecords.push({
           company_id,
@@ -452,6 +487,7 @@ export function transformInvoiceToRecords(
           net_amount: Math.round(inv.net_amount * ratio * 100) / 100,
           vat_amount: Math.round(inv.vat_amount * ratio * 100) / 100,
           gross_amount: grossAmt,
+          withholding_amount: ncSign * whShare,
           amount_paid: isNotaCredito ? 0 : (isAlreadyPaid ? grossAmt : 0),
           amount_remaining: isNotaCredito ? grossAmt : (isAlreadyPaid ? 0 : grossAmt),
           due_date: pd.data_scadenza || inv.invoice_date,
@@ -475,8 +511,9 @@ export function transformInvoiceToRecords(
         supplier_vat: inv.supplier_vat,
         net_amount: ncSign * inv.net_amount,
         vat_amount: ncSign * inv.vat_amount,
-        gross_amount: ncSign * Math.abs(inv.gross_amount),
-        amount_remaining: ncSign * Math.abs(inv.gross_amount),
+        gross_amount: ncSign * dueTotal,
+        withholding_amount: ncSign * ritenuta,
+        amount_remaining: ncSign * dueTotal,
         due_date: inv.invoice_date,
         payment_method: 'bonifico_ordinario',
         status: isNotaCredito ? 'nota_credito' : 'da_pagare',

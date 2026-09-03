@@ -132,6 +132,9 @@ const ScadenzarioSmart = () => {
     disposizione_amount_pending?: number | null
     residuo_aperto?: number | null
     is_partial_distinta?: boolean | null
+    // Ritenuta d'acconto della rata (professionisti): gross_amount e' gia' il
+    // DOVUTO al netto; totale documento = gross_amount + withholding_amount.
+    withholding_amount?: number | null
     [key: string]: unknown
   }
   // section persistita in URL come ?section=… (default 'scadenze')
@@ -674,7 +677,7 @@ const ScadenzarioSmart = () => {
       const payablesRaw = await fetchAllPaged(
         (from, to) => supabase
           .from('payables')
-          .select('id, cash_movement_id, cost_category_id, verified, payment_date, payment_bank_account_id, installment_number, installment_total, recurring_cost_id, closed_manually, manual_close_reason, is_provisional_paid, provisional_paid_at')
+          .select('id, cash_movement_id, cost_category_id, verified, payment_date, payment_bank_account_id, installment_number, installment_total, recurring_cost_id, closed_manually, manual_close_reason, is_provisional_paid, provisional_paid_at, withholding_amount')
           .eq('company_id', COMPANY_ID!)
           .order('id', { ascending: true })
           .range(from, to),
@@ -696,6 +699,7 @@ const ScadenzarioSmart = () => {
           manual_close_reason: (p as { manual_close_reason?: string | null }).manual_close_reason ?? null,
           is_provisional_paid: (p as { is_provisional_paid?: boolean | null }).is_provisional_paid ?? false,
           provisional_paid_at: (p as { provisional_paid_at?: string | null }).provisional_paid_at ?? null,
+          withholding_amount: Number((p as { withholding_amount?: number | null }).withholding_amount) || 0,
         };
       });
 
@@ -857,6 +861,7 @@ const ScadenzarioSmart = () => {
           gross_amount: row.gross_amount || 0,
           amount_paid: row.amount_paid || 0,
           amount_remaining: row.amount_remaining || 0,
+          withholding_amount: (extra.withholding_amount as number | null) ?? 0,
           status: row.status, // overridden sotto da calculatePayableStatus
           payment_method: row.payment_method,
           payment_date: (extra.payment_date as string | null) ?? null,
@@ -3965,6 +3970,17 @@ const ScadenzarioSmart = () => {
                                     : gross === 0 ? <>Importo da definire</> : <>{fmt(p.gross_amount)} €</>;
                                 })()}
                               </span>
+                            )}
+                            {/* RITENUTA D'ACCONTO (professionisti): l'importo sopra e' gia' il
+                                dovuto al fornitore, cioe' quanto esce dalla banca. Il badge
+                                ricorda che il totale documento e' piu' alto e che la ritenuta
+                                si versa all'Erario con F24, non al fornitore. */}
+                            {Math.abs(Number(p.withholding_amount) || 0) > 0.005 && (
+                              <UiTooltip content={`Fattura con ritenuta d'acconto. Totale documento ${fmt(Math.abs(Number(p.gross_amount) || 0) + Math.abs(Number(p.withholding_amount) || 0))} € = dovuto al fornitore ${fmt(Math.abs(Number(p.gross_amount) || 0))} € + ritenuta ${fmt(Math.abs(Number(p.withholding_amount) || 0))} €. La ritenuta si versa all'Erario con F24 (entro il 16 del mese successivo al pagamento), non al fornitore.`}>
+                                <span className="mt-0.5 block text-[10px] text-violet-700 font-medium whitespace-nowrap">
+                                  rit. −{fmt(Math.abs(Number(p.withholding_amount) || 0))} € · doc. {fmt(Math.abs(Number(p.gross_amount) || 0) + Math.abs(Number(p.withholding_amount) || 0))} €
+                                </span>
+                              </UiTooltip>
                             )}
                           </td>
                           {/* STATO — dropdown editabile Sibill */}

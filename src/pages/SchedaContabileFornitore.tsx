@@ -359,7 +359,8 @@ export default function SchedaContabileFornitore() {
     interface InvoiceAgg {
       invoiceNumber: string;
       invoiceDate: string | null;
-      grossTotal: number;          // somma gross_amount (negativo per NC)
+      grossTotal: number;          // somma gross_amount = DOVUTO al fornitore (negativo per NC)
+      withholdingTotal: number;    // ritenuta d'acconto trattenuta (0 se assente)
       netTotal: number;
       vatTotal: number;
       paymentDate: string | null;  // ultima data pagamento se status pagato
@@ -382,6 +383,7 @@ export default function SchedaContabileFornitore() {
           invoiceNumber: p.invoice_number || '—',
           invoiceDate: p.invoice_date,
           grossTotal: 0,
+          withholdingTotal: 0,
           netTotal: 0,
           vatTotal: 0,
           paymentDate: null,
@@ -398,6 +400,7 @@ export default function SchedaContabileFornitore() {
         map.set(key, agg);
       }
       agg.grossTotal += Number(p.gross_amount || 0);
+      agg.withholdingTotal += Number((p as Payable & { withholding_amount?: number | null }).withholding_amount || 0);
       agg.netTotal += Number(p.net_amount || 0);
       agg.vatTotal += Number(p.vat_amount || 0);
       const pManual = p as Payable & { closed_manually?: boolean | null; manual_close_reason?: string | null };
@@ -493,8 +496,14 @@ export default function SchedaContabileFornitore() {
           dataPagamento: null,
           numero: agg.invoiceNumber,
           dare: 0,
+          // AVERE = dovuto al fornitore. Con ritenuta d'acconto il totale
+          // documento e' piu' alto: la differenza si versa all'Erario (F24),
+          // non al fornitore, quindi non entra nel suo partitario.
           avere: agg.grossTotal,
-          descrizione: `Fattura ${agg.tipoDoc || ''} Nr ${agg.invoiceNumber}`.trim(),
+          descrizione: `Fattura ${agg.tipoDoc || ''} Nr ${agg.invoiceNumber}`.trim()
+            + (Math.abs(agg.withholdingTotal) > 0.005
+              ? ` — totale documento ${fmt(Math.abs(agg.grossTotal) + Math.abs(agg.withholdingTotal))} €, al netto di ritenuta d'acconto ${fmt(Math.abs(agg.withholdingTotal))} € (F24)`
+              : ''),
           aliquotaIVA: aliq,
           tipo: 'fattura',
         });
