@@ -96,6 +96,11 @@ async function fetchAllPayables(companyId: string): Promise<Array<Record<string,
       .select('id, supplier_id, invoice_number, invoice_date, due_date, gross_amount, amount_paid, amount_remaining, status, payment_method, cash_movement_id, closed_manually, payment_date')
       .eq('company_id', companyId)
       .not('supplier_id', 'is', null)
+      // Righe NASCOSTE (is_placeholder: autofatture reverse charge TD16-19,
+      // doppioni rimossi, righe "CHIUSO DA GO-LIVE"): non sono debiti e la vista
+      // v_payables_operative dello Scadenzario gia' le esclude. Senza questo
+      // filtro Fornitori le contava come "da pagare" (es. MILANI 26/A, 1.220 €).
+      .or('is_placeholder.is.null,is_placeholder.eq.false')
       .order('invoice_date', { ascending: false })
       .range(from, from + pageSize - 1);
     if (error) { console.warn('payables load:', error.message); break; }
