@@ -414,12 +414,13 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "Passo 1 — Selezionare le fatture da pagare",
-        "body": "Ogni volta che selezioni una fattura, il gestionale apre sotto la riga un piccolo pannello per impostare come pagarla; in fondo alla pagina compare una barra con il totale selezionato e, per ogni banca coinvolta, il saldo di partenza e il saldo che resterebbe dopo il pagamento — così controlli sempre a colpo d'occhio di non andare in rosso. Il saldo di partenza è il saldo previsionale del conto, cioè quello reale già al netto delle distinte precedenti ancora da pagare su quel conto (contrassegnato \"prev.\"): così i conti tengono conto anche degli impegni già presi, non solo di quello che stai selezionando ora. Anche la banca proposta nella tendina \"Seleziona banca…\" mostra questo saldo previsionale, non quello pieno.",
+        "body": "Ogni volta che selezioni una fattura, il gestionale apre sotto la riga un piccolo pannello per impostare come pagarla; in fondo alla pagina compare una barra con il totale selezionato e, per ogni banca coinvolta, il saldo di partenza e il saldo che resterebbe dopo il pagamento. Il saldo di partenza è il saldo previsionale del conto, cioè quello reale già al netto delle distinte precedenti ancora da pagare su quel conto (contrassegnato \"prev.\"). Quei soldi sono davvero impegnati: sono le distinte che trovi in Storico Distinte, non ancora uscite dal conto. Se scendi sotto il previsionale il numero diventa arancione, accanto vedi quanto stai intaccando e quanto resta davvero sul conto, e prima di creare la distinta ti viene chiesta una conferma. Confermando procedi: la disponibilità reale della banca resta tua, se decidi di pagare altro puoi farlo. Se superi anche il saldo reale l'avviso diventa rosso e la conferma è più esplicita, ma nemmeno lì il gestionale ti blocca (può servire con un fido o con incassi in arrivo). Nella tendina \"Seleziona banca…\" vedi il residuo previsionale e, quando i due valori differiscono, anche quello reale.",
         "steps": [
           "Vai sulla scheda \"Scadenzario\" (in alto) e, se vuoi, filtra per stato \"Da pagare\", \"Scaduto\" o simili per vedere solo ciò che ti interessa.",
           "Spunta la casella a sinistra di ogni fattura che vuoi mettere in pagamento.",
           "Se una fattura risulta già \"in distinta\" da prima, il gestionale ti avvisa con un messaggio: non verrà aggiunta due volte.",
-          "Controlla in basso il totale selezionato e i saldi delle banche coinvolte."
+          "Controlla in basso il totale selezionato e i saldi delle banche coinvolte: il verde indica che resti dentro il previsionale, l'arancione che stai usando soldi già impegnati in distinte precedenti (te lo farà confermare), il rosso che superi il saldo reale.",
+          "L'unica cosa che blocca davvero il pulsante \"Crea distinta\" è una fattura selezionata senza banca assegnata."
         ]
       },
       {
@@ -550,7 +551,11 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "q": "Il saldo della banca mostrato quando creo la distinta è quello vero in banca?",
-        "a": "È il saldo previsionale, non quello pieno: il gestionale parte dal saldo reale del conto e ne sottrae le distinte già disposte ma non ancora pagate su quello stesso conto (contrassegnate \"prev.\"). Serve a non farti impegnare due volte gli stessi soldi: se avevi già messo in distinta dei pagamenti su quella banca, quelli sono già scontati dal saldo di partenza. Il saldo reale (quello che vedi nell'home banking) non viene mai modificato: lo trovi nella pagina Banche. Man mano che spunti nuove fatture, il saldo scende ancora dell'importo che stai per pagare."
+        "a": "Il numero principale è il saldo previsionale: il gestionale parte dal saldo reale del conto e ne sottrae quanto resta da pagare delle distinte già disposte su quello stesso conto (contrassegnate \"prev.\"). Della parte già pagata non resta traccia negli impegni: è uscita davvero e sta già dentro il saldo reale, quindi non viene sottratta due volte. Se decidi di usare comunque quella liquidità puoi farlo: il valore diventa arancione, ti viene chiesta una conferma e, confermando, la distinta si crea. Il saldo reale (quello che vedi nell'home banking) non viene mai modificato: lo trovi nella pagina Banche. Man mano che spunti nuove fatture, entrambi i saldi scendono dell'importo che stai per pagare."
+      },
+      {
+        "q": "Perché non riesco a creare la distinta? Il saldo previsionale mi blocca?",
+        "a": "No, il previsionale avvisa ma non blocca: puoi impegnare il 100% della disponibilità reale della banca anche se avevi già disposto altre distinte su quel conto. Quando succede compare una richiesta di conferma che ti ricorda quanto è già destinato alle distinte precedenti; rispondendo di sì la distinta viene creata. L'unico caso in cui il pulsante \"Crea distinta\" resta grigio è una fattura selezionata senza banca assegnata: assegnala e il pulsante si riattiva."
       },
       {
         "q": "Che differenza c'è tra ACCONTO e SALDO nella distinta?",
@@ -611,7 +616,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "Il dettaglio di una distinta aperta",
-        "body": "Aprendo una distinta trovi prima un riquadro per ciascuna banca usata quel giorno, con il totale disposto su quella banca e quanto di quel totale è già stato pagato (con il conteggio, per esempio \"3/5\" fatture pagate su 5). Sotto trovi la tabella con ogni singola scadenza inclusa nella distinta: fornitore, numero fattura, banca, importo e stato. Lo stato di ogni riga è \"Pagato\" (etichetta verde) se il pagamento è stato riconosciuto, oppure \"In distinta\" (etichetta arancione) se è ancora in attesa di riscontro bancario."
+        "body": "Aprendo una distinta trovi prima un riquadro per ciascuna banca usata quel giorno, con il totale disposto su quella banca e quanto di quel totale è già stato pagato (con il conteggio, per esempio \"3/5\" fatture pagate su 5). Sotto trovi la tabella con ogni singola scadenza inclusa nella distinta: fornitore, numero fattura, banca, importo e stato. Lo stato di ogni riga può essere \"Pagato\" (etichetta verde) quando la fattura risulta saldata, \"Acconto\" (etichetta azzurra) quando l'importo che era stato disposto è uscito davvero ma la fattura resta aperta per il residuo, oppure \"In distinta\" (etichetta arancione) se il pagamento non è ancora stato riscontrato. Quello che conta per chiudere una riga è l'importo disposto, non l'intera fattura: un acconto versato è una disposizione conclusa."
       },
       {
         "heading": "Eliminare una distinta o una singola scadenza (finché non è pagata)",
@@ -636,6 +641,10 @@ export const PAGE_GUIDES: PageGuide[] = [
       {
         "q": "Perché una fattura risulta ancora \"In distinta\" invece di \"Pagato\"?",
         "a": "Perché il bonifico non è ancora stato riconosciuto sull'estratto conto e abbinato a quella fattura. Appena la riconciliazione avviene (in automatico o a mano dalla pagina Banche), lo stato passa a \"Pagato\" anche qui."
+      },
+      {
+        "q": "Cosa vuol dire l'etichetta \"Acconto\" su una riga della distinta?",
+        "a": "Che con quella distinta è stato disposto un acconto, non il saldo: l'importo disposto è uscito dal conto e quindi la riga è conclusa, ma la fattura resta aperta per la parte che manca. La trovi ancora nello Scadenzario per il residuo, e nel partitario del fornitore l'acconto compare già in DARE."
       },
       {
         "q": "Nello Storico vedo anche righe con l'icona 📋: cosa sono?",
@@ -769,7 +778,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "q": "Che differenza c'è tra saldo reale e saldo previsionale?",
-        "a": "Il saldo reale è la liquidità effettivamente presente sul conto in questo momento (dato che arriva dalla banca). Il saldo previsionale è il saldo reale meno le distinte di pagamento ancora da saldare (fatture fornitori e scadenze fiscali/F24 messe in distinta ma non ancora pagate) assegnate a quel conto: ti dice quanto ti resterebbe una volta pagato tutto ciò che hai già disposto. Il previsionale è solo un aiuto di lettura: non modifica mai il saldo reale."
+        "a": "Il saldo reale è la liquidità effettivamente presente sul conto in questo momento (dato che arriva dalla banca). Il saldo previsionale è il saldo reale meno le distinte di pagamento ancora da saldare (fatture fornitori e scadenze fiscali/F24 messe in distinta ma non ancora pagate) assegnate a quel conto: ti dice quanto ti resterebbe una volta pagato tutto ciò che hai già disposto. Degli importi già pagati non resta traccia negli impegni: quelli sono usciti davvero e stanno già dentro il saldo reale, quindi non vengono sottratti due volte (anche quando la fattura è stata saldata solo in parte). Il previsionale non modifica mai il saldo reale e non ti impedisce di usare la disponibilità del conto: nello Scadenzario, se decidi di pagare qualcosa con soldi già impegnati in una distinta precedente, il gestionale te lo segnala in arancione e te lo fa confermare, poi procede."
       },
       {
         "q": "Dove prendo il file da mandare alla commercialista?",
@@ -1770,7 +1779,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "Partitario — Conto Fornitore",
-        "body": "Il partitario è il registro contabile del fornitore: in colonna AVERE trovi le fatture ricevute (che aumentano il debito verso il fornitore), in colonna DARE i pagamenti effettuati e le note di credito (che lo riducono). Se una fattura è divisa in più rate e ne hai pagata solo una parte, il DARE registra SOLO l'importo effettivamente pagato (non l'intero totale della fattura) e la riga è etichettata \"Pagamento parziale\": così il saldo mostra correttamente il residuo delle rate ancora aperte. Ogni riga mostra anche il saldo progressivo: se scende sotto zero (evidenziato in rosso) significa che l'azienda è ancora in debito. Puoi scegliere se ordinare i movimenti per data di emissione fattura o per data effettiva di pagamento, con il menu \"Ordina per\" in alto a destra della tabella. In fondo trovi i totali dei movimenti selezionati e il saldo corrente della scheda.",
+        "body": "Il partitario è il registro contabile del fornitore: in colonna AVERE trovi le fatture ricevute (che aumentano il debito verso il fornitore), in colonna DARE i pagamenti effettuati e le note di credito (che lo riducono). Se una fattura è divisa in più rate e ne hai pagata solo una parte, il DARE registra SOLO l'importo effettivamente pagato (non l'intero totale della fattura) e la riga è etichettata \"Acconto\": così il saldo mostra correttamente il residuo ancora da pagare. Vale anche per gli acconti versati su una fattura unica: appena i soldi escono dal conto la riga entra in partitario, senza aspettare il saldo finale. Ogni riga mostra anche il saldo progressivo: se scende sotto zero (evidenziato in rosso) significa che l'azienda è ancora in debito. Puoi scegliere se ordinare i movimenti per data di emissione fattura o per data effettiva di pagamento, con il menu \"Ordina per\" in alto a destra della tabella. In fondo trovi i totali dei movimenti selezionati e il saldo corrente della scheda.",
         "steps": [
           "Scegli \"Data fattura\" o \"Data pagamento\" dal menu \"Ordina per\" in alto alla tabella",
           "Leggi la colonna Saldo: un valore in rosso indica un debito residuo verso il fornitore",
@@ -1779,6 +1788,10 @@ export const PAGE_GUIDES: PageGuide[] = [
       }
     ],
     "faq": [
+      {
+        "q": "Ho versato un acconto su una fattura: lo vedo nel partitario?",
+        "a": "Sì. Un acconto pagato compare in DARE con la dicitura \"Acconto\" e la data del pagamento, e abbassa subito il saldo del fornitore. Non serve aspettare il saldo finale della fattura: quei soldi sono già usciti dal conto, e il debito verso il fornitore è quello che resta da pagare."
+      },
       {
         "q": "Cosa significa \"AVERE\" e cosa significa \"DARE\" nel partitario?",
         "a": "AVERE raccoglie le fatture ricevute dal fornitore, che aumentano quanto l'azienda gli deve. DARE raccoglie i pagamenti effettuati e le note di credito, che riducono quel debito. Il saldo è la differenza tra le due colonne."
@@ -2095,12 +2108,18 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "Segnare una scadenza come pagata",
-        "body": "Per le scadenze non ancora pagate trovi il pulsante \"Pagato\" nella colonna Azioni: cliccandolo la scadenza passa subito allo stato Pagato e viene registrata la data odierna come data di pagamento.",
+        "body": "Per le scadenze non ancora pagate trovi il pulsante \"Pagato\" nella colonna Azioni. Cliccandolo il sistema cerca prima, fra i movimenti bancari non ancora riconciliati, un'uscita dello stesso importo esatto nei dintorni della scadenza (da 30 giorni prima a 60 dopo). Se ne trova, ti mostra l'elenco e ti chiede quale addebito ha pagato quella scadenza: scegliendolo, la scadenza viene chiusa e il movimento agganciato in un colpo solo, così l'addebito non resta orfano in prima nota. Se non trova nulla di corrispondente, la scadenza viene comunque segnata come pagata e ti avvisa che resta da riconciliare.",
         "steps": [
           "Individua la scadenza da segnare come saldata nella tabella",
           "Clicca sul pulsante verde \"Pagato\" nella colonna Azioni",
-          "La scadenza si sposta automaticamente tra quelle pagate e il totale in alto si aggiorna"
+          "Se compare l'elenco degli addebiti, scegli quello giusto guardando data, banca e causale",
+          "Se nessuno corrisponde, usa \"Nessuno di questi: segna solo come pagata\"",
+          "La scadenza si sposta fra quelle pagate e il totale in alto si aggiorna"
         ]
+      },
+      {
+        "heading": "L'etichetta \"in banca\"",
+        "body": "Accanto allo stato di una scadenza pagata puo' comparire l'etichetta azzurra \"in banca\": vuol dire che quella scadenza non e' solo segnata come pagata, ma e' anche agganciata al movimento bancario che l'ha saldata. E' la differenza fra dire \"l'ho pagata\" e poterlo dimostrare con l'addebito in estratto conto. Le scadenze pagate senza questa etichetta sono da riconciliare."
       },
       {
         "heading": "Creare una nuova scadenza",
@@ -2134,6 +2153,14 @@ export const PAGE_GUIDES: PageGuide[] = [
       {
         "q": "A cosa serve il campo \"Codice F24\"?",
         "a": "È il codice tributo da riportare sul modello F24 per quel pagamento (ad esempio 6001 per l'IVA). Se lo inserisci, comparirà anche sotto il titolo nella tabella come promemoria."
+      },
+      {
+        "q": "Perché quando segno una scadenza come pagata mi chiede di scegliere un movimento bancario?",
+        "a": "Perché un F24 o un'IVA lasciano un addebito sul conto, e finché quell'addebito non viene collegato alla scadenza resta in prima nota come uscita senza spiegazione. Il sistema cerca le uscite non ancora riconciliate dello stesso importo esatto e ti chiede quale sia quella giusta: bastano un paio di secondi e la contabilità torna a quadrare da sola. Se preferisci non agganciare nulla, puoi sempre scegliere \"Nessuno di questi\"."
+      },
+      {
+        "q": "Ho agganciato il movimento sbagliato, posso disfare?",
+        "a": "Sì. L'aggancio è reversibile e non cancella niente: chiedi a chi gestisce la contabilità di annullarlo (il sistema stacca il movimento e lo rimette fra quelli da riconciliare, lasciando la scadenza pagata)."
       },
       {
         "q": "Quando segno una scadenza come pagata o la annullo, come so se è andata a buon fine?",

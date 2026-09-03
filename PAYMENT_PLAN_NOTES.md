@@ -1,5 +1,143 @@
 # Piano di pagamento fornitore + segnalazioni anomalie — Note di implementazione
 
+> ## 💰 ACCONTI — la disposizione si chiude, il partitario li registra (2026-09-03)
+>
+> **Segnalazione di Patrizio**: «non è corretto tenere aperta la distinta di WOLF GROUP,
+> quell'importo in distinta è un acconto su fattura e quindi se pagato deve essere chiuso
+> e registrato nel partitario». Aveva ragione su entrambi i fronti, ed erano due bug
+> distinti che si sommavano.
+>
+> **1. La riga di distinta restava aperta per sempre.** `StoricoDistinte` considerava
+> eseguita una riga solo se `payables.status = 'pagato'`. Ma una disposizione di ACCONTO
+> è conclusa quando esce l'importo **disposto**, non quando la fattura è saldata: WOLF
+> GROUP 218 (79.683,24) aveva 39.445,90 disposti il 6/8 e usciti il 7/8, quindi quella
+> riga era finita mentre la fattura resta giustamente aperta per il residuo. La distinta
+> del 06/08 sarebbe rimasta aperta all'infinito per colpa di una riga già chiusa.
+> Ora una riga è eseguita se `amount_paid >= importo disposto`, con badge azzurro
+> **«Acconto»** distinto dal verde «Pagato» (che resta la fattura saldata).
+>
+> **2. Gli acconti non entravano in partitario.** `SchedaContabileFornitore` generava la
+> riga DARE solo per `status = 'pagato' && payment_date`. Un acconto su fattura ancora
+> aperta spariva: i soldi erano usciti dal conto ma il debito verso il fornitore restava
+> gonfiato di quella cifra. Sui dati vivi NZ, **51.865 € di debito sovrastimato**:
+>
+> | fornitore | saldo mostrato | saldo corretto | differenza |
+> |---|---:|---:|---:|
+> | WOLF GROUP | 133.356,60 | 93.693,86 | 39.662,74 |
+> | MINGARDO SRLS | 31.787,00 | 20.193,00 | 11.594,00 |
+> | GABRIEL IOSUB | 14.640,00 | 14.031,75 | 608,25 |
+>
+> Ora la riga DARE nasce da `amount_paid > 0`, senza pretendere né lo stato «pagato» né
+> la data di pagamento (MINGARDO ha 11.594,00 versati e `payment_date` nullo: restavano
+> comunque invisibili). Dicitura **«Acconto»** quando la fattura non è saldata,
+> «Pagamento» quando lo è. `isPaid` resta il flag di fattura SALDATA: un acconto non
+> chiude niente.
+>
+> **Nessun dato toccato**: entrambi i fix sono lato lettura, coerenti con il pattern del
+> progetto (la logica di visualizzazione sta nel frontend, il DB resta intatto).
+
+> ## 🔗 RICONCILIAZIONE v3 — la gerarchia di chiavi (2026-09-03) — FATTA
+>
+> **Da dove nasce.** Estratti conto luglio/agosto 2026 alla mano, la distinta di pagamento
+> del 06/08 risultava aperta con 8 voci per 157.211,26 €. Erano state pagate tutte davvero:
+> i movimenti c'erano in banca e nel gestionale, ma **nessuno era agganciato**. Al 31/07
+> altre 99 scadenze chiuse a mano per 180.085,58 €, zero movimenti collegati. Il gestionale
+> sapeva cosa doveva pagare, la banca sapeva cosa aveva pagato, e le due cose non si
+> toccavano mai.
+>
+> **Le cinque cause, verificate una per una sui dati vivi:**
+> 1. **Finestra date** `due_date + 30 giorni` in `try_match_amount_bank_transaction`.
+>    DWS 26VAL-0526 scadeva il 13/04 ed è stata pagata il 07/08: fuori finestra, mai
+>    proposta, benché la causale esponesse `IMPORTO BONIFICI: 35.785,87` esatto al centesimo.
+> 2. **Numero fattura non normalizzato.** `invoice_number_keys('2046/01')` dava solo
+>    `204601`, mai `2046`; la causale diceva `GGZ SF-2046`. Stessa cosa su `8/1660`
+>    (TANESINI), `88-2026` (NIGRO), `882/26` (SHINE).
+> 3. **Spese bancarie.** Sui flussi CBI la banca addebita fattura + commissioni
+>    (35.785,87 + 1,75 = 35.787,62): il confronto a importo esatto falliva.
+> 4. **La distinta era ignorata.** Quando una scadenza sta in una distinta sappiamo banca
+>    e data della disposizione, cioè l'informazione più forte che abbiamo.
+> 5. **Rischio opposto: solo importo poteva chiudere da solo.** Importo esatto (50) + data
+>    esatta (20) + banca attesa (10) = 80 = soglia di `auto_exact`, senza che fornitore o
+>    numero fattura fossero mai confermati. È lo scramble di SPM Investigazioni, più sotto.
+>
+> **La gerarchia** (migration `20260903_164_reconcile_engine_v3.sql`, NZ+Made+Zago):
+> - **Livello 0 — distinta** (`try_match_distinta_bank_transaction`): la scadenza è stata
+>   disposta su quella banca in quei giorni (finestra −3/+20). Applica **solo** se il
+>   candidato è unico, altrimenti propone.
+> - **Livello 1 — numero fattura**: `invoice_number_keys` v3 include i segmenti numerici
+>   separati ed esclude gli anni isolati (1990-2035, così `2046` resta chiave valida).
+>   Soglia di lunghezza: ≥5 cifre valgono da sole, 3-4 servono fornitore o distinta a
+>   confermare, ≤2 mai da sole.
+> - **Livello 2 — importo con tolleranza ASIMMETRICA**: il movimento può essere maggiore
+>   della fattura per spese bancarie (fino a 5 € o 0,2%), **mai minore**. Più la quota
+>   `IMPORTO BONIFICI` letta dalla causale CBI (`bank_movement_net`).
+> - **Livello 3 — gruppo** (invariato): un movimento, N fatture, somma esatta al centesimo.
+>
+> **Le due guardie che contano più di tutto il resto:**
+> - **GATE DI IDENTITÀ**: niente `auto_exact` senza almeno una conferma di CHI è il
+>   beneficiario (fornitore in causale, numero fattura, o distinta). Su solo
+>   importo/data/banca si propone e decide una persona.
+> - **PARI MERITO**: se due scadenze arrivano allo stesso punteggio massimo, il motore non
+>   sceglie. Sceglierne una è tirare a indovinare su un dato contabile.
+>
+> **Verifica** (in transazione annullata, sui dati vivi NZ):
+> - 40 abbinamenti storici uno-a-uno riaperti e ripassati dal motore v3, ognuno isolato in
+>   un savepoint: **32 riagganciati alla stessa identica fattura, 0 a una fattura diversa**,
+>   8 fermati come proposta (fra questi, casi con `ties=2/3` a punteggio 100, cioè fatture
+>   indistinguibili: esattamente lo scenario che produceva lo scramble).
+> - I 5 casi del 06/08 (999 SRL, DWS ×2, GGZ, Publiacqua), rimessi allo stato di partenza,
+>   vengono ora agganciati **tutti e cinque in automatico e alla fattura giusta**.
+> - 60 movimenti di agosto non riconciliati: 0 auto, 17 proposte, 43 nessun match. Nessun
+>   falso positivo introdotto.
+>
+> **Cron**: `rerun_distinta_reconciliation()` entra come primo passo di
+> `run_daily_reconciliation()` (05:45), prima dei granitici.
+>
+> ⚠️ **Collo di bottiglia che resta**: al 03/09 ci sono **127 proposte `to_confirm` ancora
+> valide** che nessuno ha mai confermato. Il motore propone bene, ma le proposte vanno
+> guardate: si confermano dalla Tesoreria. Un motore più prudente senza qualcuno che
+> conferma produce solo una coda più lunga.
+>
+> ## 🧾 SCADENZE FISCALI — aggancio al movimento bancario (2026-09-03)
+>
+> Le scadenze fiscali (F24, IVA, IRES/IRAP, TARI) vivevano su `fiscal_deadlines` **senza
+> alcun riferimento al movimento bancario**: si potevano chiudere, ma l'addebito restava
+> orfano in prima nota per sempre. Non sono spiccioli: IVA di luglio 39.063,80 € e
+> IRES/IRAP rata 2/5 da 9.165,00 €, entrambe addebitate il 20/08 e mai collegate.
+>
+> **DB** (migration `20260903_165_fiscal_deadline_bank_link.sql`, NZ+Made+Zago): colonna
+> additiva `fiscal_deadlines.bank_transaction_id` + `reconcile_fiscal_deadline(bt, fd)` e
+> `undo_reconcile_fiscal_deadline(fd)`, entrambe con isolamento tenant esplicito.
+>
+> **Frontend** (`src/pages/ScadenzeFiscali.tsx`): premendo "Pagato" il sistema cerca le
+> uscite non riconciliate di importo **esatto** nella finestra −30/+60 giorni dalla
+> scadenza e chiede quale sia. Se non trova nulla chiude comunque, avvisando che resta da
+> riconciliare. Etichetta "in banca" sulle scadenze agganciate. Guida `/scadenze-fiscali`
+> aggiornata.
+
+> ## 💶 SALDO PREVISIONALE — impegno RESIDUO, avviso e non blocco (2026-09-03)
+>
+> **Regola (Patrizio)**: i soldi di una distinta già emessa (quelle che si vedono in
+> **Storico Distinte**) sono davvero impegnati e vanno tolti dalla disponibilità. Il
+> previsionale però **non deve impedire** di usare il 100% del saldo reale: si vede,
+> si conferma, si procede.
+>
+> **Calcolo** (`src/lib/committedBalance.ts`): l'impegno da sottrarre è il **residuo**,
+> non il disposto pieno:
+> `residuo = max(0, disposto + NC compensate − amount_paid)`
+> (stessa formula di `disposizione_amount_pending` nello Scadenzario). Contare il disposto
+> pieno su una fattura **pagata in parte** era un doppio conteggio: la quota già pagata è
+> uscita davvero e sta già nel saldo reale. Caso reale NZ del 2026-09-03: WOLF GROUP
+> fatt. 218, disposta 39.445,90 € e già pagata il 7/8 (39.683,24 € + 237,34 € di NC),
+> continuava a pesare per intero → BCC Valdarno mostrava previsionale −6.621,47 € invece
+> del saldo reale 32.824,43 €. Stessa correzione sugli F24 (`fiscal_deadlines.amount_paid`).
+>
+> **UI Scadenzario**: nessun blocco duro sui saldi. Sforo del previsionale → riga arancione
+> con quanto si sta intaccando e quanto resta di reale, più conferma esplicita. Sforo del
+> saldo reale → avviso rosso e conferma più netta. Unico blocco rimasto sul pulsante
+> "Crea distinta": fattura selezionata senza banca. Vale anche per il flusso A-Cube.
+
+
 > ## 🧾 RICEVUTA BANCARIA (RiBa) — chiusura PROVVISORIA alla scadenza (2026-08-06) — FASE 1
 >
 > **Regola (Patrizio)**: un fornitore che paga con **ricevuta bancaria** (`riba_*`) viene

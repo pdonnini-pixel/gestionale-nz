@@ -26,6 +26,7 @@ interface DispRow {
     status: string | null
     due_date: string | null
     payment_date: string | null
+    amount_paid: number | null
   } | null
   // Riga di scadenza FISCALE (F24/interna): la disposizione sta su fiscal_deadlines,
   // non su payable_actions → cancellare azzera le colonne disposizione_* di quella riga.
@@ -45,7 +46,23 @@ interface Distinta {
 const fmt = (n: number) =>
   new Intl.NumberFormat('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n || 0)
 
-const isPaid = (s: string | null | undefined) => s === 'pagato'
+// Una riga di distinta è ESEGUITA quando l'importo che è stato disposto risulta
+// pagato, non quando l'intera fattura è saldata. Sono due cose diverse: un acconto
+// (es. WOLF GROUP 218, 39.445,90 disposti il 6/8 e usciti il 7/8 su una fattura da
+// 79.683,24) è una disposizione conclusa, mentre la fattura resta aperta per il
+// residuo. Guardando solo lo stato della fattura, la distinta restava aperta per
+// sempre per colpa di una riga che invece era finita.
+const isPaid = (r: DispRow) => {
+  const s = r.payables?.status
+  if (s === 'pagato') return true
+  const disposto = Number(r.amount ?? 0)
+  const pagato = Number(r.payables?.amount_paid ?? 0)
+  return disposto > 0 && pagato >= disposto - 0.005
+}
+
+// Disposizione eseguita su una fattura che resta aperta per il residuo: in tabella
+// si dice "Acconto" e non "Pagato", altrimenti sembra saldata l'intera fattura.
+const isAcconto = (r: DispRow) => isPaid(r) && r.payables?.status !== 'pagato'
 
 // Una scadenza è cancellabile dalla distinta finché il pagamento non è (nemmeno in
 // parte) avvenuto: nessuna data pagamento e stato non pagato/parziale/annullato.
@@ -133,14 +150,14 @@ export default function StoricoDistinte() {
           supabase.from('bank_accounts').select('id, bank_name').eq('company_id', COMPANY_ID),
           supabase
             .from('payable_actions')
-            .select('id, amount, bank_account_id, note, performed_at, operator_name, payables!inner(id, invoice_number, supplier_name, gross_amount, status, due_date, payment_date, company_id)')
+            .select('id, amount, bank_account_id, note, performed_at, operator_name, payables!inner(id, invoice_number, supplier_name, gross_amount, status, due_date, payment_date, amount_paid, company_id)')
             .eq('action_type', 'disposizione')
             .eq('payables.company_id', COMPANY_ID)
             .order('performed_at', { ascending: false }),
           // Disposizioni delle scadenze fiscali (F24/interne): stanno su fiscal_deadlines.
           supabase
             .from('fiscal_deadlines')
-            .select('id, title, deadline_type, amount, status, due_date, paid_date, disposizione_date, disposizione_bank_account_id, disposizione_amount, disposizione_note')
+            .select('id, title, deadline_type, amount, amount_paid, status, due_date, paid_date, disposizione_date, disposizione_bank_account_id, disposizione_amount, disposizione_note')
             .eq('company_id', COMPANY_ID)
             .not('disposizione_date', 'is', null)
             .order('disposizione_date', { ascending: false }),
@@ -165,6 +182,7 @@ export default function StoricoDistinte() {
             status: fd.status === 'paid' ? 'pagato' : (fd.status as string | null) ?? null,
             due_date: (fd.due_date as string | null) ?? null,
             payment_date: (fd.paid_date as string | null) ?? null,
+            amount_paid: fd.amount_paid != null ? Number(fd.amount_paid) : null,
           },
           _isFiscal: true,
           _fiscalId: String(fd.id),
@@ -195,7 +213,7 @@ export default function StoricoDistinte() {
       const bankMap = new Map<string, BankAgg>()
       for (const r of righe) {
         const amt = Number(r.amount ?? r.payables?.gross_amount ?? 0)
-        const paid = isPaid(r.payables?.status)
+        const paid = isPaid(r)
         totale += amt
         if (paid) totalePagato += amt
         const bid = r.bank_account_id || 'nd'
@@ -332,7 +350,7 @@ export default function StoricoDistinte() {
                           </thead>
                           <tbody>
                             {d.righe.map(r => {
-                              const paid = isPaid(r.payables?.status)
+                              const paid = isPaid(r)
                               const amt = Number(r.amount ?? r.payables?.gross_amount ?? 0)
                               const deletable = canDeleteRow(r)
                               return (
@@ -343,8 +361,9 @@ export default function StoricoDistinte() {
                                   <td className="py-2 px-4 text-right font-medium text-slate-800">€ {fmt(amt)}</td>
                                   <td className="py-2 px-4 text-center">
                                     {paid ? (
-                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-700 text-[11px] font-medium">
-                                        <CheckCircle2 size={11} /> Pagato
+                                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium ${isAcconto(r) ? 'bg-sky-100 text-sky-700' : 'bg-emerald-100 text-emerald-700'}`}
+                                        title={isAcconto(r) ? 'Acconto versato: la disposizione è conclusa, la fattura resta aperta per il residuo' : undefined}>
+                                        <CheckCircle2 size={11} /> {isAcconto(r) ? 'Acconto' : 'Pagato'}
                                       </span>
                                     ) : (
                                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-100 text-amber-700 text-[11px] font-medium">
