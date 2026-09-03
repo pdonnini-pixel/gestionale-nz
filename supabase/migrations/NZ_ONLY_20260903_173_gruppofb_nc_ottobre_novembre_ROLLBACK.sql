@@ -13,7 +13,9 @@ WHERE invoice_number = '4604' AND installment_number IN (2, 3)
 UPDATE public.payables p SET
   gross_amount = b.gross_amount, net_amount = b.net_amount, vat_amount = b.vat_amount,
   due_date = b.due_date, original_due_date = b.original_due_date, installment_total = b.installment_total,
-  payment_method = b.payment_method, notes = b.notes
+  payment_method = b.payment_method, notes = b.notes,
+  status = b.status, amount_paid = b.amount_paid, payment_date = b.payment_date,
+  closed_manually = b.closed_manually, manual_close_reason = b.manual_close_reason
 FROM public._bkp_gruppofb_nc_ottobre_20260903 b
 WHERE p.id = b.id;
 

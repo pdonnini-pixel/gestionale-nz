@@ -21,10 +21,11 @@
 -- C) NC 4572 (-1.171,20, «unica scadenza»): nel gestionale all'8/07, Sabrina la
 --    conta nelle partite di settembre. Spostata al 30/09.
 --
--- Non toccata: NC 1116 (-114,68, marzo, scadenza 31/12): non compare in nessuno
--- dei tre elenchi (settembre, ottobre, novembre). Resta aperta.
+-- D) NC 1116 (-114,68, marzo, parcheggiata al 31/12): non compare in nessuno
+--    dei tre elenchi. Patrizio: «se non c'e' tra quelle date l'ha gia' scalata».
+--    Chiusa come compensata (data non nota, usata la RiBa del 31/08).
 --
--- 4 UPDATE + 2 INSERT. Backup in public._bkp_gruppofb_nc_ottobre_20260903.
+-- 5 UPDATE + 2 INSERT. Backup in public._bkp_gruppofb_nc_ottobre_20260903.
 -- =============================================================================
 
 BEGIN;
@@ -61,12 +62,21 @@ UPDATE public.payables SET due_date = '2026-09-30',
   notes = coalesce(notes,'') || ' | Scadenza al 30/09/2026 da elenco partite aperte di Sabrina (03/09/2026)'
 WHERE supplier_name ILIKE 'GRUPPO F%B%' AND NOT COALESCE(is_placeholder,false) AND invoice_number = '4572' AND status = 'nota_credito';
 
+-- D) NC 1116 gia' scalata
+INSERT INTO public._bkp_gruppofb_nc_ottobre_20260903
+SELECT * FROM public.payables WHERE id = '5854d607-3c79-42dd-881d-b386f5ff0b36' AND status = 'nota_credito';
+UPDATE public.payables SET status = 'pagato', amount_paid = gross_amount, payment_date = '2026-08-31',
+  closed_manually = true,
+  manual_close_reason = 'NC gia'' scalata da Sabrina in una RiBa precedente al 03/09/2026 (non tra le partite aperte GRUPPO FB di settembre/ottobre/novembre). Data esatta non nota, usata la RiBa del 31/08. Confermato da Patrizio.',
+  notes = coalesce(notes,'') || ' | Chiusa 03/09/2026: gia'' scalata (elenco Sabrina, conferma Patrizio)'
+WHERE id = '5854d607-3c79-42dd-881d-b386f5ff0b36' AND status = 'nota_credito';
+
 -- traccia
 INSERT INTO public.payable_actions (payable_id, action_type, old_status, new_status, old_due_date, new_due_date, amount, note, operator_name)
 SELECT p.id, CASE WHEN p.invoice_number = '4604' THEN 'split_nc' ELSE 'riallineamento_rate' END, b.status, p.status, b.due_date, p.due_date, p.gross_amount,
   'Allineamento GRUPPO FB alle scadenze ottobre/novembre di Sabrina (03/09/2026): NC ' || p.invoice_number || ' rata ' || coalesce(p.installment_number::text,'-') || '; backup in _bkp_gruppofb_nc_ottobre_20260903', 'Claude Code'
 FROM public.payables p LEFT JOIN public._bkp_gruppofb_nc_ottobre_20260903 b ON b.id = p.id
-WHERE p.supplier_name ILIKE 'GRUPPO F%B%' AND NOT COALESCE(p.is_placeholder,false) AND p.invoice_number IN ('4604','4731','4767','4572');
+WHERE p.supplier_name ILIKE 'GRUPPO F%B%' AND NOT COALESCE(p.is_placeholder,false) AND p.invoice_number IN ('4604','4731','4767','4572','1116');
 
 COMMIT;
 
@@ -75,4 +85,4 @@ COMMIT;
 -- WHERE supplier_name ILIKE 'GRUPPO F%B%' AND NOT COALESCE(is_placeholder,false)
 --   AND status NOT IN ('pagato','annullato') AND amount_remaining <> 0
 -- GROUP BY due_date ORDER BY due_date;
--- Atteso: 30/09 -> 23 righe 26.386,70 | 31/10 -> 15 righe 11.603,81 | 30/11 -> 6 righe 6.787,27 | 31/12 -> NC 1116
+-- Atteso: 30/09 -> 23 righe 26.386,70 | 31/10 -> 15 righe 11.603,81 | 30/11 -> 6 righe 6.787,27 | nient'altro
