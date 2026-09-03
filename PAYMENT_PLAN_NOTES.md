@@ -1,5 +1,39 @@
 # Piano di pagamento fornitore + segnalazioni anomalie — Note di implementazione
 
+> ## 🔁 RATE SCAMBIATE — DWS 26VAL-0987 e motore v4 (2026-09-03) — FATTO
+>
+> **Segnalazione di Patrizio** dalla tab Movimenti: «c'è il movimento ma me lo hai lasciato
+> aperto tra le scadenze ma lo dai per riconciliato». Due SDD DWS da 11.927,43 (13/07 e
+> 10/08) risultavano riconciliati, eppure in scadenzario restava una rata DWS scaduta.
+>
+> **Non mancava un aggancio: erano agganciati alle rate sbagliate.** La fattura 26VAL-0987
+> (35.785,87) ha tre rate SDD: 11.927,43 al 13/07, 11.927,43 al 10/08, 11.931,01 al 10/09.
+> L'SDD del 13/07 era sulla rata 2, l'SDD del 10/08 sulla rata 3 (da 11.931,01, importo
+> diverso). Effetto: rata 1 «scaduta» da luglio, rata 3 chiusa come pagata prima di scadere,
+> e il pagato risultava 23.858,44 invece di 23.854,86.
+>
+> **Due cause, una per aggancio.** Il 23/07 la rata 1 era ancora placeholder, quindi
+> esclusa dal motore: l'SDD del 13/07 è finito sull'unica rata visibile con quell'importo.
+> Il 10/08 la rata 1 era di nuovo visibile, ma `try_match_bank_transaction` tappava il
+> punteggio a 100 **prima** della classifica: rata 1 (importo esatto + fornitore + numero
+> fattura = 120) e rata 3 (119,85) diventavano entrambe 100 e vinceva la prima riga letta
+> dal disco. La v3 ha aggiunto la guardia sui pari merito, ma tra rate della stessa fattura
+> proporre a una persona è rumore: il motore ha tutto per scegliere.
+>
+> **Dati** (migration `NZ_ONLY_20260903_170`, solo UPDATE, backup in
+> `_bkp_dws_rate_20260903`, `_bkp_dws_bt_20260903`, `_bkp_dws_rlog_20260903`): SDD 13/07 →
+> rata 1, SDD 10/08 → rata 2, rata 3 riaperta «in scadenza» al 10/09 per 11.931,01. I due
+> vecchi agganci restano in `reconciliation_log` come respinti con nota; i nuovi sono
+> `manual`. Made e Zago: zero casi con lo stesso pattern (query di controllo nel file).
+>
+> **Motore v4** (migration `20260903_170`, NZ+Made+Zago): la classifica usa il punteggio
+> non tappato, il tetto a 100 resta solo sulla confidence scritta nel log. A pari punteggio
+> tra rate della **stessa** fattura (stesso numero + stesso fornitore) vince la scadenza più
+> vicina alla data del movimento, poi la rata con il numero più basso, senza contare come
+> pari merito. Tra fatture **diverse** il pari merito resta una proposta, come in v3.
+> Test a secco su NZ (transazione annullata): SDD 13/07 con tre rate aperte → rata 1;
+> SDD 10/08 con rate 2 e 3 aperte → rata 2; SDD 10/08 con rate 1 e 3 aperte → rata 1.
+
 > ## 🧩 RATE ACCAVALLATE, NON DOPPIONI (2026-09-03) — diagnosi corretta
 >
 > Avevo scritto che c'erano «31 gruppi di doppioni per ~43.822 € di eccesso». **Era
