@@ -2069,6 +2069,14 @@ function CostFormModal({ initial, employeeId, employees, year, month, onCancel, 
 // IMPORT MENSILE (employee_costs) — mapping-driven, anteprima, upsert
 // ============================================================================
 
+// Cedolino gia' a database per il mese scelto: servono gli importi di ENTRAMBE
+// le corsie, per capire quale delle due e' davvero gia' stata caricata.
+type SlipMese = {
+  employee_id: string; tipo: string; netto: number | null;
+  retribuzione: number | null; contributi: number | null; inail: number | null;
+  tfr: number | null; altri_costi: number | null;
+};
+
 // Una corsia di import: mode='netto' (busta paga) | 'lordi' (costo aziendale). Entrambe PDF + CSV/Excel.
 function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts, defaultYear, defaultMonth, onDone }: {
   mode: 'netto' | 'lordi'; companyId: string; userId: string | null; outlets: OutletRow[]; employees: Employee[]; existingCosts: EmployeeCost[];
@@ -2100,31 +2108,41 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
   // persona diventa due schede e l'organico conta una testa di troppo.
   const [matricoleReg, setMatricoleReg] = useState<{ matricola: string; employee_id: string }[]>([]);
   // Cedolini gia' a database per il mese scelto, per dire cosa c'e' gia'.
-  const [slipsMese, setSlipsMese] = useState<{ employee_id: string; tipo: string; netto: number | null }[]>([]);
+  const [slipsMese, setSlipsMese] = useState<SlipMese[]>([]);
 
   const caricaRegistroECedolini = useCallback(async () => {
     if (!companyId) return;
     const [{ data: mats }, { data: slips }] = await Promise.all([
       supabase.from('employee_matricole').select('matricola, employee_id').eq('company_id', companyId),
-      supabase.from('employee_cost_slips').select('employee_id, tipo, netto')
+      supabase.from('employee_cost_slips').select('employee_id, tipo, netto, retribuzione, contributi, inail, tfr, altri_costi')
         .eq('company_id', companyId).eq('year', impYear).eq('month', impMonth),
     ]);
     setMatricoleReg((mats as any[]) || []);
-    setSlipsMese((slips as any[]) || []);
+    setSlipsMese((slips as SlipMese[]) || []);
   }, [companyId, impYear, impMonth]);
 
   useEffect(() => { void caricaRegistroECedolini(); }, [caricaRegistroECedolini]);
 
   // ATTENZIONE: retribuzione/contributi/inail/tfr/altri_costi hanno DEFAULT 0 a
-  // database. Un carico di soli netti le riempie di zeri, quindi "non nulla" non
-  // vuol dire "compilata": la corsia lordi deve guardare gli importi veri.
-  const monthHasData = slipsMese.some((s) => s.tipo === tipoCedolino);
+  // database. Un carico di soli netti le riempie di zeri, quindi "il cedolino
+  // esiste" non vuol dire "questa corsia e' gia' stata caricata": ogni corsia
+  // deve guardare i PROPRI importi, altrimenti la corsia lordi avvisa di una
+  // sostituzione inesistente su ogni mese gia' toccato dai netti.
+  const importoDiCorsia = useCallback(
+    (s: SlipMese) => (isNetto
+      ? Number(s.netto || 0)
+      : Number(s.retribuzione || 0) + Number(s.contributi || 0) + Number(s.inail || 0) + Number(s.tfr || 0) + Number(s.altri_costi || 0)),
+    [isNetto],
+  );
+  const monthHasData = slipsMese.some((s) => s.tipo === tipoCedolino && importoDiCorsia(s) !== 0);
   // Gli altri cedolini gia' presenti nel mese: non vengono toccati, e si dice.
+  // Si contano solo quelli che hanno un importo in QUESTA corsia.
   const altriCedolini = useMemo(() => {
-    const tipi = Array.from(new Set(slipsMese.filter((s) => s.tipo !== tipoCedolino).map((s) => s.tipo)));
-    return tipi.map((t) => ({ tipo: t, label: labelTipo(t), persone: slipsMese.filter((s) => s.tipo === t).length,
-      totale: slipsMese.filter((s) => s.tipo === t).reduce((a, s) => a + Number(s.netto || 0), 0) }));
-  }, [slipsMese, tipoCedolino]);
+    const altri = slipsMese.filter((s) => s.tipo !== tipoCedolino && importoDiCorsia(s) !== 0);
+    const tipi = Array.from(new Set(altri.map((s) => s.tipo)));
+    return tipi.map((t) => ({ tipo: t, label: labelTipo(t), persone: altri.filter((s) => s.tipo === t).length,
+      totale: altri.filter((s) => s.tipo === t).reduce((a, s) => a + importoDiCorsia(s), 0) }));
+  }, [slipsMese, tipoCedolino, importoDiCorsia]);
 
   const matchEmployee = (matricola: string, cognome: string, nome: string): string | null => {
     if (matricola) {
