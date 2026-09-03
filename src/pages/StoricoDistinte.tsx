@@ -259,30 +259,44 @@ export default function StoricoDistinte() {
                   <div className="w-full flex items-stretch">
                     <button
                       onClick={() => setOpen(o => ({ ...o, [d.giorno]: !isOpen }))}
-                      className="flex-1 min-w-0 flex flex-col md:flex-row md:items-center gap-3 px-4 py-3 text-left hover:bg-slate-50"
+                      className="flex-1 min-w-0 px-4 py-3 text-left hover:bg-slate-50"
                     >
-                      <div className="flex items-center gap-2 min-w-0 flex-1">
-                        {isOpen ? <ChevronDown size={18} className="text-slate-400 shrink-0" /> : <ChevronRight size={18} className="text-slate-400 shrink-0" />}
-                        <ClipboardList size={18} className="text-blue-500 shrink-0" />
-                        <div className="min-w-0">
-                          <div className="font-semibold text-slate-800 capitalize truncate">Distinta del {fmtGiorno(d.giorno)}</div>
-                          <div className="text-xs text-slate-400">{d.righe.length} scadenz{d.righe.length === 1 ? 'a' : 'e'}</div>
+                      {/* Data e totali sulla PRIMA riga, chip banca sotto: con 4-5 banche dai
+                          nomi lunghi i chip stavano sulla stessa riga del titolo e lo
+                          schiacciavano fino a nasconderlo. Ora la data resta sempre leggibile. */}
+                      <div className="flex items-start gap-2">
+                        {isOpen ? <ChevronDown size={18} className="text-slate-400 shrink-0 mt-0.5" /> : <ChevronRight size={18} className="text-slate-400 shrink-0 mt-0.5" />}
+                        <ClipboardList size={18} className="text-blue-500 shrink-0 mt-0.5" />
+                        {/* Su schermo stretto il totale va SOTTO la data: affiancato le
+                            spezzava la riga parola per parola. */}
+                        <div className="min-w-0 flex-1 flex flex-col sm:flex-row sm:items-start sm:gap-3">
+                          <div className="min-w-0 flex-1">
+                            <div className="font-semibold text-slate-800 leading-snug">Distinta del {fmtGiorno(d.giorno)}</div>
+                            <div className="text-xs text-slate-400">{d.righe.length} scadenz{d.righe.length === 1 ? 'a' : 'e'}</div>
+                          </div>
+                          <div className="shrink-0 mt-1 sm:mt-0 sm:text-right">
+                            <div className="text-base font-bold text-slate-900">€ {fmt(d.totale)}</div>
+                            <div className="text-[11px] text-emerald-600">pagato € {fmt(d.totalePagato)}</div>
+                          </div>
                         </div>
                       </div>
-                      {/* chip per banca */}
-                      <div className="flex flex-wrap gap-1.5">
-                        {d.banche.map(b => (
-                          <span key={b.bankId} className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-100 text-[11px] text-slate-600">
-                            <Landmark size={11} className="text-slate-400" />
-                            <span className="font-medium">{b.bankName}</span>
-                            <span className="text-slate-500">€ {fmt(b.total)}</span>
-                          </span>
-                        ))}
-                      </div>
-                      <div className="text-right shrink-0">
-                        <div className="text-base font-bold text-slate-900">€ {fmt(d.totale)}</div>
-                        <div className="text-[11px] text-emerald-600">pagato € {fmt(d.totalePagato)}</div>
-                      </div>
+                      {/* Chip per banca: riga propria, a capo libero. Quando la distinta è
+                          aperta si nascondono, perché sotto c'è già il dettaglio per banca. */}
+                      {!isOpen && (
+                        <div className="flex flex-wrap gap-1.5 mt-2 sm:pl-11">
+                          {d.banche.map(b => (
+                            <span
+                              key={b.bankId}
+                              title={`${b.bankName} — € ${fmt(b.total)}`}
+                              className="inline-flex items-center gap-1 max-w-full px-2 py-1 rounded-lg bg-slate-100 text-[11px] text-slate-600"
+                            >
+                              <Landmark size={11} className="text-slate-400 shrink-0" />
+                              <span className="font-medium truncate max-w-[180px] sm:max-w-[260px]">{b.bankName}</span>
+                              <span className="text-slate-500 shrink-0">€ {fmt(b.total)}</span>
+                            </span>
+                          ))}
+                        </div>
+                      )}
                     </button>
                     {/* Elimina l'intera distinta: solo le scadenze non ancora pagate.
                         Le pagate restano. Compare solo se c'è qualcosa da eliminare. */}
