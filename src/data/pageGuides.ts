@@ -607,7 +607,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "Come sono organizzate le distinte",
-        "body": "Le distinte sono elencate dalla più recente alla più vecchia, una riga per ogni giorno (per esempio \"Distinta del lunedì 14 luglio 2026\"). Su ogni riga, senza bisogno di aprirla, vedi già: quante scadenze contiene, un'etichetta per ogni banca coinvolta con il relativo totale, il totale complessivo della distinta e quanto di quel totale risulta già pagato.",
+        "body": "Le distinte sono elencate dalla più recente alla più vecchia, una riga per ogni giorno (per esempio \"Distinta del lunedì 14 luglio 2026\"). In cima a ogni riga trovi la data e il numero di scadenze a sinistra, il totale della distinta e la quota già pagata a destra; sotto, su una riga propria, un'etichetta per ogni banca coinvolta con il relativo totale. Quando le banche sono molte le etichette vanno a capo senza mai coprire la data, e i nomi lunghi sono accorciati (passaci sopra il mouse per leggerli per intero). Aprendo la distinta le etichette lasciano il posto al dettaglio per banca.",
         "steps": [
           "Scorri l'elenco per trovare il giorno che ti interessa (le più recenti sono in alto).",
           "Clicca sulla riga della distinta per aprirla ed espandere il dettaglio.",
