@@ -1,5 +1,28 @@
 # Piano di pagamento fornitore + segnalazioni anomalie — Note di implementazione
 
+> ## 💶 SALDO PREVISIONALE — impegno RESIDUO, avviso e non blocco (2026-09-03)
+>
+> **Regola (Patrizio)**: i soldi di una distinta già emessa (quelle che si vedono in
+> **Storico Distinte**) sono davvero impegnati e vanno tolti dalla disponibilità. Il
+> previsionale però **non deve impedire** di usare il 100% del saldo reale: si vede,
+> si conferma, si procede.
+>
+> **Calcolo** (`src/lib/committedBalance.ts`): l'impegno da sottrarre è il **residuo**,
+> non il disposto pieno:
+> `residuo = max(0, disposto + NC compensate − amount_paid)`
+> (stessa formula di `disposizione_amount_pending` nello Scadenzario). Contare il disposto
+> pieno su una fattura **pagata in parte** era un doppio conteggio: la quota già pagata è
+> uscita davvero e sta già nel saldo reale. Caso reale NZ del 2026-09-03: WOLF GROUP
+> fatt. 218, disposta 39.445,90 € e già pagata il 7/8 (39.683,24 € + 237,34 € di NC),
+> continuava a pesare per intero → BCC Valdarno mostrava previsionale −6.621,47 € invece
+> del saldo reale 32.824,43 €. Stessa correzione sugli F24 (`fiscal_deadlines.amount_paid`).
+>
+> **UI Scadenzario**: nessun blocco duro sui saldi. Sforo del previsionale → riga arancione
+> con quanto si sta intaccando e quanto resta di reale, più conferma esplicita. Sforo del
+> saldo reale → avviso rosso e conferma più netta. Unico blocco rimasto sul pulsante
+> "Crea distinta": fattura selezionata senza banca. Vale anche per il flusso A-Cube.
+
+
 > ## 🧾 RICEVUTA BANCARIA (RiBa) — chiusura PROVVISORIA alla scadenza (2026-08-06) — FASE 1
 >
 > **Regola (Patrizio)**: un fornitore che paga con **ricevuta bancaria** (`riba_*`) viene

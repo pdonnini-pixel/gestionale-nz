@@ -2,12 +2,14 @@
 // totale selezionato e CTA "Crea distinta". Estratta da ScadenzarioSmart.tsx
 // (spezzatura ondata 9) senza cambi funzionali: stato e azioni via props.
 //
-// SALDO PREVISIONALE = INFORMAZIONE, NON VINCOLO.
-// Il saldo di partenza mostrato è il previsionale (reale − distinte già disposte
-// non ancora pagate), ma la disponibilità vera resta il saldo REALE: sforare il
-// previsionale non blocca nulla, si segnala e basta. Anche oltre il saldo reale
-// la distinta resta possibile (fidi, incassi in arrivo), previa conferma esplicita
-// chiesta da ScadenzarioSmart. L'unico blocco duro è una fattura senza banca.
+// SALDO PREVISIONALE = AVVISO, NON BLOCCO.
+// Il saldo di partenza mostrato è il previsionale (reale − residuo delle distinte
+// già disposte e non ancora uscite dal conto). Quei soldi sono davvero impegnati,
+// quindi sforare il previsionale è una scelta che va vista e confermata; non è
+// però vietata, perché la disponibilità vera resta il saldo REALE e a volte si
+// decide di pagare altro. Stessa logica oltre il saldo reale (fidi, incassi in
+// arrivo), con un avviso più forte. Le conferme le chiede ScadenzarioSmart.
+// L'unico blocco duro rimasto è una fattura senza banca assegnata.
 import { Landmark, ChevronRight, AlertTriangle, Wallet } from 'lucide-react';
 import { fmt } from './helpers';
 
@@ -19,7 +21,7 @@ export type BankAccountLite = {
 }
 
 export function BulkPaymentBar({
-  selectedCount, selectedTotal, bankSpending, bankBalances, bankBaseBalances, bankRealBalances, bankAccounts,
+  selectedCount, selectedTotal, bankSpending, bankBalances, bankBaseBalances, bankRealBalances, bankCommitted, bankAccounts,
   overCommittedCount, overRealCount, missingBankCount, isSaving, onClear, onConfirm,
 }: {
   selectedCount: number
@@ -32,6 +34,8 @@ export function BulkPaymentBar({
   bankBaseBalances?: Record<string, number>
   /** id banca -> residuo sul saldo REALE (reale - spesa selezionata): la disponibilità vera */
   bankRealBalances?: Record<string, number>
+  /** id banca -> soldi già impegnati in distinte precedenti ancora da pagare */
+  bankCommitted?: Record<string, number>
   bankAccounts: BankAccountLite[]
   /** banche in cui si sfora il previsionale ma NON il saldo reale: avviso, nessun blocco */
   overCommittedCount: number
@@ -88,7 +92,14 @@ export function BulkPaymentBar({
                     {fmt(residuoStimato)} €
                   </span>
                   <span className="text-slate-400">(−{fmt(bankSpending[bid] || 0)})</span>
-                  {overCommitted && <span className="text-amber-600 font-medium">reale {fmt(residuoReale)} €</span>}
+                  {overCommitted && (
+                    <span
+                      className="text-amber-600 font-medium"
+                      title={`${fmt(bankCommitted?.[bid] || 0)} € sono già destinati a distinte precedenti (Storico Distinte)`}
+                    >
+                      intacchi {fmt(Math.abs(residuoStimato))} € già in distinta · reale {fmt(residuoReale)} €
+                    </span>
+                  )}
                 </div>
               );
             })}
@@ -100,7 +111,7 @@ export function BulkPaymentBar({
             <span className="text-lg font-bold">{fmt(selectedTotal)} €</span>
             {overRealCount > 0 && <span className="text-sm font-medium text-red-600">Oltre il saldo reale</span>}
             {overRealCount === 0 && overCommittedCount > 0 && (
-              <span className="text-sm font-medium text-amber-600">Oltre il previsionale (disponibilità reale ok)</span>
+              <span className="text-sm font-medium text-amber-600">Stai usando soldi già in distinta</span>
             )}
             {missingBankCount > 0 && (
               <span className="text-sm font-medium text-amber-600">
@@ -120,7 +131,7 @@ export function BulkPaymentBar({
             )}
             {overRealCount === 0 && overCommittedCount > 0 && (
               <div className="flex items-center gap-1.5 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-700 font-medium">
-                <AlertTriangle size={14} /> Stai usando soldi già impegnati in distinte precedenti
+                <AlertTriangle size={14} /> Soldi già destinati a distinte precedenti: ti sarà chiesta conferma
               </div>
             )}
             {missingBankCount > 0 && (

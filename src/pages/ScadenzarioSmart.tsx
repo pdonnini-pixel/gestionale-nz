@@ -575,19 +575,29 @@ const ScadenzarioSmart = () => {
     usedBankIds.filter(bid => (bankRealBalances[bid] ?? 0) < 0)
   ), [usedBankIds, bankRealBalances]);
 
-  // Unico gate rimasto sui saldi: se la distinta va oltre i soldi realmente
-  // presenti sul conto, si chiede conferma e si procede se l'operatrice conferma.
-  // Sforare il solo previsionale non chiede nulla: quei soldi ci sono.
+  // Nessun blocco duro sui saldi: si chiede conferma e si procede se l'operatrice
+  // conferma. Due livelli, perché sono due cose diverse:
+  //  - oltre il PREVISIONALE: i soldi sul conto ci sono, ma sono già impegnati da
+  //    distinte precedenti (quelle in Storico Distinte). Va detto chiaramente.
+  //  - oltre il SALDO REALE: sul conto i soldi non bastano proprio.
   const confirmOverdraftIfNeeded = useCallback(async () => {
-    if (overRealBankIds.length === 0) return true;
-    const dettaglio = overRealBankIds.map(bid => {
-      const ba = bankAccounts.find(b => String(b.id) === String(bid));
-      return `${ba?.bank_name || 'Banca'}: ${fmt(bankRealBalances[bid] ?? 0)} €`;
-    }).join(' · ');
-    return await askConfirm(
-      `Con questa distinta superi il saldo reale su ${overRealBankIds.length === 1 ? 'una banca' : `${overRealBankIds.length} banche`} (${dettaglio}). Procedo lo stesso?`
-    );
-  }, [overRealBankIds, bankAccounts, bankRealBalances, askConfirm]);
+    const nomeBanca = (bid: string) => bankAccounts.find(b => String(b.id) === String(bid))?.bank_name || 'Banca';
+    if (overRealBankIds.length > 0) {
+      const dettaglio = overRealBankIds.map(bid => `${nomeBanca(bid)}: ${fmt(bankRealBalances[bid] ?? 0)} €`).join(' · ');
+      return await askConfirm(
+        `Con questa distinta superi il SALDO REALE su ${overRealBankIds.length === 1 ? 'una banca' : `${overRealBankIds.length} banche`} (${dettaglio}). Sul conto i soldi non bastano: procedo lo stesso?`
+      );
+    }
+    if (overCommittedBankIds.length > 0) {
+      const dettaglio = overCommittedBankIds.map(bid => (
+        `${nomeBanca(bid)}: ${fmt(committedByAccount[bid] || 0)} € già in distinta, resterebbero ${fmt(bankRealBalances[bid] ?? 0)} € reali`
+      )).join(' · ');
+      return await askConfirm(
+        `Stai impegnando soldi già destinati a distinte precedenti (${dettaglio}). Sul conto i soldi ci sono, ma quelle distinte restano da pagare: procedo?`
+      );
+    }
+    return true;
+  }, [overRealBankIds, overCommittedBankIds, bankAccounts, bankRealBalances, committedByAccount, askConfirm]);
 
   const selectedTotal = useMemo(() => {
     return Array.from(selectedIds).reduce((sum, id) => {
@@ -4588,6 +4598,7 @@ const ScadenzarioSmart = () => {
             bankBalances={bankBalances}
             bankBaseBalances={bankBaseBalances}
             bankRealBalances={bankRealBalances}
+            bankCommitted={committedByAccount}
             bankAccounts={bankAccounts}
             overCommittedCount={overCommittedBankIds.length}
             overRealCount={overRealBankIds.length}
