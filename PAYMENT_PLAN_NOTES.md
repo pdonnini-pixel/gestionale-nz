@@ -1,5 +1,62 @@
 # Piano di pagamento fornitore + segnalazioni anomalie — Note di implementazione
 
+> ## 🧾 I TERMINI SCRITTI IN FATTURA VINCONO SUL PIANO FORNITORE (2026-09-03) — FATTO
+>
+> **Regola di Patrizio**: «quando arriva la fattura devi leggere la modalità di
+> pagamento e la tipologia di pagamento: se viene dalla fattura vuol dire che il
+> fornitore si aspetta quella».
+>
+> **Caso**: BELLA BIJOUX fattura 524 del 04/08/2026, 4.280,98 €. In fattura
+> «MP05 bonifico, TP02 pagamento completo, scadenza 05/08». Il bridge l'aveva
+> ignorata e aveva generato la scadenza dal piano fornitore (fine mese 30 gg →
+> 30/09, `payment_method_code` NULL). Il bonifico istantaneo era uscito dalla BCC
+> Valdarno il 04/08 stesso, ma la riga risultava «da pagare» al 30/09. Sabrina la
+> dava «pagata con carta»: la fattura dice bonifico, e bonifico è stato. Chiusa con
+> `reconcile_movement` (movimento `38fae3e1…` ↔ payable `e7fd8078…`).
+>
+> **Difetto sistemico**: la 089 doveva essere un FALLBACK, ma il ramo «rata unica»
+> del bridge faceva passare il piano PRIMA dei termini in fattura. Con 241 fornitori
+> su 261 dotati di piano, quasi ogni fattura a rata unica dal 31/07 ha ricevuto
+> date e metodo del piano invece di quelli del fornitore. Su NZ: 99 righe generate
+> dal piano, 70 ancora aperte, di cui 9 con carta (MP08) rimaste aperte perché il
+> ramo piano azzerava il codice MP e `fn_payable_auto_debit` non scattava.
+> Made e Zago: 0 righe (nessuna fattura passiva con piano).
+>
+> **Fix (migration `20260903_170`, NZ+Made+Zago, funzioni identiche sui 3)**:
+> nuova precedenza in `sync_acube_sdi_passive_to_payable`:
+> 1. N ≥ 2 rate in fattura che quadrano → N scadenze dalla fattura
+> 2. almeno una scadenza con importo in fattura → 1 scadenza alla data del fornitore
+> 3. nessun termine in fattura + piano fornitore → piano (089, invariato)
+> 4. altrimenti → rata unica a data fattura
+>
+> Il metodo viene da `fn_sdi_mp_to_payment_method(MP, default fornitore)`: il codice
+> MP decide la famiglia (bonifico / riba / carta / sdd / contanti…), e se il default
+> del fornitore è una variante della stessa famiglia (riba_60, riba_90,
+> carta_debito, sdd_b2b) si conserva quella, perché la fattura non distingue il
+> termine RI.BA. Così REALCART resta riba_90 e GLADIOTEX riba_60. In tutti i rami
+> si assegna la banca del fornitore. `electronic_invoices.payment_method` /
+> `payment_terms` ricevono ora MP e TP (prima NULL dal bridge). Nota sulla riga:
+> «Termini letti dalla fattura (MP05 Bonifico) TP02».
+>
+> **Carta (MP08)**: la 083 (chiusura immediata) è stata sostituita a suo tempo da
+> `fn_payable_auto_debit` (is_auto_debit, carta_credito, scadenza al 20 del mese
+> successivo). Con il codice MP08 ora sempre valorizzato, anche le fatture con
+> payload JSON (senza XML) finiscono in addebito automatico invece di restare
+> aperte come bonifico.
+>
+> **Test** (DO block con rollback forzato su NZ, nessun dato scritto): MP05 con
+> scadenza 10/09 → 10/09 bonifico (piano 30/09 ignorato); MP12 due rate → due
+> scadenze riba_90; nessun termine → piano fine mese riba_90; MP08 → carta,
+> addebito automatico al 20/09.
+>
+> **Non fatto, da decidere**: le 70 righe NZ aperte generate dal piano restano con
+> le date/metodi del piano. Un riallineamento ai termini in fattura (solo righe
+> aperte, non pagate, non in distinta) sposta il cashflow previsionale: si fa solo
+> con l'ok binario di Patrizio, con backup. I casi più evidenti: ALFATECNO 119
+> (26/08 vs 30/09), CORPO VIGILI 3 fatture (01/09 vs 30/09), SAN MAURO e CONSORZIO
+> SHOPINN (SDD 07/09 vs 31/10), FAMILY CENTER, memo, TEDi, DX, GRUPPO NEGOZI,
+> VAIMO (carta aperte come bonifico/contanti).
+
 > ## 🧩 RATE ACCAVALLATE, NON DOPPIONI (2026-09-03) — diagnosi corretta
 >
 > Avevo scritto che c'erano «31 gruppi di doppioni per ~43.822 € di eccesso». **Era
