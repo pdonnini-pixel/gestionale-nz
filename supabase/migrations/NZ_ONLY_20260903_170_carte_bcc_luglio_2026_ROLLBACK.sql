@@ -20,3 +20,27 @@ COMMIT;
 --   WHERE coalesce(bt.note,'') <> coalesce(b.note,'')
 --      OR coalesce(bt.category,'') <> coalesce(b.category,'')
 --      OR bt.is_reconciled <> b.is_reconciled;   -- atteso 0
+
+-- PARTE 2 — riapre le 17 fatture pagate con carta chiuse per riscontro
+BEGIN;
+
+UPDATE public.payables p
+SET amount_paid             = b.amount_paid,
+    amount_remaining        = b.amount_remaining,
+    status                  = b.status,
+    payment_date            = b.payment_date,
+    payment_bank_account_id = b.payment_bank_account_id,
+    bank_transaction_id     = b.bank_transaction_id,
+    closed_manually         = b.closed_manually,
+    is_provisional_paid     = b.is_provisional_paid,
+    provisional_paid_at     = b.provisional_paid_at,
+    notes                   = b.notes,
+    updated_at              = now()
+FROM public._bkp_carte_payables_20260903 b
+WHERE p.id = b.id;
+
+COMMIT;
+
+-- SELECT count(*), round(sum(gross_amount),2) FROM public.payables
+--   WHERE payment_method::text ILIKE '%cart%' AND status IN ('da_pagare','in_scadenza','scaduto');
+-- atteso dopo il rollback: 25 righe, 2.157,30

@@ -81,3 +81,58 @@
 --      or upper(coalesce(description,'')) like '%RICARICA CARTA PREPAGATA TASCA%'
 --   order by transaction_date;
 -- Atteso: nessuna riga con is_reconciled = false, categoria 'carte' su tutte.
+
+-- =============================================================================
+-- PARTE 2 — Le fatture pagate con carta restavano appese nello Scadenzario
+-- =============================================================================
+--
+-- IL PROBLEMA, visto dallo Scadenzario. Le spese fatte con le carte arrivano
+-- comunque come fatture elettroniche dal SDI (distributori, Trenitalia,
+-- alberghi) e il bridge le mette in `payables` con metodo carta_credito e una
+-- scadenza convenzionale, di solito il 20 del mese dopo. Ma quelle fatture sono
+-- GIA' PAGATE nel momento dell'acquisto. Nessuno le chiude e nessun automatismo
+-- puo' farlo, perche' in banca non esiste un movimento con quell'importo:
+--   - con la prepagata non esiste alcun addebito sul conto corrente;
+--   - con la carta di credito l'addebito e' cumulativo, uno al mese.
+-- Risultato: al 03/09/2026, 24 righe con metodo carta ferme in attesa per
+-- 2.063,77 EUR, che gonfiavano il debito verso fornitori e le scadenze da pagare.
+--
+-- COSA E' STATO CHIUSO. Solo dove c'e' riscontro esatto sull'estratto conto
+-- (stesso fornitore, stesso importo, data coerente): 17 righe per 1.641,70 EUR.
+--
+--   14 righe, 1.034,90 EUR  pagate con la prepagata TASCA: chiuse con
+--      payment_date pari alla data della spesa e closed_manually, SENZA
+--      bank_transaction_id, perche' quell'uscita non passa dal conto corrente
+--    3 righe,   606,80 EUR  pagate con la carta di credito 5582**3145
+--      (Hotel Barberino 80,00 e le due Trenitalia 502,00 e 24,80): agganciate
+--      al movimento del 25/08, la rata cumulativa che le contiene
+--
+-- COSA RESTA APERTO, e perche': 8 righe per 515,60 EUR.
+--   6 sono spese di agosto/settembre (EniMoov, I' BIKKE, VAIMO, SIVOC, IP GIOVE,
+--     C.C.S. 6553): si chiuderanno con gli estratti di quei mesi;
+--   GIFET 1472 da 13,00 non trova riscontro (sull'estratto GIFET e' 18,99 e in
+--     data 01/07, non 22/07): non si forza un aggancio che non torna;
+--   ALTOMUGELLO 1976 da 80,00 del 29/07 non compare nell'estratto di luglio,
+--     verosimilmente e' finita nella rata di agosto.
+--
+-- Backup: public._bkp_carte_payables_20260903 (17 righe payables complete).
+-- =============================================================================
+
+-- update public.payables p
+-- set amount_paid = p.gross_amount, status = 'pagato',
+--     payment_date = v.data_spesa, closed_manually = true,
+--     notes = notes || ' | Pagata con la prepagata TASCA 5226**0580 il [...]'
+-- from (values (<14 uuid + data + voce dell'estratto>)) as v(id, data_spesa, voce)
+-- where p.id = v.id;
+
+-- update public.payables p
+-- set amount_paid = p.gross_amount, status = 'pagato', payment_date = date '2026-08-25',
+--     bank_transaction_id = 'f43d2b3b-077c-4d0e-a37b-cb9433a9f3bc', closed_manually = true,
+--     notes = notes || ' | Pagata con la carta di credito 5582**3145 il [...]'
+-- from (values (<3 uuid + carta + data + voce>)) as v(id, carta, data_spesa, voce)
+-- where p.id = v.id;
+
+-- --- Verifica ---------------------------------------------------------------
+-- select count(*), round(sum(gross_amount),2) from public.payables
+--   where payment_method::text ilike '%cart%' and status in ('da_pagare','in_scadenza','scaduto');
+-- Atteso: 8 righe, 515,60 EUR (spese di agosto/settembre e i due casi senza riscontro).

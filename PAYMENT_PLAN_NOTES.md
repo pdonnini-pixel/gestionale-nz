@@ -997,3 +997,24 @@ Da confermare col prossimo estratto.
 Sistemati anche due arretrati: l'addebito carte del 26/05, unico dei dodici
 rimasto aperto, e le tre ricariche TASCA di fine agosto su 31 totali. Tutto
 chiuso per natura con categoria `carte`, senza toccare un solo importo.
+
+**Perché le fatture pagate con carta restano appese nello Scadenzario.** Le
+spese fatte con le carte arrivano comunque come fatture elettroniche dal SDI
+(distributori, Trenitalia, alberghi) e il bridge le mette in `payables` con
+metodo `carta_credito` e una scadenza convenzionale, di solito il 20 del mese
+dopo. Ma sono già pagate all'atto dell'acquisto. Nessun automatismo le può
+chiudere: in banca non esiste un movimento con quell'importo, perché con la
+prepagata l'addebito sul conto non c'è affatto e con la carta di credito è
+cumulativo, uno al mese. Restavano 24 righe per 2.063,77 € che gonfiavano il
+debito verso fornitori.
+
+Chiuse le 17 con riscontro esatto sull'estratto (1.641,70 €): quelle della
+prepagata con la data della spesa e senza `bank_transaction_id`, perché
+quell'uscita non passa dal conto; quelle della carta di credito agganciate alla
+rata cumulativa del 25/08. Le altre 8 (515,60 €) sono spese di agosto e
+settembre o casi senza riscontro, e restano aperte: un aggancio che non torna
+non si forza.
+
+Da qui una regola di lavoro: **l'estratto conto delle carte è il documento che
+chiude quelle scadenze**, come la distinta MPS lo è per le RI.BA. Senza
+estratto non si chiudono; con l'estratto si chiudono per riscontro esatto.
