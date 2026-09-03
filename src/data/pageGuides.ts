@@ -498,6 +498,10 @@ export const PAGE_GUIDES: PageGuide[] = [
     ],
     "faq": [
       {
+        "q": "Una fattura arrivata dallo SDI ha scadenza e metodo diversi dal piano del fornitore: quale vale?",
+        "a": "Vale la fattura. Quando una fattura elettronica arriva da A-Cube, il gestionale legge i termini di pagamento scritti dal fornitore: modalità (bonifico, Ri.Ba., carta, SDD, contanti…), tipologia (pagamento completo, a rate o anticipo) e date di scadenza. Se ci sono, la scadenza nasce con quelle date e quel metodo, perché sono ciò che il fornitore si aspetta; la nota della riga dice «Termini letti dalla fattura» con il codice della modalità. Il piano di pagamento in anagrafica fornitore entra in gioco solo se la fattura non porta nessun termine, e serve comunque a precisare la variante del metodo (per esempio Ri.Ba. a 60 o 90 giorni). Una fattura che indica carta di pagamento viene messa in Addebito automatico con scadenza al 20 del mese successivo, come le altre carte.",
+      },
+      {
         "q": "Quando aggiungo una scadenza a mano, perché non posso scrivere io la data di scadenza?",
         "a": "Perché la scadenza segue le regole interne, non una data personalizzata: il gestionale la calcola dal piano del fornitore (base data fattura o fine mese, giorni, numero rate) o, se il fornitore non ha un piano, dalla regola predefinita \"a vista\" = 30 giorni data fattura a fine mese. Esempio: un documento del 30/06 a vista scade il 31/07. Se un caso particolare lo richiede puoi comunque correggere date e importi a mano dopo il calcolo; \"Ricalcola dalle regole\" ripristina i valori automatici."
       },
@@ -1738,7 +1742,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "q": "Come imposto un fornitore \"fine mese data fattura\" (es. RiBa a fine mese)?",
-        "a": "Scegli la modalità \"Fine mese della fattura\". In alternativa apri \"Accordo fuori standard\", metti \"Si conta da\" su \"Fine mese\" e i giorni alla prima scadenza a 0: la scadenza cade l'ultimo giorno del mese della fattura (fattura del 3 agosto → scadenza 31 agosto). Se invece metti 30 gg, la scadenza slitta a fine mese del mese successivo (è il classico \"30 gg data fattura fine mese\"); con 60 o 90 gg si aggiunge un mese in più ogni 30 gg. Il piano serve alle fatture emesse dal 31/07/2026 solo quando la fattura non porta già una propria data di scadenza: se ce l'ha, vale sempre quella indicata dal fornitore."
+        "a": "Scegli la modalità \"Fine mese della fattura\". In alternativa apri \"Accordo fuori standard\", metti \"Si conta da\" su \"Fine mese\" e i giorni alla prima scadenza a 0: la scadenza cade l'ultimo giorno del mese della fattura (fattura del 3 agosto → scadenza 31 agosto). Se invece metti 30 gg, la scadenza slitta a fine mese del mese successivo (è il classico \"30 gg data fattura fine mese\"); con 60 o 90 gg si aggiunge un mese in più ogni 30 gg. Il piano serve alle fatture emesse dal 31/07/2026 solo quando la fattura non porta già i propri termini di pagamento: se la fattura elettronica indica una data di scadenza e una modalità (bonifico, Ri.Ba., carta, SDD…), valgono sempre quelle scritte dal fornitore, perché sono ciò che lui si aspetta. Il metodo in anagrafica serve allora solo a precisare la variante (per esempio Ri.Ba. a 60 o 90 giorni quando la fattura dice genericamente Ri.Ba.). Le fatture arrivate prima di questa regola e generate dal piano restano come sono."
       }
     ]
   },
