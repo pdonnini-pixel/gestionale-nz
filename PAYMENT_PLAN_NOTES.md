@@ -246,6 +246,45 @@
 > dedicato, riga partitario "Pagamento RiBa (provvisorio)" in `SchedaContabileFornitore`.
 > Parità #0: **meccanismo** identico sui 3 tenant; i fornitori RiBa restano dato NZ-specifico.
 >
+> ## 🧾 «Compensa con nota di credito» — totale o PARZIALE, credito residuo sulla NC (2026-09-03) — FATTA
+>
+> Caso reale NZ: SERTEC fattura 312 (3.172,00) chiusa a mano nell'allineamento del 10/07
+> senza bonifico (il movimento del 13/07 pagava solo la gemella 311); NC TD04 393 da
+> −3.172,00 la storna. Prima servivano tre passaggi (Riapri + due Chiudi a mano) e il
+> legame fattura↔NC non veniva scritto; inoltre una NC piu' grande della fattura veniva
+> chiusa per intero e l'eccedenza spariva (in distinta il netto e' tagliato a 0).
+>
+> **Modello (migration `20260903_170_credit_note_compensation.sql`, NZ+Made+Zago)**:
+> - La quota di NC consumata sta in `payables.amount_paid` della NC **in NEGATIVO** (stesso
+>   segno del lordo, come gia' facevano distinta RiBa e riconciliazione): il trigger ricalcola
+>   `amount_remaining = gross − amount_paid` → NC −3.000 usata per 500 ha amount_paid −500 e
+>   amount_remaining −2.500 = **credito residuo**. Scadenzario, Fornitori (`payableOpenAmount`)
+>   e distinta leggono amount_remaining: il residuo si propaga da solo.
+> - **Residuo NC** = 0 se chiusa (closed_manually o payment_date), altrimenti |lordo| − |amount_paid|.
+>   Helper SQL `credit_note_residual()` e TS `creditNoteResidual()` (`src/lib/payableOpenAmount.ts`).
+>   Le NC chiuse in passato con amount_paid = 0 restano valide (residuo 0 perche' chiuse).
+> - La NC si **chiude solo a residuo zero**. `payable_credit_note_links.origin` ∈
+>   compensazione | distinta | riba (NULL = storico).
+> - RPC `compensate_payable_with_credit_note(fattura, nc, importo?, data, motivo?, operatore?)`
+>   (SECURITY INVOKER, RLS): stesso fornitore (id o P.IVA), fattura aperta, NC con residuo e
+>   NON impegnata in distinta (link pending). Importo = min(residuo fattura, residuo NC) se
+>   omesso, clamp. Fattura → amount_paid += importo, `closed_manually` (pagato o parziale);
+>   NC → amount_paid −= importo; link `applied` (somma se la coppia esiste); audit
+>   `compensazione_nc` su entrambe; proposte `to_confirm` sulla NC rigettate se chiusa.
+> - `reopen_payable` coerente: fattura riaperta → le NC riprendono la quota (link
+>   compensazione→cancelled, altri→pending); NC riaperta (anche se solo usata in parte) →
+>   amount_paid 0 e le fatture compensate ('compensazione'/'distinta') tornano dovute per la
+>   quota; i legami RiBa/storici non toccano la fattura.
+> - `apply_credit_note_links` (riconciliazione) consuma min(residuo, quota link) invece di
+>   chiudere tutta la NC; `undo_reconcile_movement` restituisce la quota; `close_payable_manually`
+>   su NC stralcia il residuo (audit col residuo, non il lordo); `rpc_link_riba_credit_note` usa il residuo.
+> - Frontend `ScadenzarioSmart`: azione «Compensa con nota di credito…» (fattura) / «Compensa su
+>   fattura…» (NC) nel menu di stato e icona ad anello; modale con controparte, importo max
+>   proposto, data, motivo; `ncAmountOf` = residuo (anche in distinta). Partitario
+>   (`SchedaContabileFornitore`): riga AVERE per la quota di NC usata anche se non chiusa.
+> - Testato su NZ in rollback (coppia reale): parziale → riapri fattura → totale → riapri NC → gate
+>   importo oltre il massimo rifiutato.
+
 > ## 🧾 RiBa — FASE 3: note di credito abbinate A MANO (2026-08-06) — FATTA
 >
 > Regola (Patrizio): le NC dei fornitori RiBa NON si compensano in automatico; vanno

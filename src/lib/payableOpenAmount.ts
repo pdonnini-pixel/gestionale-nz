@@ -53,6 +53,20 @@ export function isCreditNote(p: PayableOpenInput): boolean {
 }
 
 /**
+ * Credito RESIDUO di una nota di credito (valore assoluto), cioe' quanto si puo'
+ * ancora scalare. Specchio dell'helper SQL `credit_note_residual` (migration 170):
+ * - NC chiusa a mano o registrata (closed_manually / payment_date) → 0
+ * - altrimenti |lordo| − |quota gia' consumata| (amount_paid, in negativo)
+ * Una NC da −3.000 usata per 500 in compensazione ha amount_paid = −500 e residuo
+ * 2.500. Per una riga che non e' una NC restituisce 0.
+ */
+export function creditNoteResidual(p: PayableOpenInput): number {
+  if (!isCreditNote(p)) return 0
+  if (p.closed_manually || p.payment_date) return 0
+  return Math.max(0, +(Math.abs(num(p.gross_amount)) - Math.abs(num(p.amount_paid))).toFixed(2))
+}
+
+/**
  * True se la scadenza NON concorre piu' al "da pagare": stato terminale oppure
  * nota di credito gia' chiusa a mano / registrata (closed_manually o payment_date).
  */
