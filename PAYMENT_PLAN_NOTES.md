@@ -631,3 +631,60 @@ Nota: NON modificare il bridge 029 direttamente (come da 053); usare flusso addi
 
 ## Applicazione (Regola #0 — parità tenant)
 La migration 087 va applicata **a mano su NZ + Made + Zago** dal dashboard Supabase. È additiva, idempotente, non distruttiva.
+
+---
+
+## Nota di sessione 03/09/2026 (sera) — le distinte RI.BA MPS al 31/08 chiudono il cerchio
+
+Sabrina ha mandato i PDF «Distinta Di Ritiro Effetti Pagati» presi dal portale
+MPS. Sono il documento che mancava per tutta la giornata: 7 distinte create il
+31/08/2026 sul c/c 000000621460, 36 disposizioni, 120.568,97 €. Il dettaglio
+parsato sta in `docs/riba_effetti_31082026.csv`, l'intervento in
+`supabase/migrations/NZ_ONLY_20260903_168_distinte_riba_31082026.sql`.
+
+**Il buco non era un buco.** Le 36 disposizioni hanno due scadenze: 32 effetti
+per 113.812,33 € al 31/08 e 4 effetti per 6.756,64 € al 10/09. In banca il 31/08
+ci sono 4 addebiti «EFFETTI RITIRATI» per 113.825,13 €. La differenza di 12,80 €
+sono le spese di incasso: **0,40 € per effetto**, 32 effetti. Fine della
+discrepanza che nessuna combinazione dei dati a sistema spiegava.
+
+**La banca raggruppa a blocchi da 10, non per distinta.** I 4 addebiti valgono
+10 + 10 + 10 + 2 effetti e mescolano distinte diverse. Per sapere quale effetto
+sta in quale addebito si cerca la partizione esatta dei 32 importi nei 4 totali
+al netto delle spese: la soluzione è unica e ha senso anche a occhio (il blocco
+da 6.896,19 € raccoglie tutte le BRT e le REALCART).
+
+**Come si aggancia un effetto alla rata giusta.** Ogni causale MPS nomina la
+fattura: «SALDO FATT 2548», «ACC FATT 4039 MENO NC 4084 E 4107», «SALDO FT 443 A
+792-NC 56 A 120». Per ogni documento citato si prende **la rata aperta più
+vecchia** di quella fattura. È questo il criterio che scioglie l'ambiguità delle
+rate accavallate sulla stessa data, cioè il motivo per cui GRUPPO F.B e MIAN
+erano rimasti fuori dalle chiusure del pomeriggio. Con questo criterio i conti
+tornano al centesimo: GRUPPO F.B 40.026,70 € su 14 effetti, MIAN 31.806,21 €
+contro 31.806,23 € dichiarati (2 centesimi di arrotondamento nelle rate).
+
+**Regola operativa che ne esce.** Una causale RI.BA che dice «MENO NC» va letta
+come compensazione: fattura più note di credito citate, e il netto deve dare
+l'importo dell'effetto. Se non torna, l'aggancio è sbagliato: non forzarlo.
+
+**Chiusura provvisoria, poi definitiva.** Le 43 righe chiuse in giornata come
+provvisorie (BRT, REALCART, TANESINI, TOP CASH, EGO, GLS, SHINE, NOIR) sono
+passate a definitive con `bank_transaction_id` del movimento che le ha pagate.
+Il flag `is_provisional_paid` serve esattamente a questo: reggere finché non
+arriva il documento, poi sparire.
+
+**Presentata non vuol dire pagata.** 6 righe sono state RIAPERTE perché il loro
+effetto scade il 10/09 e il denaro non è ancora uscito: ARCO V1/0053135,
+GLADIOTEX 442, AXET 006199, HUMATICS 26102275 / 26102341 / 26102421, per
+6.756,64 €. Tre erano state chiuse per eccesso di zelo nel pomeriggio, una
+(AXET) in una sessione precedente. Da tenere a mente: un effetto in distinta
+resta debito fino alla sua scadenza, e la `due_date` va allineata a quella.
+
+**Le distinte ora sono a sistema.** `riba_distinte` (7 righe) e
+`riba_distinta_lines` (36 disposizioni con l'array dei payables collegati) non
+erano mai state usate. Adesso contengono il documento vero: ogni totale coincide
+al centesimo con quello dichiarato dalla banca.
+
+Dopo l'intervento: debito GRUPPO F.B da 103.945,88 a 63.919,18 €, MIAN da
+141.322,99 a 109.516,78 €. Backup completo in `public._bkp_riba_effetti_31082026`
+(85 righe), rollback a fianco della migration.

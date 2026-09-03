@@ -1,0 +1,154 @@
+-- =============================================================================
+-- NZ_ONLY — Distinte RI.BA MPS scadenza 31/08/2026: carico documentale,
+--           chiusura degli effetti e riconciliazione dei 4 addebiti in c/c
+-- Applicato su NZ il 03/09/2026. Dati NZ-specifici: non si replica su Made/Zago.
+-- =============================================================================
+--
+-- IL DOCUMENTO. Sabrina ha mandato i PDF «Distinta Di Ritiro Effetti Pagati»
+-- scaricati dal portale MPS: 7 distinte create il 31/08/2026 sul c/c
+-- 000000621460, tutte in stato «Ricevuta Banca», per 36 disposizioni e
+-- 120.568,97 EUR. Il dettaglio parsato dai PDF sta in docs/riba_effetti_31082026.csv.
+--
+--   supporto    disposizioni   totale       descrizione
+--   136948817        5          19.546,51   RI.BA GRUPPO F.B
+--   136948934        8          18.960,27   RI.BA GRUPPO F.B
+--   136949143        1           1.519,92   RI.BA GRUPPO F.B
+--   136949502        1          31.806,23   RI.BA MIAN
+--   136951745       10           3.213,16   RI.BA NEW ZAGO (BRT, REALCART)
+--   136954351       10          32.447,74   RI.BA NEW ZAGO (misto)
+--   136954530        1          13.075,14   RI.BA NOIR DI PATRIZIA NIGRO
+--
+-- COSA SPIEGA. Le 36 disposizioni si dividono in due scadenze:
+--   31/08/2026 -> 32 effetti per 113.812,33 EUR
+--   10/09/2026 ->  4 effetti per   6.756,64 EUR
+-- In banca il 31/08 ci sono 4 addebiti «EFFETTI RITIRATI» per 113.825,13 EUR
+-- (10 + 10 + 10 + 2 effetti). La differenza di 12,80 EUR sono le spese di
+-- incasso: 0,40 EUR per effetto x 32. Chiude la domanda rimasta aperta tutta
+-- la sessione sui 6.798,77 EUR che non tornavano: non era un buco, erano i
+-- 6.756,64 EUR con scadenza 10/09 piu' le spese.
+--
+-- La banca raggruppa gli effetti in blocchi da 10 e non per distinta: la
+-- corrispondenza blocco <-> effetti e' stata ricostruita cercando la
+-- partizione esatta dei 32 importi nei 4 addebiti al netto delle spese.
+-- La soluzione e' unica e coerente (il blocco da 6.896,19 raccoglie tutte le
+-- BRT e le REALCART, quello da 4.426,96 le due sole righe GRUPPO F.B rimaste
+-- scadute a luglio).
+--
+-- COME SI E' AGGANCIATO. Ogni causale MPS nomina la fattura («SALDO FATT 2548»,
+-- «ACC FATT 4039 MENO NC 4084 E 4107», «SALDO FT 443 A 792-NC 56 A 120»).
+-- Per ogni documento citato si prende la RATA APERTA PIU' VECCHIA di quella
+-- fattura: e' il criterio che scioglie l'ambiguita' delle rate accavallate
+-- sulla stessa data, il motivo per cui GRUPPO F.B e MIAN erano rimasti fuori
+-- dalle chiusure del 03/09. Con questo criterio i totali tornano al centesimo:
+--   GRUPPO F.B  14 effetti -> 22 righe di scadenzario, 40.026,70 EUR
+--   MIAN         1 effetto -> 17 righe (11 fatture + 6 note di credito),
+--                31.806,21 EUR contro 31.806,23 dichiarati (2 centesimi di
+--                arrotondamento nelle rate, non un errore di aggancio)
+--
+-- COSA E' STATO SCRITTO
+--   1. payables: 39 righe nuove chiuse (status pagato, amount_paid = gross,
+--      payment_date 31/08/2026) con bank_transaction_id del movimento che le
+--      ha pagate. Le note di credito citate nelle causali sono state compensate
+--      con lo stesso criterio.
+--   2. payables: 43 righe gia' chiuse in giornata come provvisorie RI.BA
+--      (BRT, REALCART, TANESINI, TOP CASH, EGO, GLS, SHINE, NOIR) passate a
+--      definitive, con bank_transaction_id e is_provisional_paid = false.
+--   3. payables: 6 righe RIAPERTE perche' l'effetto scade il 10/09 e non e'
+--      ancora stato addebitato (ARCO V1/0053135, GLADIOTEX 442, AXET 006199,
+--      HUMATICS 26102275/26102341/26102421), con due_date allineata al 10/09.
+--      Tre di queste erano state chiuse per eccesso di zelo il 03/09 e una
+--      (AXET) in una sessione precedente: il PDF della banca dice che il
+--      denaro esce il 10/09, quindi restano debito fino ad allora.
+--   4. bank_transactions: i 4 addebiti marcati riconciliati, con nota che
+--      spiega composizione e spese.
+--   5. reconciliation_log: una riga per ogni payable agganciato.
+--   6. riba_distinte + riba_distinta_lines: le 7 distinte e le 36 disposizioni
+--      caricate come documento, ognuna con l'array dei payables corrispondenti.
+--
+-- Backup pre-modifica: public._bkp_riba_effetti_31082026 (85 righe payables
+-- complete). Il rollback qui a fianco ripristina esattamente quello stato.
+--
+-- VERIFICA (03/09/2026, dopo l'applicazione)
+--   effetti al 31/08 chiusi   82 righe   113.812,31 EUR
+--   effetti al 10/09 aperti    6 righe     6.756,64 EUR
+--   addebiti in banca 31/08    4 mov.    113.825,13 EUR (= 113.812,33 + 12,80)
+--   distinte caricate          7          120.568,97 EUR
+--   debito GRUPPO F.B  103.945,88 -> 63.919,18
+--   debito MIAN        141.322,99 -> 109.516,78
+-- =============================================================================
+--
+-- NOTA. Le istruzioni sono state eseguite direttamente sul tenant NZ via MCP
+-- il 03/09/2026, dopo backup. Questo file e' la traccia versionata: gli UUID
+-- sono quelli reali di NZ, quindi NON e' rieseguibile altrove ne' idempotente.
+-- Per il dettaglio delle 36 disposizioni vedi docs/riba_effetti_31082026.csv.
+
+-- 1) Backup (eseguito per primo)
+-- create table public._bkp_riba_effetti_31082026 as select p.*, now() as bkp_at
+--   from public.payables p where false;
+-- insert into public._bkp_riba_effetti_31082026 select p.*, now()
+--   from public.payables p where p.id in (<85 uuid: righe GRUPPO F.B, MIAN,
+--   scadenze 10/09, righe gia' chiuse in giornata, righe SHINE>);
+
+-- 2) Chiusura dei 15 effetti nuovi (GRUPPO F.B e MIAN) con aggancio al movimento
+-- update public.payables p
+-- set amount_paid = p.gross_amount, status = 'pagato',
+--     payment_date = date '2026-08-31',
+--     payment_bank_account_id = 'e351d628-a150-4769-b965-9514deab48a3',
+--     bank_transaction_id = m.btid,
+--     is_provisional_paid = false, provisional_paid_at = null,
+--     notes = coalesce(nullif(p.notes,'') || ' | ','') ||
+--             'Pagata con RI.BA in distinta MPS ' || m.distinta ||
+--             ' del 31/08/2026, addebitata in c/c il 31/08/2026',
+--     updated_at = now()
+-- from _map m where p.id = m.pid;   -- 39 righe, 71.832,91 EUR
+
+-- 3) Le chiusure provvisorie della giornata diventano definitive
+-- update public.payables p
+-- set bank_transaction_id = m.btid, payment_date = date '2026-08-31',
+--     payment_bank_account_id = 'e351d628-a150-4769-b965-9514deab48a3',
+--     is_provisional_paid = false, provisional_paid_at = null,
+--     notes = coalesce(nullif(p.notes,'') || ' | ','') ||
+--             'Confermata da distinta MPS ' || m.distinta ||
+--             ' del 31/08/2026: addebito in c/c il 31/08/2026',
+--     updated_at = now()
+-- from _map2 m where p.id = m.pid;  -- 43 righe, 41.979,40 EUR
+
+-- 4) Effetti con scadenza 10/09: restano aperti, data allineata
+-- update public.payables p
+-- set due_date = date '2026-09-10', payment_method = 'riba_30'::payment_method,
+--     amount_paid = 0, status = 'da_pagare', payment_date = null,
+--     is_provisional_paid = false, provisional_paid_at = null,
+--     closed_manually = false,
+--     notes = coalesce(nullif(p.notes,'') || ' | ','') ||
+--             'Effetto in distinta MPS 136954351 presentata il 31/08/2026 con '
+--             'scadenza 10/09/2026: addebito atteso il 10/09, riaperta al 03/09 '
+--             'dopo il riscontro sul PDF della banca'
+-- where p.id in ('83ba67d0-4624-4b0d-8806-900a806bd4b8',   -- ARCO V1/0053135
+--                '0a2ddd6c-a2de-418f-8ca9-bea0f5ed0a9f',   -- GLADIOTEX 442
+--                'dd5daeb0-c901-4723-8f3f-8b936013e711',   -- AXET 006199
+--                'e6fb3a8c-9259-48c1-9c67-5d5ab721dda3',   -- HUMATICS 26102275
+--                'dc1d91a2-62ce-4d37-8a88-3942cb885328',   -- HUMATICS 26102341
+--                '08581d26-d5c4-49f0-9152-68b4b3c03a7f');  -- HUMATICS 26102421
+
+-- 5) I 4 addebiti in c/c diventano riconciliati, con log per ogni payable
+-- insert into public.reconciliation_log (..., match_type, status, applied_amount)
+-- select ..., 'manual', 'applied', p.gross_amount from public.payables p
+-- where p.bank_transaction_id in (<4 uuid>) and not exists (...);
+-- update public.bank_transactions set is_reconciled = true, reconciled_at = now(),
+--        note = '<composizione + spese>' where id in (<4 uuid>);
+
+-- 6) Carico documentale delle distinte (7 righe + 36 disposizioni)
+-- insert into public.riba_distinte (...) values (...);
+-- insert into public.riba_distinta_lines (..., matched_payable_ids, match_status)
+--   values (...);
+
+-- --- Query di verifica -------------------------------------------------------
+-- select 'effetti al 31/08 chiusi', count(*), round(sum(gross_amount),2)
+--   from payables where bank_transaction_id in (<4 uuid>)
+-- union all select 'effetti al 10/09 aperti', count(*), round(sum(gross_amount),2)
+--   from payables where id in (<6 uuid>)
+-- union all select 'addebiti in banca', count(*), round(sum(-amount),2)
+--   from bank_transactions where id in (<4 uuid>)
+-- union all select 'distinte caricate', count(*), round(sum(declared_total),2)
+--   from riba_distinte;
+-- Atteso: 82 / 113.812,31 · 6 / 6.756,64 · 4 / 113.825,13 · 7 / 120.568,97
