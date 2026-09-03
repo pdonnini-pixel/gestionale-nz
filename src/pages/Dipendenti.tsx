@@ -2226,6 +2226,19 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
         rawLines = matrix.slice(0, 25).map((r) => r.join(' | '));
         parsed = parseSpreadsheet(matrix);
       }
+      // I «Netti negativi» sono un tabulato a parte: chi ci finisce, quel mese non
+      // incassa nulla e deve restituire, quindi l'importo NON entra nella distinta
+      // dei bonifici. Per scelta il gestionale non lo importa: il netto del mese
+      // resta quello effettivamente pagato, e il negativo si recupera dal cedolino
+      // successivo. Va detto a chi ci prova, non lasciato a «nessun netto trovato».
+      if (tabulatoNetti(rawLines.join(' ')) === 'negativi') {
+        setRawPreview(['⚠︎ Riconosciuto come «Netti negativi»: è il tabulato di chi, quel mese, non incassa e deve restituire.',
+          'Il gestionale non lo importa per scelta: il netto del mese resta quello pagato davvero, e il negativo si recupera dal cedolino successivo.',
+          'Se non è quel documento, segnala questo estratto:', '', ...rawLines.slice(0, 25)]);
+        toast({ type: 'info', message: 'Questo è l’elenco dei «Netti negativi»: non viene importato. Il netto del mese resta quello pagato, il negativo si recupera dal cedolino successivo.' });
+        await archiviaScartato(file, 'Riconosciuto come «Netti negativi»: non importato per scelta.');
+        return;
+      }
       // tieni solo le righe pertinenti alla corsia
       const relevant = parsed.rows.filter((r) => (isNetto ? r.netto != null : rowHasLordo(r)));
       if (!relevant.length) {
