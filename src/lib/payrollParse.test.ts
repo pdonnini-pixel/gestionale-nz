@@ -23,6 +23,29 @@ describe('matchOutletName', () => {
     expect(matchOutletName('VALDICHIANA VILLAGE', OUTLETS)).toBe('VALDICHIANA')
     expect(matchOutletName('BARBERINO', OUTLETS)).toBe('BARBERINO')
   })
+
+  it('senza alias, una filiale che non somiglia a niente resta senza outlet', () => {
+    expect(matchOutletName('LOC PIAN DI RONA - REGGELLO', OUTLETS)).toBe('')
+  })
+
+  it('con alias configurato, la stessa filiale trova il suo outlet (caso reale NZ giugno 2026)', () => {
+    // Nel file di giugno la sede compare con DUE nomi: «MATASSINO - FIGLINE E
+    // INCISA VALDARNO», che si aggancia via mall_name, e «LOC PIAN DI RONA -
+    // REGGELLO», che nessun campo anagrafico descrive.
+    const conAlias: ParserOutlet[] = OUTLETS.map((o) =>
+      o.name === 'SEDE / MAGAZZINO' ? { ...o, payroll_filiali: ['PIAN DI RONA'] } : o)
+    expect(matchOutletName('LOC PIAN DI RONA - REGGELLO', conAlias)).toBe('SEDE / MAGAZZINO')
+    expect(matchOutletName('MATASSINO - FIGLINE E INCISA VALDARNO', conAlias)).toBe('SEDE / MAGAZZINO')
+    // l'alias non ruba le filiali degli altri
+    expect(matchOutletName('BARBERINO OUTLET', conAlias)).toBe('BARBERINO')
+    expect(matchOutletName('VALDICHIANA VILLAGE', conAlias)).toBe('VALDICHIANA')
+  })
+
+  it('un alias vuoto o nullo non cambia niente', () => {
+    const vuoti: ParserOutlet[] = OUTLETS.map((o) => ({ ...o, payroll_filiali: [] }))
+    expect(matchOutletName('VALDICHIANA VILLAGE', vuoti)).toBe('VALDICHIANA')
+    expect(matchOutletName('LOC PIAN DI RONA - REGGELLO', vuoti)).toBe('')
+  })
 })
 
 describe('parseInfinityNetti — fixture Valdichiana', () => {

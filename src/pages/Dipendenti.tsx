@@ -78,6 +78,8 @@ interface OutletRow {
   is_active: boolean | null;
   mall_name: string | null;
   city: string | null;
+  // Alias di filiale del file paghe (migration 168): serve al parser dei netti.
+  payroll_filiali: string[] | null;
 }
 
 // Vista persistita in URL come ?view=
@@ -411,7 +413,7 @@ export default function Dipendenti() {
         supabase.from('employee_outlet_allocations').select('*').eq('company_id', COMPANY_ID),
         supabase.from('employee_costs').select('*').eq('company_id', COMPANY_ID),
         supabase.from('cost_centers').select('*').eq('company_id', COMPANY_ID).eq('is_active', true).order('sort_order', { nullsFirst: false }),
-        supabase.from('outlets').select('id, name, code, cost_center_key, is_active, mall_name, city').eq('company_id', COMPANY_ID).eq('is_active', true).order('name'),
+        supabase.from('outlets').select('id, name, code, cost_center_key, is_active, mall_name, city, payroll_filiali').eq('company_id', COMPANY_ID).eq('is_active', true).order('name'),
         supabase.from('employee_documents').select('*').eq('company_id', COMPANY_ID).order('created_at', { ascending: false }),
       ]);
       const { data: slipRes } = await supabase.from('employee_cost_slips')
