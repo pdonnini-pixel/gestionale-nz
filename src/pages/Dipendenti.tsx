@@ -2167,6 +2167,21 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
 
   const amountOf = (r: PreviewRow) => (isNetto ? Number(r.netto || 0) : rowLordo(r));
 
+  // Archivia un file che il riconoscimento ha scartato. Prima il tentativo
+  // spariva senza lasciare traccia, ed era proprio il file da guardare per
+  // capire perche' il tracciato non veniva letto.
+  const archiviaScartato = async (file: File, motivo: string) => {
+    const esito = await archiviaFile({
+      file, companyId, userId, modulo: 'Personale',
+      funzione: `${isNetto ? 'Elenco netti' : 'Costi lordi'} per dipendente · file non riconosciuto`,
+      bucket: 'employee-documents', year: impYear, month: impMonth,
+      referenceTable: null, note: motivo,
+    });
+    if (!esito.errore) {
+      toast({ type: 'info', message: 'Il file resta comunque in archivio (Archivio documenti → Caricamenti), così possiamo guardarlo.' });
+    }
+  };
+
   const processFile = async (file: File) => {
     setParsing(true); setFileName(file.name); setFileObj(file);
     setRows(null); setFileTotal(null); setOverwriteAck(false); setRawPreview(null);
@@ -2191,6 +2206,7 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
             setRawPreview(['⚠︎ Riconosciuto come «Prospetto riepilogativo elaborazione paghe» (costo per OUTLET, non per dipendente).',
               'Va importato dalla scheda «Costo lordo». Se non è quel documento, segnala questo estratto:', '', ...rawLines.slice(0, 25)]);
             toast({ type: 'info', message: 'Questo è un «Prospetto paghe» (costo per outlet): importalo dalla scheda «Costo lordo». Sotto trovi l’estratto del file.' });
+            await archiviaScartato(file, 'Riconosciuto come «Prospetto riepilogativo elaborazione paghe»: va importato dalla scheda «Costo lordo».');
             return;
           }
           parsed = parsePdfLordi(rawLines, outlets);
@@ -2212,12 +2228,14 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
         toast({ type: 'error', message: isNetto
           ? 'Nessun netto riconosciuto: vedi l’estratto del file in anteprima.'
           : 'Nessun componente di costo riconosciuto: vedi l’estratto del file (tracciato PDF lordi definitivo in arrivo).' });
+        await archiviaScartato(file, isNetto ? 'Nessun netto riconosciuto nel file.' : 'Nessun componente di costo lordo riconosciuto nel file.');
         return;
       }
       relevant.forEach((row) => { const id = matchEmployee(row.matricola, row.cognome, row.nome); row.matchedId = id; row.isNew = !id; });
       setRows(relevant); setFileTotal(parsed.fileTotal);
     } catch (err: any) {
       toast({ type: 'error', message: 'Errore parsing file: ' + (err?.message || '') });
+      await archiviaScartato(file, `Errore in lettura: ${err?.message || 'motivo non noto'}`);
     } finally {
       setParsing(false);
       if (fileRef.current) fileRef.current.value = '';
@@ -2832,7 +2850,13 @@ function CostiLordoDipendentiBlock({ companyId, userId, outlets, year, month, mo
       const { extractPdfItemsOriented } = await import('../lib/pdfText');
       const pages = await extractPdfItemsOriented(file);
       const companies = listStatisticaCompanies(pages);
-      if (companies.length === 0) { toast({ type: 'error', message: 'Il PDF non sembra una «Statistica costo orario»: nessuna azienda riconosciuta.' }); return; }
+      if (companies.length === 0) {
+        toast({ type: 'error', message: 'Il PDF non sembra una «Statistica costo orario»: nessuna azienda riconosciuta. Il file resta in archivio (Archivio documenti → Caricamenti).' });
+        await archiviaFile({ file, companyId, userId, modulo: 'Personale',
+          funzione: 'Statistica costo orario · file non riconosciuto', bucket: 'employee-documents',
+          note: 'Nessuna azienda riconosciuta nel PDF.' });
+        return;
+      }
       if (companies.length === 1) { runParse(pages, companies[0], file.name); return; }
       setCompanyPick({ pages, companies, fileName: file.name });
     } catch (e) { console.error(e); toast({ type: 'error', message: 'Impossibile leggere il PDF.' }); }
@@ -3151,7 +3175,10 @@ function CostiLordoTab({ companyId, userId, outlets, year, month, monthLabel }: 
         const lines = await extractPdfLines(file);
         const parsed = parseProspettoPaghe(lines, outlets as any);
         if (!parsed.isProspetto || parsed.rows.length === 0) {
-          toast({ type: 'error', message: 'Il PDF non sembra un «Prospetto riepilogativo elaborazione paghe». Nessun dato per outlet riconosciuto.' });
+          toast({ type: 'error', message: 'Il PDF non sembra un «Prospetto riepilogativo elaborazione paghe»: nessun dato per outlet riconosciuto. Il file resta in archivio (Archivio documenti → Caricamenti).' });
+          await archiviaFile({ file, companyId, userId, modulo: 'Personale',
+            funzione: 'Prospetto paghe · file non riconosciuto', bucket: 'employee-documents',
+            note: 'Nessun dato per outlet riconosciuto nel PDF.' });
           return;
         }
         setFileObj(file);
