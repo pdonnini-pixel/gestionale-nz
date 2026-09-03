@@ -55,9 +55,11 @@
 > distinta, con codice MP in fattura e al massimo una scadenza. Backup integrale
 > in `_bkp_riallineo_termini_20260903` (RLS attiva). Date e metodo portati ai
 > termini in fattura, nota con i valori precedenti; le MP08 sono passate da sole in
-> addebito automatico carta (trigger `fn_payable_auto_debit`). Restano dal piano
-> solo le fatture senza termini (MIAN, S.B.A., GLS, CIGIERRE, IP SERVICES, C.C.S.,
-> EniMoov), cioè il caso in cui il piano è giusto.
+> addebito automatico carta (trigger `fn_payable_auto_debit`). Esito: 52 righe
+> riallineate, 9 carte in addebito automatico. Restano dal piano 17 righe: le
+> fatture senza termini (MIAN, S.B.A., GLS, CIGIERRE, IP SERVICES, C.C.S., EniMoov),
+> dove il piano è la fonte giusta, e Humatics/ARCO già impegnate in distinta RI.BA,
+> escluse apposta.
 
 > ## 🧩 RATE ACCAVALLATE, NON DOPPIONI (2026-09-03) — diagnosi corretta
 >
