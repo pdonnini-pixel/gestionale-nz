@@ -1,5 +1,41 @@
 # Piano di pagamento fornitore + segnalazioni anomalie — Note di implementazione
 
+> ## 💰 ACCONTI — la disposizione si chiude, il partitario li registra (2026-09-03)
+>
+> **Segnalazione di Patrizio**: «non è corretto tenere aperta la distinta di WOLF GROUP,
+> quell'importo in distinta è un acconto su fattura e quindi se pagato deve essere chiuso
+> e registrato nel partitario». Aveva ragione su entrambi i fronti, ed erano due bug
+> distinti che si sommavano.
+>
+> **1. La riga di distinta restava aperta per sempre.** `StoricoDistinte` considerava
+> eseguita una riga solo se `payables.status = 'pagato'`. Ma una disposizione di ACCONTO
+> è conclusa quando esce l'importo **disposto**, non quando la fattura è saldata: WOLF
+> GROUP 218 (79.683,24) aveva 39.445,90 disposti il 6/8 e usciti il 7/8, quindi quella
+> riga era finita mentre la fattura resta giustamente aperta per il residuo. La distinta
+> del 06/08 sarebbe rimasta aperta all'infinito per colpa di una riga già chiusa.
+> Ora una riga è eseguita se `amount_paid >= importo disposto`, con badge azzurro
+> **«Acconto»** distinto dal verde «Pagato» (che resta la fattura saldata).
+>
+> **2. Gli acconti non entravano in partitario.** `SchedaContabileFornitore` generava la
+> riga DARE solo per `status = 'pagato' && payment_date`. Un acconto su fattura ancora
+> aperta spariva: i soldi erano usciti dal conto ma il debito verso il fornitore restava
+> gonfiato di quella cifra. Sui dati vivi NZ, **51.865 € di debito sovrastimato**:
+>
+> | fornitore | saldo mostrato | saldo corretto | differenza |
+> |---|---:|---:|---:|
+> | WOLF GROUP | 133.356,60 | 93.693,86 | 39.662,74 |
+> | MINGARDO SRLS | 31.787,00 | 20.193,00 | 11.594,00 |
+> | GABRIEL IOSUB | 14.640,00 | 14.031,75 | 608,25 |
+>
+> Ora la riga DARE nasce da `amount_paid > 0`, senza pretendere né lo stato «pagato» né
+> la data di pagamento (MINGARDO ha 11.594,00 versati e `payment_date` nullo: restavano
+> comunque invisibili). Dicitura **«Acconto»** quando la fattura non è saldata,
+> «Pagamento» quando lo è. `isPaid` resta il flag di fattura SALDATA: un acconto non
+> chiude niente.
+>
+> **Nessun dato toccato**: entrambi i fix sono lato lettura, coerenti con il pattern del
+> progetto (la logica di visualizzazione sta nel frontend, il DB resta intatto).
+
 > ## 🔗 RICONCILIAZIONE v3 — la gerarchia di chiavi (2026-09-03) — FATTA
 >
 > **Da dove nasce.** Estratti conto luglio/agosto 2026 alla mano, la distinta di pagamento
