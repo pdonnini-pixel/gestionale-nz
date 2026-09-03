@@ -414,12 +414,13 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "Passo 1 — Selezionare le fatture da pagare",
-        "body": "Ogni volta che selezioni una fattura, il gestionale apre sotto la riga un piccolo pannello per impostare come pagarla; in fondo alla pagina compare una barra con il totale selezionato e, per ogni banca coinvolta, il saldo di partenza e il saldo che resterebbe dopo il pagamento — così controlli sempre a colpo d'occhio di non andare in rosso. Il saldo di partenza è il saldo previsionale del conto, cioè quello reale già al netto delle distinte precedenti ancora da pagare su quel conto (contrassegnato \"prev.\"): così i conti tengono conto anche degli impegni già presi, non solo di quello che stai selezionando ora. Anche la banca proposta nella tendina \"Seleziona banca…\" mostra questo saldo previsionale, non quello pieno.",
+        "body": "Ogni volta che selezioni una fattura, il gestionale apre sotto la riga un piccolo pannello per impostare come pagarla; in fondo alla pagina compare una barra con il totale selezionato e, per ogni banca coinvolta, il saldo di partenza e il saldo che resterebbe dopo il pagamento. Il saldo di partenza è il saldo previsionale del conto, cioè quello reale già al netto delle distinte precedenti ancora da pagare su quel conto (contrassegnato \"prev.\"). Il previsionale però è solo un'informazione: non ti impedisce di usare tutta la disponibilità reale della banca. Se il residuo scende sotto lo zero perché stai intaccando soldi già impegnati in distinte precedenti, il numero diventa arancione, accanto compare quanto resta davvero sul conto e puoi comunque creare la distinta. Solo se superi anche il saldo reale il gestionale ti chiede una conferma esplicita, e se confermi procede lo stesso (può servire quando hai un fido o incassi in arrivo). Nella tendina \"Seleziona banca…\" vedi il residuo previsionale e, quando i due valori differiscono, anche quello reale.",
         "steps": [
           "Vai sulla scheda \"Scadenzario\" (in alto) e, se vuoi, filtra per stato \"Da pagare\", \"Scaduto\" o simili per vedere solo ciò che ti interessa.",
           "Spunta la casella a sinistra di ogni fattura che vuoi mettere in pagamento.",
           "Se una fattura risulta già \"in distinta\" da prima, il gestionale ti avvisa con un messaggio: non verrà aggiunta due volte.",
-          "Controlla in basso il totale selezionato e i saldi delle banche coinvolte."
+          "Controlla in basso il totale selezionato e i saldi delle banche coinvolte: il verde indica che resti dentro il previsionale, l'arancione che stai usando soldi già impegnati (ma disponibili), il rosso che superi il saldo reale.",
+          "L'unica cosa che blocca davvero il pulsante \"Crea distinta\" è una fattura selezionata senza banca assegnata."
         ]
       },
       {
@@ -550,7 +551,11 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "q": "Il saldo della banca mostrato quando creo la distinta è quello vero in banca?",
-        "a": "È il saldo previsionale, non quello pieno: il gestionale parte dal saldo reale del conto e ne sottrae le distinte già disposte ma non ancora pagate su quello stesso conto (contrassegnate \"prev.\"). Serve a non farti impegnare due volte gli stessi soldi: se avevi già messo in distinta dei pagamenti su quella banca, quelli sono già scontati dal saldo di partenza. Il saldo reale (quello che vedi nell'home banking) non viene mai modificato: lo trovi nella pagina Banche. Man mano che spunti nuove fatture, il saldo scende ancora dell'importo che stai per pagare."
+        "a": "Il numero principale è il saldo previsionale: il gestionale parte dal saldo reale del conto e ne sottrae le distinte già disposte ma non ancora pagate su quello stesso conto (contrassegnate \"prev.\"). Serve a ricordarti quali soldi hai già impegnato. Non è un limite. Se decidi di pagare altro con quella liquidità puoi farlo: quando il residuo previsionale va sotto zero ma sul conto i soldi ci sono, il valore diventa arancione, accanto trovi la disponibilità reale residua e la distinta si crea senza ostacoli. Il saldo reale (quello che vedi nell'home banking) non viene mai modificato: lo trovi nella pagina Banche. Man mano che spunti nuove fatture, entrambi i saldi scendono dell'importo che stai per pagare."
+      },
+      {
+        "q": "Perché non riesco a creare la distinta? Il saldo previsionale mi blocca?",
+        "a": "No, il previsionale non blocca mai: puoi impegnare il 100% della disponibilità reale della banca anche se avevi già disposto altre distinte su quel conto. L'unico caso in cui il pulsante \"Crea distinta\" resta grigio è una fattura selezionata senza banca assegnata: assegnala e il pulsante si riattiva. Se invece superi il saldo reale del conto compare una richiesta di conferma: rispondendo di sì la distinta viene creata comunque."
       },
       {
         "q": "Che differenza c'è tra ACCONTO e SALDO nella distinta?",
@@ -769,7 +774,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "q": "Che differenza c'è tra saldo reale e saldo previsionale?",
-        "a": "Il saldo reale è la liquidità effettivamente presente sul conto in questo momento (dato che arriva dalla banca). Il saldo previsionale è il saldo reale meno le distinte di pagamento ancora da saldare (fatture fornitori e scadenze fiscali/F24 messe in distinta ma non ancora pagate) assegnate a quel conto: ti dice quanto ti resterebbe una volta pagato tutto ciò che hai già disposto. Il previsionale è solo un aiuto di lettura: non modifica mai il saldo reale."
+        "a": "Il saldo reale è la liquidità effettivamente presente sul conto in questo momento (dato che arriva dalla banca). Il saldo previsionale è il saldo reale meno le distinte di pagamento ancora da saldare (fatture fornitori e scadenze fiscali/F24 messe in distinta ma non ancora pagate) assegnate a quel conto: ti dice quanto ti resterebbe una volta pagato tutto ciò che hai già disposto. Il previsionale è solo un aiuto di lettura: non modifica mai il saldo reale e non ti impedisce di usare tutta la disponibilità del conto. Anche nello Scadenzario, se decidi di pagare qualcosa con soldi già impegnati in una distinta precedente, il gestionale te lo segnala in arancione ma ti lascia procedere."
       },
       {
         "q": "Dove prendo il file da mandare alla commercialista?",
