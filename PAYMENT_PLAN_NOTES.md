@@ -688,3 +688,22 @@ al centesimo con quello dichiarato dalla banca.
 Dopo l'intervento: debito GRUPPO F.B da 103.945,88 a 63.919,18 €, MIAN da
 141.322,99 a 109.516,78 €. Backup completo in `public._bkp_riba_effetti_31082026`
 (85 righe), rollback a fianco della migration.
+
+### Aggiornamento 03/09/2026 — SHINE, le fatture di giugno slittano a settembre
+
+Sabrina conferma: le dieci fatture SHINE di giugno (1103, 1107, 1142, 1187,
+1194, 1200, 1238, 1256, 1257, 1286) non erano nelle distinte del 31/08 perché
+la RI.BA non è stata presentata. Slittano a settembre, 14.893,35 €.
+
+Spostata la sola prima rata da 31/08 a 30/09, tracciando con `original_due_date`,
+`postponed_to` e `postpone_count`. Le rate successive restano dove sono:
+l'informazione riguarda la presentazione saltata, non il piano di pagamento.
+
+**Da qui nascono le rate accavallate.** Al 30/09 SHINE si ritrova con due rate
+per ognuna di quelle dieci fatture, 23 righe per 29.583,57 €. È lo stesso
+meccanismo dei 39 piani con rate sulla stessa data: non un errore di
+`fn_supplier_installment_schedule`, ma una presentazione mancata che sposta una
+rata sopra la successiva. Quando si vede quel pattern, prima di toccare le date
+conviene chiedere se una presentazione è saltata.
+
+Dettagli in `supabase/migrations/NZ_ONLY_20260903_169_shine_giugno_slitta_settembre.sql`.
