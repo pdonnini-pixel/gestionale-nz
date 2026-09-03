@@ -1,0 +1,62 @@
+-- =============================================================================
+-- NZ_ONLY — SHINE: le prime rate delle fatture di giugno slittano a settembre
+-- Applicato su NZ il 03/09/2026. Dati NZ-specifici: non si replica su Made/Zago.
+-- =============================================================================
+--
+-- IL FATTO. Dieci fatture SHINE di giugno (1103, 1107, 1142, 1187, 1194, 1200,
+-- 1238, 1256, 1257, 1286) avevano la prima rata al 31/08/2026, in tutto
+-- 14.893,35 €. Nelle sette distinte MPS di quella data (vedi la 168) non
+-- compaiono: la RI.BA non e' stata presentata. Sabrina conferma il 03/09 che
+-- slittano a settembre.
+--
+-- COSA CAMBIA. Solo la data della PRIMA rata: 31/08 -> 30/09. Le rate
+-- successive (30/09 e 31/10) restano dove sono, perche' l'informazione
+-- riguarda la presentazione mancata, non il piano di pagamento.
+-- Conseguenza da tenere presente: al 30/09 SHINE ha due rate per ognuna di
+-- queste dieci fatture, e il totale del fornitore a quella data sale a
+-- 29.583,57 € su 23 righe. E' lo stesso meccanismo che genera le «rate
+-- accavallate» sulla stessa data gia' viste su 39 piani: nasce da qui, da una
+-- presentazione saltata, non da un errore di generazione delle rate.
+--
+-- Lo slittamento e' tracciato con i campi previsti dallo schema:
+-- original_due_date (se non gia' valorizzato), postponed_to, postpone_count.
+-- Nessun importo toccato, nessuna riga cancellata.
+--
+-- Backup pre-modifica: public._bkp_shine_slitta_20260903 (10 righe payables
+-- complete). Il rollback qui a fianco ripristina esattamente quello stato.
+-- =============================================================================
+--
+-- NOTA. Eseguito direttamente sul tenant NZ via MCP il 03/09/2026, dopo backup.
+-- Questo file e' la traccia versionata; gli UUID sono quelli reali di NZ.
+
+-- 1) Backup
+-- create table public._bkp_shine_slitta_20260903 as
+--   select p.*, now() as bkp_at from public.payables p where false;
+-- insert into public._bkp_shine_slitta_20260903
+-- select p.*, now() from public.payables p
+-- where p.supplier_id = '<SHINE SRL>'
+--   and p.invoice_number in ('1103/26','1107/26','1142/26','1187/26','1194/26',
+--                            '1200/26','1238/26','1256/26','1257/26','1286/26')
+--   and p.due_date = date '2026-08-31' and coalesce(p.amount_paid,0) = 0;
+-- -- 10 righe, 14.893,35 EUR
+
+-- 2) Slittamento della sola prima rata
+-- update public.payables p
+-- set due_date = date '2026-09-30',
+--     original_due_date = coalesce(p.original_due_date, p.due_date),
+--     postponed_to = date '2026-09-30',
+--     postpone_count = coalesce(p.postpone_count,0) + 1,
+--     notes = coalesce(nullif(p.notes,'') || ' | ','') ||
+--       'Prima rata non presentata alla scadenza del 31/08/2026: non compare '
+--       'nelle distinte MPS di quella data. Sabrina conferma il 03/09 che '
+--       'slitta a settembre.',
+--     updated_at = now()
+-- from public._bkp_shine_slitta_20260903 b
+-- where p.id = b.id;
+
+-- --- Verifica ---------------------------------------------------------------
+-- select p.due_date, count(*), round(sum(p.gross_amount),2)
+--   from payables p where p.supplier_id = '<SHINE SRL>'
+--     and coalesce(p.amount_paid,0) = 0 and p.status not in ('pagato','annullato')
+--   group by 1 order by 1;
+-- Atteso: 30/09/2026 -> 23 righe, 29.583,57 EUR · 31/10/2026 -> 13 righe, 14.690,22 EUR
