@@ -44,7 +44,7 @@ import { useCompany } from '../hooks/useCompany';
 import {
   parseItNum, norm,
   parseInfinityNettiItems, parsePdfLordi, parseSpreadsheet,
-  parseProspettoPaghe,
+  parseProspettoPaghe, tabulatoNetti,
   parseStatisticaCostoOrario, listStatisticaCompanies,
   LORDI_FIELDS, rowLordo, rowHasLordo,
   type PreviewRow, type ParsedImport, type StatEmpMonth,
@@ -2226,6 +2226,19 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
         rawLines = matrix.slice(0, 25).map((r) => r.join(' | '));
         parsed = parseSpreadsheet(matrix);
       }
+      // I «Netti negativi» sono un tabulato a parte: chi ci finisce, quel mese non
+      // incassa nulla e deve restituire, quindi l'importo NON entra nella distinta
+      // dei bonifici. Per scelta il gestionale non lo importa: il netto del mese
+      // resta quello effettivamente pagato, e il negativo si recupera dal cedolino
+      // successivo. Va detto a chi ci prova, non lasciato a «nessun netto trovato».
+      if (tabulatoNetti(rawLines.join(' ')) === 'negativi') {
+        setRawPreview(['⚠︎ Riconosciuto come «Netti negativi»: è il tabulato di chi, quel mese, non incassa e deve restituire.',
+          'Il gestionale non lo importa per scelta: il netto del mese resta quello pagato davvero, e il negativo si recupera dal cedolino successivo.',
+          'Se non è quel documento, segnala questo estratto:', '', ...rawLines.slice(0, 25)]);
+        toast({ type: 'info', message: 'Questo è l’elenco dei «Netti negativi»: non viene importato. Il netto del mese resta quello pagato, il negativo si recupera dal cedolino successivo.' });
+        await archiviaScartato(file, 'Riconosciuto come «Netti negativi»: non importato per scelta.');
+        return;
+      }
       // tieni solo le righe pertinenti alla corsia
       const relevant = parsed.rows.filter((r) => (isNetto ? r.netto != null : rowHasLordo(r)));
       if (!relevant.length) {
@@ -2272,8 +2285,15 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
   // Chiave PERSONA di una riga: la stessa che usa il salvataggio per sommare le
   // righe doppie. Serve anche all'anteprima, altrimenti conta righe dove il mese
   // conta persone e sembra che il carico faccia crescere l'organico.
-  const chiavePersona = (r: PreviewRow) =>
-    r.matchedId || (r.matricola ? `mat:${norm(r.matricola)}` : `nome:${norm(r.cognome)}|${norm(r.nome)}`);
+  // Per chi e' gia' in anagrafica la chiave e' l'id. Per chi e' NUOVO e' il nome:
+  // due righe dello stesso file con lo stesso cognome e nome sono la stessa
+  // persona anche se il software paghe le ha dato due matricole (caso BALADA
+  // ANNALAURA, luglio 2026: 0000095 e 0000097 nello stesso elenco).
+  const chiavePersona = (r: PreviewRow) => {
+    if (r.matchedId) return r.matchedId;
+    const nome = `${norm(r.cognome)}|${norm(r.nome)}`;
+    return nome !== '|' ? `nome:${nome}` : `mat:${norm(r.matricola)}`;
+  };
   // Persone presenti in piu' righe dello stesso file (tipicamente su due filiali):
   // il salvataggio le somma, e l'anteprima lo dice prima di confermare.
   const dupPeople = useMemo(() => {
@@ -2361,6 +2381,12 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
       // Il registro vince: contiene anche le matricole precedenti di chi ha avuto
       // una trasformazione di contratto.
       (freshMats || []).forEach((m: any) => { if (m?.matricola) idByMatricola.set(norm(String(m.matricola)), m.employee_id); });
+      // Indice per NOME delle persone create DA QUESTO carico. Dentro un solo file
+      // paghe, due righe con identico cognome e nome sono la stessa persona anche
+      // con due matricole diverse: senza questo indice la seconda riga creava una
+      // seconda scheda (caso BALADA ANNALAURA, luglio 2026, matricole 0000095 e
+      // 0000097). Non tocca l'anagrafica esistente: guarda solo i nuovi del file.
+      const idByNomeNuovi = new Map<string, string>();
 
       // Il file va in archivio PRIMA dei dati: se l'archiviazione fallisce si va
       // avanti lo stesso, ma l'utente lo viene a sapere (mai in silenzio).
@@ -2391,8 +2417,12 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
       const payloads: any[] = [];
       const failedNew: string[] = [];
       for (const row of rows) {
+        const nomeChiave = `${norm(row.cognome)}|${norm(row.nome)}`;
         let empId = row.matchedId;
         if (!empId && row.matricola) empId = idByMatricola.get(norm(row.matricola)) || null;
+        // Persona nuova gia' creata da una riga precedente di QUESTO file, con
+        // un'altra matricola: si riusa la sua scheda invece di sdoppiarla.
+        if (!empId && nomeChiave !== '|') empId = idByNomeNuovi.get(nomeChiave) || null;
         if (!empId) {
           // Il nome arriva dall'import (PDF ruotato → riga completa). Mai la matricola come nome:
           // se davvero manca il testo-nome, usa un placeholder editabile dalla scheda.
@@ -2412,6 +2442,7 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
             continue;
           }
           empId = newEmp?.id || null;
+          if (empId && nomeChiave !== '|') idByNomeNuovi.set(nomeChiave, empId);
           if (empId && row.matricola) {
             idByMatricola.set(norm(row.matricola), empId);
             // la matricola entra nel registro: da qui in poi la persona e' trovabile
@@ -2420,6 +2451,14 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
               company_id: companyId, employee_id: empId, matricola: String(row.matricola).trim(), is_current: true,
             }]);
           }
+        } else if (row.matricola && !idByMatricola.has(norm(row.matricola))) {
+          // Matricola nuova per una persona che il gestionale conosce gia': entra
+          // nel registro come non corrente, cosi' il mese prossimo si aggancia da se'.
+          idByMatricola.set(norm(row.matricola), empId);
+          await supabase.from('employee_matricole').insert([{
+            company_id: companyId, employee_id: empId, matricola: String(row.matricola).trim(), is_current: false,
+            note: `vista nel file ${fileName}`,
+          }]);
         }
         if (!empId) continue;
         // Il punto vendita dell'anagrafica si crea SOLO se manca del tutto: chi
@@ -2861,7 +2900,18 @@ function CostiLordoDipendentiBlock({ companyId, userId, outlets, year, month, mo
   };
   const runParse = (pages: any[][], company: { code: string; name: string }, fileName: string) => {
     const res = parseStatisticaCostoOrario(pages, { companyCode: company.code });
-    if (!res.isStatistica || res.rows.length === 0) { toast({ type: 'error', message: `Nessun dato per ${company.name} nel file.` }); return; }
+    if (!res.isStatistica || res.rows.length === 0) {
+      // Il caso piu' frequente non e' «manca l'azienda»: e' il documento
+      // sbagliato. I tabulati dei netti hanno il nome dell'azienda in testa, per
+      // cui l'azienda viene riconosciuta e il vecchio messaggio diceva
+      // «Nessun dato per NEW ZAGO SRL», che non aiuta nessuno.
+      const testo = pages.map((items) => (items || []).map((i: any) => i?.str ?? '').join(' ')).join(' ');
+      const quale = tabulatoNetti(testo);
+      toast({ type: 'error', message: quale
+        ? `Questo è ${quale === 'negativi' ? 'l’elenco dei netti negativi' : 'l’elenco netti'}, non la «Statistica costo orario»: il netto in busta si carica dalla scheda «Costi & cedolini».`
+        : `Nessun dato per ${company.name} nel file: sembra un altro documento. Qui va la «Statistica costo orario» del software paghe.` });
+      return;
+    }
     setCompanyPick(null);
     setPreview({ companyCode: company.code, companyName: company.name, res, fileName });
   };

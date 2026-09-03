@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseInfinityNetti, parseInfinityNettiPages, parseInfinityNettiItems, matchOutletName, parseItNum, parseProspettoPaghe, contrAziendaOutlet, type ParserOutlet } from './payrollParse'
+import { parseInfinityNetti, parseInfinityNettiPages, parseInfinityNettiItems, matchOutletName, parseItNum, parseProspettoPaghe, contrAziendaOutlet, tabulatoNetti, type ParserOutlet } from './payrollParse'
 
 const OUTLETS: ParserOutlet[] = [
   { name: 'VALDICHIANA', cost_center_key: 'valdichiana' },
@@ -45,6 +45,19 @@ describe('matchOutletName', () => {
     const vuoti: ParserOutlet[] = OUTLETS.map((o) => ({ ...o, payroll_filiali: [] }))
     expect(matchOutletName('VALDICHIANA VILLAGE', vuoti)).toBe('VALDICHIANA')
     expect(matchOutletName('LOC PIAN DI RONA - REGGELLO', vuoti)).toBe('')
+  })
+})
+
+describe('tabulatoNetti — riconosce il documento sbagliato', () => {
+  it('distingue elenco netti, netti negativi e altri report', () => {
+    expect(tabulatoNetti('Elenco netti | Luglio 2026 Tipo cedolino Norm. | 071041 NEW ZAGO SRL')).toBe('elenco')
+    expect(tabulatoNetti('Netti negativi | Luglio 2026 | 0000091 BRINI CAMILLA -110,73')).toBe('negativi')
+    // il grassetto dei PDF Infinity raddoppia le lettere
+    expect(tabulatoNetti('EElleennccoo nneettttii')).toBe('elenco')
+    expect(tabulatoNetti('NNeettttii nneeggaattiivvii')).toBe('negativi')
+    // gli altri report non vengono scambiati per tabulati dei netti
+    expect(tabulatoNetti('Statistica costo orario')).toBeNull()
+    expect(tabulatoNetti('Prospetto riepilogativo elaborazione paghe')).toBeNull()
   })
 })
 

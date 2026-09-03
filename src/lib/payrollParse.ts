@@ -61,6 +61,17 @@ export function matchOutletName(text: string, outlets: ParserOutlet[]): string {
   return '';
 }
 
+// Riconosce i due tabulati dei NETTI dal titolo, per poter dire a chi li carica
+// nel posto sbagliato dove vanno. Tollerante ai caratteri raddoppiati del
+// grassetto PDF ("EElleennccoo"): ogni lettera una o due volte.
+const RE_ELENCO_NETTI = /e{1,2}l{1,2}e{1,2}n{1,2}c{1,2}o{1,2}\s+n{1,2}e{1,2}t{1,2}t{1,2}i{1,2}/i;
+const RE_NETTI_NEGATIVI = /n{1,2}e{1,2}t{1,2}t{1,2}i{1,2}\s+n{1,2}e{1,2}g{1,2}a{1,2}t{1,2}i{1,2}v{1,2}i{1,2}/i;
+export function tabulatoNetti(text: string): 'elenco' | 'negativi' | null {
+  if (RE_NETTI_NEGATIVI.test(text)) return 'negativi';
+  if (RE_ELENCO_NETTI.test(text)) return 'elenco';
+  return null;
+}
+
 export const FIELD_SYNS: Record<string, string[]> = {
   matricola: ['matricola', 'cod dip', 'cod. dip', 'coddip', 'cod.dip', 'cod dipendente', 'codice', 'id dip', 'cod'],
   cognome: ['cognome', 'surname'],
