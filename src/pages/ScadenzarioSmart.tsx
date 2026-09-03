@@ -461,6 +461,8 @@ const ScadenzarioSmart = () => {
   }, [bankAccounts, committedByAccount]);
 
   // Bank balances: previsionale di partenza − spesa della selezione corrente.
+  // È un'INFORMAZIONE (quanto resta se pago anche tutto ciò che ho già disposto),
+  // non il limite di spesa: il limite vero è il saldo reale (vedi bankRealBalances).
   const bankBalances = useMemo<Record<string, number>>(() => {
     const balances: Record<string, number> = { ...bankBaseBalances };
     Object.values(paymentPlan).forEach(plan => {
@@ -470,6 +472,21 @@ const ScadenzarioSmart = () => {
     });
     return balances;
   }, [bankBaseBalances, paymentPlan]);
+
+  // Residuo sul saldo REALE (soldi davvero sul conto − spesa della selezione),
+  // senza sottrarre le distinte già disposte. È la disponibilità effettiva:
+  // l'operatrice deve poter usare il 100% del saldo reale anche quando il
+  // previsionale è già impegnato da distinte precedenti.
+  const bankRealBalances = useMemo<Record<string, number>>(() => {
+    const balances: Record<string, number> = {};
+    bankAccounts.forEach(ba => { if (ba.id) balances[ba.id] = Number(ba.current_balance) || 0; });
+    Object.values(paymentPlan).forEach(plan => {
+      if (plan.bankId && balances[plan.bankId] !== undefined) {
+        balances[plan.bankId] -= (plan.amount || 0);
+      }
+    });
+    return balances;
+  }, [bankAccounts, paymentPlan]);
 
   // Totale allocato per banca (quanto si sta pagando)
   const bankSpending = useMemo<Record<string, number>>(() => {
@@ -535,20 +552,52 @@ const ScadenzarioSmart = () => {
     } catch { /* quota o storage non disponibile: ignora */ }
   }, [DRAFT_KEY, selectedIds, paymentPlan]);
 
-  // Saldo insufficiente: controlla SOLO le banche effettivamente in uso nei pagamenti
-  // selezionati (non tutti i conti del tenant). Se un conto X è negativo ma non lo stai
-  // usando per pagare, non deve bloccare l'operazione.
-  const hasNegativeBalance = useMemo(() => {
-    const usedBankIds = new Set<string>();
+  // Banche effettivamente in uso nei pagamenti selezionati (non tutti i conti del
+  // tenant): un conto che non stai usando non deve pesare su avvisi e conferme.
+  const usedBankIds = useMemo<string[]>(() => {
+    const ids = new Set<string>();
     for (const id of selectedIds) {
       const plan = paymentPlan[id];
-      if (plan?.bankId) usedBankIds.add(plan.bankId);
+      if (plan?.bankId) ids.add(plan.bankId);
     }
-    for (const bid of usedBankIds) {
-      if ((bankBalances[bid] ?? 0) < 0) return true;
+    return Array.from(ids);
+  }, [selectedIds, paymentPlan]);
+
+  // Sforo del solo PREVISIONALE: stai usando soldi già impegnati in distinte
+  // precedenti, ma sul conto ci sono ancora. Avviso ambra, nessun blocco.
+  const overCommittedBankIds = useMemo<string[]>(() => (
+    usedBankIds.filter(bid => (bankBalances[bid] ?? 0) < 0 && (bankRealBalances[bid] ?? 0) >= 0)
+  ), [usedBankIds, bankBalances, bankRealBalances]);
+
+  // Sforo del saldo REALE: qui i soldi sul conto non bastano. Nemmeno questo
+  // blocca (fidi, incassi in arrivo), ma serve una conferma esplicita.
+  const overRealBankIds = useMemo<string[]>(() => (
+    usedBankIds.filter(bid => (bankRealBalances[bid] ?? 0) < 0)
+  ), [usedBankIds, bankRealBalances]);
+
+  // Nessun blocco duro sui saldi: si chiede conferma e si procede se l'operatrice
+  // conferma. Due livelli, perché sono due cose diverse:
+  //  - oltre il PREVISIONALE: i soldi sul conto ci sono, ma sono già impegnati da
+  //    distinte precedenti (quelle in Storico Distinte). Va detto chiaramente.
+  //  - oltre il SALDO REALE: sul conto i soldi non bastano proprio.
+  const confirmOverdraftIfNeeded = useCallback(async () => {
+    const nomeBanca = (bid: string) => bankAccounts.find(b => String(b.id) === String(bid))?.bank_name || 'Banca';
+    if (overRealBankIds.length > 0) {
+      const dettaglio = overRealBankIds.map(bid => `${nomeBanca(bid)}: ${fmt(bankRealBalances[bid] ?? 0)} €`).join(' · ');
+      return await askConfirm(
+        `Con questa distinta superi il SALDO REALE su ${overRealBankIds.length === 1 ? 'una banca' : `${overRealBankIds.length} banche`} (${dettaglio}). Sul conto i soldi non bastano: procedo lo stesso?`
+      );
     }
-    return false;
-  }, [bankBalances, selectedIds, paymentPlan]);
+    if (overCommittedBankIds.length > 0) {
+      const dettaglio = overCommittedBankIds.map(bid => (
+        `${nomeBanca(bid)}: ${fmt(committedByAccount[bid] || 0)} € già in distinta, resterebbero ${fmt(bankRealBalances[bid] ?? 0)} € reali`
+      )).join(' · ');
+      return await askConfirm(
+        `Stai impegnando soldi già destinati a distinte precedenti (${dettaglio}). Sul conto i soldi ci sono, ma quelle distinte restano da pagare: procedo?`
+      );
+    }
+    return true;
+  }, [overRealBankIds, overCommittedBankIds, bankAccounts, bankRealBalances, committedByAccount, askConfirm]);
 
   const selectedTotal = useMemo(() => {
     return Array.from(selectedIds).reduce((sum, id) => {
@@ -1968,7 +2017,10 @@ const ScadenzarioSmart = () => {
   // NESSUNA scrittura su DB qui: il salvataggio avviene solo con "Conferma distinta"
   // nel modale. Cosi' chiudere senza confermare non lascia righe "In distinta".
   const confirmPayments = async () => {
-    if (hasNegativeBalance || selectedIds.size === 0) return;
+    if (selectedIds.size === 0) return;
+    // Il previsionale non blocca mai. Oltre il saldo reale si chiede conferma
+    // (può essere voluto: fido, incassi in arrivo), non si vieta.
+    if (!(await confirmOverdraftIfNeeded())) return;
     setIsSaving(true);
     const results = [];
     const items: DistintaItem[] = [];
@@ -2331,7 +2383,8 @@ const ScadenzarioSmart = () => {
   // chiama Edge Function acube-payment-send. Aggiorna payables come pagati e mostra
   // URL autorizzazione PSD2 da aprire sulla banca beneficiaria.
   const confirmPaymentsViaAcube = async () => {
-    if (hasNegativeBalance || selectedIds.size === 0) return;
+    if (selectedIds.size === 0) return;
+    if (!(await confirmOverdraftIfNeeded())) return;
 
     // Raggruppa per banca; valida che ogni banca abbia acube_account_uuid
     type AcubeGroup = { bank: AnyRow; items: Array<{ payableId: string; plan: typeof paymentPlan[string]; payable: AnyRow }> };
@@ -4252,9 +4305,18 @@ const ScadenzarioSmart = () => {
                                   <select value={plan.bankId} onChange={e => updatePlan(pid, 'bankId', e.target.value)}
                                     className="px-2 py-1.5 border border-slate-300 rounded-lg text-sm w-52">
                                     <option value="">Seleziona banca...</option>
-                                    {bankAccounts.map(ba => (
-                                      <option key={String(ba.id)} value={String(ba.id)}>{ba.bank_name} ({fmt(bankBalances[String(ba.id)] || 0)} €)</option>
-                                    ))}
+                                    {/* Mostro il residuo previsionale e, quando ci sono distinte
+                                        già disposte, anche la disponibilità REALE: il previsionale
+                                        informa, non limita la banca selezionabile. */}
+                                    {bankAccounts.map(ba => {
+                                      const bidStr = String(ba.id);
+                                      const prev = bankBalances[bidStr] ?? 0;
+                                      const reale = bankRealBalances[bidStr] ?? 0;
+                                      const label = Math.abs(reale - prev) > 0.005
+                                        ? `${ba.bank_name} (prev. ${fmt(prev)} € · reale ${fmt(reale)} €)`
+                                        : `${ba.bank_name} (${fmt(prev)} €)`;
+                                      return <option key={bidStr} value={bidStr}>{label}</option>;
+                                    })}
                                   </select>
                                 </div>
                                 <div>
@@ -4535,8 +4597,11 @@ const ScadenzarioSmart = () => {
             bankSpending={bankSpending}
             bankBalances={bankBalances}
             bankBaseBalances={bankBaseBalances}
+            bankRealBalances={bankRealBalances}
+            bankCommitted={committedByAccount}
             bankAccounts={bankAccounts}
-            hasNegativeBalance={hasNegativeBalance}
+            overCommittedCount={overCommittedBankIds.length}
+            overRealCount={overRealBankIds.length}
             missingBankCount={missingBankCount}
             isSaving={isSaving}
             onClear={() => { setSelectedIds(new Set()); setPaymentPlan({}); }}
