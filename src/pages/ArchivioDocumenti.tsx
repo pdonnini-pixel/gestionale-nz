@@ -115,7 +115,10 @@ function CaricamentiTab({ companyId, showToast }: { companyId?: string; showToas
       setCaricando(false);
     })();
     return () => { vivo = false; };
-  }, [companyId, showToast]);
+    // showToast cambia identita' a ogni render del padre: tenerla qui
+    // rilancerebbe la lettura in continuazione.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [companyId]);
 
   const moduli = useMemo(() => Array.from(new Set(righe.map(r => r.modulo).filter(Boolean))).sort() as string[], [righe]);
   const anni = useMemo(() => Array.from(new Set(righe.map(r => r.year).filter(Boolean))).sort((a, b) => Number(b) - Number(a)) as number[], [righe]);
