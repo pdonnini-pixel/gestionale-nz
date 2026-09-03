@@ -5159,6 +5159,7 @@ export type Database = {
         Row: {
           amount_paid: number | null
           amount_remaining: number | null
+          bank_transaction_id: string | null
           cash_movement_id: string | null
           closed_manually: boolean | null
           company_id: string
@@ -5207,6 +5208,7 @@ export type Database = {
         Insert: {
           amount_paid?: number | null
           amount_remaining?: number | null
+          bank_transaction_id?: string | null
           cash_movement_id?: string | null
           closed_manually?: boolean | null
           company_id: string
@@ -5255,6 +5257,7 @@ export type Database = {
         Update: {
           amount_paid?: number | null
           amount_remaining?: number | null
+          bank_transaction_id?: string | null
           cash_movement_id?: string | null
           closed_manually?: boolean | null
           company_id?: string

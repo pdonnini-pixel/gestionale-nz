@@ -81,6 +81,13 @@ export default function SchedaContabileFornitore() {
   // lo split imponibile/IVA quando i payables (A-Cube) hanno solo il totale.
   const [einvSplit, setEinvSplit] = useState<Record<string, { net: number; vat: number }>>({});
   const [bankAccountById, setBankAccountById] = useState<Record<string, string>>({});
+  // Movimenti bancari agganciati alle rate (payables.bank_transaction_id).
+  // IL MOVIMENTO BANCARIO VINCE SU TUTTO: quando c'e', la riga di pagamento
+  // del partitario riporta la sua data e la sua banca, anche se la fattura era
+  // stata chiusa a mano prima (la chiusura manuale vale solo finche' non arriva
+  // il movimento). Caso Signorini 191, 09/2026.
+  interface BankTxLite { date: string | null; amount: number; bankAccountId: string | null }
+  const [bankTxById, setBankTxById] = useState<Record<string, BankTxLite>>({});
   const [loading, setLoading] = useState(true);
   // selectedYear persistito in URL come ?year=… (default 'latest')
   const [searchParams, setSearchParams] = useSearchParams();
@@ -159,6 +166,22 @@ export default function SchedaContabileFornitore() {
       allPayables.sort((a, b) => new Date(b.invoice_date || 0).getTime() - new Date(a.invoice_date || 0).getTime());
 
       setPayables(allPayables);
+
+      // Movimenti bancari agganciati: data e banca REALI del pagamento.
+      const txIds = [...new Set(allPayables.map(p => p.bank_transaction_id).filter(Boolean))] as string[];
+      const txMap: Record<string, BankTxLite> = {};
+      for (let i = 0; i < txIds.length; i += 200) {
+        const chunk = txIds.slice(i, i + 200);
+        const { data: txs } = await supabase
+          .from('bank_transactions')
+          .select('id, transaction_date, amount, bank_account_id')
+          .eq('company_id', COMPANY_ID)
+          .in('id', chunk);
+        (txs || []).forEach((t: { id: string; transaction_date: string | null; amount: number | null; bank_account_id: string | null }) => {
+          txMap[t.id] = { date: t.transaction_date, amount: Math.abs(Number(t.amount || 0)), bankAccountId: t.bank_account_id };
+        });
+      }
+      setBankTxById(txMap);
 
       // Imponibile/IVA reali: i payables importati da A-Cube spesso hanno
       // net/vat non valorizzati (solo gross). I valori corretti stanno in
@@ -373,6 +396,9 @@ export default function SchedaContabileFornitore() {
       manualClosedAmount: number;    // importo complessivo chiuso a mano (totale o parziale)
       manualCloseDate: string | null;
       isProvisional: boolean;        // true se il pagamento e' una RiBa chiusa in via provvisoria
+      bankLinked: boolean;           // almeno una rata ha un movimento bancario agganciato
+      bankMovementDate: string | null;   // data del movimento bancario (vince sulla data di chiusura a mano)
+      bankMovementBankId: string | null; // conto del movimento bancario (vince sulla banca prevista)
     }
     const map = new Map<string, InvoiceAgg>();
     for (const p of filteredPayables) {
@@ -396,6 +422,9 @@ export default function SchedaContabileFornitore() {
           manualClosedAmount: 0,
           manualCloseDate: null,
           isProvisional: false,
+          bankLinked: false,
+          bankMovementDate: null,
+          bankMovementBankId: null,
         };
         map.set(key, agg);
       }
@@ -403,6 +432,16 @@ export default function SchedaContabileFornitore() {
       agg.withholdingTotal += Number((p as Payable & { withholding_amount?: number | null }).withholding_amount || 0);
       agg.netTotal += Number(p.net_amount || 0);
       agg.vatTotal += Number(p.vat_amount || 0);
+      // Movimento bancario agganciato → e' lui la realta' del pagamento.
+      if (p.bank_transaction_id) {
+        agg.bankLinked = true;
+        const tx = bankTxById[p.bank_transaction_id];
+        const txDate = tx?.date || p.payment_date || null;
+        if (txDate && (!agg.bankMovementDate || txDate > agg.bankMovementDate)) {
+          agg.bankMovementDate = txDate;
+          agg.bankMovementBankId = tx?.bankAccountId || p.payment_bank_account_id || null;
+        }
+      }
       const pManual = p as Payable & { closed_manually?: boolean | null; manual_close_reason?: string | null };
       if (pManual.closed_manually) {
         agg.closedManually = true;
@@ -510,7 +549,9 @@ export default function SchedaContabileFornitore() {
         // Chiusura a mano (TOTALE o PARZIALE) → riga DARE per l'importo chiuso a
         // mano, senza banca, dicitura "Chiusura manuale — chiusa a mano il GG/MM/AAAA".
         // Vale anche per i parziali (status 'parziale'): il saldo mostra il residuo.
-        if (agg.closedManually && agg.manualClosedAmount > 0) {
+        // SOLO finche' non c'e' un movimento bancario agganciato: se c'e', vince
+        // il movimento (ramo sotto) e la chiusura a mano non compare piu'.
+        if (agg.closedManually && agg.manualClosedAmount > 0 && !agg.bankLinked) {
           const dataRif = agg.manualCloseDate || agg.paymentDate;
           const dataChiusura = dataRif ? new Date(dataRif).toLocaleDateString('it-IT') : '—';
           const isPartial = agg.manualClosedAmount < Math.abs(agg.grossTotal) - 0.005;
@@ -531,19 +572,26 @@ export default function SchedaContabileFornitore() {
           // fornitore mostra correttamente il residuo delle rate ancora aperte.
           // Nessun vincolo sulla data: un acconto registrato senza payment_date
           // resta un'uscita reale e va comunque in partitario.
-          const bankName = agg.paymentBankId ? (bankAccountById[agg.paymentBankId] || 'Banca non specificata') : 'Banca non specificata';
+          // Banca e data: quelle del MOVIMENTO BANCARIO se agganciato (vince su
+          // banca prevista, chiusura a mano e RiBa provvisoria), altrimenti la
+          // banca prevista sulla scadenza.
+          const bankId = agg.bankLinked ? (agg.bankMovementBankId || agg.paymentBankId) : agg.paymentBankId;
+          const bankName = bankId ? (bankAccountById[bankId] || 'Banca non specificata') : 'Banca non specificata';
+          const dataPag = agg.bankLinked ? (agg.bankMovementDate || agg.paymentDate) : agg.paymentDate;
           const isPartial = agg.paidAmount < Math.abs(agg.grossTotal) - 0.005;
           // "Acconto" quando la fattura non e' saldata: e' il termine contabile
           // esatto e dice all'operatrice che il residuo resta da pagare.
           const voce = isPartial ? 'Acconto' : 'Pagamento';
           // RiBa chiusa in via provvisoria: nessun movimento bancario, in attesa
           // di distinta o riconciliazione. La riga resta tracciata nel partitario.
-          const descrizione = agg.isProvisional
-            ? `${voce} RiBa (provvisorio) — in attesa di distinta o movimento — rif. Fatt. ${agg.invoiceNumber}`
-            : `${voce} — ${bankName} — rif. Fatt. ${agg.invoiceNumber}`;
+          const descrizione = agg.bankLinked
+            ? `${voce} — ${bankName} — movimento bancario del ${dataPag ? new Date(dataPag).toLocaleDateString('it-IT') : '—'} — rif. Fatt. ${agg.invoiceNumber}`
+            : agg.isProvisional
+              ? `${voce} RiBa (provvisorio) — in attesa di distinta o movimento — rif. Fatt. ${agg.invoiceNumber}`
+              : `${voce} — ${bankName} — rif. Fatt. ${agg.invoiceNumber}`;
           movimenti.push({
             data: agg.invoiceDate,           // data principale = emissione fattura
-            dataPagamento: agg.paymentDate,  // mostrata sotto in piccolo
+            dataPagamento: dataPag,          // mostrata sotto in piccolo
             numero: agg.invoiceNumber,
             dare: agg.paidAmount,
             avere: 0,
@@ -595,7 +643,7 @@ export default function SchedaContabileFornitore() {
     }
 
     return { righe: righeConSaldo, totaliDare, totaliAvere, saldoFinale: saldo };
-  }, [filteredPayables, bankAccountById, partitarioSortBy, openingBalance, fiscalYear, selectedYear, einvSplit]);
+  }, [filteredPayables, bankAccountById, bankTxById, partitarioSortBy, openingBalance, fiscalYear, selectedYear, einvSplit]);
 
   // ─── Actions ───────────────────────────────────────────────
   const toggleExpand = (invoiceNumber: string) => {
