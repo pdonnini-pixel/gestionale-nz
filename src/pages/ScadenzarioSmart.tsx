@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import { useToast } from '../components/Toast';
+import { creditNoteResidual } from '../lib/payableOpenAmount';
 import {
   Calendar, TrendingUp, TrendingDown, Filter, AlertCircle, Clock,
   DollarSign, BarChart3, Eye, EyeOff, ChevronDown, CheckCircle2,
@@ -265,6 +266,14 @@ const ScadenzarioSmart = () => {
   // era agganciata a un movimento bancario, lo libera per il riabbinamento.
   const [reopenModal, setReopenModal] = useState<{ open: boolean; payable: AnyRow | null }>({ open: false, payable: null });
   const [reopenReason, setReopenReason] = useState<string>('');
+  // Modale "Compensa con nota di credito" — fattura ↔ NC dello stesso fornitore,
+  // totale o PARZIALE, senza movimento bancario (RPC compensate_payable_with_credit_note,
+  // migration 170). Si apre sia da una fattura (scegli la NC) sia da una NC (scegli la fattura).
+  const [ncCompModal, setNcCompModal] = useState<{ open: boolean; source: AnyRow | null }>({ open: false, source: null });
+  const [ncCompTargetId, setNcCompTargetId] = useState<string>('');
+  const [ncCompAmount, setNcCompAmount] = useState<string>('');
+  const [ncCompDate, setNcCompDate] = useState<string>('');
+  const [ncCompReason, setNcCompReason] = useState<string>('');
 
   // Selection helpers
   // Banca di default alla selezione: se la fattura ha gia' un conto di pagamento
@@ -339,8 +348,11 @@ const ScadenzarioSmart = () => {
     }));
   };
 
-  // Importo (valore assoluto) di una nota di credito
-  const ncAmountOf = (nc: AnyRow): number => Math.abs(Number(nc.gross_amount) || 0);
+  // Credito RESIDUO (valore assoluto) di una nota di credito: quanto si puo' ancora
+  // scalare. Una NC usata in parte (compensazione parziale, migration 170) ha
+  // amount_paid negativo e amount_remaining = credito ancora disponibile: qui e in
+  // distinta si scala SOLO quello, non piu' il lordo.
+  const ncAmountOf = (nc: AnyRow): number => creditNoteResidual(nc);
 
   // Importo "aperto" della riga nel contesto Aperte/scadenzario. Per una
   // disposizione PARZIALE (acconto) è il residuo ANCORA da disporre (la
@@ -384,6 +396,56 @@ const ScadenzarioSmart = () => {
       const sameByVat = svat && String(x.supplier_vat || '') === svat;
       return Boolean(sameById || sameByVat);
     });
+  };
+
+  // ── Compensa con nota di credito (fattura ↔ NC, totale o parziale) ──────────
+  const isNcRow = (p: AnyRow): boolean => p.status === 'nota_credito' || (Number(p.gross_amount) || 0) < 0;
+  // Fatture APERTE (con residuo) dello stesso fornitore, indicizzate per supplier_id e
+  // per P.IVA (regola PAYMENT_PLAN_NOTES: l'aggancio fornitore vale anche per P.IVA).
+  const openInvoicesBySupplier = useMemo(() => {
+    const byId = new Map<string, AnyRow[]>();
+    const byVat = new Map<string, AnyRow[]>();
+    for (const x of payables) {
+      if (!x.id || x._isFiscal || isNcRow(x)) continue;
+      if (['pagato', 'annullato', 'bloccato'].includes(String(x.status || ''))) continue;
+      if ((Number(x.amount_remaining ?? x.gross_amount) || 0) <= 0.005) continue;
+      if (x.supplier_id) { const k = String(x.supplier_id); byId.set(k, [...(byId.get(k) || []), x]); }
+      if (x.supplier_vat) { const k = String(x.supplier_vat); byVat.set(k, [...(byVat.get(k) || []), x]); }
+    }
+    return { byId, byVat };
+  }, [payables]);
+  const openInvoicesFor = (nc: AnyRow): AnyRow[] => {
+    const a = nc.supplier_id ? (openInvoicesBySupplier.byId.get(String(nc.supplier_id)) || []) : [];
+    const b = nc.supplier_vat ? (openInvoicesBySupplier.byVat.get(String(nc.supplier_vat)) || []) : [];
+    const seen = new Set<string>();
+    const out: AnyRow[] = [];
+    for (const x of [...a, ...b]) { if (x.id && !seen.has(x.id)) { seen.add(x.id); out.push(x); } }
+    return out.sort((x, y) => String(x.due_date || '').localeCompare(String(y.due_date || '')));
+  };
+  // Controparti compensabili di una riga: NC aperte (con credito residuo) se e' una
+  // fattura aperta; fatture aperte se e' una NC con credito residuo. Vuoto altrimenti.
+  const ncCompCandidates = (p: AnyRow): AnyRow[] => {
+    if (!p.id || p._isFiscal) return [];
+    if (isNcRow(p)) return creditNoteResidual(p) > 0.005 ? openInvoicesFor(p) : [];
+    if (['pagato', 'annullato', 'bloccato'].includes(String(p.status || ''))) return [];
+    if ((Number(p.amount_remaining ?? p.gross_amount) || 0) <= 0.005) return [];
+    return openCreditNotesFor(p);
+  };
+  // Massimo compensabile tra fattura e NC = min(residuo fattura, credito residuo NC).
+  const ncCompMaxAmount = (a: AnyRow, b: AnyRow): number => {
+    const inv = isNcRow(a) ? b : a;
+    const nc = isNcRow(a) ? a : b;
+    const invRes = Math.max(0, Number(inv.amount_remaining ?? inv.gross_amount) || 0);
+    return +Math.min(invRes, creditNoteResidual(nc)).toFixed(2);
+  };
+  const openNcCompModal = (p: AnyRow) => {
+    setStatusDropdownId(null);
+    const first = ncCompCandidates(p)[0];
+    setNcCompModal({ open: true, source: p });
+    setNcCompTargetId(first?.id || '');
+    setNcCompDate(todayYMD());
+    setNcCompReason('');
+    setNcCompAmount(first ? String(ncCompMaxAmount(p, first).toFixed(2)) : '');
   };
 
   // Ricalcola l'importo NETTO del piano dopo una modifica (type/baseAmount/ncIds):
@@ -1325,7 +1387,7 @@ const ScadenzarioSmart = () => {
     setManualCloseReason('');
     const gross = Number(p.gross_amount ?? 0) || 0;
     const isNC = p.status === 'nota_credito' || gross < 0;
-    const amount = isNC ? Math.abs(gross) : (Number(p.amount_remaining ?? gross) || 0);
+    const amount = isNC ? creditNoteResidual(p) : (Number(p.amount_remaining ?? gross) || 0);
     setManualCloseAmount(amount ? String(amount.toFixed(2)) : '');
   };
 
@@ -1396,7 +1458,8 @@ const ScadenzarioSmart = () => {
     if (p.status === 'annullato') return false;
     const gross = Number(p.gross_amount ?? 0) || 0;
     const isNC = p.status === 'nota_credito' || gross < 0;
-    if (isNC) return Boolean(p.closed_manually);
+    // NC: chiusa a mano OPPURE con una quota gia' consumata in compensazione (amount_paid < 0).
+    if (isNC) return Boolean(p.closed_manually) || Math.abs(Number(p.amount_paid) || 0) > 0.005;
     return p.status === 'pagato'
       || p.status === 'parziale'
       || Boolean(p.closed_manually)
@@ -1409,6 +1472,71 @@ const ScadenzarioSmart = () => {
     setStatusDropdownId(null);
     setReopenModal({ open: true, payable: p });
     setReopenReason('');
+  };
+
+  // Handler: compensa fattura ↔ NC (RPC atomica compensate_payable_with_credit_note).
+  // Importo = min(residuo fattura, credito NC) di default, modificabile verso il basso:
+  // la fattura si chiude a mano (pagato o parziale), la NC consuma la quota e si chiude
+  // solo a credito zero. Nessun movimento bancario. Valori autorevoli dal DB.
+  const handleNcCompSubmit = async () => {
+    const src = ncCompModal.source;
+    if (!src?.id || !ncCompTargetId || !ncCompDate) return;
+    const target = payables.find(x => x.id === ncCompTargetId);
+    if (!target?.id) return;
+    const inv = isNcRow(src) ? target : src;
+    const nc = isNcRow(src) ? src : target;
+    const max = ncCompMaxAmount(inv, nc);
+    const parsed = parseFloat((ncCompAmount || '').replace(',', '.'));
+    const amount = Number.isFinite(parsed) ? +parsed.toFixed(2) : max;
+    if (!(amount > 0 && amount <= max + 0.005)) {
+      toast({ type: 'error', message: `Inserisci un importo tra 0 e ${fmt(max)} €` });
+      return;
+    }
+    setIsSaving(true);
+    // Cast: RPC nuova (migration 170), non ancora nei tipi generati (database.ts).
+    const { data, error } = await supabase.rpc('compensate_payable_with_credit_note' as never, {
+      p_payable_id: inv.id,
+      p_credit_note_id: nc.id,
+      p_amount: Math.min(amount, max),
+      p_date: ncCompDate,
+      p_reason: ncCompReason.trim() || null,
+      p_operator: operatorName,
+    } as never);
+    setIsSaving(false);
+    if (error) {
+      toast({ type: 'error', message: `Errore compensazione: ${error.message}` });
+      return;
+    }
+    type Side = {
+      id?: string; status?: string; amount_paid?: number; amount_remaining?: number;
+      payment_date?: string | null; closed_manually?: boolean; manual_close_reason?: string | null; residual?: number;
+    };
+    const res = (data || {}) as { amount?: number; invoice?: Side; credit_note?: Side };
+    const applySide = (row: AnyRow, side?: Side): AnyRow => !side ? row : ({
+      ...row,
+      status: side.status ?? row.status,
+      amount_paid: side.amount_paid ?? row.amount_paid,
+      amount_remaining: side.amount_remaining ?? row.amount_remaining,
+      residuo_aperto: side.amount_remaining ?? row.amount_remaining,
+      payment_date: side.payment_date ?? null,
+      closed_manually: side.closed_manually ?? row.closed_manually,
+      manual_close_reason: side.manual_close_reason ?? row.manual_close_reason,
+      payment_bank_account_id: null,
+      payment_bank_name: null,
+      payment_source: side.closed_manually ? 'manuale' : row.payment_source,
+      payment_real_bank_name: null,
+      last_action_by: operatorName || row.last_action_by || null,
+    });
+    setPayables(prev => prev.map(x => x.id === inv.id ? applySide(x, res.invoice) : (x.id === nc.id ? applySide(x, res.credit_note) : x)));
+    const residual = Number(res.credit_note?.residual ?? 0);
+    const invRem = Number(res.invoice?.amount_remaining ?? 0);
+    toast({ type: 'success', message: `Compensati ${fmt(Number(res.amount ?? amount))} € tra fattura ${inv.invoice_number || ''} e NC ${nc.invoice_number || ''}`
+      + (invRem > 0.005 ? ` — la fattura resta parziale per ${fmt(invRem)} €` : '')
+      + (residual > 0.005 ? ` — credito NC residuo ${fmt(residual)} €` : '') });
+    setNcCompModal({ open: false, source: null });
+    setNcCompTargetId(''); setNcCompAmount(''); setNcCompReason('');
+    // Ricarico la vista: residui "in sospeso", badge NC e totali dipendono dai link.
+    fetchData();
   };
 
   // Handler: riapre la scadenza chiusa (RPC atomica reopen_payable). Riporta la
@@ -1463,9 +1591,13 @@ const ScadenzarioSmart = () => {
       freed > 0 ? `${freed} movimento/i liberato/i (da riabbinare)` : '',
       ncs > 0 ? `${ncs} nota/e di credito riaperta/e` : '',
     ].filter(Boolean).join(' · ');
-    toast({ type: 'success', message: `Fattura riaperta${extra ? ' — ' + extra : ''}` });
+    const wasNC = p.status === 'nota_credito' || (Number(p.gross_amount) || 0) < 0;
+    toast({ type: 'success', message: `${wasNC ? 'Nota di credito riaperta' : 'Fattura riaperta'}${extra ? ' — ' + extra : ''}` });
     setReopenModal({ open: false, payable: null });
     setReopenReason('');
+    // Le NC compensate (o le fatture compensate da questa NC) sono cambiate lato DB:
+    // ricarico la vista cosi' credito residuo, stati e badge tornano coerenti.
+    if (ncs > 0 || wasNC) fetchData();
   };
 
   // Filter payables
@@ -2214,8 +2346,9 @@ const ScadenzarioSmart = () => {
             company_id: COMPANY_ID,
             payable_id: it.payableId,
             credit_note_payable_id: ncId,
-            amount: nc ? Math.abs(Number(nc.gross_amount) || 0) : 0,
+            amount: nc ? ncAmountOf(nc) : 0, // credito RESIDUO della NC, non il lordo
             status: 'pending',
+            origin: 'distinta',
           };
         }));
         if (links.length > 0) {
@@ -4016,6 +4149,12 @@ const ScadenzarioSmart = () => {
                                   className="w-full text-left px-3 py-1.5 text-xs hover:bg-violet-50 text-violet-700 font-medium flex items-center gap-2">
                                   ✎ Chiudi a mano…
                                 </button>
+                                {ncCompCandidates(p).length > 0 && (
+                                  <button onClick={() => openNcCompModal(p)}
+                                    className="w-full text-left px-3 py-1.5 text-xs hover:bg-emerald-50 text-emerald-700 font-medium flex items-center gap-2">
+                                    <Link2 size={12} /> {isNcRow(p) ? 'Compensa su fattura…' : 'Compensa con nota di credito…'}
+                                  </button>
+                                )}
                                 {isReopenable(p) && (
                                   <button onClick={() => openReopenModal(p)}
                                     className="w-full text-left px-3 py-1.5 text-xs hover:bg-amber-50 text-amber-700 font-medium flex items-center gap-2">
@@ -4216,6 +4355,17 @@ const ScadenzarioSmart = () => {
                                     ? 'Chiudi a mano la nota di credito — registra in AVERE nel partitario'
                                     : 'Chiudi a mano (totale o parziale) — registra in partitario'}>
                                   <CheckCircle2 size={13} />
+                                </button>
+                              )}
+                              {/* Compensa con NC — fattura ↔ nota di credito dello stesso fornitore, totale o
+                                  parziale, senza movimento bancario (migration 170) */}
+                              {ncCompCandidates(p).length > 0 && (
+                                <button onClick={() => openNcCompModal(p)}
+                                  className="p-1 rounded text-slate-400 hover:text-emerald-600 hover:bg-emerald-50"
+                                  title={isNcRow(p)
+                                    ? 'Compensa la nota di credito su una fattura aperta del fornitore (totale o parziale)'
+                                    : 'Compensa con una nota di credito del fornitore (totale o parziale) — nessun movimento bancario'}>
+                                  <Link2 size={13} />
                                 </button>
                               )}
                               {/* Riapri — riporta ad aperta una scadenza chiusa per errore (a mano o
@@ -4725,7 +4875,8 @@ const ScadenzarioSmart = () => {
         const closeModal = () => { setManualCloseModal({ open: false, payable: null }); setManualCloseDate(''); setManualCloseReason(''); setManualCloseAmount(''); };
         const grossMC = Number(manualCloseModal.payable?.gross_amount ?? 0) || 0;
         const isNC = manualCloseModal.payable?.status === 'nota_credito' || grossMC < 0;
-        const ncAmount = Math.abs(grossMC);
+        // NC: si stralcia il credito RESIDUO (non ancora usato in compensazione), non il lordo.
+        const ncAmount = manualCloseModal.payable ? creditNoteResidual(manualCloseModal.payable) : Math.abs(grossMC);
         const remaining = Number(manualCloseModal.payable?.amount_remaining ?? manualCloseModal.payable?.gross_amount ?? 0) || 0;
         const parsed = parseFloat((manualCloseAmount || '').replace(',', '.'));
         const amount = Number.isFinite(parsed) ? parsed : remaining;
@@ -4744,7 +4895,7 @@ const ScadenzarioSmart = () => {
             </div>
             <p className="text-sm text-slate-600">
               {isNC
-                ? <>Nota di credito {manualCloseModal.payable?.invoice_number || ''}{manualCloseModal.payable?.invoice_date ? ` del ${fmtDate(manualCloseModal.payable.invoice_date as string)}` : ''} — importo: <span className="font-medium text-slate-900">{fmt(ncAmount)} €</span></>
+                ? <>Nota di credito {manualCloseModal.payable?.invoice_number || ''}{manualCloseModal.payable?.invoice_date ? ` del ${fmtDate(manualCloseModal.payable.invoice_date as string)}` : ''} — credito residuo: <span className="font-medium text-slate-900">{fmt(ncAmount)} €</span></>
                 : <>Residuo da chiudere: <span className="font-medium text-slate-900">{fmt(remaining)} €</span></>}
             </p>
             {!isNC && (
@@ -4807,7 +4958,7 @@ const ScadenzarioSmart = () => {
           <div className="space-y-4">
             <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2.5 text-xs text-amber-800">
               {isNC
-                ? <>La nota di credito verrà <span className="font-semibold">riaperta</span>: si annulla la chiusura a mano e torna disponibile per l'abbinamento. Operazione reversibile.</>
+                ? <>La nota di credito verrà <span className="font-semibold">riaperta</span>: torna al credito pieno e disponibile per l'abbinamento. Le fatture che erano state <span className="font-semibold">compensate</span> con questa NC tornano dovute per quella quota. Operazione reversibile.</>
                 : viaMovimento
                 ? <>La fattura verrà <span className="font-semibold">riportata ad aperta</span> e il <span className="font-semibold">movimento bancario</span> agganciato verrà <span className="font-semibold">liberato</span> (torna nella coda «da riconciliare»), così potrai riabbinarlo alla fattura giusta. Le eventuali note di credito compensate tornano disponibili. Nessun dato viene perso.</>
                 : viaProvvisorio
@@ -4832,6 +4983,99 @@ const ScadenzarioSmart = () => {
               <button onClick={handleReopenSubmit} disabled={isSaving}
                 className="flex-1 py-2.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-sm font-medium disabled:opacity-50 flex items-center justify-center gap-2">
                 <RotateCcw size={14} /> {isSaving ? 'Riapertura…' : 'Riapri fattura'}
+              </button>
+            </div>
+          </div>
+        </Modal>
+        );
+      })()}
+
+      {/* Compensa con nota di credito Modal — fattura ↔ NC stesso fornitore, totale o parziale, nessun movimento bancario */}
+      {ncCompModal.open && ncCompModal.source && (() => {
+        const src = ncCompModal.source;
+        const closeModal = () => { setNcCompModal({ open: false, source: null }); setNcCompTargetId(''); setNcCompAmount(''); setNcCompReason(''); };
+        const srcIsNc = isNcRow(src);
+        const cands = ncCompCandidates(src);
+        const target = cands.find(c => c.id === ncCompTargetId) || null;
+        const inv = srcIsNc ? target : src;
+        const nc = srcIsNc ? src : target;
+        const invRes = inv ? Math.max(0, Number(inv.amount_remaining ?? inv.gross_amount) || 0) : 0;
+        const ncRes = nc ? creditNoteResidual(nc) : 0;
+        const max = +Math.min(invRes, ncRes).toFixed(2);
+        const parsed = parseFloat((ncCompAmount || '').replace(',', '.'));
+        const amount = Number.isFinite(parsed) ? parsed : max;
+        const invalid = !target || !(amount > 0 && amount <= max + 0.005);
+        const invAfter = Math.max(0, +(invRes - amount).toFixed(2));
+        const ncAfter = Math.max(0, +(ncRes - amount).toFixed(2));
+        const label = (x: AnyRow) => `${x.invoice_number || 's/n'}${x.invoice_date ? ` del ${fmtDate(x.invoice_date as string)}` : ''}`;
+        return (
+        <Modal open={true} onClose={closeModal}
+          title={srcIsNc ? `Compensa NC ${src.invoice_number || ''} su una fattura` : `Compensa con nota di credito: ${src.invoice_number || 'fattura'}`}>
+          <div className="space-y-4">
+            <div className="rounded-lg bg-emerald-50 border border-emerald-200 px-3 py-2.5 text-xs text-emerald-800">
+              La fattura viene chiusa <span className="font-semibold">a fronte della nota di credito</span>, senza movimento bancario: totale se gli importi coincidono, altrimenti <span className="font-semibold">parziale</span>. Se la NC è più piccola, la fattura resta «parziale» per il resto; se è più grande, sulla NC resta un <span className="font-semibold">credito residuo</span> da usare su un'altra fattura. Tutto va nel partitario del fornitore ed è reversibile con «Riapri».
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-slate-700 mb-2 block uppercase tracking-wide">{srcIsNc ? 'Fattura da compensare' : 'Nota di credito da usare'}</label>
+              <select value={ncCompTargetId}
+                onChange={(e) => {
+                  const id = e.target.value;
+                  setNcCompTargetId(id);
+                  const t = cands.find(c => c.id === id);
+                  if (t) setNcCompAmount(String(ncCompMaxAmount(src, t).toFixed(2)));
+                }}
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500">
+                {cands.map(c => (
+                  <option key={c.id} value={c.id}>
+                    {srcIsNc
+                      ? `Fatt. ${label(c)} — residuo ${fmt(Math.max(0, Number(c.amount_remaining ?? c.gross_amount) || 0))} €`
+                      : `NC ${label(c)} — credito ${fmt(creditNoteResidual(c))} €`}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <p className="text-sm text-slate-600">
+              Fattura {inv ? label(inv) : '—'}: residuo <span className="font-medium text-slate-900">{fmt(invRes)} €</span> · NC {nc ? label(nc) : '—'}: credito <span className="font-medium text-slate-900">{fmt(ncRes)} €</span>
+            </p>
+            <div>
+              <label className="text-xs font-semibold text-slate-700 mb-2 block uppercase tracking-wide">Importo da compensare</label>
+              <div className="flex gap-2">
+                <input type="number" step="0.01" min="0" max={max} value={ncCompAmount}
+                  onChange={(e) => setNcCompAmount(e.target.value)}
+                  onWheel={e => e.currentTarget.blur()}
+                  className="no-spin flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500" />
+                <button type="button" onClick={() => setNcCompAmount(String(max.toFixed(2)))}
+                  className="px-3 py-2 rounded-lg border border-slate-200 text-xs font-medium text-slate-600 hover:bg-slate-50 whitespace-nowrap">
+                  Massimo
+                </button>
+              </div>
+              {invalid && ncCompAmount !== '' && (
+                <p className="text-[11px] text-red-600 mt-1">Inserisci un importo tra 0 e {fmt(max)} €.</p>
+              )}
+              {!invalid && (
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Dopo: fattura {invAfter > 0.005 ? `parziale, residuo ${fmt(invAfter)} €` : 'pagata (chiusa a mano)'} · NC {ncAfter > 0.005 ? `aperta, credito residuo ${fmt(ncAfter)} €` : 'chiusa (registrata in Avere)'}
+                </p>
+              )}
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-slate-700 mb-2 block uppercase tracking-wide">Data di compensazione</label>
+              <input type="date" value={ncCompDate} onChange={(e) => setNcCompDate(e.target.value)}
+                max={todayYMD()}
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500" />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-slate-700 mb-2 block uppercase tracking-wide">Motivazione (opzionale)</label>
+              <input type="text" value={ncCompReason} onChange={(e) => setNcCompReason(e.target.value)}
+                placeholder="es. storno totale, reso merce, accordo col fornitore…"
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500" />
+            </div>
+            <div className="flex gap-2 pt-1">
+              <button onClick={closeModal}
+                className="flex-1 py-2.5 rounded-lg border border-slate-200 text-sm font-medium hover:bg-slate-50">Annulla</button>
+              <button onClick={handleNcCompSubmit} disabled={isSaving || !ncCompDate || invalid}
+                className="flex-1 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium disabled:opacity-50 flex items-center justify-center gap-2">
+                <Link2 size={14} /> {isSaving ? 'Compensazione…' : 'Compensa'}
               </button>
             </div>
           </div>

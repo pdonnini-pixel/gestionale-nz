@@ -1,0 +1,84 @@
+-- =============================================================================
+-- NZ_ONLY — SERTEC: la fattura 2026 312 va chiusa a fronte della NC 2026 393
+-- Applicato su NZ il 03/09/2026. Dati NZ-specifici: non si replica su Made/Zago.
+-- =============================================================================
+--
+-- IL FATTO. SERTEC S.R.L. (P.IVA 00495550014) ha emesso il 26/05/2026 due
+-- fatture gemelle da 3.172,00 EUR, la 311 e la 312, scadenza 26/06. Il bonifico
+-- del 13/07 («SALDO FATTURA 311», -3.172,00) ha pagato SOLO la 311, che infatti
+-- e' agganciata al movimento. La 312 era stata chiusa a mano nell'allineamento
+-- massivo del 10/07 (payable_actions 'allineamento_scadenzario', operatore
+-- Claude Code) senza nessun movimento bancario dietro. Il 10/07 il fornitore ha
+-- emesso la nota di credito TD04 2026 393 da -3.172,00: e' lo storno totale della
+-- 312. Nello Scadenzario restavano quindi una fattura «pagata» senza pagamento e
+-- una NC aperta da -3.172,00 che scalava il dovuto del fornitore.
+--
+-- COSA CAMBIA (richiesta Patrizio: «quella chiusa deve essere aperta e chiusa a
+-- fronte della nota di credito, quindi poi si deve avere zero»):
+--   1. reopen_payable(312): riapre la fattura (audit 'riapertura').
+--   2. payable_credit_note_links (312 <- 393, 3.172,00, 'applied'): il legame
+--      fattura<->NC, lo stesso che scrive la riconciliazione quando consuma una NC.
+--   3. close_payable_manually(393): la NC viene chiusa a mano, registrata in AVERE
+--      nel partitario, con riferimento alla 312.
+--   4. close_payable_manually(312): la fattura torna 'pagato' per COMPENSAZIONE,
+--      closed_manually=true, nessun movimento bancario (prima nota intatta).
+--   5. La proposta di riconciliazione automatica 'to_confirm' sulla NC
+--      (reconciliation_log, fuzzy 51,84 su un bonifico IRIDIUS del 19/12/2025) viene
+--      marcata 'rejected': una NC compensata non si abbina a un movimento.
+-- Data di compensazione: 10/07/2026 (data della nota di credito).
+-- Risultato: fattura 312 e NC 393 entrambe chiuse, saldo fornitore su queste
+-- due righe = 0. La 311 (pagata col bonifico del 13/07) non viene toccata.
+--
+-- Solo UPDATE/INSERT tramite le RPC gia' in produzione. Nessuna riga cancellata.
+-- Backup pre-modifica: public._bkp_sertec_nc393_20260903 (2 righe payables
+-- complete: 312 e 393). Il rollback qui a fianco ripristina esattamente quello stato.
+-- =============================================================================
+--
+-- NOTA. Eseguito direttamente sul tenant NZ via MCP il 03/09/2026, dopo backup.
+-- Questo file e' la traccia versionata; gli UUID sono quelli reali di NZ.
+
+-- 0) Backup
+-- create table if not exists public._bkp_sertec_nc393_20260903 as
+--   select p.*, now() as bkp_at from public.payables p
+--   where p.id in ('<FATTURA 312>', '<NC 393>');
+-- -- 2 righe
+
+-- 1) Riapertura della fattura 312 (chiusa a mano per errore il 10/07)
+-- select * from public.reopen_payable(
+--   '<FATTURA 312>',
+--   'Chiusa per errore nell''allineamento del 10/07: la fattura e'' stornata dalla nota di credito 2026 393',
+--   'Claude Code');
+
+-- 2) Legame fattura <-> nota di credito (compensazione applicata)
+-- insert into public.payable_credit_note_links
+--   (company_id, payable_id, credit_note_payable_id, amount, status, applied_at)
+-- select p.company_id, p.id, '<NC 393>', 3172.00, 'applied', now()
+--   from public.payables p where p.id = '<FATTURA 312>'
+-- on conflict (payable_id, credit_note_payable_id)
+--   do update set status = 'applied', amount = 3172.00, applied_at = now();
+
+-- 3) Chiusura della NC 393 in AVERE, con riferimento alla 312
+-- select * from public.close_payable_manually(
+--   '<NC 393>', date '2026-07-10',
+--   'Compensata sulla fattura 2026 312 (storno totale)', null, 'Claude Code');
+
+-- 4) Chiusura della fattura 312 per compensazione (nessun pagamento)
+-- select * from public.close_payable_manually(
+--   '<FATTURA 312>', date '2026-07-10',
+--   'Compensata con nota di credito 2026 393 (storno totale, nessun pagamento)', null, 'Claude Code');
+
+-- 5) Proposta di riconciliazione sulla NC non piu' valida
+-- update public.reconciliation_log
+--   set status = 'rejected',
+--       notes = coalesce(notes,'') || ' | NC compensata sulla fattura 312 il 03/09/2026: proposta annullata'
+-- where payable_id = '<NC 393>' and status = 'to_confirm';
+
+-- --- Verifica ---------------------------------------------------------------
+-- select invoice_number, status, gross_amount, amount_paid, amount_remaining,
+--        closed_manually, payment_date, manual_close_reason
+--   from public.payables where id in ('<FATTURA 312>', '<NC 393>');
+-- Atteso: 312 -> pagato, paid 3.172,00, remaining 0, closed_manually, 10/07/2026
+--         393 -> nota_credito, closed_manually, 10/07/2026
+-- select status, amount from public.payable_credit_note_links
+--   where payable_id = '<FATTURA 312>' and credit_note_payable_id = '<NC 393>';
+-- Atteso: applied, 3.172,00
