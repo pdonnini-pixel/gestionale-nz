@@ -50,7 +50,7 @@ import {
   type PreviewRow, type ParsedImport, type ProspettoOutletRow, type StatEmpMonth,
 } from '../lib/payrollParse';
 import { mergeSumByKey, keepLastByKey, duplicateKeys, readableDbError } from '../lib/upsertDedupe';
-import { archiviaFile, avvisoArchiviazioneFallita } from '../lib/archivioFile';
+import { archiviaFile, avvisoArchiviazioneFallita, sostituisciPrecedenti } from '../lib/archivioFile';
 import { UiTooltip } from '../components/Tooltip'; // alias: 'Tooltip' collide con recharts
 import ExportMenu from '../components/ExportMenu';
 // Organico granitico: fonte unica del conteggio dipendenti (vedi src/lib/headcount.ts).
@@ -2387,15 +2387,19 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
       // Il file va in archivio PRIMA dei dati: se l'archiviazione fallisce si va
       // avanti lo stesso, ma l'utente lo viene a sapere (mai in silenzio).
       let documentId: string | null = null;
+      const funzioneArchivio = isNetto ? `Elenco netti per dipendente · ${labelTipo(tipoCedolino)}` : 'Costi lordi per dipendente';
       if (fileObj) {
         const archiviato = await archiviaFile({
           file: fileObj, companyId, userId, modulo: 'Personale',
-          funzione: isNetto ? `Elenco netti per dipendente · ${labelTipo(tipoCedolino)}` : 'Costi lordi per dipendente',
+          funzione: funzioneArchivio,
           bucket: 'employee-documents', year: impYear, month: impMonth,
           referenceTable: 'employee_cost_imports',
         });
         documentId = archiviato.id;
         if (archiviato.errore) toast({ type: 'error', message: avvisoArchiviazioneFallita(fileName, archiviato.errore) });
+        // Stesso cedolino, stesso mese, ricaricato: in archivio resta la versione
+        // nuova come corrente e la vecchia marcata come sostituita.
+        await sostituisciPrecedenti({ companyId, funzione: funzioneArchivio, year: impYear, month: impMonth, nuovoId: documentId });
       }
 
       const { data: logRow, error: logErr } = await supabase.from('employee_cost_imports').insert([{
@@ -2889,21 +2893,13 @@ function CostiLordoDipendentiBlock({ companyId, userId, outlets, year, month, mo
   // il Prospetto: cosi' un mese caricato non resta invisibile in cima alla pagina.
   const prospMese = prospettoByMonth.get(month);
   const meseDaProspetto = monthRows.length === 0 && (prospMese?.costo || 0) > 0;
-  const monthTotal = useMemo(
-    () => (meseDaProspetto ? (prospMese?.costo || 0) : monthRows.reduce((s, r) => s + r.lordo, 0)),
-    [monthRows, meseDaProspetto, prospMese],
-  );
+  const monthTotal = useMemo(() => monthRows.reduce((s, r) => s + r.lordo, 0), [monthRows]);
   const periodMonths = useMemo(() => {
-    const m = new Map<number, { lordo: number; daProspetto: boolean }>();
-    for (const r of rows) {
-      const p = m.get(r.month);
-      m.set(r.month, { lordo: (p?.lordo || 0) + r.lordo, daProspetto: false });
-    }
-    prospettoByMonth.forEach((v, mm) => { if (!m.has(mm) && v.costo > 0) m.set(mm, { lordo: v.costo, daProspetto: true }); });
-    return [...m.entries()].sort((a, b) => a[0] - b[0]).map(([mm, v]) => ({ mm, ...v }));
-  }, [rows, prospettoByMonth]);
+    const m = new Map<number, number>();
+    for (const r of rows) m.set(r.month, (m.get(r.month) || 0) + r.lordo);
+    return [...m.entries()].sort((a, b) => a[0] - b[0]).map(([mm, lordo]) => ({ mm, lordo }));
+  }, [rows]);
   const periodTotal = useMemo(() => periodMonths.reduce((s, m) => s + m.lordo, 0), [periodMonths]);
-  const periodLabel = periodMonths.length ? `${MESI_LBL[periodMonths[0].mm].slice(0, 3)}–${MESI_LBL[periodMonths[periodMonths.length - 1].mm].slice(0, 3)} ${year}` : `${year}`;
 
   const toggle = (k: string) => setExpanded((s) => { const n = new Set(s); n.has(k) ? n.delete(k) : n.add(k); return n; });
 
@@ -2967,6 +2963,10 @@ function CostiLordoDipendentiBlock({ companyId, userId, outlets, year, month, mo
         });
         documentId = archiviato.id;
         if (archiviato.errore) toast({ type: 'error', message: avvisoArchiviazioneFallita(fileName, archiviato.errore) });
+        await sostituisciPrecedenti({
+          companyId, funzione: 'Statistica costo orario (costo lordo per dipendente)',
+          year: res.rows[0]?.year ?? null, month: null, nuovoId: documentId,
+        });
       }
 
       const [{ data: emps }, { data: allocs }, { data: mats }] = await Promise.all([
@@ -3047,40 +3047,31 @@ function CostiLordoDipendentiBlock({ companyId, userId, outlets, year, month, mo
 
   return (
     <div className="space-y-5">
-      {/* KPI periodo / mese */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        <Kpi
-          label={`Costo lordo · ${monthLabel} ${year}`}
-          value={`${eurFmt.format(monthTotal)} €`}
-          sub={meseDaProspetto
-            ? `${prospMese?.dip ?? 0} dipendenti · dal Prospetto paghe`
-            : `${monthRows.length} dipendenti nel mese`}
-          icon={Users}
-          source="neutro"
-        />
-        <Kpi
-          label={`Costo lordo · ${periodLabel}`}
-          value={`${eurFmt.format(periodTotal)} €`}
-          sub={`${periodMonths.length} mesi${periodMonths.some((m) => m.daProspetto) ? ' · due fonti' : ` · ${new Set(rows.map((r) => r.matricola)).size} dipendenti`}`}
-          icon={FileText}
-          source="neutro"
-        />
-        <div className="bg-white rounded-2xl border border-slate-200 p-4 flex flex-col justify-between">
-          <div>
-            <div className="text-xs font-medium text-slate-500">Riepilogo periodo</div>
-            <div className="mt-1 space-y-0.5">
-              {periodMonths.map((m) => (
-                <div key={m.mm} className="flex items-center justify-between text-xs">
-                  <span className="text-slate-500">
-                    {MESI_LBL[m.mm]}
-                    {m.daProspetto && <UiTooltip content={"Dal «Prospetto riepilogativo elaborazione paghe» (per outlet).\nPer questo mese non e' stata caricata la «Statistica costo orario», quindi non c'e' il dettaglio persona per persona."}><span className="ml-1.5 text-[10px] text-slate-400 cursor-help">outlet</span></UiTooltip>}
-                  </span>
-                  <Money v={m.lordo} />
-                </div>
-              ))}
+      {/* Riga di testa: questa fonte NON fa i totali della scheda (li fa il
+          Prospetto), quindi dice solo cosa copre e quanto vale dove c'e'. */}
+      <div className="bg-white rounded-2xl border border-slate-200 px-5 py-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-sm text-slate-600">
+              Il costo lordo <strong>persona per persona</strong>, dalla «Statistica costo orario». Serve a vedere chi c'è dentro
+              il costo di un punto vendita: i totali della scheda restano quelli del Prospetto, qui sopra.
+            </div>
+            <div className="text-xs text-slate-500 mt-2">
+              {periodMonths.length
+                ? <>Copre <strong>{periodMonths.map((m) => MESI_LBL[m.mm]).join(', ')}</strong> · {new Set(rows.map((r) => r.matricola)).size} persone · {eurFmt.format(periodTotal)} € nel periodo</>
+                : <>Nessun mese caricato per il {year}.</>}
             </div>
           </div>
-          {monthRows.length > 0 && <div className="mt-3"><ExportMenu data={exportData} columns={exportCols} filename={`costo_lordo_dipendenti_${year}_${String(month).padStart(2, '0')}`} title={`Costo lordo per dipendente · ${monthLabel} ${year}`} /></div>}
+          <div className="flex items-center gap-3 shrink-0">
+            {monthRows.length > 0 && (
+              <div className="text-right">
+                <div className="text-[11px] text-slate-400">{monthLabel} {year}</div>
+                <div className="text-lg font-semibold text-slate-800 tabular-nums">{eurFmt.format(monthTotal)} €</div>
+                <div className="text-[11px] text-slate-400">{monthRows.length} dipendenti</div>
+              </div>
+            )}
+            {monthRows.length > 0 && <ExportMenu data={exportData} columns={exportCols} filename={`costo_lordo_dipendenti_${year}_${String(month).padStart(2, '0')}`} title={`Costo lordo per dipendente · ${monthLabel} ${year}`} />}
+          </div>
         </div>
       </div>
 
@@ -3105,7 +3096,7 @@ function CostiLordoDipendentiBlock({ companyId, userId, outlets, year, month, mo
       ) : monthRows.length === 0 ? (
         <div className="bg-white rounded-2xl border border-slate-200 p-10 text-center text-slate-400">
           Nessun costo lordo per dipendente in <strong>{monthLabel} {year}</strong>.{' '}
-          {meseDaProspetto && <>Il mese c'è però nel <strong>Prospetto paghe</strong>, qui sotto: {eurFmt.format(prospMese?.costo || 0)} € su {prospMese?.outlet ?? 0} outlet. Manca solo il dettaglio persona per persona.{' '}</>}
+          {meseDaProspetto && <>Il mese c'è però nel <strong>Prospetto paghe</strong>, qui sopra: {eurFmt.format(prospMese?.costo || 0)} € su {prospMese?.outlet ?? 0} outlet. Manca solo il dettaglio persona per persona.{' '}</>}
           {periodMonths.length > 0 ? <>Seleziona un mese tra <strong>{periodMonths.map((m) => MESI_LBL[m.mm]).join(', ')}</strong> dal selettore in alto, oppure importa il report del mese.</> : <>Importa la «Statistica costo orario» qui sopra.</>}
         </div>
       ) : (
@@ -3322,6 +3313,12 @@ function CostiLordoTab({ companyId, userId, outlets, year, month, monthLabel }: 
         });
         documentId = archiviato.id;
         if (archiviato.errore) toast({ type: 'error', message: avvisoArchiviazioneFallita(preview.fileName, archiviato.errore) });
+        // Ricaricare sovrascrive: i dati del mese vengono sostituiti, e l'archivio
+        // deve dire la stessa cosa invece di tenere due file senza indicare il buono.
+        await sostituisciPrecedenti({
+          companyId, funzione: 'Prospetto riepilogativo elaborazione paghe (costo lordo per outlet)',
+          year: first.year, month: first.month, nuovoId: documentId,
+        });
       }
 
       const { data: imp, error: impErr } = await sb.from('personnel_gross_cost_imports').insert({
@@ -3443,6 +3440,16 @@ function CostiLordoTab({ companyId, userId, outlets, year, month, monthLabel }: 
   // costo outlet: senza una colonna che li mostri in negativo la riga non torna a
   // occhio e il totale sembra sbagliato. Colonna solo quando ce ne sono.
   const anyCompensiAmm = rows.some((r) => r.compensi_amm > 0);
+
+  // Periodo coperto dal Prospetto: e' il consuntivo del costo del lavoro.
+  const mesiProspetto = useMemo(
+    () => [...prospettoByMonth.entries()].sort((a, b) => a[0] - b[0]).map(([mm, v]) => ({ mm, ...v })),
+    [prospettoByMonth],
+  );
+  const periodoCosto = useMemo(() => mesiProspetto.reduce((s2, m) => s2 + m.costo, 0), [mesiProspetto]);
+  const periodoLabel = mesiProspetto.length
+    ? `${MESI_LBL[mesiProspetto[0].mm].slice(0, 3)}–${MESI_LBL[mesiProspetto[mesiProspetto.length - 1].mm].slice(0, 3)} ${year}`
+    : `${year}`;
   const adminRows = useMemo(() => rows.filter((r) => r.amministratori_totale > 0), [rows]);
   const anyInailMissing = rows.some((r) => r.inail_incompleto);
 
@@ -3468,23 +3475,45 @@ function CostiLordoTab({ companyId, userId, outlets, year, month, monthLabel }: 
 
   return (
     <div className="space-y-8">
-      {/* Layer per DIPENDENTE/MESE — drillabile outlet → dipendente (sorgente: Statistica costo orario) */}
-      <CostiLordoDipendentiBlock
-        companyId={companyId}
-        userId={userId}
-        outlets={outlets}
-        year={year}
-        month={month}
-        monthLabel={monthLabel}
-        prospettoByOutlet={prospettoByOutlet}
-        prospettoByMonth={prospettoByMonth}
-      />
+      {/* KPI dal PROSPETTO: e' la fonte che arriva ogni mese, quindi e' quella che
+          da' i numeri di testa. Il dettaglio per dipendente resta sotto, come
+          approfondimento dei mesi in cui la Statistica costo orario c'e'. */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <Kpi
+          label={`Costo lordo · ${monthLabel} ${year}`}
+          value={`${eurFmt.format(tot.costo)} €`}
+          sub={rows.length ? `${tot.dip} dipendenti · ${rows.length} filiali${tot.amm > 0 ? ` · amministratori ${eurFmt.format(tot.amm)} € a parte` : ''}` : 'mese non ancora caricato'}
+          icon={Users}
+          source="neutro"
+        />
+        <Kpi
+          label={`Costo lordo · ${periodoLabel}`}
+          value={`${eurFmt.format(periodoCosto)} €`}
+          sub={`${mesiProspetto.length} mesi dal Prospetto paghe`}
+          icon={FileText}
+          source="neutro"
+        />
+        <div className="bg-white rounded-2xl border border-slate-200 p-4 flex flex-col justify-between">
+          <div>
+            <div className="text-xs font-medium text-slate-500">Riepilogo periodo</div>
+            <div className="mt-1 space-y-0.5">
+              {mesiProspetto.map((m) => (
+                <div key={m.mm} className={`flex items-center justify-between text-xs ${m.mm === month ? 'font-semibold text-slate-700' : ''}`}>
+                  <span className={m.mm === month ? '' : 'text-slate-500'}>{MESI_LBL[m.mm]}</span><Money v={m.costo} />
+                </div>
+              ))}
+              {mesiProspetto.length === 0 && <div className="text-xs text-slate-400">Nessun Prospetto caricato per il {year}.</div>}
+            </div>
+          </div>
+          {rows.length > 0 && <div className="mt-3"><ExportMenu data={exportData} columns={exportCols} filename={`costo_lordo_outlet_${year}_${String(month).padStart(2, '0')}`} title={`Costo del lavoro per outlet · ${monthLabel} ${year}`} /></div>}
+        </div>
+      </div>
 
       {/* Vista per OUTLET dal Prospetto paghe — riconciliazione e tassi INAIL */}
       <div className="pt-2">
         <div className="flex items-center gap-2 mb-3">
-          <div className="text-sm font-semibold text-slate-700">Vista per outlet — Prospetto paghe</div>
-          <span className="text-xs text-slate-400">riconciliazione e tassi INAIL · {monthLabel} {year}</span>
+          <div className="text-sm font-semibold text-slate-700">Costo del lavoro per outlet — Prospetto paghe</div>
+          <span className="text-xs text-slate-400">il documento che arriva ogni mese · {monthLabel} {year}</span>
         </div>
     <div className="space-y-5">
       {/* Import tile + export */}
@@ -3684,6 +3713,26 @@ function CostiLordoTab({ companyId, userId, outlets, year, month, monthLabel }: 
             </table>
           </div>
         )}
+      </div>
+
+      {/* Dettaglio per DIPENDENTE — sorgente «Statistica costo orario». Sta SOTTO
+          il Prospetto perche' e' un documento che si richiede a mano e copre solo
+          i mesi in cui e' stato chiesto: approfondisce, non fa i totali. */}
+      <div className="pt-2">
+        <div className="flex items-center gap-2 mb-3">
+          <div className="text-sm font-semibold text-slate-700">Dettaglio per dipendente — Statistica costo orario</div>
+          <span className="text-xs text-slate-400">solo i mesi richiesti al consulente</span>
+        </div>
+        <CostiLordoDipendentiBlock
+          companyId={companyId}
+          userId={userId}
+          outlets={outlets}
+          year={year}
+          month={month}
+          monthLabel={monthLabel}
+          prospettoByOutlet={prospettoByOutlet}
+          prospettoByMonth={prospettoByMonth}
+        />
       </div>
 
       {/* Anteprima import */}
