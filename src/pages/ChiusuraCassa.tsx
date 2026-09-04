@@ -36,9 +36,9 @@ import { Modal } from '../components/ui/Modal'
 import PageHeader from '../components/PageHeader'
 import type { Database } from '../types/database'
 import {
-  type PaymentChannel, type AttachmentTarget, type ExpenseKind, CLOSING_STATUS_LABELS, EXPENSE_KIND_LABELS, kindForTarget,
+  type PaymentChannel, type AttachmentTarget, type ExpenseKind, type ExtractedData, CLOSING_STATUS_LABELS, EXPENSE_KIND_LABELS, kindForTarget,
   parseAmount, formatAmount, formatEuro, computeQuadrature, todayIso, addDaysIso, monthDays,
-  formatDateIt, MESI_IT, attachmentPath, compressImage,
+  formatDateIt, MESI_IT, attachmentPath, compressImage, extractedAmount,
 } from '../lib/cashClosings'
 
 type ClosingRow = Database['public']['Tables']['outlet_daily_closings']['Row']
@@ -79,7 +79,8 @@ function errMsg(e: unknown): string {
 export default function ChiusuraCassa() {
   const { profile, session } = useAuth()
   const { company } = useCompany()
-  const { outlets, loading: outletsLoading } = useOutlets()
+  // Solo punti vendita: sede e magazzino non hanno cassa.
+  const { outlets, loading: outletsLoading } = useOutlets({ sellingOnly: true })
   const { toast } = useToast()
   const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
@@ -113,6 +114,8 @@ export default function ChiusuraCassa() {
   const [reopenOpen, setReopenOpen] = useState(false)
   const [reopenReason, setReopenReason] = useState('')
   const [missingPhotos, setMissingPhotos] = useState<string[] | null>(null)
+  /** Foto in lettura automatica (edge function closing-photo-extract), per id allegato. */
+  const [readingIds, setReadingIds] = useState<Set<string>>(new Set())
   const fileRef = useRef<HTMLInputElement>(null)
   const pendingTarget = useRef<PhotoTarget | null>(null)
 
@@ -381,6 +384,7 @@ export default function ChiusuraCassa() {
     const t = pendingTarget.current
     if (!files || files.length === 0 || !companyId || !userId || !t) return
     setUploading(true)
+    const newIds: string[] = []
     try {
       const c = await ensureClosing()
       let lineId: string | null = null
@@ -400,13 +404,14 @@ export default function ChiusuraCassa() {
         const path = attachmentPath(companyId, outletId, dateIso, id)
         const { error: upErr } = await supabase.storage.from(BUCKET).upload(path, blob, { contentType: 'image/jpeg', upsert: false })
         if (upErr) throw new Error(upErr.message)
-        const { error: insErr } = await supabase.from('outlet_daily_closing_attachments').insert({
+        const { data: ins, error: insErr } = await supabase.from('outlet_daily_closing_attachments').insert({
           closing_id: c.id, company_id: companyId, outlet_id: outletId,
           target: t.target, kind: kindForTarget(t.target, channelKind),
           line_id: lineId, expense_id: t.expenseId ?? null,
           storage_path: path, mime_type: 'image/jpeg', size_bytes: blob.size, uploaded_by: userId,
-        })
-        if (insErr) throw new Error(insErr.message)
+        }).select('id').single()
+        if (insErr || !ins) throw new Error(errMsg(insErr))
+        newIds.push(ins.id)
       }
       const { data } = await supabase.from('outlet_daily_closing_attachments').select('*').eq('closing_id', c.id).order('uploaded_at')
       setAttachments((data ?? []) as AttachmentRow[])
@@ -417,6 +422,116 @@ export default function ChiusuraCassa() {
       pendingTarget.current = null
       if (fileRef.current) fileRef.current.value = ''
     }
+    // La lettura automatica parte dopo il caricamento e non blocca la cassiera.
+    for (const id of newIds) void readPhoto(id, t)
+  }
+
+  /**
+   * Lettura automatica della foto (fase 1b): chiede alla edge function di
+   * leggere lo scontrino e, se il campo della riga è ancora vuoto, lo
+   * precompila col valore letto. Se il campo è già scritto non lo tocca:
+   * la differenza si vede nel chip "dalla foto" sotto la foto.
+   */
+  const readPhoto = async (attachmentId: string, t: PhotoTarget) => {
+    setReadingIds((set) => new Set(set).add(attachmentId))
+    try {
+      const { data, error } = await supabase.functions.invoke<{ data?: { status: string; extracted: ExtractedData } }>('closing-photo-extract', { body: { attachment_id: attachmentId } })
+      const res = data?.data
+      if (error || !res) throw new Error(error?.message ?? 'risposta vuota')
+      setAttachments((list) => list.map((a) => (a.id === attachmentId
+        ? { ...a, extraction_status: res.status, extracted: res.extracted as AttachmentRow['extracted'], extracted_at: new Date().toISOString() }
+        : a)))
+      if (res.status === 'letta' || res.status === 'da_rivedere') prefillFromPhoto(t, res.extracted)
+    } catch (e) {
+      // Nessun errore bloccante: la cassiera scrive i numeri a mano come prima.
+      console.warn('[chiusura-cassa] lettura foto non riuscita', e)
+      setAttachments((list) => list.map((a) => (a.id === attachmentId ? { ...a, extraction_status: 'fallita' } : a)))
+    } finally {
+      setReadingIds((set) => { const n = new Set(set); n.delete(attachmentId); return n })
+    }
+  }
+
+  const isBlank = (v: string | undefined) => parseAmount(v) == null
+  const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : '')
+
+  /** Precompila SOLO i campi vuoti della riga con i valori letti dalla foto. */
+  const prefillFromPhoto = (t: PhotoTarget, ex: ExtractedData) => {
+    const amount = extractedAmount(ex)
+    setForm((f) => {
+      const next = { ...f, amounts: { ...f.amounts } }
+      let changed = false
+      if (t.target === 'totale') {
+        if (amount != null && isBlank(f.total)) { next.total = formatAmount(amount); changed = true }
+        const cash = typeof ex.cash === 'number' ? ex.cash : null
+        const cashCh = channels.find((c) => c.kind === 'contanti')
+        if (cash != null && cashCh && isBlank(f.amounts[cashCh.id])) { next.amounts[cashCh.id] = formatAmount(cash); changed = true }
+      } else if (t.target === 'canale' && t.channelId) {
+        if (amount != null && isBlank(f.amounts[t.channelId])) { next.amounts[t.channelId] = formatAmount(amount); changed = true }
+      } else if (t.target === 'versamento') {
+        if (amount != null && isBlank(f.cashDeposit)) { next.cashDeposit = formatAmount(amount); changed = true }
+        if (!f.cashDepositNote.trim() && str(ex.bank)) { next.cashDepositNote = `Versamento ${str(ex.bank)}`; changed = true }
+      }
+      if (changed) setDirty(true)
+      return changed ? next : f
+    })
+    if (t.target === 'spesa' && t.expenseId) {
+      setExpenses((list) => list.map((e) => {
+        if (e.id !== t.expenseId) return e
+        const patch: Partial<ExpenseDraft> = {}
+        if (amount != null && isBlank(e.amount)) patch.amount = formatAmount(amount)
+        if (!e.description.trim()) { const d = str(ex.description) || str(ex.merchant); if (d) patch.description = d }
+        if (Object.keys(patch).length === 0) return e
+        setDirty(true)
+        return { ...e, ...patch }
+      }))
+    }
+  }
+
+  /** Valore scritto nel campo della riga, per confrontarlo con la lettura. */
+  const fieldValueFor = (t: PhotoTarget): number | null => {
+    if (t.target === 'totale') return parseAmount(form.total)
+    if (t.target === 'canale' && t.channelId) return parseAmount(form.amounts[t.channelId])
+    if (t.target === 'spesa' && t.expenseId) return parseAmount(expenses.find((e) => e.id === t.expenseId)?.amount)
+    if (t.target === 'versamento') return parseAmount(form.cashDeposit)
+    return null
+  }
+
+  /** "Usa" nel chip: scrive nel campo il valore letto dalla foto. */
+  const useExtracted = (t: PhotoTarget, amount: number) => {
+    const v = formatAmount(amount)
+    if (t.target === 'totale') update({ total: v })
+    else if (t.target === 'canale' && t.channelId) updateAmount(t.channelId, v)
+    else if (t.target === 'spesa' && t.expenseId) updateExpense(t.expenseId, { amount: v })
+    else if (t.target === 'versamento') update({ cashDeposit: v })
+  }
+
+  /** Chip sotto la foto: stato della lettura e confronto col campo. */
+  const ExtractionChip = ({ a, t }: { a: AttachmentRow; t: PhotoTarget }) => {
+    if (a.target === 'altro') return null
+    if (readingIds.has(a.id)) return <span className="inline-flex items-center gap-1 text-[11px] text-blue-700"><Loader2 size={11} className="animate-spin" />lettura…</span>
+    const amount = extractedAmount(a.extracted)
+    const status = a.extraction_status
+    if (status === 'in_attesa') {
+      return editable ? <button type="button" onClick={() => void readPhoto(a.id, t)} className="text-[11px] text-blue-700 underline">leggi la foto</button> : null
+    }
+    if (status === 'fallita' || amount == null) {
+      return (
+        <span className="inline-flex items-center gap-1 text-[11px] text-slate-500">
+          {status === 'fallita' ? 'lettura non riuscita' : 'importo non leggibile'}
+          {editable && <button type="button" onClick={() => void readPhoto(a.id, t)} className="underline text-blue-700">riprova</button>}
+        </span>
+      )
+    }
+    const field = fieldValueFor(t)
+    const same = field != null && Math.abs(field - amount) < 0.005
+    const uncertain = status === 'da_rivedere'
+    if (same) return <span className={`inline-flex items-center gap-1 text-[11px] ${uncertain ? 'text-amber-700' : 'text-emerald-700'}`}><Check size={11} />dalla foto: {formatEuro(amount)}{uncertain ? ' (da controllare)' : ''}</span>
+    return (
+      <span className="inline-flex items-center gap-1 text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">
+        dalla foto: <strong>{formatEuro(amount)}</strong>{uncertain ? ' ?' : ''}
+        {editable && <button type="button" onClick={() => useExtracted(t, amount)} className="underline font-medium">usa</button>}
+      </span>
+    )
   }
 
   const removeAttachment = async (a: AttachmentRow) => {
@@ -453,6 +568,11 @@ export default function ChiusuraCassa() {
         ))}
         {list.length === 0 && !form.isClosedDay && (
           <span className={`text-[11px] ${required ? 'text-red-600 font-medium' : 'text-slate-400'}`}>{required ? 'obbligatoria' : hint ? NO_PHOTO_HINT : ''}</span>
+        )}
+        {list.length > 0 && (
+          <div className="basis-full flex flex-wrap gap-2">
+            {list.map((a) => <ExtractionChip key={a.id} a={a} t={t} />)}
+          </div>
         )}
       </div>
     )
@@ -539,7 +659,7 @@ export default function ChiusuraCassa() {
               {/* 1. Totale + canali */}
               <section className="bg-white border border-slate-200 rounded-xl p-4 mb-4 space-y-4">
                 <h2 className="font-semibold text-slate-900">1. Incassi del giorno</h2>
-                <p className="text-xs text-slate-500 -mt-2">Per ogni riga puoi fotografare lo scontrino che la giustifica. Solo la foto dello scontrino di chiusura è obbligatoria.</p>
+                <p className="text-xs text-slate-500 -mt-2">Per ogni riga puoi fotografare lo scontrino che la giustifica. Solo la foto dello scontrino di chiusura è obbligatoria. I numeri vengono letti dalla foto e proposti nei campi vuoti: controllali sempre.</p>
                 <div>
                   <label className={labelCls}>Totale corrispettivi (dallo scontrino di chiusura)</label>
                   <input inputMode="decimal" value={form.total} disabled={!editable} onChange={(e) => update({ total: e.target.value })} placeholder="0,00" className={`${inputCls} border-blue-300 bg-blue-50/40`} />

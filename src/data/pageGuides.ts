@@ -135,7 +135,7 @@ export const PAGE_GUIDES: PageGuide[] = [
         "heading": "Creare un nuovo outlet manualmente",
         "body": "Se hai i permessi necessari vedi il pulsante 'Nuovo outlet', che apre una procedura guidata a più passaggi. Ogni passaggio raccoglie un gruppo di informazioni; puoi tornare indietro con 'Indietro' e proseguire con 'Avanti'. Nell'ultimo passaggio trovi il riepilogo di tutti i dati inseriti, da controllare prima di salvare.",
         "steps": [
-          "Anagrafica: nome outlet, codice, insegna/brand, tipo (Outlet, Retail, Corner), superficie lorda e di vendita, codice unità nel centro.",
+          "Anagrafica: nome outlet, codice, insegna/brand, tipo (Outlet, Retail, Corner, oppure Sede / magazzino per una sede senza cassa, che resta fuori dalle pagine di chiusura cassa e incassi), superficie lorda e di vendita, codice unità nel centro.",
           "Ubicazione: centro commerciale, società concedente, indirizzo, città, provincia, regione.",
           "Contratto: data consegna immobile, data apertura (obbligatoria), conferma apertura, date di inizio/fine contratto, durata, giorni gratuiti iniziali, mese della clausola di recesso.",
           "Canone e Costi: canone annuo garantito (il canone mensile si calcola da solo), canone al metro quadro, percentuale di canone variabile, eventuali canoni diversi per anno 2 e anno 3, spese condominiali e marketing mensili, budget personale mensile.",
@@ -1147,7 +1147,7 @@ export const PAGE_GUIDES: PageGuide[] = [
     "path": "/chiusura-cassa",
     "icon": "Wallet",
     "title": "Chiusura cassa",
-    "description": "La pagina Chiusura cassa è lo specchietto incassi del negozio: ogni sera la cassiera scrive il totale battuto in cassa (con la foto dello scontrino di chiusura, l'unica obbligatoria), gli importi per ogni mezzo di pagamento (contanti, POS, pay by link, fatture, bonifico), le spese pagate con i contanti e i rimborsi a cliente, il versamento in banca e il fondo cassa contato. Ogni riga ha il suo pulsante foto per lo scontrino che la giustifica. La pagina controlla in tempo reale che la giornata quadri e, alla conferma, il giorno diventa definitivo. Chi amministra (super advisor e contabile) usa la stessa pagina scegliendo il punto vendita.",
+    "description": "La pagina Chiusura cassa è lo specchietto incassi del negozio: ogni sera la cassiera scrive il totale battuto in cassa (con la foto dello scontrino di chiusura, l'unica obbligatoria), gli importi per ogni mezzo di pagamento (contanti, POS, pay by link, fatture, bonifico), le spese pagate con i contanti e i rimborsi a cliente, il versamento in banca e il fondo cassa contato. Ogni riga ha il suo pulsante foto per lo scontrino che la giustifica; appena una foto è caricata il gestionale la legge da solo e propone nei campi ancora vuoti i numeri letti (totale corrispettivi, contanti, totale POS, importo della spesa, importo versato), da controllare sempre. La pagina controlla in tempo reale che la giornata quadri e, alla conferma, il giorno diventa definitivo. Chi amministra (super advisor e contabile) usa la stessa pagina scegliendo il punto vendita.",
     "sections": [
       {
         "heading": "Il giorno da chiudere",
@@ -1155,7 +1155,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "1. Incassi del giorno, con una foto per riga",
-        "body": "Scrivi il totale corrispettivi come compare sullo scontrino di chiusura e fotografalo con il pulsante \"Foto\" sotto il campo: è l'unica foto obbligatoria, senza non si può confermare (fa eccezione il giorno di negozio chiuso). Poi un importo per ogni canale di incasso configurato per il tuo negozio (per esempio Contanti, POS MPS, POS BCC Amex, Pay by link, Fatture, Bonifico); per ogni POS puoi fotografare la chiusura del terminale con il pulsante della riga. Queste foto sono facoltative, ma senza potrà esserti chiesto un chiarimento. Puoi scrivere gli importi con la virgola (es. 1.234,50). Sotto i campi la riga \"Somma mezzi di pagamento\" ti dice se il totale quadra: verde se coincide, rossa con la differenza altrimenti. Se un canale è segnato \"fuori totale\" il suo importo non entra nel confronto.",
+        "body": "Scrivi il totale corrispettivi come compare sullo scontrino di chiusura e fotografalo con il pulsante \"Foto\" sotto il campo: è l'unica foto obbligatoria, senza non si può confermare (fa eccezione il giorno di negozio chiuso). Poi un importo per ogni canale di incasso configurato per il tuo negozio (per esempio Contanti, POS MPS, POS BCC Amex, Pay by link, Fatture, Bonifico); per ogni POS puoi fotografare la chiusura del terminale con il pulsante della riga. Queste foto sono facoltative, ma senza potrà esserti chiesto un chiarimento. Dopo ogni scatto compare sotto la foto la scritta \"lettura…\" e poi \"dalla foto: importo\": se il campo era vuoto viene compilato con il numero letto (dallo scontrino di chiusura anche i contanti), se avevi già scritto un importo diverso il chip diventa arancione con il pulsante \"usa\" per copiarlo; con \"(da controllare)\" o \"?\" la lettura è incerta e va verificata sullo scontrino; \"lettura non riuscita\" ha il pulsante \"riprova\". I numeri letti sono solo una proposta: fa fede quello che scrivi tu. Puoi scrivere gli importi con la virgola (es. 1.234,50). Sotto i campi la riga \"Somma mezzi di pagamento\" ti dice se il totale quadra: verde se coincide, rossa con la differenza altrimenti. Se un canale è segnato \"fuori totale\" il suo importo non entra nel confronto.",
         "steps": [
           "Tocca \"Foto\" sotto il totale: si apre direttamente la fotocamera del telefono; scatta lo scontrino di chiusura",
           "Scrivi gli importi dei canali e, per i POS, tocca \"Foto\" sulla riga per la chiusura del terminale (\"Altra foto\" per aggiungerne)",
@@ -1192,6 +1192,10 @@ export const PAGE_GUIDES: PageGuide[] = [
     ],
     "faq": [
       {
+        "q": "Ho fatto la foto ma il numero proposto è sbagliato: cosa faccio?",
+        "a": "Correggi il campo a mano: la lettura automatica è solo una proposta e non sostituisce mai quello che scrivi. Il chip sotto la foto resterà arancione con il valore letto, così chi controlla vede la differenza; se la foto è sfocata o tagliata, rifalla con \"Altra foto\" e usa \"riprova\"."
+      },
+      {
         "q": "Non riesco a confermare: dice che manca la foto dello scontrino di chiusura",
         "a": "È l'unica foto obbligatoria: tocca \"Foto\" sotto il campo del totale corrispettivi, scatta lo scontrino di chiusura del registratore e riprova. Solo il giorno di negozio chiuso non la richiede. Le altre foto (chiusure POS, scontrini delle spese, ricevuta del versamento) sono facoltative, ma senza potrà esserti chiesto un chiarimento."
       },
@@ -1221,14 +1225,14 @@ export const PAGE_GUIDES: PageGuide[] = [
     "path": "/incassi-giornalieri",
     "icon": "Receipt",
     "title": "Incassi giornalieri",
-    "description": "La pagina Incassi giornalieri è la vista amministrativa dello specchietto incassi: mostra mese per mese le chiusure di cassa dei punti vendita (totali, mezzi di pagamento, spese, versamenti, fondo cassa, differenze, foto degli scontrini), evidenzia i giorni mancanti e permette di riaprire una chiusura confermata. Nella scheda \"Canali di incasso\" si configurano le colonne che ogni cassiera compila.",
+    "description": "La pagina Incassi giornalieri è la vista amministrativa dello specchietto incassi: mostra mese per mese le chiusure di cassa dei punti vendita (totali, mezzi di pagamento, spese, versamenti, fondo cassa, differenze, foto degli scontrini), evidenzia i giorni mancanti e permette di riaprire una chiusura confermata. Nella scheda \"Canali di incasso\" si configurano le colonne che ogni cassiera compila. Compaiono solo i punti vendita che vendono: una sede o un magazzino (tipo \"Sede / magazzino\" nella scheda outlet) resta fuori da questa pagina e da Chiusura cassa.",
     "sections": [
       {
         "heading": "Riepilogo del mese",
-        "body": "Con le frecce scegli il mese. Con \"Tutti i punti vendita\" vedi una tabella giorni × outlet: in ogni cella il totale corrispettivi del giorno, colorato in verde se la chiusura è confermata, arancione se è ancora in bozza, rosso se manca (giorno passato senza chiusura), grigio se il negozio era chiuso; l'ultima riga e l'ultima colonna riportano i totali del mese. Scegliendo un solo punto vendita la tabella prende la forma del foglio Excel: una riga al giorno con totale, una colonna per ogni canale di incasso, spese cassa, rimborsi a cliente, versamenti, fondo cassa contato, differenza di cassa, numero di foto e stato, con i totali di colonna in fondo.",
+        "body": "Con le frecce scegli il mese. Con \"Tutti i punti vendita\" vedi una tabella giorni × outlet: in ogni cella il totale corrispettivi del giorno, colorato in verde se la chiusura è confermata, arancione se è ancora in bozza, rosso se manca (giorno passato senza chiusura), grigio se il negozio era chiuso; l'ultima riga e l'ultima colonna riportano i totali del mese. Scegliendo un solo punto vendita la tabella prende la forma del foglio Excel: una riga al giorno con totale, una colonna per ogni canale di incasso, spese cassa, rimborsi a cliente, versamenti, fondo cassa contato, differenza di cassa, numero di foto (con il segno ≠ se una foto letta automaticamente non coincide con il totale o il versamento scritti) e stato, con i totali di colonna in fondo.",
         "steps": [
           "Clicca su una cella (o su una riga) per aprire il dettaglio della giornata",
-          "Nel dettaglio vedi tutti gli importi, ogni spesa e rimborso con la sua descrizione, le note, chi ha chiuso e quando, e le foto degli scontrini con l'indicazione di cosa giustificano (scontrino di chiusura, chiusura POS di un canale, spesa, versamento): clicca una foto per aprirla a schermo intero. Se manca la foto dello scontrino di chiusura viene segnalato in rosso",
+          "Nel dettaglio vedi tutti gli importi, ogni spesa e rimborso con la sua descrizione, le note, chi ha chiuso e quando, e le foto degli scontrini con l'indicazione di cosa giustificano (scontrino di chiusura, chiusura POS di un canale, spesa, versamento): clicca una foto per aprirla a schermo intero. Sotto ogni foto c'è l'esito della lettura automatica: \"dalla foto\" con l'importo letto (verde se coincide con quanto scritto, arancione con la differenza se non coincide o se la lettura è incerta), più i dati secondari letti dallo scontrino (contanti ed elettronico, numero documenti, gran totale, numero azzeramenti, esito trasmissione, terminale POS, data e ora); \"Rileggi\" ripete la lettura. Se manca la foto dello scontrino di chiusura viene segnalato in rosso",
           "Se la giornata è in bozza, \"Apri per modificare\" porta alla pagina Chiusura cassa di quel giorno e punto vendita",
           "Se la giornata manca, \"Compila la chiusura\" apre la stessa pagina per inserirla"
         ]

@@ -120,6 +120,7 @@ function StepAnagrafica({ form, set }: { form: OutletForm; set: (k: string, v: u
             <option value="outlet">Outlet</option>
             <option value="retail">Retail</option>
             <option value="corner">Corner</option>
+            <option value="sede">Sede / magazzino (non vende, senza cassa)</option>
           </Select>
         </Field>
       </div>

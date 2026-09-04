@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseAmount, formatAmount, computeQuadrature, monthDays, addDaysIso, attachmentPath, kindForTarget } from './cashClosings'
+import { parseAmount, formatAmount, computeQuadrature, monthDays, addDaysIso, attachmentPath, kindForTarget, extractedAmount, extractedSummary } from './cashClosings'
 
 describe('kindForTarget', () => {
   it('associa a ogni riga il documento atteso', () => {
@@ -99,5 +99,34 @@ describe('date helpers', () => {
   })
   it('attachmentPath ha azienda e outlet nei primi due segmenti', () => {
     expect(attachmentPath('c', 'o', '2026-09-03', 'f')).toBe('c/o/2026-09-03/f.jpg')
+  })
+})
+
+describe('lettura foto (fase 1b)', () => {
+  it('extractedAmount legge solo numeri finiti', () => {
+    expect(extractedAmount({ amount: 1234.567 })).toBe(1234.57)
+    expect(extractedAmount({ amount: '12' })).toBeNull()
+    expect(extractedAmount(null)).toBeNull()
+    expect(extractedAmount({})).toBeNull()
+  })
+  it('extractedSummary riassume i campi dello scontrino di chiusura', () => {
+    const s = extractedSummary('totale', {
+      total_sales: 3248.5, cash: 612, electronic: 2636.5, documents_count: 38, closure_number: 1201,
+      date: '2026-09-03', time: '20:05', transmission_ok: true, uncertain: false, amount: 3248.5,
+    })
+    expect(s).toContain('totale 3.248,50 €')
+    expect(s).toContain('contanti 612,00 €')
+    expect(s).toContain('38 documenti')
+    expect(s).toContain('1201 azzeramenti')
+    expect(s).toContain('trasmissione ok')
+    expect(s).toContain('3 settembre 2026 20:05')
+    expect(s).not.toContain('lettura incerta')
+  })
+  it('extractedSummary segnala documento sbagliato e incertezza', () => {
+    const s = extractedSummary('spesa', { document_ok: false, uncertain: true, total: 5, merchant: 'Bar Roma', notes: 'foto tagliata' })
+    expect(s[0]).toBe('documento diverso da quello atteso')
+    expect(s).toContain('Bar Roma')
+    expect(s).toContain('lettura incerta')
+    expect(s).toContain('foto tagliata')
   })
 })
