@@ -70,7 +70,7 @@ nessuno.
 ## Il cron
 
 Riattivato solo dopo questi fix, con il `SET statement_timeout` nel comando del
-job e non dentro la funzione (migration 176: il `SET LOCAL` interno non funziona,
+job e non dentro la funzione (migration 185: il `SET LOCAL` interno non funziona,
 Postgres arma il timer a inizio statement). Il giro completo dura circa 7 minuti
 su NZ.
 
