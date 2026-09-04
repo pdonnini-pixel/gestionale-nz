@@ -1018,3 +1018,59 @@ non si forza.
 Da qui una regola di lavoro: **l'estratto conto delle carte è il documento che
 chiude quelle scadenze**, come la distinta MPS lo è per le RI.BA. Senza
 estratto non si chiudono; con l'estratto si chiudono per riscontro esatto.
+
+---
+
+## Distinte RI.BA da gennaio a luglio 2026 (sessione 04/09/2026)
+
+I PDF delle distinte stanno su Drive, cartella **BANCHE NEW ZAGO / NEW ZAGO
+2026**, una sottocartella per mese, e da questa sessione il connettore Drive è
+collegato: si leggono direttamente, senza passare da uno ZIP. Ventuno distinte,
+162 disposizioni, 635.750,29 €. Il dettaglio riga per riga è in
+`docs/riba_effetti_2026_gennaio_luglio.csv`.
+
+**La regola che fa quadrare tutto.** La banca non addebita una distinta per
+volta: raggruppa in lotti di al massimo dieci effetti, e i lotti tagliano
+trasversalmente le distinte dello stesso giorno. Ogni addebito porta 0,40 € per
+effetto di spese di incasso, sempre, senza eccezioni:
+
+```
+addebito = somma degli effetti del lotto + 0,40 × numero effetti
+```
+
+La causale dichiara quanti effetti contiene («NUM.EFFETTI: 10»), quindi la
+composizione si ricostruisce cercando il sottoinsieme di quel numero di effetti
+che dà l'importo netto. Su sette mesi la soluzione è sempre **unica**, tranne ad
+aprile, dove due REALCART di pari importo (854,35 €, fatture 90-2026 e 91-2026)
+stanno indifferentemente in uno o nell'altro lotto. È un'ambiguità che non
+cambia niente: entrambe risultano pagate, cambia solo l'attribuzione.
+
+**Risultato.** Venti addebiti chiusi per 628.598,04 €, con in nota la
+composizione del lotto e lo scorporo delle spese. Le uscite non riconciliate
+scendono da 1.024 a 996, da 3,91 a 3,28 milioni. Restano aperti due addebiti del
+2026 (4.809,15 €) che appartengono a distinte di fine dicembre 2025 e del
+09/01/2026, e trentotto del 2025 (700.178,80 €), le cui distinte stanno nella
+cartella Drive **NEW ZAGO 2025**.
+
+**Nessuna scadenza è stata chiusa, ed è la notizia buona.** Tutte le fatture
+agganciate risultavano già pagate: lo Scadenzario per questi sette mesi era già
+a posto, mancava solo il lato banca. Le tre rate GRUPPO F.B. ancora aperte
+(3896, 3921, 3992) sono le terze rate di piani a tre, scadenza 30/09, e devono
+restare aperte. Sessantaquattro righe restano senza aggancio (450.329,61 €):
+sono i saldi cumulativi, MIAN «SALDO FT OTTOBRE», SHINE «SALDO FT 388 A 618»,
+i saldi GRUPPO F.B., che coprono più fatture insieme e non hanno un `payable` di
+pari importo. Stesso comportamento delle distinte del 31/08.
+
+**Trappola da ricordare: due conti con lo stesso IBAN.** Su NZ esistono due
+righe in `bank_accounts` con l'IBAN MPS `IT04V0103038020000000621460`, una
+attiva e una disattivata creata il 16/07. Un join sull'IBAN senza filtro
+`is_active` genera tutto in doppio: è successo in questa sessione e ho dovuto
+rimuovere 21 distinte e 162 righe duplicate (backup in
+`_bkp_riba_doppioni_20260904_d` e `_l`). Filtrare sempre per `is_active`.
+
+**Nota sui riferimenti fattura.** Il testo estratto dal PDF ha le colonne
+sfalsate: importi e beneficiari finiscono in blocchi separati, e l'abbinamento
+riga per riga va ricostruito. La verifica che dà sicurezza non è l'ordine ma il
+totale: se la somma delle disposizioni fa esattamente il totale dichiarato dalla
+distinta, e i lotti tornano al centesimo con le spese di incasso, la lettura è
+giusta.
