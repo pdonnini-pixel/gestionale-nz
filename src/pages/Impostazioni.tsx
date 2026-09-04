@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import {
   Settings, Users, Tag, Building2, Shield, Plus, Trash2, Pencil, Save, X,
   ChevronDown, ChevronUp, Check, AlertCircle, Search, Copy, Eye, EyeOff, Loader,
-  CornerDownRight, Lock, ShieldCheck, FileText, RefreshCw, Zap, Send,
+  CornerDownRight, Lock, ShieldCheck, FileText, RefreshCw, Zap, Send, Mail,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
@@ -10,14 +10,15 @@ import { useCompanyLabels } from '../hooks/useCompanyLabels'
 import { useOutlets, isSellingOutlet } from '../hooks/useOutlets'
 import { getCurrentTenant } from '../lib/tenants'
 import PageHeader from '../components/PageHeader'
+import type { Database } from '../types/database'
 
 // Role-based permissions
 const ROLE_PERMISSIONS: Record<string, string[]> = {
-  super_advisor: ['company', 'users', 'costs', 'centri', 'sdi'],
+  super_advisor: ['company', 'users', 'costs', 'centri', 'sdi', 'report'],
   ceo: ['company', 'users', 'costs', 'centri', 'sdi'],
   cfo: ['company', 'costs', 'centri', 'sdi'],
   coo: ['company', 'costs', 'centri'],
-  contabile: ['costs', 'centri'],
+  contabile: ['costs', 'centri', 'report'],
   operatore_cassa: [],
 }
 
@@ -1629,6 +1630,173 @@ function SdiSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
 // ==========================================
 // PAGINA PRINCIPALE
 // ==========================================
+// ─── Report incassi serale (fase 2 specchietto incassi) ──────────────
+// Configura la mail serale inviata da daily-cash-report-send: ora locale,
+// destinatari, sollecito ai negozi, invio anche senza chiusure. Il motore e'
+// il cron daily_cash_report_tick (migration 176) che gira ogni 15 minuti.
+type ReportSettingsRow = Database['public']['Tables']['daily_report_settings']['Row']
+type ReportLogRow = Database['public']['Tables']['daily_report_log']['Row']
+
+const REPORT_STATUS_LABELS: Record<string, string> = { queued: 'In invio', sent: 'Inviato', failed: 'Non riuscito', skipped: 'Saltato' }
+const REPORT_KIND_LABELS: Record<string, string> = { report: 'Report serale', reminder: 'Sollecito ai negozi', test: 'Prova' }
+
+function parseRecipients(raw: string): string[] {
+  const seen = new Set<string>()
+  return raw.split(/[\s,;]+/).map((x) => x.trim().toLowerCase()).filter((x) => {
+    if (!x || seen.has(x) || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x)) return false
+    seen.add(x); return true
+  })
+}
+
+function ReportSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
+  const { session } = useAuth()
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [testing, setTesting] = useState(false)
+  const [logs, setLogs] = useState<ReportLogRow[]>([])
+  const [form, setForm] = useState({ enabled: false, sendTime: '21:30', reminderEnabled: false, reminderTime: '20:30', recipients: '', sendOnEmpty: true })
+  const [dirty, setDirty] = useState(false)
+
+  const load = useCallback(async () => {
+    if (!COMPANY_ID) return
+    setLoading(true)
+    const [sRes, lRes] = await Promise.all([
+      supabase.from('daily_report_settings').select('*').eq('company_id', COMPANY_ID).maybeSingle(),
+      supabase.from('daily_report_log').select('*').eq('company_id', COMPANY_ID).order('created_at', { ascending: false }).limit(10),
+    ])
+    const s = sRes.data as ReportSettingsRow | null
+    if (s) {
+      setForm({
+        enabled: s.enabled, sendTime: s.send_time.slice(0, 5),
+        reminderEnabled: !!s.reminder_time, reminderTime: (s.reminder_time ?? '20:30').slice(0, 5),
+        recipients: (s.recipients ?? []).join('\n'), sendOnEmpty: s.send_on_empty,
+      })
+    }
+    setLogs((lRes.data ?? []) as ReportLogRow[])
+    setDirty(false)
+    setLoading(false)
+  }, [COMPANY_ID])
+
+  useEffect(() => { void load() }, [load])
+
+  const set = (patch: Partial<typeof form>) => { setForm((f) => ({ ...f, ...patch })); setDirty(true) }
+  const recipientsList = parseRecipients(form.recipients)
+  const invalidRecipients = form.recipients.split(/[\s,;]+/).map((x) => x.trim()).filter((x) => x && !recipientsList.includes(x.toLowerCase()))
+
+  const save = async () => {
+    if (!COMPANY_ID) return
+    if (form.enabled && recipientsList.length === 0) { showToast('Serve almeno un indirizzo destinatario', 'error'); return }
+    if (form.reminderEnabled && form.reminderTime >= form.sendTime) { showToast('Il sollecito deve essere prima dell\'ora di invio', 'error'); return }
+    setSaving(true)
+    const { error } = await supabase.from('daily_report_settings').upsert({
+      company_id: COMPANY_ID,
+      enabled: form.enabled,
+      send_time: form.sendTime,
+      reminder_time: form.reminderEnabled ? form.reminderTime : null,
+      recipients: recipientsList,
+      send_on_empty: form.sendOnEmpty,
+      // Origine del sito corrente: serve ai link nella mail, senza valori hardcoded per tenant.
+      app_url: typeof window !== 'undefined' ? window.location.origin : null,
+      updated_at: new Date().toISOString(),
+      updated_by: session?.user?.id ?? null,
+    })
+    setSaving(false)
+    if (error) { showToast('Salvataggio non riuscito: ' + error.message, 'error'); return }
+    showToast(form.enabled ? `Report attivo: ogni giorno alle ${form.sendTime} a ${recipientsList.length} destinatari` : 'Report serale disattivato')
+    await load()
+  }
+
+  const sendTest = async () => {
+    setTesting(true)
+    const { data, error } = await supabase.functions.invoke<{ data?: { recipients: string[] }; error?: string }>('daily-cash-report-send', { body: { kind: 'test' } })
+    setTesting(false)
+    if (error || !data?.data) { showToast('Prova non riuscita: ' + (error?.message ?? data?.error ?? 'errore'), 'error'); await load(); return }
+    showToast(`Mail di prova inviata a ${data.data.recipients.join(', ')}: controlla la casella (anche lo spam)`)
+    await load()
+  }
+
+  const inp = 'w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500'
+
+  if (loading) return <div className="p-6 text-sm text-slate-500 flex items-center gap-2"><Loader size={16} className="animate-spin" />Caricamento…</div>
+
+  return (
+    <div className="p-6 space-y-5">
+      <p className="text-sm text-slate-600">
+        Ogni sera, all'ora scelta, i destinatari ricevono una mail con le chiusure di cassa del giorno: una riga per punto vendita
+        (totale, contanti, POS, altri canali, spese e rimborsi, versamento, fondo cassa e differenza), i negozi che non hanno chiuso,
+        le anomalie da controllare e il progressivo del mese. L'ora è quella italiana, anche con l'ora legale.
+      </p>
+
+      <label className="flex items-center gap-3 cursor-pointer">
+        <input type="checkbox" checked={form.enabled} onChange={(e) => set({ enabled: e.target.checked })} className="w-5 h-5" />
+        <span className="text-sm font-semibold text-slate-900">Invia il report ogni sera</span>
+      </label>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div>
+          <label className="block text-xs font-medium text-slate-600 mb-1">Ora di invio (Italia)</label>
+          <input type="time" value={form.sendTime} onChange={(e) => set({ sendTime: e.target.value })} className={inp} />
+        </div>
+        <div>
+          <label className="flex items-center gap-2 text-xs font-medium text-slate-600 mb-1 cursor-pointer">
+            <input type="checkbox" checked={form.reminderEnabled} onChange={(e) => set({ reminderEnabled: e.target.checked })} />
+            Sollecito in-app ai negozi che non hanno ancora chiuso, alle
+          </label>
+          <input type="time" value={form.reminderTime} disabled={!form.reminderEnabled} onChange={(e) => set({ reminderTime: e.target.value })} className={`${inp} disabled:bg-slate-100`} />
+        </div>
+      </div>
+
+      <div>
+        <label className="block text-xs font-medium text-slate-600 mb-1">Destinatari (uno per riga o separati da virgola)</label>
+        <textarea value={form.recipients} onChange={(e) => set({ recipients: e.target.value })} rows={3} placeholder="nome@azienda.it" className={inp} />
+        <div className="text-xs mt-1 text-slate-500">
+          {recipientsList.length} indirizz{recipientsList.length === 1 ? 'o' : 'i'} valid{recipientsList.length === 1 ? 'o' : 'i'}
+          {invalidRecipients.length > 0 && <span className="text-red-600"> · non validi: {invalidRecipients.join(', ')}</span>}
+        </div>
+      </div>
+
+      <label className="flex items-center gap-3 cursor-pointer">
+        <input type="checkbox" checked={form.sendOnEmpty} onChange={(e) => set({ sendOnEmpty: e.target.checked })} className="w-4 h-4" />
+        <span className="text-sm text-slate-700">Invia anche nei giorni senza nessuna chiusura registrata (con i negozi mancanti in evidenza)</span>
+      </label>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <button onClick={() => void save()} disabled={saving || !dirty}
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium disabled:opacity-50">
+          {saving ? <Loader size={14} className="animate-spin" /> : <Save size={14} />}Salva
+        </button>
+        <button onClick={() => void sendTest()} disabled={testing || dirty}
+          title={dirty ? 'Salva prima le modifiche' : 'Manda la mail di oggi solo al tuo indirizzo'}
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-slate-300 text-slate-700 text-sm font-medium disabled:opacity-50">
+          {testing ? <Loader size={14} className="animate-spin" /> : <Send size={14} />}Invia una prova a me
+        </button>
+      </div>
+
+      <div>
+        <div className="text-xs font-semibold text-slate-600 mb-2">Ultimi invii</div>
+        {logs.length === 0 ? <p className="text-xs text-slate-400">Nessun invio ancora registrato.</p> : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead className="text-slate-500"><tr><th className="text-left py-1 pr-3">Giorno</th><th className="text-left py-1 pr-3">Tipo</th><th className="text-left py-1 pr-3">Esito</th><th className="text-left py-1 pr-3">Destinatari</th><th className="text-left py-1">Dettaglio</th></tr></thead>
+              <tbody>
+                {logs.map((l) => (
+                  <tr key={l.id} className="border-t border-slate-100">
+                    <td className="py-1 pr-3 whitespace-nowrap">{l.report_date.split('-').reverse().join('/')}{l.sent_at ? ` ${new Date(l.sent_at).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}` : ''}</td>
+                    <td className="py-1 pr-3">{REPORT_KIND_LABELS[l.kind] ?? l.kind}</td>
+                    <td className={`py-1 pr-3 font-medium ${l.status === 'sent' ? 'text-emerald-700' : l.status === 'failed' ? 'text-red-700' : 'text-slate-500'}`}>{REPORT_STATUS_LABELS[l.status] ?? l.status}</td>
+                    <td className="py-1 pr-3">{(l.recipients ?? []).join(', ')}</td>
+                    <td className="py-1 text-slate-500">{l.error ?? l.subject ?? ''}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export default function Impostazioni() {
   const { profile, loading: authLoading } = useAuth()
   const COMPANY_ID = profile?.company_id
@@ -1650,6 +1818,7 @@ export default function Impostazioni() {
     { id: 'costs', icon: Tag, title: 'Voci di costo', subtitle: 'Catalogo costi con assegnazione a centri di costo e gerarchia conti/sottoconti', component: CostSection },
     { id: 'centri', icon: Shield, title: 'Centri di costo', subtitle: 'Punti vendita, sede, magazzino — entità di allocazione', component: CentriDiCostoSection },
     { id: 'sdi', icon: FileText, title: 'Fatturazione SDI', subtitle: 'Accreditamento, certificati e configurazione Sistema di Interscambio', component: SdiSection },
+    { id: 'report', icon: Mail, title: 'Report incassi serale', subtitle: 'Mail automatica ogni sera con le chiusure di cassa di tutti i punti vendita', component: ReportSection },
   ]
 
   const [openSection, setOpenSection] = useState<string | null>('company')

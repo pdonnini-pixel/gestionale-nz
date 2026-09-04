@@ -2404,11 +2404,11 @@ export const PAGE_GUIDES: PageGuide[] = [
     "path": "/impostazioni",
     "icon": "Settings",
     "title": "Impostazioni",
-    "description": "La pagina Impostazioni raccoglie i dati dell'azienda, la gestione degli utenti, il catalogo delle voci di costo, i centri di costo (punti vendita) e la configurazione della fatturazione elettronica SDI. Le sezioni visibili dipendono dal tuo ruolo utente.",
+    "description": "La pagina Impostazioni raccoglie i dati dell'azienda, la gestione degli utenti, il catalogo delle voci di costo, i centri di costo (punti vendita), la configurazione della fatturazione elettronica SDI e il report incassi serale (la mail automatica con le chiusure di cassa). Le sezioni visibili dipendono dal tuo ruolo utente.",
     "sections": [
       {
         "heading": "Come è organizzata la pagina",
-        "body": "Le informazioni sono divise in blocchi a fisarmonica (uno sotto l'altro): Dati azienda, Utenti, Voci di costo, Centri di costo e Fatturazione SDI. Clicca sul titolo di un blocco per aprirlo o chiuderlo. Se un blocco appare più chiaro con un lucchetto, significa che il tuo ruolo non ha i permessi per accedervi: in quel caso contatta un amministratore."
+        "body": "Le informazioni sono divise in blocchi a fisarmonica (uno sotto l'altro): Dati azienda, Utenti, Voci di costo, Centri di costo, Fatturazione SDI e Report incassi serale. Clicca sul titolo di un blocco per aprirlo o chiuderlo. Se un blocco appare più chiaro con un lucchetto, significa che il tuo ruolo non ha i permessi per accedervi: in quel caso contatta un amministratore."
       },
       {
         "heading": "Dati azienda",
@@ -2461,6 +2461,18 @@ export const PAGE_GUIDES: PageGuide[] = [
           "Puoi aggiornare il Codice SDI o la PEC ricezione scrivendo direttamente nel campo: il salvataggio avviene appena esci dal campo",
           "L'interruttore \"Ambiente\" permette di passare tra Test e Produzione: in Test le fatture vengono validate ma non inviate davvero, in Produzione vengono trasmesse realmente",
           "I certificati di sicurezza sono gestiti in modo protetto e non sono mai visibili per esteso in pagina"
+        ]
+      },
+      {
+        "heading": "Report incassi serale",
+        "body": "Sezione per super advisor e contabile. Attiva una mail automatica che ogni sera, all'ora scelta (ora italiana, valida anche con l'ora legale), riepiloga le chiusure di cassa del giorno di tutti i punti vendita: una riga per negozio con totale, contanti, POS, altri canali, spese e rimborsi, versamento, fondo cassa e differenza; i negozi che non hanno ancora chiuso in rosso; l'elenco delle cose da controllare (giornate che non quadrano, chiusure ancora in bozza, foto dello scontrino mancante, importi letti dalla foto diversi da quelli scritti, note della cassiera); il totale dell'azienda e il progressivo del mese; il link a Incassi giornalieri.",
+        "steps": [
+          "Spunta \"Invia il report ogni sera\" e scegli l'ora di invio",
+          "Scrivi i destinatari, uno per riga o separati da virgola: sotto il campo vedi quanti indirizzi sono validi",
+          "Se vuoi, attiva il sollecito: a quell'ora gli operatori cassa dei negozi che non hanno ancora confermato ricevono un avviso in-app con il link alla loro chiusura",
+          "Decidi se la mail deve partire anche nei giorni senza nessuna chiusura registrata",
+          "Salva, poi usa \"Invia una prova a me\": la mail di oggi arriva solo al tuo indirizzo, con [PROVA] nell'oggetto",
+          "La tabella \"Ultimi invii\" mostra giorno, tipo (report, sollecito, prova), esito e destinatari; se un invio non è riuscito vedi il motivo"
         ]
       }
     ],
