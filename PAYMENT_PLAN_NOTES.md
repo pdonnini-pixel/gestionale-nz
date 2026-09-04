@@ -1,5 +1,58 @@
 # Piano di pagamento fornitore + segnalazioni anomalie — Note di implementazione
 
+> ## ✎ IL FLAG «CHIUSA A MANO» NON PUO' SOPRAVVIVERE A UNA RIAPERTURA (2026-09-04) — FATTO
+>
+> **Segnalazione di Patrizio** dallo Scadenzario: «cosa ci fa Spm tra le aperte se
+> la dai per chiusa?». La riga Spm Investigazioni 31 del 26/02/2026 (110,00)
+> mostrava insieme lo stato **Scaduto** e il badge **Chiusa a mano**, con la
+> colonna Conto «A mano · Lilian Mammoliti · 06/08».
+>
+> **Due fonti per la stessa domanda.** Lo stato lo ricalcola
+> `update_payable_status` dall'importo pagato, che era 0. Il badge e la colonna
+> Conto leggono invece `closed_manually`, rimasto acceso da una chiusura vecchia.
+> Nel partitario ci sono due sole azioni: pagamento go-live (17/06) e chiusura a
+> mano di Lilian (06/08). Poi il 04/09 alle 09:07 UTC un UPDATE diretto ha
+> azzerato `amount_paid` senza spegnere il flag e senza registrare l'azione
+> «riapertura»: non e' passato da `reopen_payable`, che fa entrambe le cose.
+> Nello stesso secondo sono state toccate altre due righe della distinta Intesa
+> del 03/09. **La strada buona non e' il problema: lo sono gli UPDATE diretti**
+> (rimozione da distinta, allineamenti massivi, correzioni a mano).
+>
+> **Il dato.** Patrizio conferma che la fattura e' stata pagata, data e mezzo non
+> ancora noti. In banca non c'e' riscontro: i tre bonifici Spm da 110,00 del 2026
+> hanno causali esplicite e sono gia' assegnati (04/02 fattura 13, 04/06 da
+> 220,00 per le 45 e 63, 14/07 fattura 81, 07/08 fattura 103). Chiusa a mano con
+> `NZ_ONLY_20260904_182` usando come data quella della chiusura di Lilian
+> (06/08/2026), con il motivo che dice esplicitamente che data e mezzo restano da
+> confermare. Backup in `_bkp_spm31_20260904`.
+>
+> **Il fix strutturale (`20260904_182`, NZ+Made+Zago, md5 identico sui 3)**:
+> - `fn_payable_clear_stale_manual_close` + trigger
+>   `trg_payable_zz_clear_stale_manual_close` (BEFORE INSERT OR UPDATE): se una
+>   riga resta senza pagato, senza movimento bancario e senza pagato provvisorio,
+>   e il suo stato non e' pagato/parziale/nota di credito/annullato, il flag si
+>   spegne da solo insieme a `manual_close_reason`. Il prefisso `zz` nel nome e'
+>   voluto: i trigger BEFORE scattano in ordine alfabetico e questo deve vedere lo
+>   stato gia' ricalcolato da `trg_payable_status`. Le note di credito sono
+>   escluse, perche' per loro `close_payable_manually` accende il flag senza
+>   toccare `amount_paid` ed e' corretto cosi'.
+> - `v_payables_operative`: `payment_source` vale `'manuale'` solo se la riga e'
+>   davvero chiusa (stato pagato/parziale/nota di credito, oppure pagato diverso
+>   da zero). `security_invoker = on` mantenuto.
+> - `ScadenzarioSmart.tsx`: il badge viola compare solo su una riga davvero
+>   chiusa, non piu' al solo accendersi del flag.
+>
+> **Coda**: la verifica tornava 1 invece di 0 per MILANI 26/A del 12/05/2026,
+> autofattura reverse charge gia' nascosta, con lo stesso flag residuo. Spento
+> con `NZ_ONLY_20260904_183` (solo il flag, backup in `_bkp_milani26a_20260904`).
+>
+> **Test a secco su NZ** (DO block con rollback forzato): un UPDATE diretto che
+> azzera `amount_paid` su una riga chiusa a mano ora lascia
+> `closed_manually = false`, motivo vuoto e `payment_source` nullo nella vista,
+> quindi niente badge. **Verifica finale sui 3 tenant**: zero righe aperte col
+> flag acceso, trigger presente, vista con `security_invoker = on`, md5 di vista
+> e funzione identici.
+
 > ## 🔍 CONTROLLO ESTESO SUI DOPPIONI (2026-09-04) — FATTO
 >
 > **Domanda di Patrizio** dopo il caso SIGNORINI: «controlla se ci sono altri
