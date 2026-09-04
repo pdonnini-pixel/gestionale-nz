@@ -115,6 +115,8 @@ Perché non colonne fisse: Made e Zago hanno banche e POS diversi; un canale in 
 
 **`closing_bank_matches`** (closing_line_id oppure closing_id per i versamenti, bank_transaction_id, amount, match_type, matched_at): l'abbinamento con la banca senza toccare la struttura di `bank_transactions`.
 
+**`outlet_daily_closing_attachments`** (foto degli scontrini di chiusura, vedi §3.8): closing_id, company_id, outlet_id, kind (`rt_chiusura`, `rt_rapporto_finanziario`, `rt_trasmissione`, `pos_chiusura`, `altro`), storage_path, uploaded_by, extraction_status (`in_attesa`, `letta`, `da_rivedere`, `fallita`), extracted jsonb, extraction_model, extracted_at. Bucket Storage privato `cash-closings` con policy come il bucket `media` (owner scoped + accesso outlet).
+
 **`daily_report_settings`** (per company: enabled, send_time locale, timezone `Europe/Rome`, recipients text[], remind_missing_at) e **`daily_report_log`** (data, esito, destinatari, errori).
 
 **Proiezione in `daily_revenue`**: alla conferma di una chiusura, una funzione SQL fa upsert in `daily_revenue` (`gross_revenue` = totale, `cash_amount` = contanti, `card_amount` = somma POS, `other_amount` = resto, `net_revenue` = lordo / (1 + aliquota), `source = 'manuale'`). Così le 5 pagine che già leggono `daily_revenue` si popolano senza toccarle, e il trigger esistente marca il consuntivo come da aggiornare.
@@ -132,12 +134,13 @@ RLS: pattern di casa (`get_my_company_id()` + ruolo), con in più `has_outlet_ac
 ### 3.3 la schermata della cassiera (mobile first, un solo compito)
 
 1. In alto: nome outlet, data (default oggi, si può scegliere ieri; giorni più vecchi solo se non confermati).
-2. Campi grandi, tastiera numerica (`inputmode="decimal"`), virgola accettata, nell'ordine dell'Excel: totale corrispettivi, poi un campo per ogni canale attivo dell'outlet, spese cassa con descrizione, versamento con causale, fondo cassa contato.
-3. Mentre scrive: riga «somma mezzi di pagamento» e «differenza» in tempo reale, verde se zero, rossa altrimenti; «fondo cassa atteso» calcolato dal giorno prima, e la differenza rispetto a quello contato.
-4. Due pulsanti: «Salva bozza» e «Conferma chiusura». La conferma con differenza diversa da zero chiede una nota obbligatoria (non blocca: la cassa reale può non quadrare, ma va spiegato).
-5. Dopo la conferma il giorno diventa in sola lettura con il pulsante «Chiedi riapertura» (notifica in-app a Lilian, che riapre da amministrazione).
-6. Sotto: calendario del mese con i giorni fatti in verde e i mancanti in rosso, tocca e apri. È l'equivalente dello sguardo sul foglio Excel e spinge a non saltare giorni.
-7. Giorni di chiusura del negozio: pulsante «Negozio chiuso» che registra una chiusura a zero, così il mese non ha buchi ambigui.
+2. Primo passo: **«Fotografa le chiusure»**. La fotocamera dello smartphone si apre direttamente (`<input type="file" accept="image/*" capture="environment" multiple>`), la cassiera scatta gli scontrini di fine giornata (chiusura del registratore, chiusura POS, esito trasmissione) e le foto si caricano subito. In pochi secondi i campi si precompilano con i valori letti dalle foto (vedi §3.8); lei li controlla e integra ciò che la carta non contiene.
+3. Campi grandi, tastiera numerica (`inputmode="decimal"`), virgola accettata, nell'ordine dell'Excel: totale corrispettivi, poi un campo per ogni canale attivo dell'outlet, spese cassa con descrizione, versamento con causale, fondo cassa contato. Accanto a ogni campo letto dalla foto compare l'etichetta «dalla foto» con il valore; se lei scrive un numero diverso la differenza resta visibile.
+4. Mentre scrive: riga «somma mezzi di pagamento» e «differenza» in tempo reale, verde se zero, rossa altrimenti; «fondo cassa atteso» calcolato dal giorno prima, e la differenza rispetto a quello contato.
+5. Due pulsanti: «Salva bozza» e «Conferma chiusura». La conferma con differenza diversa da zero chiede una nota obbligatoria (non blocca: la cassa reale può non quadrare, ma va spiegato).
+6. Dopo la conferma il giorno diventa in sola lettura con il pulsante «Chiedi riapertura» (notifica in-app a Lilian, che riapre da amministrazione).
+7. Sotto: calendario del mese con i giorni fatti in verde e i mancanti in rosso, tocca e apri. È l'equivalente dello sguardo sul foglio Excel e spinge a non saltare giorni.
+8. Giorni di chiusura del negozio: pulsante «Negozio chiuso» che registra una chiusura a zero, così il mese non ha buchi ambigui.
 
 Lato amministrazione (super_advisor, contabile, cfo, ceo): pagina «Incassi giornalieri» con la griglia mese × outlet identica al foglio Excel (colonne = canali, riga 38 = totali), filtro outlet e mese, esportazione xlsx nello stesso formato per il commercialista, stato di ogni giorno (bozza, confermata, verificata con la banca, mancante) e le differenze di cassa evidenziate.
 
@@ -180,6 +183,38 @@ Controlli mensili in pagina Banche: per terminale, somma chiusure vs somma accre
 
 Prerequisito da Patrizio: la mappa dei 7 codici terminale MPS sui 7 outlet (l'Amex si ricava dai nomi in causale). In alternativa l'app può proporla da sola dopo una settimana di chiusure, per correlazione degli importi, e chiedere conferma.
 
+### 3.8 foto delle chiusure: dalla carta termica ai numeri
+
+A fine giornata il registratore telematico e il terminale POS stampano quattro documenti. La foto di esempio (Owlystic, 2 settembre 2026) li mostra tutti e quattro; ognuno porta dati diversi e tutti sono utili.
+
+| documento stampato | cosa contiene | cosa ne ricava il gestionale |
+|---|---|---|
+| **Rapporto finanziario** (documento gestionale del registratore) | reparti con aliquota e importi, sconti (numero e valore), pagamenti per tipo (contanti, elettronico), riepilogo IVA (imponibile, imposta, corrispettivo), numero documenti commerciali, aperture cassetto, totale giorno vendite, omaggi, data e ora, numero documento, matricola del registratore | totale corrispettivi, contanti, quota carte, numero scontrini, sconti |
+| **Chiusura giornaliera** (azzeramento) | totale giorno vendite, resi, annullamenti, gran totale progressivo, riepilogo IVA, pagato contanti, numero azzeramenti, documenti da inviare, fatture del giorno, stato memoria fiscale, sigillo fiscale | il totale «di legge» del giorno, i progressivi per i controlli di continuità, il numero fatture |
+| **Trasmissione telematica corrispettivi** | stringa con matricola, data e ora, numero chiusura e `ESITO-OK` | prova che i corrispettivi sono stati inviati all'Agenzia delle Entrate |
+| **Chiusura POS** (per terminale) | identificativo terminale (TML), data e ora, numero transazioni, totale POS, totale host | importo carte per terminale, aggancio al canale e poi all'accredito in banca |
+
+**Come funziona.**
+
+1. La cassiera scatta le foto dal telefono. Il browser le riduce a lato massimo 1.600 px in JPEG prima del caricamento (300-400 KB a foto), abbastanza per la lettura e leggere per la rete del negozio. Salvataggio nel bucket privato `cash-closings`, percorso `company/outlet/data/uuid.jpg`, con RLS per outlet come il bucket `media`.
+2. Il caricamento inserisce la riga in `outlet_daily_closing_attachments` con stato `in_attesa`; un trigger o il frontend invoca la Edge Function **`closing-photo-extract`** con l'id dell'allegato.
+3. La funzione legge l'immagine dallo Storage con il ruolo di servizio, la manda a Claude come blocco immagine base64 con uno schema JSON vincolato (`output_config.format`) e valida la risposta con Zod prima di scriverla, come vuole la regola «input validation su ogni risposta API». Chiave Anthropic già nel Vault (`get_anthropic_api_key`, la stessa di help-chat); il frontend non chiama mai l'API esterna direttamente. Modello consigliato `claude-opus-5` per l'affidabilità sulla carta termica fotografata di traverso; `claude-haiku-4-5`, già usato da help-chat, è l'alternativa economica da valutare su un mese di foto reali. Costo indicativo: pochi centesimi a foto.
+4. Lo schema estratto: tipo di documento, matricola, data e ora, numero documento, totale giorno vendite, imponibile e imposta per aliquota, pagamenti per tipo, numero documenti commerciali, sconti, resi, annullamenti, gran totale progressivo, numero azzeramenti, fatture del giorno, esito trasmissione, terminale POS con transazioni e totale. Ogni campo può essere nullo se illeggibile; la funzione segna `da_rivedere` quando manca il totale o la data non coincide con la chiusura.
+5. Il risultato torna nel form: i campi vuoti si precompilano, quelli già scritti mostrano il confronto. Alla conferma si salvano sia i valori dichiarati sia quelli letti, così ogni scostamento resta tracciato.
+
+**I controlli che le foto rendono possibili.**
+
+- totale dichiarato = totale giorno vendite del registratore (è questo il «pienamente corrispondente a ciò che viene battuto alla cassa»)
+- contanti dichiarati = pagato contanti del registratore; carte dichiarate = somma delle chiusure POS per terminale
+- gran totale progressivo di oggi − gran totale di ieri = totale giorno vendite: scopre giorni mancanti, chiusure doppie o foto del giorno sbagliato; il numero azzeramenti deve crescere di uno al giorno
+- esito trasmissione presente e `OK`: il giorno è «trasmesso ad AdE»; se manca per più di un giorno scatta un avviso in-app e nella mail serale
+- numero fatture del giorno sul registratore contro la colonna FATTURE dello specchietto
+- il terminale della chiusura POS (TML) si aggiunge al canale accanto al codice SIA della banca: stessa riga di configurazione, due identificativi
+
+**Cosa la foto non dà.** Spese cassa, versamento, causale e fondo cassa contato restano a mano: non stanno su nessuno scontrino. Restano quattro campi, non quindici.
+
+**Conservazione.** Le foto sono documenti di controllo, non si cancellano (regola NO DATA LOSS). Stima di spazio su NZ: 4 foto × 350 KB × 7 outlet × 365 giorni, circa 3,5 GB l'anno, nei limiti dello Storage Supabase. La pagina amministrativa mostra le foto accanto ai numeri del giorno, così Lilian verifica senza chiedere nulla al negozio.
+
 ---
 
 ## 4. piano di lavoro
@@ -187,7 +222,8 @@ Prerequisito da Patrizio: la mappa dei 7 codici terminale MPS sui 7 outlet (l'Am
 | fase | contenuto | migration | frontend | edge | dimensione |
 |---|---|---|---|---|---|
 | 0. bonifiche | ruoli fantasma nel menu, scrittura `companies.settings` che sovrascrive, policy write di `daily_revenue` senza controllo outlet | 1 | piccolo | no | mezza giornata |
-| 1. chiusura cassa | 4 tabelle + RLS + enum ruolo + proiezione in `daily_revenue`; pagina cassiera; pagina amministrativa mese × outlet; gestione utenti cassa; guida; test pixel | 2 | pagina nuova ×2 + Impostazioni + Sidebar/Layout | no | 2-3 giorni |
+| 1. chiusura cassa | 5 tabelle + RLS + enum ruolo + bucket `cash-closings` + proiezione in `daily_revenue`; pagina cassiera con scatto e caricamento foto (senza lettura automatica); pagina amministrativa mese × outlet con foto; gestione utenti cassa; guida; test pixel | 2 | pagina nuova ×2 + Impostazioni + Sidebar/Layout | no | 3 giorni |
+| 1b. lettura foto | Edge Function `closing-photo-extract` (Claude vision + schema JSON + Zod), precompilazione e confronto nel form, controlli di continuità e trasmissione AdE, stato `da_rivedere` | 1 | medio | 1 | 1-2 giorni |
 | 2. mail serale | `daily_report_settings`, `tick()`, cron, Edge Function invio, sezione in Impostazioni | 1 | piccolo | 1 | 1 giorno |
 | 3. banche | canali con terminal_code, matching POS e versamenti dentro la nightly, stato «verificata», controlli mensili in Banche | 1 | tab in Banche + stato nelle chiusure | no | 2 giorni |
 | 4. ricavi mensili ed export | proposta consuntivo in Inserimento rapido, xlsx nel formato del modello, scorporo IVA parametrico | 0 | medio | no | 1 giorno |
@@ -208,6 +244,8 @@ Per Made e Zago le tabelle nascono vuote: i canali si configurano quando quei te
 6. Fino a quando una chiusura confermata può essere corretta dal negozio: mai (solo Lilian riapre), oppure entro il giorno dopo?
 7. Fondo cassa iniziale per ogni outlet alla partenza (serve per il primo calcolo dell'atteso).
 8. Attivazione di `close_incoming_movements` in produzione: sì o no?
+9. Foto obbligatorie per confermare la chiusura (almeno chiusura del registratore e chiusura POS) oppure facoltative?
+10. Il totale del registratore telematico è la verità a cui lo specchietto deve corrispondere, e uno scostamento blocca la conferma o chiede solo una nota?
 
 ---
 
