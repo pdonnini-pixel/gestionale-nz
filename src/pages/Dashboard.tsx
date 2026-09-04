@@ -503,6 +503,10 @@ export default function Dashboard() {
               let totE = 0, totU = 0
               cmData.forEach(row => {
                 const dk = row.date
+                // cash_movements e' una vista: nei tipi generati ogni colonna e'
+                // nullable, data compresa. Un movimento senza data non ha una
+                // casella nel grafico giornaliero, quindi si salta.
+                if (!dk) return
                 if (!dayMap[dk]) dayMap[dk] = { date: dk, entrate: 0, uscite: 0, netto: 0 }
                 const abs = Math.abs(Number(row.amount) || 0)
                 if (row.type === 'entrata') {
