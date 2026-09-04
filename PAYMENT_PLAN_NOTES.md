@@ -1188,3 +1188,30 @@ Gli addebiti cumulativi delle carte BCC, uno al mese da gennaio ad agosto, e
 tutte le ricariche della prepagata TASCA erano già riconciliati. Restano aperte
 16 fatture con metodo carta per 805,53 €: sono spese di agosto e settembre e si
 chiudono con gli estratti di quei mesi, che non sono ancora usciti.
+
+---
+
+## Distinte RI.BA di ottobre, novembre e dicembre 2025 (sessione 04/09/2026)
+
+Sul Drive, cartella **NEW ZAGO 2025**, ci sono solo tre mensilità di distinte:
+ottobre, novembre e dicembre. Otto distinte, 62 disposizioni, 293.546,19 €.
+Novembre ha un formato diverso, l'elenco «Effetti - Disposizioni» invece della
+distinta di ritiro, ma il contenuto è lo stesso.
+
+La regola dei lotti vale identica al 2026, e la verifica è netta: su tutti e
+tredici i lotti lo scarto diviso il numero di effetti fa **0,4000 esatti**, e la
+partizione ha soluzione unica in tutti e tre i mesi. In totale 293.546,19 di
+effetti più 24,80 di spese, che sono 62 volte 0,40, fanno 293.570,99: la somma
+esatta dei tredici addebiti.
+
+**Il regalo di dicembre.** I due addebiti di gennaio 2026 rimasti aperti (378,92
+il 5 gennaio e 4.430,23 il 12) appartenevano alla distinta 129746033 del 30
+dicembre, che aveva code al 05/01 e al 10/01. Chiusa quella, **gli addebiti
+«effetti ritirati» del 2026 vanno a zero**.
+
+Restano 27 addebiti del 2025 per 411.416,96 €, da gennaio a settembre più quello
+del 10 ottobre: le distinte di quei mesi sul Drive non ci sono. Vanno chieste in
+banca o a Sabrina.
+
+Dopo questo giro le uscite non riconciliate scendono a **859 per 2.981.517,60 €**,
+sotto i tre milioni, dai 1.024 e 3,91 milioni di ieri sera.
