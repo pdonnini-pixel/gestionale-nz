@@ -1,5 +1,16 @@
 import { describe, it, expect } from 'vitest'
-import { parseAmount, formatAmount, computeQuadrature, monthDays, addDaysIso, attachmentPath } from './cashClosings'
+import { parseAmount, formatAmount, computeQuadrature, monthDays, addDaysIso, attachmentPath, kindForTarget } from './cashClosings'
+
+describe('kindForTarget', () => {
+  it('associa a ogni riga il documento atteso', () => {
+    expect(kindForTarget('totale')).toBe('rt_chiusura')
+    expect(kindForTarget('canale', 'pos')).toBe('pos_chiusura')
+    expect(kindForTarget('canale', 'pos_amex')).toBe('pos_chiusura')
+    expect(kindForTarget('canale', 'bonifico')).toBe('altro')
+    expect(kindForTarget('spesa')).toBe('scontrino_spesa')
+    expect(kindForTarget('versamento')).toBe('ricevuta_versamento')
+  })
+})
 
 describe('parseAmount', () => {
   it('legge gli importi scritti all\'italiana', () => {
@@ -59,6 +70,14 @@ describe('computeQuadrature', () => {
     expect(q.receiptsDifference).toBe(-248.5)
     expect(q.cashFloatExpected).toBe(712)
     expect(q.cashDifference).toBe(-12)
+  })
+  it('i rimborsi a cliente riducono il fondo atteso come le spese', () => {
+    const q = computeQuadrature({
+      totalReceipts: 3248.5, lines, cashExpenses: 12.4, customerRefunds: 50, cashDeposit: 600,
+      prevFloat: 250, cashFloatDeclared: 199.6,
+    })
+    expect(q.cashFloatExpected).toBe(199.6)
+    expect(q.cashDifference).toBe(0)
   })
   it('senza fondo di ieri non calcola l\'atteso', () => {
     const q = computeQuadrature({ totalReceipts: 10, lines: [], cashExpenses: 0, cashDeposit: 0, prevFloat: null, cashFloatDeclared: 5 })

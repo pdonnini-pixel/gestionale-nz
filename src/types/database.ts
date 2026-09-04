@@ -4674,13 +4674,16 @@ export type Database = {
           extracted: Json | null
           extracted_at: string | null
           extraction_model: string | null
+          expense_id: string | null
           extraction_status: string
           id: string
           kind: string
+          line_id: string | null
           mime_type: string | null
           outlet_id: string
           size_bytes: number | null
           storage_path: string
+          target: string
           uploaded_at: string
           uploaded_by: string | null
         }
@@ -4690,13 +4693,16 @@ export type Database = {
           extracted?: Json | null
           extracted_at?: string | null
           extraction_model?: string | null
+          expense_id?: string | null
           extraction_status?: string
           id?: string
           kind?: string
+          line_id?: string | null
           mime_type?: string | null
           outlet_id: string
           size_bytes?: number | null
           storage_path: string
+          target?: string
           uploaded_at?: string
           uploaded_by?: string | null
         }
@@ -4706,15 +4712,57 @@ export type Database = {
           extracted?: Json | null
           extracted_at?: string | null
           extraction_model?: string | null
+          expense_id?: string | null
           extraction_status?: string
           id?: string
           kind?: string
+          line_id?: string | null
           mime_type?: string | null
           outlet_id?: string
           size_bytes?: number | null
           storage_path?: string
+          target?: string
           uploaded_at?: string
           uploaded_by?: string | null
+        }
+        Relationships: []
+      }
+      outlet_daily_closing_expenses: {
+        Row: {
+          amount: number
+          closing_id: string
+          company_id: string
+          created_at: string
+          description: string | null
+          id: string
+          kind: string
+          outlet_id: string
+          sort_order: number
+          updated_at: string
+        }
+        Insert: {
+          amount?: number
+          closing_id: string
+          company_id: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          kind?: string
+          outlet_id: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Update: {
+          amount?: number
+          closing_id?: string
+          company_id?: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          kind?: string
+          outlet_id?: string
+          sort_order?: number
+          updated_at?: string
         }
         Relationships: []
       }
@@ -4769,6 +4817,7 @@ export type Database = {
           confirmed_by: string | null
           created_at: string
           created_by: string | null
+          customer_refunds: number
           id: string
           is_closed_day: boolean
           notes: string | null
@@ -4798,6 +4847,7 @@ export type Database = {
           confirmed_by?: string | null
           created_at?: string
           created_by?: string | null
+          customer_refunds?: number
           id?: string
           is_closed_day?: boolean
           notes?: string | null
@@ -4827,6 +4877,7 @@ export type Database = {
           confirmed_by?: string | null
           created_at?: string
           created_by?: string | null
+          customer_refunds?: number
           id?: string
           is_closed_day?: boolean
           notes?: string | null

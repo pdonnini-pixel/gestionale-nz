@@ -25,13 +25,14 @@ import PageHeader from '../components/PageHeader'
 import { fetchAllPaged } from '../lib/fetchAllPaged'
 import type { Database } from '../types/database'
 import {
-  type PaymentChannel, type ChannelKind, type AttachmentKind, CHANNEL_KIND_LABELS, ATTACHMENT_KIND_LABELS,
+  type PaymentChannel, type ChannelKind, type AttachmentTarget, type ExpenseKind, CHANNEL_KIND_LABELS, ATTACHMENT_TARGET_LABELS, EXPENSE_KIND_LABELS,
   CLOSING_STATUS_LABELS, DEFAULT_CHANNELS, formatEuro, monthDays, todayIso, formatDateIt, MESI_IT,
 } from '../lib/cashClosings'
 
 type ClosingRow = Database['public']['Tables']['outlet_daily_closings']['Row']
 interface LineLite { closing_id: string; channel_id: string; amount: number }
-interface AttachmentLite { id: string; closing_id: string; storage_path: string; kind: string }
+interface AttachmentLite { id: string; closing_id: string; storage_path: string; kind: string; target: string; line_id: string | null; expense_id: string | null }
+interface ExpenseLite { id: string; closing_id: string; kind: string; amount: number; description: string | null; sort_order: number }
 interface BankAccountLite { id: string; bank_name: string | null; account_name: string | null }
 
 const BUCKET = 'cash-closings'
@@ -95,7 +96,7 @@ export default function IncassiGiornalieri() {
       const ids = cls.map((c) => c.id)
       const [ls, as] = await Promise.all([
         fetchAllPaged<LineLite>((f, t) => supabase.from('outlet_daily_closing_lines').select('closing_id, channel_id, amount').in('closing_id', ids).order('id').range(f, t), 'closing_lines'),
-        fetchAllPaged<AttachmentLite>((f, t) => supabase.from('outlet_daily_closing_attachments').select('id, closing_id, storage_path, kind').in('closing_id', ids).order('id').range(f, t), 'closing_attachments'),
+        fetchAllPaged<AttachmentLite>((f, t) => supabase.from('outlet_daily_closing_attachments').select('id, closing_id, storage_path, kind, target, line_id, expense_id').in('closing_id', ids).order('id').range(f, t), 'closing_attachments'),
       ])
       setLines(ls.map((l) => ({ ...l, amount: Number(l.amount) })))
       setAttachments(as)
@@ -282,6 +283,7 @@ function OutletSheet({ days, outletId, channels, closingAt, linesByClosing, attC
             <th className="px-3 py-2 text-right">Totale corrispettivi</th>
             {channels.map((ch) => <th key={ch.id} className="px-3 py-2 text-right whitespace-nowrap">{ch.label}</th>)}
             <th className="px-3 py-2 text-right">Spese cassa</th>
+            <th className="px-3 py-2 text-right">Rimborsi</th>
             <th className="px-3 py-2 text-right">Versamenti</th>
             <th className="px-3 py-2 text-right">Fondo cassa</th>
             <th className="px-3 py-2 text-right">Diff. cassa</th>
@@ -299,6 +301,7 @@ function OutletSheet({ days, outletId, channels, closingAt, linesByClosing, attC
                 <td className="px-3 py-1.5 text-right font-mono tabular-nums font-semibold">{c ? (c.is_closed_day ? 'chiuso' : num(c.total_receipts)) : d <= today ? '—' : ''}</td>
                 {channels.map((ch) => <td key={ch.id} className="px-3 py-1.5 text-right font-mono tabular-nums">{lm ? num(lm.get(ch.id) ?? 0) : ''}</td>)}
                 <td className="px-3 py-1.5 text-right font-mono tabular-nums" title={c?.cash_expenses_note ?? ''}>{c ? num(c.cash_expenses) : ''}</td>
+                <td className="px-3 py-1.5 text-right font-mono tabular-nums">{c ? num(c.customer_refunds) : ''}</td>
                 <td className="px-3 py-1.5 text-right font-mono tabular-nums" title={c?.cash_deposit_note ?? ''}>{c ? num(c.cash_deposit) : ''}</td>
                 <td className="px-3 py-1.5 text-right font-mono tabular-nums">{c ? num(c.cash_float_declared) : ''}</td>
                 <td className={`px-3 py-1.5 text-right font-mono tabular-nums ${c && Number(c.cash_difference) !== 0 ? 'text-red-700 font-semibold' : ''}`}>{c ? num(c.cash_difference) : ''}</td>
@@ -314,6 +317,7 @@ function OutletSheet({ days, outletId, channels, closingAt, linesByClosing, attC
             <td className="px-3 py-2 text-right font-mono tabular-nums">{formatEuro(sum((c) => Number(c.total_receipts)))}</td>
             {channels.map((ch) => <td key={ch.id} className="px-3 py-2 text-right font-mono tabular-nums">{formatEuro(sumCh(ch.id))}</td>)}
             <td className="px-3 py-2 text-right font-mono tabular-nums">{formatEuro(sum((c) => Number(c.cash_expenses)))}</td>
+            <td className="px-3 py-2 text-right font-mono tabular-nums">{formatEuro(sum((c) => Number(c.customer_refunds)))}</td>
             <td className="px-3 py-2 text-right font-mono tabular-nums">{formatEuro(sum((c) => Number(c.cash_deposit)))}</td>
             <td colSpan={4} />
           </tr>
@@ -340,7 +344,27 @@ function ClosingDetail({ outletName, date, closing, channels, lines, attachments
   const [urls, setUrls] = useState<Record<string, string>>({})
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
+  const [expenses, setExpenses] = useState<ExpenseLite[]>([])
+  const [lineChannel, setLineChannel] = useState<Record<string, string>>({})
   const atts = closing ? attachments.filter((a) => a.closing_id === closing.id) : []
+
+  // Spese/rimborsi e mappa riga→canale servono solo qui: si caricano all'apertura.
+  useEffect(() => {
+    if (!closing) { setExpenses([]); setLineChannel({}); return }
+    let cancelled = false
+    ;(async () => {
+      const [eRes, lRes] = await Promise.all([
+        supabase.from('outlet_daily_closing_expenses').select('id, closing_id, kind, amount, description, sort_order').eq('closing_id', closing.id).order('sort_order'),
+        supabase.from('outlet_daily_closing_lines').select('id, channel_id').eq('closing_id', closing.id),
+      ])
+      if (cancelled) return
+      setExpenses(((eRes.data ?? []) as ExpenseLite[]).map((e) => ({ ...e, amount: Number(e.amount) })))
+      const map: Record<string, string> = {}
+      for (const l of lRes.data ?? []) map[l.id] = l.channel_id
+      setLineChannel(map)
+    })()
+    return () => { cancelled = true }
+  }, [closing?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (atts.length === 0) { setUrls({}); return }
@@ -366,8 +390,20 @@ function ClosingDetail({ outletName, date, closing, channels, lines, attachments
   }
 
   const lm = closing ? lines.get(closing.id) : undefined
+  const photoLabel = (a: AttachmentLite): string => {
+    const t = a.target as AttachmentTarget
+    if (t === 'canale') return `Chiusura POS · ${channels.find((c) => c.id === lineChannel[a.line_id ?? ''])?.label ?? 'canale'}`
+    if (t === 'spesa') { const e = expenses.find((x) => x.id === a.expense_id); return `Spesa · ${e?.description || formatEuro(e?.amount ?? 0)}` }
+    return ATTACHMENT_TARGET_LABELS[t] ?? a.kind
+  }
   const row = (label: string, value: string, strong = false) => (
     <div className="flex justify-between py-1 border-b border-slate-100 text-sm"><span className="text-slate-600">{label}</span><span className={`font-mono tabular-nums ${strong ? 'font-semibold' : ''}`}>{value}</span></div>
+  )
+  const thumb = (a: AttachmentLite) => (
+    <a key={a.id} href={urls[a.storage_path]} target="_blank" rel="noreferrer" className="block">
+      {urls[a.storage_path] ? <img src={urls[a.storage_path]} alt={photoLabel(a)} className="w-full h-28 object-cover rounded-lg border border-slate-200" /> : <div className="h-28 bg-slate-100 rounded-lg" />}
+      <div className="text-[11px] text-slate-500 truncate mt-0.5">{photoLabel(a)}</div>
+    </a>
   )
 
   return (
@@ -396,7 +432,9 @@ function ClosingDetail({ outletName, date, closing, channels, lines, attachments
                 {row('Differenza', formatEuro(Number(closing.receipts_difference)), Number(closing.receipts_difference) !== 0)}
               </div>
               <div>
-                {row(`Spese cassa${closing.cash_expenses_note ? ` (${closing.cash_expenses_note})` : ''}`, formatEuro(Number(closing.cash_expenses)))}
+                {expenses.map((e) => <div key={e.id}>{row(`${EXPENSE_KIND_LABELS[e.kind as ExpenseKind] ?? e.kind}${e.description ? ` · ${e.description}` : ''}`, formatEuro(e.amount))}</div>)}
+                {row('Totale spese cassa', formatEuro(Number(closing.cash_expenses)))}
+                {Number(closing.customer_refunds) > 0 && row('Totale rimborsi a cliente', formatEuro(Number(closing.customer_refunds)))}
                 {row(`Versamento${closing.cash_deposit_note ? ` (${closing.cash_deposit_note})` : ''}`, formatEuro(Number(closing.cash_deposit)))}
                 {row('Fondo cassa atteso', closing.cash_float_expected == null ? '—' : formatEuro(Number(closing.cash_float_expected)))}
                 {row('Fondo cassa contato', closing.cash_float_declared == null ? '—' : formatEuro(Number(closing.cash_float_declared)))}
@@ -409,13 +447,11 @@ function ClosingDetail({ outletName, date, closing, channels, lines, attachments
             <div className="text-sm font-medium text-slate-700 mb-2 flex items-center gap-1"><ImageIcon size={14} />Foto ({atts.length})</div>
             {atts.length === 0 ? <p className="text-xs text-slate-500">Nessuna foto allegata.</p> : (
               <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
-                {atts.map((a) => (
-                  <a key={a.id} href={urls[a.storage_path]} target="_blank" rel="noreferrer" className="block">
-                    {urls[a.storage_path] ? <img src={urls[a.storage_path]} alt={ATTACHMENT_KIND_LABELS[a.kind as AttachmentKind] ?? ''} className="w-full h-28 object-cover rounded-lg border border-slate-200" /> : <div className="h-28 bg-slate-100 rounded-lg" />}
-                    <div className="text-[11px] text-slate-500 truncate mt-0.5">{ATTACHMENT_KIND_LABELS[a.kind as AttachmentKind] ?? a.kind}</div>
-                  </a>
-                ))}
+                {(['totale', 'canale', 'spesa', 'versamento', 'altro'] as AttachmentTarget[]).flatMap((t) => atts.filter((a) => a.target === t).map(thumb))}
               </div>
+            )}
+            {!closing.is_closed_day && atts.filter((a) => a.target === 'totale').length === 0 && (
+              <p className="text-xs text-red-600 mt-1">Manca la foto dello scontrino di chiusura.</p>
             )}
           </div>
           <div className="flex flex-wrap items-center justify-end gap-2 pt-2 border-t border-slate-100">

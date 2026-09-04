@@ -10,7 +10,44 @@
 
 export type ChannelKind = 'contanti' | 'pos' | 'pos_amex' | 'paybylink' | 'fattura' | 'bonifico' | 'altro'
 export type ClosingStatus = 'bozza' | 'confermata' | 'verificata'
-export type AttachmentKind = 'rt_chiusura' | 'rt_rapporto_finanziario' | 'rt_trasmissione' | 'pos_chiusura' | 'altro'
+export type AttachmentKind = 'rt_chiusura' | 'rt_rapporto_finanziario' | 'rt_trasmissione' | 'pos_chiusura' | 'scontrino_spesa' | 'ricevuta_versamento' | 'altro'
+/** A cosa si riferisce una foto: ogni valore della chiusura ha la sua (migrazione 174). */
+export type AttachmentTarget = 'totale' | 'canale' | 'spesa' | 'versamento' | 'altro'
+
+export const ATTACHMENT_TARGET_LABELS: Record<AttachmentTarget, string> = {
+  totale: 'Scontrino di chiusura',
+  canale: 'Chiusura POS',
+  spesa: 'Scontrino spesa',
+  versamento: 'Ricevuta versamento',
+  altro: 'Altro',
+}
+
+/** Tipo di documento atteso per una riga: serve alla lettura automatica (fase 1b). */
+export function kindForTarget(target: AttachmentTarget, channelKind?: ChannelKind): AttachmentKind {
+  switch (target) {
+    case 'totale': return 'rt_chiusura'
+    case 'canale': return channelKind === 'pos' || channelKind === 'pos_amex' ? 'pos_chiusura' : 'altro'
+    case 'spesa': return 'scontrino_spesa'
+    case 'versamento': return 'ricevuta_versamento'
+    default: return 'altro'
+  }
+}
+
+/** Riga di uscita in contanti: spesa cassa (con scontrino) o rimborso a cliente (solo nota). */
+export type ExpenseKind = 'spesa' | 'rimborso_cliente'
+
+export const EXPENSE_KIND_LABELS: Record<ExpenseKind, string> = {
+  spesa: 'Spesa cassa',
+  rimborso_cliente: 'Rimborso a cliente',
+}
+
+export interface ClosingExpense {
+  id: string
+  kind: ExpenseKind
+  amount: number
+  description: string | null
+  sort_order: number
+}
 
 export const CHANNEL_KIND_LABELS: Record<ChannelKind, string> = {
   contanti: 'Contanti',
@@ -33,6 +70,8 @@ export const ATTACHMENT_KIND_LABELS: Record<AttachmentKind, string> = {
   rt_rapporto_finanziario: 'Rapporto finanziario',
   rt_trasmissione: 'Trasmissione AdE',
   pos_chiusura: 'Chiusura POS',
+  scontrino_spesa: 'Scontrino spesa',
+  ricevuta_versamento: 'Ricevuta versamento',
   altro: 'Altro',
 }
 
@@ -109,6 +148,8 @@ export interface QuadratureInput {
   totalReceipts: number
   lines: Array<{ kind: ChannelKind; counts_in_total: boolean; amount: number }>
   cashExpenses: number
+  /** Rimborsi a cliente pagati in contanti (riducono il fondo come le spese). */
+  customerRefunds?: number
   cashDeposit: number
   /** Fondo di ieri (ultima chiusura confermata) oppure fondo iniziale; null se ignoto. */
   prevFloat: number | null
@@ -133,7 +174,7 @@ export function computeQuadrature(q: QuadratureInput): QuadratureResult {
   if (q.prevFloat == null) {
     return { channelsTotal, receiptsDifference, cashLine, cashFloatExpected: null, cashDifference: null }
   }
-  const cashFloatExpected = r2(q.prevFloat + cashLine - (q.cashExpenses || 0) - (q.cashDeposit || 0))
+  const cashFloatExpected = r2(q.prevFloat + cashLine - (q.cashExpenses || 0) - (q.customerRefunds || 0) - (q.cashDeposit || 0))
   const cashDifference = q.cashFloatDeclared == null ? null : r2(q.cashFloatDeclared - cashFloatExpected)
   return { channelsTotal, receiptsDifference, cashLine, cashFloatExpected, cashDifference }
 }
