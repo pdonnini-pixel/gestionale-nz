@@ -2798,9 +2798,10 @@ function nameIndex(emps: { id: string; nome: string | null; cognome: string | nu
   return out;
 }
 
-function CostiLordoDipendentiBlock({ companyId, userId, outlets, year, month, monthLabel, prospettoByOutlet }: {
+function CostiLordoDipendentiBlock({ companyId, userId, outlets, year, month, monthLabel, prospettoByOutlet, prospettoByMonth }: {
   companyId: string; userId: string | null; outlets: OutletRow[]; year: number; month: number; monthLabel: string;
   prospettoByOutlet: Map<string, number>;
+  prospettoByMonth: Map<number, { costo: number; dip: number; outlet: number }>;
 }) {
   const { toast } = useToast();
   const sb: any = supabase; // tabelle nuove (082) non ancora nei tipi generati
@@ -2882,13 +2883,26 @@ function CostiLordoDipendentiBlock({ companyId, userId, outlets, year, month, mo
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [monthRows, outletRank, outletByEmp, empIdByMat, empIdByName]);
 
-  const monthTotal = useMemo(() => monthRows.reduce((s, r) => s + r.lordo, 0), [monthRows]);
-  const periodTotal = useMemo(() => rows.reduce((s, r) => s + r.lordo, 0), [rows]);
+  // Il costo lordo ha DUE fonti e arrivano con ritmi diversi: la «Statistica costo
+  // orario» (per persona) si richiede a mano, il «Prospetto paghe» (per outlet)
+  // arriva ogni mese. I KPI leggono il dettaglio per persona quando c'e', altrimenti
+  // il Prospetto: cosi' un mese caricato non resta invisibile in cima alla pagina.
+  const prospMese = prospettoByMonth.get(month);
+  const meseDaProspetto = monthRows.length === 0 && (prospMese?.costo || 0) > 0;
+  const monthTotal = useMemo(
+    () => (meseDaProspetto ? (prospMese?.costo || 0) : monthRows.reduce((s, r) => s + r.lordo, 0)),
+    [monthRows, meseDaProspetto, prospMese],
+  );
   const periodMonths = useMemo(() => {
-    const m = new Map<number, number>();
-    for (const r of rows) m.set(r.month, (m.get(r.month) || 0) + r.lordo);
-    return [...m.entries()].sort((a, b) => a[0] - b[0]).map(([mm, lordo]) => ({ mm, lordo }));
-  }, [rows]);
+    const m = new Map<number, { lordo: number; daProspetto: boolean }>();
+    for (const r of rows) {
+      const p = m.get(r.month);
+      m.set(r.month, { lordo: (p?.lordo || 0) + r.lordo, daProspetto: false });
+    }
+    prospettoByMonth.forEach((v, mm) => { if (!m.has(mm) && v.costo > 0) m.set(mm, { lordo: v.costo, daProspetto: true }); });
+    return [...m.entries()].sort((a, b) => a[0] - b[0]).map(([mm, v]) => ({ mm, ...v }));
+  }, [rows, prospettoByMonth]);
+  const periodTotal = useMemo(() => periodMonths.reduce((s, m) => s + m.lordo, 0), [periodMonths]);
   const periodLabel = periodMonths.length ? `${MESI_LBL[periodMonths[0].mm].slice(0, 3)}–${MESI_LBL[periodMonths[periodMonths.length - 1].mm].slice(0, 3)} ${year}` : `${year}`;
 
   const toggle = (k: string) => setExpanded((s) => { const n = new Set(s); n.has(k) ? n.delete(k) : n.add(k); return n; });
@@ -3035,15 +3049,33 @@ function CostiLordoDipendentiBlock({ companyId, userId, outlets, year, month, mo
     <div className="space-y-5">
       {/* KPI periodo / mese */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        <Kpi label={`Costo lordo · ${monthLabel} ${year}`} value={`${eurFmt.format(monthTotal)} €`} sub={`${monthRows.length} dipendenti nel mese`} icon={Users} source="neutro" />
-        <Kpi label={`Costo lordo · ${periodLabel}`} value={`${eurFmt.format(periodTotal)} €`} sub={`${new Set(rows.map((r) => r.matricola)).size} dipendenti · ${periodMonths.length} mesi`} icon={FileText} source="neutro" />
+        <Kpi
+          label={`Costo lordo · ${monthLabel} ${year}`}
+          value={`${eurFmt.format(monthTotal)} €`}
+          sub={meseDaProspetto
+            ? `${prospMese?.dip ?? 0} dipendenti · dal Prospetto paghe`
+            : `${monthRows.length} dipendenti nel mese`}
+          icon={Users}
+          source="neutro"
+        />
+        <Kpi
+          label={`Costo lordo · ${periodLabel}`}
+          value={`${eurFmt.format(periodTotal)} €`}
+          sub={`${periodMonths.length} mesi${periodMonths.some((m) => m.daProspetto) ? ' · due fonti' : ` · ${new Set(rows.map((r) => r.matricola)).size} dipendenti`}`}
+          icon={FileText}
+          source="neutro"
+        />
         <div className="bg-white rounded-2xl border border-slate-200 p-4 flex flex-col justify-between">
           <div>
             <div className="text-xs font-medium text-slate-500">Riepilogo periodo</div>
             <div className="mt-1 space-y-0.5">
               {periodMonths.map((m) => (
                 <div key={m.mm} className="flex items-center justify-between text-xs">
-                  <span className="text-slate-500">{MESI_LBL[m.mm]}</span><Money v={m.lordo} />
+                  <span className="text-slate-500">
+                    {MESI_LBL[m.mm]}
+                    {m.daProspetto && <UiTooltip content={"Dal «Prospetto riepilogativo elaborazione paghe» (per outlet).\nPer questo mese non e' stata caricata la «Statistica costo orario», quindi non c'e' il dettaglio persona per persona."}><span className="ml-1.5 text-[10px] text-slate-400 cursor-help">outlet</span></UiTooltip>}
+                  </span>
+                  <Money v={m.lordo} />
                 </div>
               ))}
             </div>
@@ -3073,6 +3105,7 @@ function CostiLordoDipendentiBlock({ companyId, userId, outlets, year, month, mo
       ) : monthRows.length === 0 ? (
         <div className="bg-white rounded-2xl border border-slate-200 p-10 text-center text-slate-400">
           Nessun costo lordo per dipendente in <strong>{monthLabel} {year}</strong>.{' '}
+          {meseDaProspetto && <>Il mese c'è però nel <strong>Prospetto paghe</strong>, qui sotto: {eurFmt.format(prospMese?.costo || 0)} € su {prospMese?.outlet ?? 0} outlet. Manca solo il dettaglio persona per persona.{' '}</>}
           {periodMonths.length > 0 ? <>Seleziona un mese tra <strong>{periodMonths.map((m) => MESI_LBL[m.mm]).join(', ')}</strong> dal selettore in alto, oppure importa il report del mese.</> : <>Importa la «Statistica costo orario» qui sopra.</>}
         </div>
       ) : (
@@ -3197,7 +3230,7 @@ function CostiLordoTab({ companyId, userId, outlets, year, month, monthLabel }: 
   // I tipi generati di Supabase non includono ancora le tabelle nuove (migration 068):
   // accesso untyped a personnel_gross_cost / inail_rates / v_personnel_gross_cost.
   const sb: any = supabase;
-  const [rows, setRows] = useState<GrossRow[]>([]);
+  const [allRows, setAllRows] = useState<GrossRow[]>([]);
   const [rates, setRates] = useState<InailRateRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [dragOver, setDragOver] = useState(false);
@@ -3216,14 +3249,29 @@ function CostiLordoTab({ companyId, userId, outlets, year, month, monthLabel }: 
   const load = async () => {
     setLoading(true);
     const [g, r] = await Promise.all([
-      sb.from('v_personnel_gross_cost').select('*').eq('company_id', companyId).eq('year', year).eq('month', month),
+      // L'anno intero, non il solo mese selezionato: serve al riepilogo di periodo
+      // e ai KPI in alto, che altrimenti ignorerebbero i mesi coperti dal solo
+      // Prospetto paghe.
+      sb.from('v_personnel_gross_cost').select('*').eq('company_id', companyId).eq('year', year),
       sb.from('inail_rates').select('*').eq('company_id', companyId).order('pat_label'),
     ]);
-    setRows((g.data as any as GrossRow[]) || []);
+    setAllRows((g.data as any as GrossRow[]) || []);
     setRates((r.data as any as InailRateRow[]) || []);
     setLoading(false);
   };
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [companyId, year, month]);
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [companyId, year]);
+
+  const rows = useMemo(() => allRows.filter((r) => r.month === month), [allRows, month]);
+  // Costo lordo per outlet, mese per mese: e' l'unica fonte che arriva ogni mese,
+  // quindi copre i mesi in cui la Statistica costo orario non e' stata caricata.
+  const prospettoByMonth = useMemo(() => {
+    const m = new Map<number, { costo: number; dip: number; outlet: number }>();
+    for (const r of allRows) {
+      const p = m.get(r.month) || { costo: 0, dip: 0, outlet: 0 };
+      m.set(r.month, { costo: p.costo + r.costo_lordo_outlet, dip: p.dip + (r.numero_dipendenti || 0), outlet: p.outlet + 1 });
+    }
+    return m;
+  }, [allRows]);
 
   // INAIL stimato in anteprima usando i tassi già salvati (0 dove il tasso manca).
   const inailPreview = (pats: ProspettoOutletRow['inailPat']) =>
@@ -3361,6 +3409,18 @@ function CostiLordoTab({ companyId, userId, outlets, year, month, monthLabel }: 
 
   const outletNameOf = (r: GrossRow) => (r.outlet_id ? (outletById.get(r.outlet_id)?.name || r.outlet_label || '—') : (r.outlet_label || 'Non attribuito'));
 
+  // Un outlet puo' avere DUE filiali nello stesso mese: succede quando la sede
+  // trasloca e il consulente tiene aperte per un mese sia la vecchia sia la nuova
+  // (giugno 2026: MATASSINO in chiusura e PIAN DI RONA gia' attiva). Sono due righe
+  // legittime, ma col solo nome dell'outlet sembrano un doppione: dove capita si
+  // scrive sotto anche la filiale.
+  const outletDuplicato = useMemo(() => {
+    const c = new Map<string, number>();
+    for (const r of rows) { const k = outletNameOf(r); c.set(k, (c.get(k) || 0) + 1); }
+    return new Set([...c.entries()].filter(([, n]) => n > 1).map(([k]) => k));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows, outletById]);
+
   // Costo lordo per outlet dal Prospetto (per riconciliare col rollup dipendenti).
   const prospettoByOutlet = useMemo(() => {
     const m = new Map<string, number>();
@@ -3376,8 +3436,13 @@ function CostiLordoTab({ companyId, userId, outlets, year, month, monthLabel }: 
     tfr: a.tfr + r.tfr_fondo,
     costo: a.costo + r.costo_lordo_outlet,
     amm: a.amm + r.amministratori_totale,
-  }), { dip: 0, retr: 0, ca: 0, inail: 0, tfr: 0, costo: 0, amm: 0 }), [rows]);
+    ammCompensi: a.ammCompensi + r.compensi_amm,
+  }), { dip: 0, retr: 0, ca: 0, inail: 0, tfr: 0, costo: 0, amm: 0, ammCompensi: 0 }), [rows]);
 
+  // I compensi degli amministratori sono DENTRO «Totale retribuzioni» ma fuori dal
+  // costo outlet: senza una colonna che li mostri in negativo la riga non torna a
+  // occhio e il totale sembra sbagliato. Colonna solo quando ce ne sono.
+  const anyCompensiAmm = rows.some((r) => r.compensi_amm > 0);
   const adminRows = useMemo(() => rows.filter((r) => r.amministratori_totale > 0), [rows]);
   const anyInailMissing = rows.some((r) => r.inail_incompleto);
 
@@ -3412,6 +3477,7 @@ function CostiLordoTab({ companyId, userId, outlets, year, month, monthLabel }: 
         month={month}
         monthLabel={monthLabel}
         prospettoByOutlet={prospettoByOutlet}
+        prospettoByMonth={prospettoByMonth}
       />
 
       {/* Vista per OUTLET dal Prospetto paghe — riconciliazione e tassi INAIL */}
@@ -3472,6 +3538,7 @@ function CostiLordoTab({ companyId, userId, outlets, year, month, monthLabel }: 
                   <th className="px-4 py-2.5 text-left font-bold">Outlet</th>
                   <th className="px-3 py-2.5 text-right font-bold">Dip.</th>
                   <th className="px-3 py-2.5 text-right font-bold">Totale retrib.</th>
+                  {anyCompensiAmm && <th className="px-3 py-2.5 text-right font-bold text-slate-400">di cui amm. (−)</th>}
                   <th className="px-3 py-2.5 text-right font-bold">Contributi azienda</th>
                   <th className="px-3 py-2.5 text-right font-bold">INAIL</th>
                   <th className="px-3 py-2.5 text-right font-bold">TFR fondo</th>
@@ -3491,9 +3558,17 @@ function CostiLordoTab({ companyId, userId, outlets, year, month, monthLabel }: 
                           <span className="font-medium text-slate-800 cursor-help border-b border-dotted border-slate-300">{outletNameOf(r)}</span>
                         </UiTooltip>
                         {!r.outlet_id && <span className="ml-2 text-[11px] text-amber-600">non attribuito</span>}
+                        {outletDuplicato.has(outletNameOf(r)) && (
+                          <div className="text-[11px] text-slate-400 truncate">filiale {r.filiale_code} · {r.outlet_label || '—'}</div>
+                        )}
                       </td>
                       <td className="px-3 py-2.5 text-right tabular-nums text-slate-600">{r.numero_dipendenti ?? '—'}</td>
                       <td className="px-3 py-2.5 text-right"><Money v={r.totale_retribuzioni} /></td>
+                      {anyCompensiAmm && (
+                        <td className="px-3 py-2.5 text-right text-slate-400">
+                          {r.compensi_amm > 0 ? <>−<Money v={r.compensi_amm} /></> : '—'}
+                        </td>
+                      )}
                       <td className="px-3 py-2.5 text-right"><Money v={r.contr_azienda} /></td>
                       <td className="px-3 py-2.5 text-right">
                         <UiTooltip content={inailTip}>
@@ -3514,6 +3589,7 @@ function CostiLordoTab({ companyId, userId, outlets, year, month, monthLabel }: 
                   <td className="px-4 py-2.5 text-slate-700">Totale outlet</td>
                   <td className="px-3 py-2.5 text-right tabular-nums text-slate-600">{tot.dip}</td>
                   <td className="px-3 py-2.5 text-right"><Money v={tot.retr} /></td>
+                  {anyCompensiAmm && <td className="px-3 py-2.5 text-right text-slate-400">−<Money v={tot.ammCompensi} /></td>}
                   <td className="px-3 py-2.5 text-right"><Money v={tot.ca} /></td>
                   <td className="px-3 py-2.5 text-right"><Money v={tot.inail} /></td>
                   <td className="px-3 py-2.5 text-right"><Money v={tot.tfr} /></td>
