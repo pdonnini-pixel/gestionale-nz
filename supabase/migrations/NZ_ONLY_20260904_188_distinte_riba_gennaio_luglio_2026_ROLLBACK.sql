@@ -1,4 +1,4 @@
--- ROLLBACK di NZ_ONLY_20260904_187_distinte_riba_gennaio_luglio_2026.sql
+-- ROLLBACK di NZ_ONLY_20260904_188_distinte_riba_gennaio_luglio_2026.sql
 -- Riporta i 20 addebiti allo stato precedente leggendo da
 -- public._bkp_effetti_bt_20260904, poi rimuove le 21 distinte e le loro 162
 -- righe. Nessun dato inventato: le distinte del 31/08 (create il 03/09) restano.
