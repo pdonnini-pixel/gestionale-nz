@@ -1,4 +1,7 @@
--- 177 — «ricaricare sovrascrive»: anche in archivio.
+-- 187 — «ricaricare sovrascrive»: anche in archivio.
+--
+-- (Applicata sui tre tenant col nome 20260904_177 prima che su main arrivasse
+-- un'altra 177: rinumerata qui, contenuto identico.)
 --
 -- Finora ogni caricamento aggiungeva una riga a import_documents. Ricaricando lo
 -- stesso mese (cosa che capita: il consulente ristampa, o il primo file era quello
