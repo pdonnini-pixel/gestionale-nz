@@ -3895,6 +3895,8 @@ export type Database = {
           storage_bucket: string | null
           uploaded_by: string | null
           year: number | null
+          superseded_at: string | null
+          superseded_by: string | null
         }
         Insert: {
           company_id?: string
@@ -3915,6 +3917,8 @@ export type Database = {
           storage_bucket?: string | null
           uploaded_by?: string | null
           year?: number | null
+          superseded_at?: string | null
+          superseded_by?: string | null
         }
         Update: {
           company_id?: string
@@ -3935,6 +3939,8 @@ export type Database = {
           storage_bucket?: string | null
           uploaded_by?: string | null
           year?: number | null
+          superseded_at?: string | null
+          superseded_by?: string | null
         }
         Relationships: []
       }
