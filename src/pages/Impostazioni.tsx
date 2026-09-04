@@ -7,7 +7,7 @@ import {
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { useCompanyLabels } from '../hooks/useCompanyLabels'
-import { useOutlets } from '../hooks/useOutlets'
+import { useOutlets, isSellingOutlet } from '../hooks/useOutlets'
 import { getCurrentTenant } from '../lib/tenants'
 import PageHeader from '../components/PageHeader'
 
@@ -564,7 +564,7 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
                 <select value={form.outlet_id} onChange={e => setForm(p => ({ ...p, outlet_id: e.target.value }))}
                   className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500">
                   <option value="">Scegli…</option>
-                  {tenantOutlets.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
+                  {tenantOutlets.filter(isSellingOutlet).map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
                 </select>
               </div>
             )}

@@ -14,7 +14,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { ChevronLeft, ChevronRight, Unlock, Pencil, Image as ImageIcon, Plus, Save, Loader2, Settings2, Table2 } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Unlock, Pencil, Image as ImageIcon, Plus, Save, Loader2, Settings2, Table2, ScanSearch } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { useCompany } from '../hooks/useCompany'
@@ -25,13 +25,14 @@ import PageHeader from '../components/PageHeader'
 import { fetchAllPaged } from '../lib/fetchAllPaged'
 import type { Database } from '../types/database'
 import {
-  type PaymentChannel, type ChannelKind, type AttachmentKind, CHANNEL_KIND_LABELS, ATTACHMENT_KIND_LABELS,
-  CLOSING_STATUS_LABELS, DEFAULT_CHANNELS, formatEuro, monthDays, todayIso, formatDateIt, MESI_IT,
+  type PaymentChannel, type ChannelKind, type AttachmentTarget, type ExpenseKind, type ExtractionStatus, CHANNEL_KIND_LABELS, ATTACHMENT_TARGET_LABELS, EXPENSE_KIND_LABELS,
+  CLOSING_STATUS_LABELS, DEFAULT_CHANNELS, EXTRACTION_STATUS_LABELS, formatEuro, monthDays, todayIso, formatDateIt, MESI_IT, extractedAmount, extractedSummary,
 } from '../lib/cashClosings'
 
 type ClosingRow = Database['public']['Tables']['outlet_daily_closings']['Row']
 interface LineLite { closing_id: string; channel_id: string; amount: number }
-interface AttachmentLite { id: string; closing_id: string; storage_path: string; kind: string }
+interface AttachmentLite { id: string; closing_id: string; storage_path: string; kind: string; target: string; line_id: string | null; expense_id: string | null; extraction_status: string; extracted: unknown }
+interface ExpenseLite { id: string; closing_id: string; kind: string; amount: number; description: string | null; sort_order: number }
 interface BankAccountLite { id: string; bank_name: string | null; account_name: string | null }
 
 const BUCKET = 'cash-closings'
@@ -40,7 +41,8 @@ const ALL = 'all'
 export default function IncassiGiornalieri() {
   const { profile } = useAuth()
   const { company } = useCompany()
-  const { outlets } = useOutlets()
+  // Solo punti vendita: sede e magazzino non hanno cassa (tipo outlet «sede»).
+  const { outlets } = useOutlets({ sellingOnly: true })
   const { toast } = useToast()
   const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
@@ -95,7 +97,7 @@ export default function IncassiGiornalieri() {
       const ids = cls.map((c) => c.id)
       const [ls, as] = await Promise.all([
         fetchAllPaged<LineLite>((f, t) => supabase.from('outlet_daily_closing_lines').select('closing_id, channel_id, amount').in('closing_id', ids).order('id').range(f, t), 'closing_lines'),
-        fetchAllPaged<AttachmentLite>((f, t) => supabase.from('outlet_daily_closing_attachments').select('id, closing_id, storage_path, kind').in('closing_id', ids).order('id').range(f, t), 'closing_attachments'),
+        fetchAllPaged<AttachmentLite>((f, t) => supabase.from('outlet_daily_closing_attachments').select('id, closing_id, storage_path, kind, target, line_id, expense_id, extraction_status, extracted').in('closing_id', ids).order('id').range(f, t), 'closing_attachments'),
       ])
       setLines(ls.map((l) => ({ ...l, amount: Number(l.amount) })))
       setAttachments(as)
@@ -120,11 +122,23 @@ export default function IncassiGiornalieri() {
     }
     return map
   }, [lines])
+  // Numero di foto per chiusura e segnale "≠" se una lettura automatica non
+  // coincide con quanto scritto (totale corrispettivi o versamento).
   const attCount = useMemo(() => {
-    const map = new Map<string, number>()
-    for (const a of attachments) map.set(a.closing_id, (map.get(a.closing_id) ?? 0) + 1)
+    const map = new Map<string, { n: number; mismatch: boolean }>()
+    for (const a of attachments) {
+      const cur = map.get(a.closing_id) ?? { n: 0, mismatch: false }
+      cur.n += 1
+      const c = closings.find((x) => x.id === a.closing_id)
+      const read = extractedAmount(a.extracted)
+      if (c && read != null && (a.extraction_status === 'letta' || a.extraction_status === 'da_rivedere')) {
+        const declared = a.target === 'totale' ? Number(c.total_receipts) : a.target === 'versamento' ? Number(c.cash_deposit) : null
+        if (declared != null && Math.abs(declared - read) >= 0.005) cur.mismatch = true
+      }
+      map.set(a.closing_id, cur)
+    }
     return map
-  }, [attachments])
+  }, [attachments, closings])
 
   const prevMonth = () => setYm(({ y, m }) => (m === 1 ? { y: y - 1, m: 12 } : { y, m: m - 1 }))
   const nextMonth = () => setYm(({ y, m }) => (m === 12 ? { y: y + 1, m: 1 } : { y, m: m + 1 }))
@@ -265,7 +279,7 @@ function OutletSheet({ days, outletId, channels, closingAt, linesByClosing, attC
   channels: PaymentChannel[]
   closingAt: Map<string, ClosingRow>
   linesByClosing: Map<string, Map<string, number>>
-  attCount: Map<string, number>
+  attCount: Map<string, { n: number; mismatch: boolean }>
   statusCls: (c: ClosingRow | undefined, d: string) => string
   onOpen: (date: string) => void
 }) {
@@ -282,6 +296,7 @@ function OutletSheet({ days, outletId, channels, closingAt, linesByClosing, attC
             <th className="px-3 py-2 text-right">Totale corrispettivi</th>
             {channels.map((ch) => <th key={ch.id} className="px-3 py-2 text-right whitespace-nowrap">{ch.label}</th>)}
             <th className="px-3 py-2 text-right">Spese cassa</th>
+            <th className="px-3 py-2 text-right">Rimborsi</th>
             <th className="px-3 py-2 text-right">Versamenti</th>
             <th className="px-3 py-2 text-right">Fondo cassa</th>
             <th className="px-3 py-2 text-right">Diff. cassa</th>
@@ -299,10 +314,11 @@ function OutletSheet({ days, outletId, channels, closingAt, linesByClosing, attC
                 <td className="px-3 py-1.5 text-right font-mono tabular-nums font-semibold">{c ? (c.is_closed_day ? 'chiuso' : num(c.total_receipts)) : d <= today ? '—' : ''}</td>
                 {channels.map((ch) => <td key={ch.id} className="px-3 py-1.5 text-right font-mono tabular-nums">{lm ? num(lm.get(ch.id) ?? 0) : ''}</td>)}
                 <td className="px-3 py-1.5 text-right font-mono tabular-nums" title={c?.cash_expenses_note ?? ''}>{c ? num(c.cash_expenses) : ''}</td>
+                <td className="px-3 py-1.5 text-right font-mono tabular-nums">{c ? num(c.customer_refunds) : ''}</td>
                 <td className="px-3 py-1.5 text-right font-mono tabular-nums" title={c?.cash_deposit_note ?? ''}>{c ? num(c.cash_deposit) : ''}</td>
                 <td className="px-3 py-1.5 text-right font-mono tabular-nums">{c ? num(c.cash_float_declared) : ''}</td>
                 <td className={`px-3 py-1.5 text-right font-mono tabular-nums ${c && Number(c.cash_difference) !== 0 ? 'text-red-700 font-semibold' : ''}`}>{c ? num(c.cash_difference) : ''}</td>
-                <td className="px-3 py-1.5 text-center">{c ? (attCount.get(c.id) ?? 0) : ''}</td>
+                <td className="px-3 py-1.5 text-center">{c ? <>{attCount.get(c.id)?.n ?? 0}{attCount.get(c.id)?.mismatch && <span className="ml-1 text-amber-700 font-semibold" title="Una foto letta automaticamente non coincide con quanto scritto: apri il dettaglio">≠</span>}</> : ''}</td>
                 <td className="px-3 py-1.5 text-xs">{c ? (c.is_closed_day ? 'Negozio chiuso' : CLOSING_STATUS_LABELS[c.status as keyof typeof CLOSING_STATUS_LABELS]) : d < today ? 'Mancante' : ''}</td>
               </tr>
             )
@@ -314,6 +330,7 @@ function OutletSheet({ days, outletId, channels, closingAt, linesByClosing, attC
             <td className="px-3 py-2 text-right font-mono tabular-nums">{formatEuro(sum((c) => Number(c.total_receipts)))}</td>
             {channels.map((ch) => <td key={ch.id} className="px-3 py-2 text-right font-mono tabular-nums">{formatEuro(sumCh(ch.id))}</td>)}
             <td className="px-3 py-2 text-right font-mono tabular-nums">{formatEuro(sum((c) => Number(c.cash_expenses)))}</td>
+            <td className="px-3 py-2 text-right font-mono tabular-nums">{formatEuro(sum((c) => Number(c.customer_refunds)))}</td>
             <td className="px-3 py-2 text-right font-mono tabular-nums">{formatEuro(sum((c) => Number(c.cash_deposit)))}</td>
             <td colSpan={4} />
           </tr>
@@ -340,7 +357,43 @@ function ClosingDetail({ outletName, date, closing, channels, lines, attachments
   const [urls, setUrls] = useState<Record<string, string>>({})
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
-  const atts = closing ? attachments.filter((a) => a.closing_id === closing.id) : []
+  const [expenses, setExpenses] = useState<ExpenseLite[]>([])
+  const [lineChannel, setLineChannel] = useState<Record<string, string>>({})
+  /** Letture rifatte da qui (pulsante "Rileggi"): sovrascrivono quelle arrivate dalla pagina. */
+  const [reread, setReread] = useState<Record<string, { extraction_status: string; extracted: unknown }>>({})
+  const [rereading, setRereading] = useState<Set<string>>(new Set())
+  const atts = closing ? attachments.filter((a) => a.closing_id === closing.id).map((a) => (reread[a.id] ? { ...a, ...reread[a.id] } : a)) : []
+
+  const rereadPhoto = async (id: string) => {
+    setRereading((set) => new Set(set).add(id))
+    try {
+      const { data, error } = await supabase.functions.invoke<{ data?: { status: string; extracted: unknown } }>('closing-photo-extract', { body: { attachment_id: id } })
+      if (error || !data?.data) throw new Error(error?.message ?? 'risposta vuota')
+      setReread((m) => ({ ...m, [id]: { extraction_status: data.data!.status, extracted: data.data!.extracted } }))
+    } catch (e) {
+      toast({ type: 'error', message: 'Lettura non riuscita: ' + String((e as Error).message) })
+    } finally {
+      setRereading((set) => { const n = new Set(set); n.delete(id); return n })
+    }
+  }
+
+  // Spese/rimborsi e mappa riga→canale servono solo qui: si caricano all'apertura.
+  useEffect(() => {
+    if (!closing) { setExpenses([]); setLineChannel({}); return }
+    let cancelled = false
+    ;(async () => {
+      const [eRes, lRes] = await Promise.all([
+        supabase.from('outlet_daily_closing_expenses').select('id, closing_id, kind, amount, description, sort_order').eq('closing_id', closing.id).order('sort_order'),
+        supabase.from('outlet_daily_closing_lines').select('id, channel_id').eq('closing_id', closing.id),
+      ])
+      if (cancelled) return
+      setExpenses(((eRes.data ?? []) as ExpenseLite[]).map((e) => ({ ...e, amount: Number(e.amount) })))
+      const map: Record<string, string> = {}
+      for (const l of lRes.data ?? []) map[l.id] = l.channel_id
+      setLineChannel(map)
+    })()
+    return () => { cancelled = true }
+  }, [closing?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (atts.length === 0) { setUrls({}); return }
@@ -366,8 +419,58 @@ function ClosingDetail({ outletName, date, closing, channels, lines, attachments
   }
 
   const lm = closing ? lines.get(closing.id) : undefined
+  const photoLabel = (a: AttachmentLite): string => {
+    const t = a.target as AttachmentTarget
+    if (t === 'canale') return `Chiusura POS · ${channels.find((c) => c.id === lineChannel[a.line_id ?? ''])?.label ?? 'canale'}`
+    if (t === 'spesa') { const e = expenses.find((x) => x.id === a.expense_id); return `Spesa · ${e?.description || formatEuro(e?.amount ?? 0)}` }
+    return ATTACHMENT_TARGET_LABELS[t] ?? a.kind
+  }
+  /** Valore scritto nella chiusura per la riga a cui la foto appartiene. */
+  const declaredFor = (a: AttachmentLite): number | null => {
+    if (!closing) return null
+    const t = a.target as AttachmentTarget
+    if (t === 'totale') return Number(closing.total_receipts)
+    if (t === 'canale') { const chId = lineChannel[a.line_id ?? '']; return chId ? (lm?.get(chId) ?? 0) : null }
+    if (t === 'spesa') { const e = expenses.find((x) => x.id === a.expense_id); return e ? e.amount : null }
+    if (t === 'versamento') return Number(closing.cash_deposit)
+    return null
+  }
+  const extractionBadge = (a: AttachmentLite) => {
+    if (rereading.has(a.id)) return <span className="inline-flex items-center gap-1 text-[11px] text-blue-700"><Loader2 size={11} className="animate-spin" />lettura…</span>
+    const st = a.extraction_status as ExtractionStatus
+    const amount = extractedAmount(a.extracted)
+    const declared = declaredFor(a)
+    const diff = amount != null && declared != null ? Math.round((amount - declared) * 100) / 100 : null
+    const cls = st === 'letta' && diff === 0 ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+      : st === 'letta' || st === 'da_rivedere' ? 'bg-amber-50 text-amber-800 border-amber-200'
+      : 'bg-slate-50 text-slate-500 border-slate-200'
+    return (
+      <div className="mt-1 space-y-0.5">
+        <span className={`inline-block text-[11px] border rounded px-1.5 py-0.5 ${cls}`}>
+          {amount != null ? `dalla foto ${formatEuro(amount)}` : EXTRACTION_STATUS_LABELS[st] ?? st}
+          {diff != null && diff !== 0 && ` · scritto ${formatEuro(declared)} (${diff > 0 ? '+' : ''}${formatEuro(diff)})`}
+          {diff === 0 && st === 'da_rivedere' && ' · incerta'}
+        </span>
+        {extractedSummary(a.target as AttachmentTarget, a.extracted).filter((x) => !/^(totale|importo) /.test(x)).length > 0 && (
+          <div className="text-[10px] text-slate-500 leading-tight">{extractedSummary(a.target as AttachmentTarget, a.extracted).filter((x) => !/^(totale|importo) /.test(x)).join(' · ')}</div>
+        )}
+        {canManage && (
+          <button type="button" onClick={() => void rereadPhoto(a.id)} className="text-[10px] text-blue-700 underline inline-flex items-center gap-0.5"><ScanSearch size={10} />Rileggi</button>
+        )}
+      </div>
+    )
+  }
   const row = (label: string, value: string, strong = false) => (
     <div className="flex justify-between py-1 border-b border-slate-100 text-sm"><span className="text-slate-600">{label}</span><span className={`font-mono tabular-nums ${strong ? 'font-semibold' : ''}`}>{value}</span></div>
+  )
+  const thumb = (a: AttachmentLite) => (
+    <div key={a.id}>
+      <a href={urls[a.storage_path]} target="_blank" rel="noreferrer" className="block">
+        {urls[a.storage_path] ? <img src={urls[a.storage_path]} alt={photoLabel(a)} className="w-full h-28 object-cover rounded-lg border border-slate-200" /> : <div className="h-28 bg-slate-100 rounded-lg" />}
+        <div className="text-[11px] text-slate-500 truncate mt-0.5">{photoLabel(a)}</div>
+      </a>
+      {extractionBadge(a)}
+    </div>
   )
 
   return (
@@ -396,7 +499,9 @@ function ClosingDetail({ outletName, date, closing, channels, lines, attachments
                 {row('Differenza', formatEuro(Number(closing.receipts_difference)), Number(closing.receipts_difference) !== 0)}
               </div>
               <div>
-                {row(`Spese cassa${closing.cash_expenses_note ? ` (${closing.cash_expenses_note})` : ''}`, formatEuro(Number(closing.cash_expenses)))}
+                {expenses.map((e) => <div key={e.id}>{row(`${EXPENSE_KIND_LABELS[e.kind as ExpenseKind] ?? e.kind}${e.description ? ` · ${e.description}` : ''}`, formatEuro(e.amount))}</div>)}
+                {row('Totale spese cassa', formatEuro(Number(closing.cash_expenses)))}
+                {Number(closing.customer_refunds) > 0 && row('Totale rimborsi a cliente', formatEuro(Number(closing.customer_refunds)))}
                 {row(`Versamento${closing.cash_deposit_note ? ` (${closing.cash_deposit_note})` : ''}`, formatEuro(Number(closing.cash_deposit)))}
                 {row('Fondo cassa atteso', closing.cash_float_expected == null ? '—' : formatEuro(Number(closing.cash_float_expected)))}
                 {row('Fondo cassa contato', closing.cash_float_declared == null ? '—' : formatEuro(Number(closing.cash_float_declared)))}
@@ -408,14 +513,12 @@ function ClosingDetail({ outletName, date, closing, channels, lines, attachments
           <div>
             <div className="text-sm font-medium text-slate-700 mb-2 flex items-center gap-1"><ImageIcon size={14} />Foto ({atts.length})</div>
             {atts.length === 0 ? <p className="text-xs text-slate-500">Nessuna foto allegata.</p> : (
-              <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
-                {atts.map((a) => (
-                  <a key={a.id} href={urls[a.storage_path]} target="_blank" rel="noreferrer" className="block">
-                    {urls[a.storage_path] ? <img src={urls[a.storage_path]} alt={ATTACHMENT_KIND_LABELS[a.kind as AttachmentKind] ?? ''} className="w-full h-28 object-cover rounded-lg border border-slate-200" /> : <div className="h-28 bg-slate-100 rounded-lg" />}
-                    <div className="text-[11px] text-slate-500 truncate mt-0.5">{ATTACHMENT_KIND_LABELS[a.kind as AttachmentKind] ?? a.kind}</div>
-                  </a>
-                ))}
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {(['totale', 'canale', 'spesa', 'versamento', 'altro'] as AttachmentTarget[]).flatMap((t) => atts.filter((a) => a.target === t).map(thumb))}
               </div>
+            )}
+            {!closing.is_closed_day && atts.filter((a) => a.target === 'totale').length === 0 && (
+              <p className="text-xs text-red-600 mt-1">Manca la foto dello scontrino di chiusura.</p>
             )}
           </div>
           <div className="flex flex-wrap items-center justify-end gap-2 pt-2 border-t border-slate-100">

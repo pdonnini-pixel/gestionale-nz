@@ -242,9 +242,18 @@ Per Made e Zago le tabelle nascono vuote: i canali si configurano quando quei te
 - Pagine `/chiusura-cassa` (cassiera, mobile) e `/incassi-giornalieri` (amministrazione: riepilogo mese × outlet, foglio per outlet come l'Excel, dettaglio con foto, riapertura, editor dei canali di incasso).
 - Impostazioni → Utenti: ruolo «Operatore cassa (negozio)» con scelta dell'outlet; Edge Function `admin-manage-user` aggiornata sui 3 tenant (scrive `user_outlet_access`). Rimossi i ruoli fantasma `store_manager` e `operatrice`.
 - Guide utente delle due pagine, test pixel, unit test dei calcoli (`src/lib/cashClosings.test.ts`).
-- Da fare per partire su NZ: creare i canali per i 7 outlet (Incassi giornalieri → Canali di incasso), creare i 7 account cassa, scrivere il fondo cassa iniziale alla prima chiusura di ogni negozio.
+- Canali dei 7 outlet NZ creati (Contanti, POS MPS, POS MPS Amex, POS BCC, POS BCC Amex, Pay by link, Fatture, Bonifico) con conto di accredito; codici terminale da inserire in fase 3.
+- **Revisione dopo il primo collaudo di Patrizio (stesso giorno, migration 174-175)**: una foto per riga (totale, ogni canale, ogni spesa, versamento) invece del contenitore unico, così la lettura automatica sa a cosa riferirsi; più righe di spesa cassa; voce «rimborso a cliente» con nota obbligatoria e senza foto; **obbligatoria solo la foto dello scontrino di chiusura**, le altre facoltative con l'avviso che senza foto potrà essere chiesto un chiarimento.
+- Da fare per partire su NZ: creare i 7 account cassa (servono le email dei negozi), scrivere il fondo cassa iniziale alla prima chiusura di ogni negozio.
 
-Restano le fasi 1b (lettura AI delle foto), 2 (mail serale), 3 (banche), 4 (proposta consuntivo ed export).
+**Fase 1b realizzata (2026-09-04)**: lettura automatica delle foto.
+
+- Edge Function `closing-photo-extract` (Claude vision, un prompt per tipo di foto: scontrino di chiusura RT, chiusura POS, scontrino spesa, ricevuta versamento), deployata su NZ, Made e Zago. Legge la foto dal bucket privato con la service key, chiede a Claude un JSON con i campi del documento (per lo scontrino di chiusura: totale, contanti, elettronico, numero documenti, resi, annulli, gran totale, numero azzeramenti, righe IVA, esito trasmissione) e salva tutto in `outlet_daily_closing_attachments.extracted` con lo stato `letta` / `da_rivedere` / `fallita`. Non scrive mai nella chiusura: la quadratura resta quella del DB.
+- Autorizzazione: JWT di un utente che vede l'allegato (controllo con la RLS), oppure service key, oppure il segreto condiviso `x-autofix-cron` già usato dal cron dei ticket (per riletture lanciate dal DB, utili alla mail serale della fase 2).
+- Pagina cassiera: dopo ogni scatto parte la lettura in sottofondo; i campi vuoti della riga vengono precompilati (totale e contanti dallo scontrino di chiusura, totale POS, importo e descrizione della spesa, importo e banca del versamento); sotto la foto il chip «dalla foto: importo» verde se coincide, arancione con «usa» se diverso, «(da controllare)» se la lettura è incerta, «riprova» se fallita. La cassiera resta l'unica fonte: i numeri letti sono proposte.
+- Pagina amministrativa: nel dettaglio della giornata ogni foto mostra l'importo letto con la differenza rispetto a quanto scritto, i dati secondari (contanti/elettronico, documenti, gran totale, azzeramenti, trasmissione, terminale, data e ora) e il pulsante «Rileggi»; nel foglio mensile la colonna Foto segna «≠» quando una lettura non coincide con il totale o il versamento.
+
+Restano le fasi 2 (mail serale), 3 (banche), 4 (proposta consuntivo ed export).
 
 ## 5. decisioni che servono da Patrizio
 

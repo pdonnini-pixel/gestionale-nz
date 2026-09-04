@@ -404,8 +404,19 @@ export default function AICategorization({ companyId }: AICategorizationProps) {
 
     setBatchRunning(true)
     try {
+      // cash_movements e' una VISTA su bank_transactions + cash_movement_ai,
+      // scrivibile grazie al trigger INSTEAD OF UPDATE cash_movements_ai_upd.
+      // I tipi generati marcano ogni vista come sola lettura (Update: never),
+      // quindi la scrittura passa da un cast esplicito sul client.
+      const sbWrite = supabase as unknown as {
+        from: (t: string) => {
+          update: (v: Record<string, unknown>) => {
+            eq: (k: string, v: string) => Promise<{ error: { message: string } | null }>
+          }
+        }
+      }
       for (const m of highConf) {
-        await supabase
+        await sbWrite
           .from('cash_movements')
           .update({
             // 'manual': il valore riflette la conferma esplicita dell'operatore ed è
