@@ -15,7 +15,12 @@
 //   - "set_active" → blocca/sblocca l'accesso (ban dell'utente auth)
 //   - "delete"     → revoca il login (elimina l'utente auth + user_profiles)
 //
-// Body: { action, email?, first_name?, last_name?, role?, user_id?, active?, redirectTo? }
+// Body: { action, email?, first_name?, last_name?, role?, user_id?, active?, redirectTo?, outlet_id? }
+//
+// outlet_id (solo per il ruolo operatore_cassa = account di negozio): l'outlet
+// su cui l'account compila la chiusura di cassa. Viene scritto in
+// user_outlet_access con can_write=true; e' da li' che la RLS delle chiusure
+// (migrazione 173) e la visibilita' degli outlet ricavano il perimetro.
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
@@ -27,7 +32,9 @@ const corsHeaders = {
 };
 
 const BAN_FOREVER = "876000h"; // ~100 anni = accesso bloccato
-const ASSIGNABLE_ROLES = ["super_advisor", "cfo", "coo", "contabile", "store_manager", "operatrice", "viewer"];
+// Solo valori dell'enum public.user_role: "store_manager"/"operatrice" non
+// esistevano nel DB e l'invito falliva a meta' (login creato, profilo no).
+const ASSIGNABLE_ROLES = ["super_advisor", "ceo", "cfo", "coo", "contabile", "budget_approver", "viewer", "operatore_cassa"];
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -65,6 +72,20 @@ Deno.serve(async (req: Request) => {
       return (data as { company_id?: string } | null)?.company_id === myCompany;
     };
 
+    // Helper: assegna l'outlet all'account di negozio (operatore_cassa).
+    // Un account = un outlet: le righe precedenti dell'utente vengono sostituite.
+    // Per gli altri ruoli l'outlet_id viene ignorato.
+    const assignOutlet = async (targetId: string, role: string, outletId: unknown): Promise<string | null> => {
+      if (role !== "operatore_cassa") return null;
+      const oid = String(outletId ?? "").trim();
+      if (!oid) return "Per l'operatore di cassa serve il punto vendita (outlet_id).";
+      const { data: outlet } = await admin.from("outlets").select("id, company_id").eq("id", oid).maybeSingle();
+      if (!outlet || (outlet as { company_id?: string }).company_id !== myCompany) return "Punto vendita non valido per la tua azienda.";
+      await admin.from("user_outlet_access").delete().eq("user_id", targetId);
+      const { error } = await admin.from("user_outlet_access").insert({ user_id: targetId, outlet_id: oid, can_write: true, company_id: myCompany });
+      return error ? `Assegnazione outlet non riuscita: ${error.message}` : null;
+    };
+
     // ───────── LIST ─────────
     if (action === "list") {
       const { data: profs } = await admin
@@ -89,9 +110,12 @@ Deno.serve(async (req: Request) => {
     // ───────── INVITE (crea login + email di invito) ─────────
     if (action === "invite") {
       const email = String(body.email ?? "").trim().toLowerCase();
-      const role = String(body.role ?? "operatrice");
+      const role = String(body.role ?? "operatore_cassa");
       if (!email) return jsonError(400, "Email obbligatoria");
       if (!ASSIGNABLE_ROLES.includes(role)) return jsonError(400, `Ruolo non valido: ${role}`);
+      if (role === "operatore_cassa" && !String(body.outlet_id ?? "").trim()) {
+        return jsonError(400, "Per l'operatore di cassa serve il punto vendita (outlet_id).");
+      }
       const redirectTo = String(body.redirectTo ?? "");
 
       const { data: inv, error: invErr } = await admin.auth.admin.inviteUserByEmail(email, {
@@ -111,6 +135,9 @@ Deno.serve(async (req: Request) => {
         role,
       }, { onConflict: "id" });
 
+      const outletErr = await assignOutlet(inv.user.id, role, body.outlet_id);
+      if (outletErr) return jsonError(400, outletErr);
+
       return jsonOk({ ok: true, user_id: inv.user.id, invited: email });
     }
 
@@ -128,6 +155,8 @@ Deno.serve(async (req: Request) => {
       if (!ASSIGNABLE_ROLES.includes(role)) return jsonError(400, `Ruolo non valido: ${role}`);
       await admin.auth.admin.updateUserById(targetId, { app_metadata: { role } });
       await admin.from("user_profiles").update({ role }).eq("id", targetId);
+      const outletErr = await assignOutlet(targetId, role, body.outlet_id);
+      if (outletErr) return jsonError(400, outletErr);
       return jsonOk({ ok: true });
     }
 

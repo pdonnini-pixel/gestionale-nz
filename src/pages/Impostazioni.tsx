@@ -7,6 +7,7 @@ import {
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { useCompanyLabels } from '../hooks/useCompanyLabels'
+import { useOutlets } from '../hooks/useOutlets'
 import { getCurrentTenant } from '../lib/tenants'
 import PageHeader from '../components/PageHeader'
 
@@ -17,8 +18,7 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
   cfo: ['company', 'costs', 'centri', 'sdi'],
   coo: ['company', 'costs', 'centri'],
   contabile: ['costs', 'centri'],
-  store_manager: [],
-  operatrice: [],
+  operatore_cassa: [],
 }
 
 // Toast helper (shared via props)
@@ -43,8 +43,10 @@ const ROLE_OPTIONS = [
   { value: 'cfo', label: 'CFO', color: 'bg-emerald-100 text-emerald-700' },
   { value: 'coo', label: 'COO', color: 'bg-amber-100 text-amber-700' },
   { value: 'contabile', label: 'Contabile', color: 'bg-slate-100 text-slate-700' },
-  { value: 'store_manager', label: 'Store Manager', color: 'bg-rose-100 text-rose-700' },
-  { value: 'operatrice', label: 'Operatrice', color: 'bg-sky-100 text-sky-700' },
+  // Account di negozio: un login per outlet, condiviso dal personale, che vede
+  // solo la Chiusura cassa del proprio punto vendita (RLS, migrazioni 172-173).
+  { value: 'operatore_cassa', label: 'Operatore cassa (negozio)', color: 'bg-sky-100 text-sky-700' },
+  { value: 'viewer', label: 'Sola lettura', color: 'bg-stone-100 text-stone-700' },
 ]
 
 const MACRO_GROUPS = [
@@ -336,20 +338,21 @@ function CompanySection({ showToast, companyId: COMPANY_ID }: SectionProps) {
 // ==========================================
 function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
   const labels = useCompanyLabels()
+  const { outlets: tenantOutlets } = useOutlets()
   // TODO: tighten type — Supabase rows
   const [users, setUsers] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  const [costCenters, setCostCenters] = useState<any[]>([])
   const [editingId, setEditingId] = useState<string | null>(null)
   const [showForm, setShowForm] = useState(false)
   const [search, setSearch] = useState('')
-  const [form, setForm] = useState({ nome: '', cognome: '', email: '', ruolo: 'operatrice', is_active: true, outlet_access: ['all'] as string[] })
+  // outlet_id: per il ruolo operatore_cassa (un account per punto vendita) e'
+  // l'outlet su cui l'account puo' compilare la chiusura di cassa.
+  const [form, setForm] = useState({ nome: '', cognome: '', email: '', ruolo: 'operatore_cassa', is_active: true, outlet_id: '' })
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
     loadUsers()
-    loadCostCenters()
   }, [])
 
   // Chiamata alla funzione admin (unico punto che tocca i login reali).
@@ -371,15 +374,20 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
     try {
       setLoading(true)
       const res = await callAdmin('list') as { users?: Array<Record<string, unknown>> }
+      // Outlet assegnati (user_outlet_access): mostrati come etichette e usati
+      // per precompilare la modifica di un operatore di cassa.
+      const { data: access } = await supabase.from('user_outlet_access').select('user_id, outlet_id')
+      const accessByUser = new Map<string, string[]>()
+      for (const a of access ?? []) accessByUser.set(a.user_id, [...(accessByUser.get(a.user_id) ?? []), a.outlet_id])
       const mapped = (res.users || []).map(u => ({
         id: u.id,
         nome: (u.first_name as string) || '',
         cognome: (u.last_name as string) || '',
         email: (u.email as string) || '',
-        ruolo: (u.role as string) || 'operatrice',
+        ruolo: (u.role as string) || 'operatore_cassa',
         is_active: u.active !== false,
         last_sign_in_at: u.last_sign_in_at || null,
-        outlet_access: [] as string[],
+        outlet_ids: accessByUser.get(u.id as string) ?? [],
       }))
       mapped.sort((a, b) => (a.nome + a.cognome).localeCompare(b.nome + b.cognome))
       setUsers(mapped)
@@ -390,34 +398,25 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
     }
   }
 
-  const loadCostCenters = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('cost_centers')
-        .select('*')
-        .eq('company_id', COMPANY_ID || '')
-        .order('sort_order', { ascending: true })
-
-      if (error) throw error
-      setCostCenters(data || [])
-    } catch (err) {
-      showToast?.('Errore caricamento centri di costo', 'error')
-    }
-  }
-
   const resetForm = () => {
-    setForm({ nome: '', cognome: '', email: '', ruolo: 'operatrice', is_active: true, outlet_access: ['all'] })
+    setForm({ nome: '', cognome: '', email: '', ruolo: 'operatore_cassa', is_active: true, outlet_id: '' })
     setShowForm(false)
     setEditingId(null)
   }
 
+  const isCashRole = form.ruolo === 'operatore_cassa'
+
   // Nuovo utente = INVITO: crea il login e invia l'email per impostare la password.
   // In modifica, cambia solo il ruolo (nome/email di un login esistente non si toccano qui).
+  // Per l'operatore di cassa l'outlet e' obbligatorio: la funzione admin lo
+  // scrive in user_outlet_access (can_write), da cui dipende la RLS della chiusura.
   const handleSave = async () => {
     try {
       setSaving(true)
+      if (isCashRole && !form.outlet_id) { showToast?.(`Scegli il ${labels.pointOfSale.toLowerCase()} dell'account cassa`, 'error'); return }
+      const outletPayload = isCashRole ? { outlet_id: form.outlet_id } : {}
       if (editingId) {
-        await callAdmin('set_role', { user_id: editingId, role: form.ruolo })
+        await callAdmin('set_role', { user_id: editingId, role: form.ruolo, ...outletPayload })
         showToast?.('Ruolo aggiornato')
       } else {
         if (!form.email.trim()) { showToast?.('Email obbligatoria', 'error'); return }
@@ -427,6 +426,7 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
           last_name: form.cognome.trim(),
           role: form.ruolo,
           redirectTo: `${window.location.origin}/reset-password`,
+          ...outletPayload,
         })
         showToast?.(`Invito inviato a ${form.email.trim()}`)
       }
@@ -447,7 +447,7 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
       email: u.email,
       ruolo: u.ruolo,
       is_active: u.is_active,
-      outlet_access: [...(u.outlet_access || ['all'])]
+      outlet_id: (u.outlet_ids as string[])[0] ?? '',
     })
     setEditingId(u.id)
     setShowForm(true)
@@ -475,19 +475,7 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
     }
   }
 
-  const toggleOutlet = (outletCode: string) => {
-    setForm(prev => {
-      if (outletCode === 'all') return { ...prev, outlet_access: ['all'] }
-      let newOutlets = prev.outlet_access.filter(o => o !== 'all')
-      if (newOutlets.includes(outletCode)) {
-        newOutlets = newOutlets.filter(o => o !== outletCode)
-      } else {
-        newOutlets.push(outletCode)
-      }
-      if (newOutlets.length === 0) newOutlets = ['all']
-      return { ...prev, outlet_access: newOutlets }
-    })
-  }
+  const outletName = (id: string) => tenantOutlets.find(o => o.id === id)?.name ?? '—'
 
   const filtered = users.filter(u => {
     const q = search.toLowerCase()
@@ -562,13 +550,31 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
                 className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 disabled:bg-slate-100 disabled:text-slate-400" />
             </div>
           </div>
-          <div className="max-w-xs">
-            <label className="block text-xs font-medium text-slate-600 mb-1">Ruolo</label>
-            <select value={form.ruolo} onChange={e => setForm(p => ({ ...p, ruolo: e.target.value }))}
-              className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500">
-              {ROLE_OPTIONS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
-            </select>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">Ruolo</label>
+              <select value={form.ruolo} onChange={e => setForm(p => ({ ...p, ruolo: e.target.value }))}
+                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500">
+                {ROLE_OPTIONS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+              </select>
+            </div>
+            {isCashRole && (
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">{labels.pointOfSale} dell'account cassa *</label>
+                <select value={form.outlet_id} onChange={e => setForm(p => ({ ...p, outlet_id: e.target.value }))}
+                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500">
+                  <option value="">Scegli…</option>
+                  {tenantOutlets.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
+                </select>
+              </div>
+            )}
           </div>
+          {isCashRole && (
+            <p className="text-xs text-slate-500">
+              L'operatore di cassa entra e vede solo la <strong>Chiusura cassa</strong> del suo {labels.pointOfSale.toLowerCase()}: un accesso per negozio,
+              condiviso dal personale (es. cassa.valdichiana@…). Nessun altro dato aziendale è visibile a questo ruolo.
+            </p>
+          )}
           {!editingId && (
             <p className="text-xs text-slate-500">
               All'utente arriverà un'email per impostare la propria password e accedere. Blocco/eliminazione si gestiscono poi dalla lista.
@@ -603,9 +609,9 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
                 </div>
                 <div className="text-xs text-slate-400 truncate" title={u.email}>{u.email}</div>
                 <div className="flex flex-wrap gap-1 mt-1">
-                  {u.outlet_access && u.outlet_access.map((o: string) => (
-                    <span key={o} className="inline-block text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">
-                      {getCentroLabel(o, costCenters)}
+                  {(u.outlet_ids as string[]).map((o: string) => (
+                    <span key={o} className="inline-block text-[10px] px-1.5 py-0.5 rounded bg-sky-50 text-sky-700">
+                      {outletName(o)}
                     </span>
                   ))}
                 </div>

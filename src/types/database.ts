@@ -4661,6 +4661,231 @@ export type Database = {
           },
         ]
       }
+      outlet_daily_closing_attachments: {
+        Row: {
+          closing_id: string
+          company_id: string
+          extracted: Json | null
+          extracted_at: string | null
+          extraction_model: string | null
+          extraction_status: string
+          id: string
+          kind: string
+          mime_type: string | null
+          outlet_id: string
+          size_bytes: number | null
+          storage_path: string
+          uploaded_at: string
+          uploaded_by: string | null
+        }
+        Insert: {
+          closing_id: string
+          company_id: string
+          extracted?: Json | null
+          extracted_at?: string | null
+          extraction_model?: string | null
+          extraction_status?: string
+          id?: string
+          kind?: string
+          mime_type?: string | null
+          outlet_id: string
+          size_bytes?: number | null
+          storage_path: string
+          uploaded_at?: string
+          uploaded_by?: string | null
+        }
+        Update: {
+          closing_id?: string
+          company_id?: string
+          extracted?: Json | null
+          extracted_at?: string | null
+          extraction_model?: string | null
+          extraction_status?: string
+          id?: string
+          kind?: string
+          mime_type?: string | null
+          outlet_id?: string
+          size_bytes?: number | null
+          storage_path?: string
+          uploaded_at?: string
+          uploaded_by?: string | null
+        }
+        Relationships: []
+      }
+      outlet_daily_closing_lines: {
+        Row: {
+          amount: number
+          channel_id: string
+          closing_id: string
+          company_id: string
+          created_at: string
+          id: string
+          outlet_id: string
+          updated_at: string
+        }
+        Insert: {
+          amount?: number
+          channel_id: string
+          closing_id: string
+          company_id: string
+          created_at?: string
+          id?: string
+          outlet_id: string
+          updated_at?: string
+        }
+        Update: {
+          amount?: number
+          channel_id?: string
+          closing_id?: string
+          company_id?: string
+          created_at?: string
+          id?: string
+          outlet_id?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      outlet_daily_closings: {
+        Row: {
+          cash_deposit: number
+          cash_deposit_note: string | null
+          cash_difference: number | null
+          cash_expenses: number
+          cash_expenses_note: string | null
+          cash_float_declared: number | null
+          cash_float_expected: number | null
+          cash_float_opening: number | null
+          channels_total: number
+          closed_by_name: string | null
+          closing_date: string
+          company_id: string
+          confirmed_at: string | null
+          confirmed_by: string | null
+          created_at: string
+          created_by: string | null
+          id: string
+          is_closed_day: boolean
+          notes: string | null
+          outlet_id: string
+          receipts_difference: number
+          reopen_reason: string | null
+          reopened_at: string | null
+          reopened_by: string | null
+          status: string
+          total_receipts: number
+          updated_at: string
+        }
+        Insert: {
+          cash_deposit?: number
+          cash_deposit_note?: string | null
+          cash_difference?: number | null
+          cash_expenses?: number
+          cash_expenses_note?: string | null
+          cash_float_declared?: number | null
+          cash_float_expected?: number | null
+          cash_float_opening?: number | null
+          channels_total?: number
+          closed_by_name?: string | null
+          closing_date: string
+          company_id: string
+          confirmed_at?: string | null
+          confirmed_by?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_closed_day?: boolean
+          notes?: string | null
+          outlet_id: string
+          receipts_difference?: number
+          reopen_reason?: string | null
+          reopened_at?: string | null
+          reopened_by?: string | null
+          status?: string
+          total_receipts?: number
+          updated_at?: string
+        }
+        Update: {
+          cash_deposit?: number
+          cash_deposit_note?: string | null
+          cash_difference?: number | null
+          cash_expenses?: number
+          cash_expenses_note?: string | null
+          cash_float_declared?: number | null
+          cash_float_expected?: number | null
+          cash_float_opening?: number | null
+          channels_total?: number
+          closed_by_name?: string | null
+          closing_date?: string
+          company_id?: string
+          confirmed_at?: string | null
+          confirmed_by?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_closed_day?: boolean
+          notes?: string | null
+          outlet_id?: string
+          receipts_difference?: number
+          reopen_reason?: string | null
+          reopened_at?: string | null
+          reopened_by?: string | null
+          status?: string
+          total_receipts?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      outlet_payment_channels: {
+        Row: {
+          bank_account_id: string | null
+          company_id: string
+          counts_in_total: boolean
+          created_at: string
+          id: string
+          is_active: boolean
+          kind: string
+          label: string
+          outlet_id: string
+          pos_terminal_id: string | null
+          settlement_days: number
+          sort_order: number
+          terminal_code: string | null
+          updated_at: string
+        }
+        Insert: {
+          bank_account_id?: string | null
+          company_id: string
+          counts_in_total?: boolean
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          kind: string
+          label: string
+          outlet_id: string
+          pos_terminal_id?: string | null
+          settlement_days?: number
+          sort_order?: number
+          terminal_code?: string | null
+          updated_at?: string
+        }
+        Update: {
+          bank_account_id?: string | null
+          company_id?: string
+          counts_in_total?: boolean
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          kind?: string
+          label?: string
+          outlet_id?: string
+          pos_terminal_id?: string | null
+          settlement_days?: number
+          sort_order?: number
+          terminal_code?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       outlet_cost_template: {
         Row: {
           budget_annual: number | null
@@ -8441,6 +8666,19 @@ export type Database = {
         Args: { p_outlet_id?: string | null; p_year?: number | null }
         Returns: Json
       }
+      can_write_cash_closing: { Args: { p_outlet_id: string }; Returns: boolean }
+      confirm_cash_closing: {
+        Args: { p_closing_id: string; p_note?: string }
+        Returns: Json
+      }
+      reopen_cash_closing: {
+        Args: { p_closing_id: string; p_reason?: string }
+        Returns: undefined
+      }
+      request_cash_closing_reopen: {
+        Args: { p_closing_id: string; p_reason?: string }
+        Returns: undefined
+      }
       has_outlet_access: { Args: { p_outlet_id: string }; Returns: boolean }
       has_outlet_write: { Args: { p_outlet_id: string }; Returns: boolean }
       http: {
@@ -8656,7 +8894,15 @@ export type Database = {
       sync_origin: "auto_cron" | "manuale"
       sync_status: "ok" | "parziale" | "errore" | "vuoto"
       transaction_type: "entrata" | "uscita"
-      user_role: "super_advisor" | "cfo" | "coo" | "ceo" | "contabile" | "viewer"
+      user_role:
+        | "super_advisor"
+        | "cfo"
+        | "coo"
+        | "ceo"
+        | "contabile"
+        | "budget_approver"
+        | "viewer"
+        | "operatore_cassa"
     }
     CompositeTypes: {
       http_header: {
