@@ -21782,6 +21782,7 @@ export type Database = {
         Returns: string
       }
       bytea_to_text: { Args: { data: string }; Returns: string }
+      delete_cash_closing: { Args: { p_closing_id: string; p_reason?: string }; Returns: Json }
       can_write_cash_closing: {
         Args: { p_outlet_id: string }
         Returns: boolean

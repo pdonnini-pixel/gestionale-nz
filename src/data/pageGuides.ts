@@ -1197,6 +1197,10 @@ export const PAGE_GUIDES: PageGuide[] = [
         "a": "Correggi il campo a mano: la lettura automatica è solo una proposta e non sostituisce mai quello che scrivi. Il chip sotto la foto resterà arancione con il valore letto, così chi controlla vede la differenza; se la foto è sfocata o tagliata, rifalla con \"Altra foto\" e usa \"riprova\"."
       },
       {
+        "q": "Ho inserito una giornata sbagliata o di prova: come la cancello per rifarla?",
+        "a": "Può farlo solo il super advisor: in fondo alla pagina, accanto ai pulsanti principali, c'è \"Cancella giornata\" (icona del cestino). Chiede conferma e un motivo facoltativo, poi toglie importi, spese, rimborsi, foto e il ricavo giornaliero che quella chiusura aveva creato: la giornata torna vuota e si può reinserire da zero. L'operazione resta tracciata tra le notifiche. Chi non è super advisor può solo chiedere la riapertura."
+      },
+      {
         "q": "Non riesco a confermare: dice che manca la foto dello scontrino di chiusura",
         "a": "È l'unica foto obbligatoria: tocca \"Foto\" sotto il campo del totale corrispettivi, scatta lo scontrino di chiusura del registratore e riprova. Solo il giorno di negozio chiuso non la richiede. Le altre foto (chiusure POS, scontrini delle spese, ricevuta del versamento) sono facoltative, ma senza potrà esserti chiesto un chiarimento."
       },
@@ -1235,6 +1239,7 @@ export const PAGE_GUIDES: PageGuide[] = [
           "Clicca su una cella (o su una riga) per aprire il dettaglio della giornata",
           "Nel dettaglio vedi tutti gli importi, ogni spesa e rimborso con la sua descrizione, le note, chi ha chiuso e quando, e le foto degli scontrini con l'indicazione di cosa giustificano (scontrino di chiusura, chiusura POS di un canale, spesa, versamento): clicca una foto per aprirla a schermo intero. Sotto ogni foto c'è l'esito della lettura automatica: \"dalla foto\" con l'importo letto (verde se coincide con quanto scritto, arancione con la differenza se non coincide o se la lettura è incerta), più i dati secondari letti dallo scontrino (contanti ed elettronico, numero documenti, gran totale, numero azzeramenti, esito trasmissione, terminale POS, data e ora); \"Rileggi\" ripete la lettura. Se manca la foto dello scontrino di chiusura viene segnalato in rosso",
           "Se la giornata è in bozza, \"Apri per modificare\" porta alla pagina Chiusura cassa di quel giorno e punto vendita",
+          "Il super advisor ha anche \"Cancella giornata\": dopo una conferma esplicita cancella importi, spese, rimborsi, foto e il ricavo giornaliero proiettato, così la giornata torna vuota e può essere reinserita da zero; resta una notifica di traccia con chi, quando e il motivo",
           "Se la giornata manca, \"Compila la chiusura\" apre la stessa pagina per inserirla"
         ]
       },

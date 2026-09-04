@@ -87,6 +87,7 @@ export default function ChiusuraCassa() {
 
   const role = profile?.role ?? ''
   const isAdmin = role === 'super_advisor' || role === 'contabile'
+  const isSuper = role === 'super_advisor'
   const canWrite = isAdmin || role === 'operatore_cassa'
   const userId = session?.user?.id ?? null
   const companyId = company?.id ?? null
@@ -114,6 +115,9 @@ export default function ChiusuraCassa() {
   const [reopenOpen, setReopenOpen] = useState(false)
   const [reopenReason, setReopenReason] = useState('')
   const [missingPhotos, setMissingPhotos] = useState<string[] | null>(null)
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [deleteReason, setDeleteReason] = useState('')
+  const [deleting, setDeleting] = useState(false)
   /** Foto in lettura automatica (edge function closing-photo-extract), per id allegato. */
   const [readingIds, setReadingIds] = useState<Set<string>>(new Set())
   const fileRef = useRef<HTMLInputElement>(null)
@@ -361,6 +365,33 @@ export default function ChiusuraCassa() {
     setReopenOpen(false); setReopenReason('')
     toast({ type: 'success', message: 'Chiusura riaperta: ora si può correggere' })
     await load()
+  }
+
+  /**
+   * Cancella l'intera giornata (solo super advisor): prima i file nel bucket
+   * via Storage API, poi la RPC che toglie righe, spese, foto, la proiezione
+   * in daily_revenue e lascia una notifica di traccia. La giornata torna
+   * vuota e si puo' reinserire da zero.
+   */
+  const deleteDay = async () => {
+    if (!closing || !isSuper) return
+    setDeleting(true)
+    try {
+      const paths = attachments.map((a) => a.storage_path)
+      if (paths.length > 0) {
+        const { error: stErr } = await supabase.storage.from(BUCKET).remove(paths)
+        if (stErr) console.warn('[chiusura-cassa] file non rimossi dal bucket', stErr)
+      }
+      const { error } = await supabase.rpc('delete_cash_closing', { p_closing_id: closing.id, p_reason: deleteReason || undefined })
+      if (error) throw new Error(error.message)
+      setDeleteOpen(false); setDeleteReason('')
+      toast({ type: 'success', message: 'Giornata cancellata: ora puoi reinserirla da zero' })
+      await load()
+    } catch (e) {
+      toast({ type: 'error', message: 'Cancellazione non riuscita: ' + errMsg(e) })
+    } finally {
+      setDeleting(false)
+    }
   }
 
   const requestReopen = async () => {
@@ -786,6 +817,12 @@ export default function ChiusuraCassa() {
                     </button>
                   </>
                 )}
+                {isSuper && closing && (
+                  <button onClick={() => setDeleteOpen(true)} title="Cancella la giornata per reinserirla da zero (solo super advisor)"
+                    className="flex items-center justify-center gap-1 px-3 py-3 rounded-xl border border-red-300 text-red-700 bg-white font-semibold">
+                    <Trash2 size={18} /><span className="hidden sm:inline">Cancella giornata</span>
+                  </button>
+                )}
               </div>
             </div>
           )}
@@ -841,6 +878,20 @@ export default function ChiusuraCassa() {
         <div className="flex justify-end gap-2">
           <button onClick={() => setMissingPhotos(null)} className="px-4 py-2 text-sm border border-slate-300 rounded-lg inline-flex items-center gap-1"><Camera size={14} />Torna a fotografare</button>
           <button onClick={() => void confirm(true)} className="px-4 py-2 text-sm rounded-lg bg-emerald-600 text-white font-medium inline-flex items-center gap-1"><Check size={14} />Conferma comunque</button>
+        </div>
+      </Modal>
+
+      <Modal open={deleteOpen} onClose={() => setDeleteOpen(false)} title="Cancella la giornata">
+        <p className="text-sm text-slate-700">
+          Cancelli la chiusura di <strong>{outlet?.name}</strong> del <strong>{formatDateIt(dateIso)}</strong>: importi, spese, rimborsi, foto e il ricavo
+          giornaliero proiettato. La giornata torna vuota e va reinserita da zero. L'operazione resta tracciata tra le notifiche.
+        </p>
+        <input value={deleteReason} onChange={(e) => setDeleteReason(e.target.value)} placeholder="Motivo (facoltativo, es. dati di prova)" className={`${textCls} mt-3`} />
+        <div className="flex justify-end gap-2 mt-4">
+          <button onClick={() => setDeleteOpen(false)} className="px-4 py-2 text-sm border border-slate-300 rounded-lg">Annulla</button>
+          <button onClick={() => void deleteDay()} disabled={deleting} className="px-4 py-2 text-sm rounded-lg bg-red-600 text-white font-medium inline-flex items-center gap-1 disabled:opacity-60">
+            {deleting ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}Cancella davvero
+          </button>
         </div>
       </Modal>
 
