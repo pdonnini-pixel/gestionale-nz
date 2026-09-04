@@ -41,6 +41,13 @@
 -- ATTENZIONE — pagare prima della SCADENZA resta normale e ammesso.
 --   La guardia guarda invoice_date, mai due_date.
 --
+-- CONVIVENZA CON LA 174 E LA 175 (altra sessione, stesso giorno)
+--   Poco dopo questa guardia, sui tre tenant sono state applicate
+--   20260904_174_gate_identita_parola_intera e 20260904_175_match_anonimo_finestra_date,
+--   che riscrivono le stesse funzioni partendo da questa versione. La 175 aggiunge
+--   al matcher a importo un pavimento di 30 giorni prima della scadenza, riportato
+--   anche qui. Stato verificato sui tre tenant: definizioni identiche.
+--
 -- SICUREZZA: solo CREATE OR REPLACE di funzioni. Nessun dato toccato, nessuna colonna
 -- rimossa. Rollback in _ROLLBACK.sql (ripristina le versioni 164/117).
 -- ⚠️ NZ + Made + Zago.
@@ -103,6 +110,11 @@ BEGIN
       AND (p.invoice_date IS NULL OR v_bt.transaction_date >= p.invoice_date)
       AND v_bt.transaction_date
             <= COALESCE(p.due_date, p.invoice_date, v_bt.transaction_date) + INTERVAL '180 days'
+      -- Pavimento sulla scadenza: arriva dalla 175_match_anonimo_finestra_date,
+      -- applicata sui tenant poco dopo questa. È riportato qui perché il file
+      -- resti riapplicabile senza far regredire quel vincolo.
+      AND v_bt.transaction_date
+            >= COALESCE(p.due_date, p.invoice_date, v_bt.transaction_date) - INTERVAL '30 days'
   )
   SELECT count(*), count(*) FILTER (WHERE in_disp),
          array_agg(id), (array_agg(id) FILTER (WHERE in_disp))[1]
