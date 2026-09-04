@@ -3,7 +3,7 @@
 > Documento unico delle regole con cui il sistema abbina i **movimenti bancari in uscita**
 > alle **fatture fornitore**. Per ogni regola: **cosa dice**, **dove è applicata** (funzione /
 > migration / file), e **se è automatica** (sempre) o **manuale** (richiede conferma / non ancora
-> coperta). Aggiornato al 2026-07-25. ⚠️ Ogni regola vale su **NZ + Made + Zago**.
+> coperta). Aggiornato al 2026-09-04. ⚠️ Ogni regola vale su **NZ + Made + Zago**.
 
 ## Legenda stato
 - ✅ **AUTO SEMPRE** — applicata dal motore a ogni movimento (trigger all'inserimento + cron notturno 05:45).
@@ -196,3 +196,22 @@ caso HERA COMM) + salvaguardia utenze (fattura ha la precedenza) ·
 Edge: `acube-ob-tx-sync` lancia `run_daily_reconciliation` a fine import (riconciliazione subito, non solo alle 05:45).
 Frontend: `src/pages/TesoreriaManuale.tsx` (detector, ricerca manuale, `movementNet`, `isRealTransfer`);
 `src/pages/Fornitori.tsx` (toggle "È un'utenza").
+
+### R14 — Un movimento NON può pagare una fattura emessa DOPO di lui
+La data del movimento non può precedere la `invoice_date` della scadenza: nemmeno di un giorno.
+Il limite verso il futuro resta largo (i pagamenti in ritardo sono la norma), quello verso il
+passato è secco. Pagare prima della **scadenza** resta ovviamente ammesso: la guardia guarda la
+data fattura, mai la `due_date`.
+- **Caso reale (04/09/2026):** EPPI S.R.L. fattura 32 del 03/08/2026, scad. 30/09, 3.050 €,
+  risultava pagata da un movimento MPS del **03/06/2026**. Il cron del 04/08 aveva ripreso quel
+  bonifico rimasto orfano, letto `IMPORTO BONIFICI: 3.050,00` dalla causale CBI anonima e trovato
+  una sola fattura aperta con quell'importo: la 32, emessa il giorno prima. EPPI fattura 3.050 €
+  ogni mese, quindi l'importo da solo non distingue niente. La finestra della migration 164
+  ammetteva fino a **120 giorni di anticipo** sulla data fattura, e 61 ci stavano dentro.
+- **Dove:** `try_match_amount_bank_transaction`, `try_match_bank_transaction`,
+  `rerun_bijective_reconciliation` (migr. **176**). La regola era già nella 117, ma solo sul
+  biettivo e con 15 giorni di tolleranza: ora è uniforme e senza tolleranza.
+- **Non si applica** ai granitici a nome (102/111) e a numeri (120): lì la causale cita il numero
+  della fattura, che è prova diretta che la fattura esisteva già.
+- Quando `invoice_date` è NULL la guardia non scatta (non sappiamo quando è nata la fattura).
+- **Stato:** ✅ AUTO SEMPRE.
