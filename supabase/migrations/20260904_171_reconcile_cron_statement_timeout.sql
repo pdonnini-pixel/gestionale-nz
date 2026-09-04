@@ -25,11 +25,24 @@
 -- Made e Zago non hanno mai fallito (35 successi su 35): hanno molto meno
 -- arretrato da valutare.
 --
--- IL RIMEDIO. `SET LOCAL statement_timeout = '20min'` dentro la funzione: vale
--- per la sola transazione del job, non tocca ne' le altre sessioni ne' il
--- frontend. In piu' la funzione ora restituisce `durata_sec`, cosi' il tempo di
--- esecuzione resta scritto in cron.job_run_details e il prossimo rallentamento
--- si vede prima che diventi un fallimento.
+-- IL RIMEDIO, E UN PRIMO TENTATIVO SBAGLIATO. La prima versione di questa
+-- migration metteva `SET LOCAL statement_timeout = '20min'` DENTRO la funzione.
+-- Non funziona, ed e' stato verificato sul campo: il job e' morto di nuovo a 120
+-- secondi netti. PostgreSQL arma il timer all'inizio dello statement, quindi
+-- cambiare `statement_timeout` mentre quello statement e' gia' in esecuzione non
+-- ha alcun effetto su di esso.
+--
+-- Il SET deve stare PRIMA della chiamata, e il posto giusto e' il comando del
+-- cron job:
+--
+--   SET statement_timeout = '20min'; SELECT public.run_daily_reconciliation();
+--
+-- Verificato: con questo comando il giro e' arrivato in fondo in 430,8 secondi
+-- (7 minuti e 11), contro i 120 in cui moriva. La funzione conserva comunque il
+-- SET LOCAL, innocuo, perche' serve a chi la chiamasse da una sessione propria.
+-- In piu' restituisce `durata_sec`, cosi' il tempo resta scritto in
+-- cron.job_run_details e il prossimo rallentamento si vede prima che diventi un
+-- fallimento.
 --
 -- RESTA DA FARE. I 105 ms per movimento sono tanti, e crescono con l'arretrato.
 -- La cura vera e' non valutare `invoice_cited_in_text` su ogni candidato:
