@@ -4126,8 +4126,15 @@ const ScadenzarioSmart = () => {
                                 movimento bancario reale: se poi il bonifico viene
                                 riconciliato (payment_source='movimento'), la verità è
                                 il movimento (colonna Conto) e il badge sparisce, per
-                                non mostrare due messaggi in conflitto. */}
-                            {Boolean(p.closed_manually) && p.payment_source !== 'movimento' && (
+                                non mostrare due messaggi in conflitto.
+                                E solo su una riga DAVVERO chiusa: il flag
+                                closed_manually può restare acceso su una scadenza
+                                riaperta con un UPDATE diretto, e il badge finirebbe
+                                per dare come pagata una riga che è fra le aperte
+                                (caso Spm Investigazioni 31, settembre 2026). */}
+                            {Boolean(p.closed_manually) && p.payment_source !== 'movimento'
+                              && (Number(p.amount_paid ?? 0) !== 0
+                                  || ['pagato', 'parziale', 'nota_credito'].includes(String(p.status ?? ''))) && (
                               <div className="mt-1">
                                 <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-violet-50 text-[9px] text-violet-700 font-medium border border-violet-200"
                                   title={`Chiusa a mano${p.payment_date ? ' il ' + new Date(p.payment_date as string).toLocaleDateString('it-IT') : ''}${p.manual_close_reason ? ' — ' + String(p.manual_close_reason) : ''}`}>
