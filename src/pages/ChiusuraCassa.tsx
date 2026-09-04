@@ -79,7 +79,8 @@ function errMsg(e: unknown): string {
 export default function ChiusuraCassa() {
   const { profile, session } = useAuth()
   const { company } = useCompany()
-  const { outlets, loading: outletsLoading } = useOutlets()
+  // Solo punti vendita: sede e magazzino non hanno cassa.
+  const { outlets, loading: outletsLoading } = useOutlets({ sellingOnly: true })
   const { toast } = useToast()
   const navigate = useNavigate()
   const [params, setParams] = useSearchParams()

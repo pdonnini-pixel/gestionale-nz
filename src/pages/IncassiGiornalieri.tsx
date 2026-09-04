@@ -41,7 +41,8 @@ const ALL = 'all'
 export default function IncassiGiornalieri() {
   const { profile } = useAuth()
   const { company } = useCompany()
-  const { outlets } = useOutlets()
+  // Solo punti vendita: sede e magazzino non hanno cassa (tipo outlet «sede»).
+  const { outlets } = useOutlets({ sellingOnly: true })
   const { toast } = useToast()
   const navigate = useNavigate()
   const [params, setParams] = useSearchParams()

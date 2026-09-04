@@ -135,7 +135,7 @@ export const PAGE_GUIDES: PageGuide[] = [
         "heading": "Creare un nuovo outlet manualmente",
         "body": "Se hai i permessi necessari vedi il pulsante 'Nuovo outlet', che apre una procedura guidata a più passaggi. Ogni passaggio raccoglie un gruppo di informazioni; puoi tornare indietro con 'Indietro' e proseguire con 'Avanti'. Nell'ultimo passaggio trovi il riepilogo di tutti i dati inseriti, da controllare prima di salvare.",
         "steps": [
-          "Anagrafica: nome outlet, codice, insegna/brand, tipo (Outlet, Retail, Corner), superficie lorda e di vendita, codice unità nel centro.",
+          "Anagrafica: nome outlet, codice, insegna/brand, tipo (Outlet, Retail, Corner, oppure Sede / magazzino per una sede senza cassa, che resta fuori dalle pagine di chiusura cassa e incassi), superficie lorda e di vendita, codice unità nel centro.",
           "Ubicazione: centro commerciale, società concedente, indirizzo, città, provincia, regione.",
           "Contratto: data consegna immobile, data apertura (obbligatoria), conferma apertura, date di inizio/fine contratto, durata, giorni gratuiti iniziali, mese della clausola di recesso.",
           "Canone e Costi: canone annuo garantito (il canone mensile si calcola da solo), canone al metro quadro, percentuale di canone variabile, eventuali canoni diversi per anno 2 e anno 3, spese condominiali e marketing mensili, budget personale mensile.",
@@ -1225,7 +1225,7 @@ export const PAGE_GUIDES: PageGuide[] = [
     "path": "/incassi-giornalieri",
     "icon": "Receipt",
     "title": "Incassi giornalieri",
-    "description": "La pagina Incassi giornalieri è la vista amministrativa dello specchietto incassi: mostra mese per mese le chiusure di cassa dei punti vendita (totali, mezzi di pagamento, spese, versamenti, fondo cassa, differenze, foto degli scontrini), evidenzia i giorni mancanti e permette di riaprire una chiusura confermata. Nella scheda \"Canali di incasso\" si configurano le colonne che ogni cassiera compila.",
+    "description": "La pagina Incassi giornalieri è la vista amministrativa dello specchietto incassi: mostra mese per mese le chiusure di cassa dei punti vendita (totali, mezzi di pagamento, spese, versamenti, fondo cassa, differenze, foto degli scontrini), evidenzia i giorni mancanti e permette di riaprire una chiusura confermata. Nella scheda \"Canali di incasso\" si configurano le colonne che ogni cassiera compila. Compaiono solo i punti vendita che vendono: una sede o un magazzino (tipo \"Sede / magazzino\" nella scheda outlet) resta fuori da questa pagina e da Chiusura cassa.",
     "sections": [
       {
         "heading": "Riepilogo del mese",
