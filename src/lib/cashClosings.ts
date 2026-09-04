@@ -33,6 +33,74 @@ export function kindForTarget(target: AttachmentTarget, channelKind?: ChannelKin
   }
 }
 
+/** Stato della lettura automatica della foto (fase 1b, edge function closing-photo-extract). */
+export type ExtractionStatus = 'in_attesa' | 'letta' | 'da_rivedere' | 'fallita'
+
+export const EXTRACTION_STATUS_LABELS: Record<ExtractionStatus, string> = {
+  in_attesa: 'Foto non ancora letta',
+  letta: 'Letta dalla foto',
+  da_rivedere: 'Lettura incerta',
+  fallita: 'Lettura non riuscita',
+}
+
+/** Dati letti da una foto: chiavi libere per tipo di documento, più "amount" (valore chiave della riga). */
+export type ExtractedData = Record<string, unknown>
+
+/** Importo chiave letto dalla foto (totale corrispettivi, totale POS, totale spesa, importo versato). */
+export function extractedAmount(extracted: unknown): number | null {
+  if (!extracted || typeof extracted !== 'object') return null
+  const v = (extracted as ExtractedData).amount
+  return typeof v === 'number' && Number.isFinite(v) ? Math.round(v * 100) / 100 : null
+}
+
+function extractedStr(e: ExtractedData, key: string): string | null {
+  const v = e[key]
+  return typeof v === 'string' && v.trim() ? v.trim() : null
+}
+function extractedNum(e: ExtractedData, key: string): number | null {
+  const v = e[key]
+  return typeof v === 'number' && Number.isFinite(v) ? v : null
+}
+
+/**
+ * Riassunto leggibile dei campi letti da una foto, per il dettaglio
+ * amministrativo: "totale 1.234,56 € · contanti 612,00 € · 14/09 21:03 · 38 documenti".
+ */
+export function extractedSummary(target: AttachmentTarget, extracted: unknown): string[] {
+  if (!extracted || typeof extracted !== 'object') return []
+  const e = extracted as ExtractedData
+  const out: string[] = []
+  const money = (label: string, key: string) => { const n = extractedNum(e, key); if (n != null) out.push(`${label} ${formatEuro(n)}`) }
+  const text = (label: string, key: string) => { const s = extractedStr(e, key); if (s) out.push(label ? `${label} ${s}` : s) }
+  const count = (label: string, key: string) => { const n = extractedNum(e, key); if (n != null) out.push(`${n} ${label}`) }
+  if (e.document_ok === false) out.push('documento diverso da quello atteso')
+  switch (target) {
+    case 'totale':
+      money('totale', 'total_sales'); money('contanti', 'cash'); money('elettronico', 'electronic'); money('altro', 'other_payments')
+      count('documenti', 'documents_count'); money('resi', 'returns_total'); money('annulli', 'cancellations_total')
+      money('gran totale', 'grand_total'); count('azzeramenti', 'closure_number'); text('RT', 'serial')
+      if (e.transmission_ok === true) out.push('trasmissione ok')
+      if (e.transmission_ok === false) out.push('trasmissione NON riuscita')
+      break
+    case 'canale':
+      money('totale', 'total'); count('transazioni', 'transactions_count'); text('terminale', 'terminal_id'); text('', 'merchant'); text('', 'description')
+      break
+    case 'spesa':
+      money('totale', 'total'); text('', 'merchant'); text('', 'description')
+      break
+    case 'versamento':
+      money('importo', 'amount'); text('', 'bank'); text('conto', 'account_hint'); text('rif.', 'reference')
+      break
+    default:
+      money('importo', 'total'); text('', 'description')
+  }
+  const d = extractedStr(e, 'date'); const t = extractedStr(e, 'time')
+  if (d) out.push(`${/^\d{4}-\d{2}-\d{2}$/.test(d) ? formatDateIt(d) : d}${t ? ` ${t}` : ''}`)
+  if (e.uncertain === true) out.push('lettura incerta')
+  const notes = extractedStr(e, 'notes'); if (notes) out.push(notes)
+  return out
+}
+
 /** Riga di uscita in contanti: spesa cassa (con scontrino) o rimborso a cliente (solo nota). */
 export type ExpenseKind = 'spesa' | 'rimborso_cliente'
 
