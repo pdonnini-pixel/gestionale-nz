@@ -208,8 +208,9 @@ data fattura, mai la `due_date`.
   una sola fattura aperta con quell'importo: la 32, emessa il giorno prima. EPPI fattura 3.050 €
   ogni mese, quindi l'importo da solo non distingue niente. La finestra della migration 164
   ammetteva fino a **120 giorni di anticipo** sulla data fattura, e 61 ci stavano dentro.
+  Bonifica dei 33 agganci già prodotti: `NZ_ONLY_20260904_180` (solo NZ).
 - **Dove:** `try_match_amount_bank_transaction`, `try_match_bank_transaction`,
-  `rerun_bijective_reconciliation` (migr. **176**). La regola era già nella 117, ma solo sul
+  `rerun_bijective_reconciliation` (migr. **179**). La regola era già nella 117, ma solo sul
   biettivo e con 15 giorni di tolleranza: ora è uniforme e senza tolleranza.
 - **Non si applica** ai granitici a nome (102/111) e a numeri (120): lì la causale cita il numero
   della fattura, che è prova diretta che la fattura esisteva già.

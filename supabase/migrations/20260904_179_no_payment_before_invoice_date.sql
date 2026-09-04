@@ -1,5 +1,5 @@
 -- =============================================================================
--- Migrazione 176 — Guardia "non si paga una fattura che non esiste ancora"
+-- Migrazione 179 — Guardia "non si paga una fattura che non esiste ancora"
 -- =============================================================================
 --
 -- CASO REALE (NZ, segnalato 04/09/2026)

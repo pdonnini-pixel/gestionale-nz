@@ -1,8 +1,8 @@
 -- =============================================================================
--- NZ_ONLY 177 — Bonifica dei 33 agganci con movimento antecedente alla fattura
+-- NZ_ONLY 180 — Bonifica dei 33 agganci con movimento antecedente alla fattura
 -- =============================================================================
--- Segue la migration 176 (guardia "non si paga una fattura che non esiste ancora").
--- La 176 corregge il motore; questa rimette a posto i dati che il motore aveva già
+-- Segue la migration 179 (guardia "non si paga una fattura che non esiste ancora").
+-- La 179 corregge il motore; questa rimette a posto i dati che il motore aveva già
 -- sbagliato. Eseguita il 04/09/2026 su NZ con conferma esplicita di Patrizio.
 --
 -- SOLO NZ: su Made e Zago la tabella payables è vuota, non c'è niente da bonificare
@@ -15,6 +15,13 @@
 --     * 7 righe automatiche con 1-3 giorni di anticipo, plausibili (bonifico disposto
 --       il giorno prima della data documento: Torino Fashion Village, Boschetti, ...)
 --     * 5 chiusure manuali / go-live, che sono decisioni umane.
+--
+-- NOTA SULLA NUMERAZIONE
+--   La tabella di backup si chiama backup_176_... e le note scritte nel
+--   reconciliation_log citano "migr. 176": sono state create quando la guardia
+--   portava quel numero, prima che su main comparisse un'altra 176 (bridge
+--   ritenuta d'acconto). I file sono stati rinumerati 179/180/181, i nomi già
+--   scritti nel database no: riscriverli avrebbe solo aggiunto rumore.
 --
 -- BACKUP
 --   Tabella public.backup_176_agganci_ante_fattura: una riga per aggancio annullato,

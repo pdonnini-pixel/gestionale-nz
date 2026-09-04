@@ -1,5 +1,5 @@
 -- =============================================================================
--- ROLLBACK migrazione 176 — rimette la guardia com'era prima del 04/09/2026
+-- ROLLBACK migrazione 179 — rimette la guardia com'era prima del 04/09/2026
 -- =============================================================================
 -- Ripristina:
 --   * try_match_amount_bank_transaction v3 (migration 164, finestra -120 / +180 gg)

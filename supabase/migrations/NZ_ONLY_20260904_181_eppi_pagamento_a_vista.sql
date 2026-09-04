@@ -1,5 +1,5 @@
 -- =============================================================================
--- NZ_ONLY 178 — EPPI S.R.L.: piano di pagamento "A Vista"
+-- NZ_ONLY 181 — EPPI S.R.L.: piano di pagamento "A Vista"
 -- =============================================================================
 -- Richiesta di Patrizio (04/09/2026): a EPPI restano da pagare solo la fattura 32
 -- e la 36, entrambe scadute, e il fornitore va messo "a vista".

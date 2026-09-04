@@ -1,5 +1,5 @@
 -- =============================================================================
--- ROLLBACK NZ_ONLY 177 — rimette i 33 agganci com'erano prima del 04/09/2026
+-- ROLLBACK NZ_ONLY 180 — rimette i 33 agganci com'erano prima del 04/09/2026
 -- =============================================================================
 -- Ripristina payables e bank_transactions dal backup integrale
 -- public.backup_176_agganci_ante_fattura (to_jsonb della riga PRIMA della modifica).
