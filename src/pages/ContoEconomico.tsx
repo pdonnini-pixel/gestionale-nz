@@ -1256,8 +1256,9 @@ export default function ContoEconomico() {
     if (!COMPANY_ID) return
     setBudgetRefreshing(true)
     try {
+      // p_outlet_id ha DEFAULT NULL nella funzione: qui il consuntivo e' sempre
+      // di tutta l'azienda, quindi l'argomento si omette e basta.
       const { data, error } = await supabase.rpc('refresh_budget_consuntivo', {
-        p_outlet_id: null,
         p_year: year,
       })
       if (error) throw error
