@@ -1144,6 +1144,125 @@ export const PAGE_GUIDES: PageGuide[] = [
     ]
   },
   {
+    "path": "/chiusura-cassa",
+    "icon": "Wallet",
+    "title": "Chiusura cassa",
+    "description": "La pagina Chiusura cassa è lo specchietto incassi del negozio: ogni sera la cassiera fotografa gli scontrini di chiusura, scrive il totale battuto in cassa, gli importi per ogni mezzo di pagamento (contanti, POS, pay by link, fatture, bonifico), le spese pagate con i contanti, il versamento in banca e il fondo cassa contato. La pagina controlla in tempo reale che la giornata quadri e, alla conferma, il giorno diventa definitivo. Chi amministra (super advisor e contabile) usa la stessa pagina scegliendo il punto vendita.",
+    "sections": [
+      {
+        "heading": "Il giorno da chiudere",
+        "body": "In alto vedi il punto vendita e il giorno (di default oggi). Con le frecce passi al giorno precedente o successivo; non si può andare oltre oggi. Sotto il giorno compare lo stato: \"Bozza\" finché non confermi, \"Confermata\" dopo. In fondo alla pagina il calendario del mese mostra i giorni già confermati in verde, quelli in bozza in arancione, quelli mancanti in rosso e i giorni di negozio chiuso in grigio: tocca un giorno per aprirlo."
+      },
+      {
+        "heading": "1. Foto delle chiusure (obbligatorie)",
+        "body": "Il primo passo è fotografare gli scontrini stampati a fine giornata: la chiusura del registratore telematico, la chiusura di ogni terminale POS e, se c'è, l'esito della trasmissione dei corrispettivi. Le foto sono obbligatorie: senza almeno una foto la chiusura non si può confermare (fa eccezione il giorno di negozio chiuso). Le foto vengono ridotte sul telefono prima dell'invio e restano archiviate insieme ai numeri del giorno.",
+        "steps": [
+          "Tocca \"Fotografa le chiusure\": si apre direttamente la fotocamera del telefono",
+          "Scatta una foto per scontrino; puoi ripetere per aggiungerne altre",
+          "Le anteprime compaiono sotto il pulsante: toccane una per vederla a schermo intero",
+          "Finché la chiusura è in bozza puoi togliere una tua foto sfocata con il cestino sull'anteprima"
+        ]
+      },
+      {
+        "heading": "2. Incassi del giorno",
+        "body": "Scrivi il totale corrispettivi come compare sullo scontrino di chiusura, poi un importo per ogni canale di incasso configurato per il tuo negozio (per esempio Contanti, POS MPS, POS BCC Amex, Pay by link, Fatture, Bonifico). Puoi scrivere gli importi con la virgola (es. 1.234,50). Sotto i campi la riga \"Somma mezzi di pagamento\" ti dice se il totale quadra: verde se coincide, rossa con la differenza altrimenti. Se un canale è segnato \"fuori totale\" il suo importo non entra nel confronto."
+      },
+      {
+        "heading": "3. Cassa contanti",
+        "body": "Qui registri le spese pagate con i contanti del negozio (con una descrizione), il versamento in banca (con la causale, es. ATM MPS) e il fondo cassa contato a fine giornata. La pagina calcola il fondo cassa atteso come: fondo di ieri + contanti di oggi − spese cassa − versamento, e lo confronta con quello contato: se non coincidono vedi eccedenza o ammanco. La prima volta, quando non esiste ancora una chiusura confermata precedente, ti viene chiesto il fondo cassa di ieri: è il contante che c'era in cassa stamattina."
+      },
+      {
+        "heading": "4. Salvare e confermare",
+        "body": "\"Salva bozza\" memorizza quello che hai scritto senza chiudere il giorno: puoi tornarci più tardi. \"Conferma chiusura\" rende il giorno definitivo: serve almeno una foto e, se il totale o il fondo cassa non quadrano, una nota che spieghi la differenza. Nel campo \"Chi ha fatto la chiusura\" scrivi il tuo nome: viene ricordato sul telefono per le volte successive. Dopo la conferma i campi diventano di sola lettura.",
+        "steps": [
+          "Controlla che le due righe di quadratura siano verdi (o scrivi una nota se non lo sono)",
+          "Tocca \"Conferma chiusura\"",
+          "Se hai sbagliato qualcosa dopo la conferma, tocca \"Chiedi riapertura\" e indica il motivo: chi amministra riceve un avviso e può riaprire la giornata"
+        ]
+      },
+      {
+        "heading": "Negozio chiuso",
+        "body": "Nei giorni di chiusura del negozio spunta \"Negozio chiuso\" e conferma: la giornata viene registrata a zero, senza foto, così il calendario del mese non ha buchi e il fondo cassa passa invariato al giorno successivo."
+      }
+    ],
+    "faq": [
+      {
+        "q": "Non riesco a confermare: dice che le foto sono obbligatorie",
+        "a": "Devi allegare almeno una foto degli scontrini di chiusura (registratore e POS). Tocca \"Fotografa le chiusure\", scatta, e poi riprova a confermare. Solo il giorno di negozio chiuso non richiede foto."
+      },
+      {
+        "q": "Il totale non quadra con i mezzi di pagamento, cosa faccio?",
+        "a": "Ricontrolla gli importi dei singoli canali rispetto agli scontrini di chiusura dei POS e al contante contato. Se la differenza è reale, scrivi nelle Note cosa è successo: la conferma è permessa con una nota, così chi amministra sa come leggerla."
+      },
+      {
+        "q": "Mi chiede il \"fondo cassa di ieri\": cosa devo scrivere?",
+        "a": "È il contante che c'era in cassa all'apertura di oggi. Lo chiede solo la prima volta, quando non esiste ancora una chiusura confermata precedente per il negozio; dai giorni successivi lo prende da solo dall'ultima chiusura confermata."
+      },
+      {
+        "q": "Ho confermato per sbagliato: posso correggere?",
+        "a": "Dopo la conferma il giorno è in sola lettura. Tocca \"Chiedi riapertura\", spiega il motivo e chi amministra (super advisor o contabile) riceverà un avviso per riaprire la giornata; a quel punto potrai correggerla e confermarla di nuovo."
+      },
+      {
+        "q": "Non vedo nessun canale di incasso (contanti, POS…)",
+        "a": "I canali vengono configurati da chi amministra nella pagina Incassi giornalieri, scheda \"Canali di incasso\". Finché non ci sono, la chiusura del tuo negozio non si può compilare: segnalalo a chi amministra."
+      },
+      {
+        "q": "Dove finiscono i numeri che inserisco?",
+        "a": "Alla conferma il giorno viene scritto nei ricavi giornalieri del punto vendita, che alimentano la scheda Corrispettivi dell'outlet, la dashboard e il cashflow. Chi amministra li vede riepilogati per mese nella pagina Incassi giornalieri, con le tue foto accanto ai numeri."
+      }
+    ]
+  },
+  {
+    "path": "/incassi-giornalieri",
+    "icon": "Receipt",
+    "title": "Incassi giornalieri",
+    "description": "La pagina Incassi giornalieri è la vista amministrativa dello specchietto incassi: mostra mese per mese le chiusure di cassa dei punti vendita (totali, mezzi di pagamento, spese, versamenti, fondo cassa, differenze, foto degli scontrini), evidenzia i giorni mancanti e permette di riaprire una chiusura confermata. Nella scheda \"Canali di incasso\" si configurano le colonne che ogni cassiera compila.",
+    "sections": [
+      {
+        "heading": "Riepilogo del mese",
+        "body": "Con le frecce scegli il mese. Con \"Tutti i punti vendita\" vedi una tabella giorni × outlet: in ogni cella il totale corrispettivi del giorno, colorato in verde se la chiusura è confermata, arancione se è ancora in bozza, rosso se manca (giorno passato senza chiusura), grigio se il negozio era chiuso; l'ultima riga e l'ultima colonna riportano i totali del mese. Scegliendo un solo punto vendita la tabella prende la forma del foglio Excel: una riga al giorno con totale, una colonna per ogni canale di incasso, spese cassa, versamenti, fondo cassa contato, differenza di cassa, numero di foto e stato, con i totali di colonna in fondo.",
+        "steps": [
+          "Clicca su una cella (o su una riga) per aprire il dettaglio della giornata",
+          "Nel dettaglio vedi tutti gli importi, le note, chi ha chiuso e quando, e le foto degli scontrini: clicca una foto per aprirla a schermo intero",
+          "Se la giornata è in bozza, \"Apri per modificare\" porta alla pagina Chiusura cassa di quel giorno e punto vendita",
+          "Se la giornata manca, \"Compila la chiusura\" apre la stessa pagina per inserirla"
+        ]
+      },
+      {
+        "heading": "Riaprire una chiusura confermata",
+        "body": "Solo super advisor e contabile possono riaprire una chiusura confermata: nel dettaglio della giornata scrivi il motivo e clicca \"Riapri\". La giornata torna in bozza, il motivo resta registrato e il negozio può correggerla e confermarla di nuovo. Quando una cassiera chiede la riapertura dalla sua pagina, arriva un avviso nella campanella con il collegamento diretto alla giornata."
+      },
+      {
+        "heading": "Canali di incasso",
+        "body": "I canali sono le colonne che la cassiera compila ogni sera: per ogni punto vendita puoi definire nome (es. \"POS MPS\"), tipo (contanti, POS, POS American Express, pay by link, fatture, bonifico, altro), conto bancario su cui accredita, codice terminale come compare nella causale dell'accredito in banca (es. COD.SIA 6181087-00002), ID terminale POS stampato sulla chiusura del terminale, se l'importo concorre al totale corrispettivi e se il canale è attivo. Un canale non più usato si disattiva, non si cancella. I codici terminale serviranno alla verifica automatica con i movimenti bancari.",
+        "steps": [
+          "Apri la scheda \"Canali di incasso\"",
+          "Per un punto vendita senza canali clicca \"Crea canali standard\" (Contanti, POS, Pay by link, Fatture, Bonifico) e poi rinominali e completali",
+          "\"Aggiungi canale\" crea una riga vuota: compila almeno il nome e il tipo",
+          "Modifica i campi direttamente nella tabella e clicca \"Salva\" sulla riga"
+        ]
+      }
+    ],
+    "faq": [
+      {
+        "q": "Perché una cella è rossa?",
+        "a": "È un giorno già passato per cui il punto vendita non ha registrato nessuna chiusura, nemmeno in bozza. Apri la cella e usa \"Compila la chiusura\" oppure chiedi al negozio di farla."
+      },
+      {
+        "q": "La cassiera dice che non vede i campi da compilare",
+        "a": "Quasi sempre mancano i canali di incasso per quel punto vendita: vai nella scheda \"Canali di incasso\" e creali (anche con \"Crea canali standard\"). Se invece l'account non vede nessun punto vendita, controlla in Impostazioni → Utenti che all'operatore cassa sia assegnato l'outlet giusto."
+      },
+      {
+        "q": "Chi può riaprire una chiusura confermata?",
+        "a": "Solo super advisor e contabile, dal dettaglio della giornata. La cassiera può soltanto chiederlo dalla sua pagina; la richiesta arriva come avviso nella campanella."
+      },
+      {
+        "q": "I totali mensili finiscono nel consuntivo del budget?",
+        "a": "Non ancora in automatico. Alla conferma ogni giornata viene scritta nei ricavi giornalieri del punto vendita (scheda Corrispettivi dell'outlet, dashboard, cashflow); la proposta del consuntivo mensile in Budget e Controllo è prevista in una fase successiva."
+      }
+    ]
+  },
+  {
     "path": "/stock",
     "icon": "Package",
     "title": "Analisi Sell-Through Magazzino",
@@ -2293,13 +2412,13 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "Utenti",
-        "body": "In questa sezione gestisci le persone che hanno accesso al gestionale: nome, cognome, email, ruolo e a quali punti vendita possono accedere. Ogni utente ha un'etichetta colorata con il proprio ruolo (es. CEO, CFO, Contabile, Store Manager, Operatrice).",
+        "body": "In questa sezione gestisci gli accessi reali al gestionale: \"Invita utente\" crea il login e invia un'email per impostare la password; \"Blocca\" impedisce l'accesso senza cancellare nulla; \"Elimina\" revoca il login. Ogni utente ha un'etichetta colorata con il ruolo (Super Advisor, CEO, CFO, COO, Contabile, Operatore cassa, Sola lettura). Il ruolo \"Operatore cassa (negozio)\" è l'account di un punto vendita, condiviso dal personale: entra e vede solo la pagina Chiusura cassa del proprio negozio, nessun altro dato aziendale.",
         "steps": [
-          "Clicca \"Nuovo utente\" per aprire il modulo di creazione",
-          "Inserisci nome, cognome ed email (obbligatori) e scegli il ruolo",
-          "Scegli a quali punti vendita l'utente può accedere, oppure lascia \"Tutti gli outlet\"",
-          "Clicca \"Aggiungi\" per salvare, oppure \"Modifica\" (icona matita) su un utente esistente per aggiornarlo",
-          "Per eliminare un utente clicca l'icona del cestino e conferma con il segno di spunta"
+          "Clicca \"Invita utente\" per aprire il modulo",
+          "Inserisci nome, cognome ed email (obbligatoria) e scegli il ruolo",
+          "Se il ruolo è \"Operatore cassa (negozio)\", scegli il punto vendita dell'account: è obbligatorio e determina quale chiusura di cassa può compilare",
+          "Clicca \"Invia invito\": all'utente arriva l'email per impostare la password",
+          "Con la matita su un utente esistente cambi ruolo (e punto vendita, per l'operatore cassa); il cestino elimina l'accesso dopo conferma"
         ]
       },
       {

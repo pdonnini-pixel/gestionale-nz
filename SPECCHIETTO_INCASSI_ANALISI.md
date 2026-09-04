@@ -234,6 +234,18 @@ Per Made e Zago le tabelle nascono vuote: i canali si configurano quando quei te
 
 ---
 
+## 4b. stato di avanzamento
+
+**Fase 1 realizzata (2026-09-04)**, decisioni di Patrizio: un account per outlet, foto obbligatorie.
+
+- Migration `20260904_172` (ruolo `operatore_cassa` + policy restrittive sulle tabelle sensibili) e `20260904_173` (4 tabelle, RLS, trigger di quadratura, funzioni di conferma/riapertura, proiezione in `daily_revenue`, bucket privato `cash-closings`), applicate e verificate su NZ, Made e Zago.
+- Pagine `/chiusura-cassa` (cassiera, mobile) e `/incassi-giornalieri` (amministrazione: riepilogo mese × outlet, foglio per outlet come l'Excel, dettaglio con foto, riapertura, editor dei canali di incasso).
+- Impostazioni → Utenti: ruolo «Operatore cassa (negozio)» con scelta dell'outlet; Edge Function `admin-manage-user` aggiornata sui 3 tenant (scrive `user_outlet_access`). Rimossi i ruoli fantasma `store_manager` e `operatrice`.
+- Guide utente delle due pagine, test pixel, unit test dei calcoli (`src/lib/cashClosings.test.ts`).
+- Da fare per partire su NZ: creare i canali per i 7 outlet (Incassi giornalieri → Canali di incasso), creare i 7 account cassa, scrivere il fondo cassa iniziale alla prima chiusura di ogni negozio.
+
+Restano le fasi 1b (lettura AI delle foto), 2 (mail serale), 3 (banche), 4 (proposta consuntivo ed export).
+
 ## 5. decisioni che servono da Patrizio
 
 1. Account cassa: uno per outlet condiviso (consigliato) oppure uno per persona?
