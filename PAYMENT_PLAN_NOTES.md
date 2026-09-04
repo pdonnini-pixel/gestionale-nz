@@ -1,5 +1,87 @@
 # Piano di pagamento fornitore + segnalazioni anomalie — Note di implementazione
 
+> ## 💸 RITENUTA D'ACCONTO: SCADENZE GONFIATE E DOPPIONI (2026-09-04) — FATTO
+>
+> **Segnalazione di Patrizio**: SIGNORINI ASSOCIATI, fattura 563 del 14/07/2026 da
+> 4.648,88, «scaduta» nello scadenzario. L'estratto conto del fornitore al 03/09/2026
+> la dava chiusa: aperte solo le notule 517 del 23/05 (5.475,46) e 765 del 04/08
+> (4.832,04), totale 10.307,50.
+>
+> **I numeri della parcella** (TD06 con cassa e ritenuta): imponibile 3.664,00 +
+> cassa TC08 4% 146,56 = 3.810,56; IVA 22% 838,32; totale documento 4.648,88;
+> ritenuta RT02 20% **732,80**; `DatiPagamento/ImportoPagamento` **3.916,08** al 14/07,
+> MP05. Il bonifico CBI del 13/07/2026 (movimento `b7b9040b…`, -3.917,83 = 3.916,08 +
+> 1,75 di commissioni) e' esattamente quello, ed era gia' agganciato alla riga
+> `SPN_32`: la notula di quella parcella, pagata il giorno prima dell'emissione.
+> Il flusso CBI non riporta il beneficiario, l'aggancio regge su importo, data ed
+> estratto conto.
+>
+> **Difetto 1 — il bridge ignorava la ritenuta.** La deduzione viveva solo in
+> `fn_invoice_to_payable`, che pero' esce subito con
+> `if NEW.acube_uuid is not null then return NEW`. Da quando c'e' quella guardia,
+> ogni fattura passiva A-Cube con ritenuta generava la scadenza sul **totale
+> documento** invece che sull'importo da pagare.
+> `sync_acube_sdi_passive_to_payable` non nominava la ritenuta in nessun ramo.
+>
+> **Difetto 2 — l'aggancio notula/fattura della 098 non vedeva la coppia.** Il ramo
+> (b) cerca la notula per lordo uguale a +/- 0,01: 3.916,08 contro 4.648,88 non
+> combacia, differenza esattamente la ritenuta. Il merge si e' quindi attaccato a
+> una terza riga manuale da 4.648,88 inserita il 16/07, quella rimasta scaduta.
+>
+> **Fix codice (migration `20260904_176`, NZ+Made+Zago, funzioni identiche sui 3,
+> md5 verificato)**: `sync_acube_sdi_passive_to_payable` calcola la ritenuta con
+> `fn_invoice_withholding(xml, payload)` e genera le scadenze su
+> `v_net_due = totale - ritenuta`, valorizzando `payables.withholding_amount`.
+> Il ramo N rate accetta rate che sommano al netto (caso normale con ritenuta)
+> oltre che al lordo, e in quel secondo caso le riproporziona come gia' fa
+> `fn_invoice_to_payable`; la ritenuta e' ripartita fra le rate col residuo
+> sull'ultima. Piano fornitore e fallback: stessa logica sul netto.
+> Le note di credito (TD04/TD08) restano di proposito sul totale documento.
+> `fn_prevent_duplicate_payable` ramo (b): la notula candidata puo' combaciare col
+> lordo della riga in arrivo **oppure** con quel lordo piu' la ritenuta; resta la
+> regola che si fonde solo se la candidata e' UNA sola.
+>
+> **Con ritenuta = 0 il comportamento e' identico a prima.** Verificato a secco su
+> NZ (DO block con rollback forzato) su tre forme reali: rata unica dai termini in
+> fattura (SAN MAURO 26-0799), 2 rate da piano fornitore (S.B.A. 872FV2026), 2 rate
+> dalla fattura (Beyond FPR 49/26). Importi e date identici riga per riga.
+> Replay della 563 col nuovo codice: scadenza 3.916,08 con ritenuta 732,80, e il
+> match notula la aggancia da solo a `SPN_32`.
+>
+> **Dati (migration `NZ_ONLY_20260904_176`, solo UPDATE, backup in
+> `_bkp_signorini_563_20260904` e `_bkp_signorini_563_ei_20260904`, RLS attiva)**:
+> la fattura elettronica registra la ritenuta 732,80; la riga doppione da 4.648,88
+> e' annullata e sganciata (rinominata `563-DOPPIONE-ANNULLATO` perche' l'indice
+> unico `payables_company_supplier_invoice_installment_key` non esclude gli
+> annullati); `SPN_32` assorbe la fattura come previsto dalla 098, diventa la 563
+> del 14/07/2026 da 3.916,08 con ritenuta 732,80, imponibile 3.810,56 + IVA 838,32,
+> pagata, movimento e riconciliazione invariati, `payment_date` portata al 13/07
+> (data vera del bonifico). Scadenza lasciata al 30/06/2026 dove l'aveva messa
+> Sabrina. **Esito**: aperto verso SIGNORINI = 5.475,46 + 4.832,04 = **10.307,50**,
+> identico all'estratto conto.
+>
+> **Perimetro**: caso unico. Le altre 8 parcelle con ritenuta su NZ (RUBINI, VALIA,
+> SCANDELLA, BOSCHETTI, ROCCIOLA, MARCHETTI, Impresa Valdarno, e la 191 dello stesso
+> SIGNORINI) hanno gia' `withholding_amount` corretto e payable al netto: sono tutte
+> anteriori alla guardia `acube_uuid`. Made: 4 fatture elettroniche, nessun caso.
+> Zago: zero. Query di controllo nel file 176.
+>
+> **Effetto collaterale sistemato nello stesso giro (migration `20260904_178`,
+> NZ+Made+Zago)**: il controllo «importo non quadra» di
+> `rpc_refresh_payment_anomalies` confrontava la somma delle rate con il TOTALE
+> DOCUMENTO. Con le scadenze ora al netto, ogni parcella con ritenuta sarebbe
+> diventata un falso positivo garantito. L'atteso e' passato a
+> `gross_amount - coalesce(withholding_amount, 0)`; le note di credito restano su
+> `-abs(gross_amount)` perche' il ramo NC del bridge resta sul totale documento.
+> Con ritenuta = 0 il confronto e' identico a prima. Guide aggiornate
+> (`pageGuides.ts`: Scadenzario, anomalie Fatturazione, FAQ).
+>
+> **Nota**: `fn_invoice_withholding` e `fn_electronic_invoice_withholding` esistevano
+> sui 3 tenant senza file di migration nel repo. Versionate con `20260904_177`
+> (copia esatta, md5 identico prima e dopo su tutti e 3). Attenzione: il trigger
+> scatta su INSERT o su UPDATE di `xml_content`, quindi le fatture entrate prima che
+> esistesse hanno `withholding_amount = 0` anche se la ritenuta c'e' nel payload.
+
 > ## 🧾 I TERMINI SCRITTI IN FATTURA VINCONO SUL PIANO FORNITORE (2026-09-03) — FATTO
 >
 > **Regola di Patrizio**: «quando arriva la fattura devi leggere la modalità di
