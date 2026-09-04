@@ -973,3 +973,48 @@ rata sopra la successiva. Quando si vede quel pattern, prima di toccare le date
 conviene chiedere se una presentazione è saltata.
 
 Dettagli in `supabase/migrations/NZ_ONLY_20260903_169_shine_giugno_slitta_settembre.sql`.
+
+### Aggiornamento 03/09/2026 — carte BCC, estratti conto di luglio
+
+Tre estratti conto carte di luglio 2026, intestati a Massimo Gallo per New Zago.
+Dettaglio in `docs/carte_bcc_luglio_2026.csv`, intervento in
+`supabase/migrations/NZ_ONLY_20260903_170_carte_bcc_luglio_2026.sql`.
+
+**Prepagata e carta di credito si leggono in modo opposto, e conviene ricordarlo.**
+Le spese della prepagata TASCA (5226\*\*0580) non passano dal conto corrente:
+escono dal saldo della carta, che vive di ricariche. Sul c/c si vede solo la
+ricarica, che è un giroconto e non un costo. A luglio 21 spese per 1.225,91 €
+(quasi tutto carburante e pedaggi) contro 750,00 € di ricariche, saldo del mese
+−477,91 €, identico a quello dichiarato dalla carta.
+
+Le carte di credito invece arrivano cumulate il mese dopo, in un unico addebito
+«Carta del Credito Cooperativo ...283». Le spese di luglio delle due carte
+(1.232,79 + 1.129,72 = 2.362,51 €) stanno dentro l'addebito del 25/08 da
+2.415,80 €. Restano 53,29 € senza dettaglio: ad agosto 2025 l'addebito fu di
+soli 51,29 €, quindi è quasi certamente il canone annuo, che cade in agosto.
+Da confermare col prossimo estratto.
+
+Sistemati anche due arretrati: l'addebito carte del 26/05, unico dei dodici
+rimasto aperto, e le tre ricariche TASCA di fine agosto su 31 totali. Tutto
+chiuso per natura con categoria `carte`, senza toccare un solo importo.
+
+**Perché le fatture pagate con carta restano appese nello Scadenzario.** Le
+spese fatte con le carte arrivano comunque come fatture elettroniche dal SDI
+(distributori, Trenitalia, alberghi) e il bridge le mette in `payables` con
+metodo `carta_credito` e una scadenza convenzionale, di solito il 20 del mese
+dopo. Ma sono già pagate all'atto dell'acquisto. Nessun automatismo le può
+chiudere: in banca non esiste un movimento con quell'importo, perché con la
+prepagata l'addebito sul conto non c'è affatto e con la carta di credito è
+cumulativo, uno al mese. Restavano 24 righe per 2.063,77 € che gonfiavano il
+debito verso fornitori.
+
+Chiuse le 17 con riscontro esatto sull'estratto (1.641,70 €): quelle della
+prepagata con la data della spesa e senza `bank_transaction_id`, perché
+quell'uscita non passa dal conto; quelle della carta di credito agganciate alla
+rata cumulativa del 25/08. Le altre 8 (515,60 €) sono spese di agosto e
+settembre o casi senza riscontro, e restano aperte: un aggancio che non torna
+non si forza.
+
+Da qui una regola di lavoro: **l'estratto conto delle carte è il documento che
+chiude quelle scadenze**, come la distinta MPS lo è per le RI.BA. Senza
+estratto non si chiudono; con l'estratto si chiudono per riscontro esatto.
