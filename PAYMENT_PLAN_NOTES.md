@@ -1,5 +1,55 @@
 # Piano di pagamento fornitore + segnalazioni anomalie — Note di implementazione
 
+> ## 🔍 CONTROLLO ESTESO SUI DOPPIONI (2026-09-04) — FATTO
+>
+> **Domanda di Patrizio** dopo il caso SIGNORINI: «controlla se ci sono altri
+> fornitori con lo stesso problema».
+>
+> **Sulla ritenuta d'acconto, no.** Le 9 fatture NZ con ritenuta (RUBINI, Impresa
+> Valdarno, Marchetti, SIGNORINI 191 e 563, BOSCHETTI, VALIA, ROCCIOLA, Studio
+> Scandella) tornano tutte: somma delle rate = totale meno ritenuta. Made ha 4
+> fatture elettroniche e nessuna con ritenuta, Zago zero.
+>
+> **Allargando il controllo** (righe aperte che duplicano righe gia' pagate dello
+> stesso fornitore; fatture le cui rate non sommano al totale, escluse le righe
+> gia' nascoste) sono usciti sette casi, tutti anteriori al 31/07/2026 e quindi
+> invisibili al pannello anomalie, che parte da quella data. Due filoni distinti.
+>
+> **Filone 1 — lotto del 10/07/2026 alle 06:48/06:49.** Ha inserito righe con
+> `installment_total` NULL sopra rate gia' esistenti. La dedup lavora sulla chiave
+> `(electronic_invoice_id, coalesce(installment_number,1))`: con
+> `installment_number` 2 o 3 le righe sono passate. MINGARDO era gia' annullata,
+> TANESINI gia' nascosta. Restavano:
+>
+> | Fornitore | Fattura | Totale | Nel gestionale | Effetto |
+> |---|---|---|---|---|
+> | faliero grafica snc | 149/2026 | 447,01 | 894,02 su 3 righe | 447,01 aperti su fattura chiusa |
+> | GLS ENTERPRISE | 959581 | 157,53 | 315,06 su 2 righe | pagato doppio |
+> | MCA SRL | 00494/2026/FPR | 76,50 | 153,00 su 3 righe | pagato doppio |
+>
+> **Filone 2 — ripulitura doppioni del 06/08/2026 troppo aggressiva su MIAN.**
+> Le fatture 379, 394, 397 e 400 hanno un piano che divide l'importo in tre rate
+> **identiche per costruzione**. Il controllo «doppione identico» le ha scambiate
+> per copie e ne ha nascosta una a testa (`is_placeholder = true`, che la vista
+> `v_payables_operative` esclude). Prova che erano rate vere: le tre sommano al
+> centesimo al totale, con due sole manca un terzo. Gia' pagate, quindi nessun
+> debito aperto, ma il pagato verso MIAN risultava piu' basso di **5.392,40**.
+>
+> **Fix (migration `NZ_ONLY_20260904_179`, solo UPDATE, backup in
+> `_bkp_doppioni_20260904` con RLS attiva)**: le tre righe del filone 1 annullate,
+> con `amount_paid` e `payment_date` azzerati sulle due gia' chiuse; le quattro
+> rate MIAN rimesse visibili. 7 UPDATE, 7 righe di audit in `payable_actions`.
+>
+> **Verifica**: la query di controllo su TUTTE le fatture NZ (somma rate visibili
+> contro totale al netto della ritenuta, note di credito col segno) ora torna
+> **zero righe**. MIAN 379+394+397+400 = 16.177,20 pagati, GLS 157,53, MCA 76,50,
+> faliero aperto solo la 208/2026 in due rate.
+>
+> **Non toccate**: le 54 righe nascoste che sono documenti reverse charge
+> (TD16/TD17/TD18), nascoste apposta perche' non sono debiti, e le due TANESINI
+> 8/1789 e 8/1791, dove la riga nascosta era davvero di troppo (fattura da 2 rate
+> con 3 righe).
+
 > ## 💸 RITENUTA D'ACCONTO: SCADENZE GONFIATE E DOPPIONI (2026-09-04) — FATTO
 >
 > **Segnalazione di Patrizio**: SIGNORINI ASSOCIATI, fattura 563 del 14/07/2026 da
@@ -923,3 +973,48 @@ rata sopra la successiva. Quando si vede quel pattern, prima di toccare le date
 conviene chiedere se una presentazione è saltata.
 
 Dettagli in `supabase/migrations/NZ_ONLY_20260903_169_shine_giugno_slitta_settembre.sql`.
+
+### Aggiornamento 03/09/2026 — carte BCC, estratti conto di luglio
+
+Tre estratti conto carte di luglio 2026, intestati a Massimo Gallo per New Zago.
+Dettaglio in `docs/carte_bcc_luglio_2026.csv`, intervento in
+`supabase/migrations/NZ_ONLY_20260903_170_carte_bcc_luglio_2026.sql`.
+
+**Prepagata e carta di credito si leggono in modo opposto, e conviene ricordarlo.**
+Le spese della prepagata TASCA (5226\*\*0580) non passano dal conto corrente:
+escono dal saldo della carta, che vive di ricariche. Sul c/c si vede solo la
+ricarica, che è un giroconto e non un costo. A luglio 21 spese per 1.225,91 €
+(quasi tutto carburante e pedaggi) contro 750,00 € di ricariche, saldo del mese
+−477,91 €, identico a quello dichiarato dalla carta.
+
+Le carte di credito invece arrivano cumulate il mese dopo, in un unico addebito
+«Carta del Credito Cooperativo ...283». Le spese di luglio delle due carte
+(1.232,79 + 1.129,72 = 2.362,51 €) stanno dentro l'addebito del 25/08 da
+2.415,80 €. Restano 53,29 € senza dettaglio: ad agosto 2025 l'addebito fu di
+soli 51,29 €, quindi è quasi certamente il canone annuo, che cade in agosto.
+Da confermare col prossimo estratto.
+
+Sistemati anche due arretrati: l'addebito carte del 26/05, unico dei dodici
+rimasto aperto, e le tre ricariche TASCA di fine agosto su 31 totali. Tutto
+chiuso per natura con categoria `carte`, senza toccare un solo importo.
+
+**Perché le fatture pagate con carta restano appese nello Scadenzario.** Le
+spese fatte con le carte arrivano comunque come fatture elettroniche dal SDI
+(distributori, Trenitalia, alberghi) e il bridge le mette in `payables` con
+metodo `carta_credito` e una scadenza convenzionale, di solito il 20 del mese
+dopo. Ma sono già pagate all'atto dell'acquisto. Nessun automatismo le può
+chiudere: in banca non esiste un movimento con quell'importo, perché con la
+prepagata l'addebito sul conto non c'è affatto e con la carta di credito è
+cumulativo, uno al mese. Restavano 24 righe per 2.063,77 € che gonfiavano il
+debito verso fornitori.
+
+Chiuse le 17 con riscontro esatto sull'estratto (1.641,70 €): quelle della
+prepagata con la data della spesa e senza `bank_transaction_id`, perché
+quell'uscita non passa dal conto; quelle della carta di credito agganciate alla
+rata cumulativa del 25/08. Le altre 8 (515,60 €) sono spese di agosto e
+settembre o casi senza riscontro, e restano aperte: un aggancio che non torna
+non si forza.
+
+Da qui una regola di lavoro: **l'estratto conto delle carte è il documento che
+chiude quelle scadenze**, come la distinta MPS lo è per le RI.BA. Senza
+estratto non si chiudono; con l'estratto si chiudono per riscontro esatto.
