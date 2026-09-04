@@ -3210,6 +3210,8 @@ function CostiLordoTab({ companyId, userId, outlets, year, month, monthLabel }: 
   const outletById = useMemo(() => new Map(outlets.map((o) => [o.id, o])), [outlets]);
   const outletIdByName = useMemo(() => new Map(outlets.map((o) => [o.name, o.id])), [outlets]);
   const rateByPat = useMemo(() => new Map(rates.map((r) => [r.pat_label, r.rate_percent])), [rates]);
+  // PAT il cui tasso e' stato dedotto dai dati invece che preso dall'autoliquidazione.
+  const patStimata = useMemo(() => new Set(rates.filter((r) => r.rate_percent != null && r.note).map((r) => r.pat_label)), [rates]);
 
   const load = async () => {
     setLoading(true);
@@ -3338,7 +3340,9 @@ function CostiLordoTab({ companyId, userId, outlets, year, month, monthLabel }: 
     const raw = rateDraft[rate.id];
     if (raw === undefined) return;
     const val = raw.trim() === '' ? null : parseItNum(raw);
-    const { error } = await sb.from('inail_rates').update({ rate_percent: val, updated_at: new Date().toISOString() }).eq('id', rate.id);
+    // Un tasso riscritto a mano non e' piu' una stima: la nota (e con lei il badge
+    // «stimato») sparisce, cosi' resta visibile solo cio' che il sistema ha dedotto.
+    const { error } = await sb.from('inail_rates').update({ rate_percent: val, note: null, updated_at: new Date().toISOString() }).eq('id', rate.id);
     if (error) { toast({ type: 'error', message: 'Tasso non salvato: ' + error.message }); return; }
     toast({ type: 'success', message: `Tasso INAIL aggiornato per ${rate.pat_label}.` });
     setRateDraft((d) => { const n = { ...d }; delete n[rate.id]; return n; });
@@ -3478,7 +3482,7 @@ function CostiLordoTab({ companyId, userId, outlets, year, month, monthLabel }: 
                 {sortedRows.map((r) => {
                   const breakdown = `Filiale ${r.filiale_code}${r.outlet_label ? ' · ' + r.outlet_label : ''}\nTotale retribuzioni: ${eurFmt.format(r.totale_retribuzioni || 0)} €\n  di cui compensi amministratori (esclusi): ${eurFmt.format(r.compensi_amm)} €\nINPS: ${eurFmt.format(r.contr_inps)} €  ·  EBINTER: ${eurFmt.format(r.contr_ebinter)} €  ·  EST: ${eurFmt.format(r.contr_est)} €\nTFR a fondo: ${eurFmt.format(r.tfr_fondo)} €`;
                   const inailTip = r.inail_pat.length
-                    ? r.inail_pat.map((p) => `${p.label}: imponibile ${eurFmt.format(p.imponibile)} € × ${rateByPat.get(p.label) != null ? rateByPat.get(p.label) + '%' : 'tasso da inserire'}`).join('\n')
+                    ? r.inail_pat.map((p) => `${p.label}: imponibile ${eurFmt.format(p.imponibile)} € × ${rateByPat.get(p.label) != null ? rateByPat.get(p.label) + '%' + (patStimata.has(p.label) ? ' (stimato)' : '') : 'tasso da inserire'}`).join('\n')
                     : 'Nessuna PAT INAIL nel prospetto';
                   return (
                     <tr key={r.id} className="hover:bg-slate-50">
@@ -3544,6 +3548,14 @@ function CostiLordoTab({ companyId, userId, outlets, year, month, monthLabel }: 
       {/* Tassi INAIL */}
       <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
         <div className="px-5 py-3 border-b border-slate-100 flex items-center gap-2 text-sm font-semibold text-slate-700"><Percent size={15} /> Tassi INAIL per PAT</div>
+        {patStimata.size > 0 && (
+          <div className="px-5 py-2.5 border-b border-slate-100 bg-slate-50 text-xs text-slate-500">
+            I tassi con l'etichetta <strong>stimato</strong> non vengono dall'autoliquidazione INAIL: sono stati
+            dedotti dai mesi in cui il Prospetto paghe e la Statistica costo orario coprono lo stesso periodo,
+            dividendo l'INAIL vero per l'imponibile della PAT. Bastano a non lasciare l'INAIL a zero. Quando hai
+            il tasso ufficiale, riscrivilo qui: l'etichetta sparisce da sola.
+          </div>
+        )}
         {rates.length === 0 ? (
           <div className="px-5 py-8 text-center text-sm text-slate-400">
             Nessuna PAT ancora rilevata. <strong>Importa un Prospetto paghe</strong>: le PAT compaiono qui e potrai inserire il tasso di ciascuna.<br />
@@ -3567,7 +3579,15 @@ function CostiLordoTab({ companyId, userId, outlets, year, month, monthLabel }: 
                   const missing = rt.rate_percent == null;
                   return (
                     <tr key={rt.id} className="hover:bg-slate-50">
-                      <td className="px-4 py-2.5 font-medium text-slate-800">{rt.pat_label}{missing && <span className="ml-2 text-[11px] text-amber-600">tasso da inserire</span>}</td>
+                      <td className="px-4 py-2.5 font-medium text-slate-800">
+                        {rt.pat_label}
+                        {missing && <span className="ml-2 text-[11px] text-amber-600">tasso da inserire</span>}
+                        {!missing && rt.note && (
+                          <UiTooltip content={rt.note}>
+                            <span className="ml-2 text-[11px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 cursor-help">stimato</span>
+                          </UiTooltip>
+                        )}
+                      </td>
                       <td className="px-4 py-2.5 text-slate-500">{rt.outlet_id ? (outletById.get(rt.outlet_id)?.name || '—') : '—'}</td>
                       <td className="px-4 py-2.5 text-right">
                         <input
