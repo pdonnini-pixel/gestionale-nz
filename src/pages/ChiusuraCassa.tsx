@@ -644,10 +644,10 @@ export default function ChiusuraCassa() {
           </section>
 
           {/* Azioni */}
+          {/* Su telefono la barra sta sopra la bottom nav; il padding a destra lascia
+              libero il pulsante "?" dell'aiuto (fixed bottom-20 right-4), che altrimenti
+              copre "Conferma chiusura". */}
           {canWrite && (
-            {/* Su telefono la barra sta sopra la bottom nav; il padding a destra lascia
-                libero il pulsante "?" dell'aiuto (fixed bottom-20 right-4), che altrimenti
-                copre "Conferma chiusura". */}
             <div className="fixed bottom-14 md:bottom-0 left-0 right-0 md:static bg-white/95 backdrop-blur border-t md:border-0 border-slate-200 p-3 pr-20 md:p-0 z-30">
               <div className="max-w-xl mx-auto flex gap-2">
                 {readOnly ? (
