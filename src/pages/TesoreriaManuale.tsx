@@ -2969,9 +2969,23 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
   useEffect(() => {
     let cancel = false
     ;(async () => {
-      const { data } = await (supabase.from('payable_credit_note_links') as never as {
-        select: (c: string) => { eq: (k: string, v: string) => { eq: (k: string, v: string) => Promise<{ data: { payable_id: string; amount: number }[] | null }> } }
-      }).select('payable_id, amount').eq('company_id', companyId).eq('status', 'pending')
+      // payable_credit_note_links non e' nei tipi generati (src/types/database.ts):
+      // il cast va messo sul CLIENT, prima di from(), altrimenti il nome tabella
+      // non passa dall'overload di from() e il compilatore si ferma li'.
+      const sb = supabase as unknown as {
+        from: (t: string) => {
+          select: (c: string) => {
+            eq: (k: string, v: string) => {
+              eq: (k: string, v: string) => Promise<{ data: { payable_id: string; amount: number }[] | null }>
+            }
+          }
+        }
+      }
+      const { data } = await sb
+        .from('payable_credit_note_links')
+        .select('payable_id, amount')
+        .eq('company_id', companyId)
+        .eq('status', 'pending')
       if (cancel || !data) return
       const m = new Map<string, number>()
       for (const r of data) m.set(String(r.payable_id), (m.get(String(r.payable_id)) ?? 0) + Number(r.amount || 0))
@@ -4157,7 +4171,11 @@ export default function TesoreriaManuale() {
         if (!cancelled) {
           setAccounts(acctRes.data || [])
           setTransactions(txAll || [])
-          setPayables((payRes.data || []).filter((p: { is_placeholder?: boolean }) => !p.is_placeholder))
+          // is_placeholder non e' nei tipi generati: cast sulla singola riga, cosi'
+          // filter() continua a restituire il tipo vero e setPayables resta tipizzata.
+          setPayables((payRes.data || []).filter(
+            (p) => !(p as unknown as { is_placeholder?: boolean | null }).is_placeholder,
+          ))
           setBatches(batchRes.data || [])
           setBatchItems(itemsRes.data || [])
           setSuggestCount(sugRes.count || 0)
