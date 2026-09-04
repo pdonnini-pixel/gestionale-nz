@@ -1127,3 +1127,64 @@ riga per riga va ricostruito. La verifica che dà sicurezza non è l'ordine ma i
 totale: se la somma delle disposizioni fa esattamente il totale dichiarato dalla
 distinta, e i lotti tornano al centesimo con le spese di incasso, la lettura è
 giusta.
+
+---
+
+## Controllo di tutte le banche e di tutte le carte (sessione 04/09/2026)
+
+**Il metodo, in una riga.** Il saldo è cumulativo: se il saldo di fine agosto
+torna con l'estratto, non manca niente da inizio anno, perché un buco di marzo
+si trascinerebbe fino ad agosto. Dove non torna, si cerca la differenza.
+
+| conto | esito |
+|---|---|
+| MPS ...621460 | torna (lo scarto di 70,74 è il gestionale più avanti dell'estratto) |
+| BCC Figline ...17334 | torna |
+| BCC Mugello ...221949 | **non tornava**: mancavano 6 movimenti di maggio |
+| Intesa ...12417 | **non tornava**: 10 movimenti duplicati |
+
+**Mugello, il buco del cambio consenso.** Il conto è passato da un consenso
+A-Cube a un altro: il vecchio si è fermato il 30 aprile, il nuovo è ripartito il
+26 maggio. In mezzo, sedici giorni scoperti e sei movimenti mai arrivati, per
+3.338,54 € netti. Inseriti dall'estratto. Ora il saldo al 3 settembre fa
+16.961,66 €, identico alla banca.
+
+**Attenzione, due record per lo stesso conto Mugello.** I movimenti di
+gennaio-aprile stanno su un record etichettato con un IBAN che non è il suo
+(`IT40T...16980`), quelli da maggio sul record con l'IBAN giusto. Che siano lo
+stesso conto è dimostrato: le quindici righe di aprile del primo coincidono una
+per una con l'estratto Mugello. Riunificarli sarebbe corretto, ma è un cambio di
+attribuzione su oltre mille righe e va deciso, non fatto di slancio.
+
+**Intesa, dieci doppioni.** Due sincronizzazioni A-Cube hanno importato gli
+stessi movimenti con descrizioni diverse: «VERSAMENTO CONTANTI SU SPORTELLO
+AUTOMATICO» contro «VERS.SPORT.AUT.». Il controllo anti-duplicato guarda anche
+la descrizione, quindi non li ha riconosciuti. Il segno che li distingue è
+`acube_transaction_id`: le 87 righe che ce l'hanno danno esattamente il saldo
+dell'estratto, le 10 che non ce l'hanno sono le doppie, per 9.272,60 €. Rimosse
+dopo conferma esplicita, con backup. Lo stesso controllo su MPS e Figline non
+trova nulla: nelle finestre di sovrapposizione nessuna riga ha una gemella.
+
+**Le carte: gli AMEX non erano carte.** Gli 83 movimenti «SDD Core AMERICAN
+EXPRESS» e «ADD.DIRETTO CARTA CREDITO» rimasti aperti da gennaio per 1.265,15 €
+non sono spese di una carta aziendale. Sono le commissioni che American Express
+trattiene come esercente convenzionato sugli incassi dei negozi, addebitate il
+mese dopo, **una riga per punto vendita**. Il codice mandato contiene il codice
+AX dell'outlet:
+
+| codice AX | punto vendita | | codice AX | punto vendita |
+|---|---|---|---|---|
+| 7373035260 | Valdichiana | | 7379605249 | Vicolo Brugnato |
+| 7377153036 | Barberino | | 7543377782 | Valmontone Outlet |
+| 7377511100 | Franciacorta | | 7543394233 | Vicolo Valmontone |
+| 7378034250 | Palmanova | | 9341423540 | Settimo Torinese |
+| 7379416167 | Brugnato Village | | 9341489277 | Outlet Settimo Torinese |
+
+Il riscontro è esatto: l'estratto commissioni di luglio fa 150,18 € più 2,00 di
+bollo, e i dieci addebiti del 5 agosto sommano 152,18. Chiusi per natura con
+categoria `commissioni_incasso` e il nome dell'outlet in nota.
+
+Gli addebiti cumulativi delle carte BCC, uno al mese da gennaio ad agosto, e
+tutte le ricariche della prepagata TASCA erano già riconciliati. Restano aperte
+16 fatture con metodo carta per 805,53 €: sono spese di agosto e settembre e si
+chiudono con gli estratti di quei mesi, che non sono ancora usciti.
