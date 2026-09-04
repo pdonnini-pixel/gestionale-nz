@@ -1,5 +1,55 @@
 # Piano di pagamento fornitore + segnalazioni anomalie — Note di implementazione
 
+> ## 🔍 CONTROLLO ESTESO SUI DOPPIONI (2026-09-04) — FATTO
+>
+> **Domanda di Patrizio** dopo il caso SIGNORINI: «controlla se ci sono altri
+> fornitori con lo stesso problema».
+>
+> **Sulla ritenuta d'acconto, no.** Le 9 fatture NZ con ritenuta (RUBINI, Impresa
+> Valdarno, Marchetti, SIGNORINI 191 e 563, BOSCHETTI, VALIA, ROCCIOLA, Studio
+> Scandella) tornano tutte: somma delle rate = totale meno ritenuta. Made ha 4
+> fatture elettroniche e nessuna con ritenuta, Zago zero.
+>
+> **Allargando il controllo** (righe aperte che duplicano righe gia' pagate dello
+> stesso fornitore; fatture le cui rate non sommano al totale, escluse le righe
+> gia' nascoste) sono usciti sette casi, tutti anteriori al 31/07/2026 e quindi
+> invisibili al pannello anomalie, che parte da quella data. Due filoni distinti.
+>
+> **Filone 1 — lotto del 10/07/2026 alle 06:48/06:49.** Ha inserito righe con
+> `installment_total` NULL sopra rate gia' esistenti. La dedup lavora sulla chiave
+> `(electronic_invoice_id, coalesce(installment_number,1))`: con
+> `installment_number` 2 o 3 le righe sono passate. MINGARDO era gia' annullata,
+> TANESINI gia' nascosta. Restavano:
+>
+> | Fornitore | Fattura | Totale | Nel gestionale | Effetto |
+> |---|---|---|---|---|
+> | faliero grafica snc | 149/2026 | 447,01 | 894,02 su 3 righe | 447,01 aperti su fattura chiusa |
+> | GLS ENTERPRISE | 959581 | 157,53 | 315,06 su 2 righe | pagato doppio |
+> | MCA SRL | 00494/2026/FPR | 76,50 | 153,00 su 3 righe | pagato doppio |
+>
+> **Filone 2 — ripulitura doppioni del 06/08/2026 troppo aggressiva su MIAN.**
+> Le fatture 379, 394, 397 e 400 hanno un piano che divide l'importo in tre rate
+> **identiche per costruzione**. Il controllo «doppione identico» le ha scambiate
+> per copie e ne ha nascosta una a testa (`is_placeholder = true`, che la vista
+> `v_payables_operative` esclude). Prova che erano rate vere: le tre sommano al
+> centesimo al totale, con due sole manca un terzo. Gia' pagate, quindi nessun
+> debito aperto, ma il pagato verso MIAN risultava piu' basso di **5.392,40**.
+>
+> **Fix (migration `NZ_ONLY_20260904_179`, solo UPDATE, backup in
+> `_bkp_doppioni_20260904` con RLS attiva)**: le tre righe del filone 1 annullate,
+> con `amount_paid` e `payment_date` azzerati sulle due gia' chiuse; le quattro
+> rate MIAN rimesse visibili. 7 UPDATE, 7 righe di audit in `payable_actions`.
+>
+> **Verifica**: la query di controllo su TUTTE le fatture NZ (somma rate visibili
+> contro totale al netto della ritenuta, note di credito col segno) ora torna
+> **zero righe**. MIAN 379+394+397+400 = 16.177,20 pagati, GLS 157,53, MCA 76,50,
+> faliero aperto solo la 208/2026 in due rate.
+>
+> **Non toccate**: le 54 righe nascoste che sono documenti reverse charge
+> (TD16/TD17/TD18), nascoste apposta perche' non sono debiti, e le due TANESINI
+> 8/1789 e 8/1791, dove la riga nascosta era davvero di troppo (fattura da 2 rate
+> con 3 righe).
+
 > ## 💸 RITENUTA D'ACCONTO: SCADENZE GONFIATE E DOPPIONI (2026-09-04) — FATTO
 >
 > **Segnalazione di Patrizio**: SIGNORINI ASSOCIATI, fattura 563 del 14/07/2026 da
