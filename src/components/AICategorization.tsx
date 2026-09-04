@@ -404,28 +404,32 @@ export default function AICategorization({ companyId }: AICategorizationProps) {
 
     setBatchRunning(true)
     try {
-      // cash_movements e' una VISTA su bank_transactions + cash_movement_ai,
-      // scrivibile grazie al trigger INSTEAD OF UPDATE cash_movements_ai_upd.
-      // I tipi generati marcano ogni vista come sola lettura (Update: never),
-      // quindi la scrittura passa da un cast esplicito sul client.
-      const sbWrite = supabase as unknown as {
-        from: (t: string) => {
-          update: (v: Record<string, unknown>) => {
-            eq: (k: string, v: string) => Promise<{ error: { message: string } | null }>
-          }
+      // Stessa strada della conferma singola (confirmCategory): la edge function
+      // scrive lei su cash_movements, che e' una VISTA su bank_transactions +
+      // cash_movement_ai aggiornabile grazie al trigger INSTEAD OF UPDATE
+      // cash_movements_ai_upd. I tipi generati danno ogni vista in sola lettura
+      // (Update: never), quindi scrivere dal client obbligherebbe a forzarli.
+      // In piu' il metodo resta 'manual' (l'unico valore che il CHECK su
+      // ai_method ammette per una conferma dell'operatore) e le regole apprese
+      // vengono rinforzate, esattamente come confermando una riga alla volta.
+      let failed = 0
+      for (const m of highConf) {
+        try {
+          await callEdgeFunction('ai-categorize', 'POST', {
+            mode: 'confirm',
+            movementId: m.id,
+            categoryId: m.ai_category_id,
+            confirmed: true,
+          })
+        } catch (e) {
+          // Una riga che fallisce non ferma le altre: la vecchia versione
+          // ignorava l'errore di ogni update, qui almeno lo si conta.
+          failed++
+          console.error('Batch confirm error su', m.id, e)
         }
       }
-      for (const m of highConf) {
-        await sbWrite
-          .from('cash_movements')
-          .update({
-            // 'manual': il valore riflette la conferma esplicita dell'operatore ed è
-            // ammesso dal CHECK su ai_method (keyword|pattern|learned|manual). Il
-            // vecchio 'auto_confirmed' violava il vincolo e faceva fallire l'update.
-            cost_category_id: m.ai_category_id,
-            ai_method: 'manual',
-          })
-          .eq('id', m.id)
+      if (failed > 0) {
+        toast({ type: 'error', message: `${failed} conferme su ${highConf.length} non riuscite` })
       }
       await loadData()
     } catch (e) {

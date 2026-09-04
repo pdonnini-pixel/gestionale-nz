@@ -834,10 +834,11 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "Confermare più movimenti insieme",
-        "body": "Quando ci sono molti suggerimenti con confidenza alta, non serve confermarli uno per uno: il pulsante \"Conferma tutti ≥85%\" accetta in blocco tutti i movimenti con almeno l'85% di confidenza, dopo una richiesta di conferma con il numero di movimenti coinvolti.",
+        "body": "Quando ci sono molti suggerimenti con confidenza alta, non serve confermarli uno per uno: il pulsante \"Conferma tutti ≥85%\" accetta in blocco tutti i movimenti con almeno l'85% di confidenza, dopo una richiesta di conferma con il numero di movimenti coinvolti. La conferma in blocco fa esattamente quello che faresti riga per riga, quindi anche da qui l'IA impara: ogni categoria confermata rafforza le regole che rendono più precisi i suggerimenti successivi. Se qualche movimento non riesce, gli altri restano confermati lo stesso e compare un avviso con quanti sono rimasti indietro.",
         "steps": [
           "Clicca \"Conferma tutti ≥85%\" quando compare (è visibile solo se ci sono suggerimenti in attesa).",
           "Conferma nel messaggio che appare: i movimenti selezionati passano automaticamente tra i \"Confermati\".",
+          "Se compare l'avviso delle conferme non riuscite, torna sulla scheda \"Da verificare\": i movimenti rimasti sono ancora lì e puoi riprovare.",
           "Controlla comunque a mano i pochi movimenti rimasti con confidenza più bassa."
         ]
       },
@@ -862,7 +863,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "q": "Devo controllare ogni singolo movimento uno per uno?",
-        "a": "No. Puoi usare \"Conferma tutti ≥85%\" per accettare in blocco i suggerimenti con confidenza alta, e dedicare tempo solo ai pochi movimenti con confidenza bassa o senza suggerimento."
+        "a": "No. Puoi usare \"Conferma tutti ≥85%\" per accettare in blocco i suggerimenti con confidenza alta, e dedicare tempo solo ai pochi movimenti con confidenza bassa o senza suggerimento. Vale come confermarli a mano uno per uno, comprese le regole che l'IA impara dalle tue conferme."
       },
       {
         "q": "Da dove arrivano i movimenti che vedo in questa pagina?",
