@@ -77,3 +77,42 @@ su NZ.
 Resta da fare, quando servirà: i 105 ms per movimento crescono con l'arretrato.
 La cura è pre-calcolare le chiavi del numero fattura in una colonna indicizzata,
 invece di valutare `invoice_cited_in_text` su ogni candidato.
+
+---
+
+## Due lezioni dal primo giro notturno pulito (05/09/2026)
+
+Il cron ha girato alle 07:45 in 336,9 secondi, il primo giro andato a buon fine
+con il comando corretto: quello del 4 settembre era ancora morto a 120 secondi
+netti, perché il `SET statement_timeout` nel comando del job l'ho applicato solo
+nel pomeriggio di quel giorno. Diciannove agganci applicati, sette proposte
+fuzzy lasciate da confermare.
+
+**Lezione 1: sui movimenti anonimi l'importo esatto non basta.** Due agganci
+sono stati annullati, entrambi su causale «VOSTRA DISPOSIZIONE A FAVORE DI N.D.»,
+quelle che portano in causale `IMPORTO BONIFICI` e `IMPORTO COMMISSIONI` ma non
+il beneficiario. L'importo netto coincideva al centesimo, ma il fornitore aveva
+più fatture identiche in giro: GRUPPO SERVIZI ha nove fatture da 315,00 €, SPM
+Investigazioni ne ha otto da 110,00 €. Con le gemelle, l'attribuzione a una
+piuttosto che a un'altra è arbitraria, e un aggancio arbitrario è peggio di
+nessun aggancio. La regola da applicare su questi movimenti: importo netto
+esatto **e** candidato unico fra le scadenze aperte dello stesso fornitore.
+
+Il contrasto con un aggancio buono è istruttivo. Lo stesso giro ha chiuso un
+bonifico F&B Florence da 460,00 € su **due** fatture da 230,00 (147P e 235P): lì
+la causale diceva «SALDO FATTURA 147-235», cioè i numeri erano scritti nero su
+bianco. Con quella prova il cumulativo si aggancia senza esitazione.
+
+**Lezione 2: `undo_reconcile_movement` non annulla, riapre.** La funzione non
+ripristina lo stato precedente della scadenza: la rimette aperta. Sulla SPM
+fattura 31, che era stata chiusa a mano da Lilian il 06/08, l'undo l'ha riportata
+a `scaduto` cancellando una chiusura legittima che non c'entrava niente con
+l'aggancio del motore. Ho dovuto ripristinare a mano stato, `payment_date` e
+`closed_manually`, con una `payable_action` di traccia.
+
+**Prima di ogni undo, guardare `payable_actions`**: se la scadenza risulta già
+chiusa per altra via (chiusura manuale, allineamento al file di Sabrina,
+pagamento go-live), dopo l'undo va rimessa com'era. L'altra annullata, GRUPPO
+SERVIZI V070012600909, era invece legittimamente aperta, riaperta il 09/07 «per
+allineamento al file Sabrina, chiusa senza prova bancaria»: lì l'undo ha fatto
+esattamente la cosa giusta.
