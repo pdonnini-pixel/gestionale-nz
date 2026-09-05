@@ -1215,3 +1215,40 @@ banca o a Sabrina.
 
 Dopo questo giro le uscite non riconciliate scendono a **859 per 2.981.517,60 €**,
 sotto i tre milioni, dai 1.024 e 3,91 milioni di ieri sera.
+
+---
+
+## Le uscite del 2025 chiuse per natura (sessione 05/09/2026)
+
+**Il fatto che spiega tutto: il ciclo passivo parte dal 2026.** In `payables`
+non esiste nemmeno una scadenza con data 2025: sono 1.512 righe, tutte del 2026,
+più una del 2027. Le 528 uscite bancarie del 2025 non avevano quindi, e non
+potranno mai avere, una controparte da agganciare. Restavano fra le partite
+aperte per 2.117.743,33 € solo perché il periodo è anteriore allo scadenzario.
+
+Prima di chiuderle l'ho verificato, non dedotto: dei 275 bonifici del 2025
+nessuno trova una scadenza con lo stesso importo e lo stesso fornitore. Chiuse
+per natura con una nota che dice a chiare lettere che è una chiusura formale,
+non una riconciliazione, distinguendo i 27 addebiti RI.BA senza distinta dagli
+altri 501.
+
+Le 43 entrate del 2025 restano aperte apposta: fra quelle ci sono sei bonifici
+tondi per 750.000 € che vanno guardati uno per uno.
+
+**Perché i bonifici del 2026 non si agganciano.** Le disposizioni MPS scrivono
+in causale l'importo netto e le commissioni ma **non il beneficiario**
+(«VOSTRA DISPOSIZIONE A FAVORE DI N.D.»). Su 206 disposizioni una sola trova una
+scadenza aperta con l'importo esatto: le altre trovano solo fatture già pagate, e
+l'importo da solo non identifica niente, perché a 3.050 € corrispondono cinque
+fatture diverse e a 370 € quattro. Agganciare per importo sarebbe peggio che
+lasciare aperto.
+
+Il documento che risolve il problema esiste ed è lo stesso formato delle distinte
+effetti: l'export **«Effetti - Disposizioni»** da PasKey MPS, che elenca
+beneficiario e riferimento fattura riga per riga. Sul Drive ce n'è uno solo, di
+novembre 2025. Con quelli del 2026 i bonifici si chiudono.
+
+**Lo specchio del problema**: 690 scadenze pagate su 1.136 non hanno il movimento
+agganciato (885.043 €), contro 318 uscite 2026 aperte (902.041 €). Sono le due
+facce della stessa cosa: pagamenti registrati sulle fatture senza collegare il
+movimento bancario.

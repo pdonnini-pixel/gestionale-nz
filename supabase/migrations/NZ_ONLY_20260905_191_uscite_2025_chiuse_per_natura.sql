@@ -1,0 +1,53 @@
+-- =============================================================================
+-- NZ_ONLY — Le 528 uscite del 2025 chiuse per natura
+-- Applicato su NZ il 05/09/2026. Dati NZ-specifici: non si replica su Made/Zago.
+-- =============================================================================
+--
+-- PERCHE'. Il ciclo passivo del gestionale parte dal 2026: in `payables` non
+-- esiste NESSUNA scadenza con data 2025 (1.512 righe, tutte 2026, piu' una 2027).
+-- Le 528 uscite bancarie del 2025 non hanno quindi, e non potranno mai avere,
+-- una controparte da agganciare: restavano fra le partite aperte per 2.117.743,33
+-- EUR solo perche' il periodo e' anteriore allo scadenzario.
+--
+-- Verificato prima di chiudere: dei 275 bonifici del 2025, nessuno trova una
+-- scadenza con lo stesso importo e lo stesso fornitore. Non e' un difetto del
+-- motore, e' che le fatture di quell'anno non sono nel gestionale.
+--
+-- COSA E' STATO SCRITTO. Solo is_reconciled, reconciled_at, category (dove era
+-- vuota, 'ante_scadenzario') e una nota che dice a chiare lettere che si tratta
+-- di una chiusura formale e non di una riconciliazione. Nessun importo toccato,
+-- nessuna riga cancellata, nessuna scadenza collegata.
+--
+-- Due note diverse, secondo la natura del movimento:
+--   - 27 addebiti «EFFETTI RITIRATI» (411.416,96 EUR): la distinta non e'
+--     disponibile, sul Drive ci sono solo ottobre, novembre e dicembre 2025,
+--     gia' lavorate con la migration 190. Se la distinta arriva si riapre e si
+--     ricostruisce come per gli altri mesi.
+--   - 501 movimenti restanti: periodo anteriore allo scadenzario.
+--
+-- COSA NON E' STATO TOCCATO. Le 43 entrate del 2025 ancora aperte (956.800,96
+-- EUR) restano come sono: fra queste ci sono sei bonifici tondi per 750.000 EUR
+-- che vanno guardati uno per uno, non chiusi d'ufficio.
+--
+-- Risultato: le uscite non riconciliate scendono da 859 a 318 e da 2.981.517,60
+-- a 902.040,88 EUR, tutte del 2026.
+--
+-- Backup: public._bkp_uscite_2025_20260905 (528 righe complete).
+-- =============================================================================
+--
+-- NOTA. Eseguito direttamente sul tenant NZ via MCP il 05/09/2026, dopo backup
+-- e dopo conferma esplicita di Patrizio.
+
+-- update public.bank_transactions
+-- set is_reconciled = true, reconciled_at = now(),
+--     category = coalesce(category, 'ante_scadenzario'),
+--     note = note || ' | Chiuso per natura il 05/09/2026. [...]'
+-- where not is_reconciled and amount < 0 and transaction_date < date '2026-01-01';
+
+-- --- Verifica ---------------------------------------------------------------
+-- select count(*) from public.bank_transactions
+--   where not is_reconciled and amount < 0 and transaction_date < date '2026-01-01';
+-- Atteso: 0
+--
+-- select count(*), round(sum(-amount),2) from public.bank_transactions
+--   where not is_reconciled and amount < 0;   -- atteso 318 / 902.040,88
