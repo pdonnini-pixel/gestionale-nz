@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseAmount, formatAmount, computeQuadrature, monthDays, addDaysIso, attachmentPath, kindForTarget, extractedAmount, extractedSummary } from './cashClosings'
+import { parseAmount, formatAmount, computeQuadrature, monthDays, addDaysIso, attachmentPath, kindForTarget, extractedAmount, extractedSummary, bankStatusMark } from './cashClosings'
 
 describe('kindForTarget', () => {
   it('associa a ogni riga il documento atteso', () => {
@@ -128,5 +128,16 @@ describe('lettura foto (fase 1b)', () => {
     expect(s).toContain('Bar Roma')
     expect(s).toContain('lettura incerta')
     expect(s).toContain('foto tagliata')
+  })
+})
+
+describe('bankStatusMark', () => {
+  it('assegna un simbolo per ogni esito banca', () => {
+    expect(bankStatusMark('accreditato').mark).toBe('✓')
+    expect(bankStatusMark('differenza').mark).toBe('≠')
+    expect(bankStatusMark('mancante').mark).toBe('✗')
+    expect(bankStatusMark('non_verificabile').mark).toBe('?')
+    expect(bankStatusMark('in_attesa').mark).toBe('')
+    expect(bankStatusMark(null).mark).toBe('')
   })
 })

@@ -11218,6 +11218,45 @@ export type Database = {
         }
         Relationships: []
       }
+      closing_bank_matches: {
+        Row: {
+          amount: number
+          bank_transaction_id: string
+          closing_id: string
+          company_id: string
+          id: string
+          line_id: string | null
+          match_type: string
+          matched_at: string
+          note: string | null
+          reference_date: string | null
+        }
+        Insert: {
+          amount: number
+          bank_transaction_id: string
+          closing_id: string
+          company_id: string
+          id?: string
+          line_id?: string | null
+          match_type: string
+          matched_at?: string
+          note?: string | null
+          reference_date?: string | null
+        }
+        Update: {
+          amount?: number
+          bank_transaction_id?: string
+          closing_id?: string
+          company_id?: string
+          id?: string
+          line_id?: string | null
+          match_type?: string
+          matched_at?: string
+          note?: string | null
+          reference_date?: string | null
+        }
+        Relationships: []
+      }
       daily_report_log: {
         Row: {
           company_id: string
@@ -14093,6 +14132,9 @@ export type Database = {
       outlet_daily_closing_lines: {
         Row: {
           amount: number
+          bank_amount: number | null
+          bank_matched_at: string | null
+          bank_status: string
           channel_id: string
           closing_id: string
           company_id: string
@@ -14103,6 +14145,9 @@ export type Database = {
         }
         Insert: {
           amount?: number
+          bank_amount?: number | null
+          bank_matched_at?: string | null
+          bank_status?: string
           channel_id: string
           closing_id: string
           company_id: string
@@ -14113,6 +14158,9 @@ export type Database = {
         }
         Update: {
           amount?: number
+          bank_amount?: number | null
+          bank_matched_at?: string | null
+          bank_status?: string
           channel_id?: string
           closing_id?: string
           company_id?: string
@@ -14175,7 +14223,11 @@ export type Database = {
       }
       outlet_daily_closings: {
         Row: {
+          bank_verified_at: string | null
           cash_deposit: number
+          deposit_bank_amount: number | null
+          deposit_bank_status: string
+          deposit_bank_transaction_id: string | null
           cash_deposit_note: string | null
           cash_difference: number | null
           cash_expenses: number
@@ -14205,7 +14257,11 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          bank_verified_at?: string | null
           cash_deposit?: number
+          deposit_bank_amount?: number | null
+          deposit_bank_status?: string
+          deposit_bank_transaction_id?: string | null
           cash_deposit_note?: string | null
           cash_difference?: number | null
           cash_expenses?: number
@@ -14235,7 +14291,11 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          bank_verified_at?: string | null
           cash_deposit?: number
+          deposit_bank_amount?: number | null
+          deposit_bank_status?: string
+          deposit_bank_transaction_id?: string | null
           cash_deposit_note?: string | null
           cash_difference?: number | null
           cash_expenses?: number
@@ -21783,6 +21843,12 @@ export type Database = {
       }
       bytea_to_text: { Args: { data: string }; Returns: string }
       delete_cash_closing: { Args: { p_closing_id: string; p_reason?: string }; Returns: Json }
+      run_cash_bank_matching: { Args: { p_days?: number }; Returns: Json }
+      list_bank_terminal_codes: {
+        Args: { p_days?: number }
+        Returns: { code: string; circuit: string | null; bank_account_id: string | null; n: number; total: number; first_date: string; last_date: string; sample: string | null; mapped_channel_id: string | null }[]
+      }
+      cash_bank_monthly_summary: { Args: { p_year: number; p_month: number }; Returns: Json }
       can_write_cash_closing: {
         Args: { p_outlet_id: string }
         Returns: boolean

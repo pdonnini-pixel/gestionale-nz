@@ -14,7 +14,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { ChevronLeft, ChevronRight, Unlock, Pencil, Image as ImageIcon, Plus, Save, Loader2, Settings2, Table2, ScanSearch, Trash2 } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Unlock, Pencil, Image as ImageIcon, Plus, Save, Loader2, Settings2, Table2, ScanSearch, Trash2, Landmark, RefreshCw } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { useCompany } from '../hooks/useCompany'
@@ -26,11 +26,12 @@ import { fetchAllPaged } from '../lib/fetchAllPaged'
 import type { Database } from '../types/database'
 import {
   type PaymentChannel, type ChannelKind, type AttachmentTarget, type ExpenseKind, type ExtractionStatus, CHANNEL_KIND_LABELS, ATTACHMENT_TARGET_LABELS, EXPENSE_KIND_LABELS,
-  CLOSING_STATUS_LABELS, DEFAULT_CHANNELS, EXTRACTION_STATUS_LABELS, formatEuro, monthDays, todayIso, formatDateIt, MESI_IT, extractedAmount, extractedSummary,
+  CLOSING_STATUS_LABELS, DEFAULT_CHANNELS, EXTRACTION_STATUS_LABELS, BANK_STATUS_LABELS, formatEuro, monthDays, todayIso, formatDateIt, MESI_IT, extractedAmount, extractedSummary, bankStatusMark,
 } from '../lib/cashClosings'
 
 type ClosingRow = Database['public']['Tables']['outlet_daily_closings']['Row']
-interface LineLite { closing_id: string; channel_id: string; amount: number }
+interface LineLite { closing_id: string; channel_id: string; amount: number; bank_status: string; bank_amount: number | null }
+interface LineBank { status: string; amount: number | null }
 interface AttachmentLite { id: string; closing_id: string; storage_path: string; kind: string; target: string; line_id: string | null; expense_id: string | null; extraction_status: string; extracted: unknown }
 interface ExpenseLite { id: string; closing_id: string; kind: string; amount: number; description: string | null; sort_order: number }
 interface BankAccountLite { id: string; bank_name: string | null; account_name: string | null }
@@ -53,7 +54,8 @@ export default function IncassiGiornalieri() {
   const companyId = company?.id ?? null
 
   const outletFilter = params.get('outlet') || ALL
-  const tab = params.get('tab') === 'canali' ? 'canali' : 'riepilogo'
+  const tabParam = params.get('tab')
+  const tab = tabParam === 'canali' ? 'canali' : tabParam === 'banca' ? 'banca' : 'riepilogo'
   const initialDate = params.get('date') || todayIso()
   const [ym, setYm] = useState<{ y: number; m: number }>(() => {
     const [y, m] = initialDate.split('-').map(Number)
@@ -97,10 +99,10 @@ export default function IncassiGiornalieri() {
     if (cls.length > 0) {
       const ids = cls.map((c) => c.id)
       const [ls, as] = await Promise.all([
-        fetchAllPaged<LineLite>((f, t) => supabase.from('outlet_daily_closing_lines').select('closing_id, channel_id, amount').in('closing_id', ids).order('id').range(f, t), 'closing_lines'),
+        fetchAllPaged<LineLite>((f, t) => supabase.from('outlet_daily_closing_lines').select('closing_id, channel_id, amount, bank_status, bank_amount').in('closing_id', ids).order('id').range(f, t), 'closing_lines'),
         fetchAllPaged<AttachmentLite>((f, t) => supabase.from('outlet_daily_closing_attachments').select('id, closing_id, storage_path, kind, target, line_id, expense_id, extraction_status, extracted').in('closing_id', ids).order('id').range(f, t), 'closing_attachments'),
       ])
-      setLines(ls.map((l) => ({ ...l, amount: Number(l.amount) })))
+      setLines(ls.map((l) => ({ ...l, amount: Number(l.amount), bank_amount: l.bank_amount == null ? null : Number(l.bank_amount) })))
       setAttachments(as)
     } else {
       setLines([]); setAttachments([])
@@ -120,6 +122,14 @@ export default function IncassiGiornalieri() {
     for (const l of lines) {
       if (!map.has(l.closing_id)) map.set(l.closing_id, new Map())
       map.get(l.closing_id)!.set(l.channel_id, l.amount)
+    }
+    return map
+  }, [lines])
+  const lineBankByClosing = useMemo(() => {
+    const map = new Map<string, Map<string, LineBank>>()
+    for (const l of lines) {
+      if (!map.has(l.closing_id)) map.set(l.closing_id, new Map())
+      map.get(l.closing_id)!.set(l.channel_id, { status: l.bank_status, amount: l.bank_amount })
     }
     return map
   }, [lines])
@@ -162,6 +172,7 @@ export default function IncassiGiornalieri() {
         actions={(
           <div className="flex items-center gap-2">
             <button onClick={() => setFilter('tab', '')} className={`px-3 py-1.5 text-sm rounded-lg border ${tab === 'riepilogo' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white border-slate-300 text-slate-700'}`}><Table2 size={14} className="inline mr-1" />Riepilogo</button>
+            {canManage && <button onClick={() => setFilter('tab', 'banca')} className={`px-3 py-1.5 text-sm rounded-lg border ${tab === 'banca' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white border-slate-300 text-slate-700'}`}><Landmark size={14} className="inline mr-1" />Banca</button>}
             <button onClick={() => setFilter('tab', 'canali')} className={`px-3 py-1.5 text-sm rounded-lg border ${tab === 'canali' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white border-slate-300 text-slate-700'}`}><Settings2 size={14} className="inline mr-1" />Canali di incasso</button>
           </div>
         )}
@@ -193,7 +204,7 @@ export default function IncassiGiornalieri() {
           ) : (
             <OutletSheet
               days={days} outletId={outletFilter} channels={channels.filter((c) => c.outlet_id === outletFilter && c.is_active)}
-              closingAt={closingAt} linesByClosing={linesByClosing} attCount={attCount} statusCls={statusCls}
+              closingAt={closingAt} linesByClosing={linesByClosing} lineBankByClosing={lineBankByClosing} attCount={attCount} statusCls={statusCls}
               onOpen={(d) => setDetail({ outletId: outletFilter, date: d })}
             />
           )}
@@ -204,6 +215,10 @@ export default function IncassiGiornalieri() {
         <ChannelsEditor outlets={outlets} channels={channels} bankAccounts={bankAccounts} companyId={companyId} canManage={canManage} onChanged={load} />
       )}
 
+      {tab === 'banca' && canManage && (
+        <BankCheckPanel ym={ym} onPrev={prevMonth} onNext={nextMonth} onMatched={load} />
+      )}
+
       {detail && (
         <ClosingDetail
           outletName={outlets.find((o) => o.id === detail.outletId)?.name ?? ''}
@@ -211,6 +226,7 @@ export default function IncassiGiornalieri() {
           closing={closingAt.get(`${detail.outletId}|${detail.date}`) ?? null}
           channels={channels.filter((c) => c.outlet_id === detail.outletId)}
           lines={linesByClosing}
+          lineBank={lineBankByClosing.get(closingAt.get(`${detail.outletId}|${detail.date}`)?.id ?? '')}
           attachments={attachments}
           canManage={canManage}
           isSuper={isSuper}
@@ -276,12 +292,13 @@ function MatrixView({ days, outlets, closingAt, statusCls, onOpen }: {
 }
 
 // ─── Vista di un outlet come il foglio Excel ───────────────────────────
-function OutletSheet({ days, outletId, channels, closingAt, linesByClosing, attCount, statusCls, onOpen }: {
+function OutletSheet({ days, outletId, channels, closingAt, linesByClosing, lineBankByClosing, attCount, statusCls, onOpen }: {
   days: string[]
   outletId: string
   channels: PaymentChannel[]
   closingAt: Map<string, ClosingRow>
   linesByClosing: Map<string, Map<string, number>>
+  lineBankByClosing: Map<string, Map<string, LineBank>>
   attCount: Map<string, { n: number; mismatch: boolean }>
   statusCls: (c: ClosingRow | undefined, d: string) => string
   onOpen: (date: string) => void
@@ -315,10 +332,22 @@ function OutletSheet({ days, outletId, channels, closingAt, linesByClosing, attC
               <tr key={d} className={`border-t border-slate-100 cursor-pointer hover:bg-blue-50/40 ${statusCls(c, d)}`} onClick={() => onOpen(d)}>
                 <td className="px-3 py-1.5 sticky left-0 bg-inherit whitespace-nowrap">{formatDateIt(d, true).replace(/ \d{4}$/, '')}</td>
                 <td className="px-3 py-1.5 text-right font-mono tabular-nums font-semibold">{c ? (c.is_closed_day ? 'chiuso' : num(c.total_receipts)) : d <= today ? '—' : ''}</td>
-                {channels.map((ch) => <td key={ch.id} className="px-3 py-1.5 text-right font-mono tabular-nums">{lm ? num(lm.get(ch.id) ?? 0) : ''}</td>)}
+                {channels.map((ch) => {
+                  const b = c && (ch.kind === 'pos' || ch.kind === 'pos_amex') ? lineBankByClosing.get(c.id)?.get(ch.id) : undefined
+                  const bm = bankStatusMark(b?.status)
+                  return (
+                    <td key={ch.id} className="px-3 py-1.5 text-right font-mono tabular-nums whitespace-nowrap">
+                      {lm ? num(lm.get(ch.id) ?? 0) : ''}
+                      {b && bm.mark && <span className={`ml-1 text-xs ${bm.cls}`} title={`${BANK_STATUS_LABELS[b.status as keyof typeof BANK_STATUS_LABELS] ?? b.status}${b.amount != null ? ` · banca ${formatEuro(b.amount)}` : ''}`}>{bm.mark}</span>}
+                    </td>
+                  )
+                })}
                 <td className="px-3 py-1.5 text-right font-mono tabular-nums" title={c?.cash_expenses_note ?? ''}>{c ? num(c.cash_expenses) : ''}</td>
                 <td className="px-3 py-1.5 text-right font-mono tabular-nums">{c ? num(c.customer_refunds) : ''}</td>
-                <td className="px-3 py-1.5 text-right font-mono tabular-nums" title={c?.cash_deposit_note ?? ''}>{c ? num(c.cash_deposit) : ''}</td>
+                <td className="px-3 py-1.5 text-right font-mono tabular-nums whitespace-nowrap" title={`${c?.cash_deposit_note ?? ''}${c && Number(c.cash_deposit) > 0 ? ` · ${BANK_STATUS_LABELS[c.deposit_bank_status as keyof typeof BANK_STATUS_LABELS] ?? c.deposit_bank_status}` : ''}`}>
+                  {c ? num(c.cash_deposit) : ''}
+                  {c && Number(c.cash_deposit) > 0 && bankStatusMark(c.deposit_bank_status).mark && <span className={`ml-1 text-xs ${bankStatusMark(c.deposit_bank_status).cls}`}>{bankStatusMark(c.deposit_bank_status).mark}</span>}
+                </td>
                 <td className="px-3 py-1.5 text-right font-mono tabular-nums">{c ? num(c.cash_float_declared) : ''}</td>
                 <td className={`px-3 py-1.5 text-right font-mono tabular-nums ${c && Number(c.cash_difference) !== 0 ? 'text-red-700 font-semibold' : ''}`}>{c ? num(c.cash_difference) : ''}</td>
                 <td className="px-3 py-1.5 text-center">{c ? <>{attCount.get(c.id)?.n ?? 0}{attCount.get(c.id)?.mismatch && <span className="ml-1 text-amber-700 font-semibold" title="Una foto letta automaticamente non coincide con quanto scritto: apri il dettaglio">≠</span>}</> : ''}</td>
@@ -344,12 +373,13 @@ function OutletSheet({ days, outletId, channels, closingAt, linesByClosing, attC
 }
 
 // ─── Dettaglio di una giornata ─────────────────────────────────────────
-function ClosingDetail({ outletName, date, closing, channels, lines, attachments, canManage, isSuper, onClose, onEdit, onReopened, onDeleted }: {
+function ClosingDetail({ outletName, date, closing, channels, lines, lineBank, attachments, canManage, isSuper, onClose, onEdit, onReopened, onDeleted }: {
   outletName: string
   date: string
   closing: ClosingRow | null
   channels: PaymentChannel[]
   lines: Map<string, Map<string, number>>
+  lineBank: Map<string, LineBank> | undefined
   attachments: AttachmentLite[]
   canManage: boolean
   isSuper: boolean
@@ -363,6 +393,7 @@ function ClosingDetail({ outletName, date, closing, channels, lines, attachments
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [bankMatches, setBankMatches] = useState<Array<{ id: string; line_id: string | null; amount: number; match_type: string; reference_date: string | null; tx_date: string | null; descr: string | null }>>([])
   const [expenses, setExpenses] = useState<ExpenseLite[]>([])
   const [lineChannel, setLineChannel] = useState<Record<string, string>>({})
   /** Letture rifatte da qui (pulsante "Rileggi"): sovrascrivono quelle arrivate dalla pagina. */
@@ -397,6 +428,15 @@ function ClosingDetail({ outletName, date, closing, channels, lines, attachments
       const map: Record<string, string> = {}
       for (const l of lRes.data ?? []) map[l.id] = l.channel_id
       setLineChannel(map)
+      // Movimenti bancari abbinati a questa giornata (fase 3)
+      const { data: mRes } = await supabase.from('closing_bank_matches').select('id, line_id, amount, match_type, reference_date, bank_transaction_id').eq('closing_id', closing.id)
+      const ms = mRes ?? []
+      const txIds = ms.map((m) => m.bank_transaction_id)
+      const { data: txRes } = txIds.length ? await supabase.from('bank_transactions').select('id, transaction_date, description').in('id', txIds) : { data: [] }
+      if (cancelled) return
+      const txMap = new Map((txRes ?? []).map((t) => [t.id, t]))
+      setBankMatches(ms.map((m) => ({ id: m.id, line_id: m.line_id, amount: Number(m.amount), match_type: m.match_type, reference_date: m.reference_date,
+        tx_date: txMap.get(m.bank_transaction_id)?.transaction_date ?? null, descr: (txMap.get(m.bank_transaction_id)?.description ?? '').replace(/^Causale:.*?Descrizione:\s*/i, '').slice(0, 110) || null })))
     })()
     return () => { cancelled = true }
   }, [closing?.id]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -516,7 +556,18 @@ function ClosingDetail({ outletName, date, closing, channels, lines, attachments
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6">
               <div>
                 {row('Totale corrispettivi', formatEuro(Number(closing.total_receipts)), true)}
-                {channels.map((ch) => <div key={ch.id}>{row(ch.label, formatEuro(lm?.get(ch.id) ?? 0))}</div>)}
+                {channels.map((ch) => {
+                  const b = ch.kind === 'pos' || ch.kind === 'pos_amex' ? lineBank?.get(ch.id) : undefined
+                  const bm = bankStatusMark(b?.status)
+                  return (
+                    <div key={ch.id}>
+                      {row(ch.label, formatEuro(lm?.get(ch.id) ?? 0))}
+                      {b && (lm?.get(ch.id) ?? 0) > 0 && (
+                        <div className={`text-[11px] -mt-0.5 mb-1 ${bm.cls}`}>{bm.mark} {BANK_STATUS_LABELS[b.status as keyof typeof BANK_STATUS_LABELS] ?? b.status}{b.amount != null ? ` · banca ${formatEuro(b.amount)}` : ''}</div>
+                      )}
+                    </div>
+                  )
+                })}
                 {row('Somma canali', formatEuro(Number(closing.channels_total)))}
                 {row('Differenza', formatEuro(Number(closing.receipts_difference)), Number(closing.receipts_difference) !== 0)}
               </div>
@@ -525,6 +576,9 @@ function ClosingDetail({ outletName, date, closing, channels, lines, attachments
                 {row('Totale spese cassa', formatEuro(Number(closing.cash_expenses)))}
                 {Number(closing.customer_refunds) > 0 && row('Totale rimborsi a cliente', formatEuro(Number(closing.customer_refunds)))}
                 {row(`Versamento${closing.cash_deposit_note ? ` (${closing.cash_deposit_note})` : ''}`, formatEuro(Number(closing.cash_deposit)))}
+                {Number(closing.cash_deposit) > 0 && (
+                  <div className={`text-[11px] -mt-0.5 mb-1 ${bankStatusMark(closing.deposit_bank_status).cls}`}>{bankStatusMark(closing.deposit_bank_status).mark} {BANK_STATUS_LABELS[closing.deposit_bank_status as keyof typeof BANK_STATUS_LABELS] ?? closing.deposit_bank_status}{closing.deposit_bank_amount != null ? ` · banca ${formatEuro(Number(closing.deposit_bank_amount))}` : ''}</div>
+                )}
                 {row('Fondo cassa atteso', closing.cash_float_expected == null ? '—' : formatEuro(Number(closing.cash_float_expected)))}
                 {row('Fondo cassa contato', closing.cash_float_declared == null ? '—' : formatEuro(Number(closing.cash_float_declared)))}
                 {row('Differenza di cassa', closing.cash_difference == null ? '—' : formatEuro(Number(closing.cash_difference)), Number(closing.cash_difference) !== 0)}
@@ -532,6 +586,19 @@ function ClosingDetail({ outletName, date, closing, channels, lines, attachments
             </div>
           )}
           {closing.notes && <div className="text-sm bg-slate-50 border border-slate-200 rounded-lg px-3 py-2"><span className="text-slate-500">Note: </span>{closing.notes}</div>}
+          {bankMatches.length > 0 && (
+            <div>
+              <div className="text-sm font-medium text-slate-700 mb-1 flex items-center gap-1"><Landmark size={14} />Movimenti bancari abbinati ({bankMatches.length})</div>
+              <div className="text-xs space-y-0.5">
+                {bankMatches.map((m) => (
+                  <div key={m.id} className="flex justify-between gap-2 border-b border-slate-100 py-0.5">
+                    <span className="text-slate-600 truncate">{m.tx_date ? m.tx_date.split('-').reverse().join('/') : ''} · {m.match_type === 'versamento' ? 'versamento' : m.match_type === 'amex' ? 'Amex' : 'POS'}{m.descr ? ` · ${m.descr}` : ''}</span>
+                    <span className="font-mono tabular-nums whitespace-nowrap">{formatEuro(m.amount)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           <div>
             <div className="text-sm font-medium text-slate-700 mb-2 flex items-center gap-1"><ImageIcon size={14} />Foto ({atts.length})</div>
             {atts.length === 0 ? <p className="text-xs text-slate-500">Nessuna foto allegata.</p> : (
@@ -603,6 +670,21 @@ function ChannelsEditor({ outlets, channels, bankAccounts, companyId, canManage,
   const { toast } = useToast()
   const [drafts, setDrafts] = useState<Record<string, ChannelDraft>>({})
   const [busy, setBusy] = useState<string | null>(null)
+  type BankCode = { code: string; circuit: string | null; bank_account_id: string | null; n: number; total: number; first_date: string; last_date: string; sample: string | null; mapped_channel_id: string | null }
+  const [bankCodes, setBankCodes] = useState<BankCode[]>([])
+
+  // Codici terminale visti negli accrediti in banca negli ultimi 90 giorni:
+  // servono a mappare i canali POS/Amex senza cercare i codici sugli scontrini.
+  useEffect(() => {
+    if (!canManage) return
+    let cancelled = false
+    ;(async () => {
+      const { data } = await supabase.rpc('list_bank_terminal_codes', { p_days: 90 })
+      if (!cancelled) setBankCodes(((data ?? []) as BankCode[]).map((b) => ({ ...b, n: Number(b.n), total: Number(b.total) })))
+    })()
+    return () => { cancelled = true }
+  }, [canManage])
+  const channelLabel = (id: string | null) => { const c = channels.find((x) => x.id === id); return c ? `${outlets.find((o) => o.id === c.outlet_id)?.name ?? ''} · ${c.label}` : null }
 
   const toDraft = (c: PaymentChannel): ChannelDraft => ({
     id: c.id, outlet_id: c.outlet_id, label: c.label, kind: c.kind, bank_account_id: c.bank_account_id ?? '',
@@ -653,6 +735,32 @@ function ChannelsEditor({ outlets, channels, bankAccounts, companyId, canManage,
 
   return (
     <div className="space-y-6">
+      <datalist id="bank-codes-pos">{bankCodes.filter((b) => b.circuit === 'pos').map((b) => <option key={b.code} value={b.code}>{`${b.n} accrediti, ${formatEuro(b.total)}`}</option>)}</datalist>
+      <datalist id="bank-codes-pos_amex">{bankCodes.filter((b) => b.circuit === 'amex').map((b) => <option key={b.code} value={b.code}>{`${b.n} accrediti, ${formatEuro(b.total)}`}</option>)}</datalist>
+      {canManage && bankCodes.length > 0 && (
+        <div className="bg-white border border-slate-200 rounded-xl p-4">
+          <div className="text-sm font-semibold text-slate-900 mb-1 flex items-center gap-1"><Landmark size={14} />Codici terminale visti in banca (ultimi 90 giorni)</div>
+          <p className="text-xs text-slate-500 mb-2">Ogni accredito POS in banca porta il codice del terminale. Scrivi le ultime 5 cifre nel campo «Codice terminale» del canale giusto (POS per i circuiti carte, Amex per American Express): da quel momento il riscontro con la banca è automatico. Nei canali Contanti scrivi invece la parola che compare nella causale del versamento del negozio.</p>
+          <div className="overflow-x-auto">
+            <table className="text-xs w-full">
+              <thead className="text-slate-500"><tr><th className="text-left py-1 pr-3">Codice</th><th className="text-left py-1 pr-3">Circuito</th><th className="text-right py-1 pr-3">Accrediti</th><th className="text-right py-1 pr-3">Totale</th><th className="text-left py-1 pr-3">Ultimo</th><th className="text-left py-1 pr-3">Causale</th><th className="text-left py-1">Canale</th></tr></thead>
+              <tbody>
+                {bankCodes.map((b) => (
+                  <tr key={`${b.circuit}-${b.code}-${b.bank_account_id ?? ''}`} className="border-t border-slate-100">
+                    <td className="py-1 pr-3 font-mono">{b.code}</td>
+                    <td className="py-1 pr-3">{b.circuit === 'amex' ? 'American Express' : 'POS carte'}</td>
+                    <td className="py-1 pr-3 text-right">{b.n}</td>
+                    <td className="py-1 pr-3 text-right font-mono tabular-nums">{formatEuro(b.total)}</td>
+                    <td className="py-1 pr-3 whitespace-nowrap">{b.last_date.split('-').reverse().join('/')}</td>
+                    <td className="py-1 pr-3 text-slate-500 truncate max-w-[280px]" title={b.sample ?? ''}>{b.sample}</td>
+                    <td className={`py-1 ${b.mapped_channel_id ? 'text-emerald-700' : 'text-amber-700'}`}>{channelLabel(b.mapped_channel_id) ?? 'non mappato'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
       <p className="text-sm text-slate-600 max-w-3xl">
         I canali sono le colonne che la cassiera compila ogni sera (contanti, POS per banca, pay by link, fatture, bonifico…).
         Il <strong>codice terminale</strong> (es. COD.SIA <code>6181087-00002</code> nella causale dell'accredito) e l'<strong>ID terminale POS</strong> (TML sulla chiusura POS)
@@ -712,7 +820,13 @@ function ChannelsEditor({ outlets, channels, bankAccounts, companyId, canManage,
                               {bankAccounts.map((b) => <option key={b.id} value={b.id}>{b.bank_name ?? ''} {b.account_name ? `(${b.account_name.slice(-6)})` : ''}</option>)}
                             </select>
                           </td>
-                          <td className="px-3 py-1.5"><input value={d.terminal_code} disabled={!canManage} onChange={(e) => set({ terminal_code: e.target.value })} placeholder="6181087-00002" className={`${inp} font-mono`} /></td>
+                          <td className="px-3 py-1.5">
+                            <input value={d.terminal_code} disabled={!canManage} onChange={(e) => set({ terminal_code: e.target.value })}
+                              list={d.kind === 'pos' || d.kind === 'pos_amex' ? `bank-codes-${d.kind}` : undefined}
+                              placeholder={d.kind === 'contanti' ? 'parola chiave versamento' : d.kind === 'pos' || d.kind === 'pos_amex' ? '00002' : '—'}
+                              title={d.kind === 'contanti' ? 'Parola che compare nella causale del versamento di questo negozio (es. PALMANOVA, FOIANO, 2121). Più parole separate da |' : 'Ultime 5 cifre del codice terminale che compare negli accrediti in banca'}
+                              className={`${inp} font-mono`} />
+                          </td>
                           <td className="px-3 py-1.5"><input value={d.pos_terminal_id} disabled={!canManage} onChange={(e) => set({ pos_terminal_id: e.target.value })} placeholder="40092505" className={`${inp} font-mono`} /></td>
                           <td className="px-3 py-1.5 text-center"><input type="checkbox" checked={d.counts_in_total} disabled={!canManage} onChange={(e) => set({ counts_in_total: e.target.checked })} /></td>
                           <td className="px-3 py-1.5 text-center"><input type="checkbox" checked={d.is_active} disabled={!canManage} onChange={(e) => set({ is_active: e.target.checked })} /></td>
@@ -733,6 +847,152 @@ function ChannelsEditor({ outlets, channels, bankAccounts, companyId, canManage,
           </div>
         )
       })}
+    </div>
+  )
+}
+
+
+// ─── Verifica con la banca: controlli del mese (fase 3) ────────────────
+interface BankChannelRow { channel_id: string; label: string; kind: string; terminal_code: string | null; outlet_id: string; outlet_name: string; declared: number; credited: number; days: number; accreditato: number; differenza: number; mancante: number; in_attesa: number; non_verificabile: number }
+interface BankOutletRow { outlet_id: string; outlet_name: string; closings: number; verified: number; cash_in: number; expenses: number; deposits_declared: number; deposits_found: number; deposits_missing: number; deposits_pending: number; float_start: number | null; float_end: number | null }
+interface BankUnmatched { code: string; circuit: string; ref_date: string; n: number; total: number; mapped: boolean }
+
+function BankCheckPanel({ ym, onPrev, onNext, onMatched }: { ym: { y: number; m: number }; onPrev: () => void; onNext: () => void; onMatched: () => Promise<void> }) {
+  const { toast } = useToast()
+  const [loading, setLoading] = useState(true)
+  const [running, setRunning] = useState(false)
+  const [data, setData] = useState<{ channels: BankChannelRow[]; outlets: BankOutletRow[]; unmatched: BankUnmatched[] } | null>(null)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    const { data: res, error } = await supabase.rpc('cash_bank_monthly_summary', { p_year: ym.y, p_month: ym.m })
+    setLoading(false)
+    if (error) { toast({ type: 'error', message: error.message }); return }
+    const r = (res ?? {}) as { channels?: BankChannelRow[]; outlets?: BankOutletRow[]; unmatched?: BankUnmatched[] }
+    setData({ channels: r.channels ?? [], outlets: r.outlets ?? [], unmatched: r.unmatched ?? [] })
+  }, [ym.y, ym.m]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { void load() }, [load])
+
+  const runNow = async () => {
+    setRunning(true)
+    const { data: res, error } = await supabase.rpc('run_cash_bank_matching', { p_days: 60 })
+    setRunning(false)
+    if (error) { toast({ type: 'error', message: error.message }); return }
+    const r = (res ?? {}) as { gruppi_pos_abbinati?: number; versamenti_abbinati?: number; chiusure_verificate?: number }
+    toast({ type: 'success', message: `Riscontro fatto: ${r.gruppi_pos_abbinati ?? 0} accrediti POS abbinati, ${r.versamenti_abbinati ?? 0} versamenti trovati, ${r.chiusure_verificate ?? 0} chiusure verificate` })
+    await Promise.all([load(), onMatched()])
+  }
+
+  const num = (n: number | null | undefined) => (n == null ? '—' : formatEuro(Number(n)))
+  const unmapped = data?.unmatched.filter((u) => !u.mapped) ?? []
+  const unmappedByCode = new Map<string, { circuit: string; n: number; total: number; days: number }>()
+  for (const u of unmapped) {
+    const k = `${u.circuit}-${u.code}`
+    const cur = unmappedByCode.get(k) ?? { circuit: u.circuit, n: 0, total: 0, days: 0 }
+    cur.n += Number(u.n); cur.total += Number(u.total); cur.days += 1
+    unmappedByCode.set(k, cur)
+  }
+  const noClosing = data?.unmatched.filter((u) => u.mapped) ?? []
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-2 bg-white border border-slate-200 rounded-xl px-3 py-2">
+        <div className="flex items-center gap-2">
+          <button onClick={onPrev} className="p-1.5 rounded-lg hover:bg-slate-100" aria-label="Mese precedente"><ChevronLeft size={18} /></button>
+          <span className="font-semibold text-slate-900">{MESI_IT[ym.m - 1]} {ym.y}</span>
+          <button onClick={onNext} className="p-1.5 rounded-lg hover:bg-slate-100" aria-label="Mese successivo"><ChevronRight size={18} /></button>
+        </div>
+        <button onClick={() => void runNow()} disabled={running} className="inline-flex items-center gap-2 px-3 py-1.5 text-sm rounded-lg bg-blue-600 text-white font-medium disabled:opacity-60">
+          {running ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}Verifica con la banca ora
+        </button>
+      </div>
+      <p className="text-xs text-slate-500">Ogni mattina il gestionale confronta le chiusure confermate con gli accrediti POS e i versamenti arrivati in banca. Qui vedi il mese: per ogni canale POS quanto è stato dichiarato e quanto accreditato, per ogni negozio i contanti incassati e versati, e gli accrediti in banca che non trovano una chiusura.</p>
+
+      {loading || !data ? <div className="py-8 text-center text-slate-500"><Loader2 className="inline animate-spin mr-2" size={18} />Caricamento…</div> : (
+        <>
+          <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+            <div className="px-4 py-2 text-sm font-semibold text-slate-900 border-b border-slate-100">Canali POS e Amex: dichiarato nelle chiusure vs accreditato in banca</div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr>
+                  <th className="px-3 py-2 text-left">Punto vendita</th><th className="px-3 py-2 text-left">Canale</th><th className="px-3 py-2 text-left">Terminale</th>
+                  <th className="px-3 py-2 text-right">Giorni</th><th className="px-3 py-2 text-right">Dichiarato</th><th className="px-3 py-2 text-right">Accreditato</th><th className="px-3 py-2 text-right">Differenza</th>
+                  <th className="px-3 py-2 text-center">✓</th><th className="px-3 py-2 text-center">≠</th><th className="px-3 py-2 text-center">✗</th><th className="px-3 py-2 text-center">in attesa</th>
+                </tr></thead>
+                <tbody>
+                  {data.channels.length === 0 && <tr><td colSpan={11} className="px-3 py-4 text-center text-slate-500">Nessun canale POS configurato.</td></tr>}
+                  {data.channels.map((c) => {
+                    const diff = Math.round((Number(c.credited) - Number(c.declared)) * 100) / 100
+                    return (
+                      <tr key={c.channel_id} className="border-t border-slate-100">
+                        <td className="px-3 py-1.5">{c.outlet_name}</td>
+                        <td className="px-3 py-1.5">{c.label}</td>
+                        <td className={`px-3 py-1.5 font-mono ${c.terminal_code ? '' : 'text-amber-700'}`}>{c.terminal_code ?? 'da mappare'}</td>
+                        <td className="px-3 py-1.5 text-right">{c.days}</td>
+                        <td className="px-3 py-1.5 text-right font-mono tabular-nums">{num(c.declared)}</td>
+                        <td className="px-3 py-1.5 text-right font-mono tabular-nums">{num(c.credited)}</td>
+                        <td className={`px-3 py-1.5 text-right font-mono tabular-nums ${diff !== 0 && Number(c.days) > 0 ? 'text-red-700 font-semibold' : ''}`}>{Number(c.days) > 0 ? num(diff) : '—'}</td>
+                        <td className="px-3 py-1.5 text-center text-emerald-700">{c.accreditato || ''}</td>
+                        <td className="px-3 py-1.5 text-center text-amber-700">{c.differenza || ''}</td>
+                        <td className="px-3 py-1.5 text-center text-red-700">{c.mancante || ''}</td>
+                        <td className="px-3 py-1.5 text-center text-slate-500">{(Number(c.in_attesa) + Number(c.non_verificabile)) || ''}</td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+            <div className="px-4 py-2 text-sm font-semibold text-slate-900 border-b border-slate-100">Contanti per punto vendita: incassati, spesi, versati e trovati in banca</div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr>
+                  <th className="px-3 py-2 text-left">Punto vendita</th><th className="px-3 py-2 text-right">Chiusure</th><th className="px-3 py-2 text-right">Verificate</th>
+                  <th className="px-3 py-2 text-right">Contanti incassati</th><th className="px-3 py-2 text-right">Spese e rimborsi</th><th className="px-3 py-2 text-right">Versamenti dichiarati</th><th className="px-3 py-2 text-right">Versamenti in banca</th>
+                  <th className="px-3 py-2 text-right">Fondo inizio</th><th className="px-3 py-2 text-right">Fondo fine</th><th className="px-3 py-2 text-center">Vers. non trovati</th>
+                </tr></thead>
+                <tbody>
+                  {data.outlets.map((o) => (
+                    <tr key={o.outlet_id} className="border-t border-slate-100">
+                      <td className="px-3 py-1.5">{o.outlet_name}</td>
+                      <td className="px-3 py-1.5 text-right">{o.closings}</td>
+                      <td className="px-3 py-1.5 text-right text-emerald-700">{o.verified}</td>
+                      <td className="px-3 py-1.5 text-right font-mono tabular-nums">{num(o.cash_in)}</td>
+                      <td className="px-3 py-1.5 text-right font-mono tabular-nums">{num(o.expenses)}</td>
+                      <td className="px-3 py-1.5 text-right font-mono tabular-nums">{num(o.deposits_declared)}</td>
+                      <td className={`px-3 py-1.5 text-right font-mono tabular-nums ${Number(o.deposits_found) !== Number(o.deposits_declared) && Number(o.closings) > 0 ? 'text-amber-700' : ''}`}>{num(o.deposits_found)}</td>
+                      <td className="px-3 py-1.5 text-right font-mono tabular-nums">{num(o.float_start)}</td>
+                      <td className="px-3 py-1.5 text-right font-mono tabular-nums">{num(o.float_end)}</td>
+                      <td className={`px-3 py-1.5 text-center ${Number(o.deposits_missing) > 0 ? 'text-red-700 font-semibold' : 'text-slate-400'}`}>{Number(o.deposits_missing) > 0 ? o.deposits_missing : Number(o.deposits_pending) > 0 ? `${o.deposits_pending} in attesa` : ''}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {unmappedByCode.size > 0 && (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-900">
+              <div className="font-semibold mb-1">Accrediti del mese di terminali non ancora mappati su un canale</div>
+              <p className="text-xs mb-2">Finché un codice non è scritto nel canale giusto (scheda «Canali di incasso»), i suoi accrediti non possono essere confrontati con le chiusure.</p>
+              <ul className="text-xs space-y-0.5">
+                {[...unmappedByCode.entries()].map(([k, v]) => <li key={k}>codice <span className="font-mono">{k.split('-')[1]}</span> ({v.circuit === 'amex' ? 'American Express' : 'POS carte'}): {v.n} accrediti in {v.days} giorni, {formatEuro(v.total)}</li>)}
+              </ul>
+            </div>
+          )}
+          {noClosing.length > 0 && (
+            <div className="bg-white border border-slate-200 rounded-xl p-4 text-sm">
+              <div className="font-semibold text-slate-900 mb-1">Accrediti in banca senza una chiusura confermata per quel giorno ({noClosing.length})</div>
+              <p className="text-xs text-slate-500 mb-2">Il terminale è mappato ma per il giorno di vendita non c'è una chiusura confermata: la cassiera non l'ha ancora fatta, oppure è ancora in bozza. Appena confermata, il riscontro del mattino la abbina.</p>
+              <div className="text-xs grid grid-cols-1 sm:grid-cols-2 gap-x-6">
+                {noClosing.slice(0, 60).map((u) => <div key={`${u.circuit}-${u.code}-${u.ref_date}`} className="flex justify-between border-b border-slate-100 py-0.5"><span>{u.ref_date.split('-').reverse().join('/')} · terminale <span className="font-mono">{u.code}</span> {u.circuit === 'amex' ? 'Amex' : ''}</span><span className="font-mono tabular-nums">{formatEuro(Number(u.total))}</span></div>)}
+              </div>
+            </div>
+          )}
+        </>
+      )}
     </div>
   )
 }
