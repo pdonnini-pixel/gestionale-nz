@@ -253,7 +253,14 @@ Per Made e Zago le tabelle nascono vuote: i canali si configurano quando quei te
 - Pagina cassiera: dopo ogni scatto parte la lettura in sottofondo; i campi vuoti della riga vengono precompilati (totale e contanti dallo scontrino di chiusura, totale POS, importo e descrizione della spesa, importo e banca del versamento); sotto la foto il chip «dalla foto: importo» verde se coincide, arancione con «usa» se diverso, «(da controllare)» se la lettura è incerta, «riprova» se fallita. La cassiera resta l'unica fonte: i numeri letti sono proposte.
 - Pagina amministrativa: nel dettaglio della giornata ogni foto mostra l'importo letto con la differenza rispetto a quanto scritto, i dati secondari (contanti/elettronico, documenti, gran totale, azzeramenti, trasmissione, terminale, data e ora) e il pulsante «Rileggi»; nel foglio mensile la colonna Foto segna «≠» quando una lettura non coincide con il totale o il versamento.
 
-Restano le fasi 2 (mail serale), 3 (banche), 4 (proposta consuntivo ed export).
+**Fase 2 realizzata (2026-09-04)**: report incassi serale.
+
+- Migration `20260904_176`: `daily_report_settings` (ora locale nel fuso dell'azienda, destinatari, ora del sollecito, invio anche senza chiusure, URL dell'app salvata dalla UI), `daily_report_log` (un invio per giorno grazie a un indice parziale), funzione `daily_cash_report_tick()` chiamata da pg_cron ogni 15 minuti: converte `now()` in Europe/Rome e, nella finestra di 30 minuti dall'ora impostata, chiama la Edge Function via pg_net con il segreto `x-autofix-cron`; all'ora del sollecito crea notifiche in-app agli operatori cassa dei negozi senza chiusura confermata. Cron `daily-cash-report-tick` attivo sui 3 tenant.
+- Edge Function `daily-cash-report-send` sui 3 tenant: una riga per punto vendita (totale, contanti, POS, altri canali, spese e rimborsi, versamento, fondo cassa, differenza), negozi mancanti in rosso, elenco «da controllare» (bozze, quadrature, foto dello scontrino mancante, importi letti dalla foto diversi da quelli scritti, note della cassiera), totale azienda, progressivo del mese, link a Incassi giornalieri. Invio con Resend; esito in `daily_report_log`.
+- Impostazioni → «Report incassi serale» (super advisor e contabile) con «Invia una prova a me» e tabella degli ultimi invii.
+- NZ configurato: ore 21:30, destinatari Patrizio, Lilian e Denise. Mail di prova inviata e ricevuta con esito `sent`.
+
+Restano le fasi 3 (banche) e 4 (proposta consuntivo ed export).
 
 ## 5. decisioni che servono da Patrizio
 

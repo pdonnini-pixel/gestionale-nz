@@ -11179,6 +11179,90 @@ export type Database = {
           },
         ]
       }
+      daily_report_settings: {
+        Row: {
+          app_url: string | null
+          company_id: string
+          enabled: boolean
+          recipients: string[]
+          reminder_time: string | null
+          send_on_empty: boolean
+          send_time: string
+          timezone: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          app_url?: string | null
+          company_id: string
+          enabled?: boolean
+          recipients?: string[]
+          reminder_time?: string | null
+          send_on_empty?: boolean
+          send_time?: string
+          timezone?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          app_url?: string | null
+          company_id?: string
+          enabled?: boolean
+          recipients?: string[]
+          reminder_time?: string | null
+          send_on_empty?: boolean
+          send_time?: string
+          timezone?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
+      daily_report_log: {
+        Row: {
+          company_id: string
+          created_at: string
+          error: string | null
+          id: string
+          kind: string
+          recipients: string[]
+          report_date: string
+          request_id: number | null
+          sent_at: string | null
+          status: string
+          subject: string | null
+          summary: Json | null
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          error?: string | null
+          id?: string
+          kind?: string
+          recipients?: string[]
+          report_date: string
+          request_id?: number | null
+          sent_at?: string | null
+          status?: string
+          subject?: string | null
+          summary?: Json | null
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          error?: string | null
+          id?: string
+          kind?: string
+          recipients?: string[]
+          report_date?: string
+          request_id?: number | null
+          sent_at?: string | null
+          status?: string
+          subject?: string | null
+          summary?: Json | null
+        }
+        Relationships: []
+      }
       daily_revenue: {
         Row: {
           avg_ticket: number | null
@@ -21698,6 +21782,7 @@ export type Database = {
         Returns: string
       }
       bytea_to_text: { Args: { data: string }; Returns: string }
+      delete_cash_closing: { Args: { p_closing_id: string; p_reason?: string }; Returns: Json }
       can_write_cash_closing: {
         Args: { p_outlet_id: string }
         Returns: boolean

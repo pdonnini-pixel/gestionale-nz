@@ -1197,6 +1197,10 @@ export const PAGE_GUIDES: PageGuide[] = [
         "a": "Correggi il campo a mano: la lettura automatica è solo una proposta e non sostituisce mai quello che scrivi. Il chip sotto la foto resterà arancione con il valore letto, così chi controlla vede la differenza; se la foto è sfocata o tagliata, rifalla con \"Altra foto\" e usa \"riprova\"."
       },
       {
+        "q": "Ho inserito una giornata sbagliata o di prova: come la cancello per rifarla?",
+        "a": "Può farlo solo il super advisor: in fondo alla pagina, accanto ai pulsanti principali, c'è \"Cancella giornata\" (icona del cestino). Chiede conferma e un motivo facoltativo, poi toglie importi, spese, rimborsi, foto e il ricavo giornaliero che quella chiusura aveva creato: la giornata torna vuota e si può reinserire da zero. L'operazione resta tracciata tra le notifiche. Chi non è super advisor può solo chiedere la riapertura."
+      },
+      {
         "q": "Non riesco a confermare: dice che manca la foto dello scontrino di chiusura",
         "a": "È l'unica foto obbligatoria: tocca \"Foto\" sotto il campo del totale corrispettivi, scatta lo scontrino di chiusura del registratore e riprova. Solo il giorno di negozio chiuso non la richiede. Le altre foto (chiusure POS, scontrini delle spese, ricevuta del versamento) sono facoltative, ma senza potrà esserti chiesto un chiarimento."
       },
@@ -1235,6 +1239,7 @@ export const PAGE_GUIDES: PageGuide[] = [
           "Clicca su una cella (o su una riga) per aprire il dettaglio della giornata",
           "Nel dettaglio vedi tutti gli importi, ogni spesa e rimborso con la sua descrizione, le note, chi ha chiuso e quando, e le foto degli scontrini con l'indicazione di cosa giustificano (scontrino di chiusura, chiusura POS di un canale, spesa, versamento): clicca una foto per aprirla a schermo intero. Sotto ogni foto c'è l'esito della lettura automatica: \"dalla foto\" con l'importo letto (verde se coincide con quanto scritto, arancione con la differenza se non coincide o se la lettura è incerta), più i dati secondari letti dallo scontrino (contanti ed elettronico, numero documenti, gran totale, numero azzeramenti, esito trasmissione, terminale POS, data e ora); \"Rileggi\" ripete la lettura. Se manca la foto dello scontrino di chiusura viene segnalato in rosso",
           "Se la giornata è in bozza, \"Apri per modificare\" porta alla pagina Chiusura cassa di quel giorno e punto vendita",
+          "Il super advisor ha anche \"Cancella giornata\": dopo una conferma esplicita cancella importi, spese, rimborsi, foto e il ricavo giornaliero proiettato, così la giornata torna vuota e può essere reinserita da zero; resta una notifica di traccia con chi, quando e il motivo",
           "Se la giornata manca, \"Compila la chiusura\" apre la stessa pagina per inserirla"
         ]
       },
@@ -2404,11 +2409,11 @@ export const PAGE_GUIDES: PageGuide[] = [
     "path": "/impostazioni",
     "icon": "Settings",
     "title": "Impostazioni",
-    "description": "La pagina Impostazioni raccoglie i dati dell'azienda, la gestione degli utenti, il catalogo delle voci di costo, i centri di costo (punti vendita) e la configurazione della fatturazione elettronica SDI. Le sezioni visibili dipendono dal tuo ruolo utente.",
+    "description": "La pagina Impostazioni raccoglie i dati dell'azienda, la gestione degli utenti, il catalogo delle voci di costo, i centri di costo (punti vendita), la configurazione della fatturazione elettronica SDI e il report incassi serale (la mail automatica con le chiusure di cassa). Le sezioni visibili dipendono dal tuo ruolo utente.",
     "sections": [
       {
         "heading": "Come è organizzata la pagina",
-        "body": "Le informazioni sono divise in blocchi a fisarmonica (uno sotto l'altro): Dati azienda, Utenti, Voci di costo, Centri di costo e Fatturazione SDI. Clicca sul titolo di un blocco per aprirlo o chiuderlo. Se un blocco appare più chiaro con un lucchetto, significa che il tuo ruolo non ha i permessi per accedervi: in quel caso contatta un amministratore."
+        "body": "Le informazioni sono divise in blocchi a fisarmonica (uno sotto l'altro): Dati azienda, Utenti, Voci di costo, Centri di costo, Fatturazione SDI e Report incassi serale. Clicca sul titolo di un blocco per aprirlo o chiuderlo. Se un blocco appare più chiaro con un lucchetto, significa che il tuo ruolo non ha i permessi per accedervi: in quel caso contatta un amministratore."
       },
       {
         "heading": "Dati azienda",
@@ -2461,6 +2466,18 @@ export const PAGE_GUIDES: PageGuide[] = [
           "Puoi aggiornare il Codice SDI o la PEC ricezione scrivendo direttamente nel campo: il salvataggio avviene appena esci dal campo",
           "L'interruttore \"Ambiente\" permette di passare tra Test e Produzione: in Test le fatture vengono validate ma non inviate davvero, in Produzione vengono trasmesse realmente",
           "I certificati di sicurezza sono gestiti in modo protetto e non sono mai visibili per esteso in pagina"
+        ]
+      },
+      {
+        "heading": "Report incassi serale",
+        "body": "Sezione per super advisor e contabile. Attiva una mail automatica che ogni sera, all'ora scelta (ora italiana, valida anche con l'ora legale), riepiloga le chiusure di cassa del giorno di tutti i punti vendita: una riga per negozio con totale, contanti, POS, altri canali, spese e rimborsi, versamento, fondo cassa e differenza; i negozi che non hanno ancora chiuso in rosso; l'elenco delle cose da controllare (giornate che non quadrano, chiusure ancora in bozza, foto dello scontrino mancante, importi letti dalla foto diversi da quelli scritti, note della cassiera); il totale dell'azienda e il progressivo del mese; il link a Incassi giornalieri.",
+        "steps": [
+          "Spunta \"Invia il report ogni sera\" e scegli l'ora di invio",
+          "Scrivi i destinatari, uno per riga o separati da virgola: sotto il campo vedi quanti indirizzi sono validi",
+          "Se vuoi, attiva il sollecito: a quell'ora gli operatori cassa dei negozi che non hanno ancora confermato ricevono un avviso in-app con il link alla loro chiusura",
+          "Decidi se la mail deve partire anche nei giorni senza nessuna chiusura registrata",
+          "Salva, poi usa \"Invia una prova a me\": la mail di oggi arriva solo al tuo indirizzo, con [PROVA] nell'oggetto",
+          "La tabella \"Ultimi invii\" mostra giorno, tipo (report, sollecito, prova), esito e destinatari; se un invio non è riuscito vedi il motivo"
         ]
       }
     ],

@@ -14,7 +14,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { ChevronLeft, ChevronRight, Unlock, Pencil, Image as ImageIcon, Plus, Save, Loader2, Settings2, Table2, ScanSearch } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Unlock, Pencil, Image as ImageIcon, Plus, Save, Loader2, Settings2, Table2, ScanSearch, Trash2 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { useCompany } from '../hooks/useCompany'
@@ -49,6 +49,7 @@ export default function IncassiGiornalieri() {
 
   const role = profile?.role ?? ''
   const canManage = role === 'super_advisor' || role === 'contabile'
+  const isSuper = role === 'super_advisor'
   const companyId = company?.id ?? null
 
   const outletFilter = params.get('outlet') || ALL
@@ -212,9 +213,11 @@ export default function IncassiGiornalieri() {
           lines={linesByClosing}
           attachments={attachments}
           canManage={canManage}
+          isSuper={isSuper}
           onClose={() => setDetail(null)}
           onEdit={() => openClosingPage(detail.outletId, detail.date)}
           onReopened={async () => { setDetail(null); await load(); toast({ type: 'success', message: 'Chiusura riaperta' }) }}
+          onDeleted={async () => { setDetail(null); await load(); toast({ type: 'success', message: 'Giornata cancellata: si può reinserire da zero' }) }}
         />
       )}
     </div>
@@ -341,7 +344,7 @@ function OutletSheet({ days, outletId, channels, closingAt, linesByClosing, attC
 }
 
 // ─── Dettaglio di una giornata ─────────────────────────────────────────
-function ClosingDetail({ outletName, date, closing, channels, lines, attachments, canManage, onClose, onEdit, onReopened }: {
+function ClosingDetail({ outletName, date, closing, channels, lines, attachments, canManage, isSuper, onClose, onEdit, onReopened, onDeleted }: {
   outletName: string
   date: string
   closing: ClosingRow | null
@@ -349,14 +352,17 @@ function ClosingDetail({ outletName, date, closing, channels, lines, attachments
   lines: Map<string, Map<string, number>>
   attachments: AttachmentLite[]
   canManage: boolean
+  isSuper: boolean
   onClose: () => void
   onEdit: () => void
   onReopened: () => Promise<void>
+  onDeleted: () => Promise<void>
 }) {
   const { toast } = useToast()
   const [urls, setUrls] = useState<Record<string, string>>({})
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
   const [expenses, setExpenses] = useState<ExpenseLite[]>([])
   const [lineChannel, setLineChannel] = useState<Record<string, string>>({})
   /** Letture rifatte da qui (pulsante "Rileggi"): sovrascrivono quelle arrivate dalla pagina. */
@@ -416,6 +422,22 @@ function ClosingDetail({ outletName, date, closing, channels, lines, attachments
     setBusy(false)
     if (error) { toast({ type: 'error', message: error.message }); return }
     await onReopened()
+  }
+
+  // Solo super advisor: file dal bucket via Storage API, poi la RPC che toglie
+  // tutto il resto (righe, spese, foto, ricavo proiettato) e lascia traccia.
+  const deleteDay = async () => {
+    if (!closing || !isSuper) return
+    setBusy(true)
+    const paths = atts.map((a) => a.storage_path)
+    if (paths.length > 0) {
+      const { error: stErr } = await supabase.storage.from(BUCKET).remove(paths)
+      if (stErr) console.warn('[incassi] file non rimossi dal bucket', stErr)
+    }
+    const { error } = await supabase.rpc('delete_cash_closing', { p_closing_id: closing.id, p_reason: reason || undefined })
+    setBusy(false)
+    if (error) { toast({ type: 'error', message: error.message }); return }
+    await onDeleted()
   }
 
   const lm = closing ? lines.get(closing.id) : undefined
@@ -526,13 +548,30 @@ function ClosingDetail({ outletName, date, closing, channels, lines, attachments
               <button onClick={onEdit} className="px-4 py-2 text-sm rounded-lg bg-blue-600 text-white font-medium inline-flex items-center gap-1"><Pencil size={14} />Apri per modificare</button>
             ) : canManage && (
               <>
-                <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Motivo riapertura" className="flex-1 min-w-[160px] text-sm border border-slate-300 rounded-lg px-3 py-2" />
+                <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Motivo (riapertura o cancellazione)" className="flex-1 min-w-[160px] text-sm border border-slate-300 rounded-lg px-3 py-2" />
                 <button onClick={() => void reopen()} disabled={busy} className="px-4 py-2 text-sm rounded-lg border border-amber-300 bg-amber-50 text-amber-800 font-medium inline-flex items-center gap-1 disabled:opacity-60">
                   {busy ? <Loader2 size={14} className="animate-spin" /> : <Unlock size={14} />}Riapri
                 </button>
               </>
             )}
+            {isSuper && !confirmDelete && (
+              <button onClick={() => setConfirmDelete(true)} disabled={busy} title="Cancella la giornata per reinserirla da zero (solo super advisor)"
+                className="px-4 py-2 text-sm rounded-lg border border-red-300 text-red-700 bg-white font-medium inline-flex items-center gap-1 disabled:opacity-60">
+                <Trash2 size={14} />Cancella giornata
+              </button>
+            )}
           </div>
+          {isSuper && confirmDelete && (
+            <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800 space-y-2">
+              <p>Cancelli la chiusura di <strong>{outletName}</strong> del <strong>{formatDateIt(date)}</strong>: importi, spese, rimborsi, {atts.length} foto e il ricavo giornaliero proiettato. La giornata torna vuota e va reinserita. Resta traccia tra le notifiche.</p>
+              <div className="flex justify-end gap-2">
+                <button onClick={() => setConfirmDelete(false)} className="px-3 py-1.5 text-sm border border-slate-300 rounded-lg bg-white text-slate-700">Annulla</button>
+                <button onClick={() => void deleteDay()} disabled={busy} className="px-3 py-1.5 text-sm rounded-lg bg-red-600 text-white font-medium inline-flex items-center gap-1 disabled:opacity-60">
+                  {busy ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}Cancella davvero
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </Modal>
