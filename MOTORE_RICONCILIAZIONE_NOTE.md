@@ -116,3 +116,39 @@ pagamento go-live), dopo l'undo va rimessa com'era. L'altra annullata, GRUPPO
 SERVIZI V070012600909, era invece legittimamente aperta, riaperta il 09/07 «per
 allineamento al file Sabrina, chiusa senza prova bancaria»: lì l'undo ha fatto
 esattamente la cosa giusta.
+
+---
+
+## Il giro del 06/09: quando annullare a mano non serve a niente
+
+Il cron ha girato in 125,5 secondi, meno della metà di ieri, perché i movimenti
+aperti da esaminare sono molti meno. Ha applicato due agganci, ed erano
+**esattamente i due che avevo annullato il giorno prima**.
+
+Questa è la lezione più utile della settimana: se un aggancio non convince,
+annullarlo a mano non risolve niente, perché la notte dopo il motore lo rifà
+identico. O si accetta il criterio, o si cambia il motore.
+
+**Su GRUPPO SERVIZI avevo torto io.** Il motore applica una regola esplicita:
+importo netto esatto e candidato unico *nella finestra temporale*. Il fornitore
+ha nove fatture da 315,00 €, ma per un movimento del 06/03 solo una cade nella
+finestra (-30 / +180 giorni dalla scadenza). Il candidato era davvero unico. I
+soldi sono giusti, il fornitore è giusto: cambia solo quale delle fatture
+ricorrenti risulti saldata, e nel dubbio non è un motivo per annullare.
+
+**Su SPM avevo ragione, ma il difetto era nel motore.** La fattura 31 era chiusa
+a mano da Lilian il 06/08, e il motore le ha attaccato un movimento del 09/03,
+cinque mesi prima. Il ramo che accetta le scadenze già chiuse a mano esiste per
+una buona ragione (agganciare il movimento senza sovrascrivere una chiusura fatta
+da una persona), ma filtrava solo sulla finestra della *scadenza*, non sulla data
+in cui la persona ha detto che il pagamento era avvenuto.
+
+Il fix è una condizione sola, nella migration `20260906_192`: se la scadenza è
+chiusa a mano e ha una `payment_date`, il movimento deve cadere entro 30 giorni
+da quella data. Misurato prima di applicare: su NZ un solo aggancio storico
+ricade nel nuovo vincolo, ed è proprio quello di SPM.
+
+**Come si toglie un aggancio da una scadenza chiusa a mano**: non con
+`undo_reconcile_movement`, che la riaprirebbe cancellando la chiusura. Si azzera
+`bank_transaction_id`, si porta il log a `rejected` e si riapre il movimento,
+lasciando `status`, `payment_date` e `closed_manually` intatti.
