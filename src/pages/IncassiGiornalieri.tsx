@@ -165,14 +165,21 @@ export default function IncassiGiornalieri() {
   }, [lines])
   // Numero di foto per chiusura e segnale "≠" se una lettura automatica non
   // coincide con quanto scritto (totale corrispettivi o versamento).
-  // Obiettivo del mese per outlet: giorni trascorsi = oggi per il mese corrente, tutto il mese se passato, 0 se futuro
+  // Obiettivo del mese per outlet. Giorni trascorsi: tutto il mese se passato,
+  // 0 se futuro; per il mese corrente i giorni PRIMA di oggi, piu' oggi solo se
+  // la chiusura di oggi e' gia' stata inserita (altrimenti l'obiettivo di un
+  // giorno ancora aperto abbasserebbe il confronto).
   const budgetRows = useMemo(() => {
     const [ty, tm, td] = today.split('-').map(Number)
-    const elapsed = ym.y < ty || (ym.y === ty && ym.m < tm) ? days.length : ym.y === ty && ym.m === tm ? td : 0
+    const isPast = ym.y < ty || (ym.y === ty && ym.m < tm)
+    const isCurrent = ym.y === ty && ym.m === tm
     return visibleOutlets.flatMap((o) => {
       const net = o.cost_center_key ? budgetNet.get(o.cost_center_key) : undefined
       if (net == null || net <= 0) return []
-      const mtd = closings.filter((c) => c.outlet_id === o.id && c.status !== 'bozza' && !c.is_closed_day).reduce((s, c) => s + Number(c.total_receipts), 0)
+      const mine = closings.filter((c) => c.outlet_id === o.id && c.status !== 'bozza')
+      const mtd = mine.filter((c) => !c.is_closed_day).reduce((s, c) => s + Number(c.total_receipts), 0)
+      const todayDone = mine.some((c) => c.closing_date === today)
+      const elapsed = isPast ? days.length : isCurrent ? Math.max(0, td - 1) + (todayDone ? 1 : 0) : 0
       return [{ outlet: o, t: budgetTargets({ monthNet: net, vatRate, daysInMonth: days.length, dayOfMonth: elapsed, mtd }) }]
     })
   }, [visibleOutlets, budgetNet, closings, vatRate, days.length, ym, today])
@@ -314,6 +321,8 @@ function BudgetPanel({ rows, missing, vatRate, daysInMonth, monthLabel }: {
   const tot = { monthGross: sum((t) => t.monthGross), toDateTarget: sum((t) => t.toDateTarget), mtd: sum((t) => t.mtd), dayTarget: sum((t) => t.dayTarget) }
   const totDelta = tot.mtd - tot.toDateTarget
   const totPct = tot.toDateTarget > 0 ? Math.round((tot.mtd / tot.toDateTarget) * 100) : null
+  const totPctMonth = tot.monthGross > 0 ? Math.round((tot.mtd / tot.monthGross) * 100) : null
+  const andamento = (n: number, pct: number | null) => `${n >= 0 ? '+' : ''}${formatEuro(n)}${pct != null ? ` (${pct} %)` : ''}`
   const totProj = rows.some((r) => r.t.projection != null) ? sum((t) => t.projection ?? 0) : null
   const deltaCls = (n: number) => (Math.abs(n) < 0.005 ? 'text-slate-700' : n > 0 ? 'text-emerald-700' : 'text-red-700')
   const delta = (n: number) => `${n >= 0 ? '+' : ''}${formatEuro(n)}`
@@ -321,7 +330,7 @@ function BudgetPanel({ rows, missing, vatRate, daysInMonth, monthLabel }: {
     <div className="mb-4 bg-white border border-slate-200 rounded-xl">
       <button onClick={() => setOpen((v) => !v)} className="w-full flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-3 text-left">
         <span className="text-sm font-semibold text-slate-800">Obiettivo del mese</span>
-        <span className="text-xs text-slate-500">obiettivo a oggi <strong className="text-slate-700">{formatEuro(tot.toDateTarget)}</strong> · incassato <strong className="text-slate-700">{formatEuro(tot.mtd)}</strong> · <strong className={deltaCls(totDelta)}>{delta(totDelta)}</strong>{totPct != null ? ` (${totPct} %)` : ''} · budget mese {formatEuro(tot.monthGross)}</span>
+        <span className="text-xs text-slate-500">budget mese <strong className="text-slate-700">{formatEuro(tot.monthGross)}</strong> · incassato <strong className="text-slate-700">{formatEuro(tot.mtd)}</strong>{totPctMonth != null ? ` (${totPctMonth} % del mese)` : ''} · rispetto all'obiettivo a oggi {formatEuro(tot.toDateTarget)}: <strong className={deltaCls(totDelta)}>{andamento(totDelta, totPct)}</strong></span>
         <span className="ml-auto text-xs text-blue-600">{open ? 'nascondi' : 'mostra'}</span>
       </button>
       {open && (
@@ -334,8 +343,8 @@ function BudgetPanel({ rows, missing, vatRate, daysInMonth, monthLabel }: {
                 <th className="px-3 py-2 text-right">Obiettivo giorno</th>
                 <th className="px-3 py-2 text-right">Obiettivo a oggi</th>
                 <th className="px-3 py-2 text-right">Incassato a oggi</th>
-                <th className="px-3 py-2 text-right">+/-</th>
-                <th className="px-3 py-2 text-right">Raggiunto</th>
+                <th className="px-3 py-2 text-right">Vs obiettivo a oggi</th>
+                <th className="px-3 py-2 text-right">Raggiunto del mese</th>
                 <th className="px-3 py-2 text-right">Proiezione fine mese</th>
               </tr>
             </thead>
@@ -343,13 +352,13 @@ function BudgetPanel({ rows, missing, vatRate, daysInMonth, monthLabel }: {
               {rows.map(({ outlet, t }) => (
                 <tr key={outlet.id} className="border-t border-slate-100">
                   <td className="px-3 py-1.5 font-medium text-slate-800 whitespace-nowrap">{outlet.name}</td>
-                  <td className="px-3 py-1.5 text-right font-mono tabular-nums">{formatEuro(t.monthGross)}</td>
-                  <td className="px-3 py-1.5 text-right font-mono tabular-nums">{formatEuro(t.dayTarget)}</td>
-                  <td className="px-3 py-1.5 text-right font-mono tabular-nums">{formatEuro(t.toDateTarget)}</td>
-                  <td className="px-3 py-1.5 text-right font-mono tabular-nums font-semibold">{formatEuro(t.mtd)}</td>
-                  <td className={`px-3 py-1.5 text-right font-mono tabular-nums font-semibold ${deltaCls(t.delta)}`}>{delta(t.delta)}</td>
-                  <td className="px-3 py-1.5 text-right font-mono tabular-nums">{t.pct == null ? '—' : `${t.pct} %`}</td>
-                  <td className="px-3 py-1.5 text-right font-mono tabular-nums">{t.projection == null ? '—' : formatEuro(t.projection)}</td>
+                  <td className="px-3 py-1.5 text-right tabular-nums">{formatEuro(t.monthGross)}</td>
+                  <td className="px-3 py-1.5 text-right tabular-nums">{formatEuro(t.dayTarget)}</td>
+                  <td className="px-3 py-1.5 text-right tabular-nums">{formatEuro(t.toDateTarget)}</td>
+                  <td className="px-3 py-1.5 text-right tabular-nums font-semibold">{formatEuro(t.mtd)}</td>
+                  <td className={`px-3 py-1.5 text-right tabular-nums font-semibold ${deltaCls(t.delta)}`}>{andamento(t.delta, t.pct)}</td>
+                  <td className="px-3 py-1.5 text-right tabular-nums">{t.pctMonth == null ? '—' : `${t.pctMonth} %`}</td>
+                  <td className="px-3 py-1.5 text-right tabular-nums">{t.projection == null ? '—' : formatEuro(t.projection)}</td>
                 </tr>
               ))}
             </tbody>
@@ -357,19 +366,19 @@ function BudgetPanel({ rows, missing, vatRate, daysInMonth, monthLabel }: {
               <tfoot className="bg-slate-50 font-semibold">
                 <tr>
                   <td className="px-3 py-2">Totale</td>
-                  <td className="px-3 py-2 text-right font-mono tabular-nums">{formatEuro(tot.monthGross)}</td>
-                  <td className="px-3 py-2 text-right font-mono tabular-nums">{formatEuro(tot.dayTarget)}</td>
-                  <td className="px-3 py-2 text-right font-mono tabular-nums">{formatEuro(tot.toDateTarget)}</td>
-                  <td className="px-3 py-2 text-right font-mono tabular-nums">{formatEuro(tot.mtd)}</td>
-                  <td className={`px-3 py-2 text-right font-mono tabular-nums ${deltaCls(totDelta)}`}>{delta(totDelta)}</td>
-                  <td className="px-3 py-2 text-right font-mono tabular-nums">{totPct == null ? '—' : `${totPct} %`}</td>
-                  <td className="px-3 py-2 text-right font-mono tabular-nums">{totProj == null ? '—' : formatEuro(totProj)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{formatEuro(tot.monthGross)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{formatEuro(tot.dayTarget)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{formatEuro(tot.toDateTarget)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{formatEuro(tot.mtd)}</td>
+                  <td className={`px-3 py-2 text-right tabular-nums ${deltaCls(totDelta)}`}>{andamento(totDelta, totPct)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{totPctMonth == null ? '—' : `${totPctMonth} %`}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{totProj == null ? '—' : formatEuro(totProj)}</td>
                 </tr>
               </tfoot>
             )}
           </table>
           <p className="px-4 py-2 text-[11px] text-slate-500">
-            Obiettivo = budget ricavi del mese dell'<a href="/budget?tab=rapido" className="text-blue-600 hover:underline">Inserimento rapido</a> (netto IVA) + IVA {String(vatRate).replace('.', ',')} %, diviso per i {daysInMonth} giorni del mese. Incassato = chiusure non in bozza. Proiezione = media dei giorni trascorsi × giorni del mese.
+            Budget mese = budget ricavi del mese dell'<a href="/budget?tab=rapido" className="text-blue-600 hover:underline">Inserimento rapido</a> (netto IVA) + IVA {String(vatRate).replace('.', ',')} %; obiettivo giorno = budget mese ÷ {daysInMonth} giorni; obiettivo a oggi = obiettivo giorno × giorni già chiusi (oggi conta solo se la chiusura è inserita). Incassato = chiusure non in bozza. «Vs obiettivo a oggi» dice se si è in linea con il ritmo del mese; «Raggiunto del mese» è la quota del budget mese già incassata. Proiezione = media dei giorni trascorsi × giorni del mese.
             {missing.length > 0 && <> Senza budget per questo mese: {missing.join(', ')}.</>}
           </p>
         </div>
@@ -407,21 +416,21 @@ function MatrixView({ days, outlets, closingAt, statusCls, onOpen }: {
                 const c = closingAt.get(`${o.id}|${d}`)
                 return (
                   <td key={o.id} className="px-1 py-1">
-                    <button onClick={() => onOpen(o.id, d)} className={`w-full text-right px-2 py-1 rounded-md font-mono tabular-nums ${statusCls(c, d)} hover:ring-1 hover:ring-blue-400`}>
+                    <button onClick={() => onOpen(o.id, d)} className={`w-full text-right px-2 py-1 rounded-md tabular-nums ${statusCls(c, d)} hover:ring-1 hover:ring-blue-400`}>
                       {c ? (c.is_closed_day ? 'chiuso' : formatEuro(Number(c.total_receipts))) : d <= today ? '—' : ''}
                     </button>
                   </td>
                 )
               })}
-              <td className="px-3 py-1.5 text-right font-mono tabular-nums font-semibold text-slate-800">{d <= today ? formatEuro(rowTotal(d)) : ''}</td>
+              <td className="px-3 py-1.5 text-right tabular-nums font-semibold text-slate-800">{d <= today ? formatEuro(rowTotal(d)) : ''}</td>
             </tr>
           ))}
         </tbody>
         <tfoot className="bg-slate-50 font-semibold">
           <tr>
             <td className="px-3 py-2 sticky left-0 bg-slate-50">Totale mese</td>
-            {outlets.map((o) => <td key={o.id} className="px-3 py-2 text-right font-mono tabular-nums">{formatEuro(colTotal(o.id))}</td>)}
-            <td className="px-3 py-2 text-right font-mono tabular-nums">{formatEuro(outlets.reduce((s, o) => s + colTotal(o.id), 0))}</td>
+            {outlets.map((o) => <td key={o.id} className="px-3 py-2 text-right tabular-nums">{formatEuro(colTotal(o.id))}</td>)}
+            <td className="px-3 py-2 text-right tabular-nums">{formatEuro(outlets.reduce((s, o) => s + colTotal(o.id), 0))}</td>
           </tr>
         </tfoot>
       </table>
@@ -446,20 +455,20 @@ function OutletSheet({ days, outletId, channels, closingAt, linesByClosing, line
   const sumCh = (chId: string) => days.reduce((s, d) => { const c = closingAt.get(`${outletId}|${d}`); return s + (c ? linesByClosing.get(c.id)?.get(chId) ?? 0 : 0) }, 0)
   const num = (n: number | null | undefined) => (n == null ? '' : formatEuro(Number(n)))
   return (
-    <div className="overflow-x-auto bg-white border border-slate-200 rounded-xl">
-      <table className="min-w-full text-sm">
-        <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+    <div className="max-w-full overflow-x-auto bg-white border border-slate-200 rounded-xl">
+      <table className="w-full text-xs">
+        <thead className="bg-slate-50 text-[11px] uppercase text-slate-500 leading-tight">
           <tr>
-            <th className="px-3 py-2 text-left sticky left-0 bg-slate-50">Data</th>
-            <th className="px-3 py-2 text-right">Totale corrispettivi</th>
-            {channels.map((ch) => <th key={ch.id} className="px-3 py-2 text-right whitespace-nowrap">{ch.label}</th>)}
-            <th className="px-3 py-2 text-right">Spese cassa</th>
-            <th className="px-3 py-2 text-right">Rimborsi</th>
-            <th className="px-3 py-2 text-right">Versamenti</th>
-            <th className="px-3 py-2 text-right">Fondo cassa</th>
-            <th className="px-3 py-2 text-right">Diff. cassa</th>
-            <th className="px-3 py-2 text-center">Foto</th>
-            <th className="px-3 py-2 text-left">Stato</th>
+            <th className="px-2 py-2 text-left sticky left-0 bg-slate-50">Data</th>
+            <th className="px-2 py-2 text-right">Totale corrisp.</th>
+            {channels.map((ch) => <th key={ch.id} className="px-2 py-2 text-right">{ch.label}</th>)}
+            <th className="px-2 py-2 text-right">Spese cassa</th>
+            <th className="px-2 py-2 text-right">Rimborsi</th>
+            <th className="px-2 py-2 text-right">Versamenti</th>
+            <th className="px-2 py-2 text-right">Fondo cassa</th>
+            <th className="px-2 py-2 text-right">Diff. cassa</th>
+            <th className="px-2 py-2 text-center">Foto</th>
+            <th className="px-2 py-2 text-left">Stato</th>
           </tr>
         </thead>
         <tbody>
@@ -468,40 +477,40 @@ function OutletSheet({ days, outletId, channels, closingAt, linesByClosing, line
             const lm = c ? linesByClosing.get(c.id) : undefined
             return (
               <tr key={d} className={`border-t border-slate-100 cursor-pointer hover:bg-blue-50/40 ${statusCls(c, d)}`} onClick={() => onOpen(d)}>
-                <td className="px-3 py-1.5 sticky left-0 bg-inherit whitespace-nowrap">{formatDateIt(d, true).replace(/ \d{4}$/, '')}</td>
-                <td className="px-3 py-1.5 text-right font-mono tabular-nums font-semibold">{c ? (c.is_closed_day ? 'chiuso' : num(c.total_receipts)) : d <= today ? '—' : ''}</td>
+                <td className="px-2 py-1 sticky left-0 bg-inherit whitespace-nowrap">{formatDateIt(d, true).replace(/ \d{4}$/, '')}</td>
+                <td className="px-2 py-1 text-right tabular-nums font-semibold">{c ? (c.is_closed_day ? 'chiuso' : num(c.total_receipts)) : d <= today ? '—' : ''}</td>
                 {channels.map((ch) => {
                   const b = c && (ch.kind === 'pos' || ch.kind === 'pos_amex') ? lineBankByClosing.get(c.id)?.get(ch.id) : undefined
                   const bm = bankStatusMark(b?.status)
                   return (
-                    <td key={ch.id} className="px-3 py-1.5 text-right font-mono tabular-nums whitespace-nowrap">
+                    <td key={ch.id} className="px-2 py-1 text-right tabular-nums whitespace-nowrap">
                       {lm ? num(lm.get(ch.id) ?? 0) : ''}
                       {b && bm.mark && <span className={`ml-1 text-xs ${bm.cls}`} title={`${BANK_STATUS_LABELS[b.status as keyof typeof BANK_STATUS_LABELS] ?? b.status}${b.amount != null ? ` · banca ${formatEuro(b.amount)}` : ''}`}>{bm.mark}</span>}
                     </td>
                   )
                 })}
-                <td className="px-3 py-1.5 text-right font-mono tabular-nums" title={c?.cash_expenses_note ?? ''}>{c ? num(c.cash_expenses) : ''}</td>
-                <td className="px-3 py-1.5 text-right font-mono tabular-nums">{c ? num(c.customer_refunds) : ''}</td>
-                <td className="px-3 py-1.5 text-right font-mono tabular-nums whitespace-nowrap" title={`${c?.cash_deposit_note ?? ''}${c && Number(c.cash_deposit) > 0 ? ` · ${BANK_STATUS_LABELS[c.deposit_bank_status as keyof typeof BANK_STATUS_LABELS] ?? c.deposit_bank_status}` : ''}`}>
+                <td className="px-2 py-1 text-right tabular-nums" title={c?.cash_expenses_note ?? ''}>{c ? num(c.cash_expenses) : ''}</td>
+                <td className="px-2 py-1 text-right tabular-nums">{c ? num(c.customer_refunds) : ''}</td>
+                <td className="px-2 py-1 text-right tabular-nums whitespace-nowrap" title={`${c?.cash_deposit_note ?? ''}${c && Number(c.cash_deposit) > 0 ? ` · ${BANK_STATUS_LABELS[c.deposit_bank_status as keyof typeof BANK_STATUS_LABELS] ?? c.deposit_bank_status}` : ''}`}>
                   {c ? num(c.cash_deposit) : ''}
                   {c && Number(c.cash_deposit) > 0 && bankStatusMark(c.deposit_bank_status).mark && <span className={`ml-1 text-xs ${bankStatusMark(c.deposit_bank_status).cls}`}>{bankStatusMark(c.deposit_bank_status).mark}</span>}
                 </td>
-                <td className="px-3 py-1.5 text-right font-mono tabular-nums">{c ? num(c.cash_float_declared) : ''}</td>
-                <td className={`px-3 py-1.5 text-right font-mono tabular-nums ${c && Number(c.cash_difference) !== 0 ? 'text-red-700 font-semibold' : ''}`}>{c ? num(c.cash_difference) : ''}</td>
-                <td className="px-3 py-1.5 text-center">{c ? <>{attCount.get(c.id)?.n ?? 0}{attCount.get(c.id)?.mismatch && <span className="ml-1 text-amber-700 font-semibold" title="Una foto letta automaticamente non coincide con quanto scritto: apri il dettaglio">≠</span>}</> : ''}</td>
-                <td className="px-3 py-1.5 text-xs">{c ? (c.is_closed_day ? 'Negozio chiuso' : CLOSING_STATUS_LABELS[c.status as keyof typeof CLOSING_STATUS_LABELS]) : d < today ? 'Mancante' : ''}</td>
+                <td className="px-2 py-1 text-right tabular-nums">{c ? num(c.cash_float_declared) : ''}</td>
+                <td className={`px-2 py-1 text-right tabular-nums ${c && Number(c.cash_difference) !== 0 ? 'text-red-700 font-semibold' : ''}`}>{c ? num(c.cash_difference) : ''}</td>
+                <td className="px-2 py-1 text-center">{c ? <>{attCount.get(c.id)?.n ?? 0}{attCount.get(c.id)?.mismatch && <span className="ml-1 text-amber-700 font-semibold" title="Una foto letta automaticamente non coincide con quanto scritto: apri il dettaglio">≠</span>}</> : ''}</td>
+                <td className="px-2 py-1 text-xs">{c ? (c.is_closed_day ? 'Negozio chiuso' : CLOSING_STATUS_LABELS[c.status as keyof typeof CLOSING_STATUS_LABELS]) : d < today ? 'Mancante' : ''}</td>
               </tr>
             )
           })}
         </tbody>
         <tfoot className="bg-slate-50 font-semibold">
           <tr>
-            <td className="px-3 py-2 sticky left-0 bg-slate-50">Totale mese</td>
-            <td className="px-3 py-2 text-right font-mono tabular-nums">{formatEuro(sum((c) => Number(c.total_receipts)))}</td>
-            {channels.map((ch) => <td key={ch.id} className="px-3 py-2 text-right font-mono tabular-nums">{formatEuro(sumCh(ch.id))}</td>)}
-            <td className="px-3 py-2 text-right font-mono tabular-nums">{formatEuro(sum((c) => Number(c.cash_expenses)))}</td>
-            <td className="px-3 py-2 text-right font-mono tabular-nums">{formatEuro(sum((c) => Number(c.customer_refunds)))}</td>
-            <td className="px-3 py-2 text-right font-mono tabular-nums">{formatEuro(sum((c) => Number(c.cash_deposit)))}</td>
+            <td className="px-2 py-1.5 sticky left-0 bg-slate-50">Totale mese</td>
+            <td className="px-2 py-1.5 text-right tabular-nums">{formatEuro(sum((c) => Number(c.total_receipts)))}</td>
+            {channels.map((ch) => <td key={ch.id} className="px-2 py-1.5 text-right tabular-nums">{formatEuro(sumCh(ch.id))}</td>)}
+            <td className="px-2 py-1.5 text-right tabular-nums">{formatEuro(sum((c) => Number(c.cash_expenses)))}</td>
+            <td className="px-2 py-1.5 text-right tabular-nums">{formatEuro(sum((c) => Number(c.customer_refunds)))}</td>
+            <td className="px-2 py-1.5 text-right tabular-nums">{formatEuro(sum((c) => Number(c.cash_deposit)))}</td>
             <td colSpan={4} />
           </tr>
         </tfoot>
@@ -661,7 +670,7 @@ function ClosingDetail({ outletName, date, closing, channels, lines, lineBank, a
     )
   }
   const row = (label: string, value: string, strong = false) => (
-    <div className="flex justify-between py-1 border-b border-slate-100 text-sm"><span className="text-slate-600">{label}</span><span className={`font-mono tabular-nums ${strong ? 'font-semibold' : ''}`}>{value}</span></div>
+    <div className="flex justify-between py-1 border-b border-slate-100 text-sm"><span className="text-slate-600">{label}</span><span className={`tabular-nums ${strong ? 'font-semibold' : ''}`}>{value}</span></div>
   )
   const thumb = (a: AttachmentLite) => (
     <div key={a.id}>
@@ -731,7 +740,7 @@ function ClosingDetail({ outletName, date, closing, channels, lines, lineBank, a
                 {bankMatches.map((m) => (
                   <div key={m.id} className="flex justify-between gap-2 border-b border-slate-100 py-0.5">
                     <span className="text-slate-600 truncate">{m.tx_date ? m.tx_date.split('-').reverse().join('/') : ''} · {m.match_type === 'versamento' ? 'versamento' : m.match_type === 'amex' ? 'Amex' : 'POS'}{m.descr ? ` · ${m.descr}` : ''}</span>
-                    <span className="font-mono tabular-nums whitespace-nowrap">{formatEuro(m.amount)}</span>
+                    <span className="tabular-nums whitespace-nowrap">{formatEuro(m.amount)}</span>
                   </div>
                 ))}
               </div>
@@ -891,7 +900,7 @@ function ChannelsEditor({ outlets, channels, bankAccounts, companyId, canManage,
                     <td className="py-1 pr-3 font-mono">{b.code}</td>
                     <td className="py-1 pr-3">{b.circuit === 'amex' ? 'American Express' : 'POS carte'}</td>
                     <td className="py-1 pr-3 text-right">{b.n}</td>
-                    <td className="py-1 pr-3 text-right font-mono tabular-nums">{formatEuro(b.total)}</td>
+                    <td className="py-1 pr-3 text-right tabular-nums">{formatEuro(b.total)}</td>
                     <td className="py-1 pr-3 whitespace-nowrap">{b.last_date.split('-').reverse().join('/')}</td>
                     <td className="py-1 pr-3 text-slate-500 truncate max-w-[280px]" title={b.sample ?? ''}>{b.sample}</td>
                     <td className={`py-1 ${b.mapped_channel_id ? 'text-emerald-700' : 'text-amber-700'}`}>{channelLabel(b.mapped_channel_id) ?? 'non mappato'}</td>
@@ -1077,9 +1086,9 @@ function BankCheckPanel({ ym, onPrev, onNext, onMatched }: { ym: { y: number; m:
                         <td className="px-3 py-1.5">{c.label}</td>
                         <td className={`px-3 py-1.5 font-mono ${c.terminal_code ? '' : 'text-amber-700'}`}>{c.terminal_code ?? 'da mappare'}</td>
                         <td className="px-3 py-1.5 text-right">{c.days}</td>
-                        <td className="px-3 py-1.5 text-right font-mono tabular-nums">{num(c.declared)}</td>
-                        <td className="px-3 py-1.5 text-right font-mono tabular-nums">{num(c.credited)}</td>
-                        <td className={`px-3 py-1.5 text-right font-mono tabular-nums ${diff !== 0 && Number(c.days) > 0 ? 'text-red-700 font-semibold' : ''}`}>{Number(c.days) > 0 ? num(diff) : '—'}</td>
+                        <td className="px-3 py-1.5 text-right tabular-nums">{num(c.declared)}</td>
+                        <td className="px-3 py-1.5 text-right tabular-nums">{num(c.credited)}</td>
+                        <td className={`px-3 py-1.5 text-right tabular-nums ${diff !== 0 && Number(c.days) > 0 ? 'text-red-700 font-semibold' : ''}`}>{Number(c.days) > 0 ? num(diff) : '—'}</td>
                         <td className="px-3 py-1.5 text-center text-emerald-700">{c.accreditato || ''}</td>
                         <td className="px-3 py-1.5 text-center text-amber-700">{c.differenza || ''}</td>
                         <td className="px-3 py-1.5 text-center text-red-700">{c.mancante || ''}</td>
@@ -1107,12 +1116,12 @@ function BankCheckPanel({ ym, onPrev, onNext, onMatched }: { ym: { y: number; m:
                       <td className="px-3 py-1.5">{o.outlet_name}</td>
                       <td className="px-3 py-1.5 text-right">{o.closings}</td>
                       <td className="px-3 py-1.5 text-right text-emerald-700">{o.verified}</td>
-                      <td className="px-3 py-1.5 text-right font-mono tabular-nums">{num(o.cash_in)}</td>
-                      <td className="px-3 py-1.5 text-right font-mono tabular-nums">{num(o.expenses)}</td>
-                      <td className="px-3 py-1.5 text-right font-mono tabular-nums">{num(o.deposits_declared)}</td>
-                      <td className={`px-3 py-1.5 text-right font-mono tabular-nums ${Number(o.deposits_found) !== Number(o.deposits_declared) && Number(o.closings) > 0 ? 'text-amber-700' : ''}`}>{num(o.deposits_found)}</td>
-                      <td className="px-3 py-1.5 text-right font-mono tabular-nums">{num(o.float_start)}</td>
-                      <td className="px-3 py-1.5 text-right font-mono tabular-nums">{num(o.float_end)}</td>
+                      <td className="px-3 py-1.5 text-right tabular-nums">{num(o.cash_in)}</td>
+                      <td className="px-3 py-1.5 text-right tabular-nums">{num(o.expenses)}</td>
+                      <td className="px-3 py-1.5 text-right tabular-nums">{num(o.deposits_declared)}</td>
+                      <td className={`px-3 py-1.5 text-right tabular-nums ${Number(o.deposits_found) !== Number(o.deposits_declared) && Number(o.closings) > 0 ? 'text-amber-700' : ''}`}>{num(o.deposits_found)}</td>
+                      <td className="px-3 py-1.5 text-right tabular-nums">{num(o.float_start)}</td>
+                      <td className="px-3 py-1.5 text-right tabular-nums">{num(o.float_end)}</td>
                       <td className={`px-3 py-1.5 text-center ${Number(o.deposits_missing) > 0 ? 'text-red-700 font-semibold' : 'text-slate-400'}`}>{Number(o.deposits_missing) > 0 ? o.deposits_missing : Number(o.deposits_pending) > 0 ? `${o.deposits_pending} in attesa` : ''}</td>
                     </tr>
                   ))}
@@ -1135,7 +1144,7 @@ function BankCheckPanel({ ym, onPrev, onNext, onMatched }: { ym: { y: number; m:
               <div className="font-semibold text-slate-900 mb-1">Accrediti in banca senza una chiusura confermata per quel giorno ({noClosing.length})</div>
               <p className="text-xs text-slate-500 mb-2">Il terminale è mappato ma per il giorno di vendita non c'è una chiusura confermata: la cassiera non l'ha ancora fatta, oppure è ancora in bozza. Appena confermata, il riscontro del mattino la abbina.</p>
               <div className="text-xs grid grid-cols-1 sm:grid-cols-2 gap-x-6">
-                {noClosing.slice(0, 60).map((u) => <div key={`${u.circuit}-${u.code}-${u.ref_date}`} className="flex justify-between border-b border-slate-100 py-0.5"><span>{u.ref_date.split('-').reverse().join('/')} · terminale <span className="font-mono">{u.code}</span> {u.circuit === 'amex' ? 'Amex' : ''}</span><span className="font-mono tabular-nums">{formatEuro(Number(u.total))}</span></div>)}
+                {noClosing.slice(0, 60).map((u) => <div key={`${u.circuit}-${u.code}-${u.ref_date}`} className="flex justify-between border-b border-slate-100 py-0.5"><span>{u.ref_date.split('-').reverse().join('/')} · terminale <span className="font-mono">{u.code}</span> {u.circuit === 'amex' ? 'Amex' : ''}</span><span className="tabular-nums">{formatEuro(Number(u.total))}</span></div>)}
               </div>
             </div>
           )}

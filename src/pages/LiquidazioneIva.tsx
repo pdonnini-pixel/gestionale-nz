@@ -308,7 +308,7 @@ export default function LiquidazioneIva() {
     return Array.from(ys).filter(y => y >= effSettings.startYear).sort()
   }, [componenti, effSettings.startYear, today])
 
-  const inputCls = 'w-full px-2 py-1 border border-slate-200 rounded-lg text-xs text-right font-mono tabular-nums bg-white focus:outline-none focus:ring-1 focus:ring-blue-400/40'
+  const inputCls = 'w-full px-2 py-1 border border-slate-200 rounded-lg text-xs text-right tabular-nums bg-white focus:outline-none focus:ring-1 focus:ring-blue-400/40'
   const selectCls = 'px-3 py-1.5 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-blue-400/40 bg-white'
   const btnSecondary = 'inline-flex items-center gap-1.5 px-3 py-1.5 border border-slate-200 rounded-lg text-xs font-medium text-slate-700 hover:bg-slate-50 transition disabled:opacity-50'
   const btnPrimary = 'inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-medium hover:bg-blue-700 transition shadow-sm disabled:opacity-50'
@@ -425,14 +425,14 @@ export default function LiquidazioneIva() {
                     <tr key={r.key} className={`border-t border-slate-100 align-top ${r.stato === 'in_corso' ? 'bg-blue-50/30' : ''}`}>
                       <td className="px-3 py-2 whitespace-nowrap">
                         <div className="font-medium text-slate-900">{MESI_IVA[r.month]} {r.year}</div>
-                        <div className="text-xs text-slate-500 font-mono">F24 {r.f24Code}</div>
+                        <div className="text-xs text-slate-500">F24 {r.f24Code}</div>
                       </td>
                       <td className="px-3 py-2">
                         {isConfirm ? (
                           <input value={cForm.corr} onChange={e => setCForm({ ...cForm, corr: e.target.value })} className={inputCls} inputMode="decimal" aria-label="Corrispettivi netti" />
                         ) : (
                           <>
-                            <div className="font-mono tabular-nums text-slate-900">{fmt(r.corrispettiviNetti)}</div>
+                            <div className="tabular-nums text-slate-900">{fmt(r.corrispettiviNetti)}</div>
                             <span className={`inline-block mt-0.5 text-[11px] px-1.5 py-0.5 rounded border ${FONTE_STYLE[r.fonteCorrispettivi]}`}>
                               {FONTE_LABEL[r.fonteCorrispettivi]}{r.giorniChiusura > 0 ? ` · ${r.giorniChiusura} gg` : ''}
                             </span>
@@ -440,7 +440,7 @@ export default function LiquidazioneIva() {
                         )}
                       </td>
                       <td className="px-3 py-2 text-right">
-                        <div className="font-mono tabular-nums text-slate-900">{fmt(r.ivaDebitoCorrispettivi + r.ivaFattureAttive)}</div>
+                        <div className="tabular-nums text-slate-900">{fmt(r.ivaDebitoCorrispettivi + r.ivaFattureAttive)}</div>
                         {isConfirm ? (
                           <label className="block text-[11px] text-slate-500 mt-1">fatture attive
                             <input value={cForm.ivaAtt} onChange={e => setCForm({ ...cForm, ivaAtt: e.target.value })} className={inputCls + ' mt-0.5'} inputMode="decimal" />
@@ -454,7 +454,7 @@ export default function LiquidazioneIva() {
                           <input value={cForm.ivaCred} onChange={e => setCForm({ ...cForm, ivaCred: e.target.value })} className={inputCls} inputMode="decimal" aria-label="IVA acquisti" />
                         ) : (
                           <>
-                            <div className="font-mono tabular-nums text-slate-900">{r.ivaCreditoStimato ? '≈ ' : ''}{fmt(r.ivaCredito)}</div>
+                            <div className="tabular-nums text-slate-900">{r.ivaCreditoStimato ? '≈ ' : ''}{fmt(r.ivaCredito)}</div>
                             <div className="text-[11px] text-slate-500">
                               {r.ivaCreditoStimato
                                 ? 'media dei mesi chiusi'
@@ -463,10 +463,10 @@ export default function LiquidazioneIva() {
                           </>
                         )}
                       </td>
-                      <td className="px-3 py-2 text-right font-mono tabular-nums text-slate-600">{r.riportoPrecedente > 0 ? `− ${fmt(r.riportoPrecedente)}` : '—'}</td>
-                      <td className={`px-3 py-2 text-right font-mono tabular-nums font-semibold ${aCredito ? 'text-emerald-700' : 'text-slate-900'}`}>
+                      <td className="px-3 py-2 text-right tabular-nums text-slate-600">{r.riportoPrecedente > 0 ? `− ${fmt(r.riportoPrecedente)}` : '—'}</td>
+                      <td className={`px-3 py-2 text-right tabular-nums font-semibold ${aCredito ? 'text-emerald-700' : 'text-slate-900'}`}>
                         {aCredito ? `a credito ${fmt(-r.importo)}` : fmt(r.importo)}
-                        {isConfirm && <div className="text-[11px] font-sans font-normal text-slate-500">si ricalcola al salvataggio</div>}
+                        {isConfirm && <div className="text-[11px] font-normal text-slate-500">si ricalcola al salvataggio</div>}
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap">
                         <div className="text-slate-900">{fmtDate(r.dueDate)}</div>

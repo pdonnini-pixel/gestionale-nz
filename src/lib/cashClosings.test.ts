@@ -151,6 +151,7 @@ describe('budgetTargets', () => {
     expect(t.toDateTarget).toBe(16333.32)
     expect(t.delta).toBe(-1333.32)
     expect(t.pct).toBe(92)
+    expect(t.pctMonth).toBe(21) // 15.000 su 70.000: il mese e' raggiunto al 21 %, non al 92 %
     expect(t.projection).toBe(64285.71)
   })
   it('mese futuro: nessun giorno trascorso, nessuna proiezione', () => {
@@ -164,6 +165,7 @@ describe('budgetTargets', () => {
     expect(t.toDateTarget).toBe(t.monthGross)
     expect(t.delta).toBe(0)
     expect(t.pct).toBe(100)
+    expect(t.pctMonth).toBe(100)
   })
 })
 

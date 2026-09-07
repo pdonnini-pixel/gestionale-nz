@@ -355,8 +355,9 @@ export interface BudgetTarget {
   dayTarget: number
   toDateTarget: number
   mtd: number
-  delta: number          // mtd − toDateTarget
-  pct: number | null     // mtd / toDateTarget × 100, null se obiettivo a oggi = 0
+  delta: number          // mtd − toDateTarget (andamento rispetto all'obiettivo a oggi)
+  pct: number | null     // mtd / toDateTarget × 100 (andamento a oggi), null se obiettivo a oggi = 0
+  pctMonth: number | null  // mtd / monthGross × 100: quanto del budget del MESE è già incassato, null se budget = 0
   projection: number | null  // media dei giorni trascorsi × giorni del mese, null se nessun giorno trascorso
 }
 export function budgetTargets(i: BudgetTargetInput): BudgetTarget {
@@ -372,6 +373,7 @@ export function budgetTargets(i: BudgetTargetInput): BudgetTarget {
     monthGross, dayTarget, toDateTarget, mtd,
     delta: r2(mtd - toDateTarget),
     pct: toDateTarget > 0 ? Math.round((mtd / toDateTarget) * 100) : null,
+    pctMonth: monthGross > 0 ? Math.round((mtd / monthGross) * 100) : null,
     projection: elapsed > 0 ? r2((mtd / elapsed) * days) : null,
   }
 }

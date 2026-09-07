@@ -242,15 +242,15 @@ function renderHtml(r: ReportData): { subject: string; html: string; text: strin
   const monthRows = r.rows.filter((row) => row.budget).map((row) => {
     const bb = row.budget!;
     const md = bb.mtd - bb.toDateTarget;
-    return `<tr>${td(`<strong>${esc(row.outlet.name)}</strong>`, "left")}${td(eur(bb.monthGross))}${td(eur(bb.toDateTarget))}${td(`<strong>${eur(bb.mtd)}</strong>`)}${td(delta(md), "right", deltaStyle(md))}${td(pct(bb.mtd, bb.toDateTarget))}${td(bb.mtdDays > 0 ? eur(bb.projection) : "—")}</tr>`;
+    return `<tr>${td(`<strong>${esc(row.outlet.name)}</strong>`, "left")}${td(eur(bb.monthGross))}${td(eur(bb.toDateTarget))}${td(`<strong>${eur(bb.mtd)}</strong>`)}${td(`${delta(md)} (${pct(bb.mtd, bb.toDateTarget)})`, "right", deltaStyle(md))}${td(pct(bb.mtd, bb.monthGross))}${td(bb.mtdDays > 0 ? eur(bb.projection) : "—")}</tr>`;
   }).join("");
   const noBudgetNames = r.rows.filter((row) => !row.budget).map((row) => esc(row.outlet.name));
   const monthHtml = hasBudget
     ? `<h3 style="margin:22px 0 6px;font-size:14px;color:#0f172a">Mese vs obiettivo · ${esc(r.monthLabel)}, giorno ${b.dayOfMonth} di ${b.daysInMonth}</h3>
 <div style="overflow-x:auto"><table style="border-collapse:collapse;width:100%;font-size:13px">
-<thead><tr>${th("Punto vendita", "left")}${th("Budget mese")}${th("Obiettivo a oggi")}${th("Incassato a oggi")}${th("+/-")}${th("Raggiunto")}${th("Proiezione fine mese")}</tr></thead>
-<tbody>${monthRows}<tr style="background:#f1f5f9;font-weight:700">${td("Totale azienda", "left")}${td(eur(b.monthGross))}${td(eur(b.toDateTarget))}${td(eur(b.mtd))}${td(delta(mtdDelta), "right", deltaStyle(mtdDelta))}${td(pct(b.mtd, b.toDateTarget))}${td(eur(b.projection))}</tr></tbody></table></div>
-<p style="margin:6px 0 0;font-size:11px;color:#64748b">Obiettivo = budget ricavi del mese dell'Inserimento rapido (netto IVA) + IVA ${String(b.vatRate).replace(".", ",")} %, diviso per i ${b.daysInMonth} giorni del mese. Incassato = chiusure non in bozza, oggi compreso. Proiezione = media dei giorni trascorsi × giorni del mese.${noBudgetNames.length ? ` Senza budget per questo mese: ${noBudgetNames.join(", ")}.` : ""}${budgetLink ? ` <a href="${esc(budgetLink)}" style="color:#1d4ed8">Modifica il budget</a>.` : ""}</p>`
+<thead><tr>${th("Punto vendita", "left")}${th("Budget mese")}${th("Obiettivo a oggi")}${th("Incassato a oggi")}${th("Vs obiettivo a oggi")}${th("Raggiunto del mese")}${th("Proiezione fine mese")}</tr></thead>
+<tbody>${monthRows}<tr style="background:#f1f5f9;font-weight:700">${td("Totale azienda", "left")}${td(eur(b.monthGross))}${td(eur(b.toDateTarget))}${td(eur(b.mtd))}${td(`${delta(mtdDelta)} (${pct(b.mtd, b.toDateTarget)})`, "right", deltaStyle(mtdDelta))}${td(pct(b.mtd, b.monthGross))}${td(eur(b.projection))}</tr></tbody></table></div>
+<p style="margin:6px 0 0;font-size:11px;color:#64748b">Budget mese = budget ricavi del mese dell'Inserimento rapido (netto IVA) + IVA ${String(b.vatRate).replace(".", ",")} %; obiettivo a oggi = budget mese ÷ ${b.daysInMonth} giorni × giorni trascorsi. «Vs obiettivo a oggi» dice se si è in linea con il ritmo del mese; «Raggiunto del mese» è la quota del budget mese già incassata. Incassato = chiusure non in bozza, oggi compreso. Proiezione = media dei giorni trascorsi × giorni del mese.${noBudgetNames.length ? ` Senza budget per questo mese: ${noBudgetNames.join(", ")}.` : ""}${budgetLink ? ` <a href="${esc(budgetLink)}" style="color:#1d4ed8">Modifica il budget</a>.` : ""}</p>`
     : `<p style="margin:20px 0 0;font-size:12px;color:#64748b">Nessun budget ricavi per ${esc(r.monthLabel)} nell'Inserimento rapido: il confronto con l'obiettivo non è disponibile.${budgetLink ? ` <a href="${esc(budgetLink)}" style="color:#1d4ed8">Inserisci il budget</a>.` : ""}</p>`;
   const html = `<!doctype html><html lang="it"><body style="margin:0;padding:20px;background:#f8fafc;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#0f172a">
 <div style="max-width:900px;margin:0 auto;background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:20px">
@@ -277,7 +277,7 @@ ${pageLink ? `<p style="margin:20px 0 0;font-size:13px"><a href="${esc(pageLink)
       return `${row.outlet.name}: ${eur(num(row.closing.total_receipts))}${tgt}${dd} · contanti ${eur(row.cash)}, POS ${eur(row.pos)}, altri ${eur(row.other)}, versamento ${eur(num(row.closing.cash_deposit))} ${row.closing.status === "bozza" ? "[BOZZA]" : ""}`;
     }),
     "",
-    ...(hasBudget ? [`Mese vs obiettivo (giorno ${b.dayOfMonth} di ${b.daysInMonth}):`, ...r.rows.filter((row) => row.budget).map((row) => `- ${row.outlet.name}: incassato ${eur(row.budget!.mtd)} su obiettivo a oggi ${eur(row.budget!.toDateTarget)} (${delta(row.budget!.mtd - row.budget!.toDateTarget)}), budget mese ${eur(row.budget!.monthGross)}`), `- Totale: ${eur(b.mtd)} su ${eur(b.toDateTarget)} (${delta(mtdDelta)}), budget mese ${eur(b.monthGross)}, proiezione ${eur(b.projection)}`, ""] : []),
+    ...(hasBudget ? [`Mese vs obiettivo (giorno ${b.dayOfMonth} di ${b.daysInMonth}):`, ...r.rows.filter((row) => row.budget).map((row) => `- ${row.outlet.name}: incassato ${eur(row.budget!.mtd)} su obiettivo a oggi ${eur(row.budget!.toDateTarget)} (${delta(row.budget!.mtd - row.budget!.toDateTarget)}), budget mese ${eur(row.budget!.monthGross)} raggiunto al ${pct(row.budget!.mtd, row.budget!.monthGross)}`), `- Totale: ${eur(b.mtd)} su ${eur(b.toDateTarget)} (${delta(mtdDelta)}), budget mese ${eur(b.monthGross)}, proiezione ${eur(b.projection)}`, ""] : []),
     r.anomalies.length ? `Da controllare:\n${r.anomalies.map((a) => `- ${a}`).join("\n")}` : "Nessuna anomalia.",
     pageLink ? `\n${pageLink}` : "",
   ].join("\n");
