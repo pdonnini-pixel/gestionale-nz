@@ -8,7 +8,6 @@ import {
   Sparkles, Send, Loader2, BookOpen, Package, UserCircle,
   MessageSquare, Lock, Search, CheckCircle2, AlertTriangle,
   LucideIcon,
-  Percent,
 } from 'lucide-react'
 import { PAGE_GUIDES, type PageGuide } from '../data/pageGuides'
 import { useAuth } from '../hooks/useAuth'
