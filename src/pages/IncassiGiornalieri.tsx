@@ -765,6 +765,7 @@ interface ChannelDraft {
   bank_account_id: string
   terminal_code: string
   pos_terminal_id: string
+  bank_tolerance_pct: string
   counts_in_total: boolean
   sort_order: number
   is_active: boolean
@@ -799,7 +800,7 @@ function ChannelsEditor({ outlets, channels, bankAccounts, companyId, canManage,
 
   const toDraft = (c: PaymentChannel): ChannelDraft => ({
     id: c.id, outlet_id: c.outlet_id, label: c.label, kind: c.kind, bank_account_id: c.bank_account_id ?? '',
-    terminal_code: c.terminal_code ?? '', pos_terminal_id: c.pos_terminal_id ?? '', counts_in_total: c.counts_in_total,
+    terminal_code: c.terminal_code ?? '', pos_terminal_id: c.pos_terminal_id ?? '', bank_tolerance_pct: String(c.bank_tolerance_pct ?? 0), counts_in_total: c.counts_in_total,
     sort_order: c.sort_order, is_active: c.is_active,
   })
   const key = (d: ChannelDraft) => d.id ?? `new-${d.outlet_id}-${d.sort_order}`
@@ -809,11 +810,13 @@ function ChannelsEditor({ outlets, channels, bankAccounts, companyId, canManage,
   const save = async (k: string, d: ChannelDraft) => {
     if (!companyId) return
     if (!d.label.trim()) { toast({ type: 'warning', message: 'Serve un nome per il canale' }); return }
+    const tol = Number(String(d.bank_tolerance_pct).replace(',', '.'))
+    if (!Number.isFinite(tol) || tol < 0 || tol > 10) { toast({ type: 'warning', message: 'La tolleranza banca va da 0 a 10 %' }); return }
     setBusy(k)
     const payload = {
       company_id: companyId, outlet_id: d.outlet_id, label: d.label.trim(), kind: d.kind,
       bank_account_id: d.bank_account_id || null, terminal_code: d.terminal_code.trim() || null,
-      pos_terminal_id: d.pos_terminal_id.trim() || null, counts_in_total: d.counts_in_total,
+      pos_terminal_id: d.pos_terminal_id.trim() || null, bank_tolerance_pct: Math.round(tol * 100) / 100, counts_in_total: d.counts_in_total,
       sort_order: d.sort_order, is_active: d.is_active, updated_at: new Date().toISOString(),
     }
     const { error } = d.id
@@ -838,7 +841,7 @@ function ChannelsEditor({ outlets, channels, bankAccounts, companyId, canManage,
 
   const addNew = (outletId: string) => {
     const existing = channels.filter((c) => c.outlet_id === outletId)
-    const d: ChannelDraft = { outlet_id: outletId, label: '', kind: 'pos', bank_account_id: '', terminal_code: '', pos_terminal_id: '', counts_in_total: true, sort_order: existing.length + 1, is_active: true }
+    const d: ChannelDraft = { outlet_id: outletId, label: '', kind: 'pos', bank_account_id: '', terminal_code: '', pos_terminal_id: '', bank_tolerance_pct: '1.5', counts_in_total: true, sort_order: existing.length + 1, is_active: true }
     setDrafts((m) => ({ ...m, [key(d)]: d }))
   }
 
@@ -906,6 +909,7 @@ function ChannelsEditor({ outlets, channels, bankAccounts, companyId, canManage,
                       <th className="px-3 py-2 text-left">Conto di accredito</th>
                       <th className="px-3 py-2 text-left">Codice terminale (banca)</th>
                       <th className="px-3 py-2 text-left">ID terminale POS</th>
+                      <th className="px-3 py-2 text-left" title="Scarto % ammesso fra importo dichiarato e accreditato in banca: le commissioni che l'acquirer trattiene prima dell'accredito">Tolleranza banca %</th>
                       <th className="px-3 py-2 text-center">Nel totale</th>
                       <th className="px-3 py-2 text-center">Attivo</th>
                       <th className="px-3 py-2" />
@@ -939,6 +943,12 @@ function ChannelsEditor({ outlets, channels, bankAccounts, companyId, canManage,
                               className={`${inp} font-mono`} />
                           </td>
                           <td className="px-3 py-1.5"><input value={d.pos_terminal_id} disabled={!canManage} onChange={(e) => set({ pos_terminal_id: e.target.value })} placeholder="40092505" className={`${inp} font-mono`} /></td>
+                          <td className="px-3 py-1.5 w-24">
+                            <input type="number" min={0} max={10} step={0.1} value={d.bank_tolerance_pct} disabled={!canManage || !(d.kind === 'pos' || d.kind === 'pos_amex')}
+                              onChange={(e) => set({ bank_tolerance_pct: e.target.value })}
+                              title="Scarto % ammesso fra dichiarato e accreditato (commissioni trattenute dall'acquirer). 0 = solo il centesimo"
+                              className={`${inp} font-mono`} />
+                          </td>
                           <td className="px-3 py-1.5 text-center"><input type="checkbox" checked={d.counts_in_total} disabled={!canManage} onChange={(e) => set({ counts_in_total: e.target.checked })} /></td>
                           <td className="px-3 py-1.5 text-center"><input type="checkbox" checked={d.is_active} disabled={!canManage} onChange={(e) => set({ is_active: e.target.checked })} /></td>
                           <td className="px-3 py-1.5 text-right">

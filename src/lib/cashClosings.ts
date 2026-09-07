@@ -166,12 +166,13 @@ export const ATTACHMENT_KIND_LABELS: Record<AttachmentKind, string> = {
 }
 
 /** Canali proposti quando un outlet non ne ha ancora: si rinominano e si integrano dopo. */
-export const DEFAULT_CHANNELS: Array<{ label: string; kind: ChannelKind; sort_order: number }> = [
-  { label: 'Contanti', kind: 'contanti', sort_order: 1 },
-  { label: 'POS', kind: 'pos', sort_order: 2 },
-  { label: 'Pay by link', kind: 'paybylink', sort_order: 3 },
-  { label: 'Fatture', kind: 'fattura', sort_order: 4 },
-  { label: 'Bonifico', kind: 'bonifico', sort_order: 5 },
+export const DEFAULT_CHANNELS: Array<{ label: string; kind: ChannelKind; sort_order: number; bank_tolerance_pct: number }> = [
+  { label: 'Contanti', kind: 'contanti', sort_order: 1, bank_tolerance_pct: 0 },
+  // POS: l'acquirer accredita al netto delle commissioni (0,4-1,1 % osservato): 1,5 % di scarto ammesso
+  { label: 'POS', kind: 'pos', sort_order: 2, bank_tolerance_pct: 1.5 },
+  { label: 'Pay by link', kind: 'paybylink', sort_order: 3, bank_tolerance_pct: 0 },
+  { label: 'Fatture', kind: 'fattura', sort_order: 4, bank_tolerance_pct: 0 },
+  { label: 'Bonifico', kind: 'bonifico', sort_order: 5, bank_tolerance_pct: 0 },
 ]
 
 export interface PaymentChannel {
@@ -182,6 +183,8 @@ export interface PaymentChannel {
   bank_account_id: string | null
   terminal_code: string | null
   pos_terminal_id: string | null
+  /** Scarto % ammesso fra dichiarato e accreditato in banca (commissioni dell'acquirer) */
+  bank_tolerance_pct: number
   counts_in_total: boolean
   sort_order: number
   is_active: boolean
