@@ -2343,6 +2343,70 @@ export const PAGE_GUIDES: PageGuide[] = [
     ]
   },
   {
+    "path": "/liquidazione-iva",
+    "icon": "Percent",
+    "title": "Liquidazione IVA",
+    "description": "La pagina Liquidazione IVA stima, mese per mese, quanta IVA l'azienda dovrà versare (o quanto credito porterà al mese dopo). Mette insieme i corrispettivi degli outlet, le fatture attive e le fatture dei fornitori ricevute nel mese, applica il credito riportato e propone la scadenza F24 del 16 del mese successivo. Da qui si conferma un mese con i numeri definitivi e si crea la scadenza in Scadenze Fiscali, così entra nello Scadenzario e nel Cashflow Prospettico.",
+    "sections": [
+      {
+        "heading": "Cosa vedi in alto: i quattro riquadri",
+        "body": "\"Prossimo versamento\" mostra il primo mese ancora da pagare con importo, data di scadenza e stato (stima, in corso, confermata). \"Da versare nell'anno\" somma tutti i mesi dell'anno non ancora pagati, stime comprese. \"Già versato\" riporta quanto risulta pagato in Scadenze Fiscali per l'IVA periodica. \"Credito a fine anno\" indica il credito che, se resta, passa all'anno successivo. In alto a destra scegli l'anno, ricalcoli con il pulsante circolare e, se hai il ruolo giusto, apri i \"Parametri\"."
+      },
+      {
+        "heading": "Come si calcola ogni riga",
+        "body": "Per ogni mese: IVA vendite = corrispettivi netti × aliquota (più l'IVA delle fatture attive emesse nel mese); IVA acquisti = IVA delle fatture dei fornitori RICEVUTE nel mese (data di ricezione dallo SDI, non data fattura), meno le note di credito; le integrazioni reverse charge (TD16, TD17, TD18, TD19) sono neutre e non entrano nel conto. Liquidazione = IVA vendite − IVA acquisti − credito riportato dal mese precedente. Se il risultato è positivo va versato con F24 (codice tributo 60 + mese: 6008 per agosto); se è negativo il mese è a credito e l'importo riduce il mese dopo (colonna \"Riporto\"). Tutta l'IVA sugli acquisti è considerata detraibile."
+      },
+      {
+        "heading": "Da dove arrivano i corrispettivi",
+        "body": "L'etichetta sotto l'importo dice quale fonte è stata usata. \"Chiusure cassa\": le chiusure di cassa confermate dei negozi (dato netto IVA), con il numero di giorni coperti. \"Chiusure + preventivo\": solo per il mese in corso, chiusure fino a oggi più il preventivo per i giorni che restano. \"Consuntivo B&C\": il consuntivo mensile inserito in Budget & Controllo (già al netto IVA). \"Preventivo B&C\": il preventivo di Budget & Controllo, usato quando non c'è altro (mesi futuri o mesi senza chiusure né consuntivo). \"Confermata\": i numeri inseriti a mano con il pulsante Conferma."
+      },
+      {
+        "heading": "Stati di un mese",
+        "body": "\"Stima\": mese chiuso, calcolato dai dati disponibili. \"In corso\": il mese corrente, che cambia ogni giorno con le nuove chiusure e le fatture che arrivano; l'IVA acquisti non scende mai sotto la media dei mesi chiusi, perché le fatture arrivano fino all'ultimo giorno. \"Previsione\": mese futuro, corrispettivi dal preventivo e IVA acquisti pari alla media dei mesi chiusi (segnata con ≈). \"Confermata\": numeri definitivi inseriti a mano. \"Pagata\": in Scadenze Fiscali la scadenza IVA di quel mese risulta pagata; l'importo versato diventa il risultato del mese."
+      },
+      {
+        "heading": "Confermare un mese con i numeri definitivi",
+        "body": "Quando hai i numeri veri (dal commercialista o dalla liquidazione fatta), premi \"Conferma\" sulla riga: i campi corrispettivi netti, IVA fatture attive e IVA acquisti diventano modificabili, con i valori stimati già proposti. Correggi, aggiungi una nota se vuoi e premi \"Salva conferma\": la liquidazione si ricalcola con l'aliquota e il riporto della riga e il mese passa in stato Confermata. Il suo risultato alimenta il riporto del mese successivo. \"Modifica\" riapre i campi; \"Rimuovi\" (con seconda conferma) cancella i numeri inseriti e fa tornare la stima automatica.",
+        "steps": [
+          "Individua il mese nella tabella e premi \"Conferma\"",
+          "Correggi corrispettivi netti, IVA fatture attive e IVA acquisti con i valori definitivi",
+          "Aggiungi una nota (facoltativa) e premi \"Salva conferma\"",
+          "Se serve, premi \"Aggiorna scadenza\" per allineare anche l'importo in Scadenze Fiscali"
+        ]
+      },
+      {
+        "heading": "Creare o aggiornare la scadenza F24",
+        "body": "\"Crea scadenza\" scrive in Scadenze Fiscali una riga di tipo IVA periodica con titolo, periodo (es. 08/2026), codice tributo, importo e data di scadenza: da quel momento compare nello Scadenzario (filtro \"Solo Fiscali / Interni\"), può entrare in una distinta e viene contata dal Cashflow Prospettico tra le uscite fiscali. Se la scadenza esiste già e non è pagata, il pulsante si chiama \"Aggiorna scadenza\" e ne aggiorna importo, data e codice. Una scadenza già pagata non viene mai toccata. Se il mese chiude a credito non c'è nulla da versare: la scadenza esistente viene annullata e il credito passa al mese dopo. La data proposta è il 16 del mese successivo (20 agosto per la liquidazione di luglio; il giorno lavorativo successivo se cade di sabato o domenica)."
+      },
+      {
+        "heading": "Parametri",
+        "body": "Nel pannello \"Parametri\" (super advisor, contabile, CFO) imposti: l'aliquota applicata ai corrispettivi (22% di default); il mese e l'anno di partenza, cioè il primo mese calcolato; il credito IVA iniziale da riportare in quel mese (zero se il mese precedente era a debito). I mesi precedenti al mese di partenza non vengono ricostruiti. Finché i parametri non sono salvati la pagina parte dal mese corrente con aliquota 22% e credito zero e lo segnala con un avviso."
+      }
+    ],
+    "faq": [
+      {
+        "q": "Perché l'IVA acquisti di un mese non coincide con le fatture datate quel mese?",
+        "a": "Perché conta il mese di ricezione dallo SDI, non la data scritta in fattura: una fattura di fine luglio ricevuta il 3 agosto è detraibile ad agosto. È la stessa regola che usa il commercialista, ed è il motivo per cui la stima si avvicina alla liquidazione reale."
+      },
+      {
+        "q": "Il mese in corso cambia ogni volta che apro la pagina: è normale?",
+        "a": "Sì. Ogni chiusura di cassa confermata e ogni fattura ricevuta aggiornano la stima. Il numero si stabilizza quando il mese si chiude; se vuoi fissarlo prima, usa \"Conferma\"."
+      },
+      {
+        "q": "Ho pagato l'F24 ma il mese resta \"Stima\"",
+        "a": "Il pagamento va registrato in Scadenze Fiscali (pulsante \"Pagato\" sulla scadenza IVA periodica di quel mese, meglio se agganciato al movimento bancario). Appena la scadenza risulta pagata, qui il mese passa in stato Pagata e l'importo versato diventa il risultato usato per il riporto."
+      },
+      {
+        "q": "Dove finisce la quota indetraibile (auto, telefono, ristoranti)?",
+        "a": "Per ora da nessuna parte: tutta l'IVA sugli acquisti è considerata detraibile. Se il commercialista applica quote indetraibili, correggi l'IVA acquisti con \"Conferma\" quando hai il dato definitivo."
+      },
+      {
+        "q": "L'acconto IVA di dicembre è compreso?",
+        "a": "No, non ancora: la pagina calcola le liquidazioni mensili. L'acconto del 27 dicembre va inserito a mano in Scadenze Fiscali."
+      }
+    ]
+  },
+  {
     "path": "/archivio",
     "icon": "Archive",
     "title": "Archivio Documenti",

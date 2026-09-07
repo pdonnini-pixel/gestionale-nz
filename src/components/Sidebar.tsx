@@ -10,7 +10,7 @@ import {
   CalendarClock, UserCheck, PieChart, Sparkles, Activity, Sliders,
   Upload, FolderArchive, TrendingUp, ChevronsUpDown, Building,
   Menu, X, ChevronsLeft, ChevronsRight,
-  MessageSquare, Shield, RefreshCw, ClipboardList, Wallet, Receipt,
+  MessageSquare, Shield, RefreshCw, ClipboardList, Wallet, Receipt, Percent,
   LucideIcon
 } from 'lucide-react'
 import { useState, useRef, useEffect, useMemo, createContext, useContext } from 'react'
@@ -94,6 +94,7 @@ function buildSections(labels: CompanyLabels): NavSection[] {
         { to: '/fatturazione', icon: FileText, label: 'Fatturazione', badgeKey: 'fatt-anomalie', roles: ['super_advisor', 'cfo', 'contabile'] },
         { to: '/scadenzario', icon: CalendarClock, label: 'Scadenzario', badgeKey: 'scadenzario', roles: ['super_advisor', 'ceo', 'cfo', 'contabile'] },
         { to: '/storico-distinte', icon: ClipboardList, label: 'Storico Distinte', roles: ['super_advisor', 'cfo', 'contabile'] },
+        { to: '/liquidazione-iva', icon: Percent, label: 'Liquidazione IVA', roles: ['super_advisor', 'ceo', 'cfo', 'contabile'] },
       ],
     },
     {
@@ -162,6 +163,7 @@ export function buildBreadcrumbMap(
     '/scadenzario': { section: 'Ciclo Passivo', page: 'Scadenzario' },
     '/scadenze-fiscali': { section: 'Ciclo Passivo', page: 'Scadenze Fiscali / Interni' },
     '/storico-distinte': { section: 'Ciclo Passivo', page: 'Storico Distinte' },
+    '/liquidazione-iva': { section: 'Ciclo Passivo', page: 'Liquidazione IVA' },
     '/dipendenti': { section: 'Risorse', page: 'Dipendenti' },
     '/ai-categorie': { section: 'AI & Analytics', page: 'AI Categorie' },
     '/margini': { section: 'AI & Analytics', page: `Margini ${posPlural}` },
