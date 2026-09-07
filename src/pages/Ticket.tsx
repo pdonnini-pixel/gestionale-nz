@@ -1639,8 +1639,10 @@ export default function TicketPage() {
 // scroll interno: il main del Layout gestisce lo scroll.
 function PageShell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
-      {children}
+    <div className="min-h-screen bg-white">
+      <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
+        {children}
+      </div>
     </div>
   )
 }

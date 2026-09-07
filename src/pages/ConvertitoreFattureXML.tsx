@@ -598,7 +598,8 @@ export default function ConvertitoreFattureXML() {
   }
 
   return (
-    <div className="p-4 sm:p-6 space-y-5 max-w-[1100px] mx-auto">
+    <div className="min-h-screen bg-white">
+      <div className="p-4 sm:p-6 space-y-5 max-w-[1100px] mx-auto">
       <Link to="/fatturazione?tab=active" className="inline-flex items-center gap-1 text-sm text-slate-600 hover:text-slate-900">
         <ArrowLeft size={16} /> Torna a Fatturazione
       </Link>
@@ -851,6 +852,7 @@ export default function ConvertitoreFattureXML() {
         <div><b>Strumento provvisorio.</b> Gli XML <b>non sono firmati</b> (.p7m) né validati contro lo schema XSD ufficiale: hanno la stessa forma del modello già usato per l'import manuale.</div>
         <div>La riga di dettaglio è <b>unica e sintetica</b> («Fornitura merce vs/ordine»), non articolo per articolo. Il cedente è <b>l'azienda del tenant attivo</b> (dati letti dall'anagrafica, mostrati in alto); l'aliquota è fissa al 22%.</div>
         <div>Prima di generare, per ogni riga si verifica che <b>Imponibile + Imposta = Totale</b> (tolleranza 0,01); le righe che non quadrano sono evidenziate ma generate comunque.</div>
+      </div>
       </div>
     </div>
   )
