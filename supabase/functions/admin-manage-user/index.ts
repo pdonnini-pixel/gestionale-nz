@@ -3,7 +3,8 @@
 // Unico punto che tocca l'autenticazione: usa l'Admin API con service role.
 //
 // Sicurezza:
-//   - Chiamante autenticato con ruolo super_advisor (app_metadata.role).
+//   - Chiamante autenticato con ruolo super_advisor (app_metadata.role), oppure
+//     segreto condiviso x-autofix-cron + body.company_id (provisioning amministrativo).
 //   - Isolamento tenant: si possono gestire SOLO utenti della PROPRIA azienda
 //     (user_profiles.company_id == azienda del chiamante).
 //
@@ -15,7 +16,7 @@
 //   - "set_active" → blocca/sblocca l'accesso (ban dell'utente auth)
 //   - "delete"     → revoca il login (elimina l'utente auth + user_profiles)
 //
-// Body: { action, email?, first_name?, last_name?, role?, user_id?, active?, redirectTo?, outlet_id? }
+// Body: { action, email?, first_name?, last_name?, phone?, role?, user_id?, active?, redirectTo?, outlet_id?, company_id? }
 //
 // outlet_id (solo per il ruolo operatore_cassa = account di negozio): l'outlet
 // su cui l'account compila la chiusura di cassa. Viene scritto in
@@ -28,7 +29,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-autofix-cron",
 };
 
 const BAN_FOREVER = "876000h"; // ~100 anni = accesso bloccato
@@ -45,26 +46,50 @@ Deno.serve(async (req: Request) => {
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const admin = createClient(supabaseUrl, serviceKey);
 
-    // 1. Autenticazione chiamante
-    const token = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "");
-    if (!token) return jsonError(401, "Missing authorization");
-    const { data: userData, error: userErr } = await admin.auth.getUser(token);
-    if (userErr || !userData?.user) return jsonError(401, "Invalid JWT");
-
-    // 2. Ruolo SOLO da app_metadata (mai user_metadata). Solo super_advisor.
-    const roleData = userData.user.app_metadata?.role;
-    const roles: string[] = Array.isArray(roleData) ? roleData : (roleData ? [roleData] : []);
-    if (!roles.includes("super_advisor")) {
-      return jsonError(403, "Solo un super_advisor può gestire gli utenti.");
-    }
-
-    // 3. Azienda del chiamante (dal profilo)
-    const { data: myProf } = await admin.from("user_profiles").select("company_id").eq("id", userData.user.id).maybeSingle();
-    const myCompany = (myProf as { company_id?: string } | null)?.company_id ?? null;
-    if (!myCompany) return jsonError(403, "Utente senza azienda associata.");
-
     const body = await req.json().catch(() => ({}));
     const action: string = body.action ?? "";
+
+    // 1. Autenticazione chiamante: JWT di un super_advisor, oppure il segreto
+    //    condiviso x-autofix-cron (stesso meccanismo di closing-photo-extract e
+    //    cash-closing-photo-import) per i provisioning amministrativi lanciati
+    //    fuori dall'app; in quel caso l'azienda arriva da body.company_id e deve
+    //    esistere. Un chiamante con segreto non ha un user id, quindi il
+    //    controllo "non cancellare se stesso" non si applica.
+    let myCompany: string | null = null;
+    let callerId: string | null = null;
+    const token = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "");
+    const cronHeader = req.headers.get("x-autofix-cron") ?? "";
+    let trustedBySecret = false;
+    if (cronHeader) {
+      const { data: cronSecret } = await admin.rpc("get_autofix_cron_secret");
+      const expected = Array.isArray(cronSecret) ? String((cronSecret[0] as { secret?: string } | undefined)?.secret ?? "") : "";
+      trustedBySecret = expected.length > 0 && cronHeader === expected;
+      if (!trustedBySecret) return jsonError(403, "Segreto x-autofix-cron non valido");
+    }
+    if (trustedBySecret) {
+      const cid = String(body.company_id ?? "").trim();
+      if (!/^[0-9a-f-]{36}$/i.test(cid)) return jsonError(400, "company_id obbligatorio con il segreto condiviso");
+      const { data: co } = await admin.from("companies").select("id").eq("id", cid).maybeSingle();
+      if (!co) return jsonError(404, "Azienda non trovata");
+      myCompany = cid;
+    } else {
+      if (!token) return jsonError(401, "Missing authorization");
+      const { data: userData, error: userErr } = await admin.auth.getUser(token);
+      if (userErr || !userData?.user) return jsonError(401, "Invalid JWT");
+
+      // 2. Ruolo SOLO da app_metadata (mai user_metadata). Solo super_advisor.
+      const roleData = userData.user.app_metadata?.role;
+      const roles: string[] = Array.isArray(roleData) ? roleData : (roleData ? [roleData] : []);
+      if (!roles.includes("super_advisor")) {
+        return jsonError(403, "Solo un super_advisor può gestire gli utenti.");
+      }
+      callerId = userData.user.id;
+
+      // 3. Azienda del chiamante (dal profilo)
+      const { data: myProf } = await admin.from("user_profiles").select("company_id").eq("id", userData.user.id).maybeSingle();
+      myCompany = (myProf as { company_id?: string } | null)?.company_id ?? null;
+      if (!myCompany) return jsonError(403, "Utente senza azienda associata.");
+    }
 
     // Helper: verifica che l'utente target appartenga alla MIA azienda
     const assertSameCompany = async (targetId: string): Promise<boolean> => {
@@ -132,6 +157,7 @@ Deno.serve(async (req: Request) => {
         first_name: body.first_name ?? null,
         last_name: body.last_name ?? null,
         email,
+        phone: body.phone ?? null,
         role,
       }, { onConflict: "id" });
 
@@ -144,7 +170,7 @@ Deno.serve(async (req: Request) => {
     // Da qui in poi serve un user_id target della propria azienda
     const targetId = String(body.user_id ?? "");
     if (!targetId) return jsonError(400, "user_id obbligatorio");
-    if (targetId === userData.user.id && (action === "delete" || (action === "set_active" && body.active === false))) {
+    if (callerId && targetId === callerId && (action === "delete" || (action === "set_active" && body.active === false))) {
       return jsonError(400, "Non puoi bloccare o eliminare te stesso.");
     }
     if (!(await assertSameCompany(targetId))) return jsonError(403, "Utente non appartiene alla tua azienda.");
