@@ -11182,6 +11182,7 @@ export type Database = {
       daily_report_settings: {
         Row: {
           app_url: string | null
+          budget_vat_rate: number
           company_id: string
           enabled: boolean
           recipients: string[]
@@ -11194,6 +11195,7 @@ export type Database = {
         }
         Insert: {
           app_url?: string | null
+          budget_vat_rate?: number
           company_id: string
           enabled?: boolean
           recipients?: string[]
@@ -11206,6 +11208,7 @@ export type Database = {
         }
         Update: {
           app_url?: string | null
+          budget_vat_rate?: number
           company_id?: string
           enabled?: boolean
           recipients?: string[]

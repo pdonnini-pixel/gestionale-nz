@@ -259,12 +259,31 @@ Per Made e Zago le tabelle nascono vuote: i canali si configurano quando quei te
 - Edge Function `daily-cash-report-send` sui 3 tenant: una riga per punto vendita (totale, contanti, POS, altri canali, spese e rimborsi, versamento, fondo cassa, differenza), negozi mancanti in rosso, elenco «da controllare» (bozze, quadrature, foto dello scontrino mancante, importi letti dalla foto diversi da quelli scritti, note della cassiera), totale azienda, progressivo del mese, link a Incassi giornalieri. Invio con Resend; esito in `daily_report_log`.
 - Impostazioni → «Report incassi serale» (super advisor e contabile) con «Invia una prova a me» e tabella degli ultimi invii.
 - NZ configurato: ore 21:30, destinatari Patrizio, Lilian e Denise. Mail di prova inviata e ricevuta con esito `sent`.
+- **Confronto con l'obiettivo (2026-09-07)**: il report legge il budget ricavi mensile per outlet dell'Inserimento rapido (`budget_confronto`, `entry_type = rev_monthly`, importi netti IVA), lo porta al lordo con l'aliquota `daily_report_settings.budget_vat_rate` (migration 194, default 22 %, campo in Impostazioni → Report incassi serale) e lo divide per i giorni del mese. Nella tabella del giorno: colonne «Obiettivo giorno» e «+/- obiettivo» per negozio e totale (verde/rosso); in testa e nell'oggetto lo scostamento del giorno. Nuova tabella «Mese vs obiettivo»: budget mese, obiettivo a oggi (obiettivo giorno × giorno del mese), incassato a oggi (chiusure non in bozza), +/-, % raggiunta, proiezione fine mese (media dei giorni trascorsi × giorni del mese). Negozi senza budget nel mese: trattino e nota. Edge Function v2 sui 3 tenant.
 
 **Fase 3 realizzata (2026-09-05)**: verifica con la banca.
 
 - Migration `20260905_188`: esito banca sulle righe POS/Amex (`bank_status`, `bank_amount`) e sul versamento della chiusura; tabella `closing_bank_matches`; parser delle causali (codice terminale dalle ultime 5 cifre del COD.SIA o del codice Amex, giorno di vendita da «DATA RIF.» o «incassi gg.mm.aaaa», riconoscimento versamenti); `match_cash_closings_with_bank()` che somma gli accrediti per (terminale, giorno) e li confronta con la riga della chiusura confermata, cerca il versamento (importo esatto, 0-6 giorni, parola chiave del canale Contanti o conto) e porta la chiusura a «verificata»; cron `cash-bank-matching-daily` alle 06:05 UTC sui 3 tenant (run_daily_reconciliation non toccata: il suo corpo differisce fra i tenant). RPC `run_cash_bank_matching`, `list_bank_terminal_codes`, `cash_bank_monthly_summary`.
 - Incassi giornalieri: segni ✓ ≠ ✗ ? nelle celle POS e versamento, esito e movimenti abbinati nel dettaglio, scheda «Banca» con i controlli del mese (canali, contanti per outlet, terminali non mappati, accrediti senza chiusura) e «Verifica con la banca ora»; scheda «Canali di incasso» con la tabella dei codici terminale visti in banca e il campo con suggerimenti. Nel canale Contanti il codice terminale è la parola chiave del versamento (PALMANOVA, FOIANO, 2121, 2751|3246…).
 - Dato reale NZ: 7 codici MPS (00002, 00004, 00007, 00008, 00009, 00011, 00013) e 5 Amex (00001 Vicolo, 00006 Franciacorta, 00010 Brugnato, 00012 Valmontone, 00014 Torino); versamenti con nome negozio in causale per Palmanova, Foiano (Valdichiana), Franciacorta (ATM 2121), Brugnato (ATM 2751/3246), Banco Fiorentino «cassa contin» (Barberino), ATM 1745 e Intesa ATM 9750 da attribuire.
+
+**Fase 3, completamento (2026-09-07)**: mappatura dei terminali e causali BCC.
+
+- Migration `20260907_192` sui 3 tenant: i parser riconoscono anche gli accrediti POS della BCC Valdarno (acquirer Numia e PagoBancomat, causale «Incassi PagoBancomat gg.mm.aa - 6181087000NN NOME» / «Incassi Internazionali Numia SpA nnnnnnn gg.mm.aa 6181087000NN NOME»), prima esclusi dal riscontro; il matcher confronta l'accreditato con la somma delle righe che condividono codice e tipo (i due canali Amex di un outlet arrivano in banca come un solo accredito con il codice del terminale BCC).
+- `NZ_ONLY_20260907_193`: codici e parole chiave scritti nei 35 canali NZ. Ogni outlet ha due POS fisici (Nexi/MPS e Numia/BCC) e i 14 terminali seguono l'ordine di apertura sotto lo stesso codice SIA 6181087:
+
+| outlet | POS MPS | POS BCC e Amex | versamento (parola chiave) |
+|---|---|---|---|
+| Valdichiana | 00002 | 00001 | FOIANO (cassa continua MPS) |
+| Barberino | 00004 | 00003 | cassa contin (Banco Fiorentino) |
+| Palmanova | 00007 | 00005 | PALMANOVA (cassa continua MPS) |
+| Franciacorta | 00008 | 00006 | FRANCIACORTA, ATM MPS 2121 |
+| Brugnato | 00009 | 00010 | BRUGNATO (ATM MPS, nota in causale) |
+| Valmontone | 00011 | 00012 | ATM MPS 1745 |
+| Torino | 00013 | 00014 | ATM Intesa 9750 |
+
+  Fonti: nome dell'outlet nelle causali BCC (00005, 00006, 00010, 00012, 00014), prima transazione di ogni terminale MPS coincidente con la data di apertura, primo versamento dell'ATM 1745 (21/10/2025, Valmontone) e dell'ATM Intesa 9750 (31/03/2026, Torino).
+- I collegamenti POS ↔ registratore telematico del portale dell'Agenzia delle Entrate (matricole 99IEB…, terminal id Nexi/Numia a 8 cifre) non compaiono nelle causali bancarie e non servono al riscontro; la sola matricola attribuibile con certezza è 99IEB130491 (collegamenti dal 03/2026 → Torino).
 
 Resta la fase 4 (proposta consuntivo ed export).
 
@@ -273,7 +292,7 @@ Resta la fase 4 (proposta consuntivo ed export).
 1. Account cassa: uno per outlet condiviso (consigliato) oppure uno per persona?
 2. Totale corrispettivi: è la somma dei mezzi di pagamento, fatture comprese, oppure il dato del registratore telematico con le fatture a parte?
 3. Aliquota per lo scorporo IVA nel consuntivo mensile: 22 % per tutto?
-4. Mappa dei 7 terminali MPS (`6181087-00002 … 00013`) sui 7 outlet, oppure lasciare che l'app la proponga dopo una settimana.
+4. ~~Mappa dei 7 terminali MPS sui 7 outlet~~ — risolta il 2026-09-07 dai dati bancari (vedi 4b).
 5. Orario della mail serale e destinatari, per ciascun tenant.
 6. Fino a quando una chiusura confermata può essere corretta dal negozio: mai (solo Lilian riapre), oppure entro il giorno dopo?
 7. Fondo cassa iniziale per ogni outlet alla partenza (serve per il primo calcolo dell'atteso).

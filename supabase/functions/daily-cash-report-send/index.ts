@@ -4,7 +4,9 @@
 // riepilogo serale delle chiusure di cassa di un giorno per tutti i punti
 // vendita dell'azienda: una riga per outlet, mancanti in evidenza, anomalie
 // (giornate che non quadrano, foto mancanti, letture automatiche diverse da
-// quanto scritto), totale azienda e progressivo del mese.
+// quanto scritto), totale azienda e progressivo del mese, confronto con
+// l'obiettivo del budget ricavi (Inserimento rapido): obiettivo del giorno,
+// scostamento +/- e andamento del mese.
 //
 // Chi la chiama:
 // - pg_cron → daily_cash_report_tick() (migration 176) con il segreto
@@ -60,7 +62,7 @@ function romeToday(): string {
   return `${get("year")}-${get("month")}-${get("day")}`;
 }
 
-interface Outlet { id: string; name: string }
+interface Outlet { id: string; name: string; cost_center_key: string | null }
 interface Channel { id: string; outlet_id: string; label: string; kind: string; counts_in_total: boolean }
 interface Closing {
   id: string; outlet_id: string; status: string; is_closed_day: boolean; total_receipts: number; channels_total: number;
@@ -77,26 +79,49 @@ const extractedAmount = (e: Record<string, unknown> | null): number | null => {
   const v = e?.amount; return typeof v === "number" && Number.isFinite(v) ? Math.round(v * 100) / 100 : null;
 };
 
+interface Budget {
+  // Obiettivo dal budget ricavi mensile dell'Inserimento rapido (netto IVA → lordo con l'aliquota impostata)
+  monthNet: number; monthGross: number; dayTarget: number; toDateTarget: number;
+  mtd: number;          // incassato nel mese fino a oggi (chiusure non in bozza, giornata di oggi compresa)
+  mtdDays: number;      // giorni con chiusura (non bozza, non chiuso) nel mese
+  projection: number;   // proiezione fine mese: media giornaliera sui giorni trascorsi × giorni del mese
+}
 interface ReportData {
   companyName: string; date: string; outlets: Outlet[]; rows: RowData[]; missing: Outlet[]; anomalies: string[];
   totals: { total: number; cash: number; pos: number; other: number; expenses: number; refunds: number; deposit: number };
   monthToDate: number; monthLabel: string; appUrl: string | null;
+  budget: {
+    vatRate: number; dayOfMonth: number; daysInMonth: number; withBudget: number;
+    dayTarget: number; toDateTarget: number; monthGross: number; mtd: number; projection: number;
+  };
 }
 interface RowData {
-  outlet: Outlet; closing: Closing | null; cash: number; pos: number; other: number; status: string;
+  outlet: Outlet; closing: Closing | null; cash: number; pos: number; other: number; status: string; budget: Budget | null;
 }
 
-async function buildReport(admin: SupabaseClient, companyId: string, date: string, appUrl: string | null): Promise<ReportData> {
+async function buildReport(admin: SupabaseClient, companyId: string, date: string, appUrl: string | null, vatRate: number): Promise<ReportData> {
   const [{ data: company }, { data: outletsRaw }, { data: channelsRaw }] = await Promise.all([
     admin.from("companies").select("name").eq("id", companyId).maybeSingle(),
-    admin.from("outlets").select("id, name, outlet_type, is_active").eq("company_id", companyId).order("name"),
+    admin.from("outlets").select("id, name, outlet_type, is_active, cost_center_key").eq("company_id", companyId).order("name"),
     admin.from("outlet_payment_channels").select("id, outlet_id, label, kind, counts_in_total").eq("company_id", companyId).eq("is_active", true),
   ]);
   const outlets: Outlet[] = (outletsRaw ?? [])
     .filter((o) => (o.is_active ?? true) && !NON_SELLING.includes(String(o.outlet_type ?? "outlet").toLowerCase()))
-    .map((o) => ({ id: o.id, name: o.name }));
+    .map((o) => ({ id: o.id, name: o.name, cost_center_key: (o.cost_center_key as string | null) ?? null }));
   const channels = (channelsRaw ?? []) as Channel[];
   const outletIds = outlets.map((o) => o.id);
+
+  // Budget ricavi del mese per outlet (Inserimento rapido → budget_confronto.rev_monthly, netto IVA),
+  // sommato sui conti ricavo del centro di costo dell'outlet.
+  const [y, m, d] = date.split("-").map(Number);
+  const daysInMonth = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  const { data: budgetRaw } = await admin.from("budget_confronto").select("cost_center, amount")
+    .eq("company_id", companyId).eq("year", y).eq("month", m).eq("entry_type", "rev_monthly");
+  const budgetNetByCc = new Map<string, number>();
+  for (const b of (budgetRaw ?? []) as Array<{ cost_center: string; amount: number }>) {
+    budgetNetByCc.set(b.cost_center, (budgetNetByCc.get(b.cost_center) ?? 0) + num(b.amount));
+  }
+  const grossFactor = 1 + Math.max(0, vatRate) / 100;
 
   const monthStart = `${date.slice(0, 7)}-01`;
   const { data: closingsRaw } = outletIds.length
@@ -125,10 +150,23 @@ async function buildReport(admin: SupabaseClient, companyId: string, date: strin
   const missing: Outlet[] = [];
   const anomalies: string[] = [];
   const totals = { total: 0, cash: 0, pos: 0, other: 0, expenses: 0, refunds: 0, deposit: 0 };
+  const bTot = { withBudget: 0, dayTarget: 0, toDateTarget: 0, monthGross: 0, mtd: 0, projection: 0 };
 
   for (const o of outlets) {
     const c = todays.find((x) => x.outlet_id === o.id) ?? null;
-    if (!c) { missing.push(o); rows.push({ outlet: o, closing: null, cash: 0, pos: 0, other: 0, status: "manca" }); continue; }
+    // Obiettivo dell'outlet: solo se ha un budget ricavi per il mese
+    let budget: Budget | null = null;
+    const net = o.cost_center_key ? budgetNetByCc.get(o.cost_center_key) : undefined;
+    if (net != null && net > 0) {
+      const monthGross = net * grossFactor;
+      const dayTarget = monthGross / daysInMonth;
+      const mine = allClosings.filter((x) => x.outlet_id === o.id && x.status !== "bozza" && !x.is_closed_day);
+      const mtd = mine.reduce((sum, x) => sum + num(x.total_receipts), 0);
+      const mtdDays = mine.length;
+      budget = { monthNet: net, monthGross, dayTarget, toDateTarget: dayTarget * d, mtd, mtdDays, projection: mtdDays > 0 ? (mtd / d) * daysInMonth : 0 };
+      bTot.withBudget += 1; bTot.dayTarget += dayTarget; bTot.toDateTarget += budget.toDateTarget; bTot.monthGross += monthGross; bTot.mtd += mtd; bTot.projection += budget.projection;
+    }
+    if (!c) { missing.push(o); rows.push({ outlet: o, closing: null, cash: 0, pos: 0, other: 0, status: "manca", budget }); continue; }
     let cash = 0, pos = 0, other = 0;
     for (const l of lines.filter((l) => l.closing_id === c.id)) {
       const ch = chById.get(l.channel_id);
@@ -138,7 +176,7 @@ async function buildReport(admin: SupabaseClient, companyId: string, date: strin
       else other += num(l.amount);
     }
     const status = c.is_closed_day ? "chiuso" : c.status === "bozza" ? "bozza" : "confermata";
-    rows.push({ outlet: o, closing: c, cash, pos, other, status });
+    rows.push({ outlet: o, closing: c, cash, pos, other, status, budget });
     if (!c.is_closed_day) {
       totals.total += num(c.total_receipts); totals.cash += cash; totals.pos += pos; totals.other += other;
       totals.expenses += num(c.cash_expenses); totals.refunds += num(c.customer_refunds); totals.deposit += num(c.cash_deposit);
@@ -160,55 +198,86 @@ async function buildReport(admin: SupabaseClient, companyId: string, date: strin
       if (c.notes) anomalies.push(`${o.name}: nota della cassiera «${c.notes}»`);
     }
   }
-  const [y, m] = date.split("-").map(Number);
   return {
     companyName: (company?.name as string) ?? "", date, outlets, rows, missing, anomalies, totals, monthToDate,
     monthLabel: `${MESI[m - 1]} ${y}`, appUrl,
+    budget: { vatRate, dayOfMonth: d, daysInMonth, ...bTot },
   };
 }
 
+// Scostamento con segno: "+1.234,00 €" / "-56,00 €"
+function delta(n: number): string { return (n >= 0 ? "+" : "") + eur(n); }
+function deltaStyle(n: number): string { return Math.abs(n) < 0.005 ? "" : n > 0 ? "color:#047857;font-weight:600" : "color:#b91c1c;font-weight:600"; }
+function pct(part: number, whole: number): string { return whole > 0 ? `${Math.round((part / whole) * 100)} %` : "—"; }
+
 function renderHtml(r: ReportData): { subject: string; html: string; text: string } {
-  const subject = `Incassi ${dateIt(r.date, false)} · ${r.companyName}: ${r.rows.length - r.missing.length}/${r.rows.length} chiusure, totale ${eur(r.totals.total)}`;
+  const b = r.budget;
+  const hasBudget = b.withBudget > 0;
+  const dayDelta = r.totals.total - b.dayTarget;
+  const mtdDelta = b.mtd - b.toDateTarget;
+  const subject = `Incassi ${dateIt(r.date, false)} · ${r.companyName}: ${r.rows.length - r.missing.length}/${r.rows.length} chiusure, totale ${eur(r.totals.total)}${hasBudget ? ` (${delta(dayDelta)} vs obiettivo)` : ""}`;
   const td = (v: string, align = "right", extra = "") => `<td style="padding:6px 8px;border-bottom:1px solid #e2e8f0;text-align:${align};font-variant-numeric:tabular-nums;${extra}">${v}</td>`;
   const th = (v: string, align = "right") => `<th style="padding:6px 8px;border-bottom:2px solid #cbd5e1;text-align:${align};font-size:12px;color:#475569;white-space:nowrap">${v}</th>`;
   const link = (path: string) => r.appUrl ? `${r.appUrl.replace(/\/$/, "")}${path}` : null;
   const rowsHtml = r.rows.map((row) => {
     const c = row.closing;
-    if (!c) return `<tr style="background:#fef2f2">${td(`<strong>${esc(row.outlet.name)}</strong>`, "left")}${td(`<span style="color:#b91c1c;font-weight:600">manca</span>`, "left")}${td("—")}${td("—")}${td("—")}${td("—")}${td("—")}${td("—")}${td("—")}${td("—")}</tr>`;
-    if (c.is_closed_day) return `<tr style="background:#f8fafc;color:#64748b">${td(`<strong>${esc(row.outlet.name)}</strong>`, "left")}${td("negozio chiuso", "left")}${td("0,00 €")}${td("")}${td("")}${td("")}${td("")}${td("")}${td("")}${td("")}</tr>`;
+    const tgt = row.budget ? eur(row.budget.dayTarget) : "—";
+    if (!c) return `<tr style="background:#fef2f2">${td(`<strong>${esc(row.outlet.name)}</strong>`, "left")}${td(`<span style="color:#b91c1c;font-weight:600">manca</span>`, "left")}${td("—")}${td(tgt)}${td("—")}${td("—")}${td("—")}${td("—")}${td("—")}${td("—")}${td("—")}${td("—")}</tr>`;
+    if (c.is_closed_day) return `<tr style="background:#f8fafc;color:#64748b">${td(`<strong>${esc(row.outlet.name)}</strong>`, "left")}${td("negozio chiuso", "left")}${td("0,00 €")}${td(tgt)}${td("")}${td("")}${td("")}${td("")}${td("")}${td("")}${td("")}${td("")}</tr>`;
+    const dd = row.budget ? num(c.total_receipts) - row.budget.dayTarget : null;
     const diff = c.cash_difference == null ? "—" : eur(num(c.cash_difference));
     const diffStyle = c.cash_difference != null && Math.abs(num(c.cash_difference)) >= 0.005 ? "color:#b91c1c;font-weight:600" : "";
     const st = c.status === "bozza" ? `<span style="color:#b45309;font-weight:600">bozza</span>` : `<span style="color:#047857">confermata</span>`;
-    return `<tr>${td(`<strong>${esc(row.outlet.name)}</strong>`, "left")}${td(st, "left")}${td(`<strong>${eur(num(c.total_receipts))}</strong>`)}${td(eur(row.cash))}${td(eur(row.pos))}${td(eur(row.other))}${td(eur(num(c.cash_expenses) + num(c.customer_refunds)))}${td(eur(num(c.cash_deposit)))}${td(c.cash_float_declared == null ? "—" : eur(num(c.cash_float_declared)))}${td(diff, "right", diffStyle)}</tr>`;
+    return `<tr>${td(`<strong>${esc(row.outlet.name)}</strong>`, "left")}${td(st, "left")}${td(`<strong>${eur(num(c.total_receipts))}</strong>`)}${td(tgt)}${td(dd == null ? "—" : delta(dd), "right", dd == null ? "" : deltaStyle(dd))}${td(eur(row.cash))}${td(eur(row.pos))}${td(eur(row.other))}${td(eur(num(c.cash_expenses) + num(c.customer_refunds)))}${td(eur(num(c.cash_deposit)))}${td(c.cash_float_declared == null ? "—" : eur(num(c.cash_float_declared)))}${td(diff, "right", diffStyle)}</tr>`;
   }).join("");
   const t = r.totals;
-  const totalRow = `<tr style="background:#f1f5f9;font-weight:700">${td("Totale azienda", "left")}${td(`${r.rows.length - r.missing.length}/${r.rows.length}`, "left")}${td(eur(t.total))}${td(eur(t.cash))}${td(eur(t.pos))}${td(eur(t.other))}${td(eur(t.expenses + t.refunds))}${td(eur(t.deposit))}${td("")}${td("")}</tr>`;
+  const totalRow = `<tr style="background:#f1f5f9;font-weight:700">${td("Totale azienda", "left")}${td(`${r.rows.length - r.missing.length}/${r.rows.length}`, "left")}${td(eur(t.total))}${td(hasBudget ? eur(b.dayTarget) : "—")}${td(hasBudget ? delta(dayDelta) : "—", "right", hasBudget ? deltaStyle(dayDelta) : "")}${td(eur(t.cash))}${td(eur(t.pos))}${td(eur(t.other))}${td(eur(t.expenses + t.refunds))}${td(eur(t.deposit))}${td("")}${td("")}</tr>`;
   const anomaliesHtml = r.anomalies.length
     ? `<h3 style="margin:20px 0 6px;font-size:14px;color:#b45309">Da controllare (${r.anomalies.length})</h3><ul style="margin:0;padding-left:18px;font-size:13px;line-height:1.5">${r.anomalies.map((a) => `<li>${esc(a)}</li>`).join("")}</ul>`
     : `<p style="margin:20px 0 6px;font-size:13px;color:#047857">Nessuna anomalia: tutte le chiusure confermate quadrano e hanno la foto dello scontrino di chiusura.</p>`;
   const missingHtml = r.missing.length
     ? `<p style="margin:12px 0 0;font-size:13px;color:#b91c1c"><strong>Chiusure mancanti (${r.missing.length}):</strong> ${r.missing.map((o) => esc(o.name)).join(", ")}</p>` : "";
   const pageLink = link(`/incassi-giornalieri?date=${r.date}`);
+  const budgetLink = link(`/budget?tab=rapido`);
+  const monthRows = r.rows.filter((row) => row.budget).map((row) => {
+    const bb = row.budget!;
+    const md = bb.mtd - bb.toDateTarget;
+    return `<tr>${td(`<strong>${esc(row.outlet.name)}</strong>`, "left")}${td(eur(bb.monthGross))}${td(eur(bb.toDateTarget))}${td(`<strong>${eur(bb.mtd)}</strong>`)}${td(delta(md), "right", deltaStyle(md))}${td(pct(bb.mtd, bb.toDateTarget))}${td(bb.mtdDays > 0 ? eur(bb.projection) : "—")}</tr>`;
+  }).join("");
+  const noBudgetNames = r.rows.filter((row) => !row.budget).map((row) => esc(row.outlet.name));
+  const monthHtml = hasBudget
+    ? `<h3 style="margin:22px 0 6px;font-size:14px;color:#0f172a">Mese vs obiettivo · ${esc(r.monthLabel)}, giorno ${b.dayOfMonth} di ${b.daysInMonth}</h3>
+<div style="overflow-x:auto"><table style="border-collapse:collapse;width:100%;font-size:13px">
+<thead><tr>${th("Punto vendita", "left")}${th("Budget mese")}${th("Obiettivo a oggi")}${th("Incassato a oggi")}${th("+/-")}${th("Raggiunto")}${th("Proiezione fine mese")}</tr></thead>
+<tbody>${monthRows}<tr style="background:#f1f5f9;font-weight:700">${td("Totale azienda", "left")}${td(eur(b.monthGross))}${td(eur(b.toDateTarget))}${td(eur(b.mtd))}${td(delta(mtdDelta), "right", deltaStyle(mtdDelta))}${td(pct(b.mtd, b.toDateTarget))}${td(eur(b.projection))}</tr></tbody></table></div>
+<p style="margin:6px 0 0;font-size:11px;color:#64748b">Obiettivo = budget ricavi del mese dell'Inserimento rapido (netto IVA) + IVA ${String(b.vatRate).replace(".", ",")} %, diviso per i ${b.daysInMonth} giorni del mese. Incassato = chiusure non in bozza, oggi compreso. Proiezione = media dei giorni trascorsi × giorni del mese.${noBudgetNames.length ? ` Senza budget per questo mese: ${noBudgetNames.join(", ")}.` : ""}${budgetLink ? ` <a href="${esc(budgetLink)}" style="color:#1d4ed8">Modifica il budget</a>.` : ""}</p>`
+    : `<p style="margin:20px 0 0;font-size:12px;color:#64748b">Nessun budget ricavi per ${esc(r.monthLabel)} nell'Inserimento rapido: il confronto con l'obiettivo non è disponibile.${budgetLink ? ` <a href="${esc(budgetLink)}" style="color:#1d4ed8">Inserisci il budget</a>.` : ""}</p>`;
   const html = `<!doctype html><html lang="it"><body style="margin:0;padding:20px;background:#f8fafc;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#0f172a">
 <div style="max-width:900px;margin:0 auto;background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:20px">
 <h2 style="margin:0 0 4px;font-size:18px">Incassi di ${esc(dateIt(r.date))}</h2>
-<p style="margin:0 0 14px;font-size:13px;color:#475569">${esc(r.companyName)} · ${r.rows.length - r.missing.length} chiusure su ${r.rows.length} punti vendita · totale giornata <strong>${eur(t.total)}</strong> · progressivo ${esc(r.monthLabel)} <strong>${eur(r.monthToDate)}</strong></p>
+<p style="margin:0 0 14px;font-size:13px;color:#475569">${esc(r.companyName)} · ${r.rows.length - r.missing.length} chiusure su ${r.rows.length} punti vendita · totale giornata <strong>${eur(t.total)}</strong>${hasBudget ? ` (obiettivo ${eur(b.dayTarget)}, <span style="${deltaStyle(dayDelta)}">${delta(dayDelta)}</span>)` : ""} · progressivo ${esc(r.monthLabel)} <strong>${eur(r.monthToDate)}</strong>${hasBudget ? ` (obiettivo a oggi ${eur(b.toDateTarget)}, <span style="${deltaStyle(mtdDelta)}">${delta(mtdDelta)}</span>)` : ""}</p>
 <div style="overflow-x:auto"><table style="border-collapse:collapse;width:100%;font-size:13px">
-<thead><tr>${th("Punto vendita", "left")}${th("Stato", "left")}${th("Totale")}${th("Contanti")}${th("POS")}${th("Altri")}${th("Spese e rimborsi")}${th("Versamento")}${th("Fondo cassa")}${th("Diff. cassa")}</tr></thead>
+<thead><tr>${th("Punto vendita", "left")}${th("Stato", "left")}${th("Totale")}${th("Obiettivo giorno")}${th("+/- obiettivo")}${th("Contanti")}${th("POS")}${th("Altri")}${th("Spese e rimborsi")}${th("Versamento")}${th("Fondo cassa")}${th("Diff. cassa")}</tr></thead>
 <tbody>${rowsHtml}${totalRow}</tbody></table></div>
 ${missingHtml}
+${monthHtml}
 ${anomaliesHtml}
 ${pageLink ? `<p style="margin:20px 0 0;font-size:13px"><a href="${esc(pageLink)}" style="color:#1d4ed8">Apri Incassi giornalieri</a> per il dettaglio e le foto.</p>` : ""}
 <p style="margin:16px 0 0;font-size:11px;color:#94a3b8">Mail automatica del gestionale. I numeri sono quelli scritti dalle cassiere alla chiusura; le anomalie sono segnalazioni da verificare, non correzioni.</p>
 </div></body></html>`;
   const text = [
     `Incassi di ${dateIt(r.date)} · ${r.companyName}`,
-    `Totale giornata ${eur(t.total)} · progressivo ${r.monthLabel} ${eur(r.monthToDate)}`,
+    `Totale giornata ${eur(t.total)}${hasBudget ? ` · obiettivo ${eur(b.dayTarget)} (${delta(dayDelta)})` : ""} · progressivo ${r.monthLabel} ${eur(r.monthToDate)}${hasBudget ? ` · obiettivo a oggi ${eur(b.toDateTarget)} (${delta(mtdDelta)})` : ""}`,
     "",
-    ...r.rows.map((row) => row.closing
-      ? (row.closing.is_closed_day ? `${row.outlet.name}: negozio chiuso` : `${row.outlet.name}: ${eur(num(row.closing.total_receipts))} (contanti ${eur(row.cash)}, POS ${eur(row.pos)}, altri ${eur(row.other)}, versamento ${eur(num(row.closing.cash_deposit))}) ${row.closing.status === "bozza" ? "[BOZZA]" : ""}`)
-      : `${row.outlet.name}: MANCA`),
+    ...r.rows.map((row) => {
+      const tgt = row.budget ? ` · obiettivo ${eur(row.budget.dayTarget)}` : "";
+      if (!row.closing) return `${row.outlet.name}: MANCA${tgt}`;
+      if (row.closing.is_closed_day) return `${row.outlet.name}: negozio chiuso`;
+      const dd = row.budget ? ` (${delta(num(row.closing.total_receipts) - row.budget.dayTarget)})` : "";
+      return `${row.outlet.name}: ${eur(num(row.closing.total_receipts))}${tgt}${dd} · contanti ${eur(row.cash)}, POS ${eur(row.pos)}, altri ${eur(row.other)}, versamento ${eur(num(row.closing.cash_deposit))} ${row.closing.status === "bozza" ? "[BOZZA]" : ""}`;
+    }),
     "",
+    ...(hasBudget ? [`Mese vs obiettivo (giorno ${b.dayOfMonth} di ${b.daysInMonth}):`, ...r.rows.filter((row) => row.budget).map((row) => `- ${row.outlet.name}: incassato ${eur(row.budget!.mtd)} su obiettivo a oggi ${eur(row.budget!.toDateTarget)} (${delta(row.budget!.mtd - row.budget!.toDateTarget)}), budget mese ${eur(row.budget!.monthGross)}`), `- Totale: ${eur(b.mtd)} su ${eur(b.toDateTarget)} (${delta(mtdDelta)}), budget mese ${eur(b.monthGross)}, proiezione ${eur(b.projection)}`, ""] : []),
     r.anomalies.length ? `Da controllare:\n${r.anomalies.map((a) => `- ${a}`).join("\n")}` : "Nessuna anomalia.",
     pageLink ? `\n${pageLink}` : "",
   ].join("\n");
@@ -267,6 +336,7 @@ Deno.serve(async (req: Request) => {
     const { data: settings } = await admin.from("daily_report_settings").select("*").eq("company_id", companyId).maybeSingle();
     const recipients: string[] = testTo ?? ((settings?.recipients as string[] | null) ?? []);
     const appUrl = (settings?.app_url as string | null) ?? null;
+    const vatRate = Number.isFinite(Number(settings?.budget_vat_rate)) ? Number(settings?.budget_vat_rate) : 22;
 
     const finish = async (status: "sent" | "failed" | "skipped", extra: Record<string, unknown>) => {
       const row = { company_id: companyId, report_date: reportDate, kind, status, recipients, ...extra, sent_at: status === "sent" ? new Date().toISOString() : null };
@@ -279,8 +349,8 @@ Deno.serve(async (req: Request) => {
       return jsonError(400, "Nessun destinatario configurato", "NO_RECIPIENTS");
     }
 
-    const report = await buildReport(admin, companyId, reportDate, appUrl);
-    const summary = { closings: report.rows.length - report.missing.length, outlets: report.rows.length, total: report.totals.total, anomalies: report.anomalies.length, month_to_date: report.monthToDate };
+    const report = await buildReport(admin, companyId, reportDate, appUrl, vatRate);
+    const summary = { closings: report.rows.length - report.missing.length, outlets: report.rows.length, total: report.totals.total, anomalies: report.anomalies.length, month_to_date: report.monthToDate, day_target: report.budget.dayTarget, to_date_target: report.budget.toDateTarget };
     const noData = report.rows.length - report.missing.length === 0;
     if (noData && kind === "report" && settings && settings.send_on_empty === false) {
       await finish("skipped", { summary, error: "nessuna chiusura registrata e invio senza dati disattivato" });

@@ -334,3 +334,41 @@ export async function compressImage(file: File, maxSide = 1600, quality = 0.82):
     return file
   }
 }
+
+// ─── Obiettivo dal budget (Inserimento rapido) ────────────────────────
+// Il budget ricavi mensile per outlet (budget_confronto, rev_monthly) è netto
+// IVA; le chiusure di cassa sono corrispettivi lordi. L'obiettivo del giorno è
+// budget × (1 + IVA) ÷ giorni del mese; «a oggi» = obiettivo giorno × giorni
+// trascorsi (giorno del mese compreso). Stessa formula del report serale.
+export interface BudgetTargetInput {
+  monthNet: number       // budget ricavi del mese, netto IVA
+  vatRate: number        // aliquota IVA in % (es. 22)
+  daysInMonth: number
+  dayOfMonth: number     // giorni trascorsi del mese (0 = mese futuro, = daysInMonth per mesi chiusi)
+  mtd: number            // incassato nel mese fino a oggi (chiusure non in bozza)
+}
+export interface BudgetTarget {
+  monthGross: number
+  dayTarget: number
+  toDateTarget: number
+  mtd: number
+  delta: number          // mtd − toDateTarget
+  pct: number | null     // mtd / toDateTarget × 100, null se obiettivo a oggi = 0
+  projection: number | null  // media dei giorni trascorsi × giorni del mese, null se nessun giorno trascorso
+}
+export function budgetTargets(i: BudgetTargetInput): BudgetTarget {
+  const r2 = (n: number) => Math.round(n * 100) / 100
+  const days = Math.max(1, i.daysInMonth)
+  const elapsed = Math.min(Math.max(0, i.dayOfMonth), days)
+  const monthGross = r2(i.monthNet * (1 + Math.max(0, i.vatRate) / 100))
+  const dayTarget = r2(monthGross / days)
+  // Senza arrotondamento intermedio: a fine mese l'obiettivo a oggi coincide con il budget lordo
+  const toDateTarget = r2((monthGross / days) * elapsed)
+  const mtd = r2(i.mtd)
+  return {
+    monthGross, dayTarget, toDateTarget, mtd,
+    delta: r2(mtd - toDateTarget),
+    pct: toDateTarget > 0 ? Math.round((mtd / toDateTarget) * 100) : null,
+    projection: elapsed > 0 ? r2((mtd / elapsed) * days) : null,
+  }
+}

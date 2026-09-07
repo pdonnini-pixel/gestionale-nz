@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseAmount, formatAmount, computeQuadrature, monthDays, addDaysIso, attachmentPath, kindForTarget, extractedAmount, extractedSummary, bankStatusMark } from './cashClosings'
+import { parseAmount, formatAmount, computeQuadrature, monthDays, addDaysIso, attachmentPath, kindForTarget, extractedAmount, extractedSummary, bankStatusMark, budgetTargets } from './cashClosings'
 
 describe('kindForTarget', () => {
   it('associa a ogni riga il documento atteso', () => {
@@ -139,5 +139,30 @@ describe('bankStatusMark', () => {
     expect(bankStatusMark('non_verificabile').mark).toBe('?')
     expect(bankStatusMark('in_attesa').mark).toBe('')
     expect(bankStatusMark(null).mark).toBe('')
+  })
+})
+
+describe('budgetTargets', () => {
+  it('porta il budget al lordo IVA e lo divide per i giorni del mese', () => {
+    // Valdichiana settembre 2026: 57.377 netto → 70.000 lordo → 2.333,33 al giorno
+    const t = budgetTargets({ monthNet: 57377, vatRate: 22, daysInMonth: 30, dayOfMonth: 7, mtd: 15000 })
+    expect(t.monthGross).toBe(69999.94)
+    expect(t.dayTarget).toBe(2333.33)
+    expect(t.toDateTarget).toBe(16333.32)
+    expect(t.delta).toBe(-1333.32)
+    expect(t.pct).toBe(92)
+    expect(t.projection).toBe(64285.71)
+  })
+  it('mese futuro: nessun giorno trascorso, nessuna proiezione', () => {
+    const t = budgetTargets({ monthNet: 1000, vatRate: 22, daysInMonth: 31, dayOfMonth: 0, mtd: 0 })
+    expect(t.toDateTarget).toBe(0)
+    expect(t.pct).toBeNull()
+    expect(t.projection).toBeNull()
+  })
+  it('mese chiuso: obiettivo a oggi = budget lordo intero', () => {
+    const t = budgetTargets({ monthNet: 1000, vatRate: 22, daysInMonth: 30, dayOfMonth: 30, mtd: 1220 })
+    expect(t.toDateTarget).toBe(t.monthGross)
+    expect(t.delta).toBe(0)
+    expect(t.pct).toBe(100)
   })
 })

@@ -1654,7 +1654,7 @@ function ReportSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState(false)
   const [logs, setLogs] = useState<ReportLogRow[]>([])
-  const [form, setForm] = useState({ enabled: false, sendTime: '21:30', reminderEnabled: false, reminderTime: '20:30', recipients: '', sendOnEmpty: true })
+  const [form, setForm] = useState({ enabled: false, sendTime: '21:30', reminderEnabled: false, reminderTime: '20:30', recipients: '', sendOnEmpty: true, budgetVatRate: '22' })
   const [dirty, setDirty] = useState(false)
 
   const load = useCallback(async () => {
@@ -1670,6 +1670,7 @@ function ReportSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
         enabled: s.enabled, sendTime: s.send_time.slice(0, 5),
         reminderEnabled: !!s.reminder_time, reminderTime: (s.reminder_time ?? '20:30').slice(0, 5),
         recipients: (s.recipients ?? []).join('\n'), sendOnEmpty: s.send_on_empty,
+        budgetVatRate: String(s.budget_vat_rate ?? 22),
       })
     }
     setLogs((lRes.data ?? []) as ReportLogRow[])
@@ -1687,6 +1688,8 @@ function ReportSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
     if (!COMPANY_ID) return
     if (form.enabled && recipientsList.length === 0) { showToast('Serve almeno un indirizzo destinatario', 'error'); return }
     if (form.reminderEnabled && form.reminderTime >= form.sendTime) { showToast('Il sollecito deve essere prima dell\'ora di invio', 'error'); return }
+    const vat = Number(String(form.budgetVatRate).replace(',', '.'))
+    if (!Number.isFinite(vat) || vat < 0 || vat > 100) { showToast('L\'aliquota IVA deve essere un numero fra 0 e 100', 'error'); return }
     setSaving(true)
     const { error } = await supabase.from('daily_report_settings').upsert({
       company_id: COMPANY_ID,
@@ -1695,6 +1698,7 @@ function ReportSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
       reminder_time: form.reminderEnabled ? form.reminderTime : null,
       recipients: recipientsList,
       send_on_empty: form.sendOnEmpty,
+      budget_vat_rate: vat,
       // Origine del sito corrente: serve ai link nella mail, senza valori hardcoded per tenant.
       app_url: typeof window !== 'undefined' ? window.location.origin : null,
       updated_at: new Date().toISOString(),
@@ -1724,7 +1728,9 @@ function ReportSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
       <p className="text-sm text-slate-600">
         Ogni sera, all'ora scelta, i destinatari ricevono una mail con le chiusure di cassa del giorno: una riga per punto vendita
         (totale, contanti, POS, altri canali, spese e rimborsi, versamento, fondo cassa e differenza), i negozi che non hanno chiuso,
-        le anomalie da controllare e il progressivo del mese. L'ora è quella italiana, anche con l'ora legale.
+        le anomalie da controllare, il progressivo del mese e il confronto con l'obiettivo: il budget ricavi del mese
+        dell'Inserimento rapido (Budget → Inserimento Rapido), portato al lordo dell'IVA e diviso per i giorni del mese,
+        dà l'obiettivo del giorno; la mail mostra lo scostamento +/- di ogni negozio, del giorno e del mese. L'ora è quella italiana, anche con l'ora legale.
       </p>
 
       <label className="flex items-center gap-3 cursor-pointer">
@@ -1753,6 +1759,12 @@ function ReportSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
           {recipientsList.length} indirizz{recipientsList.length === 1 ? 'o' : 'i'} valid{recipientsList.length === 1 ? 'o' : 'i'}
           {invalidRecipients.length > 0 && <span className="text-red-600"> · non validi: {invalidRecipients.join(', ')}</span>}
         </div>
+      </div>
+
+      <div className="sm:w-1/2">
+        <label className="block text-xs font-medium text-slate-600 mb-1">IVA per il confronto con il budget (%)</label>
+        <input type="number" min={0} max={100} step={0.1} value={form.budgetVatRate} onChange={(e) => set({ budgetVatRate: e.target.value })} className={inp} />
+        <div className="text-xs mt-1 text-slate-500">Il budget dell'Inserimento rapido è netto IVA, le chiusure di cassa sono lorde: l'obiettivo del giorno è budget mese × (1 + IVA) ÷ giorni del mese.</div>
       </div>
 
       <label className="flex items-center gap-3 cursor-pointer">

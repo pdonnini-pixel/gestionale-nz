@@ -1,0 +1,5 @@
+-- ROLLBACK 192: ripristina parser e matcher della migration 188.
+-- Riapplicare le definizioni di cash_bank_terminal_code, cash_bank_circuit,
+-- cash_bank_ref_date e match_cash_closings_with_bank contenute in
+-- 20260905_188_cash_closing_bank_matching.sql (sezioni 3 e 4).
+-- Nessuna tabella o colonna e' stata creata da 192: non c'e' altro da annullare.

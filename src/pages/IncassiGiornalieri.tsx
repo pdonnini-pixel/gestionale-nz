@@ -26,7 +26,7 @@ import { fetchAllPaged } from '../lib/fetchAllPaged'
 import type { Database } from '../types/database'
 import {
   type PaymentChannel, type ChannelKind, type AttachmentTarget, type ExpenseKind, type ExtractionStatus, CHANNEL_KIND_LABELS, ATTACHMENT_TARGET_LABELS, EXPENSE_KIND_LABELS,
-  CLOSING_STATUS_LABELS, DEFAULT_CHANNELS, EXTRACTION_STATUS_LABELS, BANK_STATUS_LABELS, formatEuro, monthDays, todayIso, formatDateIt, MESI_IT, extractedAmount, extractedSummary, bankStatusMark,
+  CLOSING_STATUS_LABELS, DEFAULT_CHANNELS, EXTRACTION_STATUS_LABELS, BANK_STATUS_LABELS, formatEuro, monthDays, todayIso, formatDateIt, MESI_IT, extractedAmount, extractedSummary, bankStatusMark, budgetTargets, type BudgetTarget,
 } from '../lib/cashClosings'
 
 type ClosingRow = Database['public']['Tables']['outlet_daily_closings']['Row']
@@ -70,6 +70,9 @@ export default function IncassiGiornalieri() {
   const [lines, setLines] = useState<LineLite[]>([])
   const [attachments, setAttachments] = useState<AttachmentLite[]>([])
   const [bankAccounts, setBankAccounts] = useState<BankAccountLite[]>([])
+  // Obiettivo dal budget: ricavi mensili per centro di costo (Inserimento rapido, netti IVA) e aliquota IVA del report
+  const [budgetNet, setBudgetNet] = useState<Map<string, number>>(new Map())
+  const [vatRate, setVatRate] = useState(22)
   const [loading, setLoading] = useState(true)
 
   const setFilter = (k: string, v: string) => setParams((p) => { if (v) p.set(k, v); else p.delete(k); return p })
@@ -87,12 +90,19 @@ export default function IncassiGiornalieri() {
     setLoading(true)
     const from = days[0]
     const to = days[days.length - 1]
-    const [chRes, clRes, baRes] = await Promise.all([
+    const [chRes, clRes, baRes, bgRes, rsRes] = await Promise.all([
       supabase.from('outlet_payment_channels').select('*').eq('company_id', companyId).order('outlet_id').order('sort_order'),
       supabase.from('outlet_daily_closings').select('*').eq('company_id', companyId).gte('closing_date', from).lte('closing_date', to).order('closing_date'),
       supabase.from('bank_accounts').select('id, bank_name, account_name').eq('company_id', companyId).eq('is_active', true).order('bank_name'),
+      supabase.from('budget_confronto').select('cost_center, amount').eq('company_id', companyId).eq('year', ym.y).eq('month', ym.m).eq('entry_type', 'rev_monthly'),
+      supabase.from('daily_report_settings').select('budget_vat_rate').eq('company_id', companyId).maybeSingle(),
     ])
     setChannels((chRes.data ?? []) as PaymentChannel[])
+    const bn = new Map<string, number>()
+    for (const r of (bgRes.data ?? []) as Array<{ cost_center: string; amount: number | string }>) bn.set(r.cost_center, (bn.get(r.cost_center) ?? 0) + Number(r.amount))
+    setBudgetNet(bn)
+    const vr = Number((rsRes.data as { budget_vat_rate?: number | string } | null)?.budget_vat_rate)
+    setVatRate(Number.isFinite(vr) ? vr : 22)
     const cls = (clRes.data ?? []) as ClosingRow[]
     setClosings(cls)
     setBankAccounts((baRes.data ?? []) as BankAccountLite[])
@@ -108,7 +118,7 @@ export default function IncassiGiornalieri() {
       setLines([]); setAttachments([])
     }
     setLoading(false)
-  }, [companyId, outlets.length, days])
+  }, [companyId, outlets.length, days, ym.y, ym.m])
 
   useEffect(() => { void load() }, [load])
 
@@ -135,6 +145,18 @@ export default function IncassiGiornalieri() {
   }, [lines])
   // Numero di foto per chiusura e segnale "≠" se una lettura automatica non
   // coincide con quanto scritto (totale corrispettivi o versamento).
+  // Obiettivo del mese per outlet: giorni trascorsi = oggi per il mese corrente, tutto il mese se passato, 0 se futuro
+  const budgetRows = useMemo(() => {
+    const [ty, tm, td] = today.split('-').map(Number)
+    const elapsed = ym.y < ty || (ym.y === ty && ym.m < tm) ? days.length : ym.y === ty && ym.m === tm ? td : 0
+    return visibleOutlets.flatMap((o) => {
+      const net = o.cost_center_key ? budgetNet.get(o.cost_center_key) : undefined
+      if (net == null || net <= 0) return []
+      const mtd = closings.filter((c) => c.outlet_id === o.id && c.status !== 'bozza' && !c.is_closed_day).reduce((s, c) => s + Number(c.total_receipts), 0)
+      return [{ outlet: o, t: budgetTargets({ monthNet: net, vatRate, daysInMonth: days.length, dayOfMonth: elapsed, mtd }) }]
+    })
+  }, [visibleOutlets, budgetNet, closings, vatRate, days.length, ym, today])
+
   const attCount = useMemo(() => {
     const map = new Map<string, { n: number; mismatch: boolean }>()
     for (const a of attachments) {
@@ -197,6 +219,10 @@ export default function IncassiGiornalieri() {
             </div>
           </div>
 
+          {!loading && (
+            <BudgetPanel rows={budgetRows} missing={visibleOutlets.filter((o) => !budgetRows.some((r) => r.outlet.id === o.id)).map((o) => o.name)} vatRate={vatRate} daysInMonth={days.length} monthLabel={`${MESI_IT[ym.m - 1]} ${ym.y}`} />
+          )}
+
           {loading ? (
             <div className="py-12 text-center text-slate-500"><Loader2 className="inline animate-spin mr-2" size={18} />Caricamento…</div>
           ) : outletFilter === ALL ? (
@@ -235,6 +261,91 @@ export default function IncassiGiornalieri() {
           onReopened={async () => { setDetail(null); await load(); toast({ type: 'success', message: 'Chiusura riaperta' }) }}
           onDeleted={async () => { setDetail(null); await load(); toast({ type: 'success', message: 'Giornata cancellata: si può reinserire da zero' }) }}
         />
+      )}
+    </div>
+  )
+}
+
+// ─── Obiettivo del mese (budget Inserimento rapido) ────────────────────
+function BudgetPanel({ rows, missing, vatRate, daysInMonth, monthLabel }: {
+  rows: Array<{ outlet: { id: string; name: string }; t: BudgetTarget }>
+  missing: string[]
+  vatRate: number
+  daysInMonth: number
+  monthLabel: string
+}) {
+  const [open, setOpen] = useState(true)
+  if (rows.length === 0) {
+    return (
+      <div className="mb-4 text-xs text-slate-500 bg-white border border-slate-200 rounded-xl px-4 py-3">
+        Nessun budget ricavi per {monthLabel} nell'Inserimento rapido: l'obiettivo del mese non è disponibile.{' '}
+        <a href="/budget?tab=rapido" className="text-blue-600 hover:underline">Inserisci il budget</a>.
+      </div>
+    )
+  }
+  const sum = (f: (t: BudgetTarget) => number) => rows.reduce((s, r) => s + f(r.t), 0)
+  const tot = { monthGross: sum((t) => t.monthGross), toDateTarget: sum((t) => t.toDateTarget), mtd: sum((t) => t.mtd), dayTarget: sum((t) => t.dayTarget) }
+  const totDelta = tot.mtd - tot.toDateTarget
+  const totPct = tot.toDateTarget > 0 ? Math.round((tot.mtd / tot.toDateTarget) * 100) : null
+  const totProj = rows.some((r) => r.t.projection != null) ? sum((t) => t.projection ?? 0) : null
+  const deltaCls = (n: number) => (Math.abs(n) < 0.005 ? 'text-slate-700' : n > 0 ? 'text-emerald-700' : 'text-red-700')
+  const delta = (n: number) => `${n >= 0 ? '+' : ''}${formatEuro(n)}`
+  return (
+    <div className="mb-4 bg-white border border-slate-200 rounded-xl">
+      <button onClick={() => setOpen((v) => !v)} className="w-full flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-3 text-left">
+        <span className="text-sm font-semibold text-slate-800">Obiettivo del mese</span>
+        <span className="text-xs text-slate-500">obiettivo a oggi <strong className="text-slate-700">{formatEuro(tot.toDateTarget)}</strong> · incassato <strong className="text-slate-700">{formatEuro(tot.mtd)}</strong> · <strong className={deltaCls(totDelta)}>{delta(totDelta)}</strong>{totPct != null ? ` (${totPct} %)` : ''} · budget mese {formatEuro(tot.monthGross)}</span>
+        <span className="ml-auto text-xs text-blue-600">{open ? 'nascondi' : 'mostra'}</span>
+      </button>
+      {open && (
+        <div className="overflow-x-auto border-t border-slate-100">
+          <table className="min-w-full text-sm">
+            <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+              <tr>
+                <th className="px-3 py-2 text-left">Punto vendita</th>
+                <th className="px-3 py-2 text-right">Budget mese</th>
+                <th className="px-3 py-2 text-right">Obiettivo giorno</th>
+                <th className="px-3 py-2 text-right">Obiettivo a oggi</th>
+                <th className="px-3 py-2 text-right">Incassato a oggi</th>
+                <th className="px-3 py-2 text-right">+/-</th>
+                <th className="px-3 py-2 text-right">Raggiunto</th>
+                <th className="px-3 py-2 text-right">Proiezione fine mese</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(({ outlet, t }) => (
+                <tr key={outlet.id} className="border-t border-slate-100">
+                  <td className="px-3 py-1.5 font-medium text-slate-800 whitespace-nowrap">{outlet.name}</td>
+                  <td className="px-3 py-1.5 text-right font-mono tabular-nums">{formatEuro(t.monthGross)}</td>
+                  <td className="px-3 py-1.5 text-right font-mono tabular-nums">{formatEuro(t.dayTarget)}</td>
+                  <td className="px-3 py-1.5 text-right font-mono tabular-nums">{formatEuro(t.toDateTarget)}</td>
+                  <td className="px-3 py-1.5 text-right font-mono tabular-nums font-semibold">{formatEuro(t.mtd)}</td>
+                  <td className={`px-3 py-1.5 text-right font-mono tabular-nums font-semibold ${deltaCls(t.delta)}`}>{delta(t.delta)}</td>
+                  <td className="px-3 py-1.5 text-right font-mono tabular-nums">{t.pct == null ? '—' : `${t.pct} %`}</td>
+                  <td className="px-3 py-1.5 text-right font-mono tabular-nums">{t.projection == null ? '—' : formatEuro(t.projection)}</td>
+                </tr>
+              ))}
+            </tbody>
+            {rows.length > 1 && (
+              <tfoot className="bg-slate-50 font-semibold">
+                <tr>
+                  <td className="px-3 py-2">Totale</td>
+                  <td className="px-3 py-2 text-right font-mono tabular-nums">{formatEuro(tot.monthGross)}</td>
+                  <td className="px-3 py-2 text-right font-mono tabular-nums">{formatEuro(tot.dayTarget)}</td>
+                  <td className="px-3 py-2 text-right font-mono tabular-nums">{formatEuro(tot.toDateTarget)}</td>
+                  <td className="px-3 py-2 text-right font-mono tabular-nums">{formatEuro(tot.mtd)}</td>
+                  <td className={`px-3 py-2 text-right font-mono tabular-nums ${deltaCls(totDelta)}`}>{delta(totDelta)}</td>
+                  <td className="px-3 py-2 text-right font-mono tabular-nums">{totPct == null ? '—' : `${totPct} %`}</td>
+                  <td className="px-3 py-2 text-right font-mono tabular-nums">{totProj == null ? '—' : formatEuro(totProj)}</td>
+                </tr>
+              </tfoot>
+            )}
+          </table>
+          <p className="px-4 py-2 text-[11px] text-slate-500">
+            Obiettivo = budget ricavi del mese dell'<a href="/budget?tab=rapido" className="text-blue-600 hover:underline">Inserimento rapido</a> (netto IVA) + IVA {String(vatRate).replace('.', ',')} %, diviso per i {daysInMonth} giorni del mese. Incassato = chiusure non in bozza. Proiezione = media dei giorni trascorsi × giorni del mese.
+            {missing.length > 0 && <> Senza budget per questo mese: {missing.join(', ')}.</>}
+          </p>
+        </div>
       )}
     </div>
   )
