@@ -307,6 +307,13 @@ Per Made e Zago le tabelle nascono vuote: i canali si configurano quando quei te
 - Incassi giornalieri: pulsante «Esporta Excel» nel riepilogo: foglio «Riepilogo» giorni × punti vendita con totali e un foglio per punto vendita nella forma del vecchio Excel (totale, una colonna per canale, spese, rimborsi, versamenti, fondo cassa, differenza, stato, chi ha chiuso, note). Builder puro `src/lib/cashClosingsExport.ts` con test; xlsx caricato a richiesta.
 - Migration `20260907_196` sui 3 tenant: la proiezione in `daily_revenue` scorpora l'IVA con la stessa aliquota del report e della proposta (`daily_report_settings.budget_vat_rate`, poi il vecchio `companies.settings.cash_closing_vat_rate`, poi 22 %). Un solo parametro per tutto lo specchietto.
 
+**Caricamento delle 42 giornate e collaudo del riscontro (2026-09-07)**: le chiusure 1-6 settembre dei 7 outlet NZ sono state inserite dalle foto (stato confermata, «caricamento da foto», fondo cassa/spese/versamenti a zero, senza foto nel bucket; Torino 01/09 e Barberino 04/09 con i numeri del registratore e la nota dell'anomalia). Totale 64.505,57 € lordi, 52.873,42 € netti in `daily_revenue`. Il riscontro con la banca sui dati veri ha rivelato altre due cose:
+
+- **L'Amex passato sul POS Nexi è accreditato da MPS** insieme a Bancomat e Nexi (Palmanova 01/09: POS 824,05 + Amex 177,55 = 1.001,60, accredito MPS 992,51). Le righe «American Express» sul conto BCC sono solo gli Amex del terminale Numia/BCC. `NZ_ONLY_20260907_198`: il canale «POS MPS Amex» diventa tipo `pos` con il codice del POS MPS (resta una colonna per la cassiera); il matcher somma i due canali.
+- **Accredito parziale**: Bancomat e Nexi di una giornata arrivano in due righe con valuta diversa; con una sola arrivata il riscontro segnava ≠. Migration `20260907_197` (3 tenant): se l'accreditato è inferiore al dichiarato e la giornata ha meno di 5 giorni, la riga resta «in attesa» con l'importo parziale.
+
+Esito dopo i correttivi: 29 giornate su 42 «verificate con la banca», 13 «confermate» in attesa degli accrediti BCC (che al 07/09 non sono ancora arrivati) o della seconda riga MPS; una sola «differenza» vera, Barberino 04/09 (POS 985,55 contro registratore 911,51). L'accredito MPS del 01/09 di Torino (426,66 netti) conferma i 430,80 del registratore.
+
 Le quattro fasi del piano sono realizzate. Restano il collaudo con i negozi (account cassa, fondo cassa iniziale, prime foto dall'app) e la verifica degli accrediti BCC quando arriveranno in banca.
 
 
