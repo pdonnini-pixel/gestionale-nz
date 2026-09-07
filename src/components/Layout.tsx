@@ -332,19 +332,23 @@ export default function Layout() {
 
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
         {/* Tenant badge (banda colorata) */}
-        <TenantBadge />
+        {/* L'account di negozio non cambia tenant: la fascia tecnica gli toglie solo spazio sul telefono. */}
+        {!isCashOperator && <TenantBadge />}
 
         {/* Top bar */}
         <header className="h-12 shrink-0 bg-white border-b border-slate-200 flex items-center justify-between px-3 sm:px-4 gap-2">
           {/* Left: hamburger (mobile) + breadcrumb */}
           <div className="flex items-center gap-2 min-w-0">
-            <button
-              onClick={() => setMobileOpen(true)}
-              className="p-2.5 rounded-lg hover:bg-slate-100 text-slate-500 md:hidden shrink-0"
-              title="Apri menu"
-            >
-              <Menu size={20} />
-            </button>
+            {/* Per l'account di negozio bastano le due voci in basso: niente menu laterale sul telefono. */}
+            {!isCashOperator && (
+              <button
+                onClick={() => setMobileOpen(true)}
+                className="p-2.5 rounded-lg hover:bg-slate-100 text-slate-500 md:hidden shrink-0"
+                title="Apri menu"
+              >
+                <Menu size={20} />
+              </button>
+            )}
             <Breadcrumb />
           </div>
 
