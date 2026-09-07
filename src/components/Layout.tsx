@@ -336,7 +336,9 @@ export default function Layout() {
         {!isCashOperator && <TenantBadge />}
 
         {/* Top bar */}
-        <header className="h-12 shrink-0 bg-white border-b border-slate-200 flex items-center justify-between px-3 sm:px-4 gap-2">
+        {/* Sul telefono dell'account di negozio la barra in alto resterebbe vuota (niente menu, ricerca,
+            campanella): la nascondiamo e restano titolo pagina, contenuto e barra in basso. */}
+        <header className={`h-12 shrink-0 bg-white border-b border-slate-200 items-center justify-between px-3 sm:px-4 gap-2 ${isCashOperator ? 'hidden md:flex' : 'flex'}`}>
           {/* Left: hamburger (mobile) + breadcrumb */}
           <div className="flex items-center gap-2 min-w-0">
             {/* Per l'account di negozio bastano le due voci in basso: niente menu laterale sul telefono. */}
