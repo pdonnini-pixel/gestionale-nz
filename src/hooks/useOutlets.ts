@@ -24,6 +24,7 @@ export interface OutletLite {
   code: string | null
   city: string | null
   outlet_type: string | null
+  cost_center_key: string | null
   is_active: boolean | null
   sort_order: number | null
 }
@@ -65,7 +66,7 @@ export function useOutlets(opts?: { includeInactive?: boolean; sellingOnly?: boo
     ;(async () => {
       const baseQuery = supabase
         .from('outlets')
-        .select('id, name, code, city, outlet_type, is_active')
+        .select('id, name, code, city, outlet_type, is_active, cost_center_key')
         .eq('company_id', company.id)
         .order('name')
       const q = includeInactive
@@ -85,6 +86,7 @@ export function useOutlets(opts?: { includeInactive?: boolean; sellingOnly?: boo
           code: (r.code as string | null) ?? null,
           city: (r.city as string | null) ?? null,
           outlet_type: (r.outlet_type as string | null) ?? null,
+          cost_center_key: (r.cost_center_key as string | null) ?? null,
           is_active: (r.is_active as boolean | null) ?? true,
           sort_order: null,
         }))

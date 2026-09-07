@@ -1259,6 +1259,15 @@ export const PAGE_GUIDES: PageGuide[] = [
         ]
       },
       {
+        "heading": "Obiettivo del mese",
+        "body": "Sopra la tabella del riepilogo, il riquadro \"Obiettivo del mese\" confronta gli incassi con il budget ricavi dell'Inserimento rapido (Budget → Inserimento Rapido). Per ogni punto vendita: budget del mese, obiettivo del giorno, obiettivo a oggi (obiettivo del giorno × giorni trascorsi), incassato a oggi (chiusure non in bozza), scostamento +/- in verde o rosso, percentuale raggiunta e proiezione a fine mese (media dei giorni trascorsi × giorni del mese); in fondo il totale dell'azienda. Il budget dell'Inserimento rapido è netto IVA, le chiusure sono corrispettivi lordi: il riquadro aggiunge l'IVA impostata in Impostazioni → Report incassi serale (22 % di default) e divide per i giorni del mese. Per un mese passato l'obiettivo a oggi è tutto il budget; per un mese futuro è zero. Se un punto vendita non ha budget per il mese, non compare nel riquadro ed è indicato nella nota sotto. Il riquadro si può nascondere con \"nascondi\". Gli stessi numeri arrivano ogni sera nel report incassi via mail.",
+        "steps": [
+          "Scegli il mese con le frecce: il riquadro segue il mese selezionato",
+          "Con il filtro su un solo punto vendita vedi la riga di quel negozio",
+          "Clicca \"Inserimento rapido\" nella nota per modificare il budget"
+        ]
+      },
+      {
         "heading": "Banca: riscontro con i movimenti bancari",
         "body": "Solo super advisor e contabile. Ogni mattina alle 8 (ora italiana) il gestionale confronta le chiusure confermate degli ultimi 60 giorni con i movimenti bancari: per ogni accredito POS legge dalla causale il codice terminale e il giorno di vendita, somma gli accrediti di quel giorno e li confronta con l'importo scritto dalla cassiera sul canale con quel codice; per il versamento cerca in banca un versamento di contante dello stesso importo entro 6 giorni, con la parola chiave del negozio. Quando tutti i POS del giorno sono accreditati e il versamento è stato trovato, la chiusura passa a \"Verificata con la banca\". La scheda mostra il mese scelto: la tabella dei canali POS (giorni, dichiarato, accreditato, differenza e quante giornate sono ✓ accreditate, ≠ con differenza, ✗ senza accredito, in attesa), la tabella dei contanti per punto vendita (incassati, spese e rimborsi, versamenti dichiarati e trovati in banca, fondo cassa a inizio e fine mese, versamenti non trovati), gli accrediti di terminali non ancora mappati e gli accrediti che non hanno una chiusura confermata per quel giorno. Il pulsante \"Verifica con la banca ora\" lancia subito il riscontro senza aspettare la mattina.",
         "steps": [
