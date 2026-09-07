@@ -14368,6 +14368,7 @@ export type Database = {
       outlet_payment_channels: {
         Row: {
           bank_account_id: string | null
+          bank_tolerance_pct: number
           company_id: string
           counts_in_total: boolean
           created_at: string
@@ -14384,6 +14385,7 @@ export type Database = {
         }
         Insert: {
           bank_account_id?: string | null
+          bank_tolerance_pct?: number
           company_id: string
           counts_in_total?: boolean
           created_at?: string
@@ -14400,6 +14402,7 @@ export type Database = {
         }
         Update: {
           bank_account_id?: string | null
+          bank_tolerance_pct?: number
           company_id?: string
           counts_in_total?: boolean
           created_at?: string

@@ -285,7 +285,30 @@ Per Made e Zago le tabelle nascono vuote: i canali si configurano quando quei te
   Fonti: nome dell'outlet nelle causali BCC (00005, 00006, 00010, 00012, 00014), prima transazione di ogni terminale MPS coincidente con la data di apertura, primo versamento dell'ATM 1745 (21/10/2025, Valmontone) e dell'ATM Intesa 9750 (31/03/2026, Torino).
 - I collegamenti POS ↔ registratore telematico del portale dell'Agenzia delle Entrate (matricole 99IEB…, terminal id Nexi/Numia a 8 cifre) non compaiono nelle causali bancarie e non servono al riscontro; la sola matricola attribuibile con certezza è 99IEB130491 (collegamenti dal 03/2026 → Torino).
 
-Resta la fase 4 (proposta consuntivo ed export).
+**Collaudo sugli scontrini reali (2026-09-07)**: 42 foto di chiusura dei 7 outlet NZ per i giorni 1-6 settembre.
+
+- Copertura completa: 7 outlet × 6 giorni, nessuna giornata mancante. Ogni foto contiene lo scontrino di chiusura RT (totale vendite, contanti, elettronico, matricola, sigillo, numero azzeramenti) e la chiusura del POS Nexi/MPS con il dettaglio per circuito (Bancomat, Nexi, Amexco); dal 4 settembre compaiono anche le chiusure del POS Numia/BCC (Bancomat, «New Cartabccpos», Amex), prima sempre a zero.
+- Quadratura: in 40 chiusure su 42 elettronico RT = somma delle chiusure POS al centesimo. Le due eccezioni: Torino 01/09 (RT 430,80 contro POS 392,45: la banca accredita l'importo pieno, quindi un pagamento di 38,35 è passato dopo la stampa della chiusura POS) e Barberino 04/09 (POS 985,55 contro RT 911,51: il POS ha incassato 74,04 in più di quanto il registratore ha battuto come elettronico; la banca conferma il POS).
+- Matricole RT → outlet, ora certe dalle foto: 99IEB080351 Valdichiana, 99IEB076561 Barberino, 99IEB096085 Palmanova (Aiello del Friuli), 99IEB095535 Franciacorta (stampa il «rapporto finanziario» invece della chiusura giornaliera), 99IEB040615 Brugnato, 99IEB122366 Valmontone, 99IEB130491 Torino (Settimo Torinese). Terminal id Nexi: 53968142, 86028817 (+86028816), 86044207, 86045913, 86115651, 86208645, 83019010; Numia: 84570932, 84570955, 84570958, 84570960, 84570977, 84570982, 84570990.
+- **Accrediti MPS al netto delle commissioni**: per 6 outlet la banca accredita fra lo 0,4 % e l'1,1 % in meno della chiusura POS (es. Palmanova 03/09: POS 1.557,76, banca 1.542,49), senza una riga di commissione separata; solo Valdichiana (00002) riceve il lordo. Con la tolleranza attuale di 0,01 € il riscontro segnerebbe «differenza» quasi ogni giorno: serve una tolleranza percentuale per canale (o l'aliquota di commissione) prima di considerare affidabile il segno ≠.
+- Accrediti Amex: la data in causale è quella dell'accredito (T+1), non quella della vendita: l'Amex di Franciacorta del 01/09 (58,00) è «Accredito per incassi 02.09.2026». Il parser va spostato di un giorno per gli Amex.
+- Sincronizzazione BCC in ritardo: al 07/09 l'ultimo movimento BCC è del 03/09 e nessun accredito Numia/PagoBancomat riferito ai giorni 1-6 è ancora arrivato (Numia accredita a T+2/T+3). Su MPS mancano ancora quattro accrediti del venerdì 04/09 e sabato 05/09 (Brugnato Nexi 619,78 e Bancomat 285,47, Franciacorta Bancomat 282,80, Torino Nexi 555,60): probabile accredito nei giorni successivi.
+- Numeri (totale vendite RT lordo IVA): 1-6 settembre 64.505,57 €; per giorno 7.454 / 7.369 / 9.013 / 6.558 / 14.773 / 19.339; per outlet Valdichiana 13.488, Valmontone 9.863, Barberino 9.352, Palmanova 8.479, Franciacorta 8.371, Torino 8.362, Brugnato 6.591.
+- Cosa le foto non danno: fondo cassa, spese di cassa, versamenti (nessuna ricevuta di versamento fra le 42 foto), rimborsi. Restano dati che solo la cassiera può inserire.
+
+**Fase 3, correzioni dal collaudo (2026-09-07)**: migration `20260907_195` sui 3 tenant.
+
+- `outlet_payment_channels.bank_tolerance_pct`: scarto percentuale ammesso fra dichiarato e accreditato (1,5 % sui canali POS esistenti e nei canali standard, 0 sugli Amex che accreditano il lordo); campo «Tolleranza banca %» in Canali di incasso. Il matcher usa `greatest(0,01 €, dichiarato × tolleranza)`.
+- Accrediti Amex: la data in causale è quella dell'accredito e un accredito copre più giornate. Il matcher cerca, fra le chiusure confermate con Amex dichiarato sul codice (fino a 10 giorni prima, giornata più recente entro 4 giorni dall'accredito), la sequenza consecutiva la cui somma coincide con l'accreditato e registra un abbinamento per giornata con la sua quota (`closing_bank_matches` ora UNIQUE su `(bank_transaction_id, closing_id)`). Le righe Amex passano a «mancante» dopo 10 giorni invece di 5.
+
+**Fase 4 realizzata (2026-09-07)**: ricavi mensili ed export.
+
+- Inserimento rapido (Budget e Controllo): pulsante «Proponi da chiusure cassa» sotto la riga Consuntivo. Somma le chiusure confermate del mese per `outlets.cost_center_key`, scorpora l'IVA con `daily_report_settings.budget_vat_rate` e mostra giornate chiuse/giorni del mese (⚠ se parziale), lordo, netto proposto, consuntivo attuale; «Usa» e «Usa tutti» scrivono con la stessa `save_budget_confronto_cell` (stato granitico). Nessuna scrittura automatica. Helper puro `proposeConsuntivo` in `src/lib/cashClosings.ts` con test.
+- Incassi giornalieri: pulsante «Esporta Excel» nel riepilogo: foglio «Riepilogo» giorni × punti vendita con totali e un foglio per punto vendita nella forma del vecchio Excel (totale, una colonna per canale, spese, rimborsi, versamenti, fondo cassa, differenza, stato, chi ha chiuso, note). Builder puro `src/lib/cashClosingsExport.ts` con test; xlsx caricato a richiesta.
+- Migration `20260907_196` sui 3 tenant: la proiezione in `daily_revenue` scorpora l'IVA con la stessa aliquota del report e della proposta (`daily_report_settings.budget_vat_rate`, poi il vecchio `companies.settings.cash_closing_vat_rate`, poi 22 %). Un solo parametro per tutto lo specchietto.
+
+Le quattro fasi del piano sono realizzate. Restano il collaudo con i negozi (account cassa, fondo cassa iniziale, prime foto dall'app) e la verifica degli accrediti BCC quando arriveranno in banca.
+
 
 ## 5. decisioni che servono da Patrizio
 

@@ -14,7 +14,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { ChevronLeft, ChevronRight, Unlock, Pencil, Image as ImageIcon, Plus, Save, Loader2, Settings2, Table2, ScanSearch, Trash2, Landmark, RefreshCw } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Unlock, Pencil, Image as ImageIcon, Plus, Save, Loader2, Settings2, Table2, ScanSearch, Trash2, Landmark, RefreshCw, FileSpreadsheet } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { useCompany } from '../hooks/useCompany'
@@ -23,6 +23,7 @@ import { useToast } from '../components/Toast'
 import { Modal } from '../components/ui/Modal'
 import PageHeader from '../components/PageHeader'
 import { fetchAllPaged } from '../lib/fetchAllPaged'
+import { buildCashClosingsSheets } from '../lib/cashClosingsExport'
 import type { Database } from '../types/database'
 import {
   type PaymentChannel, type ChannelKind, type AttachmentTarget, type ExpenseKind, type ExtractionStatus, CHANNEL_KIND_LABELS, ATTACHMENT_TARGET_LABELS, EXPENSE_KIND_LABELS,
@@ -135,6 +136,25 @@ export default function IncassiGiornalieri() {
     }
     return map
   }, [lines])
+
+  // Fase 4: export Excel del mese (foglio «Riepilogo» giorni × outlet + un foglio per outlet come il vecchio Excel)
+  const [exporting, setExporting] = useState(false)
+  const exportExcel = async () => {
+    if (exporting) return
+    setExporting(true)
+    try {
+      const XLSX = await import('xlsx')
+      const wb = XLSX.utils.book_new()
+      const sheets = buildCashClosingsSheets({ days, outlets: visibleOutlets, channels, closings, linesByClosing })
+      for (const sh of sheets) XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(sh.aoa), sh.name)
+      const suffix = outletFilter === ALL ? '' : `_${(visibleOutlets[0]?.name ?? 'outlet').replace(/[^\w]+/g, '_')}`
+      XLSX.writeFile(wb, `incassi_${ym.y}-${String(ym.m).padStart(2, '0')}${suffix}.xlsx`)
+    } catch (e) {
+      toast({ type: 'error', message: `Export non riuscito: ${e instanceof Error ? e.message : String(e)}` })
+    } finally {
+      setExporting(false)
+    }
+  }
   const lineBankByClosing = useMemo(() => {
     const map = new Map<string, Map<string, LineBank>>()
     for (const l of lines) {
@@ -212,6 +232,11 @@ export default function IncassiGiornalieri() {
               <option value={ALL}>Tutti i punti vendita</option>
               {outlets.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
             </select>
+            <button onClick={() => void exportExcel()} disabled={loading || exporting || closings.length === 0}
+              title="Scarica il mese in Excel: foglio Riepilogo giorni × punti vendita e un foglio per punto vendita con tutti i canali"
+              className="px-3 py-2 text-sm rounded-lg border border-slate-300 bg-white text-slate-700 inline-flex items-center gap-1.5 disabled:opacity-50">
+              {exporting ? <Loader2 size={14} className="animate-spin" /> : <FileSpreadsheet size={14} />}Esporta Excel
+            </button>
             <div className="flex gap-3 text-[11px] text-slate-500 ml-auto">
               <span><i className="inline-block w-3 h-3 rounded bg-emerald-100 border border-emerald-300 mr-1 align-middle" />confermata</span>
               <span><i className="inline-block w-3 h-3 rounded bg-amber-100 border border-amber-300 mr-1 align-middle" />bozza</span>
@@ -765,6 +790,7 @@ interface ChannelDraft {
   bank_account_id: string
   terminal_code: string
   pos_terminal_id: string
+  bank_tolerance_pct: string
   counts_in_total: boolean
   sort_order: number
   is_active: boolean
@@ -799,7 +825,7 @@ function ChannelsEditor({ outlets, channels, bankAccounts, companyId, canManage,
 
   const toDraft = (c: PaymentChannel): ChannelDraft => ({
     id: c.id, outlet_id: c.outlet_id, label: c.label, kind: c.kind, bank_account_id: c.bank_account_id ?? '',
-    terminal_code: c.terminal_code ?? '', pos_terminal_id: c.pos_terminal_id ?? '', counts_in_total: c.counts_in_total,
+    terminal_code: c.terminal_code ?? '', pos_terminal_id: c.pos_terminal_id ?? '', bank_tolerance_pct: String(c.bank_tolerance_pct ?? 0), counts_in_total: c.counts_in_total,
     sort_order: c.sort_order, is_active: c.is_active,
   })
   const key = (d: ChannelDraft) => d.id ?? `new-${d.outlet_id}-${d.sort_order}`
@@ -809,11 +835,13 @@ function ChannelsEditor({ outlets, channels, bankAccounts, companyId, canManage,
   const save = async (k: string, d: ChannelDraft) => {
     if (!companyId) return
     if (!d.label.trim()) { toast({ type: 'warning', message: 'Serve un nome per il canale' }); return }
+    const tol = Number(String(d.bank_tolerance_pct).replace(',', '.'))
+    if (!Number.isFinite(tol) || tol < 0 || tol > 10) { toast({ type: 'warning', message: 'La tolleranza banca va da 0 a 10 %' }); return }
     setBusy(k)
     const payload = {
       company_id: companyId, outlet_id: d.outlet_id, label: d.label.trim(), kind: d.kind,
       bank_account_id: d.bank_account_id || null, terminal_code: d.terminal_code.trim() || null,
-      pos_terminal_id: d.pos_terminal_id.trim() || null, counts_in_total: d.counts_in_total,
+      pos_terminal_id: d.pos_terminal_id.trim() || null, bank_tolerance_pct: Math.round(tol * 100) / 100, counts_in_total: d.counts_in_total,
       sort_order: d.sort_order, is_active: d.is_active, updated_at: new Date().toISOString(),
     }
     const { error } = d.id
@@ -838,7 +866,7 @@ function ChannelsEditor({ outlets, channels, bankAccounts, companyId, canManage,
 
   const addNew = (outletId: string) => {
     const existing = channels.filter((c) => c.outlet_id === outletId)
-    const d: ChannelDraft = { outlet_id: outletId, label: '', kind: 'pos', bank_account_id: '', terminal_code: '', pos_terminal_id: '', counts_in_total: true, sort_order: existing.length + 1, is_active: true }
+    const d: ChannelDraft = { outlet_id: outletId, label: '', kind: 'pos', bank_account_id: '', terminal_code: '', pos_terminal_id: '', bank_tolerance_pct: '1.5', counts_in_total: true, sort_order: existing.length + 1, is_active: true }
     setDrafts((m) => ({ ...m, [key(d)]: d }))
   }
 
@@ -906,6 +934,7 @@ function ChannelsEditor({ outlets, channels, bankAccounts, companyId, canManage,
                       <th className="px-3 py-2 text-left">Conto di accredito</th>
                       <th className="px-3 py-2 text-left">Codice terminale (banca)</th>
                       <th className="px-3 py-2 text-left">ID terminale POS</th>
+                      <th className="px-3 py-2 text-left" title="Scarto % ammesso fra importo dichiarato e accreditato in banca: le commissioni che l'acquirer trattiene prima dell'accredito">Tolleranza banca %</th>
                       <th className="px-3 py-2 text-center">Nel totale</th>
                       <th className="px-3 py-2 text-center">Attivo</th>
                       <th className="px-3 py-2" />
@@ -939,6 +968,12 @@ function ChannelsEditor({ outlets, channels, bankAccounts, companyId, canManage,
                               className={`${inp} font-mono`} />
                           </td>
                           <td className="px-3 py-1.5"><input value={d.pos_terminal_id} disabled={!canManage} onChange={(e) => set({ pos_terminal_id: e.target.value })} placeholder="40092505" className={`${inp} font-mono`} /></td>
+                          <td className="px-3 py-1.5 w-24">
+                            <input type="number" min={0} max={10} step={0.1} value={d.bank_tolerance_pct} disabled={!canManage || !(d.kind === 'pos' || d.kind === 'pos_amex')}
+                              onChange={(e) => set({ bank_tolerance_pct: e.target.value })}
+                              title="Scarto % ammesso fra dichiarato e accreditato (commissioni trattenute dall'acquirer). 0 = solo il centesimo"
+                              className={`${inp} font-mono`} />
+                          </td>
                           <td className="px-3 py-1.5 text-center"><input type="checkbox" checked={d.counts_in_total} disabled={!canManage} onChange={(e) => set({ counts_in_total: e.target.checked })} /></td>
                           <td className="px-3 py-1.5 text-center"><input type="checkbox" checked={d.is_active} disabled={!canManage} onChange={(e) => set({ is_active: e.target.checked })} /></td>
                           <td className="px-3 py-1.5 text-right">

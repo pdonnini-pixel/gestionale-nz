@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseAmount, formatAmount, computeQuadrature, monthDays, addDaysIso, attachmentPath, kindForTarget, extractedAmount, extractedSummary, bankStatusMark, budgetTargets } from './cashClosings'
+import { parseAmount, formatAmount, computeQuadrature, monthDays, addDaysIso, attachmentPath, kindForTarget, extractedAmount, extractedSummary, bankStatusMark, budgetTargets, proposeConsuntivo } from './cashClosings'
 
 describe('kindForTarget', () => {
   it('associa a ogni riga il documento atteso', () => {
@@ -164,5 +164,35 @@ describe('budgetTargets', () => {
     expect(t.toDateTarget).toBe(t.monthGross)
     expect(t.delta).toBe(0)
     expect(t.pct).toBe(100)
+  })
+})
+
+describe('proposeConsuntivo (fase 4)', () => {
+  it('somma le chiusure per centro di costo e scorpora l\'IVA', () => {
+    const p = proposeConsuntivo([
+      { costCenter: 'valdichiana', total: 1019.63, isClosedDay: false },
+      { costCenter: 'valdichiana', total: 1209.93, isClosedDay: false },
+      { costCenter: 'torino', total: 633.45, isClosedDay: false },
+      { costCenter: 'torino', total: 0, isClosedDay: true },
+    ], 22, 30)
+    const v = p.get('valdichiana')!
+    expect(v.gross).toBe(2229.56)
+    expect(v.net).toBe(1827.51)
+    expect(v.daysCovered).toBe(2)
+    expect(v.complete).toBe(false)
+    const t = p.get('torino')!
+    expect(t.gross).toBe(633.45)
+    expect(t.daysCovered).toBe(2)
+    expect(t.closedDays).toBe(1)
+  })
+  it('mese completo e aliquota non valida → 22 %', () => {
+    const rows = Array.from({ length: 30 }, () => ({ costCenter: 'x', total: 122, isClosedDay: false }))
+    const p = proposeConsuntivo(rows, Number.NaN, 30).get('x')!
+    expect(p.complete).toBe(true)
+    expect(p.gross).toBe(3660)
+    expect(p.net).toBe(3000)
+  })
+  it('nessuna chiusura → mappa vuota', () => {
+    expect(proposeConsuntivo([], 22, 31).size).toBe(0)
   })
 })
