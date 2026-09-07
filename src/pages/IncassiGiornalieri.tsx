@@ -207,7 +207,8 @@ export default function IncassiGiornalieri() {
 
   // ─── Render ───────────────────────────────────────────────────────────
   return (
-    <div className="p-4 sm:p-6">
+    <div className="min-h-screen bg-white">
+      <div className="p-4 sm:p-6 max-w-[1600px] mx-auto">
       <PageHeader
         title="Incassi giornalieri"
         subtitle="Chiusure di cassa dei punti vendita: totali, canali, foto degli scontrini"
@@ -287,6 +288,7 @@ export default function IncassiGiornalieri() {
           onDeleted={async () => { setDetail(null); await load(); toast({ type: 'success', message: 'Giornata cancellata: si può reinserire da zero' }) }}
         />
       )}
+      </div>
     </div>
   )
 }
