@@ -2350,7 +2350,7 @@ export const PAGE_GUIDES: PageGuide[] = [
     "sections": [
       {
         "heading": "Cosa vedi in alto: i quattro riquadri",
-        "body": "\"Prossimo versamento\" mostra il primo mese ancora da pagare con importo, data di scadenza e stato (stima, in corso, confermata). \"Da versare nell'anno\" somma tutti i mesi dell'anno non ancora pagati, stime comprese. \"Già versato\" riporta quanto risulta pagato in Scadenze Fiscali per l'IVA periodica. \"Credito a fine anno\" indica il credito che, se resta, passa all'anno successivo. In alto a destra scegli l'anno, ricalcoli con il pulsante circolare e, se hai il ruolo giusto, apri i \"Parametri\"."
+        "body": "\"Prossimo versamento\" mostra il primo mese ancora da pagare con importo, data di scadenza e stato (stima, in corso, confermata). \"Da versare nell'anno\" somma tutti i mesi dell'anno non ancora pagati, stime comprese. \"Già versato\" riporta quanto risulta pagato in Scadenze Fiscali per l'IVA periodica. \"Credito a fine anno\" indica il credito che, se resta, passa all'anno successivo. In alto a destra scegli l'anno, ricalcoli con \"Ricalcola\" e, se hai il ruolo giusto, apri i \"Parametri\"."
       },
       {
         "heading": "Come si calcola ogni riga",

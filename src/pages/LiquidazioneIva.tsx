@@ -1,10 +1,10 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
-import { CalendarClock, CheckCircle2, RefreshCw, Save, X, AlertTriangle, Info, Settings2, Undo2 } from 'lucide-react'
+import { CalendarClock, CheckCircle2, RefreshCw, Save, X, AlertTriangle, Settings2, Undo2, Receipt, Wallet, Loader2 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { useToast } from '../components/Toast'
 import PageHeader from '../components/PageHeader'
-import TableScroll from '../components/ui/TableScroll'
+import StatKpi from '../components/ui/StatKpi'
 import { todayYMD } from '../lib/dateLocal'
 import {
   buildLiquidazioni, parseTaxPeriod, taxPeriod, titoloScadenzaIva, MESI_IVA, FONTE_LABEL, STATO_LABEL,
@@ -308,237 +308,228 @@ export default function LiquidazioneIva() {
     return Array.from(ys).filter(y => y >= effSettings.startYear).sort()
   }, [componenti, effSettings.startYear, today])
 
-  const inputCls = 'w-full px-2 py-1.5 border border-slate-200 rounded-lg text-sm text-right tabular-nums focus:outline-none focus:ring-2 focus:ring-indigo-200'
+  const inputCls = 'w-full px-2 py-1 border border-slate-200 rounded-lg text-xs text-right font-mono tabular-nums bg-white focus:outline-none focus:ring-1 focus:ring-blue-400/40'
+  const selectCls = 'px-3 py-1.5 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-blue-400/40 bg-white'
+  const btnSecondary = 'inline-flex items-center gap-1.5 px-3 py-1.5 border border-slate-200 rounded-lg text-xs font-medium text-slate-700 hover:bg-slate-50 transition disabled:opacity-50'
+  const btnPrimary = 'inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-medium hover:bg-blue-700 transition shadow-sm disabled:opacity-50'
 
   return (
-    <div className="space-y-5">
-      <PageHeader
-        title="Liquidazione IVA"
-        subtitle="Stima mensile dell'IVA da versare: corrispettivi netti × aliquota + fatture attive − fatture passive ricevute nel mese − credito riportato"
-        actions={(
-          <div className="flex items-center gap-2">
-            <select value={year} onChange={e => setYear(Number(e.target.value))} className="px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white">
-              {years.map(y => <option key={y} value={y}>{y}</option>)}
-            </select>
-            <button onClick={() => loadData()} className="p-2 border border-slate-200 rounded-lg hover:bg-slate-50" title="Ricalcola con i dati aggiornati">
-              <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
-            </button>
-            {canEdit && (
-              <button onClick={() => setSettingsOpen(o => !o)} className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 rounded-lg text-sm hover:bg-slate-50">
-                <Settings2 size={16} /> Parametri
+    <div className="min-h-screen bg-white">
+      <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
+        <PageHeader
+          title="Liquidazione IVA"
+          subtitle="Stima mensile dell'IVA da versare: corrispettivi netti × aliquota + fatture attive − fatture passive ricevute nel mese − credito riportato"
+          noDivider
+          actions={(
+            <div className="flex items-center gap-2">
+              <select value={year} onChange={e => setYear(Number(e.target.value))} className={selectCls} aria-label="Anno">
+                {years.map(y => <option key={y} value={y}>{y}</option>)}
+              </select>
+              <button onClick={() => loadData()} className={btnSecondary} title="Ricalcola con i dati aggiornati">
+                <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> Ricalcola
               </button>
-            )}
+              {canEdit && (
+                <button onClick={() => setSettingsOpen(o => !o)} className={settingsOpen ? btnPrimary : btnSecondary}>
+                  <Settings2 size={14} /> Parametri
+                </button>
+              )}
+            </div>
+          )}
+        />
+
+        {!settings && !loading && (
+          <div className="flex items-start gap-3 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
+            <AlertTriangle size={16} className="shrink-0 mt-0.5" />
+            <div>
+              <span className="font-semibold">Parametri non ancora impostati.</span> Il calcolo parte dal mese corrente con aliquota 22% e credito iniziale zero.
+              {canEdit ? ' Apri «Parametri» per indicare il mese di partenza e il credito IVA da riportare.' : ' Chiedi a un super advisor o al contabile di impostarli.'}
+            </div>
           </div>
         )}
-      />
 
-      {!settings && !loading && (
-        <div className="flex items-start gap-3 p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-800">
-          <AlertTriangle size={18} className="shrink-0 mt-0.5" />
-          <div>
-            <b>Parametri non ancora impostati.</b> Il calcolo parte dal mese corrente con aliquota 22% e credito iniziale zero.
-            {canEdit ? ' Apri «Parametri» per indicare il mese di partenza e il credito IVA da riportare.' : ' Chiedi a un super advisor o al contabile di impostarli.'}
+        {settingsOpen && canEdit && (
+          <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+            <div className="px-4 py-2 text-sm font-semibold text-slate-900 border-b border-slate-100">Parametri della liquidazione</div>
+            <div className="p-4 space-y-3">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <label className="text-xs text-slate-600">Aliquota vendite (%)
+                  <input value={sForm.rate} onChange={e => setSForm({ ...sForm, rate: e.target.value })} className={inputCls + ' mt-1'} inputMode="decimal" />
+                </label>
+                <label className="text-xs text-slate-600">Mese di partenza
+                  <select value={sForm.startMonth} onChange={e => setSForm({ ...sForm, startMonth: e.target.value })} className={selectCls + ' mt-1 w-full'}>
+                    {MESI_IVA.slice(1).map((n, i) => <option key={n} value={i + 1}>{n}</option>)}
+                  </select>
+                </label>
+                <label className="text-xs text-slate-600">Anno di partenza
+                  <input value={sForm.startYear} onChange={e => setSForm({ ...sForm, startYear: e.target.value })} className={inputCls + ' mt-1'} inputMode="numeric" />
+                </label>
+                <label className="text-xs text-slate-600">Credito IVA iniziale (€)
+                  <input value={sForm.openingCredit} onChange={e => setSForm({ ...sForm, openingCredit: e.target.value })} className={inputCls + ' mt-1'} inputMode="decimal" />
+                </label>
+              </div>
+              <p className="text-xs text-slate-500">Il mese di partenza è il primo mese calcolato: il credito iniziale è quello da riportare in quel mese (zero se il mese precedente era a debito). I mesi prima non vengono ricostruiti.</p>
+              <div className="flex justify-end gap-2">
+                <button onClick={() => setSettingsOpen(false)} className={btnSecondary}>Annulla</button>
+                <button onClick={saveSettings} disabled={savingSettings} className={btnPrimary}>
+                  <Save size={14} /> Salva
+                </button>
+              </div>
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {settingsOpen && canEdit && (
-        <div className="bg-white border border-slate-200 rounded-xl p-4">
-          <div className="text-sm font-semibold text-slate-800 mb-3">Parametri della liquidazione</div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <label className="text-xs text-slate-600">Aliquota vendite (%)
-              <input value={sForm.rate} onChange={e => setSForm({ ...sForm, rate: e.target.value })} className={inputCls + ' mt-1'} inputMode="decimal" />
-            </label>
-            <label className="text-xs text-slate-600">Mese di partenza
-              <select value={sForm.startMonth} onChange={e => setSForm({ ...sForm, startMonth: e.target.value })} className="mt-1 w-full px-2 py-1.5 border border-slate-200 rounded-lg text-sm bg-white">
-                {MESI_IVA.slice(1).map((n, i) => <option key={n} value={i + 1}>{n}</option>)}
-              </select>
-            </label>
-            <label className="text-xs text-slate-600">Anno di partenza
-              <input value={sForm.startYear} onChange={e => setSForm({ ...sForm, startYear: e.target.value })} className={inputCls + ' mt-1'} inputMode="numeric" />
-            </label>
-            <label className="text-xs text-slate-600">Credito IVA iniziale (€)
-              <input value={sForm.openingCredit} onChange={e => setSForm({ ...sForm, openingCredit: e.target.value })} className={inputCls + ' mt-1'} inputMode="decimal" />
-            </label>
+        {/* KPI */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <StatKpi icon={CalendarClock} color="blue" label="Prossimo versamento"
+            value={kpi.prossima ? `€ ${fmt(kpi.prossima.importo)}` : '—'}
+            sub={kpi.prossima ? `${MESI_IVA[kpi.prossima.month]} ${kpi.prossima.year} · entro il ${fmtDate(kpi.prossima.dueDate)} · ${STATO_LABEL[kpi.prossima.stato]}` : 'nessun mese da versare'} />
+          <StatKpi icon={Receipt} color="amber" label="Da versare nell'anno" value={`€ ${fmt(kpi.daVersare)}`} sub="mesi non ancora pagati, stime comprese" />
+          <StatKpi icon={CheckCircle2} color="emerald" label="Già versato" value={`€ ${fmt(kpi.versato)}`} sub="IVA periodica pagata in Scadenze Fiscali" />
+          <StatKpi icon={Wallet} color="slate" label="Credito a fine anno" value={`€ ${fmt(kpi.creditoAperto)}`} sub="riportato all'anno successivo, se resta" />
+        </div>
+
+        {/* Tabella */}
+        <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+          <div className="px-4 py-2 text-sm font-semibold text-slate-900 border-b border-slate-100 flex items-center justify-between gap-2 flex-wrap">
+            <span>Liquidazioni {year}: dal mese di partenza ({MESI_IVA[effSettings.startMonth]} {effSettings.startYear}, credito iniziale € {fmt(effSettings.openingCredit)})</span>
+            <span className="text-xs font-normal text-slate-500">aliquota vendite {effSettings.salesVatRate}%</span>
           </div>
-          <p className="text-xs text-slate-500 mt-2">Il mese di partenza è il primo mese calcolato: il credito iniziale è quello da riportare in quel mese (zero se il mese precedente era a debito). I mesi prima non vengono ricostruiti.</p>
-          <div className="flex justify-end gap-2 mt-3">
-            <button onClick={() => setSettingsOpen(false)} className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg hover:bg-slate-50">Annulla</button>
-            <button onClick={saveSettings} disabled={savingSettings} className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50">
-              <Save size={14} /> Salva
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* KPI */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <div className="bg-white border border-slate-200 rounded-xl p-4">
-          <div className="text-xs uppercase tracking-wide text-slate-500 flex items-center gap-1"><CalendarClock size={13} /> Prossimo versamento</div>
-          {kpi.prossima ? (
-            <>
-              <div className="text-xl font-semibold text-slate-800 mt-1 tabular-nums">€ {fmt(kpi.prossima.importo)}</div>
-              <div className="text-xs text-slate-500">{MESI_IVA[kpi.prossima.month]} {kpi.prossima.year} · entro il {fmtDate(kpi.prossima.dueDate)} · {STATO_LABEL[kpi.prossima.stato]}</div>
-            </>
-          ) : <div className="text-xl font-semibold text-slate-400 mt-1">—</div>}
-        </div>
-        <div className="bg-white border border-slate-200 rounded-xl p-4">
-          <div className="text-xs uppercase tracking-wide text-slate-500">Da versare nell'anno</div>
-          <div className="text-xl font-semibold text-slate-800 mt-1 tabular-nums">€ {fmt(kpi.daVersare)}</div>
-          <div className="text-xs text-slate-500">mesi non ancora pagati, stime comprese</div>
-        </div>
-        <div className="bg-white border border-slate-200 rounded-xl p-4">
-          <div className="text-xs uppercase tracking-wide text-slate-500">Già versato</div>
-          <div className="text-xl font-semibold text-emerald-700 mt-1 tabular-nums">€ {fmt(kpi.versato)}</div>
-          <div className="text-xs text-slate-500">da Scadenze Fiscali (IVA periodica pagata)</div>
-        </div>
-        <div className="bg-white border border-slate-200 rounded-xl p-4">
-          <div className="text-xs uppercase tracking-wide text-slate-500">Credito a fine anno</div>
-          <div className="text-xl font-semibold text-slate-800 mt-1 tabular-nums">€ {fmt(kpi.creditoAperto)}</div>
-          <div className="text-xs text-slate-500">riportato all'anno successivo, se resta</div>
-        </div>
-      </div>
-
-      {/* Tabella */}
-      <div className="bg-white border border-slate-200 rounded-xl">
-        <TableScroll>
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-xs uppercase tracking-wide text-slate-500 border-b border-slate-200">
-                <th className="px-4 py-3">Mese</th>
-                <th className="px-4 py-3">Corrispettivi netti</th>
-                <th className="px-4 py-3 text-right">IVA vendite</th>
-                <th className="px-4 py-3 text-right">IVA acquisti</th>
-                <th className="px-4 py-3 text-right">Riporto</th>
-                <th className="px-4 py-3 text-right">Liquidazione</th>
-                <th className="px-4 py-3">Scadenza</th>
-                <th className="px-4 py-3">Stato</th>
-                {canEdit && <th className="px-4 py-3 text-right">Azioni</th>}
-              </tr>
-            </thead>
-            <tbody>
-              {loading && rows.length === 0 && (
-                <tr><td colSpan={9} className="px-4 py-10 text-center text-slate-400">Caricamento…</td></tr>
-              )}
-              {!loading && rows.length === 0 && (
-                <tr><td colSpan={9} className="px-4 py-10 text-center text-slate-400">Nessun mese da calcolare per il {year}: controlla il mese di partenza nei parametri.</td></tr>
-              )}
-              {rows.map(r => {
-                const fisc = fiscalByPeriod.get(r.key)
-                const isConfirm = confirmKey === r.key
-                const isBusy = busyKey === r.key
-                const aCredito = r.importo < 0
-                return (
-                  <tr key={r.key} className={`border-b border-slate-100 align-top ${r.stato === 'in_corso' ? 'bg-sky-50/40' : ''}`}>
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <div className="font-medium text-slate-800">{MESI_IVA[r.month]} {r.year}</div>
-                      <div className="text-xs text-slate-400">F24 {r.f24Code}</div>
-                    </td>
-                    <td className="px-4 py-3">
-                      {isConfirm ? (
-                        <input value={cForm.corr} onChange={e => setCForm({ ...cForm, corr: e.target.value })} className={inputCls} inputMode="decimal" aria-label="Corrispettivi netti" />
-                      ) : (
-                        <>
-                          <div className="tabular-nums text-slate-800">€ {fmt(r.corrispettiviNetti)}</div>
-                          <span className={`inline-block mt-1 text-[11px] px-1.5 py-0.5 rounded border ${FONTE_STYLE[r.fonteCorrispettivi]}`}>
-                            {FONTE_LABEL[r.fonteCorrispettivi]}{r.giorniChiusura > 0 ? ` · ${r.giorniChiusura} gg` : ''}
-                          </span>
-                        </>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-right tabular-nums">
-                      <div className="text-slate-800">€ {fmt(r.ivaDebitoCorrispettivi + r.ivaFattureAttive)}</div>
-                      {isConfirm ? (
-                        <label className="block text-[11px] text-slate-500 mt-1">fatture attive
-                          <input value={cForm.ivaAtt} onChange={e => setCForm({ ...cForm, ivaAtt: e.target.value })} className={inputCls + ' mt-0.5'} inputMode="decimal" />
-                        </label>
-                      ) : (
-                        <div className="text-[11px] text-slate-400">{effSettings.salesVatRate}% su corrisp. + € {fmt(r.ivaFattureAttive)} fatture attive</div>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-right tabular-nums">
-                      {isConfirm ? (
-                        <input value={cForm.ivaCred} onChange={e => setCForm({ ...cForm, ivaCred: e.target.value })} className={inputCls} inputMode="decimal" aria-label="IVA acquisti" />
-                      ) : (
-                        <>
-                          <div className="text-slate-800">{r.ivaCreditoStimato ? '≈ ' : ''}€ {fmt(r.ivaCredito)}</div>
-                          <div className="text-[11px] text-slate-400">
-                            {r.ivaCreditoStimato
-                              ? 'media dei mesi chiusi'
-                              : `${r.nFatturePassive} fatture ricevute${r.nNoteCredito ? `, ${r.nNoteCredito} NC` : ''}${r.ivaIntegrazioni ? ` · RC neutro € ${fmt(r.ivaIntegrazioni)}` : ''}`}
-                          </div>
-                        </>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-right tabular-nums text-slate-600">{r.riportoPrecedente > 0 ? `− € ${fmt(r.riportoPrecedente)}` : '—'}</td>
-                    <td className={`px-4 py-3 text-right tabular-nums font-semibold ${aCredito ? 'text-emerald-700' : 'text-slate-900'}`}>
-                      {aCredito ? `a credito € ${fmt(-r.importo)}` : `€ ${fmt(r.importo)}`}
-                      {isConfirm && (
-                        <div className="text-[11px] font-normal text-slate-400">si ricalcola al salvataggio</div>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <div className="text-slate-800">{fmtDate(r.dueDate)}</div>
-                      {fisc ? (
-                        <div className={`text-[11px] ${fisc.status === 'paid' ? 'text-emerald-600' : 'text-indigo-600'}`}>
-                          {fisc.status === 'paid' ? `pagata € ${fmt(Number(fisc.amount_paid) > 0 ? Number(fisc.amount_paid) : Number(fisc.amount || 0))}${fisc.paid_date ? ` il ${fmtDate(fisc.paid_date)}` : ''}` : `in Scadenze Fiscali: € ${fmt(Number(fisc.amount || 0))}`}
-                        </div>
-                      ) : (
-                        <div className="text-[11px] text-slate-400">non ancora nello scadenzario</div>
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={`inline-block text-xs px-2 py-0.5 rounded-full ${STATO_STYLE[r.stato]}`}>{STATO_LABEL[r.stato]}</span>
-                      {r.note && <div className="text-[11px] text-slate-400 mt-1 max-w-[180px] line-clamp-2" title={r.note}>{r.note}</div>}
-                    </td>
-                    {canEdit && (
-                      <td className="px-4 py-3 text-right whitespace-nowrap">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+                <tr>
+                  <th className="px-3 py-2 text-left">Mese</th>
+                  <th className="px-3 py-2 text-left">Corrispettivi netti</th>
+                  <th className="px-3 py-2 text-right">IVA vendite</th>
+                  <th className="px-3 py-2 text-right">IVA acquisti</th>
+                  <th className="px-3 py-2 text-right">Riporto</th>
+                  <th className="px-3 py-2 text-right">Liquidazione</th>
+                  <th className="px-3 py-2 text-left">Scadenza</th>
+                  <th className="px-3 py-2 text-left">Stato</th>
+                  {canEdit && <th className="px-3 py-2 text-right">Azioni</th>}
+                </tr>
+              </thead>
+              <tbody>
+                {loading && rows.length === 0 && (
+                  <tr><td colSpan={9} className="px-3 py-8 text-center text-slate-500"><Loader2 className="inline animate-spin mr-2" size={18} />Caricamento…</td></tr>
+                )}
+                {!loading && rows.length === 0 && (
+                  <tr><td colSpan={9} className="px-3 py-8 text-center text-slate-500">Nessun mese da calcolare per il {year}: controlla il mese di partenza nei parametri.</td></tr>
+                )}
+                {rows.map(r => {
+                  const fisc = fiscalByPeriod.get(r.key)
+                  const isConfirm = confirmKey === r.key
+                  const isBusy = busyKey === r.key
+                  const aCredito = r.importo < 0
+                  return (
+                    <tr key={r.key} className={`border-t border-slate-100 align-top ${r.stato === 'in_corso' ? 'bg-blue-50/30' : ''}`}>
+                      <td className="px-3 py-2 whitespace-nowrap">
+                        <div className="font-medium text-slate-900">{MESI_IVA[r.month]} {r.year}</div>
+                        <div className="text-xs text-slate-500 font-mono">F24 {r.f24Code}</div>
+                      </td>
+                      <td className="px-3 py-2">
                         {isConfirm ? (
-                          <div className="flex flex-col gap-1 items-end">
-                            <input value={cForm.note} onChange={e => setCForm({ ...cForm, note: e.target.value })} placeholder="nota (facoltativa)" className="w-40 px-2 py-1 border border-slate-200 rounded-lg text-xs" />
-                            <div className="flex gap-1">
-                              <button onClick={() => setConfirmKey(null)} className="p-1.5 border border-slate-200 rounded-lg hover:bg-slate-50" title="Annulla"><X size={14} /></button>
-                              <button onClick={() => saveConfirm(r)} disabled={isBusy} className="flex items-center gap-1 px-2.5 py-1.5 bg-indigo-600 text-white rounded-lg text-xs hover:bg-indigo-700 disabled:opacity-50">
-                                <CheckCircle2 size={14} /> Salva conferma
-                              </button>
-                            </div>
-                          </div>
+                          <input value={cForm.corr} onChange={e => setCForm({ ...cForm, corr: e.target.value })} className={inputCls} inputMode="decimal" aria-label="Corrispettivi netti" />
                         ) : (
-                          <div className="flex gap-1 justify-end">
-                            {r.stato !== 'pagata' && r.stato !== 'futura' && (
-                              <button onClick={() => openConfirm(r)} disabled={isBusy} className="px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs hover:bg-slate-50 disabled:opacity-50" title="Inserisci i numeri definitivi del mese">
-                                {r.stato === 'confermata' ? 'Modifica' : 'Conferma'}
-                              </button>
-                            )}
-                            {r.stato === 'confermata' && (
-                              <button onClick={() => removeConfirm(r)} disabled={isBusy} className={`px-2.5 py-1.5 border rounded-lg text-xs disabled:opacity-50 ${removeArm === r.key ? 'border-red-300 text-red-700 bg-red-50' : 'border-slate-200 hover:bg-slate-50'}`} title="Torna alla stima automatica">
-                                <Undo2 size={13} className="inline mr-1" />{removeArm === r.key ? 'Confermi?' : 'Rimuovi'}
-                              </button>
-                            )}
-                            {fisc?.status !== 'paid' && r.stato !== 'futura' && (
-                              <button onClick={() => upsertScadenza(r)} disabled={isBusy} className="flex items-center gap-1 px-2.5 py-1.5 bg-slate-800 text-white rounded-lg text-xs hover:bg-slate-900 disabled:opacity-50" title="Crea o aggiorna la scadenza in Scadenze Fiscali (e quindi in Scadenzario e Cashflow)">
-                                <CalendarClock size={13} /> {fisc ? 'Aggiorna scadenza' : 'Crea scadenza'}
-                              </button>
-                            )}
-                          </div>
+                          <>
+                            <div className="font-mono tabular-nums text-slate-900">{fmt(r.corrispettiviNetti)}</div>
+                            <span className={`inline-block mt-0.5 text-[11px] px-1.5 py-0.5 rounded border ${FONTE_STYLE[r.fonteCorrispettivi]}`}>
+                              {FONTE_LABEL[r.fonteCorrispettivi]}{r.giorniChiusura > 0 ? ` · ${r.giorniChiusura} gg` : ''}
+                            </span>
+                          </>
                         )}
                       </td>
-                    )}
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </TableScroll>
-      </div>
+                      <td className="px-3 py-2 text-right">
+                        <div className="font-mono tabular-nums text-slate-900">{fmt(r.ivaDebitoCorrispettivi + r.ivaFattureAttive)}</div>
+                        {isConfirm ? (
+                          <label className="block text-[11px] text-slate-500 mt-1">fatture attive
+                            <input value={cForm.ivaAtt} onChange={e => setCForm({ ...cForm, ivaAtt: e.target.value })} className={inputCls + ' mt-0.5'} inputMode="decimal" />
+                          </label>
+                        ) : (
+                          <div className="text-[11px] text-slate-500">{effSettings.salesVatRate}% su corrisp. + {fmt(r.ivaFattureAttive)} fatture attive</div>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        {isConfirm ? (
+                          <input value={cForm.ivaCred} onChange={e => setCForm({ ...cForm, ivaCred: e.target.value })} className={inputCls} inputMode="decimal" aria-label="IVA acquisti" />
+                        ) : (
+                          <>
+                            <div className="font-mono tabular-nums text-slate-900">{r.ivaCreditoStimato ? '≈ ' : ''}{fmt(r.ivaCredito)}</div>
+                            <div className="text-[11px] text-slate-500">
+                              {r.ivaCreditoStimato
+                                ? 'media dei mesi chiusi'
+                                : `${r.nFatturePassive} fatture ricevute${r.nNoteCredito ? `, ${r.nNoteCredito} NC` : ''}${r.ivaIntegrazioni ? ` · RC neutro ${fmt(r.ivaIntegrazioni)}` : ''}`}
+                            </div>
+                          </>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-right font-mono tabular-nums text-slate-600">{r.riportoPrecedente > 0 ? `− ${fmt(r.riportoPrecedente)}` : '—'}</td>
+                      <td className={`px-3 py-2 text-right font-mono tabular-nums font-semibold ${aCredito ? 'text-emerald-700' : 'text-slate-900'}`}>
+                        {aCredito ? `a credito ${fmt(-r.importo)}` : fmt(r.importo)}
+                        {isConfirm && <div className="text-[11px] font-sans font-normal text-slate-500">si ricalcola al salvataggio</div>}
+                      </td>
+                      <td className="px-3 py-2 whitespace-nowrap">
+                        <div className="text-slate-900">{fmtDate(r.dueDate)}</div>
+                        {fisc ? (
+                          <div className={`text-[11px] ${fisc.status === 'paid' ? 'text-emerald-600' : 'text-blue-600'}`}>
+                            {fisc.status === 'paid'
+                              ? `pagata ${fmt(Number(fisc.amount_paid) > 0 ? Number(fisc.amount_paid) : Number(fisc.amount || 0))}${fisc.paid_date ? ` il ${fmtDate(fisc.paid_date)}` : ''}`
+                              : `in Scadenze Fiscali: ${fmt(Number(fisc.amount || 0))}`}
+                          </div>
+                        ) : (
+                          <div className="text-[11px] text-slate-400">non ancora nello scadenzario</div>
+                        )}
+                      </td>
+                      <td className="px-3 py-2">
+                        <span className={`inline-block text-[11px] font-medium px-2 py-0.5 rounded-full ${STATO_STYLE[r.stato]}`}>{STATO_LABEL[r.stato]}</span>
+                        {r.note && <div className="text-[11px] text-slate-500 mt-1 max-w-[180px] line-clamp-2" title={r.note}>{r.note}</div>}
+                      </td>
+                      {canEdit && (
+                        <td className="px-3 py-2 text-right whitespace-nowrap">
+                          {isConfirm ? (
+                            <div className="flex flex-col gap-1 items-end">
+                              <input value={cForm.note} onChange={e => setCForm({ ...cForm, note: e.target.value })} placeholder="nota (facoltativa)" className="w-40 px-2 py-1 border border-slate-200 rounded-lg text-xs bg-white focus:outline-none focus:ring-1 focus:ring-blue-400/40" />
+                              <div className="flex gap-1">
+                                <button onClick={() => setConfirmKey(null)} className={btnSecondary} title="Annulla"><X size={13} /> Annulla</button>
+                                <button onClick={() => saveConfirm(r)} disabled={isBusy} className={btnPrimary}>
+                                  <CheckCircle2 size={13} /> Salva conferma
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="flex gap-1 justify-end">
+                              {r.stato !== 'pagata' && r.stato !== 'futura' && (
+                                <button onClick={() => openConfirm(r)} disabled={isBusy} className={btnSecondary} title="Inserisci i numeri definitivi del mese">
+                                  {r.stato === 'confermata' ? 'Modifica' : 'Conferma'}
+                                </button>
+                              )}
+                              {r.stato === 'confermata' && (
+                                <button onClick={() => removeConfirm(r)} disabled={isBusy} className={removeArm === r.key ? btnSecondary + ' border-red-300 text-red-700 bg-red-50' : btnSecondary} title="Torna alla stima automatica">
+                                  <Undo2 size={13} />{removeArm === r.key ? 'Confermi?' : 'Rimuovi'}
+                                </button>
+                              )}
+                              {fisc?.status !== 'paid' && r.stato !== 'futura' && (
+                                <button onClick={() => upsertScadenza(r)} disabled={isBusy} className={btnPrimary} title="Crea o aggiorna la scadenza in Scadenze Fiscali (e quindi in Scadenzario e Cashflow)">
+                                  <CalendarClock size={13} /> {fisc ? 'Aggiorna scadenza' : 'Crea scadenza'}
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </td>
+                      )}
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
 
-      <div className="flex items-start gap-3 p-4 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-600">
-        <Info size={16} className="shrink-0 mt-0.5 text-slate-400" />
-        <div className="space-y-1">
-          <div><b>Corrispettivi netti</b>: chiusure di cassa confermate quando ci sono (mese in corso: chiusure fino a oggi più preventivo per i giorni restanti), altrimenti il consuntivo e poi il preventivo di Budget &amp; Controllo. Sono imponibili: l'IVA vendite è corrispettivi × aliquota.</div>
-          <div><b>IVA acquisti</b>: fatture passive per <b>mese di ricezione SDI</b> (non data fattura), meno le note di credito. Le integrazioni reverse charge (TD16/17/18/19) sono neutre e non entrano. Per i mesi futuri si usa la media dei mesi chiusi (≈). Tutta l'IVA è considerata detraibile.</div>
-          <div><b>Riporto</b>: se un mese chiude a credito, il credito riduce la liquidazione del mese dopo. Un mese <b>confermato</b> usa i numeri inseriti a mano; un mese <b>pagato</b> usa l'importo versato registrato in Scadenze Fiscali.</div>
-          <div><b>Scadenza</b>: il 16 del mese successivo (20 agosto per luglio, giorno lavorativo successivo se cade nel weekend), codice tributo 60 + mese. «Crea scadenza» la scrive in Scadenze Fiscali: da lì entra in Scadenzario e Cashflow Prospettico.</div>
+        <div className="text-xs text-slate-500 space-y-1">
+          <p><span className="font-semibold text-slate-700">Corrispettivi netti</span>: chiusure di cassa confermate quando ci sono (mese in corso: chiusure fino a oggi più preventivo per i giorni restanti), altrimenti il consuntivo e poi il preventivo di Budget &amp; Controllo. Sono imponibili: l'IVA vendite è corrispettivi × aliquota.</p>
+          <p><span className="font-semibold text-slate-700">IVA acquisti</span>: fatture passive per mese di ricezione SDI (non data fattura), meno le note di credito. Le integrazioni reverse charge (TD16/17/18/19) sono neutre e non entrano. Per i mesi futuri si usa la media dei mesi chiusi (≈). Tutta l'IVA è considerata detraibile.</p>
+          <p><span className="font-semibold text-slate-700">Riporto</span>: se un mese chiude a credito, il credito riduce la liquidazione del mese dopo. Un mese confermato usa i numeri inseriti a mano; un mese pagato usa l'importo versato registrato in Scadenze Fiscali.</p>
+          <p><span className="font-semibold text-slate-700">Scadenza</span>: il 16 del mese successivo (20 agosto per luglio, giorno lavorativo successivo se cade nel weekend), codice tributo 60 + mese. «Crea scadenza» la scrive in Scadenze Fiscali: da lì entra in Scadenzario e Cashflow Prospettico.</p>
         </div>
       </div>
     </div>
