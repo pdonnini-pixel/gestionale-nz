@@ -1074,7 +1074,10 @@ function BankCheckPanel({ ym, onPrev, onNext, onMatched }: { ym: { y: number; m:
                 <thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr>
                   <th className="px-3 py-2 text-left">Punto vendita</th><th className="px-3 py-2 text-left">Canale</th><th className="px-3 py-2 text-left">Terminale</th>
                   <th className="px-3 py-2 text-right">Giorni</th><th className="px-3 py-2 text-right">Dichiarato</th><th className="px-3 py-2 text-right">Accreditato</th><th className="px-3 py-2 text-right">Differenza</th>
-                  <th className="px-3 py-2 text-center">✓</th><th className="px-3 py-2 text-center">≠</th><th className="px-3 py-2 text-center">✗</th><th className="px-3 py-2 text-center">in attesa</th>
+                  <th className="px-3 py-2 text-center" title="Giornate accreditate in banca">✓</th>
+                  <th className="px-3 py-2 text-center" title="Giornate accreditate con un importo diverso da quello dichiarato">≠</th>
+                  <th className="px-3 py-2 text-center" title="Giornate di cui non è arrivato l'accredito">✗</th>
+                  <th className="px-3 py-2 text-center" title="Giornate in attesa dell'accredito o senza codice terminale">in attesa</th>
                 </tr></thead>
                 <tbody>
                   {data.channels.length === 0 && <tr><td colSpan={11} className="px-3 py-4 text-center text-slate-500">Nessun canale POS configurato.</td></tr>}
@@ -1098,6 +1101,13 @@ function BankCheckPanel({ ym, onPrev, onNext, onMatched }: { ym: { y: number; m:
                   })}
                 </tbody>
               </table>
+            </div>
+            <div className="px-4 py-2 border-t border-slate-100 text-xs text-slate-500">
+              «Dichiarato» è la somma scritta dalle cassiere sulle chiusure del mese, «Accreditato» quanto è arrivato davvero in banca su quel terminale.
+              Le ultime quattro colonne contano le giornate: <span className="text-emerald-700 font-semibold">✓</span> accreditate,
+              <span className="text-amber-700 font-semibold"> ≠</span> accreditate con un importo diverso,
+              <span className="text-red-700 font-semibold"> ✗</span> senza accredito, «in attesa» ancora da accreditare o su un canale senza codice terminale.
+              Una piccola differenza in meno è normale: l'acquirer accredita al netto delle commissioni, entro la tolleranza impostata sul canale.
             </div>
           </div>
 
@@ -1127,6 +1137,11 @@ function BankCheckPanel({ ym, onPrev, onNext, onMatched }: { ym: { y: number; m:
                   ))}
                 </tbody>
               </table>
+            </div>
+            <div className="px-4 py-2 border-t border-slate-100 text-xs text-slate-500">
+              «Versamenti dichiarati» è quanto le cassiere hanno scritto di aver portato in banca, «Versamenti in banca» quanto è stato ritrovato sull'estratto conto
+              (in arancione se i due numeri non coincidono). L'ultima colonna conta i versamenti che in banca non si trovano: il contante è uscito dalla cassa ma non risulta ancora accreditato.
+              Il fondo cassa è quello a inizio e a fine mese.
             </div>
           </div>
 
