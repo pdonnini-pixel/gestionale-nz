@@ -2516,13 +2516,14 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "Utenti",
-        "body": "In questa sezione gestisci gli accessi reali al gestionale: \"Invita utente\" crea il login e invia un'email per impostare la password; \"Blocca\" impedisce l'accesso senza cancellare nulla; \"Elimina\" revoca il login. Ogni utente ha un'etichetta colorata con il ruolo (Super Advisor, CEO, CFO, COO, Contabile, Operatore cassa, Sola lettura). Il ruolo \"Operatore cassa (negozio)\" è l'account di un punto vendita, condiviso dal personale: entra e vede solo la pagina Chiusura cassa del proprio negozio, nessun altro dato aziendale.",
+        "body": "In questa sezione gestisci gli accessi reali al gestionale: \"Invita utente\" crea il login e invia un'email per impostare la password; l'icona della chiave (\"Nuova password\") genera una password nuova e te la mostra una sola volta, da comunicare tu all'utente; \"Blocca\" impedisce l'accesso senza cancellare nulla; \"Elimina\" revoca il login. Ogni utente ha un'etichetta colorata con il ruolo (Super Advisor, CEO, CFO, COO, Contabile, Operatore cassa, Sola lettura). Il ruolo \"Operatore cassa (negozio)\" è l'account di un punto vendita, condiviso dal personale: entra e vede solo la pagina Chiusura cassa del proprio negozio, nessun altro dato aziendale.",
         "steps": [
           "Clicca \"Invita utente\" per aprire il modulo",
           "Inserisci nome, cognome ed email (obbligatoria) e scegli il ruolo",
           "Se il ruolo è \"Operatore cassa (negozio)\", scegli il punto vendita dell'account: è obbligatorio e determina quale chiusura di cassa può compilare",
           "Clicca \"Invia invito\": all'utente arriva l'email per impostare la password",
-          "Con la matita su un utente esistente cambi ruolo (e punto vendita, per l'operatore cassa); il cestino elimina l'accesso dopo conferma"
+          "Con la matita su un utente esistente cambi ruolo (e punto vendita, per l'operatore cassa); il cestino elimina l'accesso dopo conferma",
+          "Con l'icona della chiave e poi \"Genera\" imposti una nuova password: compare in un riquadro verde con il pulsante \"Copia email e password\". Comunicala subito all'utente, perché non viene più mostrata e la vecchia password smette di funzionare"
         ]
       },
       {
@@ -2587,6 +2588,10 @@ export const PAGE_GUIDES: PageGuide[] = [
       {
         "q": "Posso assegnare una voce di costo a più punti vendita contemporaneamente?",
         "a": "Sì, nella sezione Voci di costo puoi selezionare più centri di costo per la stessa voce, oppure scegliere \"Tutti gli outlet\" se riguarda l'intera azienda."
+      },
+      {
+        "q": "Un negozio ha perso la password dell'account cassa: come faccio?",
+        "a": "In Utenti trova l'account del negozio, clicca l'icona della chiave e poi \"Genera\": il gestionale imposta una nuova password e la mostra una sola volta in un riquadro verde. Copiala con \"Copia email e password\" e comunicala al negozio (telefono o email aziendale). Non serve che il negozio riceva email automatiche né che usi \"Password dimenticata?\"."
       },
       {
         "q": "Come faccio a togliere l'accesso a un utente che non lavora più con noi?",

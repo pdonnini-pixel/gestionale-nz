@@ -15,6 +15,11 @@
 //   - "set_role"   → cambia ruolo (app_metadata.role + user_profiles.role)
 //   - "set_active" → blocca/sblocca l'accesso (ban dell'utente auth)
 //   - "delete"     → revoca il login (elimina l'utente auth + user_profiles)
+//   - "set_password" → genera una nuova password (12 caratteri, senza simboli
+//                    ambigui) e la imposta sul login. La password viene
+//                    restituita UNA sola volta al chiamante, che la comunica
+//                    all'utente (es. account di negozio senza email attiva):
+//                    nessuna email automatica.
 //
 // Body: { action, email?, first_name?, last_name?, phone?, role?, user_id?, active?, redirectTo?, outlet_id?, company_id? }
 //
@@ -193,6 +198,14 @@ Deno.serve(async (req: Request) => {
       return jsonOk({ ok: true, active });
     }
 
+    // ───────── SET_PASSWORD (nuova password comunicata a voce/mail dall'amministrazione) ─────────
+    if (action === "set_password") {
+      const password = generatePassword();
+      const { error: pwErr } = await admin.auth.admin.updateUserById(targetId, { password });
+      if (pwErr) return jsonError(400, `Impostazione password non riuscita: ${pwErr.message}`);
+      return jsonOk({ ok: true, password });
+    }
+
     // ───────── DELETE (revoca login) ─────────
     if (action === "delete") {
       await admin.from("user_profiles").delete().eq("id", targetId);
@@ -206,6 +219,15 @@ Deno.serve(async (req: Request) => {
     return jsonError(500, `Internal error: ${e instanceof Error ? e.message : String(e)}`);
   }
 });
+
+// Password leggibile da dettare al telefono: 12 caratteri tra lettere e cifre,
+// senza 0/O, 1/l/I che si confondono. Generata con il CSPRNG di Deno.
+function generatePassword(): string {
+  const alphabet = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  const bytes = new Uint8Array(12);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => alphabet[b % alphabet.length]).join("");
+}
 
 function jsonOk(p: unknown): Response {
   return new Response(JSON.stringify(p), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
