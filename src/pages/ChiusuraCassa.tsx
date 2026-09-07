@@ -634,7 +634,10 @@ export default function ChiusuraCassa() {
 
   return (
     <div className="p-4 sm:p-6 max-w-xl mx-auto pb-28">
-      <input ref={fileRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => void onFiles(e.target.files)} />
+      {/* Account di negozio: la fotocamera si apre subito (un tocco in meno).
+          Amministrazione: nessun "capture", cosi' il telefono propone anche la
+          galleria e si puo' caricare la foto ricevuta dal negozio. */}
+      <input ref={fileRef} type="file" accept="image/*" capture={isAdmin ? undefined : 'environment'} className="hidden" onChange={(e) => void onFiles(e.target.files)} />
       <PageHeader
         title="Chiusura cassa"
         subtitle={outlet ? outlet.name : undefined}
