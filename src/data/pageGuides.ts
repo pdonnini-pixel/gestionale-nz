@@ -2485,9 +2485,10 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "Report incassi serale",
-        "body": "Sezione per super advisor e contabile. Attiva una mail automatica che ogni sera, all'ora scelta (ora italiana, valida anche con l'ora legale), riepiloga le chiusure di cassa del giorno di tutti i punti vendita: una riga per negozio con totale, contanti, POS, altri canali, spese e rimborsi, versamento, fondo cassa e differenza; i negozi che non hanno ancora chiuso in rosso; l'elenco delle cose da controllare (giornate che non quadrano, chiusure ancora in bozza, foto dello scontrino mancante, importi letti dalla foto diversi da quelli scritti, note della cassiera); il totale dell'azienda e il progressivo del mese; il link a Incassi giornalieri.",
+        "body": "Sezione per super advisor e contabile. Attiva una mail automatica che ogni sera, all'ora scelta (ora italiana, valida anche con l'ora legale), riepiloga le chiusure di cassa del giorno di tutti i punti vendita: una riga per negozio con totale, contanti, POS, altri canali, spese e rimborsi, versamento, fondo cassa e differenza; i negozi che non hanno ancora chiuso in rosso; l'elenco delle cose da controllare (giornate che non quadrano, chiusure ancora in bozza, foto dello scontrino mancante, importi letti dalla foto diversi da quelli scritti, note della cassiera); il totale dell'azienda e il progressivo del mese; il confronto con l'obiettivo del budget: per ogni negozio l'obiettivo del giorno e lo scostamento +/-, più una tabella \"Mese vs obiettivo\" con budget del mese, obiettivo a oggi, incassato a oggi, +/-, percentuale raggiunta e proiezione a fine mese; il link a Incassi giornalieri. L'obiettivo viene dal budget ricavi mensile dell'Inserimento rapido (Budget → Inserimento Rapido), che è netto IVA: viene portato al lordo con l'aliquota impostata qui e diviso per i giorni del mese.",
         "steps": [
           "Spunta \"Invia il report ogni sera\" e scegli l'ora di invio",
+          "Controlla l'aliquota IVA per il confronto con il budget (22 % di default): serve a rendere confrontabili il budget netto e i corrispettivi lordi delle chiusure",
           "Scrivi i destinatari, uno per riga o separati da virgola: sotto il campo vedi quanti indirizzi sono validi",
           "Se vuoi, attiva il sollecito: a quell'ora gli operatori cassa dei negozi che non hanno ancora confermato ricevono un avviso in-app con il link alla loro chiusura",
           "Decidi se la mail deve partire anche nei giorni senza nessuna chiusura registrata",
@@ -2500,6 +2501,10 @@ export const PAGE_GUIDES: PageGuide[] = [
       {
         "q": "Perché non vedo tutte le sezioni?",
         "a": "L'accesso alle sezioni di Impostazioni dipende dal ruolo assegnato al tuo utente. Se una sezione ha il lucchetto e appare più chiara, il tuo ruolo non è abilitato a vederla o modificarla: contatta un amministratore."
+      },
+      {
+        "q": "Da dove viene l'obiettivo del giorno nel report incassi?",
+        "a": "Dal budget ricavi del mese di ogni negozio inserito in Budget → Inserimento Rapido. Quel budget è netto IVA, mentre le chiusure di cassa sono corrispettivi lordi: il report aggiunge l'IVA impostata nella sezione Report incassi serale e divide per i giorni del mese. Se un negozio non ha budget per il mese, nella mail compare un trattino e il nome del negozio nella nota sotto la tabella."
       },
       {
         "q": "Cosa succede se passo l'ambiente SDI da Test a Produzione?",
