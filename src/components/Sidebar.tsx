@@ -10,7 +10,7 @@ import {
   CalendarClock, UserCheck, PieChart, Sparkles, Activity, Sliders,
   Upload, FolderArchive, TrendingUp, ChevronsUpDown, Building,
   Menu, X, ChevronsLeft, ChevronsRight,
-  MessageSquare, Shield, RefreshCw, ClipboardList,
+  MessageSquare, Shield, RefreshCw, ClipboardList, Wallet, Receipt,
   LucideIcon
 } from 'lucide-react'
 import { useState, useRef, useEffect, useMemo, createContext, useContext } from 'react'
@@ -80,6 +80,10 @@ function buildSections(labels: CompanyLabels): NavSection[] {
         { to: '/outlet', icon: Store, label: posSingular, roles: ['super_advisor', 'ceo', 'coo'] },
         { to: '/confronto-outlet', icon: GitCompare, label: `Confronto ${posPlural}`, roles: ['super_advisor', 'ceo', 'cfo'], minOutlets: 2 },
         { to: '/budget', icon: Target, label: 'Budget & Controllo', roles: ['super_advisor', 'ceo', 'cfo'] },
+        // Specchietto incassi: la cassiera (operatore_cassa) vede SOLO la chiusura;
+        // chi amministra vede il riepilogo mensile e configura i canali.
+        { to: '/chiusura-cassa', icon: Wallet, label: 'Chiusura cassa', roles: ['super_advisor', 'contabile', 'operatore_cassa'] },
+        { to: '/incassi-giornalieri', icon: Receipt, label: 'Incassi giornalieri', roles: ['super_advisor', 'ceo', 'cfo', 'contabile'] },
       ],
     },
     {
@@ -151,6 +155,8 @@ export function buildBreadcrumbMap(
     '/outlet': { section: sectionPos, page: posSingular },
     '/confronto-outlet': { section: sectionPos, page: `Confronto ${posPlural}` },
     '/budget': { section: sectionPos, page: 'Budget & Controllo' },
+    '/chiusura-cassa': { section: sectionPos, page: 'Chiusura cassa' },
+    '/incassi-giornalieri': { section: sectionPos, page: 'Incassi giornalieri' },
     '/fornitori': { section: 'Ciclo Passivo', page: 'Fornitori' },
     '/fatturazione': { section: 'Ciclo Passivo', page: 'Fatturazione' },
     '/scadenzario': { section: 'Ciclo Passivo', page: 'Scadenzario' },
@@ -241,6 +247,7 @@ export default function Sidebar({ mobileOpen, setMobileOpen, badges = {} }: Side
     contabile: 'Contabile',
     budget_approver: 'Approvatore Budget',
     viewer: 'Sola lettura',
+    operatore_cassa: 'Operatore cassa',
   }
 
   // Ruolo 'viewer' (sola lettura): vede le pagine dati, nessuna scrittura.

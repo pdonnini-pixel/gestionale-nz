@@ -694,10 +694,17 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
   }
 
   /**
-   * Apre il modal di anteprima EC con i movimenti bancari. Legge da
-   * ENTRAMBE le tabelle dei movimenti (bank_transactions da TesoreriaManuale
-   * e cash_movements da ImportHub) con query separate in modo che se una
-   * fallisce (FK mancante) l'altra continua a funzionare.
+   * Apre il modal di anteprima EC con i movimenti bancari del conto.
+   *
+   * Legge SOLO da bank_transactions. C'era anche una seconda query su
+   * cash_movements, da quando quelle erano due tabelle distinte: dalla
+   * migration 20260515_033 cash_movements e' una VISTA di compatibilita'
+   * costruita su bank_transactions (una riga per movimento, verificato:
+   * stesso conteggio nelle due), quindi interrogarle entrambe avrebbe
+   * mostrato ogni movimento due volte. La seconda query chiedeva per giunta
+   * una colonna inesistente (balance_after) e falliva sempre: il catch la
+   * riduceva a un warn in console, ed e' il motivo per cui il doppione non
+   * si era mai visto.
    */
   async function openEcPreview(ec: EcFileRow) {
     if (!companyId || !ec.bank_account_id) return;
@@ -724,27 +731,6 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
           });
         }
       } catch (e: unknown) { console.warn('bt preview:', e instanceof Error ? e.message : e); }
-
-      try {
-        const { data, error } = await supabase
-          .from('cash_movements')
-          .select('id, date, description, amount, balance_after, is_reconciled')
-          .eq('company_id', companyId)
-          .eq('bank_account_id', ec.bank_account_id)
-          .order('date', { ascending: false })
-          .limit(100);
-        if (error) throw error;
-        for (const r of (data || [])) {
-          rows.push({
-            id: 'cm_' + r.id,
-            transaction_date: r.date,
-            description: r.description,
-            amount: r.amount,
-            running_balance: r.balance_after,
-            is_reconciled: r.is_reconciled,
-          });
-        }
-      } catch (e: unknown) { console.warn('cm preview:', e instanceof Error ? e.message : e); }
 
       rows.sort((a, b) => new Date(b.transaction_date || 0).getTime() - new Date(a.transaction_date || 0).getTime());
       setEcPreview({ ec, rows: rows.slice(0, 100), loading: false });

@@ -2,23 +2,24 @@ import { useState, useEffect, useCallback } from 'react'
 import {
   Settings, Users, Tag, Building2, Shield, Plus, Trash2, Pencil, Save, X,
   ChevronDown, ChevronUp, Check, AlertCircle, Search, Copy, Eye, EyeOff, Loader,
-  CornerDownRight, Lock, ShieldCheck, FileText, RefreshCw, Zap, Send,
+  CornerDownRight, Lock, ShieldCheck, FileText, RefreshCw, Zap, Send, Mail,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { useCompanyLabels } from '../hooks/useCompanyLabels'
+import { useOutlets, isSellingOutlet } from '../hooks/useOutlets'
 import { getCurrentTenant } from '../lib/tenants'
 import PageHeader from '../components/PageHeader'
+import type { Database } from '../types/database'
 
 // Role-based permissions
 const ROLE_PERMISSIONS: Record<string, string[]> = {
-  super_advisor: ['company', 'users', 'costs', 'centri', 'sdi'],
+  super_advisor: ['company', 'users', 'costs', 'centri', 'sdi', 'report'],
   ceo: ['company', 'users', 'costs', 'centri', 'sdi'],
   cfo: ['company', 'costs', 'centri', 'sdi'],
   coo: ['company', 'costs', 'centri'],
-  contabile: ['costs', 'centri'],
-  store_manager: [],
-  operatrice: [],
+  contabile: ['costs', 'centri', 'report'],
+  operatore_cassa: [],
 }
 
 // Toast helper (shared via props)
@@ -43,8 +44,10 @@ const ROLE_OPTIONS = [
   { value: 'cfo', label: 'CFO', color: 'bg-emerald-100 text-emerald-700' },
   { value: 'coo', label: 'COO', color: 'bg-amber-100 text-amber-700' },
   { value: 'contabile', label: 'Contabile', color: 'bg-slate-100 text-slate-700' },
-  { value: 'store_manager', label: 'Store Manager', color: 'bg-rose-100 text-rose-700' },
-  { value: 'operatrice', label: 'Operatrice', color: 'bg-sky-100 text-sky-700' },
+  // Account di negozio: un login per outlet, condiviso dal personale, che vede
+  // solo la Chiusura cassa del proprio punto vendita (RLS, migrazioni 172-173).
+  { value: 'operatore_cassa', label: 'Operatore cassa (negozio)', color: 'bg-sky-100 text-sky-700' },
+  { value: 'viewer', label: 'Sola lettura', color: 'bg-stone-100 text-stone-700' },
 ]
 
 const MACRO_GROUPS = [
@@ -336,20 +339,21 @@ function CompanySection({ showToast, companyId: COMPANY_ID }: SectionProps) {
 // ==========================================
 function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
   const labels = useCompanyLabels()
+  const { outlets: tenantOutlets } = useOutlets()
   // TODO: tighten type — Supabase rows
   const [users, setUsers] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  const [costCenters, setCostCenters] = useState<any[]>([])
   const [editingId, setEditingId] = useState<string | null>(null)
   const [showForm, setShowForm] = useState(false)
   const [search, setSearch] = useState('')
-  const [form, setForm] = useState({ nome: '', cognome: '', email: '', ruolo: 'operatrice', is_active: true, outlet_access: ['all'] as string[] })
+  // outlet_id: per il ruolo operatore_cassa (un account per punto vendita) e'
+  // l'outlet su cui l'account puo' compilare la chiusura di cassa.
+  const [form, setForm] = useState({ nome: '', cognome: '', email: '', ruolo: 'operatore_cassa', is_active: true, outlet_id: '' })
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
     loadUsers()
-    loadCostCenters()
   }, [])
 
   // Chiamata alla funzione admin (unico punto che tocca i login reali).
@@ -371,15 +375,20 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
     try {
       setLoading(true)
       const res = await callAdmin('list') as { users?: Array<Record<string, unknown>> }
+      // Outlet assegnati (user_outlet_access): mostrati come etichette e usati
+      // per precompilare la modifica di un operatore di cassa.
+      const { data: access } = await supabase.from('user_outlet_access').select('user_id, outlet_id')
+      const accessByUser = new Map<string, string[]>()
+      for (const a of access ?? []) accessByUser.set(a.user_id, [...(accessByUser.get(a.user_id) ?? []), a.outlet_id])
       const mapped = (res.users || []).map(u => ({
         id: u.id,
         nome: (u.first_name as string) || '',
         cognome: (u.last_name as string) || '',
         email: (u.email as string) || '',
-        ruolo: (u.role as string) || 'operatrice',
+        ruolo: (u.role as string) || 'operatore_cassa',
         is_active: u.active !== false,
         last_sign_in_at: u.last_sign_in_at || null,
-        outlet_access: [] as string[],
+        outlet_ids: accessByUser.get(u.id as string) ?? [],
       }))
       mapped.sort((a, b) => (a.nome + a.cognome).localeCompare(b.nome + b.cognome))
       setUsers(mapped)
@@ -390,34 +399,25 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
     }
   }
 
-  const loadCostCenters = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('cost_centers')
-        .select('*')
-        .eq('company_id', COMPANY_ID || '')
-        .order('sort_order', { ascending: true })
-
-      if (error) throw error
-      setCostCenters(data || [])
-    } catch (err) {
-      showToast?.('Errore caricamento centri di costo', 'error')
-    }
-  }
-
   const resetForm = () => {
-    setForm({ nome: '', cognome: '', email: '', ruolo: 'operatrice', is_active: true, outlet_access: ['all'] })
+    setForm({ nome: '', cognome: '', email: '', ruolo: 'operatore_cassa', is_active: true, outlet_id: '' })
     setShowForm(false)
     setEditingId(null)
   }
 
+  const isCashRole = form.ruolo === 'operatore_cassa'
+
   // Nuovo utente = INVITO: crea il login e invia l'email per impostare la password.
   // In modifica, cambia solo il ruolo (nome/email di un login esistente non si toccano qui).
+  // Per l'operatore di cassa l'outlet e' obbligatorio: la funzione admin lo
+  // scrive in user_outlet_access (can_write), da cui dipende la RLS della chiusura.
   const handleSave = async () => {
     try {
       setSaving(true)
+      if (isCashRole && !form.outlet_id) { showToast?.(`Scegli il ${labels.pointOfSale.toLowerCase()} dell'account cassa`, 'error'); return }
+      const outletPayload = isCashRole ? { outlet_id: form.outlet_id } : {}
       if (editingId) {
-        await callAdmin('set_role', { user_id: editingId, role: form.ruolo })
+        await callAdmin('set_role', { user_id: editingId, role: form.ruolo, ...outletPayload })
         showToast?.('Ruolo aggiornato')
       } else {
         if (!form.email.trim()) { showToast?.('Email obbligatoria', 'error'); return }
@@ -427,6 +427,7 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
           last_name: form.cognome.trim(),
           role: form.ruolo,
           redirectTo: `${window.location.origin}/reset-password`,
+          ...outletPayload,
         })
         showToast?.(`Invito inviato a ${form.email.trim()}`)
       }
@@ -447,7 +448,7 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
       email: u.email,
       ruolo: u.ruolo,
       is_active: u.is_active,
-      outlet_access: [...(u.outlet_access || ['all'])]
+      outlet_id: (u.outlet_ids as string[])[0] ?? '',
     })
     setEditingId(u.id)
     setShowForm(true)
@@ -475,19 +476,7 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
     }
   }
 
-  const toggleOutlet = (outletCode: string) => {
-    setForm(prev => {
-      if (outletCode === 'all') return { ...prev, outlet_access: ['all'] }
-      let newOutlets = prev.outlet_access.filter(o => o !== 'all')
-      if (newOutlets.includes(outletCode)) {
-        newOutlets = newOutlets.filter(o => o !== outletCode)
-      } else {
-        newOutlets.push(outletCode)
-      }
-      if (newOutlets.length === 0) newOutlets = ['all']
-      return { ...prev, outlet_access: newOutlets }
-    })
-  }
+  const outletName = (id: string) => tenantOutlets.find(o => o.id === id)?.name ?? '—'
 
   const filtered = users.filter(u => {
     const q = search.toLowerCase()
@@ -562,13 +551,31 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
                 className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 disabled:bg-slate-100 disabled:text-slate-400" />
             </div>
           </div>
-          <div className="max-w-xs">
-            <label className="block text-xs font-medium text-slate-600 mb-1">Ruolo</label>
-            <select value={form.ruolo} onChange={e => setForm(p => ({ ...p, ruolo: e.target.value }))}
-              className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500">
-              {ROLE_OPTIONS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
-            </select>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">Ruolo</label>
+              <select value={form.ruolo} onChange={e => setForm(p => ({ ...p, ruolo: e.target.value }))}
+                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500">
+                {ROLE_OPTIONS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+              </select>
+            </div>
+            {isCashRole && (
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">{labels.pointOfSale} dell'account cassa *</label>
+                <select value={form.outlet_id} onChange={e => setForm(p => ({ ...p, outlet_id: e.target.value }))}
+                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500">
+                  <option value="">Scegli…</option>
+                  {tenantOutlets.filter(isSellingOutlet).map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
+                </select>
+              </div>
+            )}
           </div>
+          {isCashRole && (
+            <p className="text-xs text-slate-500">
+              L'operatore di cassa entra e vede solo la <strong>Chiusura cassa</strong> del suo {labels.pointOfSale.toLowerCase()}: un accesso per negozio,
+              condiviso dal personale (es. cassa.valdichiana@…). Nessun altro dato aziendale è visibile a questo ruolo.
+            </p>
+          )}
           {!editingId && (
             <p className="text-xs text-slate-500">
               All'utente arriverà un'email per impostare la propria password e accedere. Blocco/eliminazione si gestiscono poi dalla lista.
@@ -603,9 +610,9 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
                 </div>
                 <div className="text-xs text-slate-400 truncate" title={u.email}>{u.email}</div>
                 <div className="flex flex-wrap gap-1 mt-1">
-                  {u.outlet_access && u.outlet_access.map((o: string) => (
-                    <span key={o} className="inline-block text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">
-                      {getCentroLabel(o, costCenters)}
+                  {(u.outlet_ids as string[]).map((o: string) => (
+                    <span key={o} className="inline-block text-[10px] px-1.5 py-0.5 rounded bg-sky-50 text-sky-700">
+                      {outletName(o)}
                     </span>
                   ))}
                 </div>
@@ -1623,6 +1630,185 @@ function SdiSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
 // ==========================================
 // PAGINA PRINCIPALE
 // ==========================================
+// ─── Report incassi serale (fase 2 specchietto incassi) ──────────────
+// Configura la mail serale inviata da daily-cash-report-send: ora locale,
+// destinatari, sollecito ai negozi, invio anche senza chiusure. Il motore e'
+// il cron daily_cash_report_tick (migration 176) che gira ogni 15 minuti.
+type ReportSettingsRow = Database['public']['Tables']['daily_report_settings']['Row']
+type ReportLogRow = Database['public']['Tables']['daily_report_log']['Row']
+
+const REPORT_STATUS_LABELS: Record<string, string> = { queued: 'In invio', sent: 'Inviato', failed: 'Non riuscito', skipped: 'Saltato' }
+const REPORT_KIND_LABELS: Record<string, string> = { report: 'Report serale', reminder: 'Sollecito ai negozi', test: 'Prova' }
+
+function parseRecipients(raw: string): string[] {
+  const seen = new Set<string>()
+  return raw.split(/[\s,;]+/).map((x) => x.trim().toLowerCase()).filter((x) => {
+    if (!x || seen.has(x) || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x)) return false
+    seen.add(x); return true
+  })
+}
+
+function ReportSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
+  const { session } = useAuth()
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [testing, setTesting] = useState(false)
+  const [logs, setLogs] = useState<ReportLogRow[]>([])
+  const [form, setForm] = useState({ enabled: false, sendTime: '21:30', reminderEnabled: false, reminderTime: '20:30', recipients: '', sendOnEmpty: true, budgetVatRate: '22' })
+  const [dirty, setDirty] = useState(false)
+
+  const load = useCallback(async () => {
+    if (!COMPANY_ID) return
+    setLoading(true)
+    const [sRes, lRes] = await Promise.all([
+      supabase.from('daily_report_settings').select('*').eq('company_id', COMPANY_ID).maybeSingle(),
+      supabase.from('daily_report_log').select('*').eq('company_id', COMPANY_ID).order('created_at', { ascending: false }).limit(10),
+    ])
+    const s = sRes.data as ReportSettingsRow | null
+    if (s) {
+      setForm({
+        enabled: s.enabled, sendTime: s.send_time.slice(0, 5),
+        reminderEnabled: !!s.reminder_time, reminderTime: (s.reminder_time ?? '20:30').slice(0, 5),
+        recipients: (s.recipients ?? []).join('\n'), sendOnEmpty: s.send_on_empty,
+        budgetVatRate: String(s.budget_vat_rate ?? 22),
+      })
+    }
+    setLogs((lRes.data ?? []) as ReportLogRow[])
+    setDirty(false)
+    setLoading(false)
+  }, [COMPANY_ID])
+
+  useEffect(() => { void load() }, [load])
+
+  const set = (patch: Partial<typeof form>) => { setForm((f) => ({ ...f, ...patch })); setDirty(true) }
+  const recipientsList = parseRecipients(form.recipients)
+  const invalidRecipients = form.recipients.split(/[\s,;]+/).map((x) => x.trim()).filter((x) => x && !recipientsList.includes(x.toLowerCase()))
+
+  const save = async () => {
+    if (!COMPANY_ID) return
+    if (form.enabled && recipientsList.length === 0) { showToast('Serve almeno un indirizzo destinatario', 'error'); return }
+    if (form.reminderEnabled && form.reminderTime >= form.sendTime) { showToast('Il sollecito deve essere prima dell\'ora di invio', 'error'); return }
+    const vat = Number(String(form.budgetVatRate).replace(',', '.'))
+    if (!Number.isFinite(vat) || vat < 0 || vat > 100) { showToast('L\'aliquota IVA deve essere un numero fra 0 e 100', 'error'); return }
+    setSaving(true)
+    const { error } = await supabase.from('daily_report_settings').upsert({
+      company_id: COMPANY_ID,
+      enabled: form.enabled,
+      send_time: form.sendTime,
+      reminder_time: form.reminderEnabled ? form.reminderTime : null,
+      recipients: recipientsList,
+      send_on_empty: form.sendOnEmpty,
+      budget_vat_rate: vat,
+      // Origine del sito corrente: serve ai link nella mail, senza valori hardcoded per tenant.
+      app_url: typeof window !== 'undefined' ? window.location.origin : null,
+      updated_at: new Date().toISOString(),
+      updated_by: session?.user?.id ?? null,
+    })
+    setSaving(false)
+    if (error) { showToast('Salvataggio non riuscito: ' + error.message, 'error'); return }
+    showToast(form.enabled ? `Report attivo: ogni giorno alle ${form.sendTime} a ${recipientsList.length} destinatari` : 'Report serale disattivato')
+    await load()
+  }
+
+  const sendTest = async () => {
+    setTesting(true)
+    const { data, error } = await supabase.functions.invoke<{ data?: { recipients: string[] }; error?: string }>('daily-cash-report-send', { body: { kind: 'test' } })
+    setTesting(false)
+    if (error || !data?.data) { showToast('Prova non riuscita: ' + (error?.message ?? data?.error ?? 'errore'), 'error'); await load(); return }
+    showToast(`Mail di prova inviata a ${data.data.recipients.join(', ')}: controlla la casella (anche lo spam)`)
+    await load()
+  }
+
+  const inp = 'w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500'
+
+  if (loading) return <div className="p-6 text-sm text-slate-500 flex items-center gap-2"><Loader size={16} className="animate-spin" />Caricamento…</div>
+
+  return (
+    <div className="p-6 space-y-5">
+      <p className="text-sm text-slate-600">
+        Ogni sera, all'ora scelta, i destinatari ricevono una mail con le chiusure di cassa del giorno: una riga per punto vendita
+        (totale, contanti, POS, altri canali, spese e rimborsi, versamento, fondo cassa e differenza), i negozi che non hanno chiuso,
+        le anomalie da controllare, il progressivo del mese e il confronto con l'obiettivo: il budget ricavi del mese
+        dell'Inserimento rapido (Budget → Inserimento Rapido), portato al lordo dell'IVA e diviso per i giorni del mese,
+        dà l'obiettivo del giorno; la mail mostra lo scostamento +/- di ogni negozio, del giorno e del mese. L'ora è quella italiana, anche con l'ora legale.
+      </p>
+
+      <label className="flex items-center gap-3 cursor-pointer">
+        <input type="checkbox" checked={form.enabled} onChange={(e) => set({ enabled: e.target.checked })} className="w-5 h-5" />
+        <span className="text-sm font-semibold text-slate-900">Invia il report ogni sera</span>
+      </label>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div>
+          <label className="block text-xs font-medium text-slate-600 mb-1">Ora di invio (Italia)</label>
+          <input type="time" value={form.sendTime} onChange={(e) => set({ sendTime: e.target.value })} className={inp} />
+        </div>
+        <div>
+          <label className="flex items-center gap-2 text-xs font-medium text-slate-600 mb-1 cursor-pointer">
+            <input type="checkbox" checked={form.reminderEnabled} onChange={(e) => set({ reminderEnabled: e.target.checked })} />
+            Sollecito in-app ai negozi che non hanno ancora chiuso, alle
+          </label>
+          <input type="time" value={form.reminderTime} disabled={!form.reminderEnabled} onChange={(e) => set({ reminderTime: e.target.value })} className={`${inp} disabled:bg-slate-100`} />
+        </div>
+      </div>
+
+      <div>
+        <label className="block text-xs font-medium text-slate-600 mb-1">Destinatari (uno per riga o separati da virgola)</label>
+        <textarea value={form.recipients} onChange={(e) => set({ recipients: e.target.value })} rows={3} placeholder="nome@azienda.it" className={inp} />
+        <div className="text-xs mt-1 text-slate-500">
+          {recipientsList.length} indirizz{recipientsList.length === 1 ? 'o' : 'i'} valid{recipientsList.length === 1 ? 'o' : 'i'}
+          {invalidRecipients.length > 0 && <span className="text-red-600"> · non validi: {invalidRecipients.join(', ')}</span>}
+        </div>
+      </div>
+
+      <div className="sm:w-1/2">
+        <label className="block text-xs font-medium text-slate-600 mb-1">IVA per il confronto con il budget (%)</label>
+        <input type="number" min={0} max={100} step={0.1} value={form.budgetVatRate} onChange={(e) => set({ budgetVatRate: e.target.value })} className={inp} />
+        <div className="text-xs mt-1 text-slate-500">Il budget dell'Inserimento rapido è netto IVA, le chiusure di cassa sono lorde: l'obiettivo del giorno è budget mese × (1 + IVA) ÷ giorni del mese.</div>
+      </div>
+
+      <label className="flex items-center gap-3 cursor-pointer">
+        <input type="checkbox" checked={form.sendOnEmpty} onChange={(e) => set({ sendOnEmpty: e.target.checked })} className="w-4 h-4" />
+        <span className="text-sm text-slate-700">Invia anche nei giorni senza nessuna chiusura registrata (con i negozi mancanti in evidenza)</span>
+      </label>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <button onClick={() => void save()} disabled={saving || !dirty}
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium disabled:opacity-50">
+          {saving ? <Loader size={14} className="animate-spin" /> : <Save size={14} />}Salva
+        </button>
+        <button onClick={() => void sendTest()} disabled={testing || dirty}
+          title={dirty ? 'Salva prima le modifiche' : 'Manda la mail di oggi solo al tuo indirizzo'}
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-slate-300 text-slate-700 text-sm font-medium disabled:opacity-50">
+          {testing ? <Loader size={14} className="animate-spin" /> : <Send size={14} />}Invia una prova a me
+        </button>
+      </div>
+
+      <div>
+        <div className="text-xs font-semibold text-slate-600 mb-2">Ultimi invii</div>
+        {logs.length === 0 ? <p className="text-xs text-slate-400">Nessun invio ancora registrato.</p> : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead className="text-slate-500"><tr><th className="text-left py-1 pr-3">Giorno</th><th className="text-left py-1 pr-3">Tipo</th><th className="text-left py-1 pr-3">Esito</th><th className="text-left py-1 pr-3">Destinatari</th><th className="text-left py-1">Dettaglio</th></tr></thead>
+              <tbody>
+                {logs.map((l) => (
+                  <tr key={l.id} className="border-t border-slate-100">
+                    <td className="py-1 pr-3 whitespace-nowrap">{l.report_date.split('-').reverse().join('/')}{l.sent_at ? ` ${new Date(l.sent_at).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}` : ''}</td>
+                    <td className="py-1 pr-3">{REPORT_KIND_LABELS[l.kind] ?? l.kind}</td>
+                    <td className={`py-1 pr-3 font-medium ${l.status === 'sent' ? 'text-emerald-700' : l.status === 'failed' ? 'text-red-700' : 'text-slate-500'}`}>{REPORT_STATUS_LABELS[l.status] ?? l.status}</td>
+                    <td className="py-1 pr-3">{(l.recipients ?? []).join(', ')}</td>
+                    <td className="py-1 text-slate-500">{l.error ?? l.subject ?? ''}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export default function Impostazioni() {
   const { profile, loading: authLoading } = useAuth()
   const COMPANY_ID = profile?.company_id
@@ -1644,6 +1830,7 @@ export default function Impostazioni() {
     { id: 'costs', icon: Tag, title: 'Voci di costo', subtitle: 'Catalogo costi con assegnazione a centri di costo e gerarchia conti/sottoconti', component: CostSection },
     { id: 'centri', icon: Shield, title: 'Centri di costo', subtitle: 'Punti vendita, sede, magazzino — entità di allocazione', component: CentriDiCostoSection },
     { id: 'sdi', icon: FileText, title: 'Fatturazione SDI', subtitle: 'Accreditamento, certificati e configurazione Sistema di Interscambio', component: SdiSection },
+    { id: 'report', icon: Mail, title: 'Report incassi serale', subtitle: 'Mail automatica ogni sera con le chiusure di cassa di tutti i punti vendita', component: ReportSection },
   ]
 
   const [openSection, setOpenSection] = useState<string | null>('company')

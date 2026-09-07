@@ -1,0 +1,61 @@
+-- =============================================================================
+-- NZ_ONLY — Distinte RI.BA MPS di ottobre, novembre e dicembre 2025
+-- Applicato su NZ il 04/09/2026. Dati NZ-specifici: non si replica su Made/Zago.
+-- =============================================================================
+--
+-- I DOCUMENTI. Otto distinte lette dai PDF nella cartella Drive «BANCHE NEW ZAGO
+-- / NEW ZAGO 2025», sottocartelle OTTOBRE, NOVEMBRE e DICEMBRE: 62 disposizioni
+-- per 293.546,19 EUR. Sono le uniche tre mensilita' del 2025 presenti sul Drive.
+--
+--   ottobre    2 distinte  15 disp   41.616,72   (1 ARCO al 10/11, 1 DENIM al 13/11)
+--   novembre   3 distinte  26 disp  148.060,63   (1 ARCO al 10/12)
+--   dicembre   3 distinte  21 disp  103.868,84   (1 EGO al 05/01, 3 al 10/01/2026)
+--
+-- Novembre ha un formato diverso dagli altri: e' l'elenco «Effetti -
+-- Disposizioni» invece della «Distinta di ritiro effetti pagati», con la
+-- distinta indicata riga per riga. Il contenuto e' lo stesso.
+--
+-- LA VERIFICA CHE CHIUDE IL DISCORSO. Vale la stessa regola del 2026: la banca
+-- addebita in lotti di al massimo dieci effetti e aggiunge 0,40 EUR per effetto.
+-- Su tutti e tredici i lotti di questi tre mesi lo scarto fra addebito e somma
+-- degli effetti diviso il numero di effetti fa 0,4000 esatti, e la partizione
+-- ha soluzione UNICA in tutti e tre i mesi. In totale: 293.546,19 di effetti
+-- piu' 24,80 di spese (62 x 0,40) fanno 293.570,99, che e' esattamente la somma
+-- dei tredici addebiti.
+--
+-- COSA E' STATO SCRITTO
+--   1. riba_distinte: 8 righe nuove (status 'confermata', bank_account MPS)
+--   2. riba_distinta_lines: 62 righe
+--   3. bank_transactions: 13 addebiti chiusi (is_reconciled, category 'effetti')
+--      con la composizione del lotto in nota
+--   4. 36 righe agganciate alla scadenza corrispondente
+--
+-- Con questi, gli addebiti «EFFETTI RITIRATI» del 2026 vanno a ZERO: i due che
+-- restavano aperti a gennaio 2026 (05/01 da 378,92 e 12/01 da 4.430,23)
+-- appartenevano alla distinta 129746033 del 30/12/2025, che aveva code al 05/01
+-- e al 10/01. Le uscite non riconciliate scendono da 996 a 859 e sotto i tre
+-- milioni.
+--
+-- COSA RESTA. 27 addebiti del 2025 per 411.416,96 EUR, da gennaio a settembre
+-- piu' quello del 10/10: le distinte di quei mesi non ci sono sul Drive. Vanno
+-- chieste alla banca o a Sabrina.
+--
+-- Backup: public._bkp_effetti_bt_2025_20260904 (14 movimenti completi).
+-- =============================================================================
+--
+-- NOTA. Eseguito direttamente sul tenant NZ via MCP il 04/09/2026, dopo backup.
+-- Il dettaglio riga per riga e' consultabile in Storico Distinte e nella nota di
+-- ciascun movimento, che riporta la composizione completa del lotto.
+
+-- Stessa procedura della migration 188: staging, insert distinte (bank_account
+-- risolto dall'IBAN CON filtro is_active), insert lines, match sui payables,
+-- chiusura dei movimenti con la composizione del lotto in nota.
+
+-- --- Verifica ---------------------------------------------------------------
+-- select to_char(transaction_date,'YYYY'), count(*), round(sum(-amount),2)
+--   from public.bank_transactions where amount < 0 and not is_reconciled
+--   and upper(coalesce(description,'')) like '%EFFETTI RITIRAT%' group by 1;
+-- Atteso: solo 2025 -> 27 movimenti / 411.416,96. Il 2026 non compare piu'.
+--
+-- select count(*) from public.riba_distinte;        -- atteso 36
+-- select count(*) from public.riba_distinta_lines;  -- atteso 260

@@ -1,0 +1,2 @@
+-- ROLLBACK 194 (solo se necessario; DROP COLUMN richiede conferma esplicita)
+-- ALTER TABLE public.daily_report_settings DROP COLUMN IF EXISTS budget_vat_rate;

@@ -166,6 +166,10 @@ export default function ImportHub() {
   const [previewFile, setPreviewFile] = useState<ImportDoc | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [importHistory, setImportHistory] = useState<ImportDoc[]>([]);
+  // Ricaricare un documento sovrascrive il precedente: in elenco si vede la
+  // versione corrente, non due file uguali senza sapere quale conta. Le versioni
+  // sostituite restano e si possono richiamare con l'interruttore.
+  const [mostraSostituiti, setMostraSostituiti] = useState(false);
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
   const [selectedBankAccount, setSelectedBankAccount] = useState<string | null>(null);
   const [selectedDocCategory, setSelectedDocCategory] = useState('contratto');
@@ -255,7 +259,8 @@ export default function ImportHub() {
   useEffect(() => {
     if (!COMPANY_ID) return;
     loadImportDocs();
-  }, [activeTab, selectedSource, COMPANY_ID]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, selectedSource, COMPANY_ID, mostraSostituiti]);
 
   async function loadImportDocs() {
     if (!COMPANY_ID) return;
@@ -275,22 +280,22 @@ export default function ImportHub() {
         setUploadedFiles(((data as ImportDoc[] | null) || []));
         setBatchSelected(new Set());
 
-        const { data: history } = await supabase
+        let qh = supabase
           .from('import_documents')
           .select('*')
           .eq('company_id', companyId)
-          .eq('source', selectedSource)
-          .order('uploaded_at', { ascending: false })
-          .limit(20);
+          .eq('source', selectedSource);
+        if (!mostraSostituiti) qh = qh.is('superseded_at', null);
+        const { data: history } = await qh.order('uploaded_at', { ascending: false }).limit(20);
         setImportHistory(((history as ImportDoc[] | null) || []));
       } else {
         // Load all recent imports for both overview and history tabs
-        const { data } = await supabase
+        let q = supabase
           .from('import_documents')
           .select('*')
-          .eq('company_id', companyId)
-          .order('uploaded_at', { ascending: false })
-          .limit(200);
+          .eq('company_id', companyId);
+        if (!mostraSostituiti) q = q.is('superseded_at', null);
+        const { data } = await q.order('uploaded_at', { ascending: false }).limit(200);
         setImportHistory(((data as ImportDoc[] | null) || []));
       }
     } catch (err: unknown) {
@@ -1512,6 +1517,16 @@ export default function ImportHub() {
         {/* HISTORY TAB */}
         {activeTab === 'history' && (
           <div className="bg-white rounded-lg shadow overflow-hidden">
+            <div className="px-6 py-3 border-b border-gray-100 flex items-center justify-between gap-3 flex-wrap">
+              <div className="text-xs text-gray-500">
+                Ricaricando lo stesso documento per lo stesso periodo, il file nuovo <strong>sostituisce</strong> il precedente:
+                in elenco resta la versione che vale.
+              </div>
+              <label className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer shrink-0">
+                <input type="checkbox" checked={mostraSostituiti} onChange={(e) => setMostraSostituiti(e.target.checked)} />
+                Mostra anche le versioni sostituite
+              </label>
+            </div>
             <div className="overflow-x-auto scroll-shadow-x">
               <table className="w-full">
                 <thead className="bg-gray-50 border-b border-gray-200">
@@ -1531,8 +1546,9 @@ export default function ImportHub() {
                     const isPdf = item.file_type === 'pdf';
                     const statusRaw = String(item.status || item.upload_status || 'unknown');
                     return (
-                      <tr key={String(item.id)} className="hover:bg-gray-50 transition-colors">
+                      <tr key={String(item.id)} className={`hover:bg-gray-50 transition-colors ${item.superseded_at ? 'opacity-60' : ''}`}>
                         <td className="px-6 py-4 text-sm text-gray-900">
+                          {item.superseded_at ? <span className="mr-2 text-[11px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">sostituito</span> : null}
                           {new Date(String(item.uploaded_at || item.created_at || '')).toLocaleString('it-IT')}
                         </td>
                         <td className="px-6 py-4 text-sm text-gray-900 font-medium">{String(item.file_name || '')}</td>

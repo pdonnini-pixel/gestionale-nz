@@ -1,0 +1,112 @@
+-- =============================================================================
+-- NZ_ONLY — Distinte RI.BA MPS da gennaio a luglio 2026
+-- Applicato su NZ il 04/09/2026. Dati NZ-specifici: non si replica su Made/Zago.
+-- =============================================================================
+--
+-- I DOCUMENTI. Ventuno distinte di ritiro effetti pagati, MPS c/c 000000621460,
+-- lette dai PDF nella cartella Drive «BANCHE NEW ZAGO / NEW ZAGO 2026», una
+-- sottocartella per mese. Dettaglio riga per riga in
+-- docs/riba_effetti_2026_gennaio_luglio.csv (162 disposizioni, 635.750,29 EUR).
+--
+--   gennaio   3 distinte  24 disp  106.990,44   (2 ARCO con scadenza 10/02)
+--   febbraio  3 distinte  24 disp  128.134,04   (1 ARCO con scadenza 10/03)
+--   marzo     2 distinte  10 disp    4.119,08   (1 ARCO con scadenza 10/04)
+--   aprile    2 distinte  16 disp   54.215,04   (1 ARCO con scadenza 10/05)
+--   maggio    3 distinte  26 disp   91.959,54   (1 NOIR con scadenza 01/06)
+--   giugno    3 distinte  29 disp  104.410,55
+--   luglio    5 distinte  33 disp  145.921,60   (1 ARCO con scadenza 10/07)
+--
+-- Due dei quattro PDF di giugno sono lo stesso supporto (135004439) stampato
+-- due volte: le distinte del mese sono tre, non quattro.
+--
+-- COME SI LEGGONO SUL CONTO. La banca non addebita una distinta per volta: fa
+-- lotti di al massimo dieci effetti, che tagliano trasversalmente le distinte
+-- dello stesso giorno. Ogni addebito costa 0,40 EUR per effetto di spese di
+-- incasso, e questa e' la chiave che fa quadrare tutto:
+--
+--     addebito = somma degli effetti del lotto + 0,40 x numero effetti
+--
+-- La composizione dei lotti si ricostruisce cercando i sottoinsiemi di effetti
+-- che danno l'importo netto atteso con il numero di effetti dichiarato in
+-- causale («NUM.EFFETTI: 10»). Su tutti e sette i mesi la soluzione e' UNICA,
+-- tranne ad aprile dove due REALCART di pari importo (854,35, fatture 90-2026 e
+-- 91-2026) possono stare indifferentemente in uno o nell'altro lotto: entrambe
+-- risultano comunque pagate, cambia solo a quale dei due addebiti si attribuisce.
+--
+-- COSA E' STATO SCRITTO
+--   1. riba_distinte: 21 righe nuove (status 'confermata', bank_account MPS)
+--   2. riba_distinta_lines: 162 righe con fornitore, P.IVA, riferimento fattura,
+--      importo e scadenza dell'effetto
+--   3. bank_transactions: 20 addebiti «EFFETTI RITIRATI» chiusi
+--      (is_reconciled, category 'effetti') con in nota la composizione del lotto,
+--      la distinta di provenienza e lo scorporo delle spese di incasso
+--   4. riba_distinta_lines.matched_payable_id: 86 righe agganciate alla scadenza
+--      corrispondente (stessa P.IVA, stesso importo, e dove serve stessa data)
+--
+-- Totale addebiti chiusi: 628.598,04 EUR su 20 movimenti. Le uscite non
+-- riconciliate scendono da 1.024 a 996 e da 3,91 a 3,28 milioni.
+--
+-- COSA NON E' STATO TOCCATO, e perche'
+--   - Nessuna scadenza e' stata chiusa: tutte le fatture agganciate risultavano
+--     gia' pagate. Le tre rate GRUPPO F.B. ancora aperte (3896, 3921, 3992) sono
+--     le rate di settembre di piani a tre rate, e devono restare aperte.
+--   - 64 righe restano senza aggancio (450.329,61 EUR): sono i saldi cumulativi
+--     (MIAN «SALDO FT OTTOBRE», SHINE «SALDO FT 388 A 618», i saldi GRUPPO F.B.)
+--     che coprono piu' fatture insieme e non hanno un payable di pari importo.
+--     Stesso comportamento gia' visto sulle distinte del 31/08.
+--   - Restano aperti 2 addebiti del 2026 per 4.809,15 EUR (05/01 EGO 378,92 e
+--     12/01 da 4.430,23 con 3 effetti): appartengono a distinte create a fine
+--     dicembre 2025 e il 09/01/2026, non presenti fra i PDF del 2026.
+--   - Restano aperti 38 addebiti del 2025 per 700.178,80 EUR: le distinte stanno
+--     nella cartella Drive «NEW ZAGO 2025», mese per mese. Prossimo giro.
+--
+-- Backup: public._bkp_effetti_bt_20260904 (28 movimenti completi).
+-- =============================================================================
+--
+-- NOTA. Eseguito direttamente sul tenant NZ via MCP il 04/09/2026, dopo backup.
+-- Questo file e' la traccia versionata; il dato riga per riga sta nel CSV.
+
+-- 1) Backup dei movimenti prima di toccarli
+-- create table public._bkp_effetti_bt_20260904 as
+--   select bt.*, now() as bkp_at from public.bank_transactions bt
+--   where bt.amount < 0 and upper(coalesce(bt.description,'')) like '%EFFETTI RITIRAT%'
+--     and bt.transaction_date between date '2026-01-01' and date '2026-08-01';
+-- alter table public._bkp_effetti_bt_20260904 enable row level security;
+-- revoke all on public._bkp_effetti_bt_20260904 from anon, authenticated;
+
+-- 2) Le 21 distinte (il bank_account si risolve dall'IBAN, mai hardcoded)
+--    ATTENZIONE: su NZ esistono DUE bank_accounts con l'IBAN MPS, uno disattivato
+--    (is_active = false, creato il 16/07). Filtrare per is_active, altrimenti il
+--    join genera tutto in doppio (errore fatto e corretto in questa sessione;
+--    i doppioni sono in public._bkp_riba_doppioni_20260904_d / _l).
+-- insert into public.riba_distinte (...)
+-- select ba.company_id, ba.id, ... from (values (<21 distinte>)) v
+-- cross join (select id, company_id from public.bank_accounts
+--             where iban = 'IT04V0103038020000000621460' and is_active) ba;
+
+-- 3) Le 162 righe, dal CSV docs/riba_effetti_2026_gennaio_luglio.csv
+-- insert into public.riba_distinta_lines
+--   (distinta_id, company_id, raw_supplier, raw_vat, raw_invoice, raw_amount, raw_due_date, match_status)
+-- select d.id, d.company_id, s.forn, s.piva, s.rif, s.imp, s.scad, 'unmatched' ...
+--    NB: match_status ammette solo 'unmatched' | 'matched' | 'ambiguous' | 'confirmed'.
+
+-- 4) Aggancio alle scadenze: stessa P.IVA + stesso importo (unico candidato),
+--    poi secondo giro con anche stessa due_date per sciogliere le ambiguita'.
+
+-- 5) I 20 addebiti chiusi, con la composizione del lotto in nota
+-- update public.bank_transactions set is_reconciled = true, reconciled_at = now(),
+--        category = 'effetti', note = note || ' | Addebito RI.BA: N effetti della
+--        distinta MPS <supporto> per <netto> EUR piu'' <spese> EUR di spese di
+--        incasso (0,40 per effetto). Dettaglio: <fornitore importo; ...>'
+-- where id in (<20 uuid>);
+
+-- --- Verifica ---------------------------------------------------------------
+-- select to_char(transaction_date,'YYYY') as anno, count(*), round(sum(-amount),2)
+--   from public.bank_transactions
+--   where amount < 0 and not is_reconciled
+--     and upper(coalesce(description,'')) like '%EFFETTI RITIRAT%'
+--   group by 1 order by 1;
+-- Atteso: 2026 -> 2 movimenti / 4.809,15 ; 2025 -> 38 movimenti / 700.178,80
+--
+-- select count(*) from public.riba_distinte;             -- atteso 28
+-- select count(*) from public.riba_distinta_lines;       -- atteso 198

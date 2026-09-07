@@ -162,6 +162,8 @@ export default function Fornitori() {
   // UI state
   const [search, setSearch] = useState('');
   const [filterCategory, setFilterCategory] = useState('all');
+  // Export Excel "fatture per categoria": true mentre la libreria xlsx si carica.
+  const [exportingCategorie, setExportingCategorie] = useState(false);
   const [filterStatus, setFilterStatus] = useState('all');
   // Filtro "Stato lavorazione": '' = Tutti | lavorare | nocat | nosplit | scaduto
   const [filterWork, setFilterWork] = useState('all');
@@ -815,6 +817,129 @@ export default function Fornitori() {
     a.href = URL.createObjectURL(blob);
     a.download = `Fornitori_${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
+  }
+
+  // Export Excel — dettaglio delle fatture che compongono ogni categoria.
+  // Il grafico "Spesa per categoria" mostra solo il totale: qui si scarica
+  // l'elenco delle fatture che formano quel totale, così il numero a video si
+  // può verificare riga per riga contro la contabilità.
+  // Perimetro identico al grafico: fatture dell'anno selezionato, con fornitore
+  // agganciato, importo lordo (le note di credito restano col segno meno).
+  // Un foglio per categoria + "Riepilogo" + "Tutte le fatture".
+  async function exportFattureCategorie() {
+    const supplierById = new Map(suppliers.map(s => [String(s.id), s]));
+    const statoLabel: Record<string, string> = {
+      pagato: 'Pagato', pagato_provvisorio: 'Pagato (provvisorio)', nota_credito: 'Nota di credito',
+      sospeso: 'Sospeso', rimandato: 'Rimandato', annullato: 'Annullato', parziale: 'Parziale',
+      addebito_automatico: 'Addebito automatico', scaduto: 'Scaduto', in_scadenza: 'In scadenza',
+      da_pagare: 'Da pagare',
+    };
+    const itDate = (d: string) => (d ? new Date(d).toLocaleDateString('it-IT') : '');
+    const round2 = (n: number) => Math.round(n * 100) / 100;
+
+    const righe = allPayables
+      .filter(p => yearOf(p.invoice_date) === year && p.supplier_id && supplierById.has(String(p.supplier_id)))
+      .map(p => {
+        const s = supplierById.get(String(p.supplier_id)) as SupplierRow;
+        const stato = calculatePayableStatus(p);
+        return {
+          categoria: String(s.category || 'Non categorizzato'),
+          fornitore: getName(s),
+          piva: getVat(s),
+          numero: String(p.invoice_number || ''),
+          data: p.invoice_date ? String(p.invoice_date) : '',
+          scadenza: p.due_date ? String(p.due_date) : '',
+          totale: round2(Number(p.gross_amount) || 0),
+          daPagare: round2(openAmountOf(p)),
+          stato: statoLabel[stato] || stato,
+        };
+      })
+      .sort((a, b) => a.categoria.localeCompare(b.categoria, 'it') || (a.data < b.data ? 1 : a.data > b.data ? -1 : 0));
+
+    if (righe.length === 0) {
+      showToast(`Nessuna fattura da esportare per il ${year}`, 'error');
+      return;
+    }
+
+    setExportingCategorie(true);
+    try {
+      // xlsx caricata on-demand: non deve pesare sull'apertura della pagina.
+      const XLSX = await import('xlsx');
+      const wb = XLSX.utils.book_new();
+
+      // Categorie in ordine di spesa decrescente, come il grafico.
+      const categorie = Array.from(new Set(righe.map(r => r.categoria)))
+        .map(cat => {
+          const list = righe.filter(r => r.categoria === cat);
+          return {
+            cat,
+            list,
+            totale: round2(list.reduce((s, r) => s + r.totale, 0)),
+            daPagare: round2(list.reduce((s, r) => s + r.daPagare, 0)),
+            fornitori: new Set(list.map(r => r.fornitore)).size,
+          };
+        })
+        .sort((a, b) => b.totale - a.totale);
+
+      // Foglio 1 — riepilogo che riconcilia con i totali a video.
+      const riepilogo: (string | number)[][] = [
+        [`Fatture fornitori per categoria — anno ${year}`],
+        [`Estratto il ${new Date().toLocaleString('it-IT')}`],
+        [],
+        ['Categoria', 'Fornitori con fatture', 'N. fatture', 'Totale fatture €', 'Ancora da pagare €'],
+        ...categorie.map(c => [c.cat, c.fornitori, c.list.length, c.totale, c.daPagare]),
+        [
+          'TOTALE', '', righe.length,
+          round2(righe.reduce((s, r) => s + r.totale, 0)),
+          round2(righe.reduce((s, r) => s + r.daPagare, 0)),
+        ],
+      ];
+      const wsRiep = XLSX.utils.aoa_to_sheet(riepilogo);
+      wsRiep['!cols'] = [{ wch: 28 }, { wch: 20 }, { wch: 12 }, { wch: 18 }, { wch: 18 }];
+      XLSX.utils.book_append_sheet(wb, wsRiep, 'Riepilogo');
+
+      // Un foglio per categoria. Nome foglio: max 31 caratteri, niente : \ / ? * [ ]
+      const usati = new Set<string>(['Riepilogo']);
+      const nomeFoglio = (cat: string) => {
+        const base = (cat.replace(/[:\\/?*[\]]/g, ' ').trim() || 'Categoria').slice(0, 31);
+        let nome = base;
+        for (let i = 2; usati.has(nome); i++) nome = `${base.slice(0, 28)} ${i}`;
+        usati.add(nome);
+        return nome;
+      };
+      const intestazione = ['Fornitore', 'P.IVA', 'N. fattura', 'Data fattura', 'Scadenza', 'Totale fattura €', 'Ancora da pagare €', 'Stato'];
+      const larghezze = [{ wch: 38 }, { wch: 14 }, { wch: 16 }, { wch: 13 }, { wch: 13 }, { wch: 17 }, { wch: 18 }, { wch: 20 }];
+      for (const c of categorie) {
+        const aoa: (string | number)[][] = [
+          [`Categoria: ${c.cat} — anno ${year}`],
+          [],
+          intestazione,
+          ...c.list.map(r => [r.fornitore, r.piva, r.numero, itDate(r.data), itDate(r.scadenza), r.totale, r.daPagare, r.stato]),
+          ['TOTALE', '', '', '', '', c.totale, c.daPagare, ''],
+        ];
+        const ws = XLSX.utils.aoa_to_sheet(aoa);
+        ws['!cols'] = larghezze;
+        XLSX.utils.book_append_sheet(wb, ws, nomeFoglio(c.cat));
+      }
+
+      // Ultimo foglio — tutte le fatture insieme, con la colonna categoria,
+      // per chi preferisce filtrare a mano invece di saltare fra i fogli.
+      const tutte: (string | number)[][] = [
+        ['Categoria', ...intestazione],
+        ...righe.map(r => [r.categoria, r.fornitore, r.piva, r.numero, itDate(r.data), itDate(r.scadenza), r.totale, r.daPagare, r.stato]),
+      ];
+      const wsTutte = XLSX.utils.aoa_to_sheet(tutte);
+      wsTutte['!cols'] = [{ wch: 24 }, ...larghezze];
+      XLSX.utils.book_append_sheet(wb, wsTutte, 'Tutte le fatture');
+
+      XLSX.writeFile(wb, `Fatture_per_categoria_${year}.xlsx`);
+      showToast(`Excel scaricato: ${righe.length} fatture in ${categorie.length} categorie`);
+    } catch (e) {
+      console.warn('export fatture per categoria:', e);
+      showToast('Export non riuscito, riprova', 'error');
+    } finally {
+      setExportingCategorie(false);
+    }
   }
 
   // ─── HELPER: get supplier display name ────────────────────────
@@ -1601,7 +1726,20 @@ export default function Fornitori() {
 
               {/* Spend by Category */}
               <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
-                <h3 className="text-sm font-semibold text-slate-700 mb-4">Spesa per categoria</h3>
+                <div className="flex items-start justify-between gap-3 mb-4">
+                  <h3 className="text-sm font-semibold text-slate-700">Spesa per categoria</h3>
+                  {/* Il grafico dà solo il totale: l'Excel apre il totale nelle
+                      singole fatture, un foglio per categoria. */}
+                  <button
+                    onClick={exportFattureCategorie}
+                    disabled={exportingCategorie}
+                    title="Scarica l'elenco delle fatture che compongono ogni categoria"
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-slate-600 bg-slate-50 border border-slate-200 rounded-lg hover:bg-slate-100 disabled:opacity-60 whitespace-nowrap"
+                  >
+                    {exportingCategorie ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+                    Excel dettaglio fatture
+                  </button>
+                </div>
                 {/* Fix 12.1: empty state quando l'unica categoria e' "Non
                     categorizzato" (grafico con una sola fetta = inutile).
                     Suggeriamo all'utente di categorizzare i fornitori. */}

@@ -847,10 +847,13 @@ export default function BudgetControl() {
     if (!CID) return
     setConsuntivoRefreshing(true)
     try {
-      const { data, error } = await supabase.rpc('refresh_budget_consuntivo', {
-        p_outlet_id: outletId,
-        p_year: year,
-      })
+      // p_outlet_id ha DEFAULT NULL nella funzione: quando non c'e' un outlet
+      // si omette l'argomento invece di passare null, che i tipi generati non
+      // ammettono (esprimono l'argomento come opzionale, non come nullable).
+      const { data, error } = await supabase.rpc(
+        'refresh_budget_consuntivo',
+        outletId == null ? { p_year: year } : { p_outlet_id: outletId, p_year: year },
+      )
       if (error) throw error
       const result = (data ?? {}) as {
         success?: boolean

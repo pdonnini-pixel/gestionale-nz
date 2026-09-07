@@ -135,7 +135,7 @@ export const PAGE_GUIDES: PageGuide[] = [
         "heading": "Creare un nuovo outlet manualmente",
         "body": "Se hai i permessi necessari vedi il pulsante 'Nuovo outlet', che apre una procedura guidata a più passaggi. Ogni passaggio raccoglie un gruppo di informazioni; puoi tornare indietro con 'Indietro' e proseguire con 'Avanti'. Nell'ultimo passaggio trovi il riepilogo di tutti i dati inseriti, da controllare prima di salvare.",
         "steps": [
-          "Anagrafica: nome outlet, codice, insegna/brand, tipo (Outlet, Retail, Corner), superficie lorda e di vendita, codice unità nel centro.",
+          "Anagrafica: nome outlet, codice, insegna/brand, tipo (Outlet, Retail, Corner, oppure Sede / magazzino per una sede senza cassa, che resta fuori dalle pagine di chiusura cassa e incassi), superficie lorda e di vendita, codice unità nel centro.",
           "Ubicazione: centro commerciale, società concedente, indirizzo, città, provincia, regione.",
           "Contratto: data consegna immobile, data apertura (obbligatoria), conferma apertura, date di inizio/fine contratto, durata, giorni gratuiti iniziali, mese della clausola di recesso.",
           "Canone e Costi: canone annuo garantito (il canone mensile si calcola da solo), canone al metro quadro, percentuale di canone variabile, eventuali canoni diversi per anno 2 e anno 3, spese condominiali e marketing mensili, budget personale mensile.",
@@ -398,7 +398,7 @@ export const PAGE_GUIDES: PageGuide[] = [
     "sections": [
       {
         "heading": "A cosa serve questa pagina e come leggere l'elenco",
-        "body": "Lo Scadenzario raccoglie tutte le scadenze di pagamento verso i fornitori (e, se attive, le scadenze fiscali come F24). In alto trovi tre schede: \"Situazione\" mostra un riepilogo generale (quanto c'è da pagare, quanto è scaduto, la liquidità disponibile), \"Scadenzario\" è la lista operativa delle fatture con cui lavori ogni giorno, \"Ricorrenze\" mostra i costi che si ripetono nel tempo (affitti, utenze, abbonamenti).\n\nNella scheda \"Scadenzario\" ogni riga è una scadenza: fornitore, numero fattura, importo, data di scadenza e stato colorato (Scaduto in rosso, Addebito automatico in indaco, In scadenza in arancio, Da pagare in blu, Parziale in arancio scuro, Pagato in verde, Pagato (provvisorio) in verde acqua per le RiBa chiuse alla scadenza in attesa di conferma, In sospeso con un'etichetta a orologio). Nella colonna descrizione, sotto il nome del fornitore, il riferimento della fattura mostra insieme il numero, la data di emissione della fattura e, se presente, la scadenza naturale — cioè la scadenza originale della fattura, che può differire dalla data mostrata nella colonna Data quando questa è stata rinviata. Puoi filtrare per outlet, per stato, per metodo di pagamento (Bonifici, RiBa, Addebito diretto, Altro) e cercare per nome fornitore o numero fattura.\n\nC'è anche un filtro \"Tipo\": \"Tutte le scadenze\" (predefinito, mostra tutto), \"Solo Fornitori\", \"Solo Fiscali / Interni\" e \"Incassi\". Le scadenze fiscali/interne comprendono sia le scadenze fiscali vere e proprie (F24, IVA, contributi… dalla pagina Scadenze Fiscali) sia quelle che aggiungi a mano scegliendo come tipo di nominativo \"Fiscale\" o \"Interno\" (per esempio una TARI pagata con F24): queste ultime, pur essendo inserite come scadenze normali, compaiono sotto \"Solo Fiscali / Interni\" e non tra i Fornitori.\n\nCon il pulsante di vista in alto a destra scegli come vedere l'elenco: \"Mese\" (predefinita) raggruppa le scadenze in sezioni mensili collassabili, \"Lista piatta\" mostra tutte le righe di seguito, \"Calendario\" le dispone sul calendario.\n\nNella vista Mese, dentro ogni mese le scadenze sono ordinate per fornitore in ordine alfabetico (le righe dello stesso fornitore restano vicine, aggregate); a parità di fornitore compaiono dalla fattura più vecchia, ordinate prima per data di emissione fattura e poi per numero fattura. Se clicchi le intestazioni di colonna per un ordinamento personalizzato, quello ha la precedenza (con il pulsante \"Reset\" torni all'ordine predefinito).\n\nLe note di credito compaiono con l'importo in rosso col segno meno: non si pagano, ma si possono usare per abbassare l'importo di una fattura dello stesso fornitore (vedi più sotto). Ovunque una nota di credito venga mostrata (riga elenco, badge, pannello di pagamento, causali) trovi sempre insieme il suo numero, la sua data di emissione e l'importo. È questa la scheda che usi per selezionare le fatture e creare la distinta dei bonifici."
+        "body": "Lo Scadenzario raccoglie tutte le scadenze di pagamento verso i fornitori (e, se attive, le scadenze fiscali come F24). In alto trovi tre schede: \"Situazione\" mostra un riepilogo generale (quanto c'è da pagare, quanto è scaduto, la liquidità disponibile), \"Scadenzario\" è la lista operativa delle fatture con cui lavori ogni giorno, \"Ricorrenze\" mostra i costi che si ripetono nel tempo (affitti, utenze, abbonamenti).\n\nNella scheda \"Scadenzario\" ogni riga è una scadenza: fornitore, numero fattura, importo, data di scadenza e stato colorato (Scaduto in rosso, Addebito automatico in indaco, In scadenza in arancio, Da pagare in blu, Parziale in arancio scuro, Pagato in verde, Pagato (provvisorio) in verde acqua per le RiBa chiuse alla scadenza in attesa di conferma, In sospeso con un'etichetta a orologio). Nella colonna descrizione, sotto il nome del fornitore, il riferimento della fattura mostra insieme il numero, la data di emissione della fattura e, se presente, la scadenza naturale — cioè la scadenza originale della fattura, che può differire dalla data mostrata nella colonna Data quando questa è stata rinviata. Puoi filtrare per outlet, per stato, per metodo di pagamento (Bonifici, RiBa, Addebito diretto, Altro) e cercare per nome fornitore o numero fattura.\n\nC'è anche un filtro \"Tipo\": \"Tutte le scadenze\" (predefinito, mostra tutto), \"Solo Fornitori\", \"Solo Fiscali / Interni\" e \"Incassi\". Le scadenze fiscali/interne comprendono sia le scadenze fiscali vere e proprie (F24, IVA, contributi… dalla pagina Scadenze Fiscali) sia quelle che aggiungi a mano scegliendo come tipo di nominativo \"Fiscale\" o \"Interno\" (per esempio una TARI pagata con F24): queste ultime, pur essendo inserite come scadenze normali, compaiono sotto \"Solo Fiscali / Interni\" e non tra i Fornitori.\n\nCon il pulsante di vista in alto a destra scegli come vedere l'elenco: \"Mese\" (predefinita) raggruppa le scadenze in sezioni mensili collassabili, \"Lista piatta\" mostra tutte le righe di seguito, \"Calendario\" le dispone sul calendario.\n\nNella vista Mese, dentro ogni mese le scadenze sono ordinate per fornitore in ordine alfabetico (le righe dello stesso fornitore restano vicine, aggregate); a parità di fornitore compaiono dalla fattura più vecchia, ordinate prima per data di emissione fattura e poi per numero fattura. Se clicchi le intestazioni di colonna per un ordinamento personalizzato, quello ha la precedenza (con il pulsante \"Reset\" torni all'ordine predefinito).\n\nLe parcelle di professionisti e studi con ritenuta d'acconto (commercialista, consulente del lavoro, tecnici) compaiono con l'importo che devi davvero bonificare, cioè il totale della fattura meno la ritenuta che trattieni tu e versi all'erario: se la parcella è di 4.648,88 con 732,80 di ritenuta, in Scadenzario leggi 3.916,08. Il totale del documento e l'IVA restano registrati sulla fattura.\n\nLe note di credito compaiono con l'importo in rosso col segno meno: non si pagano, ma si possono usare per abbassare l'importo di una fattura dello stesso fornitore (vedi più sotto). Ovunque una nota di credito venga mostrata (riga elenco, badge, pannello di pagamento, causali) trovi sempre insieme il suo numero, la sua data di emissione e l'importo. È questa la scheda che usi per selezionare le fatture e creare la distinta dei bonifici."
       },
       {
         "heading": "Aggiungere una scadenza a mano (es. un proforma)",
@@ -474,7 +474,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "Chiudere una scadenza a mano",
-        "body": "Se un pagamento non passerà mai da un movimento bancario tracciato nel gestionale (per esempio pagamento in contanti, compensazione, o un vecchio pagamento fatto fuori sistema), puoi chiuderlo a mano invece di aspettare la riconciliazione. Dal menu di stato di una fattura scegli \"Chiudi a mano\": indichi la data, un importo (puoi chiudere anche solo una parte del residuo, lasciando la fattura \"parziale\" per il resto) e, se vuoi, una motivazione. L'operazione viene registrata nel partitario del fornitore con la dicitura \"Chiusa a mano\" ma non crea nessun movimento bancario: i movimenti reali restano solo quelli davvero importati dall'estratto conto. Per una nota di credito, chiuderla a mano significa stralciare il credito RESIDUO (la parte non ancora usata in compensazione) e la scrittura viene registrata in Avere; se vuoi invece usarla per chiudere una fattura, usa \"Compensa con nota di credito\" (sezione dedicata).\n\nSe più avanti il bonifico reale di quella fattura arriva sull'estratto conto e viene riconciliato, la scadenza mostra nella colonna \"Conto\" il movimento vero (banca reale e data) e l'etichetta \"Chiusa a mano\" sparisce: a quel punto la verità è il movimento bancario, non più la chiusura manuale, e non ha senso mostrare entrambi."
+        "body": "Se un pagamento non passerà mai da un movimento bancario tracciato nel gestionale (per esempio pagamento in contanti, compensazione, o un vecchio pagamento fatto fuori sistema), puoi chiuderlo a mano invece di aspettare la riconciliazione. Dal menu di stato di una fattura scegli \"Chiudi a mano\": indichi la data, un importo (puoi chiudere anche solo una parte del residuo, lasciando la fattura \"parziale\" per il resto) e, se vuoi, una motivazione. L'operazione viene registrata nel partitario del fornitore con la dicitura \"Chiusa a mano\" ma non crea nessun movimento bancario: i movimenti reali restano solo quelli davvero importati dall'estratto conto. Per una nota di credito, chiuderla a mano significa stralciare il credito RESIDUO (la parte non ancora usata in compensazione) e la scrittura viene registrata in Avere; se vuoi invece usarla per chiudere una fattura, usa \"Compensa con nota di credito\" (sezione dedicata).\n\nSe più avanti il bonifico reale di quella fattura arriva sull'estratto conto e viene riconciliato, la scadenza mostra nella colonna \"Conto\" il movimento vero (banca reale e data) e l'etichetta \"Chiusa a mano\" sparisce: a quel punto la verità è il movimento bancario, non più la chiusura manuale, e non ha senso mostrare entrambi.\n\nL'etichetta sparisce anche se la scadenza viene riaperta: da quel momento la riga è di nuovo aperta, il pagato torna a zero e non ha più senso mostrarla come chiusa. Vale sia che la riapertura passi dal comando \"Riapri fattura\", sia che arrivi da un'altra strada, per esempio la rimozione da una distinta."
       },
       {
         "heading": "Compensare una fattura con una nota di credito (totale o parziale)",
@@ -486,7 +486,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "La colonna \"Conto\": da dove e come è stata pagata davvero",
-        "body": "La colonna \"Conto\" non mostra la banca su cui si *prevedeva* di pagare, ma la REALTÀ del pagamento. Ha quattro forme:\n\n• Pillola VERDE con nome banca e data (es. \"MPS · 10/07\"): la fattura è stata pagata da un MOVIMENTO bancario reale, riconosciuto sull'estratto conto e abbinato a lei. La banca indicata è quella dove il denaro si è mosso davvero; passando il mouse vedi data, importo e descrizione del movimento, e se il pagamento è arrivato da una distinta / RI.BA.\n\n• Pillola VIOLA \"✎ A mano\" con operatore e data (es. \"✎ A mano · Lilian · 06/08\"): la scadenza è stata chiusa a mano da quella persona in quella data (vedi \"Chiudere una scadenza a mano\"). Non c'è un movimento bancario tracciato: il tooltip riporta chi, quando, l'eventuale motivazione e — se era stata impostata — la banca solo \"prevista\".\n\n• Pillola GRIGIA \"Pagato\" con data: la fattura risulta pagata (di solito da import o da dati pregressi) ma senza un movimento bancario collegato né una chiusura a mano registrata.\n\n• Trattino \"—\": la scadenza non è ancora pagata.\n\nIn breve: se vedi una banca in verde, quel pagamento è passato davvero da quel conto; se vedi viola o grigio, non c'è (ancora) un movimento bancario che lo dimostri, e il gestionale te lo dice invece di mostrarti una banca solo prevista."
+        "body": "La colonna \"Conto\" non mostra la banca su cui si *prevedeva* di pagare, ma la REALTÀ del pagamento. Ha quattro forme:\n\n• Pillola VERDE con nome banca e data (es. \"MPS · 10/07\"): la fattura è stata pagata da un MOVIMENTO bancario reale, riconosciuto sull'estratto conto e abbinato a lei. La banca indicata è quella dove il denaro si è mosso davvero; passando il mouse vedi data, importo e descrizione del movimento, e se il pagamento è arrivato da una distinta / RI.BA.\n\n• Pillola VIOLA \"✎ A mano\" con operatore e data (es. \"✎ A mano · Lilian · 06/08\"): la scadenza è stata chiusa a mano da quella persona in quella data (vedi \"Chiudere una scadenza a mano\"). Non c'è un movimento bancario tracciato: il tooltip riporta chi, quando, l'eventuale motivazione e — se era stata impostata — la banca solo \"prevista\". La pillola compare solo se la scadenza risulta davvero chiusa: su una riga tornata aperta sparisce, così non capita di vedere insieme \"Scaduto\" e \"chiusa a mano\".\n\n• Pillola GRIGIA \"Pagato\" con data: la fattura risulta pagata (di solito da import o da dati pregressi) ma senza un movimento bancario collegato né una chiusura a mano registrata.\n\n• Trattino \"—\": la scadenza non è ancora pagata.\n\nIn breve: se vedi una banca in verde, quel pagamento è passato davvero da quel conto; se vedi viola o grigio, non c'è (ancora) un movimento bancario che lo dimostri, e il gestionale te lo dice invece di mostrarti una banca solo prevista."
       },
       {
         "heading": "La colonna \"Categoria\" e la gestione delle categorie di costo",
@@ -834,10 +834,11 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "Confermare più movimenti insieme",
-        "body": "Quando ci sono molti suggerimenti con confidenza alta, non serve confermarli uno per uno: il pulsante \"Conferma tutti ≥85%\" accetta in blocco tutti i movimenti con almeno l'85% di confidenza, dopo una richiesta di conferma con il numero di movimenti coinvolti.",
+        "body": "Quando ci sono molti suggerimenti con confidenza alta, non serve confermarli uno per uno: il pulsante \"Conferma tutti ≥85%\" accetta in blocco tutti i movimenti con almeno l'85% di confidenza, dopo una richiesta di conferma con il numero di movimenti coinvolti. La conferma in blocco fa esattamente quello che faresti riga per riga, quindi anche da qui l'IA impara: ogni categoria confermata rafforza le regole che rendono più precisi i suggerimenti successivi. Se qualche movimento non riesce, gli altri restano confermati lo stesso e compare un avviso con quanti sono rimasti indietro.",
         "steps": [
           "Clicca \"Conferma tutti ≥85%\" quando compare (è visibile solo se ci sono suggerimenti in attesa).",
           "Conferma nel messaggio che appare: i movimenti selezionati passano automaticamente tra i \"Confermati\".",
+          "Se compare l'avviso delle conferme non riuscite, torna sulla scheda \"Da verificare\": i movimenti rimasti sono ancora lì e puoi riprovare.",
           "Controlla comunque a mano i pochi movimenti rimasti con confidenza più bassa."
         ]
       },
@@ -862,7 +863,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "q": "Devo controllare ogni singolo movimento uno per uno?",
-        "a": "No. Puoi usare \"Conferma tutti ≥85%\" per accettare in blocco i suggerimenti con confidenza alta, e dedicare tempo solo ai pochi movimenti con confidenza bassa o senza suggerimento."
+        "a": "No. Puoi usare \"Conferma tutti ≥85%\" per accettare in blocco i suggerimenti con confidenza alta, e dedicare tempo solo ai pochi movimenti con confidenza bassa o senza suggerimento. Vale come confermarli a mano uno per uno, comprese le regole che l'IA impara dalle tue conferme."
       },
       {
         "q": "Da dove arrivano i movimenti che vedo in questa pagina?",
@@ -935,7 +936,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "Costo lordo",
-        "body": "Questa scheda mostra il costo aziendale completo (retribuzione, contribuzione, INAIL, con il TFR già dentro la retribuzione) per singolo dipendente, raggruppato per punto vendita. Si alimenta con un solo documento: il PDF \"Statistica costo orario\" del software paghe, da trascinare nell'area dedicata. Se il file contiene più aziende scegli quale importare, e ricaricare lo stesso mese aggiorna i dati invece di duplicarli. Il raggruppamento per punto vendita va a cascata: prima quello letto al momento del carico, poi l'anagrafica di oggi. Così basta assegnare la sede in Organico perché la persona esca subito dal gruppo \"Da assegnare\", senza ricaricare il PDF. Le righe si agganciano alla persona anche quando il software paghe le cambia la matricola, perché il gestionale tiene il registro di tutte le matricole avute. Aprendo un punto vendita vedi le persone una per una con retribuzione, contribuzione e INAIL, e i compensi degli amministratori stanno in una sezione a parte. Il \"Prospetto riepilogativo elaborazione paghe\", che è un riepilogo per outlet, non viene importato: se lo carichi per sbaglio il gestionale lo riconosce e te lo dice. Lo stesso vale se qui trascini per errore l'\"Elenco netti\" o i \"Netti negativi\": il messaggio ti manda alla scheda giusta, «Costi & cedolini», invece di dire genericamente che nel file non ci sono dati per l'azienda."
+        "body": "Questa scheda mostra il costo aziendale del personale, e ha due livelli alimentati da due documenti diversi. Il documento principale è il \"Prospetto riepilogativo elaborazione paghe\", che il consulente manda OGNI MESE: dà il costo del lavoro per punto vendita, i compensi degli amministratori tenuti separati e le posizioni INAIL (PAT) su cui stanno i tassi. È da lì che vengono i due numeri in cima alla scheda e il riepilogo mese per mese, perché è la fonte che c'è sempre. Sotto, come approfondimento, c'è il DETTAGLIO PER DIPENDENTE che arriva dalla \"Statistica costo orario\": una riga per persona e mese, con retribuzione, contribuzione e INAIL di ciascuna e il TFR già dentro la retribuzione. Quel report però si richiede a mano al consulente, quindi copre solo i mesi in cui è stato chiesto: serve a vedere chi c'è dentro il costo di un punto vendita, non a fare i totali. Quando arriva un aggiornamento lo si carica e i mesi nuovi compaiono lì sotto. Sono due sguardi sullo stesso costo, uno per persona e uno per negozio, e il gestionale mostra la differenza fra i due totali accanto a ogni outlet quando supera un euro. Il raggruppamento per punto vendita del dettaglio per dipendente va a cascata: prima quello letto al momento del carico, poi l'anagrafica di oggi, così basta assegnare la sede in Organico perché la persona esca dal gruppo \"Da assegnare\" senza ricaricare il PDF. Le righe si agganciano alla persona anche quando il software paghe le cambia la matricola, perché il gestionale tiene il registro di tutte le matricole avute. Ricaricare lo stesso mese aggiorna i dati, non li duplica, e se il file contiene più aziende scegli quale importare. I TASSI INAIL si inseriscono nella tabella \"Tassi INAIL per PAT\" in fondo alla scheda: l'INAIL di ogni outlet è l'imponibile di ciascuna PAT moltiplicato per il suo tasso, quindi finché il tasso manca quell'INAIL vale zero. Un tasso può portare l'etichetta \"stimato\": vuol dire che non viene dall'autoliquidazione INAIL ma è stato dedotto dai mesi in cui il Prospetto paghe e la Statistica costo orario coprono lo stesso periodo, dividendo l'INAIL vero per l'imponibile della PAT. È una stima, serve solo a non lasciare la voce a zero, e passandoci sopra il mouse leggi da dove viene. Appena hai il tasso ufficiale riscrivilo nella casella: il salvataggio a mano toglie l'etichetta. I DUE NUMERI IN CIMA alla scheda leggono la fonte migliore disponibile per ogni mese: il dettaglio per dipendente quando c'è, altrimenti il Prospetto per outlet, e in questo caso il mese porta la scritta \"outlet\" nel riepilogo di periodo, perché di quel mese si sa il costo del punto vendita ma non la ripartizione persona per persona. Nella tabella per outlet, i compensi degli amministratori sono dentro \"Totale retrib.\" ma fuori dal costo del punto vendita: la colonna \"di cui amm.\" li mostra in negativo, così la riga torna leggendola da sinistra a destra. Se lo stesso punto vendita compare su due righe vuol dire che quel mese aveva due filiali aperte, tipicamente durante un trasloco della sede: sotto il nome trovi il codice della filiale per distinguerle, e sono due righe giuste, non un doppione. RICARICARE SOVRASCRIVE: se lo stesso documento viene caricato di nuovo per lo stesso periodo, i dati del mese vengono sostituiti e in Archivio documenti resta in elenco solo il file nuovo. Quello vecchio non viene cancellato, è marcato come sostituito e si rivede con l'interruttore \"Mostra anche le versioni sostituite\"."
       }
     ],
     "faq": [
@@ -1140,6 +1141,163 @@ export const PAGE_GUIDES: PageGuide[] = [
       {
         "q": "Dove inserisco i corrispettivi (ricavi) mese per mese nel modo più veloce?",
         "a": "Nella scheda 'Inserimento Rapido': è pensata apposta per inserire in pochi secondi preventivo e consuntivo di tutti i punti vendita, mese per mese."
+      }
+    ]
+  },
+  {
+    "path": "/chiusura-cassa",
+    "icon": "Wallet",
+    "title": "Chiusura cassa",
+    "description": "La pagina Chiusura cassa è lo specchietto incassi del negozio: ogni sera la cassiera scrive il totale battuto in cassa (con la foto dello scontrino di chiusura, l'unica obbligatoria), gli importi per ogni mezzo di pagamento (contanti, POS, pay by link, fatture, bonifico), le spese pagate con i contanti e i rimborsi a cliente, il versamento in banca e il fondo cassa contato. Ogni riga ha il suo pulsante foto per lo scontrino che la giustifica; appena una foto è caricata il gestionale la legge da solo e propone nei campi ancora vuoti i numeri letti (totale corrispettivi, contanti, totale POS, importo della spesa, importo versato), da controllare sempre. La pagina controlla in tempo reale che la giornata quadri e, alla conferma, il giorno diventa definitivo. Chi amministra (super advisor e contabile) usa la stessa pagina scegliendo il punto vendita.",
+    "sections": [
+      {
+        "heading": "Il giorno da chiudere",
+        "body": "In alto vedi il punto vendita e il giorno (di default oggi). Con le frecce passi al giorno precedente o successivo; non si può andare oltre oggi. Sotto il giorno compare lo stato: \"Bozza\" finché non confermi, \"Confermata\" dopo. In fondo alla pagina il calendario del mese mostra i giorni già confermati in verde, quelli in bozza in arancione, quelli mancanti in rosso e i giorni di negozio chiuso in grigio: tocca un giorno per aprirlo."
+      },
+      {
+        "heading": "1. Incassi del giorno, con una foto per riga",
+        "body": "Scrivi il totale corrispettivi come compare sullo scontrino di chiusura e fotografalo con il pulsante \"Foto\" sotto il campo: è l'unica foto obbligatoria, senza non si può confermare (fa eccezione il giorno di negozio chiuso). Poi un importo per ogni canale di incasso configurato per il tuo negozio (per esempio Contanti, POS MPS, POS BCC Amex, Pay by link, Fatture, Bonifico); per ogni POS puoi fotografare la chiusura del terminale con il pulsante della riga. Queste foto sono facoltative, ma senza potrà esserti chiesto un chiarimento. Dopo ogni scatto compare sotto la foto la scritta \"lettura…\" e poi \"dalla foto: importo\": se il campo era vuoto viene compilato con il numero letto (dallo scontrino di chiusura anche i contanti), se avevi già scritto un importo diverso il chip diventa arancione con il pulsante \"usa\" per copiarlo; con \"(da controllare)\" o \"?\" la lettura è incerta e va verificata sullo scontrino; \"lettura non riuscita\" ha il pulsante \"riprova\". I numeri letti sono solo una proposta: fa fede quello che scrivi tu. Puoi scrivere gli importi con la virgola (es. 1.234,50). Sotto i campi la riga \"Somma mezzi di pagamento\" ti dice se il totale quadra: verde se coincide, rossa con la differenza altrimenti. Se un canale è segnato \"fuori totale\" il suo importo non entra nel confronto.",
+        "steps": [
+          "Tocca \"Foto\" sotto il totale: si apre direttamente la fotocamera del telefono; scatta lo scontrino di chiusura",
+          "Scrivi gli importi dei canali e, per i POS, tocca \"Foto\" sulla riga per la chiusura del terminale (\"Altra foto\" per aggiungerne)",
+          "Le anteprime compaiono accanto al pulsante: toccane una per vederla a schermo intero",
+          "Finché la chiusura è in bozza puoi togliere una tua foto sfocata con la X sull'anteprima"
+        ]
+      },
+      {
+        "heading": "2. Spese cassa e rimborsi a cliente",
+        "body": "Ogni uscita pagata con i contanti del negozio è una riga a sé. \"Spesa cassa\" ha importo, descrizione e il pulsante per fotografare lo scontrino (facoltativo, ma senza foto potrà esserti chiesto un chiarimento). \"Rimborso a cliente\" ha importo e una nota di spiegazione obbligatoria, nessuna foto. Entrambe riducono il fondo cassa atteso. Il totale della sezione compare in alto a destra; una riga si toglie con il cestino.",
+        "steps": [
+          "Tocca \"Spesa cassa\" o \"Rimborso a cliente\" per aggiungere una riga",
+          "Scrivi importo e descrizione (per il rimborso il motivo è obbligatorio)",
+          "Per la spesa, fotografa lo scontrino con il pulsante della riga"
+        ]
+      },
+      {
+        "heading": "3. Versamento e fondo cassa",
+        "body": "Qui registri il versamento in banca (con la causale, es. ATM MPS, e la foto della ricevuta se ce l'hai) e il fondo cassa contato a fine giornata. La pagina calcola il fondo cassa atteso come: fondo di ieri + contanti di oggi − spese cassa − rimborsi − versamento, e lo confronta con quello contato: se non coincidono vedi eccedenza o ammanco. La prima volta, quando non esiste ancora una chiusura confermata precedente, ti viene chiesto il fondo cassa di ieri: è il contante che c'era in cassa stamattina."
+      },
+      {
+        "heading": "4. Salvare e confermare",
+        "body": "\"Salva bozza\" memorizza quello che hai scritto senza chiudere il giorno: puoi tornarci più tardi. \"Conferma chiusura\" rende il giorno definitivo: serve la foto dello scontrino di chiusura e, se il totale o il fondo cassa non quadrano, una nota che spieghi la differenza. Se mancano foto facoltative (chiusure POS, scontrini delle spese, ricevuta del versamento) compare un avviso con l'elenco: puoi tornare a fotografare o confermare comunque, sapendo che potrà esserti chiesto un chiarimento. Nel campo \"Chi ha fatto la chiusura\" scrivi il tuo nome: viene ricordato sul telefono per le volte successive. Dopo la conferma i campi diventano di sola lettura.",
+        "steps": [
+          "Controlla che le due righe di quadratura siano verdi (o scrivi una nota se non lo sono)",
+          "Tocca \"Conferma chiusura\"; se compare l'avviso delle foto mancanti scegli \"Torna a fotografare\" o \"Conferma comunque\"",
+          "Se hai sbagliato qualcosa dopo la conferma, tocca \"Chiedi riapertura\" e indica il motivo: chi amministra riceve un avviso e può riaprire la giornata"
+        ]
+      },
+      {
+        "heading": "Negozio chiuso",
+        "body": "Nei giorni di chiusura del negozio spunta \"Negozio chiuso\" e conferma: la giornata viene registrata a zero, senza foto, così il calendario del mese non ha buchi e il fondo cassa passa invariato al giorno successivo."
+      }
+    ],
+    "faq": [
+      {
+        "q": "Ho fatto la foto ma il numero proposto è sbagliato: cosa faccio?",
+        "a": "Correggi il campo a mano: la lettura automatica è solo una proposta e non sostituisce mai quello che scrivi. Il chip sotto la foto resterà arancione con il valore letto, così chi controlla vede la differenza; se la foto è sfocata o tagliata, rifalla con \"Altra foto\" e usa \"riprova\"."
+      },
+      {
+        "q": "Ho inserito una giornata sbagliata o di prova: come la cancello per rifarla?",
+        "a": "Può farlo solo il super advisor: in fondo alla pagina, accanto ai pulsanti principali, c'è \"Cancella giornata\" (icona del cestino). Chiede conferma e un motivo facoltativo, poi toglie importi, spese, rimborsi, foto e il ricavo giornaliero che quella chiusura aveva creato: la giornata torna vuota e si può reinserire da zero. L'operazione resta tracciata tra le notifiche. Chi non è super advisor può solo chiedere la riapertura."
+      },
+      {
+        "q": "Non riesco a confermare: dice che manca la foto dello scontrino di chiusura",
+        "a": "È l'unica foto obbligatoria: tocca \"Foto\" sotto il campo del totale corrispettivi, scatta lo scontrino di chiusura del registratore e riprova. Solo il giorno di negozio chiuso non la richiede. Le altre foto (chiusure POS, scontrini delle spese, ricevuta del versamento) sono facoltative, ma senza potrà esserti chiesto un chiarimento."
+      },
+      {
+        "q": "Il totale non quadra con i mezzi di pagamento, cosa faccio?",
+        "a": "Ricontrolla gli importi dei singoli canali rispetto agli scontrini di chiusura dei POS e al contante contato. Se la differenza è reale, scrivi nelle Note cosa è successo: la conferma è permessa con una nota, così chi amministra sa come leggerla."
+      },
+      {
+        "q": "Mi chiede il \"fondo cassa di ieri\": cosa devo scrivere?",
+        "a": "È il contante che c'era in cassa all'apertura di oggi. Lo chiede solo la prima volta, quando non esiste ancora una chiusura confermata precedente per il negozio; dai giorni successivi lo prende da solo dall'ultima chiusura confermata."
+      },
+      {
+        "q": "Ho confermato per sbagliato: posso correggere?",
+        "a": "Dopo la conferma il giorno è in sola lettura. Tocca \"Chiedi riapertura\", spiega il motivo e chi amministra (super advisor o contabile) riceverà un avviso per riaprire la giornata; a quel punto potrai correggerla e confermarla di nuovo."
+      },
+      {
+        "q": "Non vedo nessun canale di incasso (contanti, POS…)",
+        "a": "I canali vengono configurati da chi amministra nella pagina Incassi giornalieri, scheda \"Canali di incasso\". Finché non ci sono, la chiusura del tuo negozio non si può compilare: segnalalo a chi amministra."
+      },
+      {
+        "q": "Dove finiscono i numeri che inserisco?",
+        "a": "Alla conferma il giorno viene scritto nei ricavi giornalieri del punto vendita, che alimentano la scheda Corrispettivi dell'outlet, la dashboard e il cashflow. Chi amministra li vede riepilogati per mese nella pagina Incassi giornalieri, con le tue foto accanto ai numeri."
+      }
+    ]
+  },
+  {
+    "path": "/incassi-giornalieri",
+    "icon": "Receipt",
+    "title": "Incassi giornalieri",
+    "description": "La pagina Incassi giornalieri è la vista amministrativa dello specchietto incassi: mostra mese per mese le chiusure di cassa dei punti vendita (totali, mezzi di pagamento, spese, versamenti, fondo cassa, differenze, foto degli scontrini), evidenzia i giorni mancanti e permette di riaprire una chiusura confermata. Nella scheda \"Banca\" (super advisor e contabile) si vede il riscontro automatico con i movimenti bancari: accrediti POS e Amex per terminale, versamenti trovati, chiusure verificate. Nella scheda \"Canali di incasso\" si configurano le colonne che ogni cassiera compila e i codici terminale che rendono possibile il riscontro. Compaiono solo i punti vendita che vendono: una sede o un magazzino (tipo \"Sede / magazzino\" nella scheda outlet) resta fuori da questa pagina e da Chiusura cassa.",
+    "sections": [
+      {
+        "heading": "Riepilogo del mese",
+        "body": "Con le frecce scegli il mese. Con \"Tutti i punti vendita\" vedi una tabella giorni × outlet: in ogni cella il totale corrispettivi del giorno, colorato in verde se la chiusura è confermata, arancione se è ancora in bozza, rosso se manca (giorno passato senza chiusura), grigio se il negozio era chiuso; l'ultima riga e l'ultima colonna riportano i totali del mese. Scegliendo un solo punto vendita la tabella prende la forma del foglio Excel: una riga al giorno con totale, una colonna per ogni canale di incasso, spese cassa, rimborsi a cliente, versamenti, fondo cassa contato, differenza di cassa, numero di foto (con il segno ≠ se una foto letta automaticamente non coincide con il totale o il versamento scritti) e stato, con i totali di colonna in fondo. Accanto agli importi dei canali POS e Amex e al versamento compare l'esito del riscontro con la banca: ✓ accreditato, ≠ accreditato con differenza, ✗ accredito non trovato, ? canale senza codice terminale; passando il mouse si legge l'importo arrivato in banca. Lo stato \"Verificata con la banca\" indica che tutti i POS del giorno sono stati accreditati e il versamento è stato trovato.",
+        "steps": [
+          "Clicca su una cella (o su una riga) per aprire il dettaglio della giornata",
+          "Nel dettaglio vedi tutti gli importi, ogni spesa e rimborso con la sua descrizione, le note, chi ha chiuso e quando, e le foto degli scontrini con l'indicazione di cosa giustificano (scontrino di chiusura, chiusura POS di un canale, spesa, versamento): clicca una foto per aprirla a schermo intero. Sotto ogni foto c'è l'esito della lettura automatica: \"dalla foto\" con l'importo letto (verde se coincide con quanto scritto, arancione con la differenza se non coincide o se la lettura è incerta), più i dati secondari letti dallo scontrino (contanti ed elettronico, numero documenti, gran totale, numero azzeramenti, esito trasmissione, terminale POS, data e ora); \"Rileggi\" ripete la lettura. Se manca la foto dello scontrino di chiusura viene segnalato in rosso",
+          "Se la giornata è in bozza, \"Apri per modificare\" porta alla pagina Chiusura cassa di quel giorno e punto vendita",
+          "Il super advisor ha anche \"Cancella giornata\": dopo una conferma esplicita cancella importi, spese, rimborsi, foto e il ricavo giornaliero proiettato, così la giornata torna vuota e può essere reinserita da zero; resta una notifica di traccia con chi, quando e il motivo",
+          "Se la giornata manca, \"Compila la chiusura\" apre la stessa pagina per inserirla"
+        ]
+      },
+      {
+        "heading": "Riaprire una chiusura confermata",
+        "body": "Solo super advisor e contabile possono riaprire una chiusura confermata: nel dettaglio della giornata scrivi il motivo e clicca \"Riapri\". La giornata torna in bozza, il motivo resta registrato e il negozio può correggerla e confermarla di nuovo. Quando una cassiera chiede la riapertura dalla sua pagina, arriva un avviso nella campanella con il collegamento diretto alla giornata."
+      },
+      {
+        "heading": "Canali di incasso",
+        "body": "I canali sono le colonne che la cassiera compila ogni sera: per ogni punto vendita puoi definire nome (es. \"POS MPS\"), tipo (contanti, POS, POS American Express, pay by link, fatture, bonifico, altro), conto bancario su cui accredita, codice terminale, ID terminale POS stampato sulla chiusura del terminale, se l'importo concorre al totale corrispettivi e se il canale è attivo. Un canale non più usato si disattiva, non si cancella. Il codice terminale è la chiave del riscontro con la banca: per i canali POS e Amex sono le ultime 5 cifre del codice che compare negli accrediti (es. 00002); per il canale Contanti è invece la parola che compare nella causale del versamento del negozio (es. PALMANOVA, FOIANO o il numero dello sportello ATM; più parole separate da |). In cima alla scheda c'è la tabella \"Codici terminale visti in banca\": elenca i codici trovati negli accrediti degli ultimi 90 giorni con numero, totale, ultima data e causale, e dice se ogni codice è già mappato su un canale. Il campo del codice propone gli stessi codici mentre scrivi.",
+        "steps": [
+          "Apri la scheda \"Canali di incasso\"",
+          "Per un punto vendita senza canali clicca \"Crea canali standard\" (Contanti, POS, Pay by link, Fatture, Bonifico) e poi rinominali e completali",
+          "\"Aggiungi canale\" crea una riga vuota: compila almeno il nome e il tipo",
+          "Nel canale POS di ogni negozio scrivi il codice terminale preso dalla tabella dei codici visti in banca (POS carte nel canale POS, American Express nel canale Amex); nel canale Contanti scrivi la parola chiave del versamento",
+          "Modifica i campi direttamente nella tabella e clicca \"Salva\" sulla riga"
+        ]
+      },
+      {
+        "heading": "Obiettivo del mese",
+        "body": "Sopra la tabella del riepilogo, il riquadro \"Obiettivo del mese\" confronta gli incassi con il budget ricavi dell'Inserimento rapido (Budget → Inserimento Rapido). Per ogni punto vendita: budget del mese, obiettivo del giorno, obiettivo a oggi (obiettivo del giorno × giorni trascorsi), incassato a oggi (chiusure non in bozza), scostamento +/- in verde o rosso, percentuale raggiunta e proiezione a fine mese (media dei giorni trascorsi × giorni del mese); in fondo il totale dell'azienda. Il budget dell'Inserimento rapido è netto IVA, le chiusure sono corrispettivi lordi: il riquadro aggiunge l'IVA impostata in Impostazioni → Report incassi serale (22 % di default) e divide per i giorni del mese. Per un mese passato l'obiettivo a oggi è tutto il budget; per un mese futuro è zero. Se un punto vendita non ha budget per il mese, non compare nel riquadro ed è indicato nella nota sotto. Il riquadro si può nascondere con \"nascondi\". Gli stessi numeri arrivano ogni sera nel report incassi via mail.",
+        "steps": [
+          "Scegli il mese con le frecce: il riquadro segue il mese selezionato",
+          "Con il filtro su un solo punto vendita vedi la riga di quel negozio",
+          "Clicca \"Inserimento rapido\" nella nota per modificare il budget"
+        ]
+      },
+      {
+        "heading": "Banca: riscontro con i movimenti bancari",
+        "body": "Solo super advisor e contabile. Ogni mattina alle 8 (ora italiana) il gestionale confronta le chiusure confermate degli ultimi 60 giorni con i movimenti bancari: per ogni accredito POS legge dalla causale il codice terminale e il giorno di vendita, somma gli accrediti di quel giorno e li confronta con l'importo scritto dalla cassiera sul canale con quel codice; per il versamento cerca in banca un versamento di contante dello stesso importo entro 6 giorni, con la parola chiave del negozio. Quando tutti i POS del giorno sono accreditati e il versamento è stato trovato, la chiusura passa a \"Verificata con la banca\". La scheda mostra il mese scelto: la tabella dei canali POS (giorni, dichiarato, accreditato, differenza e quante giornate sono ✓ accreditate, ≠ con differenza, ✗ senza accredito, in attesa), la tabella dei contanti per punto vendita (incassati, spese e rimborsi, versamenti dichiarati e trovati in banca, fondo cassa a inizio e fine mese, versamenti non trovati), gli accrediti di terminali non ancora mappati e gli accrediti che non hanno una chiusura confermata per quel giorno. Il pulsante \"Verifica con la banca ora\" lancia subito il riscontro senza aspettare la mattina.",
+        "steps": [
+          "Apri la scheda \"Banca\" e scegli il mese con le frecce",
+          "Se compaiono terminali non mappati, vai in \"Canali di incasso\" e scrivi il codice nel canale giusto, poi torna qui e premi \"Verifica con la banca ora\"",
+          "Una differenza in rosso su un canale indica giornate in cui l'accreditato non coincide con il dichiarato: apri il dettaglio del giorno dal Riepilogo per vedere i movimenti bancari abbinati",
+          "Un versamento \"non trovato\" dopo 7 giorni va controllato con il negozio: importo diverso, versato su un altro conto o non ancora fatto"
+        ]
+      }
+    ],
+    "faq": [
+      {
+        "q": "Perché una cella è rossa?",
+        "a": "È un giorno già passato per cui il punto vendita non ha registrato nessuna chiusura, nemmeno in bozza. Apri la cella e usa \"Compila la chiusura\" oppure chiedi al negozio di farla."
+      },
+      {
+        "q": "La cassiera dice che non vede i campi da compilare",
+        "a": "Quasi sempre mancano i canali di incasso per quel punto vendita: vai nella scheda \"Canali di incasso\" e creali (anche con \"Crea canali standard\"). Se invece l'account non vede nessun punto vendita, controlla in Impostazioni → Utenti che all'operatore cassa sia assegnato l'outlet giusto."
+      },
+      {
+        "q": "Chi può riaprire una chiusura confermata?",
+        "a": "Solo super advisor e contabile, dal dettaglio della giornata. La cassiera può soltanto chiederlo dalla sua pagina; la richiesta arriva come avviso nella campanella."
+      },
+      {
+        "q": "Cosa significa la chiusura \"Verificata con la banca\"?",
+        "a": "Che il riscontro automatico ha trovato in banca tutti gli accrediti POS e Amex di quel giorno per gli importi scritti dalla cassiera, e il versamento dichiarato. Non richiede nessuna azione: è la conferma definitiva della giornata. Se una giornata resta \"Confermata\" a lungo, guarda nella scheda Banca quale riga è ≠ o ✗."
+      },
+      {
+        "q": "I totali mensili finiscono nel consuntivo del budget?",
+        "a": "Non ancora in automatico. Alla conferma ogni giornata viene scritta nei ricavi giornalieri del punto vendita (scheda Corrispettivi dell'outlet, dashboard, cashflow); la proposta del consuntivo mensile in Budget e Controllo è prevista in una fase successiva."
       }
     ]
   },
@@ -1597,7 +1755,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "La scheda Panoramica e la scheda Cronologia",
-        "body": "La scheda \"Panoramica\" mostra alcuni numeri di sintesi (percentuale di record validi, duplicati trovati, errori di mapping da risolvere, quante fonti sono attive) e due grafici: i record importati mese per mese e la distribuzione degli import per tipo di fonte. La scheda \"Cronologia\" elenca invece, in un'unica tabella, tutti i file caricati da qualunque fonte, con data, nome file, tipo di fonte, dimensione e stato: utile per ritrovare rapidamente un caricamento fatto in passato."
+        "body": "La scheda \"Panoramica\" mostra alcuni numeri di sintesi (percentuale di record validi, duplicati trovati, errori di mapping da risolvere, quante fonti sono attive) e due grafici: i record importati mese per mese e la distribuzione degli import per tipo di fonte. La scheda \"Cronologia\" elenca invece, in un'unica tabella, tutti i file caricati da qualunque fonte, con data, nome file, tipo di fonte, dimensione e stato: utile per ritrovare rapidamente un caricamento fatto in passato. Ricaricando lo stesso documento per lo stesso periodo, il file nuovo sostituisce il precedente: in Cronologia resta in elenco la versione che vale, non due file uguali fra cui indovinare. Il file sostituito non viene cancellato, porta l'etichetta \"sostituito\" e ricompare spuntando \"Mostra anche le versioni sostituite\"."
       }
     ],
     "faq": [
@@ -1852,7 +2010,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "L'avviso rosso \"anomalie sui fornitori da sistemare\"",
-        "body": "Sotto ai riquadri riepilogativi può comparire un riquadro rosso con l'elenco dei fornitori da sistemare; lo stesso numero appare come pallino rosso sulla voce Fatturazione nel menu di sinistra. Le segnalazioni riguardano solo le fatture dal 31/07/2026 in poi e sono di due famiglie. \"Fornitore non riconosciuto\" significa che il fornitore è stato creato in automatico quando è arrivata la sua prima fattura da SDI: ha il metodo di pagamento standard (bonifico) ma nessun piano rate deciso da te, quindi va aperto in Fornitori, controllato e completato. Compare una volta sola per fornitore e sparisce da sé appena imposti il piano di pagamento. \"Importo non quadra\" significa che, per almeno una fattura di quel fornitore, la somma delle rate in Scadenzario non corrisponde al totale della fattura: vanno controllate e corrette le scadenze a mano. Le note di credito non fanno più scattare questa segnalazione: il loro importo in Scadenzario è negativo per costruzione (riducono il debito) e il controllo ora ne tiene conto. Il pulsante \"Risolto\" chiude la segnalazione per tutte le operatrici, non solo per te.",
+        "body": "Sotto ai riquadri riepilogativi può comparire un riquadro rosso con l'elenco dei fornitori da sistemare; lo stesso numero appare come pallino rosso sulla voce Fatturazione nel menu di sinistra. Le segnalazioni riguardano solo le fatture dal 31/07/2026 in poi e sono di due famiglie. \"Fornitore non riconosciuto\" significa che il fornitore è stato creato in automatico quando è arrivata la sua prima fattura da SDI: ha il metodo di pagamento standard (bonifico) ma nessun piano rate deciso da te, quindi va aperto in Fornitori, controllato e completato. Compare una volta sola per fornitore e sparisce da sé appena imposti il piano di pagamento. \"Importo non quadra\" significa che, per almeno una fattura di quel fornitore, la somma delle rate in Scadenzario non corrisponde al totale della fattura: vanno controllate e corrette le scadenze a mano. Le note di credito non fanno più scattare questa segnalazione: il loro importo in Scadenzario è negativo per costruzione (riducono il debito) e il controllo ora ne tiene conto. Lo stesso vale per le parcelle con ritenuta d'acconto: le rate sommano all'importo da bonificare, non al totale del documento, e il controllo confronta proprio quello. Il pulsante \"Risolto\" chiude la segnalazione per tutte le operatrici, non solo per te.",
         "steps": [
           "Leggi il tipo di segnalazione nell'etichetta rossa a sinistra del nome fornitore",
           "Clicca \"Vai al fornitore\" per aprire la scheda e sistemare metodo, banca o piano rate",
@@ -1919,7 +2077,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "q": "Perché mi segnala \"importo non quadra\" su un fornitore che sembra a posto?",
-        "a": "Vuol dire che per almeno una sua fattura emessa dal 31/07/2026 la somma delle rate presenti in Scadenzario non corrisponde al totale della fattura: di solito perché le scadenze sono state modificate a mano o la fattura non porta un piano rate leggibile. Apri il fornitore, controlla le rate in Scadenzario e correggile; la segnalazione si chiude da sola quando gli importi tornano a quadrare. Le note di credito, che in Scadenzario hanno importo negativo, non generano più questa segnalazione."
+        "a": "Vuol dire che per almeno una sua fattura emessa dal 31/07/2026 la somma delle rate presenti in Scadenzario non corrisponde al totale della fattura: di solito perché le scadenze sono state modificate a mano o la fattura non porta un piano rate leggibile. Apri il fornitore, controlla le rate in Scadenzario e correggile; la segnalazione si chiude da sola quando gli importi tornano a quadrare. Le note di credito, che in Scadenzario hanno importo negativo, non generano più questa segnalazione, e nemmeno le parcelle con ritenuta d'acconto, le cui rate sommano all'importo da bonificare invece che al totale della fattura."
       },
       {
         "q": "Ho inserito a mano la notula del commercialista: quando arriva la fattura vera avrò un doppione?",
@@ -2275,11 +2433,11 @@ export const PAGE_GUIDES: PageGuide[] = [
     "path": "/impostazioni",
     "icon": "Settings",
     "title": "Impostazioni",
-    "description": "La pagina Impostazioni raccoglie i dati dell'azienda, la gestione degli utenti, il catalogo delle voci di costo, i centri di costo (punti vendita) e la configurazione della fatturazione elettronica SDI. Le sezioni visibili dipendono dal tuo ruolo utente.",
+    "description": "La pagina Impostazioni raccoglie i dati dell'azienda, la gestione degli utenti, il catalogo delle voci di costo, i centri di costo (punti vendita), la configurazione della fatturazione elettronica SDI e il report incassi serale (la mail automatica con le chiusure di cassa). Le sezioni visibili dipendono dal tuo ruolo utente.",
     "sections": [
       {
         "heading": "Come è organizzata la pagina",
-        "body": "Le informazioni sono divise in blocchi a fisarmonica (uno sotto l'altro): Dati azienda, Utenti, Voci di costo, Centri di costo e Fatturazione SDI. Clicca sul titolo di un blocco per aprirlo o chiuderlo. Se un blocco appare più chiaro con un lucchetto, significa che il tuo ruolo non ha i permessi per accedervi: in quel caso contatta un amministratore."
+        "body": "Le informazioni sono divise in blocchi a fisarmonica (uno sotto l'altro): Dati azienda, Utenti, Voci di costo, Centri di costo, Fatturazione SDI e Report incassi serale. Clicca sul titolo di un blocco per aprirlo o chiuderlo. Se un blocco appare più chiaro con un lucchetto, significa che il tuo ruolo non ha i permessi per accedervi: in quel caso contatta un amministratore."
       },
       {
         "heading": "Dati azienda",
@@ -2293,13 +2451,13 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "Utenti",
-        "body": "In questa sezione gestisci le persone che hanno accesso al gestionale: nome, cognome, email, ruolo e a quali punti vendita possono accedere. Ogni utente ha un'etichetta colorata con il proprio ruolo (es. CEO, CFO, Contabile, Store Manager, Operatrice).",
+        "body": "In questa sezione gestisci gli accessi reali al gestionale: \"Invita utente\" crea il login e invia un'email per impostare la password; \"Blocca\" impedisce l'accesso senza cancellare nulla; \"Elimina\" revoca il login. Ogni utente ha un'etichetta colorata con il ruolo (Super Advisor, CEO, CFO, COO, Contabile, Operatore cassa, Sola lettura). Il ruolo \"Operatore cassa (negozio)\" è l'account di un punto vendita, condiviso dal personale: entra e vede solo la pagina Chiusura cassa del proprio negozio, nessun altro dato aziendale.",
         "steps": [
-          "Clicca \"Nuovo utente\" per aprire il modulo di creazione",
-          "Inserisci nome, cognome ed email (obbligatori) e scegli il ruolo",
-          "Scegli a quali punti vendita l'utente può accedere, oppure lascia \"Tutti gli outlet\"",
-          "Clicca \"Aggiungi\" per salvare, oppure \"Modifica\" (icona matita) su un utente esistente per aggiornarlo",
-          "Per eliminare un utente clicca l'icona del cestino e conferma con il segno di spunta"
+          "Clicca \"Invita utente\" per aprire il modulo",
+          "Inserisci nome, cognome ed email (obbligatoria) e scegli il ruolo",
+          "Se il ruolo è \"Operatore cassa (negozio)\", scegli il punto vendita dell'account: è obbligatorio e determina quale chiusura di cassa può compilare",
+          "Clicca \"Invia invito\": all'utente arriva l'email per impostare la password",
+          "Con la matita su un utente esistente cambi ruolo (e punto vendita, per l'operatore cassa); il cestino elimina l'accesso dopo conferma"
         ]
       },
       {
@@ -2333,12 +2491,29 @@ export const PAGE_GUIDES: PageGuide[] = [
           "L'interruttore \"Ambiente\" permette di passare tra Test e Produzione: in Test le fatture vengono validate ma non inviate davvero, in Produzione vengono trasmesse realmente",
           "I certificati di sicurezza sono gestiti in modo protetto e non sono mai visibili per esteso in pagina"
         ]
+      },
+      {
+        "heading": "Report incassi serale",
+        "body": "Sezione per super advisor e contabile. Attiva una mail automatica che ogni sera, all'ora scelta (ora italiana, valida anche con l'ora legale), riepiloga le chiusure di cassa del giorno di tutti i punti vendita: una riga per negozio con totale, contanti, POS, altri canali, spese e rimborsi, versamento, fondo cassa e differenza; i negozi che non hanno ancora chiuso in rosso; l'elenco delle cose da controllare (giornate che non quadrano, chiusure ancora in bozza, foto dello scontrino mancante, importi letti dalla foto diversi da quelli scritti, note della cassiera); il totale dell'azienda e il progressivo del mese; il confronto con l'obiettivo del budget: per ogni negozio l'obiettivo del giorno e lo scostamento +/-, più una tabella \"Mese vs obiettivo\" con budget del mese, obiettivo a oggi, incassato a oggi, +/-, percentuale raggiunta e proiezione a fine mese; il link a Incassi giornalieri. L'obiettivo viene dal budget ricavi mensile dell'Inserimento rapido (Budget → Inserimento Rapido), che è netto IVA: viene portato al lordo con l'aliquota impostata qui e diviso per i giorni del mese.",
+        "steps": [
+          "Spunta \"Invia il report ogni sera\" e scegli l'ora di invio",
+          "Controlla l'aliquota IVA per il confronto con il budget (22 % di default): serve a rendere confrontabili il budget netto e i corrispettivi lordi delle chiusure",
+          "Scrivi i destinatari, uno per riga o separati da virgola: sotto il campo vedi quanti indirizzi sono validi",
+          "Se vuoi, attiva il sollecito: a quell'ora gli operatori cassa dei negozi che non hanno ancora confermato ricevono un avviso in-app con il link alla loro chiusura",
+          "Decidi se la mail deve partire anche nei giorni senza nessuna chiusura registrata",
+          "Salva, poi usa \"Invia una prova a me\": la mail di oggi arriva solo al tuo indirizzo, con [PROVA] nell'oggetto",
+          "La tabella \"Ultimi invii\" mostra giorno, tipo (report, sollecito, prova), esito e destinatari; se un invio non è riuscito vedi il motivo"
+        ]
       }
     ],
     "faq": [
       {
         "q": "Perché non vedo tutte le sezioni?",
         "a": "L'accesso alle sezioni di Impostazioni dipende dal ruolo assegnato al tuo utente. Se una sezione ha il lucchetto e appare più chiara, il tuo ruolo non è abilitato a vederla o modificarla: contatta un amministratore."
+      },
+      {
+        "q": "Da dove viene l'obiettivo del giorno nel report incassi?",
+        "a": "Dal budget ricavi del mese di ogni negozio inserito in Budget → Inserimento Rapido. Quel budget è netto IVA, mentre le chiusure di cassa sono corrispettivi lordi: il report aggiunge l'IVA impostata nella sezione Report incassi serale e divide per i giorni del mese. Se un negozio non ha budget per il mese, nella mail compare un trattino e il nome del negozio nella nota sotto la tabella."
       },
       {
         "q": "Cosa succede se passo l'ambiente SDI da Test a Produzione?",

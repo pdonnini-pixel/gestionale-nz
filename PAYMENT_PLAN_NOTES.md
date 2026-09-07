@@ -1,5 +1,190 @@
 # Piano di pagamento fornitore + segnalazioni anomalie — Note di implementazione
 
+> ## ✎ IL FLAG «CHIUSA A MANO» NON PUO' SOPRAVVIVERE A UNA RIAPERTURA (2026-09-04) — FATTO
+>
+> **Segnalazione di Patrizio** dallo Scadenzario: «cosa ci fa Spm tra le aperte se
+> la dai per chiusa?». La riga Spm Investigazioni 31 del 26/02/2026 (110,00)
+> mostrava insieme lo stato **Scaduto** e il badge **Chiusa a mano**, con la
+> colonna Conto «A mano · Lilian Mammoliti · 06/08».
+>
+> **Due fonti per la stessa domanda.** Lo stato lo ricalcola
+> `update_payable_status` dall'importo pagato, che era 0. Il badge e la colonna
+> Conto leggono invece `closed_manually`, rimasto acceso da una chiusura vecchia.
+> Nel partitario ci sono due sole azioni: pagamento go-live (17/06) e chiusura a
+> mano di Lilian (06/08). Poi il 04/09 alle 09:07 UTC un UPDATE diretto ha
+> azzerato `amount_paid` senza spegnere il flag e senza registrare l'azione
+> «riapertura»: non e' passato da `reopen_payable`, che fa entrambe le cose.
+> Nello stesso secondo sono state toccate altre due righe della distinta Intesa
+> del 03/09. **La strada buona non e' il problema: lo sono gli UPDATE diretti**
+> (rimozione da distinta, allineamenti massivi, correzioni a mano).
+>
+> **Il dato.** Patrizio conferma che la fattura e' stata pagata, data e mezzo non
+> ancora noti. In banca non c'e' riscontro: i tre bonifici Spm da 110,00 del 2026
+> hanno causali esplicite e sono gia' assegnati (04/02 fattura 13, 04/06 da
+> 220,00 per le 45 e 63, 14/07 fattura 81, 07/08 fattura 103). Chiusa a mano con
+> `NZ_ONLY_20260904_182` usando come data quella della chiusura di Lilian
+> (06/08/2026), con il motivo che dice esplicitamente che data e mezzo restano da
+> confermare. Backup in `_bkp_spm31_20260904`.
+>
+> **Il fix strutturale (`20260904_182`, NZ+Made+Zago, md5 identico sui 3)**:
+> - `fn_payable_clear_stale_manual_close` + trigger
+>   `trg_payable_zz_clear_stale_manual_close` (BEFORE INSERT OR UPDATE): se una
+>   riga resta senza pagato, senza movimento bancario e senza pagato provvisorio,
+>   e il suo stato non e' pagato/parziale/nota di credito/annullato, il flag si
+>   spegne da solo insieme a `manual_close_reason`. Il prefisso `zz` nel nome e'
+>   voluto: i trigger BEFORE scattano in ordine alfabetico e questo deve vedere lo
+>   stato gia' ricalcolato da `trg_payable_status`. Le note di credito sono
+>   escluse, perche' per loro `close_payable_manually` accende il flag senza
+>   toccare `amount_paid` ed e' corretto cosi'.
+> - `v_payables_operative`: `payment_source` vale `'manuale'` solo se la riga e'
+>   davvero chiusa (stato pagato/parziale/nota di credito, oppure pagato diverso
+>   da zero). `security_invoker = on` mantenuto.
+> - `ScadenzarioSmart.tsx`: il badge viola compare solo su una riga davvero
+>   chiusa, non piu' al solo accendersi del flag.
+>
+> **Coda**: la verifica tornava 1 invece di 0 per MILANI 26/A del 12/05/2026,
+> autofattura reverse charge gia' nascosta, con lo stesso flag residuo. Spento
+> con `NZ_ONLY_20260904_183` (solo il flag, backup in `_bkp_milani26a_20260904`).
+>
+> **Test a secco su NZ** (DO block con rollback forzato): un UPDATE diretto che
+> azzera `amount_paid` su una riga chiusa a mano ora lascia
+> `closed_manually = false`, motivo vuoto e `payment_source` nullo nella vista,
+> quindi niente badge. **Verifica finale sui 3 tenant**: zero righe aperte col
+> flag acceso, trigger presente, vista con `security_invoker = on`, md5 di vista
+> e funzione identici.
+
+> ## 🔍 CONTROLLO ESTESO SUI DOPPIONI (2026-09-04) — FATTO
+>
+> **Domanda di Patrizio** dopo il caso SIGNORINI: «controlla se ci sono altri
+> fornitori con lo stesso problema».
+>
+> **Sulla ritenuta d'acconto, no.** Le 9 fatture NZ con ritenuta (RUBINI, Impresa
+> Valdarno, Marchetti, SIGNORINI 191 e 563, BOSCHETTI, VALIA, ROCCIOLA, Studio
+> Scandella) tornano tutte: somma delle rate = totale meno ritenuta. Made ha 4
+> fatture elettroniche e nessuna con ritenuta, Zago zero.
+>
+> **Allargando il controllo** (righe aperte che duplicano righe gia' pagate dello
+> stesso fornitore; fatture le cui rate non sommano al totale, escluse le righe
+> gia' nascoste) sono usciti sette casi, tutti anteriori al 31/07/2026 e quindi
+> invisibili al pannello anomalie, che parte da quella data. Due filoni distinti.
+>
+> **Filone 1 — lotto del 10/07/2026 alle 06:48/06:49.** Ha inserito righe con
+> `installment_total` NULL sopra rate gia' esistenti. La dedup lavora sulla chiave
+> `(electronic_invoice_id, coalesce(installment_number,1))`: con
+> `installment_number` 2 o 3 le righe sono passate. MINGARDO era gia' annullata,
+> TANESINI gia' nascosta. Restavano:
+>
+> | Fornitore | Fattura | Totale | Nel gestionale | Effetto |
+> |---|---|---|---|---|
+> | faliero grafica snc | 149/2026 | 447,01 | 894,02 su 3 righe | 447,01 aperti su fattura chiusa |
+> | GLS ENTERPRISE | 959581 | 157,53 | 315,06 su 2 righe | pagato doppio |
+> | MCA SRL | 00494/2026/FPR | 76,50 | 153,00 su 3 righe | pagato doppio |
+>
+> **Filone 2 — ripulitura doppioni del 06/08/2026 troppo aggressiva su MIAN.**
+> Le fatture 379, 394, 397 e 400 hanno un piano che divide l'importo in tre rate
+> **identiche per costruzione**. Il controllo «doppione identico» le ha scambiate
+> per copie e ne ha nascosta una a testa (`is_placeholder = true`, che la vista
+> `v_payables_operative` esclude). Prova che erano rate vere: le tre sommano al
+> centesimo al totale, con due sole manca un terzo. Gia' pagate, quindi nessun
+> debito aperto, ma il pagato verso MIAN risultava piu' basso di **5.392,40**.
+>
+> **Fix (migration `NZ_ONLY_20260904_179`, solo UPDATE, backup in
+> `_bkp_doppioni_20260904` con RLS attiva)**: le tre righe del filone 1 annullate,
+> con `amount_paid` e `payment_date` azzerati sulle due gia' chiuse; le quattro
+> rate MIAN rimesse visibili. 7 UPDATE, 7 righe di audit in `payable_actions`.
+>
+> **Verifica**: la query di controllo su TUTTE le fatture NZ (somma rate visibili
+> contro totale al netto della ritenuta, note di credito col segno) ora torna
+> **zero righe**. MIAN 379+394+397+400 = 16.177,20 pagati, GLS 157,53, MCA 76,50,
+> faliero aperto solo la 208/2026 in due rate.
+>
+> **Non toccate**: le 54 righe nascoste che sono documenti reverse charge
+> (TD16/TD17/TD18), nascoste apposta perche' non sono debiti, e le due TANESINI
+> 8/1789 e 8/1791, dove la riga nascosta era davvero di troppo (fattura da 2 rate
+> con 3 righe).
+
+> ## 💸 RITENUTA D'ACCONTO: SCADENZE GONFIATE E DOPPIONI (2026-09-04) — FATTO
+>
+> **Segnalazione di Patrizio**: SIGNORINI ASSOCIATI, fattura 563 del 14/07/2026 da
+> 4.648,88, «scaduta» nello scadenzario. L'estratto conto del fornitore al 03/09/2026
+> la dava chiusa: aperte solo le notule 517 del 23/05 (5.475,46) e 765 del 04/08
+> (4.832,04), totale 10.307,50.
+>
+> **I numeri della parcella** (TD06 con cassa e ritenuta): imponibile 3.664,00 +
+> cassa TC08 4% 146,56 = 3.810,56; IVA 22% 838,32; totale documento 4.648,88;
+> ritenuta RT02 20% **732,80**; `DatiPagamento/ImportoPagamento` **3.916,08** al 14/07,
+> MP05. Il bonifico CBI del 13/07/2026 (movimento `b7b9040b…`, -3.917,83 = 3.916,08 +
+> 1,75 di commissioni) e' esattamente quello, ed era gia' agganciato alla riga
+> `SPN_32`: la notula di quella parcella, pagata il giorno prima dell'emissione.
+> Il flusso CBI non riporta il beneficiario, l'aggancio regge su importo, data ed
+> estratto conto.
+>
+> **Difetto 1 — il bridge ignorava la ritenuta.** La deduzione viveva solo in
+> `fn_invoice_to_payable`, che pero' esce subito con
+> `if NEW.acube_uuid is not null then return NEW`. Da quando c'e' quella guardia,
+> ogni fattura passiva A-Cube con ritenuta generava la scadenza sul **totale
+> documento** invece che sull'importo da pagare.
+> `sync_acube_sdi_passive_to_payable` non nominava la ritenuta in nessun ramo.
+>
+> **Difetto 2 — l'aggancio notula/fattura della 098 non vedeva la coppia.** Il ramo
+> (b) cerca la notula per lordo uguale a +/- 0,01: 3.916,08 contro 4.648,88 non
+> combacia, differenza esattamente la ritenuta. Il merge si e' quindi attaccato a
+> una terza riga manuale da 4.648,88 inserita il 16/07, quella rimasta scaduta.
+>
+> **Fix codice (migration `20260904_176`, NZ+Made+Zago, funzioni identiche sui 3,
+> md5 verificato)**: `sync_acube_sdi_passive_to_payable` calcola la ritenuta con
+> `fn_invoice_withholding(xml, payload)` e genera le scadenze su
+> `v_net_due = totale - ritenuta`, valorizzando `payables.withholding_amount`.
+> Il ramo N rate accetta rate che sommano al netto (caso normale con ritenuta)
+> oltre che al lordo, e in quel secondo caso le riproporziona come gia' fa
+> `fn_invoice_to_payable`; la ritenuta e' ripartita fra le rate col residuo
+> sull'ultima. Piano fornitore e fallback: stessa logica sul netto.
+> Le note di credito (TD04/TD08) restano di proposito sul totale documento.
+> `fn_prevent_duplicate_payable` ramo (b): la notula candidata puo' combaciare col
+> lordo della riga in arrivo **oppure** con quel lordo piu' la ritenuta; resta la
+> regola che si fonde solo se la candidata e' UNA sola.
+>
+> **Con ritenuta = 0 il comportamento e' identico a prima.** Verificato a secco su
+> NZ (DO block con rollback forzato) su tre forme reali: rata unica dai termini in
+> fattura (SAN MAURO 26-0799), 2 rate da piano fornitore (S.B.A. 872FV2026), 2 rate
+> dalla fattura (Beyond FPR 49/26). Importi e date identici riga per riga.
+> Replay della 563 col nuovo codice: scadenza 3.916,08 con ritenuta 732,80, e il
+> match notula la aggancia da solo a `SPN_32`.
+>
+> **Dati (migration `NZ_ONLY_20260904_176`, solo UPDATE, backup in
+> `_bkp_signorini_563_20260904` e `_bkp_signorini_563_ei_20260904`, RLS attiva)**:
+> la fattura elettronica registra la ritenuta 732,80; la riga doppione da 4.648,88
+> e' annullata e sganciata (rinominata `563-DOPPIONE-ANNULLATO` perche' l'indice
+> unico `payables_company_supplier_invoice_installment_key` non esclude gli
+> annullati); `SPN_32` assorbe la fattura come previsto dalla 098, diventa la 563
+> del 14/07/2026 da 3.916,08 con ritenuta 732,80, imponibile 3.810,56 + IVA 838,32,
+> pagata, movimento e riconciliazione invariati, `payment_date` portata al 13/07
+> (data vera del bonifico). Scadenza lasciata al 30/06/2026 dove l'aveva messa
+> Sabrina. **Esito**: aperto verso SIGNORINI = 5.475,46 + 4.832,04 = **10.307,50**,
+> identico all'estratto conto.
+>
+> **Perimetro**: caso unico. Le altre 8 parcelle con ritenuta su NZ (RUBINI, VALIA,
+> SCANDELLA, BOSCHETTI, ROCCIOLA, MARCHETTI, Impresa Valdarno, e la 191 dello stesso
+> SIGNORINI) hanno gia' `withholding_amount` corretto e payable al netto: sono tutte
+> anteriori alla guardia `acube_uuid`. Made: 4 fatture elettroniche, nessun caso.
+> Zago: zero. Query di controllo nel file 176.
+>
+> **Effetto collaterale sistemato nello stesso giro (migration `20260904_178`,
+> NZ+Made+Zago)**: il controllo «importo non quadra» di
+> `rpc_refresh_payment_anomalies` confrontava la somma delle rate con il TOTALE
+> DOCUMENTO. Con le scadenze ora al netto, ogni parcella con ritenuta sarebbe
+> diventata un falso positivo garantito. L'atteso e' passato a
+> `gross_amount - coalesce(withholding_amount, 0)`; le note di credito restano su
+> `-abs(gross_amount)` perche' il ramo NC del bridge resta sul totale documento.
+> Con ritenuta = 0 il confronto e' identico a prima. Guide aggiornate
+> (`pageGuides.ts`: Scadenzario, anomalie Fatturazione, FAQ).
+>
+> **Nota**: `fn_invoice_withholding` e `fn_electronic_invoice_withholding` esistevano
+> sui 3 tenant senza file di migration nel repo. Versionate con `20260904_177`
+> (copia esatta, md5 identico prima e dopo su tutti e 3). Attenzione: il trigger
+> scatta su INSERT o su UPDATE di `xml_content`, quindi le fatture entrate prima che
+> esistesse hanno `withholding_amount = 0` anche se la ritenuta c'e' nel payload.
+
 > ## 🧾 I TERMINI SCRITTI IN FATTURA VINCONO SUL PIANO FORNITORE (2026-09-03) — FATTO
 >
 > **Regola di Patrizio**: «quando arriva la fattura devi leggere la modalità di
@@ -841,3 +1026,229 @@ rata sopra la successiva. Quando si vede quel pattern, prima di toccare le date
 conviene chiedere se una presentazione è saltata.
 
 Dettagli in `supabase/migrations/NZ_ONLY_20260903_169_shine_giugno_slitta_settembre.sql`.
+
+### Aggiornamento 03/09/2026 — carte BCC, estratti conto di luglio
+
+Tre estratti conto carte di luglio 2026, intestati a Massimo Gallo per New Zago.
+Dettaglio in `docs/carte_bcc_luglio_2026.csv`, intervento in
+`supabase/migrations/NZ_ONLY_20260903_170_carte_bcc_luglio_2026.sql`.
+
+**Prepagata e carta di credito si leggono in modo opposto, e conviene ricordarlo.**
+Le spese della prepagata TASCA (5226\*\*0580) non passano dal conto corrente:
+escono dal saldo della carta, che vive di ricariche. Sul c/c si vede solo la
+ricarica, che è un giroconto e non un costo. A luglio 21 spese per 1.225,91 €
+(quasi tutto carburante e pedaggi) contro 750,00 € di ricariche, saldo del mese
+−477,91 €, identico a quello dichiarato dalla carta.
+
+Le carte di credito invece arrivano cumulate il mese dopo, in un unico addebito
+«Carta del Credito Cooperativo ...283». Le spese di luglio delle due carte
+(1.232,79 + 1.129,72 = 2.362,51 €) stanno dentro l'addebito del 25/08 da
+2.415,80 €. Restano 53,29 € senza dettaglio: ad agosto 2025 l'addebito fu di
+soli 51,29 €, quindi è quasi certamente il canone annuo, che cade in agosto.
+Da confermare col prossimo estratto.
+
+Sistemati anche due arretrati: l'addebito carte del 26/05, unico dei dodici
+rimasto aperto, e le tre ricariche TASCA di fine agosto su 31 totali. Tutto
+chiuso per natura con categoria `carte`, senza toccare un solo importo.
+
+**Perché le fatture pagate con carta restano appese nello Scadenzario.** Le
+spese fatte con le carte arrivano comunque come fatture elettroniche dal SDI
+(distributori, Trenitalia, alberghi) e il bridge le mette in `payables` con
+metodo `carta_credito` e una scadenza convenzionale, di solito il 20 del mese
+dopo. Ma sono già pagate all'atto dell'acquisto. Nessun automatismo le può
+chiudere: in banca non esiste un movimento con quell'importo, perché con la
+prepagata l'addebito sul conto non c'è affatto e con la carta di credito è
+cumulativo, uno al mese. Restavano 24 righe per 2.063,77 € che gonfiavano il
+debito verso fornitori.
+
+Chiuse le 17 con riscontro esatto sull'estratto (1.641,70 €): quelle della
+prepagata con la data della spesa e senza `bank_transaction_id`, perché
+quell'uscita non passa dal conto; quelle della carta di credito agganciate alla
+rata cumulativa del 25/08. Le altre 8 (515,60 €) sono spese di agosto e
+settembre o casi senza riscontro, e restano aperte: un aggancio che non torna
+non si forza.
+
+Da qui una regola di lavoro: **l'estratto conto delle carte è il documento che
+chiude quelle scadenze**, come la distinta MPS lo è per le RI.BA. Senza
+estratto non si chiudono; con l'estratto si chiudono per riscontro esatto.
+
+---
+
+## Distinte RI.BA da gennaio a luglio 2026 (sessione 04/09/2026)
+
+I PDF delle distinte stanno su Drive, cartella **BANCHE NEW ZAGO / NEW ZAGO
+2026**, una sottocartella per mese, e da questa sessione il connettore Drive è
+collegato: si leggono direttamente, senza passare da uno ZIP. Ventuno distinte,
+162 disposizioni, 635.750,29 €. Il dettaglio riga per riga è in
+`docs/riba_effetti_2026_gennaio_luglio.csv`.
+
+**La regola che fa quadrare tutto.** La banca non addebita una distinta per
+volta: raggruppa in lotti di al massimo dieci effetti, e i lotti tagliano
+trasversalmente le distinte dello stesso giorno. Ogni addebito porta 0,40 € per
+effetto di spese di incasso, sempre, senza eccezioni:
+
+```
+addebito = somma degli effetti del lotto + 0,40 × numero effetti
+```
+
+La causale dichiara quanti effetti contiene («NUM.EFFETTI: 10»), quindi la
+composizione si ricostruisce cercando il sottoinsieme di quel numero di effetti
+che dà l'importo netto. Su sette mesi la soluzione è sempre **unica**, tranne ad
+aprile, dove due REALCART di pari importo (854,35 €, fatture 90-2026 e 91-2026)
+stanno indifferentemente in uno o nell'altro lotto. È un'ambiguità che non
+cambia niente: entrambe risultano pagate, cambia solo l'attribuzione.
+
+**Risultato.** Venti addebiti chiusi per 628.598,04 €, con in nota la
+composizione del lotto e lo scorporo delle spese. Le uscite non riconciliate
+scendono da 1.024 a 996, da 3,91 a 3,28 milioni. Restano aperti due addebiti del
+2026 (4.809,15 €) che appartengono a distinte di fine dicembre 2025 e del
+09/01/2026, e trentotto del 2025 (700.178,80 €), le cui distinte stanno nella
+cartella Drive **NEW ZAGO 2025**.
+
+**Nessuna scadenza è stata chiusa, ed è la notizia buona.** Tutte le fatture
+agganciate risultavano già pagate: lo Scadenzario per questi sette mesi era già
+a posto, mancava solo il lato banca. Le tre rate GRUPPO F.B. ancora aperte
+(3896, 3921, 3992) sono le terze rate di piani a tre, scadenza 30/09, e devono
+restare aperte. Sessantaquattro righe restano senza aggancio (450.329,61 €):
+sono i saldi cumulativi, MIAN «SALDO FT OTTOBRE», SHINE «SALDO FT 388 A 618»,
+i saldi GRUPPO F.B., che coprono più fatture insieme e non hanno un `payable` di
+pari importo. Stesso comportamento delle distinte del 31/08.
+
+**Trappola da ricordare: due conti con lo stesso IBAN.** Su NZ esistono due
+righe in `bank_accounts` con l'IBAN MPS `IT04V0103038020000000621460`, una
+attiva e una disattivata creata il 16/07. Un join sull'IBAN senza filtro
+`is_active` genera tutto in doppio: è successo in questa sessione e ho dovuto
+rimuovere 21 distinte e 162 righe duplicate (backup in
+`_bkp_riba_doppioni_20260904_d` e `_l`). Filtrare sempre per `is_active`.
+
+**Nota sui riferimenti fattura.** Il testo estratto dal PDF ha le colonne
+sfalsate: importi e beneficiari finiscono in blocchi separati, e l'abbinamento
+riga per riga va ricostruito. La verifica che dà sicurezza non è l'ordine ma il
+totale: se la somma delle disposizioni fa esattamente il totale dichiarato dalla
+distinta, e i lotti tornano al centesimo con le spese di incasso, la lettura è
+giusta.
+
+---
+
+## Controllo di tutte le banche e di tutte le carte (sessione 04/09/2026)
+
+**Il metodo, in una riga.** Il saldo è cumulativo: se il saldo di fine agosto
+torna con l'estratto, non manca niente da inizio anno, perché un buco di marzo
+si trascinerebbe fino ad agosto. Dove non torna, si cerca la differenza.
+
+| conto | esito |
+|---|---|
+| MPS ...621460 | torna (lo scarto di 70,74 è il gestionale più avanti dell'estratto) |
+| BCC Figline ...17334 | torna |
+| BCC Mugello ...221949 | **non tornava**: mancavano 6 movimenti di maggio |
+| Intesa ...12417 | **non tornava**: 10 movimenti duplicati |
+
+**Mugello, il buco del cambio consenso.** Il conto è passato da un consenso
+A-Cube a un altro: il vecchio si è fermato il 30 aprile, il nuovo è ripartito il
+26 maggio. In mezzo, sedici giorni scoperti e sei movimenti mai arrivati, per
+3.338,54 € netti. Inseriti dall'estratto. Ora il saldo al 3 settembre fa
+16.961,66 €, identico alla banca.
+
+**Attenzione, due record per lo stesso conto Mugello.** I movimenti di
+gennaio-aprile stanno su un record etichettato con un IBAN che non è il suo
+(`IT40T...16980`), quelli da maggio sul record con l'IBAN giusto. Che siano lo
+stesso conto è dimostrato: le quindici righe di aprile del primo coincidono una
+per una con l'estratto Mugello. Riunificarli sarebbe corretto, ma è un cambio di
+attribuzione su oltre mille righe e va deciso, non fatto di slancio.
+
+**Intesa, dieci doppioni.** Due sincronizzazioni A-Cube hanno importato gli
+stessi movimenti con descrizioni diverse: «VERSAMENTO CONTANTI SU SPORTELLO
+AUTOMATICO» contro «VERS.SPORT.AUT.». Il controllo anti-duplicato guarda anche
+la descrizione, quindi non li ha riconosciuti. Il segno che li distingue è
+`acube_transaction_id`: le 87 righe che ce l'hanno danno esattamente il saldo
+dell'estratto, le 10 che non ce l'hanno sono le doppie, per 9.272,60 €. Rimosse
+dopo conferma esplicita, con backup. Lo stesso controllo su MPS e Figline non
+trova nulla: nelle finestre di sovrapposizione nessuna riga ha una gemella.
+
+**Le carte: gli AMEX non erano carte.** Gli 83 movimenti «SDD Core AMERICAN
+EXPRESS» e «ADD.DIRETTO CARTA CREDITO» rimasti aperti da gennaio per 1.265,15 €
+non sono spese di una carta aziendale. Sono le commissioni che American Express
+trattiene come esercente convenzionato sugli incassi dei negozi, addebitate il
+mese dopo, **una riga per punto vendita**. Il codice mandato contiene il codice
+AX dell'outlet:
+
+| codice AX | punto vendita | | codice AX | punto vendita |
+|---|---|---|---|---|
+| 7373035260 | Valdichiana | | 7379605249 | Vicolo Brugnato |
+| 7377153036 | Barberino | | 7543377782 | Valmontone Outlet |
+| 7377511100 | Franciacorta | | 7543394233 | Vicolo Valmontone |
+| 7378034250 | Palmanova | | 9341423540 | Settimo Torinese |
+| 7379416167 | Brugnato Village | | 9341489277 | Outlet Settimo Torinese |
+
+Il riscontro è esatto: l'estratto commissioni di luglio fa 150,18 € più 2,00 di
+bollo, e i dieci addebiti del 5 agosto sommano 152,18. Chiusi per natura con
+categoria `commissioni_incasso` e il nome dell'outlet in nota.
+
+Gli addebiti cumulativi delle carte BCC, uno al mese da gennaio ad agosto, e
+tutte le ricariche della prepagata TASCA erano già riconciliati. Restano aperte
+16 fatture con metodo carta per 805,53 €: sono spese di agosto e settembre e si
+chiudono con gli estratti di quei mesi, che non sono ancora usciti.
+
+---
+
+## Distinte RI.BA di ottobre, novembre e dicembre 2025 (sessione 04/09/2026)
+
+Sul Drive, cartella **NEW ZAGO 2025**, ci sono solo tre mensilità di distinte:
+ottobre, novembre e dicembre. Otto distinte, 62 disposizioni, 293.546,19 €.
+Novembre ha un formato diverso, l'elenco «Effetti - Disposizioni» invece della
+distinta di ritiro, ma il contenuto è lo stesso.
+
+La regola dei lotti vale identica al 2026, e la verifica è netta: su tutti e
+tredici i lotti lo scarto diviso il numero di effetti fa **0,4000 esatti**, e la
+partizione ha soluzione unica in tutti e tre i mesi. In totale 293.546,19 di
+effetti più 24,80 di spese, che sono 62 volte 0,40, fanno 293.570,99: la somma
+esatta dei tredici addebiti.
+
+**Il regalo di dicembre.** I due addebiti di gennaio 2026 rimasti aperti (378,92
+il 5 gennaio e 4.430,23 il 12) appartenevano alla distinta 129746033 del 30
+dicembre, che aveva code al 05/01 e al 10/01. Chiusa quella, **gli addebiti
+«effetti ritirati» del 2026 vanno a zero**.
+
+Restano 27 addebiti del 2025 per 411.416,96 €, da gennaio a settembre più quello
+del 10 ottobre: le distinte di quei mesi sul Drive non ci sono. Vanno chieste in
+banca o a Sabrina.
+
+Dopo questo giro le uscite non riconciliate scendono a **859 per 2.981.517,60 €**,
+sotto i tre milioni, dai 1.024 e 3,91 milioni di ieri sera.
+
+---
+
+## Le uscite del 2025 chiuse per natura (sessione 05/09/2026)
+
+**Il fatto che spiega tutto: il ciclo passivo parte dal 2026.** In `payables`
+non esiste nemmeno una scadenza con data 2025: sono 1.512 righe, tutte del 2026,
+più una del 2027. Le 528 uscite bancarie del 2025 non avevano quindi, e non
+potranno mai avere, una controparte da agganciare. Restavano fra le partite
+aperte per 2.117.743,33 € solo perché il periodo è anteriore allo scadenzario.
+
+Prima di chiuderle l'ho verificato, non dedotto: dei 275 bonifici del 2025
+nessuno trova una scadenza con lo stesso importo e lo stesso fornitore. Chiuse
+per natura con una nota che dice a chiare lettere che è una chiusura formale,
+non una riconciliazione, distinguendo i 27 addebiti RI.BA senza distinta dagli
+altri 501.
+
+Le 43 entrate del 2025 restano aperte apposta: fra quelle ci sono sei bonifici
+tondi per 750.000 € che vanno guardati uno per uno.
+
+**Perché i bonifici del 2026 non si agganciano.** Le disposizioni MPS scrivono
+in causale l'importo netto e le commissioni ma **non il beneficiario**
+(«VOSTRA DISPOSIZIONE A FAVORE DI N.D.»). Su 206 disposizioni una sola trova una
+scadenza aperta con l'importo esatto: le altre trovano solo fatture già pagate, e
+l'importo da solo non identifica niente, perché a 3.050 € corrispondono cinque
+fatture diverse e a 370 € quattro. Agganciare per importo sarebbe peggio che
+lasciare aperto.
+
+Il documento che risolve il problema esiste ed è lo stesso formato delle distinte
+effetti: l'export **«Effetti - Disposizioni»** da PasKey MPS, che elenca
+beneficiario e riferimento fattura riga per riga. Sul Drive ce n'è uno solo, di
+novembre 2025. Con quelli del 2026 i bonifici si chiudono.
+
+**Lo specchio del problema**: 690 scadenze pagate su 1.136 non hanno il movimento
+agganciato (885.043 €), contro 318 uscite 2026 aperte (902.041 €). Sono le due
+facce della stessa cosa: pagamenti registrati sulle fatture senza collegare il
+movimento bancario.

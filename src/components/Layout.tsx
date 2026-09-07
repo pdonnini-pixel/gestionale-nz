@@ -12,7 +12,7 @@ import { usePeriod } from '../hooks/usePeriod'
 import { getCurrentTenant } from '../lib/tenants'
 import {
   Menu, Search, ChevronRight,
-  LayoutDashboard, Store, Receipt, User,
+  LayoutDashboard, Store, Receipt, User, Wallet,
   UserCircle, Settings, LogOut, Building2
 } from 'lucide-react'
 
@@ -97,15 +97,23 @@ function Breadcrumb() {
 function BottomNav() {
   // Terminologia del tenant (es. "Outlet" su NZ, altro su Made/Zago)
   const labels = useCompanyLabels()
+  const { profile } = useAuth()
+  // L'account di negozio (operatore_cassa) ha due sole voci: chiusura e profilo.
+  const items = profile?.role === 'operatore_cassa'
+    ? [
+        { to: '/chiusura-cassa', icon: Wallet, label: 'Chiusura cassa', end: false },
+        { to: '/profilo', icon: User, label: 'Profilo', end: false },
+      ]
+    : [
+        { to: '/', icon: LayoutDashboard, label: 'Home', end: true },
+        { to: '/outlet', icon: Store, label: labels.pointOfSale, end: false },
+        { to: '/scadenzario', icon: Receipt, label: 'Scadenze', end: false },
+        { to: '/profilo', icon: User, label: 'Profilo', end: false },
+      ]
   return (
     <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 z-40 safe-area-pb">
       <div className="flex items-center justify-around h-14">
-        {[
-          { to: '/', icon: LayoutDashboard, label: 'Home', end: true },
-          { to: '/outlet', icon: Store, label: labels.pointOfSale },
-          { to: '/scadenzario', icon: Receipt, label: 'Scadenze' },
-          { to: '/profilo', icon: User, label: 'Profilo' },
-        ].map(item => (
+        {items.map(item => (
           <NavLink
             key={item.to}
             to={item.to}
@@ -232,6 +240,9 @@ export default function Layout() {
   const location = useLocation()
   const { profile } = useAuth()
   const isViewer = profile?.role === 'viewer'
+  // Account di negozio: niente ricerca globale ne' campanella (la RLS gli
+  // nasconde comunque fornitori, fatture, movimenti e avvisi aziendali).
+  const isCashOperator = profile?.role === 'operatore_cassa'
   // Il selettore anno/periodo globale va mostrato SOLO dove ha davvero effetto.
   // Su queste pagine cambiare anno non filtra nulla (non consumano usePeriod):
   // mostrarlo ingannava l'utente (stesso problema gia' risolto per lo Scadenzario).
@@ -240,7 +251,7 @@ export default function Layout() {
   const NO_PERIOD_PATHS = new Set([
     '/scadenzario', '/scadenze-fiscali', '/impostazioni', '/archivio',
     '/import-hub', '/storico-distinte', '/report-sincronizzazioni',
-    '/profilo', '/ai-categorie',
+    '/profilo', '/ai-categorie', '/chiusura-cassa', '/incassi-giornalieri',
   ])
   const hidePeriodSelector = NO_PERIOD_PATHS.has(path) || path.startsWith('/ticket')
   const [mobileOpen, setMobileOpen] = useState(false)
@@ -342,14 +353,16 @@ export default function Layout() {
 
           {/* Right: search + notifications + avatar */}
           <div className="flex items-center gap-1.5 shrink-0">
-            <button
-              onClick={() => setSearchOpen(true)}
-              className="p-2 rounded-lg hover:bg-slate-100 text-slate-500 hover:text-slate-700 transition"
-              title="Cerca (\u2318K)"
-            >
-              <Search size={18} />
-            </button>
-            <NotificationBell />
+            {!isCashOperator && (
+              <button
+                onClick={() => setSearchOpen(true)}
+                className="p-2 rounded-lg hover:bg-slate-100 text-slate-500 hover:text-slate-700 transition"
+                title="Cerca (\u2318K)"
+              >
+                <Search size={18} />
+              </button>
+            )}
+            {!isCashOperator && <NotificationBell />}
             <ProfileMenu />
           </div>
         </header>
