@@ -20190,6 +20190,128 @@ export type Database = {
           },
         ]
       }
+      vat_settings: {
+        Row: {
+          acconto_base: number | null
+          company_id: string
+          created_at: string
+          notes: string | null
+          opening_credit: number
+          periodicity: string
+          sales_vat_rate: number
+          start_month: number | null
+          start_year: number | null
+          updated_at: string
+        }
+        Insert: {
+          acconto_base?: number | null
+          company_id: string
+          created_at?: string
+          notes?: string | null
+          opening_credit?: number
+          periodicity?: string
+          sales_vat_rate?: number
+          start_month?: number | null
+          start_year?: number | null
+          updated_at?: string
+        }
+        Update: {
+          acconto_base?: number | null
+          company_id?: string
+          created_at?: string
+          notes?: string | null
+          opening_credit?: number
+          periodicity?: string
+          sales_vat_rate?: number
+          start_month?: number | null
+          start_year?: number | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vat_settings_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: true
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      vat_settlements: {
+        Row: {
+          company_id: string
+          confirmed_at: string
+          confirmed_by: string | null
+          corrispettivi_netti: number
+          created_at: string
+          fiscal_deadline_id: string | null
+          fonte_corrispettivi: string | null
+          id: string
+          importo: number
+          iva_credito: number
+          iva_debito_corrispettivi: number
+          iva_debito_fatture_attive: number
+          iva_riporto_precedente: number
+          month: number
+          note: string | null
+          updated_at: string
+          year: number
+        }
+        Insert: {
+          company_id: string
+          confirmed_at?: string
+          confirmed_by?: string | null
+          corrispettivi_netti?: number
+          created_at?: string
+          fiscal_deadline_id?: string | null
+          fonte_corrispettivi?: string | null
+          id?: string
+          importo?: number
+          iva_credito?: number
+          iva_debito_corrispettivi?: number
+          iva_debito_fatture_attive?: number
+          iva_riporto_precedente?: number
+          month: number
+          note?: string | null
+          updated_at?: string
+          year: number
+        }
+        Update: {
+          company_id?: string
+          confirmed_at?: string
+          confirmed_by?: string | null
+          corrispettivi_netti?: number
+          created_at?: string
+          fiscal_deadline_id?: string | null
+          fonte_corrispettivi?: string | null
+          id?: string
+          importo?: number
+          iva_credito?: number
+          iva_debito_corrispettivi?: number
+          iva_debito_fatture_attive?: number
+          iva_riporto_precedente?: number
+          month?: number
+          note?: string | null
+          updated_at?: string
+          year?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vat_settlements_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "vat_settlements_fiscal_deadline_id_fkey"
+            columns: ["fiscal_deadline_id"]
+            isOneToOne: false
+            referencedRelation: "fiscal_deadlines"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       cash_movements: {
@@ -21734,6 +21856,28 @@ export type Database = {
             referencedColumns: ["outlet_id"]
           },
         ]
+      }
+      v_iva_componenti_mensili: {
+        Row: {
+          chiusure_lordo: number | null
+          chiusure_netto: number | null
+          company_id: string | null
+          consuntivo_netto: number | null
+          giorni_chiusura: number | null
+          iva_fatture_attive: number | null
+          iva_fatture_passive: number | null
+          iva_integrazioni: number | null
+          iva_note_credito: number | null
+          month: number | null
+          n_fatture_attive: number | null
+          n_fatture_passive: number | null
+          n_integrazioni: number | null
+          n_note_credito: number | null
+          outlet_chiusura: number | null
+          preventivo_netto: number | null
+          year: number | null
+        }
+        Relationships: []
       }
     }
     Functions: {

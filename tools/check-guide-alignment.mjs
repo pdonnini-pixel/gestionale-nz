@@ -45,6 +45,8 @@ const SOURCE_TO_GUIDES = {
   'src/pages/Dipendenti.tsx': ['dipendenti'],
   'src/pages/ContoEconomico.tsx': ['conto-economico'],
   'src/pages/BudgetControl.tsx': ['budget'],
+  'src/pages/LiquidazioneIva.tsx': ['liquidazione-iva'],
+  'src/lib/ivaLiquidazione.ts': ['liquidazione-iva'],
   'src/pages/StockSellthrough.tsx': ['stock'],
   'src/pages/AnalyticsPOS.tsx': ['analytics-pos'],
   'src/pages/CashFlow.tsx': ['cash-flow'],

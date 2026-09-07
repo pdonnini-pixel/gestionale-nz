@@ -37,6 +37,7 @@ const Fatturazione = lazy(() => import('./pages/Fatturazione'))
 const AcubeFatturaForm = lazy(() => import('./pages/AcubeFatturaForm'))
 const ConvertitoreFattureXML = lazy(() => import('./pages/ConvertitoreFattureXML'))
 const ScadenzeFiscali = lazy(() => import('./pages/ScadenzeFiscali'))
+const LiquidazioneIva = lazy(() => import('./pages/LiquidazioneIva'))
 const StoricoDistinte = lazy(() => import('./pages/StoricoDistinte'))
 const AICategoriePage = lazy(() => import('./pages/AICategoriePage'))
 const SchedaContabileFornitore = lazy(() => import('./pages/SchedaContabileFornitore'))
@@ -191,6 +192,7 @@ function AppRoutes() {
           {/* /prima-nota → ora tab dentro Banche (TesoreriaManuale) */}
           <Route path="prima-nota" element={<Navigate to="/banche?tab=prima_nota" replace />} />
           <Route path="scadenze-fiscali" element={<ScadenzeFiscali />} />
+          <Route path="liquidazione-iva" element={<LiquidazioneIva />} />
           <Route path="archivio" element={<ArchivioDocumenti />} />
           <Route path="ai-categorie" element={<AICategoriePage />} />
           <Route path="impostazioni" element={<Impostazioni />} />

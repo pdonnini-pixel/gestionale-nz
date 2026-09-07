@@ -2,12 +2,13 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import {
   HelpCircle, X, ChevronRight, ChevronLeft,
-  LayoutDashboard, Store, Receipt, Landmark, Users, FileText,
+  LayoutDashboard, Store, Receipt, Landmark, Users, FileText, Percent,
   Calculator, BarChart3, GitCompare, Wallet, Building2,
   CalendarClock, DatabaseZap, Archive, FileCode, Settings,
   Sparkles, Send, Loader2, BookOpen, Package, UserCircle,
   MessageSquare, Lock, Search, CheckCircle2, AlertTriangle,
   LucideIcon,
+  Percent,
 } from 'lucide-react'
 import { PAGE_GUIDES, type PageGuide } from '../data/pageGuides'
 import { useAuth } from '../hooks/useAuth'
@@ -19,7 +20,7 @@ import {
 
 // Mappa nome-icona (stringa nel file dati) -> componente lucide.
 const ICONS: Record<string, LucideIcon> = {
-  LayoutDashboard, Store, Receipt, Landmark, Users, FileText,
+  LayoutDashboard, Store, Receipt, Landmark, Users, FileText, Percent,
   Calculator, BarChart3, GitCompare, Wallet, Building2,
   CalendarClock, DatabaseZap, Archive, FileCode, Settings,
   Sparkles, Package, UserCircle, HelpCircle,

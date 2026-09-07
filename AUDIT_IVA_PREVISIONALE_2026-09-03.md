@@ -89,6 +89,23 @@ Cosa dice la tabella:
 
 ---
 
+## 6. aggiornamento del 7 settembre 2026: risposte e prima versione del motore
+
+Risposte di Patrizio (7/9): consuntivi corrispettivi **al netto IVA**; vendite **tutte al 22%**, nessuna esente; liquidazione **mensile**, acconto col **metodo storico**; luglio 2026 **a debito** (riporto zero); per i corrispettivi si usa la **chiusura cassa giornaliera**; le quote indetraibili (ristoranti, hotel, treni, carburante) si trattano come **interamente detraibili**. Non si ricostruisce lo storico: si parte dalla liquidazione di **agosto 2026**.
+
+Nel frattempo su `main` è arrivata la **Chiusura cassa** (migration 173, 4/9): le chiusure confermate proiettano in `daily_revenue` il netto IVA giornaliero per outlet. È la fonte dei corrispettivi che mancava.
+
+Costruito (PR di questo branch, migration 193 applicata su NZ, Made e Zago):
+- `vat_settings`: aliquota vendite, mese di partenza, credito iniziale (NZ: 22%, agosto 2026, 0).
+- `vat_settlements`: mesi confermati con i numeri definitivi.
+- vista `v_iva_componenti_mensili` (security_invoker): corrispettivi da chiusure / consuntivo / preventivo, IVA fatture attive, IVA fatture passive per **mese di ricezione SDI**, note di credito e integrazioni reverse charge a parte.
+- `src/lib/ivaLiquidazione.ts` con test: catena mensile con riporto, scadenza (16 del mese dopo, 20 agosto per luglio, weekend → lunedì), codice tributo 60MM.
+- pagina **Liquidazione IVA** (Ciclo Passivo): stima per mese, conferma con numeri definitivi, creazione/aggiornamento della scadenza in Scadenze Fiscali (da lì Scadenzario e Cashflow).
+
+Agosto 2026 su NZ, con i dati del 7/9: IVA acquisti ricevute nel mese 41.404 (97 fatture, 10 note di credito, integrazioni neutre 444), IVA fatture attive 94. Corrispettivi di agosto non ancora inseriti: con il preventivo (360.652) la stima è **38.033 € da versare entro il 16 settembre** (codice 6008). Appena Patrizio inserisce il consuntivo di agosto in Budget & Controllo, o conferma il mese dalla pagina, il numero si chiude.
+
+Restano aperti, in ordine: acconto del 27 dicembre (serve la base storica), quote indetraibili (oggi 100% detraibile per scelta), parser dei riepiloghi JSON per un futuro dettaglio per aliquota.
+
 ## 5. domande per Patrizio (risposta binaria, poi si parte)
 
 1. I consuntivi corrispettivi in Budget & Controllo sono **al netto** dell'IVA? (i numeri dicono sì)
