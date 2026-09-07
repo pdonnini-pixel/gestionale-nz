@@ -314,6 +314,8 @@ Per Made e Zago le tabelle nascono vuote: i canali si configurano quando quei te
 
 Esito dopo i correttivi: 29 giornate su 42 «verificate con la banca», 13 «confermate» in attesa degli accrediti BCC (che al 07/09 non sono ancora arrivati) o della seconda riga MPS; una sola «differenza» vera, Barberino 04/09 (POS 985,55 contro registratore 911,51). L'accredito MPS del 01/09 di Torino (426,66 netti) conferma i 430,80 del registratore.
 
+**Chiusura come la fa la cassiera (2026-09-07, richiesta di Patrizio)**: una sola foto per giornata (scontrino di chiusura del registratore con accanto le chiusure dei POS, come negli esempi raccolti a mano), quindi in Chiusura cassa sono spariti i pulsanti foto sulle righe POS (le foto «canale» già caricate restano visibili); ordine dei canali: Contanti, poi tutti i POS uno dietro l'altro, poi Pay by link, Fatture, Bonifico (`NZ_ONLY_20260907_199`, solo sort_order). Le 42 giornate caricate hanno ricevuto la loro foto (la pagina del PDF) tramite la nuova Edge Function `cash-closing-photo-import` (service key o segreto `x-autofix-cron`; bucket + riga allegato + lettura automatica; sui 3 tenant), e la lettura automatica è stata eseguita su tutte: 42 letture, di cui 2 «da rivedere» per matricola incerta; il segreto usato per il caricamento è stato ruotato subito dopo.
+
 Le quattro fasi del piano sono realizzate. Restano il collaudo con i negozi (account cassa, fondo cassa iniziale, prime foto dall'app) e la verifica degli accrediti BCC quando arriveranno in banca.
 
 
