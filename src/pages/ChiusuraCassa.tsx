@@ -320,9 +320,6 @@ export default function ChiusuraCassa() {
   /** Righe con importo ma senza foto: solo un avviso, la conferma resta possibile. */
   const missingOptionalPhotos = (): string[] => {
     const out: string[] = []
-    for (const ch of channels) {
-      if ((ch.kind === 'pos' || ch.kind === 'pos_amex') && (parseAmount(form.amounts[ch.id]) ?? 0) > 0 && photosFor('canale', lineIds[ch.id]).length === 0) out.push(`chiusura POS di ${ch.label}`)
-    }
     for (const e of expenses) {
       if (e.kind === 'spesa' && photosFor('spesa', e.id).length === 0) out.push(`scontrino della spesa "${e.description.trim() || 'senza descrizione'}"`)
     }
@@ -690,7 +687,7 @@ export default function ChiusuraCassa() {
               {/* 1. Totale + canali */}
               <section className="bg-white border border-slate-200 rounded-xl p-4 mb-4 space-y-4">
                 <h2 className="font-semibold text-slate-900">1. Incassi del giorno</h2>
-                <p className="text-xs text-slate-500 -mt-2">Per ogni riga puoi fotografare lo scontrino che la giustifica. Solo la foto dello scontrino di chiusura è obbligatoria. I numeri vengono letti dalla foto e proposti nei campi vuoti: controllali sempre.</p>
+                <p className="text-xs text-slate-500 -mt-2">Una sola foto: lo scontrino di chiusura del registratore con accanto le chiusure dei POS, come negli esempi. È obbligatoria. I numeri vengono letti dalla foto e proposti nei campi vuoti: controllali sempre.</p>
                 <div>
                   <label className={labelCls}>Totale corrispettivi (dallo scontrino di chiusura)</label>
                   <input inputMode="decimal" value={form.total} disabled={!editable} onChange={(e) => update({ total: e.target.value })} placeholder="0,00" className={`${inputCls} border-blue-300 bg-blue-50/40`} />
@@ -700,7 +697,8 @@ export default function ChiusuraCassa() {
                   <div key={ch.id}>
                     <label className={labelCls}>{ch.label}{!ch.counts_in_total && <span className="text-xs text-slate-400 ml-1">(fuori totale)</span>}</label>
                     <input inputMode="decimal" value={form.amounts[ch.id] ?? ''} disabled={!editable} onChange={(e) => updateAmount(ch.id, e.target.value)} placeholder="0,00" className={inputCls} />
-                    {ch.kind !== 'contanti' && <PhotoStrip t={{ target: 'canale', channelId: ch.id }} hint={(ch.kind === 'pos' || ch.kind === 'pos_amex') && (parseAmount(form.amounts[ch.id]) ?? 0) > 0} />}
+                    {/* Le foto per canale non si scattano più: la cassiera fa una sola foto (scontrino RT + chiusure POS). Le foto 'canale' già caricate restano visibili. */}
+                    {photosFor('canale', lineIds[ch.id]).length > 0 && <PhotoStrip t={{ target: 'canale', channelId: ch.id }} />}
                   </div>
                 ))}
                 <div className={`flex items-center justify-between rounded-lg border px-3 py-2 text-sm ${quad.receiptsDifference === 0 ? okCls : koCls}`}>

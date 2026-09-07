@@ -1,0 +1,1 @@
+-- Rollback 197: rieseguire la sezione 3 della migration 20260907_195 (versione precedente della funzione).
