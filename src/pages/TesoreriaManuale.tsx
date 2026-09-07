@@ -4216,7 +4216,8 @@ export default function TesoreriaManuale() {
   }
 
   return (
-    <div className="p-6 space-y-6 max-w-[1600px] mx-auto">
+    <div className="min-h-screen bg-white">
+      <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
       {/* Page header */}
       <div className="flex items-center justify-between">
         <div>
@@ -4306,6 +4307,7 @@ export default function TesoreriaManuale() {
       {activeTab === 'finanziamenti' && (
         <FinanziamentiTab accounts={accounts} companyId={companyId} uploadedByName={[profile?.first_name, profile?.last_name].filter(Boolean).join(' ') || profile?.email || null} />
       )}
+      </div>
     </div>
   )
 }

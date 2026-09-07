@@ -949,7 +949,8 @@ export default function Dipendenti() {
 
   // ========== RENDER ==========
   return (
-    <div className="p-6 space-y-6">
+    <div className="min-h-screen bg-white">
+      <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
       <PageHeader
         title="Dipendenti"
         subtitle={`Organico e costo del personale per outlet${companyName ? ` · ${companyName}` : ''}`}
@@ -1256,6 +1257,7 @@ export default function Dipendenti() {
         onConfirm={() => confirmState?.onConfirm()}
         onCancel={() => setConfirmState(null)}
       />
+      </div>
     </div>
   );
 }
