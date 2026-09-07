@@ -14,7 +14,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { ChevronLeft, ChevronRight, Unlock, Pencil, Image as ImageIcon, Plus, Save, Loader2, Settings2, Table2, ScanSearch, Trash2, Landmark, RefreshCw } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Unlock, Pencil, Image as ImageIcon, Plus, Save, Loader2, Settings2, Table2, ScanSearch, Trash2, Landmark, RefreshCw, FileSpreadsheet } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { useCompany } from '../hooks/useCompany'
@@ -23,6 +23,7 @@ import { useToast } from '../components/Toast'
 import { Modal } from '../components/ui/Modal'
 import PageHeader from '../components/PageHeader'
 import { fetchAllPaged } from '../lib/fetchAllPaged'
+import { buildCashClosingsSheets } from '../lib/cashClosingsExport'
 import type { Database } from '../types/database'
 import {
   type PaymentChannel, type ChannelKind, type AttachmentTarget, type ExpenseKind, type ExtractionStatus, CHANNEL_KIND_LABELS, ATTACHMENT_TARGET_LABELS, EXPENSE_KIND_LABELS,
@@ -135,6 +136,25 @@ export default function IncassiGiornalieri() {
     }
     return map
   }, [lines])
+
+  // Fase 4: export Excel del mese (foglio «Riepilogo» giorni × outlet + un foglio per outlet come il vecchio Excel)
+  const [exporting, setExporting] = useState(false)
+  const exportExcel = async () => {
+    if (exporting) return
+    setExporting(true)
+    try {
+      const XLSX = await import('xlsx')
+      const wb = XLSX.utils.book_new()
+      const sheets = buildCashClosingsSheets({ days, outlets: visibleOutlets, channels, closings, linesByClosing })
+      for (const sh of sheets) XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(sh.aoa), sh.name)
+      const suffix = outletFilter === ALL ? '' : `_${(visibleOutlets[0]?.name ?? 'outlet').replace(/[^\w]+/g, '_')}`
+      XLSX.writeFile(wb, `incassi_${ym.y}-${String(ym.m).padStart(2, '0')}${suffix}.xlsx`)
+    } catch (e) {
+      toast({ type: 'error', message: `Export non riuscito: ${e instanceof Error ? e.message : String(e)}` })
+    } finally {
+      setExporting(false)
+    }
+  }
   const lineBankByClosing = useMemo(() => {
     const map = new Map<string, Map<string, LineBank>>()
     for (const l of lines) {
@@ -212,6 +232,11 @@ export default function IncassiGiornalieri() {
               <option value={ALL}>Tutti i punti vendita</option>
               {outlets.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
             </select>
+            <button onClick={() => void exportExcel()} disabled={loading || exporting || closings.length === 0}
+              title="Scarica il mese in Excel: foglio Riepilogo giorni × punti vendita e un foglio per punto vendita con tutti i canali"
+              className="px-3 py-2 text-sm rounded-lg border border-slate-300 bg-white text-slate-700 inline-flex items-center gap-1.5 disabled:opacity-50">
+              {exporting ? <Loader2 size={14} className="animate-spin" /> : <FileSpreadsheet size={14} />}Esporta Excel
+            </button>
             <div className="flex gap-3 text-[11px] text-slate-500 ml-auto">
               <span><i className="inline-block w-3 h-3 rounded bg-emerald-100 border border-emerald-300 mr-1 align-middle" />confermata</span>
               <span><i className="inline-block w-3 h-3 rounded bg-amber-100 border border-amber-300 mr-1 align-middle" />bozza</span>

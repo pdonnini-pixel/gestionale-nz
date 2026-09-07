@@ -296,7 +296,19 @@ Per Made e Zago le tabelle nascono vuote: i canali si configurano quando quei te
 - Numeri (totale vendite RT lordo IVA): 1-6 settembre 64.505,57 €; per giorno 7.454 / 7.369 / 9.013 / 6.558 / 14.773 / 19.339; per outlet Valdichiana 13.488, Valmontone 9.863, Barberino 9.352, Palmanova 8.479, Franciacorta 8.371, Torino 8.362, Brugnato 6.591.
 - Cosa le foto non danno: fondo cassa, spese di cassa, versamenti (nessuna ricevuta di versamento fra le 42 foto), rimborsi. Restano dati che solo la cassiera può inserire.
 
-Resta la fase 4 (proposta consuntivo ed export).
+**Fase 3, correzioni dal collaudo (2026-09-07)**: migration `20260907_195` sui 3 tenant.
+
+- `outlet_payment_channels.bank_tolerance_pct`: scarto percentuale ammesso fra dichiarato e accreditato (1,5 % sui canali POS esistenti e nei canali standard, 0 sugli Amex che accreditano il lordo); campo «Tolleranza banca %» in Canali di incasso. Il matcher usa `greatest(0,01 €, dichiarato × tolleranza)`.
+- Accrediti Amex: la data in causale è quella dell'accredito e un accredito copre più giornate. Il matcher cerca, fra le chiusure confermate con Amex dichiarato sul codice (fino a 10 giorni prima, giornata più recente entro 4 giorni dall'accredito), la sequenza consecutiva la cui somma coincide con l'accreditato e registra un abbinamento per giornata con la sua quota (`closing_bank_matches` ora UNIQUE su `(bank_transaction_id, closing_id)`). Le righe Amex passano a «mancante» dopo 10 giorni invece di 5.
+
+**Fase 4 realizzata (2026-09-07)**: ricavi mensili ed export.
+
+- Inserimento rapido (Budget e Controllo): pulsante «Proponi da chiusure cassa» sotto la riga Consuntivo. Somma le chiusure confermate del mese per `outlets.cost_center_key`, scorpora l'IVA con `daily_report_settings.budget_vat_rate` e mostra giornate chiuse/giorni del mese (⚠ se parziale), lordo, netto proposto, consuntivo attuale; «Usa» e «Usa tutti» scrivono con la stessa `save_budget_confronto_cell` (stato granitico). Nessuna scrittura automatica. Helper puro `proposeConsuntivo` in `src/lib/cashClosings.ts` con test.
+- Incassi giornalieri: pulsante «Esporta Excel» nel riepilogo: foglio «Riepilogo» giorni × punti vendita con totali e un foglio per punto vendita nella forma del vecchio Excel (totale, una colonna per canale, spese, rimborsi, versamenti, fondo cassa, differenza, stato, chi ha chiuso, note). Builder puro `src/lib/cashClosingsExport.ts` con test; xlsx caricato a richiesta.
+- Migration `20260907_196` sui 3 tenant: la proiezione in `daily_revenue` scorpora l'IVA con la stessa aliquota del report e della proposta (`daily_report_settings.budget_vat_rate`, poi il vecchio `companies.settings.cash_closing_vat_rate`, poi 22 %). Un solo parametro per tutto lo specchietto.
+
+Le quattro fasi del piano sono realizzate. Restano il collaudo con i negozi (account cassa, fondo cassa iniziale, prime foto dall'app) e la verifica degli accrediti BCC quando arriveranno in banca.
+
 
 ## 5. decisioni che servono da Patrizio
 

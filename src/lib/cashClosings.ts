@@ -375,3 +375,47 @@ export function budgetTargets(i: BudgetTargetInput): BudgetTarget {
     projection: elapsed > 0 ? r2((mtd / elapsed) * days) : null,
   }
 }
+
+// ─── Fase 4: proposta consuntivo mensile dalle chiusure di cassa ────────
+export interface ConsuntivoClosingInput {
+  /** cost_center_key dell'outlet (= budget_confronto.cost_center) */
+  costCenter: string
+  total: number
+  isClosedDay: boolean
+}
+export interface ConsuntivoProposal {
+  /** Somma dei totali corrispettivi delle chiusure confermate (lordo IVA) */
+  gross: number
+  /** Lordo scorporato dell'aliquota: è il valore proposto per la riga Consuntivo (netta IVA) */
+  net: number
+  /** Giornate con chiusura confermata (compresi i giorni di negozio chiuso) */
+  daysCovered: number
+  closedDays: number
+  daysInMonth: number
+  /** Tutte le giornate del mese hanno una chiusura confermata */
+  complete: boolean
+}
+
+/**
+ * Per ogni centro di costo somma le chiusure confermate del mese e scorpora
+ * l'IVA: il consuntivo dell'Inserimento rapido è netto IVA, i corrispettivi
+ * sono lordi. Nessuna scrittura: è una proposta che l'utente accetta.
+ */
+export function proposeConsuntivo(closings: ConsuntivoClosingInput[], vatRate: number, daysInMonth: number): Map<string, ConsuntivoProposal> {
+  const r2 = (n: number) => Math.round(n * 100) / 100
+  const vat = Number.isFinite(vatRate) && vatRate >= 0 ? vatRate : 22
+  const days = Math.max(1, daysInMonth)
+  const out = new Map<string, ConsuntivoProposal>()
+  for (const c of closings) {
+    const cur = out.get(c.costCenter) ?? { gross: 0, net: 0, daysCovered: 0, closedDays: 0, daysInMonth: days, complete: false }
+    cur.gross = r2(cur.gross + (c.isClosedDay ? 0 : Number(c.total) || 0))
+    cur.daysCovered += 1
+    if (c.isClosedDay) cur.closedDays += 1
+    out.set(c.costCenter, cur)
+  }
+  for (const p of out.values()) {
+    p.net = r2(p.gross / (1 + vat / 100))
+    p.complete = p.daysCovered >= days
+  }
+  return out
+}
