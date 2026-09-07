@@ -1211,7 +1211,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "q": "Mi chiede il \"fondo cassa di ieri\": cosa devo scrivere?",
-        "a": "È il contante che c'era in cassa all'apertura di oggi. Lo chiede solo la prima volta, quando non esiste ancora una chiusura confermata precedente per il negozio; dai giorni successivi lo prende da solo dall'ultima chiusura confermata."
+        "a": "È il contante che c'era in cassa all'apertura di oggi. Lo chiede solo la prima volta, quando non esiste ancora una chiusura confermata precedente per il negozio con il fondo contato; dai giorni successivi lo prende da solo dall'ultima chiusura confermata. Se non lo sai, usa il campo \"Contanti in cassa adesso, tutti\": conta tutto il contante nel cassetto prima di fare il versamento e scrivilo; il gestionale ricava il fondo di ieri togliendo gli incassi in contanti di oggi e rimettendo spese e rimborsi pagati in contanti, e lo mostra sotto il campo. Poi conta il fondo che resta dopo il versamento e scrivilo in \"Fondo cassa contato stasera\"."
       },
       {
         "q": "Ho confermato per sbagliato: posso correggere?",
