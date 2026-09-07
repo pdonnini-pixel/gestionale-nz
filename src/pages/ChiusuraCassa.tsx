@@ -106,6 +106,10 @@ export default function ChiusuraCassa() {
   const [attachments, setAttachments] = useState<AttachmentRow[]>([])
   const [signedUrls, setSignedUrls] = useState<Record<string, string>>({})
   const [prevFloat, setPrevFloat] = useState<number | null>(null)
+  // Prima chiusura del negozio: se la cassiera non sa il fondo di ieri, conta
+  // tutti i contanti nel cassetto adesso e il fondo di ieri lo ricaviamo noi
+  // (contanti adesso − incassi in contanti di oggi + spese e rimborsi in contanti).
+  const [allCashNow, setAllCashNow] = useState('')
   const [monthStatus, setMonthStatus] = useState<Record<string, string>>({})
   const [form, setForm] = useState<FormState>(() => emptyForm(safeGetLs(LS_CLOSED_BY)))
   const [loading, setLoading] = useState(true)
@@ -217,6 +221,20 @@ export default function ChiusuraCassa() {
   }), [form, channels, prevFloat, expensesTotal, refundsTotal])
 
   const needsNote = quad.receiptsDifference !== 0 || (quad.cashDifference != null && quad.cashDifference !== 0)
+
+  // Fondo di ieri ricavato dai contanti presenti adesso (solo prima chiusura).
+  const derivedOpening = useMemo(() => {
+    const now = parseAmount(allCashNow)
+    if (prevFloat != null || now == null) return null
+    return Math.round((now - quad.cashLine + expensesTotal + refundsTotal) * 100) / 100
+  }, [allCashNow, prevFloat, quad.cashLine, expensesTotal, refundsTotal])
+  useEffect(() => {
+    if (derivedOpening == null) return
+    const v = formatAmount(derivedOpening)
+    setForm((f) => (f.cashFloatOpening === v ? f : { ...f, cashFloatOpening: v }))
+    setDirty(true)
+  }, [derivedOpening])
+  useEffect(() => { setAllCashNow('') }, [outletId, dateIso])
 
   const update = (patch: Partial<FormState>) => { setForm((f) => ({ ...f, ...patch })); setDirty(true) }
   const updateAmount = (channelId: string, v: string) => { setForm((f) => ({ ...f, amounts: { ...f.amounts, [channelId]: v } })); setDirty(true) }
@@ -634,7 +652,10 @@ export default function ChiusuraCassa() {
 
   return (
     <div className="p-4 sm:p-6 max-w-xl mx-auto pb-28">
-      <input ref={fileRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => void onFiles(e.target.files)} />
+      {/* Account di negozio: la fotocamera si apre subito (un tocco in meno).
+          Amministrazione: nessun "capture", cosi' il telefono propone anche la
+          galleria e si puo' caricare la foto ricevuta dal negozio. */}
+      <input ref={fileRef} type="file" accept="image/*" capture={isAdmin ? undefined : 'environment'} className="hidden" onChange={(e) => void onFiles(e.target.files)} />
       <PageHeader
         title="Chiusura cassa"
         subtitle={outlet ? outlet.name : undefined}
@@ -746,10 +767,20 @@ export default function ChiusuraCassa() {
               <section className="bg-white border border-slate-200 rounded-xl p-4 mb-4 space-y-4">
                 <h2 className="font-semibold text-slate-900">3. Versamento e fondo cassa</h2>
                 {prevFloat == null && (
-                  <div>
-                    <label className={labelCls}>Fondo cassa di ieri (solo la prima volta)</label>
-                    <input inputMode="decimal" value={form.cashFloatOpening} disabled={!editable} onChange={(e) => update({ cashFloatOpening: e.target.value })} placeholder="0,00" className={inputCls} />
-                    <p className="text-xs text-slate-500 mt-1">Non c'è ancora una chiusura confermata precedente: scrivi il contante che c'era in cassa stamattina.</p>
+                  <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-3 space-y-2">
+                    <div>
+                      <label className={labelCls}>Fondo cassa di ieri (solo la prima volta)</label>
+                      <input inputMode="decimal" value={form.cashFloatOpening} disabled={!editable} onChange={(e) => { setAllCashNow(''); update({ cashFloatOpening: e.target.value }) }} placeholder="0,00" className={inputCls} />
+                      <p className="text-xs text-slate-600 mt-1">È la prima chiusura di questo punto vendita: il gestionale non sa quanto c'era in cassa stamattina. Se lo sai, scrivilo qui. Se non lo sai, usa il campo sotto.</p>
+                    </div>
+                    <div>
+                      <label className={labelCls}>Oppure: contanti in cassa adesso, tutti (compresi gli incassi di oggi)</label>
+                      <input inputMode="decimal" value={allCashNow} disabled={!editable} onChange={(e) => setAllCashNow(e.target.value)} placeholder="0,00" className={inputCls} />
+                      <p className="text-xs text-slate-600 mt-1">
+                        Conta tutto il contante nel cassetto adesso, prima di fare il versamento, e scrivilo: il fondo di ieri lo ricava il gestionale togliendo gli incassi in contanti di oggi e rimettendo spese e rimborsi pagati in contanti.
+                        {derivedOpening != null && <> <strong>Fondo di ieri ricavato: {formatEuro(derivedOpening)}</strong>.</>}
+                      </p>
+                    </div>
                   </div>
                 )}
                 <div>

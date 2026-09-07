@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import {
   Settings, Users, Tag, Building2, Shield, Plus, Trash2, Pencil, Save, X,
   ChevronDown, ChevronUp, Check, AlertCircle, Search, Copy, Eye, EyeOff, Loader,
-  CornerDownRight, Lock, ShieldCheck, FileText, RefreshCw, Zap, Send, Mail,
+  CornerDownRight, Lock, ShieldCheck, FileText, RefreshCw, Zap, Send, Mail, KeyRound,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
@@ -351,6 +351,11 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
   const [form, setForm] = useState({ nome: '', cognome: '', email: '', ruolo: 'operatore_cassa', is_active: true, outlet_id: '' })
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  // Reimposta password: conferma inline, poi la nuova password viene mostrata
+  // UNA sola volta (non e' salvata in chiaro da nessuna parte).
+  const [confirmPassword, setConfirmPassword] = useState<string | null>(null)
+  const [newPassword, setNewPassword] = useState<{ userId: string; email: string; password: string } | null>(null)
+  const [copied, setCopied] = useState(false)
 
   useEffect(() => {
     loadUsers()
@@ -465,6 +470,35 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
     }
   }
 
+  // Genera e imposta una nuova password (lato server) e la mostra una volta:
+  // e' il modo per dare/rinnovare l'accesso agli account di negozio, che non
+  // usano l'email di reset.
+  const handleResetPassword = async (id: string, email: string) => {
+    try {
+      setSaving(true)
+      const res = await callAdmin('set_password', { user_id: id }) as { password?: string }
+      if (!res?.password) throw new Error('Nessuna password restituita')
+      setNewPassword({ userId: id, email, password: res.password })
+      setCopied(false)
+      setConfirmPassword(null)
+      showToast?.('Nuova password impostata: comunicala all\'utente')
+    } catch (err) {
+      showToast?.('Errore: ' + (err as Error).message, 'error')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const copyPassword = async () => {
+    if (!newPassword) return
+    try {
+      await navigator.clipboard.writeText(`Email: ${newPassword.email}\nPassword: ${newPassword.password}`)
+      setCopied(true)
+    } catch {
+      showToast?.('Copia non riuscita: seleziona e copia a mano', 'error')
+    }
+  }
+
   const handleDelete = async (id: string) => {
     try {
       await callAdmin('delete', { user_id: id })
@@ -503,8 +537,9 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
         <ShieldCheck size={16} className="mt-0.5 shrink-0" />
         <span>
           Qui gestisci gli <strong>accessi reali</strong> all'applicazione. <strong>Invita utente</strong> crea il login e
-          invia un'email per impostare la password; <strong>Blocca</strong> impedisce l'accesso senza eliminare nulla;
-          <strong> Elimina</strong> revoca definitivamente il login. Le azioni valgono solo per la tua azienda.
+          invia un'email per impostare la password; <strong>Nuova password</strong> (icona chiave) ne genera una e te la mostra
+          una sola volta, da comunicare tu all'utente (es. account di negozio); <strong>Blocca</strong> impedisce l'accesso
+          senza eliminare nulla; <strong>Elimina</strong> revoca definitivamente il login. Le azioni valgono solo per la tua azienda.
         </span>
       </div>
       {/* Toolbar */}
@@ -595,6 +630,36 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
         </div>
       )}
 
+      {/* Nuova password generata: mostrata una sola volta */}
+      {newPassword && (
+        <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 space-y-2">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-start gap-2 text-sm text-emerald-900">
+              <KeyRound size={16} className="mt-0.5 shrink-0" />
+              <div>
+                <div className="font-semibold">Nuova password per {newPassword.email}</div>
+                <div className="text-xs text-emerald-800 mt-0.5">
+                  Copiala e comunicala all'utente adesso: <strong>non verrà più mostrata</strong>. La vecchia password non funziona più.
+                </div>
+              </div>
+            </div>
+            <button onClick={() => setNewPassword(null)} title="Chiudi" className="p-1.5 text-emerald-700 hover:bg-emerald-100 rounded-lg">
+              <X size={14} />
+            </button>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <code className="px-3 py-2 bg-white border border-emerald-200 rounded-lg text-base font-mono tracking-wider text-slate-900 select-all">
+              {newPassword.password}
+            </code>
+            <button onClick={copyPassword}
+              className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border border-emerald-300 text-emerald-800 hover:bg-emerald-100 transition">
+              {copied ? <Check size={14} /> : <Copy size={14} />}
+              {copied ? 'Copiato' : 'Copia email e password'}
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Lista utenti */}
       <div className="divide-y divide-slate-100">
         {filtered.map(u => (
@@ -632,6 +697,22 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
                 }`}>
                 {u.is_active ? 'Blocca' : 'Sblocca'}
               </button>
+              {confirmPassword === u.id ? (
+                <div className="flex items-center gap-1">
+                  <button onClick={() => handleResetPassword(u.id, u.email)} disabled={saving} title="Conferma: genera una nuova password"
+                    className="px-2 py-1 text-xs font-medium text-emerald-700 border border-emerald-200 hover:bg-emerald-50 rounded-lg transition disabled:opacity-40">
+                    {saving ? <Loader size={14} className="animate-spin" /> : 'Genera'}
+                  </button>
+                  <button onClick={() => setConfirmPassword(null)} title="Annulla" className="p-1.5 text-slate-400 hover:bg-slate-50 rounded-lg transition">
+                    <X size={14} />
+                  </button>
+                </div>
+              ) : (
+                <button onClick={() => { setConfirmPassword(u.id); setConfirmDelete(null) }} title="Nuova password"
+                  className="p-1.5 text-slate-400 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition">
+                  <KeyRound size={14} />
+                </button>
+              )}
               <button onClick={() => handleEdit(u)} title="Modifica ruolo"
                 className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition opacity-100 md:opacity-0 md:group-hover:opacity-100">
                 <Pencil size={14} />

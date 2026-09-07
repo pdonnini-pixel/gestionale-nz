@@ -1157,9 +1157,9 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "1. Incassi del giorno, con una foto per riga",
-        "body": "Scrivi il totale corrispettivi come compare sullo scontrino di chiusura e fotografalo con il pulsante \"Foto\" sotto il campo: è l'unica foto della giornata ed è obbligatoria, senza non si può confermare (fa eccezione il giorno di negozio chiuso). Metti nell'inquadratura lo scontrino di chiusura del registratore e accanto le chiusure dei POS, come negli esempi. Poi un importo per ogni canale di incasso configurato per il tuo negozio, nell'ordine: Contanti, poi tutti i POS (per esempio POS MPS, POS MPS Amex, POS BCC, POS BCC Amex), poi Pay by link, Fatture, Bonifico. Sui POS non c'è più il pulsante foto: le chiusure dei terminali stanno nella foto unica. Dopo ogni scatto compare sotto la foto la scritta \"lettura…\" e poi \"dalla foto: importo\": se il campo era vuoto viene compilato con il numero letto (dallo scontrino di chiusura anche i contanti), se avevi già scritto un importo diverso il chip diventa arancione con il pulsante \"usa\" per copiarlo; con \"(da controllare)\" o \"?\" la lettura è incerta e va verificata sullo scontrino; \"lettura non riuscita\" ha il pulsante \"riprova\". I numeri letti sono solo una proposta: fa fede quello che scrivi tu. Puoi scrivere gli importi con la virgola (es. 1.234,50). Sotto i campi la riga \"Somma mezzi di pagamento\" ti dice se il totale quadra: verde se coincide, rossa con la differenza altrimenti. Se un canale è segnato \"fuori totale\" il suo importo non entra nel confronto.",
+        "body": "Scrivi il totale corrispettivi come compare sullo scontrino di chiusura e fotografalo con il pulsante \"Foto\" sotto il campo: è l'unica foto della giornata ed è obbligatoria, senza non si può confermare (fa eccezione il giorno di negozio chiuso). Metti nell'inquadratura lo scontrino di chiusura del registratore e accanto le chiusure dei POS, come negli esempi. Sul telefono l'account di negozio vede solo questa pagina e il Profilo, con le due voci nella barra in basso: niente menu laterale né fascia del tenant. Poi un importo per ogni canale di incasso configurato per il tuo negozio, nell'ordine: Contanti, poi tutti i POS (per esempio POS MPS, POS MPS Amex, POS BCC, POS BCC Amex), poi Pay by link, Fatture, Bonifico. Sui POS non c'è più il pulsante foto: le chiusure dei terminali stanno nella foto unica. Dopo ogni scatto compare sotto la foto la scritta \"lettura…\" e poi \"dalla foto: importo\": se il campo era vuoto viene compilato con il numero letto (dallo scontrino di chiusura anche i contanti), se avevi già scritto un importo diverso il chip diventa arancione con il pulsante \"usa\" per copiarlo; con \"(da controllare)\" o \"?\" la lettura è incerta e va verificata sullo scontrino; \"lettura non riuscita\" ha il pulsante \"riprova\". I numeri letti sono solo una proposta: fa fede quello che scrivi tu. Puoi scrivere gli importi con la virgola (es. 1.234,50). Sotto i campi la riga \"Somma mezzi di pagamento\" ti dice se il totale quadra: verde se coincide, rossa con la differenza altrimenti. Se un canale è segnato \"fuori totale\" il suo importo non entra nel confronto.",
         "steps": [
-          "Tocca \"Foto\" sotto il totale: si apre direttamente la fotocamera del telefono; scatta lo scontrino di chiusura",
+          "Tocca \"Foto\" sotto il totale: con l'account di negozio si apre direttamente la fotocamera del telefono; scatta lo scontrino di chiusura. Chi amministra (super advisor, contabile) vede invece la scelta tra fotocamera e galleria, per caricare una foto ricevuta dal negozio",
           "Scrivi gli importi dei canali: prima Contanti, poi i POS uno dietro l'altro, poi gli altri mezzi",
           "Le anteprime compaiono accanto al pulsante: toccane una per vederla a schermo intero",
           "Finché la chiusura è in bozza puoi togliere una tua foto sfocata con la X sull'anteprima"
@@ -1211,7 +1211,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "q": "Mi chiede il \"fondo cassa di ieri\": cosa devo scrivere?",
-        "a": "È il contante che c'era in cassa all'apertura di oggi. Lo chiede solo la prima volta, quando non esiste ancora una chiusura confermata precedente per il negozio; dai giorni successivi lo prende da solo dall'ultima chiusura confermata."
+        "a": "È il contante che c'era in cassa all'apertura di oggi. Lo chiede solo la prima volta, quando non esiste ancora una chiusura confermata precedente per il negozio con il fondo contato; dai giorni successivi lo prende da solo dall'ultima chiusura confermata. Se non lo sai, usa il campo \"Contanti in cassa adesso, tutti\": conta tutto il contante nel cassetto prima di fare il versamento e scrivilo; il gestionale ricava il fondo di ieri togliendo gli incassi in contanti di oggi e rimettendo spese e rimborsi pagati in contanti, e lo mostra sotto il campo. Poi conta il fondo che resta dopo il versamento e scrivilo in \"Fondo cassa contato stasera\"."
       },
       {
         "q": "Ho confermato per sbagliato: posso correggere?",
@@ -2524,13 +2524,14 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "Utenti",
-        "body": "In questa sezione gestisci gli accessi reali al gestionale: \"Invita utente\" crea il login e invia un'email per impostare la password; \"Blocca\" impedisce l'accesso senza cancellare nulla; \"Elimina\" revoca il login. Ogni utente ha un'etichetta colorata con il ruolo (Super Advisor, CEO, CFO, COO, Contabile, Operatore cassa, Sola lettura). Il ruolo \"Operatore cassa (negozio)\" è l'account di un punto vendita, condiviso dal personale: entra e vede solo la pagina Chiusura cassa del proprio negozio, nessun altro dato aziendale.",
+        "body": "In questa sezione gestisci gli accessi reali al gestionale: \"Invita utente\" crea il login e invia un'email per impostare la password; l'icona della chiave (\"Nuova password\") genera una password nuova e te la mostra una sola volta, da comunicare tu all'utente; \"Blocca\" impedisce l'accesso senza cancellare nulla; \"Elimina\" revoca il login. Ogni utente ha un'etichetta colorata con il ruolo (Super Advisor, CEO, CFO, COO, Contabile, Operatore cassa, Sola lettura). Il ruolo \"Operatore cassa (negozio)\" è l'account di un punto vendita, condiviso dal personale: entra e vede solo la pagina Chiusura cassa del proprio negozio, nessun altro dato aziendale.",
         "steps": [
           "Clicca \"Invita utente\" per aprire il modulo",
           "Inserisci nome, cognome ed email (obbligatoria) e scegli il ruolo",
           "Se il ruolo è \"Operatore cassa (negozio)\", scegli il punto vendita dell'account: è obbligatorio e determina quale chiusura di cassa può compilare",
           "Clicca \"Invia invito\": all'utente arriva l'email per impostare la password",
-          "Con la matita su un utente esistente cambi ruolo (e punto vendita, per l'operatore cassa); il cestino elimina l'accesso dopo conferma"
+          "Con la matita su un utente esistente cambi ruolo (e punto vendita, per l'operatore cassa); il cestino elimina l'accesso dopo conferma",
+          "Con l'icona della chiave e poi \"Genera\" imposti una nuova password: compare in un riquadro verde con il pulsante \"Copia email e password\". Comunicala subito all'utente, perché non viene più mostrata e la vecchia password smette di funzionare"
         ]
       },
       {
@@ -2595,6 +2596,10 @@ export const PAGE_GUIDES: PageGuide[] = [
       {
         "q": "Posso assegnare una voce di costo a più punti vendita contemporaneamente?",
         "a": "Sì, nella sezione Voci di costo puoi selezionare più centri di costo per la stessa voce, oppure scegliere \"Tutti gli outlet\" se riguarda l'intera azienda."
+      },
+      {
+        "q": "Un negozio ha perso la password dell'account cassa: come faccio?",
+        "a": "In Utenti trova l'account del negozio, clicca l'icona della chiave e poi \"Genera\": il gestionale imposta una nuova password e la mostra una sola volta in un riquadro verde. Copiala con \"Copia email e password\" e comunicala al negozio (telefono o email aziendale). Non serve che il negozio riceva email automatiche né che usi \"Password dimenticata?\"."
       },
       {
         "q": "Come faccio a togliere l'accesso a un utente che non lavora più con noi?",
