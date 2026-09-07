@@ -626,7 +626,7 @@ export default function ChiusuraCassa() {
     )
   }
 
-  const inputCls = 'w-full rounded-xl border border-slate-300 px-4 py-3 text-lg text-right font-mono tabular-nums focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-slate-100 disabled:text-slate-500'
+  const inputCls = 'w-full rounded-xl border border-slate-300 px-4 py-3 text-lg text-right tabular-nums focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-slate-100 disabled:text-slate-500'
   const textCls = 'w-full rounded-xl border border-slate-300 px-4 py-3 text-base disabled:bg-slate-100'
   const labelCls = 'block text-sm font-medium text-slate-700 mb-1'
   const okCls = 'text-emerald-700 bg-emerald-50 border-emerald-200'
@@ -711,7 +711,7 @@ export default function ChiusuraCassa() {
               <section className="bg-white border border-slate-200 rounded-xl p-4 mb-4 space-y-3">
                 <div className="flex items-center justify-between">
                   <h2 className="font-semibold text-slate-900">2. Spese cassa e rimborsi</h2>
-                  <span className="text-sm text-slate-600 font-mono tabular-nums">{formatEuro(expensesTotal + refundsTotal)}</span>
+                  <span className="text-sm text-slate-600 tabular-nums">{formatEuro(expensesTotal + refundsTotal)}</span>
                 </div>
                 {expenses.length === 0 && <p className="text-xs text-slate-500">Nessuna uscita pagata con i contanti del negozio.</p>}
                 {expenses.map((e, i) => {

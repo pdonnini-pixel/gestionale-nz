@@ -35,7 +35,7 @@ import {
   type HeadcountCost, type HeadcountEmployee, type HeadcountAllocation,
 } from '../lib/headcount'
 
-function fmt(n: number | null | undefined, dec = 0): string {
+function fmt(n: number | null | undefined, dec = 2): string {
   if (n == null) return '—'
   return new Intl.NumberFormat('de-DE', { minimumFractionDigits: dec, maximumFractionDigits: dec }).format(n)
 }
