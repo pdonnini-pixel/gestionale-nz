@@ -1230,11 +1230,11 @@ export const PAGE_GUIDES: PageGuide[] = [
     "path": "/incassi-giornalieri",
     "icon": "Receipt",
     "title": "Incassi giornalieri",
-    "description": "La pagina Incassi giornalieri è la vista amministrativa dello specchietto incassi: mostra mese per mese le chiusure di cassa dei punti vendita (totali, mezzi di pagamento, spese, versamenti, fondo cassa, differenze, foto degli scontrini), evidenzia i giorni mancanti e permette di riaprire una chiusura confermata. Nella scheda \"Canali di incasso\" si configurano le colonne che ogni cassiera compila. Compaiono solo i punti vendita che vendono: una sede o un magazzino (tipo \"Sede / magazzino\" nella scheda outlet) resta fuori da questa pagina e da Chiusura cassa.",
+    "description": "La pagina Incassi giornalieri è la vista amministrativa dello specchietto incassi: mostra mese per mese le chiusure di cassa dei punti vendita (totali, mezzi di pagamento, spese, versamenti, fondo cassa, differenze, foto degli scontrini), evidenzia i giorni mancanti e permette di riaprire una chiusura confermata. Nella scheda \"Banca\" (super advisor e contabile) si vede il riscontro automatico con i movimenti bancari: accrediti POS e Amex per terminale, versamenti trovati, chiusure verificate. Nella scheda \"Canali di incasso\" si configurano le colonne che ogni cassiera compila e i codici terminale che rendono possibile il riscontro. Compaiono solo i punti vendita che vendono: una sede o un magazzino (tipo \"Sede / magazzino\" nella scheda outlet) resta fuori da questa pagina e da Chiusura cassa.",
     "sections": [
       {
         "heading": "Riepilogo del mese",
-        "body": "Con le frecce scegli il mese. Con \"Tutti i punti vendita\" vedi una tabella giorni × outlet: in ogni cella il totale corrispettivi del giorno, colorato in verde se la chiusura è confermata, arancione se è ancora in bozza, rosso se manca (giorno passato senza chiusura), grigio se il negozio era chiuso; l'ultima riga e l'ultima colonna riportano i totali del mese. Scegliendo un solo punto vendita la tabella prende la forma del foglio Excel: una riga al giorno con totale, una colonna per ogni canale di incasso, spese cassa, rimborsi a cliente, versamenti, fondo cassa contato, differenza di cassa, numero di foto (con il segno ≠ se una foto letta automaticamente non coincide con il totale o il versamento scritti) e stato, con i totali di colonna in fondo.",
+        "body": "Con le frecce scegli il mese. Con \"Tutti i punti vendita\" vedi una tabella giorni × outlet: in ogni cella il totale corrispettivi del giorno, colorato in verde se la chiusura è confermata, arancione se è ancora in bozza, rosso se manca (giorno passato senza chiusura), grigio se il negozio era chiuso; l'ultima riga e l'ultima colonna riportano i totali del mese. Scegliendo un solo punto vendita la tabella prende la forma del foglio Excel: una riga al giorno con totale, una colonna per ogni canale di incasso, spese cassa, rimborsi a cliente, versamenti, fondo cassa contato, differenza di cassa, numero di foto (con il segno ≠ se una foto letta automaticamente non coincide con il totale o il versamento scritti) e stato, con i totali di colonna in fondo. Accanto agli importi dei canali POS e Amex e al versamento compare l'esito del riscontro con la banca: ✓ accreditato, ≠ accreditato con differenza, ✗ accredito non trovato, ? canale senza codice terminale; passando il mouse si legge l'importo arrivato in banca. Lo stato \"Verificata con la banca\" indica che tutti i POS del giorno sono stati accreditati e il versamento è stato trovato.",
         "steps": [
           "Clicca su una cella (o su una riga) per aprire il dettaglio della giornata",
           "Nel dettaglio vedi tutti gli importi, ogni spesa e rimborso con la sua descrizione, le note, chi ha chiuso e quando, e le foto degli scontrini con l'indicazione di cosa giustificano (scontrino di chiusura, chiusura POS di un canale, spesa, versamento): clicca una foto per aprirla a schermo intero. Sotto ogni foto c'è l'esito della lettura automatica: \"dalla foto\" con l'importo letto (verde se coincide con quanto scritto, arancione con la differenza se non coincide o se la lettura è incerta), più i dati secondari letti dallo scontrino (contanti ed elettronico, numero documenti, gran totale, numero azzeramenti, esito trasmissione, terminale POS, data e ora); \"Rileggi\" ripete la lettura. Se manca la foto dello scontrino di chiusura viene segnalato in rosso",
@@ -1249,12 +1249,23 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "Canali di incasso",
-        "body": "I canali sono le colonne che la cassiera compila ogni sera: per ogni punto vendita puoi definire nome (es. \"POS MPS\"), tipo (contanti, POS, POS American Express, pay by link, fatture, bonifico, altro), conto bancario su cui accredita, codice terminale come compare nella causale dell'accredito in banca (es. COD.SIA 6181087-00002), ID terminale POS stampato sulla chiusura del terminale, se l'importo concorre al totale corrispettivi e se il canale è attivo. Un canale non più usato si disattiva, non si cancella. I codici terminale serviranno alla verifica automatica con i movimenti bancari.",
+        "body": "I canali sono le colonne che la cassiera compila ogni sera: per ogni punto vendita puoi definire nome (es. \"POS MPS\"), tipo (contanti, POS, POS American Express, pay by link, fatture, bonifico, altro), conto bancario su cui accredita, codice terminale, ID terminale POS stampato sulla chiusura del terminale, se l'importo concorre al totale corrispettivi e se il canale è attivo. Un canale non più usato si disattiva, non si cancella. Il codice terminale è la chiave del riscontro con la banca: per i canali POS e Amex sono le ultime 5 cifre del codice che compare negli accrediti (es. 00002); per il canale Contanti è invece la parola che compare nella causale del versamento del negozio (es. PALMANOVA, FOIANO o il numero dello sportello ATM; più parole separate da |). In cima alla scheda c'è la tabella \"Codici terminale visti in banca\": elenca i codici trovati negli accrediti degli ultimi 90 giorni con numero, totale, ultima data e causale, e dice se ogni codice è già mappato su un canale. Il campo del codice propone gli stessi codici mentre scrivi.",
         "steps": [
           "Apri la scheda \"Canali di incasso\"",
           "Per un punto vendita senza canali clicca \"Crea canali standard\" (Contanti, POS, Pay by link, Fatture, Bonifico) e poi rinominali e completali",
           "\"Aggiungi canale\" crea una riga vuota: compila almeno il nome e il tipo",
+          "Nel canale POS di ogni negozio scrivi il codice terminale preso dalla tabella dei codici visti in banca (POS carte nel canale POS, American Express nel canale Amex); nel canale Contanti scrivi la parola chiave del versamento",
           "Modifica i campi direttamente nella tabella e clicca \"Salva\" sulla riga"
+        ]
+      },
+      {
+        "heading": "Banca: riscontro con i movimenti bancari",
+        "body": "Solo super advisor e contabile. Ogni mattina alle 8 (ora italiana) il gestionale confronta le chiusure confermate degli ultimi 60 giorni con i movimenti bancari: per ogni accredito POS legge dalla causale il codice terminale e il giorno di vendita, somma gli accrediti di quel giorno e li confronta con l'importo scritto dalla cassiera sul canale con quel codice; per il versamento cerca in banca un versamento di contante dello stesso importo entro 6 giorni, con la parola chiave del negozio. Quando tutti i POS del giorno sono accreditati e il versamento è stato trovato, la chiusura passa a \"Verificata con la banca\". La scheda mostra il mese scelto: la tabella dei canali POS (giorni, dichiarato, accreditato, differenza e quante giornate sono ✓ accreditate, ≠ con differenza, ✗ senza accredito, in attesa), la tabella dei contanti per punto vendita (incassati, spese e rimborsi, versamenti dichiarati e trovati in banca, fondo cassa a inizio e fine mese, versamenti non trovati), gli accrediti di terminali non ancora mappati e gli accrediti che non hanno una chiusura confermata per quel giorno. Il pulsante \"Verifica con la banca ora\" lancia subito il riscontro senza aspettare la mattina.",
+        "steps": [
+          "Apri la scheda \"Banca\" e scegli il mese con le frecce",
+          "Se compaiono terminali non mappati, vai in \"Canali di incasso\" e scrivi il codice nel canale giusto, poi torna qui e premi \"Verifica con la banca ora\"",
+          "Una differenza in rosso su un canale indica giornate in cui l'accreditato non coincide con il dichiarato: apri il dettaglio del giorno dal Riepilogo per vedere i movimenti bancari abbinati",
+          "Un versamento \"non trovato\" dopo 7 giorni va controllato con il negozio: importo diverso, versato su un altro conto o non ancora fatto"
         ]
       }
     ],
@@ -1270,6 +1281,10 @@ export const PAGE_GUIDES: PageGuide[] = [
       {
         "q": "Chi può riaprire una chiusura confermata?",
         "a": "Solo super advisor e contabile, dal dettaglio della giornata. La cassiera può soltanto chiederlo dalla sua pagina; la richiesta arriva come avviso nella campanella."
+      },
+      {
+        "q": "Cosa significa la chiusura \"Verificata con la banca\"?",
+        "a": "Che il riscontro automatico ha trovato in banca tutti gli accrediti POS e Amex di quel giorno per gli importi scritti dalla cassiera, e il versamento dichiarato. Non richiede nessuna azione: è la conferma definitiva della giornata. Se una giornata resta \"Confermata\" a lungo, guarda nella scheda Banca quale riga è ≠ o ✗."
       },
       {
         "q": "I totali mensili finiscono nel consuntivo del budget?",

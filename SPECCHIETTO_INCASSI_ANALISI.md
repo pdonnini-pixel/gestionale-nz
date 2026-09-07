@@ -260,7 +260,13 @@ Per Made e Zago le tabelle nascono vuote: i canali si configurano quando quei te
 - Impostazioni → «Report incassi serale» (super advisor e contabile) con «Invia una prova a me» e tabella degli ultimi invii.
 - NZ configurato: ore 21:30, destinatari Patrizio, Lilian e Denise. Mail di prova inviata e ricevuta con esito `sent`.
 
-Restano le fasi 3 (banche) e 4 (proposta consuntivo ed export).
+**Fase 3 realizzata (2026-09-05)**: verifica con la banca.
+
+- Migration `20260905_188`: esito banca sulle righe POS/Amex (`bank_status`, `bank_amount`) e sul versamento della chiusura; tabella `closing_bank_matches`; parser delle causali (codice terminale dalle ultime 5 cifre del COD.SIA o del codice Amex, giorno di vendita da «DATA RIF.» o «incassi gg.mm.aaaa», riconoscimento versamenti); `match_cash_closings_with_bank()` che somma gli accrediti per (terminale, giorno) e li confronta con la riga della chiusura confermata, cerca il versamento (importo esatto, 0-6 giorni, parola chiave del canale Contanti o conto) e porta la chiusura a «verificata»; cron `cash-bank-matching-daily` alle 06:05 UTC sui 3 tenant (run_daily_reconciliation non toccata: il suo corpo differisce fra i tenant). RPC `run_cash_bank_matching`, `list_bank_terminal_codes`, `cash_bank_monthly_summary`.
+- Incassi giornalieri: segni ✓ ≠ ✗ ? nelle celle POS e versamento, esito e movimenti abbinati nel dettaglio, scheda «Banca» con i controlli del mese (canali, contanti per outlet, terminali non mappati, accrediti senza chiusura) e «Verifica con la banca ora»; scheda «Canali di incasso» con la tabella dei codici terminale visti in banca e il campo con suggerimenti. Nel canale Contanti il codice terminale è la parola chiave del versamento (PALMANOVA, FOIANO, 2121, 2751|3246…).
+- Dato reale NZ: 7 codici MPS (00002, 00004, 00007, 00008, 00009, 00011, 00013) e 5 Amex (00001 Vicolo, 00006 Franciacorta, 00010 Brugnato, 00012 Valmontone, 00014 Torino); versamenti con nome negozio in causale per Palmanova, Foiano (Valdichiana), Franciacorta (ATM 2121), Brugnato (ATM 2751/3246), Banco Fiorentino «cassa contin» (Barberino), ATM 1745 e Intesa ATM 9750 da attribuire.
+
+Resta la fase 4 (proposta consuntivo ed export).
 
 ## 5. decisioni che servono da Patrizio
 

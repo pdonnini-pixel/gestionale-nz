@@ -101,6 +101,28 @@ export function extractedSummary(target: AttachmentTarget, extracted: unknown): 
   return out
 }
 
+/** Esito del riscontro con la banca (fase 3): righe POS/Amex e versamento. */
+export type BankStatus = 'in_attesa' | 'accreditato' | 'differenza' | 'mancante' | 'non_verificabile'
+
+export const BANK_STATUS_LABELS: Record<BankStatus, string> = {
+  in_attesa: 'In attesa dell\'accredito',
+  accreditato: 'Accreditato in banca',
+  differenza: 'Accreditato con differenza',
+  mancante: 'Accredito non trovato',
+  non_verificabile: 'Non verificabile (canale senza codice terminale)',
+}
+
+/** Simbolo compatto per le celle: ✓ accreditato, ≠ differenza, ✗ mancante, · in attesa, ? non verificabile. */
+export function bankStatusMark(status: string | null | undefined): { mark: string; cls: string } {
+  switch (status) {
+    case 'accreditato': return { mark: '✓', cls: 'text-emerald-700' }
+    case 'differenza': return { mark: '≠', cls: 'text-amber-700' }
+    case 'mancante': return { mark: '✗', cls: 'text-red-700' }
+    case 'non_verificabile': return { mark: '?', cls: 'text-slate-400' }
+    default: return { mark: '', cls: 'text-slate-400' }
+  }
+}
+
 /** Riga di uscita in contanti: spesa cassa (con scontrino) o rimborso a cliente (solo nota). */
 export type ExpenseKind = 'spesa' | 'rimborso_cliente'
 
