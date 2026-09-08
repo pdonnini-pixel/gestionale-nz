@@ -291,11 +291,15 @@ ${pageLink ? `<p style="margin:20px 0 0;font-size:13px"><a href="${esc(pageLink)
 }
 
 // ─── WhatsApp: variabili del modello (nessun "a capo" nei valori: Meta lo vieta) ───
-// Modello Twilio (twilio/text, lingua it), creato una volta e approvato da Meta:
-//   📊 Incassi {{1}}
-//   {{2}}
-//   Totale {{3}}
-//   {{4}}
+// Modello Twilio «incassi_giornalieri_v2» (twilio/text, lingua it, categoria UTILITY),
+// creato una volta sull'account Twilio e approvato da Meta. Meta rifiuta un corpo
+// troppo corto rispetto al numero di variabili, quindi il testo fisso è ampio:
+//   📊 Report incassi del giorno dal gestionale.
+//   Giornata: {{1}}
+//   Incasso per punto vendita, con scostamento dall'obiettivo: {{2}}
+//   Totale della giornata e progressivo del mese: {{3}}
+//   Chiusure mancanti e anomalie da controllare: {{4}}
+//   Per il dettaglio e le foto degli scontrini apri la pagina Incassi giornalieri del gestionale.
 function eurShort(n: number): string {
   const sign = n < 0 ? "-" : "";
   return `${sign}${Math.round(Math.abs(n)).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".")} €`;
