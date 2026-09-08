@@ -276,3 +276,15 @@ describe('ripartisciSuRighe', () => {
     expect(ripartisciSuRighe(conNull, 100).map(x => x.id)).toEqual(['d', 'n'])
   })
 })
+
+describe('link operativo sulle righe', () => {
+  it('ripartisciSuRighe trasporta il link senza toccarlo', () => {
+    const righe = [
+      { id: 'a', key: 'merci' as const, descrizione: 'A', fornitore: 'Alfa', documento: '1', scadenza: '2026-09-20', importo: 100, automatico: false, link: '/scadenzario?search=1' },
+      { id: 'b', key: 'merci' as const, descrizione: 'B', fornitore: 'Beta', documento: '2', scadenza: '2026-09-21', importo: 100, automatico: false, link: null },
+    ]
+    const r = ripartisciSuRighe(righe, 100)
+    expect(r[0].link).toBe('/scadenzario?search=1')
+    expect(r[1].link).toBeNull()
+  })
+})
