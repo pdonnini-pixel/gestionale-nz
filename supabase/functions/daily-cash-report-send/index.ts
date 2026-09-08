@@ -290,45 +290,61 @@ ${pageLink ? `<p style="margin:20px 0 0;font-size:13px"><a href="${esc(pageLink)
   return { subject, html, text };
 }
 
-// ─── WhatsApp: variabili del modello (nessun "a capo" nei valori: Meta lo vieta) ───
-// Modello Twilio «incassi_giornalieri_v2» (twilio/text, lingua it, categoria UTILITY),
-// creato una volta sull'account Twilio e approvato da Meta. Meta rifiuta un corpo
-// troppo corto rispetto al numero di variabili, quindi il testo fisso è ampio:
-//   📊 Report incassi del giorno dal gestionale.
-//   Giornata: {{1}}
-//   Incasso per punto vendita, con scostamento dall'obiettivo: {{2}}
-//   Totale della giornata e progressivo del mese: {{3}}
-//   Chiusure mancanti e anomalie da controllare: {{4}}
-//   Per il dettaglio e le foto degli scontrini apri la pagina Incassi giornalieri del gestionale.
-function eurShort(n: number): string {
+// ─── WhatsApp: variabili del modello ────────────────────────────────────
+// Il modello vive sull'account Twilio (approvato da Meta) e si legge a ogni
+// invio dalla Content API: ogni riga con {{n}} ha un'etichetta fissa che dice
+// cosa metterci. Esempio (NZ, «incassi_giornalieri_v6», approvato 2026-09-08;
+// Meta rifiuta i modelli con poco testo fisso, da qui i nomi nel testo e la riga finale):
+//   Report incassi del giorno {{1}}
+//   Barberino {{2}}
+//   Brugnato {{3}}
+//   …
+//   Totale giornaliero {{9}}
+//   Messaggio automatico del gestionale incassi, importi in euro.
+// Regole di riempimento (Meta vieta gli "a capo" e le variabili vuote):
+//   - etichetta con «giorno»/«data»/«report» → data gg/mm/aa ([PROVA] nella prova)
+//   - etichetta con «totale» → totale della giornata
+//   - etichetta = nome di un punto vendita → incasso di quel negozio
+//     («manca» se non ha chiuso, «chiuso» se giorno di chiusura, «(bozza)» se non confermato)
+//   - riga con la sola {{n}} → prossimo punto vendita non ancora assegnato, in ordine di nome
+//   - slot senza corrispondenza → «-»
+function eurPlain(n: number): string {
   const sign = n < 0 ? "-" : "";
-  return `${sign}${Math.round(Math.abs(n)).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".")} €`;
-}
-function pctDelta(actual: number, target: number): string {
-  if (!(target > 0)) return "";
-  const p = Math.round(((actual - target) / target) * 100);
-  return `${p >= 0 ? "+" : ""}${p}%`;
+  return `${sign}${Math.round(Math.abs(n)).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".")}`;
 }
 function oneLine(s: string): string { const t = s.replace(/\s+/g, " ").trim(); return t || "-"; }
-function whatsappVariables(r: ReportData, kind: string): Record<string, string> {
-  const b = r.budget;
-  const hasBudget = b.withBudget > 0;
-  const rows = r.rows.map((row) => {
-    const c = row.closing;
-    if (!c) return `${row.outlet.name}: MANCA`;
-    if (c.is_closed_day) return `${row.outlet.name}: chiuso`;
-    const tot = num(c.total_receipts);
-    const d = row.budget ? ` (${pctDelta(tot, row.budget.dayTarget)})` : "";
-    return `${row.outlet.name} ${eurShort(tot)}${d}${c.status === "bozza" ? " [bozza]" : ""}`;
-  }).join(" · ");
-  const total = `${eurShort(r.totals.total)}${hasBudget ? ` (${pctDelta(r.totals.total, b.dayTarget)} vs obiettivo ${eurShort(b.dayTarget)})` : ""} · mese ${eurShort(r.monthToDate)}${hasBudget ? ` (${pctDelta(b.mtd, b.toDateTarget)} vs obiettivo a oggi)` : ""}`;
-  const tail = `${r.missing.length ? `Mancanti: ${r.missing.map((o) => o.name).join(", ")}` : "Tutti i negozi hanno chiuso"} · ${r.anomalies.length ? `da controllare: ${r.anomalies.length}` : "nessuna anomalia"}`;
-  return {
-    "1": oneLine(`${kind === "test" ? "[PROVA] " : ""}${dateIt(r.date)} · ${r.companyName}`),
-    "2": oneLine(rows),
-    "3": oneLine(total),
-    "4": oneLine(tail),
-  };
+function normName(s: string): string { return s.toLowerCase().normalize("NFD").replace(/[^a-z0-9]/g, ""); }
+function rowAmount(row: RowData): string {
+  const c = row.closing;
+  if (!c) return "manca";
+  if (c.is_closed_day) return "chiuso";
+  return `${eurPlain(num(c.total_receipts))}${c.status === "bozza" ? " (bozza)" : ""}`;
+}
+function whatsappVariables(r: ReportData, kind: string, templateBody: string): Record<string, string> {
+  const [y, m, d] = r.date.split("-");
+  const dateStr = `${d}/${m}/${y.slice(2)}${kind === "test" ? " [PROVA]" : ""}`;
+  const vars: Record<string, string> = {};
+  const used = new Set<string>();
+  const rows = [...r.rows].sort((a, b) => a.outlet.name.localeCompare(b.outlet.name, "it"));
+  const bare: string[] = [];
+  for (const line of templateBody.split("\n")) {
+    const mm = line.match(/\{\{(\d+)\}\}/);
+    if (!mm) continue;
+    const n = mm[1];
+    const label = line.replace(/\{\{\d+\}\}/g, "").replace(/[€:·]/g, "").trim();
+    if (!label) { bare.push(n); continue; }
+    if (/giorno|data|report/i.test(label)) { vars[n] = dateStr; continue; }
+    if (/totale/i.test(label)) { vars[n] = eurPlain(r.totals.total); continue; }
+    const row = rows.find((x) => normName(x.outlet.name) === normName(label));
+    if (row) { vars[n] = rowAmount(row); used.add(row.outlet.id); } else vars[n] = "-";
+  }
+  const rest = rows.filter((x) => !used.has(x.outlet.id));
+  for (const n of bare) {
+    const row = rest.shift();
+    vars[n] = row ? `${row.outlet.name} ${rowAmount(row)}` : "-";
+  }
+  for (const k of Object.keys(vars)) vars[k] = oneLine(vars[k]);
+  return vars;
 }
 
 type WaResult = { status: "sent" | "partial" | "failed"; error: string | null };
@@ -338,9 +354,21 @@ async function sendWhatsApp(admin: SupabaseClient, r: ReportData, to: string[], 
   if (error || !cfg?.account_sid || !cfg?.auth_token || !cfg?.from_number || !cfg?.content_sid) {
     return { status: "failed", error: "WhatsApp non configurato: mancano i segreti Twilio nel Vault (twilio_account_sid, twilio_auth_token, twilio_whatsapp_from, twilio_whatsapp_content_sid)" };
   }
-  const vars = JSON.stringify(whatsappVariables(r, kind));
   const from = cfg.from_number.startsWith("whatsapp:") ? cfg.from_number : `whatsapp:${cfg.from_number}`;
   const auth = "Basic " + btoa(`${cfg.account_sid}:${cfg.auth_token}`);
+  // Corpo del modello dalla Content API: le etichette dicono cosa mettere in ogni variabile.
+  let templateBody = "";
+  try {
+    const t = await fetch(`https://content.twilio.com/v1/Content/${encodeURIComponent(cfg.content_sid)}`, { headers: { "Authorization": auth } });
+    if (t.ok) {
+      const j = await t.json() as { types?: Record<string, { body?: string }> };
+      templateBody = j.types?.["twilio/text"]?.body ?? "";
+    }
+  } catch (e) {
+    console.warn("[daily-cash-report-send] modello WhatsApp non letto:", (e as Error).message);
+  }
+  if (!templateBody) return { status: "failed", error: "Modello WhatsApp non leggibile dalla Content API (twilio_whatsapp_content_sid)" };
+  const vars = JSON.stringify(whatsappVariables(r, kind, templateBody));
   const errors: string[] = [];
   let ok = 0;
   for (const n of to) {
