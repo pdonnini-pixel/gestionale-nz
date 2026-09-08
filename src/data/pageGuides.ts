@@ -1538,6 +1538,16 @@ export const PAGE_GUIDES: PageGuide[] = [
           "L'etichetta 'automatico' segnala le uscite che non puoi rinviare con un accordo.",
           "Clicca 'Esporta scoperti' per scaricare il CSV con tutte le colonne."
         ]
+      },
+      {
+        "heading": "Dalla riga scoperta all'azione",
+        "body": "Ogni riga dell'elenco è collegata alla pagina dove quella cosa si gestisce davvero: il nome del fornitore e la freccia a fine riga aprono la destinazione giusta. Le fatture fornitori portano allo Scadenzario già filtrato su quel fornitore e su quel numero di documento, così trovi la riga senza cercarla: da lì la paghi, la metti in distinta, la rinvii o la sospendi. Le imposte portano a Scadenze fiscali, gli stipendi a Dipendenti.",
+        "steps": [
+          "Individua nell'elenco la riga che vuoi trattare.",
+          "Clicca il nome del fornitore, oppure la freccia in fondo alla riga.",
+          "Nello Scadenzario ti ritrovi la ricerca già impostata su quel documento: agisci sulla riga.",
+          "Torna indietro col tasto del browser per riprendere la simulazione dove l'avevi lasciata."
+        ]
       }
     ],
     "faq": [
@@ -1560,6 +1570,10 @@ export const PAGE_GUIDES: PageGuide[] = [
       {
         "q": "Cosa non viene conteggiato?",
         "a": "I costi ricorrenti non ancora fatturati, le RiBa presentate ma non ancora presenti in scadenzario e gli insoluti in corso di rientro. Sono uscite possibili che il modello non vede: se le conosci, aggiungile abbassando la liquidità di partenza o l'incasso atteso."
+      },
+      {
+        "q": "Ho cliccato un fornitore ma nello Scadenzario non vedo la riga: perché?",
+        "a": "Il collegamento imposta la ricerca sul numero del documento e il filtro sul fornitore, senza filtri di stato. Se la riga non compare, di solito è una fattura pagata con carta: quelle sono addebiti automatici e stanno nel filtro rapido 'In attesa carta', non nella lista attiva. Puoi anche cancellare la ricerca e lasciare solo il fornitore, per vedere tutte le sue posizioni."
       },
       {
         "q": "Posso salvare o condividere uno scenario?",

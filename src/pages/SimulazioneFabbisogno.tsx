@@ -14,12 +14,17 @@
 //                       giorno configurato del mese successivo
 //  - incassi          → bank_transactions (incassi POS + versamenti), media
 //                       giornaliera degli ultimi 30 giorni
+//
+// Ogni riga scoperta porta alla pagina dove si gestisce: le fatture allo
+// Scadenzario filtrato per fornitore e documento (`?supplier=&search=`, lo
+// stesso ingresso della Scheda contabile fornitore), le imposte a Scadenze
+// fiscali, gli stipendi a Dipendenti.
 // ─────────────────────────────────────────────────────────────────────────────
 import { useState, useEffect, useMemo, useCallback } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams, Link } from 'react-router-dom'
 import {
   Wallet, TrendingDown, AlertTriangle, CalendarClock, Download, Loader2,
-  ArrowUp, ArrowDown, Info, RefreshCw, CheckCircle2, Building2,
+  ArrowUp, ArrowDown, Info, RefreshCw, CheckCircle2, Building2, ExternalLink,
 } from 'lucide-react'
 import {
   ComposedChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine,
@@ -52,12 +57,36 @@ const parseNum = (s: string): number => {
   return Number.isFinite(v) ? v : 0
 }
 
+/**
+ * Deep link allo Scadenzario, che accetta già `?supplier=<uuid|slug>` e
+ * `?search=<testo>` (stesso ingresso usato dalla Scheda contabile fornitore).
+ * Il numero fattura come ricerca isola la singola riga; senza numero si
+ * ripiega sul nome del fornitore, che almeno restringe alla sua posizione.
+ */
+const linkScadenzario = (supplierId: string | null, documento: string | null, fornitore: string): string => {
+  const params = new URLSearchParams()
+  if (supplierId) params.set('supplier', supplierId)
+  const ricerca = (documento || fornitore || '').trim()
+  if (ricerca) params.set('search', ricerca)
+  const qs = params.toString()
+  return qs ? `/scadenzario?${qs}` : '/scadenzario'
+}
+
 const FASCIA_COLOR: Record<FasciaKey, string> = {
   stipendi: 'bg-indigo-100 text-indigo-700',
   merci: 'bg-cyan-100 text-cyan-700',
   affitti: 'bg-amber-100 text-amber-700',
   fiscali: 'bg-violet-100 text-violet-700',
   altro: 'bg-slate-100 text-slate-600',
+}
+
+/** Dove porta il collegamento di una riga scoperta, per fascia. */
+const DESTINAZIONE_LABEL: Record<FasciaKey, string> = {
+  stipendi: 'Apri i Dipendenti',
+  merci: 'Apri nello Scadenzario',
+  affitti: 'Apri nello Scadenzario',
+  fiscali: 'Apri le Scadenze fiscali',
+  altro: 'Apri nello Scadenzario',
 }
 
 /** Stati dello scadenzario che NON sono un debito da pagare. */
@@ -76,6 +105,7 @@ interface ContoRow {
 
 interface PayableViewRow {
   id: string
+  supplier_id: string | null
   supplier_name: string | null
   supplier_ragione_sociale: string | null
   invoice_number: string | null
@@ -162,7 +192,7 @@ export default function SimulazioneFabbisogno() {
       // ORDER BY interno non univoco e la paginazione perderebbe righe.
       const payRows = await fetchAllPaged<PayableViewRow>(
         (from, to) => supabase.from('v_payables_operative')
-          .select('id, supplier_name, supplier_ragione_sociale, invoice_number, due_date, amount_remaining, macro_group, cost_category_name, payment_method, is_auto_debit, status, company_id')
+          .select('id, supplier_id, supplier_name, supplier_ragione_sociale, invoice_number, due_date, amount_remaining, macro_group, cost_category_name, payment_method, is_auto_debit, status, company_id')
           .eq('company_id', COMPANY_ID)
           .lte('due_date', orizzonte)
           .gt('amount_remaining', 0)
@@ -269,6 +299,7 @@ export default function SimulazioneFabbisogno() {
         scadenza: p.due_date,
         importo: Number(p.amount_remaining || 0),
         automatico: isPagamentoAutomatico(p.payment_method, p.is_auto_debit),
+        link: linkScadenzario(p.supplier_id, p.invoice_number, fornitore),
       })
     }
 
@@ -286,6 +317,7 @@ export default function SimulazioneFabbisogno() {
         scadenza: f.due_date,
         importo: residuo,
         automatico: false,
+        link: '/scadenze-fiscali',
       })
     }
 
@@ -299,6 +331,7 @@ export default function SimulazioneFabbisogno() {
         scadenza: d,
         importo: stipendiMensili,
         automatico: true, // il bonifico stipendi non è rinviabile
+        link: '/dipendenti',
       })
     }
 
@@ -632,6 +665,7 @@ export default function SimulazioneFabbisogno() {
             <div className="text-sm font-semibold text-slate-900">Cosa resta fuori</div>
             <div className="text-xs text-slate-500 mt-1">
               Dentro ogni priorità si pagano prima gli addebiti automatici, poi le scadenze più vecchie.
+              Clicca il fornitore o la freccia per aprire la riga dove si gestisce.
             </div>
           </div>
           <span className="text-xs text-slate-500 shrink-0">{scoperte.length} voci</span>
@@ -652,6 +686,7 @@ export default function SimulazioneFabbisogno() {
                   <th className="text-left px-4 py-2 font-medium">Scadenza</th>
                   <th className="text-right px-4 py-2 font-medium">Importo</th>
                   <th className="text-right px-4 py-2 font-medium">Scoperto</th>
+                  <th className="px-2 py-2" />
                 </tr>
               </thead>
               <tbody>
@@ -661,7 +696,9 @@ export default function SimulazioneFabbisogno() {
                       <span className={`px-2 py-0.5 rounded text-xs font-medium ${FASCIA_COLOR[r.key]}`}>{FASCIA_LABEL[r.key]}</span>
                     </td>
                     <td className="px-4 py-2 text-slate-900">
-                      {r.fornitore}
+                      {r.link ? (
+                        <Link to={r.link} className="text-indigo-700 hover:underline">{r.fornitore}</Link>
+                      ) : r.fornitore}
                       {r.automatico && <span className="ml-2 text-[11px] px-1.5 py-0.5 rounded bg-red-50 text-red-600">automatico</span>}
                     </td>
                     <td className="px-4 py-2 text-slate-500">{r.documento || r.descrizione}</td>
@@ -670,6 +707,18 @@ export default function SimulazioneFabbisogno() {
                     </td>
                     <td className="px-4 py-2 text-right text-slate-600">{fmtEur(r.importo, 2)}</td>
                     <td className="px-4 py-2 text-right font-semibold text-red-600">{fmtEur(r.scoperto, 2)}</td>
+                    <td className="px-2 py-2">
+                      {r.link && (
+                        <Link
+                          to={r.link}
+                          title={DESTINAZIONE_LABEL[r.key]}
+                          aria-label={`${DESTINAZIONE_LABEL[r.key]}: ${r.fornitore}`}
+                          className="inline-flex items-center justify-center p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50"
+                        >
+                          <ExternalLink size={15} />
+                        </Link>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>

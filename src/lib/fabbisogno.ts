@@ -289,6 +289,10 @@ export interface RigaUscita {
   scadenza: string | null
   importo: number
   automatico: boolean
+  /** Rotta interna dove la riga si gestisce davvero (Scadenzario, Scadenze
+   *  fiscali, Dipendenti). Il motore la trasporta senza leggerla: serve alla
+   *  UI per portare l'utente dalla riga scoperta all'azione. */
+  link?: string | null
 }
 
 export interface RigaRipartita extends RigaUscita {
