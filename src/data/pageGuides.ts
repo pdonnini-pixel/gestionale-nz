@@ -1286,7 +1286,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "q": "La cassiera dice che non vede i campi da compilare",
-        "a": "Quasi sempre mancano i canali di incasso per quel punto vendita: vai nella scheda \"Canali di incasso\" e creali (anche con \"Crea canali standard\"). Se invece l'account non vede nessun punto vendita, controlla in Impostazioni → Utenti che all'operatore cassa sia assegnato l'outlet giusto."
+        "a": "Quasi sempre mancano i canali di incasso per quel punto vendita: vai nella scheda \"Canali di incasso\" e creali (anche con \"Crea canali standard\"). Se invece l'account non vede nessun punto vendita, controlla in Impostazioni → Utenti che all'operatore cassa sia assegnato l'outlet giusto. Un contabile o un altro ruolo aziendale senza punti vendita assegnati li vede tutti; se la pagina mostra l'avviso \"Nessun punto vendita è collegato a questo accesso\", l'accesso ha assegnazioni parziali o sbagliate da sistemare in Impostazioni → Utenti."
       },
       {
         "q": "Chi può riaprire una chiusura confermata?",
