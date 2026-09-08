@@ -44,7 +44,7 @@ export default function IncassiGiornalieri() {
   const { profile } = useAuth()
   const { company } = useCompany()
   // Solo punti vendita: sede e magazzino non hanno cassa (tipo outlet «sede»).
-  const { outlets } = useOutlets({ sellingOnly: true })
+  const { outlets, loading: outletsLoading } = useOutlets({ sellingOnly: true })
   const { toast } = useToast()
   const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
@@ -87,7 +87,10 @@ export default function IncassiGiornalieri() {
 
   // ─── Caricamento del mese ─────────────────────────────────────────────
   const load = useCallback(async () => {
-    if (!companyId || outlets.length === 0) return
+    if (!companyId) return
+    // Nessun punto vendita visibile a questo accesso: niente da caricare, ma la
+    // pagina non deve restare su «Caricamento…» (mostra l'avviso qui sotto).
+    if (outlets.length === 0) { if (!outletsLoading) setLoading(false); return }
     setLoading(true)
     const from = days[0]
     const to = days[days.length - 1]
@@ -119,7 +122,7 @@ export default function IncassiGiornalieri() {
       setLines([]); setAttachments([])
     }
     setLoading(false)
-  }, [companyId, outlets.length, days, ym.y, ym.m])
+  }, [companyId, outlets.length, outletsLoading, days, ym.y, ym.m])
 
   useEffect(() => { void load() }, [load])
 
@@ -258,6 +261,11 @@ export default function IncassiGiornalieri() {
 
           {loading ? (
             <div className="py-12 text-center text-slate-500"><Loader2 className="inline animate-spin mr-2" size={18} />Caricamento…</div>
+          ) : outlets.length === 0 ? (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-amber-800 text-sm">
+              Nessun punto vendita è collegato a questo accesso. Chiedi a chi amministra il gestionale di assegnarti i punti vendita da
+              Impostazioni → Utenti.
+            </div>
           ) : outletFilter === ALL ? (
             <MatrixView days={days} outlets={visibleOutlets} closingAt={closingAt} statusCls={statusCls} onOpen={(o, d) => setDetail({ outletId: o, date: d })} />
           ) : (
