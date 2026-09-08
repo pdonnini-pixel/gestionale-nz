@@ -318,6 +318,14 @@ Esito dopo i correttivi: 29 giornate su 42 «verificate con la banca», 13 «con
 
 Le quattro fasi del piano sono realizzate. Restano il collaudo con i negozi (account cassa, fondo cassa iniziale, prime foto dall'app) e la verifica degli accrediti BCC quando arriveranno in banca.
 
+**Go-live amministrazione (2026-09-08)**: account contabile di Sabrina e Veronica rinnovati; un contabile senza outlet assegnati non vedeva nessun punto vendita e Incassi giornalieri restava su «Caricamento…» → migration 200 (`has_outlet_access`: i ruoli aziendali senza restrizioni vedono tutti gli outlet della propria azienda) + avviso in pagina al posto del caricamento infinito.
+
+### 4c. seconda fase (da fare, in ordine di valore)
+
+1. **Lettura dei POS dalla foto unica.** Oggi la foto compila solo «Totale corrispettivi» e «Contanti» (schema `totale` di `closing-photo-extract`: `total_sales`, `cash`, `electronic`…); gli scontrini POS nella stessa foto vengono visti dal modello (li cita nelle `notes`: «totale host 1.539,91 e 141,87») ma non hanno un campo nello schema e la pagina non li usa. Da fare: aggiungere allo schema `pos_closures: [{ terminal, acquirer, amount }]`, e in `prefillFromPhoto` assegnare ogni importo alla riga POS il cui `terminal_code` corrisponde al terminale stampato sulla chiusura POS (fallback: acquirer MPS/Nexi vs BCC); confronto nel chip «dalla foto» come per il totale. Collaudo sulle 42 foto già caricate (settembre 1–6) prima di attivarlo per i negozi.
+2. Usare `electronic` (pagamento elettronico dallo scontrino RT) come controllo incrociato della somma dei POS.
+3. «Reimposta password» già disponibile in Impostazioni → Utenti (super advisor): valutare se aprirlo anche al contabile per gli account di negozio.
+
 
 ## 5. decisioni che servono da Patrizio
 
