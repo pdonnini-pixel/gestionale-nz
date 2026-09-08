@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import {
   HelpCircle, X, ChevronRight, ChevronLeft,
   LayoutDashboard, Store, Receipt, Landmark, Users, FileText, Percent,
-  Calculator, BarChart3, GitCompare, Wallet, Building2,
+  Calculator, BarChart3, GitCompare, Wallet, Building2, Scale,
   CalendarClock, DatabaseZap, Archive, FileCode, Settings,
   Sparkles, Send, Loader2, BookOpen, Package, UserCircle,
   MessageSquare, Lock, Search, CheckCircle2, AlertTriangle,
@@ -20,7 +20,7 @@ import {
 // Mappa nome-icona (stringa nel file dati) -> componente lucide.
 const ICONS: Record<string, LucideIcon> = {
   LayoutDashboard, Store, Receipt, Landmark, Users, FileText, Percent,
-  Calculator, BarChart3, GitCompare, Wallet, Building2,
+  Calculator, BarChart3, GitCompare, Wallet, Building2, Scale,
   CalendarClock, DatabaseZap, Archive, FileCode, Settings,
   Sparkles, Package, UserCircle, HelpCircle,
 }

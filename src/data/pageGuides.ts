@@ -1488,6 +1488,86 @@ export const PAGE_GUIDES: PageGuide[] = [
     ]
   },
   {
+    "path": "/fabbisogno",
+    "icon": "Scale",
+    "title": "Simulazione fabbisogno",
+    "description": "Questa pagina risponde a una domanda sola: entro una certa data devo pagare una serie di cose, ho una certa disponibilità, cosa riesco a pagare e cosa resta fuori? Mette in fila le uscite obbligate per ordine di priorità (prima gli stipendi, poi le merci, poi gli affitti, poi imposte e altri fornitori), le confronta con la cassa più gli incassi attesi e calcola quanto manca. Quel «quanto manca» è il fabbisogno da coprire.",
+    "sections": [
+      {
+        "heading": "I quattro numeri in alto",
+        "body": "Disponibilità stimata è la somma di quello che hai in banca oggi e degli incassi che ti aspetti fino alla data scelta (più il fido, se lo attivi). Uscite obbligate è il totale che devi pagare entro quella data. Il terzo riquadro mostra il fabbisogno se non basta, oppure la cassa che avanza se basta. Cassa sotto zero indica il primo giorno in cui il saldo proiettato diventa negativo, con il punto di minimo del periodo.",
+        "steps": [
+          "Scegli la data entro cui vuoi ragionare nel campo 'Simula fino al'.",
+          "Guarda il terzo riquadro: se è rosso, quello è il denaro che devi procurarti o rimandare.",
+          "Guarda il quarto: ti dice il giorno in cui la cassa gira in negativo, non solo se succede."
+        ]
+      },
+      {
+        "heading": "I parametri dello scenario",
+        "body": "Ogni campo parte da un valore letto dai dati veri del gestionale, ma puoi sovrascriverlo: quello che scrivi tu ha la precedenza, quello che lasci vuoto usa il dato di sistema (mostrato in grigio nel campo). La liquidità di partenza è il saldo dei conti attivi in Banche. L'incasso medio giornaliero è la media degli incassi POS e dei versamenti di contante realmente arrivati in banca negli ultimi 30 giorni. Gli stipendi netti mensili vengono dall'ultimo cedolino caricato in Dipendenti.",
+        "steps": [
+          "Correggi la liquidità se sai di avere accrediti o addebiti non ancora visibili nei saldi.",
+          "Correggi l'incasso giornaliero se il periodo che stai simulando è diverso dagli ultimi 30 giorni (saldi, stagionalità, chiusure).",
+          "Correggi gli stipendi se il cedolino del mese è diverso dall'ultimo caricato.",
+          "Usa il cursore 'Scenario incassi' per vedere cosa succede con incassi più bassi o più alti del previsto, senza toccare gli altri campi."
+        ]
+      },
+      {
+        "heading": "Le tre spunte che cambiano il quadro",
+        "body": "'Includi lo scaduto arretrato' considera anche le fatture già scadute, che è la lettura corretta se le devi ancora pagare: se la togli vedi solo le scadenze future. 'Includi gli stipendi' aggiunge le mensilità che cadono nel periodo, calcolate sul giorno del mese che indichi tu (di norma il 10, quando esce il netto del mese prima). 'Considera il fido' somma alla disponibilità l'affidamento dei conti: usalo per capire quanto del fabbisogno è già coperto dalla banca."
+      },
+      {
+        "heading": "La cascata di pagamento",
+        "body": "La tabella centrale è il cuore del modello. Le priorità sono elencate dall'alto in basso e la disponibilità viene assorbita in quest'ordine: la prima fascia prende quello che le serve, alla seconda resta il residuo, e così via. Per ogni fascia vedi quanto è dovuto, quanto riesci a pagare, quanto resta scoperto e la percentuale di copertura. Con le frecce a destra sposti una priorità su o giù e vedi subito come cambia chi resta fuori. Il fabbisogno totale non cambia riordinando: cambia solo chi viene pagato.",
+        "steps": [
+          "Leggi la colonna 'Resta scoperto' per capire dove si concentra il problema.",
+          "Guarda la colonna 'di cui automatico': sono RiBa, SDD, addebiti su carta e bonifico stipendi, cioè uscite che partono dal conto senza una tua disposizione.",
+          "Se compare la banda rossa in fondo alla tabella, quella cifra è scoperto non rinviabile: non basta accordarsi col fornitore, o la copri o va insoluta.",
+          "Prova a spostare una fascia con le frecce per confrontare due politiche di pagamento diverse."
+        ]
+      },
+      {
+        "heading": "Il saldo giorno per giorno",
+        "body": "Il grafico proietta il saldo dalla giornata di oggi alla data scelta: gli incassi sono distribuiti in modo uniforme, le uscite cadono alla loro data di scadenza e l'arretrato scaduto pesa tutto sul primo giorno. La linea rossa tratteggiata è lo zero: dove la curva la attraversa hai il giorno critico. Serve a capire il momento della tensione, non solo la sua entità."
+      },
+      {
+        "heading": "Cosa resta fuori",
+        "body": "L'elenco in fondo mostra riga per riga quello che con questi parametri non riesci a pagare: fornitore, documento, scadenza, importo e quota scoperta. Dentro ogni priorità l'ordine di pagamento è: prima gli addebiti automatici, poi le scadenze più vecchie, poi a parità di data gli importi più piccoli. Il pulsante 'Esporta scoperti' scarica la lista in CSV, da usare per preparare le telefonate ai fornitori o la richiesta di affidamento in banca.",
+        "steps": [
+          "Scorri l'elenco: le scadenze già passate sono in rosso.",
+          "L'etichetta 'automatico' segnala le uscite che non puoi rinviare con un accordo.",
+          "Clicca 'Esporta scoperti' per scaricare il CSV con tutte le colonne."
+        ]
+      }
+    ],
+    "faq": [
+      {
+        "q": "Che differenza c'è tra questa pagina e il Cashflow Prospettico?",
+        "a": "Il Cashflow Prospettico proietta entrate e uscite nel tempo e ti dice come si muove il saldo. Questa pagina risponde a una domanda più stretta e più operativa: a una data precisa, con i soldi che ho, quali obbligazioni riesco a onorare e quali no, dato un ordine di priorità che decidi tu."
+      },
+      {
+        "q": "Da dove arrivano le uscite obbligate?",
+        "a": "Dallo Scadenzario (le righe con un residuo ancora da pagare e scadenza entro la data scelta, escluse annullate, pagate e note di credito), dalle Scadenze fiscali ancora aperte e dalla stima degli stipendi. Le fatture senza categoria di costo finiscono in 'Altri fornitori': se ne vedi molte, conviene categorizzarle nello Scadenzario per avere una simulazione più fedele."
+      },
+      {
+        "q": "Perché il fabbisogno non cambia se sposto le priorità?",
+        "a": "Perché il totale che manca dipende solo da quanto devi e da quanto hai, non dall'ordine in cui paghi. Riordinare cambia chi viene pagato e chi resta fuori, cioè la decisione operativa, non l'entità del buco."
+      },
+      {
+        "q": "L'incasso medio giornaliero mi sembra sbagliato: come mai?",
+        "a": "È la media degli ultimi 30 giorni dei movimenti bancari categorizzati come incassi POS e versamenti. Se in quel periodo ci sono state chiusure, saldi o giorni non ancora riconciliati la media si sposta: scrivi tu il valore che ritieni corretto nel campo, oppure usa il cursore dello scenario."
+      },
+      {
+        "q": "Cosa non viene conteggiato?",
+        "a": "I costi ricorrenti non ancora fatturati, le RiBa presentate ma non ancora presenti in scadenzario e gli insoluti in corso di rientro. Sono uscite possibili che il modello non vede: se le conosci, aggiungile abbassando la liquidità di partenza o l'incasso atteso."
+      },
+      {
+        "q": "Posso salvare o condividere uno scenario?",
+        "a": "La data scelta resta nell'indirizzo della pagina (il parametro 'al'), quindi copiando il link riapri la simulazione alla stessa data. Gli altri parametri (cursore, spunte, ordine delle priorità) tornano ai valori di partenza a ogni apertura."
+      }
+    ]
+  },
+  {
     "path": "/open-to-buy",
     "icon": "Wallet",
     "title": "Open-to-Buy Planner",

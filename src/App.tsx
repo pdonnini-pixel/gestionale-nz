@@ -26,6 +26,7 @@ const CashFlow = lazy(() => import('./pages/CashflowProspettico'))
 const OpenToBuy = lazy(() => import('./pages/OpenToBuy'))
 const Produttivita = lazy(() => import('./pages/Produttivita'))
 const ScenarioPlanning = lazy(() => import('./pages/ScenarioPlanning'))
+const SimulazioneFabbisogno = lazy(() => import('./pages/SimulazioneFabbisogno'))
 const MarginiCategoria = lazy(() => import('./pages/MarginiCategoria'))
 const MarginiOutlet = lazy(() => import('./pages/MarginiOutlet'))
 const StoreManager = lazy(() => import('./pages/StoreManager'))
@@ -174,6 +175,7 @@ function AppRoutes() {
           <Route path="stock" element={<StockSellthrough />} />
           <Route path="analytics-pos" element={<AnalyticsPOS />} />
           <Route path="cash-flow" element={<CashFlow />} />
+          <Route path="fabbisogno" element={<SimulazioneFabbisogno />} />
           <Route path="open-to-buy" element={<OpenToBuy />} />
           <Route path="produttivita" element={<Produttivita />} />
           <Route path="scenario" element={<ScenarioPlanning />} />
