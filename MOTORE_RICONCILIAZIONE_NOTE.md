@@ -152,3 +152,56 @@ ricade nel nuovo vincolo, ed è proprio quello di SPM.
 `undo_reconcile_movement`, che la riaprirebbe cancellando la chiusura. Si azzera
 `bank_transaction_id`, si porta il log a `rejected` e si riapre il movimento,
 lasciando `status`, `payment_date` e `closed_manually` intatti.
+
+---
+
+## Il giro dell'08/09: candidato non unico, ma disambiguato dalla distinta
+
+Terzo giro consecutivo pulito. Il cron ha girato alle 07:45 in 123,9 secondi
+(125,7 il 7/9, 125,5 il 6/9: tempi ormai stabili), ha applicato 13 agganci e ha
+lasciato 4 proposte da confermare.
+
+Undici agganci si leggono da soli, perché la causale nomina il beneficiario o il
+numero di fattura: ALFATECNO 119, LA SCOPA MAGICA 506, GRUPPO SERVIZI
+V070012603479 e V070012604065, ANTICO CODICE SF_01, Amazon (due), gigliola
+franco 66, SPM 125, GWA 723, GHEZZI MARCO CF-92 (pagamento parziale di 2.866 su
+4.866, stato `parziale` corretto). Due erano su causale anonima MPS e li ho
+verificati uno per uno: REMAS 4513/00 aveva una sola gemella e quella era fuori
+finestra, quindi candidato unico.
+
+**Il caso EPPI merita di essere scritto.** Movimento del 07/09 da 3.051,75 €
+(netto 3.050,00 + 1,75 di commissione), causale anonima. Il fornitore ha due
+fatture aperte da 3.050,00 € entrambe dentro la finestra: la 32 scaduta il 03/08
+e la 36 scaduta il 03/09. Applicando alla lettera il criterio che avevo scritto
+io stesso il giorno prima (importo esatto **e** candidato unico, altrimenti
+annullare) l'aggancio andava tolto.
+
+Sarebbe stato un errore. Il motore non ha tirato a indovinare: ha spezzato la
+parità con una prova concreta. La 32 risulta disposta su quella banca in quelle
+date, la 36 no. La verifica è riproducibile:
+
+```sql
+select p.invoice_number, p.due_date,
+       public.payable_in_distinta_for_movement(p.id, bt.bank_account_id, bt.transaction_date)
+  from payables p
+ cross join (select bank_account_id, transaction_date
+               from bank_transactions where id = '<id movimento>') bt
+ where p.supplier_name ilike '%EPPI%';
+-- 32 -> true, 36 -> false
+```
+
+Torna anche il ritmo dei pagamenti: la 20 scadeva il 30/06 ed è stata pagata il
+10/07, la 24 scadeva il 09/07 pagata il 07/08, la 32 scadeva il 03/08 pagata il
+07/09. Un mese dopo la scadenza, sempre. La 36, scaduta il 03/09, si pagherà a
+ottobre.
+
+**Il criterio va corretto così**: su causale anonima pretendere importo netto
+esatto e candidato unico, *oppure* candidato unico fra quelli disposti in
+distinta su quella banca in quelle date. Il secondo ramo è la funzione
+`payable_in_distinta_for_movement`, e nel log si riconosce dalla nota
+«auto (distinta): scadenza disposta su questa banca in queste date». Quando c'è
+quella nota, l'aggancio ha una prova documentale dietro e non si tocca.
+
+Le 4 proposte lasciate aperte sono corrette come proposte: BRT accostata a un
+bonifico che in causale dice SAMA SRL, TANESINI accostata a un pagamento POS in
+un hotel di Bentivoglio. Il motore non le ha applicate, e ha fatto bene.
