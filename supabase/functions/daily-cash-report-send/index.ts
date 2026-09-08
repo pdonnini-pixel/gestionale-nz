@@ -17,6 +17,12 @@
 // Sicurezza: service role solo qui dentro; la RESEND_API_KEY sta nei secret
 // delle function (come send-distinta-email); nessun valore di tenant nel
 // codice: l'URL dell'app arriva da daily_report_settings.app_url.
+//
+// WhatsApp (opzionale, daily_report_settings.whatsapp_enabled): lo stesso
+// report in versione breve ai numeri in whatsapp_recipients, via Twilio con
+// un modello approvato da Meta (fuori dalla finestra di 24 ore è l'unico modo).
+// Credenziali nel Vault del tenant, lette con get_twilio_whatsapp_config()
+// (migration 201). body.channel = 'whatsapp' nella prova manda solo WhatsApp.
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient, SupabaseClient } from "jsr:@supabase/supabase-js@2";
@@ -284,6 +290,72 @@ ${pageLink ? `<p style="margin:20px 0 0;font-size:13px"><a href="${esc(pageLink)
   return { subject, html, text };
 }
 
+// ─── WhatsApp: variabili del modello (nessun "a capo" nei valori: Meta lo vieta) ───
+// Modello Twilio (twilio/text, lingua it), creato una volta e approvato da Meta:
+//   📊 Incassi {{1}}
+//   {{2}}
+//   Totale {{3}}
+//   {{4}}
+function eurShort(n: number): string {
+  const sign = n < 0 ? "-" : "";
+  return `${sign}${Math.round(Math.abs(n)).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".")} €`;
+}
+function pctDelta(actual: number, target: number): string {
+  if (!(target > 0)) return "";
+  const p = Math.round(((actual - target) / target) * 100);
+  return `${p >= 0 ? "+" : ""}${p}%`;
+}
+function oneLine(s: string): string { const t = s.replace(/\s+/g, " ").trim(); return t || "-"; }
+function whatsappVariables(r: ReportData, kind: string): Record<string, string> {
+  const b = r.budget;
+  const hasBudget = b.withBudget > 0;
+  const rows = r.rows.map((row) => {
+    const c = row.closing;
+    if (!c) return `${row.outlet.name}: MANCA`;
+    if (c.is_closed_day) return `${row.outlet.name}: chiuso`;
+    const tot = num(c.total_receipts);
+    const d = row.budget ? ` (${pctDelta(tot, row.budget.dayTarget)})` : "";
+    return `${row.outlet.name} ${eurShort(tot)}${d}${c.status === "bozza" ? " [bozza]" : ""}`;
+  }).join(" · ");
+  const total = `${eurShort(r.totals.total)}${hasBudget ? ` (${pctDelta(r.totals.total, b.dayTarget)} vs obiettivo ${eurShort(b.dayTarget)})` : ""} · mese ${eurShort(r.monthToDate)}${hasBudget ? ` (${pctDelta(b.mtd, b.toDateTarget)} vs obiettivo a oggi)` : ""}`;
+  const tail = `${r.missing.length ? `Mancanti: ${r.missing.map((o) => o.name).join(", ")}` : "Tutti i negozi hanno chiuso"} · ${r.anomalies.length ? `da controllare: ${r.anomalies.length}` : "nessuna anomalia"}`;
+  return {
+    "1": oneLine(`${kind === "test" ? "[PROVA] " : ""}${dateIt(r.date)} · ${r.companyName}`),
+    "2": oneLine(rows),
+    "3": oneLine(total),
+    "4": oneLine(tail),
+  };
+}
+
+type WaResult = { status: "sent" | "partial" | "failed"; error: string | null };
+async function sendWhatsApp(admin: SupabaseClient, r: ReportData, to: string[], kind: string): Promise<WaResult> {
+  const { data, error } = await admin.rpc("get_twilio_whatsapp_config");
+  const cfg = (Array.isArray(data) ? data[0] : data) as { account_sid?: string; auth_token?: string; from_number?: string; content_sid?: string } | null;
+  if (error || !cfg?.account_sid || !cfg?.auth_token || !cfg?.from_number || !cfg?.content_sid) {
+    return { status: "failed", error: "WhatsApp non configurato: mancano i segreti Twilio nel Vault (twilio_account_sid, twilio_auth_token, twilio_whatsapp_from, twilio_whatsapp_content_sid)" };
+  }
+  const vars = JSON.stringify(whatsappVariables(r, kind));
+  const from = cfg.from_number.startsWith("whatsapp:") ? cfg.from_number : `whatsapp:${cfg.from_number}`;
+  const auth = "Basic " + btoa(`${cfg.account_sid}:${cfg.auth_token}`);
+  const errors: string[] = [];
+  let ok = 0;
+  for (const n of to) {
+    const body = new URLSearchParams({ From: from, To: n.startsWith("whatsapp:") ? n : `whatsapp:${n}`, ContentSid: cfg.content_sid, ContentVariables: vars });
+    try {
+      const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(cfg.account_sid)}/Messages.json`, {
+        method: "POST", headers: { "Authorization": auth, "Content-Type": "application/x-www-form-urlencoded" }, body,
+      });
+      if (res.ok) { ok++; continue; }
+      const t = (await res.text()).slice(0, 300);
+      console.error(`[daily-cash-report-send] Twilio ${res.status} to=${n}:`, t);
+      errors.push(`${n}: ${res.status} ${t}`);
+    } catch (e) {
+      errors.push(`${n}: ${(e as Error).message}`);
+    }
+  }
+  return { status: ok === to.length ? "sent" : ok > 0 ? "partial" : "failed", error: errors.length ? errors.join(" | ").slice(0, 500) : null };
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return jsonError(405, "Method not allowed");
@@ -334,7 +406,11 @@ Deno.serve(async (req: Request) => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(reportDate)) return jsonError(400, "report_date non valida", "BAD_REQUEST");
 
     const { data: settings } = await admin.from("daily_report_settings").select("*").eq("company_id", companyId).maybeSingle();
-    const recipients: string[] = testTo ?? ((settings?.recipients as string[] | null) ?? []);
+    // Canale: 'email' (default) oppure 'whatsapp' (prova solo WhatsApp; il cron manda entrambi se whatsapp_enabled).
+    const channel: "email" | "whatsapp" = body.channel === "whatsapp" ? "whatsapp" : "email";
+    const waRecipients: string[] = ((settings?.whatsapp_recipients as string[] | null) ?? []).filter(Boolean);
+    const waEnabled = settings?.whatsapp_enabled === true;
+    const recipients: string[] = channel === "whatsapp" ? waRecipients : (testTo ?? ((settings?.recipients as string[] | null) ?? []));
     const appUrl = (settings?.app_url as string | null) ?? null;
     const vatRate = Number.isFinite(Number(settings?.budget_vat_rate)) ? Number(settings?.budget_vat_rate) : 22;
 
@@ -345,8 +421,8 @@ Deno.serve(async (req: Request) => {
     };
 
     if (recipients.length === 0) {
-      await finish("skipped", { error: "nessun destinatario" });
-      return jsonError(400, "Nessun destinatario configurato", "NO_RECIPIENTS");
+      await finish("skipped", { error: channel === "whatsapp" ? "nessun numero WhatsApp configurato" : "nessun destinatario" });
+      return jsonError(400, channel === "whatsapp" ? "Nessun numero WhatsApp configurato" : "Nessun destinatario configurato", "NO_RECIPIENTS");
     }
 
     const report = await buildReport(admin, companyId, reportDate, appUrl, vatRate);
@@ -358,26 +434,41 @@ Deno.serve(async (req: Request) => {
     }
 
     const { subject, html, text } = renderHtml(report);
-    const resendKey = Deno.env.get("RESEND_API_KEY");
-    const from = Deno.env.get("DISTINTA_EMAIL_FROM");
-    if (!resendKey || !from) {
-      await finish("failed", { subject, summary, error: "RESEND_API_KEY o DISTINTA_EMAIL_FROM assenti" });
-      return jsonError(503, "Invio email non configurato (RESEND_API_KEY / DISTINTA_EMAIL_FROM)", "EMAIL_NOT_CONFIGURED");
+    const wantEmail = channel === "email";
+    const wantWa = channel === "whatsapp" || (kind === "report" && waEnabled && waRecipients.length > 0);
+
+    let emailError: string | null = null;
+    if (wantEmail) {
+      const resendKey = Deno.env.get("RESEND_API_KEY");
+      const from = Deno.env.get("DISTINTA_EMAIL_FROM");
+      if (!resendKey || !from) {
+        emailError = "RESEND_API_KEY o DISTINTA_EMAIL_FROM assenti";
+      } else {
+        const r = await fetch("https://api.resend.com/emails", {
+          method: "POST",
+          headers: { "Authorization": `Bearer ${resendKey}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ from, to: recipients, subject: kind === "test" ? `[PROVA] ${subject}` : subject, html, text }),
+        });
+        if (!r.ok) {
+          const errText = (await r.text()).slice(0, 500);
+          console.error(`[daily-cash-report-send] Resend ${r.status}:`, errText);
+          emailError = `Resend ${r.status}: ${errText}`;
+        }
+      }
     }
-    const r = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: { "Authorization": `Bearer ${resendKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ from, to: recipients, subject: kind === "test" ? `[PROVA] ${subject}` : subject, html, text }),
-    });
-    if (!r.ok) {
-      const errText = (await r.text()).slice(0, 500);
-      console.error(`[daily-cash-report-send] Resend ${r.status}:`, errText);
-      await finish("failed", { subject, summary, error: `Resend ${r.status}: ${errText}` });
-      return jsonError(502, "Invio email non riuscito", "RESEND_API_ERROR");
+
+    // WhatsApp: la mail non blocca WhatsApp e viceversa; l'esito va nel log.
+    let wa: WaResult | null = null;
+    if (wantWa) wa = await sendWhatsApp(admin, report, waRecipients, kind);
+
+    const failed = wantEmail ? emailError != null : wa?.status === "failed";
+    await finish(failed ? "failed" : "sent", { subject, summary, error: emailError, whatsapp_status: wa?.status ?? null, whatsapp_error: wa?.error ?? null });
+    if (failed) {
+      if (wantEmail && emailError === "RESEND_API_KEY o DISTINTA_EMAIL_FROM assenti") return jsonError(503, "Invio email non configurato (RESEND_API_KEY / DISTINTA_EMAIL_FROM)", "EMAIL_NOT_CONFIGURED");
+      return wantEmail ? jsonError(502, "Invio email non riuscito", "RESEND_API_ERROR") : jsonError(502, `WhatsApp non inviato: ${wa?.error ?? "errore"}`, "WHATSAPP_ERROR");
     }
-    await finish("sent", { subject, summary });
-    console.log(`[daily-cash-report-send] company=${companyId} date=${reportDate} kind=${kind} to=${recipients.length} closings=${summary.closings}/${summary.outlets}`);
-    return jsonOk({ data: { status: "sent", subject, summary, recipients } });
+    console.log(`[daily-cash-report-send] company=${companyId} date=${reportDate} kind=${kind} channel=${channel} to=${recipients.length} wa=${wa?.status ?? "-"} closings=${summary.closings}/${summary.outlets}`);
+    return jsonOk({ data: { status: "sent", subject, summary, recipients, whatsapp: wa ? { status: wa.status, recipients: waRecipients, error: wa.error } : null } });
   } catch (error) {
     console.error(`[daily-cash-report-send] Error:`, error);
     if (logId) await admin.from("daily_report_log").update({ status: "failed", error: String((error as Error).message).slice(0, 500) }).eq("id", logId);
