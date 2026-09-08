@@ -10,7 +10,7 @@ import {
   CalendarClock, UserCheck, PieChart, Sparkles, Activity, Sliders,
   Upload, FolderArchive, TrendingUp, ChevronsUpDown, Building,
   Menu, X, ChevronsLeft, ChevronsRight,
-  MessageSquare, Shield, RefreshCw, ClipboardList, Wallet, Receipt, Percent,
+  MessageSquare, Shield, RefreshCw, ClipboardList, Wallet, Receipt, Percent, Scale,
   LucideIcon
 } from 'lucide-react'
 import { useState, useRef, useEffect, useMemo, createContext, useContext } from 'react'
@@ -70,6 +70,7 @@ function buildSections(labels: CompanyLabels): NavSection[] {
       items: [
         { to: '/banche', icon: Landmark, label: 'Banche', roles: ['super_advisor', 'ceo', 'cfo', 'contabile'] },
         { to: '/cash-flow', icon: TrendingUp, label: 'Cashflow', roles: ['super_advisor', 'ceo', 'cfo'] },
+        { to: '/fabbisogno', icon: Scale, label: 'Fabbisogno', roles: ['super_advisor', 'ceo', 'cfo'] },
         { to: '/conto-economico', icon: BarChart3, label: 'Conto Economico', roles: ['super_advisor', 'ceo', 'cfo'] },
       ],
     },
@@ -152,6 +153,7 @@ export function buildBreadcrumbMap(
     '/': { section: 'Cruscotto', page: 'Dashboard' },
     '/banche': { section: 'Finanza', page: 'Banche' },
     '/cash-flow': { section: 'Finanza', page: 'Cashflow' },
+    '/fabbisogno': { section: 'Finanza', page: 'Fabbisogno' },
     '/conto-economico': { section: 'Finanza', page: 'Conto Economico' },
     '/outlet': { section: sectionPos, page: posSingular },
     '/confronto-outlet': { section: sectionPos, page: `Confronto ${posPlural}` },
@@ -257,7 +259,7 @@ export default function Sidebar({ mobileOpen, setMobileOpen, badges = {} }: Side
   // qui decidiamo solo cosa mostrare nel menu. Escluse: Impostazioni, Import
   // Hub, Archivio, AI Categorie, Divisione Fornitori, Admin Segnalazioni.
   const VIEWER_ROUTES = new Set<string>([
-    '/', '/banche', '/cash-flow', '/conto-economico', '/outlet',
+    '/', '/banche', '/cash-flow', '/fabbisogno', '/conto-economico', '/outlet',
     '/confronto-outlet', '/budget', '/fornitori', '/fatturazione',
     '/scadenzario', '/margini', '/produttivita', '/scenario',
     '/dipendenti', '/ticket',
