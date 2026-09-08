@@ -11192,6 +11192,8 @@ export type Database = {
           timezone: string
           updated_at: string
           updated_by: string | null
+          whatsapp_enabled: boolean
+          whatsapp_recipients: string[]
         }
         Insert: {
           app_url?: string | null
@@ -11205,6 +11207,8 @@ export type Database = {
           timezone?: string
           updated_at?: string
           updated_by?: string | null
+          whatsapp_enabled?: boolean
+          whatsapp_recipients?: string[]
         }
         Update: {
           app_url?: string | null
@@ -11218,6 +11222,8 @@ export type Database = {
           timezone?: string
           updated_at?: string
           updated_by?: string | null
+          whatsapp_enabled?: boolean
+          whatsapp_recipients?: string[]
         }
         Relationships: []
       }
@@ -11274,6 +11280,8 @@ export type Database = {
           status: string
           subject: string | null
           summary: Json | null
+          whatsapp_error: string | null
+          whatsapp_status: string | null
         }
         Insert: {
           company_id: string
@@ -11288,6 +11296,8 @@ export type Database = {
           status?: string
           subject?: string | null
           summary?: Json | null
+          whatsapp_error?: string | null
+          whatsapp_status?: string | null
         }
         Update: {
           company_id?: string
@@ -11302,6 +11312,8 @@ export type Database = {
           status?: string
           subject?: string | null
           summary?: Json | null
+          whatsapp_error?: string | null
+          whatsapp_status?: string | null
         }
         Relationships: []
       }

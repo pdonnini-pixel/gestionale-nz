@@ -2670,7 +2670,8 @@ export const PAGE_GUIDES: PageGuide[] = [
           "Se vuoi, attiva il sollecito: a quell'ora gli operatori cassa dei negozi che non hanno ancora confermato ricevono un avviso in-app con il link alla loro chiusura",
           "Decidi se la mail deve partire anche nei giorni senza nessuna chiusura registrata",
           "Salva, poi usa \"Invia una prova a me\": la mail di oggi arriva solo al tuo indirizzo, con [PROVA] nell'oggetto",
-          "La tabella \"Ultimi invii\" mostra giorno, tipo (report, sollecito, prova), esito e destinatari; se un invio non è riuscito vedi il motivo"
+          "Se vuoi anche WhatsApp, spunta \"Invia anche su WhatsApp (versione breve)\" e scrivi i numeri (uno per riga, formato +39…): alla stessa ora della mail arriva un messaggio di poche righe con incasso e scostamento di ogni negozio, totale del giorno e del mese, negozi mancanti e anomalie. Parte dal numero WhatsApp aziendale con un modello approvato da Meta; \"Prova WhatsApp\" lo manda subito ai numeri configurati",
+          "La tabella \"Ultimi invii\" mostra giorno, tipo (report, sollecito, prova), esito (mail e, se attivo, WhatsApp) e destinatari; se un invio non è riuscito vedi il motivo"
         ]
       }
     ],
