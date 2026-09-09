@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { extractBeneficiary, trimBenefTail, sigWords, namesOverlap, movementNet, isRealTransfer, supplierKeyOf, invoiceTokens, invoiceCitedIn, findExactCombo } from './reconcileMatch'
+import { extractBeneficiary, trimBenefTail, sigWords, namesOverlap, movementNet, isRealTransfer, supplierKeyOf, invoiceTokens, invoiceCitedIn, findExactCombo, hasPaymentStructure } from './reconcileMatch'
 
 // Casi reali (New Zago, tab Banche → Riconciliazione). Vedi RICONCILIAZIONE_REGOLE.md R5/R6.
 describe('extractBeneficiary', () => {
@@ -165,5 +165,25 @@ describe('findExactCombo', () => {
   })
   it('vuole almeno due voci: la fattura singola non è un gruppo', () => {
     expect(findExactCombo([{ cents: 10000 }, { cents: 300 }], 10000)).toBeNull()
+  })
+})
+
+describe('hasPaymentStructure', () => {
+  it('scarta una disposizione che non paga un fornitore', () => {
+    expect(hasPaymentStructure('Causale: DISPOSIZIONE - Descrizione: FONDO DI GARANZIA MCC')).toBe(false)
+  })
+  it('tiene i flussi CBI e i bonifici veri', () => {
+    expect(hasPaymentStructure('Causale: DISPOSIZIONE - Descrizione: FILIALE DISPONENTE 2430 ID FLUSSO CBI: 136163365 NUM. TOT. PAGAMENTI: 1 IMPORTO BONIFICI: 51,80')).toBe(true)
+    expect(hasPaymentStructure('ADDEBITO SDD N. 646373990 A FAVORE PALMANOVA PROPCO S.R.L.')).toBe(true)
+    expect(hasPaymentStructure('Bonifico tramite Internet Banking *ATENA SERVIZI GLOBALI SO')).toBe(true)
+  })
+})
+
+describe('invoiceCitedIn — numeri con prefisso di serie', () => {
+  it('riconosce FPR 238/26 dal "SALDO FATTURA 238-240" della causale', () => {
+    const t = invoiceTokens('Bonifico tramite Internet Banking *ATENA SERVIZI GLOBALI SOSALDO FATTURA 238-240 ID.BON:0845700003140308480546')
+    expect(invoiceCitedIn('FPR 238/26', t)).toBe(true)
+    expect(invoiceCitedIn('FPR 240/26', t)).toBe(true)
+    expect(invoiceCitedIn('FPR 241/26', t)).toBe(false)
   })
 })

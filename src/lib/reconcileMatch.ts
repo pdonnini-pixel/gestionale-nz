@@ -71,6 +71,15 @@ export const movementNet = (m: { description?: string | null; amount?: number | 
   return mc ? Math.max(0, gross - parseItAmount(mc[1])) : gross
 }
 
+// Vero se la causale ha la STRUTTURA di un pagamento (flusso CBI o bonifico verso
+// qualcuno). Serve sui movimenti senza beneficiario leggibile: "DISPOSIZIONE -
+// Descrizione: FONDO DI GARANZIA MCC" è una disposizione, ma non paga un fornitore, e
+// senza questo filtro il motore le accostava sei fatturine DX SRL che facevano 260,00
+// tondi per coincidenza. Un vero pagamento dichiara sempre l'importo bonificato, il
+// numero di pagamenti del flusso o il beneficiario.
+export const hasPaymentStructure = (desc: string): boolean =>
+  /IMPORTO\s+BONIFICI|NUM\.?\s*TOT\.?\s*PAGAMENTI|A FAVORE|BONIFICO/i.test(String(desc || ''))
+
 // Un flusso CBI / disposizione / bonifico è un pagamento reale a fornitore anche se
 // la causale contiene la parola "commissioni": NON va escluso come non-fornitore (R9).
 export const isRealTransfer = (desc: string): boolean => /IMPORTO BONIFICI|DISPOSIZIONE|A FAVORE|BONIFICO/i.test(String(desc || ''))
@@ -120,7 +129,13 @@ export const invoiceCitedIn = (invoiceNumber: string, tokens: string[]): boolean
   const n = String(invoiceNumber || '').toUpperCase().replace(/[^A-Z0-9/]/g, '')
   if (!n) return false
   const head = n.split('/')[0]
-  return tokens.some((t) => t === n || t === head || (t.length >= 5 && (head.startsWith(t) || t.startsWith(head))))
+  // Parte numerica della testa: "FPR 238/26" → "238", perché la causale scrive
+  // "SALDO FATTURA 238-240" senza il prefisso della serie.
+  const digits = head.replace(/[^0-9]/g, '')
+  return tokens.some((t) =>
+    t === n || t === head ||
+    (t.length >= 3 && /^[0-9]+$/.test(t) && t === digits) ||
+    (t.length >= 5 && (head.startsWith(t) || t.startsWith(head))))
 }
 
 export type ComboItem = { cents: number; cited?: boolean }

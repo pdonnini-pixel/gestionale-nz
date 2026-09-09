@@ -29,7 +29,7 @@ import { BANK_CATEGORY_OPTIONS, bankCategoryLabel } from '../lib/bankCategories'
 import { fetchCommittedByAccount, type CommittedByAccount } from '../lib/committedBalance'
 import { fetchCommittedPayables, COMMITTED_LABEL, type CommittedPayables } from '../lib/committedPayables'
 import { fetchAllPaged } from '../lib/fetchAllPaged'
-import { NON_SUPPLIER_RE, NON_SUPPLIER_BENEF_RE, extractBeneficiary, sigWords, movementNet, isRealTransfer, supplierKeyOf, invoiceTokens, invoiceCitedIn, findExactCombo } from '../lib/reconcileMatch'
+import { NON_SUPPLIER_RE, NON_SUPPLIER_BENEF_RE, extractBeneficiary, sigWords, movementNet, isRealTransfer, supplierKeyOf, invoiceTokens, invoiceCitedIn, findExactCombo, hasPaymentStructure } from '../lib/reconcileMatch'
 import PrimaNota from './PrimaNota'
 import OpenBankingAcube from '../components/OpenBankingAcube'
 import FinanziamentiTab from '../components/FinanziamentiTab'
@@ -3365,7 +3365,10 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
         return benefWords.some((w) => supWords.has(w))
       })
       if (pool0.length < 2) continue
-      if (benefWords.length === 0 && !isRealTransfer(desc)) continue
+      // Senza beneficiario in causale il fornitore lo si deduce dal solo importo: allora
+      // il movimento deve almeno avere la struttura di un pagamento, altrimenti si finisce
+      // ad accostare fatture a un addebito che pagamento non è (FONDO DI GARANZIA MCC).
+      if (benefWords.length === 0 && !hasPaymentStructure(desc)) continue
 
       // Un bonifico = un fornitore: si prova fornitore per fornitore (chiave P.IVA).
       const bySup = new Map<string, GroupItem[]>()
