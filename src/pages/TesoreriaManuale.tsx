@@ -2957,6 +2957,9 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
   const [suggCollapsed, setSuggCollapsed] = useState(false)
   const [logRows, setLogRows] = useState<LogRow[]>([])
   const [selectedSug, setSelectedSug] = useState<Set<string>>(new Set())
+  // Selezione dei pagamenti raggruppati: si spuntano le righe e si conferma tutto
+  // in un colpo solo, come già si fa con gli abbinamenti suggeriti.
+  const [selectedGroup, setSelectedGroup] = useState<Set<string>>(new Set())
   const [summaryModal, setSummaryModal] = useState<{ rows: SugRow[] } | null>(null)
   const [undoModal, setUndoModal] = useState<{ logId: string; label: string; amount: number } | null>(null)
   const [processingSug, setProcessingSug] = useState(false)
@@ -3413,29 +3416,61 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
     )
   }
 
-  const handleReconcileGroup = async (bt: TxT, payableIds: string[]) => {
-    setReconciling(true)
+  // Esegue UN gruppo e restituisce l'esito, senza toast: così la stessa funzione
+  // serve al pulsante della singola riga e alla conferma in blocco.
+  const reconcileGroupOnce = async (bt: TxT, payableIds: string[]): Promise<{ ok: boolean; motivo?: string }> => {
     try {
       const { data, error } = await supabase.rpc('reconcile_movement_group' as never, {
         p_bt_id: String(bt.id), p_payable_ids: payableIds,
       } as never)
       if (error) throw error
       const res = data as { ok?: boolean; reason?: string; scarto?: number } | null
-      if (!res?.ok) {
-        const msg = res?.reason === 'sum_mismatch'
-          ? `Somma fatture diversa dall'importo (scarto ${res.scarto} €): non abbinato.`
-          : res?.reason === 'stale' ? 'Il movimento risulta già riconciliato.'
-          : 'Gruppo non abbinabile (una fattura non è più valida).'
-        toast({ type: 'warning', message: msg }); return
-      }
-      toast({ type: 'success', message: `Gruppo confermato: ${payableIds.length} fatture abbinate a un unico movimento.` })
-      onRefresh()
+      if (res?.ok) return { ok: true }
+      const motivo = res?.reason === 'sum_mismatch'
+        ? `somma diversa dall'importo (scarto ${res.scarto} €)`
+        : res?.reason === 'mixed_suppliers' ? 'fatture di fornitori diversi'
+        : res?.reason === 'stale' ? 'movimento già riconciliato'
+        : 'una fattura non è più valida'
+      return { ok: false, motivo }
     } catch (err: unknown) {
       console.error('Reconcile group error:', err)
-      toast({ type: 'error', message: `Errore riconciliazione gruppo: ${(err as Error).message}` })
-    } finally {
-      setReconciling(false)
+      return { ok: false, motivo: (err as Error).message }
     }
+  }
+
+  const handleReconcileGroup = async (bt: TxT, payableIds: string[]) => {
+    setReconciling(true)
+    const r = await reconcileGroupOnce(bt, payableIds)
+    setReconciling(false)
+    if (!r.ok) { toast({ type: 'warning', message: `Gruppo non abbinato: ${r.motivo}.` }); return }
+    toast({ type: 'success', message: `Gruppo confermato: ${payableIds.length} fatture abbinate a un unico movimento.` })
+    onRefresh()
+  }
+
+  const toggleGroup = (btId: string) => setSelectedGroup((prev) => {
+    const n = new Set(prev); n.has(btId) ? n.delete(btId) : n.add(btId); return n
+  })
+
+  // Conferma in blocco: un clic per N gruppi. I gruppi restano atomici uno per uno
+  // (ognuno passa dalla sua RPC tutto-o-niente), quindi se uno non è più valido gli
+  // altri vanno avanti lo stesso e alla fine si dice quanti e perché.
+  const runBatchGroupConfirm = async (
+    rows: { bt: TxT; items: { p: PayT }[] }[],
+  ) => {
+    setReconciling(true)
+    let okN = 0, fatture = 0
+    const falliti: string[] = []
+    for (const g of rows) {
+      const r = await reconcileGroupOnce(g.bt, g.items.map((it) => String(it.p.id)))
+      if (r.ok) { okN++; fatture += g.items.length }
+      else falliti.push(`${getSupplierName(g.items[0].p)} (${r.motivo})`)
+    }
+    setReconciling(false)
+    setSelectedGroup(new Set())
+    const parts = [`Confermati ${okN} gruppi, ${fatture} fatture abbinate`]
+    if (falliti.length > 0) parts.push(`non abbinati ${falliti.length}: ${falliti.slice(0, 3).join('; ')}${falliti.length > 3 ? '…' : ''}`)
+    toast({ type: falliti.length > 0 ? 'warning' : 'success', message: parts.join('. ') })
+    onRefresh()
   }
 
   // Mappa bt riconciliato -> riga di log 'applied' con applied_amount (per l'annullo)
@@ -3545,6 +3580,10 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
     const n = new Set(prev); n.has(logId) ? n.delete(logId) : n.add(logId); return n
   })
   const selectedSugRows = useMemo(() => suggestions.filter(s => selectedSug.has(s.log.id)), [suggestions, selectedSug])
+  const selectedGroupRows = useMemo(
+    () => toVerifyGroups.filter((g) => selectedGroup.has(String(g.bt.id))),
+    [toVerifyGroups, selectedGroup],
+  )
 
   const confidenceColor = (score: number) => {
     if (score >= 80) return 'bg-emerald-100 text-emerald-700'
@@ -3743,18 +3782,37 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
 
       {toVerifyGroups.length > 0 && (
         <div className="bg-white rounded-xl border border-violet-200 shadow-sm overflow-hidden">
-          <div className="px-5 py-3 bg-violet-50/60 border-b border-violet-100 flex items-center justify-between gap-3">
+          <div className="px-5 py-3 bg-violet-50/60 border-b border-violet-100 flex items-center justify-between gap-3 flex-wrap">
             <div className="flex items-center gap-2 text-sm font-semibold text-violet-800">
               <Check size={16} /> Pagamenti raggruppati — un bonifico, più fatture ({toVerifyGroups.length})
             </div>
-            <span className="text-xs text-violet-600/80">Un unico movimento che salda più fatture dello stesso fornitore. Conferma tu il gruppo.</span>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-violet-600/80 hidden lg:inline">Spunta i gruppi giusti e confermali in un colpo solo.</span>
+              <button
+                onClick={() => setSelectedGroup(selectedGroupRows.length === toVerifyGroups.length
+                  ? new Set()
+                  : new Set(toVerifyGroups.map((g) => String(g.bt.id))))}
+                disabled={reconciling}
+                className="px-3 py-1.5 rounded-lg text-xs font-medium border border-violet-200 text-violet-700 hover:bg-violet-50 transition disabled:opacity-40">
+                {selectedGroupRows.length === toVerifyGroups.length ? 'Deseleziona tutti' : 'Seleziona tutti'}
+              </button>
+              <button
+                onClick={() => runBatchGroupConfirm(selectedGroupRows)}
+                disabled={reconciling || selectedGroupRows.length === 0}
+                className="px-3 py-1.5 rounded-lg text-xs font-bold bg-violet-600 text-white hover:bg-violet-700 transition disabled:opacity-40 disabled:cursor-not-allowed">
+                {reconciling ? 'Conferma in corso…' : `Conferma selezionati (${selectedGroupRows.length})`}
+              </button>
+            </div>
           </div>
           <div className="divide-y divide-slate-50 max-h-[460px] overflow-y-auto">
             {toVerifyGroups.map(({ bt, items, beneficiario, total }) => {
               const acct = accounts.find((a) => a.id === bt.bank_account_id)
               const ids = items.map((it) => String(it.p.id))
               return (
-                <div key={String(bt.id)} className="flex items-start gap-3 px-5 py-3 hover:bg-slate-50/60">
+                <div key={String(bt.id)} className={`flex items-start gap-3 px-5 py-3 transition ${selectedGroup.has(String(bt.id)) ? 'bg-violet-50/50' : 'hover:bg-slate-50/60'}`}>
+                  <input type="checkbox" aria-label={`Seleziona il gruppo di ${beneficiario || 'questo movimento'}`}
+                    checked={selectedGroup.has(String(bt.id))} onChange={() => toggleGroup(String(bt.id))} disabled={reconciling}
+                    className="mt-1 w-4 h-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500 cursor-pointer" />
                   <div className="flex-1 min-w-0">
                     <CellTooltip content={String(bt.description || 'Movimento')}><div className="text-sm font-medium text-slate-900 truncate">{beneficiario ? `→ ${beneficiario}` : (bt.description || 'Movimento')}</div></CellTooltip>
                     <div className="text-xs text-slate-400 truncate">{fmtDate(bt.transaction_date)} {acct ? `• ${acct.account_name || acct.bank_name}` : ''}</div>
