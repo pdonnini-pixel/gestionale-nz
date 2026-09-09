@@ -410,7 +410,7 @@ function BudgetPanel({ rows, missing, vatRate, daysInMonth, monthLabel }: {
             )}
           </table>
           <p className="px-4 py-2 text-[11px] text-slate-500">
-            Budget mese = budget ricavi del mese dell'<a href="/budget?tab=rapido" className="text-blue-600 hover:underline">Inserimento rapido</a> (netto IVA) + IVA {String(vatRate).replace('.', ',')} %. Il budget del mese è distribuito sui {daysInMonth} giorni con un peso per giorno della settimana e festivi, ricavato dagli ultimi 12 mesi di incassi di ogni punto vendita (stagione alta giugno-agosto e dicembre, bassa gli altri mesi): obiettivo giorno = obiettivo dell'ultimo giorno già chiuso; obiettivo a oggi = somma degli obiettivi dei giorni già chiusi (oggi conta solo se la chiusura è inserita). Incassato = chiusure non in bozza. «Vs obiettivo a oggi» dice se si è in linea con il ritmo del mese; «Raggiunto del mese» è la quota del budget mese già incassata. Proiezione = media dei giorni trascorsi × giorni del mese.
+            Budget ricavi dell'<a href="/budget?tab=rapido" className="text-blue-600 hover:underline">Inserimento rapido</a> + IVA {String(vatRate).replace('.', ',')} %, distribuito sui {daysInMonth} giorni con i pesi per giorno della settimana. Come si calcola: pulsante «?» in basso a destra.
             {missing.length > 0 && <> Senza budget per questo mese: {missing.join(', ')}.</>}
           </p>
         </div>
