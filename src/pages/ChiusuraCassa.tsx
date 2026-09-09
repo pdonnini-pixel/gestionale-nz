@@ -531,7 +531,8 @@ export default function ChiusuraCassa() {
 
   /**
    * Abbina le chiusure POS lette dalla foto (pos_closures) alle righe POS del negozio:
-   * prima per codice terminale (outlet_payment_channels.terminal_code), poi per nome
+   * prima per ID terminale (outlet_payment_channels.pos_terminal_id, il TML stampato sulla
+   * chiusura POS; in mancanza terminal_code), poi per nome
    * dell'acquirer nell'etichetta (MPS/Nexi, BCC, Amex). Ogni riga riceve al massimo una chiusura.
    */
   const posFromPhoto = (ex: ExtractedData, chs: PaymentChannel[]): Record<string, number> => {
@@ -549,7 +550,7 @@ export default function ChiusuraCassa() {
       const acq = `${norm(pc.acquirer)} ${norm(pc.circuit)} ${norm(pc.merchant)}`
       const isAmex = /amex|american/.test(acq)
       // Stesso terminale, due righe (es. «POS MPS» e «POS MPS Amex»): la chiusura Amex va sulla riga Amex
-      const byTid = tid ? posChannels.filter((c) => !used.has(c.id) && c.terminal_code && digits(c.terminal_code) === tid) : []
+      const byTid = tid ? posChannels.filter((c) => !used.has(c.id) && ((c.pos_terminal_id && digits(c.pos_terminal_id) === tid) || (!c.pos_terminal_id && c.terminal_code && digits(c.terminal_code) === tid))) : []
       let ch: PaymentChannel | undefined = byTid.find((c) => isAmex === /amex/.test(norm(c.label))) ?? byTid[0]
       if (!ch) {
         const keys = Object.keys(SYN).filter((k) => acq.includes(k))
@@ -579,7 +580,7 @@ export default function ChiusuraCassa() {
         const cashCh = channels.find((c) => c.kind === 'contanti')
         if (cash != null && cashCh && isBlank(f.amounts[cashCh.id])) { next.amounts[cashCh.id] = formatAmount(cash); changed = true }
         // Chiusure POS nella stessa foto: ogni importo va alla riga POS del suo terminale
-        // (codice terminale configurato nel canale) o, in mancanza, dell'acquirer letto.
+        // (ID terminale POS configurato nel canale) o, in mancanza, dell'acquirer letto.
         for (const [chId, val] of Object.entries(posFromPhoto(ex, channels))) {
           if (isBlank(f.amounts[chId])) { next.amounts[chId] = formatAmount(val); changed = true }
         }
