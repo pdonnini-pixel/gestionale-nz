@@ -3391,6 +3391,28 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
       .slice(0, 40)
   }, [unreconciledMovements, unpaidPayables, closedManualPayables, toVerify, suggestions, dismissedGroup, pendingNc])
 
+  /**
+   * Importo del movimento. Sui flussi CBI la commissione è DENTRO l'importo e la
+   * causale la dichiara ("IMPORTO BONIFICI: 51,80 IMPORTO COMMISSIONI: 1,75"): il
+   * confronto con le fatture si fa sul netto, quindi il netto va scritto, altrimenti
+   * la riga sembra non quadrare (movimento 53,55 accanto a fatture per 51,80) e
+   * tocca aprire la causale per capire. Sui bonifici singoli non compare nulla: lì
+   * la commissione la banca la addebita con una riga a parte (0,70 / 0,75 €).
+   */
+  const MovementAmount = ({ bt }: { bt: TxT }) => {
+    const lordo = Math.abs(Number(bt.amount) || 0)
+    const netto = movementNet(bt)
+    const comm = lordo - netto
+    return (
+      <div className="text-right whitespace-nowrap">
+        <div className="text-sm font-semibold text-red-600">{fmt(bt.amount)} &euro;</div>
+        {comm > 0.005 && (
+          <div className="text-[10px] text-slate-400">netto {fmt(netto)} + {fmt(comm)} comm.</div>
+        )}
+      </div>
+    )
+  }
+
   const handleReconcileGroup = async (bt: TxT, payableIds: string[]) => {
     setReconciling(true)
     try {
@@ -3584,7 +3606,7 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
                         {bt.reconciled_at ? ` • ric. ${fmtDate(bt.reconciled_at)}` : ''}
                       </div>
                     </div>
-                    <div className="text-sm font-semibold text-red-600 whitespace-nowrap">{fmt(bt.amount)} &euro;</div>
+                    <MovementAmount bt={bt} />
                     {appliedLog ? (
                       <button onClick={() => setUndoModal({ logId: appliedLog.id, label: payable ? getSupplierName(payable) : 'fattura', amount: Number(appliedLog.applied_amount) || 0 })}
                         disabled={processingSug}
@@ -3694,7 +3716,7 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
                       {fmtDate(bt.transaction_date)} {acct ? `• ${acct.account_name || acct.bank_name}` : ''}
                     </div>
                   </div>
-                  <div className="text-sm font-semibold text-red-600 whitespace-nowrap">{fmt(bt.amount)} &euro;</div>
+                  <MovementAmount bt={bt} />
                   <ArrowRight size={16} className="text-slate-300 flex-shrink-0" />
                   <div className="flex-1 min-w-0">
                     <CellTooltip content={getSupplierName(payable)}><div className="text-sm font-medium text-slate-800 truncate flex items-center gap-1.5">{getSupplierName(payable)}{chiusa && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700 font-semibold whitespace-nowrap">chiusa a mano</span>}</div></CellTooltip>
@@ -3737,7 +3759,7 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
                     <CellTooltip content={String(bt.description || 'Movimento')}><div className="text-sm font-medium text-slate-900 truncate">{beneficiario ? `→ ${beneficiario}` : (bt.description || 'Movimento')}</div></CellTooltip>
                     <div className="text-xs text-slate-400 truncate">{fmtDate(bt.transaction_date)} {acct ? `• ${acct.account_name || acct.bank_name}` : ''}</div>
                   </div>
-                  <div className="text-sm font-semibold text-red-600 whitespace-nowrap">{fmt(bt.amount)} &euro;</div>
+                  <MovementAmount bt={bt} />
                   <ArrowRight size={16} className="text-slate-300 flex-shrink-0 mt-0.5" />
                   <div className="flex-1 min-w-0">
                     {items.map((it) => (
