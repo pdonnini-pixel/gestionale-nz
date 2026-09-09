@@ -14250,6 +14250,8 @@ export type Database = {
           cash_float_declared: number | null
           cash_float_expected: number | null
           cash_float_opening: number | null
+          cash_pending_declared: number | null
+          cash_pending_opening: number | null
           channels_total: number
           closed_by_name: string | null
           closing_date: string
@@ -14260,6 +14262,7 @@ export type Database = {
           created_by: string | null
           customer_refunds: number
           id: string
+          invoices_total: number
           is_closed_day: boolean
           notes: string | null
           outlet_id: string
@@ -14284,6 +14287,8 @@ export type Database = {
           cash_float_declared?: number | null
           cash_float_expected?: number | null
           cash_float_opening?: number | null
+          cash_pending_declared?: number | null
+          cash_pending_opening?: number | null
           channels_total?: number
           closed_by_name?: string | null
           closing_date: string
@@ -14294,6 +14299,7 @@ export type Database = {
           created_by?: string | null
           customer_refunds?: number
           id?: string
+          invoices_total?: number
           is_closed_day?: boolean
           notes?: string | null
           outlet_id: string
@@ -14318,6 +14324,8 @@ export type Database = {
           cash_float_declared?: number | null
           cash_float_expected?: number | null
           cash_float_opening?: number | null
+          cash_pending_declared?: number | null
+          cash_pending_opening?: number | null
           channels_total?: number
           closed_by_name?: string | null
           closing_date?: string
@@ -14328,6 +14336,7 @@ export type Database = {
           created_by?: string | null
           customer_refunds?: number
           id?: string
+          invoices_total?: number
           is_closed_day?: boolean
           notes?: string | null
           outlet_id?: string

@@ -712,7 +712,9 @@ function ClosingDetail({ outletName, date, closing, channels, lines, lineBank, a
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6">
               <div>
                 {row('Totale corrispettivi', formatEuro(Number(closing.total_receipts)), true)}
-                {channels.map((ch) => {
+                {Number(closing.invoices_total) !== 0 && row('+ Fatture', formatEuro(Number(closing.invoices_total)))}
+                {row('= Totale incassato', formatEuro(Number(closing.total_receipts) + Number(closing.invoices_total)), true)}
+                {channels.filter((ch) => ch.kind !== 'fattura').map((ch) => {
                   const b = ch.kind === 'pos' || ch.kind === 'pos_amex' ? lineBank?.get(ch.id) : undefined
                   const bm = bankStatusMark(b?.status)
                   return (
@@ -724,8 +726,8 @@ function ClosingDetail({ outletName, date, closing, channels, lines, lineBank, a
                     </div>
                   )
                 })}
-                {row('Somma canali', formatEuro(Number(closing.channels_total)))}
-                {row('Differenza', formatEuro(Number(closing.receipts_difference)), Number(closing.receipts_difference) !== 0)}
+                {row('Somma mezzi di pagamento', formatEuro(Number(closing.channels_total)))}
+                {row('Differenza incassato − mezzi', formatEuro(Number(closing.receipts_difference)), Number(closing.receipts_difference) !== 0)}
               </div>
               <div>
                 {expenses.map((e) => <div key={e.id}>{row(`${EXPENSE_KIND_LABELS[e.kind as ExpenseKind] ?? e.kind}${e.description ? ` · ${e.description}` : ''}`, formatEuro(e.amount))}</div>)}
@@ -735,8 +737,9 @@ function ClosingDetail({ outletName, date, closing, channels, lines, lineBank, a
                 {Number(closing.cash_deposit) > 0 && (
                   <div className={`text-[11px] -mt-0.5 mb-1 ${bankStatusMark(closing.deposit_bank_status).cls}`}>{bankStatusMark(closing.deposit_bank_status).mark} {BANK_STATUS_LABELS[closing.deposit_bank_status as keyof typeof BANK_STATUS_LABELS] ?? closing.deposit_bank_status}{closing.deposit_bank_amount != null ? ` · banca ${formatEuro(Number(closing.deposit_bank_amount))}` : ''}</div>
                 )}
-                {row('Fondo cassa atteso', closing.cash_float_expected == null ? '—' : formatEuro(Number(closing.cash_float_expected)))}
+                {row('Contante atteso in cassa', closing.cash_float_expected == null ? '—' : formatEuro(Number(closing.cash_float_expected)))}
                 {row('Fondo cassa contato', closing.cash_float_declared == null ? '—' : formatEuro(Number(closing.cash_float_declared)))}
+                {row('Contanti da versare contati', closing.cash_pending_declared == null ? '—' : formatEuro(Number(closing.cash_pending_declared)))}
                 {row('Differenza di cassa', closing.cash_difference == null ? '—' : formatEuro(Number(closing.cash_difference)), Number(closing.cash_difference) !== 0)}
               </div>
             </div>

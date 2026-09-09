@@ -54,6 +54,10 @@ interface FormState {
   cashDepositNote: string
   cashFloatDeclared: string
   cashFloatOpening: string
+  /** Contanti ancora da versare contati stasera (separati dal fondo). */
+  cashPendingDeclared: string
+  /** Contanti da versare di ieri: solo alla prima chiusura del negozio. */
+  cashPendingOpening: string
   closedByName: string
   notes: string
   isClosedDay: boolean
@@ -64,7 +68,7 @@ interface PhotoTarget { target: AttachmentTarget; channelId?: string; expenseId?
 
 const emptyForm = (closedBy: string): FormState => ({
   total: '', amounts: {}, cashDeposit: '', cashDepositNote: '',
-  cashFloatDeclared: '', cashFloatOpening: '', closedByName: closedBy, notes: '', isClosedDay: false,
+  cashFloatDeclared: '', cashFloatOpening: '', cashPendingDeclared: '', cashPendingOpening: '', closedByName: closedBy, notes: '', isClosedDay: false,
 })
 
 const LS_CLOSED_BY = 'nz_cassa_closed_by'
@@ -106,6 +110,8 @@ export default function ChiusuraCassa() {
   const [attachments, setAttachments] = useState<AttachmentRow[]>([])
   const [signedUrls, setSignedUrls] = useState<Record<string, string>>({})
   const [prevFloat, setPrevFloat] = useState<number | null>(null)
+  // Contanti ancora da versare secondo l'ultima chiusura confermata (0 se non c'era il campo).
+  const [prevPending, setPrevPending] = useState<number>(0)
   // Prima chiusura del negozio: se la cassiera non sa il fondo di ieri, conta
   // tutti i contanti nel cassetto adesso e il fondo di ieri lo ricaviamo noi
   // (contanti adesso − incassi in contanti di oggi + spese e rimborsi in contanti).
@@ -155,7 +161,7 @@ export default function ChiusuraCassa() {
     const [chRes, clRes, prevRes, monthRes] = await Promise.all([
       supabase.from('outlet_payment_channels').select('*').eq('outlet_id', outletId).eq('is_active', true).order('sort_order'),
       supabase.from('outlet_daily_closings').select('*').eq('outlet_id', outletId).eq('closing_date', dateIso).maybeSingle(),
-      supabase.from('outlet_daily_closings').select('cash_float_declared, closing_date')
+      supabase.from('outlet_daily_closings').select('cash_float_declared, cash_pending_declared, closing_date')
         .eq('outlet_id', outletId).lt('closing_date', dateIso).in('status', ['confermata', 'verificata'])
         .not('cash_float_declared', 'is', null).order('closing_date', { ascending: false }).limit(1),
       supabase.from('outlet_daily_closings').select('closing_date, status, is_closed_day')
@@ -164,6 +170,7 @@ export default function ChiusuraCassa() {
     setChannels((chRes.data ?? []) as PaymentChannel[])
     const prev = prevRes.data?.[0]?.cash_float_declared
     setPrevFloat(prev == null ? null : Number(prev))
+    setPrevPending(prev == null ? 0 : Number(prevRes.data?.[0]?.cash_pending_declared ?? 0))
     const ms: Record<string, string> = {}
     for (const r of monthRes.data ?? []) ms[r.closing_date] = r.is_closed_day ? 'chiuso' : r.status
     setMonthStatus(ms)
@@ -179,6 +186,8 @@ export default function ChiusuraCassa() {
         cashDepositNote: c.cash_deposit_note ?? '',
         cashFloatDeclared: c.cash_float_declared == null ? '' : formatAmount(Number(c.cash_float_declared)),
         cashFloatOpening: c.cash_float_opening == null ? '' : formatAmount(Number(c.cash_float_opening)),
+        cashPendingDeclared: c.cash_pending_declared == null ? '' : formatAmount(Number(c.cash_pending_declared)),
+        cashPendingOpening: c.cash_pending_opening == null ? '' : formatAmount(Number(c.cash_pending_opening)),
         closedByName: c.closed_by_name ?? safeGetLs(LS_CLOSED_BY),
         notes: c.notes ?? '',
         isClosedDay: c.is_closed_day,
@@ -217,8 +226,10 @@ export default function ChiusuraCassa() {
     customerRefunds: refundsTotal,
     cashDeposit: parseAmount(form.cashDeposit) ?? 0,
     prevFloat: prevFloat ?? parseAmount(form.cashFloatOpening),
+    prevPending: prevFloat == null ? (parseAmount(form.cashPendingOpening) ?? 0) : prevPending,
     cashFloatDeclared: parseAmount(form.cashFloatDeclared),
-  }), [form, channels, prevFloat, expensesTotal, refundsTotal])
+    cashPendingDeclared: parseAmount(form.cashPendingDeclared),
+  }), [form, channels, prevFloat, prevPending, expensesTotal, refundsTotal])
 
   const needsNote = quad.receiptsDifference !== 0 || (quad.cashDifference != null && quad.cashDifference !== 0)
 
@@ -252,6 +263,8 @@ export default function ChiusuraCassa() {
     cash_deposit_note: form.cashDepositNote.trim() || null,
     cash_float_declared: parseAmount(form.cashFloatDeclared),
     cash_float_opening: prevFloat == null ? parseAmount(form.cashFloatOpening) : null,
+    cash_pending_declared: parseAmount(form.cashPendingDeclared),
+    cash_pending_opening: prevFloat == null ? (parseAmount(form.cashPendingOpening) ?? 0) : null,
     closed_by_name: form.closedByName.trim() || null,
     notes: form.notes.trim() || null,
     is_closed_day: form.isClosedDay,
@@ -500,6 +513,44 @@ export default function ChiusuraCassa() {
   const isBlank = (v: string | undefined) => parseAmount(v) == null
   const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : '')
 
+  /**
+   * Abbina le chiusure POS lette dalla foto (pos_closures) alle righe POS del negozio:
+   * prima per codice terminale (outlet_payment_channels.terminal_code), poi per nome
+   * dell'acquirer nell'etichetta (MPS/Nexi, BCC, Amex). Ogni riga riceve al massimo una chiusura.
+   */
+  const posFromPhoto = (ex: ExtractedData, chs: PaymentChannel[]): Record<string, number> => {
+    const raw = Array.isArray(ex.pos_closures) ? ex.pos_closures as Array<Record<string, unknown>> : []
+    const digits = (v: unknown) => String(v ?? '').replace(/\D/g, '')
+    const norm = (v: unknown) => String(v ?? '').toLowerCase()
+    const posChannels = chs.filter((c) => c.kind === 'pos' || c.kind === 'pos_amex')
+    const used = new Set<string>()
+    const out: Record<string, number> = {}
+    const SYN: Record<string, string[]> = { mps: ['mps', 'nexi', 'monte'], nexi: ['mps', 'nexi'], bcc: ['bcc', 'iccrea', 'numia'], amex: ['amex', 'american'] }
+    for (const pc of raw) {
+      const amt = typeof pc.amount === 'number' && Number.isFinite(pc.amount) ? pc.amount : null
+      if (amt == null) continue
+      const tid = digits(pc.terminal_id)
+      const acq = `${norm(pc.acquirer)} ${norm(pc.circuit)} ${norm(pc.merchant)}`
+      const isAmex = /amex|american/.test(acq)
+      // Stesso terminale, due righe (es. «POS MPS» e «POS MPS Amex»): la chiusura Amex va sulla riga Amex
+      const byTid = tid ? posChannels.filter((c) => !used.has(c.id) && c.terminal_code && digits(c.terminal_code) === tid) : []
+      let ch: PaymentChannel | undefined = byTid.find((c) => isAmex === /amex/.test(norm(c.label))) ?? byTid[0]
+      if (!ch) {
+        const keys = Object.keys(SYN).filter((k) => acq.includes(k))
+        const words = new Set(keys.flatMap((k) => SYN[k]))
+        const candidates = posChannels.filter((c) => !used.has(c.id) && [...words].some((w) => norm(c.label).includes(w)))
+        ch = candidates.find((c) => isAmex === /amex/.test(norm(c.label))) ?? candidates[0]
+      }
+      // Nessun indizio (i POS Nexi/MPS spesso non stampano la banca): resta la riga POS
+      // libera dello stesso tipo, in ordine di configurazione. Con due terminali per negozio
+      // e' quasi sempre quella giusta; la cassiera controlla comunque prima di confermare.
+      if (!ch) ch = posChannels.find((c) => !used.has(c.id) && isAmex === /amex/.test(norm(c.label)))
+      if (!ch) continue
+      used.add(ch.id); out[ch.id] = amt
+    }
+    return out
+  }
+
   /** Precompila SOLO i campi vuoti della riga con i valori letti dalla foto. */
   const prefillFromPhoto = (t: PhotoTarget, ex: ExtractedData) => {
     const amount = extractedAmount(ex)
@@ -511,6 +562,11 @@ export default function ChiusuraCassa() {
         const cash = typeof ex.cash === 'number' ? ex.cash : null
         const cashCh = channels.find((c) => c.kind === 'contanti')
         if (cash != null && cashCh && isBlank(f.amounts[cashCh.id])) { next.amounts[cashCh.id] = formatAmount(cash); changed = true }
+        // Chiusure POS nella stessa foto: ogni importo va alla riga POS del suo terminale
+        // (codice terminale configurato nel canale) o, in mancanza, dell'acquirer letto.
+        for (const [chId, val] of Object.entries(posFromPhoto(ex, channels))) {
+          if (isBlank(f.amounts[chId])) { next.amounts[chId] = formatAmount(val); changed = true }
+        }
       } else if (t.target === 'canale' && t.channelId) {
         if (amount != null && isBlank(f.amounts[t.channelId])) { next.amounts[t.channelId] = formatAmount(amount); changed = true }
       } else if (t.target === 'versamento') {
@@ -708,13 +764,25 @@ export default function ChiusuraCassa() {
               {/* 1. Totale + canali */}
               <section className="bg-white border border-slate-200 rounded-xl p-4 mb-4 space-y-4">
                 <h2 className="font-semibold text-slate-900">1. Incassi del giorno</h2>
-                <p className="text-xs text-slate-500 -mt-2">Una sola foto: lo scontrino di chiusura del registratore con accanto le chiusure dei POS, come negli esempi. È obbligatoria. I numeri vengono letti dalla foto e proposti nei campi vuoti: controllali sempre.</p>
+                <p className="text-xs text-slate-500 -mt-2">Una sola foto: lo scontrino di chiusura del registratore con accanto le chiusure dei POS, come negli esempi. È obbligatoria. Il gestionale legge totale, contanti e chiusure POS e li propone nei campi vuoti: controllali sempre con lo scontrino in mano.</p>
                 <div>
                   <label className={labelCls}>Totale corrispettivi (dallo scontrino di chiusura)</label>
                   <input inputMode="decimal" value={form.total} disabled={!editable} onChange={(e) => update({ total: e.target.value })} placeholder="0,00" className={`${inputCls} border-blue-300 bg-blue-50/40`} />
                   <PhotoStrip t={{ target: 'totale' }} required />
                 </div>
-                {channels.map((ch) => (
+                {/* Fatture: si sommano ai corrispettivi (totale incassato), non ai mezzi di pagamento */}
+                {channels.filter((ch) => ch.kind === 'fattura').map((ch) => (
+                  <div key={ch.id}>
+                    <label className={labelCls}>+ {ch.label} <span className="text-xs text-slate-400 font-normal">(vendite con fattura, fuori dallo scontrino)</span></label>
+                    <input inputMode="decimal" value={form.amounts[ch.id] ?? ''} disabled={!editable} onChange={(e) => updateAmount(ch.id, e.target.value)} placeholder="0,00" className={inputCls} />
+                  </div>
+                ))}
+                <div className="flex items-center justify-between rounded-lg bg-slate-50 border border-slate-200 px-3 py-2 text-sm">
+                  <span>= Totale incassato</span>
+                  <strong className="tabular-nums">{formatEuro(quad.totalCollected)}</strong>
+                </div>
+                <p className="text-xs font-semibold text-slate-700 pt-1">Come è stato incassato</p>
+                {channels.filter((ch) => ch.kind !== 'fattura').map((ch) => (
                   <div key={ch.id}>
                     <label className={labelCls}>{ch.label}{!ch.counts_in_total && <span className="text-xs text-slate-400 ml-1">(fuori totale)</span>}</label>
                     <input inputMode="decimal" value={form.amounts[ch.id] ?? ''} disabled={!editable} onChange={(e) => updateAmount(ch.id, e.target.value)} placeholder="0,00" className={inputCls} />
@@ -763,45 +831,70 @@ export default function ChiusuraCassa() {
                 )}
               </section>
 
-              {/* 3. Cassa */}
+              {/* 3. Versamento */}
+              <section className="bg-white border border-slate-200 rounded-xl p-4 mb-4 space-y-3">
+                <h2 className="font-semibold text-slate-900">3. Versamento in banca</h2>
+                <div>
+                  <input inputMode="decimal" value={form.cashDeposit} disabled={!editable} onChange={(e) => update({ cashDeposit: e.target.value })} placeholder="0,00" className={inputCls} />
+                  <input value={form.cashDepositNote} disabled={!editable} onChange={(e) => update({ cashDepositNote: e.target.value })} placeholder="Causale (es. ATM MPS)" className={`${textCls} mt-2`} />
+                  <PhotoStrip t={{ target: 'versamento' }} hint={(parseAmount(form.cashDeposit) ?? 0) > 0} />
+                </div>
+              </section>
+
+              {/* 4. Fondo cassa */}
               <section className="bg-white border border-slate-200 rounded-xl p-4 mb-4 space-y-4">
-                <h2 className="font-semibold text-slate-900">3. Versamento e fondo cassa</h2>
+                <h2 className="font-semibold text-slate-900">4. Fondo cassa contato stasera</h2>
                 {prevFloat == null && (
                   <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-3 space-y-2">
+                    <p className="text-xs text-slate-700">È la prima chiusura di questo punto vendita: il gestionale non sa quanto contante c'era in cassa stamattina. Compila la partenza una volta sola.</p>
                     <div>
-                      <label className={labelCls}>Fondo cassa di ieri (solo la prima volta)</label>
+                      <label className={labelCls}>Fondo cassa di ieri</label>
                       <input inputMode="decimal" value={form.cashFloatOpening} disabled={!editable} onChange={(e) => { setAllCashNow(''); update({ cashFloatOpening: e.target.value }) }} placeholder="0,00" className={inputCls} />
-                      <p className="text-xs text-slate-600 mt-1">È la prima chiusura di questo punto vendita: il gestionale non sa quanto c'era in cassa stamattina. Se lo sai, scrivilo qui. Se non lo sai, usa il campo sotto.</p>
                     </div>
                     <div>
-                      <label className={labelCls}>Oppure: contanti in cassa adesso, tutti (compresi gli incassi di oggi)</label>
+                      <label className={labelCls}>Contanti ancora da versare di ieri</label>
+                      <input inputMode="decimal" value={form.cashPendingOpening} disabled={!editable} onChange={(e) => { setAllCashNow(''); update({ cashPendingOpening: e.target.value }) }} placeholder="0,00" className={inputCls} />
+                      <p className="text-xs text-slate-600 mt-1">Incassi in contanti dei giorni scorsi non ancora portati in banca. Se non ce n'erano, lascia 0.</p>
+                    </div>
+                    <div>
+                      <label className={labelCls}>Oppure: contanti in cassa adesso, tutti (fondo + da versare + incassi di oggi)</label>
                       <input inputMode="decimal" value={allCashNow} disabled={!editable} onChange={(e) => setAllCashNow(e.target.value)} placeholder="0,00" className={inputCls} />
                       <p className="text-xs text-slate-600 mt-1">
-                        Conta tutto il contante nel cassetto adesso, prima di fare il versamento, e scrivilo: il fondo di ieri lo ricava il gestionale togliendo gli incassi in contanti di oggi e rimettendo spese e rimborsi pagati in contanti.
-                        {derivedOpening != null && <> <strong>Fondo di ieri ricavato: {formatEuro(derivedOpening)}</strong>.</>}
+                        Se non sai i due valori qui sopra, conta tutto il contante nel cassetto prima del versamento e scrivilo: la partenza la ricava il gestionale togliendo gli incassi in contanti di oggi e rimettendo spese e rimborsi.
+                        {derivedOpening != null && <> <strong>Partenza ricavata: {formatEuro(derivedOpening)}</strong>.</>}
                       </p>
                     </div>
                   </div>
                 )}
                 <div>
-                  <label className={labelCls}>Versamento in banca</label>
-                  <input inputMode="decimal" value={form.cashDeposit} disabled={!editable} onChange={(e) => update({ cashDeposit: e.target.value })} placeholder="0,00" className={inputCls} />
-                  <input value={form.cashDepositNote} disabled={!editable} onChange={(e) => update({ cashDepositNote: e.target.value })} placeholder="Causale (es. ATM MPS)" className={`${textCls} mt-2`} />
-                  <PhotoStrip t={{ target: 'versamento' }} hint={(parseAmount(form.cashDeposit) ?? 0) > 0} />
-                </div>
-                <div>
                   <label className={labelCls}>Fondo cassa contato stasera</label>
                   <input inputMode="decimal" value={form.cashFloatDeclared} disabled={!editable} onChange={(e) => update({ cashFloatDeclared: e.target.value })} placeholder="0,00" className={inputCls} />
+                  <p className="text-xs text-slate-500 mt-1">Il fondo fisso che resta in cassa per domani, senza gli incassi da versare.</p>
+                </div>
+              </section>
+
+              {/* 5. Contanti da versare */}
+              <section className="bg-white border border-slate-200 rounded-xl p-4 mb-4 space-y-3">
+                <h2 className="font-semibold text-slate-900">5. Contanti ancora da versare, contati stasera</h2>
+                <div>
+                  <input inputMode="decimal" value={form.cashPendingDeclared} disabled={!editable} onChange={(e) => update({ cashPendingDeclared: e.target.value })} placeholder="0,00" className={inputCls} />
+                  <p className="text-xs text-slate-500 mt-1">Gli incassi in contanti (di oggi e dei giorni scorsi) che aspettano il prossimo versamento. Dopo un versamento, qui resta solo quello che non hai portato in banca.</p>
                 </div>
                 {quad.cashFloatExpected != null ? (
-                  <div className={`flex items-center justify-between rounded-lg border px-3 py-2 text-sm ${quad.cashDifference === 0 ? okCls : quad.cashDifference == null ? 'text-slate-600 bg-slate-50 border-slate-200' : koCls}`}>
-                    <span>Fondo cassa atteso: <strong>{formatEuro(quad.cashFloatExpected)}</strong></span>
-                    <span className="font-semibold">
-                      {quad.cashDifference == null ? 'conta il fondo' : quad.cashDifference === 0 ? <><Check size={16} className="inline" /> quadra</> : `${quad.cashDifference > 0 ? 'eccedenza' : 'ammanco'} ${formatEuro(Math.abs(quad.cashDifference))}`}
-                    </span>
+                  <div className={`rounded-lg border px-3 py-2 text-sm space-y-1 ${quad.cashDifference === 0 ? okCls : quad.cashDifference == null ? 'text-slate-600 bg-slate-50 border-slate-200' : koCls}`}>
+                    <div className="flex items-center justify-between">
+                      <span>Contante atteso in cassa: <strong>{formatEuro(quad.cashFloatExpected)}</strong></span>
+                      <span className="font-semibold">
+                        {quad.cashDifference == null ? 'conta il fondo' : quad.cashDifference === 0 ? <><Check size={16} className="inline" /> quadra</> : `${quad.cashDifference > 0 ? 'eccedenza' : 'ammanco'} ${formatEuro(Math.abs(quad.cashDifference))}`}
+                      </span>
+                    </div>
+                    <div className="text-[11px] opacity-80">
+                      {formatEuro(prevFloat ?? parseAmount(form.cashFloatOpening))} fondo di ieri + {formatEuro(prevFloat == null ? (parseAmount(form.cashPendingOpening) ?? 0) : prevPending)} da versare di ieri + {formatEuro(quad.cashLine)} contanti di oggi − {formatEuro(expensesTotal + refundsTotal)} spese e rimborsi − {formatEuro(parseAmount(form.cashDeposit) ?? 0)} versamento
+                      {quad.cashDeclaredTotal != null && <> · contato {formatEuro(quad.cashDeclaredTotal)} (fondo + da versare)</>}
+                    </div>
                   </div>
                 ) : (
-                  <p className="text-xs text-slate-500">Il fondo atteso si calcola dopo aver scritto il fondo di ieri.</p>
+                  <p className="text-xs text-slate-500">Il contante atteso si calcola dopo aver scritto la partenza (fondo e da versare di ieri).</p>
                 )}
               </section>
             </>

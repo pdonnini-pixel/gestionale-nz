@@ -74,6 +74,7 @@ interface Closing {
   id: string; outlet_id: string; status: string; is_closed_day: boolean; total_receipts: number; channels_total: number;
   receipts_difference: number; cash_expenses: number; customer_refunds: number; cash_deposit: number;
   cash_float_declared: number | null; cash_float_expected: number | null; cash_difference: number | null;
+  invoices_total: number | null; cash_pending_declared: number | null;
   closed_by_name: string | null; notes: string | null; confirmed_at: string | null;
 }
 interface Line { closing_id: string; channel_id: string; amount: number; id: string }
@@ -132,7 +133,7 @@ async function buildReport(admin: SupabaseClient, companyId: string, date: strin
   const monthStart = `${date.slice(0, 7)}-01`;
   const { data: closingsRaw } = outletIds.length
     ? await admin.from("outlet_daily_closings")
-      .select("id, outlet_id, closing_date, status, is_closed_day, total_receipts, channels_total, receipts_difference, cash_expenses, customer_refunds, cash_deposit, cash_float_declared, cash_float_expected, cash_difference, closed_by_name, notes, confirmed_at")
+      .select("id, outlet_id, closing_date, status, is_closed_day, total_receipts, channels_total, receipts_difference, cash_expenses, customer_refunds, cash_deposit, cash_float_declared, cash_float_expected, cash_difference, invoices_total, cash_pending_declared, closed_by_name, notes, confirmed_at")
       .eq("company_id", companyId).in("outlet_id", outletIds).gte("closing_date", monthStart).lte("closing_date", date)
     : { data: [] };
   const allClosings = (closingsRaw ?? []) as Array<Closing & { closing_date: string }>;
@@ -177,6 +178,7 @@ async function buildReport(admin: SupabaseClient, companyId: string, date: strin
     for (const l of lines.filter((l) => l.closing_id === c.id)) {
       const ch = chById.get(l.channel_id);
       if (!ch || !ch.counts_in_total) continue;
+      if (ch.kind === "fattura") continue; // le fatture si sommano ai corrispettivi, non sono un mezzo di pagamento
       if (ch.kind === "contanti") cash += num(l.amount);
       else if (ch.kind === "pos" || ch.kind === "pos_amex") pos += num(l.amount);
       else other += num(l.amount);
@@ -187,8 +189,8 @@ async function buildReport(admin: SupabaseClient, companyId: string, date: strin
       totals.total += num(c.total_receipts); totals.cash += cash; totals.pos += pos; totals.other += other;
       totals.expenses += num(c.cash_expenses); totals.refunds += num(c.customer_refunds); totals.deposit += num(c.cash_deposit);
       if (c.status === "bozza") anomalies.push(`${o.name}: chiusura ancora in bozza, non confermata`);
-      if (Math.abs(num(c.receipts_difference)) >= 0.005) anomalies.push(`${o.name}: totale corrispettivi e somma dei mezzi di pagamento non quadrano (differenza ${eur(num(c.receipts_difference))})`);
-      if (c.cash_difference != null && Math.abs(num(c.cash_difference)) >= 0.005) anomalies.push(`${o.name}: fondo cassa ${num(c.cash_difference) > 0 ? "in eccedenza" : "in ammanco"} di ${eur(Math.abs(num(c.cash_difference)))}`);
+      if (Math.abs(num(c.receipts_difference)) >= 0.005) anomalies.push(`${o.name}: totale incassato (corrispettivi${num(c.invoices_total) ? " + fatture" : ""}) e somma dei mezzi di pagamento non quadrano (differenza ${eur(num(c.receipts_difference))})`);
+      if (c.cash_difference != null && Math.abs(num(c.cash_difference)) >= 0.005) anomalies.push(`${o.name}: contante in cassa (fondo + da versare) ${num(c.cash_difference) > 0 ? "in eccedenza" : "in ammanco"} di ${eur(Math.abs(num(c.cash_difference)))}`);
       const myAtts = atts.filter((a) => a.closing_id === c.id);
       if (!myAtts.some((a) => a.target === "totale")) anomalies.push(`${o.name}: manca la foto dello scontrino di chiusura`);
       for (const a of myAtts) {
@@ -234,7 +236,7 @@ function renderHtml(r: ReportData): { subject: string; html: string; text: strin
     const diff = c.cash_difference == null ? "—" : eur(num(c.cash_difference));
     const diffStyle = c.cash_difference != null && Math.abs(num(c.cash_difference)) >= 0.005 ? "color:#b91c1c;font-weight:600" : "";
     const st = c.status === "bozza" ? `<span style="color:#b45309;font-weight:600">bozza</span>` : `<span style="color:#047857">confermata</span>`;
-    return `<tr>${td(`<strong>${esc(row.outlet.name)}</strong>`, "left")}${td(st, "left")}${td(`<strong>${eur(num(c.total_receipts))}</strong>`)}${td(tgt)}${td(dd == null ? "—" : delta(dd), "right", dd == null ? "" : deltaStyle(dd))}${td(eur(row.cash))}${td(eur(row.pos))}${td(eur(row.other))}${td(eur(num(c.cash_expenses) + num(c.customer_refunds)))}${td(eur(num(c.cash_deposit)))}${td(c.cash_float_declared == null ? "—" : eur(num(c.cash_float_declared)))}${td(diff, "right", diffStyle)}</tr>`;
+    return `<tr>${td(`<strong>${esc(row.outlet.name)}</strong>`, "left")}${td(st, "left")}${td(`<strong>${eur(num(c.total_receipts))}</strong>${num(c.invoices_total) ? `<br><span style="font-size:11px;color:#64748b">+ fatture ${eur(num(c.invoices_total))}</span>` : ""}`)}${td(tgt)}${td(dd == null ? "—" : delta(dd), "right", dd == null ? "" : deltaStyle(dd))}${td(eur(row.cash))}${td(eur(row.pos))}${td(eur(row.other))}${td(eur(num(c.cash_expenses) + num(c.customer_refunds)))}${td(eur(num(c.cash_deposit)))}${td(c.cash_float_declared == null ? "—" : `${eur(num(c.cash_float_declared))}${c.cash_pending_declared != null && num(c.cash_pending_declared) > 0 ? `<br><span style="font-size:11px;color:#64748b">+ da versare ${eur(num(c.cash_pending_declared))}</span>` : ""}`)}${td(diff, "right", diffStyle)}</tr>`;
   }).join("");
   const t = r.totals;
   const totalRow = `<tr style="background:#f1f5f9;font-weight:700">${td("Totale azienda", "left")}${td(`${r.rows.length - r.missing.length}/${r.rows.length}`, "left")}${td(eur(t.total))}${td(hasBudget ? eur(b.dayTarget) : "—")}${td(hasBudget ? delta(dayDelta) : "—", "right", hasBudget ? deltaStyle(dayDelta) : "")}${td(eur(t.cash))}${td(eur(t.pos))}${td(eur(t.other))}${td(eur(t.expenses + t.refunds))}${td(eur(t.deposit))}${td("")}${td("")}</tr>`;
@@ -263,7 +265,7 @@ function renderHtml(r: ReportData): { subject: string; html: string; text: strin
 <h2 style="margin:0 0 4px;font-size:18px">Incassi di ${esc(dateIt(r.date))}</h2>
 <p style="margin:0 0 14px;font-size:13px;color:#475569">${esc(r.companyName)} · ${r.rows.length - r.missing.length} chiusure su ${r.rows.length} punti vendita · totale giornata <strong>${eur(t.total)}</strong>${hasBudget ? ` (obiettivo ${eur(b.dayTarget)}, <span style="${deltaStyle(dayDelta)}">${delta(dayDelta)}</span>)` : ""} · progressivo ${esc(r.monthLabel)} <strong>${eur(r.monthToDate)}</strong>${hasBudget ? ` (obiettivo a oggi ${eur(b.toDateTarget)}, <span style="${deltaStyle(mtdDelta)}">${delta(mtdDelta)}</span>)` : ""}</p>
 <div style="overflow-x:auto"><table style="border-collapse:collapse;width:100%;font-size:13px">
-<thead><tr>${th("Punto vendita", "left")}${th("Stato", "left")}${th("Totale")}${th("Obiettivo giorno")}${th("+/- obiettivo")}${th("Contanti")}${th("POS")}${th("Altri")}${th("Spese e rimborsi")}${th("Versamento")}${th("Fondo cassa")}${th("Diff. cassa")}</tr></thead>
+<thead><tr>${th("Punto vendita", "left")}${th("Stato", "left")}${th("Totale")}${th("Obiettivo giorno")}${th("+/- obiettivo")}${th("Contanti")}${th("POS")}${th("Altri")}${th("Spese e rimborsi")}${th("Versamento")}${th("Fondo cassa contato")}${th("Diff. cassa")}</tr></thead>
 <tbody>${rowsHtml}${totalRow}</tbody></table></div>
 ${missingHtml}
 ${monthHtml}
@@ -280,7 +282,9 @@ ${pageLink ? `<p style="margin:20px 0 0;font-size:13px"><a href="${esc(pageLink)
       if (!row.closing) return `${row.outlet.name}: MANCA${tgt}`;
       if (row.closing.is_closed_day) return `${row.outlet.name}: negozio chiuso`;
       const dd = row.budget ? ` (${delta(num(row.closing.total_receipts) - row.budget.dayTarget)})` : "";
-      return `${row.outlet.name}: ${eur(num(row.closing.total_receipts))}${tgt}${dd} · contanti ${eur(row.cash)}, POS ${eur(row.pos)}, altri ${eur(row.other)}, versamento ${eur(num(row.closing.cash_deposit))} ${row.closing.status === "bozza" ? "[BOZZA]" : ""}`;
+      const inv = num(row.closing.invoices_total) ? ` + fatture ${eur(num(row.closing.invoices_total))}` : "";
+      const pend = row.closing.cash_pending_declared != null && num(row.closing.cash_pending_declared) > 0 ? `, da versare ${eur(num(row.closing.cash_pending_declared))}` : "";
+      return `${row.outlet.name}: ${eur(num(row.closing.total_receipts))}${inv}${tgt}${dd} · contanti ${eur(row.cash)}, POS ${eur(row.pos)}, altri ${eur(row.other)}, versamento ${eur(num(row.closing.cash_deposit))}${pend} ${row.closing.status === "bozza" ? "[BOZZA]" : ""}`;
     }),
     "",
     ...(hasBudget ? [`Mese vs obiettivo (giorno ${b.dayOfMonth} di ${b.daysInMonth}):`, ...r.rows.filter((row) => row.budget).map((row) => `- ${row.outlet.name}: incassato ${eur(row.budget!.mtd)} su obiettivo a oggi ${eur(row.budget!.toDateTarget)} (${delta(row.budget!.mtd - row.budget!.toDateTarget)}), budget mese ${eur(row.budget!.monthGross)} raggiunto al ${pct(row.budget!.mtd, row.budget!.monthGross)}`), `- Totale: ${eur(b.mtd)} su ${eur(b.toDateTarget)} (${delta(mtdDelta)}), budget mese ${eur(b.monthGross)}, proiezione ${eur(b.projection)}`, ""] : []),
@@ -293,14 +297,14 @@ ${pageLink ? `<p style="margin:20px 0 0;font-size:13px"><a href="${esc(pageLink)
 // ─── WhatsApp: variabili del modello ────────────────────────────────────
 // Il modello vive sull'account Twilio (approvato da Meta) e si legge a ogni
 // invio dalla Content API: ogni riga con {{n}} ha un'etichetta fissa che dice
-// cosa metterci. Esempio (NZ, «incassi_giornalieri_v6», approvato 2026-09-08;
+// cosa metterci. Esempio (NZ, «incassi_giornalieri_v8», approvato 2026-09-08;
 // Meta rifiuta i modelli con poco testo fisso, da qui i nomi nel testo e la riga finale):
 //   Report incassi del giorno {{1}}
 //   Barberino {{2}}
 //   Brugnato {{3}}
 //   …
-//   Totale giornaliero {{9}}
-//   Messaggio automatico del gestionale incassi, importi in euro.
+//   Totale giornaliero complessivo di tutti i punti vendita {{9}} euro
+//   (nessun piè di pagina: il modello finisce con la riga del totale)
 // Regole di riempimento (Meta vieta gli "a capo" e le variabili vuote):
 //   - etichetta con «giorno»/«data»/«report» → data gg/mm/aa ([PROVA] nella prova)
 //   - etichetta con «totale» → totale della giornata

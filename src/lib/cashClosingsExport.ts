@@ -18,6 +18,10 @@ export interface ExportClosing {
   cash_deposit: number | string
   cash_float_declared: number | string | null
   cash_difference: number | string | null
+  /** Fatture (kind=fattura): si sommano ai corrispettivi. Opzionale per compatibilità. */
+  invoices_total?: number | string | null
+  /** Contanti ancora da versare contati stasera. */
+  cash_pending_declared?: number | string | null
   closed_by_name: string | null
   notes: string | null
 }
@@ -77,16 +81,18 @@ export function buildCashClosingsSheets(input: ExportInput): ExportSheet[] {
   // Un foglio per punto vendita, come il foglio Excel
   for (const o of input.outlets) {
     const chs = input.channels.filter((ch) => ch.outlet_id === o.id && ch.is_active).sort((a, b) => a.sort_order - b.sort_order)
-    const h: Cell[] = ['Data', 'Totale corrispettivi', ...chs.map((ch) => ch.label), 'Spese cassa', 'Rimborsi', 'Versamenti', 'Fondo cassa', 'Diff. cassa', 'Stato', 'Chiuso da', 'Note']
+    const h: Cell[] = ['Data', 'Totale corrispettivi', 'Fatture', 'Totale incassato', ...chs.map((ch) => ch.label), 'Spese cassa', 'Rimborsi', 'Versamenti', 'Fondo cassa', 'Da versare', 'Diff. cassa', 'Stato', 'Chiuso da', 'Note']
     const rows: Cell[][] = input.days.map((d) => {
       const c = closingAt.get(`${o.id}|${d}`)
-      if (!c) return [formatDateIt(d, true), null, ...chs.map(() => null), null, null, null, null, null, '', '', '']
+      if (!c) return [formatDateIt(d, true), null, null, null, ...chs.map(() => null), null, null, null, null, null, null, '', '', '']
       const lm = input.linesByClosing.get(c.id)
       return [
         formatDateIt(d, true),
         c.is_closed_day ? 'chiuso' : num(c.total_receipts),
+        c.is_closed_day ? null : num(c.invoices_total ?? 0),
+        c.is_closed_day ? 'chiuso' : Math.round(((num(c.total_receipts) ?? 0) + (num(c.invoices_total ?? 0) ?? 0)) * 100) / 100,
         ...chs.map((ch) => (lm ? num(lm.get(ch.id) ?? 0) : null)),
-        num(c.cash_expenses), num(c.customer_refunds), num(c.cash_deposit), num(c.cash_float_declared), num(c.cash_difference),
+        num(c.cash_expenses), num(c.customer_refunds), num(c.cash_deposit), num(c.cash_float_declared), num(c.cash_pending_declared), num(c.cash_difference),
         c.is_closed_day ? 'Negozio chiuso' : (CLOSING_STATUS_LABELS[c.status as keyof typeof CLOSING_STATUS_LABELS] ?? c.status),
         c.closed_by_name ?? '', c.notes ?? '',
       ]
@@ -94,9 +100,9 @@ export function buildCashClosingsSheets(input: ExportInput): ExportSheet[] {
     const sum = (pick: (c: ExportClosing, lm: Map<string, number> | undefined) => number) =>
       Math.round(input.days.reduce((s, d) => { const c = closingAt.get(`${o.id}|${d}`); return c && !c.is_closed_day ? s + pick(c, input.linesByClosing.get(c.id)) : s }, 0) * 100) / 100
     const tot: Cell[] = [
-      'Totale', sum((c) => num(c.total_receipts) ?? 0),
+      'Totale', sum((c) => num(c.total_receipts) ?? 0), sum((c) => num(c.invoices_total ?? 0) ?? 0), sum((c) => (num(c.total_receipts) ?? 0) + (num(c.invoices_total ?? 0) ?? 0)),
       ...chs.map((ch) => sum((_c, lm) => lm?.get(ch.id) ?? 0)),
-      sum((c) => num(c.cash_expenses) ?? 0), sum((c) => num(c.customer_refunds) ?? 0), sum((c) => num(c.cash_deposit) ?? 0), null, sum((c) => num(c.cash_difference) ?? 0), '', '', '',
+      sum((c) => num(c.cash_expenses) ?? 0), sum((c) => num(c.customer_refunds) ?? 0), sum((c) => num(c.cash_deposit) ?? 0), null, null, sum((c) => num(c.cash_difference) ?? 0), '', '', '',
     ]
     sheets.push({ name: sheetName(o.name, used), aoa: [h, ...rows, tot] })
   }
