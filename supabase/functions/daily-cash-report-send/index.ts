@@ -142,7 +142,6 @@ async function buildReport(admin: SupabaseClient, companyId: string, date: strin
     mm.set(t.day, num(t.target)); targetsByOutlet.set(t.outlet_id, mm);
   }
 
-  const monthStart = `${date.slice(0, 7)}-01`;
   const { data: closingsRaw } = outletIds.length
     ? await admin.from("outlet_daily_closings")
       .select("id, outlet_id, closing_date, status, is_closed_day, total_receipts, channels_total, receipts_difference, cash_expenses, customer_refunds, cash_deposit, cash_float_declared, cash_float_expected, cash_difference, invoices_total, cash_pending_declared, closed_by_name, notes, confirmed_at")
