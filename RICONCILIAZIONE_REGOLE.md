@@ -75,8 +75,17 @@ SERVIZI, ITALIA… Evita di scambiare "Palmanova **Propco**" con "Valdichiana **
 Un bonifico è sempre verso **un solo** fornitore. Mai combinare fatture di fornitori diversi per
 far quadrare un importo. Se la causale è anonima, si cerca l'**unico** fornitore le cui fatture
 (una o combinazione) sommano al netto; se ne combacia più d'uno → niente proposta.
-- **Dove:** detector frontend `toVerifyGroups` — ramo bonifico anonimo (TesoreriaManuale, PR #367).
+Il fornitore si riconosce dalla **P.IVA**, mai dal nome: due aziende diverse possono
+condividere una parola (AMAZON PAYMENTS **EUROPE** e CNH INDUSTRIAL CAPITAL **EUROPE**), e lo
+stesso fornitore può avere due nomi in anagrafica (ZUCCHETTI SPA e ZUCCHETTI SPA AD AZIONISTA
+UNICO, stessa P.IVA). Vale anche quando la causale nomina il beneficiario: il nome serve a
+restringere il campo, la P.IVA a decidere.
+- **Dove:** `supplierKeyOf` + `toVerifyGroups` (frontend) e il controllo `mixed_suppliers` dentro
+  `reconcile_movement_group` (migr. 193): la difesa sta su tutti e due i lati.
 - **Stato:** 🟡 PROPONE (combinazioni ≥2, un unico fornitore). Il caso a fattura singola → R4 (auto).
+- **Caso reale 09/09/2026:** proposto un bonifico ad AMAZON PAYMENTS EUROPE (415,85) con dentro la
+  fattura LNB71972 di CNH INDUSTRIAL CAPITAL EUROPE. Bastava «EUROPE» in comune. La combinazione
+  giusta esisteva ed era esatta: 52,72 + 262,24 + 20,89 + 80,00 = 415,85.
 
 ### R7 — Pagamenti CUMULATIVI (1 movimento = N fatture)
 Un bonifico che salda più fatture **dello stesso fornitore**:
@@ -90,6 +99,26 @@ Un bonifico che salda più fatture **dello stesso fornitore**:
   (412607309402…309409). Sono le 51 fatture HERA che il matcher a nome non vedeva.
 - **Anonimo** (propone): nessun nome/numero → un unico fornitore la cui combinazione somma al netto → R6.
 Aggancio **atomico** (tutto-o-niente): se la somma non torna, non abbina nulla.
+
+**La somma torna al CENTESIMO, non «quasi».** Le commissioni MPS non stanno dentro il bonifico:
+la banca le addebita con una riga separata («Commissioni su bonifico tramite co…», 0,70 / 0,75 €;
+1,75 € sui flussi CBI, dove però la causale le dichiara e si scorporano con R3). Verificato sui
+movimenti in cui la causale nomina la fattura: lo scarto è **0,00** ogni volta. Quindi uno scarto di
+pochi centesimi non è un arrotondamento né una spesa bancaria, è un **gruppo sbagliato**. Tolleranza
+0,05 € da migr. 193 (prima: 2% dell'importo lato server, 0,3% lato frontend).
+
+**Causale senza beneficiario:** il fornitore verrebbe dedotto dal solo importo, quindi il movimento
+deve almeno avere la **forma di un pagamento** (`hasPaymentStructure`: «IMPORTO BONIFICI», «NUM. TOT.
+PAGAMENTI», «A FAVORE», «BONIFICO»). **Caso reale 09/09/2026:** l'addebito «DISPOSIZIONE — FONDO DI
+GARANZIA MCC» di 260,00 € (commissione MCC su un finanziamento, non un pagamento a fornitore) si era
+portato dietro sei fatturine DX SRL che facevano 260,00 tondi.
+
+**Ambiguità:** se più combinazioni diverse fanno la stessa cifra non si propone niente, a meno che i
+numeri di fattura citati in causale («SALDO FATTURA 60828-65166», «SSF-IT662TPABEY-IT65OHAABE», che
+la banca può **troncare**: confronto per prefisso, e per la sola parte numerica quando la fattura ha
+un prefisso di serie, «FPR 238/26» ↔ «SALDO FATTURA 238-240») indichino una sola combinazione. La ricerca è
+esaustiva sulle fatture di quel fornitore: il vecchio taglio «solo le 12 più grandi» nascondeva le
+combinazioni con fatture piccole, ed è così che al bonifico Amazon del 14/07 sfuggiva la risposta esatta.
 - **Dove:** `try_match_group_bank_transaction` (a nome), `try_match_group_numbers_bank_transaction` (a numeri, migr. 120), `reconcile_movement_group` (esecuzione, migr. 101/114/115).
 - **Stato:** ✅ AUTO (granitico, a nome e a numeri) / 🟡 PROPONE (anonimo).
 

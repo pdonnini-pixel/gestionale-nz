@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { extractBeneficiary, trimBenefTail, sigWords, namesOverlap, movementNet, isRealTransfer } from './reconcileMatch'
+import { extractBeneficiary, trimBenefTail, sigWords, namesOverlap, movementNet, isRealTransfer, supplierKeyOf, invoiceTokens, invoiceCitedIn, findExactCombo, hasPaymentStructure } from './reconcileMatch'
 
 // Casi reali (New Zago, tab Banche → Riconciliazione). Vedi RICONCILIAZIONE_REGOLE.md R5/R6.
 describe('extractBeneficiary', () => {
@@ -92,5 +92,98 @@ describe('isRealTransfer', () => {
   })
   it('un F24 non è un trasferimento a fornitore', () => {
     expect(isRealTransfer('DELEGA F24 TRIBUTI')).toBe(false)
+  })
+})
+
+describe('supplierKeyOf', () => {
+  it('tiene insieme le varianti anagrafiche con la stessa P.IVA', () => {
+    const a = supplierKeyOf({ supplier_vat: '05006900962', supplier_name: 'ZUCCHETTI SPA' })
+    const b = supplierKeyOf({ supplier_vat: '05006900962', supplier_name: 'ZUCCHETTI SPA AD AZIONISTA UNICO' })
+    expect(a).toBe(b)
+  })
+  it('tiene separati fornitori diversi senza P.IVA', () => {
+    expect(supplierKeyOf({ supplier_name: 'Amazon Business EU' }))
+      .not.toBe(supplierKeyOf({ supplier_name: 'CNH INDUSTRIAL CAPITAL EUROPE' }))
+  })
+})
+
+describe('sigWords — parole generiche che non identificano un fornitore', () => {
+  it('AMAZON PAYMENTS EUROPE e CNH INDUSTRIAL CAPITAL EUROPE non si somigliano', () => {
+    expect(namesOverlap('AMAZON PAYMENTS EUROPE', 'CNH INDUSTRIAL CAPITAL EUROPE')).toBe(false)
+  })
+  it('AMAZON resta la parola distintiva', () => {
+    expect(namesOverlap('AMAZON PAYMENTS EUROPE', 'Amazon Business EU S.a.r.l, Sede Secondaria')).toBe(true)
+  })
+})
+
+describe('invoiceTokens / invoiceCitedIn', () => {
+  it('legge i numeri dalla causale MPS "SALDO FATTURA 60828-65166"', () => {
+    const t = invoiceTokens('Bonifico tramite corporate banking *ZUCCHETTI SPA SALDO FATTURA 60828-65166ID.BON:0832500021409994483773002800IT')
+    expect(t).toContain('60828')
+    expect(t).toContain('65166')
+    expect(invoiceCitedIn('60828/PI', t)).toBe(true)
+    expect(invoiceCitedIn('8086/FD', t)).toBe(false)
+  })
+  it('riconosce il codice Amazon anche troncato dalla banca', () => {
+    const t = invoiceTokens('Bonifico tramite corporate banking *AMAZON PAYMENTS EUROPE SSF-IT662TPABEY-IT65OHAABEID.BON:0832500021650253483773002800IE')
+    expect(invoiceCitedIn('IT662TPABEY', t)).toBe(true)
+    expect(invoiceCitedIn('IT65OHAABEY', t)).toBe(true)   // in causale arriva come IT65OHAABE
+    expect(invoiceCitedIn('IT6IJXABEY', t)).toBe(false)
+  })
+})
+
+describe('findExactCombo', () => {
+  it('trova la combinazione esatta del bonifico Amazon del 14/07 (415,85)', () => {
+    // fatture Amazon aperte, comprese quelle piccole che il vecchio taglio "solo le
+    // 12 più grandi" scartava: 52,72 + 262,24 + 20,89 + 80,00 = 415,85
+    const importi = [262.24, 229.74, 192.15, 162.89, 113.64, 92.32, 88.80, 80.00, 79.52, 76.90, 67.64, 66.78, 52.72, 49.35, 39.87, 20.89]
+    const items = importi.map((x) => ({ cents: Math.round(x * 100) }))
+    const sol = findExactCombo(items, 41585)
+    expect(sol).not.toBeNull()
+    expect(sol!.map((i) => importi[i]).sort((a, b) => a - b)).toEqual([20.89, 52.72, 80, 262.24])
+  })
+  it('rifiuta la combinazione che sbaglia di 41 centesimi', () => {
+    // 366,00 (CNH) + 88,80 − 38,54 = 416,26 contro un movimento di 415,85
+    const items = [366.0, 88.8, -38.54].map((x) => ({ cents: Math.round(x * 100) }))
+    expect(findExactCombo(items, 41585)).toBeNull()
+  })
+  it('include la nota di credito quando serve a far tornare il netto', () => {
+    const importi = [366.0, 88.8, -38.54]
+    const sol = findExactCombo(importi.map((x) => ({ cents: Math.round(x * 100) })), 41626)
+    expect(sol).toEqual([0, 1, 2])
+  })
+  it('non propone niente se due combinazioni diverse fanno la stessa cifra', () => {
+    const items = [100, 60, 40, 50, 50].map((x) => ({ cents: x * 100 }))
+    expect(findExactCombo(items, 10000)).toBeNull()
+  })
+  it('rompe il pareggio con le fatture citate in causale', () => {
+    const items = [
+      { cents: 6000, cited: true }, { cents: 4000, cited: true },
+      { cents: 5000, cited: false }, { cents: 5000, cited: false },
+    ]
+    expect(findExactCombo(items, 10000)).toEqual([0, 1])
+  })
+  it('vuole almeno due voci: la fattura singola non è un gruppo', () => {
+    expect(findExactCombo([{ cents: 10000 }, { cents: 300 }], 10000)).toBeNull()
+  })
+})
+
+describe('hasPaymentStructure', () => {
+  it('scarta una disposizione che non paga un fornitore', () => {
+    expect(hasPaymentStructure('Causale: DISPOSIZIONE - Descrizione: FONDO DI GARANZIA MCC')).toBe(false)
+  })
+  it('tiene i flussi CBI e i bonifici veri', () => {
+    expect(hasPaymentStructure('Causale: DISPOSIZIONE - Descrizione: FILIALE DISPONENTE 2430 ID FLUSSO CBI: 136163365 NUM. TOT. PAGAMENTI: 1 IMPORTO BONIFICI: 51,80')).toBe(true)
+    expect(hasPaymentStructure('ADDEBITO SDD N. 646373990 A FAVORE PALMANOVA PROPCO S.R.L.')).toBe(true)
+    expect(hasPaymentStructure('Bonifico tramite Internet Banking *ATENA SERVIZI GLOBALI SO')).toBe(true)
+  })
+})
+
+describe('invoiceCitedIn — numeri con prefisso di serie', () => {
+  it('riconosce FPR 238/26 dal "SALDO FATTURA 238-240" della causale', () => {
+    const t = invoiceTokens('Bonifico tramite Internet Banking *ATENA SERVIZI GLOBALI SOSALDO FATTURA 238-240 ID.BON:0845700003140308480546')
+    expect(invoiceCitedIn('FPR 238/26', t)).toBe(true)
+    expect(invoiceCitedIn('FPR 240/26', t)).toBe(true)
+    expect(invoiceCitedIn('FPR 241/26', t)).toBe(false)
   })
 })

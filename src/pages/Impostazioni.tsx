@@ -1720,6 +1720,21 @@ type ReportLogRow = Database['public']['Tables']['daily_report_log']['Row']
 
 const REPORT_STATUS_LABELS: Record<string, string> = { queued: 'In invio', sent: 'Inviato', failed: 'Non riuscito', skipped: 'Saltato' }
 const REPORT_KIND_LABELS: Record<string, string> = { report: 'Report serale', reminder: 'Sollecito ai negozi', test: 'Prova' }
+const WA_STATUS_LABELS: Record<string, string> = { sent: 'inviato', partial: 'in parte', failed: 'non riuscito', skipped: 'saltato' }
+
+/** Numeri WhatsApp in formato internazionale (+39...); un numero italiano di cellulare senza prefisso riceve +39. */
+function parsePhones(raw: string): string[] {
+  const seen = new Set<string>()
+  return raw.split(/[\s,;]+/).map((x) => x.replace(/[.\-()]/g, '').trim()).map((x) => {
+    if (!x) return ''
+    if (x.startsWith('00')) return '+' + x.slice(2)
+    if (/^3\d{8,9}$/.test(x)) return '+39' + x
+    return x
+  }).filter((x) => {
+    if (!x || seen.has(x) || !/^\+\d{8,15}$/.test(x)) return false
+    seen.add(x); return true
+  })
+}
 
 function parseRecipients(raw: string): string[] {
   const seen = new Set<string>()
@@ -1735,7 +1750,8 @@ function ReportSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState(false)
   const [logs, setLogs] = useState<ReportLogRow[]>([])
-  const [form, setForm] = useState({ enabled: false, sendTime: '21:30', reminderEnabled: false, reminderTime: '20:30', recipients: '', sendOnEmpty: true, budgetVatRate: '22' })
+  const [form, setForm] = useState({ enabled: false, sendTime: '21:30', reminderEnabled: false, reminderTime: '20:30', recipients: '', sendOnEmpty: true, budgetVatRate: '22', waEnabled: false, waRecipients: '' })
+  const [testingWa, setTestingWa] = useState(false)
   const [dirty, setDirty] = useState(false)
 
   const load = useCallback(async () => {
@@ -1752,6 +1768,7 @@ function ReportSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
         reminderEnabled: !!s.reminder_time, reminderTime: (s.reminder_time ?? '20:30').slice(0, 5),
         recipients: (s.recipients ?? []).join('\n'), sendOnEmpty: s.send_on_empty,
         budgetVatRate: String(s.budget_vat_rate ?? 22),
+        waEnabled: s.whatsapp_enabled === true, waRecipients: (s.whatsapp_recipients ?? []).join('\n'),
       })
     }
     setLogs((lRes.data ?? []) as ReportLogRow[])
@@ -1764,10 +1781,13 @@ function ReportSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
   const set = (patch: Partial<typeof form>) => { setForm((f) => ({ ...f, ...patch })); setDirty(true) }
   const recipientsList = parseRecipients(form.recipients)
   const invalidRecipients = form.recipients.split(/[\s,;]+/).map((x) => x.trim()).filter((x) => x && !recipientsList.includes(x.toLowerCase()))
+  const phonesList = parsePhones(form.waRecipients)
+  const invalidPhones = form.waRecipients.split(/[\s,;]+/).map((x) => x.trim()).filter((x) => x && parsePhones(x).length === 0)
 
   const save = async () => {
     if (!COMPANY_ID) return
     if (form.enabled && recipientsList.length === 0) { showToast('Serve almeno un indirizzo destinatario', 'error'); return }
+    if (form.waEnabled && phonesList.length === 0) { showToast('Serve almeno un numero WhatsApp (formato +39...)', 'error'); return }
     if (form.reminderEnabled && form.reminderTime >= form.sendTime) { showToast('Il sollecito deve essere prima dell\'ora di invio', 'error'); return }
     const vat = Number(String(form.budgetVatRate).replace(',', '.'))
     if (!Number.isFinite(vat) || vat < 0 || vat > 100) { showToast('L\'aliquota IVA deve essere un numero fra 0 e 100', 'error'); return }
@@ -1780,6 +1800,8 @@ function ReportSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
       recipients: recipientsList,
       send_on_empty: form.sendOnEmpty,
       budget_vat_rate: vat,
+      whatsapp_enabled: form.waEnabled,
+      whatsapp_recipients: phonesList,
       // Origine del sito corrente: serve ai link nella mail, senza valori hardcoded per tenant.
       app_url: typeof window !== 'undefined' ? window.location.origin : null,
       updated_at: new Date().toISOString(),
@@ -1797,6 +1819,18 @@ function ReportSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
     setTesting(false)
     if (error || !data?.data) { showToast('Prova non riuscita: ' + (error?.message ?? data?.error ?? 'errore'), 'error'); await load(); return }
     showToast(`Mail di prova inviata a ${data.data.recipients.join(', ')}: controlla la casella (anche lo spam)`)
+    await load()
+  }
+
+  // Prova WhatsApp: manda il messaggio breve di oggi ai numeri configurati (niente mail).
+  const sendTestWa = async () => {
+    setTestingWa(true)
+    const { data, error } = await supabase.functions.invoke<{ data?: { whatsapp?: { status: string; recipients: string[]; error: string | null } }; error?: string }>('daily-cash-report-send', { body: { kind: 'test', channel: 'whatsapp' } })
+    setTestingWa(false)
+    const wa = data?.data?.whatsapp
+    if (error || !wa) { showToast('Prova WhatsApp non riuscita: ' + (error?.message ?? data?.error ?? 'errore'), 'error'); await load(); return }
+    if (wa.status === 'sent') showToast(`WhatsApp di prova inviato a ${wa.recipients.join(', ')}`)
+    else showToast(`WhatsApp inviato solo in parte: ${wa.error ?? ''}`, 'error')
     await load()
   }
 
@@ -1848,6 +1882,30 @@ function ReportSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
         <div className="text-xs mt-1 text-slate-500">Il budget dell'Inserimento rapido è netto IVA, le chiusure di cassa sono lorde: l'obiettivo del giorno è budget mese × (1 + IVA) ÷ giorni del mese.</div>
       </div>
 
+      <div className="border border-emerald-200 bg-emerald-50/50 rounded-xl p-4 space-y-3">
+        <label className="flex items-center gap-3 cursor-pointer">
+          <input type="checkbox" checked={form.waEnabled} onChange={(e) => set({ waEnabled: e.target.checked })} className="w-5 h-5" />
+          <span className="text-sm font-semibold text-slate-900">Invia anche su WhatsApp (versione breve)</span>
+        </label>
+        <p className="text-xs text-slate-600">
+          Alla stessa ora della mail, un messaggio di poche righe: una voce per negozio con incasso e scostamento dall'obiettivo,
+          totale del giorno e del mese, negozi mancanti e anomalie. Parte dal numero WhatsApp aziendale (Twilio) con un modello approvato da Meta.
+        </p>
+        <div>
+          <label className="block text-xs font-medium text-slate-600 mb-1">Numeri WhatsApp (uno per riga, formato +39…)</label>
+          <textarea value={form.waRecipients} onChange={(e) => set({ waRecipients: e.target.value })} rows={3} placeholder="+39 333 1234567" className={inp} />
+          <div className="text-xs mt-1 text-slate-500">
+            {phonesList.length} numer{phonesList.length === 1 ? 'o' : 'i'} valid{phonesList.length === 1 ? 'o' : 'i'}
+            {invalidPhones.length > 0 && <span className="text-red-600"> · non validi: {invalidPhones.join(', ')}</span>}
+          </div>
+        </div>
+        <button onClick={() => void sendTestWa()} disabled={testingWa || dirty || phonesList.length === 0}
+          title={dirty ? 'Salva prima le modifiche' : 'Manda il messaggio di oggi ai numeri configurati'}
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-emerald-300 text-emerald-800 text-sm font-medium disabled:opacity-50">
+          {testingWa ? <Loader size={14} className="animate-spin" /> : <Send size={14} />}Prova WhatsApp
+        </button>
+      </div>
+
       <label className="flex items-center gap-3 cursor-pointer">
         <input type="checkbox" checked={form.sendOnEmpty} onChange={(e) => set({ sendOnEmpty: e.target.checked })} className="w-4 h-4" />
         <span className="text-sm text-slate-700">Invia anche nei giorni senza nessuna chiusura registrata (con i negozi mancanti in evidenza)</span>
@@ -1876,9 +1934,9 @@ function ReportSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
                   <tr key={l.id} className="border-t border-slate-100">
                     <td className="py-1 pr-3 whitespace-nowrap">{l.report_date.split('-').reverse().join('/')}{l.sent_at ? ` ${new Date(l.sent_at).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}` : ''}</td>
                     <td className="py-1 pr-3">{REPORT_KIND_LABELS[l.kind] ?? l.kind}</td>
-                    <td className={`py-1 pr-3 font-medium ${l.status === 'sent' ? 'text-emerald-700' : l.status === 'failed' ? 'text-red-700' : 'text-slate-500'}`}>{REPORT_STATUS_LABELS[l.status] ?? l.status}</td>
+                    <td className={`py-1 pr-3 font-medium ${l.status === 'sent' ? 'text-emerald-700' : l.status === 'failed' ? 'text-red-700' : 'text-slate-500'}`}>{REPORT_STATUS_LABELS[l.status] ?? l.status}{l.whatsapp_status ? ` · WhatsApp ${WA_STATUS_LABELS[l.whatsapp_status] ?? l.whatsapp_status}` : ''}</td>
                     <td className="py-1 pr-3">{(l.recipients ?? []).join(', ')}</td>
-                    <td className="py-1 text-slate-500">{l.error ?? l.subject ?? ''}</td>
+                    <td className="py-1 text-slate-500">{l.error ?? l.whatsapp_error ?? l.subject ?? ''}</td>
                   </tr>
                 ))}
               </tbody>

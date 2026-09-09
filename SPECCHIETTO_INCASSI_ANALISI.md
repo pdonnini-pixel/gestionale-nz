@@ -318,6 +318,18 @@ Esito dopo i correttivi: 29 giornate su 42 «verificate con la banca», 13 «con
 
 Le quattro fasi del piano sono realizzate. Restano il collaudo con i negozi (account cassa, fondo cassa iniziale, prime foto dall'app) e la verifica degli accrediti BCC quando arriveranno in banca.
 
+**Go-live amministrazione (2026-09-08)**: account contabile di Sabrina e Veronica rinnovati; un contabile senza outlet assegnati non vedeva nessun punto vendita e Incassi giornalieri restava su «Caricamento…» → migration 200 (`has_outlet_access`: i ruoli aziendali senza restrizioni vedono tutti gli outlet della propria azienda) + avviso in pagina al posto del caricamento infinito.
+
+### 4c. nuovo modello di quadratura e lettura POS (fatto il 2026-09-09, PR #515)
+
+**Blocco 1**: totale corrispettivi + fatture = totale incassato = contanti + POS + pay by link + bonifico. Le righe di canale `kind='fattura'` non sono più un mezzo di pagamento: si sommano ai corrispettivi (`outlet_daily_closings.invoices_total`), così una fattura pagata con il POS non fa più «sballare» la somma dei mezzi. **Blocco 2** spese e rimborsi. **Blocco 3** versamento. **Blocco 4** fondo cassa contato stasera. **Blocco 5** contanti ancora da versare, contati stasera (`cash_pending_declared`).
+
+Contante atteso = fondo di ieri + contanti da versare di ieri + contanti di oggi − spese − rimborsi − versamento; la differenza di cassa confronta (fondo contato + da versare contati) con l'atteso. La partenza di ogni sera è l'ultima chiusura confermata con il fondo contato (fondo + da versare); alla prima chiusura del negozio si scrivono `cash_float_opening` e `cash_pending_opening` (o «contanti in cassa adesso, tutti»). Migration 202 (`fn_cash_closing_compute` riscritta, campi derivati di settembre ricalcolati), `computeQuadrature` in `src/lib/cashClosings.ts`, pagina cassiera riorganizzata, dettaglio ed export di Incassi giornalieri, report serale (fatture e da versare nelle righe, anomalie riformulate), guide e vademecum aggiornati.
+
+**Lettura dei POS dalla foto unica**: lo schema `totale` di `closing-photo-extract` ha ora `pos_closures: [{ terminal_id, acquirer, circuit, merchant, amount }]` (una voce per scontrino POS; l'Amex, se stampato su una riga a parte, diventa una voce separata con `circuit: "Amex"` e il totale dello scontrino viene messo al netto). `posFromPhoto` in `ChiusuraCassa.tsx` abbina ogni voce alla riga POS del negozio: prima per codice terminale (`terminal_code`, cifre uguali al TID stampato), poi per banca (mps/nexi/monte, bcc/iccrea/numia, amex), con l'Amex sulla riga Amex; senza indizi prende la riga POS libera dello stesso tipo. Compila solo i campi vuoti. Collaudo su due foto reali dell'8/9: Valdichiana → scontrino BCC 872,86 (TID 84570932); Franciacorta → BCC 0,00 e Nexi 758,50 (il POS Nexi/MPS non stampa il nome della banca: va per esclusione). Limite noto: i `terminal_code` configurati (00001…00014, presi dagli accrediti bancari) NON sono i TID stampati sugli scontrini POS (es. 84570932), quindi oggi l'abbinamento passa quasi sempre dalla banca o dall'esclusione; per renderlo esatto basta scrivere nei canali il campo «ID terminale POS» con il TID stampato.
+
+Restano da fare: usare `electronic` (pagamento elettronico dallo scontrino RT) come controllo incrociato della somma dei POS; valutare se aprire «Reimposta password» anche al contabile per gli account di negozio.
+
 
 ## 5. decisioni che servono da Patrizio
 

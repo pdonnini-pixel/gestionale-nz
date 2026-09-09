@@ -11276,6 +11276,8 @@ export type Database = {
           timezone: string
           updated_at: string
           updated_by: string | null
+          whatsapp_enabled: boolean
+          whatsapp_recipients: string[]
         }
         Insert: {
           app_url?: string | null
@@ -11289,6 +11291,8 @@ export type Database = {
           timezone?: string
           updated_at?: string
           updated_by?: string | null
+          whatsapp_enabled?: boolean
+          whatsapp_recipients?: string[]
         }
         Update: {
           app_url?: string | null
@@ -11302,6 +11306,8 @@ export type Database = {
           timezone?: string
           updated_at?: string
           updated_by?: string | null
+          whatsapp_enabled?: boolean
+          whatsapp_recipients?: string[]
         }
         Relationships: []
       }
@@ -11358,6 +11364,8 @@ export type Database = {
           status: string
           subject: string | null
           summary: Json | null
+          whatsapp_error: string | null
+          whatsapp_status: string | null
         }
         Insert: {
           company_id: string
@@ -11372,6 +11380,8 @@ export type Database = {
           status?: string
           subject?: string | null
           summary?: Json | null
+          whatsapp_error?: string | null
+          whatsapp_status?: string | null
         }
         Update: {
           company_id?: string
@@ -11386,6 +11396,8 @@ export type Database = {
           status?: string
           subject?: string | null
           summary?: Json | null
+          whatsapp_error?: string | null
+          whatsapp_status?: string | null
         }
         Relationships: []
       }
@@ -14322,6 +14334,8 @@ export type Database = {
           cash_float_declared: number | null
           cash_float_expected: number | null
           cash_float_opening: number | null
+          cash_pending_declared: number | null
+          cash_pending_opening: number | null
           channels_total: number
           closed_by_name: string | null
           closing_date: string
@@ -14332,6 +14346,7 @@ export type Database = {
           created_by: string | null
           customer_refunds: number
           id: string
+          invoices_total: number
           is_closed_day: boolean
           notes: string | null
           outlet_id: string
@@ -14356,6 +14371,8 @@ export type Database = {
           cash_float_declared?: number | null
           cash_float_expected?: number | null
           cash_float_opening?: number | null
+          cash_pending_declared?: number | null
+          cash_pending_opening?: number | null
           channels_total?: number
           closed_by_name?: string | null
           closing_date: string
@@ -14366,6 +14383,7 @@ export type Database = {
           created_by?: string | null
           customer_refunds?: number
           id?: string
+          invoices_total?: number
           is_closed_day?: boolean
           notes?: string | null
           outlet_id: string
@@ -14390,6 +14408,8 @@ export type Database = {
           cash_float_declared?: number | null
           cash_float_expected?: number | null
           cash_float_opening?: number | null
+          cash_pending_declared?: number | null
+          cash_pending_opening?: number | null
           channels_total?: number
           closed_by_name?: string | null
           closing_date?: string
@@ -14400,6 +14420,7 @@ export type Database = {
           created_by?: string | null
           customer_refunds?: number
           id?: string
+          invoices_total?: number
           is_closed_day?: boolean
           notes?: string | null
           outlet_id?: string
@@ -22430,6 +22451,19 @@ export type Database = {
           p_payable_id: string
         }
         Returns: boolean
+      }
+      get_outlet_day_targets: {
+        Args: { p_company_id: string; p_from: string; p_to: string }
+        Returns: {
+          outlet_id: string
+          day: string
+          day_type: string
+          season: string
+          weight: number
+          weight_source: string
+          month_gross: number | null
+          target: number | null
+        }[]
       }
       project_cash_closing_to_daily_revenue: {
         Args: { p_closing_id: string }

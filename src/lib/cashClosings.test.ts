@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseAmount, formatAmount, computeQuadrature, monthDays, addDaysIso, attachmentPath, kindForTarget, extractedAmount, extractedSummary, bankStatusMark, budgetTargets, proposeConsuntivo } from './cashClosings'
+import { parseAmount, formatAmount, computeQuadrature, monthDays, addDaysIso, attachmentPath, kindForTarget, extractedAmount, extractedSummary, bankStatusMark, budgetTargets, proposeConsuntivo, eveningDeviation, deviationBand, weekStartIso } from './cashClosings'
 
 describe('kindForTarget', () => {
   it('associa a ogni riga il documento atteso', () => {
@@ -63,13 +63,53 @@ describe('computeQuadrature', () => {
   it('segnala la differenza e ignora i canali fuori totale', () => {
     const q = computeQuadrature({
       totalReceipts: 3000,
-      lines: [...lines, { kind: 'fattura', counts_in_total: false, amount: 999 }],
+      lines: [...lines, { kind: 'altro', counts_in_total: false, amount: 999 }],
       cashExpenses: 0, cashDeposit: 0, prevFloat: 100, cashFloatDeclared: 700,
     })
     expect(q.channelsTotal).toBe(3248.5)
     expect(q.receiptsDifference).toBe(-248.5)
     expect(q.cashFloatExpected).toBe(712)
     expect(q.cashDifference).toBe(-12)
+  })
+  it('le fatture si sommano ai corrispettivi, non ai mezzi di pagamento (Barberino 04/09)', () => {
+    // scontrino 1.000, fattura 74,04 pagata con il POS: il POS incassa 1.074,04 in tutto
+    const q = computeQuadrature({
+      totalReceipts: 1000,
+      lines: [
+        { kind: 'contanti', counts_in_total: true, amount: 300 },
+        { kind: 'pos', counts_in_total: true, amount: 774.04 },
+        { kind: 'fattura', counts_in_total: true, amount: 74.04 },
+      ],
+      cashExpenses: 0, cashDeposit: 0, prevFloat: 200, cashFloatDeclared: 500,
+    })
+    expect(q.invoicesTotal).toBe(74.04)
+    expect(q.totalCollected).toBe(1074.04)
+    expect(q.channelsTotal).toBe(1074.04)
+    expect(q.receiptsDifference).toBe(0)
+  })
+  it('contanti da versare: il versamento di ieri riduce la partenza di oggi', () => {
+    // martedì: fondo 200, niente da versare, contanti 295,10, spesa 12,50 → atteso 482,60
+    const mar = computeQuadrature({
+      totalReceipts: 295.1, lines: [{ kind: 'contanti', counts_in_total: true, amount: 295.1 }],
+      cashExpenses: 12.5, cashDeposit: 0, prevFloat: 200, prevPending: 0, cashFloatDeclared: 200, cashPendingDeclared: 282.6,
+    })
+    expect(mar.cashFloatExpected).toBe(482.6)
+    expect(mar.cashDeclaredTotal).toBe(482.6)
+    expect(mar.cashDifference).toBe(0)
+    // mercoledì: parte da 200 + 282,60, incassa 310 in contanti, versa 500 → atteso 292,60
+    const mer = computeQuadrature({
+      totalReceipts: 310, lines: [{ kind: 'contanti', counts_in_total: true, amount: 310 }],
+      cashExpenses: 0, cashDeposit: 500, prevFloat: 200, prevPending: 282.6, cashFloatDeclared: 200, cashPendingDeclared: 92.6,
+    })
+    expect(mer.cashFloatExpected).toBe(292.6)
+    expect(mer.cashDifference).toBe(0)
+    // giovedì: parte da 200 + 92,60, incassa 400 → atteso 692,60; conta 200 + 280 = 480 → ammanco 212,60
+    const gio = computeQuadrature({
+      totalReceipts: 400, lines: [{ kind: 'contanti', counts_in_total: true, amount: 400 }],
+      cashExpenses: 0, cashDeposit: 0, prevFloat: 200, prevPending: 92.6, cashFloatDeclared: 200, cashPendingDeclared: 280,
+    })
+    expect(gio.cashFloatExpected).toBe(692.6)
+    expect(gio.cashDifference).toBe(-212.6)
   })
   it('i rimborsi a cliente riducono il fondo atteso come le spese', () => {
     const q = computeQuadrature({
@@ -196,5 +236,54 @@ describe('proposeConsuntivo (fase 4)', () => {
   })
   it('nessuna chiusura → mappa vuota', () => {
     expect(proposeConsuntivo([], 22, 31).size).toBe(0)
+  })
+})
+
+describe('budgetTargets con pesi per giorno', () => {
+  it('obiettivo giorno = obiettivo del giorno trascorso, obiettivo a oggi = somma dei giorni trascorsi', () => {
+    const dayTargets = [100, 50, 50, 60, 90, 200, 250, 100, 50, 50] // mese di 10 giorni (test)
+    const t = budgetTargets({ monthNet: 819.67, vatRate: 22, daysInMonth: 10, dayOfMonth: 3, mtd: 210, dayTargets })
+    expect(t.dayTarget).toBe(50)
+    expect(t.toDateTarget).toBe(200)
+    expect(t.delta).toBe(10)
+    expect(t.projection).toBe(1050) // 210 / 200 × 1.000
+  })
+  it('senza pesi completi torna alla divisione uniforme', () => {
+    const t = budgetTargets({ monthNet: 1000, vatRate: 0, daysInMonth: 10, dayOfMonth: 2, mtd: 100, dayTargets: [100, null] })
+    expect(t.dayTarget).toBe(100)
+    expect(t.toDateTarget).toBe(200)
+  })
+})
+
+describe('eveningDeviation', () => {
+  const targets = [
+    { day: '2026-09-07', target: 500, weight: 0.6, day_type: 'lun' },
+    { day: '2026-09-08', target: 400, weight: 0.5, day_type: 'mar' },
+    { day: '2026-09-09', target: 420, weight: 0.5, day_type: 'mer' },
+    { day: '2026-09-10', target: 480, weight: 0.6, day_type: 'gio' },
+  ]
+  it('classifica giorno, settimana e mese con le tolleranze giuste', () => {
+    const d = eveningDeviation({ day: '2026-09-09', dayActual: 300, targets, monthActuals: { '2026-09-07': 520, '2026-09-08': 380 } })!
+    expect(d.giorno.band).toBe('in_linea') // −29 %: dentro il ±30 % del singolo giorno
+    expect(d.giorno.pct).toBe(-29)
+    expect(d.settimana).toEqual({ target: 1320, actual: 1200, delta: -120, pct: -9, band: 'in_linea' })
+    expect(d.mese.band).toBe('sotto') // −9 % oltre il ±8 % del mese
+  })
+  it('una giornata mancante non conta ne\' nell\'atteso ne\' nell\'incassato', () => {
+    const d = eveningDeviation({ day: '2026-09-09', dayActual: 420, targets, monthActuals: { '2026-09-07': 500 } })!
+    expect(d.settimana.target).toBe(920)
+    expect(d.settimana.actual).toBe(920)
+    expect(d.settimana.band).toBe('in_linea')
+  })
+  it('senza obiettivo del giorno non restituisce nulla', () => {
+    expect(eveningDeviation({ day: '2026-09-20', dayActual: 1, targets, monthActuals: {} })).toBeNull()
+  })
+  it('weekStartIso e deviationBand', () => {
+    expect(weekStartIso('2026-09-09')).toBe('2026-09-07')
+    expect(weekStartIso('2026-09-07')).toBe('2026-09-07')
+    expect(weekStartIso('2026-09-13')).toBe('2026-09-07')
+    expect(deviationBand(131, 100, 0.3)).toBe('sopra')
+    expect(deviationBand(70, 100, 0.3)).toBe('in_linea')
+    expect(deviationBand(50, 0, 0.3)).toBeNull()
   })
 })

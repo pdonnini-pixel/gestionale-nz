@@ -89,9 +89,11 @@ Schema:
   "closure_number": number|null,    // numero azzeramenti / numero chiusura
   "vat_lines": [ { "rate": number|null, "taxable": number|null, "tax": number|null } ],
   "transmission_ok": boolean|null,  // esito trasmissione se presente, altrimenti null
+  "pos_closures": [ { "terminal_id": string|null, "acquirer": string|null, "circuit": string|null, "merchant": string|null, "amount": number|null } ],
   "uncertain": boolean,
   "notes": string|null
 }
+POS: spesso nella stessa foto, accanto allo scontrino del registratore, ci sono uno o piu' SCONTRINI DI CHIUSURA POS (terminali bancari: Nexi, MPS/Monte dei Paschi, BCC/Iccrea/Numia, American Express, Ingenico, Verifone, SumUp). Per OGNI scontrino POS presente aggiungi una voce in "pos_closures" con: "terminal_id" (TERMINALE / TID / POS ID / TML, cosi' com'e' stampato), "acquirer" (banca o gestore: quello stampato in testa oppure, se manca, quello che compare nelle righe dei circuiti, es. "Nexi", "MPS", "BCC", "American Express"; null solo se non c'e' alcun indizio), "circuit" (se lo scontrino e' il totale di un solo circuito, es. "Amex", "PagoBancomat"; altrimenti null), "merchant" (esercente o codice esercente, se presente) e "amount" (il TOTALE incassato di quello scontrino, non il numero di transazioni). Se uno scontrino POS ha una riga separata per American Express/Amex, crea DUE voci con lo stesso "terminal_id": una con "circuit": "Amex" e l'importo di quella riga, e una con "circuit": null e il totale dello scontrino MENO l'Amex. Se nella foto non ci sono scontrini POS, "pos_closures" e' []. Non confondere il totale del POS con "electronic" del registratore: quello resta il pagamento elettronico stampato dal registratore.
 ${COMMON_RULES}`;
     case "canale":
       return kind === "pos_chiusura"
@@ -234,7 +236,7 @@ async function callAnthropic(apiKey: string, system: string, imageB64: string, m
       headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
       body: JSON.stringify({
         model,
-        max_tokens: 1500,
+        max_tokens: 2500,
         system,
         messages: [{
           role: "user",
