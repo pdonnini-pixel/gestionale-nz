@@ -245,3 +245,23 @@ data fattura, mai la `due_date`.
   della fattura, che è prova diretta che la fattura esisteva già.
 - Quando `invoice_date` è NULL la guardia non scatta (non sappiamo quando è nata la fattura).
 - **Stato:** ✅ AUTO SEMPRE.
+
+---
+
+### R15 — CONTANTI e CARTE: chiusura provvisoria alla scadenza
+Contanti, carta di credito e carta di debito non lasciano in banca un movimento riconducibile alla
+singola fattura: i contanti non passano dal conto, la carta di credito produce **un unico addebito
+mensile cumulativo**, la carta di debito un pagamento POS che nomina l'esercente e non il fornitore
+fatturato. Senza una regola quelle scadenze restano aperte per sempre anche a pagamento avvenuto
+(al 09/09/2026 su NZ: 30 scadenze per 1.678 €).
+- **Regola:** alla scadenza si chiudono in via **provvisoria** (`is_provisional_paid`), come le RiBa
+  (R13/migr. 146). Etichetta «Pagato (provvisorio)», reversibile con `reopen_payable`.
+- **Dove:** `fn_cash_card_provisional_close` (migr. 194), richiamata ogni notte da
+  `run_daily_reconciliation` e, per lo storico, da `rpc_cash_card_provisional_close_backlog`.
+- **Il movimento può arrivare dopo**, e da **due** sorgenti: A-Cube *oppure* un **estratto conto
+  caricato a mano** (per le carte spesso è l'unica). Quando arriva, l'aggancio rende definitiva la
+  chiusura: il trigger `update_payable_status` azzera `is_provisional_paid` da solo. Per questo il
+  ramo anonimo di `try_match_amount_bank_transaction` accetta anche le provvisorie (migr. 195),
+  con finestra -30 / +60 giorni dalla data di pagamento: più larga in avanti perché l'addebito
+  della carta arriva anche un mese e mezzo dopo la spesa.
+- **Stato:** ✅ AUTO alla scadenza (provvisorio) / ✅ AUTO l'aggancio quando il movimento compare.
