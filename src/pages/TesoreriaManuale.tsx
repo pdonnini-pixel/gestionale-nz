@@ -29,7 +29,7 @@ import { BANK_CATEGORY_OPTIONS, bankCategoryLabel } from '../lib/bankCategories'
 import { fetchCommittedByAccount, type CommittedByAccount } from '../lib/committedBalance'
 import { fetchCommittedPayables, COMMITTED_LABEL, type CommittedPayables } from '../lib/committedPayables'
 import { fetchAllPaged } from '../lib/fetchAllPaged'
-import { NON_SUPPLIER_RE, NON_SUPPLIER_BENEF_RE, extractBeneficiary, sigWords, movementNet, isRealTransfer } from '../lib/reconcileMatch'
+import { NON_SUPPLIER_RE, NON_SUPPLIER_BENEF_RE, extractBeneficiary, sigWords, movementNet, isRealTransfer, supplierKeyOf, invoiceTokens, invoiceCitedIn, findExactCombo } from '../lib/reconcileMatch'
 import PrimaNota from './PrimaNota'
 import OpenBankingAcube from '../components/OpenBankingAcube'
 import FinanziamentiTab from '../components/FinanziamentiTab'
@@ -3303,42 +3303,22 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
       .slice(0, 80)
   }, [unreconciledMovements, unpaidPayables, closedManualPayables, suggestions, dismissedVerify])
 
-  // Pagamenti RAGGRUPPATI: un bonifico che paga N fatture dello stesso fornitore
-  // (es. −466,95 = 155,65 + 311,30). Per i movimenti non abbinati a una fattura
-  // singola, cerca una combinazione di 2-3 fatture dello stesso beneficiario la cui
-  // somma coincide con l'importo del movimento (entro il 2% o 5 cent). Conferma a
-  // mano: l'aggancio passa da reconcile_movement_group (atomico, tutto-o-niente).
+  // Pagamenti RAGGRUPPATI: un bonifico che paga N fatture dello STESSO fornitore
+  // (es. −466,95 = 155,65 + 311,30). Tre regole, tutte imparate su casi reali:
+  //  1) un bonifico = un fornitore, identificato per P.IVA (R6). Il 09/09/2026 il
+  //     motore proponeva di saldare con un bonifico ad AMAZON PAYMENTS EUROPE una
+  //     fattura di CNH INDUSTRIAL CAPITAL EUROPE: bastava la parola "EUROPE" in
+  //     comune. Ora i candidati si raggruppano per P.IVA e se quadra più di un
+  //     fornitore il caso è ambiguo e non si propone niente.
+  //  2) la somma deve tornare al CENTESIMO. Le commissioni MPS non stanno dentro
+  //     il bonifico: la banca le addebita con una riga a parte ("Commissioni su
+  //     bonifico tramite co…"), quindi uno scarto non è un arrotondamento, è un
+  //     gruppo sbagliato.
+  //  3) i numeri di fattura citati in causale ("SALDO FATTURA 60828-65166",
+  //     "SSF-IT662TPABEY-IT65OHAABE") valgono come prova: se più combinazioni
+  //     fanno la stessa cifra, vince quella che li contiene tutti.
+  // Conferma a mano: l'aggancio passa da reconcile_movement_group (atomico).
   type GroupItem = { p: PayT; base: number; chiusa: boolean }
-  const findCombo = (pool: GroupItem[], target: number): GroupItem[] | null => {
-    // Tolleranza STRETTA: la somma deve coincidere quasi al centesimo. Così una distinta
-    // con nota di credito NON passa come sola coppia di fatture (scarto = importo NC): la
-    // NC va inclusa nel gruppo per far tornare il netto.
-    const tol = Math.max(0.05, target * 0.003)
-    const sorted = pool.slice().sort((a, b) => b.base - a.base)
-    // Tieni le voci positive più grandi MA sempre TUTTE le note di credito (base < 0),
-    // altrimenti lo slice le taglierebbe e il netto non tornerebbe.
-    const s = sorted.filter((x) => x.base > 0).slice(0, 12).concat(sorted.filter((x) => x.base < 0))
-    const n = s.length
-    // Cerca un sottoinsieme (2..MAX voci) la cui somma coincide col target entro la tolleranza.
-    // Approfondimento per DIMENSIONE crescente: restituisce il gruppo più piccolo che quadra
-    // (es. una coppia prima di una cinquina). Un addebito SDD può saldare N fatture in un colpo
-    // (caso reale ENEGAN: 5 fatture in un unico movimento), quindi non ci si ferma a 2-3.
-    const MAX = Math.min(n, 6)
-    const chosen: GroupItem[] = []
-    let found: GroupItem[] | null = null
-    const rec = (start: number, sum: number, limit: number): void => {
-      if (found) return
-      if (chosen.length === limit) {
-        if (Math.abs(sum - target) <= tol) found = chosen.slice()
-        return
-      }
-      for (let i = start; i < n && !found; i++) {
-        chosen.push(s[i]); rec(i + 1, sum + s[i].base, limit); chosen.pop()
-      }
-    }
-    for (let limit = 2; limit <= MAX && !found; limit++) rec(0, 0, limit)
-    return found
-  }
   const toVerifyGroups = useMemo<{ bt: TxT; items: GroupItem[]; beneficiario: string; total: number }[]>(() => {
     const singleBtIds = new Set(toVerify.map((v) => String(v.bt.id)))
     const highConfBtIds = new Set(suggestions.map((s) => String(s.bt.id)))
@@ -3349,59 +3329,64 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
       ...unpaidPayables.map((p) => ({ p, base: (p.amount_remaining != null ? Number(p.amount_remaining) : Number(p.gross_amount || 0) - Number(p.amount_paid || 0)) - nc(p), chiusa: false })),
       ...closedManualPayables.map((p) => ({ p, base: Number(p.gross_amount || 0) - nc(p), chiusa: true })),
     ].filter((c) => c.base !== 0)
+    const cents = (x: number) => Math.round(x * 100)
+
+    // Cerca il gruppo dentro le fatture di UN solo fornitore.
+    const comboFor = (pool: GroupItem[], targetCents: number, tokens: string[]): GroupItem[] | null => {
+      if (pool.length < 2) return null
+      const sol = findExactCombo(
+        pool.map((c) => ({ cents: cents(c.base), cited: invoiceCitedIn(String(c.p.invoice_number || ''), tokens) })),
+        targetCents,
+      )
+      return sol ? sol.map((i) => pool[i]) : null
+    }
+
     const out: { bt: TxT; items: GroupItem[]; beneficiario: string; total: number }[] = []
     for (const m of unreconciledMovements) {
       const id = String(m.id)
       if (singleBtIds.has(id) || highConfBtIds.has(id) || dismissedGroup.has(id)) continue
       const desc = String(m.description || '')
       if (!isRealTransfer(desc) && NON_SUPPLIER_RE.test(desc)) continue
-      // Netto: scorpora la commissione (flussi CBI arrivano col lordo).
+      // Netto: scorpora la commissione dichiarata in causale (flussi CBI).
       const mv = movementNet(m)
       if (mv <= 0) continue
+      const target = cents(mv)
       const benef = extractBeneficiary(desc)
       if (benef && NON_SUPPLIER_BENEF_RE.test(benef)) continue
       const benefWords = benef ? sigWords(benef) : []
+      const tokens = invoiceTokens(desc)
 
-      if (benefWords.length > 0) {
-        // Beneficiario NOTO: combinazione tra le fatture di QUEL fornitore.
-        const pool = candidates.filter((c) => {
-          if (c.base > mv + 0.01) return false
-          const supWords = new Set(sigWords(getSupplierName(c.p)))
-          return benefWords.some((w) => supWords.has(w))
-        })
-        if (pool.length < 2) continue
-        const combo = findCombo(pool, mv)
-        if (combo) out.push({ bt: m, items: combo, beneficiario: benef, total: combo.reduce((s, c) => s + c.base, 0) })
-      } else if (isRealTransfer(desc)) {
-        // Bonifico ANONIMO (flusso CBI senza beneficiario in causale): un bonifico è
-        // sempre verso UN solo fornitore, mai un mix. Cerca l'UNICO fornitore le cui
-        // fatture (una singola o una combinazione) sommano al netto. Se ne combacia
-        // più d'uno è ambiguo → non si propone (niente indovinelli).
-        const bySup = new Map<string, GroupItem[]>()
-        for (const c of candidates) {
-          if (c.base > mv + 0.01) continue
-          const k = getSupplierName(c.p)
-          const arr = bySup.get(k); if (arr) arr.push(c); else bySup.set(k, [c])
-        }
-        const tol = Math.max(0.05, mv * 0.005)
-        const hits: GroupItem[][] = []
-        for (const pool of bySup.values()) {
-          const single = pool.find((c) => Math.abs(c.base - mv) <= tol)
-          if (single) { hits.push([single]); continue }
-          if (pool.length >= 2) { const combo = findCombo(pool, mv); if (combo) hits.push(combo) }
-        }
-        // Solo combinazioni (>=2 fatture): il caso a fattura singola lo aggancia già
-        // in automatico il matcher backend (try_match_amount_bank_transaction).
-        if (hits.length === 1 && hits[0].length >= 2) {
-          const items = hits[0]
-          out.push({ bt: m, items, beneficiario: getSupplierName(items[0].p), total: items.reduce((s, c) => s + c.base, 0) })
-        }
+      // Pool di partenza: fatture che da sole non superano il movimento. Se la
+      // causale nomina il beneficiario, solo i fornitori che gli somigliano.
+      const pool0 = candidates.filter((c) => {
+        if (cents(c.base) > target) return false
+        if (benefWords.length === 0) return true
+        const supWords = new Set(sigWords(getSupplierName(c.p)))
+        return benefWords.some((w) => supWords.has(w))
+      })
+      if (pool0.length < 2) continue
+      if (benefWords.length === 0 && !isRealTransfer(desc)) continue
+
+      // Un bonifico = un fornitore: si prova fornitore per fornitore (chiave P.IVA).
+      const bySup = new Map<string, GroupItem[]>()
+      for (const c of pool0) {
+        const k = supplierKeyOf(c.p as { supplier_vat?: string | null; supplier_name?: string | null })
+        const arr = bySup.get(k); if (arr) arr.push(c); else bySup.set(k, [c])
       }
+      const hits: GroupItem[][] = []
+      for (const pool of bySup.values()) {
+        const combo = comboFor(pool, target, tokens)
+        if (combo) hits.push(combo)
+        if (hits.length > 1) break        // più fornitori quadrano: ambiguo, si lascia stare
+      }
+      if (hits.length !== 1) continue
+      const items = hits[0]
+      out.push({ bt: m, items, beneficiario: benef || getSupplierName(items[0].p), total: items.reduce((s, c) => s + c.base, 0) })
     }
     return out
       .sort((a, b) => new Date(String(b.bt.transaction_date) || 0).getTime() - new Date(String(a.bt.transaction_date) || 0).getTime())
       .slice(0, 40)
-  }, [unreconciledMovements, unpaidPayables, closedManualPayables, toVerify, suggestions, dismissedGroup])
+  }, [unreconciledMovements, unpaidPayables, closedManualPayables, toVerify, suggestions, dismissedGroup, pendingNc])
 
   const handleReconcileGroup = async (bt: TxT, payableIds: string[]) => {
     setReconciling(true)
