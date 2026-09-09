@@ -10,6 +10,8 @@ import {
   diffGiorni,
   FASCE_ORDINE_DEFAULT,
   ripartisciSuRighe,
+  calcolaPiano,
+  previsioneIncassiMese,
 } from './fabbisogno'
 
 describe('simulaFabbisogno — cascata a priorità', () => {
@@ -286,5 +288,114 @@ describe('link operativo sulle righe', () => {
     const r = ripartisciSuRighe(righe, 100)
     expect(r[0].link).toBe('/scadenzario?search=1')
     expect(r[1].link).toBeNull()
+  })
+})
+
+describe('calcolaPiano — decide chi spunta, non la regola', () => {
+  const righe = [
+    { id: 'a', key: 'merci' as const, descrizione: 'A', fornitore: 'Alfa', documento: '1', scadenza: '2026-09-20', importo: 100_000, automatico: false },
+    { id: 'b', key: 'stipendi' as const, descrizione: 'B', fornitore: 'Dipendenti', documento: null, scadenza: '2026-09-10', importo: 70_000, automatico: true },
+    { id: 'c', key: 'affitti' as const, descrizione: 'C', fornitore: 'Gamma', documento: '3', scadenza: '2026-09-30', importo: 20_000, automatico: true },
+  ]
+
+  it('separa obbligatorio e rinviabile secondo la selezione', () => {
+    const p = calcolaPiano({ righe, selezionati: new Set(['b', 'c']), disponibilita: 200_000 })
+    expect(p.obbligatorio).toBe(90_000)
+    expect(p.rinviabile).toBe(100_000)
+    expect(p.nSelezionate).toBe(2)
+    expect(p.nTotali).toBe(3)
+    expect(p.fabbisogno).toBe(0)
+    expect(p.avanzo).toBe(110_000)
+    expect(p.rinviabileCoperto).toBe(100_000)
+  })
+
+  it('calcola il fabbisogno quando la cassa non basta', () => {
+    const p = calcolaPiano({ righe, selezionati: new Set(['a', 'b']), disponibilita: 120_000 })
+    expect(p.obbligatorio).toBe(170_000)
+    expect(p.fabbisogno).toBe(50_000)
+    expect(p.avanzo).toBe(0)
+    expect(p.rinviabileCoperto).toBe(0)
+    expect(p.coperturaObbligatorioPct).toBeCloseTo(70.59, 1)
+  })
+
+  it('segnala gli automatici lasciati fuori dalla selezione', () => {
+    const p = calcolaPiano({ righe, selezionati: new Set(['a']), disponibilita: 0 })
+    // b e c non sono spuntati ma sono addebiti automatici: usciranno comunque
+    expect(p.rinviabileAutomatico).toBe(90_000)
+    expect(p.obbligatorioAutomatico).toBe(0)
+  })
+
+  it('senza selezione il fabbisogno è zero e tutto è rinviabile', () => {
+    const p = calcolaPiano({ righe, selezionati: new Set(), disponibilita: 10_000 })
+    expect(p.obbligatorio).toBe(0)
+    expect(p.fabbisogno).toBe(0)
+    expect(p.rinviabile).toBe(190_000)
+    expect(p.coperturaObbligatorioPct).toBe(100)
+  })
+
+  it('ignora le chiavi selezionate che non esistono più', () => {
+    const p = calcolaPiano({ righe, selezionati: new Set(['a', 'fantasma']), disponibilita: 0 })
+    expect(p.obbligatorio).toBe(100_000)
+    expect(p.nSelezionate).toBe(1)
+  })
+})
+
+describe('previsioneIncassiMese — obiettivo corretto ogni sera', () => {
+  it('usa il ritmo effettivo dei giorni registrati', () => {
+    // settembre 2026 al giorno 8: 75.003,55 lordi su 8 giorni, 22 giorni ancora da fare
+    const r = previsioneIncassiMese({
+      realizzato: 75_003.55,
+      giorniRegistrati: 8,
+      giorniResidui: 22,
+      obiettivoMensile: 339_995.70, // 278.685 netti con IVA 22
+      giorniMese: 30,
+    })
+    expect(r.ritmoGiornaliero).toBeCloseTo(9_375.44, 2)
+    expect(r.attesiResidui).toBeCloseTo(206_259.75, 0)
+    expect(r.proiezioneMese).toBeCloseTo(281_263.30, 0)
+    // sotto obiettivo
+    expect(r.scostamento).toBeLessThan(0)
+    // per centrare l'obiettivo servirebbe un passo più alto di quello attuale
+    expect(r.passoRichiesto).toBeGreaterThan(r.ritmoGiornaliero)
+  })
+
+  it('un giorno saltato dall import non abbassa il ritmo', () => {
+    // 5 giorni di calendario ma solo 4 caricati: la media è sui 4 caricati
+    const r = previsioneIncassiMese({ realizzato: 40_000, giorniRegistrati: 4, giorniResidui: 10 })
+    expect(r.ritmoGiornaliero).toBe(10_000)
+    expect(r.attesiResidui).toBe(100_000)
+  })
+
+  it('senza giorni registrati non inventa un ritmo', () => {
+    const r = previsioneIncassiMese({ realizzato: 0, giorniRegistrati: 0, giorniResidui: 20 })
+    expect(r.ritmoGiornaliero).toBe(0)
+    expect(r.attesiResidui).toBe(0)
+    expect(r.proiezioneMese).toBe(0)
+  })
+
+  it('senza obiettivo restituisce solo la proiezione', () => {
+    const r = previsioneIncassiMese({ realizzato: 10_000, giorniRegistrati: 2, giorniResidui: 5 })
+    expect(r.scostamento).toBeNull()
+    expect(r.obiettivoAData).toBeNull()
+    expect(r.passoRichiesto).toBeNull()
+  })
+
+  it('a obiettivo già raggiunto il passo richiesto è zero', () => {
+    const r = previsioneIncassiMese({
+      realizzato: 300_000, giorniRegistrati: 20, giorniResidui: 10,
+      obiettivoMensile: 250_000, giorniMese: 30,
+    })
+    expect(r.passoRichiesto).toBe(0)
+    expect(r.scostamento).toBeGreaterThan(0)
+  })
+
+  it('ultimo giorno del periodo: nessun giorno residuo', () => {
+    const r = previsioneIncassiMese({
+      realizzato: 100_000, giorniRegistrati: 30, giorniResidui: 0,
+      obiettivoMensile: 120_000, giorniMese: 30,
+    })
+    expect(r.attesiResidui).toBe(0)
+    expect(r.proiezioneMese).toBe(100_000)
+    expect(r.passoRichiesto).toBeNull()
   })
 })

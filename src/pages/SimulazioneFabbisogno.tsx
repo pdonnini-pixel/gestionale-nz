@@ -1,49 +1,47 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// SIMULAZIONE FABBISOGNO — «entro il 30 devo pagare X, ho Y: cosa resta fuori?»
+// SIMULAZIONE FABBISOGNO — tre passi: cosa devi pagare, quanto avrai, cosa manca
 //
-// La pagina è un guscio sottile sopra `src/lib/fabbisogno.ts`: qui si leggono i
-// dati vivi (conti, scadenzario, scadenze fiscali, costo del personale,
-// incassi bancari) e si passano al motore, che applica la cascata a priorità.
-// Nessun calcolo di business vive in questo file.
+// Il modello NON decide da solo cosa si paga. Chi tiene l'amministrazione spunta
+// riga per riga le uscite obbligatorie entro la data (fatture, tasse, stipendi);
+// la selezione si salva in `cash_must_pay` ed è condivisa fra gli utenti
+// dell'azienda. Solo dopo si fa il conto: obbligatorio contro disponibilità.
 //
-// Fonti dei dati, tutte filtrate sul tenant attivo:
-//  - liquidità        → bank_accounts (conti attivi) + fido opzionale
-//  - uscite fornitori → v_payables_operative (residuo > 0, scadenza <= data)
-//  - uscite fiscali   → fiscal_deadlines (pending, scadenza <= data)
-//  - stipendi         → employee_costs (ultimo netto mensile noto), pagati il
-//                       giorno configurato del mese successivo
-//  - incassi          → bank_transactions (incassi POS + versamenti), media
-//                       giornaliera degli ultimi 30 giorni
+// Gli incassi attesi non sono una media del passato: i negozi scaricano i ricavi
+// ogni sera, quindi il ritmo di questo mese è un dato. L'obiettivo del mese
+// (Budget → Inserimento rapido, tabella budget_confronto) serve a dire se si è
+// avanti o indietro, non a costruire la previsione.
 //
-// Ogni riga scoperta porta alla pagina dove si gestisce: le fatture allo
-// Scadenzario filtrato per fornitore e documento (`?supplier=&search=`, lo
-// stesso ingresso della Scheda contabile fornitore), le imposte a Scadenze
-// fiscali, gli stipendi a Dipendenti.
+// Fonti, tutte sul tenant attivo:
+//  - liquidità   → bank_accounts (conti attivi) + fido opzionale
+//  - uscite      → v_payables_operative, fiscal_deadlines, employee_costs
+//  - selezione   → cash_must_pay (scrittura: super_advisor, cfo, contabile)
+//  - obiettivo   → budget_confronto (rev_monthly) + IVA da daily_report_settings
+//  - realizzato  → daily_revenue del mese in corso
 // ─────────────────────────────────────────────────────────────────────────────
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useSearchParams, Link } from 'react-router-dom'
 import {
-  Wallet, TrendingDown, AlertTriangle, CalendarClock, Download, Loader2,
-  ArrowUp, ArrowDown, Info, RefreshCw, CheckCircle2, Building2, ExternalLink,
+  Wallet, AlertTriangle, Download, Loader2, Info, RefreshCw, CheckCircle2,
+  Building2, ExternalLink, Search, X, Target, TrendingUp, TrendingDown, Lock,
 } from 'lucide-react'
 import {
   ComposedChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine,
 } from 'recharts'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
+import { useToast } from '../components/Toast'
 import { fetchAllPaged } from '../lib/fetchAllPaged'
 import PageHeader from '../components/PageHeader'
-import StatKpi from '../components/ui/StatKpi'
 import { GlassTooltip, AXIS_STYLE, GRID_STYLE } from '../components/ChartTheme'
 import { todayYMD, lastDayOfMonthYMD } from '../lib/dateLocal'
 import {
-  simulaFabbisogno, proiezioneGiornaliera, primoGiornoNegativo, saldoMinimo,
-  ripartisciSuRighe, fasciaDaMacroGroup, isPagamentoAutomatico,
-  addDaysYMD, diffGiorni, FASCE_ORDINE_DEFAULT, FASCIA_LABEL,
-  type FasciaKey, type RigaUscita, type RigaRipartita,
+  calcolaPiano, previsioneIncassiMese, proiezioneGiornaliera, primoGiornoNegativo,
+  fasciaDaMacroGroup, isPagamentoAutomatico, addDaysYMD, diffGiorni,
+  FASCE_ORDINE_DEFAULT, FASCIA_LABEL,
+  type FasciaKey, type RigaUscita,
 } from '../lib/fabbisogno'
 
-/* ───── helpers di formato ───── */
+/* ───── formato ───── */
 const fmtEur = (n: number | null | undefined, dec = 0): string => {
   if (n == null || Number.isNaN(n)) return '—'
   return new Intl.NumberFormat('de-DE', { minimumFractionDigits: dec, maximumFractionDigits: dec }).format(n) + ' €'
@@ -57,12 +55,6 @@ const parseNum = (s: string): number => {
   return Number.isFinite(v) ? v : 0
 }
 
-/**
- * Deep link allo Scadenzario, che accetta già `?supplier=<uuid|slug>` e
- * `?search=<testo>` (stesso ingresso usato dalla Scheda contabile fornitore).
- * Il numero fattura come ricerca isola la singola riga; senza numero si
- * ripiega sul nome del fornitore, che almeno restringe alla sua posizione.
- */
 const linkScadenzario = (supplierId: string | null, documento: string | null, fornitore: string): string => {
   const params = new URLSearchParams()
   if (supplierId) params.set('supplier', supplierId)
@@ -80,7 +72,6 @@ const FASCIA_COLOR: Record<FasciaKey, string> = {
   altro: 'bg-slate-100 text-slate-600',
 }
 
-/** Dove porta il collegamento di una riga scoperta, per fascia. */
 const DESTINAZIONE_LABEL: Record<FasciaKey, string> = {
   stipendi: 'Apri i Dipendenti',
   merci: 'Apri nello Scadenzario',
@@ -89,11 +80,13 @@ const DESTINAZIONE_LABEL: Record<FasciaKey, string> = {
   altro: 'Apri nello Scadenzario',
 }
 
+/** Ruoli che possono mettere e togliere le spunte (allineati alla RLS). */
+const RUOLI_SCRITTURA = ['super_advisor', 'contabile', 'cfo']
+
 /** Stati dello scadenzario che NON sono un debito da pagare. */
 const STATI_ESCLUSI = new Set(['annullato', 'pagato', 'nota_credito'])
 
-/** Giorni di storico banca usati per la media incassi. */
-const GIORNI_STORICO_INCASSI = 30
+type FiltroFascia = 'tutte' | FasciaKey | 'scadute' | 'automatiche'
 
 interface ContoRow {
   id: string
@@ -101,6 +94,7 @@ interface ContoRow {
   account_name: string | null
   current_balance: number | null
   credit_line: number | null
+  balance_updated_at: string | null
 }
 
 interface PayableViewRow {
@@ -116,7 +110,6 @@ interface PayableViewRow {
   payment_method: string | null
   is_auto_debit: boolean | null
   status: string | null
-  company_id: string | null
 }
 
 interface FiscalRow {
@@ -128,9 +121,20 @@ interface FiscalRow {
   due_date: string
 }
 
+/** Riga di `cash_must_pay` così come la scriviamo. */
+interface MustPayRow {
+  id: string
+  item_kind: 'payable' | 'fiscal' | 'payroll' | 'manual'
+  payable_id: string | null
+  fiscal_deadline_id: string | null
+  item_ref: string | null
+}
+
 export default function SimulazioneFabbisogno() {
   const { profile } = useAuth()
+  const { toast } = useToast()
   const COMPANY_ID = profile?.company_id
+  const canEdit = RUOLI_SCRITTURA.includes(profile?.role || '')
   const [searchParams, setSearchParams] = useSearchParams()
 
   const oggi = useMemo(() => todayYMD(), [])
@@ -139,7 +143,6 @@ export default function SimulazioneFabbisogno() {
     return lastDayOfMonthYMD(d.getFullYear(), d.getMonth() + 1)
   }, [oggi])
 
-  // Data orizzonte persistita in URL (?al=YYYY-MM-DD) per condividere lo scenario.
   const alParam = searchParams.get('al')
   const orizzonte = alParam && /^\d{4}-\d{2}-\d{2}$/.test(alParam) ? alParam : fineMeseCorrente
   const setOrizzonte = (next: string) => {
@@ -148,26 +151,30 @@ export default function SimulazioneFabbisogno() {
     setSearchParams(params, { replace: true })
   }
 
-  /* ───── stato dati ───── */
+  /* ───── dati ───── */
   const [loading, setLoading] = useState(true)
   const [errore, setErrore] = useState<string | null>(null)
   const [conti, setConti] = useState<ContoRow[]>([])
   const [payables, setPayables] = useState<PayableViewRow[]>([])
   const [fiscali, setFiscali] = useState<FiscalRow[]>([])
-  const [incassoMedioGg, setIncassoMedioGg] = useState(0)
   const [nettoMensile, setNettoMensile] = useState(0)
-  const [meseStipendi, setMeseStipendi] = useState<string>('')
+  const [meseStipendi, setMeseStipendi] = useState('')
+  const [obiettivoMeseLordo, setObiettivoMeseLordo] = useState(0)
+  const [realizzatoMese, setRealizzatoMese] = useState(0)
+  const [giorniRegistrati, setGiorniRegistrati] = useState(0)
+  const [mustPay, setMustPay] = useState<MustPayRow[]>([])
+  const [salvando, setSalvando] = useState<string | null>(null)
 
-  /* ───── parametri della simulazione ───── */
-  const [scenarioPct, setScenarioPct] = useState(0)          // scostamento % sugli incassi attesi
+  /* ───── parametri ───── */
   const [usaFido, setUsaFido] = useState(false)
   const [includiArretrato, setIncludiArretrato] = useState(true)
   const [includiStipendi, setIncludiStipendi] = useState(true)
   const [giornoStipendi, setGiornoStipendi] = useState(10)
-  const [stipendiOverride, setStipendiOverride] = useState('')  // vuoto = usa la stima
-  const [incassoOverride, setIncassoOverride] = useState('')    // vuoto = usa la media
+  const [stipendiOverride, setStipendiOverride] = useState('')
+  const [ritmoOverride, setRitmoOverride] = useState('')
   const [liquiditaOverride, setLiquiditaOverride] = useState('')
-  const [ordine, setOrdine] = useState<FasciaKey[]>(FASCE_ORDINE_DEFAULT)
+  const [filtro, setFiltro] = useState<FiltroFascia>('tutte')
+  const [ricerca, setRicerca] = useState('')
 
   /* ───── caricamento ───── */
   const loadData = useCallback(async () => {
@@ -175,24 +182,35 @@ export default function SimulazioneFabbisogno() {
     setLoading(true)
     setErrore(null)
     try {
-      const daData = addDaysYMD(oggi, -GIORNI_STORICO_INCASSI)
+      const inizioMese = oggi.slice(0, 8) + '01'
+      const annoCorr = Number(oggi.slice(0, 4))
+      const meseCorr = Number(oggi.slice(5, 7))
 
-      const [contiRes, fiscaliRes] = await Promise.all([
+      const [contiRes, fiscaliRes, budgetRes, ivaRes, mustRes] = await Promise.all([
         supabase.from('bank_accounts')
-          .select('id, bank_name, account_name, current_balance, credit_line')
+          .select('id, bank_name, account_name, current_balance, credit_line, balance_updated_at')
           .eq('company_id', COMPANY_ID).eq('is_active', true),
         supabase.from('fiscal_deadlines')
           .select('id, title, deadline_type, amount, amount_paid, due_date')
           .eq('company_id', COMPANY_ID).eq('status', 'pending').lte('due_date', orizzonte),
+        // Obiettivo del mese: il preventivo per punto vendita di Budget →
+        // Inserimento rapido. È netto, va portato a lordo per confrontarlo con
+        // la cassa.
+        supabase.from('budget_confronto')
+          .select('amount')
+          .eq('company_id', COMPANY_ID).eq('year', annoCorr).eq('month', meseCorr).eq('entry_type', 'rev_monthly'),
+        supabase.from('daily_report_settings').select('budget_vat_rate').eq('company_id', COMPANY_ID).maybeSingle(),
+        supabase.from('cash_must_pay')
+          .select('id, item_kind, payable_id, fiscal_deadline_id, item_ref')
+          .eq('company_id', COMPANY_ID).eq('horizon_date', orizzonte),
       ])
       if (contiRes.error) throw contiRes.error
       if (fiscaliRes.error) throw fiscaliRes.error
+      if (mustRes.error) throw mustRes.error
 
-      // Scadenzario: ordine per id (chiave univoca) perché la vista ha un
-      // ORDER BY interno non univoco e la paginazione perderebbe righe.
       const payRows = await fetchAllPaged<PayableViewRow>(
         (from, to) => supabase.from('v_payables_operative')
-          .select('id, supplier_id, supplier_name, supplier_ragione_sociale, invoice_number, due_date, amount_remaining, macro_group, cost_category_name, payment_method, is_auto_debit, status, company_id')
+          .select('id, supplier_id, supplier_name, supplier_ragione_sociale, invoice_number, due_date, amount_remaining, macro_group, cost_category_name, payment_method, is_auto_debit, status')
           .eq('company_id', COMPANY_ID)
           .lte('due_date', orizzonte)
           .gt('amount_remaining', 0)
@@ -201,25 +219,17 @@ export default function SimulazioneFabbisogno() {
         'v_payables_operative',
       )
 
-      // Incassi realmente entrati in banca negli ultimi 30 giorni: POS + versamenti
-      // di contante. Non si usano i corrispettivi, che non coincidono con la data
-      // di accredito.
-      const incassiRows = await fetchAllPaged<{ id: string; amount: number | null; transaction_date: string }>(
-        (from, to) => supabase.from('bank_transactions')
-          .select('id, amount, transaction_date')
+      // Ricavi del mese in corso, quelli che i negozi scaricano ogni sera.
+      const ricaviRows = await fetchAllPaged<{ id: string; date: string; gross_revenue: number | null }>(
+        (from, to) => supabase.from('daily_revenue')
+          .select('id, date, gross_revenue')
           .eq('company_id', COMPANY_ID)
-          .in('category', ['incassi_pos', 'versamenti'])
-          .gt('amount', 0)
-          .gte('transaction_date', daData)
-          .lt('transaction_date', oggi)
+          .gte('date', inizioMese).lte('date', oggi)
           .order('id', { ascending: true })
           .range(from, to),
-        'bank_transactions incassi',
+        'daily_revenue',
       )
 
-      // Costo del personale: si prende l'ultimo mese caricato (il netto del mese
-      // M viene pagato il 10 di M+1, quindi è la miglior stima della prossima
-      // mensilità finché il cedolino nuovo non è importato).
       const costiRows = await fetchAllPaged<{ id: string; year: number | null; month: number | null; netto: number | null }>(
         (from, to) => supabase.from('employee_costs')
           .select('id, year, month, netto')
@@ -232,10 +242,21 @@ export default function SimulazioneFabbisogno() {
       setConti((contiRes.data || []) as ContoRow[])
       setFiscali((fiscaliRes.data || []) as FiscalRow[])
       setPayables(payRows.filter(r => !STATI_ESCLUSI.has((r.status || '').trim())))
+      setMustPay((mustRes.data || []) as MustPayRow[])
 
-      const giorniStorico = Math.max(1, GIORNI_STORICO_INCASSI)
-      const totIncassi = incassiRows.reduce((s, r) => s + Number(r.amount || 0), 0)
-      setIncassoMedioGg(totIncassi / giorniStorico)
+      const vat = Number((ivaRes.data as { budget_vat_rate?: number | string } | null)?.budget_vat_rate)
+      const aliquota = Number.isFinite(vat) ? vat : 22
+      const obiettivoNetto = (budgetRes.data || []).reduce((s, r) => s + Number((r as { amount: number | null }).amount || 0), 0)
+      setObiettivoMeseLordo(obiettivoNetto * (1 + aliquota / 100))
+
+      const giorni = new Set<string>()
+      let realizzato = 0
+      for (const r of ricaviRows) {
+        realizzato += Number(r.gross_revenue || 0)
+        if (r.date) giorni.add(String(r.date).slice(0, 10))
+      }
+      setRealizzatoMese(realizzato)
+      setGiorniRegistrati(giorni.size)
 
       let ultimo = { y: 0, m: 0 }
       for (const r of costiRows) {
@@ -243,10 +264,9 @@ export default function SimulazioneFabbisogno() {
         const m = Number(r.month || 0)
         if (y > ultimo.y || (y === ultimo.y && m > ultimo.m)) ultimo = { y, m }
       }
-      const netto = costiRows
+      setNettoMensile(costiRows
         .filter(r => Number(r.year) === ultimo.y && Number(r.month) === ultimo.m)
-        .reduce((s, r) => s + Number(r.netto || 0), 0)
-      setNettoMensile(netto)
+        .reduce((s, r) => s + Number(r.netto || 0), 0))
       setMeseStipendi(ultimo.y ? `${String(ultimo.m).padStart(2, '0')}/${ultimo.y}` : '')
     } catch (err: unknown) {
       console.error('[SimulazioneFabbisogno] fetch error:', err)
@@ -258,19 +278,16 @@ export default function SimulazioneFabbisogno() {
 
   useEffect(() => { loadData() }, [loadData])
 
-  /* ───── costruzione delle uscite ───── */
-  const liquiditaConti = useMemo(
-    () => conti.reduce((s, c) => s + Number(c.current_balance || 0), 0),
-    [conti],
-  )
-  const fidoTotale = useMemo(
-    () => conti.reduce((s, c) => s + Number(c.credit_line || 0), 0),
-    [conti],
-  )
+  /* ───── costruzione delle voci ───── */
+  const liquiditaConti = useMemo(() => conti.reduce((s, c) => s + Number(c.current_balance || 0), 0), [conti])
+  const fidoTotale = useMemo(() => conti.reduce((s, c) => s + Number(c.credit_line || 0), 0), [conti])
+  const saldoAggiornatoAl = useMemo(() => {
+    const date = conti.map(c => c.balance_updated_at).filter(Boolean) as string[]
+    return date.length ? date.sort()[date.length - 1] : null
+  }, [conti])
 
   const stipendiMensili = stipendiOverride.trim() ? parseNum(stipendiOverride) : nettoMensile
 
-  /** Date di pagamento stipendi che cadono nel periodo simulato. */
   const dateStipendi = useMemo(() => {
     if (!includiStipendi || stipendiMensili <= 0) return []
     const out: string[] = []
@@ -306,8 +323,7 @@ export default function SimulazioneFabbisogno() {
     for (const f of fiscali) {
       const residuo = Number(f.amount || 0) - Number(f.amount_paid || 0)
       if (residuo <= 0) continue
-      const scaduta = f.due_date < oggi
-      if (scaduta && !includiArretrato) continue
+      if (f.due_date < oggi && !includiArretrato) continue
       out.push({
         id: `fisc-${f.id}`,
         key: 'fiscali',
@@ -326,94 +342,141 @@ export default function SimulazioneFabbisogno() {
         id: `stip-${d}`,
         key: 'stipendi',
         descrizione: 'Netti in busta',
-        fornitore: 'Dipendenti',
+        fornitore: 'Stipendi dipendenti',
         documento: null,
         scadenza: d,
         importo: stipendiMensili,
-        automatico: true, // il bonifico stipendi non è rinviabile
+        automatico: true,
         link: '/dipendenti',
       })
     }
 
-    return out
+    return out.sort((a, b) => (a.scadenza || '') < (b.scadenza || '') ? -1 : 1)
   }, [payables, fiscali, dateStipendi, stipendiMensili, includiArretrato, oggi])
 
-  /* ───── simulazione ───── */
-  const giorniResidui = Math.max(0, diffGiorni(oggi, orizzonte)) + 1
-  const incassoGiornaliero = (incassoOverride.trim() ? parseNum(incassoOverride) : incassoMedioGg) * (1 + scenarioPct / 100)
-  const incassiAttesi = incassoGiornaliero * giorniResidui
+  /* ───── selezione salvata ───── */
+  const selezionati = useMemo(() => {
+    const set = new Set<string>()
+    for (const m of mustPay) {
+      if (m.payable_id) set.add(`pay-${m.payable_id}`)
+      else if (m.fiscal_deadline_id) set.add(`fisc-${m.fiscal_deadline_id}`)
+      else if (m.item_ref) set.add(m.item_ref)
+    }
+    return set
+  }, [mustPay])
+
+  /** Scrive o cancella la spunta di una riga su cash_must_pay. */
+  const toggleRiga = useCallback(async (riga: RigaUscita, attiva: boolean) => {
+    if (!COMPANY_ID || !canEdit) return
+    setSalvando(riga.id)
+    try {
+      if (!attiva) {
+        const esistente = mustPay.find(m =>
+          (m.payable_id && `pay-${m.payable_id}` === riga.id) ||
+          (m.fiscal_deadline_id && `fisc-${m.fiscal_deadline_id}` === riga.id) ||
+          m.item_ref === riga.id)
+        if (esistente) {
+          const { error } = await supabase.from('cash_must_pay').delete().eq('id', esistente.id)
+          if (error) throw error
+          setMustPay(prev => prev.filter(m => m.id !== esistente.id))
+        }
+        return
+      }
+
+      const base = { company_id: COMPANY_ID, horizon_date: orizzonte, created_by: profile?.id ?? null }
+      const payload = riga.id.startsWith('pay-')
+        ? { ...base, item_kind: 'payable', payable_id: riga.id.slice(4) }
+        : riga.id.startsWith('fisc-')
+          ? { ...base, item_kind: 'fiscal', fiscal_deadline_id: riga.id.slice(5) }
+          : { ...base, item_kind: 'payroll', item_ref: riga.id, label: riga.fornitore, amount: riga.importo }
+
+      const { data, error } = await supabase.from('cash_must_pay').insert(payload)
+        .select('id, item_kind, payable_id, fiscal_deadline_id, item_ref').single()
+      if (error) throw error
+      setMustPay(prev => [...prev, data as MustPayRow])
+    } catch (err: unknown) {
+      console.error('[SimulazioneFabbisogno] toggle:', err)
+      toast({ type: 'error', message: 'Non sono riuscito a salvare la spunta: ' + ((err as Error).message || '') })
+    } finally {
+      setSalvando(null)
+    }
+  }, [COMPANY_ID, canEdit, mustPay, orizzonte, profile?.id, toast])
+
+  /** Spunta in blocco le righe attualmente visibili non ancora selezionate. */
+  const spuntaVisibili = async (visibili: RigaUscita[], attiva: boolean) => {
+    for (const r of visibili) {
+      const gia = selezionati.has(r.id)
+      if (attiva && !gia) await toggleRiga(r, true)
+      if (!attiva && gia) await toggleRiga(r, false)
+    }
+  }
+
+  /* ───── incassi e disponibilità ───── */
+  const giorniResidui = Math.max(0, diffGiorni(oggi, orizzonte)) // da domani alla data
+  const giorniMese = useMemo(() => Number(fineMeseCorrente.slice(8, 10)), [fineMeseCorrente])
+
+  const incassi = useMemo(() => previsioneIncassiMese({
+    realizzato: realizzatoMese,
+    giorniRegistrati,
+    giorniResidui,
+    obiettivoMensile: obiettivoMeseLordo || null,
+    giorniMese,
+  }), [realizzatoMese, giorniRegistrati, giorniResidui, obiettivoMeseLordo, giorniMese])
+
+  const ritmoUsato = ritmoOverride.trim() ? parseNum(ritmoOverride) : incassi.ritmoGiornaliero
+  const incassiAttesi = ritmoUsato * giorniResidui
   const liquiditaIniziale = liquiditaOverride.trim() ? parseNum(liquiditaOverride) : liquiditaConti
+  const disponibilita = liquiditaIniziale + incassiAttesi + (usaFido ? fidoTotale : 0)
 
-  const esito = useMemo(() => {
-    const perFascia = new Map<FasciaKey, { importo: number; automatico: number }>()
-    for (const r of righe) {
-      const acc = perFascia.get(r.key) || { importo: 0, automatico: 0 }
-      acc.importo += r.importo
-      if (r.automatico) acc.automatico += r.importo
-      perFascia.set(r.key, acc)
-    }
-    return simulaFabbisogno({
-      liquiditaIniziale,
-      incassiAttesi,
-      fidoDisponibile: usaFido ? fidoTotale : 0,
-      ordine,
-      fasce: FASCE_ORDINE_DEFAULT.map(key => ({
-        key,
-        importo: perFascia.get(key)?.importo || 0,
-        automatico: perFascia.get(key)?.automatico || 0,
-      })),
-    })
-  }, [righe, liquiditaIniziale, incassiAttesi, usaFido, fidoTotale, ordine])
+  const piano = useMemo(
+    () => calcolaPiano({ righe, selezionati, disponibilita }),
+    [righe, selezionati, disponibilita],
+  )
 
-  /** Righe che restano scoperte, fascia per fascia. */
-  const scoperte: RigaRipartita[] = useMemo(() => {
-    const out: RigaRipartita[] = []
-    for (const f of esito.fasce) {
-      const dellaFascia = righe.filter(r => r.key === f.key)
-      out.push(...ripartisciSuRighe(dellaFascia, f.pagato).filter(r => r.scoperto > 0))
-    }
-    return out
-  }, [esito, righe])
-
+  /* ───── proiezione sulle sole voci obbligatorie ───── */
   const proiezione = useMemo(() => proiezioneGiornaliera({
     dataInizio: oggi,
     dataFine: orizzonte,
     saldoIniziale: liquiditaIniziale + (usaFido ? fidoTotale : 0),
-    incassoGiornaliero,
-    uscite: righe.map(r => ({ data: r.scadenza || oggi, importo: r.importo, key: r.key })),
-  }), [oggi, orizzonte, liquiditaIniziale, usaFido, fidoTotale, incassoGiornaliero, righe])
+    incassoGiornaliero: ritmoUsato,
+    uscite: righe.filter(r => selezionati.has(r.id)).map(r => ({ data: r.scadenza || oggi, importo: r.importo, key: r.key })),
+  }), [oggi, orizzonte, liquiditaIniziale, usaFido, fidoTotale, ritmoUsato, righe, selezionati])
 
   const giornoRottura = primoGiornoNegativo(proiezione)
-  const minimo = saldoMinimo(proiezione)
+  const graficoData = useMemo(() => proiezione.map(g => ({ ...g, label: fmtDataBreve(g.data) })), [proiezione])
 
-  const graficoData = useMemo(
-    () => proiezione.map(g => ({ ...g, label: fmtDataBreve(g.data) })),
-    [proiezione],
-  )
-
-  /* ───── azioni ───── */
-  const spostaFascia = (key: FasciaKey, delta: number) => {
-    setOrdine(prev => {
-      const idx = prev.indexOf(key)
-      const next = idx + delta
-      if (idx < 0 || next < 0 || next >= prev.length) return prev
-      const copia = [...prev]
-      copia.splice(idx, 1)
-      copia.splice(next, 0, key)
-      return copia
+  /* ───── lista filtrata ───── */
+  const righeVisibili = useMemo(() => {
+    const q = ricerca.trim().toLowerCase()
+    return righe.filter(r => {
+      if (filtro === 'scadute' && !(r.scadenza && r.scadenza < oggi)) return false
+      if (filtro === 'automatiche' && !r.automatico) return false
+      if (filtro !== 'tutte' && filtro !== 'scadute' && filtro !== 'automatiche' && r.key !== filtro) return false
+      if (!q) return true
+      return `${r.fornitore} ${r.documento || ''} ${r.descrizione}`.toLowerCase().includes(q)
     })
-  }
+  }, [righe, filtro, ricerca, oggi])
+
+  const totalePerFascia = useMemo(() => {
+    const m = new Map<FasciaKey, { tot: number; sel: number }>()
+    for (const k of FASCE_ORDINE_DEFAULT) m.set(k, { tot: 0, sel: 0 })
+    for (const r of righe) {
+      const acc = m.get(r.key)!
+      acc.tot += r.importo
+      if (selezionati.has(r.id)) acc.sel += r.importo
+    }
+    return m
+  }, [righe, selezionati])
 
   const esportaCsv = () => {
-    const righeCsv = [
-      ['Priorita', 'Fornitore', 'Documento', 'Categoria', 'Scadenza', 'Importo', 'Coperto', 'Scoperto', 'Addebito automatico'],
-      ...scoperte.map(r => [
-        FASCIA_LABEL[r.key], r.fornitore, r.documento || '', r.descrizione,
-        r.scadenza || '', r.importo.toFixed(2), r.pagato.toFixed(2), r.scoperto.toFixed(2),
-        r.automatico ? 'si' : 'no',
+    const rows = [
+      ['Obbligatoria', 'Categoria', 'Fornitore', 'Documento', 'Scadenza', 'Importo', 'Addebito automatico'],
+      ...righe.map(r => [
+        selezionati.has(r.id) ? 'si' : 'no', FASCIA_LABEL[r.key], r.fornitore, r.documento || '',
+        r.scadenza || '', r.importo.toFixed(2), r.automatico ? 'si' : 'no',
       ]),
     ]
-    const csv = righeCsv.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(';')).join('\n')
+    const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(';')).join('\n')
     const url = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' }))
     const a = document.createElement('a')
     a.href = url
@@ -422,7 +485,6 @@ export default function SimulazioneFabbisogno() {
     URL.revokeObjectURL(url)
   }
 
-  /* ───── render ───── */
   if (loading) {
     return (
       <div className="p-6">
@@ -432,307 +494,360 @@ export default function SimulazioneFabbisogno() {
     )
   }
 
-  const coperturaTotale = esito.totaleUscite > 0 ? (esito.totalePagato / esito.totaleUscite) * 100 : 100
+  const FILTRI: { key: FiltroFascia; label: string }[] = [
+    { key: 'tutte', label: 'Tutte' },
+    ...FASCE_ORDINE_DEFAULT.map(k => ({ key: k as FiltroFascia, label: FASCIA_LABEL[k] })),
+    { key: 'scadute', label: 'Già scadute' },
+    { key: 'automatiche', label: 'Addebiti automatici' },
+  ]
 
   return (
     <div className="p-4 sm:p-6">
       <PageHeader
         title="Simulazione fabbisogno"
-        subtitle={`Cosa riesci a pagare entro il ${fmtData(orizzonte)} e quanto manca`}
+        subtitle="Spunta quello che non puoi non pagare, il gestionale ti dice quanto manca"
         actions={
           <>
-            <button
-              onClick={loadData}
-              className="inline-flex items-center gap-2 px-3 py-2 text-sm rounded-lg border border-slate-200 hover:bg-slate-50"
-            >
+            <button onClick={loadData} className="inline-flex items-center gap-2 px-3 py-2 text-sm rounded-lg border border-slate-200 hover:bg-slate-50">
               <RefreshCw size={16} /> Ricarica
             </button>
-            <button
-              onClick={esportaCsv}
-              disabled={!scoperte.length}
-              className="inline-flex items-center gap-2 px-3 py-2 text-sm rounded-lg bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-40"
-            >
-              <Download size={16} /> Esporta scoperti
+            <button onClick={esportaCsv} className="inline-flex items-center gap-2 px-3 py-2 text-sm rounded-lg bg-slate-900 text-white hover:bg-slate-800">
+              <Download size={16} /> Esporta
             </button>
           </>
         }
       />
 
-      {errore && (
-        <div className="mb-4 p-3 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700">{errore}</div>
+      {errore && <div className="mb-4 p-3 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700">{errore}</div>}
+
+      {/* ─── LA RISPOSTA, IN UNA RIGA ─── */}
+      <div className={`rounded-2xl p-5 mb-6 border ${piano.fabbisogno > 0 ? 'bg-red-50 border-red-200' : 'bg-emerald-50 border-emerald-200'}`}>
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div>
+            <div className="text-sm text-slate-600">
+              {piano.nSelezionate === 0
+                ? 'Nessuna voce ancora spuntata: comincia dal passo 1.'
+                : <>Per pagare le <strong>{piano.nSelezionate} voci</strong> che hai segnato come obbligatorie entro il {fmtData(orizzonte)}</>}
+            </div>
+            <div className={`text-3xl sm:text-4xl font-bold mt-1 ${piano.fabbisogno > 0 ? 'text-red-700' : 'text-emerald-700'}`}>
+              {piano.nSelezionate === 0 ? '—'
+                : piano.fabbisogno > 0 ? `ti mancano ${fmtEur(piano.fabbisogno)}` : `ce la fai, avanzano ${fmtEur(piano.avanzo)}`}
+            </div>
+            {piano.nSelezionate > 0 && (
+              <div className="text-sm text-slate-600 mt-1">
+                obbligatorio {fmtEur(piano.obbligatorio)} · disponibilità {fmtEur(disponibilita)} · copri il {piano.coperturaObbligatorioPct.toFixed(0)}%
+              </div>
+            )}
+          </div>
+          <label className="shrink-0">
+            <span className="block text-xs text-slate-500 mb-1">Data obiettivo</span>
+            <input type="date" value={orizzonte} min={oggi} onChange={e => setOrizzonte(e.target.value)}
+              className="px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white" />
+          </label>
+        </div>
+      </div>
+
+      {!canEdit && (
+        <div className="mb-4 p-3 rounded-lg bg-slate-50 border border-slate-200 text-sm text-slate-600 flex items-center gap-2">
+          <Lock size={15} className="text-slate-400" />
+          Puoi vedere la selezione e il risultato, ma non modificarla: le spunte le mettono amministrazione, CFO e super advisor.
+        </div>
       )}
 
-      {/* KPI */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
-        <StatKpi icon={Wallet} color="emerald" size="lg" label="Disponibilità stimata"
-          value={fmtEur(esito.disponibilita)}
-          sub={`${fmtEur(liquiditaIniziale)} in cassa + ${fmtEur(incassiAttesi)} di incassi${usaFido ? ' + fido' : ''}`} />
-        <StatKpi icon={TrendingDown} color="amber" size="lg" label="Uscite obbligate"
-          value={fmtEur(esito.totaleUscite)}
-          sub={`${righe.length} voci entro il ${fmtData(orizzonte)}`} />
-        <StatKpi icon={AlertTriangle} color={esito.fabbisogno > 0 ? 'red' : 'emerald'} size="lg"
-          label={esito.fabbisogno > 0 ? 'Fabbisogno da coprire' : 'Cassa residua'}
-          value={fmtEur(esito.fabbisogno > 0 ? esito.fabbisogno : esito.cassaResidua)}
-          sub={esito.fabbisogno > 0 ? `copri il ${coperturaTotale.toFixed(0)}% delle uscite` : 'copri tutte le uscite'} />
-        <StatKpi icon={CalendarClock} color={giornoRottura ? 'red' : 'emerald'} size="lg" label="Cassa sotto zero"
-          value={giornoRottura ? fmtData(giornoRottura) : 'mai'}
-          sub={minimo ? `punto minimo ${fmtEur(minimo.saldo)} il ${fmtData(minimo.data)}` : ''} />
-      </div>
-
-      {/* Parametri */}
-      <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm mb-6">
-        <div className="text-sm font-semibold text-slate-900 mb-3">Parametri dello scenario</div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <label className="block">
-            <span className="text-xs text-slate-500">Simula fino al</span>
-            <input type="date" value={orizzonte} min={oggi} onChange={e => setOrizzonte(e.target.value)}
-              className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
-            <span className="text-xs text-slate-400">{giorniResidui} giorni da oggi</span>
-          </label>
-
-          <label className="block">
-            <span className="text-xs text-slate-500">Liquidità di partenza</span>
-            <input type="text" inputMode="decimal" value={liquiditaOverride}
-              placeholder={fmtEur(liquiditaConti)}
-              onChange={e => setLiquiditaOverride(e.target.value)}
-              className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
-            <span className="text-xs text-slate-400">{conti.length} conti attivi, saldo di oggi</span>
-          </label>
-
-          <label className="block">
-            <span className="text-xs text-slate-500">Incasso medio giornaliero</span>
-            <input type="text" inputMode="decimal" value={incassoOverride}
-              placeholder={fmtEur(incassoMedioGg)}
-              onChange={e => setIncassoOverride(e.target.value)}
-              className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
-            <span className="text-xs text-slate-400">media POS + versamenti, ultimi {GIORNI_STORICO_INCASSI} giorni</span>
-          </label>
-
-          <label className="block">
-            <span className="text-xs text-slate-500">Stipendi netti mensili</span>
-            <input type="text" inputMode="decimal" value={stipendiOverride}
-              placeholder={fmtEur(nettoMensile)}
-              onChange={e => setStipendiOverride(e.target.value)}
-              className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
-            <span className="text-xs text-slate-400">
-              {meseStipendi ? `ultimo cedolino ${meseStipendi}` : 'nessun cedolino caricato'}
-              {dateStipendi.length ? ` · ${dateStipendi.length} mensilità nel periodo` : ' · nessuna mensilità nel periodo'}
-            </span>
-          </label>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4 pt-4 border-t border-slate-100">
-          <div>
-            <div className="flex items-center justify-between text-xs text-slate-500">
-              <span>Scenario incassi</span>
-              <span className={`font-semibold ${scenarioPct < 0 ? 'text-red-600' : scenarioPct > 0 ? 'text-emerald-600' : 'text-slate-700'}`}>
-                {scenarioPct > 0 ? '+' : ''}{scenarioPct}% · {fmtEur(incassiAttesi)}
-              </span>
-            </div>
-            <input type="range" min={-50} max={50} step={5} value={scenarioPct}
-              onChange={e => setScenarioPct(Number(e.target.value))}
-              className="w-full mt-2 accent-indigo-600" />
-            <div className="flex justify-between text-[11px] text-slate-400"><span>−50% pessimistico</span><span>base</span><span>+50% ottimistico</span></div>
-          </div>
-
-          <div className="flex flex-col gap-2 justify-center">
-            <label className="flex items-center gap-2 text-sm text-slate-700">
-              <input type="checkbox" checked={includiArretrato} onChange={e => setIncludiArretrato(e.target.checked)} className="accent-indigo-600" />
-              Includi lo scaduto arretrato (da pagare subito)
-            </label>
-            <label className="flex items-center gap-2 text-sm text-slate-700">
-              <input type="checkbox" checked={includiStipendi} onChange={e => setIncludiStipendi(e.target.checked)} className="accent-indigo-600" />
-              Includi gli stipendi, pagati il giorno
-              <input type="number" min={1} max={28} value={giornoStipendi}
-                onChange={e => setGiornoStipendi(Math.min(28, Math.max(1, Number(e.target.value) || 1)))}
-                className="w-14 px-2 py-1 border border-slate-200 rounded text-sm" />
-            </label>
-            <label className="flex items-center gap-2 text-sm text-slate-700">
-              <input type="checkbox" checked={usaFido} onChange={e => setUsaFido(e.target.checked)} className="accent-indigo-600" />
-              Considera il fido disponibile ({fmtEur(fidoTotale)})
-            </label>
-          </div>
-        </div>
-      </div>
-
-      {/* Cascata a priorità */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm mb-6 overflow-hidden">
+      {/* ═══ PASSO 1 — COSA DEVI PAGARE PER FORZA ═══ */}
+      <section className="bg-white rounded-xl border border-slate-200 shadow-sm mb-6 overflow-hidden">
         <div className="p-4 border-b border-slate-100">
-          <div className="text-sm font-semibold text-slate-900">Cascata di pagamento</div>
-          <div className="text-xs text-slate-500 mt-1">
-            La disponibilità viene assorbita dall'alto verso il basso. Usa le frecce per cambiare l'ordine di priorità.
+          <div className="flex items-center gap-2">
+            <span className="w-6 h-6 rounded-full bg-slate-900 text-white text-xs font-bold flex items-center justify-center">1</span>
+            <span className="text-sm font-semibold text-slate-900">Cosa non possiamo non pagare</span>
+          </div>
+          <div className="text-xs text-slate-500 mt-1 ml-8">
+            Tutte le uscite in scadenza entro il {fmtData(orizzonte)}: fatture, tasse e stipendi insieme.
+            Spunta quelle a cui non vuoi dire di no. Ogni spunta si salva subito e la vedono tutti.
           </div>
         </div>
-        <div className="overflow-x-auto">
+
+        {/* filtri */}
+        <div className="p-4 border-b border-slate-100 flex flex-wrap items-center gap-2">
+          {FILTRI.map(f => (
+            <button key={f.key} onClick={() => setFiltro(f.key)}
+              className={`px-2.5 py-1 rounded-lg text-xs font-medium border ${filtro === f.key ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}>
+              {f.label}
+            </button>
+          ))}
+          <div className="relative ml-auto">
+            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input value={ricerca} onChange={e => setRicerca(e.target.value)} placeholder="Cerca fornitore o fattura"
+              className="pl-8 pr-7 py-1.5 border border-slate-200 rounded-lg text-sm w-56" />
+            {ricerca && (
+              <button onClick={() => setRicerca('')} aria-label="Pulisci la ricerca"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"><X size={13} /></button>
+            )}
+          </div>
+        </div>
+
+        {canEdit && (
+          <div className="px-4 py-2 border-b border-slate-100 flex flex-wrap items-center gap-2 bg-slate-50">
+            <span className="text-xs text-slate-500">Su queste {righeVisibili.length} voci:</span>
+            <button onClick={() => spuntaVisibili(righeVisibili, true)}
+              className="px-2.5 py-1 rounded-lg text-xs font-medium bg-white border border-slate-200 hover:bg-slate-100">
+              spunta tutte
+            </button>
+            <button onClick={() => spuntaVisibili(righeVisibili, false)}
+              className="px-2.5 py-1 rounded-lg text-xs font-medium bg-white border border-slate-200 hover:bg-slate-100">
+              togli le spunte
+            </button>
+          </div>
+        )}
+
+        <div className="overflow-x-auto max-h-[34rem]">
           <table className="w-full text-sm">
-            <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+            <thead className="bg-slate-50 text-xs uppercase text-slate-500 sticky top-0">
               <tr>
-                <th className="text-left px-4 py-2 font-medium">Priorità</th>
-                <th className="text-right px-4 py-2 font-medium">Dovuto</th>
-                <th className="text-right px-4 py-2 font-medium">di cui automatico</th>
-                <th className="text-right px-4 py-2 font-medium">Riesci a pagare</th>
-                <th className="text-right px-4 py-2 font-medium">Resta scoperto</th>
-                <th className="text-left px-4 py-2 font-medium w-40">Copertura</th>
+                <th className="w-10 px-3 py-2" />
+                <th className="text-left px-3 py-2 font-medium">Chi</th>
+                <th className="text-left px-3 py-2 font-medium">Documento</th>
+                <th className="text-left px-3 py-2 font-medium">Scadenza</th>
+                <th className="text-left px-3 py-2 font-medium">Tipo</th>
+                <th className="text-right px-3 py-2 font-medium">Importo</th>
                 <th className="px-2 py-2" />
               </tr>
             </thead>
             <tbody>
-              {esito.fasce.map((f, i) => (
-                <tr key={f.key} className="border-t border-slate-100">
-                  <td className="px-4 py-3">
-                    <span className="text-xs text-slate-400 mr-2">{i + 1}</span>
-                    <span className={`px-2 py-0.5 rounded text-xs font-medium ${FASCIA_COLOR[f.key]}`}>{FASCIA_LABEL[f.key]}</span>
-                  </td>
-                  <td className="px-4 py-3 text-right font-medium text-slate-900">{fmtEur(f.importo)}</td>
-                  <td className="px-4 py-3 text-right text-slate-500">{f.automatico > 0 ? fmtEur(f.automatico) : '—'}</td>
-                  <td className="px-4 py-3 text-right text-emerald-700 font-medium">{fmtEur(f.pagato)}</td>
-                  <td className={`px-4 py-3 text-right font-semibold ${f.scoperto > 0 ? 'text-red-600' : 'text-slate-400'}`}>
-                    {f.scoperto > 0 ? fmtEur(f.scoperto) : '—'}
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
-                      <div className={`h-full ${f.coperturaPct >= 100 ? 'bg-emerald-500' : f.coperturaPct > 0 ? 'bg-amber-500' : 'bg-red-400'}`}
-                        style={{ width: `${Math.min(100, f.coperturaPct)}%` }} />
-                    </div>
-                    <div className="text-[11px] text-slate-400 mt-1">{f.coperturaPct.toFixed(0)}%</div>
-                  </td>
-                  <td className="px-2 py-3">
-                    <div className="flex flex-col gap-0.5">
-                      <button onClick={() => spostaFascia(f.key, -1)} disabled={i === 0}
-                        aria-label={`Alza la priorità di ${FASCIA_LABEL[f.key]}`}
-                        className="p-1 rounded hover:bg-slate-100 disabled:opacity-20"><ArrowUp size={14} /></button>
-                      <button onClick={() => spostaFascia(f.key, 1)} disabled={i === esito.fasce.length - 1}
-                        aria-label={`Abbassa la priorità di ${FASCIA_LABEL[f.key]}`}
-                        className="p-1 rounded hover:bg-slate-100 disabled:opacity-20"><ArrowDown size={14} /></button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-            <tfoot className="bg-slate-50 font-semibold text-slate-900">
-              <tr>
-                <td className="px-4 py-3">Totale</td>
-                <td className="px-4 py-3 text-right">{fmtEur(esito.totaleUscite)}</td>
-                <td className="px-4 py-3" />
-                <td className="px-4 py-3 text-right text-emerald-700">{fmtEur(esito.totalePagato)}</td>
-                <td className="px-4 py-3 text-right text-red-600">{fmtEur(esito.fabbisogno)}</td>
-                <td className="px-4 py-3" colSpan={2} />
-              </tr>
-            </tfoot>
-          </table>
-        </div>
-        {esito.scopertoNonRinviabile > 0 && (
-          <div className="px-4 py-3 bg-red-50 border-t border-red-100 text-sm text-red-700 flex items-start gap-2">
-            <AlertTriangle size={16} className="shrink-0 mt-0.5" />
-            <span>
-              {fmtEur(esito.scopertoNonRinviabile)} di scoperto sono addebiti automatici (RiBa, SDD, carte, bonifico stipendi):
-              escono dal conto comunque, quindi non basta trattare col fornitore. O si copre, o vanno insoluti.
-            </span>
-          </div>
-        )}
-      </div>
-
-      {/* Proiezione */}
-      <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm mb-6">
-        <div className="text-sm font-semibold text-slate-900">Saldo giorno per giorno</div>
-        <div className="text-xs text-slate-500 mt-1 mb-3">
-          Ipotesi: incassi distribuiti in modo uniforme, uscite alla data di scadenza, arretrato tutto sul primo giorno.
-        </div>
-        <div className="h-72">
-          <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart data={graficoData} margin={{ top: 8, right: 8, left: 8, bottom: 0 }}>
-              <defs>
-                <linearGradient id="saldoFill" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#6366f1" stopOpacity={0.35} />
-                  <stop offset="95%" stopColor="#6366f1" stopOpacity={0.02} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid {...GRID_STYLE} />
-              <XAxis dataKey="label" {...AXIS_STYLE} interval="preserveStartEnd" minTickGap={24} />
-              <YAxis {...AXIS_STYLE} tickFormatter={(v: number) => `${Math.round(v / 1000)}k`} />
-              <Tooltip content={<GlassTooltip formatter={(v: number) => fmtEur(v)} />} />
-              <ReferenceLine y={0} stroke="#ef4444" strokeDasharray="4 4" />
-              <Area type="monotone" dataKey="saldo" name="Saldo" stroke="#6366f1" strokeWidth={2} fill="url(#saldoFill)" />
-            </ComposedChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-
-      {/* Cosa resta fuori */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="p-4 border-b border-slate-100 flex items-center justify-between gap-3">
-          <div>
-            <div className="text-sm font-semibold text-slate-900">Cosa resta fuori</div>
-            <div className="text-xs text-slate-500 mt-1">
-              Dentro ogni priorità si pagano prima gli addebiti automatici, poi le scadenze più vecchie.
-              Clicca il fornitore o la freccia per aprire la riga dove si gestisce.
-            </div>
-          </div>
-          <span className="text-xs text-slate-500 shrink-0">{scoperte.length} voci</span>
-        </div>
-        {scoperte.length === 0 ? (
-          <div className="p-8 text-center text-sm text-slate-500 flex flex-col items-center gap-2">
-            <CheckCircle2 className="text-emerald-500" size={28} />
-            Con questi parametri copri tutte le uscite entro il {fmtData(orizzonte)}.
-          </div>
-        ) : (
-          <div className="overflow-x-auto max-h-[32rem]">
-            <table className="w-full text-sm">
-              <thead className="bg-slate-50 text-xs uppercase text-slate-500 sticky top-0">
-                <tr>
-                  <th className="text-left px-4 py-2 font-medium">Priorità</th>
-                  <th className="text-left px-4 py-2 font-medium">Fornitore</th>
-                  <th className="text-left px-4 py-2 font-medium">Documento</th>
-                  <th className="text-left px-4 py-2 font-medium">Scadenza</th>
-                  <th className="text-right px-4 py-2 font-medium">Importo</th>
-                  <th className="text-right px-4 py-2 font-medium">Scoperto</th>
-                  <th className="px-2 py-2" />
-                </tr>
-              </thead>
-              <tbody>
-                {scoperte.map(r => (
-                  <tr key={r.id} className="border-t border-slate-100 hover:bg-slate-50">
-                    <td className="px-4 py-2">
-                      <span className={`px-2 py-0.5 rounded text-xs font-medium ${FASCIA_COLOR[r.key]}`}>{FASCIA_LABEL[r.key]}</span>
+              {righeVisibili.map(r => {
+                const sel = selezionati.has(r.id)
+                return (
+                  <tr key={r.id} className={`border-t border-slate-100 ${sel ? 'bg-indigo-50/40' : 'hover:bg-slate-50'}`}>
+                    <td className="px-3 py-2">
+                      <input type="checkbox" checked={sel} disabled={!canEdit || salvando === r.id}
+                        onChange={e => toggleRiga(r, e.target.checked)}
+                        aria-label={`Segna come obbligatoria: ${r.fornitore} ${r.documento || ''}`}
+                        className="w-4 h-4 accent-indigo-600" />
                     </td>
-                    <td className="px-4 py-2 text-slate-900">
-                      {r.link ? (
-                        <Link to={r.link} className="text-indigo-700 hover:underline">{r.fornitore}</Link>
-                      ) : r.fornitore}
-                      {r.automatico && <span className="ml-2 text-[11px] px-1.5 py-0.5 rounded bg-red-50 text-red-600">automatico</span>}
+                    <td className="px-3 py-2 text-slate-900">
+                      {r.fornitore}
+                      {r.automatico && <span className="ml-2 text-[11px] px-1.5 py-0.5 rounded bg-red-50 text-red-600">esce comunque</span>}
                     </td>
-                    <td className="px-4 py-2 text-slate-500">{r.documento || r.descrizione}</td>
-                    <td className={`px-4 py-2 ${r.scadenza && r.scadenza < oggi ? 'text-red-600 font-medium' : 'text-slate-600'}`}>
+                    <td className="px-3 py-2 text-slate-500">{r.documento || r.descrizione}</td>
+                    <td className={`px-3 py-2 ${r.scadenza && r.scadenza < oggi ? 'text-red-600 font-medium' : 'text-slate-600'}`}>
                       {fmtData(r.scadenza)}
                     </td>
-                    <td className="px-4 py-2 text-right text-slate-600">{fmtEur(r.importo, 2)}</td>
-                    <td className="px-4 py-2 text-right font-semibold text-red-600">{fmtEur(r.scoperto, 2)}</td>
+                    <td className="px-3 py-2">
+                      <span className={`px-2 py-0.5 rounded text-xs font-medium ${FASCIA_COLOR[r.key]}`}>{FASCIA_LABEL[r.key]}</span>
+                    </td>
+                    <td className="px-3 py-2 text-right font-medium text-slate-900">{fmtEur(r.importo, 2)}</td>
                     <td className="px-2 py-2">
                       {r.link && (
-                        <Link
-                          to={r.link}
-                          title={DESTINAZIONE_LABEL[r.key]}
-                          aria-label={`${DESTINAZIONE_LABEL[r.key]}: ${r.fornitore}`}
-                          className="inline-flex items-center justify-center p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50"
-                        >
+                        <Link to={r.link} title={DESTINAZIONE_LABEL[r.key]} aria-label={`${DESTINAZIONE_LABEL[r.key]}: ${r.fornitore}`}
+                          className="inline-flex p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50">
                           <ExternalLink size={15} />
                         </Link>
                       )}
                     </td>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                )
+              })}
+              {righeVisibili.length === 0 && (
+                <tr><td colSpan={7} className="px-4 py-8 text-center text-sm text-slate-500">Nessuna voce con questi filtri.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="p-4 bg-slate-50 border-t border-slate-100 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
+          <span className="font-semibold text-slate-900">
+            Spuntate {piano.nSelezionate} voci su {piano.nTotali}: {fmtEur(piano.obbligatorio)}
+          </span>
+          <span className="text-slate-500">non spuntate: {fmtEur(piano.rinviabile)}</span>
+          {FASCE_ORDINE_DEFAULT.map(k => {
+            const v = totalePerFascia.get(k)!
+            if (v.tot === 0) return null
+            return (
+              <span key={k} className="text-xs text-slate-500">
+                {FASCIA_LABEL[k]}: <strong className="text-slate-700">{fmtEur(v.sel)}</strong> su {fmtEur(v.tot)}
+              </span>
+            )
+          })}
+        </div>
+
+        {piano.rinviabileAutomatico > 0 && (
+          <div className="px-4 py-3 bg-amber-50 border-t border-amber-100 text-sm text-amber-800 flex items-start gap-2">
+            <AlertTriangle size={16} className="shrink-0 mt-0.5" />
+            <span>
+              {fmtEur(piano.rinviabileAutomatico)} che non hai spuntato sono RiBa, SDD o addebiti su carta:
+              partono dal conto da soli, che tu li consideri obbligatori o no. Conviene spuntarli.
+            </span>
           </div>
         )}
-      </div>
+      </section>
 
-      {/* Nota metodologica */}
-      <div className="mt-6 p-4 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-600 flex items-start gap-2">
+      {/* ═══ PASSO 2 — QUANTO AVRAI ═══ */}
+      <section className="bg-white rounded-xl border border-slate-200 shadow-sm mb-6">
+        <div className="p-4 border-b border-slate-100">
+          <div className="flex items-center gap-2">
+            <span className="w-6 h-6 rounded-full bg-slate-900 text-white text-xs font-bold flex items-center justify-center">2</span>
+            <span className="text-sm font-semibold text-slate-900">Quanto avrai entro il {fmtData(orizzonte)}</span>
+          </div>
+          <div className="text-xs text-slate-500 mt-1 ml-8">
+            Quello che c'è in banca oggi, più gli incassi dei negozi da qui alla data. Il ritmo si aggiorna da solo
+            ogni sera con i ricavi caricati dai punti vendita.
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-px bg-slate-100">
+          {/* cassa */}
+          <div className="bg-white p-4">
+            <div className="text-xs uppercase text-slate-500 font-medium">In banca oggi</div>
+            <div className="text-2xl font-bold text-slate-900 mt-1">{fmtEur(liquiditaIniziale)}</div>
+            <div className="text-xs text-slate-500 mt-1">
+              {conti.length} conti attivi{saldoAggiornatoAl ? `, aggiornati al ${fmtData(saldoAggiornatoAl)}` : ''}
+            </div>
+            <input type="text" inputMode="decimal" value={liquiditaOverride} placeholder="correggi il saldo"
+              onChange={e => setLiquiditaOverride(e.target.value)}
+              className="mt-3 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
+            <label className="flex items-center gap-2 text-sm text-slate-700 mt-3">
+              <input type="checkbox" checked={usaFido} onChange={e => setUsaFido(e.target.checked)} className="accent-indigo-600" />
+              Aggiungi il fido ({fmtEur(fidoTotale)})
+            </label>
+          </div>
+
+          {/* incassi attesi */}
+          <div className="bg-white p-4">
+            <div className="text-xs uppercase text-slate-500 font-medium">Incassi attesi ({giorniResidui} giorni)</div>
+            <div className="text-2xl font-bold text-slate-900 mt-1">{fmtEur(incassiAttesi)}</div>
+            <div className="text-xs text-slate-500 mt-1">
+              {fmtEur(ritmoUsato)} al giorno{ritmoOverride.trim() ? ' (impostato da te)' : ` (ritmo di questo mese su ${giorniRegistrati} giorni)`}
+            </div>
+            <input type="text" inputMode="decimal" value={ritmoOverride} placeholder="correggi l'incasso giornaliero"
+              onChange={e => setRitmoOverride(e.target.value)}
+              className="mt-3 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
+            <div className="text-[11px] text-slate-400 mt-2">
+              Il ricavo di oggi si considera già arrivato in banca, quindi si contano i giorni da domani.
+            </div>
+          </div>
+
+          {/* obiettivo del mese */}
+          <div className="bg-white p-4">
+            <div className="text-xs uppercase text-slate-500 font-medium flex items-center gap-1.5">
+              <Target size={13} /> Il mese contro l'obiettivo
+            </div>
+            {obiettivoMeseLordo > 0 ? (
+              <>
+                <div className={`text-2xl font-bold mt-1 flex items-center gap-2 ${(incassi.scostamento ?? 0) >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>
+                  {(incassi.scostamento ?? 0) >= 0 ? <TrendingUp size={20} /> : <TrendingDown size={20} />}
+                  {(incassi.scostamento ?? 0) >= 0 ? '+' : ''}{fmtEur(incassi.scostamento)}
+                </div>
+                <dl className="mt-2 space-y-1 text-xs text-slate-600">
+                  <div className="flex justify-between"><dt>obiettivo del mese</dt><dd className="font-medium">{fmtEur(obiettivoMeseLordo)}</dd></div>
+                  <div className="flex justify-between"><dt>fatto finora</dt><dd className="font-medium">{fmtEur(realizzatoMese)}</dd></div>
+                  <div className="flex justify-between"><dt>dove chiudi con questo ritmo</dt><dd className="font-medium">{fmtEur(incassi.proiezioneMese)}</dd></div>
+                  {incassi.passoRichiesto != null && (
+                    <div className="flex justify-between"><dt>servirebbero al giorno</dt><dd className="font-medium">{fmtEur(incassi.passoRichiesto)}</dd></div>
+                  )}
+                </dl>
+                <div className="text-[11px] text-slate-400 mt-2">
+                  Obiettivo da Budget → Inserimento rapido, portato a lordo IVA perché in cassa entra l'incasso pieno.
+                </div>
+              </>
+            ) : (
+              <div className="text-sm text-slate-500 mt-2">
+                Nessun obiettivo inserito per questo mese. Impostalo in Budget → Inserimento rapido e comparirà qui il confronto.
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="p-4 border-t border-slate-100 bg-slate-50 flex flex-wrap items-center gap-x-6 gap-y-2">
+          <span className="text-sm font-semibold text-slate-900">Disponibilità totale: {fmtEur(disponibilita)}</span>
+          <label className="flex items-center gap-2 text-sm text-slate-700">
+            <input type="checkbox" checked={includiArretrato} onChange={e => setIncludiArretrato(e.target.checked)} className="accent-indigo-600" />
+            Mostra anche lo scaduto arretrato
+          </label>
+          <label className="flex items-center gap-2 text-sm text-slate-700">
+            <input type="checkbox" checked={includiStipendi} onChange={e => setIncludiStipendi(e.target.checked)} className="accent-indigo-600" />
+            Stipendi il giorno
+            <input type="number" min={1} max={28} value={giornoStipendi}
+              onChange={e => setGiornoStipendi(Math.min(28, Math.max(1, Number(e.target.value) || 1)))}
+              className="w-14 px-2 py-1 border border-slate-200 rounded text-sm" />
+            da {fmtEur(stipendiMensili)}
+          </label>
+          <input type="text" inputMode="decimal" value={stipendiOverride} placeholder={`stipendi (${meseStipendi || 'nessun cedolino'})`}
+            onChange={e => setStipendiOverride(e.target.value)}
+            className="px-3 py-1.5 border border-slate-200 rounded-lg text-sm w-52" />
+        </div>
+      </section>
+
+      {/* ═══ PASSO 3 — IL CONTO ═══ */}
+      <section className="bg-white rounded-xl border border-slate-200 shadow-sm mb-6">
+        <div className="p-4 border-b border-slate-100">
+          <div className="flex items-center gap-2">
+            <span className="w-6 h-6 rounded-full bg-slate-900 text-white text-xs font-bold flex items-center justify-center">3</span>
+            <span className="text-sm font-semibold text-slate-900">Il conto</span>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-px bg-slate-100">
+          <div className="bg-white p-4">
+            <div className="text-xs uppercase text-slate-500 font-medium">Obbligatorio spuntato</div>
+            <div className="text-xl font-bold text-slate-900 mt-1">{fmtEur(piano.obbligatorio)}</div>
+            <div className="text-xs text-slate-500 mt-1">{piano.nSelezionate} voci</div>
+          </div>
+          <div className="bg-white p-4">
+            <div className="text-xs uppercase text-slate-500 font-medium">Disponibilità</div>
+            <div className="text-xl font-bold text-slate-900 mt-1">{fmtEur(disponibilita)}</div>
+            <div className="text-xs text-slate-500 mt-1">cassa {fmtEur(liquiditaIniziale)} + incassi {fmtEur(incassiAttesi)}</div>
+          </div>
+          <div className={`p-4 ${piano.fabbisogno > 0 ? 'bg-red-50' : 'bg-emerald-50'}`}>
+            <div className="text-xs uppercase text-slate-500 font-medium">{piano.fabbisogno > 0 ? 'Fabbisogno' : 'Avanzo'}</div>
+            <div className={`text-xl font-bold mt-1 ${piano.fabbisogno > 0 ? 'text-red-700' : 'text-emerald-700'}`}>
+              {fmtEur(piano.fabbisogno > 0 ? piano.fabbisogno : piano.avanzo)}
+            </div>
+            <div className="text-xs text-slate-600 mt-1">
+              {piano.fabbisogno > 0
+                ? giornoRottura ? `cassa sotto zero il ${fmtData(giornoRottura)}` : 'da coprire entro la data'
+                : `copre anche ${fmtEur(piano.rinviabileCoperto)} del resto`}
+            </div>
+          </div>
+        </div>
+
+        <div className="p-4">
+          <div className="text-xs text-slate-500 mb-2">
+            Saldo giorno per giorno con i soli pagamenti obbligatori, incassi al ritmo attuale e arretrato tutto sul primo giorno.
+          </div>
+          <div className="h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              <ComposedChart data={graficoData} margin={{ top: 8, right: 8, left: 8, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="saldoFill" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#6366f1" stopOpacity={0.35} />
+                    <stop offset="95%" stopColor="#6366f1" stopOpacity={0.02} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid {...GRID_STYLE} />
+                <XAxis dataKey="label" {...AXIS_STYLE} interval="preserveStartEnd" minTickGap={24} />
+                <YAxis {...AXIS_STYLE} tickFormatter={(v: number) => `${Math.round(v / 1000)}k`} />
+                <Tooltip content={<GlassTooltip formatter={(v: number) => fmtEur(v)} />} />
+                <ReferenceLine y={0} stroke="#ef4444" strokeDasharray="4 4" />
+                <Area type="monotone" dataKey="saldo" name="Saldo" stroke="#6366f1" strokeWidth={2} fill="url(#saldoFill)" />
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {piano.fabbisogno === 0 && piano.nSelezionate > 0 && (
+          <div className="px-4 py-3 bg-emerald-50 border-t border-emerald-100 text-sm text-emerald-800 flex items-center gap-2">
+            <CheckCircle2 size={16} className="shrink-0" />
+            La cassa copre tutto l'obbligatorio. Restano {fmtEur(piano.avanzo)} per il resto, che vale {fmtEur(piano.rinviabile)}.
+          </div>
+        )}
+      </section>
+
+      {/* nota */}
+      <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-600 flex items-start gap-2">
         <Info size={16} className="shrink-0 mt-0.5 text-slate-400" />
         <div className="space-y-1">
-          <div><strong>Come legge i dati.</strong> Le uscite arrivano dallo Scadenzario (residuo ancora da pagare, scadenza entro la data scelta, escluse annullate e note di credito), dalle Scadenze fiscali ancora aperte e dalla stima degli stipendi. La liquidità è il saldo dei conti attivi in Banche.</div>
-          <div><strong>Cosa è una stima.</strong> Incassi futuri e mensilità stipendi non sono dati certi: sono proiezioni, e i campi qui sopra servono a correggerle con quello che sai tu.</div>
+          <div><strong>La selezione è condivisa e resta.</strong> Le spunte si salvano sul gestionale legate alla data obiettivo: chi apre la pagina dopo di te vede le stesse. Cambiando data si riparte da una selezione nuova.</div>
+          <div><strong>Gli importi restano agganciati alla fonte.</strong> Se una fattura viene pagata o cambia importo nello Scadenzario, qui il numero si aggiorna da solo: la spunta dice «questa è obbligatoria», non congela la cifra.</div>
           <div><strong>Cosa non entra.</strong> Costi ricorrenti non ancora fatturati, RiBa presentate ma non ancora a scadenzario e insoluti in corso di rientro.</div>
         </div>
       </div>
@@ -745,6 +860,9 @@ export default function SimulazioneFabbisogno() {
               {c.bank_name?.split(' ')[0] || c.account_name} · {fmtEur(Number(c.current_balance || 0))}
             </span>
           ))}
+          <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-white border border-slate-200">
+            <Wallet size={12} className="text-slate-400" /> totale {fmtEur(liquiditaConti)}
+          </span>
         </div>
       )}
     </div>

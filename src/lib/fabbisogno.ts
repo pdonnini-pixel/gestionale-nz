@@ -322,3 +322,155 @@ export function ripartisciSuRighe(righe: RigaUscita[], pagabile: number): RigaRi
     return { ...r, importo, pagato, scoperto: round2(importo - pagato) }
   })
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PIANO «NON POSSO NON PAGARE»
+//
+// La cascata a priorità sopra è una regola generale. Qui invece comanda una
+// decisione presa da chi tiene l'amministrazione: le voci spuntate sono
+// obbligatorie, il resto è discrezionale. Il fabbisogno diventa la distanza fra
+// quello che è stato deciso e quello che si avrà davvero in cassa.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface PianoInput {
+  righe: RigaUscita[]
+  /** Chiavi (`RigaUscita.id`) delle voci marcate come obbligatorie. */
+  selezionati: ReadonlySet<string>
+  /** Liquidità + incassi attesi + eventuale fido. */
+  disponibilita: number
+}
+
+export interface PianoEsito {
+  /** Totale delle voci spuntate. */
+  obbligatorio: number
+  /** Quota del selezionato che è addebito automatico (esce comunque). */
+  obbligatorioAutomatico: number
+  /** Totale delle voci NON spuntate, cioè rinviabili. */
+  rinviabile: number
+  /** Quota del NON selezionato che però è un addebito automatico: è la
+   *  contraddizione da mostrare, perché uscirà dal conto comunque. */
+  rinviabileAutomatico: number
+  disponibilita: number
+  /** Quanto manca per coprire l'obbligatorio. 0 se la cassa basta. */
+  fabbisogno: number
+  /** Cassa che resta dopo aver pagato tutto l'obbligatorio. */
+  avanzo: number
+  /** Quanto del rinviabile si riesce a pagare con l'avanzo. */
+  rinviabileCoperto: number
+  coperturaObbligatorioPct: number
+  nSelezionate: number
+  nTotali: number
+}
+
+/**
+ * Confronta la selezione con la disponibilità. Nessuna priorità implicita:
+ * l'unica gerarchia è spuntato / non spuntato.
+ */
+export function calcolaPiano(input: PianoInput): PianoEsito {
+  let obbligatorio = 0
+  let obbligatorioAutomatico = 0
+  let rinviabile = 0
+  let rinviabileAutomatico = 0
+  let nSelezionate = 0
+
+  for (const r of input.righe) {
+    const importo = pos(r.importo)
+    if (input.selezionati.has(r.id)) {
+      obbligatorio += importo
+      if (r.automatico) obbligatorioAutomatico += importo
+      nSelezionate++
+    } else {
+      rinviabile += importo
+      if (r.automatico) rinviabileAutomatico += importo
+    }
+  }
+
+  obbligatorio = round2(obbligatorio)
+  rinviabile = round2(rinviabile)
+  const disponibilita = round2(pos(input.disponibilita))
+  const fabbisogno = round2(Math.max(0, obbligatorio - disponibilita))
+  const avanzo = round2(Math.max(0, disponibilita - obbligatorio))
+
+  return {
+    obbligatorio,
+    obbligatorioAutomatico: round2(obbligatorioAutomatico),
+    rinviabile,
+    rinviabileAutomatico: round2(rinviabileAutomatico),
+    disponibilita,
+    fabbisogno,
+    avanzo,
+    rinviabileCoperto: round2(Math.min(rinviabile, avanzo)),
+    coperturaObbligatorioPct: obbligatorio > 0 ? round2((Math.min(obbligatorio, disponibilita) / obbligatorio) * 100) : 100,
+    nSelezionate,
+    nTotali: input.righe.length,
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// INCASSI DEL MESE — obiettivo corretto ogni sera dai ricavi veri
+//
+// I negozi scaricano i ricavi ogni sera. Il ritmo effettivo di questo mese è
+// quindi un dato, non una stima: si usa quello per i giorni che restano, mentre
+// l'obiettivo mensile serve a dire se si è avanti o indietro.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface IncassiMeseInput {
+  /** Ricavi lordi già registrati dal primo del mese a oggi. */
+  realizzato: number
+  /** Giorni di calendario coperti dai dati (non le righe: i giorni distinti). */
+  giorniRegistrati: number
+  /** Giorni ancora da incassare, da domani alla data orizzonte compresa. */
+  giorniResidui: number
+  /** Obiettivo di ricavo del mese, per il confronto. */
+  obiettivoMensile?: number | null
+  /** Giorni totali del mese, per ripartire l'obiettivo. */
+  giorniMese?: number | null
+}
+
+export interface IncassiMeseEsito {
+  /** Media giornaliera effettiva del mese in corso. */
+  ritmoGiornaliero: number
+  /** Incassi attesi da domani alla data orizzonte. */
+  attesiResidui: number
+  /** Dove chiude il mese se il ritmo resta questo. */
+  proiezioneMese: number
+  /** Quota di obiettivo che sarebbe dovuta arrivare finora. */
+  obiettivoAData: number | null
+  /** Proiezione meno obiettivo: positivo = sopra obiettivo. */
+  scostamento: number | null
+  /** Quanto servirebbe incassare al giorno per chiudere in obiettivo. */
+  passoRichiesto: number | null
+}
+
+/**
+ * Il ritmo è la media dei giorni realmente registrati: se l'import serale salta
+ * un giorno, quel giorno non abbassa la media (si dividerebbe per un giorno che
+ * non ha dati, non per un giorno chiuso).
+ */
+export function previsioneIncassiMese(input: IncassiMeseInput): IncassiMeseEsito {
+  const realizzato = round2(pos(input.realizzato))
+  const giorniRegistrati = Math.max(0, Math.floor(input.giorniRegistrati))
+  const giorniResidui = Math.max(0, Math.floor(input.giorniResidui))
+  const ritmoGiornaliero = giorniRegistrati > 0 ? round2(realizzato / giorniRegistrati) : 0
+  const attesiResidui = round2(ritmoGiornaliero * giorniResidui)
+
+  const obiettivo = input.obiettivoMensile != null && input.obiettivoMensile > 0 ? input.obiettivoMensile : null
+  const giorniMese = input.giorniMese && input.giorniMese > 0 ? input.giorniMese : null
+
+  const obiettivoAData = obiettivo != null && giorniMese != null
+    ? round2((obiettivo / giorniMese) * giorniRegistrati)
+    : null
+
+  const proiezioneMese = round2(realizzato + attesiResidui)
+
+  return {
+    ritmoGiornaliero,
+    attesiResidui,
+    proiezioneMese,
+    obiettivoAData,
+    scostamento: obiettivo != null ? round2(proiezioneMese - obiettivo) : null,
+    passoRichiesto: obiettivo != null && giorniResidui > 0
+      ? round2(Math.max(0, obiettivo - realizzato) / giorniResidui)
+      : null,
+  }
+}
