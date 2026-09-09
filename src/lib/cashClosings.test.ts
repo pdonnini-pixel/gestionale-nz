@@ -63,13 +63,53 @@ describe('computeQuadrature', () => {
   it('segnala la differenza e ignora i canali fuori totale', () => {
     const q = computeQuadrature({
       totalReceipts: 3000,
-      lines: [...lines, { kind: 'fattura', counts_in_total: false, amount: 999 }],
+      lines: [...lines, { kind: 'altro', counts_in_total: false, amount: 999 }],
       cashExpenses: 0, cashDeposit: 0, prevFloat: 100, cashFloatDeclared: 700,
     })
     expect(q.channelsTotal).toBe(3248.5)
     expect(q.receiptsDifference).toBe(-248.5)
     expect(q.cashFloatExpected).toBe(712)
     expect(q.cashDifference).toBe(-12)
+  })
+  it('le fatture si sommano ai corrispettivi, non ai mezzi di pagamento (Barberino 04/09)', () => {
+    // scontrino 1.000, fattura 74,04 pagata con il POS: il POS incassa 1.074,04 in tutto
+    const q = computeQuadrature({
+      totalReceipts: 1000,
+      lines: [
+        { kind: 'contanti', counts_in_total: true, amount: 300 },
+        { kind: 'pos', counts_in_total: true, amount: 774.04 },
+        { kind: 'fattura', counts_in_total: true, amount: 74.04 },
+      ],
+      cashExpenses: 0, cashDeposit: 0, prevFloat: 200, cashFloatDeclared: 500,
+    })
+    expect(q.invoicesTotal).toBe(74.04)
+    expect(q.totalCollected).toBe(1074.04)
+    expect(q.channelsTotal).toBe(1074.04)
+    expect(q.receiptsDifference).toBe(0)
+  })
+  it('contanti da versare: il versamento di ieri riduce la partenza di oggi', () => {
+    // martedì: fondo 200, niente da versare, contanti 295,10, spesa 12,50 → atteso 482,60
+    const mar = computeQuadrature({
+      totalReceipts: 295.1, lines: [{ kind: 'contanti', counts_in_total: true, amount: 295.1 }],
+      cashExpenses: 12.5, cashDeposit: 0, prevFloat: 200, prevPending: 0, cashFloatDeclared: 200, cashPendingDeclared: 282.6,
+    })
+    expect(mar.cashFloatExpected).toBe(482.6)
+    expect(mar.cashDeclaredTotal).toBe(482.6)
+    expect(mar.cashDifference).toBe(0)
+    // mercoledì: parte da 200 + 282,60, incassa 310 in contanti, versa 500 → atteso 292,60
+    const mer = computeQuadrature({
+      totalReceipts: 310, lines: [{ kind: 'contanti', counts_in_total: true, amount: 310 }],
+      cashExpenses: 0, cashDeposit: 500, prevFloat: 200, prevPending: 282.6, cashFloatDeclared: 200, cashPendingDeclared: 92.6,
+    })
+    expect(mer.cashFloatExpected).toBe(292.6)
+    expect(mer.cashDifference).toBe(0)
+    // giovedì: parte da 200 + 92,60, incassa 400 → atteso 692,60; conta 200 + 280 = 480 → ammanco 212,60
+    const gio = computeQuadrature({
+      totalReceipts: 400, lines: [{ kind: 'contanti', counts_in_total: true, amount: 400 }],
+      cashExpenses: 0, cashDeposit: 0, prevFloat: 200, prevPending: 92.6, cashFloatDeclared: 200, cashPendingDeclared: 280,
+    })
+    expect(gio.cashFloatExpected).toBe(692.6)
+    expect(gio.cashDifference).toBe(-212.6)
   })
   it('i rimborsi a cliente riducono il fondo atteso come le spese', () => {
     const q = computeQuadrature({

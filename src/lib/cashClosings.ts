@@ -241,35 +241,58 @@ export interface QuadratureInput {
   totalReceipts: number
   lines: Array<{ kind: ChannelKind; counts_in_total: boolean; amount: number }>
   cashExpenses: number
-  /** Rimborsi a cliente pagati in contanti (riducono il fondo come le spese). */
+  /** Rimborsi a cliente pagati in contanti (riducono il contante come le spese). */
   customerRefunds?: number
   cashDeposit: number
   /** Fondo di ieri (ultima chiusura confermata) oppure fondo iniziale; null se ignoto. */
   prevFloat: number | null
+  /** Contanti ancora da versare di ieri (ultima chiusura confermata) oppure iniziali; null = 0. */
+  prevPending?: number | null
+  /** Fondo cassa contato stasera. */
   cashFloatDeclared: number | null
+  /** Contanti ancora da versare contati stasera (separati dal fondo). */
+  cashPendingDeclared?: number | null
 }
 
 export interface QuadratureResult {
+  /** Somma dei mezzi di pagamento (contanti, POS, pay by link, bonifico…): le fatture NON ci sono. */
   channelsTotal: number
+  /** Righe di tipo «fattura»: si sommano ai corrispettivi, non ai mezzi di pagamento. */
+  invoicesTotal: number
+  /** Totale incassato = corrispettivi + fatture. */
+  totalCollected: number
+  /** totale incassato − mezzi di pagamento (0 = quadra). */
   receiptsDifference: number
   cashLine: number
+  /** Contante atteso in cassa stasera (fondo + da versare), null se la partenza è ignota. */
   cashFloatExpected: number | null
+  /** Fondo contato + da versare contati; null se il fondo non è stato contato. */
+  cashDeclaredTotal: number | null
+  /** contato − atteso (0 = quadra). */
   cashDifference: number | null
 }
 
 const r2 = (n: number) => Math.round(n * 100) / 100
 
-/** Le due quadrature dell'Excel, identiche al trigger DB. */
+/**
+ * Le due quadrature della chiusura, identiche al trigger DB (migration 202):
+ *   1. corrispettivi + fatture = contanti + POS + pay by link + bonifico
+ *   2. fondo ieri + da versare ieri + contanti oggi − spese − rimborsi − versamento
+ *      = fondo contato stasera + da versare contati stasera
+ */
 export function computeQuadrature(q: QuadratureInput): QuadratureResult {
-  const channelsTotal = r2(q.lines.filter((l) => l.counts_in_total).reduce((s, l) => s + (l.amount || 0), 0))
+  const channelsTotal = r2(q.lines.filter((l) => l.counts_in_total && l.kind !== 'fattura').reduce((s, l) => s + (l.amount || 0), 0))
+  const invoicesTotal = r2(q.lines.filter((l) => l.kind === 'fattura').reduce((s, l) => s + (l.amount || 0), 0))
   const cashLine = r2(q.lines.filter((l) => l.kind === 'contanti').reduce((s, l) => s + (l.amount || 0), 0))
-  const receiptsDifference = r2((q.totalReceipts || 0) - channelsTotal)
+  const totalCollected = r2((q.totalReceipts || 0) + invoicesTotal)
+  const receiptsDifference = r2(totalCollected - channelsTotal)
   if (q.prevFloat == null) {
-    return { channelsTotal, receiptsDifference, cashLine, cashFloatExpected: null, cashDifference: null }
+    return { channelsTotal, invoicesTotal, totalCollected, receiptsDifference, cashLine, cashFloatExpected: null, cashDeclaredTotal: null, cashDifference: null }
   }
-  const cashFloatExpected = r2(q.prevFloat + cashLine - (q.cashExpenses || 0) - (q.customerRefunds || 0) - (q.cashDeposit || 0))
-  const cashDifference = q.cashFloatDeclared == null ? null : r2(q.cashFloatDeclared - cashFloatExpected)
-  return { channelsTotal, receiptsDifference, cashLine, cashFloatExpected, cashDifference }
+  const cashFloatExpected = r2(q.prevFloat + (q.prevPending ?? 0) + cashLine - (q.cashExpenses || 0) - (q.customerRefunds || 0) - (q.cashDeposit || 0))
+  const cashDeclaredTotal = q.cashFloatDeclared == null ? null : r2(q.cashFloatDeclared + (q.cashPendingDeclared ?? 0))
+  const cashDifference = cashDeclaredTotal == null ? null : r2(cashDeclaredTotal - cashFloatExpected)
+  return { channelsTotal, invoicesTotal, totalCollected, receiptsDifference, cashLine, cashFloatExpected, cashDeclaredTotal, cashDifference }
 }
 
 /** Data locale in formato ISO (YYYY-MM-DD), senza sorprese di fuso orario. */
