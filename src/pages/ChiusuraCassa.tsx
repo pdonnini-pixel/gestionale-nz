@@ -39,6 +39,7 @@ import {
   type PaymentChannel, type AttachmentTarget, type ExpenseKind, type ExtractedData, CLOSING_STATUS_LABELS, EXPENSE_KIND_LABELS, kindForTarget,
   parseAmount, formatAmount, formatEuro, computeQuadrature, todayIso, addDaysIso, monthDays,
   formatDateIt, MESI_IT, attachmentPath, compressImage, extractedAmount,
+  eveningDeviation, DEVIATION_LABELS, type DayTargetRow, type DeviationLine,
 } from '../lib/cashClosings'
 
 type ClosingRow = Database['public']['Tables']['outlet_daily_closings']['Row']
@@ -117,6 +118,8 @@ export default function ChiusuraCassa() {
   // (contanti adesso − incassi in contanti di oggi + spese e rimborsi in contanti).
   const [allCashNow, setAllCashNow] = useState('')
   const [monthStatus, setMonthStatus] = useState<Record<string, string>>({})
+  const [dayTargets, setDayTargets] = useState<DayTargetRow[]>([])           // obiettivi del mese (RPC get_outlet_day_targets)
+  const [monthActuals, setMonthActuals] = useState<Record<string, number>>({}) // incassi delle altre giornate del mese (non bozza)
   const [form, setForm] = useState<FormState>(() => emptyForm(safeGetLs(LS_CLOSED_BY)))
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -158,22 +161,31 @@ export default function ChiusuraCassa() {
     const [y, m] = dateIso.split('-').map(Number)
     const monthStart = `${y}-${String(m).padStart(2, '0')}-01`
     const monthEnd = monthDays(y, m).slice(-1)[0]
-    const [chRes, clRes, prevRes, monthRes] = await Promise.all([
+    const [chRes, clRes, prevRes, monthRes, tgtRes] = await Promise.all([
       supabase.from('outlet_payment_channels').select('*').eq('outlet_id', outletId).eq('is_active', true).order('sort_order'),
       supabase.from('outlet_daily_closings').select('*').eq('outlet_id', outletId).eq('closing_date', dateIso).maybeSingle(),
       supabase.from('outlet_daily_closings').select('cash_float_declared, cash_pending_declared, closing_date')
         .eq('outlet_id', outletId).lt('closing_date', dateIso).in('status', ['confermata', 'verificata'])
         .not('cash_float_declared', 'is', null).order('closing_date', { ascending: false }).limit(1),
-      supabase.from('outlet_daily_closings').select('closing_date, status, is_closed_day')
+      supabase.from('outlet_daily_closings').select('closing_date, status, is_closed_day, total_receipts, invoices_total')
         .eq('outlet_id', outletId).gte('closing_date', monthStart).lte('closing_date', monthEnd),
+      supabase.rpc('get_outlet_day_targets', { p_company_id: companyId, p_from: monthStart, p_to: monthEnd }),
     ])
     setChannels((chRes.data ?? []) as PaymentChannel[])
     const prev = prevRes.data?.[0]?.cash_float_declared
     setPrevFloat(prev == null ? null : Number(prev))
     setPrevPending(prev == null ? 0 : Number(prevRes.data?.[0]?.cash_pending_declared ?? 0))
     const ms: Record<string, string> = {}
-    for (const r of monthRes.data ?? []) ms[r.closing_date] = r.is_closed_day ? 'chiuso' : r.status
+    const ma: Record<string, number> = {}
+    for (const r of monthRes.data ?? []) {
+      ms[r.closing_date] = r.is_closed_day ? 'chiuso' : r.status
+      if (r.closing_date !== dateIso && r.status !== 'bozza' && !r.is_closed_day) ma[r.closing_date] = Number(r.total_receipts) + Number(r.invoices_total ?? 0)
+    }
     setMonthStatus(ms)
+    setMonthActuals(ma)
+    setDayTargets(((tgtRes.data ?? []) as Array<{ outlet_id: string; day: string; target: number | null; weight: number; day_type: string }>)
+      .filter((t) => t.outlet_id === outletId)
+      .map((t) => ({ day: t.day, target: t.target == null ? null : Number(t.target), weight: Number(t.weight), day_type: t.day_type })))
 
     const c = clRes.data ?? null
     setClosing(c)
@@ -232,6 +244,10 @@ export default function ChiusuraCassa() {
   }), [form, channels, prevFloat, prevPending, expensesTotal, refundsTotal])
 
   const needsNote = quad.receiptsDifference !== 0 || (quad.cashDifference != null && quad.cashDifference !== 0)
+
+  // Scostamento serale rispetto all'obiettivo (budget del mese distribuito per giorno
+  // della settimana, migration 203): giorno, settimana a oggi, mese a oggi.
+  const deviation = useMemo(() => form.isClosedDay ? null : eveningDeviation({ day: dateIso, dayActual: quad.totalCollected, targets: dayTargets, monthActuals }), [form.isClosedDay, dateIso, quad.totalCollected, dayTargets, monthActuals])
 
   // Fondo di ieri ricavato dai contanti presenti adesso (solo prima chiusura).
   const derivedOpening = useMemo(() => {
@@ -795,6 +811,29 @@ export default function ChiusuraCassa() {
                   <span className="font-semibold">{quad.receiptsDifference === 0 ? <><Check size={16} className="inline" /> quadra</> : `differenza ${formatEuro(quad.receiptsDifference)}`}</span>
                 </div>
               </section>
+
+              {/* Scostamento rispetto all'obiettivo: solo per chi amministra (super advisor,
+                  contabile), non per l'operatrice di cassa. Il giorno da solo dice poco
+                  (fascia ±30 %), settimana e mese a oggi sono i numeri da guardare. */}
+              {isAdmin && deviation && quad.totalCollected > 0 && (
+                <section className="bg-white border border-slate-200 rounded-xl p-4 mb-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <h2 className="font-semibold text-slate-900 text-sm">Rispetto all'obiettivo</h2>
+                    <span className="text-[11px] text-slate-500">obiettivo di oggi {formatEuro(deviation.giorno.target)}{deviation.dayType === 'fest' ? ' (festivo)' : ''}</span>
+                  </div>
+                  <div className="space-y-1.5">
+                    {([['Oggi', deviation.giorno], ['Settimana a oggi', deviation.settimana], ['Mese a oggi', deviation.mese]] as Array<[string, DeviationLine]>).map(([label, l]) => (
+                      <div key={label} className="flex items-center justify-between text-sm">
+                        <span className="text-slate-600">{label} <span className="text-slate-400 text-xs">{formatEuro(l.actual)} su {formatEuro(l.target)}</span></span>
+                        <span className={`font-semibold px-2 py-0.5 rounded-full text-xs ${l.band === 'sopra' ? 'bg-emerald-50 text-emerald-700' : l.band === 'sotto' ? 'bg-red-50 text-red-700' : 'bg-slate-100 text-slate-700'}`}>
+                          {l.band ? DEVIATION_LABELS[l.band] : '—'}{l.pct != null ? ` ${l.pct > 0 ? '+' : ''}${l.pct} %` : ''}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-[11px] text-slate-500 mt-2">Il singolo giorno oscilla molto: conta soprattutto la settimana e il mese.</p>
+                </section>
+              )}
 
               {/* 2. Spese cassa e rimborsi */}
               <section className="bg-white border border-slate-200 rounded-xl p-4 mb-4 space-y-3">
