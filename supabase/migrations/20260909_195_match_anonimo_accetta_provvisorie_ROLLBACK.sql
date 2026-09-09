@@ -1,0 +1,4 @@
+-- ROLLBACK di 20260909_195 — il match su causale anonima torna a ignorare le scadenze
+-- chiuse in via provvisoria (accetta fra le 'pagato' solo quelle chiuse a mano).
+-- Conseguenza: i movimenti che pagano una scadenza provvisoria restano aperti.
+-- Per il corpo completo della versione precedente vedi la migration 20260906_192.
