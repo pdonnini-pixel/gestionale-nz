@@ -107,9 +107,16 @@ movimenti in cui la causale nomina la fattura: lo scarto è **0,00** ogni volta.
 pochi centesimi non è un arrotondamento né una spesa bancaria, è un **gruppo sbagliato**. Tolleranza
 0,05 € da migr. 193 (prima: 2% dell'importo lato server, 0,3% lato frontend).
 
+**Causale senza beneficiario:** il fornitore verrebbe dedotto dal solo importo, quindi il movimento
+deve almeno avere la **forma di un pagamento** (`hasPaymentStructure`: «IMPORTO BONIFICI», «NUM. TOT.
+PAGAMENTI», «A FAVORE», «BONIFICO»). **Caso reale 09/09/2026:** l'addebito «DISPOSIZIONE — FONDO DI
+GARANZIA MCC» di 260,00 € (commissione MCC su un finanziamento, non un pagamento a fornitore) si era
+portato dietro sei fatturine DX SRL che facevano 260,00 tondi.
+
 **Ambiguità:** se più combinazioni diverse fanno la stessa cifra non si propone niente, a meno che i
 numeri di fattura citati in causale («SALDO FATTURA 60828-65166», «SSF-IT662TPABEY-IT65OHAABE», che
-la banca può **troncare**: confronto per prefisso) indichino una sola combinazione. La ricerca è
+la banca può **troncare**: confronto per prefisso, e per la sola parte numerica quando la fattura ha
+un prefisso di serie, «FPR 238/26» ↔ «SALDO FATTURA 238-240») indichino una sola combinazione. La ricerca è
 esaustiva sulle fatture di quel fornitore: il vecchio taglio «solo le 12 più grandi» nascondeva le
 combinazioni con fatture piccole, ed è così che al bonifico Amazon del 14/07 sfuggiva la risposta esatta.
 - **Dove:** `try_match_group_bank_transaction` (a nome), `try_match_group_numbers_bank_transaction` (a numeri, migr. 120), `reconcile_movement_group` (esecuzione, migr. 101/114/115).
