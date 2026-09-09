@@ -3323,7 +3323,6 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
   // Conferma a mano: l'aggancio passa da reconcile_movement_group (atomico).
   type GroupItem = { p: PayT; base: number; chiusa: boolean }
   const toVerifyGroups = useMemo<{ bt: TxT; items: GroupItem[]; beneficiario: string; total: number }[]>(() => {
-    const singleBtIds = new Set(toVerify.map((v) => String(v.bt.id)))
     const highConfBtIds = new Set(suggestions.map((s) => String(s.bt.id)))
     // base al NETTO della NC collegata (pendingNc); le NC "vaganti" (base negativo)
     // restano nel pool come voci che riducono la somma del gruppo (R8).
@@ -3347,7 +3346,7 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
     const out: { bt: TxT; items: GroupItem[]; beneficiario: string; total: number }[] = []
     for (const m of unreconciledMovements) {
       const id = String(m.id)
-      if (singleBtIds.has(id) || highConfBtIds.has(id) || dismissedGroup.has(id)) continue
+      if (highConfBtIds.has(id) || dismissedGroup.has(id)) continue
       const desc = String(m.description || '')
       if (!isRealTransfer(desc) && NON_SUPPLIER_RE.test(desc)) continue
       // Netto: scorpora la commissione dichiarata in causale (flussi CBI).
@@ -3392,7 +3391,7 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
     return out
       .sort((a, b) => new Date(String(b.bt.transaction_date) || 0).getTime() - new Date(String(a.bt.transaction_date) || 0).getTime())
       .slice(0, 40)
-  }, [unreconciledMovements, unpaidPayables, closedManualPayables, toVerify, suggestions, dismissedGroup, pendingNc])
+  }, [unreconciledMovements, unpaidPayables, closedManualPayables, suggestions, dismissedGroup, pendingNc])
 
   /**
    * Importo del movimento. Sui flussi CBI la commissione è DENTRO l'importo e la
@@ -3579,6 +3578,20 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
   const toggleSug = (logId: string) => setSelectedSug(prev => {
     const n = new Set(prev); n.has(logId) ? n.delete(logId) : n.add(logId); return n
   })
+  /**
+   * "Da verificare" propone UNA fattura per movimento con tolleranza del 5%; i gruppi
+   * pretendono invece la somma esatta al centesimo. Quando entrambi vedono lo stesso
+   * movimento vince il gruppo, che è la lettura più forte, e la proposta singola sparisce.
+   * Prima era il contrario, e il caso reale è il bonifico ATENA del 05/06 da 572,65 €:
+   * la proposta singola lo accostava alla fattura da 550,00 (4,1% di scarto, dentro
+   * tolleranza) e con ciò nascondeva il gruppo giusto, 22,65 + 550,00 = 572,65 esatti,
+   * con tutti e due i numeri di fattura scritti in causale.
+   */
+  const toVerifyRows = useMemo(() => {
+    const conGruppo = new Set(toVerifyGroups.map((g) => String(g.bt.id)))
+    return toVerify.filter((v) => !conGruppo.has(String(v.bt.id)))
+  }, [toVerify, toVerifyGroups])
+
   const selectedSugRows = useMemo(() => suggestions.filter(s => selectedSug.has(s.log.id)), [suggestions, selectedSug])
   const selectedGroupRows = useMemo(
     () => toVerifyGroups.filter((g) => selectedGroup.has(String(g.bt.id))),
@@ -3736,16 +3749,16 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
         </div>
       )}
 
-      {toVerify.length > 0 && (
+      {toVerifyRows.length > 0 && (
         <div className="bg-white rounded-xl border border-blue-200 shadow-sm overflow-hidden">
           <div className="px-5 py-3 bg-blue-50/60 border-b border-blue-100 flex items-center justify-between gap-3">
             <div className="flex items-center gap-2 text-sm font-semibold text-blue-800">
-              <Check size={16} /> Da verificare — beneficiario dalla causale ({toVerify.length})
+              <Check size={16} /> Da verificare — beneficiario dalla causale ({toVerifyRows.length})
             </div>
             <span className="text-xs text-blue-600/80">Beneficiario del bonifico abbinato alla fattura del fornitore, incluse le fatture già chiuse a mano. Conferma tu, una per una.</span>
           </div>
           <div className="divide-y divide-slate-50 max-h-[460px] overflow-y-auto">
-            {toVerify.map(({ bt, payable, rem, beneficiario, chiusa }) => {
+            {toVerifyRows.map(({ bt, payable, rem, beneficiario, chiusa }) => {
               const acct = accounts.find((a) => a.id === bt.bank_account_id)
               return (
                 <div key={String(bt.id)} className="flex items-center gap-3 px-5 py-3 hover:bg-slate-50/60">
