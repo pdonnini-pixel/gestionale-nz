@@ -812,9 +812,10 @@ export default function ChiusuraCassa() {
                 </div>
               </section>
 
-              {/* Scostamento rispetto all'obiettivo: il giorno da solo dice poco (fascia ±30 %),
-                  settimana e mese a oggi sono i numeri da guardare. */}
-              {deviation && quad.totalCollected > 0 && (
+              {/* Scostamento rispetto all'obiettivo: solo per chi amministra (super advisor,
+                  contabile), non per l'operatrice di cassa. Il giorno da solo dice poco
+                  (fascia ±30 %), settimana e mese a oggi sono i numeri da guardare. */}
+              {isAdmin && deviation && quad.totalCollected > 0 && (
                 <section className="bg-white border border-slate-200 rounded-xl p-4 mb-4">
                   <div className="flex items-center justify-between mb-2">
                     <h2 className="font-semibold text-slate-900 text-sm">Rispetto all'obiettivo</h2>

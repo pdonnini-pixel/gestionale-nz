@@ -24,6 +24,7 @@ import { Modal } from '../components/ui/Modal'
 import PageHeader from '../components/PageHeader'
 import { fetchAllPaged } from '../lib/fetchAllPaged'
 import { buildCashClosingsSheets } from '../lib/cashClosingsExport'
+import { eveningDeviation, DEVIATION_LABELS, type DayTargetRow, type EveningDeviation, type DeviationLine } from '../lib/cashClosings'
 import type { Database } from '../types/database'
 import {
   type PaymentChannel, type ChannelKind, type AttachmentTarget, type ExpenseKind, type ExtractionStatus, CHANNEL_KIND_LABELS, ATTACHMENT_TARGET_LABELS, EXPENSE_KIND_LABELS,
@@ -69,6 +70,7 @@ export default function IncassiGiornalieri() {
   const [channels, setChannels] = useState<PaymentChannel[]>([])
   const [closings, setClosings] = useState<ClosingRow[]>([])
   const [dayTargets, setDayTargets] = useState<Map<string, Array<number | null>>>(new Map()) // outlet_id → obiettivi per giorno del mese (RPC, migration 203)
+  const [targetRows, setTargetRows] = useState<Map<string, DayTargetRow[]>>(new Map())          // outlet_id → righe obiettivo del mese (per lo scostamento nel dettaglio)
   const [lines, setLines] = useState<LineLite[]>([])
   const [attachments, setAttachments] = useState<AttachmentLite[]>([])
   const [bankAccounts, setBankAccounts] = useState<BankAccountLite[]>([])
@@ -111,12 +113,17 @@ export default function IncassiGiornalieri() {
     setVatRate(Number.isFinite(vr) ? vr : 22)
     const cls = (clRes.data ?? []) as ClosingRow[]
     const tmap = new Map<string, Array<number | null>>()
+    const rmap = new Map<string, DayTargetRow[]>()
     for (const t of tgtRes.data ?? []) {
       const arr = tmap.get(t.outlet_id) ?? []
       arr[Number(t.day.slice(8, 10)) - 1] = t.target == null ? null : Number(t.target)
       tmap.set(t.outlet_id, arr)
+      const rows = rmap.get(t.outlet_id) ?? []
+      rows.push({ day: t.day, target: t.target == null ? null : Number(t.target), weight: Number(t.weight), day_type: t.day_type })
+      rmap.set(t.outlet_id, rows)
     }
     setDayTargets(tmap)
+    setTargetRows(rmap)
     setClosings(cls)
     setBankAccounts((baRes.data ?? []) as BankAccountLite[])
     if (cls.length > 0) {
@@ -304,6 +311,13 @@ export default function IncassiGiornalieri() {
           lines={linesByClosing}
           lineBank={lineBankByClosing.get(closingAt.get(`${detail.outletId}|${detail.date}`)?.id ?? '')}
           attachments={attachments}
+          deviation={(() => {
+            const c = closingAt.get(`${detail.outletId}|${detail.date}`)
+            if (!c || c.is_closed_day) return null
+            const monthActuals: Record<string, number> = {}
+            for (const x of closings) if (x.outlet_id === detail.outletId && x.closing_date !== detail.date && x.status !== 'bozza' && !x.is_closed_day) monthActuals[x.closing_date] = Number(x.total_receipts) + Number(x.invoices_total ?? 0)
+            return eveningDeviation({ day: detail.date, dayActual: Number(c.total_receipts) + Number(c.invoices_total ?? 0), targets: targetRows.get(detail.outletId) ?? [], monthActuals })
+          })()}
           canManage={canManage}
           isSuper={isSuper}
           onClose={() => setDetail(null)}
@@ -538,7 +552,7 @@ function OutletSheet({ days, outletId, channels, closingAt, linesByClosing, line
 }
 
 // ─── Dettaglio di una giornata ─────────────────────────────────────────
-function ClosingDetail({ outletName, date, closing, channels, lines, lineBank, attachments, canManage, isSuper, onClose, onEdit, onReopened, onDeleted }: {
+function ClosingDetail({ outletName, date, closing, channels, lines, lineBank, attachments, deviation, canManage, isSuper, onClose, onEdit, onReopened, onDeleted }: {
   outletName: string
   date: string
   closing: ClosingRow | null
@@ -546,6 +560,7 @@ function ClosingDetail({ outletName, date, closing, channels, lines, lineBank, a
   lines: Map<string, Map<string, number>>
   lineBank: Map<string, LineBank> | undefined
   attachments: AttachmentLite[]
+  deviation: EveningDeviation | null
   canManage: boolean
   isSuper: boolean
   onClose: () => void
@@ -751,6 +766,22 @@ function ClosingDetail({ outletName, date, closing, channels, lines, lineBank, a
                 {row('Contanti da versare contati', closing.cash_pending_declared == null ? '—' : formatEuro(Number(closing.cash_pending_declared)))}
                 {row('Differenza di cassa', closing.cash_difference == null ? '—' : formatEuro(Number(closing.cash_difference)), Number(closing.cash_difference) !== 0)}
               </div>
+            </div>
+          )}
+          {deviation && (
+            <div className="border border-slate-200 rounded-lg px-3 py-2">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-sm font-semibold text-slate-800">Rispetto all'obiettivo</span>
+                <span className="text-[11px] text-slate-500">obiettivo del giorno {formatEuro(deviation.giorno.target)}{deviation.dayType === 'fest' ? ' (festivo)' : ''} · fasce: giorno ±30 %, settimana ±15 %, mese ±8 %</span>
+              </div>
+              {([['Giorno', deviation.giorno], ['Settimana a questo giorno', deviation.settimana], ['Mese a questo giorno', deviation.mese]] as Array<[string, DeviationLine]>).map(([label, l]) => (
+                <div key={label} className="flex justify-between py-1 border-b border-slate-100 text-sm last:border-0">
+                  <span className="text-slate-600">{label} <span className="text-slate-400 text-xs">{formatEuro(l.actual)} su {formatEuro(l.target)}</span></span>
+                  <span className={`font-semibold px-2 py-0.5 rounded-full text-xs ${l.band === 'sopra' ? 'bg-emerald-50 text-emerald-700' : l.band === 'sotto' ? 'bg-red-50 text-red-700' : 'bg-slate-100 text-slate-700'}`}>
+                    {l.band ? DEVIATION_LABELS[l.band] : '—'}{l.pct != null ? ` ${l.pct > 0 ? '+' : ''}${l.pct} %` : ''}
+                  </span>
+                </div>
+              ))}
             </div>
           )}
           {closing.notes && <div className="text-sm bg-slate-50 border border-slate-200 rounded-lg px-3 py-2"><span className="text-slate-500">Note: </span>{closing.notes}</div>}
