@@ -10177,6 +10177,90 @@ export type Database = {
           },
         ]
       }
+      cash_must_pay: {
+        Row: {
+          amount: number | null
+          company_id: string
+          created_at: string
+          created_by: string | null
+          fiscal_deadline_id: string | null
+          horizon_date: string
+          id: string
+          item_kind: string
+          item_ref: string | null
+          label: string | null
+          note: string | null
+          payable_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          amount?: number | null
+          company_id: string
+          created_at?: string
+          created_by?: string | null
+          fiscal_deadline_id?: string | null
+          horizon_date: string
+          id?: string
+          item_kind: string
+          item_ref?: string | null
+          label?: string | null
+          note?: string | null
+          payable_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          amount?: number | null
+          company_id?: string
+          created_at?: string
+          created_by?: string | null
+          fiscal_deadline_id?: string | null
+          horizon_date?: string
+          id?: string
+          item_kind?: string
+          item_ref?: string | null
+          label?: string | null
+          note?: string | null
+          payable_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cash_must_pay_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cash_must_pay_fiscal_deadline_id_fkey"
+            columns: ["fiscal_deadline_id"]
+            isOneToOne: false
+            referencedRelation: "fiscal_deadlines"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cash_must_pay_payable_id_fkey"
+            columns: ["payable_id"]
+            isOneToOne: false
+            referencedRelation: "payables"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cash_must_pay_payable_id_fkey"
+            columns: ["payable_id"]
+            isOneToOne: false
+            referencedRelation: "v_payables_operative"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cash_must_pay_payable_id_fkey"
+            columns: ["payable_id"]
+            isOneToOne: false
+            referencedRelation: "v_payables_schedule"
+            referencedColumns: ["payable_id"]
+          },
+        ]
+      }
       cash_position: {
         Row: {
           balance: number

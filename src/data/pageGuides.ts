@@ -1491,93 +1491,83 @@ export const PAGE_GUIDES: PageGuide[] = [
     "path": "/fabbisogno",
     "icon": "Scale",
     "title": "Simulazione fabbisogno",
-    "description": "Questa pagina risponde a una domanda sola: entro una certa data devo pagare una serie di cose, ho una certa disponibilità, cosa riesco a pagare e cosa resta fuori? Mette in fila le uscite obbligate per ordine di priorità (prima gli stipendi, poi le merci, poi gli affitti, poi imposte e altri fornitori), le confronta con la cassa più gli incassi attesi e calcola quanto manca. Quel «quanto manca» è il fabbisogno da coprire.",
+    "description": "Questa pagina risponde a una domanda sola: entro una certa data ci sono uscite a cui non si può dire di no, la cassa è quella che è, quanto manca? Non decide da sola cosa pagare: sei tu che spunti le voci obbligatorie in un elenco unico dove stanno insieme fatture, tasse e stipendi. Fatta la spunta, il gestionale fa il conto e dice se ce la fai o quanto ti serve procurare.",
     "sections": [
       {
-        "heading": "I quattro numeri in alto",
-        "body": "Disponibilità stimata è la somma di quello che hai in banca oggi e degli incassi che ti aspetti fino alla data scelta (più il fido, se lo attivi). Uscite obbligate è il totale che devi pagare entro quella data. Il terzo riquadro mostra il fabbisogno se non basta, oppure la cassa che avanza se basta. Cassa sotto zero indica il primo giorno in cui il saldo proiettato diventa negativo, con il punto di minimo del periodo.",
+        "heading": "La risposta in cima",
+        "body": "Il riquadro grande in alto è il risultato di tutto: se hai spuntato delle voci ti dice «ti mancano X» in rosso, oppure «ce la fai, avanzano X» in verde, con sotto il totale obbligatorio, la disponibilità e la percentuale che riesci a coprire. Finché non spunti niente resta un trattino: senza una decisione non c'è un fabbisogno. A destra c'è la data obiettivo, di solito la fine del mese, e si può cambiare.",
         "steps": [
-          "Scegli la data entro cui vuoi ragionare nel campo 'Simula fino al'.",
-          "Guarda il terzo riquadro: se è rosso, quello è il denaro che devi procurarti o rimandare.",
-          "Guarda il quarto: ti dice il giorno in cui la cassa gira in negativo, non solo se succede."
+          "Controlla la data obiettivo in alto a destra.",
+          "Scendi al passo 1 e spunta le voci obbligatorie.",
+          "Torna a leggere il riquadro: il numero si aggiorna a ogni spunta."
         ]
       },
       {
-        "heading": "I parametri dello scenario",
-        "body": "Ogni campo parte da un valore letto dai dati veri del gestionale, ma puoi sovrascriverlo: quello che scrivi tu ha la precedenza, quello che lasci vuoto usa il dato di sistema (mostrato in grigio nel campo). La liquidità di partenza è il saldo dei conti attivi in Banche. L'incasso medio giornaliero è la media degli incassi POS e dei versamenti di contante realmente arrivati in banca negli ultimi 30 giorni. Gli stipendi netti mensili vengono dall'ultimo cedolino caricato in Dipendenti.",
+        "heading": "Passo 1: cosa non possiamo non pagare",
+        "body": "L'elenco raccoglie tutto quello che scade entro la data scelta, senza distinzioni: fatture dei fornitori, scadenze fiscali e stipendi, uno sotto l'altro. Metti la spunta accanto alle voci a cui non vuoi dire di no. Ogni spunta si salva subito e la vedono anche gli altri: è una decisione condivisa, non un appunto personale. I filtri in alto restringono l'elenco (per tipo, solo le già scadute, solo gli addebiti automatici) e la ricerca cerca per fornitore o numero di fattura. Con i filtri attivi puoi spuntare o togliere in blocco tutte le voci che stai vedendo.",
         "steps": [
-          "Correggi la liquidità se sai di avere accrediti o addebiti non ancora visibili nei saldi.",
-          "Correggi l'incasso giornaliero se il periodo che stai simulando è diverso dagli ultimi 30 giorni (saldi, stagionalità, chiusure).",
-          "Correggi gli stipendi se il cedolino del mese è diverso dall'ultimo caricato.",
-          "Usa il cursore 'Scenario incassi' per vedere cosa succede con incassi più bassi o più alti del previsto, senza toccare gli altri campi."
+          "Usa i filtri o la ricerca per trovare un gruppo di voci, per esempio «Stipendi» o «Già scadute».",
+          "Spunta una per una, oppure usa «spunta tutte» per l'intero gruppo filtrato.",
+          "Controlla la riga in fondo: dice quante voci hai spuntato, per quanti euro, e quanto pesa ogni tipo.",
+          "La freccia a fine riga apre lo Scadenzario su quella fattura, se vuoi vederla per intero prima di decidere."
         ]
       },
       {
-        "heading": "Le tre spunte che cambiano il quadro",
-        "body": "'Includi lo scaduto arretrato' considera anche le fatture già scadute, che è la lettura corretta se le devi ancora pagare: se la togli vedi solo le scadenze future. 'Includi gli stipendi' aggiunge le mensilità che cadono nel periodo, calcolate sul giorno del mese che indichi tu (di norma il 10, quando esce il netto del mese prima). 'Considera il fido' somma alla disponibilità l'affidamento dei conti: usalo per capire quanto del fabbisogno è già coperto dalla banca."
+        "heading": "L'avviso sugli addebiti automatici",
+        "body": "Alcune uscite partono dal conto da sole: RiBa, SDD, addebiti su carta e il bonifico degli stipendi. In elenco portano l'etichetta «esce comunque». Se ne lasci qualcuna senza spunta, in fondo al passo 1 compare una banda gialla che ti dice quanto vale: non è una voce che puoi rimandare con una telefonata al fornitore, quindi conviene considerarla obbligatoria."
       },
       {
-        "heading": "La cascata di pagamento",
-        "body": "La tabella centrale è il cuore del modello. Le priorità sono elencate dall'alto in basso e la disponibilità viene assorbita in quest'ordine: la prima fascia prende quello che le serve, alla seconda resta il residuo, e così via. Per ogni fascia vedi quanto è dovuto, quanto riesci a pagare, quanto resta scoperto e la percentuale di copertura. Con le frecce a destra sposti una priorità su o giù e vedi subito come cambia chi resta fuori. Il fabbisogno totale non cambia riordinando: cambia solo chi viene pagato.",
+        "heading": "Passo 2: quanto avrai davvero",
+        "body": "Tre riquadri. Il primo è quello che c'è in banca oggi, con la data dell'ultimo aggiornamento dei saldi, la possibilità di correggerlo a mano e di aggiungere il fido. Il secondo sono gli incassi attesi da domani alla data obiettivo: il gestionale usa il ritmo effettivo di questo mese, cioè la media dei ricavi che i negozi scaricano ogni sera, quindi il numero si aggiorna da solo giorno dopo giorno. Il terzo confronta il mese con l'obiettivo inserito in Budget e Controllo, tab Inserimento rapido: quanto avevi previsto, quanto hai fatto finora, dove chiudi con questo ritmo e quanto servirebbe incassare al giorno per centrare l'obiettivo.",
         "steps": [
-          "Leggi la colonna 'Resta scoperto' per capire dove si concentra il problema.",
-          "Guarda la colonna 'di cui automatico': sono RiBa, SDD, addebiti su carta e bonifico stipendi, cioè uscite che partono dal conto senza una tua disposizione.",
-          "Se compare la banda rossa in fondo alla tabella, quella cifra è scoperto non rinviabile: non basta accordarsi col fornitore, o la copri o va insoluta.",
-          "Prova a spostare una fascia con le frecce per confrontare due politiche di pagamento diverse."
+          "Correggi la liquidità se sai di accrediti o addebiti non ancora visibili nei saldi.",
+          "Correggi l'incasso giornaliero se ti aspetti un periodo diverso da come sta andando.",
+          "Spunta il fido solo se davvero intendi usarlo: cambia il fabbisogno ma non è denaro tuo.",
+          "In fondo regola gli stipendi: giorno del mese e importo, se il cedolino nuovo è diverso dall'ultimo caricato."
         ]
       },
       {
-        "heading": "Il saldo giorno per giorno",
-        "body": "Il grafico proietta il saldo dalla giornata di oggi alla data scelta: gli incassi sono distribuiti in modo uniforme, le uscite cadono alla loro data di scadenza e l'arretrato scaduto pesa tutto sul primo giorno. La linea rossa tratteggiata è lo zero: dove la curva la attraversa hai il giorno critico. Serve a capire il momento della tensione, non solo la sua entità."
-      },
-      {
-        "heading": "Cosa resta fuori",
-        "body": "L'elenco in fondo mostra riga per riga quello che con questi parametri non riesci a pagare: fornitore, documento, scadenza, importo e quota scoperta. Dentro ogni priorità l'ordine di pagamento è: prima gli addebiti automatici, poi le scadenze più vecchie, poi a parità di data gli importi più piccoli. Il pulsante 'Esporta scoperti' scarica la lista in CSV, da usare per preparare le telefonate ai fornitori o la richiesta di affidamento in banca.",
+        "heading": "Passo 3: il conto",
+        "body": "Tre numeri affiancati: quanto hai deciso che è obbligatorio, quanto avrai, e la differenza. Se manca qualcosa il riquadro diventa rosso e ti dice anche il giorno in cui la cassa passa sotto zero; se avanza, ti dice quanto del resto riesci comunque a coprire. Sotto, il grafico segue il saldo giorno per giorno contando solo i pagamenti che hai spuntato, con gli incassi al ritmo attuale e l'arretrato caricato tutto sul primo giorno.",
         "steps": [
-          "Scorri l'elenco: le scadenze già passate sono in rosso.",
-          "L'etichetta 'automatico' segnala le uscite che non puoi rinviare con un accordo.",
-          "Clicca 'Esporta scoperti' per scaricare il CSV con tutte le colonne."
+          "Se il fabbisogno è rosso, quel numero è ciò che devi procurare o rimandare.",
+          "Guarda dove la curva attraversa la riga rossa dello zero: è il giorno critico, non la fine del mese.",
+          "Prova a togliere qualche spunta e osserva come cambia: serve a capire quali rinvii risolvono davvero."
         ]
       },
       {
-        "heading": "Dalla riga scoperta all'azione",
-        "body": "Ogni riga dell'elenco è collegata alla pagina dove quella cosa si gestisce davvero: il nome del fornitore e la freccia a fine riga aprono la destinazione giusta. Le fatture fornitori portano allo Scadenzario già filtrato su quel fornitore e su quel numero di documento, così trovi la riga senza cercarla: da lì la paghi, la metti in distinta, la rinvii o la sospendi. Le imposte portano a Scadenze fiscali, gli stipendi a Dipendenti.",
-        "steps": [
-          "Individua nell'elenco la riga che vuoi trattare.",
-          "Clicca il nome del fornitore, oppure la freccia in fondo alla riga.",
-          "Nello Scadenzario ti ritrovi la ricerca già impostata su quel documento: agisci sulla riga.",
-          "Torna indietro col tasto del browser per riprendere la simulazione dove l'avevi lasciata."
-        ]
+        "heading": "Chi può spuntare",
+        "body": "Le spunte le mettono amministrazione, CFO e super advisor. Gli altri ruoli vedono la selezione e il risultato ma non li possono cambiare, e la pagina lo dice con un avviso in alto. La regola vale anche lato database, non solo a schermo."
       }
     ],
     "faq": [
       {
-        "q": "Che differenza c'è tra questa pagina e il Cashflow Prospettico?",
-        "a": "Il Cashflow Prospettico proietta entrate e uscite nel tempo e ti dice come si muove il saldo. Questa pagina risponde a una domanda più stretta e più operativa: a una data precisa, con i soldi che ho, quali obbligazioni riesco a onorare e quali no, dato un ordine di priorità che decidi tu."
+        "q": "Se spunto una fattura, il suo importo resta bloccato?",
+        "a": "No, e la differenza conta. La spunta dice «questa è obbligatoria»; l'importo continua a essere letto dallo Scadenzario, quindi se la fattura viene pagata in parte o cambia, il numero qui si aggiorna da solo. Restano invece fissi gli importi degli stipendi, che sono una stima impostata da te."
       },
       {
-        "q": "Da dove arrivano le uscite obbligate?",
-        "a": "Dallo Scadenzario (le righe con un residuo ancora da pagare e scadenza entro la data scelta, escluse annullate, pagate e note di credito), dalle Scadenze fiscali ancora aperte e dalla stima degli stipendi. Le fatture senza categoria di costo finiscono in 'Altri fornitori': se ne vedi molte, conviene categorizzarle nello Scadenzario per avere una simulazione più fedele."
+        "q": "Se cambio la data obiettivo perdo le spunte?",
+        "a": "No: ogni data ha la sua selezione. Tornando alla data di prima ritrovi le spunte come le avevi lasciate. È pensato così perché il piano di fine settembre e quello di fine ottobre sono due decisioni diverse."
       },
       {
-        "q": "Perché il fabbisogno non cambia se sposto le priorità?",
-        "a": "Perché il totale che manca dipende solo da quanto devi e da quanto hai, non dall'ordine in cui paghi. Riordinare cambia chi viene pagato e chi resta fuori, cioè la decisione operativa, non l'entità del buco."
+        "q": "Da dove viene l'obiettivo del mese?",
+        "a": "Dal preventivo che inserisci in Budget e Controllo, tab Inserimento rapido, punto vendita per punto vendita. Qui viene sommato e portato a lordo IVA, perché in cassa entra l'incasso pieno mentre il budget è al netto. Se per il mese non hai inserito nulla, il riquadro te lo dice e il resto della pagina funziona lo stesso."
       },
       {
-        "q": "L'incasso medio giornaliero mi sembra sbagliato: come mai?",
-        "a": "È la media degli ultimi 30 giorni dei movimenti bancari categorizzati come incassi POS e versamenti. Se in quel periodo ci sono state chiusure, saldi o giorni non ancora riconciliati la media si sposta: scrivi tu il valore che ritieni corretto nel campo, oppure usa il cursore dello scenario."
+        "q": "Perché gli incassi si basano sul ritmo del mese e non sul budget?",
+        "a": "Perché il ritmo è un dato, non una previsione: i negozi scaricano i ricavi ogni sera, quindi ogni giorno che passa la stima diventa più solida. Il budget resta accanto come termine di paragone, per dire se sei avanti o indietro."
       },
       {
-        "q": "Cosa non viene conteggiato?",
-        "a": "I costi ricorrenti non ancora fatturati, le RiBa presentate ma non ancora presenti in scadenzario e gli insoluti in corso di rientro. Sono uscite possibili che il modello non vede: se le conosci, aggiungile abbassando la liquidità di partenza o l'incasso atteso."
+        "q": "Gli incassi di oggi sono già contati?",
+        "a": "Sì: il ricavo di giornata si considera già arrivato in banca, quindi gli incassi attesi partono da domani. È il motivo per cui i giorni contati sono uno in meno di quelli che restano sul calendario."
       },
       {
         "q": "Ho cliccato un fornitore ma nello Scadenzario non vedo la riga: perché?",
-        "a": "Il collegamento imposta la ricerca sul numero del documento e il filtro sul fornitore, senza filtri di stato. Se la riga non compare, di solito è una fattura pagata con carta: quelle sono addebiti automatici e stanno nel filtro rapido 'In attesa carta', non nella lista attiva. Puoi anche cancellare la ricerca e lasciare solo il fornitore, per vedere tutte le sue posizioni."
+        "a": "Il collegamento imposta la ricerca sul numero del documento e il filtro sul fornitore, senza filtri di stato. Se la riga non compare, di solito è una fattura pagata con carta: quelle sono addebiti automatici e stanno nel filtro rapido «In attesa carta», non nella lista attiva. Puoi anche cancellare la ricerca e lasciare solo il fornitore."
       },
       {
-        "q": "Posso salvare o condividere uno scenario?",
-        "a": "La data scelta resta nell'indirizzo della pagina (il parametro 'al'), quindi copiando il link riapri la simulazione alla stessa data. Gli altri parametri (cursore, spunte, ordine delle priorità) tornano ai valori di partenza a ogni apertura."
+        "q": "Cosa non viene conteggiato?",
+        "a": "I costi ricorrenti non ancora fatturati, le RiBa presentate ma non ancora presenti in scadenzario e gli insoluti in corso di rientro. Se li conosci, tienine conto abbassando a mano la liquidità di partenza."
       }
     ]
   },
