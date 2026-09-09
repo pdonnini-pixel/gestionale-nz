@@ -68,6 +68,7 @@ export default function IncassiGiornalieri() {
 
   const [channels, setChannels] = useState<PaymentChannel[]>([])
   const [closings, setClosings] = useState<ClosingRow[]>([])
+  const [dayTargets, setDayTargets] = useState<Map<string, Array<number | null>>>(new Map()) // outlet_id → obiettivi per giorno del mese (RPC, migration 203)
   const [lines, setLines] = useState<LineLite[]>([])
   const [attachments, setAttachments] = useState<AttachmentLite[]>([])
   const [bankAccounts, setBankAccounts] = useState<BankAccountLite[]>([])
@@ -94,12 +95,13 @@ export default function IncassiGiornalieri() {
     setLoading(true)
     const from = days[0]
     const to = days[days.length - 1]
-    const [chRes, clRes, baRes, bgRes, rsRes] = await Promise.all([
+    const [chRes, clRes, baRes, bgRes, rsRes, tgtRes] = await Promise.all([
       supabase.from('outlet_payment_channels').select('*').eq('company_id', companyId).order('outlet_id').order('sort_order'),
       supabase.from('outlet_daily_closings').select('*').eq('company_id', companyId).gte('closing_date', from).lte('closing_date', to).order('closing_date'),
       supabase.from('bank_accounts').select('id, bank_name, account_name').eq('company_id', companyId).eq('is_active', true).order('bank_name'),
       supabase.from('budget_confronto').select('cost_center, amount').eq('company_id', companyId).eq('year', ym.y).eq('month', ym.m).eq('entry_type', 'rev_monthly'),
       supabase.from('daily_report_settings').select('budget_vat_rate').eq('company_id', companyId).maybeSingle(),
+      supabase.rpc('get_outlet_day_targets', { p_company_id: companyId, p_from: from, p_to: to }),
     ])
     setChannels((chRes.data ?? []) as PaymentChannel[])
     const bn = new Map<string, number>()
@@ -108,6 +110,13 @@ export default function IncassiGiornalieri() {
     const vr = Number((rsRes.data as { budget_vat_rate?: number | string } | null)?.budget_vat_rate)
     setVatRate(Number.isFinite(vr) ? vr : 22)
     const cls = (clRes.data ?? []) as ClosingRow[]
+    const tmap = new Map<string, Array<number | null>>()
+    for (const t of tgtRes.data ?? []) {
+      const arr = tmap.get(t.outlet_id) ?? []
+      arr[Number(t.day.slice(8, 10)) - 1] = t.target == null ? null : Number(t.target)
+      tmap.set(t.outlet_id, arr)
+    }
+    setDayTargets(tmap)
     setClosings(cls)
     setBankAccounts((baRes.data ?? []) as BankAccountLite[])
     if (cls.length > 0) {
@@ -183,9 +192,9 @@ export default function IncassiGiornalieri() {
       const mtd = mine.filter((c) => !c.is_closed_day).reduce((s, c) => s + Number(c.total_receipts), 0)
       const todayDone = mine.some((c) => c.closing_date === today)
       const elapsed = isPast ? days.length : isCurrent ? Math.max(0, td - 1) + (todayDone ? 1 : 0) : 0
-      return [{ outlet: o, t: budgetTargets({ monthNet: net, vatRate, daysInMonth: days.length, dayOfMonth: elapsed, mtd }) }]
+      return [{ outlet: o, t: budgetTargets({ monthNet: net, vatRate, daysInMonth: days.length, dayOfMonth: elapsed, mtd, dayTargets: dayTargets.get(o.id) }) }]
     })
-  }, [visibleOutlets, budgetNet, closings, vatRate, days.length, ym, today])
+  }, [visibleOutlets, budgetNet, closings, vatRate, days.length, ym, today, dayTargets])
 
   const attCount = useMemo(() => {
     const map = new Map<string, { n: number; mismatch: boolean }>()
@@ -387,7 +396,7 @@ function BudgetPanel({ rows, missing, vatRate, daysInMonth, monthLabel }: {
             )}
           </table>
           <p className="px-4 py-2 text-[11px] text-slate-500">
-            Budget mese = budget ricavi del mese dell'<a href="/budget?tab=rapido" className="text-blue-600 hover:underline">Inserimento rapido</a> (netto IVA) + IVA {String(vatRate).replace('.', ',')} %; obiettivo giorno = budget mese ÷ {daysInMonth} giorni; obiettivo a oggi = obiettivo giorno × giorni già chiusi (oggi conta solo se la chiusura è inserita). Incassato = chiusure non in bozza. «Vs obiettivo a oggi» dice se si è in linea con il ritmo del mese; «Raggiunto del mese» è la quota del budget mese già incassata. Proiezione = media dei giorni trascorsi × giorni del mese.
+            Budget mese = budget ricavi del mese dell'<a href="/budget?tab=rapido" className="text-blue-600 hover:underline">Inserimento rapido</a> (netto IVA) + IVA {String(vatRate).replace('.', ',')} %. Il budget del mese è distribuito sui {daysInMonth} giorni con un peso per giorno della settimana e festivi, ricavato dagli ultimi 12 mesi di incassi di ogni punto vendita (stagione alta giugno-agosto e dicembre, bassa gli altri mesi): obiettivo giorno = obiettivo dell'ultimo giorno già chiuso; obiettivo a oggi = somma degli obiettivi dei giorni già chiusi (oggi conta solo se la chiusura è inserita). Incassato = chiusure non in bozza. «Vs obiettivo a oggi» dice se si è in linea con il ritmo del mese; «Raggiunto del mese» è la quota del budget mese già incassata. Proiezione = media dei giorni trascorsi × giorni del mese.
             {missing.length > 0 && <> Senza budget per questo mese: {missing.join(', ')}.</>}
           </p>
         </div>

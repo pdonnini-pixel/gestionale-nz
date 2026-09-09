@@ -22368,6 +22368,19 @@ export type Database = {
         }
         Returns: boolean
       }
+      get_outlet_day_targets: {
+        Args: { p_company_id: string; p_from: string; p_to: string }
+        Returns: {
+          outlet_id: string
+          day: string
+          day_type: string
+          season: string
+          weight: number
+          weight_source: string
+          month_gross: number | null
+          target: number | null
+        }[]
+      }
       project_cash_closing_to_daily_revenue: {
         Args: { p_closing_id: string }
         Returns: undefined

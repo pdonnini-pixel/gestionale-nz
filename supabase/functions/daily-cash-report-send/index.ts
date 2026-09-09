@@ -129,6 +129,18 @@ async function buildReport(admin: SupabaseClient, companyId: string, date: strin
     budgetNetByCc.set(b.cost_center, (budgetNetByCc.get(b.cost_center) ?? 0) + num(b.amount));
   }
   const grossFactor = 1 + Math.max(0, vatRate) / 100;
+  // Obiettivi giornalieri pesati per giorno della settimana (migration 203): il budget
+  // del mese e' distribuito con i pesi ricavati dagli ultimi 12 mesi di incassi.
+  const monthStart = `${y}-${String(m).padStart(2, "0")}-01`;
+  const monthEnd = `${y}-${String(m).padStart(2, "0")}-${String(daysInMonth).padStart(2, "0")}`;
+  const { data: tgtRaw, error: tgtErr } = await admin.rpc("get_outlet_day_targets", { p_company_id: companyId, p_from: monthStart, p_to: monthEnd });
+  if (tgtErr) console.error(`[daily-cash-report-send] get_outlet_day_targets:`, tgtErr.message);
+  const targetsByOutlet = new Map<string, Map<string, number>>();
+  for (const t of (tgtRaw ?? []) as Array<{ outlet_id: string; day: string; target: number | null }>) {
+    if (t.target == null) continue;
+    const mm = targetsByOutlet.get(t.outlet_id) ?? new Map<string, number>();
+    mm.set(t.day, num(t.target)); targetsByOutlet.set(t.outlet_id, mm);
+  }
 
   const monthStart = `${date.slice(0, 7)}-01`;
   const { data: closingsRaw } = outletIds.length
@@ -166,11 +178,13 @@ async function buildReport(admin: SupabaseClient, companyId: string, date: strin
     const net = o.cost_center_key ? budgetNetByCc.get(o.cost_center_key) : undefined;
     if (net != null && net > 0) {
       const monthGross = net * grossFactor;
-      const dayTarget = monthGross / daysInMonth;
+      const tg = targetsByOutlet.get(o.id);
+      const dayTarget = tg?.get(date) ?? monthGross / daysInMonth;
       const mine = allClosings.filter((x) => x.outlet_id === o.id && x.status !== "bozza" && !x.is_closed_day);
       const mtd = mine.reduce((sum, x) => sum + num(x.total_receipts), 0);
       const mtdDays = mine.length;
-      budget = { monthNet: net, monthGross, dayTarget, toDateTarget: dayTarget * d, mtd, mtdDays, projection: mtdDays > 0 ? (mtd / d) * daysInMonth : 0 };
+      const toDateTarget = tg ? [...tg.entries()].filter(([k]) => k <= date).reduce((s, [, v]) => s + v, 0) : dayTarget * d;
+      budget = { monthNet: net, monthGross, dayTarget, toDateTarget, mtd, mtdDays, projection: mtdDays > 0 ? (tg && toDateTarget > 0 ? (mtd / toDateTarget) * monthGross : (mtd / d) * daysInMonth) : 0 };
       bTot.withBudget += 1; bTot.dayTarget += dayTarget; bTot.toDateTarget += budget.toDateTarget; bTot.monthGross += monthGross; bTot.mtd += mtd; bTot.projection += budget.projection;
     }
     if (!c) { missing.push(o); rows.push({ outlet: o, closing: null, cash: 0, pos: 0, other: 0, status: "manca", budget }); continue; }
@@ -215,6 +229,12 @@ async function buildReport(admin: SupabaseClient, companyId: string, date: strin
 
 // Scostamento con segno: "+1.234,00 €" / "-56,00 €"
 function delta(n: number): string { return (n >= 0 ? "+" : "") + eur(n); }
+// Fascia di scostamento: il singolo giorno e' rumoroso (±30 %), il mese a oggi no (±8 %).
+function band(actual: number, target: number, tol: number): string {
+  if (!(target > 0)) return "";
+  const d = (actual - target) / target;
+  return d > tol ? "sopra" : d < -tol ? "sotto" : "in linea";
+}
 function deltaStyle(n: number): string { return Math.abs(n) < 0.005 ? "" : n > 0 ? "color:#047857;font-weight:600" : "color:#b91c1c;font-weight:600"; }
 function pct(part: number, whole: number): string { return whole > 0 ? `${Math.round((part / whole) * 100)} %` : "—"; }
 
@@ -233,10 +253,11 @@ function renderHtml(r: ReportData): { subject: string; html: string; text: strin
     if (!c) return `<tr style="background:#fef2f2">${td(`<strong>${esc(row.outlet.name)}</strong>`, "left")}${td(`<span style="color:#b91c1c;font-weight:600">manca</span>`, "left")}${td("—")}${td(tgt)}${td("—")}${td("—")}${td("—")}${td("—")}${td("—")}${td("—")}${td("—")}${td("—")}</tr>`;
     if (c.is_closed_day) return `<tr style="background:#f8fafc;color:#64748b">${td(`<strong>${esc(row.outlet.name)}</strong>`, "left")}${td("negozio chiuso", "left")}${td("0,00 €")}${td(tgt)}${td("")}${td("")}${td("")}${td("")}${td("")}${td("")}${td("")}${td("")}</tr>`;
     const dd = row.budget ? num(c.total_receipts) - row.budget.dayTarget : null;
+    const ddBand = row.budget ? band(num(c.total_receipts), row.budget.dayTarget, 0.30) : "";
     const diff = c.cash_difference == null ? "—" : eur(num(c.cash_difference));
     const diffStyle = c.cash_difference != null && Math.abs(num(c.cash_difference)) >= 0.005 ? "color:#b91c1c;font-weight:600" : "";
     const st = c.status === "bozza" ? `<span style="color:#b45309;font-weight:600">bozza</span>` : `<span style="color:#047857">confermata</span>`;
-    return `<tr>${td(`<strong>${esc(row.outlet.name)}</strong>`, "left")}${td(st, "left")}${td(`<strong>${eur(num(c.total_receipts))}</strong>${num(c.invoices_total) ? `<br><span style="font-size:11px;color:#64748b">+ fatture ${eur(num(c.invoices_total))}</span>` : ""}`)}${td(tgt)}${td(dd == null ? "—" : delta(dd), "right", dd == null ? "" : deltaStyle(dd))}${td(eur(row.cash))}${td(eur(row.pos))}${td(eur(row.other))}${td(eur(num(c.cash_expenses) + num(c.customer_refunds)))}${td(eur(num(c.cash_deposit)))}${td(c.cash_float_declared == null ? "—" : `${eur(num(c.cash_float_declared))}${c.cash_pending_declared != null && num(c.cash_pending_declared) > 0 ? `<br><span style="font-size:11px;color:#64748b">+ da versare ${eur(num(c.cash_pending_declared))}</span>` : ""}`)}${td(diff, "right", diffStyle)}</tr>`;
+    return `<tr>${td(`<strong>${esc(row.outlet.name)}</strong>`, "left")}${td(st, "left")}${td(`<strong>${eur(num(c.total_receipts))}</strong>${num(c.invoices_total) ? `<br><span style="font-size:11px;color:#64748b">+ fatture ${eur(num(c.invoices_total))}</span>` : ""}`)}${td(tgt)}${td(dd == null ? "—" : `${delta(dd)}${ddBand ? `<br><span style="font-size:11px;color:#64748b">${ddBand}</span>` : ""}`, "right", dd == null ? "" : deltaStyle(dd))}${td(eur(row.cash))}${td(eur(row.pos))}${td(eur(row.other))}${td(eur(num(c.cash_expenses) + num(c.customer_refunds)))}${td(eur(num(c.cash_deposit)))}${td(c.cash_float_declared == null ? "—" : `${eur(num(c.cash_float_declared))}${c.cash_pending_declared != null && num(c.cash_pending_declared) > 0 ? `<br><span style="font-size:11px;color:#64748b">+ da versare ${eur(num(c.cash_pending_declared))}</span>` : ""}`)}${td(diff, "right", diffStyle)}</tr>`;
   }).join("");
   const t = r.totals;
   const totalRow = `<tr style="background:#f1f5f9;font-weight:700">${td("Totale azienda", "left")}${td(`${r.rows.length - r.missing.length}/${r.rows.length}`, "left")}${td(eur(t.total))}${td(hasBudget ? eur(b.dayTarget) : "—")}${td(hasBudget ? delta(dayDelta) : "—", "right", hasBudget ? deltaStyle(dayDelta) : "")}${td(eur(t.cash))}${td(eur(t.pos))}${td(eur(t.other))}${td(eur(t.expenses + t.refunds))}${td(eur(t.deposit))}${td("")}${td("")}</tr>`;
@@ -258,7 +279,7 @@ function renderHtml(r: ReportData): { subject: string; html: string; text: strin
 <div style="overflow-x:auto"><table style="border-collapse:collapse;width:100%;font-size:13px">
 <thead><tr>${th("Punto vendita", "left")}${th("Budget mese")}${th("Obiettivo a oggi")}${th("Incassato a oggi")}${th("Vs obiettivo a oggi")}${th("Raggiunto del mese")}${th("Proiezione fine mese")}</tr></thead>
 <tbody>${monthRows}<tr style="background:#f1f5f9;font-weight:700">${td("Totale azienda", "left")}${td(eur(b.monthGross))}${td(eur(b.toDateTarget))}${td(eur(b.mtd))}${td(`${delta(mtdDelta)} (${pct(b.mtd, b.toDateTarget)})`, "right", deltaStyle(mtdDelta))}${td(pct(b.mtd, b.monthGross))}${td(eur(b.projection))}</tr></tbody></table></div>
-<p style="margin:6px 0 0;font-size:11px;color:#64748b">Budget mese = budget ricavi del mese dell'Inserimento rapido (netto IVA) + IVA ${String(b.vatRate).replace(".", ",")} %; obiettivo a oggi = budget mese ÷ ${b.daysInMonth} giorni × giorni trascorsi. «Vs obiettivo a oggi» dice se si è in linea con il ritmo del mese; «Raggiunto del mese» è la quota del budget mese già incassata. Incassato = chiusure non in bozza, oggi compreso. Proiezione = media dei giorni trascorsi × giorni del mese.${noBudgetNames.length ? ` Senza budget per questo mese: ${noBudgetNames.join(", ")}.` : ""}${budgetLink ? ` <a href="${esc(budgetLink)}" style="color:#1d4ed8">Modifica il budget</a>.` : ""}</p>`
+<p style="margin:6px 0 0;font-size:11px;color:#64748b">Budget mese = budget ricavi del mese dell'Inserimento rapido (netto IVA) + IVA ${String(b.vatRate).replace(".", ",")} %, distribuito sui giorni con un peso per giorno della settimana e festivi ricavato dagli ultimi 12 mesi di incassi del punto vendita; obiettivo a oggi = somma degli obiettivi dei giorni trascorsi. Il singolo giorno oscilla molto (fascia «in linea» ±30 %): contano settimana e mese. «Vs obiettivo a oggi» dice se si è in linea con il ritmo del mese; «Raggiunto del mese» è la quota del budget mese già incassata. Incassato = chiusure non in bozza, oggi compreso. Proiezione = media dei giorni trascorsi × giorni del mese.${noBudgetNames.length ? ` Senza budget per questo mese: ${noBudgetNames.join(", ")}.` : ""}${budgetLink ? ` <a href="${esc(budgetLink)}" style="color:#1d4ed8">Modifica il budget</a>.` : ""}</p>`
     : `<p style="margin:20px 0 0;font-size:12px;color:#64748b">Nessun budget ricavi per ${esc(r.monthLabel)} nell'Inserimento rapido: il confronto con l'obiettivo non è disponibile.${budgetLink ? ` <a href="${esc(budgetLink)}" style="color:#1d4ed8">Inserisci il budget</a>.` : ""}</p>`;
   const html = `<!doctype html><html lang="it"><body style="margin:0;padding:20px;background:#f8fafc;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#0f172a">
 <div style="max-width:900px;margin:0 auto;background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:20px">
@@ -281,7 +302,7 @@ ${pageLink ? `<p style="margin:20px 0 0;font-size:13px"><a href="${esc(pageLink)
       const tgt = row.budget ? ` · obiettivo ${eur(row.budget.dayTarget)}` : "";
       if (!row.closing) return `${row.outlet.name}: MANCA${tgt}`;
       if (row.closing.is_closed_day) return `${row.outlet.name}: negozio chiuso`;
-      const dd = row.budget ? ` (${delta(num(row.closing.total_receipts) - row.budget.dayTarget)})` : "";
+      const dd = row.budget ? ` (${delta(num(row.closing.total_receipts) - row.budget.dayTarget)}, ${band(num(row.closing.total_receipts), row.budget.dayTarget, 0.30)})` : "";
       const inv = num(row.closing.invoices_total) ? ` + fatture ${eur(num(row.closing.invoices_total))}` : "";
       const pend = row.closing.cash_pending_declared != null && num(row.closing.cash_pending_declared) > 0 ? `, da versare ${eur(num(row.closing.cash_pending_declared))}` : "";
       return `${row.outlet.name}: ${eur(num(row.closing.total_receipts))}${inv}${tgt}${dd} · contanti ${eur(row.cash)}, POS ${eur(row.pos)}, altri ${eur(row.other)}, versamento ${eur(num(row.closing.cash_deposit))}${pend} ${row.closing.status === "bozza" ? "[BOZZA]" : ""}`;

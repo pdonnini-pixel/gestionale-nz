@@ -372,6 +372,14 @@ export interface BudgetTargetInput {
   daysInMonth: number
   dayOfMonth: number     // giorni trascorsi del mese (0 = mese futuro, = daysInMonth per mesi chiusi)
   mtd: number            // incassato nel mese fino a oggi (chiusure non in bozza)
+  /**
+   * Obiettivi giornalieri pesati (RPC get_outlet_day_targets, migration 203), in ordine
+   * di giorno del mese (indice 0 = giorno 1). Se presenti, «obiettivo giorno» e
+   * «obiettivo a oggi» seguono i pesi per giorno della settimana invece della
+   * divisione uniforme: dayTarget = obiettivo dell'ultimo giorno trascorso (o del
+   * primo, per un mese futuro), toDateTarget = somma degli obiettivi dei giorni trascorsi.
+   */
+  dayTargets?: Array<number | null>
 }
 export interface BudgetTarget {
   monthGross: number
@@ -388,17 +396,76 @@ export function budgetTargets(i: BudgetTargetInput): BudgetTarget {
   const days = Math.max(1, i.daysInMonth)
   const elapsed = Math.min(Math.max(0, i.dayOfMonth), days)
   const monthGross = r2(i.monthNet * (1 + Math.max(0, i.vatRate) / 100))
-  const dayTarget = r2(monthGross / days)
+  const dt = i.dayTargets && i.dayTargets.length >= days && i.dayTargets.slice(0, days).every((v) => v != null) ? i.dayTargets.slice(0, days) as number[] : null
+  const dayTarget = dt ? r2(dt[Math.max(0, Math.min(days, elapsed) - 1)]) : r2(monthGross / days)
   // Senza arrotondamento intermedio: a fine mese l'obiettivo a oggi coincide con il budget lordo
-  const toDateTarget = r2((monthGross / days) * elapsed)
+  const toDateTarget = dt ? r2(dt.slice(0, elapsed).reduce((a, b) => a + b, 0)) : r2((monthGross / days) * elapsed)
   const mtd = r2(i.mtd)
   return {
     monthGross, dayTarget, toDateTarget, mtd,
     delta: r2(mtd - toDateTarget),
     pct: toDateTarget > 0 ? Math.round((mtd / toDateTarget) * 100) : null,
     pctMonth: monthGross > 0 ? Math.round((mtd / monthGross) * 100) : null,
-    projection: elapsed > 0 ? r2((mtd / elapsed) * days) : null,
+    // Con i pesi: proiezione = incassato / quota di budget attesa a oggi × budget mese
+    projection: elapsed > 0 ? (dt && toDateTarget > 0 ? r2((mtd / toDateTarget) * monthGross) : r2((mtd / elapsed) * days)) : null,
   }
+}
+
+// ─── Scostamento serale: giorno, settimana a oggi, mese a oggi ───────────
+// Il singolo giorno e' rumoroso (errore mediano ~30 % anche con i pesi giusti,
+// analisi sui registri ago 2025 – lug 2026): si mostra come fascia, non come
+// cifra da inseguire. Settimana (±15 %) e mese (±8 %) sono i segnali affidabili.
+export type DeviationBand = 'in_linea' | 'sopra' | 'sotto'
+export const DEVIATION_TOLERANCE = { giorno: 0.30, settimana: 0.15, mese: 0.08 } as const
+export const DEVIATION_LABELS: Record<DeviationBand, string> = { in_linea: 'in linea', sopra: 'sopra', sotto: 'sotto' }
+
+export function deviationBand(actual: number, target: number, tolerance: number): DeviationBand | null {
+  if (!(target > 0)) return null
+  const d = (actual - target) / target
+  if (d > tolerance) return 'sopra'
+  if (d < -tolerance) return 'sotto'
+  return 'in_linea'
+}
+
+export interface DayTargetRow { day: string; target: number | null; weight: number; day_type: string }
+export interface EveningDeviationInput {
+  day: string                                   // giorno della chiusura (YYYY-MM-DD)
+  dayActual: number                             // totale corrispettivi + fatture scritti stasera
+  targets: DayTargetRow[]                       // obiettivi del mese dell'outlet (RPC)
+  /** incassi delle altre giornate del mese (non in bozza, non chiuse), escluso `day` */
+  monthActuals: Record<string, number>
+}
+export interface DeviationLine { target: number; actual: number; delta: number; pct: number | null; band: DeviationBand | null }
+export interface EveningDeviation { giorno: DeviationLine; settimana: DeviationLine; mese: DeviationLine; dayType: string | null }
+
+/** Lunedi' della settimana ISO che contiene `day`. */
+export function weekStartIso(day: string): string {
+  const d = new Date(`${day}T00:00:00Z`)
+  const dow = (d.getUTCDay() + 6) % 7
+  d.setUTCDate(d.getUTCDate() - dow)
+  return d.toISOString().slice(0, 10)
+}
+
+export function eveningDeviation(i: EveningDeviationInput): EveningDeviation | null {
+  const r2 = (n: number) => Math.round(n * 100) / 100
+  const byDay = new Map(i.targets.map((t) => [t.day, t]))
+  const today = byDay.get(i.day)
+  if (!today || today.target == null) return null
+  const ws = weekStartIso(i.day)
+  const line = (from: string, tolerance: number): DeviationLine => {
+    let target = 0, actual = 0
+    for (const t of i.targets) {
+      if (t.day < from || t.day > i.day) continue
+      const a = t.day === i.day ? i.dayActual : i.monthActuals[t.day]
+      if (a == null) continue                     // giornata mancante: non conta ne' nell'atteso ne' nell'incassato
+      if (t.target != null) target += t.target
+      actual += a
+    }
+    target = r2(target); actual = r2(actual)
+    return { target, actual, delta: r2(actual - target), pct: target > 0 ? Math.round(((actual - target) / target) * 100) : null, band: deviationBand(actual, target, tolerance) }
+  }
+  const giorno: DeviationLine = { target: r2(today.target), actual: r2(i.dayActual), delta: r2(i.dayActual - today.target), pct: today.target > 0 ? Math.round(((i.dayActual - today.target) / today.target) * 100) : null, band: deviationBand(i.dayActual, today.target, DEVIATION_TOLERANCE.giorno) }
+  return { giorno, settimana: line(ws < i.day.slice(0, 8) + '01' ? i.day.slice(0, 8) + '01' : ws, DEVIATION_TOLERANCE.settimana), mese: line(i.day.slice(0, 8) + '01', DEVIATION_TOLERANCE.mese), dayType: today.day_type ?? null }
 }
 
 // ─── Fase 4: proposta consuntivo mensile dalle chiusure di cassa ────────
