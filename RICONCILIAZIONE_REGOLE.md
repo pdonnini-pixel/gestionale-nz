@@ -265,3 +265,25 @@ fatturato. Senza una regola quelle scadenze restano aperte per sempre anche a pa
   con finestra -30 / +60 giorni dalla data di pagamento: più larga in avanti perché l'addebito
   della carta arriva anche un mese e mezzo dopo la spesa.
 - **Stato:** ✅ AUTO alla scadenza (provvisorio) / ✅ AUTO l'aggancio quando il movimento compare.
+
+---
+
+### R16 — Spese a CARTA riconosciute anche senza modalità in fattura
+Il riconoscimento «questa spesa si paga con carta» (`fn_payable_auto_debit`, migr. 134/135) ha tre
+criteri: **MP08** nella fattura, **categoria** marcata a carta, **fornitore** configurato a carta.
+Dal 10/09/2026 funzionano tutti e tre davvero.
+- **Il difetto (migr. 196):** `v_is_mp08 boolean := (NEW.payment_method_code = 'MP08')`. Con
+  `payment_method_code` NULL — cioè quando la fattura non porta il blocco DatiPagamento, il caso
+  della maggioranza: **745 scadenze su NZ** — quel confronto vale **NULL**, non false. Da lì ogni
+  `IF NOT v_is_mp08` e `IF NOT v_should` è NULL e quindi falso: i criteri (2) e (3) non venivano
+  **mai** valutati. Funzionava solo l'MP08 esplicito.
+- **Il sintomo:** spese da bar, ristoranti e distributori (categoria «Viaggi e trasferte»,
+  «mezzi e carburante») mostrate come «Bonifico ordinario» con scadenza a 30 giorni fine mese.
+  Caso reale: LA COMPAGNIA DEL PROSCIUTTO, fatture 282/19 e 405/19.
+- **Il fix:** `COALESCE(NEW.payment_method_code = 'MP08', false)`. Una riga.
+- **Lezione:** in plpgsql un confronto con NULL non è falso, è NULL, e `IF NOT NULL` non entra.
+  Ogni flag booleano che nasce da un confronto su colonna nullable va avvolto in COALESCE,
+  altrimenti la logica successiva si spegne senza errori e senza log.
+- **La scadenza giusta di una spesa a carta** non è «a vista» né il piano del fornitore: è il
+  **20 del mese successivo** alla fattura, quando la carta addebita il conto. Da lì in poi vale
+  R15 (chiusura provvisoria alla scadenza).
