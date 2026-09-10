@@ -5,6 +5,44 @@
 
 
 
+
+> ## 🏷️ IL METODO ARRIVA DALLA CATEGORIA, E LA BANCA NON E' PIU' UN'ANOMALIA (2026-09-10) - FATTO
+>
+> **Patrizio**: «se ci sono delle fatture senza specifica devo collegarli alla categoria che
+> puo' far capire che modalita' di pagamento ha, poi la banca di pagamento che cazzo me ne
+> frega se non c'e'».
+>
+> **(A) La categoria porta il metodo (`20260910_213` + `214`).** `cost_categories` aveva solo
+> `auto_debit_card`, che marcava la spesa ma non diceva niente al fornitore. Ora ha
+> `default_payment_method`: quando la fattura non dichiara il codice MP (due volte su tre) il
+> profilo prende il metodo da li'. Precedenza: **codice MP in fattura → metodo della
+> categoria → bonifico come ultima spiaggia**, esplicita e non piu' come regola. Il bridge
+> non crea piu' il fornitore col bonifico d'ufficio: se la fattura tace lascia il campo vuoto
+> e lo decide il profilo, chiamato subito dopo.
+>
+> Prepopolate a `carta_credito` le tre categorie gia' marcate a carta (Viaggi, mezzi e
+> carburante, Acquisti on line). Le altre restano vuote e si impostano dal pannello
+> «Gestisci categorie», dove e' stata aggiunta la tendina «Come si paga di solito».
+> **Dedurre il metodo dallo storico delle scadenze non funziona**: e' inquinato dal vecchio
+> default, con «bonifico» prevalente in 22 categorie su 23.
+>
+> **Prova a secco su NZ** (fornitore fittizio con P.IVA inventata, fattura BELLUCO senza
+> `dati_pagamento`, rollback forzato): nasce con metodo **carta di credito**, categoria
+> «mezzi e carburante», piano immediato alla data fattura, e la scadenza esce come addebito
+> automatico al 20/10. Prima nasceva «bonifico» e finiva nel riquadro rosso.
+>
+> **(B) Via la segnalazione «banca di pagamento mancante».** `fn_supplier_config_anomaly` la
+> apriva per Ri.Ba., RID, SDD e carte. Ma quel conto **non entra in nessun calcolo**:
+> verificato, non e' usato nel cash flow ne' nel saldo impegnato; e' solo un default per la
+> scadenza e un bonus di dieci punti in `try_match_bank_transaction`. Erano 11 righe rosse
+> per un dato che nessuna fattura contiene. Il campo resta, la segnalazione no.
+>
+> **Esito NZ: anomalie aperte da 18 a ZERO.** Restano solo i due fornitori inseriti a mano
+> senza fatture elettroniche (Tari Valdichiana, Westi Srl), che non generano segnalazioni.
+> Da notare: la mail a Sabrina sul conto della carta resta utile per il cash flow, ma non e'
+> piu' un blocco.
+
+
 > ## 📐 IL FORNITORE HA SEMPRE UN PIANO (2026-09-10) - FATTO
 >
 > **Patrizio, sulla stessa riga rossa**: «se arriva un fornitore nuovo e' perche' A-Cube ha
