@@ -1707,15 +1707,22 @@ const ScadenzarioSmart = () => {
 
   // KPIs
   const kpis = useMemo(() => {
-    const totalDuePending = filteredPayables
+    // Gli addebiti automatici a carta escono dal conto da soli il 20 del mese
+    // successivo: non c'e' niente da disporre e non devono gonfiare i totali di
+    // "quanto c'e' da pagare". Erano gia' tolti dalla lista (displayPayables) ma
+    // non da questi numeri, e il totale risultava piu' alto del dovuto.
+    // Restano visibili, con conteggio e importo, nel chip "In attesa carta".
+    const daDisporre = filteredPayables.filter((p) => p.status !== 'addebito_automatico');
+
+    const totalDuePending = daDisporre
       .filter((p) => p.status !== 'pagato' && p.due_date && new Date(p.due_date) <= today)
       .reduce((sum, p) => sum + (p.amount_remaining || 0), 0);
 
-    const totalOverdue = filteredPayables
+    const totalOverdue = daDisporre
       .filter((p) => p.status === 'scaduto')
       .reduce((sum, p) => sum + (p.amount_remaining || 0), 0);
 
-    const nextSevenDays = filteredPayables
+    const nextSevenDays = daDisporre
       .filter((p) => {
         if (!p.due_date) return false;
         const d = new Date(p.due_date);
@@ -1723,7 +1730,7 @@ const ScadenzarioSmart = () => {
       })
       .reduce((sum, p) => sum + (p.amount_remaining || 0), 0);
 
-    const totalToPay = filteredPayables
+    const totalToPay = daDisporre
       .filter((p) => p.status !== 'pagato')
       .reduce((sum, p) => sum + (p.amount_remaining || 0), 0);
 
@@ -1787,7 +1794,10 @@ const ScadenzarioSmart = () => {
   // Totali per singolo metodo di pagamento (stessa base filtrata dei KPI)
   type MethodAgg = { key: string; label: string; total: number; count: number }
   const methodTotals = useMemo<MethodAgg[]>(() => {
-    const activePays = filteredPayables.filter(p => p.status !== 'pagato' && p.status !== 'annullato');
+    // Come sopra: gli addebiti a carta non sono pagamenti da disporre, quindi
+    // non compaiono nel riepilogo per metodo (starebbero sotto "Carta di credito"
+    // facendo somma diversa dal totale da pagare).
+    const activePays = filteredPayables.filter(p => p.status !== 'pagato' && p.status !== 'annullato' && p.status !== 'addebito_automatico');
     const map: Record<string, MethodAgg> = {};
     activePays.forEach(p => {
       const m = p.payment_method || 'altro';
