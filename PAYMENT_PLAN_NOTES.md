@@ -4,6 +4,40 @@
 
 
 
+
+> ## 📐 IL FORNITORE HA SEMPRE UN PIANO (2026-09-10) - FATTO
+>
+> **Patrizio, sulla stessa riga rossa**: «se arriva un fornitore nuovo e' perche' A-Cube ha
+> scaricato una fattura, e dentro la fattura ci sono gia' i dati per creare il fornitore, e
+> se c'e' una fattura c'e' una modalita' di pagamento».
+>
+> **Il principio e' giusto, il presupposto no.** Misurato su NZ: delle 458 fatture degli
+> ultimi 90 giorni solo **152** portano il blocco `DatiPagamento` (facoltativo nella fattura
+> elettronica), e delle 306 che non lo portano appena **5** scrivono qualcosa sul pagamento
+> nel testo libero. Bar, distributori, negozi e ristoranti non lo compilano quasi mai.
+>
+> **Quindi la risposta non e' «leggere meglio», e' «non chiedere».** Migration
+> `20260910_212` (NZ+Made+Zago, md5 identico): quando la fattura non porta i termini, il
+> profilo scrive la REGOLA STANDARD invece di lasciare il piano vuoto, e la marca in
+> `profile_from_invoice_fields` come `piano_standard` (non `piano_pagamento`):
+>   - metodo carta o contanti → data fattura, 0 giorni, 1 rata;
+>   - tutti gli altri → fine mese, 30 giorni, 1 rata (la regola che il sistema applicava
+>     comunque come ripiego nei calcoli: cambia che ora e' scritta e visibile).
+>
+> **Un piano standard non e' una scelta umana**: la prima fattura che porta scadenze vere lo
+> sostituisce, e il marcatore torna `piano_pagamento`. Un piano scritto a mano resta
+> intoccabile come prima.
+>
+> **Dettaglio che mancava**: il piano si considera assente quando manca la BASE, non quando
+> sono vuoti tutti e tre i campi. Adobe aveva `numero_rate = 1` senza base ne' giorni, un
+> piano a meta' e inutilizzabile, che con la vecchia condizione sarebbe rimasto tale.
+>
+> **Esito NZ**: fornitori auto-creati senza piano da 14 a **0**; 12 col piano standard
+> marcato. Restano senza piano solo Tari Valdichiana e Westi Srl, creati a mano e senza
+> fatture elettroniche, dove la scelta e' di chi li ha inseriti. La segnalazione «fornitore
+> non riconosciuto» ora non nasce piu' per costruzione.
+
+
 > ## 🚦 «FORNITORE NON RICONOSCIUTO» SOLO A CHI HA UNA DILAZIONE DA DECIDERE (2026-09-10) - FATTO
 >
 > **Domanda di Patrizio** guardando il riquadro rosso in Fatturazione: «perche' ho ancora
