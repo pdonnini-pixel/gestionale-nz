@@ -26,6 +26,7 @@ export type CatRow = {
   color?: string | null;
   sort_order?: number | null;
   auto_debit_card?: boolean | null;
+  default_payment_method?: string | null;
 };
 
 export type SupLite = {
@@ -65,9 +66,27 @@ function makeCode(name: string, existing: Set<string>): string {
   return code;
 }
 
-type EditForm = { name: string; macro_group: string; color: string; auto_debit_card: boolean };
+type EditForm = { name: string; macro_group: string; color: string; auto_debit_card: boolean; default_payment_method: string };
 const DEFAULT_COLOR = '#6b7280';
-const EMPTY_FORM: EditForm = { name: '', macro_group: 'oneri_diversi', color: DEFAULT_COLOR, auto_debit_card: false };
+const EMPTY_FORM: EditForm = { name: '', macro_group: 'oneri_diversi', color: DEFAULT_COLOR, auto_debit_card: false, default_payment_method: '' };
+
+// Come si pagano di solito le spese di questa categoria. Serve quando la fattura non
+// dichiara il codice MP (succede in due casi su tre): senza questo, il fornitore nuovo
+// nascerebbe «bonifico» d'ufficio anche per un pieno di gasolio pagato con la carta.
+const METODI_CATEGORIA: Array<{ value: string; label: string }> = [
+  { value: '', label: 'Non impostato (decide la fattura, poi bonifico)' },
+  { value: 'bonifico_ordinario', label: 'Bonifico' },
+  { value: 'carta_credito', label: 'Carta di credito' },
+  { value: 'carta_debito', label: 'Carta di debito' },
+  { value: 'contanti', label: 'Contanti' },
+  { value: 'rid', label: 'RID / addebito diretto' },
+  { value: 'sdd_core', label: 'SDD Core' },
+  { value: 'sdd_b2b', label: 'SDD B2B' },
+  { value: 'riba_30', label: 'Ri.Ba.' },
+  { value: 'assegno', label: 'Assegno' },
+  { value: 'mav', label: 'MAV' },
+  { value: 'bollettino_postale', label: 'Bollettino postale' },
+];
 
 export function CategoryManagerModal({
   open,
@@ -126,6 +145,7 @@ export function CategoryManagerModal({
       macro_group: String(c.macro_group || 'oneri_diversi'),
       color: String(c.color || DEFAULT_COLOR),
       auto_debit_card: Boolean(c.auto_debit_card),
+      default_payment_method: String(c.default_payment_method || ''),
     });
   };
 
@@ -134,7 +154,7 @@ export function CategoryManagerModal({
     setBusy(true);
     const { error } = await supabase
       .from('cost_categories')
-      .update({ name: editForm.name.trim(), macro_group: editForm.macro_group, color: editForm.color, auto_debit_card: editForm.auto_debit_card } as never)
+      .update({ name: editForm.name.trim(), macro_group: editForm.macro_group, color: editForm.color, auto_debit_card: editForm.auto_debit_card, default_payment_method: editForm.default_payment_method || null } as never)
       .eq('id', id);
     setBusy(false);
     if (error) {
@@ -162,6 +182,7 @@ export function CategoryManagerModal({
         macro_group: createForm.macro_group,
         color: createForm.color,
         auto_debit_card: createForm.auto_debit_card,
+        default_payment_method: createForm.default_payment_method || null,
         is_fixed: true,
         is_recurring: false,
         is_system: false,
@@ -256,6 +277,18 @@ export function CategoryManagerModal({
           onChange={e => setForm({ ...form, color: e.target.value })}
           className="h-9 w-12 rounded-md border border-slate-200 cursor-pointer"
         />
+      </label>
+      <label className="flex flex-col gap-1 min-w-[240px]">
+        <span className="text-xs font-medium text-slate-500" title="Serve quando la fattura non dichiara come si paga: il fornitore nuovo nasce con questo metodo invece del bonifico d'ufficio.">
+          Come si paga di solito
+        </span>
+        <select
+          value={form.default_payment_method}
+          onChange={e => setForm({ ...form, default_payment_method: e.target.value })}
+          className="px-2.5 py-1.5 text-sm border border-slate-200 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-400 bg-white"
+        >
+          {METODI_CATEGORIA.map(m => <option key={m.value || 'none'} value={m.value}>{m.label}</option>)}
+        </select>
       </label>
       <label className="flex items-center gap-2 min-w-[220px] cursor-pointer pb-1.5" title="Le fatture di questa categoria si pagano con carta: diventano addebiti automatici (non compaiono come scadenza da pagare a mano, si chiudono con l'estratto conto carte).">
         <input

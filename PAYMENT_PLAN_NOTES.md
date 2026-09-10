@@ -3,6 +3,117 @@
 
 
 
+
+
+
+> ## 🏷️ IL METODO ARRIVA DALLA CATEGORIA, E LA BANCA NON E' PIU' UN'ANOMALIA (2026-09-10) - FATTO
+>
+> **Patrizio**: «se ci sono delle fatture senza specifica devo collegarli alla categoria che
+> puo' far capire che modalita' di pagamento ha, poi la banca di pagamento che cazzo me ne
+> frega se non c'e'».
+>
+> **(A) La categoria porta il metodo (`20260910_213` + `214`).** `cost_categories` aveva solo
+> `auto_debit_card`, che marcava la spesa ma non diceva niente al fornitore. Ora ha
+> `default_payment_method`: quando la fattura non dichiara il codice MP (due volte su tre) il
+> profilo prende il metodo da li'. Precedenza: **codice MP in fattura → metodo della
+> categoria → bonifico come ultima spiaggia**, esplicita e non piu' come regola. Il bridge
+> non crea piu' il fornitore col bonifico d'ufficio: se la fattura tace lascia il campo vuoto
+> e lo decide il profilo, chiamato subito dopo.
+>
+> Prepopolate a `carta_credito` le tre categorie gia' marcate a carta (Viaggi, mezzi e
+> carburante, Acquisti on line). Le altre restano vuote e si impostano dal pannello
+> «Gestisci categorie», dove e' stata aggiunta la tendina «Come si paga di solito».
+> **Dedurre il metodo dallo storico delle scadenze non funziona**: e' inquinato dal vecchio
+> default, con «bonifico» prevalente in 22 categorie su 23.
+>
+> **Prova a secco su NZ** (fornitore fittizio con P.IVA inventata, fattura BELLUCO senza
+> `dati_pagamento`, rollback forzato): nasce con metodo **carta di credito**, categoria
+> «mezzi e carburante», piano immediato alla data fattura, e la scadenza esce come addebito
+> automatico al 20/10. Prima nasceva «bonifico» e finiva nel riquadro rosso.
+>
+> **(B) Via la segnalazione «banca di pagamento mancante».** `fn_supplier_config_anomaly` la
+> apriva per Ri.Ba., RID, SDD e carte. Ma quel conto **non entra in nessun calcolo**:
+> verificato, non e' usato nel cash flow ne' nel saldo impegnato; e' solo un default per la
+> scadenza e un bonus di dieci punti in `try_match_bank_transaction`. Erano 11 righe rosse
+> per un dato che nessuna fattura contiene. Il campo resta, la segnalazione no.
+>
+> **Esito NZ: anomalie aperte da 18 a ZERO.** Restano solo i due fornitori inseriti a mano
+> senza fatture elettroniche (Tari Valdichiana, Westi Srl), che non generano segnalazioni.
+> Da notare: la mail a Sabrina sul conto della carta resta utile per il cash flow, ma non e'
+> piu' un blocco.
+
+
+> ## 📐 IL FORNITORE HA SEMPRE UN PIANO (2026-09-10) - FATTO
+>
+> **Patrizio, sulla stessa riga rossa**: «se arriva un fornitore nuovo e' perche' A-Cube ha
+> scaricato una fattura, e dentro la fattura ci sono gia' i dati per creare il fornitore, e
+> se c'e' una fattura c'e' una modalita' di pagamento».
+>
+> **Il principio e' giusto, il presupposto no.** Misurato su NZ: delle 458 fatture degli
+> ultimi 90 giorni solo **152** portano il blocco `DatiPagamento` (facoltativo nella fattura
+> elettronica), e delle 306 che non lo portano appena **5** scrivono qualcosa sul pagamento
+> nel testo libero. Bar, distributori, negozi e ristoranti non lo compilano quasi mai.
+>
+> **Quindi la risposta non e' «leggere meglio», e' «non chiedere».** Migration
+> `20260910_212` (NZ+Made+Zago, md5 identico): quando la fattura non porta i termini, il
+> profilo scrive la REGOLA STANDARD invece di lasciare il piano vuoto, e la marca in
+> `profile_from_invoice_fields` come `piano_standard` (non `piano_pagamento`):
+>   - metodo carta o contanti → data fattura, 0 giorni, 1 rata;
+>   - tutti gli altri → fine mese, 30 giorni, 1 rata (la regola che il sistema applicava
+>     comunque come ripiego nei calcoli: cambia che ora e' scritta e visibile).
+>
+> **Un piano standard non e' una scelta umana**: la prima fattura che porta scadenze vere lo
+> sostituisce, e il marcatore torna `piano_pagamento`. Un piano scritto a mano resta
+> intoccabile come prima.
+>
+> **Dettaglio che mancava**: il piano si considera assente quando manca la BASE, non quando
+> sono vuoti tutti e tre i campi. Adobe aveva `numero_rate = 1` senza base ne' giorni, un
+> piano a meta' e inutilizzabile, che con la vecchia condizione sarebbe rimasto tale.
+>
+> **Esito NZ**: fornitori auto-creati senza piano da 14 a **0**; 12 col piano standard
+> marcato. Restano senza piano solo Tari Valdichiana e Westi Srl, creati a mano e senza
+> fatture elettroniche, dove la scelta e' di chi li ha inseriti. La segnalazione «fornitore
+> non riconosciuto» ora non nasce piu' per costruzione.
+
+
+> ## 🚦 «FORNITORE NON RICONOSCIUTO» SOLO A CHI HA UNA DILAZIONE DA DECIDERE (2026-09-10) - FATTO
+>
+> **Domanda di Patrizio** guardando il riquadro rosso in Fatturazione: «perche' ho ancora
+> questi che non sono stati sistemati, visto che hai tutte le informazioni nelle fatture
+> per risolverle da solo?».
+>
+> **Perche' la segnalazione chiedeva la cosa sbagliata.** Il ramo (C) di
+> `rpc_refresh_payment_anomalies` apriva «fornitore non riconosciuto» a ogni fornitore
+> auto-creato con `payment_base` NULL, anche a chi si paga con la CARTA. Li' un piano rate
+> non esiste: la spesa e' gia' fatta e il conto viene addebitato il 20 del mese dopo.
+> Nessuna fattura potra' mai rispondere, quindi la riga rossa sarebbe rimasta per sempre.
+>
+> **I dati.** Le 7 segnalazioni aperte su NZ erano tutte cosi': BELLUCO, CRESCIMANNA, Hills,
+> Only The Food, PIETRASANTA e Poke House hanno TUTTE le scadenze con `is_auto_debit = true`;
+> BIZAY non ha nemmeno una scadenza a sistema.
+>
+> **Il fix (`20260910_211`, NZ+Made+Zago, md5 identico sui 3)**: il piano serve solo a chi ha
+> almeno una scadenza degli ultimi 12 mesi che si paga davvero a mano (non addebito
+> automatico, non carta, non contanti); chi ha come metodo carta o contanti non viene mai
+> segnalato. Le segnalazioni gia' aperte per quel motivo si chiudono al refresh, e la
+> migration le chiude subito con un UPDATE mirato per non lasciare il riquadro sporco.
+> **Esito**: da 18 a 11 anomalie aperte.
+>
+> **Cosa resta di proposito**: le 11 «banca di pagamento mancante». Quella e' una domanda
+> vera e la risposta NON e' nella fattura: il documento porta l'IBAN del fornitore, cioe'
+> dove versi i soldi, mentre serve sapere da quale conto TUO esce l'addebito della carta (o
+> su quale conto la banca presenta le Ri.Ba. di MARF). Lo sa solo l'amministrazione: bozza
+> mail a Sabrina gia' pronta.
+>
+> **Incrocio con l'altra sessione (importante)**. Nello stesso pomeriggio una sessione
+> parallela ha lavorato su `fn_payable_auto_debit` (addebiti diretti automatici) mentre qui
+> si applicava la 207. Le due migration si sono sovrascritte a vicenda; la fusione e' nel
+> file `20260910_210_fusione_addebiti_diretti_e_mp_dichiarato.sql`, e la versione viva sui 3
+> tenant contiene entrambe le logiche (verificato: `v_altro` della 207 + lista MP09..MP21
+> della 209, md5 uguale sui tre). **Lezione operativa**: prima di applicare una funzione
+> gia' toccata di recente, rileggere la definizione VIVA e non fidarsi del file nel repo.
+
+
 > ## 🛒 AMAZON SI PAGA A BONIFICO, NON A CARTA (2026-09-10) - FATTO
 >
 > **Chiarimento di Patrizio**: «amazon viene pagato con bonifico».
