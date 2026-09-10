@@ -3,6 +3,45 @@
 
 
 
+
+> ## 🚦 «FORNITORE NON RICONOSCIUTO» SOLO A CHI HA UNA DILAZIONE DA DECIDERE (2026-09-10) - FATTO
+>
+> **Domanda di Patrizio** guardando il riquadro rosso in Fatturazione: «perche' ho ancora
+> questi che non sono stati sistemati, visto che hai tutte le informazioni nelle fatture
+> per risolverle da solo?».
+>
+> **Perche' la segnalazione chiedeva la cosa sbagliata.** Il ramo (C) di
+> `rpc_refresh_payment_anomalies` apriva «fornitore non riconosciuto» a ogni fornitore
+> auto-creato con `payment_base` NULL, anche a chi si paga con la CARTA. Li' un piano rate
+> non esiste: la spesa e' gia' fatta e il conto viene addebitato il 20 del mese dopo.
+> Nessuna fattura potra' mai rispondere, quindi la riga rossa sarebbe rimasta per sempre.
+>
+> **I dati.** Le 7 segnalazioni aperte su NZ erano tutte cosi': BELLUCO, CRESCIMANNA, Hills,
+> Only The Food, PIETRASANTA e Poke House hanno TUTTE le scadenze con `is_auto_debit = true`;
+> BIZAY non ha nemmeno una scadenza a sistema.
+>
+> **Il fix (`20260910_211`, NZ+Made+Zago, md5 identico sui 3)**: il piano serve solo a chi ha
+> almeno una scadenza degli ultimi 12 mesi che si paga davvero a mano (non addebito
+> automatico, non carta, non contanti); chi ha come metodo carta o contanti non viene mai
+> segnalato. Le segnalazioni gia' aperte per quel motivo si chiudono al refresh, e la
+> migration le chiude subito con un UPDATE mirato per non lasciare il riquadro sporco.
+> **Esito**: da 18 a 11 anomalie aperte.
+>
+> **Cosa resta di proposito**: le 11 «banca di pagamento mancante». Quella e' una domanda
+> vera e la risposta NON e' nella fattura: il documento porta l'IBAN del fornitore, cioe'
+> dove versi i soldi, mentre serve sapere da quale conto TUO esce l'addebito della carta (o
+> su quale conto la banca presenta le Ri.Ba. di MARF). Lo sa solo l'amministrazione: bozza
+> mail a Sabrina gia' pronta.
+>
+> **Incrocio con l'altra sessione (importante)**. Nello stesso pomeriggio una sessione
+> parallela ha lavorato su `fn_payable_auto_debit` (addebiti diretti automatici) mentre qui
+> si applicava la 207. Le due migration si sono sovrascritte a vicenda; la fusione e' nel
+> file `20260910_210_fusione_addebiti_diretti_e_mp_dichiarato.sql`, e la versione viva sui 3
+> tenant contiene entrambe le logiche (verificato: `v_altro` della 207 + lista MP09..MP21
+> della 209, md5 uguale sui tre). **Lezione operativa**: prima di applicare una funzione
+> gia' toccata di recente, rileggere la definizione VIVA e non fidarsi del file nel repo.
+
+
 > ## 🛒 AMAZON SI PAGA A BONIFICO, NON A CARTA (2026-09-10) - FATTO
 >
 > **Chiarimento di Patrizio**: «amazon viene pagato con bonifico».
