@@ -1763,8 +1763,10 @@ const ScadenzarioSmart = () => {
     return { count: list.length, total: list.reduce((s, p) => s + (Number(p.disposizione_amount_pending) || 0), 0) };
   }, [payables]);
 
-  // Addebiti automatici carta (MP08 / categorie a carta): in attesa dell'estratto
-  // conto carte. Tolti dalla lista attiva, richiamabili col chip dedicato.
+  // Addebiti automatici: carte (MP08 / categorie a carta, addebito il 20 del mese
+  // successivo) e addebiti diretti SDD/RID, che escono alla loro data per mandato.
+  // Nessuno dei due è un pagamento da disporre: tolti dalla lista attiva e dai
+  // totali, richiamabili col chip dedicato.
   const autoDebitInfo = useMemo(() => {
     const list = payables.filter(p => p.status === 'addebito_automatico');
     return { count: list.length, total: list.reduce((s, p) => s + (Number(p.amount_remaining) || 0), 0) };
@@ -3190,7 +3192,7 @@ const ScadenzarioSmart = () => {
               <option value="">Aperte</option>
               <option value="all">Tutti gli stati</option>
               <option value="scaduto">Scaduto</option>
-              <option value="addebito_automatico">In attesa (carta)</option>
+              <option value="addebito_automatico">Addebiti automatici (carta, SDD/RID)</option>
               <option value="in_scadenza">In scadenza</option>
               <option value="da_pagare">Da pagare</option>
               <option value="parziale">Parziale</option>
@@ -3212,16 +3214,17 @@ const ScadenzarioSmart = () => {
                 In sospeso: {suspendedInfo.count} ({fmt(suspendedInfo.total)} €)
               </button>
             )}
-            {/* Accesso rapido "In attesa (carta)": gli addebiti automatici (MP08 /
-                categorie a carta) sono tolti dalla lista attiva; questo pill li
-                richiama (o torna alle Aperte se già attivo). */}
+            {/* Accesso rapido agli addebiti automatici: carte (MP08 / categorie a
+                carta) e addebiti diretti SDD/RID. Escono dal conto da soli, quindi
+                sono tolti dalla lista attiva e dai totali di quanto c'è da pagare;
+                questo pill li richiama (o torna alle Aperte se già attivo). */}
             {autoDebitInfo.count > 0 && (
               <button
                 onClick={() => setSelectedStatus(selectedStatus === 'addebito_automatico' ? '' : 'addebito_automatico')}
-                title="Fatture pagate con carta (addebito automatico): in attesa dell'estratto conto carte, restano nel saldo finché non si riconciliano"
+                title="Scadenze che escono dal conto da sole: carte (addebito il 20 del mese successivo) e addebiti diretti SDD/RID (alla loro data). Non sono pagamenti da disporre; restano nel saldo finché non si riconciliano"
                 className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium ${selectedStatus === 'addebito_automatico' ? 'bg-indigo-500 text-white border-indigo-500' : 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100'}`}>
                 <Clock size={12} />
-                In attesa carta: {autoDebitInfo.count} ({fmt(autoDebitInfo.total)} €)
+                Addebiti automatici: {autoDebitInfo.count} ({fmt(autoDebitInfo.total)} €)
               </button>
             )}
             {/* Accesso rapido "RiBa provvisorie": pagate in automatico alla scadenza,

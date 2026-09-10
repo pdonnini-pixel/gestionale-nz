@@ -28,7 +28,8 @@ export function calculatePayableStatus(p: any): string {
   const TERMINAL = new Set(['pagato', 'nota_credito', 'sospeso', 'rimandato', 'annullato', 'parziale']);
   if (p.status && TERMINAL.has(p.status)) return p.status;
   if (p.payment_date) return 'pagato';
-  // Addebito automatico carta (MP08): mai scaduto, badge dedicato.
+  // Addebito automatico: carta (MP08 o categoria a carta) oppure addebito diretto
+  // SDD/RID. Esce dal conto da solo, quindi non è mai 'scaduto': badge dedicato.
   if (p.is_auto_debit) return 'addebito_automatico';
   if (!p.due_date) return p.status || 'da_pagare';
   const today = new Date();
