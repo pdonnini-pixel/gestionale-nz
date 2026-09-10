@@ -2,6 +2,43 @@
 
 
 
+
+> ## 🛒 AMAZON SI PAGA A BONIFICO, NON A CARTA (2026-09-10) - FATTO
+>
+> **Chiarimento di Patrizio**: «amazon viene pagato con bonifico».
+>
+> **Da dove veniva l'errore.** La 201 citava Amazon come il caso di un fornitore che
+> «dichiara MP05 ma va a carta per anagrafica». Sbagliato due volte: in anagrafica
+> Amazon ha `bonifico_ordinario`, e la carta arrivava dalla CATEGORIA «Acquisti on
+> line», che ha `auto_debit_card = true`. Da li' anche la scadenza spostata al 20 del
+> mese dopo. In banca il quadro e' netto: bonifici ad «Amazon Payments Europe» su tre
+> conti (BCC Valdarno, Intesa, Banco Fiorentino), spesso a saldo di piu' fatture
+> insieme («saldo fatture dec. marzo»), 51 fatture da inizio anno per ~2.300.
+>
+> **Il fix strutturale (`20260910_207`, NZ+Made+Zago, md5 identico sui 3)**: la regola
+> della 201 diventa generale. `fn_payable_auto_debit` ora cattura QUALUNQUE codice MPxx
+> dall'XML (prima cercava solo MP08 e MP01) e, se il codice dichiarato non e' MP08
+> (carta) ne' MP01 (contanti), ne' la categoria ne' l'anagrafica possono spostare la
+> riga a carta. Bonifico, assegno, Ri.Ba., MAV, bollettino e addebiti diretti sono
+> tutti «canale gia' dichiarato». MP08, MP01 e lo scontrino invariati.
+>
+> **I dati (`20260910_208`)**: 11 righe Amazon aperte per 371,22, da carta a
+> `bonifico_ordinario`, `is_auto_debit` spento, scadenza ricalcolata. Le fatture Amazon
+> non portano `data_scadenza_pagamento`, quindi vale il piano fornitore (fine mese 30
+> giorni, 1 rata): dal 20/09 e 20/10 si passa a 30/09 e 31/10. Importi e stato
+> invariati. Backup in `payables_backup_carta_20260910`, una riga di audit per scadenza
+> con vecchio metodo e vecchia data. **Ordine obbligatorio: 207 prima, 208 dopo**,
+> altrimenti il trigger rimette la carta nella stessa transazione.
+>
+> **Perimetro misurato prima di applicare**: le scadenze aperte a carta con un MP
+> diverso da MP08/MP01 erano 11, tutte Amazon. Nessun altro fornitore cambia. Dopo:
+> zero. Made e Zago: nessuna riga in condizione, funzione allineata lo stesso.
+>
+> **Coda**: la categoria «Acquisti on line» resta marcata «si paga con carta», e va
+> bene: serve per gli acquisti on line pagati davvero con carta, dove la fattura non
+> dichiara nulla. Amazon non ci finisce piu' perche' la sua fattura parla.
+
+
 > ## 💳 IL METODO DEI FORNITORI VECCHI ALLINEATO ALLE FATTURE (2026-09-10) - FATTO
 >
 > **Richiesta di Patrizio** subito dopo la 204: «allinealo a quello scritto nelle
