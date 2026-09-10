@@ -543,3 +543,18 @@ carte erano stati sistemati, gli addebiti diretti no. Errore mio, non una diment
   quell'importo, quindi si aspetta.
 - **In UI** il chip indaco non si chiama più «In attesa carta» ma «Addebiti automatici», perché
   ora tiene insieme carte e SDD/RID.
+
+#### Nota operativa — due sessioni sulla stessa funzione
+Il 10/09/2026 due sessioni parallele hanno modificato `fn_payable_auto_debit` a pochi minuti di
+distanza: la 207 («il codice MP dichiarato batte la categoria anche quando è un bonifico», caso
+Amazon) e la 209 (addebiti diretti automatici, caso Lignano). Essendo entrambe un
+`CREATE OR REPLACE` sull'intera funzione, **l'ultima applicata ha cancellato il lavoro della
+prima**: dopo la 209 il ramo `v_altro` non c'era più e le fatture Amazon, che dichiarano MP05 ma
+appartengono a una categoria marcata «si paga con carta», sarebbero tornate a carta al primo
+aggiornamento. I dati non si erano ancora rotti (le 11 righe erano ancora a bonifico), ma
+sarebbe successo alla prima modifica.
+
+La 210 rimette insieme le due logiche. **Lezione:** prima di un `CREATE OR REPLACE` su una
+funzione condivisa, rileggere dal DB la versione corrente invece di partire da quella che si
+ricorda, e dopo l'applicazione ricontrollare che i rami degli altri ci siano ancora
+(`pg_get_functiondef` con una grep sulle parole chiave dell'altro intervento).
