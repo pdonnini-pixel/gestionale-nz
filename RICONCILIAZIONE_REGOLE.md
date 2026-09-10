@@ -502,3 +502,59 @@ tutto). Sono **acconti**, non pagamenti di una fattura: nessun importo esatto li
 vanno abbinati a mano come pagamento parziale. Le altre 26 hanno i centesimi, quindi o sono
 gruppi di più fatture (li lavora il motore dei pagamenti raggruppati) o la fattura corrispondente
 non è ancora a sistema.
+
+### R24 — Anche l'addebito diretto è un pagamento automatico
+Segnalato da Patrizio il 10/09/2026 aprendo la fattura Lignano Banda Larga n. 1915: «perché vedo
+questo SEPA?!». Aveva già chiesto la stessa cosa in mattinata («e anche gli sdd?»): contanti e
+carte erano stati sistemati, gli addebiti diretti no. Errore mio, non una dimenticanza accettabile.
+
+- **Il fatto:** la fattura dichiara SEPA Direct Debit B2B con scadenza 15/09. Quei 244,00 €
+  partono dal conto da soli, per mandato firmato. Eppure la scadenza stava fra le Aperte come un
+  bonifico da disporre. Su NZ erano 5 scadenze per 1.545,67 €, nessuna marcata come automatica.
+- **Regola (migr. 205):** un addebito diretto si marca `is_auto_debit`, come la carta, e quindi
+  esce dalla lista dei bonifici da disporre e dal totale da pagare. **La scadenza NON si tocca:**
+  un SDD esce alla sua data, non il 20 del mese successivo come la carta. Alla scadenza si chiude
+  in via provvisoria (`fn_cash_card_provisional_close`), con la stessa reversibilità di carte e
+  RiBa: quando il movimento arriva davvero, l'aggancio rende la chiusura definitiva.
+- **La lista dei codici SDI, verificata.** La migration 201 diceva «MP17, MP19, MP20 (RIBA)»:
+  sbagliato. MP20 è SEPA Direct Debit CORE, la RiBa è MP12, e mancavano MP09, MP10, MP11 e MP21 —
+  proprio il codice della fattura Lignano. Elenco corretto degli addebiti diretti:
+
+  | Codice | Cosa è |
+  |---|---|
+  | MP09 | RID |
+  | MP10 | RID utenze |
+  | MP11 | RID veloce |
+  | MP16 | domiciliazione bancaria |
+  | MP17 | domiciliazione postale |
+  | MP19 | SEPA Direct Debit |
+  | MP20 | SEPA Direct Debit CORE |
+  | MP21 | SEPA Direct Debit B2B |
+
+  **MP12 (RiBa) resta fuori:** ha il suo meccanismo dalla migration 146. MP13 è il MAV, che è un
+  pagamento da disporre.
+- **Il codice si legge anche dentro la fattura** (R18), nei due formati, non solo nella colonna:
+  su NZ ci sono 114 fatture con MP19, 40 con MP16, 3 con MP21 e 2 con MP20 la cui colonna dice
+  ancora «bonifico ordinario». Quando il documento dichiara un addebito diretto e la colonna è
+  rimasta sul bonifico d'ufficio, la colonna viene allineata (rid, sdd_core o sdd_b2b).
+- **Cosa NON viene chiuso d'ufficio:** un addebito diretto la cui data è già passata ma il cui
+  movimento non è ancora arrivato resta fra gli «Addebiti automatici», non fra i bonifici. È il
+  caso di TORINO FASHION VILLAGE, 983,24 € scaduti il 31/08: in banca non c'è nessun addebito di
+  quell'importo, quindi si aspetta.
+- **In UI** il chip indaco non si chiama più «In attesa carta» ma «Addebiti automatici», perché
+  ora tiene insieme carte e SDD/RID.
+
+#### Nota operativa — due sessioni sulla stessa funzione
+Il 10/09/2026 due sessioni parallele hanno modificato `fn_payable_auto_debit` a pochi minuti di
+distanza: la 207 («il codice MP dichiarato batte la categoria anche quando è un bonifico», caso
+Amazon) e la 209 (addebiti diretti automatici, caso Lignano). Essendo entrambe un
+`CREATE OR REPLACE` sull'intera funzione, **l'ultima applicata ha cancellato il lavoro della
+prima**: dopo la 209 il ramo `v_altro` non c'era più e le fatture Amazon, che dichiarano MP05 ma
+appartengono a una categoria marcata «si paga con carta», sarebbero tornate a carta al primo
+aggiornamento. I dati non si erano ancora rotti (le 11 righe erano ancora a bonifico), ma
+sarebbe successo alla prima modifica.
+
+La 210 rimette insieme le due logiche. **Lezione:** prima di un `CREATE OR REPLACE` su una
+funzione condivisa, rileggere dal DB la versione corrente invece di partire da quella che si
+ricorda, e dopo l'applicazione ricontrollare che i rami degli altri ci siano ancora
+(`pg_get_functiondef` con una grep sulle parole chiave dell'altro intervento).

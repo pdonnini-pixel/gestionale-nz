@@ -1,0 +1,9 @@
+-- ROLLBACK di 20260910_210 — non esiste una versione «precedente» sensata a cui tornare:
+-- questa migration rimette insieme due modifiche che erano state fatte in parallelo e che
+-- si erano cancellate a vicenda. Tornare indietro vuol dire scegliere quale delle due
+-- perdere, quindi il rollback è applicare il file di UNA delle due:
+--   · per tenere solo la regola sul codice MP dichiarato (caso Amazon):
+--     supabase/migrations/20260910_207_mp_dichiarato_batte_la_categoria_anche_per_il_bonifico.sql
+--   · per tenere solo gli addebiti diretti automatici (caso Lignano SDD):
+--     supabase/migrations/20260910_209_addebiti_diretti_sono_automatici.sql
+-- In entrambi i casi si perde l'altra metà: preferire la fusione.
