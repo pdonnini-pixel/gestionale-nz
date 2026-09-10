@@ -314,3 +314,30 @@ ma **non tradotto** nel metodo della scadenza, che restava quello del piano forn
   grafica riba_60, TANESINI riba_60) e tre no (MARF ×2, PROFASHION). Il rischio non è cosmetico:
   se una RiBa finisce in una distinta bonifici si paga due volte, perché la banca incassa comunque
   la ricevuta.
+
+---
+
+### R18 — Il pagamento si legge DENTRO la fattura, non solo nella colonna
+Estensione di R17 dopo tre casi ancora aperti trovati da Patrizio il 10/09/2026.
+- **Linea Ufficio di MASI, FT 001902 (126,05 €):** l'XML dichiara `MP01` ma
+  `payables.payment_method_code` era VUOTA. La regola R17 guardava solo la colonna, quindi non
+  vedeva niente. **Lezione: la colonna è una copia, la fattura è la fonte.**
+- **MAGLIONE, D988 (24,47 €):** nessuna modalità dichiarata, ma la causale dice «Fattura in
+  riferimento scontrino n. 21 del 23/06/2026». Una fattura emessa a fronte di uno **scontrino** è
+  già stata pagata alla cassa: niente da disporre.
+- **Only The Food, XR-141 (15,90 €):** `MP08` nell'XML, mai letto.
+- **La causa comune:** il trigger cercava la modalità solo col pattern dell'XML puro
+  (`<ModalitaPagamento>MP08</ModalitaPagamento>`), mentre le fatture del bridge A-Cube sono salvate
+  in **JSON** (`"modalita_pagamento": "MP08"`). Quel ramo non trovava mai nulla.
+- **Regola (migr. 199):** si legge la modalità in **tutti e due i formati**, si riconosce lo
+  scontrino / la ricevuta fiscale **nella causale**, e il codice trovato viene riportato in
+  `payment_method_code`.
+- **Perimetro stretto sullo scontrino:** cercare quelle parole in tutto l'XML dà falsi positivi
+  grossolani (le fatture REALCART scrivono «Corrispettivo non comprensivo del contributo
+  ambientale Conai» nelle righe). Solo la causale.
+- **Trappola tecnica (199b):** in Postgres il conteggio di ripetizione di un regex POSIX arriva a
+  **255**. Un `{0,400}` passa il `CREATE FUNCTION` e fallisce a runtime al primo INSERT/UPDATE,
+  rendendo la tabella di fatto di sola scrittura bloccata. Tenere i contatori sotto 255.
+- **Il ripasso va fatto su TUTTE le righe aperte**, non sul sottoinsieme che si sospetta: la
+  prima volta avevo ritoccato solo le 4 righe col codice vuoto e mi erano sfuggite 11 fatture
+  Amazon con categoria a carta e codice MP05.
