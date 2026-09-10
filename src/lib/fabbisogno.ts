@@ -301,6 +301,9 @@ export interface RigaUscita {
   descrizione: string
   fornitore: string
   documento: string | null
+  /** Data di emissione del documento: e' l'ordine con cui si guarda la
+   *  posizione di un fornitore, prima ancora della scadenza. */
+  emissione?: string | null
   scadenza: string | null
   importo: number
   automatico: boolean
@@ -619,4 +622,93 @@ export function vociPersonale(input: PianoPersonaleInput): VocePersonale[] {
   }
 
   return out.sort((a, b) => (a.data < b.data ? -1 : a.data > b.data ? 1 : 0))
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RAGGRUPPAMENTO PER FORNITORE
+// La decisione vera non è mai «pago la fattura 236/2», è «cosa faccio con GGZ».
+// Una lista piatta ordinata per scadenza sparpaglia le quattordici fatture di
+// un fornitore in mezzo a tutte le altre e costringe a ricomporre la posizione
+// a mente. Qui le fatture di uno stesso fornitore stanno insieme, in ordine di
+// emissione, con la scadenza a fianco.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface GruppoFornitore {
+  fornitore: string
+  /** Fatture del fornitore, dalla più vecchia di emissione alla più recente. */
+  righe: RigaUscita[]
+  totale: number
+  obbligatorio: number
+  nObbligatorie: number
+  /** Residuo con scadenza già passata: è la parte che pesa sul rapporto. */
+  scaduto: number
+  primaScadenza: string | null
+  ultimaScadenza: string | null
+  /** Fascia prevalente per importo: serve solo all'etichetta del gruppo. */
+  key: FasciaKey
+}
+
+/** Ordine di lettura di una posizione fornitore: emissione, poi scadenza, poi importo. */
+function ordinePosizione(a: RigaUscita, b: RigaUscita): number {
+  const ea = a.emissione || a.scadenza || '9999-12-31'
+  const eb = b.emissione || b.scadenza || '9999-12-31'
+  if (ea !== eb) return ea < eb ? -1 : 1
+  const sa = a.scadenza || '9999-12-31'
+  const sb = b.scadenza || '9999-12-31'
+  if (sa !== sb) return sa < sb ? -1 : 1
+  return a.importo - b.importo
+}
+
+/**
+ * Raggruppa le righe per fornitore. I gruppi escono dal più esposto al meno
+ * esposto: davanti c'è chi ti tiene più soldi, non chi scade prima.
+ *
+ * @param oggi data di riferimento per stabilire cosa è già scaduto (YYYY-MM-DD)
+ */
+export function raggruppaPerFornitore(
+  righe: readonly RigaUscita[],
+  selezionati: ReadonlySet<string>,
+  oggi: string,
+): GruppoFornitore[] {
+  const mappa = new Map<string, RigaUscita[]>()
+  for (const r of righe) {
+    const k = r.fornitore || 'Fornitore da attribuire'
+    const acc = mappa.get(k)
+    if (acc) acc.push(r)
+    else mappa.set(k, [r])
+  }
+
+  const gruppi: GruppoFornitore[] = []
+  for (const [fornitore, lista] of mappa) {
+    const ordinate = [...lista].sort(ordinePosizione)
+    let totale = 0, obbligatorio = 0, nObbligatorie = 0, scaduto = 0
+    let primaScadenza: string | null = null
+    let ultimaScadenza: string | null = null
+    const perFascia = new Map<FasciaKey, number>()
+
+    for (const r of ordinate) {
+      totale = round2(totale + r.importo)
+      if (isObbligatoria(r, selezionati)) {
+        obbligatorio = round2(obbligatorio + r.importo)
+        nObbligatorie += 1
+      }
+      if (r.scadenza && r.scadenza < oggi) scaduto = round2(scaduto + r.importo)
+      if (r.scadenza) {
+        if (!primaScadenza || r.scadenza < primaScadenza) primaScadenza = r.scadenza
+        if (!ultimaScadenza || r.scadenza > ultimaScadenza) ultimaScadenza = r.scadenza
+      }
+      perFascia.set(r.key, round2((perFascia.get(r.key) || 0) + r.importo))
+    }
+
+    let key: FasciaKey = ordinate[0]?.key ?? 'altro'
+    let max = -1
+    for (const [k, v] of perFascia) if (v > max) { max = v; key = k }
+
+    gruppi.push({ fornitore, righe: ordinate, totale, obbligatorio, nObbligatorie, scaduto, primaScadenza, ultimaScadenza, key })
+  }
+
+  return gruppi.sort((a, b) => {
+    if (b.totale !== a.totale) return b.totale - a.totale
+    return a.fornitore < b.fornitore ? -1 : 1
+  })
 }

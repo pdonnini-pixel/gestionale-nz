@@ -16,6 +16,8 @@ import {
   isRiba,
   vociPersonale,
   f24Personale,
+  raggruppaPerFornitore,
+  type RigaUscita,
 } from './fabbisogno'
 
 describe('simulaFabbisogno — cascata a priorità', () => {
@@ -496,5 +498,85 @@ describe('previsioneIncassiMese — obiettivo corretto ogni sera', () => {
     expect(r.attesiResidui).toBe(0)
     expect(r.proiezioneMese).toBe(100_000)
     expect(r.passoRichiesto).toBeNull()
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RAGGRUPPAMENTO PER FORNITORE
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('raggruppaPerFornitore', () => {
+  const riga = (p: Partial<RigaUscita> & { id: string; fornitore: string; importo: number }): RigaUscita => ({
+    key: 'merci', descrizione: 'Merci', documento: null, emissione: null,
+    scadenza: null, automatico: false, ...p,
+  })
+
+  it('mette insieme le fatture dello stesso fornitore e ordina i gruppi dal più esposto', () => {
+    const g = raggruppaPerFornitore([
+      riga({ id: 'a', fornitore: 'MIAN', importo: 100 }),
+      riga({ id: 'b', fornitore: 'GGZ', importo: 300 }),
+      riga({ id: 'c', fornitore: 'MIAN', importo: 50 }),
+      riga({ id: 'd', fornitore: 'GGZ', importo: 20 }),
+    ], new Set(), '2026-09-10')
+
+    expect(g.map(x => x.fornitore)).toEqual(['GGZ', 'MIAN'])
+    expect(g[0].totale).toBe(320)
+    expect(g[0].righe).toHaveLength(2)
+    expect(g[1].totale).toBe(150)
+  })
+
+  it('dentro il gruppo ordina per data di emissione, non per scadenza', () => {
+    const g = raggruppaPerFornitore([
+      riga({ id: 'nuova', fornitore: 'GGZ', importo: 10, emissione: '2026-07-30', scadenza: '2026-08-01' }),
+      riga({ id: 'vecchia', fornitore: 'GGZ', importo: 10, emissione: '2026-02-17', scadenza: '2026-09-30' }),
+    ], new Set(), '2026-09-10')
+
+    expect(g[0].righe.map(r => r.id)).toEqual(['vecchia', 'nuova'])
+  })
+
+  it('conta lo scaduto e le due scadenze estreme della posizione', () => {
+    const g = raggruppaPerFornitore([
+      riga({ id: 'a', fornitore: 'GGZ', importo: 100, scadenza: '2026-06-30' }),
+      riga({ id: 'b', fornitore: 'GGZ', importo: 40, scadenza: '2026-08-31' }),
+      riga({ id: 'c', fornitore: 'GGZ', importo: 25, scadenza: '2026-09-30' }),
+    ], new Set(), '2026-09-10')
+
+    expect(g[0].scaduto).toBe(140)
+    expect(g[0].primaScadenza).toBe('2026-06-30')
+    expect(g[0].ultimaScadenza).toBe('2026-09-30')
+  })
+
+  it('conta le righe già classificate come obbligatorie', () => {
+    const g = raggruppaPerFornitore([
+      riga({ id: 'a', fornitore: 'GGZ', importo: 100 }),
+      riga({ id: 'b', fornitore: 'GGZ', importo: 40 }),
+      riga({ id: 'c', fornitore: 'GGZ', importo: 25, automatico: true }),
+    ], new Set(['a']), '2026-09-10')
+
+    expect(g[0].nObbligatorie).toBe(2)      // 'a' spuntata + l'automatica
+    expect(g[0].obbligatorio).toBe(125)
+  })
+
+  it('etichetta il gruppo con la fascia che pesa di più, non con la prima riga', () => {
+    const g = raggruppaPerFornitore([
+      riga({ id: 'a', fornitore: 'MISTO', importo: 10, key: 'altro' }),
+      riga({ id: 'b', fornitore: 'MISTO', importo: 900, key: 'merci' }),
+    ], new Set(), '2026-09-10')
+
+    expect(g[0].key).toBe('merci')
+  })
+
+  it('raccoglie sotto un nome solo le voci senza fornitore', () => {
+    const g = raggruppaPerFornitore([
+      riga({ id: 'a', fornitore: '', importo: 10 }),
+      riga({ id: 'b', fornitore: '', importo: 5 }),
+    ], new Set(), '2026-09-10')
+
+    expect(g).toHaveLength(1)
+    expect(g[0].fornitore).toBe('Fornitore da attribuire')
+  })
+
+  it('su lista vuota non esplode', () => {
+    expect(raggruppaPerFornitore([], new Set(), '2026-09-10')).toEqual([])
   })
 })

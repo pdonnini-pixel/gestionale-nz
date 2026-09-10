@@ -5,9 +5,15 @@
 // riga per riga le uscite obbligatorie entro la data; la selezione si salva in
 // `cash_must_pay` ed è condivisa fra gli utenti dell'azienda. Fanno eccezione
 // gli addebiti automatici (SDD, RID, carte): partono dal conto da soli per
-// mandato al creditore, quindi sono obbligatori d'ufficio, restando ben
-// visibili in elenco. Le RiBa NO: si possono lasciare insolute, quindi restano
-// una decisione, solo segnalata per quello che comporta.
+// mandato al creditore, quindi sono obbligatori d'ufficio e NON compaiono nella
+// lista delle decisioni: sarebbero righe da scorrere senza poterci fare niente.
+// Restano contati nei totali e riassunti in una riga sola, apribile a richiesta.
+// Le RiBa NO: si possono lasciare insolute, quindi restano una decisione, solo
+// segnalata per quello che comporta.
+//
+// L'elenco si legge per FORNITORE (la posizione intera, fatture in ordine di
+// emissione con la scadenza a fianco) oppure per scadenza: la decisione vera non
+// è mai «pago la fattura 236/2», è «cosa faccio con questo fornitore».
 //
 // Le uscite ricorrenti che non stanno a scadenzario vengono calcolate:
 //  - personale: netti in busta + F24 di ritenute e contributi, due date diverse,
@@ -28,12 +34,12 @@
 //  - obiettivo   → budget_confronto (rev_monthly) + IVA da daily_report_settings
 //  - realizzato  → daily_revenue del mese in corso
 // ─────────────────────────────────────────────────────────────────────────────
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback, Fragment } from 'react'
 import { useSearchParams, Link } from 'react-router-dom'
 import {
   Wallet, AlertTriangle, Download, Loader2, Info, RefreshCw, CheckCircle2,
   Building2, ExternalLink, Search, X, Target, TrendingUp, TrendingDown, Lock,
-  Eraser, Zap, FileWarning,
+  Eraser, Zap, FileWarning, ChevronRight, ChevronDown,
 } from 'lucide-react'
 import {
   ComposedChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine,
@@ -53,8 +59,8 @@ import {
 import {
   calcolaPiano, previsioneIncassiMese, proiezioneGiornaliera, primoGiornoNegativo,
   fasciaDaMacroGroup, isPagamentoAutomatico, isRiba, isObbligatoria, vociPersonale, f24Personale,
-  addDaysYMD, diffGiorni, FASCE_ORDINE_DEFAULT, FASCIA_LABEL,
-  type FasciaKey, type RigaUscita,
+  addDaysYMD, diffGiorni, FASCE_ORDINE_DEFAULT, FASCIA_LABEL, raggruppaPerFornitore,
+  type FasciaKey, type RigaUscita, type GruppoFornitore,
 } from '../lib/fabbisogno'
 
 /* ───── formato ───── */
@@ -104,7 +110,7 @@ const RUOLI_SCRITTURA = ['super_advisor', 'contabile', 'cfo']
 /** Stati dello scadenzario che NON sono un debito da pagare. */
 const STATI_ESCLUSI = new Set(['annullato', 'pagato', 'nota_credito'])
 
-type FiltroFascia = 'tutte' | FasciaKey | 'scadute' | 'automatiche' | 'riba'
+type FiltroFascia = 'tutte' | FasciaKey | 'scadute' | 'riba'
 
 interface ContoRow {
   id: string
@@ -121,6 +127,7 @@ interface PayableViewRow {
   supplier_name: string | null
   supplier_ragione_sociale: string | null
   invoice_number: string | null
+  invoice_date: string | null
   due_date: string | null
   amount_remaining: number | null
   macro_group: string | null
@@ -203,6 +210,10 @@ export default function SimulazioneFabbisogno() {
   const [liquiditaOverride, setLiquiditaOverride] = useState('')
   const [filtro, setFiltro] = useState<FiltroFascia>('tutte')
   const [ricerca, setRicerca] = useState('')
+  /** Come si legge l'elenco: per posizione fornitore (default) o per data. */
+  const [vista, setVista] = useState<'fornitore' | 'scadenza'>('fornitore')
+  const [aperti, setAperti] = useState<Set<string>>(new Set())
+  const [mostraAutomatici, setMostraAutomatici] = useState(false)
 
   /* ───── caricamento ───── */
   const loadData = useCallback(async () => {
@@ -239,7 +250,7 @@ export default function SimulazioneFabbisogno() {
 
       const payRows = await fetchAllPaged<PayableViewRow>(
         (from, to) => supabase.from('v_payables_operative')
-          .select('id, supplier_id, supplier_name, supplier_ragione_sociale, invoice_number, due_date, amount_remaining, macro_group, cost_category_name, payment_method, is_auto_debit, status')
+          .select('id, supplier_id, supplier_name, supplier_ragione_sociale, invoice_number, invoice_date, due_date, amount_remaining, macro_group, cost_category_name, payment_method, is_auto_debit, status')
           .eq('company_id', COMPANY_ID).lte('due_date', orizzonte).gt('amount_remaining', 0)
           .order('id', { ascending: true }).range(from, to),
         'v_payables_operative',
@@ -419,6 +430,7 @@ export default function SimulazioneFabbisogno() {
         descrizione: p.cost_category_name || 'Senza categoria',
         fornitore,
         documento: p.invoice_number,
+        emissione: p.invoice_date,
         scadenza: p.due_date,
         importo: Number(p.amount_remaining || 0),
         automatico: isPagamentoAutomatico(p.payment_method, p.is_auto_debit),
@@ -580,18 +592,29 @@ export default function SimulazioneFabbisogno() {
   const giornoRottura = primoGiornoNegativo(proiezione)
   const graficoData = useMemo(() => proiezione.map(g => ({ ...g, label: fmtDataBreve(g.data) })), [proiezione])
 
-  /* ───── lista ───── */
+  /* ───── lista ─────
+   * Gli addebiti automatici NON stanno qui: non c'e' niente da decidere, escono
+   * dal conto da soli. Restano contati nei totali e riassunti in una riga sola.
+   */
+  const righeAutomatiche = useMemo(() => righe.filter(r => r.automatico), [righe])
+  const totaleAutomatico = useMemo(
+    () => righeAutomatiche.reduce((s, r) => s + r.importo, 0), [righeAutomatiche])
+
   const righeVisibili = useMemo(() => {
     const q = ricerca.trim().toLowerCase()
     return righe.filter(r => {
+      if (r.automatico) return false
       if (filtro === 'scadute' && !(r.scadenza && r.scadenza < oggi)) return false
-      if (filtro === 'automatiche' && !r.automatico) return false
       if (filtro === 'riba' && !r.riba) return false
-      if (filtro !== 'tutte' && filtro !== 'scadute' && filtro !== 'automatiche' && filtro !== 'riba' && r.key !== filtro) return false
+      if (filtro !== 'tutte' && filtro !== 'scadute' && filtro !== 'riba' && r.key !== filtro) return false
       if (!q) return true
       return `${r.fornitore} ${r.documento || ''} ${r.descrizione}`.toLowerCase().includes(q)
     })
   }, [righe, filtro, ricerca, oggi])
+
+  const gruppiVisibili = useMemo(
+    () => raggruppaPerFornitore(righeVisibili, selezionati, oggi),
+    [righeVisibili, selezionati, oggi])
 
   const perFascia = useMemo(() => {
     const m = new Map<FasciaKey, { righe: RigaUscita[]; tot: number; obbl: number; auto: number; riba: number }>()
@@ -631,6 +654,110 @@ export default function SimulazioneFabbisogno() {
     URL.revokeObjectURL(url)
   }
 
+  /* ───── righe e gruppi ───── */
+  const toggleAperto = (fornitore: string) => {
+    setAperti(prev => {
+      const next = new Set(prev)
+      if (next.has(fornitore)) next.delete(fornitore)
+      else next.add(fornitore)
+      return next
+    })
+  }
+
+  const renderRiga = (r: RigaUscita, dentro: boolean) => {
+    const obbl = isObbligatoria(r, selezionati)
+    return (
+      <tr key={r.id} className={`border-t border-slate-100 ${obbl ? 'bg-indigo-50/40' : 'hover:bg-slate-50'}`}>
+        <td className={`px-3 py-2 ${dentro ? 'pl-8' : ''}`}>
+          <input type="checkbox" checked={obbl} disabled={!canEdit || salvando === r.id}
+            onChange={e => toggleRiga(r, e.target.checked)}
+            aria-label={`Classifica come obbligatoria: ${r.fornitore} ${r.documento || ''}`}
+            className="w-4 h-4 accent-indigo-600" />
+        </td>
+        <td className={`px-3 py-2 ${dentro ? 'pl-8 text-slate-600' : 'text-slate-900'}`}>
+          {dentro ? (r.documento || r.descrizione) : r.fornitore}
+          {r.riba && (
+            <span className="ml-2 inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-700"
+              title="Ricevuta bancaria: se non la paghi torna insoluta al fornitore">
+              <FileWarning size={10} /> RiBa
+            </span>
+          )}
+        </td>
+        <td className="px-3 py-2 text-slate-500">{dentro ? fmtData(r.emissione) : (r.documento || r.descrizione)}</td>
+        <td className={`px-3 py-2 ${r.scadenza && r.scadenza < oggi ? 'text-red-600 font-medium' : 'text-slate-600'}`}>
+          {fmtData(r.scadenza)}
+        </td>
+        <td className="px-3 py-2">
+          {!dentro && <span className={`px-2 py-0.5 rounded text-xs font-medium ${FASCIA_COLOR[r.key]}`}>{FASCIA_LABEL[r.key]}</span>}
+        </td>
+        <td className="px-3 py-2 text-right font-medium text-slate-900">{fmtEur(r.importo, 2)}</td>
+        <td className="px-2 py-2">
+          {r.link && (
+            <Link to={r.link} title={DESTINAZIONE_LABEL[r.key]} aria-label={`${DESTINAZIONE_LABEL[r.key]}: ${r.fornitore}`}
+              className="inline-flex p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50">
+              <ExternalLink size={15} />
+            </Link>
+          )}
+        </td>
+      </tr>
+    )
+  }
+
+  const renderGruppo = (g: GruppoFornitore) => {
+    const aperto = aperti.has(g.fornitore)
+    const tutte = g.nObbligatorie === g.righe.length
+    const nessuna = g.nObbligatorie === 0
+    const primoLink = g.righe.find(r => r.link)?.link || null
+    return (
+      <Fragment key={g.fornitore}>
+        <tr className={`border-t-2 border-slate-200 ${tutte ? 'bg-indigo-50/60' : 'bg-slate-50/80'}`}>
+          <td className="px-3 py-2">
+            <input type="checkbox" checked={tutte}
+              ref={el => { if (el) el.indeterminate = !tutte && !nessuna }}
+              disabled={!canEdit || salvando !== null}
+              onChange={e => spuntaGruppo(g.righe, e.target.checked)}
+              aria-label={`Classifica come obbligatoria tutta la posizione di ${g.fornitore}`}
+              className="w-4 h-4 accent-indigo-600" />
+          </td>
+          <td className="px-3 py-2">
+            <button type="button" onClick={() => toggleAperto(g.fornitore)}
+              aria-expanded={aperto}
+              className="inline-flex items-center gap-1.5 font-semibold text-slate-900 hover:text-indigo-700">
+              {aperto ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+              {g.fornitore}
+            </button>
+            <span className="ml-2 text-xs text-slate-500">
+              {g.righe.length} {g.righe.length === 1 ? 'fattura' : 'fatture'}
+              {g.nObbligatorie > 0 && !tutte && ` · ${g.nObbligatorie} spuntate`}
+            </span>
+          </td>
+          <td className="px-3 py-2 text-xs text-slate-500">
+            {g.righe.length > 1 ? `dal ${fmtData(g.righe[0].emissione)}` : fmtData(g.righe[0]?.emissione)}
+          </td>
+          <td className="px-3 py-2 text-xs">
+            <span className={g.primaScadenza && g.primaScadenza < oggi ? 'text-red-600 font-medium' : 'text-slate-600'}>
+              {fmtData(g.primaScadenza)}
+            </span>
+            {g.scaduto > 0 && <span className="block text-[11px] text-red-600">{fmtEur(g.scaduto)} già scaduti</span>}
+          </td>
+          <td className="px-3 py-2">
+            <span className={`px-2 py-0.5 rounded text-xs font-medium ${FASCIA_COLOR[g.key]}`}>{FASCIA_LABEL[g.key]}</span>
+          </td>
+          <td className="px-3 py-2 text-right font-bold text-slate-900">{fmtEur(g.totale, 2)}</td>
+          <td className="px-2 py-2">
+            {primoLink && (
+              <Link to={primoLink} title={DESTINAZIONE_LABEL[g.key]} aria-label={`${DESTINAZIONE_LABEL[g.key]}: ${g.fornitore}`}
+                className="inline-flex p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50">
+                <ExternalLink size={15} />
+              </Link>
+            )}
+          </td>
+        </tr>
+        {aperto && g.righe.map(r => renderRiga(r, true))}
+      </Fragment>
+    )
+  }
+
   if (loading) {
     return (
       <div className="p-6">
@@ -645,7 +772,6 @@ export default function SimulazioneFabbisogno() {
     ...FASCE_ORDINE_DEFAULT.map(k => ({ key: k as FiltroFascia, label: FASCIA_LABEL[k] })),
     { key: 'scadute', label: 'Già scadute' },
     { key: 'riba', label: 'RiBa' },
-    { key: 'automatiche', label: 'Addebiti automatici' },
   ]
 
   const copertura = piano.coperturaObbligatorioPct
@@ -740,8 +866,10 @@ export default function SimulazioneFabbisogno() {
             <span className="text-sm font-semibold text-slate-900">Cosa non possiamo non pagare</span>
           </div>
           <div className="text-xs text-slate-500 mt-1 ml-8">
-            Tutti gli impegni con scadenza entro il {fmtData(orizzonte)}: fatture, imposte, personale.
-            Spunta quelli a cui non vuoi dire di no. SDD, RID e carte sono già inclusi e non si possono togliere: partono dal conto da soli.
+            Gli impegni con scadenza entro il {fmtData(orizzonte)} su cui hai una scelta: fatture, imposte, personale.
+            Spunta quelli a cui non vuoi dire di no. Le fatture sono raggruppate per fornitore, in ordine di emissione,
+            così apri una posizione e decidi tutta insieme. SDD, RID e carte non compaiono: escono dal conto da soli,
+            sono già scalati dalle risorse e li trovi riassunti qui sotto.
           </div>
         </div>
 
@@ -778,7 +906,16 @@ export default function SimulazioneFabbisogno() {
               {f.label}
             </button>
           ))}
-          <div className="relative ml-auto">
+          <div className="ml-auto inline-flex rounded-lg border border-slate-200 overflow-hidden">
+            {([['fornitore', 'Per fornitore'], ['scadenza', 'Per scadenza']] as const).map(([v, label]) => (
+              <button key={v} onClick={() => setVista(v)}
+                aria-pressed={vista === v}
+                className={`px-2.5 py-1 text-xs font-medium ${vista === v ? 'bg-slate-900 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}>
+                {label}
+              </button>
+            ))}
+          </div>
+          <div className="relative">
             <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
             <input value={ricerca} onChange={e => setRicerca(e.target.value)} placeholder="Cerca fornitore o fattura"
               className="pl-8 pr-7 py-1.5 border border-slate-200 rounded-lg text-sm w-56" />
@@ -788,6 +925,33 @@ export default function SimulazioneFabbisogno() {
             )}
           </div>
         </div>
+
+        {righeAutomatiche.length > 0 && (
+          <div className="px-4 py-2.5 border-b border-slate-100 bg-red-50/60 text-sm text-red-800">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <Zap size={15} className="shrink-0" />
+              <span>
+                <strong>{fmtEur(totaleAutomatico, 2)}</strong> di addebiti automatici su {righeAutomatiche.length} voci
+                (SDD, RID, carte): già scalati dalle risorse, non c'è niente da decidere.
+              </span>
+              <button type="button" onClick={() => setMostraAutomatici(v => !v)}
+                aria-expanded={mostraAutomatici}
+                className="text-xs font-medium underline underline-offset-2 hover:text-red-900">
+                {mostraAutomatici ? 'nascondi il dettaglio' : 'vedi il dettaglio'}
+              </button>
+            </div>
+            {mostraAutomatici && (
+              <ul className="mt-2 pl-6 space-y-0.5 text-xs text-red-700 max-h-40 overflow-y-auto">
+                {righeAutomatiche.map(r => (
+                  <li key={r.id} className="flex justify-between gap-3">
+                    <span className="truncate">{r.fornitore}{r.documento ? ` · ${r.documento}` : ''} · {fmtData(r.scadenza)}</span>
+                    <span className="shrink-0 font-medium">{fmtEur(r.importo, 2)}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
 
         {canEdit && (
           <div className="px-4 py-2 border-b border-slate-100 flex flex-wrap items-center gap-2 bg-slate-50">
@@ -804,8 +968,8 @@ export default function SimulazioneFabbisogno() {
             <thead className="bg-slate-50 text-xs uppercase text-slate-500 sticky top-0">
               <tr>
                 <th className="w-10 px-3 py-2" />
-                <th className="text-left px-3 py-2 font-medium">Voce</th>
-                <th className="text-left px-3 py-2 font-medium">Documento</th>
+                <th className="text-left px-3 py-2 font-medium">{vista === 'fornitore' ? 'Fornitore e fatture' : 'Voce'}</th>
+                <th className="text-left px-3 py-2 font-medium">Emissione</th>
                 <th className="text-left px-3 py-2 font-medium">Scadenza</th>
                 <th className="text-left px-3 py-2 font-medium">Categoria</th>
                 <th className="text-right px-3 py-2 font-medium">Importo</th>
@@ -813,52 +977,9 @@ export default function SimulazioneFabbisogno() {
               </tr>
             </thead>
             <tbody>
-              {righeVisibili.map(r => {
-                const obbl = isObbligatoria(r, selezionati)
-                return (
-                  <tr key={r.id} className={`border-t border-slate-100 ${obbl ? 'bg-indigo-50/40' : 'hover:bg-slate-50'}`}>
-                    <td className="px-3 py-2">
-                      <input type="checkbox" checked={obbl} disabled={!canEdit || r.automatico || salvando === r.id}
-                        onChange={e => toggleRiga(r, e.target.checked)}
-                        aria-label={r.automatico
-                          ? `Addebito automatico sempre incluso: ${r.fornitore}`
-                          : `Classifica come obbligatoria: ${r.fornitore} ${r.documento || ''}`}
-                        title={r.automatico ? 'Addebito automatico: incluso d\'ufficio' : undefined}
-                        className="w-4 h-4 accent-indigo-600" />
-                    </td>
-                    <td className="px-3 py-2 text-slate-900">
-                      {r.fornitore}
-                      {r.automatico && (
-                        <span className="ml-2 inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded bg-red-50 text-red-600">
-                          <Zap size={10} /> addebito automatico
-                        </span>
-                      )}
-                      {r.riba && (
-                        <span className="ml-2 inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-700"
-                          title="Ricevuta bancaria: se non la paghi torna insoluta al fornitore">
-                          <FileWarning size={10} /> RiBa
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-3 py-2 text-slate-500">{r.documento || r.descrizione}</td>
-                    <td className={`px-3 py-2 ${r.scadenza && r.scadenza < oggi ? 'text-red-600 font-medium' : 'text-slate-600'}`}>
-                      {fmtData(r.scadenza)}
-                    </td>
-                    <td className="px-3 py-2">
-                      <span className={`px-2 py-0.5 rounded text-xs font-medium ${FASCIA_COLOR[r.key]}`}>{FASCIA_LABEL[r.key]}</span>
-                    </td>
-                    <td className="px-3 py-2 text-right font-medium text-slate-900">{fmtEur(r.importo, 2)}</td>
-                    <td className="px-2 py-2">
-                      {r.link && (
-                        <Link to={r.link} title={DESTINAZIONE_LABEL[r.key]} aria-label={`${DESTINAZIONE_LABEL[r.key]}: ${r.fornitore}`}
-                          className="inline-flex p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50">
-                          <ExternalLink size={15} />
-                        </Link>
-                      )}
-                    </td>
-                  </tr>
-                )
-              })}
+              {vista === 'fornitore'
+                ? gruppiVisibili.map(g => renderGruppo(g))
+                : righeVisibili.map(r => renderRiga(r, false))}
               {righeVisibili.length === 0 && (
                 <tr><td colSpan={7} className="px-4 py-8 text-center text-sm text-slate-500">Nessuna voce con questi filtri.</td></tr>
               )}

@@ -1528,19 +1528,21 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "Passo 1: cosa non possiamo non pagare",
-        "body": "Un elenco unico con tutti gli impegni in scadenza entro la data: fatture fornitori, imposte, personale. La spunta segna la voce come obbligatoria e si salva subito, legata alla data di riferimento; la vedono anche gli altri utenti dell'azienda. Sopra l'elenco c'è un riquadro per ogni categoria con il totale già classificato come obbligatorio e i due pulsanti «tutte» e «nessuna», utili per spuntare in blocco una categoria e poi togliere le poche voci che non servono.",
+        "body": "L'elenco degli impegni in scadenza entro la data su cui hai davvero una scelta: fatture fornitori, imposte, personale. La spunta segna la voce come obbligatoria e si salva subito, legata alla data di riferimento; la vedono anche gli altri utenti dell'azienda. Di base le fatture sono raggruppate per fornitore: ogni riga è la posizione intera, con il numero di fatture, il totale, quanto è già scaduto e la prima scadenza. Si apre col nome e sotto compaiono le fatture in ordine di emissione, con la scadenza a fianco. La spunta sull'intestazione prende o lascia tutta la posizione, quella sulla singola fattura serve per il parziale. L'interruttore «Per fornitore / Per scadenza» a destra dei filtri torna alla lista piatta ordinata per data quando ti serve vedere cosa cade prima.",
         "steps": [
+          "Apri il fornitore che ti interessa e decidi la sua posizione, invece di rincorrere le sue fatture sparse nell'elenco.",
           "Usa «tutte» sulla categoria che vuoi coprire per intero, poi togli le singole voci che puoi rimandare.",
-          "Filtra per categoria, per scadute o per addebiti automatici con i pulsanti sopra la tabella.",
+          "Passa a «Per scadenza» quando la domanda è cosa scade prima, non con chi sei esposto.",
+          "Filtra per categoria, per scadute o per RiBa con i pulsanti sopra la tabella.",
           "Cerca un fornitore o un numero di fattura con il campo di ricerca a destra.",
           "I pulsanti «spunta tutte» e «togli le spunte» agiscono solo sulle voci mostrate dal filtro attivo."
         ]
       },
       {
         "heading": "Addebiti automatici e RiBa: due cose diverse",
-        "body": "SDD, RID e addebiti su carta partono dal conto alla scadenza per un mandato dato al creditore: nessuno li dispone e nessuno li può fermare. La pagina li considera quindi obbligatori d'ufficio, con la spunta bloccata e l'etichetta rossa «addebito automatico». Le RiBa sono un'altra cosa: una ricevuta bancaria si può lasciare impagata, torna insoluta al fornitore e costa in commissioni e in rapporto, ma resta una decisione. Per questo hanno la spunta libera e l'etichetta ambra «RiBa», e se ne lasci qualcuna fuori dagli obbligatori compare un avviso che ti ricorda cosa comporta. Le imposte non sono automatiche: l'F24 va sempre disposto.",
+        "body": "SDD, RID e addebiti su carta partono dal conto alla scadenza per un mandato dato al creditore: nessuno li dispone e nessuno li può fermare. Siccome non c'è niente da decidere, non compaiono nell'elenco: sarebbero righe da scorrere a vuoto. Stanno in una striscia rossa sopra la tabella, con il totale e il numero di voci, e sono già scalati dalle risorse disponibili; «vedi il dettaglio» apre l'elenco completo se vuoi controllarlo. Le RiBa sono un'altra cosa: una ricevuta bancaria si può lasciare impagata, torna insoluta al fornitore e costa in commissioni e in rapporto, ma resta una decisione. Per questo restano in elenco con la spunta libera e l'etichetta ambra «RiBa», e se ne lasci qualcuna fuori dagli obbligatori compare un avviso che ti ricorda cosa comporta. Le imposte non sono automatiche: l'F24 va sempre disposto.",
         "steps": [
-          "Il filtro «Addebiti automatici» mostra solo ciò che parte da solo.",
+          "Apri «vedi il dettaglio» nella striscia rossa per controllare cosa uscirà da solo.",
           "Il filtro «RiBa» mostra le ricevute bancarie, per decidere quali onorare.",
           "Nel riquadro di ogni categoria trovi sia la quota automatica sia le RiBa non ancora spuntate."
         ]
@@ -1574,8 +1576,8 @@ export const PAGE_GUIDES: PageGuide[] = [
     ],
     "faq": [
       {
-        "q": "Perché non riesco a togliere la spunta a certe righe?",
-        "a": "Sono addebiti automatici: SDD, RID o pagamenti su carta. Escono dal conto alla scadenza per un mandato già dato al creditore, quindi trattarli come rinviabili darebbe un fabbisogno più basso di quello vero. Restano visibili con l'etichetta rossa e sono conteggiati fra gli obbligatori."
+        "q": "Perché non trovo in elenco una fattura a SDD, RID o carta?",
+        "a": "Perché su quelle non c'è niente da decidere: escono dal conto alla scadenza per un mandato già dato al creditore. Toglierle dall'elenco evita di scorrere righe su cui non puoi agire, ma i loro importi restano contati e già scalati dalle risorse. Le trovi tutte nella striscia rossa sopra la tabella, con «vedi il dettaglio»."
       },
       {
         "q": "Le RiBa sono obbligatorie?",
@@ -1583,7 +1585,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "q": "L'IVA è un addebito automatico?",
-        "a": "No, e infatti la pagina non la tratta come tale. L'F24 va disposto, quindi l'IVA e le altre imposte restano voci che spunti tu. Fra gli addebiti automatici trovi solo RiBa, SDD e carte."
+        "a": "No, e infatti la pagina non la tratta come tale. L'F24 va disposto, quindi l'IVA e le altre imposte restano voci che spunti tu. Fra gli addebiti automatici ci sono solo SDD, RID e carte; le RiBa nemmeno, perché si possono lasciare insolute."
       },
       {
         "q": "Da dove viene il costo del personale?",
