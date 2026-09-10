@@ -1,6 +1,53 @@
 # Piano di pagamento fornitore + segnalazioni anomalie — Note di implementazione
 
 
+
+> ## 💳 IL METODO DEI FORNITORI VECCHI ALLINEATO ALLE FATTURE (2026-09-10) - FATTO
+>
+> **Richiesta di Patrizio** subito dopo la 204: «allinealo a quello scritto nelle
+> fatture, hai sistemato quelli pendenti e quelli vecchi quindi?».
+>
+> **Il punto lasciato aperto dalla 204.** I fornitori nuovi nascono col metodo
+> dichiarato in fattura, ma i 256 gia' a sistema portavano il
+> `payment_method = 'bonifico_ordinario'` scritto d'ufficio dal vecchio bridge,
+> anche quando le loro fatture dicono altro.
+>
+> **Criterio (migration `20260910_205`, NZ+Made+Zago).** Codice MP prevalente delle
+> fatture del fornitore negli ultimi 18 mesi, con almeno il 60% delle fatture
+> d'accordo; si allinea **solo** chi ha ancora il default d'ufficio
+> `bonifico_ordinario`, perche' un metodo diverso e' stato scelto da qualcuno; il
+> confronto passa da `fn_sdi_mp_to_payment_method(mp, attuale)` e quindi ragiona per
+> **famiglia**, non per etichetta (un riba_60 non torna riba_30, il termine e' scelta
+> dell'azienda). Dove i pagamenti gia' riconciliati dicono su quale conto e' passato
+> quel fornitore, si compila anche la banca di addebito.
+>
+> **Il caso che il criterio protegge**: Amazon dichiara MP05 in fattura ma va a carta
+> per anagrafica (regola della 201). Un allineamento cieco l'avrebbe riportata a
+> bonifico, disfacendo il lavoro di ieri.
+>
+> **Esito NZ**: 25 fornitori allineati, 11 a carta di credito, 6 a contanti, 5 a SDD
+> core, 1 a SDD B2B, 1 ad assegno, 1 a Ri.Ba.; banca dedotta per 7. Zero campi diversi
+> da metodo e banca modificati (confronto contro `suppliers_backup_metodo_20260910`).
+> Made e Zago: nessun fornitore in condizione.
+>
+> **Le scadenze pendenti (migration `20260910_206`)**. Controllate tutte le scadenze
+> aperte contro la modalita' dichiarata nella loro fattura. Le divergenze vere erano
+> 4 righe per **10.970,12** aperti (MARF 2026-FVI-000166 e faliero grafica 208/2026):
+> fattura MP12, cioe' Ri.Ba. che la banca presenta da sola, e riga a bonifico, cioe'
+> un pagamento che sarebbe partito a mano. Il modo piu' rapido per pagare due volte.
+> Allineate a Ri.Ba. con backup e audit; date, importi e stato invariati (verificato
+> a secco prima di applicare).
+>
+> **Divergenze lasciate stare di proposito**, perche' sono regole volute e non errori:
+> Amazon MP05 a carta (201), i locatori outlet a addebito diretto (NZ_ONLY 202), e le
+> righe riba_60/riba_90 su fatture MP12, dove cambia il termine e non il canale.
+>
+> **Coda per Patrizio**: 11 fornitori ora chiedono la banca di addebito (10 carte e
+> MARF in Ri.Ba.) e compaiono in Fatturazione come «banca mancante». Il conto della
+> carta aziendale non e' deducibile dai dati: tra i `bank_accounts` di NZ ci sono solo
+> conti correnti, nessun conto carta. Serve che lo indichi lui una volta sola.
+
+
 > ## 🧾 IL FORNITORE NUOVO NASCE CONFIGURATO DALLA FATTURA (2026-09-10) - FATTO
 >
 > **Domanda di Patrizio** dalla pagina Fatturazione: «ci arrivano anche fornitori
