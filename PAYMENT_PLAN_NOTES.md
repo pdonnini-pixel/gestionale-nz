@@ -1,5 +1,67 @@
 # Piano di pagamento fornitore + segnalazioni anomalie — Note di implementazione
 
+
+> ## 🧾 IL FORNITORE NUOVO NASCE CONFIGURATO DALLA FATTURA (2026-09-10) - FATTO
+>
+> **Domanda di Patrizio** dalla pagina Fatturazione: «ci arrivano anche fornitori
+> nuovi e tu mi crei una lista da caricare, ma se arrivano vuol dire che sono
+> arrivate delle fatture, e le info sono tutte nella fattura, modalita' di
+> pagamento compresa. Perche' non lo fai?».
+>
+> **Aveva ragione, e il buco era grosso.** Il bridge A-Cube leggeva la fattura solo
+> per generare la scadenza; il fornitore lo creava con un default fisso uguale per
+> tutti (`payment_terms 30`, `payment_method 'bonifico_ordinario'`) e nient'altro.
+> Fotografia di NZ prima dell'intervento: 269 fornitori su 269 senza codice fiscale,
+> senza indirizzo e senza regime fiscale, 256 senza IBAN, 180 senza categoria, 25
+> senza piano di pagamento (sono quelli che finivano nel riquadro rosso «fornitore
+> non riconosciuto»). Le fatture quei dati li avevano: 1.038 su 1.325 portano sede e
+> regime fiscale del cedente, 821 il codice fiscale, e 222 delle 293 degli ultimi 60
+> giorni portano `dati_pagamento` completo (IBAN, istituto, MP, TP, scadenze).
+>
+> **Cosa fa adesso** (migration `20260910_204`, NZ+Made+Zago, md5 identico sui 3):
+> - `fn_invoice_cedente_profile(doc)`: legge il CedentePrestatore dal JSON del bridge
+>   o dall'XML puro (codice fiscale, indirizzo, CAP, comune, provincia, nazione,
+>   regime fiscale) piu' IBAN e istituto dal primo dettaglio di pagamento. L'IBAN
+>   entra solo se ha la forma di un IBAN.
+> - `fn_supplier_profile_from_invoice(...)`: scrive quei dati sul fornitore
+>   **riempiendo solo i campi vuoti**, ricava il piano dalle scadenze dichiarate
+>   (numero rate, giorni, base data fattura o fine mese quando la scadenza cade
+>   nell'ultimo giorno del mese) e la categoria dalle righe (`fn_categorize_from_lines`
+>   della 200). Ritorna l'elenco dei campi compilati.
+> - `sync_acube_sdi_passive_to_payable`: la fattura elettronica viene registrata prima
+>   del fornitore (serve il suo id per la traccia), il fornitore nuovo nasce col metodo
+>   **dichiarato in fattura** invece del bonifico d'ufficio, e subito dopo passa dal
+>   profilo; solo allora si rileggono piano, banca e metodo per generare le rate.
+> - `rpc_backfill_supplier_profiles()` (contabile/super_advisor) per ripassare a mano
+>   i fornitori con campi ancora vuoti.
+> - Tre colonne additive su `suppliers` per la trasparenza:
+>   `profile_from_invoice_id/_at/_fields`. La scheda fornitore in `Fornitori.tsx`
+>   mostra sotto l'anagrafica da quale fattura arrivano i dati e quali sono.
+>
+> **La regola che governa tutto: si riempie, non si sovrascrive.** Un valore messo a
+> mano non viene mai toccato da una fattura successiva, esattamente come gia' faceva
+> l'import XML manuale (`importEngine.ts`). Il metodo di pagamento dei 256 fornitori
+> gia' a sistema resta quello che c'e': non sappiamo quali siano stati scelti da
+> Sabrina e quali siano il default d'ufficio, quindi non si tocca (da decidere con
+> Patrizio se allinearli al codice MP delle loro fatture).
+>
+> **Test a secco su NZ** (DO block con rollback forzato, replay di 3 fatture reali):
+> BELLUCO (nessun `dati_pagamento`) compila la sola anagrafica e non inventa un piano;
+> MARF 2026-FVI-000175 ricava fine mese 60 gg 2 rate e genera 31/10 + 30/11 da 3.725,76,
+> identiche a quelle vere; nessuna scadenza cambia forma rispetto a prima.
+>
+> **Backfill una tantum** (backup integrale in `suppliers_backup_profilo_20260910`,
+> RLS attiva). Esito NZ: codice fiscale 0 → 191, indirizzo 0 → 253, regime fiscale
+> 0 → 256, IBAN 13 → 103, piano 242 → 255, categoria 89 → 125. Controllo di
+> non-regressione: **zero** campi gia' valorizzati modificati (confronto riga per riga
+> con il backup su piano, metodo, IBAN, categoria, codice fiscale, nomi, banca).
+> Fornitori senza piano con fatture recenti: da 14 a 8, e quegli 8 hanno fatture che
+> davvero non portano la sezione pagamenti. Made ha 1 fornitore (profilato), Zago 0.
+>
+> **Perimetro**: nessun payable e' stato creato, modificato o cancellato dal backfill;
+> l'unico trigger su `suppliers` e' `trg_suppliers_autoslug`.
+
+
 > ## ✎ IL FLAG «CHIUSA A MANO» NON PUO' SOPRAVVIVERE A UNA RIAPERTURA (2026-09-04) — FATTO
 >
 > **Segnalazione di Patrizio** dallo Scadenzario: «cosa ci fa Spm tra le aperte se
