@@ -29,7 +29,7 @@ import { BANK_CATEGORY_OPTIONS, bankCategoryLabel } from '../lib/bankCategories'
 import { fetchCommittedByAccount, type CommittedByAccount } from '../lib/committedBalance'
 import { fetchCommittedPayables, COMMITTED_LABEL, type CommittedPayables } from '../lib/committedPayables'
 import { fetchAllPaged } from '../lib/fetchAllPaged'
-import { NON_SUPPLIER_RE, NON_SUPPLIER_BENEF_RE, extractBeneficiary, sigWords, movementNet, isRealTransfer, supplierKeyOf, invoiceTokens, invoiceCitedIn, findExactCombo, hasPaymentStructure } from '../lib/reconcileMatch'
+import { NON_SUPPLIER_RE, NON_SUPPLIER_BENEF_RE, extractBeneficiary, sigWords, movementNet, isRealTransfer, supplierKeyOf, invoiceTokens, invoiceCitedIn, findExactCombo, hasPaymentStructure, isBankOwnMovement } from '../lib/reconcileMatch'
 import PrimaNota from './PrimaNota'
 import OpenBankingAcube from '../components/OpenBankingAcube'
 import FinanziamentiTab from '../components/FinanziamentiTab'
@@ -2664,6 +2664,11 @@ function isReconcilableTx(t: { category?: string | null; description?: string | 
   const c = t.category ? String(t.category) : ''
   if (NON_RECONCILABLE_CATEGORIES.has(c)) return false
   if (FEE_DESC_RE.test(String(t.description || ''))) return false
+  // Roba della banca o giri interni (rate di mutuo, canoni del rapporto, prelievi,
+  // giroconti, commissioni POS, addebito dell'estratto carte): nessuna fattura
+  // dietro. Il filtro per categoria sopra non li prendeva, perché guarda le sigle
+  // A-Cube in inglese mentre sui dati veri la categoria è italiana o manca.
+  if (isBankOwnMovement(String(t.description || ''))) return false
   return true
 }
 

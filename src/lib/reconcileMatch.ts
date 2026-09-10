@@ -11,6 +11,39 @@ export const NON_SUPPLIER_RE = /\b(F24|CBILL|PAGOPA|GIROCONTO|BOLLO|ONERI|COMMIS
 // anche se l'importo combacia per caso, NON vanno abbinati a una fattura.
 export const NON_SUPPLIER_BENEF_RE = /\b(AZIMUT|MEDIOLANUM|GENERALI|UNIPOLSAI|ALLIANZ|POSTE VITA|ARCA VITA|INTESA|FINECO|BANCA|SGR|FONDO|ASSICURA)\b/i
 
+// Movimenti che la BANCA fa per conto proprio, o fra i conti dell'azienda: non
+// hanno una fattura fornitore dietro e non vanno mai proposti per l'abbinamento.
+// Nascevano da qui i due terzi della lista «da verificare»: al 10/09/2026 su NZ
+// erano 124 movimenti su 316 per 247.255 €, che nessuno avrebbe mai potuto
+// abbinare a niente. Il filtro che c'era guardava la categoria A-Cube in inglese
+// (fees, loans, wages…), ma sui dati veri le categorie sono in italiano o assenti:
+// non scattava quasi mai. Qui si guarda la CAUSALE, che la banca scrive sempre.
+//
+// I pattern sono volutamente stretti, per non mangiarsi pagamenti veri:
+//   · «CANONE» da solo NO — un canone di locazione è un pagamento a un fornitore.
+//     Solo le forme bancarie: canone rapporto/package/home banking.
+//   · Gli ASSEGNI restano dentro: un assegno paga spesso una fattura.
+//   · «Storno scritture» resta dentro: va guardato caso per caso.
+export const BANK_OWN_MOVEMENT_RE = new RegExp([
+  // rate di mutuo e rimborsi di finanziamento
+  'RATA DI MUTUO', 'RIMBORSO FINANZ',
+  // canoni e spese del rapporto bancario
+  'CANONE RAPPORTO', 'CANONE SET DI BASE', 'CANONE HOME BANKING',
+  'COMM/SPESE SU FIDEJUSSION', 'FONDO DI GARANZIA',
+  // movimenti fra conti propri e cassa
+  'PREL\\.CONT', 'PRELEVAMENTO', 'PASSAGGIO CONTANTI', 'GIROCONTO',
+  'COSTITUZIONE PEGNO',
+  // commissioni POS, rimborsi tax free, addebito mensile dell'estratto carta:
+  // sono servizi addebitati in SDD, non fatture da chiudere una per una
+  'A FAVORE NEXI PAYMENTS', 'A FAVORE GLOBAL BLUE',
+  'ADDEBITO DIRETTO CARTA', 'POSIZIONE CARTA',
+].join('|'), 'i')
+
+// Vero se il movimento è roba della banca o un giro interno, non un pagamento
+// a un fornitore. Da usare per tenerlo fuori dalla lista degli abbinamenti.
+export const isBankOwnMovement = (desc: string): boolean =>
+  BANK_OWN_MOVEMENT_RE.test(String(desc || ''))
+
 // Ripulisce la coda del nome beneficiario: taglia ai marcatori noti (numero fattura,
 // ID bonifico, codice mandato, P.IVA pagatore) e si ferma al primo token che contiene
 // una cifra o ":" (= inizio di un codice/numero, non più parte del nome).
