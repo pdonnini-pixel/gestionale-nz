@@ -12,6 +12,9 @@ import {
   ripartisciSuRighe,
   calcolaPiano,
   previsioneIncassiMese,
+  isObbligatoria,
+  vociPersonale,
+  f24Personale,
 } from './fabbisogno'
 
 describe('simulaFabbisogno — cascata a priorità', () => {
@@ -310,33 +313,116 @@ describe('calcolaPiano — decide chi spunta, non la regola', () => {
   })
 
   it('calcola il fabbisogno quando la cassa non basta', () => {
-    const p = calcolaPiano({ righe, selezionati: new Set(['a', 'b']), disponibilita: 120_000 })
-    expect(p.obbligatorio).toBe(170_000)
-    expect(p.fabbisogno).toBe(50_000)
+    // a spuntata (100k) + b e c automatiche (90k), tutte e tre obbligatorie
+    const p = calcolaPiano({ righe, selezionati: new Set(['a']), disponibilita: 120_000 })
+    expect(p.obbligatorio).toBe(190_000)
+    expect(p.fabbisogno).toBe(70_000)
     expect(p.avanzo).toBe(0)
     expect(p.rinviabileCoperto).toBe(0)
-    expect(p.coperturaObbligatorioPct).toBeCloseTo(70.59, 1)
   })
 
-  it('segnala gli automatici lasciati fuori dalla selezione', () => {
-    const p = calcolaPiano({ righe, selezionati: new Set(['a']), disponibilita: 0 })
-    // b e c non sono spuntati ma sono addebiti automatici: usciranno comunque
-    expect(p.rinviabileAutomatico).toBe(90_000)
-    expect(p.obbligatorioAutomatico).toBe(0)
+  it('gli addebiti automatici sono obbligatori anche senza spunta', () => {
+    const p = calcolaPiano({ righe, selezionati: new Set(), disponibilita: 0 })
+    // b (70k) e c (20k) sono automatiche: entrano da sole
+    expect(p.obbligatorio).toBe(90_000)
+    expect(p.obbligatorioAutomatico).toBe(90_000)
+    expect(p.rinviabile).toBe(100_000)
+    // per costruzione un automatico non può restare fra i rinviabili
+    expect(p.rinviabileAutomatico).toBe(0)
+    expect(p.fabbisogno).toBe(90_000)
   })
 
-  it('senza selezione il fabbisogno è zero e tutto è rinviabile', () => {
-    const p = calcolaPiano({ righe, selezionati: new Set(), disponibilita: 10_000 })
+  it('senza righe automatiche né spunte non c è obbligatorio', () => {
+    const soloManuali = righe.filter(r => !r.automatico)
+    const p = calcolaPiano({ righe: soloManuali, selezionati: new Set(), disponibilita: 10_000 })
     expect(p.obbligatorio).toBe(0)
     expect(p.fabbisogno).toBe(0)
-    expect(p.rinviabile).toBe(190_000)
+    expect(p.rinviabile).toBe(100_000)
     expect(p.coperturaObbligatorioPct).toBe(100)
   })
 
   it('ignora le chiavi selezionate che non esistono più', () => {
-    const p = calcolaPiano({ righe, selezionati: new Set(['a', 'fantasma']), disponibilita: 0 })
+    const soloManuali = righe.filter(r => !r.automatico)
+    const p = calcolaPiano({ righe: soloManuali, selezionati: new Set(['a', 'fantasma']), disponibilita: 0 })
     expect(p.obbligatorio).toBe(100_000)
     expect(p.nSelezionate).toBe(1)
+  })
+
+  it('isObbligatoria riconosce spunta e automatico', () => {
+    const vuoto = new Set<string>()
+    expect(isObbligatoria(righe[0], vuoto)).toBe(false)
+    expect(isObbligatoria(righe[1], vuoto)).toBe(true)
+    expect(isObbligatoria(righe[0], new Set(['a']))).toBe(true)
+  })
+})
+
+describe('costo del personale in cassa', () => {
+  // luglio 2026 di NZ: netti 70.235,70, lordo 85.379,80, contributi azienda 20.146,09
+  const costoLuglio = { netto: 70_235.70, lordo: 85_379.80, contributiAzienda: 20_146.09 }
+
+  it('l F24 somma ritenute del dipendente e contributi azienda', () => {
+    // (85.379,80 - 70.235,70) + 20.146,09
+    expect(f24Personale(costoLuglio)).toBeCloseTo(35_290.19, 2)
+  })
+
+  it('un lordo mancante non genera un F24 negativo', () => {
+    expect(f24Personale({ netto: 70_000, lordo: 0, contributiAzienda: 0 })).toBe(0)
+  })
+
+  it('genera netto il 10 e F24 il 16 dentro il periodo', () => {
+    const v = vociPersonale({
+      costo: costoLuglio,
+      dataInizio: '2026-09-01', dataFine: '2026-09-30',
+      giornoNetti: 10, giornoF24: 16,
+    })
+    expect(v.map(x => x.data)).toEqual(['2026-09-10', '2026-09-16'])
+    expect(v[0].importo).toBeCloseTo(70_235.70, 2)
+    expect(v[1].importo).toBeCloseTo(35_290.19, 2)
+  })
+
+  it('si può escludere l F24 quando è già a scadenzario', () => {
+    const v = vociPersonale({
+      costo: costoLuglio, dataInizio: '2026-09-01', dataFine: '2026-09-30',
+      giornoNetti: 10, giornoF24: 16, includiF24: false,
+    })
+    expect(v).toHaveLength(1)
+    expect(v[0].tipo).toBe('netto')
+  })
+
+  it('un orizzonte a dicembre intercetta la tredicesima', () => {
+    const v = vociPersonale({
+      costo: costoLuglio, dataInizio: '2026-11-01', dataFine: '2026-12-31',
+      giornoNetti: 10, giornoF24: 16, meseTredicesima: 12, giornoTredicesima: 20,
+    })
+    const t = v.find(x => x.tipo === 'mensilita_aggiuntiva')
+    expect(t?.data).toBe('2026-12-20')
+    expect(t?.etichetta).toBe('Tredicesima')
+    expect(t?.importo).toBeCloseTo(70_235.70, 2)
+  })
+
+  it('la quattordicesima di giugno si paga col cedolino di luglio', () => {
+    const v = vociPersonale({
+      costo: costoLuglio, dataInizio: '2027-06-01', dataFine: '2027-07-31',
+      giornoNetti: 10, giornoF24: 16, meseQuattordicesima: 6,
+    })
+    const q = v.find(x => x.etichetta === 'Quattordicesima')
+    expect(q?.data).toBe('2027-07-10')
+  })
+
+  it('un periodo che non contiene né il 10 né il 16 non genera voci', () => {
+    const v = vociPersonale({
+      costo: costoLuglio, dataInizio: '2026-09-20', dataFine: '2026-09-30',
+      giornoNetti: 10, giornoF24: 16,
+    })
+    expect(v).toEqual([])
+  })
+
+  it('senza costo non genera niente', () => {
+    const v = vociPersonale({
+      costo: { netto: 0, lordo: 0, contributiAzienda: 0 },
+      dataInizio: '2026-09-01', dataFine: '2026-12-31', giornoNetti: 10, giornoF24: 16,
+    })
+    expect(v).toEqual([])
   })
 })
 

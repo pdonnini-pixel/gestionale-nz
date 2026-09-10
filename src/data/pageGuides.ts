@@ -1515,79 +1515,82 @@ export const PAGE_GUIDES: PageGuide[] = [
     "path": "/fabbisogno",
     "icon": "Scale",
     "title": "Simulazione fabbisogno",
-    "description": "Questa pagina risponde a una domanda sola: entro una certa data ci sono uscite a cui non si può dire di no, la cassa è quella che è, quanto manca? Non decide da sola cosa pagare: sei tu che spunti le voci obbligatorie in un elenco unico dove stanno insieme fatture, tasse e stipendi. Fatta la spunta, il gestionale fa il conto e dice se ce la fai o quanto ti serve procurare.",
+    "description": "Questa pagina mette a confronto gli impegni obbligatori entro una certa data con le risorse che ci saranno davvero in cassa, e dice quanto manca. La differenza rispetto a un cashflow è che qui la scelta di cosa sia obbligatorio la fa una persona, spuntando le voci una per una: il risultato è una decisione misurata, non una regola automatica.",
     "sections": [
       {
-        "heading": "La risposta in cima",
-        "body": "Il riquadro grande in alto è il risultato di tutto: se hai spuntato delle voci ti dice «ti mancano X» in rosso, oppure «ce la fai, avanzano X» in verde, con sotto il totale obbligatorio, la disponibilità e la percentuale che riesci a coprire. Finché non spunti niente resta un trattino: senza una decisione non c'è un fabbisogno. A destra c'è la data obiettivo, di solito la fine del mese, e si può cambiare.",
+        "heading": "Il prospetto di sintesi in alto",
+        "body": "La prima fascia riassume la posizione alla data scelta: impegni obbligatori, risorse disponibili e differenza fra i due, con il grado di copertura in percentuale e, se la cassa passa sotto zero, il giorno in cui accade. Sotto ai tre riquadri una riga di testo spiega il risultato per esteso, così il numero non resta senza contesto. Il campo Data di riferimento in alto a destra sposta tutta la simulazione.",
         "steps": [
-          "Controlla la data obiettivo in alto a destra.",
-          "Scendi al passo 1 e spunta le voci obbligatorie.",
-          "Torna a leggere il riquadro: il numero si aggiorna a ogni spunta."
+          "Scegli la data entro cui vuoi ragionare.",
+          "Leggi il terzo riquadro: se è rosso, quella cifra va reperita o rinviata.",
+          "Se compare la data di saldo negativo, quello è il giorno critico da gestire, non la fine del mese."
         ]
       },
       {
         "heading": "Passo 1: cosa non possiamo non pagare",
-        "body": "L'elenco raccoglie tutto quello che scade entro la data scelta, senza distinzioni: fatture dei fornitori, scadenze fiscali e stipendi, uno sotto l'altro. Metti la spunta accanto alle voci a cui non vuoi dire di no. Ogni spunta si salva subito e la vedono anche gli altri: è una decisione condivisa, non un appunto personale. I filtri in alto restringono l'elenco (per tipo, solo le già scadute, solo gli addebiti automatici) e la ricerca cerca per fornitore o numero di fattura. Con i filtri attivi puoi spuntare o togliere in blocco tutte le voci che stai vedendo.",
+        "body": "Un elenco unico con tutti gli impegni in scadenza entro la data: fatture fornitori, imposte, personale. La spunta segna la voce come obbligatoria e si salva subito, legata alla data di riferimento; la vedono anche gli altri utenti dell'azienda. Sopra l'elenco c'è un riquadro per ogni categoria con il totale già classificato come obbligatorio e i due pulsanti «tutte» e «nessuna», utili per spuntare in blocco una categoria e poi togliere le poche voci che non servono.",
         "steps": [
-          "Usa i filtri o la ricerca per trovare un gruppo di voci, per esempio «Stipendi» o «Già scadute».",
-          "Spunta una per una, oppure usa «spunta tutte» per l'intero gruppo filtrato.",
-          "Controlla la riga in fondo: dice quante voci hai spuntato, per quanti euro, e quanto pesa ogni tipo.",
-          "La freccia a fine riga apre lo Scadenzario su quella fattura, se vuoi vederla per intero prima di decidere."
+          "Usa «tutte» sulla categoria che vuoi coprire per intero, poi togli le singole voci che puoi rimandare.",
+          "Filtra per categoria, per scadute o per addebiti automatici con i pulsanti sopra la tabella.",
+          "Cerca un fornitore o un numero di fattura con il campo di ricerca a destra.",
+          "I pulsanti «spunta tutte» e «togli le spunte» agiscono solo sulle voci mostrate dal filtro attivo."
         ]
       },
       {
-        "heading": "L'avviso sugli addebiti automatici",
-        "body": "Alcune uscite partono dal conto da sole: RiBa, SDD, addebiti su carta e il bonifico degli stipendi. In elenco portano l'etichetta «esce comunque». Se ne lasci qualcuna senza spunta, in fondo al passo 1 compare una banda gialla che ti dice quanto vale: non è una voce che puoi rimandare con una telefonata al fornitore, quindi conviene considerarla obbligatoria."
+        "heading": "Gli addebiti automatici sono già dentro",
+        "body": "RiBa, SDD e addebiti su carta partono dal conto alla scadenza senza che nessuno disponga niente: non sono una scelta. Per questo la pagina li considera obbligatori d'ufficio e mostra la loro spunta bloccata, con l'etichetta rossa «addebito automatico» accanto al nome. Restano visibili in elenco e nel totale per categoria, così sai sempre quanto pesano, ma non si possono escludere per errore. Le imposte non rientrano in questa categoria: l'F24 va sempre disposto."
       },
       {
-        "heading": "Passo 2: quanto avrai davvero",
-        "body": "Tre riquadri. Il primo è quello che c'è in banca oggi, con la data dell'ultimo aggiornamento dei saldi, la possibilità di correggerlo a mano e di aggiungere il fido. Il secondo sono gli incassi attesi da domani alla data obiettivo: il gestionale usa il ritmo effettivo di questo mese, cioè la media dei ricavi che i negozi scaricano ogni sera, quindi il numero si aggiorna da solo giorno dopo giorno. Il terzo confronta il mese con l'obiettivo inserito in Budget e Controllo, tab Inserimento rapido: quanto avevi previsto, quanto hai fatto finora, dove chiudi con questo ritmo e quanto servirebbe incassare al giorno per centrare l'obiettivo.",
+        "heading": "Personale e IVA: calcolati, non a scadenzario",
+        "body": "Due uscite importanti non stanno nello Scadenzario e vengono ricostruite. Il personale esce in due momenti distinti: i netti in busta intorno al 10 e l'F24 di ritenute e contributi il 16, calcolati sull'ultimo cedolino chiuso più il prospetto contributivo dello stesso mese. Su un orizzonte lungo entrano anche la quattordicesima, che si paga col cedolino di giugno, e la tredicesima del 20 dicembre, entrambe pari a una mensilità. L'IVA arriva dalla stessa catena di liquidazione della pagina Liquidazione IVA: se una liquidazione è già presente come scadenza fiscale aperta non viene contata due volte.",
         "steps": [
-          "Correggi la liquidità se sai di accrediti o addebiti non ancora visibili nei saldi.",
-          "Correggi l'incasso giornaliero se ti aspetti un periodo diverso da come sta andando.",
-          "Spunta il fido solo se davvero intendi usarlo: cambia il fabbisogno ma non è denaro tuo.",
-          "In fondo regola gli stipendi: giorno del mese e importo, se il cedolino nuovo è diverso dall'ultimo caricato."
+          "Le due spunte «Personale» e «Liquidazione IVA», in fondo al passo 2, escludono l'una o l'altra dal calcolo.",
+          "I giorni del mese per i netti e per l'F24 si cambiano nei due campi accanto.",
+          "Il campo «correggi i netti» sovrascrive l'importo dell'ultimo cedolino: lordo e contributi si riproporzionano di conseguenza."
         ]
       },
       {
-        "heading": "Passo 3: il conto",
-        "body": "Tre numeri affiancati: quanto hai deciso che è obbligatorio, quanto avrai, e la differenza. Se manca qualcosa il riquadro diventa rosso e ti dice anche il giorno in cui la cassa passa sotto zero; se avanza, ti dice quanto del resto riesci comunque a coprire. Sotto, il grafico segue il saldo giorno per giorno contando solo i pagamenti che hai spuntato, con gli incassi al ritmo attuale e l'arretrato caricato tutto sul primo giorno.",
+        "heading": "Passo 2: quanto avrai",
+        "body": "La liquidità di oggi sui conti attivi, più gli incassi previsti dei punti vendita fino alla data. Il ritmo non è una media del passato: è quello effettivo del mese in corso, che si aggiorna da solo ogni sera quando i negozi caricano i ricavi. Il terzo riquadro confronta il mese con l'obiettivo preso da Budget → Inserimento rapido, portato a lordo IVA perché in cassa entra l'incasso pieno: mostra quanto è stato fatto, dove si chiude con questo ritmo e quanto servirebbe al giorno per centrare l'obiettivo.",
         "steps": [
-          "Se il fabbisogno è rosso, quel numero è ciò che devi procurare o rimandare.",
-          "Guarda dove la curva attraversa la riga rossa dello zero: è il giorno critico, non la fine del mese.",
-          "Prova a togliere qualche spunta e osserva come cambia: serve a capire quali rinvii risolvono davvero."
+          "Correggi la liquidità se conosci accrediti o addebiti non ancora visibili nei saldi.",
+          "Correggi l'incasso giornaliero se il periodo da simulare è diverso dall'andamento corrente.",
+          "Attiva il fido se vuoi vedere quanto del fabbisogno è già coperto dalla banca."
         ]
       },
       {
-        "heading": "Chi può spuntare",
-        "body": "Le spunte le mettono amministrazione, CFO e super advisor. Gli altri ruoli vedono la selezione e il risultato ma non li possono cambiare, e la pagina lo dice con un avviso in alto. La regola vale anche lato database, non solo a schermo."
+        "heading": "Passo 3: andamento della cassa",
+        "body": "Il grafico proietta il saldo giorno per giorno con i soli impegni obbligatori: incassi al ritmo corrente, uscite alla loro data, arretrato scaduto imputato tutto al primo giorno. La linea rossa tratteggiata è lo zero. Serve a vedere il momento della tensione, che spesso non coincide con la fine del periodo."
+      },
+      {
+        "heading": "Azzerare e ricominciare",
+        "body": "Il pulsante Azzera in alto toglie tutte le spunte messe per quella data di riferimento, dopo una richiesta di conferma che dice quante voci e quale importo verranno liberati. Serve a ripartire da zero con un'ipotesi diversa. Gli addebiti automatici restano, perché non dipendono da una scelta, e nessuna fattura viene modificata: si cancella solo la classificazione."
       }
     ],
     "faq": [
       {
+        "q": "Perché non riesco a togliere la spunta a certe righe?",
+        "a": "Sono addebiti automatici: RiBa, SDD o pagamenti su carta. Escono dal conto alla scadenza senza che nessuno li disponga, quindi trattarli come rinviabili darebbe un fabbisogno più basso di quello vero. Restano visibili con l'etichetta rossa e sono conteggiati fra gli obbligatori."
+      },
+      {
+        "q": "L'IVA è un addebito automatico?",
+        "a": "No, e infatti la pagina non la tratta come tale. L'F24 va disposto, quindi l'IVA e le altre imposte restano voci che spunti tu. Fra gli addebiti automatici trovi solo RiBa, SDD e carte."
+      },
+      {
+        "q": "Da dove viene il costo del personale?",
+        "a": "Dall'ultimo cedolino chiuso presente in Dipendenti, per i netti, e dal prospetto contributivo dello stesso mese per lordo e contributi. L'F24 è la somma di ritenute e contributi a carico del dipendente (la differenza fra lordo e netto) più i contributi a carico azienda. Sono due uscite separate perché escono in due giorni diversi."
+      },
+      {
         "q": "Se spunto una fattura, il suo importo resta bloccato?",
-        "a": "No, e la differenza conta. La spunta dice «questa è obbligatoria»; l'importo continua a essere letto dallo Scadenzario, quindi se la fattura viene pagata in parte o cambia, il numero qui si aggiorna da solo. Restano invece fissi gli importi degli stipendi, che sono una stima impostata da te."
+        "a": "No. La spunta dice «questa è obbligatoria»; l'importo continua a essere letto dallo Scadenzario, quindi se la fattura viene pagata in parte o cambia, il numero qui si aggiorna da solo. Restano fissi solo gli importi calcolati di personale e IVA, che sono stime."
       },
       {
-        "q": "Se cambio la data obiettivo perdo le spunte?",
-        "a": "No: ogni data ha la sua selezione. Tornando alla data di prima ritrovi le spunte come le avevi lasciate. È pensato così perché il piano di fine settembre e quello di fine ottobre sono due decisioni diverse."
+        "q": "Che differenza c'è con il Cashflow Prospettico?",
+        "a": "Il Cashflow proietta entrate e uscite nel tempo e mostra come si muove il saldo. Questa pagina risponde a una domanda più stretta: a una data precisa, con i soldi che ci saranno, quali impegni si riescono a onorare fra quelli che qualcuno ha deciso essere obbligatori."
       },
       {
-        "q": "Da dove viene l'obiettivo del mese?",
-        "a": "Dal preventivo che inserisci in Budget e Controllo, tab Inserimento rapido, punto vendita per punto vendita. Qui viene sommato e portato a lordo IVA, perché in cassa entra l'incasso pieno mentre il budget è al netto. Se per il mese non hai inserito nulla, il riquadro te lo dice e il resto della pagina funziona lo stesso."
-      },
-      {
-        "q": "Perché gli incassi si basano sul ritmo del mese e non sul budget?",
-        "a": "Perché il ritmo è un dato, non una previsione: i negozi scaricano i ricavi ogni sera, quindi ogni giorno che passa la stima diventa più solida. Il budget resta accanto come termine di paragone, per dire se sei avanti o indietro."
-      },
-      {
-        "q": "Gli incassi di oggi sono già contati?",
-        "a": "Sì: il ricavo di giornata si considera già arrivato in banca, quindi gli incassi attesi partono da domani. È il motivo per cui i giorni contati sono uno in meno di quelli che restano sul calendario."
-      },
-      {
-        "q": "Ho cliccato un fornitore ma nello Scadenzario non vedo la riga: perché?",
-        "a": "Il collegamento imposta la ricerca sul numero del documento e il filtro sul fornitore, senza filtri di stato. Se la riga non compare, di solito è una fattura pagata con carta: quelle sono addebiti automatici e stanno nel filtro rapido «In attesa carta», non nella lista attiva. Puoi anche cancellare la ricerca e lasciare solo il fornitore."
+        "q": "Cambio la data di riferimento e le spunte spariscono: è normale?",
+        "a": "Sì. Ogni data ha la sua selezione, perché il piano di settembre non è quello di ottobre. Tornando alla data precedente ritrovi le spunte di prima."
       },
       {
         "q": "Cosa non viene conteggiato?",
