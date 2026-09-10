@@ -366,3 +366,54 @@ fra le uscite rinviabili.
   bancari sono un fatto. Quando i due divergono vince la banca, e prima di costruire una regola
   sopra `payment_method` conviene contare quanti addebiti diretti e quanti bonifici ci sono
   davvero per quel fornitore.
+
+### R20 — La categoria si legge anche DENTRO la fattura, e da lì scende il pagamento
+Chiesto da Patrizio il 10/09/2026: «visto che si legge gasolio e l'importo è chiaramente basso non
+si può creare una regola che crea la categoria e quindi gestisce anche il concetto del pagamento?».
+
+- **Il fatto:** una fattura BELLUCO di gasolio, 116,96 €, restava «Non categorizzata» e quindi
+  bonifico aperto in scadenzario. Il campo per le parole chiave (`cost_categories.matching_keywords`)
+  esisteva da sempre, ma non lo leggeva nessuno: `fn_auto_categorize_payable` guardava solo la
+  categoria predefinita del fornitore. Sui dati veri quella strada non copre il caso: delle 69
+  scadenze aperte senza categoria, **zero** si risolvevano dallo storico, perché appartengono a 37
+  fornitori occasionali mai categorizzati prima. L'unica informazione disponibile è cosa c'è
+  scritto nella fattura.
+- **Regola (migr. 200):** quando fornitore e anagrafica non dicono niente, la categoria si cerca
+  nelle **descrizioni di riga** della fattura, nei due formati (JSON del bridge A-Cube e XML puro).
+  Solo le righe: cercare le parole in tutto il documento pescherebbe nomi, indirizzi e causali.
+  Da lì la catena prosegue da sola, perché `fn_payable_auto_debit` gira nella stessa transazione:
+  categoria a carta (`auto_debit_card`) → metodo carta, scadenza al 20 del mese successivo, e la
+  scadenza non resta fra i bonifici da disporre.
+- **Criterio: vince chi RICORRE di più, non la parola più lunga.** La prima versione sceglieva per
+  lunghezza e sbagliava 5 fatture su 25: REALCART e faliero finivano in «Spedizioni» per una riga
+  di porto, AXET e UnipolTech in «Locazione» per la parola «canone», Publiacqua in «Interessi
+  passivi». A parità di occorrenze decide la parola più specifica; se resta un pareggio non si
+  sceglie e la fattura resta da categorizzare a mano.
+- **Prudenza sulle fatture articolate:** una parola sola dentro un documento lungo (più di 120
+  caratteri di righe) non decide. È quasi sempre una voce accessoria (spese di spedizione,
+  interessi, bolli) e non il tema della fornitura.
+- **Parole scritte come RADICI:** `puliz` prende pulizia, pulizie e pulizio; `manutenzion`,
+  `riparazion`, `cancelleri`, `carburant`, `pedagg`, `ristorant`. Fuori i termini generici come
+  «canone» e «spedizione», che pescavano righe accessorie.
+- **Esito sul vivo (NZ, 10/09/2026):** 9 scadenze aperte categorizzate, tutte verificate a mano —
+  memo e IP SERVICES (gasolio), UnipolTech (pedaggi), AXET e LA FAVORITA (pulizie), TEDi ×2
+  (cancelleria), MARCO (manutenzione), Hills (soggiorno).
+- **Recupero dello storico:** `rpc_categorize_from_lines_backlog(p_only_open)`, riservata a
+  contabile e super_advisor.
+
+### R21 — Un addebito diretto DICHIARATO non diventa «carta» per via della categoria
+Emerso subito dopo la R20, sulla stessa fattura UnipolTech.
+
+- **Il fatto:** il telepedaggio UnipolTech (91,85 €) è finito in «mezzi e carburante», categoria
+  marcata `auto_debit_card`. Il trigger l'ha portata a carta di credito e ne ha spostato la
+  scadenza dall'11/09 al 20/10. Ma quella fattura dichiara **MP19**, cioè RID: l'addebito arriva
+  sul conto alla sua data, non sull'estratto carta del mese dopo.
+- **Regola (migr. 201):** la strada «categoria» e la strada «anagrafica fornitore» non scavalcano
+  più un canale automatico già dichiarato — `MP17`, `MP19`, `MP20`, oppure una colonna
+  `payment_method` già su `rid`, `sdd_core`, `sdd_b2b` o una RiBa.
+- **Cosa NON cambia:** `MP08` porta a carta come prima; le fatture **senza** codice restano il
+  terreno della categoria (è il caso BELLUCO); i fornitori come Amazon, che dichiarano MP05 e
+  vanno a carta per anagrafica, restano a carta.
+- **Lezione:** fra le tre fonti l'ordine di forza è **codice dichiarato in fattura → anagrafica
+  fornitore → categoria di costo**. La categoria è l'indizio più debole: serve dove le altre due
+  tacciono, non per correggerle.
