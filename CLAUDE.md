@@ -28,6 +28,38 @@ Quando l'utente chiede "azzera/svuota/cancella": prima di toccare il DB, capire 
 
 ---
 
+## 🧱 REGOLA GRANITICA — NIENTE LISTE DA COMPILARE A MANO (VERIFICA PRIMA DI CHIEDERE)
+
+**Il gestionale non chiede all'utente un dato che può ricavare da solo. Se una pagina produce una lista di cose "da sistemare a mano", quella lista è un difetto del codice finché non si è dimostrato il contrario, dati alla mano.**
+
+Nata il 10/09/2026 dal riquadro anomalie di Fatturazione: 18 righe rosse, di cui 7 chiedevano un piano rate a fornitori pagati con carta (dove un piano non esiste) e 11 chiedevano un conto di addebito che non entra in nessun calcolo. Zero erano vere.
+
+### La catena delle fonti, in quest'ordine
+1. **Il documento**: anagrafica del cedente, IBAN, codice MP, condizioni, scadenze, righe. Se il dato è lì, si legge e si scrive, senza chiedere niente a nessuno.
+2. **La regola di dominio**: la categoria della spesa (ricavata dalle righe) dice come si paga quel tipo di costo. `cost_categories.default_payment_method` e `auto_debit_card` esistono per questo.
+3. **Lo standard aziendale**: 30 giorni fine mese in una rata, o pagamento immediato per carta e contanti. Si scrive e si **marca come standard** (`profile_from_invoice_fields = 'piano_standard'`), così un documento che poi dichiara i termini veri lo sostituisce da sé.
+4. **Solo se tutte e tre tacciono** si può pensare a una segnalazione.
+
+### Quando una segnalazione è legittima
+Devono valere **tutte e tre** le condizioni:
+- il dato **non è ricavabile** da nessuna delle fonti sopra;
+- il dato **serve a un calcolo o a un pagamento reale** (dimostralo: `grep` sulle funzioni, sulle viste e sul frontend, non "immagino serva");
+- **solo l'utente può saperlo** (il conto della carta aziendale, un accordo verbale col fornitore, una scelta di trattamento).
+
+Se ne manca una, non è un'anomalia: è rumore, e va tolta dal codice, non spiegata all'utente.
+
+### Prima di dire «non si può», misura
+Mai rispondere «quel dato non c'è» senza contarlo sui dati veri. Esempio di quella sessione: «se c'è una fattura c'è la modalità di pagamento» sembrava ovvio, ma delle 458 fatture degli ultimi 90 giorni solo **152** portavano il blocco `DatiPagamento` (facoltativo nella fattura elettronica). Il numero cambia la soluzione: non «leggere meglio», ma «non chiedere». Vale anche al contrario: prima di lasciare una segnalazione, conta quante righe genera e su quali fornitori.
+
+### Cosa il sistema può scrivere da solo, e come
+- **Riempie solo i campi vuoti.** Un valore inserito a mano non si sovrascrive mai, nemmeno con un dato che arriva dal documento.
+- **Marca la provenienza.** Ogni campo compilato dal sistema lascia traccia (`profile_from_invoice_id/_at/_fields`), così in interfaccia si distingue ciò che ha letto il sistema da ciò che ha deciso una persona.
+- **Un valore di ripiego non è una scelta umana**: resta sostituibile appena arriva l'informazione vera.
+
+Riferimenti: migration `20260910_204` (profilo dalla fattura), `212` (piano sempre presente), `213`/`214` (metodo dalla categoria, via la segnalazione banca), `211` (segnalazione solo a chi ha una dilazione da decidere). Note complete in `PAYMENT_PLAN_NOTES.md`.
+
+---
+
 ## ⚠️ REGOLA #0 — PARITÀ TENANT (NON NEGOZIABILE)
 
 **OGNI modifica/fix/deploy va applicato a TUTTI E 3 i tenant: NZ + Made + Zago. Sempre. Senza eccezioni.**
