@@ -334,21 +334,32 @@ export function ripartisciSuRighe(righe: RigaUscita[], pagabile: number): RigaRi
 
 export interface PianoInput {
   righe: RigaUscita[]
-  /** Chiavi (`RigaUscita.id`) delle voci marcate come obbligatorie. */
+  /** Chiavi (`RigaUscita.id`) delle voci marcate come obbligatorie a mano. */
   selezionati: ReadonlySet<string>
   /** Liquidità + incassi attesi + eventuale fido. */
   disponibilita: number
 }
 
+/**
+ * Una riga è obbligatoria se è stata spuntata OPPURE se è un addebito
+ * automatico: RiBa, SDD e addebiti su carta partono dal conto alla scadenza
+ * senza che nessuno disponga niente, quindi la scelta non esiste. Restano
+ * comunque visibili in elenco, marcate come tali.
+ */
+export function isObbligatoria(riga: RigaUscita, selezionati: ReadonlySet<string>): boolean {
+  return riga.automatico || selezionati.has(riga.id)
+}
+
 export interface PianoEsito {
-  /** Totale delle voci spuntate. */
+  /** Totale delle voci obbligatorie: spuntate più addebiti automatici. */
   obbligatorio: number
-  /** Quota del selezionato che è addebito automatico (esce comunque). */
+  /** Quota dell'obbligatorio che è addebito automatico, cioè già scalata
+   *  d'ufficio senza che nessuno l'abbia spuntata. */
   obbligatorioAutomatico: number
-  /** Totale delle voci NON spuntate, cioè rinviabili. */
+  /** Totale delle voci rinviabili, cioè né spuntate né automatiche. */
   rinviabile: number
-  /** Quota del NON selezionato che però è un addebito automatico: è la
-   *  contraddizione da mostrare, perché uscirà dal conto comunque. */
+  /** Sempre 0: un addebito automatico non può essere rinviabile. Il campo
+   *  resta per compatibilità con chi legge l'esito. */
   rinviabileAutomatico: number
   disponibilita: number
   /** Quanto manca per coprire l'obbligatorio. 0 se la cassa basta. */
@@ -363,25 +374,24 @@ export interface PianoEsito {
 }
 
 /**
- * Confronta la selezione con la disponibilità. Nessuna priorità implicita:
- * l'unica gerarchia è spuntato / non spuntato.
+ * Confronta l'obbligatorio con la disponibilità. Nessuna priorità implicita:
+ * l'unica gerarchia è obbligatorio (spuntato o automatico) contro rinviabile.
  */
 export function calcolaPiano(input: PianoInput): PianoEsito {
   let obbligatorio = 0
   let obbligatorioAutomatico = 0
   let rinviabile = 0
-  let rinviabileAutomatico = 0
+  const rinviabileAutomatico = 0
   let nSelezionate = 0
 
   for (const r of input.righe) {
     const importo = pos(r.importo)
-    if (input.selezionati.has(r.id)) {
+    if (isObbligatoria(r, input.selezionati)) {
       obbligatorio += importo
       if (r.automatico) obbligatorioAutomatico += importo
       nSelezionate++
     } else {
       rinviabile += importo
-      if (r.automatico) rinviabileAutomatico += importo
     }
   }
 
@@ -473,4 +483,122 @@ export function previsioneIncassiMese(input: IncassiMeseInput): IncassiMeseEsito
       ? round2(Math.max(0, obiettivo - realizzato) / giorniResidui)
       : null,
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// COSTO DEL PERSONALE IN CASSA
+//
+// Il personale non esce in una volta sola: il netto in busta parte intorno al
+// 10 del mese successivo a quello di competenza, mentre ritenute IRPEF e
+// contributi partono col modello F24 il 16. Due uscite, due date, due voci.
+//
+// Le mensilità aggiuntive seguono lo stesso ritardo del mese di competenza:
+// la quattordicesima matura a giugno e si paga col cedolino di giugno, la
+// tredicesima si paga a dicembre, di norma prima di Natale.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface CostoPersonaleMensile {
+  /** Netti in busta dell'ultimo cedolino disponibile. */
+  netto: number
+  /** Retribuzioni lorde dello stesso mese: la differenza col netto sono
+   *  ritenute e contributi a carico del dipendente, che finiscono in F24. */
+  lordo: number
+  /** Contributi a carico azienda (INPS e altri) dello stesso mese. */
+  contributiAzienda: number
+}
+
+export interface VocePersonale {
+  /** Chiave stabile, usata come id della riga e nel salvataggio. */
+  ref: string
+  etichetta: string
+  data: string
+  importo: number
+  tipo: 'netto' | 'f24' | 'mensilita_aggiuntiva'
+}
+
+export interface PianoPersonaleInput {
+  costo: CostoPersonaleMensile
+  /** 'YYYY-MM-DD' di inizio periodo (compreso). */
+  dataInizio: string
+  /** 'YYYY-MM-DD' di fine periodo (compreso). */
+  dataFine: string
+  /** Giorno del mese in cui partono i bonifici degli stipendi. */
+  giornoNetti: number
+  /** Giorno del mese della delega F24 (16 salvo diversa indicazione). */
+  giornoF24: number
+  /** Se falso non genera la voce F24: utile quando l'F24 è già a scadenzario. */
+  includiF24?: boolean
+  /** Mese di pagamento della tredicesima (1-12) e giorno; 0 disattiva. */
+  meseTredicesima?: number
+  giornoTredicesima?: number
+  /** Mese di COMPETENZA della quattordicesima; il pagamento segue il ritardo
+   *  del cedolino, quindi cade nel mese dopo. 0 disattiva. */
+  meseQuattordicesima?: number
+}
+
+/** Quota di F24 riferita a un mese di stipendi: ritenute più contributi. */
+export function f24Personale(costo: CostoPersonaleMensile): number {
+  const ritenuteEContributiDipendente = Math.max(0, pos(costo.lordo) - pos(costo.netto))
+  return round2(ritenuteEContributiDipendente + pos(costo.contributiAzienda))
+}
+
+const ymd = (y: number, m0: number, g: number): string => {
+  const d = new Date(y, m0, g)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+/**
+ * Genera le uscite del personale che cadono nel periodo. Guarda dodici mesi a
+ * partire da quello di inizio, così un orizzonte lungo intercetta anche la
+ * tredicesima di dicembre e la quattordicesima di giugno.
+ */
+export function vociPersonale(input: PianoPersonaleInput): VocePersonale[] {
+  const out: VocePersonale[] = []
+  const netto = round2(pos(input.costo.netto))
+  const f24 = f24Personale(input.costo)
+  if (netto <= 0 && f24 <= 0) return out
+
+  const inizio = new Date(input.dataInizio + 'T00:00:00')
+  const dentro = (d: string) => d >= input.dataInizio && d <= input.dataFine
+
+  for (let i = 0; i < 13; i++) {
+    const anno = inizio.getFullYear()
+    const mese0 = inizio.getMonth() + i
+
+    if (netto > 0) {
+      const dNetto = ymd(anno, mese0, input.giornoNetti)
+      if (dentro(dNetto)) {
+        out.push({ ref: `payroll-netto-${dNetto}`, etichetta: 'Stipendi, netti in busta', data: dNetto, importo: netto, tipo: 'netto' })
+      }
+    }
+
+    if (input.includiF24 !== false && f24 > 0) {
+      const dF24 = ymd(anno, mese0, input.giornoF24)
+      if (dentro(dF24)) {
+        out.push({ ref: `payroll-f24-${dF24}`, etichetta: 'F24 personale: ritenute e contributi', data: dF24, importo: f24, tipo: 'f24' })
+      }
+    }
+
+    // Mensilità aggiuntive: stesso importo di una mensilità netta.
+    const dataMese = new Date(anno, mese0, 1)
+    const meseCorrente = dataMese.getMonth() + 1
+
+    if (input.meseTredicesima && meseCorrente === input.meseTredicesima) {
+      const g = input.giornoTredicesima && input.giornoTredicesima > 0 ? input.giornoTredicesima : 20
+      const d = ymd(dataMese.getFullYear(), dataMese.getMonth(), g)
+      if (dentro(d)) {
+        out.push({ ref: `payroll-tredicesima-${d}`, etichetta: 'Tredicesima', data: d, importo: netto, tipo: 'mensilita_aggiuntiva' })
+      }
+    }
+
+    if (input.meseQuattordicesima && meseCorrente === input.meseQuattordicesima + 1) {
+      // competenza a giugno, pagamento col cedolino di giugno (mese dopo)
+      const d = ymd(dataMese.getFullYear(), dataMese.getMonth(), input.giornoNetti)
+      if (dentro(d)) {
+        out.push({ ref: `payroll-quattordicesima-${d}`, etichetta: 'Quattordicesima', data: d, importo: netto, tipo: 'mensilita_aggiuntiva' })
+      }
+    }
+  }
+
+  return out.sort((a, b) => (a.data < b.data ? -1 : a.data > b.data ? 1 : 0))
 }
