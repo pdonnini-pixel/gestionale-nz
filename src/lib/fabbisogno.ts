@@ -34,7 +34,7 @@ export interface FasciaInput {
   key: FasciaKey
   /** Totale dovuto entro la data orizzonte. */
   importo: number
-  /** Quota di `importo` che esce comunque (RiBa, SDD, addebiti su carta):
+  /** Quota di `importo` che esce comunque (SDD, RID, addebiti su carta):
    *  non è discrezionale, quindi va evidenziata anche se la fascia è in fondo
    *  alla lista delle priorità. */
   automatico?: number
@@ -76,7 +76,7 @@ export interface SimulazioneEsito {
   fabbisogno: number
   /** Cassa che avanza dopo aver pagato tutto (0 se c'è fabbisogno). */
   cassaResidua: number
-  /** Quota di uscite non rinviabili (RiBa/SDD/carte) che resta scoperta:
+  /** Quota di uscite non rinviabili (SDD/RID/carte) che resta scoperta:
    *  è la parte di fabbisogno che non si può rimandare trattando col fornitore. */
   scopertoNonRinviabile: number
 }
@@ -258,20 +258,35 @@ export function fasciaDaMacroGroup(macroGroup: string | null | undefined): Fasci
   }
 }
 
-/** Metodi di pagamento che escono dal conto senza una disposizione manuale. */
+/**
+ * Metodi che escono dal conto senza alcuna disposizione e senza che si possa
+ * decidere altrimenti: mandato al creditore (SDD, RID) e addebiti su carta.
+ *
+ * Le RiBa NON stanno qui, ed è una differenza sostanziale: una ricevuta
+ * bancaria si può lasciare impagata, diventa insoluta e torna al fornitore.
+ * Costa cara in rapporto e in commissioni, ma resta una decisione: in
+ * simulazione va quindi trattata come rinviabile, solo segnalata per quello
+ * che comporta.
+ */
 const METODI_AUTOMATICI = new Set([
-  'riba_30', 'riba_60', 'riba_90', 'riba_120', 'riba',
   'sdd_core', 'sdd_b2b', 'rid',
   'carta_credito', 'carta_debito',
 ])
 
-/** true se il pagamento è un addebito automatico (non rinviabile a trattativa). */
+const METODI_RIBA = new Set(['riba_30', 'riba_60', 'riba_90', 'riba_120', 'riba'])
+
+/** true se il pagamento parte da solo e non si può fermare (SDD, RID, carte). */
 export function isPagamentoAutomatico(
   paymentMethod: string | null | undefined,
   isAutoDebit?: boolean | null,
 ): boolean {
   if (isAutoDebit) return true
   return METODI_AUTOMATICI.has((paymentMethod || '').trim())
+}
+
+/** true se è una ricevuta bancaria: si può non pagare, ma resta insoluta. */
+export function isRiba(paymentMethod: string | null | undefined): boolean {
+  return METODI_RIBA.has((paymentMethod || '').trim())
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -289,6 +304,8 @@ export interface RigaUscita {
   scadenza: string | null
   importo: number
   automatico: boolean
+  /** Ricevuta bancaria: rinviabile, ma non pagarla significa un insoluto. */
+  riba?: boolean
   /** Rotta interna dove la riga si gestisce davvero (Scadenzario, Scadenze
    *  fiscali, Dipendenti). Il motore la trasporta senza leggerla: serve alla
    *  UI per portare l'utente dalla riga scoperta all'azione. */
@@ -342,9 +359,10 @@ export interface PianoInput {
 
 /**
  * Una riga è obbligatoria se è stata spuntata OPPURE se è un addebito
- * automatico: RiBa, SDD e addebiti su carta partono dal conto alla scadenza
- * senza che nessuno disponga niente, quindi la scelta non esiste. Restano
- * comunque visibili in elenco, marcate come tali.
+ * automatico: SDD, RID e carte partono dal conto alla scadenza per mandato
+ * dato al creditore, quindi la scelta non esiste. Restano comunque visibili in
+ * elenco, marcate come tali. Le RiBa non rientrano: si possono lasciare
+ * insolute, quindi la decisione resta di chi compila la simulazione.
  */
 export function isObbligatoria(riga: RigaUscita, selezionati: ReadonlySet<string>): boolean {
   return riga.automatico || selezionati.has(riga.id)

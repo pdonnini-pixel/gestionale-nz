@@ -13,6 +13,7 @@ import {
   calcolaPiano,
   previsioneIncassiMese,
   isObbligatoria,
+  isRiba,
   vociPersonale,
   f24Personale,
 } from './fabbisogno'
@@ -224,14 +225,26 @@ describe('classificazione', () => {
     expect(fasciaDaMacroGroup(undefined)).toBe('altro')
   })
 
-  it('riconosce gli addebiti automatici', () => {
-    expect(isPagamentoAutomatico('riba_60')).toBe(true)
+  it('automatico è solo ciò che non si può fermare: SDD, RID, carte', () => {
     expect(isPagamentoAutomatico('sdd_core')).toBe(true)
+    expect(isPagamentoAutomatico('sdd_b2b')).toBe(true)
+    expect(isPagamentoAutomatico('rid')).toBe(true)
     expect(isPagamentoAutomatico('carta_credito')).toBe(true)
+    expect(isPagamentoAutomatico('carta_debito')).toBe(true)
     expect(isPagamentoAutomatico('bonifico_ordinario')).toBe(false)
     expect(isPagamentoAutomatico(null)).toBe(false)
     // il flag della riga vince sul metodo
     expect(isPagamentoAutomatico('bonifico_ordinario', true)).toBe(true)
+  })
+
+  it('la RiBa NON è automatica: si può lasciare insoluta', () => {
+    for (const m of ['riba_30', 'riba_60', 'riba_90', 'riba_120', 'riba']) {
+      expect(isPagamentoAutomatico(m)).toBe(false)
+      expect(isRiba(m)).toBe(true)
+    }
+    expect(isRiba('sdd_core')).toBe(false)
+    expect(isRiba('bonifico_ordinario')).toBe(false)
+    expect(isRiba(null)).toBe(false)
   })
 })
 
