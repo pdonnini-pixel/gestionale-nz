@@ -4,8 +4,10 @@
 // Il modello NON decide da solo cosa si paga. Chi tiene l'amministrazione spunta
 // riga per riga le uscite obbligatorie entro la data; la selezione si salva in
 // `cash_must_pay` ed è condivisa fra gli utenti dell'azienda. Fanno eccezione
-// gli addebiti automatici (RiBa, SDD, carte): partono dal conto da soli, quindi
-// sono obbligatori d'ufficio, restando ben visibili in elenco.
+// gli addebiti automatici (SDD, RID, carte): partono dal conto da soli per
+// mandato al creditore, quindi sono obbligatori d'ufficio, restando ben
+// visibili in elenco. Le RiBa NO: si possono lasciare insolute, quindi restano
+// una decisione, solo segnalata per quello che comporta.
 //
 // Le uscite ricorrenti che non stanno a scadenzario vengono calcolate:
 //  - personale: netti in busta + F24 di ritenute e contributi, due date diverse,
@@ -31,7 +33,7 @@ import { useSearchParams, Link } from 'react-router-dom'
 import {
   Wallet, AlertTriangle, Download, Loader2, Info, RefreshCw, CheckCircle2,
   Building2, ExternalLink, Search, X, Target, TrendingUp, TrendingDown, Lock,
-  Eraser, Zap,
+  Eraser, Zap, FileWarning,
 } from 'lucide-react'
 import {
   ComposedChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine,
@@ -50,7 +52,7 @@ import {
 } from '../lib/ivaLiquidazione'
 import {
   calcolaPiano, previsioneIncassiMese, proiezioneGiornaliera, primoGiornoNegativo,
-  fasciaDaMacroGroup, isPagamentoAutomatico, isObbligatoria, vociPersonale, f24Personale,
+  fasciaDaMacroGroup, isPagamentoAutomatico, isRiba, isObbligatoria, vociPersonale, f24Personale,
   addDaysYMD, diffGiorni, FASCE_ORDINE_DEFAULT, FASCIA_LABEL,
   type FasciaKey, type RigaUscita,
 } from '../lib/fabbisogno'
@@ -102,7 +104,7 @@ const RUOLI_SCRITTURA = ['super_advisor', 'contabile', 'cfo']
 /** Stati dello scadenzario che NON sono un debito da pagare. */
 const STATI_ESCLUSI = new Set(['annullato', 'pagato', 'nota_credito'])
 
-type FiltroFascia = 'tutte' | FasciaKey | 'scadute' | 'automatiche'
+type FiltroFascia = 'tutte' | FasciaKey | 'scadute' | 'automatiche' | 'riba'
 
 interface ContoRow {
   id: string
@@ -420,6 +422,7 @@ export default function SimulazioneFabbisogno() {
         scadenza: p.due_date,
         importo: Number(p.amount_remaining || 0),
         automatico: isPagamentoAutomatico(p.payment_method, p.is_auto_debit),
+        riba: isRiba(p.payment_method),
         link: linkScadenzario(p.supplier_id, p.invoice_number, fornitore),
       })
     }
@@ -583,23 +586,31 @@ export default function SimulazioneFabbisogno() {
     return righe.filter(r => {
       if (filtro === 'scadute' && !(r.scadenza && r.scadenza < oggi)) return false
       if (filtro === 'automatiche' && !r.automatico) return false
-      if (filtro !== 'tutte' && filtro !== 'scadute' && filtro !== 'automatiche' && r.key !== filtro) return false
+      if (filtro === 'riba' && !r.riba) return false
+      if (filtro !== 'tutte' && filtro !== 'scadute' && filtro !== 'automatiche' && filtro !== 'riba' && r.key !== filtro) return false
       if (!q) return true
       return `${r.fornitore} ${r.documento || ''} ${r.descrizione}`.toLowerCase().includes(q)
     })
   }, [righe, filtro, ricerca, oggi])
 
   const perFascia = useMemo(() => {
-    const m = new Map<FasciaKey, { righe: RigaUscita[]; tot: number; obbl: number; auto: number }>()
-    for (const k of FASCE_ORDINE_DEFAULT) m.set(k, { righe: [], tot: 0, obbl: 0, auto: 0 })
+    const m = new Map<FasciaKey, { righe: RigaUscita[]; tot: number; obbl: number; auto: number; riba: number }>()
+    for (const k of FASCE_ORDINE_DEFAULT) m.set(k, { righe: [], tot: 0, obbl: 0, auto: 0, riba: 0 })
     for (const r of righe) {
       const acc = m.get(r.key)!
       acc.righe.push(r)
       acc.tot += r.importo
       if (isObbligatoria(r, selezionati)) acc.obbl += r.importo
       if (r.automatico) acc.auto += r.importo
+      if (r.riba && !isObbligatoria(r, selezionati)) acc.riba += r.importo
     }
     return m
+  }, [righe, selezionati])
+
+  /** RiBa non classificate come obbligatorie: diventerebbero insoluti. */
+  const ribaFuori = useMemo(() => {
+    const fuori = righe.filter(r => r.riba && !isObbligatoria(r, selezionati))
+    return { n: fuori.length, importo: fuori.reduce((s, r) => s + r.importo, 0) }
   }, [righe, selezionati])
 
   const esportaCsv = () => {
@@ -607,7 +618,7 @@ export default function SimulazioneFabbisogno() {
       ['Obbligatoria', 'Motivo', 'Categoria', 'Voce', 'Documento', 'Scadenza', 'Importo'],
       ...righe.map(r => [
         isObbligatoria(r, selezionati) ? 'si' : 'no',
-        r.automatico ? 'addebito automatico' : selezionati.has(r.id) ? 'scelta' : '',
+        r.automatico ? 'addebito automatico' : selezionati.has(r.id) ? 'scelta' : r.riba ? 'RiBa non spuntata: insoluto' : '',
         FASCIA_LABEL[r.key], r.fornitore, r.documento || '', r.scadenza || '', r.importo.toFixed(2),
       ]),
     ]
@@ -633,6 +644,7 @@ export default function SimulazioneFabbisogno() {
     { key: 'tutte', label: 'Tutte' },
     ...FASCE_ORDINE_DEFAULT.map(k => ({ key: k as FiltroFascia, label: FASCIA_LABEL[k] })),
     { key: 'scadute', label: 'Già scadute' },
+    { key: 'riba', label: 'RiBa' },
     { key: 'automatiche', label: 'Addebiti automatici' },
   ]
 
@@ -729,7 +741,7 @@ export default function SimulazioneFabbisogno() {
           </div>
           <div className="text-xs text-slate-500 mt-1 ml-8">
             Tutti gli impegni con scadenza entro il {fmtData(orizzonte)}: fatture, imposte, personale.
-            Spunta quelli a cui non vuoi dire di no. Gli addebiti automatici sono già inclusi e non si possono togliere.
+            Spunta quelli a cui non vuoi dire di no. SDD, RID e carte sono già inclusi e non si possono togliere: partono dal conto da soli.
           </div>
         </div>
 
@@ -744,6 +756,7 @@ export default function SimulazioneFabbisogno() {
                 <div className="mt-2 text-sm font-semibold text-slate-900">{fmtEur(v.obbl)}</div>
                 <div className="text-xs text-slate-500">su {fmtEur(v.tot)} · {v.righe.length} voci</div>
                 {v.auto > 0 && <div className="text-[11px] text-red-600 mt-0.5">{fmtEur(v.auto)} automatici</div>}
+                {v.riba > 0 && <div className="text-[11px] text-amber-700 mt-0.5">{fmtEur(v.riba)} RiBa non spuntate</div>}
                 {canEdit && manuali.length > 0 && (
                   <div className="flex gap-1 mt-2">
                     <button onClick={() => spuntaGruppo(manuali, true)}
@@ -820,6 +833,12 @@ export default function SimulazioneFabbisogno() {
                           <Zap size={10} /> addebito automatico
                         </span>
                       )}
+                      {r.riba && (
+                        <span className="ml-2 inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-700"
+                          title="Ricevuta bancaria: se non la paghi torna insoluta al fornitore">
+                          <FileWarning size={10} /> RiBa
+                        </span>
+                      )}
                     </td>
                     <td className="px-3 py-2 text-slate-500">{r.documento || r.descrizione}</td>
                     <td className={`px-3 py-2 ${r.scadenza && r.scadenza < oggi ? 'text-red-600 font-medium' : 'text-slate-600'}`}>
@@ -846,6 +865,17 @@ export default function SimulazioneFabbisogno() {
             </tbody>
           </table>
         </div>
+
+        {ribaFuori.importo > 0 && (
+          <div className="px-4 py-3 bg-amber-50 border-t border-amber-100 text-sm text-amber-800 flex items-start gap-2">
+            <FileWarning size={16} className="shrink-0 mt-0.5" />
+            <span>
+              {ribaFuori.n} ricevute bancarie per {fmtEur(ribaFuori.importo)} non sono fra gli obbligatori.
+              Si possono lasciare impagate, ma tornano insolute al fornitore, con le commissioni di insoluto e il colpo al rapporto:
+              è una scelta, non un risparmio.
+            </span>
+          </div>
+        )}
 
         <div className="p-4 bg-slate-50 border-t border-slate-100 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
           <span className="font-semibold text-slate-900">
@@ -1035,7 +1065,8 @@ export default function SimulazioneFabbisogno() {
       <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-600 flex items-start gap-2">
         <Info size={16} className="shrink-0 mt-0.5 text-slate-400" />
         <div className="space-y-1">
-          <div><strong>Addebiti automatici.</strong> RiBa, SDD e addebiti su carta sono obbligatori d'ufficio: partono dal conto alla scadenza senza disposizione. Restano in elenco con la spunta bloccata, così si vedono ma non si possono escludere per errore.</div>
+          <div><strong>Addebiti automatici.</strong> SDD, RID e addebiti su carta sono obbligatori d'ufficio: partono dal conto per mandato dato al creditore, senza che nessuno disponga niente. Restano in elenco con la spunta bloccata.</div>
+          <div><strong>Le RiBa sono decidibili.</strong> Una ricevuta bancaria si può lasciare impagata: torna insoluta al fornitore, con commissioni e danno di rapporto, ma resta una scelta. Per questo la spunta è libera e quelle lasciate fuori vengono segnalate.</div>
           <div><strong>Personale e IVA.</strong> Non stanno a scadenzario e vengono calcolati: il personale dall'ultimo cedolino chiuso (netti, più ritenute e contributi in F24), l'IVA dalla stessa catena di liquidazione della pagina dedicata. Se una liquidazione è già a scadenzario come F24, non viene contata due volte.</div>
           <div><strong>La selezione è condivisa e resta.</strong> Le spunte si salvano legate alla data di riferimento: cambiando data si riparte da una selezione nuova. Il pulsante Azzera cancella le spunte di quella data.</div>
           <div><strong>Cosa non entra.</strong> Costi ricorrenti non ancora fatturati, RiBa presentate ma non ancora a scadenzario, insoluti in corso di rientro.</div>

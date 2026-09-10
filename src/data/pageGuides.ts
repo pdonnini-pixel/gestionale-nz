@@ -1537,8 +1537,13 @@ export const PAGE_GUIDES: PageGuide[] = [
         ]
       },
       {
-        "heading": "Gli addebiti automatici sono già dentro",
-        "body": "RiBa, SDD e addebiti su carta partono dal conto alla scadenza senza che nessuno disponga niente: non sono una scelta. Per questo la pagina li considera obbligatori d'ufficio e mostra la loro spunta bloccata, con l'etichetta rossa «addebito automatico» accanto al nome. Restano visibili in elenco e nel totale per categoria, così sai sempre quanto pesano, ma non si possono escludere per errore. Le imposte non rientrano in questa categoria: l'F24 va sempre disposto."
+        "heading": "Addebiti automatici e RiBa: due cose diverse",
+        "body": "SDD, RID e addebiti su carta partono dal conto alla scadenza per un mandato dato al creditore: nessuno li dispone e nessuno li può fermare. La pagina li considera quindi obbligatori d'ufficio, con la spunta bloccata e l'etichetta rossa «addebito automatico». Le RiBa sono un'altra cosa: una ricevuta bancaria si può lasciare impagata, torna insoluta al fornitore e costa in commissioni e in rapporto, ma resta una decisione. Per questo hanno la spunta libera e l'etichetta ambra «RiBa», e se ne lasci qualcuna fuori dagli obbligatori compare un avviso che ti ricorda cosa comporta. Le imposte non sono automatiche: l'F24 va sempre disposto.",
+        "steps": [
+          "Il filtro «Addebiti automatici» mostra solo ciò che parte da solo.",
+          "Il filtro «RiBa» mostra le ricevute bancarie, per decidere quali onorare.",
+          "Nel riquadro di ogni categoria trovi sia la quota automatica sia le RiBa non ancora spuntate."
+        ]
       },
       {
         "heading": "Personale e IVA: calcolati, non a scadenzario",
@@ -1570,7 +1575,11 @@ export const PAGE_GUIDES: PageGuide[] = [
     "faq": [
       {
         "q": "Perché non riesco a togliere la spunta a certe righe?",
-        "a": "Sono addebiti automatici: RiBa, SDD o pagamenti su carta. Escono dal conto alla scadenza senza che nessuno li disponga, quindi trattarli come rinviabili darebbe un fabbisogno più basso di quello vero. Restano visibili con l'etichetta rossa e sono conteggiati fra gli obbligatori."
+        "a": "Sono addebiti automatici: SDD, RID o pagamenti su carta. Escono dal conto alla scadenza per un mandato già dato al creditore, quindi trattarli come rinviabili darebbe un fabbisogno più basso di quello vero. Restano visibili con l'etichetta rossa e sono conteggiati fra gli obbligatori."
+      },
+      {
+        "q": "Le RiBa sono obbligatorie?",
+        "a": "No, e questa è la differenza che conta. Una ricevuta bancaria non pagata torna insoluta al fornitore: paghi le commissioni di insoluto e ci rimetti nel rapporto, ma la cassa quel giorno resta tua. È quindi una scelta e la spunta è libera. Se lasci delle RiBa fuori dagli obbligatori la pagina te lo dice con un avviso, così la decisione è consapevole e non una svista."
       },
       {
         "q": "L'IVA è un addebito automatico?",
