@@ -341,3 +341,28 @@ Estensione di R17 dopo tre casi ancora aperti trovati da Patrizio il 10/09/2026.
 - **Il ripasso va fatto su TUTTE le righe aperte**, non sul sottoinsieme che si sospetta: la
   prima volta avevo ritoccato solo le 4 righe col codice vuoto e mi erano sfuggite 11 fatture
   Amazon con categoria a carta e codice MP05.
+
+### R19 — Gli affitti degli outlet sono ad addebito diretto, non a bonifico
+Segnalato da Patrizio il 10/09/2026 guardando la Simulazione fabbisogno, che classificava i canoni
+fra le uscite rinviabili.
+
+- **Il fatto:** i canoni dei punti vendita escono con SDD. I movimenti bancari 2026 non lasciano
+  spazio: «ADDEBITO SDD N. 653993053 A FAVORE SAN MAURO SPA CODICE MANDATO SDDSMA250000004».
+  C'è il numero di mandato, quindi è addebito diretto autorizzato.
+- **Il dato era sbagliato in anagrafica** per cinque locatori su nove: Valdichiana Propco (6
+  addebiti per 113.923,90), Frankie Retail Holdco (4 per 64.640,40), Palmanova Propco (9 per
+  33.984,57), SAN MAURO (11 per 33.728,13), CONSORZIO SHOPINN (10 per 12.465,46). Solo BMG
+  BARBERINO e DWS GRUNDBESITZ erano già a `rid`.
+- **Perché conta:** `suppliers.payment_method` alimenta lo Scadenzario, le distinte, la
+  riconciliazione e la Simulazione fabbisogno. Con «bonifico» quei canoni risultano da disporre a
+  mano e rinviabili, mentre partono dal conto da soli: la simulazione sottostima l'obbligatorio e
+  una distinta bonifici potrebbe farli uscire due volte.
+- **Eccezione confermata:** FUTURA IMMOBILIARE resta a bonifico, sette movimenti su sette sono
+  bonifici da internet banking. TORINO FASHION VILLAGE è stato allineato a `rid` su indicazione di
+  Patrizio (mandato attivo, un solo movimento in banca che non fa testo).
+- **Fix:** migration `NZ_ONLY_20260910_202`, anagrafica più scadenze ancora aperte; le righe già
+  pagate conservano il metodo con cui sono state saldate. Backup in `_bkp_locatori_sdd_20260910`.
+- **Lezione generale:** il metodo di pagamento in anagrafica è una dichiarazione, i movimenti
+  bancari sono un fatto. Quando i due divergono vince la banca, e prima di costruire una regola
+  sopra `payment_method` conviene contare quanti addebiti diretti e quanti bonifici ci sono
+  davvero per quel fornitore.
