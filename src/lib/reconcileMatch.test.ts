@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { extractBeneficiary, trimBenefTail, sigWords, namesOverlap, movementNet, isRealTransfer, supplierKeyOf, invoiceTokens, invoiceCitedIn, findExactCombo, hasPaymentStructure } from './reconcileMatch'
+import { extractBeneficiary, trimBenefTail, sigWords, namesOverlap, movementNet, isRealTransfer, supplierKeyOf, invoiceTokens, invoiceCitedIn, findExactCombo, hasPaymentStructure, isBankOwnMovement } from './reconcileMatch'
 
 // Casi reali (New Zago, tab Banche → Riconciliazione). Vedi RICONCILIAZIONE_REGOLE.md R5/R6.
 describe('extractBeneficiary', () => {
@@ -185,5 +185,52 @@ describe('invoiceCitedIn — numeri con prefisso di serie', () => {
     expect(invoiceCitedIn('FPR 238/26', t)).toBe(true)
     expect(invoiceCitedIn('FPR 240/26', t)).toBe(true)
     expect(invoiceCitedIn('FPR 241/26', t)).toBe(false)
+  })
+})
+
+// Causali vere dell'estratto conto New Zago 2026, portate da Patrizio il 10/09/2026
+// chiedendo «perché non le abbina queste?». La risposta per due terzi di quella
+// lista è che non c'è niente da abbinare: sono movimenti della banca o giri interni.
+describe('isBankOwnMovement', () => {
+  const dellaBanca = [
+    'Causale: PAGAMENTO RATA DI MUTUO - Descrizione: ADD. RATA FINANZ. N 0994486821 SCAD. 31-08-2026',
+    'Causale: RIMBORSO FINANZIAMENTI - Descrizione: RIMBORSO PARZ. FINANZ. NUMERO 0994309234',
+    'Causale: CANONE RAPPORTO PACKAGE - Descrizione: CANONE SET DI BASE MPS MIO Business',
+    'Addebito Canone home banking Sblocco utente',
+    'Causale: COMM/SPESE SU FIDEJUSSION - Descrizione: ORD: NEW ZAGO S.R.L. FIDEIUSSIONE DEL 28.08.2025',
+    'Causale: DISPOSIZIONE - Descrizione: FONDO DI GARANZIA MCC',
+    'PRELEVAMENTO CON MODULI DI SPORTELLO PREL.CONT. DA SPORTELLO',
+    'VOSTRA DISPOSIZIONE A FAVORE DI N.D. DISPOSIZIONE GIROCONTO PER COSTITUZIONE PEGNO DENARO',
+    'Bonifico tramite Internet Banking *NEW ZAGO S.R.L. PASSAGGIO CONTANTI NEGOZI',
+    'Causale: ADDEBITO DIRETTO - Descrizione: ADDEBITO SDD N. 653537599 A FAVORE NEXI PAYMENTS SPA CODICE MANDATO CL2XV900815659PC0001379716 IMPORTO 4,50',
+    'Causale: ADDEBITO DIRETTO - Descrizione: ADDEBITO SDD N. 652703413 A FAVORE GLOBAL BLUE ITALIA SRL CODICE MANDATO ITA145205C IMPORTO 259,90',
+    'Causale: ADDEBITO DIRETTO CARTA - Descrizione: ADDEBITO SDD N. 637401479 A FAVORE BANCA MONTE DEI PASCHI D CODICE MANDATO BPRGQ91030482164900000 IMPORTO 50,00 - N.I.S.EB POSIZIONE CARTA 4821649 ESTRATTO CONTO DEL 20260531',
+  ]
+  it.each(dellaBanca)('riconosce come movimento della banca: %s', (d) => {
+    expect(isBankOwnMovement(d)).toBe(true)
+  })
+
+  // Questi invece pagano fatture vere e devono restare abbinabili.
+  const daAbbinare = [
+    'Causale: DISPOSIZIONE - Descrizione: FILIALE DISPONENTE 2430 ID FLUSSO CBI: 137123484 NUM. TOT. PAGAMENTI: 1 IMPORTO BONIFICI: 40.000,00 IMPORTO COMMISSIONI: 1,75',
+    'Bonifico tramite Internet Banking *SFORAZZINI SRL SF-11245-11037 ID.BON:0845700172770303480546302800IT',
+    'Causale: EFFETTI RITIRATI - Descrizione: NUM.EFFETTI: 4 RIF.OP. 2609090014927',
+    'Causale: ADDEBITO DIRETTO - Descrizione: ADDEBITO SDD N. 627421361 A FAVORE VALDICHIANA PROPCO SRL CODICE MANDATO BTWEP04G110240424 IMPORTO 36541,42',
+    'Causale: ADDEBITO DIRETTO - Descrizione: ADDEBITO SDD N. 639774752 A FAVORE ENEGAN SPA CODICE MANDATO A56S04000107362100484 IMPORTO 3637,73',
+    'Causale: ADDEBITO DIRETTO - Descrizione: ADDEBITO SDD N. 621973079 A FAVORE LIGNANO BANDA LARGA CODICE MANDATO 07362100484 IMPORTO 244,00',
+    'VOSTRO ASSEGNO BANCARIO N. ASSEGNO N. AB/NS DA CIT',
+    'Addebito MAV da Internet Banking MAV 06230/736901748742',
+  ]
+  it.each(daAbbinare)('lascia abbinabile il pagamento a fornitore: %s', (d) => {
+    expect(isBankOwnMovement(d)).toBe(false)
+  })
+
+  it('non scambia un canone di LOCAZIONE per un canone bancario', () => {
+    // «CANONE» da solo non basta: solo le forme del rapporto con la banca.
+    expect(isBankOwnMovement('Bonifico a favore SAN MAURO SPA CANONE LOCAZIONE MESE DI AGOSTO')).toBe(false)
+  })
+
+  it('regge le causali vuote', () => {
+    expect(isBankOwnMovement('')).toBe(false)
   })
 })

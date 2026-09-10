@@ -417,3 +417,48 @@ Emerso subito dopo la R20, sulla stessa fattura UnipolTech.
 - **Lezione:** fra le tre fonti l'ordine di forza è **codice dichiarato in fattura → anagrafica
   fornitore → categoria di costo**. La categoria è l'indizio più debole: serve dove le altre due
   tacciono, non per correggerle.
+
+### R22 — Metà dei movimenti «da abbinare» non ha nessuna fattura dietro
+Segnalato da Patrizio il 10/09/2026 incollando l'elenco dei movimenti non riconciliati:
+«perché non le abbina queste?». La risposta, per due terzi di quell'elenco, è che non c'era
+niente da abbinare.
+
+- **La fotografia (NZ, 10/09/2026, 316 uscite non riconciliate dal 1° gennaio):**
+
+  | Natura | Movimenti | Totale |
+  |---|---|---|
+  | Mutui e finanziamenti | 9 | 70.733 |
+  | Spese e canoni bancari, fideiussioni | 24 | 6.085 |
+  | Prelievi, giroconti, passaggi contanti, assegni | 10 | 162.768 |
+  | Commissioni POS Nexi, tax free Global Blue, estratto carte | 81 | 7.670 |
+  | Commissioni d'incasso SEPA | 61 | 182 |
+  | **Non abbinabili per natura** | **185** | **247.438** |
+  | Distinte bonifici CBI | 59 | 363.807 |
+  | Bonifici singoli | 45 | 170.735 |
+  | Addebiti diretti a locatori e utenze | 11 | 113.293 |
+  | MAV e bollettini | 15 | 1.426 |
+  | Effetti RiBa | 1 | 6.758 |
+  | **Da lavorare davvero** | **131** | **656.019** |
+
+- **Perché il filtro che c'era non scattava:** guardava `bank_transactions.category` con le sigle
+  A-Cube in inglese (`fees`, `loans`, `wages`, `taxes`, `financials`, `income`). Sui dati veri le
+  categorie sono in italiano o assenti: `utenze` 142, `spese_banca` 320, `(nessuna)` 477, contro
+  `fees` 17 e `loans` 1. E il secondo filtro, sul testo, era ancorato all'inizio della causale
+  (`^Comm\.`), mentre le causali di questa banca cominciano tutte con «Causale: …».
+- **Regola:** il riconoscimento va fatto sulla CAUSALE, che la banca scrive sempre, non sulla
+  categoria, che è un'etichetta inaffidabile. Pattern in `BANK_OWN_MOVEMENT_RE`
+  (`src/lib/reconcileMatch.ts`), coperti da test con le causali vere.
+- **La categoria non si può usare nemmeno al contrario:** `spese_banca` contiene le DISPOSIZIONI
+  con flusso CBI, che sono i bonifici ai fornitori. Escluderla in blocco avrebbe nascosto
+  363.807 € di pagamenti veri.
+- **Pattern volutamente stretti**, per non mangiarsi pagamenti veri: «CANONE» da solo NO (un
+  canone di locazione è un pagamento a un fornitore), solo `CANONE RAPPORTO` / `CANONE SET DI
+  BASE` / `CANONE HOME BANKING`. Gli ASSEGNI restano dentro: un assegno paga spesso una fattura.
+  Lo «Storno scritture» resta dentro, va guardato caso per caso.
+- **Attenzione alle proposte registrate nel log:** 73 movimenti avevano già una riga
+  `reconciliation_log` di tipo `auto_fuzzy` con `applied_amount` nullo. Non sono abbinamenti
+  fatti, sono accostamenti per solo importo, e sono quasi tutti sbagliati: una rata di mutuo da
+  1.177,41 proposta contro una fattura GRUPPO FB da 1.207,80; un SDD Global Blue da 259,90
+  contro una WOLF GROUP da 9.970,88. Una riga nel log NON vuol dire movimento riconciliato:
+  guardare sempre `applied_amount` e `is_reconciled`.
+- **Esito:** l'elenco da lavorare passa da 250 a 140 movimenti, da 899.318 € a 679.060 €.
