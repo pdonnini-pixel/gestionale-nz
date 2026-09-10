@@ -254,8 +254,17 @@ singola fattura: i contanti non passano dal conto, la carta di credito produce *
 mensile cumulativo**, la carta di debito un pagamento POS che nomina l'esercente e non il fornitore
 fatturato. Senza una regola quelle scadenze restano aperte per sempre anche a pagamento avvenuto
 (al 09/09/2026 su NZ: 30 scadenze per 1.678 €).
-- **Regola:** alla scadenza si chiudono in via **provvisoria** (`is_provisional_paid`), come le RiBa
+- **Regola:** si chiudono in via **provvisoria** (`is_provisional_paid`), come le RiBa
   (R13/migr. 146). Etichetta «Pagato (provvisorio)», reversibile con `reopen_payable`.
+- **Quando, e con che data** (migr. 197): le due cose coincidono, perché la data della chiusura è
+  quella in cui il denaro esce davvero.
+  - **CARTE** → alla **data di addebito**, il 20 del mese successivo alla spesa (R16). Fino ad
+    allora la scadenza è comunque fuori dalla lista dei pagamenti: è `is_auto_debit`, quindi lo
+    Scadenzario la toglie dalle Aperte e la mostra nel riquadro «In attesa carta».
+  - **CONTANTI** → **subito**, con `payment_date` = data della **fattura**: in contanti si paga
+    alla consegna, quindi la scadenza calcolata dal piano del fornitore (es. 30 gg fine mese) è una
+    data che non corrisponde a nulla. Aspettarla lasciava la riga fra le Aperte per settimane,
+    confondendo chi prepara i bonifici e gonfiando il totale da saldare con soldi già usciti.
 - **Dove:** `fn_cash_card_provisional_close` (migr. 194), richiamata ogni notte da
   `run_daily_reconciliation` e, per lo storico, da `rpc_cash_card_provisional_close_backlog`.
 - **Il movimento può arrivare dopo**, e da **due** sorgenti: A-Cube *oppure* un **estratto conto

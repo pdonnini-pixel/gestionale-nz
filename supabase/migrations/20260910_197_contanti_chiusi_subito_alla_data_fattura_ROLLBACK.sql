@@ -1,0 +1,4 @@
+-- ROLLBACK di 20260910_197 — i contanti tornano a chiudersi alla SCADENZA (come le carte),
+-- con payment_date = due_date. Per il corpo completo vedi la migration 20260909_194.
+-- Nota: non riapre le scadenze già chiuse con la data della fattura; per quelle usare
+-- reopen_payable, oppure il backup _bkp_contanti_subito_20260910 per rimettere le date.
