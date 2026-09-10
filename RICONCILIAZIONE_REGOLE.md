@@ -462,3 +462,43 @@ niente da abbinare.
   contro una WOLF GROUP da 9.970,88. Una riga nel log NON vuol dire movimento riconciliato:
   guardare sempre `applied_amount` e `is_reconciled`.
 - **Esito:** l'elenco da lavorare passa da 250 a 140 movimenti, da 899.318 € a 679.060 €.
+
+### R23 — «Senza aggancio bancario è abbinabile» vale anche nel motore, non solo nella UI
+Chiesto da Patrizio il 10/09/2026: «sì verifica le CBI».
+
+- **Il fatto:** delle 59 distinte CBI non riconciliate su NZ, **20 avevano UNA sola fattura di
+  importo netto esattamente uguale**, e nessuna di quelle fatture aveva un movimento collegato.
+  Coppie evidenti — L UNDICESIMO 25,00 bonificata il giorno dopo l'emissione, C.E.B. PLAST
+  1.773,95, CT INDUSTRIE 5.577,84, 999 SRL 5.732,17, LAURIA IMPIANTI 1.952,00 — mai proposte.
+- **Perché:** la R2 («qualsiasi fattura senza aggancio bancario è abbinabile») era applicata dalla
+  UI ma non da `try_match_amount_bank_transaction`, che fra le fatture già pagate accettava solo
+  quelle marcate `closed_manually` o `is_provisional_paid`. Le fatture risultate pagate all'import
+  o chiuse da altri flussi non hanno nessuno dei due flag: per il motore non esistevano.
+- **Regola (migr. 203):** una fattura in stato `pagato` e **senza** `bank_transaction_id` è
+  candidata comunque sia stata chiusa. Restano tutte le tutele: importo netto esatto (±0,02),
+  candidato UNICO (altrimenti proposta, non aggancio), movimento mai precedente alla fattura,
+  finestra da −30 a +180 giorni sulla scadenza.
+- **Tutela nuova:** fuori le fatture pagate in CONTANTI o con CARTA. Quei pagamenti non lasciano
+  un bonifico in banca, quindi un movimento che ne ripete l'importo è una coincidenza.
+- **`payment_date` NON si usa come filtro.** Sui dati veri è quasi sempre la data di scadenza,
+  non quella del bonifico: metterla avrebbe tagliato 24 coppie buone su 35.
+- **Su una fattura già pagata l'aggancio è solo un collegamento:** importi, stato e data di
+  pagamento non si toccano. Verificato sulle 20: `status` resta `pagato`, `payment_date` e
+  `amount_paid` invariati, cambia solo `bank_transaction_id`. La chiusura piena resta ai casi in
+  cui la fattura è ancora aperta.
+- **Esito sul vivo:** 20 movimenti agganciati per 27.034 €, le uscite non riconciliate passano da
+  316 a 296. Backup in `_bkp_match_cbi_20260910` (35 righe candidate con lo stato precedente).
+
+#### Cosa resta delle 59 distinte CBI, e perché
+
+| Esito | Distinte | Totale |
+|---|---|---|
+| Agganciate in automatico (fattura unica di pari netto) | 20 | 27.035 |
+| Proposte da confermare (più candidati di pari importo) | 6 | — |
+| Senza candidato singolo: serve la combinazione di più fatture | 33 | 336.773 |
+
+Fra quelle senza candidato, **7 hanno un importo tondo a migliaia** (10.000, 40.000: 94.000 € in
+tutto). Sono **acconti**, non pagamenti di una fattura: nessun importo esatto li chiuderà mai,
+vanno abbinati a mano come pagamento parziale. Le altre 26 hanno i centesimi, quindi o sono
+gruppi di più fatture (li lavora il motore dei pagamenti raggruppati) o la fattura corrispondente
+non è ancora a sistema.
