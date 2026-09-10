@@ -1,0 +1,4 @@
+-- ROLLBACK di 20260910_198 — toglie la traduzione MP01 → contanti dal trigger.
+-- Il corpo da ripristinare è quello della migration 20260909_196.
+-- Non riporta indietro le scadenze già passate a "contanti": per quelle usare il backup
+-- _bkp_mp01_contanti_20260910.

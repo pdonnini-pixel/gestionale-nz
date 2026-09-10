@@ -296,3 +296,21 @@ Dal 10/09/2026 funzionano tutti e tre davvero.
 - **La scadenza giusta di una spesa a carta** non è «a vista» né il piano del fornitore: è il
   **20 del mese successivo** alla fattura, quando la carta addebita il conto. Da lì in poi vale
   R15 (chiusura provvisoria alla scadenza).
+
+---
+
+### R17 — Il CODICE della fattura vince sul default del fornitore (per ora solo MP01)
+Il codice SDI della modalità di pagamento (`payables.payment_method_code`) veniva letto e salvato
+ma **non tradotto** nel metodo della scadenza, che restava quello del piano fornitore.
+- **Caso reale 10/09/2026:** HOTEL INN 1972/26, 77,00 €, fattura con «Contanti» nei dati di
+  pagamento e `payment_method_code = 'MP01'`, ma metodo `bonifico_ordinario`: restava fra le Aperte
+  come se ci fosse un bonifico da disporre, e la regola dei contanti (R15) non la vedeva.
+- **Regola (migr. 198):** `MP01 → contanti`, e vince su categoria e anagrafica, perché è il
+  documento a dire com'è stata pagata quella fornitura. Le date non si toccano: ci pensa R15.
+- **Gli altri codici NON si traducono in automatico**, di proposito: `MP12` non dice la variante
+  RiBa (30/60/90/120), che dipende dal piano del fornitore, e `MP19`/`MP16` hanno più varianti SDD.
+- **Da guardare a mano** (fotografia NZ al 10/09/2026): **10 scadenze aperte con MP12 trattate come
+  bonifico**, 18.530,12 €. Sette hanno il fornitore configurato a RiBa (REALCART riba_90, faliero
+  grafica riba_60, TANESINI riba_60) e tre no (MARF ×2, PROFASHION). Il rischio non è cosmetico:
+  se una RiBa finisce in una distinta bonifici si paga due volte, perché la banca incassa comunque
+  la ricevuta.
