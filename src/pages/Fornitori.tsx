@@ -86,6 +86,21 @@ const BASE_LABEL: Record<string, string> = {
   fine_mese: 'Fine mese',
 };
 
+// Campi che il sistema compila da solo leggendo la fattura elettronica del
+// fornitore (bridge A-Cube). Servono a distinguerli da quelli scritti a mano.
+const PROFILE_FIELD_LABEL: Record<string, string> = {
+  codice_fiscale: 'codice fiscale',
+  regime_fiscale: 'regime fiscale',
+  indirizzo: 'indirizzo',
+  cap: 'CAP',
+  citta: 'città',
+  provincia: 'provincia',
+  iban: 'IBAN',
+  piano_pagamento: 'modalità delle scadenze',
+  metodo_pagamento: 'metodo di pagamento',
+  categoria: 'categoria',
+};
+
 // Carica TUTTE le payables del tenant con colonne leggere (mai xml_content),
 // paginando a blocchi da 1000 per superare il cap righe di PostgREST. Gli
 // aggregati per-fornitore e i KPI vengono poi ricalcolati lato client e
@@ -991,6 +1006,18 @@ export default function Fornitori() {
             <Detail label="Città" value={[s.cap, s.citta, s.provincia ? `(${s.provincia})` : ''].filter(Boolean).join(' ')} />
             <Detail label="Email" value={s.email as string | null | undefined} />
             <Detail label="Telefono" value={s.telefono as string | null | undefined} />
+            {/* Da dove arriva il dato: i campi letti dalla fattura elettronica
+                sono compilati dal sistema, quelli non elencati sono a mano. */}
+            {Boolean(s.profile_from_invoice_at) && (
+              <div className="border-t border-slate-100 pt-1.5 mt-1.5 text-[11px] leading-snug text-slate-500">
+                Compilato leggendo la fattura del{' '}
+                {new Date(String(s.profile_from_invoice_at)).toLocaleDateString('it-IT')}
+                {((s.profile_from_invoice_fields as string[] | null) || []).length > 0 && (
+                  <>: {((s.profile_from_invoice_fields as string[] | null) || [])
+                    .map(f => PROFILE_FIELD_LABEL[f] || f).join(', ')}</>
+                )}
+              </div>
+            )}
           </div>
         </div>
         {/* Col 2: Condizioni & classificazione */}
