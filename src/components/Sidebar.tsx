@@ -70,7 +70,7 @@ function buildSections(labels: CompanyLabels): NavSection[] {
       items: [
         { to: '/banche', icon: Landmark, label: 'Banche', roles: ['super_advisor', 'ceo', 'cfo', 'contabile'] },
         { to: '/cash-flow', icon: TrendingUp, label: 'Cashflow', roles: ['super_advisor', 'ceo', 'cfo'] },
-        { to: '/fabbisogno', icon: Scale, label: 'Fabbisogno', roles: ['super_advisor', 'ceo', 'cfo'] },
+        { to: '/fabbisogno', icon: Scale, label: 'Fabbisogno', roles: ['super_advisor', 'ceo', 'cfo', 'contabile'] },
         { to: '/conto-economico', icon: BarChart3, label: 'Conto Economico', roles: ['super_advisor', 'ceo', 'cfo'] },
       ],
     },
