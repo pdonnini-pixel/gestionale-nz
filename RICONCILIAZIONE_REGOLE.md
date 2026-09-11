@@ -558,3 +558,29 @@ La 210 rimette insieme le due logiche. **Lezione:** prima di un `CREATE OR REPLA
 funzione condivisa, rileggere dal DB la versione corrente invece di partire da quella che si
 ricorda, e dopo l'applicazione ricontrollare che i rami degli altri ci siano ancora
 (`pg_get_functiondef` con una grep sulle parole chiave dell'altro intervento).
+
+### R25 — Su una fattura con acconto il bonifico coincide col RESIDUO, non col totale
+Trovato l'11/09/2026 rispondendo a Patrizio: «volevo sapere se c'era qualcosa da chiudere
+dalle distinte o dalla riconciliazione».
+
+- **Il fatto:** WOLF GROUP fattura 218, totale 79.683,24, acconto di 39.683,24 pagato ad agosto,
+  residuo **40.000,00 esatti**. Il 03/09 la distinta dispone proprio 40.000,00; il 04/09 esce un
+  flusso CBI con netto **40.000,00**. Nessuno li aveva messi insieme: 40.001,75 € fermi in
+  riconciliazione, e la fattura che risultava ancora scoperta per 40.000.
+- **Due motivi, entrambi nel motore:**
+  1. il confronto usava `p.gross_amount`, il TOTALE. Su una fattura pagata in due tranche il
+     totale non coincide mai col bonifico del saldo: coincide il **residuo**.
+  2. la fattura era esclusa da `bank_transaction_id IS NULL`, perché quel campo era già occupato
+     dal movimento dell'acconto. Una fattura ha **un solo campo** per il movimento ma può avere
+     **più pagamenti**: per le parziali quel vincolo non si applica.
+- **Regola (migr. 211):** si confronta `amount_remaining`; le fatture in stato `parziale` sono
+  candidate anche se già agganciate; il pagamento si **somma** ad `amount_paid` invece di
+  sovrascriverlo, così l'acconto precedente non sparisce.
+- **Perimetro misurato prima di applicare:** sui dati NZ la modifica produce **zero** nuovi
+  agganci automatici (l'unico caso aperto era WOLF, chiuso a mano prima della migration) e zero
+  proposte in più. Serve per il futuro: acconto più saldo è pratica normale coi fornitori grossi.
+- **Nota sulla lettura del log:** delle 305 proposte `to_confirm` presenti quel giorno, 220 erano
+  su movimenti già chiusi e 25 su fatture già agganciate, cioè **245 righe obsolete**; delle 60
+  vive, 59 avevano un importo diverso dalla fattura e l'unica con importo esatto era sbagliata
+  (un bonifico che nomina SE.PR.IN proposto contro una fattura CORPO VIGILI GIURATI: coincideva
+  solo l'importo). Il log delle proposte va letto sapendo che non si ripulisce da solo.
