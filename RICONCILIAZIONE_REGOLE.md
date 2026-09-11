@@ -584,3 +584,32 @@ dalle distinte o dalla riconciliazione».
   vive, 59 avevano un importo diverso dalla fattura e l'unica con importo esatto era sbagliata
   (un bonifico che nomina SE.PR.IN proposto contro una fattura CORPO VIGILI GIURATI: coincideva
   solo l'importo). Il log delle proposte va letto sapendo che non si ripulisce da solo.
+
+### R26 — Il pannello delle proposte non si ripulisce da solo, e il «no» va rispettato
+Trovato l'11/09/2026 ripulendo il pannello su richiesta di Patrizio.
+
+- **Il fatto:** 305 proposte da confermare, di cui vive solo 45. Le altre 260 erano morte:
+  220 su movimenti già riconciliati, 25 su fatture già agganciate a un altro movimento,
+  15 copie doppie della stessa identica proposta. Quattro coppie (movimento, fattura)
+  avevano **21-22 copie ciascuna**: 87 righe per quattro abbinamenti.
+- **La causa:** `try_match_bank_transaction` faceva sempre `INSERT`, senza guardare se per
+  quella coppia una proposta esistesse già. Girando più volte sugli stessi movimenti non
+  riconciliati, le righe si accumulavano.
+- **Il caso peggiore:** 23 proposte riguardavano coppie **già rifiutate**. Una persona dice
+  no e il sistema glielo ripropone. È il difetto che fa più danno, perché insegna a non
+  fidarsi del pannello.
+- **Regola (migr. 213):** tre guardie prima di proporre.
+  1. Movimento della banca (`fn_bank_own_movement`, gemella SQL di `BANK_OWN_MOVEMENT_RE`
+     nel frontend): nessuna proposta. Il filtro esisteva **solo** nel frontend, quindi il
+     motore continuava a generare proposte su rate di mutuo, fideiussioni e SDD Nexi: 20
+     delle 52 proposte vive erano di questo tipo.
+  2. Coppia già rifiutata: non si propone e non si applica, mai più.
+  3. Coppia già proposta: niente copie.
+- **Le due liste vanno tenute allineate.** `fn_bank_own_movement` in SQL e
+  `BANK_OWN_MOVEMENT_RE` in `src/lib/reconcileMatch.ts` dicono la stessa cosa in due posti:
+  se cambia una, cambiare l'altra. Il commento sulla funzione SQL lo ricorda.
+- **Esito:** da 305 proposte a 32, tutte vive. Nessuna riga cancellata: le 273 archiviate
+  sono passate a `rejected` con la motivazione scritta in `notes`, quindi si possono
+  rileggere e riaprire. Backup in `_bkp_reconlog_proposte_20260911`.
+- **Come leggere il pannello, d'ora in poi:** se una proposta compare, è viva. Prima non era
+  vero, e il numero in cima non voleva dire niente.
