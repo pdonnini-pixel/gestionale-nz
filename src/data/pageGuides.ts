@@ -1600,6 +1600,10 @@ export const PAGE_GUIDES: PageGuide[] = [
         "a": "Dall'ultimo cedolino chiuso presente in Dipendenti, per i netti, e dal prospetto contributivo dello stesso mese per lordo e contributi. L'F24 è la somma di ritenute e contributi a carico del dipendente (la differenza fra lordo e netto) più i contributi a carico azienda. Sono due uscite separate perché escono in due giorni diversi."
       },
       {
+        "q": "Che succede se due persone spuntano la stessa voce?",
+        "a": "Niente di male: la selezione è una sola, condivisa fra gli utenti dell'azienda, e una voce può essere obbligatoria o non esserlo. Se tu e Sabrina spuntate la stessa riga nello stesso momento, o se fai doppio clic sulla casella, resta una spunta sola e la pagina si riallinea da sé. Per vedere le spunte messe da un altro mentre eri sulla pagina, usa Ricarica in alto."
+      },
+      {
         "q": "Se spunto una fattura, il suo importo resta bloccato?",
         "a": "No. La spunta dice «questa è obbligatoria»; l'importo continua a essere letto dallo Scadenzario, quindi se la fattura viene pagata in parte o cambia, il numero qui si aggiorna da solo. Restano fissi solo gli importi calcolati di personale e IVA, che sono stime."
       },

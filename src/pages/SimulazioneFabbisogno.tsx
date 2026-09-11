@@ -34,7 +34,7 @@
 //  - obiettivo   → budget_confronto (rev_monthly) + IVA da daily_report_settings
 //  - realizzato  → daily_revenue del mese in corso
 // ─────────────────────────────────────────────────────────────────────────────
-import { useState, useEffect, useMemo, useCallback, Fragment } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef, Fragment } from 'react'
 import { useSearchParams, Link } from 'react-router-dom'
 import {
   Wallet, AlertTriangle, Download, Loader2, Info, RefreshCw, CheckCircle2,
@@ -196,6 +196,7 @@ export default function SimulazioneFabbisogno() {
   const [giorniRegistrati, setGiorniRegistrati] = useState(0)
   const [mustPay, setMustPay] = useState<MustPayRow[]>([])
   const [salvando, setSalvando] = useState<string | null>(null)
+  const [salvandoGruppo, setSalvandoGruppo] = useState(false)
   const [chiediAzzera, setChiediAzzera] = useState(false)
 
   /* ───── parametri ───── */
@@ -505,8 +506,42 @@ export default function SimulazioneFabbisogno() {
     (m.fiscal_deadline_id && `fisc-${m.fiscal_deadline_id}` === rigaId) ||
     m.item_ref === rigaId), [mustPay])
 
+  /** Righe con una scrittura in volo. È un ref e non uno state di proposito:
+   *  setSalvando diventa effettivo solo al render successivo, quindi due click
+   *  rapidi sulla stessa casella passavano entrambi il controllo e il secondo
+   *  insert sbatteva contro l'indice unico di cash_must_pay. */
+  const inVolo = useRef<Set<string>>(new Set())
+
+  /** Rilegge dal database la selezione di questa data obiettivo. È la via di
+   *  uscita da qualunque disallineamento: vince sempre quello che c'è scritto. */
+  const ricaricaMustPay = useCallback(async () => {
+    if (!COMPANY_ID) return
+    const { data, error } = await supabase.from('cash_must_pay')
+      .select('id, item_kind, payable_id, fiscal_deadline_id, item_ref')
+      .eq('company_id', COMPANY_ID).eq('horizon_date', orizzonte)
+    if (!error) setMustPay((data || []) as MustPayRow[])
+  }, [COMPANY_ID, orizzonte])
+
+  /** Recupera la riga già presente a database e la riallinea nello stato.
+   *  Serve quando l'insert trova il duplicato: qualcuno (un altro utente, un
+   *  altro click) l'ha già scritta, e il risultato voluto c'è comunque. */
+  const riallineaMustPay = useCallback(async (riga: RigaUscita) => {
+    if (!COMPANY_ID) return
+    let q = supabase.from('cash_must_pay')
+      .select('id, item_kind, payable_id, fiscal_deadline_id, item_ref')
+      .eq('company_id', COMPANY_ID).eq('horizon_date', orizzonte)
+    if (riga.id.startsWith('pay-')) q = q.eq('payable_id', riga.id.slice(4))
+    else if (riga.id.startsWith('fisc-')) q = q.eq('fiscal_deadline_id', riga.id.slice(5))
+    else q = q.eq('item_ref', riga.id)
+
+    const { data } = await q.maybeSingle()
+    if (data) setMustPay(prev => prev.some(m => m.id === (data as MustPayRow).id) ? prev : [...prev, data as MustPayRow])
+  }, [COMPANY_ID, orizzonte])
+
   const toggleRiga = useCallback(async (riga: RigaUscita, attiva: boolean) => {
     if (!COMPANY_ID || !canEdit || riga.automatico) return
+    if (inVolo.current.has(riga.id)) return
+    inVolo.current.add(riga.id)
     setSalvando(riga.id)
     try {
       if (!attiva) {
@@ -529,23 +564,77 @@ export default function SimulazioneFabbisogno() {
 
       const { data, error } = await supabase.from('cash_must_pay').insert(payload)
         .select('id, item_kind, payable_id, fiscal_deadline_id, item_ref').single()
-      if (error) throw error
+      if (error) {
+        // 23505 = la spunta c'è già. Non è un errore per chi guarda: la voce
+        // risulta obbligatoria, che è esattamente quello che aveva chiesto.
+        if (error.code === '23505') { await riallineaMustPay(riga); return }
+        throw error
+      }
       setMustPay(prev => [...prev, data as MustPayRow])
     } catch (err: unknown) {
       console.error('[SimulazioneFabbisogno] toggle:', err)
       toast({ type: 'error', message: 'Non sono riuscito a salvare la spunta: ' + ((err as Error).message || '') })
     } finally {
+      inVolo.current.delete(riga.id)
       setSalvando(null)
     }
-  }, [COMPANY_ID, canEdit, trovaMustPay, selezionati, orizzonte, profile?.id, toast])
+  }, [COMPANY_ID, canEdit, trovaMustPay, selezionati, orizzonte, profile?.id, toast, riallineaMustPay])
 
-  /** Spunta o toglie in blocco un gruppo di righe (una categoria, o il filtro attivo). */
+  /** Una operazione di gruppo alla volta: due click ravvicinati facevano
+   *  partire due cicli che si scrivevano addosso a vicenda. */
+  const gruppoInCorso = useRef(false)
+
+  /**
+   * Spunta o toglie in blocco un gruppo di righe (una categoria, un fornitore
+   * o il filtro attivo). Una sola scrittura per tutto il gruppo: «spunta tutte»
+   * su 155 voci faceva 155 insert in fila, lenti e con una finestra aperta in
+   * cui due click producevano righe in conflitto sull'indice unico.
+   */
   const spuntaGruppo = async (gruppo: RigaUscita[], attiva: boolean) => {
-    for (const r of gruppo) {
-      if (r.automatico) continue
-      const gia = selezionati.has(r.id)
-      if (attiva && !gia) await toggleRiga(r, true)
-      if (!attiva && gia) await toggleRiga(r, false)
+    if (!COMPANY_ID || !canEdit || gruppoInCorso.current) return
+    const candidate = gruppo.filter(r => !r.automatico)
+    if (candidate.length === 0) return
+
+    gruppoInCorso.current = true
+    setSalvandoGruppo(true)
+    try {
+      if (!attiva) {
+        const ids = candidate.map(r => trovaMustPay(r.id)?.id).filter((v): v is string => !!v)
+        if (ids.length === 0) return
+        const { error } = await supabase.from('cash_must_pay').delete().in('id', ids)
+        if (error) throw error
+        const rimossi = new Set(ids)
+        setMustPay(prev => prev.filter(m => !rimossi.has(m.id)))
+        return
+      }
+
+      const daInserire = candidate.filter(r => !selezionati.has(r.id))
+      if (daInserire.length === 0) return
+      const base = { company_id: COMPANY_ID, horizon_date: orizzonte, created_by: profile?.id ?? null }
+      const payloads = daInserire.map(r => (
+        r.id.startsWith('pay-')
+          ? { ...base, item_kind: 'payable', payable_id: r.id.slice(4) }
+          : r.id.startsWith('fisc-')
+            ? { ...base, item_kind: 'fiscal', fiscal_deadline_id: r.id.slice(5) }
+            : { ...base, item_kind: r.id.startsWith('payroll-') ? 'payroll' : 'manual', item_ref: r.id, label: r.fornitore, amount: r.importo }
+      ))
+
+      const { data, error } = await supabase.from('cash_must_pay').insert(payloads)
+        .select('id, item_kind, payable_id, fiscal_deadline_id, item_ref')
+      if (error) {
+        // 23505: una parte era già spuntata (altro utente, altro click). Non è
+        // un errore per chi guarda: si rilegge lo stato vero e si riallinea.
+        if (error.code === '23505') { await ricaricaMustPay(); return }
+        throw error
+      }
+      setMustPay(prev => [...prev, ...((data || []) as MustPayRow[])])
+    } catch (err: unknown) {
+      console.error('[SimulazioneFabbisogno] spuntaGruppo:', err)
+      toast({ type: 'error', message: 'Non sono riuscito a salvare le spunte: ' + ((err as Error).message || '') })
+      await ricaricaMustPay()
+    } finally {
+      gruppoInCorso.current = false
+      setSalvandoGruppo(false)
     }
   }
 
@@ -714,7 +803,7 @@ export default function SimulazioneFabbisogno() {
           <td className="px-3 py-2">
             <input type="checkbox" checked={tutte}
               ref={el => { if (el) el.indeterminate = !tutte && !nessuna }}
-              disabled={!canEdit || salvando !== null}
+              disabled={!canEdit || salvandoGruppo || salvando !== null}
               onChange={e => spuntaGruppo(g.righe, e.target.checked)}
               aria-label={`Classifica come obbligatoria tutta la posizione di ${g.fornitore}`}
               className="w-4 h-4 accent-indigo-600" />
@@ -887,10 +976,10 @@ export default function SimulazioneFabbisogno() {
                 {v.riba > 0 && <div className="text-[11px] text-amber-700 mt-0.5">{fmtEur(v.riba)} RiBa non spuntate</div>}
                 {canEdit && manuali.length > 0 && (
                   <div className="flex gap-1 mt-2">
-                    <button onClick={() => spuntaGruppo(manuali, true)}
-                      className="flex-1 px-2 py-1 rounded text-[11px] font-medium bg-slate-900 text-white hover:bg-slate-800">tutte</button>
-                    <button onClick={() => spuntaGruppo(manuali, false)}
-                      className="flex-1 px-2 py-1 rounded text-[11px] font-medium bg-white border border-slate-200 text-slate-600 hover:bg-slate-50">nessuna</button>
+                    <button onClick={() => spuntaGruppo(manuali, true)} disabled={salvandoGruppo}
+                      className="flex-1 px-2 py-1 rounded text-[11px] font-medium bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-50">tutte</button>
+                    <button onClick={() => spuntaGruppo(manuali, false)} disabled={salvandoGruppo}
+                      className="flex-1 px-2 py-1 rounded text-[11px] font-medium bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-50">nessuna</button>
                   </div>
                 )}
               </div>
@@ -956,10 +1045,11 @@ export default function SimulazioneFabbisogno() {
         {canEdit && (
           <div className="px-4 py-2 border-b border-slate-100 flex flex-wrap items-center gap-2 bg-slate-50">
             <span className="text-xs text-slate-500">Sulle {righeVisibili.length} voci mostrate:</span>
-            <button onClick={() => spuntaGruppo(righeVisibili, true)}
-              className="px-2.5 py-1 rounded-lg text-xs font-medium bg-white border border-slate-200 hover:bg-slate-100">spunta tutte</button>
-            <button onClick={() => spuntaGruppo(righeVisibili, false)}
-              className="px-2.5 py-1 rounded-lg text-xs font-medium bg-white border border-slate-200 hover:bg-slate-100">togli le spunte</button>
+            <button onClick={() => spuntaGruppo(righeVisibili, true)} disabled={salvandoGruppo}
+              className="px-2.5 py-1 rounded-lg text-xs font-medium bg-white border border-slate-200 hover:bg-slate-100 disabled:opacity-50">spunta tutte</button>
+            <button onClick={() => spuntaGruppo(righeVisibili, false)} disabled={salvandoGruppo}
+              className="px-2.5 py-1 rounded-lg text-xs font-medium bg-white border border-slate-200 hover:bg-slate-100 disabled:opacity-50">togli le spunte</button>
+            {salvandoGruppo && <span className="inline-flex items-center gap-1.5 text-xs text-slate-500"><Loader2 size={13} className="animate-spin" /> salvo…</span>}
           </div>
         )}
 
