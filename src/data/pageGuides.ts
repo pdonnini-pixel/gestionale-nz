@@ -518,6 +518,14 @@ export const PAGE_GUIDES: PageGuide[] = [
         "a": "Se il fornitore ha un piano con più rate, aggiungendo la scadenza le rate vengono già proposte tutte, con date e importi calcolati (parti uguali, l'ultima quadra il totale). Puoi anche costruirle a mano con \"Aggiungi rata\" e il cestino per toglierne: l'importante è che la somma delle rate coincida con l'importo totale. Alla creazione ogni rata diventa una riga dello scadenzario, numerata (rata 1/3, 2/3…)."
       },
       {
+        "q": "Vedo due righe della stessa fattura con la stessa data: è un doppione?",
+        "a": "Quasi mai. Sono due rate diverse dello stesso piano che vengono a cadere nello stesso giorno, e succede ogni volta che una rata slitta: se la prima non viene presentata alla sua scadenza e passa al mese dopo, finisce accanto alla seconda. Per distinguerle guarda il contatore della rata: dal 11 settembre 2026 ogni riga dice sempre \"1 di 3\", \"2 di 3\" e così via, e porta il proprio scaglione (Ri.Ba. 60, 90, 120). Prima molte righe non avevano né il totale né il metodo, e due rate identiche nello stesso giorno sembravano la stessa cosa scritta due volte. Se i contatori sono diversi non è un doppione: apri la fattura dal numero e confronta con il riquadro delle scadenze del documento, che è la fonte di verità. Un doppione vero, invece, è una riga che il gestionale ha già messo da parte: non compare più nell'elenco.",
+      },
+      {
+        "q": "Perché nella scheda di un fornitore che paghiamo con Ri.Ba. l'IBAN è vuoto?",
+        "a": "Perché quell'IBAN non c'è. Nelle fatture pagate con Ri.Ba. o con addebito diretto il campo IBAN del documento contiene il conto di CHI PAGA, cioè il nostro, non quello del fornitore: è il conto su cui la banca andrà a prendere i soldi. Fino al 10 settembre 2026 il gestionale lo leggeva come IBAN del fornitore e lo copiava in anagrafica: undici fornitori si sono trovati scritto il nostro conto MPS al posto del loro. Ora quel campo viene lasciato vuoto e il sistema rifiuta di scriverci dentro un IBAN che corrisponde a uno dei conti dell'azienda. Per una Ri.Ba. l'IBAN del fornitore non serve comunque a niente: quello che conta è la \"Banca di addebito\", cioè il conto da cui esce il denaro, che imposti nella scheda del fornitore.",
+      },
+      {
         "q": "Come creo o modifico una categoria di costo, e chi può farlo?",
         "a": "Premi \"Gestisci categorie\" sopra l'elenco delle scadenze: si apre un pannello con tutte le categorie. Con il pulsante \"Nuova categoria\" ne crei una (nome, gruppo contabile, colore); con l'icona matita cambi nome, gruppo o colore di una esistente. Il codice interno è generato in automatico e non si modifica. Creare e modificare categorie è riservato al ruolo super advisor; gli altri ruoli vedono il pannello in sola lettura. Nello stesso pannello, espandendo una categoria, vedi anche i fornitori collegati e quante fatture la usano."
       },

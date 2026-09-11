@@ -1509,3 +1509,92 @@ novembre 2025. Con quelli del 2026 i bonifici si chiudono.
 agganciato (885.043 €), contro 318 uscite 2026 aperte (902.041 €). Sono le due
 facce della stessa cosa: pagamenti registrati sulle fatture senza collegare il
 movimento bancario.
+
+---
+
+## 11/09/2026 — Le RiBa del 30/09, e tre cose che sembravano sbagliate e non lo erano
+
+Sabrina manda l'elenco delle ricevute bancarie in scadenza il 30/09. Nel
+confronto con lo scadenzario avevo segnalato tre anomalie. Due non esistevano.
+Vale la pena scriverlo, perché l'errore che ho fatto è lo stesso due volte:
+**ho guardato l'elenco invece del documento**.
+
+### TANESINI 8/1789: non era un doppione, erano due rate
+
+Due righe al 30/09 da 121,39 sembravano la stessa scadenza scritta due volte.
+La fattura dice altro. Il blocco `DatiPagamento` dichiara due `DettaglioPagamento`,
+entrambi `MP12` (Ri.Ba.): 31/08/2026 e 30/09/2026, 121,39 ciascuno. Il piano nel
+gestionale era corretto dall'inizio.
+
+Quello che mancava era il contatore: la riga non diceva «2 di 2», quindi due
+scadenze legittime erano indistinguibili da un doppione. Vedi la 215.
+
+### SHINE: la prima rata al 30/09 è uno slittamento deciso, non un errore
+
+Sulle fatture SHINE di giugno la rata 1 e la rata 2 cadono entrambe il 30/09.
+Sembrava un piano generato male. Invece le righe portano già
+`original_due_date = 2026-08-31`, `postponed_to = 2026-09-30`, `postpone_count = 1`
+e una nota esplicita: «Prima rata non presentata alla scadenza del 31/08/2026:
+non compare nelle distinte MPS di quella data. Sabrina conferma il 03/09 che
+slitta a settembre». Era una decisione presa e documentata il 03/09.
+
+**Lezione**: prima di chiamare sbagliata una data, leggere `original_due_date`,
+`postponed_to` e le note della riga. Se c'è uno slittamento tracciato, la data
+corrente è quella giusta e l'originale è già conservata.
+
+Le fatture SHINE non hanno mai `DatiPagamento`: il piano viene interamente dal
+profilo fornitore (60 gg fine mese, poi +30, 3 rate). La regola vera, ricavata
+confrontando i piani corretti con le scadenze dichiarate da TANESINI, è:
+**fine mese della fattura + `prima_scadenza_gg`, arrotondato a fine mese; le rate
+successive a +`payment_terms` giorni**. Una fattura del 25/06 con profilo 60 gg
+fine mese scade il 31/08, non il 31/07.
+
+### FALIERO 149/2026: qui avevamo torto noi
+
+La fattura dichiara **una sola** scadenza: `MP12`, 30/09/2026, 447,01. Il
+gestionale l'aveva spezzata in due rate da 223,51 e 223,50 seguendo il profilo
+fornitore (`numero_rate = 2`), le aveva chiuse entrambe come pagate senza nessun
+movimento bancario agganciato, e quando il 10/07 è arrivata la riga giusta da
+447,01 l'aveva annullata come doppione.
+
+Il doppione era l'inverso. Corretto l'11/09: la riga da 447,01 torna `da_pagare`
+come rata 1 di 1, le due inventate passano ad `annullato` con la motivazione
+scritta in nota. Nessuna riga cancellata.
+
+**Regola che ne esce, e che vale sempre**: quando la fattura dichiara le sue
+scadenze, il profilo fornitore non si applica. Nemmeno in parte. Il profilo serve
+ai documenti che sul pagamento tacciono — che sono la maggioranza, ma non tutti.
+
+### L'IBAN del fornitore che era il nostro conto
+
+Undici fornitori su NZ avevano in anagrafica l'IBAN del conto MPS di New Zago
+(uno aveva quello BCC). Non è un errore di battitura: nelle fatture con Ri.Ba. o
+addebito diretto il tag `<IBAN>` dentro `DatiPagamento` è il conto del
+**debitore**, perché è da lì che la banca preleva. TANESINI 8/1789, faliero
+149/2026 e S.R.T. 143 lo dichiarano tutte e tre, con
+`<IstitutoFinanziario>MONTE DEI PASCHI - REGGELLO</IstitutoFinanziario>`.
+
+La 204 lo copiava in anagrafica come IBAN del fornitore. La 216 svuota il campo
+e mette un trigger su `suppliers` che rifiuta qualunque IBAN presente in
+`bank_accounts` della stessa azienda. Il trigger sta sulla tabella e non dentro
+una funzione condivisa apposta: nessuna sessione parallela può toglierlo di mezzo
+riscrivendo `fn_supplier_profile_from_invoice`.
+
+Per una Ri.Ba. l'IBAN del fornitore non serve: conta il conto di addebito.
+
+### MIAN, le quattro note di credito «mancanti»
+
+Non mancano. Le NC 51, 56, 58 e 60 ci sono tutte, con documento, importo e rate.
+Nell'elenco della banca non compaiono perché la ricevuta bancaria viene
+presentata al lordo: la nota di credito si compensa per conto suo. È una
+differenza di metodo fra i due elenchi, non un documento perso da nessuna parte.
+
+### Vincoli da ricordare quando si rinumerano le rate
+
+`payables` ha **due** indici unici che contano anche le righe nascoste:
+`payables_company_supplier_invoice_installment_key` su
+(company, supplier, invoice_number, coalesce(installment_number, 0)) e
+`payables_company_einvoice_installment_uniq` su
+(company, electronic_invoice_id, coalesce(installment_number, 1)).
+Il secondo tratta `NULL` come 1, quindi **non si può svuotare** un numero di rata
+per liberare un posto. Per scambiare due numeri serve un valore d'appoggio.
