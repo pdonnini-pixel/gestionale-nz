@@ -1,0 +1,7 @@
+-- ROLLBACK di 20260911_211 — torna a confrontare il TOTALE della fattura invece del
+-- residuo, e a escludere le fatture che hanno già un movimento agganciato (quindi anche
+-- le parziali con acconto). Conseguenza: il bonifico che salda una fattura già pagata in
+-- parte non verrà più riconosciuto. Gli agganci già creati restano e si annullano dalla
+-- UI (Tesoreria → Riconciliazione → «Annulla abbinamento»).
+-- Il file da riapplicare è il precedente:
+--   supabase/migrations/20260910_203_match_importo_anche_fatture_gia_pagate.sql
