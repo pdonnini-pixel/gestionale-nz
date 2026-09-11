@@ -1612,6 +1612,10 @@ export const PAGE_GUIDES: PageGuide[] = [
         "a": "Sì. Ogni data ha la sua selezione, perché il piano di settembre non è quello di ottobre. Tornando alla data precedente ritrovi le spunte di prima."
       },
       {
+        "q": "Chi vede questa pagina e chi può mettere le spunte?",
+        "a": "La voce Fabbisogno nel menu Finanza è visibile a super advisor, CEO, CFO e contabile (amministrazione), oltre all'account di sola lettura. Le spunte, l'azzeramento e le correzioni di liquidità e incassi sono riservate ad amministrazione, CFO e super advisor: chi ha un altro ruolo consulta i numeri senza modificarli e vede un avviso di sola lettura sotto il prospetto."
+      },
+      {
         "q": "Cosa non viene conteggiato?",
         "a": "I costi ricorrenti non ancora fatturati, le RiBa presentate ma non ancora presenti in scadenzario e gli insoluti in corso di rientro. Se li conosci, tienine conto abbassando a mano la liquidità di partenza."
       }
