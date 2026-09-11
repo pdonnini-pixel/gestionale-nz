@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   buildLiquidazioni, dueDateLiquidazione, f24CodeIvaMensile, parseTaxPeriod, taxPeriod, titoloScadenzaIva,
+  leggiScadenzeIva, monthKey,
   type IvaComponentiMese, type IvaSettings, type IvaMeseConfermato,
 } from './ivaLiquidazione'
 
@@ -192,5 +193,54 @@ describe('importo scritto a mano su un mese confermato', () => {
   it('un importo a mano a credito resta negativo e si riporta al mese dopo', () => {
     const r = riga({ ...base, importo: -1_200, importo_manuale: true })
     expect(r.importo).toBe(-1_200)
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SCADENZE IVA GIÀ REGISTRATE (niente doppi conteggi)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('leggiScadenzeIva', () => {
+  it('legge il periodo nel formato MM/YYYY con cui viene scritto', () => {
+    // Riga vera NZ: «IVA mensile Agosto 2026», tax_period 08/2026, 38.772,66
+    const r = leggiScadenzeIva([{ tax_period: '08/2026', amount: 38_772.66, status: 'pending' }])
+    expect(r.giaAScadenzario.has('2026-08')).toBe(true)
+    expect(r.pagati).toHaveLength(0)
+  })
+
+  it('la chiave combacia con quella delle righe di liquidazione', () => {
+    const r = leggiScadenzeIva([{ tax_period: '08/2026', amount: 1, status: 'pending' }])
+    expect(r.giaAScadenzario.has(monthKey(2026, 8))).toBe(true)
+  })
+
+  it('un mese pagato entra fra i pagati e non fra quelli a scadenzario', () => {
+    const r = leggiScadenzeIva([{ tax_period: '07/2026', amount: 39_063.80, status: 'paid' }])
+    expect(r.pagati).toEqual([{ year: 2026, month: 7, amount: 39_063.80 }])
+    expect(r.giaAScadenzario.size).toBe(0)
+  })
+
+  it('gli stati diversi da pending e paid non contano', () => {
+    const r = leggiScadenzeIva([{ tax_period: '04/2026', amount: 0, status: 'cancelled' }])
+    expect(r.pagati).toHaveLength(0)
+    expect(r.giaAScadenzario.size).toBe(0)
+  })
+
+  it('un periodo scritto male o mancante viene ignorato senza rompere', () => {
+    const r = leggiScadenzeIva([
+      { tax_period: '2026-08', amount: 10, status: 'pending' },
+      { tax_period: null, amount: 10, status: 'pending' },
+      { tax_period: '13/2026', amount: 10, status: 'pending' },
+    ])
+    expect(r.giaAScadenzario.size).toBe(0)
+  })
+
+  it('mette insieme più mesi senza confonderli', () => {
+    const r = leggiScadenzeIva([
+      { tax_period: '06/2026', amount: 28_611.96, status: 'paid' },
+      { tax_period: '07/2026', amount: 39_063.80, status: 'paid' },
+      { tax_period: '08/2026', amount: 38_772.66, status: 'pending' },
+    ])
+    expect(r.pagati.map(p => p.month)).toEqual([6, 7])
+    expect([...r.giaAScadenzario]).toEqual(['2026-08'])
   })
 })

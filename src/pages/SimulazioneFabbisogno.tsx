@@ -55,7 +55,7 @@ import { todayYMD, lastDayOfMonthYMD } from '../lib/dateLocal'
 import { scomponiResiduo, SOGLIA_CENTESIMI } from '../lib/payableOpen'
 import {
   buildLiquidazioni, type IvaComponentiMese, type IvaSettings,
-  type IvaMeseConfermato, type IvaMesePagato, MESI_IVA,
+  type IvaMeseConfermato, MESI_IVA, leggiScadenzeIva, type ScadenzaIvaRegistrata,
 } from '../lib/ivaLiquidazione'
 import {
   calcolaPiano, previsioneIncassiMese, proiezioneGiornaliera, primoGiornoNegativo,
@@ -369,15 +369,10 @@ export default function SimulazioneFabbisogno() {
           importo: Number(r.importo ?? 0),
           importo_manuale: Boolean(r.importo_manuale),
         })) as IvaMeseConfermato[]
-        const pagati: IvaMesePagato[] = []
-        const ivaGiaAScadenzario = new Set<string>()
-        for (const r of ((ivaPagateRes.data || []) as { tax_period: string | null; amount: number | null; due_date: string; status: string }[])) {
-          const per = String(r.tax_period || '')
-          const m = per.match(/^(\d{4})-(\d{2})$/)
-          if (!m) continue
-          if (r.status === 'paid') pagati.push({ year: Number(m[1]), month: Number(m[2]), amount: Number(r.amount || 0) })
-          if (r.status === 'pending') ivaGiaAScadenzario.add(per)
-        }
+        // Le scadenze IVA già registrate si leggono con la stessa funzione che le
+        // scrive: il periodo è MM/YYYY, le righe della liquidazione sono YYYY-MM.
+        const { pagati, giaAScadenzario: ivaGiaAScadenzario } =
+          leggiScadenzeIva((ivaPagateRes.data || []) as ScadenzaIvaRegistrata[])
         const fine = new Date(orizzonte + 'T00:00:00')
         const righe = buildLiquidazioni({
           componenti, settings, confermati, pagati,

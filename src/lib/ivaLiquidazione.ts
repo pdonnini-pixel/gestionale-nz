@@ -325,3 +325,40 @@ export const STATO_LABEL: Record<StatoLiquidazione, string> = {
   in_corso: 'In corso',
   futura: 'Previsione',
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SCADENZE IVA GIÀ REGISTRATE
+//
+// Le liquidazioni che qualcuno ha già portato in Scadenze Fiscali vanno lette
+// da lì, non ricalcolate: contarle due volte gonfia il fabbisogno. Il periodo
+// in `fiscal_deadlines.tax_period` è scritto MM/YYYY (vedi `taxPeriod`), mentre
+// le righe della liquidazione si identificano con YYYY-MM (`monthKey`). È
+// esattamente il punto in cui i due formati si sono già scontrati una volta,
+// quindi la conversione sta qui, in un posto solo, con i suoi test.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface ScadenzaIvaRegistrata {
+  tax_period: string | null
+  amount: number | null
+  status: string
+}
+
+export interface ScadenzeIvaEsito {
+  /** Mesi con l'F24 risultante pagato: chiudono la catena del riporto. */
+  pagati: IvaMesePagato[]
+  /** Chiavi `monthKey` dei mesi che hanno già una scadenza aperta a
+   *  scadenzario: la loro liquidazione non va aggiunta una seconda volta. */
+  giaAScadenzario: Set<string>
+}
+
+export function leggiScadenzeIva(rows: readonly ScadenzaIvaRegistrata[]): ScadenzeIvaEsito {
+  const pagati: IvaMesePagato[] = []
+  const giaAScadenzario = new Set<string>()
+  for (const r of rows) {
+    const per = parseTaxPeriod(r.tax_period)
+    if (!per) continue
+    if (r.status === 'paid') pagati.push({ year: per.year, month: per.month, amount: Number(r.amount) || 0 })
+    if (r.status === 'pending') giaAScadenzario.add(monthKey(per.year, per.month))
+  }
+  return { pagati, giaAScadenzario }
+}
