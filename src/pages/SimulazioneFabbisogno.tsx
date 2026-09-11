@@ -34,12 +34,12 @@
 //  - obiettivo   → budget_confronto (rev_monthly) + IVA da daily_report_settings
 //  - realizzato  → daily_revenue del mese in corso
 // ─────────────────────────────────────────────────────────────────────────────
-import { useState, useEffect, useMemo, useCallback, Fragment } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef, Fragment } from 'react'
 import { useSearchParams, Link } from 'react-router-dom'
 import {
   Wallet, AlertTriangle, Download, Loader2, Info, RefreshCw, CheckCircle2,
   Building2, ExternalLink, Search, X, Target, TrendingUp, TrendingDown, Lock,
-  Eraser, Zap, FileWarning, ChevronRight, ChevronDown,
+  Eraser, Zap, FileWarning, ChevronRight, ChevronDown, Send,
 } from 'lucide-react'
 import {
   ComposedChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine,
@@ -52,9 +52,10 @@ import PageHeader from '../components/PageHeader'
 import { Modal } from '../components/ui/Modal'
 import { GlassTooltip, AXIS_STYLE, GRID_STYLE } from '../components/ChartTheme'
 import { todayYMD, lastDayOfMonthYMD } from '../lib/dateLocal'
+import { scomponiResiduo, SOGLIA_CENTESIMI } from '../lib/payableOpen'
 import {
   buildLiquidazioni, type IvaComponentiMese, type IvaSettings,
-  type IvaMeseConfermato, type IvaMesePagato, MESI_IVA,
+  type IvaMeseConfermato, MESI_IVA, leggiScadenzeIva, type ScadenzaIvaRegistrata,
 } from '../lib/ivaLiquidazione'
 import {
   calcolaPiano, previsioneIncassiMese, proiezioneGiornaliera, primoGiornoNegativo,
@@ -130,6 +131,7 @@ interface PayableViewRow {
   invoice_date: string | null
   due_date: string | null
   amount_remaining: number | null
+  amount_paid: number | null
   macro_group: string | null
   cost_category_name: string | null
   payment_method: string | null
@@ -188,6 +190,8 @@ export default function SimulazioneFabbisogno() {
   const [errore, setErrore] = useState<string | null>(null)
   const [conti, setConti] = useState<ContoRow[]>([])
   const [payables, setPayables] = useState<PayableViewRow[]>([])
+  /** Quanto di ogni fattura è già disposto in distinta, per payable_id. */
+  const [disposto, setDisposto] = useState<Map<string, number>>(new Map())
   const [fiscali, setFiscali] = useState<FiscalRow[]>([])
   const [costoPersonale, setCostoPersonale] = useState<CostoPersonale | null>(null)
   const [ivaAttese, setIvaAttese] = useState<{ ref: string; etichetta: string; data: string; importo: number }[]>([])
@@ -196,6 +200,7 @@ export default function SimulazioneFabbisogno() {
   const [giorniRegistrati, setGiorniRegistrati] = useState(0)
   const [mustPay, setMustPay] = useState<MustPayRow[]>([])
   const [salvando, setSalvando] = useState<string | null>(null)
+  const [salvandoGruppo, setSalvandoGruppo] = useState(false)
   const [chiediAzzera, setChiediAzzera] = useState(false)
 
   /* ───── parametri ───── */
@@ -214,6 +219,7 @@ export default function SimulazioneFabbisogno() {
   const [vista, setVista] = useState<'fornitore' | 'scadenza'>('fornitore')
   const [aperti, setAperti] = useState<Set<string>>(new Set())
   const [mostraAutomatici, setMostraAutomatici] = useState(false)
+  const [mostraImpegnati, setMostraImpegnati] = useState(false)
 
   /* ───── caricamento ───── */
   const loadData = useCallback(async () => {
@@ -250,11 +256,30 @@ export default function SimulazioneFabbisogno() {
 
       const payRows = await fetchAllPaged<PayableViewRow>(
         (from, to) => supabase.from('v_payables_operative')
-          .select('id, supplier_id, supplier_name, supplier_ragione_sociale, invoice_number, invoice_date, due_date, amount_remaining, macro_group, cost_category_name, payment_method, is_auto_debit, status')
+          .select('id, supplier_id, supplier_name, supplier_ragione_sociale, invoice_number, invoice_date, due_date, amount_remaining, amount_paid, macro_group, cost_category_name, payment_method, is_auto_debit, status')
           .eq('company_id', COMPANY_ID).lte('due_date', orizzonte).gt('amount_remaining', 0)
           .order('id', { ascending: true }).range(from, to),
         'v_payables_operative',
       )
+
+      // Disposizioni già in distinta: stessa lettura dello Scadenzario, così le
+      // due pagine non possono dire due cose diverse sulla stessa fattura.
+      // Join filtrato su payables invece di .in(ids): l'URL resta corto anche
+      // con centinaia di scadenze.
+      const dispRows = await fetchAllPaged<{ payable_id: string | null; amount: number | null }>(
+        (from, to) => supabase.from('payable_actions')
+          .select('payable_id, amount, performed_at, payables!inner(company_id)')
+          .eq('action_type', 'disposizione').eq('payables.company_id', COMPANY_ID)
+          .order('performed_at', { ascending: false }).order('payable_id', { ascending: true })
+          .range(from, to),
+        'payable_actions disposizione',
+      )
+      const dispMap = new Map<string, number>()
+      for (const d of dispRows) {
+        if (!d.payable_id) continue
+        dispMap.set(d.payable_id, (dispMap.get(d.payable_id) || 0) + (Number(d.amount) || 0))
+      }
+      setDisposto(dispMap)
 
       const ricaviRows = await fetchAllPaged<{ id: string; date: string; gross_revenue: number | null }>(
         (from, to) => supabase.from('daily_revenue').select('id, date, gross_revenue')
@@ -341,16 +366,13 @@ export default function SimulazioneFabbisogno() {
           iva_debito_corrispettivi: Number(r.iva_debito_corrispettivi ?? 0),
           iva_debito_fatture_attive: Number(r.iva_debito_fatture_attive ?? 0),
           iva_credito: Number(r.iva_credito ?? 0),
+          importo: Number(r.importo ?? 0),
+          importo_manuale: Boolean(r.importo_manuale),
         })) as IvaMeseConfermato[]
-        const pagati: IvaMesePagato[] = []
-        const ivaGiaAScadenzario = new Set<string>()
-        for (const r of ((ivaPagateRes.data || []) as { tax_period: string | null; amount: number | null; due_date: string; status: string }[])) {
-          const per = String(r.tax_period || '')
-          const m = per.match(/^(\d{4})-(\d{2})$/)
-          if (!m) continue
-          if (r.status === 'paid') pagati.push({ year: Number(m[1]), month: Number(m[2]), amount: Number(r.amount || 0) })
-          if (r.status === 'pending') ivaGiaAScadenzario.add(per)
-        }
+        // Le scadenze IVA già registrate si leggono con la stessa funzione che le
+        // scrive: il periodo è MM/YYYY, le righe della liquidazione sono YYYY-MM.
+        const { pagati, giaAScadenzario: ivaGiaAScadenzario } =
+          leggiScadenzeIva((ivaPagateRes.data || []) as ScadenzaIvaRegistrata[])
         const fine = new Date(orizzonte + 'T00:00:00')
         const righe = buildLiquidazioni({
           componenti, settings, confermati, pagati,
@@ -424,18 +446,45 @@ export default function SimulazioneFabbisogno() {
       const scaduta = !!p.due_date && p.due_date < oggi
       if (scaduta && !includiArretrato) continue
       const fornitore = p.supplier_ragione_sociale || p.supplier_name || 'Fornitore da attribuire'
+      const key = fasciaDaMacroGroup(p.macro_group)
+      const link = linkScadenzario(p.supplier_id, p.invoice_number, fornitore)
+      // Stessa scomposizione dello Scadenzario: la quota già in distinta è un
+      // impegno preso, quella che resta è l'unica su cui si può ancora decidere.
+      const q = scomponiResiduo({
+        residuo: p.amount_remaining,
+        giaPagato: p.amount_paid,
+        dispostoNetto: disposto.has(p.id) ? disposto.get(p.id) : null,
+      })
+
+      if (q.dispPending > SOGLIA_CENTESIMI) {
+        out.push({
+          id: `disp-${p.id}`,
+          key,
+          descrizione: 'Bonifico già disposto in distinta',
+          fornitore,
+          documento: p.invoice_number,
+          emissione: p.invoice_date,
+          scadenza: p.due_date,
+          importo: Math.min(q.dispPending, Number(p.amount_remaining || 0)),
+          automatico: false,
+          impegnato: true,
+          link,
+        })
+      }
+      if (q.residuoAperto <= SOGLIA_CENTESIMI) continue
+
       out.push({
         id: `pay-${p.id}`,
-        key: fasciaDaMacroGroup(p.macro_group),
+        key,
         descrizione: p.cost_category_name || 'Senza categoria',
         fornitore,
         documento: p.invoice_number,
         emissione: p.invoice_date,
         scadenza: p.due_date,
-        importo: Number(p.amount_remaining || 0),
+        importo: q.residuoAperto,
         automatico: isPagamentoAutomatico(p.payment_method, p.is_auto_debit),
         riba: isRiba(p.payment_method),
-        link: linkScadenzario(p.supplier_id, p.invoice_number, fornitore),
+        link,
       })
     }
 
@@ -487,7 +536,7 @@ export default function SimulazioneFabbisogno() {
     }
 
     return out.sort((a, b) => ((a.scadenza || '') < (b.scadenza || '') ? -1 : 1))
-  }, [payables, fiscali, ivaAttese, includiIva, vociDelPersonale, includiArretrato, oggi])
+  }, [payables, disposto, fiscali, ivaAttese, includiIva, vociDelPersonale, includiArretrato, oggi])
 
   /* ───── selezione ───── */
   const selezionati = useMemo(() => {
@@ -505,8 +554,42 @@ export default function SimulazioneFabbisogno() {
     (m.fiscal_deadline_id && `fisc-${m.fiscal_deadline_id}` === rigaId) ||
     m.item_ref === rigaId), [mustPay])
 
+  /** Righe con una scrittura in volo. È un ref e non uno state di proposito:
+   *  setSalvando diventa effettivo solo al render successivo, quindi due click
+   *  rapidi sulla stessa casella passavano entrambi il controllo e il secondo
+   *  insert sbatteva contro l'indice unico di cash_must_pay. */
+  const inVolo = useRef<Set<string>>(new Set())
+
+  /** Rilegge dal database la selezione di questa data obiettivo. È la via di
+   *  uscita da qualunque disallineamento: vince sempre quello che c'è scritto. */
+  const ricaricaMustPay = useCallback(async () => {
+    if (!COMPANY_ID) return
+    const { data, error } = await supabase.from('cash_must_pay')
+      .select('id, item_kind, payable_id, fiscal_deadline_id, item_ref')
+      .eq('company_id', COMPANY_ID).eq('horizon_date', orizzonte)
+    if (!error) setMustPay((data || []) as MustPayRow[])
+  }, [COMPANY_ID, orizzonte])
+
+  /** Recupera la riga già presente a database e la riallinea nello stato.
+   *  Serve quando l'insert trova il duplicato: qualcuno (un altro utente, un
+   *  altro click) l'ha già scritta, e il risultato voluto c'è comunque. */
+  const riallineaMustPay = useCallback(async (riga: RigaUscita) => {
+    if (!COMPANY_ID) return
+    let q = supabase.from('cash_must_pay')
+      .select('id, item_kind, payable_id, fiscal_deadline_id, item_ref')
+      .eq('company_id', COMPANY_ID).eq('horizon_date', orizzonte)
+    if (riga.id.startsWith('pay-')) q = q.eq('payable_id', riga.id.slice(4))
+    else if (riga.id.startsWith('fisc-')) q = q.eq('fiscal_deadline_id', riga.id.slice(5))
+    else q = q.eq('item_ref', riga.id)
+
+    const { data } = await q.maybeSingle()
+    if (data) setMustPay(prev => prev.some(m => m.id === (data as MustPayRow).id) ? prev : [...prev, data as MustPayRow])
+  }, [COMPANY_ID, orizzonte])
+
   const toggleRiga = useCallback(async (riga: RigaUscita, attiva: boolean) => {
-    if (!COMPANY_ID || !canEdit || riga.automatico) return
+    if (!COMPANY_ID || !canEdit || riga.automatico || riga.impegnato) return
+    if (inVolo.current.has(riga.id)) return
+    inVolo.current.add(riga.id)
     setSalvando(riga.id)
     try {
       if (!attiva) {
@@ -529,23 +612,77 @@ export default function SimulazioneFabbisogno() {
 
       const { data, error } = await supabase.from('cash_must_pay').insert(payload)
         .select('id, item_kind, payable_id, fiscal_deadline_id, item_ref').single()
-      if (error) throw error
+      if (error) {
+        // 23505 = la spunta c'è già. Non è un errore per chi guarda: la voce
+        // risulta obbligatoria, che è esattamente quello che aveva chiesto.
+        if (error.code === '23505') { await riallineaMustPay(riga); return }
+        throw error
+      }
       setMustPay(prev => [...prev, data as MustPayRow])
     } catch (err: unknown) {
       console.error('[SimulazioneFabbisogno] toggle:', err)
       toast({ type: 'error', message: 'Non sono riuscito a salvare la spunta: ' + ((err as Error).message || '') })
     } finally {
+      inVolo.current.delete(riga.id)
       setSalvando(null)
     }
-  }, [COMPANY_ID, canEdit, trovaMustPay, selezionati, orizzonte, profile?.id, toast])
+  }, [COMPANY_ID, canEdit, trovaMustPay, selezionati, orizzonte, profile?.id, toast, riallineaMustPay])
 
-  /** Spunta o toglie in blocco un gruppo di righe (una categoria, o il filtro attivo). */
+  /** Una operazione di gruppo alla volta: due click ravvicinati facevano
+   *  partire due cicli che si scrivevano addosso a vicenda. */
+  const gruppoInCorso = useRef(false)
+
+  /**
+   * Spunta o toglie in blocco un gruppo di righe (una categoria, un fornitore
+   * o il filtro attivo). Una sola scrittura per tutto il gruppo: «spunta tutte»
+   * su 155 voci faceva 155 insert in fila, lenti e con una finestra aperta in
+   * cui due click producevano righe in conflitto sull'indice unico.
+   */
   const spuntaGruppo = async (gruppo: RigaUscita[], attiva: boolean) => {
-    for (const r of gruppo) {
-      if (r.automatico) continue
-      const gia = selezionati.has(r.id)
-      if (attiva && !gia) await toggleRiga(r, true)
-      if (!attiva && gia) await toggleRiga(r, false)
+    if (!COMPANY_ID || !canEdit || gruppoInCorso.current) return
+    const candidate = gruppo.filter(r => !r.automatico && !r.impegnato)
+    if (candidate.length === 0) return
+
+    gruppoInCorso.current = true
+    setSalvandoGruppo(true)
+    try {
+      if (!attiva) {
+        const ids = candidate.map(r => trovaMustPay(r.id)?.id).filter((v): v is string => !!v)
+        if (ids.length === 0) return
+        const { error } = await supabase.from('cash_must_pay').delete().in('id', ids)
+        if (error) throw error
+        const rimossi = new Set(ids)
+        setMustPay(prev => prev.filter(m => !rimossi.has(m.id)))
+        return
+      }
+
+      const daInserire = candidate.filter(r => !selezionati.has(r.id))
+      if (daInserire.length === 0) return
+      const base = { company_id: COMPANY_ID, horizon_date: orizzonte, created_by: profile?.id ?? null }
+      const payloads = daInserire.map(r => (
+        r.id.startsWith('pay-')
+          ? { ...base, item_kind: 'payable', payable_id: r.id.slice(4) }
+          : r.id.startsWith('fisc-')
+            ? { ...base, item_kind: 'fiscal', fiscal_deadline_id: r.id.slice(5) }
+            : { ...base, item_kind: r.id.startsWith('payroll-') ? 'payroll' : 'manual', item_ref: r.id, label: r.fornitore, amount: r.importo }
+      ))
+
+      const { data, error } = await supabase.from('cash_must_pay').insert(payloads)
+        .select('id, item_kind, payable_id, fiscal_deadline_id, item_ref')
+      if (error) {
+        // 23505: una parte era già spuntata (altro utente, altro click). Non è
+        // un errore per chi guarda: si rilegge lo stato vero e si riallinea.
+        if (error.code === '23505') { await ricaricaMustPay(); return }
+        throw error
+      }
+      setMustPay(prev => [...prev, ...((data || []) as MustPayRow[])])
+    } catch (err: unknown) {
+      console.error('[SimulazioneFabbisogno] spuntaGruppo:', err)
+      toast({ type: 'error', message: 'Non sono riuscito a salvare le spunte: ' + ((err as Error).message || '') })
+      await ricaricaMustPay()
+    } finally {
+      gruppoInCorso.current = false
+      setSalvandoGruppo(false)
     }
   }
 
@@ -600,10 +737,15 @@ export default function SimulazioneFabbisogno() {
   const totaleAutomatico = useMemo(
     () => righeAutomatiche.reduce((s, r) => s + r.importo, 0), [righeAutomatiche])
 
+  /** Bonifici già disposti in distinta: impegno preso, fuori dalle decisioni. */
+  const righeImpegnate = useMemo(() => righe.filter(r => r.impegnato), [righe])
+  const totaleImpegnato = useMemo(
+    () => righeImpegnate.reduce((s, r) => s + r.importo, 0), [righeImpegnate])
+
   const righeVisibili = useMemo(() => {
     const q = ricerca.trim().toLowerCase()
     return righe.filter(r => {
-      if (r.automatico) return false
+      if (r.automatico || r.impegnato) return false
       if (filtro === 'scadute' && !(r.scadenza && r.scadenza < oggi)) return false
       if (filtro === 'riba' && !r.riba) return false
       if (filtro !== 'tutte' && filtro !== 'scadute' && filtro !== 'riba' && r.key !== filtro) return false
@@ -617,14 +759,15 @@ export default function SimulazioneFabbisogno() {
     [righeVisibili, selezionati, oggi])
 
   const perFascia = useMemo(() => {
-    const m = new Map<FasciaKey, { righe: RigaUscita[]; tot: number; obbl: number; auto: number; riba: number }>()
-    for (const k of FASCE_ORDINE_DEFAULT) m.set(k, { righe: [], tot: 0, obbl: 0, auto: 0, riba: 0 })
+    const m = new Map<FasciaKey, { righe: RigaUscita[]; tot: number; obbl: number; auto: number; imp: number; riba: number }>()
+    for (const k of FASCE_ORDINE_DEFAULT) m.set(k, { righe: [], tot: 0, obbl: 0, auto: 0, imp: 0, riba: 0 })
     for (const r of righe) {
       const acc = m.get(r.key)!
       acc.righe.push(r)
       acc.tot += r.importo
       if (isObbligatoria(r, selezionati)) acc.obbl += r.importo
       if (r.automatico) acc.auto += r.importo
+      if (r.impegnato) acc.imp += r.importo
       if (r.riba && !isObbligatoria(r, selezionati)) acc.riba += r.importo
     }
     return m
@@ -641,7 +784,10 @@ export default function SimulazioneFabbisogno() {
       ['Obbligatoria', 'Motivo', 'Categoria', 'Voce', 'Documento', 'Scadenza', 'Importo'],
       ...righe.map(r => [
         isObbligatoria(r, selezionati) ? 'si' : 'no',
-        r.automatico ? 'addebito automatico' : selezionati.has(r.id) ? 'scelta' : r.riba ? 'RiBa non spuntata: insoluto' : '',
+        r.automatico ? 'addebito automatico'
+          : r.impegnato ? 'già disposto in distinta'
+            : selezionati.has(r.id) ? 'scelta'
+              : r.riba ? 'RiBa non spuntata: insoluto' : '',
         FASCIA_LABEL[r.key], r.fornitore, r.documento || '', r.scadenza || '', r.importo.toFixed(2),
       ]),
     ]
@@ -714,7 +860,7 @@ export default function SimulazioneFabbisogno() {
           <td className="px-3 py-2">
             <input type="checkbox" checked={tutte}
               ref={el => { if (el) el.indeterminate = !tutte && !nessuna }}
-              disabled={!canEdit || salvando !== null}
+              disabled={!canEdit || salvandoGruppo || salvando !== null}
               onChange={e => spuntaGruppo(g.righe, e.target.checked)}
               aria-label={`Classifica come obbligatoria tutta la posizione di ${g.fornitore}`}
               className="w-4 h-4 accent-indigo-600" />
@@ -869,7 +1015,9 @@ export default function SimulazioneFabbisogno() {
             Gli impegni con scadenza entro il {fmtData(orizzonte)} su cui hai una scelta: fatture, imposte, personale.
             Spunta quelli a cui non vuoi dire di no. Le fatture sono raggruppate per fornitore, in ordine di emissione,
             così apri una posizione e decidi tutta insieme. SDD, RID e carte non compaiono: escono dal conto da soli,
-            sono già scalati dalle risorse e li trovi riassunti qui sotto.
+            sono già scalati dalle risorse e li trovi riassunti qui sotto, insieme ai bonifici già
+            disposti in distinta. Gli importi sono quelli aperti dello Scadenzario: quanto è già in
+            distinta non torna in discussione.
           </div>
         </div>
 
@@ -877,20 +1025,21 @@ export default function SimulazioneFabbisogno() {
         <div className="p-4 border-b border-slate-100 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
           {FASCE_ORDINE_DEFAULT.map(k => {
             const v = perFascia.get(k)!
-            const manuali = v.righe.filter(r => !r.automatico)
+            const manuali = v.righe.filter(r => !r.automatico && !r.impegnato)
             return (
               <div key={k} className="rounded-lg border border-slate-200 p-3">
                 <span className={`px-2 py-0.5 rounded text-xs font-medium ${FASCIA_COLOR[k]}`}>{FASCIA_LABEL[k]}</span>
                 <div className="mt-2 text-sm font-semibold text-slate-900">{fmtEur(v.obbl)}</div>
                 <div className="text-xs text-slate-500">su {fmtEur(v.tot)} · {v.righe.length} voci</div>
                 {v.auto > 0 && <div className="text-[11px] text-red-600 mt-0.5">{fmtEur(v.auto)} automatici</div>}
+                {v.imp > 0 && <div className="text-[11px] text-sky-700 mt-0.5">{fmtEur(v.imp)} già in distinta</div>}
                 {v.riba > 0 && <div className="text-[11px] text-amber-700 mt-0.5">{fmtEur(v.riba)} RiBa non spuntate</div>}
                 {canEdit && manuali.length > 0 && (
                   <div className="flex gap-1 mt-2">
-                    <button onClick={() => spuntaGruppo(manuali, true)}
-                      className="flex-1 px-2 py-1 rounded text-[11px] font-medium bg-slate-900 text-white hover:bg-slate-800">tutte</button>
-                    <button onClick={() => spuntaGruppo(manuali, false)}
-                      className="flex-1 px-2 py-1 rounded text-[11px] font-medium bg-white border border-slate-200 text-slate-600 hover:bg-slate-50">nessuna</button>
+                    <button onClick={() => spuntaGruppo(manuali, true)} disabled={salvandoGruppo}
+                      className="flex-1 px-2 py-1 rounded text-[11px] font-medium bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-50">tutte</button>
+                    <button onClick={() => spuntaGruppo(manuali, false)} disabled={salvandoGruppo}
+                      className="flex-1 px-2 py-1 rounded text-[11px] font-medium bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-50">nessuna</button>
                   </div>
                 )}
               </div>
@@ -953,13 +1102,42 @@ export default function SimulazioneFabbisogno() {
           </div>
         )}
 
+        {righeImpegnate.length > 0 && (
+          <div className="px-4 py-2.5 border-b border-slate-100 bg-sky-50/70 text-sm text-sky-900">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <Send size={15} className="shrink-0" />
+              <span>
+                <strong>{fmtEur(totaleImpegnato, 2)}</strong> di bonifici già disposti in distinta
+                su {righeImpegnate.length} {righeImpegnate.length === 1 ? 'fattura' : 'fatture'}:
+                impegno già preso, come li vedi in Scadenzario.
+              </span>
+              <button type="button" onClick={() => setMostraImpegnati(v => !v)}
+                aria-expanded={mostraImpegnati}
+                className="text-xs font-medium underline underline-offset-2 hover:text-sky-950">
+                {mostraImpegnati ? 'nascondi il dettaglio' : 'vedi il dettaglio'}
+              </button>
+            </div>
+            {mostraImpegnati && (
+              <ul className="mt-2 pl-6 space-y-0.5 text-xs text-sky-800 max-h-40 overflow-y-auto">
+                {righeImpegnate.map(r => (
+                  <li key={r.id} className="flex justify-between gap-3">
+                    <span className="truncate">{r.fornitore}{r.documento ? ` · ${r.documento}` : ''} · {fmtData(r.scadenza)}</span>
+                    <span className="shrink-0 font-medium">{fmtEur(r.importo, 2)}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+
         {canEdit && (
           <div className="px-4 py-2 border-b border-slate-100 flex flex-wrap items-center gap-2 bg-slate-50">
             <span className="text-xs text-slate-500">Sulle {righeVisibili.length} voci mostrate:</span>
-            <button onClick={() => spuntaGruppo(righeVisibili, true)}
-              className="px-2.5 py-1 rounded-lg text-xs font-medium bg-white border border-slate-200 hover:bg-slate-100">spunta tutte</button>
-            <button onClick={() => spuntaGruppo(righeVisibili, false)}
-              className="px-2.5 py-1 rounded-lg text-xs font-medium bg-white border border-slate-200 hover:bg-slate-100">togli le spunte</button>
+            <button onClick={() => spuntaGruppo(righeVisibili, true)} disabled={salvandoGruppo}
+              className="px-2.5 py-1 rounded-lg text-xs font-medium bg-white border border-slate-200 hover:bg-slate-100 disabled:opacity-50">spunta tutte</button>
+            <button onClick={() => spuntaGruppo(righeVisibili, false)} disabled={salvandoGruppo}
+              className="px-2.5 py-1 rounded-lg text-xs font-medium bg-white border border-slate-200 hover:bg-slate-100 disabled:opacity-50">togli le spunte</button>
+            {salvandoGruppo && <span className="inline-flex items-center gap-1.5 text-xs text-slate-500"><Loader2 size={13} className="animate-spin" /> salvo…</span>}
           </div>
         )}
 
@@ -1006,6 +1184,11 @@ export default function SimulazioneFabbisogno() {
           {piano.obbligatorioAutomatico > 0 && (
             <span className="text-red-600 inline-flex items-center gap-1">
               <Zap size={12} /> {fmtEur(piano.obbligatorioAutomatico)} inclusi d'ufficio come addebiti automatici
+            </span>
+          )}
+          {totaleImpegnato > 0 && (
+            <span className="text-sky-700 inline-flex items-center gap-1">
+              <Send size={12} /> {fmtEur(totaleImpegnato)} già disposti in distinta
             </span>
           )}
         </div>

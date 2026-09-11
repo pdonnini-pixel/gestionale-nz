@@ -1547,6 +1547,14 @@ export const PAGE_GUIDES: PageGuide[] = [
         ]
       },
       {
+        "heading": "Allineamento con lo Scadenzario",
+        "body": "Gli importi delle fatture sono quelli APERTI dello Scadenzario, non il residuo grezzo. La differenza si vede quando un bonifico è già stato messo in distinta: quella quota è un impegno preso, la banca la addebiterà, e non ha senso rimetterla in discussione. Compare quindi in una striscia azzurra sopra l'elenco, «bonifici già disposti in distinta», conteggiata fra gli impegni ma fuori dalle voci da decidere, esattamente come la vedi marcata «In distinta» nello Scadenzario. Se di una fattura è stato disposto solo un acconto, in elenco resta la differenza ancora da pagare. Restano fuori da entrambe le pagine, perché non sono debito da saldare, le righe segnaposto e le integrazioni reverse charge (TD16-TD19), che sono documenti a sé e non comportano un'uscita.",
+        "steps": [
+          "Apri «vedi il dettaglio» nella striscia azzurra per sapere quali bonifici sono già partiti.",
+          "Se un importo non torna con lo Scadenzario, controlla se quella fattura ha una disposizione aperta."
+        ]
+      },
+      {
         "heading": "Addebiti automatici e RiBa: due cose diverse",
         "body": "SDD, RID e addebiti su carta partono dal conto alla scadenza per un mandato dato al creditore: nessuno li dispone e nessuno li può fermare. Siccome non c'è niente da decidere, non compaiono nell'elenco: sarebbero righe da scorrere a vuoto. Stanno in una striscia rossa sopra la tabella, con il totale e il numero di voci, e sono già scalati dalle risorse disponibili; «vedi il dettaglio» apre l'elenco completo se vuoi controllarlo. Le RiBa sono un'altra cosa: una ricevuta bancaria si può lasciare impagata, torna insoluta al fornitore e costa in commissioni e in rapporto, ma resta una decisione. Per questo restano in elenco con la spunta libera e l'etichetta ambra «RiBa», e se ne lasci qualcuna fuori dagli obbligatori compare un avviso che ti ricorda cosa comporta. Le imposte non sono automatiche: l'F24 va sempre disposto.",
         "steps": [
@@ -1598,6 +1606,14 @@ export const PAGE_GUIDES: PageGuide[] = [
       {
         "q": "Da dove viene il costo del personale?",
         "a": "Dall'ultimo cedolino chiuso presente in Dipendenti, per i netti, e dal prospetto contributivo dello stesso mese per lordo e contributi. L'F24 è la somma di ritenute e contributi a carico del dipendente (la differenza fra lordo e netto) più i contributi a carico azienda. Sono due uscite separate perché escono in due giorni diversi."
+      },
+      {
+        "q": "Perché una fattura che vedo in Scadenzario qui non compare?",
+        "a": "Tre motivi possibili. Ha il bonifico già disposto in distinta, e allora sta nella striscia azzurra sopra l'elenco invece che fra le voci da decidere. Oppure è a SDD, RID o carta, e sta nella striscia rossa. Oppure ha scadenza oltre la data di riferimento che hai impostato in alto a destra: sposta la data e ricompare."
+      },
+      {
+        "q": "Che succede se due persone spuntano la stessa voce?",
+        "a": "Niente di male: la selezione è una sola, condivisa fra gli utenti dell'azienda, e una voce può essere obbligatoria o non esserlo. Se tu e Sabrina spuntate la stessa riga nello stesso momento, o se fai doppio clic sulla casella, resta una spunta sola e la pagina si riallinea da sé. Per vedere le spunte messe da un altro mentre eri sulla pagina, usa Ricarica in alto."
       },
       {
         "q": "Se spunto una fattura, il suo importo resta bloccato?",
@@ -2512,8 +2528,9 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "Confermare un mese con i numeri definitivi",
-        "body": "Quando hai i numeri veri (dal commercialista o dalla liquidazione fatta), premi \"Conferma\" sulla riga: i campi corrispettivi netti, IVA fatture attive e IVA acquisti diventano modificabili, con i valori stimati già proposti. Correggi, aggiungi una nota se vuoi e premi \"Salva conferma\": la liquidazione si ricalcola con l'aliquota e il riporto della riga e il mese passa in stato Confermata. Il suo risultato alimenta il riporto del mese successivo. \"Modifica\" riapre i campi; \"Rimuovi\" (con seconda conferma) cancella i numeri inseriti e fa tornare la stima automatica.",
+        "body": "Quando hai i numeri veri (dal commercialista o dalla liquidazione fatta), premi \"Conferma\" sulla riga: diventano modificabili corrispettivi netti, IVA fatture attive, IVA acquisti e anche la casella del totale, con i valori stimati già proposti. Hai due modi di lavorare. Se conosci il dettaglio, correggi i tre ingredienti e lasci la casella del totale VUOTA: la liquidazione si ricalcola con l'aliquota e il riporto della riga. Se invece il commercialista ti ha dato solo la cifra da versare, la scrivi direttamente nella casella del totale: quel numero vince sul calcolo, i tre ingredienti restano accanto come traccia di come ci si era arrivati e la riga porta la dicitura \"importo dato\". Serve a non dover ritoccare l'IVA acquisti per far tornare la somma, che lascerebbe un numero falso in archivio. Aggiungi una nota se vuoi e premi \"Salva conferma\": il mese passa in stato Confermata e il suo risultato alimenta il riporto del mese successivo e la Simulazione fabbisogno. \"Modifica\" riapre i campi; \"Rimuovi\" (con seconda conferma) cancella i numeri inseriti e fa tornare la stima automatica.",
         "steps": [
+          "Se hai solo il totale da versare, scrivilo nella casella dell'importo e lascia stare le altre",
           "Individua il mese nella tabella e premi \"Conferma\"",
           "Correggi corrispettivi netti, IVA fatture attive e IVA acquisti con i valori definitivi",
           "Aggiungi una nota (facoltativa) e premi \"Salva conferma\"",
@@ -2537,6 +2554,10 @@ export const PAGE_GUIDES: PageGuide[] = [
       {
         "q": "Il mese in corso cambia ogni volta che apro la pagina: è normale?",
         "a": "Sì. Ogni chiusura di cassa confermata e ogni fattura ricevuta aggiornano la stima. Il numero si stabilizza quando il mese si chiude; se vuoi fissarlo prima, usa \"Conferma\"."
+      },
+      {
+        "q": "Il commercialista mi ha dato solo il totale, senza il dettaglio: dove lo scrivo?",
+        "a": "Nella casella dell'importo, nella colonna del totale, dopo aver premuto \"Conferma\" sulla riga. Se la compili, quel numero vince su tutto e non serve toccare corrispettivi, IVA attive o IVA acquisti: restano come sono, a documentare da dove partiva la stima. La riga mostrerà \"importo dato\" sotto la cifra. Se invece lasci la casella vuota, il totale continua a essere calcolato dagli altri tre valori."
       },
       {
         "q": "Ho pagato l'F24 ma il mese resta \"Stima\"",

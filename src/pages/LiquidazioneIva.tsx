@@ -78,7 +78,7 @@ export default function LiquidazioneIva() {
 
   // Conferma mese: form inline
   const [confirmKey, setConfirmKey] = useState<string | null>(null)
-  const [cForm, setCForm] = useState({ corr: '', ivaAtt: '', ivaCred: '', note: '' })
+  const [cForm, setCForm] = useState({ corr: '', ivaAtt: '', ivaCred: '', tot: '', note: '' })
   const [busyKey, setBusyKey] = useState<string | null>(null)
   const [removeArm, setRemoveArm] = useState<string | null>(null)
 
@@ -122,6 +122,8 @@ export default function LiquidazioneIva() {
         iva_debito_corrispettivi: Number(r.iva_debito_corrispettivi ?? 0),
         iva_debito_fatture_attive: Number(r.iva_debito_fatture_attive ?? 0),
         iva_credito: Number(r.iva_credito ?? 0),
+        importo: Number(r.importo ?? 0),
+        importo_manuale: Boolean(r.importo_manuale),
         note: r.note,
       })))
       setFiscalRows((fisc.data || []) as FiscalIvaRow[])
@@ -209,6 +211,7 @@ export default function LiquidazioneIva() {
     setConfirmKey(r.key)
     setCForm({
       corr: String(r.corrispettiviNetti), ivaAtt: String(r.ivaFattureAttive), ivaCred: String(r.ivaCredito),
+      tot: r.importoManuale ? String(r.importo) : '',
       note: r.note || '',
     })
   }
@@ -217,13 +220,19 @@ export default function LiquidazioneIva() {
     if (!COMPANY_ID) return
     const corr = parseNum(cForm.corr); const ivaAtt = parseNum(cForm.ivaAtt); const ivaCred = parseNum(cForm.ivaCred)
     const ivaDeb = round2(corr * effSettings.salesVatRate / 100)
-    const importo = round2(ivaDeb + ivaAtt - ivaCred - r.riportoPrecedente)
+    // Se il commercialista ha dato solo il totale, quello vince: i componenti
+    // restano accanto come traccia, senza doverli falsare per far tornare la somma.
+    const totManuale = cForm.tot.trim() !== ''
+    const importo = totManuale
+      ? round2(parseNum(cForm.tot))
+      : round2(ivaDeb + ivaAtt - ivaCred - r.riportoPrecedente)
     setBusyKey(r.key)
     try {
       const { error } = await supabase.from('vat_settlements').upsert({
         company_id: COMPANY_ID, year: r.year, month: r.month,
         corrispettivi_netti: corr, iva_debito_corrispettivi: ivaDeb, iva_debito_fatture_attive: ivaAtt,
         iva_credito: ivaCred, iva_riporto_precedente: r.riportoPrecedente, importo,
+        importo_manuale: totManuale,
         fonte_corrispettivi: 'manuale', note: cForm.note.trim() || null,
         confirmed_by: profile?.id ?? null, confirmed_at: new Date().toISOString(),
       }, { onConflict: 'company_id,year,month' })
@@ -465,8 +474,27 @@ export default function LiquidazioneIva() {
                       </td>
                       <td className="px-3 py-2 text-right tabular-nums text-slate-600">{r.riportoPrecedente > 0 ? `− ${fmt(r.riportoPrecedente)}` : '—'}</td>
                       <td className={`px-3 py-2 text-right tabular-nums font-semibold ${aCredito ? 'text-emerald-700' : 'text-slate-900'}`}>
-                        {aCredito ? `a credito ${fmt(-r.importo)}` : fmt(r.importo)}
-                        {isConfirm && <div className="text-[11px] font-normal text-slate-500">si ricalcola al salvataggio</div>}
+                        {isConfirm ? (
+                          <>
+                            <input value={cForm.tot} onChange={e => setCForm({ ...cForm, tot: e.target.value })}
+                              className={inputCls} inputMode="decimal" placeholder="dal calcolo"
+                              aria-label="Importo definitivo della liquidazione" />
+                            <div className="text-[11px] font-normal text-slate-500 mt-0.5">
+                              {cForm.tot.trim() !== ''
+                                ? 'vince su corrispettivi e IVA'
+                                : 'vuoto: si ricalcola al salvataggio'}
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            {aCredito ? `a credito ${fmt(-r.importo)}` : fmt(r.importo)}
+                            {r.importoManuale && (
+                              <div className="text-[11px] font-normal text-indigo-600" title="Totale comunicato dal commercialista, non calcolato dai componenti">
+                                importo dato
+                              </div>
+                            )}
+                          </>
+                        )}
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap">
                         <div className="text-slate-900">{fmtDate(r.dueDate)}</div>
