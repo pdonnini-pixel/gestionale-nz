@@ -20356,6 +20356,7 @@ export type Database = {
           fonte_corrispettivi: string | null
           id: string
           importo: number
+          importo_manuale: boolean
           iva_credito: number
           iva_debito_corrispettivi: number
           iva_debito_fatture_attive: number
@@ -20375,6 +20376,7 @@ export type Database = {
           fonte_corrispettivi?: string | null
           id?: string
           importo?: number
+          importo_manuale?: boolean
           iva_credito?: number
           iva_debito_corrispettivi?: number
           iva_debito_fatture_attive?: number
@@ -20394,6 +20396,7 @@ export type Database = {
           fonte_corrispettivi?: string | null
           id?: string
           importo?: number
+          importo_manuale?: boolean
           iva_credito?: number
           iva_debito_corrispettivi?: number
           iva_debito_fatture_attive?: number

@@ -366,6 +366,8 @@ export default function SimulazioneFabbisogno() {
           iva_debito_corrispettivi: Number(r.iva_debito_corrispettivi ?? 0),
           iva_debito_fatture_attive: Number(r.iva_debito_fatture_attive ?? 0),
           iva_credito: Number(r.iva_credito ?? 0),
+          importo: Number(r.importo ?? 0),
+          importo_manuale: Boolean(r.importo_manuale),
         })) as IvaMeseConfermato[]
         const pagati: IvaMesePagato[] = []
         const ivaGiaAScadenzario = new Set<string>()

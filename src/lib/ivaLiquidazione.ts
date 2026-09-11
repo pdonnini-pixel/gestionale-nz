@@ -50,6 +50,13 @@ export interface IvaMeseConfermato {
   iva_debito_corrispettivi: number
   iva_debito_fatture_attive: number
   iva_credito: number
+  /** Totale della liquidazione come salvato. Conta solo quando
+   *  `importo_manuale` è true: negli altri casi si ricalcola dai componenti,
+   *  così il riporto del mese prima resta sempre quello vivo. */
+  importo?: number | null
+  /** Il totale è stato scritto a mano (il numero del commercialista) e vince
+   *  sulla formula. I componenti restano come traccia. */
+  importo_manuale?: boolean | null
   note?: string | null
 }
 
@@ -79,6 +86,8 @@ export interface IvaLiquidazioneRow {
   ivaFattureAttive: number
   ivaCredito: number
   ivaCreditoStimato: boolean
+  /** Il totale è stato scritto a mano invece che calcolato dai componenti. */
+  importoManuale: boolean
   ivaIntegrazioni: number
   nFatturePassive: number
   nNoteCredito: number
@@ -260,7 +269,11 @@ export function buildLiquidazioni(p: BuildLiquidazioniParams): IvaLiquidazioneRo
 
     const ivaDeb = cf ? Number(cf.iva_debito_corrispettivi) || 0 : round2(corr * rate / 100)
     const riporto = prevImporto < 0 ? round2(-prevImporto) : 0
-    let importo = round2(ivaDeb + ivaAtt - ivaCred - riporto)
+    // Il totale scritto a mano vince su tutto: è il numero che il
+    // commercialista ha comunicato, non il risultato di una formula nostra.
+    let importo = cf && cf.importo_manuale
+      ? round2(Number(cf.importo) || 0)
+      : round2(ivaDeb + ivaAtt - ivaCred - riporto)
     let stato: StatoLiquidazione = cf ? 'confermata' : rel < 0 ? 'stima' : rel === 0 ? 'in_corso' : 'futura'
     if (pg && !cf) {
       // Versamento riscontrato: e' lui il risultato del mese, la stima resta solo informativa.
@@ -278,6 +291,7 @@ export function buildLiquidazioni(p: BuildLiquidazioniParams): IvaLiquidazioneRo
       ivaFattureAttive: round2(ivaAtt),
       ivaCredito: round2(ivaCred),
       ivaCreditoStimato: credStim,
+      importoManuale: Boolean(cf?.importo_manuale),
       ivaIntegrazioni: round2(Number(c.iva_integrazioni) || 0),
       nFatturePassive: Number(c.n_fatture_passive) || 0,
       nNoteCredito: Number(c.n_note_credito) || 0,

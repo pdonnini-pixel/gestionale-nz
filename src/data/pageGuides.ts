@@ -2528,8 +2528,9 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "Confermare un mese con i numeri definitivi",
-        "body": "Quando hai i numeri veri (dal commercialista o dalla liquidazione fatta), premi \"Conferma\" sulla riga: i campi corrispettivi netti, IVA fatture attive e IVA acquisti diventano modificabili, con i valori stimati già proposti. Correggi, aggiungi una nota se vuoi e premi \"Salva conferma\": la liquidazione si ricalcola con l'aliquota e il riporto della riga e il mese passa in stato Confermata. Il suo risultato alimenta il riporto del mese successivo. \"Modifica\" riapre i campi; \"Rimuovi\" (con seconda conferma) cancella i numeri inseriti e fa tornare la stima automatica.",
+        "body": "Quando hai i numeri veri (dal commercialista o dalla liquidazione fatta), premi \"Conferma\" sulla riga: diventano modificabili corrispettivi netti, IVA fatture attive, IVA acquisti e anche la casella del totale, con i valori stimati già proposti. Hai due modi di lavorare. Se conosci il dettaglio, correggi i tre ingredienti e lasci la casella del totale VUOTA: la liquidazione si ricalcola con l'aliquota e il riporto della riga. Se invece il commercialista ti ha dato solo la cifra da versare, la scrivi direttamente nella casella del totale: quel numero vince sul calcolo, i tre ingredienti restano accanto come traccia di come ci si era arrivati e la riga porta la dicitura \"importo dato\". Serve a non dover ritoccare l'IVA acquisti per far tornare la somma, che lascerebbe un numero falso in archivio. Aggiungi una nota se vuoi e premi \"Salva conferma\": il mese passa in stato Confermata e il suo risultato alimenta il riporto del mese successivo e la Simulazione fabbisogno. \"Modifica\" riapre i campi; \"Rimuovi\" (con seconda conferma) cancella i numeri inseriti e fa tornare la stima automatica.",
         "steps": [
+          "Se hai solo il totale da versare, scrivilo nella casella dell'importo e lascia stare le altre",
           "Individua il mese nella tabella e premi \"Conferma\"",
           "Correggi corrispettivi netti, IVA fatture attive e IVA acquisti con i valori definitivi",
           "Aggiungi una nota (facoltativa) e premi \"Salva conferma\"",
@@ -2553,6 +2554,10 @@ export const PAGE_GUIDES: PageGuide[] = [
       {
         "q": "Il mese in corso cambia ogni volta che apro la pagina: è normale?",
         "a": "Sì. Ogni chiusura di cassa confermata e ogni fattura ricevuta aggiornano la stima. Il numero si stabilizza quando il mese si chiude; se vuoi fissarlo prima, usa \"Conferma\"."
+      },
+      {
+        "q": "Il commercialista mi ha dato solo il totale, senza il dettaglio: dove lo scrivo?",
+        "a": "Nella casella dell'importo, nella colonna del totale, dopo aver premuto \"Conferma\" sulla riga. Se la compili, quel numero vince su tutto e non serve toccare corrispettivi, IVA attive o IVA acquisti: restano come sono, a documentare da dove partiva la stima. La riga mostrerà \"importo dato\" sotto la cifra. Se invece lasci la casella vuota, il totale continua a essere calcolato dagli altri tre valori."
       },
       {
         "q": "Ho pagato l'F24 ma il mese resta \"Stima\"",
