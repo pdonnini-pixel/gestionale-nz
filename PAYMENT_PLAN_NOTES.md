@@ -1598,3 +1598,45 @@ differenza di metodo fra i due elenchi, non un documento perso da nessuna parte.
 (company, electronic_invoice_id, coalesce(installment_number, 1)).
 Il secondo tratta `NULL` come 1, quindi **non si può svuotare** un numero di rata
 per liberare un posto. Per scambiare due numeri serve un valore d'appoggio.
+
+### Shine 30/09: lo scarto era il fornitore, non noi
+
+Chiuso con il dettaglio riga per riga dell'elenco Ri.Ba. MPS. Mancavano
+8.954,81 € rispetto alla nostra previsione, e la causa è una sola: **Shine ha
+presentato le fatture di giugno in un'unica scadenza per l'intero importo**,
+invece delle tre rate 60-90-120 fine mese concordate. Nell'elenco della banca
+ogni riga è etichettata «SHINE SRL -1 SCADENZA» e l'importo è il totale pieno
+della fattura: SF_1103 6.233,59, SF_1107 6.223,83, SF_1194 7.251,68 e così via,
+note di credito comprese (NC106 −393,45, NC107 −125,66, NC108 −90,28).
+Errore già contestato al fornitore: da ottobre torna il piano normale.
+
+Lo scarto si scompone così, e torna al centesimo:
+
+```
+nostro 30/09 prima            35.115,86
++ rate 3 di giugno (dal 31/10) 14.690,22   la banca le presenta ora
+− fatture di luglio             5.735,42   la banca non le presenta il 30/09
+= elenco banca                 44.070,66   (44.070,67 con l'arrotondamento)
+```
+
+Applicato: le 13 righe di giugno spostate al 30/09, con la scadenza di piano
+conservata in `original_due_date` e il motivo scritto in nota. Le quattro
+fatture di luglio (1369, 1381, 1410, 1418) restano dove sono per scelta di
+Patrizio: nella lista non ci sono, ma nessun documento dice ancora dove
+finiscono, e si aspetta l'elenco di ottobre invece di dedurlo.
+
+### Due trappole trovate confrontando gli importi
+
+**Il segno delle note di credito.** In `electronic_invoices` il totale di una
+nota di credito è memorizzato POSITIVO; in `payables` le sue rate sono
+NEGATIVE. Confrontando i due senza `abs()` ogni nota di credito sembra sbagliata
+del doppio del proprio importo: 21 falsi positivi su 24 differenze trovate.
+Prima di gridare all'errore, normalizzare il segno.
+
+**L'ultima rata non quadrava.** Dividere un importo in tre parti uguali lascia
+un centesimo per strada, e il piano generato non lo recuperava: quattro fatture
+(GRUPPO FB 3797, MIAN 680, MIAN 697, SHINE 1103/26) sommavano un centesimo in
+meno o in più del documento. Irrilevante in bilancio, fatale per i controlli che
+confrontano al centesimo — la verifica al carico di una distinta Ri.Ba. e il
+confronto con l'elenco della banca. Sistemato dalla 217, che sposta
+l'arrotondamento sull'ultima rata ancora aperta e non tocca mai una rata pagata.
