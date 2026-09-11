@@ -1547,6 +1547,14 @@ export const PAGE_GUIDES: PageGuide[] = [
         ]
       },
       {
+        "heading": "Allineamento con lo Scadenzario",
+        "body": "Gli importi delle fatture sono quelli APERTI dello Scadenzario, non il residuo grezzo. La differenza si vede quando un bonifico è già stato messo in distinta: quella quota è un impegno preso, la banca la addebiterà, e non ha senso rimetterla in discussione. Compare quindi in una striscia azzurra sopra l'elenco, «bonifici già disposti in distinta», conteggiata fra gli impegni ma fuori dalle voci da decidere, esattamente come la vedi marcata «In distinta» nello Scadenzario. Se di una fattura è stato disposto solo un acconto, in elenco resta la differenza ancora da pagare. Restano fuori da entrambe le pagine, perché non sono debito da saldare, le righe segnaposto e le integrazioni reverse charge (TD16-TD19), che sono documenti a sé e non comportano un'uscita.",
+        "steps": [
+          "Apri «vedi il dettaglio» nella striscia azzurra per sapere quali bonifici sono già partiti.",
+          "Se un importo non torna con lo Scadenzario, controlla se quella fattura ha una disposizione aperta."
+        ]
+      },
+      {
         "heading": "Addebiti automatici e RiBa: due cose diverse",
         "body": "SDD, RID e addebiti su carta partono dal conto alla scadenza per un mandato dato al creditore: nessuno li dispone e nessuno li può fermare. Siccome non c'è niente da decidere, non compaiono nell'elenco: sarebbero righe da scorrere a vuoto. Stanno in una striscia rossa sopra la tabella, con il totale e il numero di voci, e sono già scalati dalle risorse disponibili; «vedi il dettaglio» apre l'elenco completo se vuoi controllarlo. Le RiBa sono un'altra cosa: una ricevuta bancaria si può lasciare impagata, torna insoluta al fornitore e costa in commissioni e in rapporto, ma resta una decisione. Per questo restano in elenco con la spunta libera e l'etichetta ambra «RiBa», e se ne lasci qualcuna fuori dagli obbligatori compare un avviso che ti ricorda cosa comporta. Le imposte non sono automatiche: l'F24 va sempre disposto.",
         "steps": [
@@ -1598,6 +1606,10 @@ export const PAGE_GUIDES: PageGuide[] = [
       {
         "q": "Da dove viene il costo del personale?",
         "a": "Dall'ultimo cedolino chiuso presente in Dipendenti, per i netti, e dal prospetto contributivo dello stesso mese per lordo e contributi. L'F24 è la somma di ritenute e contributi a carico del dipendente (la differenza fra lordo e netto) più i contributi a carico azienda. Sono due uscite separate perché escono in due giorni diversi."
+      },
+      {
+        "q": "Perché una fattura che vedo in Scadenzario qui non compare?",
+        "a": "Tre motivi possibili. Ha il bonifico già disposto in distinta, e allora sta nella striscia azzurra sopra l'elenco invece che fra le voci da decidere. Oppure è a SDD, RID o carta, e sta nella striscia rossa. Oppure ha scadenza oltre la data di riferimento che hai impostato in alto a destra: sposta la data e ricompare."
       },
       {
         "q": "Che succede se due persone spuntano la stessa voce?",

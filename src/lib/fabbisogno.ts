@@ -307,6 +307,10 @@ export interface RigaUscita {
   scadenza: string | null
   importo: number
   automatico: boolean
+  /** Bonifico già disposto in distinta: i soldi sono impegnati, non c'è più
+   *  niente da decidere. Come l'addebito automatico entra fra gli obbligatori
+   *  d'ufficio, ma per un motivo diverso e con un'etichetta diversa. */
+  impegnato?: boolean
   /** Ricevuta bancaria: rinviabile, ma non pagarla significa un insoluto. */
   riba?: boolean
   /** Rotta interna dove la riga si gestisce davvero (Scadenzario, Scadenze
@@ -361,14 +365,16 @@ export interface PianoInput {
 }
 
 /**
- * Una riga è obbligatoria se è stata spuntata OPPURE se è un addebito
- * automatico: SDD, RID e carte partono dal conto alla scadenza per mandato
- * dato al creditore, quindi la scelta non esiste. Restano comunque visibili in
- * elenco, marcate come tali. Le RiBa non rientrano: si possono lasciare
- * insolute, quindi la decisione resta di chi compila la simulazione.
+ * Una riga è obbligatoria se è stata spuntata, oppure se la scelta non esiste
+ * più. Due casi, per motivi diversi:
+ *  - addebito automatico (SDD, RID, carte): parte dal conto alla scadenza per
+ *    un mandato dato al creditore, nessuno lo ferma;
+ *  - già impegnata: il bonifico è in distinta, disposto in banca.
+ * Le RiBa non rientrano: si possono lasciare insolute, quindi la decisione
+ * resta di chi compila la simulazione.
  */
 export function isObbligatoria(riga: RigaUscita, selezionati: ReadonlySet<string>): boolean {
-  return riga.automatico || selezionati.has(riga.id)
+  return riga.automatico || riga.impegnato === true || selezionati.has(riga.id)
 }
 
 export interface PianoEsito {
