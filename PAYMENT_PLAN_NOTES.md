@@ -6,6 +6,40 @@
 
 
 
+
+> ## ⏩ PAGAMENTO ANTICIPATO: IL MOTORE NON LO AGGANCIA (2026-09-13) - CASO CHIUSO A MANO
+>
+> **Il caso.** SAMA' S.R.L., fattura 6423/03 del 09/09/2026 da 50,02, con «BONIFICO
+> BANCARIO ANTICIPATO» scritto nel documento. Il bonifico era partito il 04/09 (valuta
+> 07/09) dal Banco Fiorentino, con causale «SAMA SRL SALDO PREVENTIVO 11447-26»: pagata
+> prima ancora di essere emessa.
+>
+> **Perche' non si aggancia da solo.** Entrambi i matcher scartano i movimenti anteriori
+> alla data della fattura: `try_match_amount_bank_transaction` con
+> `(p.invoice_date IS NULL OR v_bt.transaction_date >= p.invoice_date)` e
+> `try_match_bank_transaction` con `(payables.invoice_date IS NULL OR payables.invoice_date
+> <= v_bt.transaction_date)`. Con un anticipo la condizione non puo' mai essere vera, quindi
+> la scadenza nasce «da pagare» per una cosa gia' pagata: rischio concreto di pagare due volte.
+>
+> **Perche' NON e' stata allargata la regola.** Misurato sul 2026: i movimenti non
+> riconciliati che hanno una scadenza di importo identico con fattura successiva sono 28 per
+> 9.001,66, ma **solo uno** ha il fornitore nominato in causale, ed e' un addebito SDD di SAN
+> MAURO che paga una fattura diversa, gia' chiusa. Allargare la finestra avrebbe prodotto
+> abbinamenti sbagliati, che chiudono scadenze per errore: peggio del problema. Patrizio ha
+> scelto di gestire il caso a mano.
+>
+> **Come e' finita.** La fattura e' arrivata via SDI il 13/09 (quattro giorni dopo
+> l'emissione: il PDF di cortesia arriva subito, la trasmissione allo SdI puo' tardare fino a
+> 12 giorni). Il fornitore e' nato configurato dalle regole del 10/09: anagrafica completa da
+> Lecco, categoria «Spese manutenzione» dalle righe, piano `data_fattura 0 gg 1 rata` letto
+> dai termini della fattura, metodo bonifico da MP05. Aggancio con `reconcile_movement`:
+> scadenza **pagata** con data 07/09, movimento riconciliato, zero scadenze SAMA aperte.
+>
+> **Se ricapita**: cercare il movimento per importo e causale, poi `reconcile_movement(
+> p_bt_id, p_payable_id)`. E ricordare che l'anticipo non e' un errore del motore: e' una
+> scelta di prudenza documentata qui.
+
+
 > ## 🏷️ IL METODO ARRIVA DALLA CATEGORIA, E LA BANCA NON E' PIU' UN'ANOMALIA (2026-09-10) - FATTO
 >
 > **Patrizio**: «se ci sono delle fatture senza specifica devo collegarli alla categoria che
