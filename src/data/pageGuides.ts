@@ -751,10 +751,11 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "Prima Nota",
-        "body": "È una vista pronta per l'esportazione, utile da consegnare alla commercialista. Mostra i movimenti bancari di un periodo (anno o singolo mese, tutti i conti o uno solo) con data, conto, entrata/uscita, importo, controparte, partita IVA, causale e categoria. In alto trovi i totali del periodo (entrate, uscite, saldo netto). Da qui puoi scaricare i dati in CSV o in Excel (con un foglio di riepilogo).",
+        "body": "È una vista pronta per l'esportazione, da consegnare alla commercialista. Mostra i movimenti bancari di un periodo (anno o singolo mese, tutti i conti o uno solo) con data, conto, tipo di movimento, importo, controparte, partita IVA, numero di fatture saldate, causale e categoria. Il \"Tipo movimento\" dice che cos'è ogni riga senza doverla leggere: Pagamento fornitore (ha una o più fatture agganciate), F24 / imposte, Stipendi, Incasso POS, Versamento contanti, Carta di credito, Finanziamento (rate di mutuo), Spese e commissioni bancarie (canoni, commissioni, fideiussioni, SDD Nexi e Global Blue), Giroconto / prelievo, oppure Da chiarire quando nessuna fonte lo spiega. Lo ricava prima dagli agganci (fattura in Scadenzario, scadenza in Scadenze fiscali), poi dalla causale scritta dalla banca, infine dall'etichetta della categoria. Un movimento che salda più fatture (una RiBa con trenta effetti, una distinta CBI) porta TUTTE le fatture: la controparte è il fornitore se è uno solo, altrimenti \"N fornitori (M fatture)\", la causale elenca tutti i numeri di fattura (con il fornitore accanto quando sono di fornitori diversi), la colonna Fatt. mostra quante sono e, al passaggio del mouse, il loro totale e la differenza con l'addebito (di solito la commissione). Per gli F24 agganciati in Scadenze fiscali la causale riporta titolo, codice tributo e periodo. Se non c'è nessun aggancio, la controparte viene letta dal beneficiario in causale (bonifici con il nome dopo l'asterisco, SDD \"a favore di\"). In alto trovi i totali del periodo (movimenti, entrate, uscite, saldo netto) e il contatore \"Da chiarire\", poi una riga con quante righe e quanti euro ci sono per ogni tipo di movimento. Da qui scarichi CSV o Excel: l'Excel ha il foglio Prima Nota (con l'IBAN in chiaro) e il foglio Riepilogo con i totali e la tabella per tipo di movimento.",
         "steps": [
           "Scegli anno, eventualmente il mese, e il conto (o \"Tutti i conti\") con i filtri in alto.",
-          "Controlla i totali nelle card (Entrate, Uscite, Saldo netto) per una verifica veloce.",
+          "Controlla i totali nelle card (Entrate, Uscite, Saldo netto) e il contatore \"Da chiarire\": se è maggiore di zero, cerca le righe con il badge arancione e agganciale in Riconciliazione o in Scadenze fiscali prima di consegnare.",
+          "Su un movimento con più fatture, passa il mouse sul numero nella colonna Fatt. per vedere il totale delle fatture e la differenza con l'addebito.",
           "Clicca \"CSV\" o \"Excel\" per scaricare il file da inviare alla commercialista."
         ]
       },
@@ -815,7 +816,11 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "q": "Dove prendo il file da mandare alla commercialista?",
-        "a": "Nella scheda \"Prima Nota\": scegli periodo e conto, poi scarica in CSV o Excel."
+        "a": "Nella scheda \"Prima Nota\": scegli periodo e conto, poi scarica in CSV o Excel. Ogni riga riporta il tipo di movimento, la controparte e tutte le fatture o l'F24 che salda; prima di consegnare porta a zero il contatore \"Da chiarire\"."
+      },
+      {
+        "q": "In Prima Nota un addebito RiBa mostra una fattura sola, ma ne pagava trenta: perché?",
+        "a": "Non più: ogni movimento porta tutte le fatture agganciate. La controparte diventa \"N fornitori (M fatture)\" se i fornitori sono più di uno, la causale elenca tutti i numeri e la colonna Fatt. conta le fatture. Se ne vedi meno di quelle attese, vuol dire che le altre non sono ancora agganciate a quel movimento: si fa in Riconciliazione."
       },
       {
         "q": "Dove trovo la categorizzazione automatica delle spese con l'intelligenza artificiale?",
