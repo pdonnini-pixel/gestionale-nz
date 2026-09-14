@@ -20323,6 +20323,7 @@ export type Database = {
         Row: {
           acconto_base: number | null
           company_id: string
+          competenza_cutoff_day: number
           created_at: string
           notes: string | null
           opening_credit: number
@@ -20335,6 +20336,7 @@ export type Database = {
         Insert: {
           acconto_base?: number | null
           company_id: string
+          competenza_cutoff_day?: number
           created_at?: string
           notes?: string | null
           opening_credit?: number
@@ -20347,6 +20349,7 @@ export type Database = {
         Update: {
           acconto_base?: number | null
           company_id?: string
+          competenza_cutoff_day?: number
           created_at?: string
           notes?: string | null
           opening_credit?: number
