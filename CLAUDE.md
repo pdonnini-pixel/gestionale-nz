@@ -442,6 +442,7 @@ try {
 | `AZIONI_PATRIZIO_Parallele.md` | Piano azioni manuali per Patrizio (credenziali, accreditamenti) |
 | `MIGRATION_NOTES.md` | Dettagli migrazione JS→TS del frontend |
 | `BUDGET_WORKFLOW_NOTES.md` | Flusso budget/confronto |
+| `OUTLET_PRE_APERTURA_NOTES.md` | Outlet in apertura (costi senza ricavi): ciclo di vita condiviso, cosa crea il wizard, seed Roma Soratte, ipotesi e decisioni aperte |
 | `AI_CHAT_SUPPORT_NOTES.md` | Assistente AI (help-chat) e sistema ticket |
 | Altri `*_NOTES.md` / `AUDIT_*.md` in root | Note di sessione per area (onboarding, provisioning, deep linking, mobile, …) — consultare quella dell'area toccata |
 | `docs/` | Piani di sessione storici + `GestionaleNZ_Specifica_Roadmap_v1.docx` |

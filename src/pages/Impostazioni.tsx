@@ -9,6 +9,7 @@ import { useAuth } from '../hooks/useAuth'
 import { useCompanyLabels } from '../hooks/useCompanyLabels'
 import { useOutlets, isSellingOutlet } from '../hooks/useOutlets'
 import { getCurrentTenant } from '../lib/tenants'
+import { slugCostCenter } from '../lib/costCenterKey'
 import PageHeader from '../components/PageHeader'
 import type { Database } from '../types/database'
 
@@ -1195,7 +1196,9 @@ function CentriDiCostoSection({ showToast, companyId: COMPANY_ID }: SectionProps
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
-  const [form, setForm] = useState({ code: '', label: '', color: 'bg-blue-600', sort_order: 0 })
+  // role: 'outlet' (punto vendita, entra in confronti e budget), 'hq' (sede),
+  // 'non_operational' (spese da ripartire, rettifiche).
+  const [form, setForm] = useState({ code: '', label: '', color: 'bg-blue-600', sort_order: 0, role: 'outlet' })
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
@@ -1227,7 +1230,7 @@ function CentriDiCostoSection({ showToast, companyId: COMPANY_ID }: SectionProps
   }
 
   const resetForm = () => {
-    setForm({ code: '', label: '', color: 'bg-blue-600', sort_order: centers.length })
+    setForm({ code: '', label: '', color: 'bg-blue-600', sort_order: centers.length, role: 'outlet' })
     setShowForm(false)
     setEditingId(null)
   }
@@ -1237,9 +1240,14 @@ function CentriDiCostoSection({ showToast, companyId: COMPANY_ID }: SectionProps
 
     try {
       setSaving(true)
+      // Il codice resta MINUSCOLO: è la chiave che lega il centro di costo a
+      // outlets.cost_center_key, budget_entries.cost_center e al conto ricavi
+      // (chart_of_accounts.outlet_link). Prima veniva forzato in maiuscolo e
+      // non combaciava con nulla.
       const payload = {
-        code: form.code.toUpperCase(),
+        code: slugCostCenter(form.code),
         label: form.label,
+        role: form.role,
         color: form.color,
         sort_order: form.sort_order,
         is_active: true,
@@ -1277,7 +1285,8 @@ function CentriDiCostoSection({ showToast, companyId: COMPANY_ID }: SectionProps
       code: c.code,
       label: c.label,
       color: c.color,
-      sort_order: c.sort_order
+      sort_order: c.sort_order,
+      role: (c.role as string) || 'outlet',
     })
     setEditingId(c.id)
     setShowForm(true)
@@ -1355,10 +1364,11 @@ function CentriDiCostoSection({ showToast, companyId: COMPANY_ID }: SectionProps
               <input
                 type="text"
                 value={form.code}
-                onChange={(e) => setForm(p => ({ ...p, code: e.target.value.toUpperCase() }))}
-                placeholder="ES: VDC"
+                onChange={(e) => setForm(p => ({ ...p, code: e.target.value.toLowerCase() }))}
+                placeholder="es. roma_soratte"
                 className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg font-mono"
               />
+              <p className="text-[11px] text-slate-400 mt-1">Minuscolo, come la chiave contabile dell'outlet (es. torino, sede_magazzino).</p>
             </div>
             <div className="md:col-span-2">
               <label className="block text-xs font-medium text-slate-600 mb-1">Etichetta *</label>
@@ -1370,6 +1380,18 @@ function CentriDiCostoSection({ showToast, companyId: COMPANY_ID }: SectionProps
                 className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg"
               />
             </div>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1">Ruolo</label>
+            <select
+              value={form.role}
+              onChange={(e) => setForm(p => ({ ...p, role: e.target.value }))}
+              className="w-full md:w-1/2 px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white"
+            >
+              <option value="outlet">Punto vendita (entra in confronti, margini, budget)</option>
+              <option value="hq">Sede / magazzino</option>
+              <option value="non_operational">Non operativo (spese da ripartire, rettifiche)</option>
+            </select>
           </div>
           <div>
             <label className="block text-xs font-medium text-slate-600 mb-2">Colore</label>

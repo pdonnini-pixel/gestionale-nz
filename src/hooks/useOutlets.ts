@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { useCompany } from './useCompany'
+import { getOutletLifecycle, type OutletLifecycle } from '../lib/outletLifecycle'
 
 /**
  * Hook che ritorna la lista outlet del tenant attivo. Fonte unica di verità
@@ -27,6 +28,11 @@ export interface OutletLite {
   cost_center_key: string | null
   is_active: boolean | null
   sort_order: number | null
+  /** Date di anagrafica: servono a `getOutletLifecycle` (src/lib/outletLifecycle.ts). */
+  opening_date: string | null
+  closing_date: string | null
+  /** Stato calcolato oggi: `programmato` (in apertura), `attivo`, `chiuso`. */
+  lifecycle: OutletLifecycle
 }
 
 /**
@@ -66,7 +72,7 @@ export function useOutlets(opts?: { includeInactive?: boolean; sellingOnly?: boo
     ;(async () => {
       const baseQuery = supabase
         .from('outlets')
-        .select('id, name, code, city, outlet_type, is_active, cost_center_key')
+        .select('id, name, code, city, outlet_type, is_active, cost_center_key, opening_date, closing_date')
         .eq('company_id', company.id)
         .order('name')
       const q = includeInactive
@@ -80,16 +86,24 @@ export function useOutlets(opts?: { includeInactive?: boolean; sellingOnly?: boo
       } else {
         // sort_order non sempre presente — non lo includiamo in SELECT per
         // evitare type errors sui DB pre-013. Aggiungiamo null come fallback.
-        const rows = (data ?? []).map((r) => ({
-          id: r.id as string,
-          name: (r.name as string) ?? '',
-          code: (r.code as string | null) ?? null,
-          city: (r.city as string | null) ?? null,
-          outlet_type: (r.outlet_type as string | null) ?? null,
-          cost_center_key: (r.cost_center_key as string | null) ?? null,
-          is_active: (r.is_active as boolean | null) ?? true,
-          sort_order: null,
-        }))
+        const rows: OutletLite[] = (data ?? []).map((r) => {
+          const opening_date = (r.opening_date as string | null) ?? null
+          const closing_date = (r.closing_date as string | null) ?? null
+          const is_active = (r.is_active as boolean | null) ?? true
+          return {
+            id: r.id as string,
+            name: (r.name as string) ?? '',
+            code: (r.code as string | null) ?? null,
+            city: (r.city as string | null) ?? null,
+            outlet_type: (r.outlet_type as string | null) ?? null,
+            cost_center_key: (r.cost_center_key as string | null) ?? null,
+            is_active,
+            sort_order: null,
+            opening_date,
+            closing_date,
+            lifecycle: getOutletLifecycle({ opening_date, closing_date, is_active }),
+          }
+        })
         setOutlets(sellingOnly ? rows.filter(isSellingOutlet) : rows)
       }
       setLoading(false)

@@ -80,6 +80,10 @@ export const PAGE_GUIDES: PageGuide[] = [
       {
         "heading": "Da dove arrivano i numeri",
         "body": "I dati della Dashboard vengono presi automaticamente, in ordine di priorità, dalle fonti disponibili: prima i riepiloghi ufficiali, poi il bilancio importato, poi (se l'anno è ancora in corso e il bilancio non è ancora disponibile) i dati di consuntivo e previsione inseriti in Budget e Controllo, e infine le fatture elettroniche. Non devi fare nulla per scegliere la fonte: il sistema mostra sempre il dato più affidabile disponibile per il periodo selezionato."
+      },
+      {
+        "heading": "Punti vendita in apertura",
+        "body": "Un punto vendita con data di apertura futura è «in apertura»: i suoi costi (canone, spese, allestimento) sono reali e si vedono, ma non ha ancora ricavi. Nella classifica degli outlet resta in fondo con il badge «In apertura dal gg/mm/aaaa»: i valori a zero non indicano un negozio che vende male."
       }
     ],
     "faq": [
@@ -129,18 +133,18 @@ export const PAGE_GUIDES: PageGuide[] = [
     "sections": [
       {
         "heading": "La griglia degli outlet",
-        "body": "All'apertura della pagina vedi una card per ogni punto vendita, con nome, codice, centro commerciale, data di apertura, un'etichetta di stato (Attivo, Programmato oppure Chiuso, calcolata automaticamente dalle date di apertura/chiusura) e i ricavi dell'anno selezionato. In alto trovi una barra di ricerca per filtrare per nome, codice o centro commerciale, e il pulsante 'Aggiorna' per ricaricare i dati. Cliccando su una card si apre la scheda di dettaglio dell'outlet. L'anno mostrato è quello scelto con il selettore periodo in alto nel gestionale."
+        "body": "All'apertura della pagina vedi una card per ogni punto vendita, con nome, codice, centro commerciale, data di apertura, un'etichetta di stato (Attivo, In apertura oppure Chiuso, calcolata automaticamente dalle date di apertura/chiusura) e i ricavi dell'anno selezionato. In alto trovi una barra di ricerca per filtrare per nome, codice o centro commerciale, e il pulsante 'Aggiorna' per ricaricare i dati. Cliccando su una card si apre la scheda di dettaglio dell'outlet. L'anno mostrato è quello scelto con il selettore periodo in alto nel gestionale."
       },
       {
         "heading": "Creare un nuovo outlet manualmente",
         "body": "Se hai i permessi necessari vedi il pulsante 'Nuovo outlet', che apre una procedura guidata a più passaggi. Ogni passaggio raccoglie un gruppo di informazioni; puoi tornare indietro con 'Indietro' e proseguire con 'Avanti'. Nell'ultimo passaggio trovi il riepilogo di tutti i dati inseriti, da controllare prima di salvare.",
         "steps": [
           "Anagrafica: nome outlet, codice, insegna/brand, tipo (Outlet, Retail, Corner, oppure Sede / magazzino per una sede senza cassa, che resta fuori dalle pagine di chiusura cassa e incassi), superficie lorda e di vendita, codice unità nel centro.",
-          "Ubicazione: centro commerciale, società concedente, indirizzo, città, provincia, regione.",
-          "Contratto: data consegna immobile, data apertura (obbligatoria), conferma apertura, date di inizio/fine contratto, durata, giorni gratuiti iniziali, mese della clausola di recesso.",
+          "Ubicazione: centro commerciale, società concedente (testo) e fornitore concedente (scelto dall'anagrafica fornitori, così fatture, scadenze e contratto puntano allo stesso soggetto), indirizzo, città, provincia, regione.",
+          "Contratto: data consegna immobile, data apertura (obbligatoria), conferma apertura, date di inizio/fine contratto, decorrenza del canone (da questa data il Cashflow proietta l'affitto; vuota = dall'inizio contratto), durata, giorni gratuiti iniziali, mese della clausola di recesso.",
           "Canone e Costi: canone annuo garantito (il canone mensile si calcola da solo), canone al metro quadro, percentuale di canone variabile, eventuali canoni diversi per anno 2 e anno 3, spese condominiali e marketing mensili, budget personale mensile.",
-          "Garanzie e Target: fideiussione/deposito cauzionale, anticipo canone, costi di allestimento, target di margine e di costo merce, soglia di fatturato minimo per il recesso, note libere.",
-          "Riepilogo: controlla tutti i dati inseriti e conferma con 'Crea outlet'."
+          "Garanzie e Target: fideiussione/garanzia bancaria con la sua data di scadenza (alimenta gli avvisi della scheda), caparra o acconto già versato, anticipo canone, costi di allestimento, target di margine e di costo merce, soglia di fatturato minimo per il recesso, note libere.",
+          "Riepilogo: controlla tutti i dati inseriti e conferma con 'Crea outlet'. Al salvataggio il sistema crea anche il centro di costo gemello dell'outlet (codice in minuscolo ricavato dal nome, es. roma_soratte), che serve a Budget & Controllo, Confronto, Margini, Produttività e Personale."
         ]
       },
       {
@@ -149,7 +153,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "Scheda di dettaglio outlet — Overview",
-        "body": "Aprendo un outlet vedi quattro numeri chiave (ricavi dell'anno, media mensile, mese migliore, incidenza della locazione sui ricavi), il grafico degli incassi degli ultimi 7 giorni, eventuali avvisi di scadenza contrattuale (contratto in scadenza, clausola di recesso, fideiussione in scadenza, fine periodo contrattuale), il confronto mese per mese tra preventivo e consuntivo, l'anagrafica sintetica dell'outlet e, se disponibili, i dati estratti dal contratto (date chiave, importi, condizioni)."
+        "body": "Aprendo un outlet vedi quattro numeri chiave (ricavi dell'anno, media mensile, mese migliore, incidenza della locazione sui ricavi: «—» finché non ci sono ricavi, mai 0%), il grafico degli incassi degli ultimi 7 giorni, gli avvisi di scadenza (apertura programmata, contratto in scadenza, finestra di recesso calcolata dal mese di recesso, fideiussione in scadenza), il confronto mese per mese tra preventivo e consuntivo, l'anagrafica sintetica (con concedente, decorrenza del canone, fideiussione e caparra), il riquadro «Contratto» se il contratto è registrato (canone, variabile, rivalutazione, soglia di recesso e le prossime scadenze contrattuali) e, se disponibili, i dati estratti dal contratto. Se l'outlet è in apertura compare in alto il riquadro «In apertura tra N giorni» con consegna, decorrenza canone, caparra versata, fideiussione, allestimento e costi mensili che partiranno dall'apertura."
       },
       {
         "heading": "Scheda di dettaglio outlet — Corrispettivi, Budget, Staff",
@@ -170,8 +174,8 @@ export const PAGE_GUIDES: PageGuide[] = [
         "a": "Questi pulsanti sono visibili solo agli utenti con i permessi adeguati. Se ti servono, contatta chi gestisce gli accessi del gestionale."
       },
       {
-        "q": "Cosa significa l'etichetta Attivo, Programmato o Chiuso su una card?",
-        "a": "Non è un dato inserito a mano: viene calcolato dalle date di apertura e chiusura dell'outlet. 'Programmato' significa che la data di apertura è nel futuro, 'Chiuso' che la data di chiusura è già passata, 'Attivo' negli altri casi."
+        "q": "Cosa significa l'etichetta Attivo, In apertura o Chiuso su una card?",
+        "a": "Non è un dato inserito a mano: viene calcolato dalle date di apertura e chiusura dell'outlet. 'In apertura' significa che la data di apertura è nel futuro (l'outlet ha già costi ma non ricavi, e le pagine di confronto lo tengono fuori da medie e classifiche), 'Chiuso' che la data di chiusura è già passata, 'Attivo' negli altri casi."
       },
       {
         "q": "Come cambio l'anno di cui vedo i ricavi?",
@@ -265,6 +269,10 @@ export const PAGE_GUIDES: PageGuide[] = [
       {
         "heading": "Schede outlet — confronto dettagliato",
         "body": "Sotto la tabella trovi una scheda per ogni outlet, con i ricavi (o lo scostamento, in vista Scostamento), un'etichetta che indica quanto è affidabile il dato mostrato ('Granitico' = dato reale confermato, 'X reali + Y previsti' = dato misto, 'Preventivo' = solo stima), il numero di dipendenti in forza secondo i cedolini (passa il mouse sul riquadro per vedere di quale mese), lo scostamento rispetto al preventivo, un link 'Apri in Budget & Controllo' per andare al dettaglio di quell'outlet, quattro riquadri di costo (acquisto merci, costo personale, costo locazioni, costo per servizi), il margine dell'outlet e, quando disponibile, la quota di costi di sede attribuita e il margine dopo la sede (ed eventualmente dopo le imposte). Il pulsante 'Mostra dettaglio' apre l'elenco completo delle voci di costo e ricavo di quell'outlet."
+      },
+      {
+        "heading": "Punti vendita in apertura",
+        "body": "Un punto vendita con data di apertura futura è «in apertura»: i suoi costi (canone, spese, allestimento) sono reali e si vedono, ma non ha ancora ricavi. Compare con l'etichetta «In apertura dal gg/mm/aaaa»: margine %, incidenze e break-even restano n/d, non entra nel benchmark migliore/peggiore, nella classifica per fatturato, nelle medie di catena né nel riparto della quota sede, così gli altri outlet non vengono alterati."
       }
     ],
     "faq": [
@@ -315,6 +323,10 @@ export const PAGE_GUIDES: PageGuide[] = [
       {
         "heading": "Tabella di dettaglio con approfondimento per conto",
         "body": "In fondo trovi la tabella con ricavi, costi, margine e margine percentuale di ogni outlet, ordinabile cliccando sulle intestazioni delle colonne. Cliccando su una riga si apre il dettaglio con l'elenco dei conti di ricavo e di costo che compongono quel totale. In fondo alla tabella c'è la riga con i totali della catena."
+      },
+      {
+        "heading": "Punti vendita in apertura",
+        "body": "Un punto vendita con data di apertura futura è «in apertura»: i suoi costi (canone, spese, allestimento) sono reali e si vedono, ma non ha ancora ricavi. Mostra i costi con l'etichetta «In apertura dal …», ma il margine % è «—» (non 0%), le celle della mappa restano neutre, non genera l'allarme di margine critico e non entra nel margine medio di catena."
       }
     ],
     "faq": [
@@ -361,6 +373,10 @@ export const PAGE_GUIDES: PageGuide[] = [
       {
         "heading": "Scheda Trend Mensile",
         "body": "Mostra due grafici: il confronto mese per mese tra ricavi e costi, e l'andamento del margine percentuale nel tempo."
+      },
+      {
+        "heading": "Punti vendita in apertura",
+        "body": "Un punto vendita con data di apertura futura è «in apertura»: i suoi costi (canone, spese, allestimento) sono reali e si vedono, ma non ha ancora ricavi. È segnalato dal badge «In apertura dal …», ha margine % «—» e non concorre a miglior/peggior margine; il budget di confronto conta solo i mesi in cui il negozio è effettivamente aperto, quindi non inventa un budget di personale per un negozio non ancora attivo."
       }
     ],
     "faq": [
@@ -1376,6 +1392,10 @@ export const PAGE_GUIDES: PageGuide[] = [
           "Nella tabella, la colonna \"Sell-th. %\" è colorata in rosso se sotto il 50% e in verde se sopra.",
           "La colonna \"Giacenza gg\" è colorata in base alla soglia: verde entro 60 giorni, giallo tra 60 e 90, rosso oltre 90 giorni."
         ]
+      },
+      {
+        "heading": "Punti vendita in apertura",
+        "body": "I punti vendita con data di apertura futura non hanno giacenze né sell-through: compaiono in fondo al dettaglio con la scritta «In apertura dal …: nessun dato operativo prima dell'apertura» e non entrano nelle medie."
       }
     ],
     "faq": [
@@ -1422,6 +1442,10 @@ export const PAGE_GUIDES: PageGuide[] = [
       {
         "heading": "Confronto tra punti vendita",
         "body": "Una tabella riepiloga, per ogni punto vendita, il numero di scontrini, lo scontrino medio, i pezzi per scontrino, il ricavo per pezzo e l'indicatore UPT. In fondo alla pagina trovi due riquadri con il punto vendita migliore e quello con le performance più basse, in base al ricavo totale annuale."
+      },
+      {
+        "heading": "Punti vendita in apertura",
+        "body": "I punti vendita con data di apertura futura restano nell'elenco ma non ricevono dati simulati: al loro posto compare «In apertura dal …: nessun dato operativo prima dell'apertura» e sono esclusi da medie, classifiche e grafici."
       }
     ],
     "faq": [
@@ -1494,6 +1518,10 @@ export const PAGE_GUIDES: PageGuide[] = [
       {
         "heading": "Aggiornare i dati",
         "body": "Se hai modificato fatture, scadenze o costi ricorrenti in altre pagine del gestionale, usa il pulsante 'Aggiorna' in alto per rileggere subito i dati più recenti senza dover ricaricare la pagina."
+      },
+      {
+        "heading": "Canone dei punti vendita e decorrenza",
+        "body": "Il canone di ogni punto vendita entra nelle uscite solo dalla data di decorrenza del canone impostata nella scheda outlet (in mancanza, dalla data di inizio contratto o di apertura) e fino all'eventuale chiusura. Un negozio che apre a novembre non pesa sul cashflow dei mesi precedenti; caparra, costi iniziali e altre uscite prima dell'apertura si vedono perché sono nello Scadenzario come scadenze o previsioni."
       }
     ],
     "faq": [
@@ -1672,6 +1700,10 @@ export const PAGE_GUIDES: PageGuide[] = [
       {
         "heading": "Grafici e tabella riepilogativa",
         "body": "Un grafico a barre mostra il budget OTB per ogni punto vendita. Un secondo grafico mostra come si compone la disponibilità (vendite previste, markdown, scorta finale) per ciascun outlet. In fondo trovi una tabella completa con tutti i parametri e l'OTB calcolato per ogni punto vendita."
+      },
+      {
+        "heading": "Punti vendita in apertura",
+        "body": "Per i punti vendita con data di apertura futura non viene proposto alcun piano di acquisto: compaiono con la scritta «In apertura dal …» nella griglia e nella tabella riepilogo, esclusi da medie e grafici."
       }
     ],
     "faq": [
@@ -1729,6 +1761,10 @@ export const PAGE_GUIDES: PageGuide[] = [
       {
         "heading": "Raccomandazioni",
         "body": "In fondo alla pagina trovi alcuni suggerimenti automatici: un avviso per gli outlet dove il rapporto ricavi/costo del personale è sotto la soglia ottimale (1,8 volte), e un promemoria per mantenere l'organizzazione dell'outlet più produttivo."
+      },
+      {
+        "heading": "Punti vendita in apertura",
+        "body": "Un punto vendita con data di apertura futura è «in apertura»: i suoi costi (canone, spese, allestimento) sono reali e si vedono, ma non ha ancora ricavi. Resta in tabella con l'etichetta «In apertura dal …»: ROI e incidenza del personale sono N/D, non ha posizione in classifica, non entra nelle medie né nelle raccomandazioni."
       }
     ],
     "faq": [
@@ -1785,6 +1821,10 @@ export const PAGE_GUIDES: PageGuide[] = [
           "Clicca 'Salva Scenario' in alto a destra.",
           "Attendi il messaggio di conferma (verde) o l'eventuale avviso."
         ]
+      },
+      {
+        "heading": "Punti vendita in apertura",
+        "body": "Un punto vendita con data di apertura futura è «in apertura»: i suoi costi (canone, spese, allestimento) sono reali e si vedono, ma non ha ancora ricavi. Non è contato tra i punti vendita attivi e non abbassa i ricavi medi per outlet usati per simulare un nuovo negozio; i suoi costi restano nei totali aziendali ed è elencato sotto la baseline con l'etichetta «In apertura dal …»."
       }
     ],
     "faq": [
@@ -1844,6 +1884,10 @@ export const PAGE_GUIDES: PageGuide[] = [
       {
         "heading": "Meteo e azioni veloci",
         "body": "Un riquadro mostra temperatura e condizioni meteo della città dell'outlet selezionato (dato di esempio). Più sotto ci sono tre pulsanti — Segnala Problema, Richiedi Merce, Note Giornaliere — che al momento sono solo pulsanti dimostrativi: cliccandoli non succede ancora nulla, sono un'anteprima di funzioni che verranno collegate in futuro. In fondo compare anche un avviso con il tempo mancante alla chiusura cassa."
+      },
+      {
+        "heading": "Punti vendita in apertura",
+        "body": "I punti vendita con data di apertura futura sono selezionabili ma mostrano solo l'avviso «In apertura dal …: nessun dato operativo prima dell'apertura»; all'apertura della pagina viene proposto il primo negozio già operativo."
       }
     ],
     "faq": [
@@ -2739,6 +2783,10 @@ export const PAGE_GUIDES: PageGuide[] = [
           "Se vuoi anche WhatsApp, spunta \"Invia anche su WhatsApp (versione breve)\" e scrivi i numeri (uno per riga, formato +39…): insieme alla mail arriva un messaggio di poche righe con incasso e scostamento di ogni negozio, totale del giorno e del mese, negozi mancanti e anomalie. Parte dal numero WhatsApp aziendale con un modello approvato da Meta; \"Prova WhatsApp\" lo manda subito ai numeri configurati",
           "La tabella \"Ultimi invii\" mostra giorno e ora, tipo (report serale, integrazione, sollecito, prova), esito (mail e, se attivo, WhatsApp) e destinatari; se un invio non è riuscito vedi il motivo"
         ]
+      },
+      {
+        "heading": "Centri di costo: codice e ruolo",
+        "body": "Il codice di un centro di costo è la chiave che lo lega all'outlet (chiave contabile), al budget e al conto dei ricavi: va scritto in minuscolo con il trattino basso al posto degli spazi (es. torino, roma_soratte, sede_magazzino) e il form lo normalizza da solo. Il campo Ruolo dice come il centro viene trattato: «Punto vendita» entra in confronti, margini e budget per outlet; «Sede / magazzino» e «Non operativo» (spese da ripartire, rettifiche) restano fuori. Quando crei un outlet dalla procedura guidata, il centro di costo gemello viene creato automaticamente."
       }
     ],
     "faq": [
