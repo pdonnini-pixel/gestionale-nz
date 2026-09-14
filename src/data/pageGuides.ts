@@ -2560,7 +2560,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "Come si calcola ogni riga",
-        "body": "Per ogni mese: IVA vendite = corrispettivi netti × aliquota (più l'IVA delle fatture attive emesse nel mese); IVA acquisti = IVA delle fatture dei fornitori RICEVUTE nel mese (data di ricezione dallo SDI, non data fattura), meno le note di credito; le integrazioni reverse charge (TD16, TD17, TD18, TD19) sono neutre e non entrano nel conto. Liquidazione = IVA vendite − IVA acquisti − credito riportato dal mese precedente. Se il risultato è positivo va versato con F24 (codice tributo 60 + mese: 6008 per agosto); se è negativo il mese è a credito e l'importo riduce il mese dopo (colonna \"Riporto\"). Tutta l'IVA sugli acquisti è considerata detraibile."
+        "body": "Per ogni mese: IVA vendite = corrispettivi netti × aliquota (più l'IVA delle fatture attive emesse nel mese); IVA acquisti = IVA delle fatture dei fornitori di competenza del mese, con la regola del registro acquisti del commercialista: una fattura va nel mese della sua data se arriva via SDI entro il giorno limite del mese successivo (parametro, 15 di default), altrimenti nel mese in cui arriva; meno le note di credito; le integrazioni reverse charge (TD16, TD17, TD18, TD19) sono neutre e non entrano nel conto. Liquidazione = IVA vendite − IVA acquisti − credito riportato dal mese precedente. Se il risultato è positivo va versato con F24 (codice tributo 60 + mese: 6008 per agosto); se è negativo il mese è a credito e l'importo riduce il mese dopo (colonna \"Riporto\"). Tutta l'IVA sugli acquisti è considerata detraibile."
       },
       {
         "heading": "Da dove arrivano i corrispettivi",
@@ -2587,13 +2587,13 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "Parametri",
-        "body": "Nel pannello \"Parametri\" (super advisor, contabile, CFO) imposti: l'aliquota applicata ai corrispettivi (22% di default); il mese e l'anno di partenza, cioè il primo mese calcolato; il credito IVA iniziale da riportare in quel mese (zero se il mese precedente era a debito). I mesi precedenti al mese di partenza non vengono ricostruiti. Finché i parametri non sono salvati la pagina parte dal mese corrente con aliquota 22% e credito zero e lo segnala con un avviso."
+        "body": "Nel pannello \"Parametri\" (super advisor, contabile, CFO) imposti: l'aliquota applicata ai corrispettivi (22% di default); il mese e l'anno di partenza, cioè il primo mese calcolato; il credito IVA iniziale da riportare in quel mese (zero se il mese precedente era a debito); il giorno limite del mese successivo entro cui una fattura del mese resta nel mese (15 di default, il massimo di legge: se lo studio chiude il registro prima, per esempio l'8, si abbassa a 8). I mesi precedenti al mese di partenza non vengono ricostruiti. Finché i parametri non sono salvati la pagina parte dal mese corrente con aliquota 22% e credito zero e lo segnala con un avviso."
       }
     ],
     "faq": [
       {
         "q": "Perché l'IVA acquisti di un mese non coincide con le fatture datate quel mese?",
-        "a": "Perché conta il mese di ricezione dallo SDI, non la data scritta in fattura: una fattura di fine luglio ricevuta il 3 agosto è detraibile ad agosto. È la stessa regola che usa il commercialista, ed è il motivo per cui la stima si avvicina alla liquidazione reale."
+        "a": "Coincide quasi sempre: una fattura datata nel mese entra nel mese se arriva via SDI entro il giorno limite del mese dopo (parametro, 15 di default), che è la regola con cui il commercialista tiene il registro acquisti. Va nel mese di arrivo solo se arriva dopo quel giorno. Il confronto con il registro di agosto 2026 ha dato le stesse fatture e la stessa IVA."
       },
       {
         "q": "Il mese in corso cambia ogni volta che apro la pagina: è normale?",

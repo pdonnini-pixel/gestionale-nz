@@ -73,7 +73,9 @@ export default function LiquidazioneIva() {
 
   // Parametri: form
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [sForm, setSForm] = useState({ rate: '22', startYear: String(today.getFullYear()), startMonth: String(today.getMonth() + 1), openingCredit: '0' })
+  const [sForm, setSForm] = useState({ rate: '22', startYear: String(today.getFullYear()), startMonth: String(today.getMonth() + 1), openingCredit: '0', cutoff: '15' })
+  // Giorno del mese successivo entro cui una fattura resta nel mese della sua data (regola del commercialista)
+  const [cutoffDay, setCutoffDay] = useState(15)
   const [savingSettings, setSavingSettings] = useState(false)
 
   // Conferma mese: form inline
@@ -112,7 +114,9 @@ export default function LiquidazioneIva() {
           openingCredit: Number(s.opening_credit ?? 0),
         }
         setSettings(st)
-        setSForm({ rate: String(st.salesVatRate), startYear: String(st.startYear), startMonth: String(st.startMonth), openingCredit: String(st.openingCredit) })
+        const cd = Number(s.competenza_cutoff_day ?? 15) || 15
+        setCutoffDay(cd)
+        setSForm({ rate: String(st.salesVatRate), startYear: String(st.startYear), startMonth: String(st.startMonth), openingCredit: String(st.openingCredit), cutoff: String(cd) })
       } else {
         setSettings(null)
       }
@@ -193,6 +197,7 @@ export default function LiquidazioneIva() {
       const { error } = await supabase.from('vat_settings').upsert({
         company_id: COMPANY_ID, sales_vat_rate: rate, start_year: sy, start_month: sm,
         opening_credit: Math.abs(parseNum(sForm.openingCredit)),
+        competenza_cutoff_day: Math.min(28, Math.max(1, Math.round(Number(sForm.cutoff)) || 15)),
       }, { onConflict: 'company_id' })
       if (error) throw error
       toast({ type: 'success', message: 'Parametri IVA salvati' })
@@ -360,7 +365,7 @@ export default function LiquidazioneIva() {
           <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
             <div className="px-4 py-2 text-sm font-semibold text-slate-900 border-b border-slate-100">Parametri della liquidazione</div>
             <div className="p-4 space-y-3">
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
                 <label className="text-xs text-slate-600">Aliquota vendite (%)
                   <input value={sForm.rate} onChange={e => setSForm({ ...sForm, rate: e.target.value })} className={inputCls + ' mt-1'} inputMode="decimal" />
                 </label>
@@ -375,8 +380,11 @@ export default function LiquidazioneIva() {
                 <label className="text-xs text-slate-600">Credito IVA iniziale (€)
                   <input value={sForm.openingCredit} onChange={e => setSForm({ ...sForm, openingCredit: e.target.value })} className={inputCls + ' mt-1'} inputMode="decimal" />
                 </label>
+                <label className="text-xs text-slate-600">Fatture del mese: entro il giorno (del mese dopo)
+                  <input value={sForm.cutoff} onChange={e => setSForm({ ...sForm, cutoff: e.target.value })} className={inputCls + ' mt-1'} inputMode="numeric" title="Una fattura datata nel mese resta nel mese se arriva via SDI entro questo giorno del mese successivo (15 = massimo di legge). Oltre, va nel mese di arrivo." />
+                </label>
               </div>
-              <p className="text-xs text-slate-500">Il mese di partenza è il primo mese calcolato: il credito iniziale è quello da riportare in quel mese (zero se il mese precedente era a debito). I mesi prima non vengono ricostruiti.</p>
+              <p className="text-xs text-slate-500">Il mese di partenza è il primo mese calcolato: il credito iniziale è quello da riportare in quel mese (zero se il mese precedente era a debito). I mesi prima non vengono ricostruiti. Il giorno limite riproduce il registro acquisti del commercialista: le fatture del mese arrivate via SDI entro quel giorno del mese dopo restano nel mese (15 è il massimo di legge; lo studio di New Zago ha chiuso agosto 2026 l'8 settembre).</p>
               <div className="flex justify-end gap-2">
                 <button onClick={() => setSettingsOpen(false)} className={btnSecondary}>Annulla</button>
                 <button onClick={saveSettings} disabled={savingSettings} className={btnPrimary}>
@@ -555,7 +563,7 @@ export default function LiquidazioneIva() {
 
         <div className="text-xs text-slate-500 space-y-1">
           <p><span className="font-semibold text-slate-700">Corrispettivi netti</span>: chiusure di cassa confermate quando ci sono (mese in corso: chiusure fino a oggi più preventivo per i giorni restanti), altrimenti il consuntivo e poi il preventivo di Budget &amp; Controllo. Sono imponibili: l'IVA vendite è corrispettivi × aliquota.</p>
-          <p><span className="font-semibold text-slate-700">IVA acquisti</span>: fatture passive per mese di ricezione SDI (non data fattura), meno le note di credito. Le integrazioni reverse charge (TD16/17/18/19) sono neutre e non entrano. Per i mesi futuri si usa la media dei mesi chiusi (≈). Tutta l'IVA è considerata detraibile.</p>
+          <p><span className="font-semibold text-slate-700">IVA acquisti</span>: fatture passive per competenza, come nel registro del commercialista: mese della data fattura se la fattura arriva via SDI entro il giorno {cutoffDay} del mese successivo (parametro), altrimenti mese di ricezione; meno le note di credito. Le integrazioni reverse charge (TD16/17/18/19) sono neutre e non entrano. Per i mesi futuri si usa la media dei mesi chiusi (≈). Tutta l'IVA è considerata detraibile.</p>
           <p><span className="font-semibold text-slate-700">Riporto</span>: se un mese chiude a credito, il credito riduce la liquidazione del mese dopo. Un mese confermato usa i numeri inseriti a mano; un mese pagato usa l'importo versato registrato in Scadenze Fiscali.</p>
           <p><span className="font-semibold text-slate-700">Scadenza</span>: il 16 del mese successivo (20 agosto per luglio, giorno lavorativo successivo se cade nel weekend), codice tributo 60 + mese. «Crea scadenza» la scrive in Scadenze Fiscali: da lì entra in Scadenzario e Cashflow Prospettico.</p>
         </div>

@@ -6,8 +6,10 @@
  *       chiusure di cassa confermate (daily_revenue) → consuntivo granitico di
  *       Budget & Controllo → preventivo di Budget & Controllo
  *   - IVA delle fatture attive emesse nel mese
- *   - IVA delle fatture passive RICEVUTE nel mese (data ricezione SDI), meno
- *     le note di credito; le integrazioni reverse charge sono neutre
+ *   - IVA delle fatture passive di COMPETENZA del mese (data fattura se
+ *     ricevuta via SDI entro il 15 del mese dopo, altrimenti data ricezione:
+ *     regola del registro del commercialista, migration 221), meno le note
+ *     di credito; le integrazioni reverse charge sono neutre
  *
  * Formula del mese M:
  *   importo = IVA corrispettivi + IVA fatture attive − IVA credito − riporto(M−1)

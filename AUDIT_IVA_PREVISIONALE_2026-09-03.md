@@ -139,3 +139,9 @@ select count(*), count(*) filter (where date_trunc('month',acube_created_at) <> 
 -- feed corrispettivi A-Cube
 select receipts_enabled, supplier_invoice_enabled, customer_invoice_enabled, stage from acube_sdi_business_registry_configs;
 ```
+
+## 7. aggiornamento del 14 settembre 2026: regola di competenza del commercialista
+
+Confronto fattura per fattura con il registro acquisti di agosto 2026 di Fattura SMART (128 fatture, IVA 55.762 €): tutte presenti nel gestionale, stessi importi. La differenza con la vista (41.404 €) era solo di attribuzione al mese: il commercialista tiene le fatture nel mese della loro data se arrivano prima che chiuda il registro (44 fatture di agosto arrivate dal 1° all'8 settembre, 14.307 €), e il giorno di chiusura varia (luglio chiuso il 3 agosto, agosto l'8 settembre).
+
+Migration 221 + 222 (NZ, Made, Zago): la vista attribuisce le fatture passive per competenza, data fattura se ricevute via SDI entro il giorno limite del mese successivo (`vat_settings.competenza_cutoff_day`, default 15 = massimo di legge), altrimenti data di ricezione. Il giorno limite si imposta dai Parametri della pagina Liquidazione IVA. Con 15, agosto 2026 su NZ vale 31.287 € di fatture datate agosto; le 30 fatture di luglio arrivate tra il 4 e il 12 agosto (24.475 €) restano a luglio, dove il commercialista invece le ha spostate ad agosto avendo chiuso luglio il 3. Nessun giorno fisso riproduce entrambi i mesi: per il pregresso vale la conferma del mese con i numeri del commercialista.
