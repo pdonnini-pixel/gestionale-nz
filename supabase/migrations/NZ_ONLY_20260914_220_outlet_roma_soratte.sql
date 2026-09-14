@@ -176,8 +176,10 @@ BEGIN
     v_company, v_outlet, 'Affitto ramo d''azienda B46 — Roma Outlet Village', 'affitto_ramo_azienda', 'Westi S.r.l.', v_loc,
     6533.33, 78400, 22, 44100,
     DATE '2026-11-05', DATE '2034-11-05', 30, false, NULL,
-    'istat_min_1pct', 1, DATE '2029-01-01', 12,
-    514500, '12 mesi precedenti il 30° mese', 10, 784000, 196, 'attivo',
+    -- escalation_rate e variable_rent_pct sono numeric a 4 decimali (frazioni):
+    -- 0.01 = +1% minimo di rivalutazione, 0.10 = 10% del volume d'affari.
+    'istat_min_1pct', 0.01, DATE '2029-01-01', 12,
+    514500, '12 mesi precedenti il 30° mese', 0.10, 784000, 196, 'attivo',
     E'BOZZA (All. C v5, siglata 10/09/2026): stipula prevista fra il 26 e il 29/10/2026. Canone = max(minimo garantito; 10% volume d''affari). Minimo 78.400 anni 1-2, 88.200 dal 3°, poi max(ISTAT; +1%) e regola del 90%. Fatturazione trimestrale anticipata, rate mensili SEPA il 1°; conguagli 31/07 e 28/02; primo trimestre pro rata in 3 quote (0/15/30 gg). Il variabile supera il minimo sopra 784.000 € (anno 1-2) e 882.000 € (anno 3). Recesso solo al 30° mese con fatturato < 514.500 €, effetto dopo 6 mesi. Fideiussione 44.100 € a prima richiesta (+6 mesi). Foro Milano.'
   ) RETURNING id INTO v_contract;
 

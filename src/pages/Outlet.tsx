@@ -1438,6 +1438,9 @@ function OutletContrattoCard({ outletId, companyId }: { outletId: string; compan
   const today = new Date(); today.setHours(0, 0, 0, 0)
   const d = (v: string | null) => (v ? new Date(v).toLocaleDateString('it-IT') : '—')
   const STATUS_LABEL: Record<string, string> = { attivo: 'Attivo', in_scadenza: 'In scadenza', scaduto: 'Scaduto', disdettato: 'Disdettato' }
+  // In `contracts` le percentuali sono frazioni a 4 decimali (0.10 = 10%),
+  // diversamente da outlets.variable_rent_pct che è già in punti percentuali.
+  const pctFraction = (v: number) => `${Number.isInteger(v * 100) ? v * 100 : (v * 100).toFixed(2)}%`
   const ESC_LABEL: Record<string, string> = { istat: 'ISTAT', istat_min_1pct: 'ISTAT (min +1%)', fisso: 'Fisso', nessuna: 'Nessuna' }
 
   return (
@@ -1458,8 +1461,8 @@ function OutletContrattoCard({ outletId, companyId }: { outletId: string; compan
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 text-sm">
               <div className="flex justify-between py-1 border-b border-slate-50"><span className="text-slate-500">Decorrenza → scadenza</span><span className="font-medium">{d(c.start_date)} → {d(c.end_date)}</span></div>
               <div className="flex justify-between py-1 border-b border-slate-50"><span className="text-slate-500">Canone</span><span className="font-medium">{c.monthly_amount != null ? `${fmt(c.monthly_amount)} €/mese` : '—'}{c.annual_amount != null ? ` · ${fmt(c.annual_amount, 0)} €/anno` : ''}</span></div>
-              <div className="flex justify-between py-1 border-b border-slate-50"><span className="text-slate-500">Canone variabile</span><span className="font-medium">{c.variable_rent_pct != null ? `${c.variable_rent_pct}% del fatturato${c.variable_rent_threshold ? ` oltre ${fmt(c.variable_rent_threshold, 0)} €` : ''}` : '—'}</span></div>
-              <div className="flex justify-between py-1 border-b border-slate-50"><span className="text-slate-500">Rivalutazione</span><span className="font-medium">{c.escalation_type ? `${ESC_LABEL[c.escalation_type] || c.escalation_type}${c.escalation_rate != null ? ` ${c.escalation_rate}%` : ''}${c.escalation_date ? ` dal ${d(c.escalation_date)}` : ''}${c.escalation_frequency_months ? ` ogni ${c.escalation_frequency_months} mesi` : ''}` : '—'}</span></div>
+              <div className="flex justify-between py-1 border-b border-slate-50"><span className="text-slate-500">Canone variabile</span><span className="font-medium">{c.variable_rent_pct != null ? `${pctFraction(c.variable_rent_pct)} del fatturato${c.variable_rent_threshold ? ` oltre ${fmt(c.variable_rent_threshold, 0)} €` : ''}` : '—'}</span></div>
+              <div className="flex justify-between py-1 border-b border-slate-50"><span className="text-slate-500">Rivalutazione</span><span className="font-medium">{c.escalation_type ? `${ESC_LABEL[c.escalation_type] || c.escalation_type}${c.escalation_rate != null ? ` min. ${pctFraction(c.escalation_rate)}` : ''}${c.escalation_date ? ` dal ${d(c.escalation_date)}` : ''}${c.escalation_frequency_months ? ` ogni ${c.escalation_frequency_months} mesi` : ''}` : '—'}</span></div>
               <div className="flex justify-between py-1 border-b border-slate-50"><span className="text-slate-500">Soglia di recesso</span><span className="font-medium">{c.min_revenue_clause != null ? `${fmt(c.min_revenue_clause, 0)} €${c.min_revenue_period ? ` (${c.min_revenue_period})` : ''}` : '—'}</span></div>
               <div className="flex justify-between py-1 border-b border-slate-50"><span className="text-slate-500">Preavviso</span><span className="font-medium">{c.notice_days != null ? `${c.notice_days} giorni` : '—'}{c.notice_deadline ? ` · entro ${d(c.notice_deadline)}` : ''}</span></div>
             </div>
