@@ -21,6 +21,7 @@ import { useAuth } from '../hooks/useAuth'
 import { usePeriod } from '../hooks/usePeriod'
 import { useCompanyLabels } from '../hooks/useCompanyLabels'
 import StatKpi from '../components/ui/StatKpi'
+import { getOutletLifecycle, monthsOpenInYear, outletLifecycleCaption, safePct, OUTLET_LIFECYCLE_STYLE } from '../lib/outletLifecycle'
 
 // ═══ HELPERS ═══
 const fmt = (n: number | null | undefined): string => n == null ? '—' : new Intl.NumberFormat('de-DE', { maximumFractionDigits: 0 }).format(n)
@@ -69,7 +70,7 @@ export default function MarginiCategoria() {
   }, [profile?.company_id])
 
   // Raw data — Supabase data
-  type OutletLite = { id: string; name: string; code?: string | null; rent_monthly?: number | null; staff_budget_monthly?: number | null; condo_marketing_monthly?: number | null; admin_cost_monthly?: number | null; target_margin_pct?: number | null; target_cogs_pct?: number | null; is_active?: boolean | null }
+  type OutletLite = { id: string; name: string; code?: string | null; rent_monthly?: number | null; staff_budget_monthly?: number | null; condo_marketing_monthly?: number | null; admin_cost_monthly?: number | null; target_margin_pct?: number | null; target_cogs_pct?: number | null; is_active?: boolean | null; opening_date?: string | null; closing_date?: string | null }
   type RevenueRow = { outlet_id?: string | null; date?: string | null; gross_revenue?: number | null; net_revenue?: number | null; transactions_count?: number | null }
   type PayableRow = { outlet_id?: string | null; invoice_date?: string | null; net_amount?: number | null; vat_amount?: number | null; gross_amount?: number | null; cost_category_id?: string | null; status?: string | null; cash_movement_id?: string | null }
   type CashRow = { id?: string | null; outlet_id?: string | null; date?: string | null; type?: string | null; amount?: number | null; cost_category_id?: string | null }
@@ -99,8 +100,14 @@ export default function MarginiCategoria() {
     setLoading(true)
     setError(null)
     try {
+      // Outlet del solo tenant attivo (come le altre query della pagina, via profile.company_id);
+      // le date di apertura/chiusura servono al ciclo di vita (badge «In apertura», budget pro-rata).
+      let outletsQuery = supabase.from('outlets')
+        .select('id, name, code, rent_monthly, staff_budget_monthly, condo_marketing_monthly, admin_cost_monthly, target_margin_pct, target_cogs_pct, is_active, opening_date, closing_date')
+        .eq('is_active', true)
+      if (profile?.company_id) outletsQuery = outletsQuery.eq('company_id', profile.company_id)
       const [outletRes, revenueRes, costsRes, bankRes, catRes, budgetRes] = await Promise.all([
-        supabase.from('outlets').select('id, name, code, rent_monthly, staff_budget_monthly, condo_marketing_monthly, admin_cost_monthly, target_margin_pct, target_cogs_pct, is_active').eq('is_active', true).order('name'),
+        outletsQuery.order('name'),
         supabase.from('daily_revenue').select('outlet_id, date, gross_revenue, net_revenue, transactions_count').gte('date', dateRange.from).lte('date', dateRange.to),
         supabase.from('payables').select('outlet_id, invoice_date, net_amount, vat_amount, gross_amount, cost_category_id, status, cash_movement_id').gte('invoice_date', dateRange.from).lte('invoice_date', dateRange.to),
         supabase.from('cash_movements').select('id, outlet_id, date, type, amount, cost_category_id').eq('type', 'uscita').gte('date', dateRange.from).lte('date', dateRange.to),
@@ -121,7 +128,7 @@ export default function MarginiCategoria() {
     } finally {
       setLoading(false)
     }
-  }, [dateRange])
+  }, [dateRange, profile?.company_id])
 
   useEffect(() => { fetchData() }, [fetchData])
 
@@ -199,8 +206,28 @@ export default function MarginiCategoria() {
   // parte dell'anno anche con costi in linea. Ora entrambi i rami (template e
   // fallback da anagrafica outlet) sono pro-ratati sugli stessi mesi del periodo.
   const budgetByOutlet = useMemo(() => {
-    // Mesi coperti dal periodo selezionato: ultimi 12m -> 12; YTD -> mesi trascorsi.
-    const months = period === 'last12' ? 12 : new Date().getMonth() + 1
+    // Mesi coperti dal periodo selezionato: ultimi 12m -> finestra rolling di 12
+    // mesi; YTD -> mesi trascorsi dell'anno.
+    const now = new Date()
+    const periodMonths: Array<{ y: number; m: number }> = period === 'last12'
+      ? Array.from({ length: 12 }, (_, i) => {
+        const d = new Date(now.getFullYear(), now.getMonth() - 11 + i, 1)
+        return { y: d.getFullYear(), m: d.getMonth() + 1 }
+      })
+      : Array.from({ length: now.getMonth() + 1 }, (_, i) => ({ y: year, m: i + 1 }))
+    // Mesi del periodo in cui l'outlet è effettivamente aperto (ciclo di vita):
+    // un outlet «in apertura» non riceve un budget inventato di personale/canone
+    // per i mesi in cui non esiste ancora; un outlet chiuso smette a closing_date.
+    const outletById: Record<string, OutletLite> = {}
+    outlets.forEach(o => { outletById[o.id] = o })
+    const monthsOpenFor = (o: OutletLite | undefined): number => {
+      if (!o) return periodMonths.length
+      const openByYear = new Map<number, number[]>()
+      return periodMonths.filter(({ y, m }) => {
+        if (!openByYear.has(y)) openByYear.set(y, monthsOpenInYear(o, y))
+        return (openByYear.get(y) ?? []).includes(m)
+      }).length
+    }
     // 1) Budget MENSILE da template, sommato per outlet.
     const monthlyByOutlet: Record<string, number> = {}
     budgets.forEach(b => {
@@ -213,18 +240,20 @@ export default function MarginiCategoria() {
     })
     const map: Record<string, number> = {}
     Object.entries(monthlyByOutlet).forEach(([id, monthly]) => {
-      map[id] = monthly * months
+      map[id] = monthly * monthsOpenFor(outletById[id])
     })
-    // 2) Fallback da anagrafica outlet (rent, staff, ecc.) se manca il template.
+    // 2) Fallback da anagrafica outlet (rent, staff, ecc.) se manca il template,
+    //    solo per i mesi in cui l'outlet è aperto.
     outlets.forEach(o => {
       const monthlyTotal = (Number(o.rent_monthly) || 0) + (Number(o.staff_budget_monthly) || 0) +
         (Number(o.condo_marketing_monthly) || 0) + (Number(o.admin_cost_monthly) || 0)
-      if (!map[o.id] && monthlyTotal > 0) {
-        map[o.id] = monthlyTotal * months
+      const openMonths = monthsOpenFor(o)
+      if (!map[o.id] && monthlyTotal > 0 && openMonths > 0) {
+        map[o.id] = monthlyTotal * openMonths
       }
     })
     return map
-  }, [budgets, outlets, period])
+  }, [budgets, outlets, period, year])
 
   // Outlet table data
   const outletData = useMemo(() => {
@@ -237,7 +266,8 @@ export default function MarginiCategoria() {
       // max(payCosts, bnkCosts), che perdeva la parte non sovrapposta.
       const totalCosts = payCosts + bnkCosts
       const margin = rev.gross - totalCosts
-      const marginPct = rev.gross > 0 ? (margin / rev.gross) * 100 : 0
+      // Senza ricavi (es. outlet in apertura) il margine % è «—», mai 0% o -∞.
+      const marginPct = safePct(margin, rev.gross)
       const budget = budgetByOutlet[o.id] || 0
       const budgetVar = budget > 0 ? ((totalCosts - budget) / budget) * 100 : null
       const targetMargin = Number(o.target_margin_pct) || 60
@@ -246,6 +276,9 @@ export default function MarginiCategoria() {
         id: o.id,
         name: o.name,
         code: o.code,
+        lifecycle: getOutletLifecycle(o),
+        opening_date: o.opening_date ?? null,
+        closing_date: o.closing_date ?? null,
         revenue: rev.gross,
         netRevenue: rev.net,
         transactions: rev.transactions,
@@ -256,7 +289,7 @@ export default function MarginiCategoria() {
         budget,
         budgetVar,
         targetMargin,
-        onTarget: marginPct >= targetMargin,
+        onTarget: marginPct != null && marginPct >= targetMargin,
         synthetic: false,
         color: (OUTLET_COLORS as Record<string, { main?: string }>)[o.name]?.main || PALETTE[0],
       }
@@ -282,13 +315,16 @@ export default function MarginiCategoria() {
         id: '_unassigned',
         name: 'Non assegnato',
         code: null,
+        lifecycle: 'attivo' as const,
+        opening_date: null,
+        closing_date: null,
         revenue: exGross,
         netRevenue: exNet,
         transactions: exTx,
         avgTicket: exTx > 0 ? exGross / exTx : 0,
         costs: exCosts,
         margin: exGross - exCosts,
-        marginPct: exGross > 0 ? ((exGross - exCosts) / exGross) * 100 : 0,
+        marginPct: safePct(exGross - exCosts, exGross),
         budget: 0,
         budgetVar: null,
         targetMargin: 0,
@@ -367,10 +403,12 @@ export default function MarginiCategoria() {
       }))
   }, [revenue, activeCosts])
 
-  // Best / worst outlet — la riga sintetica "Non assegnato" non concorre
-  const realOutlets = outletData.filter(o => !o.synthetic)
-  const bestOutlet = realOutlets.length ? realOutlets.reduce((a, b) => a.marginPct > b.marginPct ? a : b) : null
-  const worstOutlet = realOutlets.length ? realOutlets.reduce((a, b) => a.marginPct < b.marginPct ? a : b) : null
+  // Best / worst outlet — la riga sintetica "Non assegnato" non concorre, e
+  // nemmeno chi non ha ricavi (margine % nullo, es. outlet in apertura): non
+  // deve finire «peggior margine» solo perché non ha ancora aperto.
+  const realOutlets = outletData.filter(o => !o.synthetic && o.marginPct != null)
+  const bestOutlet = realOutlets.length ? realOutlets.reduce((a, b) => (a.marginPct ?? 0) > (b.marginPct ?? 0) ? a : b) : null
+  const worstOutlet = realOutlets.length ? realOutlets.reduce((a, b) => (a.marginPct ?? 0) < (b.marginPct ?? 0) ? a : b) : null
 
   // ── Export CSV ──
   // ═══ RENDER ═══
@@ -562,6 +600,11 @@ function OutletTab({ outletData, totals }: { outletData: any[]; totals: any }) {
                     <div className="flex items-center gap-2">
                       <div className="w-2.5 h-2.5 rounded-full" style={{ background: o.color }} />
                       <span className="text-sm font-medium text-slate-900">{o.name}</span>
+                      {o.lifecycle === 'programmato' && (
+                        <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full whitespace-nowrap ${OUTLET_LIFECYCLE_STYLE.programmato}`}>
+                          {outletLifecycleCaption(o)}
+                        </span>
+                      )}
                     </div>
                   </td>
                   <td className="py-3 px-3 text-sm text-right tabular-nums text-slate-700">{fmt(o.revenue)} €</td>
@@ -570,10 +613,14 @@ function OutletTab({ outletData, totals }: { outletData: any[]; totals: any }) {
                     {fmt(o.margin)} €
                   </td>
                   <td className="py-3 px-3 text-right">
-                    <span className={`inline-flex items-center gap-1 text-sm font-medium ${o.marginPct >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                      {o.marginPct >= 0 ? <ArrowUpRight size={13} /> : <ArrowDownRight size={13} />}
-                      {fmtPct(o.marginPct)}
-                    </span>
+                    {o.marginPct == null ? (
+                      <span className="text-sm text-slate-400" title="Nessun ricavo nel periodo">—</span>
+                    ) : (
+                      <span className={`inline-flex items-center gap-1 text-sm font-medium ${o.marginPct >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                        {o.marginPct >= 0 ? <ArrowUpRight size={13} /> : <ArrowDownRight size={13} />}
+                        {fmtPct(o.marginPct)}
+                      </span>
+                    )}
                   </td>
                   <td className="py-3 px-3 text-sm text-right tabular-nums text-slate-600">{fmt(o.transactions)}</td>
                   <td className="py-3 px-3 text-sm text-right tabular-nums text-slate-600">{fmt(o.avgTicket)} €</td>

@@ -14761,6 +14761,9 @@ export type Database = {
           unit_code: string | null
           updated_at: string | null
           variable_rent_pct: number | null
+          rent_start_date: string | null
+          guarantee_expiry: string | null
+          landlord_supplier_id: string | null
         }
         Insert: {
           address?: string | null
@@ -14821,6 +14824,9 @@ export type Database = {
           unit_code?: string | null
           updated_at?: string | null
           variable_rent_pct?: number | null
+          rent_start_date?: string | null
+          guarantee_expiry?: string | null
+          landlord_supplier_id?: string | null
         }
         Update: {
           address?: string | null
@@ -14881,6 +14887,9 @@ export type Database = {
           unit_code?: string | null
           updated_at?: string | null
           variable_rent_pct?: number | null
+          rent_start_date?: string | null
+          guarantee_expiry?: string | null
+          landlord_supplier_id?: string | null
         }
         Relationships: [
           {
