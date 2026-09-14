@@ -205,3 +205,93 @@ quella nota, l'aggancio ha una prova documentale dietro e non si tocca.
 Le 4 proposte lasciate aperte sono corrette come proposte: BRT accostata a un
 bonifico che in causale dice SAMA SRL, TANESINI accostata a un pagamento POS in
 un hotel di Bentivoglio. Il motore non le ha applicate, e ha fatto bene.
+
+---
+
+## Il controllo del 14/09: un fix che era sparito, e la terza volta che succede
+
+Settimana pulita sul cron: otto giri consecutivi riusciti, dal 7 al 14 settembre,
+fra 115 e 134 secondi l'uno. Nessun errore, tempi ormai stabili.
+
+Venticinque agganci applicati dal motore in tutta la settimana. Cinque hanno la
+causale parlante e si leggono da soli: Hotel Gross (POS con l'esercente in
+chiaro), gli addebiti diretti di CONSORZIO SHOPINN, DWS GRUNDBESITZ e SAN MAURO
+(«ADDEBITO SDD … A FAVORE …»), e la caparra Westi, che nomina il beneficiario e
+risulta anche disposta in distinta. Gli altri venti sono su causale anonima MPS
+e li ho verificati uno per uno: **sedici avevano candidato unico** nella
+finestra, quindi il criterio regge senza discussione.
+
+I quattro con gemelle vanno guardati:
+
+| fornitore | fattura | gemelle | esito |
+|---|---|---|---|
+| LA SCOPA MAGICA | FPR 156/26 | 2 | scelta la scadenza più vicina (6 giorni), regge |
+| Colette | 292/2026 | 1 | sono due rate della STESSA fattura, cambia solo quale risulti saldata |
+| Giulio Zanazzi | FPR 1/26 | 1 | discutibile: il movimento del 20/04 sta a un giorno dalla 5/26 e a tre mesi dalla 1/26 |
+| Spm Investigazioni | 31 | 2 | **sbagliato**, vedi sotto |
+
+Su Zanazzi il motore ha preso la fattura più lontana invece della più vicina.
+Non l'ho annullato: entrambe sono chiuse dal go-live con la stessa data fittizia
+del 17/06, i soldi e il fornitore sono giusti, e cambia solo quale delle due
+risulti saldata. Ma la scelta per vicinanza sarebbe stata migliore, e se il caso
+si ripete vale la pena guardare come il motore rompe la parità sulle date.
+
+### SPM 31: il fix della 192 non c'era più
+
+La fattura 31 di Spm Investigazioni è chiusa a mano, con `payment_date` al
+06/08/2026. Il 10/09 il motore le ha riattaccato il movimento del **09/03**:
+centocinquanta giorni prima.
+
+È **esattamente** il caso per cui il 06/09 era nata la migration 192, che
+aggiungeva una condizione sola: se la scadenza è chiusa a mano e ha una
+`payment_date`, il movimento deve cadere entro 30 giorni da quella data.
+
+Quella condizione non era più nella funzione. In `try_match_bank_transaction` la
+parola `closed_manually` non compariva affatto: una `CREATE OR REPLACE`
+successiva aveva riscritto il corpo sostituendo il concetto con un più povero
+`(status = 'pagato') AS is_closed_manual`, che guarda lo stato e ignora sia il
+flag sia la data. Il nome della variabile diceva ancora «manual», ma non lo
+guardava più nessuno.
+
+Lo storico del log è impietoso: **lo stesso aggancio è stato annullato cinque
+volte** — 25/07, 04/09, 05/09, 06/09 e ora 14/09. Le prime quattro a mano, senza
+che il motore cambiasse; la quinta insieme al fix.
+
+### La lezione, che è la terza volta
+
+È il terzo caso in cui una `CREATE OR REPLACE` su questa funzione cancella il
+ramo di qualcun altro. I precedenti: la 209 che aveva mangiato il ramo `v_altro`
+della 207, fuso poi nella 210.
+
+Rileggere `pg_get_functiondef` prima di sostituire non è bastato, perché chi
+riscrive lo fa in buona fede partendo dal proprio testo. Per questo la **218 non
+riscrive la funzione**: legge la definizione viva dal catalogo, verifica che
+l'ancora ci sia una volta sola, ci innesta la condizione con `regexp_replace` e
+riapplica quel testo. Quello che c'è dentro non lo tocca, qualunque cosa sia.
+È idempotente, e se il corpo è cambiato al punto che l'ancora non è più unica
+si ferma con un errore invece di indovinare.
+
+**Regola per le prossime volte**: su `try_match_bank_transaction` non si fa più
+`CREATE OR REPLACE` con il testo intero. Si patcha la definizione viva, oppure,
+quando il vincolo si può esprimere come invariante sui dati, lo si mette in un
+trigger sulla tabella — dove nessuna riscrittura di funzione lo può togliere.
+
+### Verifica dopo il fix
+
+Test in transazione annullata: sganciata SPM 31 e rilanciato il motore su quel
+movimento, la risposta è `matched: false`. Non ripiega su un'altra gemella, e va
+bene così: nessun aggancio è meglio di uno arbitrario.
+
+Controllati anche tutti gli altri rami dopo la patch — movimenti della banca,
+note di credito, distinta, netto CBI, pari punteggio: ci sono tutti.
+
+Su NZ una sola scadenza chiusa a mano aveva un movimento oltre i 30 giorni, ed
+era questa. Le altre 49 chiuse a mano con movimento agganciato stanno dentro il
+vincolo.
+
+### Una cosa imparata di passaggio
+
+`payables.cash_movement_id` è una **colonna generata** da `bank_transaction_id`:
+non si aggiorna a mano e si azzera da sé quando si toglie l'aggancio bancario.
+Spiega anche perché, contando le scadenze riconciliate, «con cassa» e «con
+banca» danno sempre lo stesso numero.
