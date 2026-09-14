@@ -9,8 +9,12 @@
 // scostamento +/- e andamento del mese.
 //
 // Chi la chiama:
-// - pg_cron → daily_cash_report_tick() (migration 176) con il segreto
+// - pg_cron → daily_cash_report_tick() (migration 176/204) con il segreto
 //   condiviso x-autofix-cron: body { log_id, company_id, report_date, kind }
+// - trigger alla conferma di una chiusura (migration 204), stesso segreto:
+//   kind 'report' quando tutti i negozi hanno confermato (modalità a
+//   completamento) oppure kind 'followup' (integrazione) se il report del
+//   giorno era già partito: body aggiunge closing_id e outlet_name.
 // - Impostazioni → «Invia una prova a me»: JWT di super_advisor/contabile,
 //   body { kind: 'test' }: la mail va SOLO all'indirizzo di chi la chiede.
 //
@@ -95,6 +99,8 @@ interface Budget {
 }
 interface ReportData {
   companyName: string; date: string; outlets: Outlet[]; rows: RowData[]; missing: Outlet[]; anomalies: string[];
+  // done = chiusure confermate (o «negozio chiuso»); pending = nomi di chi manca o è ancora in bozza
+  done: number; pending: string[];
   totals: { total: number; cash: number; pos: number; other: number; expenses: number; refunds: number; deposit: number };
   monthToDate: number; monthLabel: string; appUrl: string | null;
   budget: {
@@ -219,8 +225,10 @@ async function buildReport(admin: SupabaseClient, companyId: string, date: strin
       if (c.notes) anomalies.push(`${o.name}: nota della cassiera «${c.notes}»`);
     }
   }
+  const done = rows.filter((row) => row.status === "confermata" || row.status === "chiuso").length;
+  const pending = rows.filter((row) => row.status === "manca" || row.status === "bozza").map((row) => `${row.outlet.name}${row.status === "bozza" ? " (in bozza)" : ""}`);
   return {
-    companyName: (company?.name as string) ?? "", date, outlets, rows, missing, anomalies, totals, monthToDate,
+    companyName: (company?.name as string) ?? "", date, outlets, rows, missing, anomalies, totals, monthToDate, done, pending,
     monthLabel: `${MESI[m - 1]} ${y}`, appUrl,
     budget: { vatRate, dayOfMonth: d, daysInMonth, ...bTot },
   };
@@ -237,12 +245,30 @@ function band(actual: number, target: number, tol: number): string {
 function deltaStyle(n: number): string { return Math.abs(n) < 0.005 ? "" : n > 0 ? "color:#047857;font-weight:600" : "color:#b91c1c;font-weight:600"; }
 function pct(part: number, whole: number): string { return whole > 0 ? `${Math.round((part / whole) * 100)} %` : "—"; }
 
-function renderHtml(r: ReportData): { subject: string; html: string; text: string } {
+// Integrazione: la chiusura di un negozio arrivata dopo il report del giorno.
+interface Followup { outletName: string; outletTotal: number | null; reportSentAt: string | null }
+function timeIt(iso: string | null): string {
+  if (!iso) return "";
+  const p = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Rome", hour: "2-digit", minute: "2-digit" }).formatToParts(new Date(iso));
+  const get = (t: string) => p.find((x) => x.type === t)?.value ?? "";
+  return `${get("hour")}:${get("minute")}`;
+}
+
+function renderHtml(r: ReportData, followup: Followup | null = null): { subject: string; html: string; text: string } {
   const b = r.budget;
   const hasBudget = b.withBudget > 0;
   const dayDelta = r.totals.total - b.dayTarget;
   const mtdDelta = b.mtd - b.toDateTarget;
-  const subject = `Incassi ${dateIt(r.date, false)} · ${r.companyName}: ${r.rows.length - r.missing.length}/${r.rows.length} chiusure, totale ${eur(r.totals.total)}${hasBudget ? ` (${delta(dayDelta)} vs obiettivo)` : ""}`;
+  const count = `${r.done}/${r.rows.length}`;
+  const subject = followup
+    ? `Integrazione incassi ${dateIt(r.date, false)} · ${r.companyName}: ${followup.outletName} ha confermato${followup.outletTotal != null ? ` (${eur(followup.outletTotal)})` : ""}, totale ${eur(r.totals.total)}${hasBudget ? ` (${delta(dayDelta)} vs obiettivo)` : ""}`
+    : `Incassi ${dateIt(r.date, false)} · ${r.companyName}: ${count} chiusure, totale ${eur(r.totals.total)}${hasBudget ? ` (${delta(dayDelta)} vs obiettivo)` : ""}`;
+  const followupHtml = followup
+    ? `<p style="margin:0 0 14px;padding:10px 12px;background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;font-size:13px"><strong>Integrazione:</strong> ${esc(followup.outletName)} ha confermato la chiusura dopo l'invio del report${followup.reportSentAt ? ` delle ${timeIt(followup.reportSentAt)}` : ""}. Sotto il quadro aggiornato della giornata.</p>`
+    : "";
+  const followupText = followup
+    ? `INTEGRAZIONE: ${followup.outletName} ha confermato la chiusura dopo l'invio del report${followup.reportSentAt ? ` delle ${timeIt(followup.reportSentAt)}` : ""}. Sotto il quadro aggiornato della giornata.`
+    : "";
   const td = (v: string, align = "right", extra = "") => `<td style="padding:6px 8px;border-bottom:1px solid #e2e8f0;text-align:${align};font-variant-numeric:tabular-nums;${extra}">${v}</td>`;
   const th = (v: string, align = "right") => `<th style="padding:6px 8px;border-bottom:2px solid #cbd5e1;text-align:${align};font-size:12px;color:#475569;white-space:nowrap">${v}</th>`;
   const link = (path: string) => r.appUrl ? `${r.appUrl.replace(/\/$/, "")}${path}` : null;
@@ -259,12 +285,12 @@ function renderHtml(r: ReportData): { subject: string; html: string; text: strin
     return `<tr>${td(`<strong>${esc(row.outlet.name)}</strong>`, "left")}${td(st, "left")}${td(`<strong>${eur(num(c.total_receipts))}</strong>${num(c.invoices_total) ? `<br><span style="font-size:11px;color:#64748b">+ fatture ${eur(num(c.invoices_total))}</span>` : ""}`)}${td(tgt)}${td(dd == null ? "—" : `${delta(dd)}${ddBand ? `<br><span style="font-size:11px;color:#64748b">${ddBand}</span>` : ""}`, "right", dd == null ? "" : deltaStyle(dd))}${td(eur(row.cash))}${td(eur(row.pos))}${td(eur(row.other))}${td(eur(num(c.cash_expenses) + num(c.customer_refunds)))}${td(eur(num(c.cash_deposit)))}${td(c.cash_float_declared == null ? "—" : `${eur(num(c.cash_float_declared))}${c.cash_pending_declared != null && num(c.cash_pending_declared) > 0 ? `<br><span style="font-size:11px;color:#64748b">+ da versare ${eur(num(c.cash_pending_declared))}</span>` : ""}`)}${td(diff, "right", diffStyle)}</tr>`;
   }).join("");
   const t = r.totals;
-  const totalRow = `<tr style="background:#f1f5f9;font-weight:700">${td("Totale azienda", "left")}${td(`${r.rows.length - r.missing.length}/${r.rows.length}`, "left")}${td(eur(t.total))}${td(hasBudget ? eur(b.dayTarget) : "—")}${td(hasBudget ? delta(dayDelta) : "—", "right", hasBudget ? deltaStyle(dayDelta) : "")}${td(eur(t.cash))}${td(eur(t.pos))}${td(eur(t.other))}${td(eur(t.expenses + t.refunds))}${td(eur(t.deposit))}${td("")}${td("")}</tr>`;
+  const totalRow = `<tr style="background:#f1f5f9;font-weight:700">${td("Totale azienda", "left")}${td(count, "left")}${td(eur(t.total))}${td(hasBudget ? eur(b.dayTarget) : "—")}${td(hasBudget ? delta(dayDelta) : "—", "right", hasBudget ? deltaStyle(dayDelta) : "")}${td(eur(t.cash))}${td(eur(t.pos))}${td(eur(t.other))}${td(eur(t.expenses + t.refunds))}${td(eur(t.deposit))}${td("")}${td("")}</tr>`;
   const anomaliesHtml = r.anomalies.length
     ? `<h3 style="margin:20px 0 6px;font-size:14px;color:#b45309">Da controllare (${r.anomalies.length})</h3><ul style="margin:0;padding-left:18px;font-size:13px;line-height:1.5">${r.anomalies.map((a) => `<li>${esc(a)}</li>`).join("")}</ul>`
     : `<p style="margin:20px 0 6px;font-size:13px;color:#047857">Nessuna anomalia: tutte le chiusure confermate quadrano e hanno la foto dello scontrino di chiusura.</p>`;
-  const missingHtml = r.missing.length
-    ? `<p style="margin:12px 0 0;font-size:13px;color:#b91c1c"><strong>Chiusure mancanti (${r.missing.length}):</strong> ${r.missing.map((o) => esc(o.name)).join(", ")}</p>` : "";
+  const missingHtml = r.pending.length
+    ? `<p style="margin:12px 0 0;font-size:13px;color:#b91c1c"><strong>Chiusure mancanti (${r.pending.length}):</strong> ${r.pending.map((n) => esc(n)).join(", ")}</p>` : "";
   const pageLink = link(`/incassi-giornalieri?date=${r.date}`);
   const budgetLink = link(`/budget?tab=rapido`);
   const monthRows = r.rows.filter((row) => row.budget).map((row) => {
@@ -282,8 +308,8 @@ function renderHtml(r: ReportData): { subject: string; html: string; text: strin
     : `<p style="margin:20px 0 0;font-size:12px;color:#64748b">Nessun budget ricavi per ${esc(r.monthLabel)} nell'Inserimento rapido: il confronto con l'obiettivo non è disponibile.${budgetLink ? ` <a href="${esc(budgetLink)}" style="color:#1d4ed8">Inserisci il budget</a>.` : ""}</p>`;
   const html = `<!doctype html><html lang="it"><body style="margin:0;padding:20px;background:#f8fafc;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#0f172a">
 <div style="max-width:900px;margin:0 auto;background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:20px">
-<h2 style="margin:0 0 4px;font-size:18px">Incassi di ${esc(dateIt(r.date))}</h2>
-<p style="margin:0 0 14px;font-size:13px;color:#475569">${esc(r.companyName)} · ${r.rows.length - r.missing.length} chiusure su ${r.rows.length} punti vendita · totale giornata <strong>${eur(t.total)}</strong>${hasBudget ? ` (obiettivo ${eur(b.dayTarget)}, <span style="${deltaStyle(dayDelta)}">${delta(dayDelta)}</span>)` : ""} · progressivo ${esc(r.monthLabel)} <strong>${eur(r.monthToDate)}</strong>${hasBudget ? ` (obiettivo a oggi ${eur(b.toDateTarget)}, <span style="${deltaStyle(mtdDelta)}">${delta(mtdDelta)}</span>)` : ""}</p>
+<h2 style="margin:0 0 4px;font-size:18px">${followup ? "Integrazione incassi" : "Incassi"} di ${esc(dateIt(r.date))}</h2>
+${followupHtml}<p style="margin:0 0 14px;font-size:13px;color:#475569">${esc(r.companyName)} · ${r.done} chiusure confermate su ${r.rows.length} punti vendita · totale giornata <strong>${eur(t.total)}</strong>${hasBudget ? ` (obiettivo ${eur(b.dayTarget)}, <span style="${deltaStyle(dayDelta)}">${delta(dayDelta)}</span>)` : ""} · progressivo ${esc(r.monthLabel)} <strong>${eur(r.monthToDate)}</strong>${hasBudget ? ` (obiettivo a oggi ${eur(b.toDateTarget)}, <span style="${deltaStyle(mtdDelta)}">${delta(mtdDelta)}</span>)` : ""}</p>
 <div style="overflow-x:auto"><table style="border-collapse:collapse;width:100%;font-size:13px">
 <thead><tr>${th("Punto vendita", "left")}${th("Stato", "left")}${th("Totale")}${th("Obiettivo giorno")}${th("+/- obiettivo")}${th("Contanti")}${th("POS")}${th("Altri")}${th("Spese e rimborsi")}${th("Versamento")}${th("Fondo cassa contato")}${th("Diff. cassa")}</tr></thead>
 <tbody>${rowsHtml}${totalRow}</tbody></table></div>
@@ -294,7 +320,9 @@ ${pageLink ? `<p style="margin:20px 0 0;font-size:13px"><a href="${esc(pageLink)
 <p style="margin:16px 0 0;font-size:11px;color:#94a3b8">Mail automatica del gestionale. I numeri sono quelli scritti dalle cassiere alla chiusura; le anomalie sono segnalazioni da verificare, non correzioni.</p>
 </div></body></html>`;
   const text = [
-    `Incassi di ${dateIt(r.date)} · ${r.companyName}`,
+    `${followup ? "Integrazione incassi" : "Incassi"} di ${dateIt(r.date)} · ${r.companyName}`,
+    ...(followupText ? [followupText] : []),
+    `${r.done} chiusure confermate su ${r.rows.length} punti vendita${r.pending.length ? ` · mancano: ${r.pending.join(", ")}` : ""}`,
     `Totale giornata ${eur(t.total)}${hasBudget ? ` · obiettivo ${eur(b.dayTarget)} (${delta(dayDelta)})` : ""} · progressivo ${r.monthLabel} ${eur(r.monthToDate)}${hasBudget ? ` · obiettivo a oggi ${eur(b.toDateTarget)} (${delta(mtdDelta)})` : ""}`,
     "",
     ...r.rows.map((row) => {
@@ -344,9 +372,9 @@ function rowAmount(row: RowData): string {
   if (c.is_closed_day) return "chiuso";
   return `${eurPlain(num(c.total_receipts))}${c.status === "bozza" ? " (bozza)" : ""}`;
 }
-function whatsappVariables(r: ReportData, kind: string, templateBody: string): Record<string, string> {
+function whatsappVariables(r: ReportData, kind: string, templateBody: string, followup: Followup | null = null): Record<string, string> {
   const [y, m, d] = r.date.split("-");
-  const dateStr = `${d}/${m}/${y.slice(2)}${kind === "test" ? " [PROVA]" : ""}`;
+  const dateStr = `${d}/${m}/${y.slice(2)}${kind === "test" ? " [PROVA]" : ""}${followup ? ` (integrazione: ${followup.outletName} ha confermato)` : ""}`;
   const vars: Record<string, string> = {};
   const used = new Set<string>();
   const rows = [...r.rows].sort((a, b) => a.outlet.name.localeCompare(b.outlet.name, "it"));
@@ -372,7 +400,7 @@ function whatsappVariables(r: ReportData, kind: string, templateBody: string): R
 }
 
 type WaResult = { status: "sent" | "partial" | "failed"; error: string | null };
-async function sendWhatsApp(admin: SupabaseClient, r: ReportData, to: string[], kind: string): Promise<WaResult> {
+async function sendWhatsApp(admin: SupabaseClient, r: ReportData, to: string[], kind: string, followup: Followup | null = null): Promise<WaResult> {
   const { data, error } = await admin.rpc("get_twilio_whatsapp_config");
   const cfg = (Array.isArray(data) ? data[0] : data) as { account_sid?: string; auth_token?: string; from_number?: string; content_sid?: string } | null;
   if (error || !cfg?.account_sid || !cfg?.auth_token || !cfg?.from_number || !cfg?.content_sid) {
@@ -392,7 +420,7 @@ async function sendWhatsApp(admin: SupabaseClient, r: ReportData, to: string[], 
     console.warn("[daily-cash-report-send] modello WhatsApp non letto:", (e as Error).message);
   }
   if (!templateBody) return { status: "failed", error: "Modello WhatsApp non leggibile dalla Content API (twilio_whatsapp_content_sid)" };
-  const vars = JSON.stringify(whatsappVariables(r, kind, templateBody));
+  const vars = JSON.stringify(whatsappVariables(r, kind, templateBody, followup));
   const errors: string[] = [];
   let ok = 0;
   for (const n of to) {
@@ -438,12 +466,17 @@ Deno.serve(async (req: Request) => {
       if (!trusted) return jsonError(403, "Segreto x-autofix-cron non valido", "FORBIDDEN");
     }
     let companyId: string; let kind: string; let reportDate: string; let testTo: string[] | null = null;
+    let closingId: string | null = null; let outletName: string | null = null;
     if (trusted) {
       companyId = String(body.company_id ?? "");
-      kind = body.kind === "test" ? "test" : "report";
+      kind = body.kind === "test" ? "test" : body.kind === "followup" ? "followup" : "report";
       reportDate = String(body.report_date ?? romeToday());
       logId = body.log_id ? String(body.log_id) : null;
       if (kind === "test" && Array.isArray(body.to)) testTo = body.to.map(String);
+      if (kind === "followup") {
+        closingId = body.closing_id ? String(body.closing_id) : null;
+        outletName = body.outlet_name ? String(body.outlet_name) : null;
+      }
     } else {
       // Utente loggato: solo super_advisor/contabile, solo prova a se stesso.
       const asUser = createClient(supabaseUrl, supabaseAnonKey, { global: { headers: { Authorization: `Bearer ${token}` } } });
@@ -471,7 +504,7 @@ Deno.serve(async (req: Request) => {
     const vatRate = Number.isFinite(Number(settings?.budget_vat_rate)) ? Number(settings?.budget_vat_rate) : 22;
 
     const finish = async (status: "sent" | "failed" | "skipped", extra: Record<string, unknown>) => {
-      const row = { company_id: companyId, report_date: reportDate, kind, status, recipients, ...extra, sent_at: status === "sent" ? new Date().toISOString() : null };
+      const row = { company_id: companyId, report_date: reportDate, kind, status, recipients, closing_id: closingId, outlet_name: outletName, ...extra, sent_at: status === "sent" ? new Date().toISOString() : null };
       if (logId) await admin.from("daily_report_log").update(row).eq("id", logId);
       else await admin.from("daily_report_log").insert(row);
     };
@@ -482,16 +515,23 @@ Deno.serve(async (req: Request) => {
     }
 
     const report = await buildReport(admin, companyId, reportDate, appUrl, vatRate);
-    const summary = { closings: report.rows.length - report.missing.length, outlets: report.rows.length, total: report.totals.total, anomalies: report.anomalies.length, month_to_date: report.monthToDate, day_target: report.budget.dayTarget, to_date_target: report.budget.toDateTarget };
-    const noData = report.rows.length - report.missing.length === 0;
+    // Integrazione: quale negozio ha confermato dopo il report, e a che ora era partito il report.
+    let followup: Followup | null = null;
+    if (kind === "followup") {
+      const row = report.rows.find((x) => (closingId && x.closing?.id === closingId) || (outletName && x.outlet.name === outletName));
+      const { data: sentRow } = await admin.from("daily_report_log").select("sent_at").eq("company_id", companyId).eq("report_date", reportDate).eq("kind", "report").eq("status", "sent").order("sent_at", { ascending: false }).limit(1).maybeSingle();
+      followup = { outletName: row?.outlet.name ?? outletName ?? "un punto vendita", outletTotal: row?.closing ? num(row.closing.total_receipts) : null, reportSentAt: (sentRow?.sent_at as string | null) ?? null };
+    }
+    const summary = { closings: report.done, outlets: report.rows.length, pending: report.pending, total: report.totals.total, anomalies: report.anomalies.length, month_to_date: report.monthToDate, day_target: report.budget.dayTarget, to_date_target: report.budget.toDateTarget, followup_outlet: followup?.outletName ?? null };
+    const noData = report.done === 0;
     if (noData && kind === "report" && settings && settings.send_on_empty === false) {
       await finish("skipped", { summary, error: "nessuna chiusura registrata e invio senza dati disattivato" });
       return jsonOk({ data: { status: "skipped", summary } });
     }
 
-    const { subject, html, text } = renderHtml(report);
+    const { subject, html, text } = renderHtml(report, followup);
     const wantEmail = channel === "email";
-    const wantWa = channel === "whatsapp" || (kind === "report" && waEnabled && waRecipients.length > 0);
+    const wantWa = channel === "whatsapp" || ((kind === "report" || kind === "followup") && waEnabled && waRecipients.length > 0);
 
     let emailError: string | null = null;
     if (wantEmail) {
@@ -515,7 +555,7 @@ Deno.serve(async (req: Request) => {
 
     // WhatsApp: la mail non blocca WhatsApp e viceversa; l'esito va nel log.
     let wa: WaResult | null = null;
-    if (wantWa) wa = await sendWhatsApp(admin, report, waRecipients, kind);
+    if (wantWa) wa = await sendWhatsApp(admin, report, waRecipients, kind, followup);
 
     const failed = wantEmail ? emailError != null : wa?.status === "failed";
     await finish(failed ? "failed" : "sent", { subject, summary, error: emailError, whatsapp_status: wa?.status ?? null, whatsapp_error: wa?.error ?? null });
@@ -523,7 +563,7 @@ Deno.serve(async (req: Request) => {
       if (wantEmail && emailError === "RESEND_API_KEY o DISTINTA_EMAIL_FROM assenti") return jsonError(503, "Invio email non configurato (RESEND_API_KEY / DISTINTA_EMAIL_FROM)", "EMAIL_NOT_CONFIGURED");
       return wantEmail ? jsonError(502, "Invio email non riuscito", "RESEND_API_ERROR") : jsonError(502, `WhatsApp non inviato: ${wa?.error ?? "errore"}`, "WHATSAPP_ERROR");
     }
-    console.log(`[daily-cash-report-send] company=${companyId} date=${reportDate} kind=${kind} channel=${channel} to=${recipients.length} wa=${wa?.status ?? "-"} closings=${summary.closings}/${summary.outlets}`);
+    console.log(`[daily-cash-report-send] company=${companyId} date=${reportDate} kind=${kind} channel=${channel} to=${recipients.length} wa=${wa?.status ?? "-"} closings=${summary.closings}/${summary.outlets}${followup ? ` followup=${followup.outletName}` : ""}`);
     return jsonOk({ data: { status: "sent", subject, summary, recipients, whatsapp: wa ? { status: wa.status, recipients: waRecipients, error: wa.error } : null } });
   } catch (error) {
     console.error(`[daily-cash-report-send] Error:`, error);

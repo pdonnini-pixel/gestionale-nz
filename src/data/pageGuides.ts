@@ -2727,16 +2727,17 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "Report incassi serale",
-        "body": "Sezione per super advisor e contabile. Attiva una mail automatica che ogni sera, all'ora scelta (ora italiana, valida anche con l'ora legale), riepiloga le chiusure di cassa del giorno di tutti i punti vendita: una riga per negozio con totale, contanti, POS, altri canali, spese e rimborsi, versamento, fondo cassa e differenza; i negozi che non hanno ancora chiuso in rosso; l'elenco delle cose da controllare (giornate che non quadrano, chiusure ancora in bozza, foto dello scontrino mancante, importi letti dalla foto diversi da quelli scritti, note della cassiera); il totale dell'azienda e il progressivo del mese; il confronto con l'obiettivo del budget: per ogni negozio l'obiettivo del giorno e lo scostamento +/-, più una tabella \"Mese vs obiettivo\" con budget del mese, obiettivo a oggi, incassato a oggi, +/-, percentuale raggiunta e proiezione a fine mese; il link a Incassi giornalieri. L'obiettivo viene dal budget ricavi mensile dell'Inserimento rapido (Budget → Inserimento Rapido), che è netto IVA: viene portato al lordo con l'aliquota impostata qui e diviso per i giorni del mese.",
+        "body": "Sezione per super advisor e contabile. Attiva una mail automatica che ogni sera riepiloga le chiusure di cassa del giorno di tutti i punti vendita. Quando parte lo scegli tu: \"Appena tutti i punti vendita hanno confermato la chiusura\" (consigliato) fa partire mail e WhatsApp al momento dell'ultima conferma, che siano le 20:10 o le 23:05, con un'ora limite (ora italiana, valida anche con l'ora legale) oltre la quale il report parte comunque con i negozi mancanti in evidenza; \"A un'ora fissa\" fotografa la giornata a quell'ora. In entrambi i casi, se \"integrazione\" è attiva, una chiusura confermata dopo l'invio genera un secondo messaggio (mail e WhatsApp) con quel negozio e i totali aggiornati, così nessuno aspetta il giorno dopo. Il conteggio \"chiusure confermate su punti vendita\" nell'oggetto conta solo le chiusure confermate: le bozze sono elencate tra le mancanti. La mail riepiloga: una riga per negozio con totale, contanti, POS, altri canali, spese e rimborsi, versamento, fondo cassa e differenza; i negozi che non hanno ancora chiuso in rosso; l'elenco delle cose da controllare (giornate che non quadrano, chiusure ancora in bozza, foto dello scontrino mancante, importi letti dalla foto diversi da quelli scritti, note della cassiera); il totale dell'azienda e il progressivo del mese; il confronto con l'obiettivo del budget: per ogni negozio l'obiettivo del giorno e lo scostamento +/-, più una tabella \"Mese vs obiettivo\" con budget del mese, obiettivo a oggi, incassato a oggi, +/-, percentuale raggiunta e proiezione a fine mese; il link a Incassi giornalieri. L'obiettivo viene dal budget ricavi mensile dell'Inserimento rapido (Budget → Inserimento Rapido), che è netto IVA: viene portato al lordo con l'aliquota impostata qui e diviso per i giorni del mese.",
         "steps": [
-          "Spunta \"Invia il report ogni sera\" e scegli l'ora di invio",
+          "Spunta \"Invia il report ogni sera\" e scegli quando parte: a completamento (con l'ora limite) oppure a un'ora fissa",
+          "Lascia attiva l'integrazione se vuoi che una chiusura arrivata dopo l'invio generi un secondo messaggio con quel negozio e i totali aggiornati",
           "Controlla l'aliquota IVA per il confronto con il budget (22 % di default): serve a rendere confrontabili il budget netto e i corrispettivi lordi delle chiusure",
           "Scrivi i destinatari, uno per riga o separati da virgola: sotto il campo vedi quanti indirizzi sono validi",
-          "Se vuoi, attiva il sollecito: a quell'ora gli operatori cassa dei negozi che non hanno ancora confermato ricevono un avviso in-app con il link alla loro chiusura",
+          "Se vuoi, attiva il sollecito (deve essere prima dell'ora di invio o dell'ora limite): a quell'ora gli operatori cassa dei negozi che non hanno ancora confermato ricevono un avviso in-app con il link alla loro chiusura",
           "Decidi se la mail deve partire anche nei giorni senza nessuna chiusura registrata",
           "Salva, poi usa \"Invia una prova a me\": la mail di oggi arriva solo al tuo indirizzo, con [PROVA] nell'oggetto",
-          "Se vuoi anche WhatsApp, spunta \"Invia anche su WhatsApp (versione breve)\" e scrivi i numeri (uno per riga, formato +39…): alla stessa ora della mail arriva un messaggio di poche righe con incasso e scostamento di ogni negozio, totale del giorno e del mese, negozi mancanti e anomalie. Parte dal numero WhatsApp aziendale con un modello approvato da Meta; \"Prova WhatsApp\" lo manda subito ai numeri configurati",
-          "La tabella \"Ultimi invii\" mostra giorno, tipo (report, sollecito, prova), esito (mail e, se attivo, WhatsApp) e destinatari; se un invio non è riuscito vedi il motivo"
+          "Se vuoi anche WhatsApp, spunta \"Invia anche su WhatsApp (versione breve)\" e scrivi i numeri (uno per riga, formato +39…): insieme alla mail arriva un messaggio di poche righe con incasso e scostamento di ogni negozio, totale del giorno e del mese, negozi mancanti e anomalie. Parte dal numero WhatsApp aziendale con un modello approvato da Meta; \"Prova WhatsApp\" lo manda subito ai numeri configurati",
+          "La tabella \"Ultimi invii\" mostra giorno e ora, tipo (report serale, integrazione, sollecito, prova), esito (mail e, se attivo, WhatsApp) e destinatari; se un invio non è riuscito vedi il motivo"
         ]
       }
     ],
@@ -2744,6 +2745,10 @@ export const PAGE_GUIDES: PageGuide[] = [
       {
         "q": "Perché non vedo tutte le sezioni?",
         "a": "L'accesso alle sezioni di Impostazioni dipende dal ruolo assegnato al tuo utente. Se una sezione ha il lucchetto e appare più chiara, il tuo ruolo non è abilitato a vederla o modificarla: contatta un amministratore."
+      },
+      {
+        "q": "Un negozio ha confermato la chiusura dopo che il report era già partito: che succede?",
+        "a": "Con l'integrazione attiva, alla conferma parte da solo un secondo messaggio (mail e WhatsApp) intitolato \"Integrazione incassi\": dice quale negozio ha confermato dopo il report e a che ora era partito il report, e riporta il quadro aggiornato di tutta la giornata. Se invece hai scelto l'invio a completamento, il report del giorno non parte finché tutti non hanno confermato, salvo l'ora limite."
       },
       {
         "q": "Da dove viene l'obiettivo del giorno nel report incassi?",

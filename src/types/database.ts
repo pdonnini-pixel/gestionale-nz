@@ -11271,6 +11271,8 @@ export type Database = {
           enabled: boolean
           recipients: string[]
           reminder_time: string | null
+          followup_enabled: boolean
+          send_mode: string
           send_on_empty: boolean
           send_time: string
           timezone: string
@@ -11286,6 +11288,8 @@ export type Database = {
           enabled?: boolean
           recipients?: string[]
           reminder_time?: string | null
+          followup_enabled?: boolean
+          send_mode?: string
           send_on_empty?: boolean
           send_time?: string
           timezone?: string
@@ -11301,6 +11305,8 @@ export type Database = {
           enabled?: boolean
           recipients?: string[]
           reminder_time?: string | null
+          followup_enabled?: boolean
+          send_mode?: string
           send_on_empty?: boolean
           send_time?: string
           timezone?: string
@@ -11352,11 +11358,13 @@ export type Database = {
       }
       daily_report_log: {
         Row: {
+          closing_id: string | null
           company_id: string
           created_at: string
           error: string | null
           id: string
           kind: string
+          outlet_name: string | null
           recipients: string[]
           report_date: string
           request_id: number | null
@@ -11368,11 +11376,13 @@ export type Database = {
           whatsapp_status: string | null
         }
         Insert: {
+          closing_id?: string | null
           company_id: string
           created_at?: string
           error?: string | null
           id?: string
           kind?: string
+          outlet_name?: string | null
           recipients?: string[]
           report_date: string
           request_id?: number | null
@@ -11384,11 +11394,13 @@ export type Database = {
           whatsapp_status?: string | null
         }
         Update: {
+          closing_id?: string | null
           company_id?: string
           created_at?: string
           error?: string | null
           id?: string
           kind?: string
+          outlet_name?: string | null
           recipients?: string[]
           report_date?: string
           request_id?: number | null

@@ -1712,14 +1712,16 @@ function SdiSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
 // PAGINA PRINCIPALE
 // ==========================================
 // ─── Report incassi serale (fase 2 specchietto incassi) ──────────────
-// Configura la mail serale inviata da daily-cash-report-send: ora locale,
-// destinatari, sollecito ai negozi, invio anche senza chiusure. Il motore e'
-// il cron daily_cash_report_tick (migration 176) che gira ogni 15 minuti.
+// Configura la mail serale inviata da daily-cash-report-send: quando parte
+// (ora fissa, oppure appena tutti i negozi hanno confermato con un'ora limite),
+// destinatari, sollecito ai negozi, integrazione per le chiusure in ritardo,
+// invio anche senza chiusure. Il motore e' il cron daily_cash_report_tick
+// (migration 176/204, ogni 15 minuti) piu' il trigger alla conferma (204).
 type ReportSettingsRow = Database['public']['Tables']['daily_report_settings']['Row']
 type ReportLogRow = Database['public']['Tables']['daily_report_log']['Row']
 
 const REPORT_STATUS_LABELS: Record<string, string> = { queued: 'In invio', sent: 'Inviato', failed: 'Non riuscito', skipped: 'Saltato' }
-const REPORT_KIND_LABELS: Record<string, string> = { report: 'Report serale', reminder: 'Sollecito ai negozi', test: 'Prova' }
+const REPORT_KIND_LABELS: Record<string, string> = { report: 'Report serale', reminder: 'Sollecito ai negozi', test: 'Prova', followup: 'Integrazione' }
 const WA_STATUS_LABELS: Record<string, string> = { sent: 'inviato', partial: 'in parte', failed: 'non riuscito', skipped: 'saltato' }
 
 /** Numeri WhatsApp in formato internazionale (+39...); un numero italiano di cellulare senza prefisso riceve +39. */
@@ -1750,7 +1752,7 @@ function ReportSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState(false)
   const [logs, setLogs] = useState<ReportLogRow[]>([])
-  const [form, setForm] = useState({ enabled: false, sendTime: '21:30', reminderEnabled: false, reminderTime: '20:30', recipients: '', sendOnEmpty: true, budgetVatRate: '22', waEnabled: false, waRecipients: '' })
+  const [form, setForm] = useState({ enabled: false, sendMode: 'fixed' as 'fixed' | 'on_complete', sendTime: '21:30', followupEnabled: true, reminderEnabled: false, reminderTime: '20:30', recipients: '', sendOnEmpty: true, budgetVatRate: '22', waEnabled: false, waRecipients: '' })
   const [testingWa, setTestingWa] = useState(false)
   const [dirty, setDirty] = useState(false)
 
@@ -1764,7 +1766,8 @@ function ReportSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
     const s = sRes.data as ReportSettingsRow | null
     if (s) {
       setForm({
-        enabled: s.enabled, sendTime: s.send_time.slice(0, 5),
+        enabled: s.enabled, sendMode: s.send_mode === 'on_complete' ? 'on_complete' : 'fixed', sendTime: s.send_time.slice(0, 5),
+        followupEnabled: s.followup_enabled !== false,
         reminderEnabled: !!s.reminder_time, reminderTime: (s.reminder_time ?? '20:30').slice(0, 5),
         recipients: (s.recipients ?? []).join('\n'), sendOnEmpty: s.send_on_empty,
         budgetVatRate: String(s.budget_vat_rate ?? 22),
@@ -1788,14 +1791,16 @@ function ReportSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
     if (!COMPANY_ID) return
     if (form.enabled && recipientsList.length === 0) { showToast('Serve almeno un indirizzo destinatario', 'error'); return }
     if (form.waEnabled && phonesList.length === 0) { showToast('Serve almeno un numero WhatsApp (formato +39...)', 'error'); return }
-    if (form.reminderEnabled && form.reminderTime >= form.sendTime) { showToast('Il sollecito deve essere prima dell\'ora di invio', 'error'); return }
+    if (form.reminderEnabled && form.reminderTime >= form.sendTime) { showToast(form.sendMode === 'on_complete' ? 'Il sollecito deve essere prima dell\'ora limite' : 'Il sollecito deve essere prima dell\'ora di invio', 'error'); return }
     const vat = Number(String(form.budgetVatRate).replace(',', '.'))
     if (!Number.isFinite(vat) || vat < 0 || vat > 100) { showToast('L\'aliquota IVA deve essere un numero fra 0 e 100', 'error'); return }
     setSaving(true)
     const { error } = await supabase.from('daily_report_settings').upsert({
       company_id: COMPANY_ID,
       enabled: form.enabled,
+      send_mode: form.sendMode,
       send_time: form.sendTime,
+      followup_enabled: form.followupEnabled,
       reminder_time: form.reminderEnabled ? form.reminderTime : null,
       recipients: recipientsList,
       send_on_empty: form.sendOnEmpty,
@@ -1809,7 +1814,11 @@ function ReportSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
     })
     setSaving(false)
     if (error) { showToast('Salvataggio non riuscito: ' + error.message, 'error'); return }
-    showToast(form.enabled ? `Report attivo: ogni giorno alle ${form.sendTime} a ${recipientsList.length} destinatari` : 'Report serale disattivato')
+    showToast(form.enabled
+      ? (form.sendMode === 'on_complete'
+        ? `Report attivo: parte appena tutti i negozi hanno confermato, al più tardi alle ${form.sendTime}, a ${recipientsList.length} destinatari`
+        : `Report attivo: ogni giorno alle ${form.sendTime} a ${recipientsList.length} destinatari`)
+      : 'Report serale disattivato')
     await load()
   }
 
@@ -1841,7 +1850,7 @@ function ReportSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
   return (
     <div className="p-6 space-y-5">
       <p className="text-sm text-slate-600">
-        Ogni sera, all'ora scelta, i destinatari ricevono una mail con le chiusure di cassa del giorno: una riga per punto vendita
+        Ogni sera i destinatari ricevono una mail con le chiusure di cassa del giorno: una riga per punto vendita
         (totale, contanti, POS, altri canali, spese e rimborsi, versamento, fondo cassa e differenza), i negozi che non hanno chiuso,
         le anomalie da controllare, il progressivo del mese e il confronto con l'obiettivo: il budget ricavi del mese
         dell'Inserimento rapido (Budget → Inserimento Rapido), portato al lordo dell'IVA e diviso per i giorni del mese,
@@ -1853,11 +1862,33 @@ function ReportSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
         <span className="text-sm font-semibold text-slate-900">Invia il report ogni sera</span>
       </label>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div>
-          <label className="block text-xs font-medium text-slate-600 mb-1">Ora di invio (Italia)</label>
+      <div className="border border-slate-200 rounded-xl p-4 space-y-3">
+        <div className="text-xs font-semibold text-slate-600">Quando parte</div>
+        <label className="flex items-start gap-3 cursor-pointer">
+          <input type="radio" name="report-send-mode" checked={form.sendMode === 'on_complete'} onChange={() => set({ sendMode: 'on_complete' })} className="mt-1" />
+          <span className="text-sm text-slate-800">
+            <span className="font-medium">Appena tutti i punti vendita hanno confermato la chiusura</span>
+            <span className="block text-xs text-slate-500">Mail e WhatsApp partono da soli al momento dell'ultima conferma, che siano le 20:10 o le 23:05. Se all'ora limite manca ancora qualcuno, il report parte lo stesso con i negozi mancanti in evidenza.</span>
+          </span>
+        </label>
+        <label className="flex items-start gap-3 cursor-pointer">
+          <input type="radio" name="report-send-mode" checked={form.sendMode === 'fixed'} onChange={() => set({ sendMode: 'fixed' })} className="mt-1" />
+          <span className="text-sm text-slate-800">
+            <span className="font-medium">A un'ora fissa</span>
+            <span className="block text-xs text-slate-500">Il report fotografa la giornata a quell'ora: chi conferma dopo resta fuori (arriva con l'integrazione, se attiva).</span>
+          </span>
+        </label>
+        <div className="sm:w-1/2">
+          <label className="block text-xs font-medium text-slate-600 mb-1">{form.sendMode === 'on_complete' ? 'Ora limite (Italia)' : 'Ora di invio (Italia)'}</label>
           <input type="time" value={form.sendTime} onChange={(e) => set({ sendTime: e.target.value })} className={inp} />
         </div>
+        <label className="flex items-center gap-3 cursor-pointer">
+          <input type="checkbox" checked={form.followupEnabled} onChange={(e) => set({ followupEnabled: e.target.checked })} className="w-4 h-4" />
+          <span className="text-sm text-slate-700">Se una chiusura viene confermata dopo l'invio, manda un'integrazione (mail e WhatsApp) con quel negozio e i totali aggiornati</span>
+        </label>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
           <label className="flex items-center gap-2 text-xs font-medium text-slate-600 mb-1 cursor-pointer">
             <input type="checkbox" checked={form.reminderEnabled} onChange={(e) => set({ reminderEnabled: e.target.checked })} />
@@ -1888,7 +1919,7 @@ function ReportSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
           <span className="text-sm font-semibold text-slate-900">Invia anche su WhatsApp (versione breve)</span>
         </label>
         <p className="text-xs text-slate-600">
-          Alla stessa ora della mail, un messaggio di poche righe: una voce per negozio con incasso e scostamento dall'obiettivo,
+          Insieme alla mail, un messaggio di poche righe: una voce per negozio con incasso e scostamento dall'obiettivo,
           totale del giorno e del mese, negozi mancanti e anomalie. Parte dal numero WhatsApp aziendale (Twilio) con un modello approvato da Meta.
         </p>
         <div>
