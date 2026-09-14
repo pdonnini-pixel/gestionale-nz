@@ -8,9 +8,15 @@
 // POS, versamento, carta, spese bancarie, finanziamento, giroconto, da chiarire)
 // e per gli F24 il codice tributo e il periodo letti da Scadenze fiscali.
 // La logica è in src/lib/primaNotaExport.ts (testata), qui solo dati e UI.
+//
+// Seconda vista «Pagamenti fornitori» (passo B dell'audit): una riga per FATTURA
+// pagata nel periodo, contanti, carta e note di credito compresi, con conto,
+// data del movimento, imponibile/IVA, metodo, categoria e conto CE. È il foglio
+// che serve allo studio per chiudere le partite fornitori. Logica in
+// src/lib/primaNotaPagamenti.ts (testata).
 
 import { useState, useEffect, useMemo, useCallback } from 'react'
-import { Download, FileSpreadsheet, Calendar, Filter, RefreshCw, Loader2 } from 'lucide-react'
+import { Download, FileSpreadsheet, Calendar, Filter, RefreshCw, Loader2, Landmark, Receipt } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { fetchAllPaged } from '../lib/fetchAllPaged'
 import { lastDayOfMonthYMD } from '../lib/dateLocal'
@@ -19,6 +25,10 @@ import {
   summarizeByKind, KIND_LABELS, PN_COLUMN_WIDTHS,
   type PnPayable, type PnFiscalDeadline, type PnMovement, type MovementKind,
 } from '../lib/primaNotaExport'
+import {
+  buildPagamentoRow, fonteOf, includePagamento, sortPagamenti, summarizePagamenti, importoPagato, metodoLabel, rataOf,
+  FONTE_LABELS, PAGAMENTI_COLUMN_WIDTHS, type PnPagamento, type PnLookups, type PagamentoFonte,
+} from '../lib/primaNotaPagamenti'
 import { useCompany } from '../hooks/useCompany'
 import Tooltip from '../components/Tooltip'
 import TableScroll from '../components/ui/TableScroll'
@@ -42,6 +52,8 @@ type MovementRaw = {
   suppliers?: Supplier | null
 }
 type Movement = MovementRaw & PnMovement
+type Pagamento = PnPagamento & { is_placeholder: boolean | null; is_forecast: boolean | null }
+type View = 'banca' | 'pagamenti'
 
 const MONTHS = [
   { v: 1, l: 'Gennaio' }, { v: 2, l: 'Febbraio' }, { v: 3, l: 'Marzo' }, { v: 4, l: 'Aprile' },
@@ -67,6 +79,16 @@ const KIND_BADGE: Record<MovementKind, string> = {
   da_chiarire: 'bg-orange-100 text-orange-800',
 }
 
+const FONTE_BADGE: Record<PagamentoFonte, string> = {
+  banca: 'bg-emerald-100 text-emerald-700',
+  contanti: 'bg-amber-100 text-amber-800',
+  carta: 'bg-sky-100 text-sky-700',
+  nota_credito: 'bg-violet-100 text-violet-700',
+  provvisoria: 'bg-orange-100 text-orange-800',
+  chiusa_a_mano: 'bg-slate-200 text-slate-700',
+  senza_riscontro: 'bg-red-100 text-red-700',
+}
+
 // PostgREST IN() ha un limite di URL (~16KB): si spacchetta in blocchi da 200 UUID.
 const chunk = <T,>(xs: T[], size = 200): T[][] => {
   const out: T[][] = []
@@ -80,7 +102,11 @@ export default function PrimaNota() {
   const [year, setYear] = useState<number>(today.getFullYear())
   const [month, setMonth] = useState<number | null>(today.getMonth() + 1)
   const [bankAccountId, setBankAccountId] = useState<string>('all')
+  const [view, setView] = useState<View>('banca')
   const [movements, setMovements] = useState<Movement[]>([])
+  const [pagamenti, setPagamenti] = useState<Pagamento[]>([])
+  const [lookups, setLookups] = useState<PnLookups>({ bankAccounts: new Map(), bankTx: new Map(), categories: new Map(), outlets: new Map() })
+  const [loadingPag, setLoadingPag] = useState(false)
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -184,8 +210,73 @@ export default function PrimaNota() {
     }
   }, [companyId, year, month, bankAccountId])
 
+  // Fatture pagate nel periodo (passo B): payables per payment_date, con i
+  // dizionari per conto, movimento riscontrato, categoria e outlet. Il filtro
+  // conto e l'esclusione di segnaposto/previsioni sono lato client
+  // (includePagamento), così la regola sta in un posto solo e testato.
+  const loadPagamenti = useCallback(async () => {
+    if (!companyId) return
+    setLoadingPag(true)
+    try {
+      const dateStart = month ? `${year}-${String(month).padStart(2, '0')}-01` : `${year}-01-01`
+      const dateEnd = month ? lastDayOfMonthYMD(year, month) : `${year}-12-31`
+      const rows = await fetchAllPaged<Pagamento>(
+        (from, to) => supabase
+          .from('payables')
+          .select(`
+            id, payment_date, invoice_number, invoice_date, supplier_name, supplier_vat,
+            net_amount, vat_amount, gross_amount, amount_paid, withholding_amount,
+            payment_method, payment_method_label, status, closed_manually, manual_close_reason,
+            is_provisional_paid, installment_number, installment_total,
+            bank_transaction_id, payment_bank_account_id, cost_category_id, outlet_id,
+            is_placeholder, is_forecast
+          `)
+          .eq('company_id', companyId)
+          .gte('payment_date', dateStart)
+          .lte('payment_date', dateEnd)
+          .order('payment_date', { ascending: true })
+          .order('id', { ascending: true })
+          .range(from, to),
+        'payables',
+      ) as unknown as Pagamento[]
+
+      const txIds = Array.from(new Set(rows.map(r => r.bank_transaction_id).filter((x): x is string => !!x)))
+      const [txResults, catRes, outRes, accRes] = await Promise.all([
+        Promise.all(chunk(txIds).map(ids => supabase
+          .from('bank_transactions')
+          .select('id, transaction_date, bank_account_id, description')
+          .in('id', ids))),
+        supabase.from('cost_categories').select('id, name, ce_account_code').eq('company_id', companyId),
+        supabase.from('outlets').select('id, code, name').eq('company_id', companyId),
+        supabase.from('bank_accounts').select('id, bank_name, iban').eq('company_id', companyId),
+      ])
+      const lk: PnLookups = { bankAccounts: new Map(), bankTx: new Map(), categories: new Map(), outlets: new Map() }
+      for (const t of txResults.flatMap(r => r.data ?? [])) lk.bankTx.set(t.id, { transaction_date: t.transaction_date, bank_account_id: t.bank_account_id, description: t.description })
+      for (const c of catRes.data ?? []) lk.categories.set(c.id, { name: c.name, ce_account_code: c.ce_account_code })
+      for (const o of outRes.data ?? []) lk.outlets.set(o.id, { code: o.code, name: o.name })
+      for (const a of accRes.data ?? []) lk.bankAccounts.set(a.id, { bank_name: a.bank_name, iban: a.iban })
+      setLookups(lk)
+      setPagamenti(sortPagamenti(rows))
+    } catch (e) {
+      console.error('[PrimaNota] pagamenti:', e)
+      setPagamenti([])
+    } finally {
+      setLoadingPag(false)
+    }
+  }, [companyId, year, month])
+
   useEffect(() => { loadBankAccounts() }, [loadBankAccounts])
   useEffect(() => { loadMovements() }, [loadMovements])
+  useEffect(() => { loadPagamenti() }, [loadPagamenti])
+
+  // Fatture pagate visibili con il filtro conto corrente
+  const pagamentiVisibili = useMemo(
+    () => pagamenti.filter(p => includePagamento(p, lookups, bankAccountId)),
+    [pagamenti, lookups, bankAccountId],
+  )
+  const pagRows = useMemo(() => pagamentiVisibili.map(p => buildPagamentoRow(p, lookups, fmtDate)), [pagamentiVisibili, lookups])
+  const pagByFonte = useMemo(() => summarizePagamenti(pagamentiVisibili), [pagamentiVisibili])
+  const pagTotale = useMemo(() => pagamentiVisibili.reduce((s, p) => s + importoPagato(p), 0), [pagamentiVisibili])
 
   const totals = useMemo(() => {
     const dare = movements.filter(m => m.amount > 0).reduce((s, m) => s + m.amount, 0)
@@ -200,11 +291,12 @@ export default function PrimaNota() {
   const rows = useMemo(() => movements.map(m => buildRow(m, fmtDate)), [movements])
 
   const exportCsv = () => {
-    if (rows.length === 0) return
-    const headers = Object.keys(rows[0])
+    const src: Array<Record<string, unknown>> = view === 'banca' ? rows : pagRows
+    if (src.length === 0) return
+    const headers = Object.keys(src[0])
     const csvRows = [
       headers.join(';'),
-      ...rows.map(r => headers.map(h => {
+      ...src.map(r => headers.map(h => {
         const v = (r as Record<string, unknown>)[h]
         const s = typeof v === 'number' ? v.toFixed(2).replace('.', ',') : String(v ?? '')
         return s.includes(';') || s.includes('\n') || s.includes('"') ? `"${s.replace(/"/g, '""')}"` : s
@@ -214,7 +306,7 @@ export default function PrimaNota() {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `prima_nota_${year}${month ? '-' + String(month).padStart(2, '0') : ''}.csv`
+    a.download = `${view === 'banca' ? 'prima_nota' : 'pagamenti_fornitori'}_${year}${month ? '-' + String(month).padStart(2, '0') : ''}.csv`
     a.click()
     URL.revokeObjectURL(url)
   }
@@ -227,6 +319,10 @@ export default function PrimaNota() {
     ws['!cols'] = PN_COLUMN_WIDTHS.map(wch => ({ wch }))
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'Prima Nota')
+    // Foglio Pagamenti fornitori: una riga per fattura pagata nel periodo
+    const wsPag = XLSX.utils.json_to_sheet(pagRows.length > 0 ? pagRows : [{ Nota: 'Nessuna fattura pagata nel periodo' }])
+    wsPag['!cols'] = PAGAMENTI_COLUMN_WIDTHS.map(wch => ({ wch }))
+    XLSX.utils.book_append_sheet(wb, wsPag, 'Pagamenti fornitori')
     // Sheet riepilogo: totali del periodo + righe e importi per tipo di movimento
     const summaryData: Array<Array<string | number>> = [
       ['Periodo', month ? `${MONTHS.find(m => m.v === month)?.l} ${year}` : `Anno ${year}`],
@@ -239,6 +335,10 @@ export default function PrimaNota() {
       [],
       ['Tipo movimento', 'Movimenti', 'Entrate', 'Uscite'],
       ...byKind.map(k => [k.label, k.n, k.entrate, k.uscite]),
+      [],
+      ['Pagamenti fornitori (per fonte)', 'Fatture', 'Importo pagato'],
+      ...pagByFonte.map(f => [f.label, f.n, f.importo]),
+      ['Totale fatture pagate', pagamentiVisibili.length, Math.round(pagTotale * 100) / 100],
     ]
     const wsSummary = XLSX.utils.aoa_to_sheet(summaryData)
     wsSummary['!cols'] = [{ wch: 30 }, { wch: 25 }, { wch: 14 }, { wch: 14 }]
@@ -297,16 +397,29 @@ export default function PrimaNota() {
           {loading ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
         </button>
         <div className="flex-1" />
-        <button onClick={exportCsv} disabled={rows.length === 0}
+        <button onClick={exportCsv} disabled={(view === 'banca' ? rows : pagRows).length === 0}
           className="inline-flex items-center gap-2 px-3 py-2 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 rounded-lg text-sm font-medium">
           <Download size={14} /> CSV
         </button>
-        <button onClick={exportXlsx} disabled={rows.length === 0}
+        <button onClick={exportXlsx} disabled={rows.length === 0 && pagRows.length === 0}
           className="inline-flex items-center gap-2 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-lg text-sm font-medium">
           <FileSpreadsheet size={14} /> Excel
         </button>
       </div>
 
+      {/* Vista: movimenti banca (una riga per movimento) o pagamenti fornitori (una riga per fattura) */}
+      <div className="inline-flex rounded-lg border border-slate-200 bg-white p-1 mb-4" role="tablist" aria-label="Vista prima nota">
+        <button role="tab" aria-selected={view === 'banca'} onClick={() => setView('banca')}
+          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium ${view === 'banca' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>
+          <Landmark size={14} /> Movimenti banca <span className="text-xs opacity-70">{totals.count}</span>
+        </button>
+        <button role="tab" aria-selected={view === 'pagamenti'} onClick={() => setView('pagamenti')}
+          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium ${view === 'pagamenti' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>
+          <Receipt size={14} /> Pagamenti fornitori <span className="text-xs opacity-70">{pagamentiVisibili.length}</span>
+        </button>
+      </div>
+
+      {view === 'banca' && (<>
       {/* KPI */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
         <KpiBox label="Movimenti" value={totals.count.toString()} color="slate" />
@@ -331,11 +444,149 @@ export default function PrimaNota() {
         </div>
       )}
 
+      </>)}
+
+      {view === 'pagamenti' && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+          <KpiBox label="Fatture pagate" value={pagamentiVisibili.length.toString()} color="slate" />
+          <KpiBox label="Importo pagato" value={`€ ${fmt(pagTotale)}`} color="red" />
+          <KpiBox label="Fornitori" value={new Set(pagamentiVisibili.map(p => p.supplier_vat || p.supplier_name || '')).size.toString()} color="slate" />
+          <KpiBox label="Senza riscontro" value={pagamentiVisibili.filter(p => { const f = fonteOf(p); return f === 'senza_riscontro' || f === 'provvisoria' }).length.toString()}
+            color={pagamentiVisibili.some(p => { const f = fonteOf(p); return f === 'senza_riscontro' || f === 'provvisoria' }) ? 'orange' : 'slate'}
+            hint="Fatture segnate pagate senza movimento bancario né contanti/carta" />
+        </div>
+      )}
+      {view === 'pagamenti' && pagByFonte.length > 0 && (
+        <div className="bg-white rounded-xl border border-slate-200 p-3 mb-4 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600">
+          {pagByFonte.map(f => (
+            <span key={f.fonte} className="inline-flex items-center gap-1.5">
+              <span className={`inline-block px-1.5 py-0.5 rounded font-medium ${FONTE_BADGE[f.fonte]}`}>{f.label}</span>
+              <span className="tabular-nums">{f.n}</span>
+              <span className={`tabular-nums ${f.importo < 0 ? 'text-violet-700' : 'text-red-700'}`}>{f.importo < 0 ? '+' : '−'}{fmt(Math.abs(f.importo))}</span>
+            </span>
+          ))}
+        </div>
+      )}
+
       {error && (
         <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700 mb-4">
           Errore caricamento: {error}
         </div>
       )}
+
+      {view === 'pagamenti' && (<>
+      {/* Pagamenti fornitori, mobile: una card per fattura */}
+      <div className="md:hidden space-y-2">
+        {loadingPag ? (
+          <div className="bg-white rounded-xl border border-slate-200 p-8 text-center text-slate-500 text-sm">
+            <Loader2 size={20} className="inline animate-spin mr-2" /> Caricamento…
+          </div>
+        ) : pagamentiVisibili.length === 0 ? (
+          <div className="bg-white rounded-xl border border-slate-200 p-8 text-center text-slate-500 text-sm">
+            Nessuna fattura pagata nel periodo selezionato
+          </div>
+        ) : pagamentiVisibili.map(p => {
+          const f = fonteOf(p)
+          const tx = p.bank_transaction_id ? lookups.bankTx.get(p.bank_transaction_id) : undefined
+          const acc = (tx?.bank_account_id ?? p.payment_bank_account_id) ? lookups.bankAccounts.get((tx?.bank_account_id ?? p.payment_bank_account_id) as string) : undefined
+          const cat = p.cost_category_id ? lookups.categories.get(p.cost_category_id) : undefined
+          const paid = importoPagato(p)
+          return (
+            <div key={p.id} className="bg-white rounded-xl border border-slate-200 p-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-xs text-slate-500">
+                  {p.payment_date ? fmtDate(p.payment_date) : '—'}
+                  {acc && f === 'banca' && <><span className="mx-1 text-slate-300">·</span>{acc.bank_name}</>}
+                </div>
+                <span className={`shrink-0 inline-block px-2 py-0.5 rounded text-xs font-medium ${FONTE_BADGE[f]}`}>{FONTE_LABELS[f]}</span>
+              </div>
+              <div className={`text-lg font-bold mt-1 ${paid < 0 ? 'text-violet-700' : 'text-red-700'}`}>€ {fmt(Math.abs(paid))}</div>
+              <div className="text-sm font-medium text-slate-800 mt-0.5 break-words">{p.supplier_name ?? '—'}</div>
+              <div className="text-xs text-slate-600 mt-0.5">
+                Fatt. {p.invoice_number ?? '?'}{p.invoice_date ? ` del ${fmtDate(p.invoice_date)}` : ''}{rataOf(p) ? ` · rata ${rataOf(p)}` : ''}
+              </div>
+              <div className="flex items-center gap-2 mt-1.5 flex-wrap text-xs text-slate-500">
+                {metodoLabel(p) && <span className="inline-block px-2 py-0.5 bg-slate-100 text-slate-600 rounded">{metodoLabel(p)}</span>}
+                {cat && <span>{cat.name}{cat.ce_account_code ? ` (${cat.ce_account_code})` : ''}</span>}
+                {p.supplier_vat && <span className="font-mono">P.IVA {p.supplier_vat}</span>}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Pagamenti fornitori, desktop */}
+      <div className="hidden md:block bg-white rounded-xl border border-slate-200 overflow-hidden">
+        <TableScroll className="max-h-[70vh] overflow-y-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50 text-xs uppercase text-slate-600 sticky top-0 z-10 shadow-sm">
+              <tr>
+                <th className="px-3 py-2 text-left">Pagata il</th>
+                <th className="px-3 py-2 text-center">Fonte</th>
+                <th className="px-3 py-2 text-left">Conto</th>
+                <th className="px-3 py-2 text-left">Fornitore</th>
+                <th className="px-3 py-2 text-left">P.IVA</th>
+                <th className="px-3 py-2 text-left">Fattura</th>
+                <th className="px-3 py-2 text-right">Imponibile</th>
+                <th className="px-3 py-2 text-right">IVA</th>
+                <th className="px-3 py-2 text-right">Pagato</th>
+                <th className="px-3 py-2 text-left">Metodo</th>
+                <th className="px-3 py-2 text-left">Categoria</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loadingPag ? (
+                <tr><td colSpan={11} className="px-3 py-8 text-center text-slate-400">
+                  <Loader2 size={20} className="inline animate-spin mr-2" /> Caricamento…
+                </td></tr>
+              ) : pagRows.length === 0 ? (
+                <tr><td colSpan={11} className="px-3 py-8 text-center text-slate-400">
+                  Nessuna fattura pagata nel periodo selezionato
+                </td></tr>
+              ) : pagamentiVisibili.map((p, i) => {
+                const r = pagRows[i]
+                const f = fonteOf(p)
+                return (
+                  <tr key={p.id} className="border-t border-slate-100 hover:bg-slate-50/50">
+                    <td className="px-3 py-2 text-slate-700 whitespace-nowrap">{r['Data pagamento'] || '—'}</td>
+                    <td className="px-3 py-2 text-center">
+                      <Tooltip content={r.Note}>
+                        <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium whitespace-nowrap ${r.Note ? 'cursor-help' : ''} ${FONTE_BADGE[f]}`}>{r.Fonte}</span>
+                      </Tooltip>
+                    </td>
+                    <td className="px-3 py-2 text-slate-600 text-xs max-w-[160px]">
+                      <Tooltip content={r.IBAN ? `${r['Conto Banca']} · ${r.IBAN}${r['Data movimento'] ? ` · movimento del ${r['Data movimento']}` : ''}` : ''}>
+                        <div className="truncate cursor-help">{r['Conto Banca'] || '—'}{r['Data movimento'] && <span className="block text-slate-400">mov. {r['Data movimento']}</span>}</div>
+                      </Tooltip>
+                    </td>
+                    <td className="px-3 py-2 text-slate-700 max-w-[200px]">
+                      <Tooltip content={r.Fornitore}><div className="truncate cursor-help">{r.Fornitore || '—'}</div></Tooltip>
+                    </td>
+                    <td className="px-3 py-2 text-slate-500 text-xs font-mono">{r['P.IVA'] || '—'}</td>
+                    <td className="px-3 py-2 text-slate-600 text-xs whitespace-nowrap">
+                      {r['N. fattura'] || '?'}{r['Data fattura'] && <span className="block text-slate-400">{r['Data fattura']}{r.Rata ? ` · rata ${r.Rata}` : ''}</span>}
+                    </td>
+                    <td className="px-3 py-2 text-right text-slate-600 tabular-nums whitespace-nowrap">{r.Imponibile !== '' ? fmt(r.Imponibile) : '—'}</td>
+                    <td className="px-3 py-2 text-right text-slate-600 tabular-nums whitespace-nowrap">{r.IVA !== '' ? fmt(r.IVA) : '—'}</td>
+                    <td className={`px-3 py-2 text-right font-semibold tabular-nums whitespace-nowrap ${r.Pagato < 0 ? 'text-violet-700' : 'text-red-700'}`}>
+                      {r.Pagato < 0 ? '+' : '−'} € {fmt(Math.abs(r.Pagato))}
+                    </td>
+                    <td className="px-3 py-2 text-slate-500 text-xs whitespace-nowrap">{r.Metodo || '—'}</td>
+                    <td className="px-3 py-2 text-slate-500 text-xs max-w-[180px]">
+                      <Tooltip content={r.Categoria ? `${r.Categoria}${r['Conto CE'] ? ` · conto ${r['Conto CE']}` : ''}${r.Outlet ? ` · ${r.Outlet}` : ''}` : ''}>
+                        <div className="truncate cursor-help">{r.Categoria || '—'}{r['Conto CE'] && <span className="text-slate-400"> {r['Conto CE']}</span>}</div>
+                      </Tooltip>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </TableScroll>
+      </div>
+      </>)}
+
+      {view === 'banca' && (<>
 
       {/* Lista mobile a schede (sotto md): stessa fonte dati della tabella,
           una card per movimento con i dati chiave. La tabella resta su desktop. */}
@@ -455,6 +706,7 @@ export default function PrimaNota() {
           </table>
         </TableScroll>
       </div>
+      </>)}
     </div>
   )
 }
