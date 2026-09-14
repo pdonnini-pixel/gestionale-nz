@@ -20387,6 +20387,7 @@ export type Database = {
           iva_riporto_precedente: number
           month: number
           note: string | null
+          registro_chiuso_il: string | null
           updated_at: string
           year: number
         }
@@ -20407,6 +20408,7 @@ export type Database = {
           iva_riporto_precedente?: number
           month: number
           note?: string | null
+          registro_chiuso_il?: string | null
           updated_at?: string
           year: number
         }
@@ -20427,6 +20429,7 @@ export type Database = {
           iva_riporto_precedente?: number
           month?: number
           note?: string | null
+          registro_chiuso_il?: string | null
           updated_at?: string
           year?: number
         }

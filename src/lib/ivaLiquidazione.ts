@@ -6,10 +6,13 @@
  *       chiusure di cassa confermate (daily_revenue) → consuntivo granitico di
  *       Budget & Controllo → preventivo di Budget & Controllo
  *   - IVA delle fatture attive emesse nel mese
- *   - IVA delle fatture passive di COMPETENZA del mese (data fattura se
- *     ricevuta via SDI entro il 15 del mese dopo, altrimenti data ricezione:
- *     regola del registro del commercialista, migration 221), meno le note
- *     di credito; le integrazioni reverse charge sono neutre
+ *   - IVA delle fatture passive di COMPETENZA del mese, come nel registro
+ *     acquisti del commercialista (migration 221/222/223): una fattura del
+ *     mese M resta in M se arriva via SDI entro la chiusura del registro di M
+ *     (vat_settlements.registro_chiuso_il, o la data di conferma; per i mesi
+ *     non confermati il giorno limite standard del mese dopo, default 15),
+ *     altrimenti va nel mese di ricezione; meno le note di credito; le
+ *     integrazioni reverse charge sono neutre
  *
  * Formula del mese M:
  *   importo = IVA corrispettivi + IVA fatture attive − IVA credito − riporto(M−1)
@@ -60,6 +63,10 @@ export interface IvaMeseConfermato {
    *  sulla formula. I componenti restano come traccia. */
   importo_manuale?: boolean | null
   note?: string | null
+  /** Giorno in cui il registro acquisti del mese è stato chiuso (YYYY-MM-DD):
+   *  da lì in poi le fatture del mese arrivate via SDI vanno nel mese dopo.
+   *  Lo usa la vista, non questa catena; qui serve solo a mostrarlo. */
+  registro_chiuso_il?: string | null
 }
 
 export interface IvaMesePagato {

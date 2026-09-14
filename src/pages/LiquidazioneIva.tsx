@@ -80,7 +80,7 @@ export default function LiquidazioneIva() {
 
   // Conferma mese: form inline
   const [confirmKey, setConfirmKey] = useState<string | null>(null)
-  const [cForm, setCForm] = useState({ corr: '', ivaAtt: '', ivaCred: '', tot: '', note: '' })
+  const [cForm, setCForm] = useState({ corr: '', ivaAtt: '', ivaCred: '', tot: '', note: '', chiuso: '' })
   const [busyKey, setBusyKey] = useState<string | null>(null)
   const [removeArm, setRemoveArm] = useState<string | null>(null)
 
@@ -129,6 +129,7 @@ export default function LiquidazioneIva() {
         importo: Number(r.importo ?? 0),
         importo_manuale: Boolean(r.importo_manuale),
         note: r.note,
+        registro_chiuso_il: r.registro_chiuso_il ?? null,
       })))
       setFiscalRows((fisc.data || []) as FiscalIvaRow[])
     } catch (e) {
@@ -218,6 +219,8 @@ export default function LiquidazioneIva() {
       corr: String(r.corrispettiviNetti), ivaAtt: String(r.ivaFattureAttive), ivaCred: String(r.ivaCredito),
       tot: r.importoManuale ? String(r.importo) : '',
       note: r.note || '',
+      // Chiusura del registro: quella già salvata, altrimenti oggi (confermare un mese lo chiude)
+      chiuso: confermati.find(c => c.year === r.year && c.month === r.month)?.registro_chiuso_il || todayYMD(),
     })
   }
 
@@ -239,6 +242,7 @@ export default function LiquidazioneIva() {
         iva_credito: ivaCred, iva_riporto_precedente: r.riportoPrecedente, importo,
         importo_manuale: totManuale,
         fonte_corrispettivi: 'manuale', note: cForm.note.trim() || null,
+        registro_chiuso_il: /^\d{4}-\d{2}-\d{2}$/.test(cForm.chiuso) ? cForm.chiuso : todayYMD(),
         confirmed_by: profile?.id ?? null, confirmed_at: new Date().toISOString(),
       }, { onConflict: 'company_id,year,month' })
       if (error) throw error
@@ -384,7 +388,7 @@ export default function LiquidazioneIva() {
                   <input value={sForm.cutoff} onChange={e => setSForm({ ...sForm, cutoff: e.target.value })} className={inputCls + ' mt-1'} inputMode="numeric" title="Una fattura datata nel mese resta nel mese se arriva via SDI entro questo giorno del mese successivo (15 = massimo di legge). Oltre, va nel mese di arrivo." />
                 </label>
               </div>
-              <p className="text-xs text-slate-500">Il mese di partenza è il primo mese calcolato: il credito iniziale è quello da riportare in quel mese (zero se il mese precedente era a debito). I mesi prima non vengono ricostruiti. Il giorno limite riproduce il registro acquisti del commercialista: le fatture del mese arrivate via SDI entro quel giorno del mese dopo restano nel mese (15 è il massimo di legge; lo studio di New Zago ha chiuso agosto 2026 l'8 settembre).</p>
+              <p className="text-xs text-slate-500">Il mese di partenza è il primo mese calcolato: il credito iniziale è quello da riportare in quel mese (zero se il mese precedente era a debito). I mesi prima non vengono ricostruiti. Il giorno limite vale per i mesi non ancora confermati: le fatture del mese arrivate via SDI entro quel giorno del mese dopo restano nel mese (15 è il massimo di legge). Per un mese confermato conta invece la data «registro chiuso il» salvata con la conferma: da quel giorno in poi le fatture del mese passano al mese successivo, come nel registro dello studio.</p>
               <div className="flex justify-end gap-2">
                 <button onClick={() => setSettingsOpen(false)} className={btnSecondary}>Annulla</button>
                 <button onClick={saveSettings} disabled={savingSettings} className={btnPrimary}>
@@ -518,12 +522,16 @@ export default function LiquidazioneIva() {
                       </td>
                       <td className="px-3 py-2">
                         <span className={`inline-block text-[11px] font-medium px-2 py-0.5 rounded-full ${STATO_STYLE[r.stato]}`}>{STATO_LABEL[r.stato]}</span>
+                        {r.stato === 'confermata' && (() => { const ch = confermati.find(c => c.year === r.year && c.month === r.month)?.registro_chiuso_il; return ch ? <div className="text-[11px] text-slate-500 mt-1">registro chiuso il {fmtDate(ch)}</div> : null })()}
                         {r.note && <div className="text-[11px] text-slate-500 mt-1 max-w-[180px] line-clamp-2" title={r.note}>{r.note}</div>}
                       </td>
                       {canEdit && (
                         <td className="px-3 py-2 text-right whitespace-nowrap">
                           {isConfirm ? (
                             <div className="flex flex-col gap-1 items-end">
+                              <label className="text-[11px] text-slate-500 text-right" title="Le fatture del mese arrivate via SDI dopo questo giorno passano al mese successivo (è il giorno in cui lo studio ha chiuso il registro acquisti)">registro chiuso il
+                                <input type="date" value={cForm.chiuso} onChange={e => setCForm({ ...cForm, chiuso: e.target.value })} className="block w-40 mt-0.5 px-2 py-1 border border-slate-200 rounded-lg text-xs bg-white focus:outline-none focus:ring-1 focus:ring-blue-400/40" aria-label="Registro chiuso il" />
+                              </label>
                               <input value={cForm.note} onChange={e => setCForm({ ...cForm, note: e.target.value })} placeholder="nota (facoltativa)" className="w-40 px-2 py-1 border border-slate-200 rounded-lg text-xs bg-white focus:outline-none focus:ring-1 focus:ring-blue-400/40" />
                               <div className="flex gap-1">
                                 <button onClick={() => setConfirmKey(null)} className={btnSecondary} title="Annulla"><X size={13} /> Annulla</button>
@@ -563,7 +571,7 @@ export default function LiquidazioneIva() {
 
         <div className="text-xs text-slate-500 space-y-1">
           <p><span className="font-semibold text-slate-700">Corrispettivi netti</span>: chiusure di cassa confermate quando ci sono (mese in corso: chiusure fino a oggi più preventivo per i giorni restanti), altrimenti il consuntivo e poi il preventivo di Budget &amp; Controllo. Sono imponibili: l'IVA vendite è corrispettivi × aliquota.</p>
-          <p><span className="font-semibold text-slate-700">IVA acquisti</span>: fatture passive per competenza, come nel registro del commercialista: mese della data fattura se la fattura arriva via SDI entro il giorno {cutoffDay} del mese successivo (parametro), altrimenti mese di ricezione; meno le note di credito. Le integrazioni reverse charge (TD16/17/18/19) sono neutre e non entrano. Per i mesi futuri si usa la media dei mesi chiusi (≈). Tutta l'IVA è considerata detraibile.</p>
+          <p><span className="font-semibold text-slate-700">IVA acquisti</span>: fatture passive per competenza, come nel registro del commercialista: una fattura del mese resta nel mese se arriva via SDI entro la chiusura del registro di quel mese (la data «registro chiuso il» salvata con la conferma; per i mesi non confermati il giorno {cutoffDay} del mese successivo, parametro), altrimenti va nel mese in cui arriva; meno le note di credito. Le integrazioni reverse charge (TD16/17/18/19) sono neutre e non entrano. Per i mesi futuri si usa la media dei mesi chiusi (≈). Tutta l'IVA è considerata detraibile.</p>
           <p><span className="font-semibold text-slate-700">Riporto</span>: se un mese chiude a credito, il credito riduce la liquidazione del mese dopo. Un mese confermato usa i numeri inseriti a mano; un mese pagato usa l'importo versato registrato in Scadenze Fiscali.</p>
           <p><span className="font-semibold text-slate-700">Scadenza</span>: il 16 del mese successivo (20 agosto per luglio, giorno lavorativo successivo se cade nel weekend), codice tributo 60 + mese. «Crea scadenza» la scrive in Scadenze Fiscali: da lì entra in Scadenzario e Cashflow Prospettico.</p>
         </div>
