@@ -2,23 +2,25 @@ import { useState, useEffect, useCallback } from 'react'
 import {
   Settings, Users, Tag, Building2, Shield, Plus, Trash2, Pencil, Save, X,
   ChevronDown, ChevronUp, Check, AlertCircle, Search, Copy, Eye, EyeOff, Loader,
-  CornerDownRight, Lock, ShieldCheck, FileText, RefreshCw, Zap, Send,
+  CornerDownRight, Lock, ShieldCheck, FileText, RefreshCw, Zap, Send, Mail, KeyRound,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { useCompanyLabels } from '../hooks/useCompanyLabels'
+import { useOutlets, isSellingOutlet } from '../hooks/useOutlets'
 import { getCurrentTenant } from '../lib/tenants'
+import { slugCostCenter } from '../lib/costCenterKey'
 import PageHeader from '../components/PageHeader'
+import type { Database } from '../types/database'
 
 // Role-based permissions
 const ROLE_PERMISSIONS: Record<string, string[]> = {
-  super_advisor: ['company', 'users', 'costs', 'centri', 'sdi'],
+  super_advisor: ['company', 'users', 'costs', 'centri', 'sdi', 'report'],
   ceo: ['company', 'users', 'costs', 'centri', 'sdi'],
   cfo: ['company', 'costs', 'centri', 'sdi'],
   coo: ['company', 'costs', 'centri'],
-  contabile: ['costs', 'centri'],
-  store_manager: [],
-  operatrice: [],
+  contabile: ['costs', 'centri', 'report'],
+  operatore_cassa: [],
 }
 
 // Toast helper (shared via props)
@@ -43,8 +45,10 @@ const ROLE_OPTIONS = [
   { value: 'cfo', label: 'CFO', color: 'bg-emerald-100 text-emerald-700' },
   { value: 'coo', label: 'COO', color: 'bg-amber-100 text-amber-700' },
   { value: 'contabile', label: 'Contabile', color: 'bg-slate-100 text-slate-700' },
-  { value: 'store_manager', label: 'Store Manager', color: 'bg-rose-100 text-rose-700' },
-  { value: 'operatrice', label: 'Operatrice', color: 'bg-sky-100 text-sky-700' },
+  // Account di negozio: un login per outlet, condiviso dal personale, che vede
+  // solo la Chiusura cassa del proprio punto vendita (RLS, migrazioni 172-173).
+  { value: 'operatore_cassa', label: 'Operatore cassa (negozio)', color: 'bg-sky-100 text-sky-700' },
+  { value: 'viewer', label: 'Sola lettura', color: 'bg-stone-100 text-stone-700' },
 ]
 
 const MACRO_GROUPS = [
@@ -336,20 +340,26 @@ function CompanySection({ showToast, companyId: COMPANY_ID }: SectionProps) {
 // ==========================================
 function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
   const labels = useCompanyLabels()
+  const { outlets: tenantOutlets } = useOutlets()
   // TODO: tighten type — Supabase rows
   const [users, setUsers] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  const [costCenters, setCostCenters] = useState<any[]>([])
   const [editingId, setEditingId] = useState<string | null>(null)
   const [showForm, setShowForm] = useState(false)
   const [search, setSearch] = useState('')
-  const [form, setForm] = useState({ nome: '', cognome: '', email: '', ruolo: 'operatrice', is_active: true, outlet_access: ['all'] as string[] })
+  // outlet_id: per il ruolo operatore_cassa (un account per punto vendita) e'
+  // l'outlet su cui l'account puo' compilare la chiusura di cassa.
+  const [form, setForm] = useState({ nome: '', cognome: '', email: '', ruolo: 'operatore_cassa', is_active: true, outlet_id: '' })
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  // Reimposta password: conferma inline, poi la nuova password viene mostrata
+  // UNA sola volta (non e' salvata in chiaro da nessuna parte).
+  const [confirmPassword, setConfirmPassword] = useState<string | null>(null)
+  const [newPassword, setNewPassword] = useState<{ userId: string; email: string; password: string } | null>(null)
+  const [copied, setCopied] = useState(false)
 
   useEffect(() => {
     loadUsers()
-    loadCostCenters()
   }, [])
 
   // Chiamata alla funzione admin (unico punto che tocca i login reali).
@@ -371,15 +381,20 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
     try {
       setLoading(true)
       const res = await callAdmin('list') as { users?: Array<Record<string, unknown>> }
+      // Outlet assegnati (user_outlet_access): mostrati come etichette e usati
+      // per precompilare la modifica di un operatore di cassa.
+      const { data: access } = await supabase.from('user_outlet_access').select('user_id, outlet_id')
+      const accessByUser = new Map<string, string[]>()
+      for (const a of access ?? []) accessByUser.set(a.user_id, [...(accessByUser.get(a.user_id) ?? []), a.outlet_id])
       const mapped = (res.users || []).map(u => ({
         id: u.id,
         nome: (u.first_name as string) || '',
         cognome: (u.last_name as string) || '',
         email: (u.email as string) || '',
-        ruolo: (u.role as string) || 'operatrice',
+        ruolo: (u.role as string) || 'operatore_cassa',
         is_active: u.active !== false,
         last_sign_in_at: u.last_sign_in_at || null,
-        outlet_access: [] as string[],
+        outlet_ids: accessByUser.get(u.id as string) ?? [],
       }))
       mapped.sort((a, b) => (a.nome + a.cognome).localeCompare(b.nome + b.cognome))
       setUsers(mapped)
@@ -390,34 +405,25 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
     }
   }
 
-  const loadCostCenters = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('cost_centers')
-        .select('*')
-        .eq('company_id', COMPANY_ID || '')
-        .order('sort_order', { ascending: true })
-
-      if (error) throw error
-      setCostCenters(data || [])
-    } catch (err) {
-      showToast?.('Errore caricamento centri di costo', 'error')
-    }
-  }
-
   const resetForm = () => {
-    setForm({ nome: '', cognome: '', email: '', ruolo: 'operatrice', is_active: true, outlet_access: ['all'] })
+    setForm({ nome: '', cognome: '', email: '', ruolo: 'operatore_cassa', is_active: true, outlet_id: '' })
     setShowForm(false)
     setEditingId(null)
   }
 
+  const isCashRole = form.ruolo === 'operatore_cassa'
+
   // Nuovo utente = INVITO: crea il login e invia l'email per impostare la password.
   // In modifica, cambia solo il ruolo (nome/email di un login esistente non si toccano qui).
+  // Per l'operatore di cassa l'outlet e' obbligatorio: la funzione admin lo
+  // scrive in user_outlet_access (can_write), da cui dipende la RLS della chiusura.
   const handleSave = async () => {
     try {
       setSaving(true)
+      if (isCashRole && !form.outlet_id) { showToast?.(`Scegli il ${labels.pointOfSale.toLowerCase()} dell'account cassa`, 'error'); return }
+      const outletPayload = isCashRole ? { outlet_id: form.outlet_id } : {}
       if (editingId) {
-        await callAdmin('set_role', { user_id: editingId, role: form.ruolo })
+        await callAdmin('set_role', { user_id: editingId, role: form.ruolo, ...outletPayload })
         showToast?.('Ruolo aggiornato')
       } else {
         if (!form.email.trim()) { showToast?.('Email obbligatoria', 'error'); return }
@@ -427,6 +433,7 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
           last_name: form.cognome.trim(),
           role: form.ruolo,
           redirectTo: `${window.location.origin}/reset-password`,
+          ...outletPayload,
         })
         showToast?.(`Invito inviato a ${form.email.trim()}`)
       }
@@ -447,7 +454,7 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
       email: u.email,
       ruolo: u.ruolo,
       is_active: u.is_active,
-      outlet_access: [...(u.outlet_access || ['all'])]
+      outlet_id: (u.outlet_ids as string[])[0] ?? '',
     })
     setEditingId(u.id)
     setShowForm(true)
@@ -464,6 +471,35 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
     }
   }
 
+  // Genera e imposta una nuova password (lato server) e la mostra una volta:
+  // e' il modo per dare/rinnovare l'accesso agli account di negozio, che non
+  // usano l'email di reset.
+  const handleResetPassword = async (id: string, email: string) => {
+    try {
+      setSaving(true)
+      const res = await callAdmin('set_password', { user_id: id }) as { password?: string }
+      if (!res?.password) throw new Error('Nessuna password restituita')
+      setNewPassword({ userId: id, email, password: res.password })
+      setCopied(false)
+      setConfirmPassword(null)
+      showToast?.('Nuova password impostata: comunicala all\'utente')
+    } catch (err) {
+      showToast?.('Errore: ' + (err as Error).message, 'error')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const copyPassword = async () => {
+    if (!newPassword) return
+    try {
+      await navigator.clipboard.writeText(`Email: ${newPassword.email}\nPassword: ${newPassword.password}`)
+      setCopied(true)
+    } catch {
+      showToast?.('Copia non riuscita: seleziona e copia a mano', 'error')
+    }
+  }
+
   const handleDelete = async (id: string) => {
     try {
       await callAdmin('delete', { user_id: id })
@@ -475,19 +511,7 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
     }
   }
 
-  const toggleOutlet = (outletCode: string) => {
-    setForm(prev => {
-      if (outletCode === 'all') return { ...prev, outlet_access: ['all'] }
-      let newOutlets = prev.outlet_access.filter(o => o !== 'all')
-      if (newOutlets.includes(outletCode)) {
-        newOutlets = newOutlets.filter(o => o !== outletCode)
-      } else {
-        newOutlets.push(outletCode)
-      }
-      if (newOutlets.length === 0) newOutlets = ['all']
-      return { ...prev, outlet_access: newOutlets }
-    })
-  }
+  const outletName = (id: string) => tenantOutlets.find(o => o.id === id)?.name ?? '—'
 
   const filtered = users.filter(u => {
     const q = search.toLowerCase()
@@ -514,8 +538,9 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
         <ShieldCheck size={16} className="mt-0.5 shrink-0" />
         <span>
           Qui gestisci gli <strong>accessi reali</strong> all'applicazione. <strong>Invita utente</strong> crea il login e
-          invia un'email per impostare la password; <strong>Blocca</strong> impedisce l'accesso senza eliminare nulla;
-          <strong> Elimina</strong> revoca definitivamente il login. Le azioni valgono solo per la tua azienda.
+          invia un'email per impostare la password; <strong>Nuova password</strong> (icona chiave) ne genera una e te la mostra
+          una sola volta, da comunicare tu all'utente (es. account di negozio); <strong>Blocca</strong> impedisce l'accesso
+          senza eliminare nulla; <strong>Elimina</strong> revoca definitivamente il login. Le azioni valgono solo per la tua azienda.
         </span>
       </div>
       {/* Toolbar */}
@@ -562,13 +587,31 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
                 className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 disabled:bg-slate-100 disabled:text-slate-400" />
             </div>
           </div>
-          <div className="max-w-xs">
-            <label className="block text-xs font-medium text-slate-600 mb-1">Ruolo</label>
-            <select value={form.ruolo} onChange={e => setForm(p => ({ ...p, ruolo: e.target.value }))}
-              className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500">
-              {ROLE_OPTIONS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
-            </select>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">Ruolo</label>
+              <select value={form.ruolo} onChange={e => setForm(p => ({ ...p, ruolo: e.target.value }))}
+                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500">
+                {ROLE_OPTIONS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+              </select>
+            </div>
+            {isCashRole && (
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">{labels.pointOfSale} dell'account cassa *</label>
+                <select value={form.outlet_id} onChange={e => setForm(p => ({ ...p, outlet_id: e.target.value }))}
+                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500">
+                  <option value="">Scegli…</option>
+                  {tenantOutlets.filter(isSellingOutlet).map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
+                </select>
+              </div>
+            )}
           </div>
+          {isCashRole && (
+            <p className="text-xs text-slate-500">
+              L'operatore di cassa entra e vede solo la <strong>Chiusura cassa</strong> del suo {labels.pointOfSale.toLowerCase()}: un accesso per negozio,
+              condiviso dal personale (es. cassa.valdichiana@…). Nessun altro dato aziendale è visibile a questo ruolo.
+            </p>
+          )}
           {!editingId && (
             <p className="text-xs text-slate-500">
               All'utente arriverà un'email per impostare la propria password e accedere. Blocco/eliminazione si gestiscono poi dalla lista.
@@ -583,6 +626,36 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
               className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-40 transition">
               {saving ? <Loader size={14} className="animate-spin" /> : <Save size={14} />}
               {editingId ? 'Aggiorna ruolo' : 'Invia invito'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Nuova password generata: mostrata una sola volta */}
+      {newPassword && (
+        <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 space-y-2">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-start gap-2 text-sm text-emerald-900">
+              <KeyRound size={16} className="mt-0.5 shrink-0" />
+              <div>
+                <div className="font-semibold">Nuova password per {newPassword.email}</div>
+                <div className="text-xs text-emerald-800 mt-0.5">
+                  Copiala e comunicala all'utente adesso: <strong>non verrà più mostrata</strong>. La vecchia password non funziona più.
+                </div>
+              </div>
+            </div>
+            <button onClick={() => setNewPassword(null)} title="Chiudi" className="p-1.5 text-emerald-700 hover:bg-emerald-100 rounded-lg">
+              <X size={14} />
+            </button>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <code className="px-3 py-2 bg-white border border-emerald-200 rounded-lg text-base font-mono tracking-wider text-slate-900 select-all">
+              {newPassword.password}
+            </code>
+            <button onClick={copyPassword}
+              className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border border-emerald-300 text-emerald-800 hover:bg-emerald-100 transition">
+              {copied ? <Check size={14} /> : <Copy size={14} />}
+              {copied ? 'Copiato' : 'Copia email e password'}
             </button>
           </div>
         </div>
@@ -603,9 +676,9 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
                 </div>
                 <div className="text-xs text-slate-400 truncate" title={u.email}>{u.email}</div>
                 <div className="flex flex-wrap gap-1 mt-1">
-                  {u.outlet_access && u.outlet_access.map((o: string) => (
-                    <span key={o} className="inline-block text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">
-                      {getCentroLabel(o, costCenters)}
+                  {(u.outlet_ids as string[]).map((o: string) => (
+                    <span key={o} className="inline-block text-[10px] px-1.5 py-0.5 rounded bg-sky-50 text-sky-700">
+                      {outletName(o)}
                     </span>
                   ))}
                 </div>
@@ -625,6 +698,22 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
                 }`}>
                 {u.is_active ? 'Blocca' : 'Sblocca'}
               </button>
+              {confirmPassword === u.id ? (
+                <div className="flex items-center gap-1">
+                  <button onClick={() => handleResetPassword(u.id, u.email)} disabled={saving} title="Conferma: genera una nuova password"
+                    className="px-2 py-1 text-xs font-medium text-emerald-700 border border-emerald-200 hover:bg-emerald-50 rounded-lg transition disabled:opacity-40">
+                    {saving ? <Loader size={14} className="animate-spin" /> : 'Genera'}
+                  </button>
+                  <button onClick={() => setConfirmPassword(null)} title="Annulla" className="p-1.5 text-slate-400 hover:bg-slate-50 rounded-lg transition">
+                    <X size={14} />
+                  </button>
+                </div>
+              ) : (
+                <button onClick={() => { setConfirmPassword(u.id); setConfirmDelete(null) }} title="Nuova password"
+                  className="p-1.5 text-slate-400 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition">
+                  <KeyRound size={14} />
+                </button>
+              )}
               <button onClick={() => handleEdit(u)} title="Modifica ruolo"
                 className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition opacity-100 md:opacity-0 md:group-hover:opacity-100">
                 <Pencil size={14} />
@@ -1107,7 +1196,9 @@ function CentriDiCostoSection({ showToast, companyId: COMPANY_ID }: SectionProps
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
-  const [form, setForm] = useState({ code: '', label: '', color: 'bg-blue-600', sort_order: 0 })
+  // role: 'outlet' (punto vendita, entra in confronti e budget), 'hq' (sede),
+  // 'non_operational' (spese da ripartire, rettifiche).
+  const [form, setForm] = useState({ code: '', label: '', color: 'bg-blue-600', sort_order: 0, role: 'outlet' })
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
@@ -1139,7 +1230,7 @@ function CentriDiCostoSection({ showToast, companyId: COMPANY_ID }: SectionProps
   }
 
   const resetForm = () => {
-    setForm({ code: '', label: '', color: 'bg-blue-600', sort_order: centers.length })
+    setForm({ code: '', label: '', color: 'bg-blue-600', sort_order: centers.length, role: 'outlet' })
     setShowForm(false)
     setEditingId(null)
   }
@@ -1149,9 +1240,14 @@ function CentriDiCostoSection({ showToast, companyId: COMPANY_ID }: SectionProps
 
     try {
       setSaving(true)
+      // Il codice resta MINUSCOLO: è la chiave che lega il centro di costo a
+      // outlets.cost_center_key, budget_entries.cost_center e al conto ricavi
+      // (chart_of_accounts.outlet_link). Prima veniva forzato in maiuscolo e
+      // non combaciava con nulla.
       const payload = {
-        code: form.code.toUpperCase(),
+        code: slugCostCenter(form.code),
         label: form.label,
+        role: form.role,
         color: form.color,
         sort_order: form.sort_order,
         is_active: true,
@@ -1189,7 +1285,8 @@ function CentriDiCostoSection({ showToast, companyId: COMPANY_ID }: SectionProps
       code: c.code,
       label: c.label,
       color: c.color,
-      sort_order: c.sort_order
+      sort_order: c.sort_order,
+      role: (c.role as string) || 'outlet',
     })
     setEditingId(c.id)
     setShowForm(true)
@@ -1267,10 +1364,11 @@ function CentriDiCostoSection({ showToast, companyId: COMPANY_ID }: SectionProps
               <input
                 type="text"
                 value={form.code}
-                onChange={(e) => setForm(p => ({ ...p, code: e.target.value.toUpperCase() }))}
-                placeholder="ES: VDC"
+                onChange={(e) => setForm(p => ({ ...p, code: e.target.value.toLowerCase() }))}
+                placeholder="es. roma_soratte"
                 className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg font-mono"
               />
+              <p className="text-[11px] text-slate-400 mt-1">Minuscolo, come la chiave contabile dell'outlet (es. torino, sede_magazzino).</p>
             </div>
             <div className="md:col-span-2">
               <label className="block text-xs font-medium text-slate-600 mb-1">Etichetta *</label>
@@ -1282,6 +1380,18 @@ function CentriDiCostoSection({ showToast, companyId: COMPANY_ID }: SectionProps
                 className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg"
               />
             </div>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1">Ruolo</label>
+            <select
+              value={form.role}
+              onChange={(e) => setForm(p => ({ ...p, role: e.target.value }))}
+              className="w-full md:w-1/2 px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white"
+            >
+              <option value="outlet">Punto vendita (entra in confronti, margini, budget)</option>
+              <option value="hq">Sede / magazzino</option>
+              <option value="non_operational">Non operativo (spese da ripartire, rettifiche)</option>
+            </select>
           </div>
           <div>
             <label className="block text-xs font-medium text-slate-600 mb-2">Colore</label>
@@ -1623,6 +1733,274 @@ function SdiSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
 // ==========================================
 // PAGINA PRINCIPALE
 // ==========================================
+// ─── Report incassi serale (fase 2 specchietto incassi) ──────────────
+// Configura la mail serale inviata da daily-cash-report-send: quando parte
+// (ora fissa, oppure appena tutti i negozi hanno confermato con un'ora limite),
+// destinatari, sollecito ai negozi, integrazione per le chiusure in ritardo,
+// invio anche senza chiusure. Il motore e' il cron daily_cash_report_tick
+// (migration 176/204, ogni 15 minuti) piu' il trigger alla conferma (204).
+type ReportSettingsRow = Database['public']['Tables']['daily_report_settings']['Row']
+type ReportLogRow = Database['public']['Tables']['daily_report_log']['Row']
+
+const REPORT_STATUS_LABELS: Record<string, string> = { queued: 'In invio', sent: 'Inviato', failed: 'Non riuscito', skipped: 'Saltato' }
+const REPORT_KIND_LABELS: Record<string, string> = { report: 'Report serale', reminder: 'Sollecito ai negozi', test: 'Prova', followup: 'Integrazione' }
+const WA_STATUS_LABELS: Record<string, string> = { sent: 'inviato', partial: 'in parte', failed: 'non riuscito', skipped: 'saltato' }
+
+/** Numeri WhatsApp in formato internazionale (+39...); un numero italiano di cellulare senza prefisso riceve +39. */
+function parsePhones(raw: string): string[] {
+  const seen = new Set<string>()
+  return raw.split(/[\s,;]+/).map((x) => x.replace(/[.\-()]/g, '').trim()).map((x) => {
+    if (!x) return ''
+    if (x.startsWith('00')) return '+' + x.slice(2)
+    if (/^3\d{8,9}$/.test(x)) return '+39' + x
+    return x
+  }).filter((x) => {
+    if (!x || seen.has(x) || !/^\+\d{8,15}$/.test(x)) return false
+    seen.add(x); return true
+  })
+}
+
+function parseRecipients(raw: string): string[] {
+  const seen = new Set<string>()
+  return raw.split(/[\s,;]+/).map((x) => x.trim().toLowerCase()).filter((x) => {
+    if (!x || seen.has(x) || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x)) return false
+    seen.add(x); return true
+  })
+}
+
+function ReportSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
+  const { session } = useAuth()
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [testing, setTesting] = useState(false)
+  const [logs, setLogs] = useState<ReportLogRow[]>([])
+  const [form, setForm] = useState({ enabled: false, sendMode: 'fixed' as 'fixed' | 'on_complete', sendTime: '21:30', followupEnabled: true, reminderEnabled: false, reminderTime: '20:30', recipients: '', sendOnEmpty: true, budgetVatRate: '22', waEnabled: false, waRecipients: '' })
+  const [testingWa, setTestingWa] = useState(false)
+  const [dirty, setDirty] = useState(false)
+
+  const load = useCallback(async () => {
+    if (!COMPANY_ID) return
+    setLoading(true)
+    const [sRes, lRes] = await Promise.all([
+      supabase.from('daily_report_settings').select('*').eq('company_id', COMPANY_ID).maybeSingle(),
+      supabase.from('daily_report_log').select('*').eq('company_id', COMPANY_ID).order('created_at', { ascending: false }).limit(10),
+    ])
+    const s = sRes.data as ReportSettingsRow | null
+    if (s) {
+      setForm({
+        enabled: s.enabled, sendMode: s.send_mode === 'on_complete' ? 'on_complete' : 'fixed', sendTime: s.send_time.slice(0, 5),
+        followupEnabled: s.followup_enabled !== false,
+        reminderEnabled: !!s.reminder_time, reminderTime: (s.reminder_time ?? '20:30').slice(0, 5),
+        recipients: (s.recipients ?? []).join('\n'), sendOnEmpty: s.send_on_empty,
+        budgetVatRate: String(s.budget_vat_rate ?? 22),
+        waEnabled: s.whatsapp_enabled === true, waRecipients: (s.whatsapp_recipients ?? []).join('\n'),
+      })
+    }
+    setLogs((lRes.data ?? []) as ReportLogRow[])
+    setDirty(false)
+    setLoading(false)
+  }, [COMPANY_ID])
+
+  useEffect(() => { void load() }, [load])
+
+  const set = (patch: Partial<typeof form>) => { setForm((f) => ({ ...f, ...patch })); setDirty(true) }
+  const recipientsList = parseRecipients(form.recipients)
+  const invalidRecipients = form.recipients.split(/[\s,;]+/).map((x) => x.trim()).filter((x) => x && !recipientsList.includes(x.toLowerCase()))
+  const phonesList = parsePhones(form.waRecipients)
+  const invalidPhones = form.waRecipients.split(/[\s,;]+/).map((x) => x.trim()).filter((x) => x && parsePhones(x).length === 0)
+
+  const save = async () => {
+    if (!COMPANY_ID) return
+    if (form.enabled && recipientsList.length === 0) { showToast('Serve almeno un indirizzo destinatario', 'error'); return }
+    if (form.waEnabled && phonesList.length === 0) { showToast('Serve almeno un numero WhatsApp (formato +39...)', 'error'); return }
+    if (form.reminderEnabled && form.reminderTime >= form.sendTime) { showToast(form.sendMode === 'on_complete' ? 'Il sollecito deve essere prima dell\'ora limite' : 'Il sollecito deve essere prima dell\'ora di invio', 'error'); return }
+    const vat = Number(String(form.budgetVatRate).replace(',', '.'))
+    if (!Number.isFinite(vat) || vat < 0 || vat > 100) { showToast('L\'aliquota IVA deve essere un numero fra 0 e 100', 'error'); return }
+    setSaving(true)
+    const { error } = await supabase.from('daily_report_settings').upsert({
+      company_id: COMPANY_ID,
+      enabled: form.enabled,
+      send_mode: form.sendMode,
+      send_time: form.sendTime,
+      followup_enabled: form.followupEnabled,
+      reminder_time: form.reminderEnabled ? form.reminderTime : null,
+      recipients: recipientsList,
+      send_on_empty: form.sendOnEmpty,
+      budget_vat_rate: vat,
+      whatsapp_enabled: form.waEnabled,
+      whatsapp_recipients: phonesList,
+      // Origine del sito corrente: serve ai link nella mail, senza valori hardcoded per tenant.
+      app_url: typeof window !== 'undefined' ? window.location.origin : null,
+      updated_at: new Date().toISOString(),
+      updated_by: session?.user?.id ?? null,
+    })
+    setSaving(false)
+    if (error) { showToast('Salvataggio non riuscito: ' + error.message, 'error'); return }
+    showToast(form.enabled
+      ? (form.sendMode === 'on_complete'
+        ? `Report attivo: parte appena tutti i negozi hanno confermato, al più tardi alle ${form.sendTime}, a ${recipientsList.length} destinatari`
+        : `Report attivo: ogni giorno alle ${form.sendTime} a ${recipientsList.length} destinatari`)
+      : 'Report serale disattivato')
+    await load()
+  }
+
+  const sendTest = async () => {
+    setTesting(true)
+    const { data, error } = await supabase.functions.invoke<{ data?: { recipients: string[] }; error?: string }>('daily-cash-report-send', { body: { kind: 'test' } })
+    setTesting(false)
+    if (error || !data?.data) { showToast('Prova non riuscita: ' + (error?.message ?? data?.error ?? 'errore'), 'error'); await load(); return }
+    showToast(`Mail di prova inviata a ${data.data.recipients.join(', ')}: controlla la casella (anche lo spam)`)
+    await load()
+  }
+
+  // Prova WhatsApp: manda il messaggio breve di oggi ai numeri configurati (niente mail).
+  const sendTestWa = async () => {
+    setTestingWa(true)
+    const { data, error } = await supabase.functions.invoke<{ data?: { whatsapp?: { status: string; recipients: string[]; error: string | null } }; error?: string }>('daily-cash-report-send', { body: { kind: 'test', channel: 'whatsapp' } })
+    setTestingWa(false)
+    const wa = data?.data?.whatsapp
+    if (error || !wa) { showToast('Prova WhatsApp non riuscita: ' + (error?.message ?? data?.error ?? 'errore'), 'error'); await load(); return }
+    if (wa.status === 'sent') showToast(`WhatsApp di prova inviato a ${wa.recipients.join(', ')}`)
+    else showToast(`WhatsApp inviato solo in parte: ${wa.error ?? ''}`, 'error')
+    await load()
+  }
+
+  const inp = 'w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500'
+
+  if (loading) return <div className="p-6 text-sm text-slate-500 flex items-center gap-2"><Loader size={16} className="animate-spin" />Caricamento…</div>
+
+  return (
+    <div className="p-6 space-y-5">
+      <p className="text-sm text-slate-600">
+        Ogni sera i destinatari ricevono una mail con le chiusure di cassa del giorno: una riga per punto vendita
+        (totale, contanti, POS, altri canali, spese e rimborsi, versamento, fondo cassa e differenza), i negozi che non hanno chiuso,
+        le anomalie da controllare, il progressivo del mese e il confronto con l'obiettivo: il budget ricavi del mese
+        dell'Inserimento rapido (Budget → Inserimento Rapido), portato al lordo dell'IVA e diviso per i giorni del mese,
+        dà l'obiettivo del giorno; la mail mostra lo scostamento +/- di ogni negozio, del giorno e del mese. L'ora è quella italiana, anche con l'ora legale.
+      </p>
+
+      <label className="flex items-center gap-3 cursor-pointer">
+        <input type="checkbox" checked={form.enabled} onChange={(e) => set({ enabled: e.target.checked })} className="w-5 h-5" />
+        <span className="text-sm font-semibold text-slate-900">Invia il report ogni sera</span>
+      </label>
+
+      <div className="border border-slate-200 rounded-xl p-4 space-y-3">
+        <div className="text-xs font-semibold text-slate-600">Quando parte</div>
+        <label className="flex items-start gap-3 cursor-pointer">
+          <input type="radio" name="report-send-mode" checked={form.sendMode === 'on_complete'} onChange={() => set({ sendMode: 'on_complete' })} className="mt-1" />
+          <span className="text-sm text-slate-800">
+            <span className="font-medium">Appena tutti i punti vendita hanno confermato la chiusura</span>
+            <span className="block text-xs text-slate-500">Mail e WhatsApp partono da soli al momento dell'ultima conferma, che siano le 20:10 o le 23:05. Se all'ora limite manca ancora qualcuno, il report parte lo stesso con i negozi mancanti in evidenza.</span>
+          </span>
+        </label>
+        <label className="flex items-start gap-3 cursor-pointer">
+          <input type="radio" name="report-send-mode" checked={form.sendMode === 'fixed'} onChange={() => set({ sendMode: 'fixed' })} className="mt-1" />
+          <span className="text-sm text-slate-800">
+            <span className="font-medium">A un'ora fissa</span>
+            <span className="block text-xs text-slate-500">Il report fotografa la giornata a quell'ora: chi conferma dopo resta fuori (arriva con l'integrazione, se attiva).</span>
+          </span>
+        </label>
+        <div className="sm:w-1/2">
+          <label className="block text-xs font-medium text-slate-600 mb-1">{form.sendMode === 'on_complete' ? 'Ora limite (Italia)' : 'Ora di invio (Italia)'}</label>
+          <input type="time" value={form.sendTime} onChange={(e) => set({ sendTime: e.target.value })} className={inp} />
+        </div>
+        <label className="flex items-center gap-3 cursor-pointer">
+          <input type="checkbox" checked={form.followupEnabled} onChange={(e) => set({ followupEnabled: e.target.checked })} className="w-4 h-4" />
+          <span className="text-sm text-slate-700">Se una chiusura viene confermata dopo l'invio, manda un'integrazione (mail e WhatsApp) con quel negozio e i totali aggiornati</span>
+        </label>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div>
+          <label className="flex items-center gap-2 text-xs font-medium text-slate-600 mb-1 cursor-pointer">
+            <input type="checkbox" checked={form.reminderEnabled} onChange={(e) => set({ reminderEnabled: e.target.checked })} />
+            Sollecito in-app ai negozi che non hanno ancora chiuso, alle
+          </label>
+          <input type="time" value={form.reminderTime} disabled={!form.reminderEnabled} onChange={(e) => set({ reminderTime: e.target.value })} className={`${inp} disabled:bg-slate-100`} />
+        </div>
+      </div>
+
+      <div>
+        <label className="block text-xs font-medium text-slate-600 mb-1">Destinatari (uno per riga o separati da virgola)</label>
+        <textarea value={form.recipients} onChange={(e) => set({ recipients: e.target.value })} rows={3} placeholder="nome@azienda.it" className={inp} />
+        <div className="text-xs mt-1 text-slate-500">
+          {recipientsList.length} indirizz{recipientsList.length === 1 ? 'o' : 'i'} valid{recipientsList.length === 1 ? 'o' : 'i'}
+          {invalidRecipients.length > 0 && <span className="text-red-600"> · non validi: {invalidRecipients.join(', ')}</span>}
+        </div>
+      </div>
+
+      <div className="sm:w-1/2">
+        <label className="block text-xs font-medium text-slate-600 mb-1">IVA per il confronto con il budget (%)</label>
+        <input type="number" min={0} max={100} step={0.1} value={form.budgetVatRate} onChange={(e) => set({ budgetVatRate: e.target.value })} className={inp} />
+        <div className="text-xs mt-1 text-slate-500">Il budget dell'Inserimento rapido è netto IVA, le chiusure di cassa sono lorde: l'obiettivo del giorno è budget mese × (1 + IVA) ÷ giorni del mese.</div>
+      </div>
+
+      <div className="border border-emerald-200 bg-emerald-50/50 rounded-xl p-4 space-y-3">
+        <label className="flex items-center gap-3 cursor-pointer">
+          <input type="checkbox" checked={form.waEnabled} onChange={(e) => set({ waEnabled: e.target.checked })} className="w-5 h-5" />
+          <span className="text-sm font-semibold text-slate-900">Invia anche su WhatsApp (versione breve)</span>
+        </label>
+        <p className="text-xs text-slate-600">
+          Insieme alla mail, un messaggio di poche righe: una voce per negozio con incasso e scostamento dall'obiettivo,
+          totale del giorno e del mese, negozi mancanti e anomalie. Parte dal numero WhatsApp aziendale (Twilio) con un modello approvato da Meta.
+        </p>
+        <div>
+          <label className="block text-xs font-medium text-slate-600 mb-1">Numeri WhatsApp (uno per riga, formato +39…)</label>
+          <textarea value={form.waRecipients} onChange={(e) => set({ waRecipients: e.target.value })} rows={3} placeholder="+39 333 1234567" className={inp} />
+          <div className="text-xs mt-1 text-slate-500">
+            {phonesList.length} numer{phonesList.length === 1 ? 'o' : 'i'} valid{phonesList.length === 1 ? 'o' : 'i'}
+            {invalidPhones.length > 0 && <span className="text-red-600"> · non validi: {invalidPhones.join(', ')}</span>}
+          </div>
+        </div>
+        <button onClick={() => void sendTestWa()} disabled={testingWa || dirty || phonesList.length === 0}
+          title={dirty ? 'Salva prima le modifiche' : 'Manda il messaggio di oggi ai numeri configurati'}
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-emerald-300 text-emerald-800 text-sm font-medium disabled:opacity-50">
+          {testingWa ? <Loader size={14} className="animate-spin" /> : <Send size={14} />}Prova WhatsApp
+        </button>
+      </div>
+
+      <label className="flex items-center gap-3 cursor-pointer">
+        <input type="checkbox" checked={form.sendOnEmpty} onChange={(e) => set({ sendOnEmpty: e.target.checked })} className="w-4 h-4" />
+        <span className="text-sm text-slate-700">Invia anche nei giorni senza nessuna chiusura registrata (con i negozi mancanti in evidenza)</span>
+      </label>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <button onClick={() => void save()} disabled={saving || !dirty}
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium disabled:opacity-50">
+          {saving ? <Loader size={14} className="animate-spin" /> : <Save size={14} />}Salva
+        </button>
+        <button onClick={() => void sendTest()} disabled={testing || dirty}
+          title={dirty ? 'Salva prima le modifiche' : 'Manda la mail di oggi solo al tuo indirizzo'}
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-slate-300 text-slate-700 text-sm font-medium disabled:opacity-50">
+          {testing ? <Loader size={14} className="animate-spin" /> : <Send size={14} />}Invia una prova a me
+        </button>
+      </div>
+
+      <div>
+        <div className="text-xs font-semibold text-slate-600 mb-2">Ultimi invii</div>
+        {logs.length === 0 ? <p className="text-xs text-slate-400">Nessun invio ancora registrato.</p> : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead className="text-slate-500"><tr><th className="text-left py-1 pr-3">Giorno</th><th className="text-left py-1 pr-3">Tipo</th><th className="text-left py-1 pr-3">Esito</th><th className="text-left py-1 pr-3">Destinatari</th><th className="text-left py-1">Dettaglio</th></tr></thead>
+              <tbody>
+                {logs.map((l) => (
+                  <tr key={l.id} className="border-t border-slate-100">
+                    <td className="py-1 pr-3 whitespace-nowrap">{l.report_date.split('-').reverse().join('/')}{l.sent_at ? ` ${new Date(l.sent_at).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}` : ''}</td>
+                    <td className="py-1 pr-3">{REPORT_KIND_LABELS[l.kind] ?? l.kind}</td>
+                    <td className={`py-1 pr-3 font-medium ${l.status === 'sent' ? 'text-emerald-700' : l.status === 'failed' ? 'text-red-700' : 'text-slate-500'}`}>{REPORT_STATUS_LABELS[l.status] ?? l.status}{l.whatsapp_status ? ` · WhatsApp ${WA_STATUS_LABELS[l.whatsapp_status] ?? l.whatsapp_status}` : ''}</td>
+                    <td className="py-1 pr-3">{(l.recipients ?? []).join(', ')}</td>
+                    <td className="py-1 text-slate-500">{l.error ?? l.whatsapp_error ?? l.subject ?? ''}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export default function Impostazioni() {
   const { profile, loading: authLoading } = useAuth()
   const COMPANY_ID = profile?.company_id
@@ -1644,6 +2022,7 @@ export default function Impostazioni() {
     { id: 'costs', icon: Tag, title: 'Voci di costo', subtitle: 'Catalogo costi con assegnazione a centri di costo e gerarchia conti/sottoconti', component: CostSection },
     { id: 'centri', icon: Shield, title: 'Centri di costo', subtitle: 'Punti vendita, sede, magazzino — entità di allocazione', component: CentriDiCostoSection },
     { id: 'sdi', icon: FileText, title: 'Fatturazione SDI', subtitle: 'Accreditamento, certificati e configurazione Sistema di Interscambio', component: SdiSection },
+    { id: 'report', icon: Mail, title: 'Report incassi serale', subtitle: 'Mail automatica ogni sera con le chiusure di cassa di tutti i punti vendita', component: ReportSection },
   ]
 
   const [openSection, setOpenSection] = useState<string | null>('company')

@@ -1,0 +1,19 @@
+-- ROLLBACK di 20260906_192_match_anonimo_rispetta_data_chiusura_manuale.sql
+-- Rimette la condizione com'era: le scadenze chiuse a mano tornano candidabili
+-- a prescindere dalla distanza fra il movimento e la data di pagamento.
+--
+-- Nella CTE `cand` di public.try_match_amount_bank_transaction sostituire
+--
+--   AND ( p.status IN ('da_pagare','in_scadenza','scaduto')
+--         OR ( p.status = 'pagato' AND COALESCE(p.closed_manually,false)
+--              AND ( p.payment_date IS NULL OR v_bt.transaction_date BETWEEN ... ) ) )
+--
+-- con
+--
+--   AND ( p.status IN ('da_pagare','in_scadenza','scaduto')
+--         OR (p.status = 'pagato' AND COALESCE(p.closed_manually, false)) )
+--
+-- e rieseguire, ricordandosi i REVOKE/GRANT in coda:
+--   REVOKE ALL ON FUNCTION public.try_match_amount_bank_transaction(uuid) FROM PUBLIC;
+--   REVOKE ALL ON FUNCTION public.try_match_amount_bank_transaction(uuid) FROM anon, authenticated;
+--   GRANT EXECUTE ON FUNCTION public.try_match_amount_bank_transaction(uuid) TO service_role;

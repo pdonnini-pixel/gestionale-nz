@@ -25,6 +25,10 @@ import {
 } from 'recharts'
 import { GlassTooltip, AXIS_STYLE, GRID_STYLE } from '../components/ChartTheme'
 import { formatOutletName } from '../lib/formatters'
+import {
+  getOutletLifecycle, daysToOpening, outletLifecycleCaption, safePct,
+  OUTLET_LIFECYCLE_LABEL, OUTLET_LIFECYCLE_STYLE, type OutletLifecycleFields,
+} from '../lib/outletLifecycle'
 // Organico granitico: chi è in forza lo dicono i cedolini (src/lib/headcount.ts).
 import {
   headcountCountByOutlet, lastGranitedPeriod, paidEmployeeIds, periodLabel,
@@ -49,42 +53,16 @@ function fmt(n: number | null | undefined, decimals = 2) {
   }).format(n)
 }
 
-// Calcola lo status outlet dinamicamente da opening_date / closing_date.
-// Fallback su is_active solo se le date non sono disponibili.
-// TODO: tighten type
-function getOutletStatus(outlet: any) {
-  if (!outlet) return 'attivo'
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-
-  const opening = outlet.opening_date ? new Date(outlet.opening_date) : null
-  const closing = outlet.closing_date ? new Date(outlet.closing_date) : null
-
-  // Outlet chiuso (data di chiusura nel passato)
-  if (closing && closing < today) return 'chiuso'
-  // Outlet programmato (data apertura futura)
-  if (opening && opening > today) return 'programmato'
-  // Senza data apertura: usa flag is_active
-  if (!opening) return outlet.is_active === false ? 'chiuso' : 'attivo'
-  // Outlet aperto e non chiuso
-  return 'attivo'
-}
-
-const OUTLET_STATUS_STYLE = {
-  attivo: { label: 'Attivo', cls: 'bg-emerald-50 text-emerald-700' },
-  programmato: { label: 'Programmato', cls: 'bg-blue-50 text-blue-700' },
-  chiuso: { label: 'Chiuso', cls: 'bg-slate-100 text-slate-500' },
-}
-
-// TODO: tighten type
-function StatusBadge({ isActive, outlet }: { isActive?: boolean; outlet?: any }) {
+// Stato del punto vendita (in apertura / attivo / chiuso) calcolato da
+// opening_date / closing_date: fonte unica in src/lib/outletLifecycle.ts,
+// condivisa con Dashboard, Confronto, Margini, Produttività e Cashflow.
+function StatusBadge({ isActive, outlet }: { isActive?: boolean; outlet?: OutletLifecycleFields | null }) {
   // Se viene passato l'outlet completo, usa il calcolo dinamico
   if (outlet && (outlet.opening_date !== undefined || outlet.closing_date !== undefined)) {
-    const status = getOutletStatus(outlet)
-    const cfg = OUTLET_STATUS_STYLE[status as keyof typeof OUTLET_STATUS_STYLE] || OUTLET_STATUS_STYLE.attivo
+    const status = getOutletLifecycle(outlet)
     return (
-      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${cfg.cls}`}>
-        {cfg.label}
+      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${OUTLET_LIFECYCLE_STYLE[status]}`} title={outletLifecycleCaption(outlet)}>
+        {OUTLET_LIFECYCLE_LABEL[status]}
       </span>
     )
   }
@@ -1259,67 +1237,84 @@ function OutletAllegati({ outletId, companyId }: { outletId: string; companyId: 
 
 // ====== ALERT SCADENZE CONTRATTI ======
 type AlertItem = { type: 'critical' | 'warning' | 'info'; icon: string; title: string; detail: string; daysLeft: number }
+// Legge le colonne REALI di `outlets` (contract_start, contract_end,
+// exit_clause_month, guarantee_expiry): la versione precedente leggeva
+// quattro campi inesistenti e non mostrava mai nulla.
 function ContractAlerts({ outlet }: { outlet: Record<string, unknown> }) {
   const alerts: AlertItem[] = []
   const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const asDate = (v: unknown): Date | null => {
+    if (!v) return null
+    const d = new Date(String(v))
+    return Number.isNaN(d.getTime()) ? null : d
+  }
+  const daysFromToday = (d: Date) => Math.ceil((d.getTime() - today.getTime()) / 86_400_000)
+  const fmtDate = (d: Date) => d.toLocaleDateString('it-IT')
 
-  // Scadenza contratto
-  if (outlet.contract_end_date) {
-    const end = new Date(String(outlet.contract_end_date))
-    const daysLeft = Math.ceil((end.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+  // Apertura programmata (outlet in pre-apertura)
+  const opening = asDate(outlet.opening_date)
+  if (opening && opening > today) {
+    const daysLeft = daysFromToday(opening)
+    alerts.push({
+      type: 'info',
+      icon: '🔵',
+      title: `Apertura tra ${daysLeft} giorni`,
+      detail: `Data prevista: ${fmtDate(opening)}${outlet.opening_confirmed ? '' : ' (non ancora confermata dal concedente)'}`,
+      daysLeft,
+    })
+  }
+
+  // Scadenza contratto: data esplicita, oppure decorrenza + durata in mesi
+  const contractStart = asDate(outlet.contract_start)
+  let contractEnd = asDate(outlet.contract_end)
+  const durationMonths = Number(outlet.contract_duration_months) || 0
+  if (!contractEnd && contractStart && durationMonths > 0) {
+    contractEnd = new Date(contractStart)
+    contractEnd.setMonth(contractEnd.getMonth() + durationMonths)
+  }
+  if (contractEnd) {
+    const daysLeft = daysFromToday(contractEnd)
     if (daysLeft <= 365) {
       alerts.push({
         type: daysLeft <= 90 ? 'critical' : daysLeft <= 180 ? 'warning' : 'info',
         icon: daysLeft <= 90 ? '🔴' : daysLeft <= 180 ? '🟡' : '🔵',
         title: daysLeft <= 0 ? 'Contratto SCADUTO' : `Contratto scade tra ${daysLeft} giorni`,
-        detail: `Scadenza: ${end.toLocaleDateString('it-IT')}`,
+        detail: `Scadenza: ${fmtDate(contractEnd)}`,
         daysLeft,
       })
     }
   }
 
-  // Clausola di recesso
-  if (outlet.exit_clause_date) {
-    const exit = new Date(String(outlet.exit_clause_date))
-    const daysLeft = Math.ceil((exit.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+  // Finestra di recesso: exit_clause_month = mesi dall'apertura (o dalla decorrenza)
+  const exitBase = opening || contractStart
+  const exitMonth = Number(outlet.exit_clause_month) || 0
+  if (exitBase && exitMonth > 0) {
+    const exit = new Date(exitBase)
+    exit.setMonth(exit.getMonth() + exitMonth)
+    const daysLeft = daysFromToday(exit)
     if (daysLeft > 0 && daysLeft <= 180) {
+      const threshold = Number(outlet.exit_revenue_threshold) || 0
       alerts.push({
         type: daysLeft <= 60 ? 'critical' : 'warning',
         icon: daysLeft <= 60 ? '🔴' : '🟡',
-        title: `Clausola recesso tra ${daysLeft} giorni`,
-        detail: `Data: ${exit.toLocaleDateString('it-IT')}`,
+        title: `Finestra di recesso tra ${daysLeft} giorni (mese ${exitMonth})`,
+        detail: `Data: ${fmtDate(exit)}${threshold > 0 ? ` · possibile se il fatturato dei 12 mesi precedenti è sotto ${fmt(threshold, 0)} €` : ''}`,
         daysLeft,
       })
     }
   }
 
-  // Scadenza garanzia/fidejussione
-  if (outlet.guarantee_expiry) {
-    const exp = new Date(String(outlet.guarantee_expiry))
-    const daysLeft = Math.ceil((exp.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+  // Scadenza fideiussione / garanzia bancaria
+  const guarantee = asDate(outlet.guarantee_expiry)
+  if (guarantee) {
+    const daysLeft = daysFromToday(guarantee)
     if (daysLeft <= 90) {
       alerts.push({
         type: daysLeft <= 30 ? 'critical' : 'warning',
         icon: daysLeft <= 30 ? '🔴' : '🟡',
-        title: daysLeft <= 0 ? 'Fidejussione SCADUTA' : `Fidejussione scade tra ${daysLeft} giorni`,
-        detail: `Scadenza: ${exp.toLocaleDateString('it-IT')}`,
-        daysLeft,
-      })
-    }
-  }
-
-  // Rinnovo automatico
-  if (outlet.contract_start_date && outlet.contract_duration_months && !outlet.contract_end_date) {
-    const start = new Date(String(outlet.contract_start_date))
-    const endCalc = new Date(start)
-    endCalc.setMonth(endCalc.getMonth() + Number(outlet.contract_duration_months))
-    const daysLeft = Math.ceil((endCalc.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
-    if (daysLeft <= 180 && daysLeft > 0) {
-      alerts.push({
-        type: 'info',
-        icon: '🔵',
-        title: `Termine periodo contrattuale tra ${daysLeft} giorni`,
-        detail: `Fine periodo: ${endCalc.toLocaleDateString('it-IT')} (${String(outlet.contract_duration_months)} mesi da inizio)`,
+        title: daysLeft <= 0 ? 'Fideiussione SCADUTA' : `Fideiussione scade tra ${daysLeft} giorni`,
+        detail: `Scadenza: ${fmtDate(guarantee)}${Number(outlet.deposit_guarantee) > 0 ? ` · importo ${fmt(Number(outlet.deposit_guarantee), 0)} €` : ''}`,
         daysLeft,
       })
     }
@@ -1357,8 +1352,146 @@ function ContractAlerts({ outlet }: { outlet: Record<string, unknown> }) {
   )
 }
 
+// ====== OUTLET IN PRE-APERTURA ======
+// Card mostrata solo quando la data di apertura è nel futuro: riassume ciò che
+// è già uscito (caparra), ciò che è garantito (fideiussione) e ciò che parte
+// dall'apertura (canone, spese), così l'assenza di ricavi non viene letta
+// come un negozio che va male.
+function PreAperturaCard({ outlet }: { outlet: OutletEntity }) {
+  const o = outlet as Record<string, unknown>
+  const lc = o as OutletLifecycleFields
+  if (getOutletLifecycle(lc) !== 'programmato') return null
+  const days = daysToOpening(lc)
+  const num = (k: string) => Number(o[k]) || 0
+  const date = (k: string) => (o[k] ? new Date(String(o[k])).toLocaleDateString('it-IT') : '—')
+  const euro = (n: number, suffix = ' €') => (n > 0 ? `${fmt(n, 0)}${suffix}` : '—')
+  const rows: Array<[string, string]> = [
+    ['Consegna immobile', date('delivery_date')],
+    ['Decorrenza canone', date('rent_start_date')],
+    ['Caparra / acconto già versato', euro(num('deposit_amount'))],
+    ['Anticipo canone', euro(num('advance_payment'))],
+    ['Fideiussione', num('deposit_guarantee') > 0 ? `${fmt(num('deposit_guarantee'), 0)} €${o.guarantee_expiry ? ` · scade ${date('guarantee_expiry')}` : ''}` : '—'],
+    ['Allestimento / costi iniziali', euro(num('setup_cost'))],
+    ['Canone dall\'apertura', euro(num('rent_monthly'), ' €/mese')],
+    ['Spese gestione e promozione', euro(num('condo_marketing_monthly'), ' €/mese')],
+  ]
+  return (
+    <div className="bg-blue-50/60 rounded-xl border border-blue-200 p-4">
+      <div className="flex items-center justify-between flex-wrap gap-2 mb-2">
+        <h3 className="text-sm font-semibold text-blue-900 flex items-center gap-2">
+          <Clock size={15} />
+          {days != null ? `In apertura tra ${days} giorni` : 'In apertura'} · {date('opening_date')}
+          {!o.opening_confirmed && <span className="text-xs font-normal text-blue-700">(data da confermare)</span>}
+        </h3>
+      </div>
+      <p className="text-xs text-blue-800 mb-3">
+        I ricavi partono dalla data di apertura. I costi già sostenuti e quelli in arrivo (canone, spese, allestimento) sono nello Scadenzario e nel Cashflow; nelle pagine di confronto questo outlet resta fuori da medie e classifiche finché non apre.
+      </p>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 text-sm">
+        {rows.map(([k, v]) => (
+          <div key={k} className="flex justify-between py-1 border-b border-blue-100"><span className="text-slate-600">{k}</span><span className="font-medium text-slate-900">{v}</span></div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ====== CONTRATTO REGISTRATO (tabella contracts) ======
+type ContractRow = {
+  id: string; name: string; contract_type: string; counterpart: string | null; contract_number: string | null
+  monthly_amount: number | null; annual_amount: number | null; vat_rate: number | null; deposit_amount: number | null
+  start_date: string; end_date: string | null; notice_days: number | null; notice_deadline: string | null
+  escalation_type: string | null; escalation_rate: number | null; escalation_date: string | null; escalation_frequency_months: number | null
+  variable_rent_pct: number | null; variable_rent_threshold: number | null; min_revenue_clause: number | null; min_revenue_period: string | null
+  sqm: number | null; status: string; notes: string | null
+}
+type ContractDeadlineRow = { id: string; contract_id: string; deadline_date: string; description: string; is_completed: boolean | null; notes: string | null }
+
+function OutletContrattoCard({ outletId, companyId }: { outletId: string; companyId: string }) {
+  const [contracts, setContracts] = useState<ContractRow[]>([])
+  const [deadlines, setDeadlines] = useState<ContractDeadlineRow[]>([])
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      const { data: rows } = await supabase
+        .from('contracts')
+        .select('id, name, contract_type, counterpart, contract_number, monthly_amount, annual_amount, vat_rate, deposit_amount, start_date, end_date, notice_days, notice_deadline, escalation_type, escalation_rate, escalation_date, escalation_frequency_months, variable_rent_pct, variable_rent_threshold, min_revenue_clause, min_revenue_period, sqm, status, notes')
+        .eq('outlet_id', outletId)
+        .eq('company_id', companyId)
+        .order('start_date', { ascending: false })
+      if (cancelled) return
+      const list = (rows || []) as ContractRow[]
+      setContracts(list)
+      if (list.length === 0) { setDeadlines([]); return }
+      const { data: dl } = await supabase
+        .from('contract_deadlines')
+        .select('id, contract_id, deadline_date, description, is_completed, notes')
+        .in('contract_id', list.map(c => c.id))
+        .order('deadline_date', { ascending: true })
+      if (!cancelled) setDeadlines((dl || []) as ContractDeadlineRow[])
+    }
+    load()
+    return () => { cancelled = true }
+  }, [outletId, companyId])
+
+  if (contracts.length === 0) return null
+  const today = new Date(); today.setHours(0, 0, 0, 0)
+  const d = (v: string | null) => (v ? new Date(v).toLocaleDateString('it-IT') : '—')
+  const STATUS_LABEL: Record<string, string> = { attivo: 'Attivo', in_scadenza: 'In scadenza', scaduto: 'Scaduto', disdettato: 'Disdettato' }
+  // In `contracts` le percentuali sono frazioni a 4 decimali (0.10 = 10%),
+  // diversamente da outlets.variable_rent_pct che è già in punti percentuali.
+  const pctFraction = (v: number) => `${Number.isInteger(v * 100) ? v * 100 : (v * 100).toFixed(2)}%`
+  const ESC_LABEL: Record<string, string> = { istat: 'ISTAT', istat_min_1pct: 'ISTAT (min +1%)', fisso: 'Fisso', nessuna: 'Nessuna' }
+
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 p-4">
+      <h3 className="text-sm font-semibold text-slate-900 mb-3 flex items-center gap-2"><FileText size={15} /> Contratto</h3>
+      {contracts.map(c => {
+        const open = deadlines.filter(x => x.contract_id === c.id && !x.is_completed)
+        const next = open.filter(x => new Date(x.deadline_date) >= today)
+        return (
+          <div key={c.id} className="space-y-3">
+            <div className="flex items-start justify-between flex-wrap gap-2">
+              <div>
+                <div className="font-medium text-slate-900">{c.name}</div>
+                <div className="text-xs text-slate-500">{c.contract_type}{c.counterpart ? ` · ${c.counterpart}` : ''}{c.contract_number ? ` · n. ${c.contract_number}` : ''}</div>
+              </div>
+              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${c.status === 'attivo' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>{STATUS_LABEL[c.status] || c.status}</span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 text-sm">
+              <div className="flex justify-between py-1 border-b border-slate-50"><span className="text-slate-500">Decorrenza → scadenza</span><span className="font-medium">{d(c.start_date)} → {d(c.end_date)}</span></div>
+              <div className="flex justify-between py-1 border-b border-slate-50"><span className="text-slate-500">Canone</span><span className="font-medium">{c.monthly_amount != null ? `${fmt(c.monthly_amount)} €/mese` : '—'}{c.annual_amount != null ? ` · ${fmt(c.annual_amount, 0)} €/anno` : ''}</span></div>
+              <div className="flex justify-between py-1 border-b border-slate-50"><span className="text-slate-500">Canone variabile</span><span className="font-medium">{c.variable_rent_pct != null ? `${pctFraction(c.variable_rent_pct)} del fatturato${c.variable_rent_threshold ? ` oltre ${fmt(c.variable_rent_threshold, 0)} €` : ''}` : '—'}</span></div>
+              <div className="flex justify-between py-1 border-b border-slate-50"><span className="text-slate-500">Rivalutazione</span><span className="font-medium">{c.escalation_type ? `${ESC_LABEL[c.escalation_type] || c.escalation_type}${c.escalation_rate != null ? ` min. ${pctFraction(c.escalation_rate)}` : ''}${c.escalation_date ? ` dal ${d(c.escalation_date)}` : ''}${c.escalation_frequency_months ? ` ogni ${c.escalation_frequency_months} mesi` : ''}` : '—'}</span></div>
+              <div className="flex justify-between py-1 border-b border-slate-50"><span className="text-slate-500">Soglia di recesso</span><span className="font-medium">{c.min_revenue_clause != null ? `${fmt(c.min_revenue_clause, 0)} €${c.min_revenue_period ? ` (${c.min_revenue_period})` : ''}` : '—'}</span></div>
+              <div className="flex justify-between py-1 border-b border-slate-50"><span className="text-slate-500">Preavviso</span><span className="font-medium">{c.notice_days != null ? `${c.notice_days} giorni` : '—'}{c.notice_deadline ? ` · entro ${d(c.notice_deadline)}` : ''}</span></div>
+            </div>
+            {c.notes && <p className="text-xs text-slate-500 whitespace-pre-line">{c.notes}</p>}
+            {next.length > 0 && (
+              <div>
+                <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Prossime scadenze contrattuali</div>
+                <ul className="divide-y divide-slate-50">
+                  {next.slice(0, 8).map(x => {
+                    const days = Math.ceil((new Date(x.deadline_date).getTime() - today.getTime()) / 86_400_000)
+                    return (
+                      <li key={x.id} className="flex items-center justify-between py-1.5 text-sm">
+                        <span className="text-slate-700">{x.description}</span>
+                        <span className={`text-xs font-medium ${days <= 30 ? 'text-red-600' : days <= 90 ? 'text-amber-600' : 'text-slate-500'}`}>{d(x.deadline_date)} · tra {days} gg</span>
+                      </li>
+                    )
+                  })}
+                </ul>
+              </div>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 // ====== CORRISPETTIVI TAB ======
-type DailyRevenueRow = { date: string; gross_revenue: number | null; transactions_count: number | null; avg_ticket: number | null }
+type DailyRevenueRow ={ date: string; gross_revenue: number | null; transactions_count: number | null; avg_ticket: number | null }
 function CorrispettiviTab({ outletId, companyId }: { outletId: string; companyId: string }) {
   const [daily, setDaily] = useState<DailyRevenueRow[]>([])
   const [loading, setLoading] = useState(true)
@@ -1736,7 +1869,10 @@ function OutletDetail({ outlet, revenue, confronto, revPlaceholder, year, onBack
   const rentAnnual = (Number(outlet.rent_monthly) || 0) * 12
   const condoAnnual = (Number(outlet.condo_marketing_monthly) || 0) * 12
   const occupancyCost = rentAnnual + condoAnnual
-  const occupancyRatio = ytd > 0 ? (occupancyCost / ytd * 100) : 0
+  // null (mostrato «—») quando non ci sono ricavi: un outlet in apertura non
+  // deve leggere «0,0%» come se non pagasse l'affitto.
+  const occupancyRatio = safePct(occupancyCost, ytd)
+  const lifecycle = getOutletLifecycle(outlet as OutletLifecycleFields)
   const yesterdayRev = recentDaily.length > 0 ? recentDaily[recentDaily.length - 1]?.gross_revenue || 0 : null
 
   const DETAIL_TABS = [
@@ -1800,7 +1936,7 @@ function OutletDetail({ outlet, revenue, confronto, revPlaceholder, year, onBack
             </div>
             <div className="bg-white rounded-xl border border-slate-200 p-4">
               <div className="p-2 rounded-lg bg-emerald-50 text-emerald-600 inline-flex mb-2"><TrendingUp size={18} /></div>
-              <div className="text-xl font-bold text-slate-900">{fmt(avgMonth)} €</div>
+              <div className="text-xl font-bold text-slate-900">{Object.keys(yearData).length > 0 ? `${fmt(avgMonth)} €` : '—'}</div>
               <div className="text-xs text-slate-500">Media mensile</div>
             </div>
             <div className="bg-white rounded-xl border border-slate-200 p-4">
@@ -1810,10 +1946,13 @@ function OutletDetail({ outlet, revenue, confronto, revPlaceholder, year, onBack
             </div>
             <div className="bg-white rounded-xl border border-slate-200 p-4">
               <div className="p-2 rounded-lg bg-purple-50 text-purple-600 inline-flex mb-2"><Store size={18} /></div>
-              <div className="text-xl font-bold text-slate-900">{occupancyRatio.toFixed(1)}%</div>
-              <div className="text-xs text-slate-500">Incidenza locazione ({fmt(occupancyCost)} €/a)</div>
+              <div className="text-xl font-bold text-slate-900">{occupancyRatio == null ? '—' : `${occupancyRatio.toFixed(1)}%`}</div>
+              <div className="text-xs text-slate-500">Incidenza locazione ({fmt(occupancyCost)} €/a){occupancyRatio == null && lifecycle === 'programmato' ? ' · dall\'apertura' : ''}</div>
             </div>
           </div>
+
+          {/* Outlet in pre-apertura: costi già in corso, ricavi dall'apertura */}
+          <PreAperturaCard outlet={outlet} />
 
           {/* Corrispettivi sparkline — last 7 days */}
           {recentDaily.length > 0 && (
@@ -1877,8 +2016,15 @@ function OutletDetail({ outlet, revenue, confronto, revPlaceholder, year, onBack
               <div className="flex justify-between py-1.5 border-b border-slate-50"><span className="text-slate-500">Superficie</span><span className="font-medium">{(outlet.sqm as string | number | null) || '—'} mq</span></div>
               <div className="flex justify-between py-1.5 border-b border-slate-50"><span className="text-slate-500">Canone mensile</span><span className="font-medium">{fmt(Number(outlet.rent_monthly) || 0, 2)} €</span></div>
               <div className="flex justify-between py-1.5 border-b border-slate-50"><span className="text-slate-500">Spese cond.</span><span className="font-medium">{fmt(Number(outlet.condo_marketing_monthly) || 0, 2)} €</span></div>
+              <div className="flex justify-between py-1.5 border-b border-slate-50"><span className="text-slate-500">Concedente</span><span className="font-medium">{(outlet.concedente as string | null) || '—'}</span></div>
+              <div className="flex justify-between py-1.5 border-b border-slate-50"><span className="text-slate-500">Decorrenza canone</span><span className="font-medium">{outlet.rent_start_date ? new Date(String(outlet.rent_start_date)).toLocaleDateString('it-IT') : '—'}</span></div>
+              <div className="flex justify-between py-1.5 border-b border-slate-50"><span className="text-slate-500">Fideiussione</span><span className="font-medium">{Number(outlet.deposit_guarantee) > 0 ? `${fmt(Number(outlet.deposit_guarantee), 0)} €${outlet.guarantee_expiry ? ` · scade ${new Date(String(outlet.guarantee_expiry)).toLocaleDateString('it-IT')}` : ''}` : '—'}</span></div>
+              <div className="flex justify-between py-1.5 border-b border-slate-50"><span className="text-slate-500">Caparra / acconto</span><span className="font-medium">{Number(outlet.deposit_amount) > 0 ? `${fmt(Number(outlet.deposit_amount), 0)} €` : '—'}</span></div>
             </div>
           </div>
+
+          {/* Contratto registrato (tabella contracts) e prossime scadenze contrattuali */}
+          <OutletContrattoCard outletId={outlet.id} companyId={outlet.company_id || ''} />
 
           {/* Extracted Contract Data */}
           <ExtractedContractData outlet={outlet} />
@@ -2173,6 +2319,11 @@ export default function Outlet() {
       condo_marketing_monthly: num('condo_marketing_monthly'),
       staff_budget_monthly: num('staff_budget_monthly'),
       deposit_guarantee: num('deposit_guarantee'),
+      guarantee_expiry: str('guarantee_expiry'),
+      deposit_amount: num('deposit_amount'),
+      rent_start_date: str('rent_start_date'),
+      landlord_supplier_id: str('landlord_supplier_id'),
+      cost_center_key: str('cost_center_key'),
       advance_payment: num('advance_payment'),
       setup_cost: num('setup_cost'),
       target_margin_pct: num('target_margin_pct') || '60',

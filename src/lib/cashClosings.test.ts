@@ -1,0 +1,289 @@
+import { describe, it, expect } from 'vitest'
+import { parseAmount, formatAmount, computeQuadrature, monthDays, addDaysIso, attachmentPath, kindForTarget, extractedAmount, extractedSummary, bankStatusMark, budgetTargets, proposeConsuntivo, eveningDeviation, deviationBand, weekStartIso } from './cashClosings'
+
+describe('kindForTarget', () => {
+  it('associa a ogni riga il documento atteso', () => {
+    expect(kindForTarget('totale')).toBe('rt_chiusura')
+    expect(kindForTarget('canale', 'pos')).toBe('pos_chiusura')
+    expect(kindForTarget('canale', 'pos_amex')).toBe('pos_chiusura')
+    expect(kindForTarget('canale', 'bonifico')).toBe('altro')
+    expect(kindForTarget('spesa')).toBe('scontrino_spesa')
+    expect(kindForTarget('versamento')).toBe('ricevuta_versamento')
+  })
+})
+
+describe('parseAmount', () => {
+  it('legge gli importi scritti all\'italiana', () => {
+    expect(parseAmount('1.234,56')).toBe(1234.56)
+    expect(parseAmount('1234,5')).toBe(1234.5)
+    expect(parseAmount('228')).toBe(228)
+    expect(parseAmount(' 3.248,50 € ')).toBe(3248.5)
+  })
+  it('accetta anche il punto decimale', () => {
+    expect(parseAmount('12.5')).toBe(12.5)
+    expect(parseAmount('1234.56')).toBe(1234.56)
+    expect(parseAmount('1.234')).toBe(1234)
+    expect(parseAmount('1.234.567')).toBe(1234567)
+  })
+  it('vuoto o non numerico → null', () => {
+    expect(parseAmount('')).toBeNull()
+    expect(parseAmount(null)).toBeNull()
+    expect(parseAmount('abc')).toBeNull()
+  })
+})
+
+describe('formatAmount', () => {
+  it('formatta con due decimali it-IT', () => {
+    expect(formatAmount(1234.5)).toBe('1.234,50')
+    expect(formatAmount(1234567.891)).toBe('1.234.567,89')
+    expect(formatAmount(-12.4)).toBe('-12,40')
+    expect(formatAmount(0)).toBe('0,00')
+    expect(formatAmount(null)).toBe('')
+  })
+})
+
+describe('computeQuadrature', () => {
+  const lines = [
+    { kind: 'contanti' as const, counts_in_total: true, amount: 612 },
+    { kind: 'pos' as const, counts_in_total: true, amount: 2103.2 },
+    { kind: 'pos_amex' as const, counts_in_total: true, amount: 180 },
+    { kind: 'paybylink' as const, counts_in_total: true, amount: 353.3 },
+  ]
+  it('quadra totale e fondo cassa (esempio dell\'analisi)', () => {
+    const q = computeQuadrature({
+      totalReceipts: 3248.5, lines, cashExpenses: 12.4, cashDeposit: 600,
+      prevFloat: 250, cashFloatDeclared: 249.6,
+    })
+    expect(q.channelsTotal).toBe(3248.5)
+    expect(q.receiptsDifference).toBe(0)
+    expect(q.cashLine).toBe(612)
+    expect(q.cashFloatExpected).toBe(249.6)
+    expect(q.cashDifference).toBe(0)
+  })
+  it('segnala la differenza e ignora i canali fuori totale', () => {
+    const q = computeQuadrature({
+      totalReceipts: 3000,
+      lines: [...lines, { kind: 'altro', counts_in_total: false, amount: 999 }],
+      cashExpenses: 0, cashDeposit: 0, prevFloat: 100, cashFloatDeclared: 700,
+    })
+    expect(q.channelsTotal).toBe(3248.5)
+    expect(q.receiptsDifference).toBe(-248.5)
+    expect(q.cashFloatExpected).toBe(712)
+    expect(q.cashDifference).toBe(-12)
+  })
+  it('le fatture si sommano ai corrispettivi, non ai mezzi di pagamento (Barberino 04/09)', () => {
+    // scontrino 1.000, fattura 74,04 pagata con il POS: il POS incassa 1.074,04 in tutto
+    const q = computeQuadrature({
+      totalReceipts: 1000,
+      lines: [
+        { kind: 'contanti', counts_in_total: true, amount: 300 },
+        { kind: 'pos', counts_in_total: true, amount: 774.04 },
+        { kind: 'fattura', counts_in_total: true, amount: 74.04 },
+      ],
+      cashExpenses: 0, cashDeposit: 0, prevFloat: 200, cashFloatDeclared: 500,
+    })
+    expect(q.invoicesTotal).toBe(74.04)
+    expect(q.totalCollected).toBe(1074.04)
+    expect(q.channelsTotal).toBe(1074.04)
+    expect(q.receiptsDifference).toBe(0)
+  })
+  it('contanti da versare: il versamento di ieri riduce la partenza di oggi', () => {
+    // martedì: fondo 200, niente da versare, contanti 295,10, spesa 12,50 → atteso 482,60
+    const mar = computeQuadrature({
+      totalReceipts: 295.1, lines: [{ kind: 'contanti', counts_in_total: true, amount: 295.1 }],
+      cashExpenses: 12.5, cashDeposit: 0, prevFloat: 200, prevPending: 0, cashFloatDeclared: 200, cashPendingDeclared: 282.6,
+    })
+    expect(mar.cashFloatExpected).toBe(482.6)
+    expect(mar.cashDeclaredTotal).toBe(482.6)
+    expect(mar.cashDifference).toBe(0)
+    // mercoledì: parte da 200 + 282,60, incassa 310 in contanti, versa 500 → atteso 292,60
+    const mer = computeQuadrature({
+      totalReceipts: 310, lines: [{ kind: 'contanti', counts_in_total: true, amount: 310 }],
+      cashExpenses: 0, cashDeposit: 500, prevFloat: 200, prevPending: 282.6, cashFloatDeclared: 200, cashPendingDeclared: 92.6,
+    })
+    expect(mer.cashFloatExpected).toBe(292.6)
+    expect(mer.cashDifference).toBe(0)
+    // giovedì: parte da 200 + 92,60, incassa 400 → atteso 692,60; conta 200 + 280 = 480 → ammanco 212,60
+    const gio = computeQuadrature({
+      totalReceipts: 400, lines: [{ kind: 'contanti', counts_in_total: true, amount: 400 }],
+      cashExpenses: 0, cashDeposit: 0, prevFloat: 200, prevPending: 92.6, cashFloatDeclared: 200, cashPendingDeclared: 280,
+    })
+    expect(gio.cashFloatExpected).toBe(692.6)
+    expect(gio.cashDifference).toBe(-212.6)
+  })
+  it('i rimborsi a cliente riducono il fondo atteso come le spese', () => {
+    const q = computeQuadrature({
+      totalReceipts: 3248.5, lines, cashExpenses: 12.4, customerRefunds: 50, cashDeposit: 600,
+      prevFloat: 250, cashFloatDeclared: 199.6,
+    })
+    expect(q.cashFloatExpected).toBe(199.6)
+    expect(q.cashDifference).toBe(0)
+  })
+  it('senza fondo di ieri non calcola l\'atteso', () => {
+    const q = computeQuadrature({ totalReceipts: 10, lines: [], cashExpenses: 0, cashDeposit: 0, prevFloat: null, cashFloatDeclared: 5 })
+    expect(q.cashFloatExpected).toBeNull()
+    expect(q.cashDifference).toBeNull()
+    expect(q.receiptsDifference).toBe(10)
+  })
+})
+
+describe('date helpers', () => {
+  it('monthDays copre febbraio bisestile e mesi da 31', () => {
+    expect(monthDays(2028, 2)).toHaveLength(29)
+    expect(monthDays(2026, 8)).toHaveLength(31)
+    expect(monthDays(2026, 9)[0]).toBe('2026-09-01')
+  })
+  it('addDaysIso attraversa il mese', () => {
+    expect(addDaysIso('2026-08-31', 1)).toBe('2026-09-01')
+    expect(addDaysIso('2026-09-01', -1)).toBe('2026-08-31')
+  })
+  it('attachmentPath ha azienda e outlet nei primi due segmenti', () => {
+    expect(attachmentPath('c', 'o', '2026-09-03', 'f')).toBe('c/o/2026-09-03/f.jpg')
+  })
+})
+
+describe('lettura foto (fase 1b)', () => {
+  it('extractedAmount legge solo numeri finiti', () => {
+    expect(extractedAmount({ amount: 1234.567 })).toBe(1234.57)
+    expect(extractedAmount({ amount: '12' })).toBeNull()
+    expect(extractedAmount(null)).toBeNull()
+    expect(extractedAmount({})).toBeNull()
+  })
+  it('extractedSummary riassume i campi dello scontrino di chiusura', () => {
+    const s = extractedSummary('totale', {
+      total_sales: 3248.5, cash: 612, electronic: 2636.5, documents_count: 38, closure_number: 1201,
+      date: '2026-09-03', time: '20:05', transmission_ok: true, uncertain: false, amount: 3248.5,
+    })
+    expect(s).toContain('totale 3.248,50 €')
+    expect(s).toContain('contanti 612,00 €')
+    expect(s).toContain('38 documenti')
+    expect(s).toContain('1201 azzeramenti')
+    expect(s).toContain('trasmissione ok')
+    expect(s).toContain('3 settembre 2026 20:05')
+    expect(s).not.toContain('lettura incerta')
+  })
+  it('extractedSummary segnala documento sbagliato e incertezza', () => {
+    const s = extractedSummary('spesa', { document_ok: false, uncertain: true, total: 5, merchant: 'Bar Roma', notes: 'foto tagliata' })
+    expect(s[0]).toBe('documento diverso da quello atteso')
+    expect(s).toContain('Bar Roma')
+    expect(s).toContain('lettura incerta')
+    expect(s).toContain('foto tagliata')
+  })
+})
+
+describe('bankStatusMark', () => {
+  it('assegna un simbolo per ogni esito banca', () => {
+    expect(bankStatusMark('accreditato').mark).toBe('✓')
+    expect(bankStatusMark('differenza').mark).toBe('≠')
+    expect(bankStatusMark('mancante').mark).toBe('✗')
+    expect(bankStatusMark('non_verificabile').mark).toBe('?')
+    expect(bankStatusMark('in_attesa').mark).toBe('')
+    expect(bankStatusMark(null).mark).toBe('')
+  })
+})
+
+describe('budgetTargets', () => {
+  it('porta il budget al lordo IVA e lo divide per i giorni del mese', () => {
+    // Valdichiana settembre 2026: 57.377 netto → 70.000 lordo → 2.333,33 al giorno
+    const t = budgetTargets({ monthNet: 57377, vatRate: 22, daysInMonth: 30, dayOfMonth: 7, mtd: 15000 })
+    expect(t.monthGross).toBe(69999.94)
+    expect(t.dayTarget).toBe(2333.33)
+    expect(t.toDateTarget).toBe(16333.32)
+    expect(t.delta).toBe(-1333.32)
+    expect(t.pct).toBe(92)
+    expect(t.pctMonth).toBe(21) // 15.000 su 70.000: il mese e' raggiunto al 21 %, non al 92 %
+    expect(t.projection).toBe(64285.71)
+  })
+  it('mese futuro: nessun giorno trascorso, nessuna proiezione', () => {
+    const t = budgetTargets({ monthNet: 1000, vatRate: 22, daysInMonth: 31, dayOfMonth: 0, mtd: 0 })
+    expect(t.toDateTarget).toBe(0)
+    expect(t.pct).toBeNull()
+    expect(t.projection).toBeNull()
+  })
+  it('mese chiuso: obiettivo a oggi = budget lordo intero', () => {
+    const t = budgetTargets({ monthNet: 1000, vatRate: 22, daysInMonth: 30, dayOfMonth: 30, mtd: 1220 })
+    expect(t.toDateTarget).toBe(t.monthGross)
+    expect(t.delta).toBe(0)
+    expect(t.pct).toBe(100)
+    expect(t.pctMonth).toBe(100)
+  })
+})
+
+describe('proposeConsuntivo (fase 4)', () => {
+  it('somma le chiusure per centro di costo e scorpora l\'IVA', () => {
+    const p = proposeConsuntivo([
+      { costCenter: 'valdichiana', total: 1019.63, isClosedDay: false },
+      { costCenter: 'valdichiana', total: 1209.93, isClosedDay: false },
+      { costCenter: 'torino', total: 633.45, isClosedDay: false },
+      { costCenter: 'torino', total: 0, isClosedDay: true },
+    ], 22, 30)
+    const v = p.get('valdichiana')!
+    expect(v.gross).toBe(2229.56)
+    expect(v.net).toBe(1827.51)
+    expect(v.daysCovered).toBe(2)
+    expect(v.complete).toBe(false)
+    const t = p.get('torino')!
+    expect(t.gross).toBe(633.45)
+    expect(t.daysCovered).toBe(2)
+    expect(t.closedDays).toBe(1)
+  })
+  it('mese completo e aliquota non valida → 22 %', () => {
+    const rows = Array.from({ length: 30 }, () => ({ costCenter: 'x', total: 122, isClosedDay: false }))
+    const p = proposeConsuntivo(rows, Number.NaN, 30).get('x')!
+    expect(p.complete).toBe(true)
+    expect(p.gross).toBe(3660)
+    expect(p.net).toBe(3000)
+  })
+  it('nessuna chiusura → mappa vuota', () => {
+    expect(proposeConsuntivo([], 22, 31).size).toBe(0)
+  })
+})
+
+describe('budgetTargets con pesi per giorno', () => {
+  it('obiettivo giorno = obiettivo del giorno trascorso, obiettivo a oggi = somma dei giorni trascorsi', () => {
+    const dayTargets = [100, 50, 50, 60, 90, 200, 250, 100, 50, 50] // mese di 10 giorni (test)
+    const t = budgetTargets({ monthNet: 819.67, vatRate: 22, daysInMonth: 10, dayOfMonth: 3, mtd: 210, dayTargets })
+    expect(t.dayTarget).toBe(50)
+    expect(t.toDateTarget).toBe(200)
+    expect(t.delta).toBe(10)
+    expect(t.projection).toBe(1050) // 210 / 200 × 1.000
+  })
+  it('senza pesi completi torna alla divisione uniforme', () => {
+    const t = budgetTargets({ monthNet: 1000, vatRate: 0, daysInMonth: 10, dayOfMonth: 2, mtd: 100, dayTargets: [100, null] })
+    expect(t.dayTarget).toBe(100)
+    expect(t.toDateTarget).toBe(200)
+  })
+})
+
+describe('eveningDeviation', () => {
+  const targets = [
+    { day: '2026-09-07', target: 500, weight: 0.6, day_type: 'lun' },
+    { day: '2026-09-08', target: 400, weight: 0.5, day_type: 'mar' },
+    { day: '2026-09-09', target: 420, weight: 0.5, day_type: 'mer' },
+    { day: '2026-09-10', target: 480, weight: 0.6, day_type: 'gio' },
+  ]
+  it('classifica giorno, settimana e mese con le tolleranze giuste', () => {
+    const d = eveningDeviation({ day: '2026-09-09', dayActual: 300, targets, monthActuals: { '2026-09-07': 520, '2026-09-08': 380 } })!
+    expect(d.giorno.band).toBe('in_linea') // −29 %: dentro il ±30 % del singolo giorno
+    expect(d.giorno.pct).toBe(-29)
+    expect(d.settimana).toEqual({ target: 1320, actual: 1200, delta: -120, pct: -9, band: 'in_linea' })
+    expect(d.mese.band).toBe('sotto') // −9 % oltre il ±8 % del mese
+  })
+  it('una giornata mancante non conta ne\' nell\'atteso ne\' nell\'incassato', () => {
+    const d = eveningDeviation({ day: '2026-09-09', dayActual: 420, targets, monthActuals: { '2026-09-07': 500 } })!
+    expect(d.settimana.target).toBe(920)
+    expect(d.settimana.actual).toBe(920)
+    expect(d.settimana.band).toBe('in_linea')
+  })
+  it('senza obiettivo del giorno non restituisce nulla', () => {
+    expect(eveningDeviation({ day: '2026-09-20', dayActual: 1, targets, monthActuals: {} })).toBeNull()
+  })
+  it('weekStartIso e deviationBand', () => {
+    expect(weekStartIso('2026-09-09')).toBe('2026-09-07')
+    expect(weekStartIso('2026-09-07')).toBe('2026-09-07')
+    expect(weekStartIso('2026-09-13')).toBe('2026-09-07')
+    expect(deviationBand(131, 100, 0.3)).toBe('sopra')
+    expect(deviationBand(70, 100, 0.3)).toBe('in_linea')
+    expect(deviationBand(50, 0, 0.3)).toBeNull()
+  })
+})

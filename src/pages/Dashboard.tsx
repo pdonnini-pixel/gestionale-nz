@@ -17,6 +17,7 @@ import {
 import FinancialTooltip from '../components/FinancialTooltip'
 import DataFreshness from '../components/DataFreshness'
 import { formatOutletName } from '../lib/formatters'
+import { getOutletLifecycle, outletLifecycleCaption, OUTLET_LIFECYCLE_STYLE } from '../lib/outletLifecycle'
 
 /* ═══════════════════════════════════════
    HELPERS
@@ -352,7 +353,7 @@ export default function Dashboard() {
           //      pct_gruppo        = cons_ytd / Σ cons_ytd di tutti gli outlet
           try {
             const [{ data: outletsList }, { data: ccRows }, { data: coaRows }] = await Promise.all([
-              supabase.from('outlets').select('id, name, code, is_active').eq('company_id', COMPANY_ID),
+              supabase.from('outlets').select('id, name, code, is_active, opening_date, closing_date').eq('company_id', COMPANY_ID),
               supabase.from('cost_centers').select('code, role, is_active').eq('company_id', COMPANY_ID),
               supabase.from('chart_of_accounts').select('code').eq('company_id', COMPANY_ID).eq('is_active', true).eq('is_revenue', true),
             ])
@@ -426,6 +427,10 @@ export default function Dashboard() {
                 : 0
               const budgetAnno = Object.values(mm.rev).reduce((s, v) => s + v, 0)
               const fallbackRev = hasConfronto ? 0 : (entriesByCc[nameKey] ?? entriesByCc[codeKey] ?? 0)
+              // Ciclo di vita: un outlet «in apertura» (opening_date futura) ha già
+              // costi ma nessun ricavo — non è un outlet che vende male. Resta in
+              // classifica, in fondo, con il badge «In apertura dal …».
+              const lifecycle = getOutletLifecycle(o)
               return {
                 id: o.id,
                 name: o.name || o.code || '?',
@@ -434,11 +439,17 @@ export default function Dashboard() {
                 budget_ytd: budgetYtd,
                 budget_anno: budgetAnno || fallbackRev,
                 vs_budget_pct: budgetYtd > 0 ? (consYtd / budgetYtd * 100) : null,
+                lifecycle,
+                opening_date: o.opening_date ?? null,
+                closing_date: o.closing_date ?? null,
               }
             })
 
             const totaleCons = rows.reduce((s, r) => s + r.ricavi, 0)
-            rows.sort((a, b) => (b.ricavi - a.ricavi) || a.name.localeCompare(b.name))
+            // Ordine: outlet in apertura sempre in fondo, poi per ricavi decrescenti.
+            rows.sort((a, b) =>
+              (Number(a.lifecycle === 'programmato') - Number(b.lifecycle === 'programmato')) ||
+              (b.ricavi - a.ricavi) || a.name.localeCompare(b.name))
 
             if (rows.some(r => r.ricavi !== 0 || r.budget_anno !== 0)) {
               setOutletsData(rows.map((o, i) => ({
@@ -503,6 +514,10 @@ export default function Dashboard() {
               let totE = 0, totU = 0
               cmData.forEach(row => {
                 const dk = row.date
+                // cash_movements e' una vista: nei tipi generati ogni colonna e'
+                // nullable, data compresa. Un movimento senza data non ha una
+                // casella nel grafico giornaliero, quindi si salta.
+                if (!dk) return
                 if (!dayMap[dk]) dayMap[dk] = { date: dk, entrate: 0, uscite: 0, netto: 0 }
                 const abs = Math.abs(Number(row.amount) || 0)
                 if (row.type === 'entrata') {
@@ -937,6 +952,11 @@ export default function Dashboard() {
                           <div className="flex items-center gap-2">
                             <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: o.colore }} />
                             <span className="font-medium text-slate-900">{formatOutletName(o.name)}</span>
+                            {o.lifecycle === 'programmato' && (
+                              <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full whitespace-nowrap ${OUTLET_LIFECYCLE_STYLE.programmato}`}>
+                                {outletLifecycleCaption(o)}
+                              </span>
+                            )}
                           </div>
                           {/* Mini bar */}
                           <div className="mt-1 h-1 bg-slate-100 rounded-full overflow-hidden w-32">
@@ -986,7 +1006,13 @@ export default function Dashboard() {
                   <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: o.colore }} />
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-medium text-slate-900 truncate" title={formatOutletName(o.name)}>{formatOutletName(o.name)}</div>
-                    <div className="text-xs text-slate-400">Ricavi YTD {fmt(o.ricavi)} €</div>
+                    {o.lifecycle === 'programmato' ? (
+                      <span className={`inline-block mt-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded-full ${OUTLET_LIFECYCLE_STYLE.programmato}`}>
+                        {outletLifecycleCaption(o)}
+                      </span>
+                    ) : (
+                      <div className="text-xs text-slate-400">Ricavi YTD {fmt(o.ricavi)} €</div>
+                    )}
                   </div>
                   <div className="text-right shrink-0">
                     <div className="text-xs text-slate-400">vs Budget</div>

@@ -5,6 +5,7 @@ import { GlassTooltip, AXIS_STYLE, GRID_STYLE } from '../components/ChartTheme'
 import { useCompanyLabels } from '../hooks/useCompanyLabels'
 import { useOutlets } from '../hooks/useOutlets'
 import PageHeader from '../components/PageHeader'
+import { outletLifecycleCaption, OUTLET_LIFECYCLE_STYLE } from '../lib/outletLifecycle'
 
 function fmt(n: number, dec = 0): string {
   return new Intl.NumberFormat('de-DE', { minimumFractionDigits: dec, maximumFractionDigits: dec }).format(n)
@@ -108,7 +109,13 @@ export default function StockSellthrough() {
   // Dati simulati per-tenant: generati dagli outlet reali del tenant.
   // NB: tutti gli hook (useMemo) stanno PRIMA degli early-return più in basso,
   // per non violare le regole degli hook (React #310).
-  const outletsData = useMemo(() => buildOutletsData(tenantOutlets), [tenantOutlets])
+  // Gli outlet «in apertura» non ricevono giacenze simulate: restano in lista
+  // con l'avviso «nessun dato operativo prima dell'apertura».
+  const outletsData = useMemo(
+    () => buildOutletsData(tenantOutlets.filter(o => o.lifecycle !== 'programmato')),
+    [tenantOutlets],
+  )
+  const plannedOutlets = useMemo(() => tenantOutlets.filter(o => o.lifecycle === 'programmato'), [tenantOutlets])
   const hasOutlets = tenantOutlets.length > 0
 
   // Calculate metrics
@@ -159,8 +166,9 @@ export default function StockSellthrough() {
       }
     })
 
-    const overallSellthrough = (totalPezziVenduti / totalPezziAcquistati) * 100
-    const avgGiacenza = totalGiacenzaDays / itemCount
+    // Denominatori a 0 (nessun outlet operativo, es. tutti in apertura) → 0, non NaN.
+    const overallSellthrough = totalPezziAcquistati > 0 ? (totalPezziVenduti / totalPezziAcquistati) * 100 : 0
+    const avgGiacenza = itemCount > 0 ? totalGiacenzaDays / itemCount : 0
 
     return {
       totalStockValue,
@@ -521,6 +529,21 @@ export default function StockSellthrough() {
               </div>
             )
           })}
+          {/* Outlet in apertura: nessuna giacenza (nemmeno simulata) prima dell'apertura. */}
+          {plannedOutlets.map(o => (
+            <div key={o.id} className="bg-white rounded-xl border border-blue-200 shadow-sm px-6 py-4 flex items-center gap-4">
+              <Store className="w-4 h-4 text-blue-300 shrink-0" />
+              <div>
+                <p className="font-semibold text-slate-900 flex items-center gap-2">
+                  {o.name}
+                  <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${OUTLET_LIFECYCLE_STYLE.programmato}`}>
+                    {outletLifecycleCaption(o)}
+                  </span>
+                </p>
+                <p className="text-sm text-slate-600">{outletLifecycleCaption(o)}: nessun dato operativo prima dell'apertura.</p>
+              </div>
+            </div>
+          ))}
         </div>
       </div>
     </div>

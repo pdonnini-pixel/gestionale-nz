@@ -32,6 +32,7 @@ import {
 import { useOutlets } from '../hooks/useOutlets';
 import { useCompanyLabels } from '../hooks/useCompanyLabels';
 import PageHeader from '../components/PageHeader';
+import { outletLifecycleCaption, OUTLET_LIFECYCLE_STYLE } from '../lib/outletLifecycle';
 
 const StoreManager = () => {
   const { outlets: tenantOutlets, loading: outletsLoading } = useOutlets();
@@ -42,6 +43,11 @@ const StoreManager = () => {
     id: (o.code || o.name).toLowerCase(),
     label: o.code ? `${o.name} (${o.code})` : o.name,
     city: o.city || '',
+    // Ciclo di vita: un outlet «in apertura» resta selezionabile ma non ha
+    // dati operativi (né simulati) prima dell'apertura.
+    lifecycle: o.lifecycle,
+    opening_date: o.opening_date,
+    closing_date: o.closing_date,
   }));
 
   const [selectedOutlet, setSelectedOutlet] = useState<string>('');
@@ -140,14 +146,18 @@ const StoreManager = () => {
     );
   };
 
-  // Imposta selectedOutlet di default sul primo outlet del tenant quando caricato.
+  // Imposta selectedOutlet di default sul primo outlet OPERATIVO del tenant
+  // (non «in apertura»); se sono tutti in apertura, sul primo in lista.
   useEffect(() => {
     if (!selectedOutlet && outlets.length > 0) {
-      setSelectedOutlet(outlets[0].id);
+      const firstOperative = outlets.find((o) => o.lifecycle !== 'programmato') ?? outlets[0];
+      setSelectedOutlet(firstOperative.id);
     }
   }, [outlets, selectedOutlet]);
 
   const currentOutlet = outlets.find((o) => o.id === selectedOutlet);
+  // Outlet in apertura: niente KPI/turni/prodotti simulati, solo l'avviso.
+  const plannedCaption = currentOutlet?.lifecycle === 'programmato' ? outletLifecycleCaption(currentOutlet) : null;
 
   if (outletsLoading) {
     return (
@@ -218,6 +228,18 @@ const StoreManager = () => {
         }
       />
 
+      {plannedCaption ? (
+        <div className="bg-white rounded-2xl border border-blue-200 p-10 text-center">
+          <Store className="w-14 h-14 mx-auto mb-4 text-blue-300" />
+          <span className={`inline-block text-xs font-medium px-2 py-0.5 rounded-full mb-3 ${OUTLET_LIFECYCLE_STYLE.programmato}`}>
+            {plannedCaption}
+          </span>
+          <p className="text-sm text-gray-500 max-w-md mx-auto">
+            {plannedCaption}: nessun dato operativo prima dell'apertura.
+          </p>
+        </div>
+      ) : (
+      <>
       {/* Badge "Dati simulati": questa pagina mostra numeri e personale di ESEMPIO,
           non collegati alla cassa o alle presenze reali. Coerente con AnalyticsPOS /
           StockSellthrough / OpenToBuy. Evita che i valori credibili siano scambiati
@@ -569,6 +591,8 @@ const StoreManager = () => {
           </div>
         </div>
       </div>
+      </>
+      )}
       </div>
     </div>
   );

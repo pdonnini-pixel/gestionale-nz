@@ -294,7 +294,8 @@ export default function ReportSincronizzazioni() {
   }), [latestByFeed])
 
   return (
-    <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
+    <div className="min-h-screen bg-white">
+      <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
       <PageHeader
         title="Report Sincronizzazioni"
         subtitle="Stato e storico degli aggiornamenti automatici dei dati (banche, fatture, cassetto fiscale)"
@@ -451,6 +452,7 @@ export default function ReportSincronizzazioni() {
       <p className="text-xs text-slate-400">
         Una riga per esecuzione. Una run riuscita con 0 documenti significa che il sistema ha controllato ma non c’erano dati nuovi: è normale, non un errore.
       </p>
+      </div>
     </div>
   )
 }

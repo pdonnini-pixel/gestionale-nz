@@ -38,6 +38,7 @@ import { GlassTooltip, AXIS_STYLE, GRID_STYLE } from '../components/ChartTheme';
 import TextTooltip from '../components/Tooltip';
 import { PlaceholderDot, PlaceholderLegend } from '../components/PlaceholderMark';
 import { Modal } from '../components/ui/Modal';
+import { isOutletOpenInPeriod, isOutletOpenOn } from '../lib/outletLifecycle';
 
 const MONTHS = ['Gen', 'Feb', 'Mar', 'Apr', 'Mag', 'Giu', 'Lug', 'Ago', 'Set', 'Ott', 'Nov', 'Dic'];
 const DAYS_SHORT = ['Dom', 'Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab'];
@@ -79,6 +80,21 @@ const toISODate = (date: Date | string): string => {
   const d = new Date(date);
   return `${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, '0')}-${d.getDate().toString().padStart(2, '0')}`;
 };
+
+// Finestra del canone di un outlet: il canone decorre da rent_start_date (in
+// mancanza contract_start, poi opening_date) e cessa dopo closing_date. Un
+// outlet «in apertura» con canone già in corso pesa quindi dalla decorrenza,
+// non da gennaio; senza alcuna data il canone si proietta sempre (comportamento
+// storico). Riusa i predicati del ciclo di vita passando la decorrenza come
+// «apertura» e la chiusura come «chiusura».
+type RentRow = { rent_monthly?: unknown; rent_start_date?: unknown; contract_start?: unknown; opening_date?: unknown; closing_date?: unknown };
+const rentWindow = (o: RentRow): { opening_date: string | null; closing_date: string | null } => {
+  const start = o.rent_start_date ?? o.contract_start ?? o.opening_date ?? null;
+  return { opening_date: start ? String(start) : null, closing_date: o.closing_date ? String(o.closing_date) : null };
+};
+const isRentActiveInMonth = (o: RentRow, y: number, monthIdx: number): boolean =>
+  isOutletOpenInPeriod(rentWindow(o), y, monthIdx + 1, monthIdx + 1);
+const isRentActiveOn = (o: RentRow, day: Date): boolean => isOutletOpenOn(rentWindow(o), day);
 
 // Helper: get Monday of the week containing the given date
 const getWeekStart = (date: Date): Date => {
@@ -411,7 +427,7 @@ export default function CashflowProspettico() {
           .eq('is_active', true),
         supabase
           .from('outlets')
-          .select('id, code, name, rent_monthly')
+          .select('id, code, name, rent_monthly, rent_start_date, contract_start, opening_date, closing_date')
           .eq('company_id', companyId)
           .eq('is_active', true),
         supabase
@@ -460,7 +476,9 @@ export default function CashflowProspettico() {
       // Store raw data for drill-down
       setRawPayables(payablesScadenze || []);
       setRawDailyRevenue(dailyRevenueData || []);
-      setRawOutlets(outletsData || []);
+      // Cast: rent_start_date (migration outlet in apertura) non è ancora nei tipi DB generati.
+      const outletRows = ((outletsData || []) as unknown as AnyRow[]);
+      setRawOutlets(outletRows);
       setRawRecurringCosts(recurringCosts || []);
       setRawLoans(loansData || []);
       setRawBudgetConfronto(budgetConfrontoData || []);
@@ -520,23 +538,22 @@ export default function CashflowProspettico() {
       // Filter by outlet if not 'all'
       let filteredOutlet = selectedOutlet === 'all' ? null : selectedOutlet;
 
-      // B4: Calculate total monthly rent from active outlets
-      let totalMonthlyRent = 0;
-      if (outletsData) {
-        outletsData.forEach(outlet => {
-          if (!filteredOutlet || outlet.code === filteredOutlet) {
-            totalMonthlyRent += Number(outlet.rent_monthly) || 0;
-          }
-        });
-      }
+      // B4: canoni mensili degli outlet, mese per mese. Il canone di un outlet
+      // conta solo nei mesi in cui decorre (rent_start_date → contract_start →
+      // opening_date) e fino a closing_date: un outlet in apertura a novembre
+      // non pesa sul cashflow da gennaio.
+      const monthlyRent: number[] = Array.from({ length: 12 }, (_, m) =>
+        outletRows.reduce((sum, outlet) => {
+          if (filteredOutlet && outlet.code !== filteredOutlet) return sum;
+          if (!isRentActiveInMonth(outlet, year, m)) return sum;
+          return sum + (Number(outlet.rent_monthly) || 0);
+        }, 0));
 
       // B1: Build a map of outlet_id -> outlet.code for payables filtering
       const outletIdToCode: Record<string, string> = {};
-      if (outletsData) {
-        outletsData.forEach(outlet => {
-          if (outlet.id && outlet.code) outletIdToCode[outlet.id] = outlet.code;
-        });
-      }
+      outletRows.forEach(outlet => {
+        if (outlet.id && outlet.code) outletIdToCode[String(outlet.id)] = String(outlet.code);
+      });
 
       // Process monthly data
       type MonthData = {
@@ -557,7 +574,7 @@ export default function CashflowProspettico() {
         uscite_sdi: 0,
         uscite_ricorrenti: 0,
         uscite_scadenze: 0,
-        uscite_canoni: totalMonthlyRent,
+        uscite_canoni: monthlyRent[i],
         rate_finanziamenti: 0,
         uscite_fiscali: monthlyFiscal[i] || 0,
         uscite_stima: 0,
@@ -704,7 +721,7 @@ export default function CashflowProspettico() {
       // Economico (qui non più letto per le uscite).
       monthData.forEach((month, idx) => {
         const isForecast = month.tipo === 'Previsione' || month.tipo === 'In corso';
-        month.uscite_canoni = totalMonthlyRent;       // canone reale per tutti i mesi
+        month.uscite_canoni = monthlyRent[idx];       // canone reale dei soli outlet con canone in corso nel mese
         // Le entrate previsionali restano dal B&C: il marcatore segnaposto sui ricavi resta.
         month.entrate_ph = isForecast ? revPhByMonth[idx] : false;
         // Stima viva (solo mesi futuri): per ogni voce usa l'OVERRIDE del mese se presente,
@@ -830,13 +847,11 @@ export default function CashflowProspettico() {
       outletIdToName[id] = String(o.name || o.code || '');
     });
 
-    // Total daily rent (monthly rent / 30)
-    let totalDailyRent = 0;
-    rawOutlets.forEach(outlet => {
-      if (!filteredOutlet || outlet.code === filteredOutlet) {
-        totalDailyRent += (Number(outlet.rent_monthly) || 0) / 30;
-      }
-    });
+    // Canone giornaliero (canone mensile / 30) dei soli outlet il cui canone
+    // decorre in quel giorno (rent_start_date/contract_start/opening_date → closing_date).
+    const rentOutlets = rawOutlets.filter(outlet => !filteredOutlet || outlet.code === filteredOutlet);
+    const dailyRentOn = (day: Date): number =>
+      rentOutlets.reduce((sum, outlet) => isRentActiveOn(outlet, day) ? sum + (Number(outlet.rent_monthly) || 0) / 30 : sum, 0);
 
     // Daily recurring costs (monthly costs prorated to daily)
     let dailyRecurring = 0;
@@ -964,14 +979,15 @@ export default function CashflowProspettico() {
       const fiscalTotal = fiscalItems.reduce((sum, f) => sum + f.amount, 0);
       const salaryItems = estimateVoices.filter(v => v.day === date.getDate() && v.amount > 0);
       const salaryTotal = salaryItems.reduce((sum, v) => sum + v.amount, 0);
+      const totalDailyRent = dailyRentOn(date);
       const uscite = Math.round(payablesTotal + fiscalTotal + salaryTotal + totalDailyRent + dailyRecurring + dailyLoan);
 
       const flusso = entrate - uscite;
       cumBalance += flusso;
 
-      // Dettaglio canoni reali per outlet (pro-rata giornaliero)
-      const costBaseItems = rawOutlets
-        .filter(o => !filteredOutlet || o.code === filteredOutlet)
+      // Dettaglio canoni reali per outlet (pro-rata giornaliero), solo canoni in corso quel giorno
+      const costBaseItems = rentOutlets
+        .filter(o => isRentActiveOn(o, date))
         .map(o => ({
           label: String(o.name || o.code || ''),
           amount: Math.round((Number(o.rent_monthly) || 0) / 30)
@@ -1020,12 +1036,10 @@ export default function CashflowProspettico() {
       outletIdToName[id] = String(o.name || o.code || '');
     });
 
-    let totalDailyRent = 0;
-    rawOutlets.forEach(outlet => {
-      if (!filteredOutlet || outlet.code === filteredOutlet) {
-        totalDailyRent += (Number(outlet.rent_monthly) || 0) / 30;
-      }
-    });
+    // Canone giornaliero dei soli outlet con canone in corso quel giorno (vedi vista giornaliera).
+    const rentOutlets = rawOutlets.filter(outlet => !filteredOutlet || outlet.code === filteredOutlet);
+    const dailyRentOn = (day: Date): number =>
+      rentOutlets.reduce((sum, outlet) => isRentActiveOn(outlet, day) ? sum + (Number(outlet.rent_monthly) || 0) / 30 : sum, 0);
 
     let dailyRecurring = 0;
     (rawRecurringCosts || []).forEach(cost => {
@@ -1167,6 +1181,7 @@ export default function CashflowProspettico() {
         const salaryItems = estimateVoices.filter(v => v.day === date.getDate() && v.amount > 0);
         const salaryTotal = salaryItems.reduce((sum, v) => sum + v.amount, 0);
         // Modello A: canoni reali (pro-rata), niente stima costi-a-budget.
+        const totalDailyRent = dailyRentOn(date);
         weekCostBase += totalDailyRent;
         const dayUscite = Math.round(payablesTotal + fiscalTotal + salaryTotal + totalDailyRent + dailyRecurring + dailyLoan);
         weekUscite += dayUscite;
@@ -1352,7 +1367,9 @@ export default function CashflowProspettico() {
         }
       });
       // Canoni reali per outlet (Modello A: niente stima costi-a-budget).
+      // Un canone non ancora decorso (o cessato) in questo mese non compare.
       rawOutlets.forEach(o => {
+        if (!isRentActiveInMonth(o, year, monthIdx)) return;
         if (!filteredOutlet || o.code === filteredOutlet) {
           const rent = Number(o.rent_monthly) || 0;
           if (rent > 0) {

@@ -1,0 +1,104 @@
+-- =============================================================================
+-- NZ_ONLY — Controllo di tutte le banche e di tutte le carte, gennaio-agosto 2026
+-- Applicato su NZ il 04/09/2026. Dati NZ-specifici: non si replica su Made/Zago.
+-- =============================================================================
+--
+-- IL METODO. Per ogni conto si confronta il saldo dichiarato dall'estratto con
+-- la somma dei movimenti in archivio. Il saldo e' cumulativo: se il saldo di
+-- fine agosto torna, non manca nulla da inizio anno, perche' un buco di marzo
+-- si trascinerebbe fino ad agosto. Dove non torna, si cerca la differenza.
+--
+-- ESITO PER CONTO
+--
+--   MPS 000000621460        gia' riscontrato sull'estratto di agosto: torna.
+--                           Lo scarto di 70,74 e' il gestionale piu' avanti
+--                           dell'estratto, stampato prima.
+--   BCC Figline ...17334    riscontrato sull'estratto di agosto: torna.
+--   BCC Mugello ...221949   NON tornava: mancavano 6 movimenti dal 06/05 al
+--                           20/05 per 3.338,54 EUR netti. Inseriti dall'estratto.
+--                           Ora il saldo al 03/09 fa 16.961,66 come l'estratto.
+--   Intesa ...12417         NON tornava: 10 movimenti DUPLICATI dal 31/03 al
+--                           30/04 per 9.272,60 EUR. Rimossi. Ora fa 4.027,98
+--                           come l'estratto.
+--
+-- 1) BCC MUGELLO — il buco di maggio
+-- Il conto e' passato da un consenso A-Cube a un altro: il vecchio si e' fermato
+-- il 30/04, il nuovo e' ripartito il 26/05. In mezzo, sedici giorni scoperti.
+-- Sei movimenti inseriti a mano dall'estratto (source 'manual'):
+--   06/05  +465,00 e +1.700,00 versamenti contante
+--   07/05  -0,70 commissioni e -1.900,76 bonifico GLADIOTEX saldo fattura 59
+--   13/05  +1.070,00 e 20/05 +3.005,00 versamenti contante
+--
+-- ATTENZIONE, due record per lo stesso conto. I movimenti Mugello di gennaio-
+-- aprile stanno sul record ffe2b602 (etichettato con l'IBAN IT40T...16980, che
+-- non e' il suo), quelli da maggio sul record con l'IBAN giusto. Sono lo stesso
+-- conto: le quindici righe di aprile del primo coincidono una per una con
+-- l'estratto Mugello. Da valutare se riunificarli: e' un cambio di attribuzione
+-- su oltre mille righe, quindi non fatto senza una decisione esplicita.
+--
+-- 2) INTESA — dieci doppioni
+-- Due sincronizzazioni A-Cube hanno importato gli stessi movimenti con
+-- descrizioni diverse ("VERSAMENTO CONTANTI SU SPORTELLO AUTOMATICO" contro
+-- "VERS.SPORT.AUT."), e il controllo anti-duplicato, che guarda anche la
+-- descrizione, non li ha riconosciuti. Le righe del secondo import portano
+-- acube_transaction_id, quelle del primo no: le 87 con id danno esattamente il
+-- saldo dell'estratto, le 10 senza id sono le doppie. Nessuna scadenza era
+-- agganciata. Rimosse dopo conferma esplicita di Patrizio.
+-- Backup: public._bkp_intesa_doppioni_20260904 (10 righe complete).
+--
+-- Lo stesso controllo su MPS e Figline non trova doppioni: nelle finestre di
+-- sovrapposizione fra i due import nessuna riga ha una gemella per data e
+-- importo.
+--
+-- 3) CARTE — cosa sono davvero gli addebiti American Express
+-- Gli 83 movimenti «SDD Core AMERICAN EXPRESS» e «ADD.DIRETTO CARTA CREDITO»
+-- rimasti aperti da gennaio per 1.265,15 EUR non sono spese di una carta
+-- aziendale: sono le COMMISSIONI che AMEX trattiene come esercente
+-- convenzionato sugli incassi dei negozi, addebitate il mese dopo, una riga per
+-- punto vendita. Il codice mandato contiene il codice AX dell'outlet:
+--   7373035260 Valdichiana      7377153036 Barberino
+--   7377511100 Franciacorta     7378034250 Aiello del Friuli (Palmanova)
+--   7379416167 Brugnato Village 7379605249 Vicolo Brugnato
+--   7543377782 Valmontone Outl. 7543394233 Vicolo Valmontone
+--   9341423540 Settimo Torinese 9341489277 Outlet Settimo Torinese
+-- Riscontro: l'estratto commissioni AMEX di luglio fa 150,18 EUR di commissioni
+-- piu' 2,00 di bollo, e i dieci addebiti del 05/08 sommano esattamente 152,18.
+-- Chiusi per natura con categoria 'commissioni_incasso' e il nome dell'outlet
+-- in nota. Backup: public._bkp_amex_commissioni_20260904.
+--
+-- Gli addebiti cumulativi delle carte BCC (i «Carta del Credito Cooperativo
+-- ...283», uno al mese da gennaio ad agosto) e tutte le ricariche della
+-- prepagata TASCA erano gia' riconciliati: nulla da fare.
+--
+-- COSA RESTA APERTO
+--   16 fatture con metodo carta per 805,53 EUR: sono spese di agosto e
+--   settembre, si chiudono con gli estratti di quei mesi, non ancora emessi.
+--   Fanno eccezione ALTOMUGELLO 1976 (80,00) e GIFET 1472 (13,00), gia'
+--   analizzate: senza riscontro sull'estratto di luglio.
+-- =============================================================================
+--
+-- NOTA. Eseguito direttamente sul tenant NZ via MCP il 04/09/2026, dopo backup.
+
+-- 1) Sei movimenti Mugello di maggio (il bank_account si risolve dall'IBAN
+--    filtrando is_active: esistono due record per lo stesso IBAN su MPS)
+-- insert into public.bank_transactions (...) select ba.company_id, ba.id, ...
+-- from (values (<6 movimenti>)) v cross join
+--   (select id, company_id from public.bank_accounts
+--     where iban = 'IT77Y0832537730000000221949' and is_active) ba;
+
+-- 2) Rimozione dei dieci doppioni Intesa, dopo backup
+-- create table public._bkp_intesa_doppioni_20260904 as select bt.*, now() ... ;
+-- delete from public.reconciliation_log where bank_transaction_id in (...);
+-- delete from public.bank_transactions where id in (...);
+
+-- 3) Commissioni AMEX chiuse per natura, con il punto vendita in nota
+-- update public.bank_transactions set is_reconciled = true, reconciled_at = now(),
+--        category = 'commissioni_incasso', note = note || ' | Commissioni American
+--        Express come esercente convenzionato, punto vendita <nome>. ...'
+-- where upper(description) like '%AMERICAN EXPRESS%' and not is_reconciled;
+
+-- --- Verifica ---------------------------------------------------------------
+-- Intesa: somma movimenti = 4.027,98 (saldo estratto al 04/09) — atteso scarto 0
+-- Mugello: 20.425,14 + movimenti dal 05/08 al 03/09 = 16.961,66 — atteso scarto 0
+-- AMEX: select count(*) from bank_transactions where not is_reconciled
+--         and upper(description) like '%AMERICAN EXPRESS%';   -- atteso 0

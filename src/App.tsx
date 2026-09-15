@@ -26,6 +26,7 @@ const CashFlow = lazy(() => import('./pages/CashflowProspettico'))
 const OpenToBuy = lazy(() => import('./pages/OpenToBuy'))
 const Produttivita = lazy(() => import('./pages/Produttivita'))
 const ScenarioPlanning = lazy(() => import('./pages/ScenarioPlanning'))
+const SimulazioneFabbisogno = lazy(() => import('./pages/SimulazioneFabbisogno'))
 const MarginiCategoria = lazy(() => import('./pages/MarginiCategoria'))
 const MarginiOutlet = lazy(() => import('./pages/MarginiOutlet'))
 const StoreManager = lazy(() => import('./pages/StoreManager'))
@@ -37,6 +38,7 @@ const Fatturazione = lazy(() => import('./pages/Fatturazione'))
 const AcubeFatturaForm = lazy(() => import('./pages/AcubeFatturaForm'))
 const ConvertitoreFattureXML = lazy(() => import('./pages/ConvertitoreFattureXML'))
 const ScadenzeFiscali = lazy(() => import('./pages/ScadenzeFiscali'))
+const LiquidazioneIva = lazy(() => import('./pages/LiquidazioneIva'))
 const StoricoDistinte = lazy(() => import('./pages/StoricoDistinte'))
 const AICategoriePage = lazy(() => import('./pages/AICategoriePage'))
 const SchedaContabileFornitore = lazy(() => import('./pages/SchedaContabileFornitore'))
@@ -45,6 +47,14 @@ const Profilo = lazy(() => import('./pages/Profilo'))
 const Ticket = lazy(() => import('./pages/Ticket'))
 const TicketAdmin = lazy(() => import('./pages/TicketAdmin'))
 const ReportSincronizzazioni = lazy(() => import('./pages/ReportSincronizzazioni'))
+const ChiusuraCassa = lazy(() => import('./pages/ChiusuraCassa'))
+const IncassiGiornalieri = lazy(() => import('./pages/IncassiGiornalieri'))
+
+// Rotte raggiungibili dall'account di negozio (ruolo operatore_cassa): la
+// chiusura di cassa e il proprio profilo. Tutto il resto lo rimanda alla
+// chiusura. La difesa vera e' la RLS (migrazione 172): qui si evita solo di
+// mostrare pagine vuote a chi non deve usarle.
+const CASH_OPERATOR_PATHS = ['/chiusura-cassa', '/profilo']
 
 // Spinner per lazy loading
 function PageLoader() {
@@ -122,6 +132,15 @@ function OnboardingGate({ children }: { children: ReactNode }) {
   return <>{children}</>
 }
 
+function CashOperatorGate({ children }: { children: ReactNode }) {
+  const { profile } = useAuth()
+  const location = useLocation()
+  if (profile?.role === 'operatore_cassa' && !CASH_OPERATOR_PATHS.some((p) => location.pathname.startsWith(p))) {
+    return <Navigate to="/chiusura-cassa" replace />
+  }
+  return <>{children}</>
+}
+
 function PublicRoute({ children }: { children: ReactNode }) {
   const { session, loading } = useAuth()
   if (loading) return null
@@ -137,8 +156,10 @@ function AppRoutes() {
             verrebbe rimbalzata via. La pagina gestisce da sé i propri stati. */}
         <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/onboarding" element={<ProtectedRoute><Onboarding /></ProtectedRoute>} />
-        <Route element={<ProtectedRoute><OnboardingGate><Layout /></OnboardingGate></ProtectedRoute>}>
+        <Route element={<ProtectedRoute><OnboardingGate><CashOperatorGate><Layout /></CashOperatorGate></OnboardingGate></ProtectedRoute>}>
           <Route index element={<Dashboard />} />
+          <Route path="chiusura-cassa" element={<ChiusuraCassa />} />
+          <Route path="incassi-giornalieri" element={<IncassiGiornalieri />} />
           <Route path="outlet" element={<Navigate to="/outlet/operativi" replace />} />
           <Route path="outlet/operativi" element={<Outlet />} />
           <Route path="outlet/valutazione" element={<Outlet />} />
@@ -154,6 +175,7 @@ function AppRoutes() {
           <Route path="stock" element={<StockSellthrough />} />
           <Route path="analytics-pos" element={<AnalyticsPOS />} />
           <Route path="cash-flow" element={<CashFlow />} />
+          <Route path="fabbisogno" element={<SimulazioneFabbisogno />} />
           <Route path="open-to-buy" element={<OpenToBuy />} />
           <Route path="produttivita" element={<Produttivita />} />
           <Route path="scenario" element={<ScenarioPlanning />} />
@@ -172,6 +194,7 @@ function AppRoutes() {
           {/* /prima-nota → ora tab dentro Banche (TesoreriaManuale) */}
           <Route path="prima-nota" element={<Navigate to="/banche?tab=prima_nota" replace />} />
           <Route path="scadenze-fiscali" element={<ScadenzeFiscali />} />
+          <Route path="liquidazione-iva" element={<LiquidazioneIva />} />
           <Route path="archivio" element={<ArchivioDocumenti />} />
           <Route path="ai-categorie" element={<AICategoriePage />} />
           <Route path="impostazioni" element={<Impostazioni />} />

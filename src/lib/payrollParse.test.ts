@@ -48,6 +48,36 @@ describe('matchOutletName', () => {
   })
 })
 
+describe('parseProspettoPaghe — tipi di cedolino coperti dal file', () => {
+  // Il consulente stampa DUE prospetti per lo stesso mese: uno col solo cedolino
+  // normale e uno che parte dall'aggiuntivo e arriva al normale, cioe' il mese
+  // intero (caso reale NZ giugno 2026: Valdichiana 9.910,50 di netti nel primo,
+  // 16.824,50 nel secondo, che comprende la quattordicesima).
+  const testa = (periodo: string) => [
+    'Prospetto riepilogativo elaborazione paghe',
+    `Periodo di elaborazione: ${periodo}`,
+    'Ripartizione: Filiale: 0000000001 VALDICHIANA VILLAGE',
+    'NUMERO DIPENDENTI 8',
+    '1 Retribuzioni Lorde 9.356,67',
+    'Totale retribuzioni 11.184,06',
+  ]
+
+  it('la stampa corta copre il solo cedolino normale', () => {
+    const r = parseProspettoPaghe(testa('Dal Giugno 2026 Norm. - Al Giugno 2026 Norm.'), OUTLETS)
+    expect(r.isProspetto).toBe(true)
+    expect(r.tipiCedolino).toEqual(['Norm.'])
+    expect(r.soloNormale).toBe(true)
+    expect(r.months).toEqual([{ year: 2026, month: 6 }])
+  })
+
+  it('la stampa completa parte dall_aggiuntivo e arriva al normale', () => {
+    const r = parseProspettoPaghe(testa('Dal Giugno 2026 Agg.1 - Al Giugno 2026 Norm.'), OUTLETS)
+    expect(r.tipiCedolino).toEqual(['Agg.1', 'Norm.'])
+    expect(r.soloNormale).toBe(false)
+    expect(r.months).toEqual([{ year: 2026, month: 6 }])
+  })
+})
+
 describe('tabulatoNetti — riconosce il documento sbagliato', () => {
   it('distingue elenco netti, netti negativi e altri report', () => {
     expect(tabulatoNetti('Elenco netti | Luglio 2026 Tipo cedolino Norm. | 071041 NEW ZAGO SRL')).toBe('elenco')

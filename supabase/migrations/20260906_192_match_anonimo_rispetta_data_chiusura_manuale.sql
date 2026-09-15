@@ -1,0 +1,45 @@
+-- =============================================================================
+-- Match sui flussi CBI anonimi: rispettare la data della chiusura manuale
+-- Applicata su NZ, Made e Zago il 06/09/2026. Impronta della funzione identica
+-- sui tre tenant (verificata con md5(pg_get_functiondef)).
+-- =============================================================================
+--
+-- IL CASO. Il cron di stanotte ha agganciato un movimento del 09/03/2026 alla
+-- fattura SPM Investigazioni 31, che era stata chiusa a mano da Lilian il
+-- 06/08/2026. Cinque mesi di distanza fra il movimento e la data in cui il
+-- pagamento risulta avvenuto.
+--
+-- PERCHE' SUCCEDEVA. In `try_match_amount_bank_transaction` il ramo che accetta
+-- le scadenze gia' chiuse a mano (`status = 'pagato' AND closed_manually`) serve
+-- ad agganciare il movimento senza toccare la chiusura: giusto in linea di
+-- principio, perche' una chiusura fatta da una persona non va sovrascritta. Ma
+-- il candidato veniva filtrato solo sulla finestra della SCADENZA (-30 / +180
+-- giorni), non sulla data in cui la persona ha detto che il pagamento e'
+-- avvenuto. Con le fatture ricorrenti di pari importo, e SPM ne ha otto da
+-- 110,00 EUR, questo basta per attaccare il movimento alla fattura sbagliata.
+--
+-- IL FIX, una condizione sola: quando la scadenza e' chiusa a mano E ha una
+-- payment_date, il movimento deve cadere entro 30 giorni da quella data.
+--
+--   AND ( p.status IN ('da_pagare','in_scadenza','scaduto')
+--         OR ( p.status = 'pagato' AND COALESCE(p.closed_manually,false)
+--              AND ( p.payment_date IS NULL
+--                    OR v_bt.transaction_date
+--                         BETWEEN p.payment_date - INTERVAL '30 days'
+--                             AND p.payment_date + INTERVAL '30 days' ) ) )
+--
+-- IMPATTO MISURATO PRIMA DI APPLICARE. Su NZ un solo aggancio storico ricade nel
+-- nuovo vincolo, ed e' proprio quello di SPM: nessun altro lavoro viene perso.
+-- L'aggancio e' stato rimosso a mano lasciando la chiusura di Lilian intatta
+-- (bank_transaction_id azzerato, log a 'rejected', movimento riaperto), senza
+-- passare da undo_reconcile_movement, che avrebbe riaperto la scadenza.
+--
+-- NOTA SUI PRIVILEGI. CREATE OR REPLACE su una SECURITY DEFINER rimette EXECUTE
+-- a PUBLIC: i REVOKE/GRANT in coda ripristinano i privilegi che la funzione
+-- aveva (owner e service_role soltanto). Stessa accortezza della migration 174.
+-- =============================================================================
+
+-- Il corpo completo della funzione e' quello applicato via MCP sui tre tenant:
+-- identico alla versione precedente tranne la condizione sopra.
+-- Rollback: riapplicare la definizione senza il vincolo sulla payment_date
+-- (file _ROLLBACK a fianco).
