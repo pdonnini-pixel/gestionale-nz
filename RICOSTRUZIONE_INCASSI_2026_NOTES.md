@@ -1,4 +1,4 @@
-# Ricostruzione degli incassi giornalieri — luglio e agosto 2026 (NZ)
+# Ricostruzione degli incassi giornalieri 2026 (NZ)
 
 > Sessione del 15/09/2026. Migration `NZ_ONLY_20260915_223` (agosto) e
 > `NZ_ONLY_20260915_225` (luglio).
@@ -7,7 +7,7 @@
 > Luglio serviva a chiudere il conto del contante: i versamenti dei primi giorni di agosto
 > portavano in banca il contante di fine luglio.
 
-Indice: [agosto](#agosto-2026) · [luglio](#luglio-2026) · [il conto del contante](#il-conto-del-contante-si-chiude)
+Indice: [agosto](#agosto-2026) · [luglio](#luglio-2026) · [il conto del contante](#il-conto-del-contante-si-chiude) · [giugno](#giugno-2026) · [il pay by link](#il-pay-by-link-passa-dal-pos)
 
 ---
 
@@ -232,3 +232,72 @@ Brugnato il 02/09) e il fondo cassa non e' mai esattamente zero.
 Nessun versamento resta orfano: i movimenti di versamento in banca da luglio a inizio
 settembre sono tutti agganciati a una giornata, e ogni versamento dichiarato dai negozi ha il
 suo accredito.
+
+---
+
+## il pay by link passa dal POS
+
+Migration `NZ_ONLY_20260915_226`. Dalla ricostruzione di luglio e agosto: l'incasso «pay by
+link» non ha un accredito suo, arriva in banca dentro l'accredito del POS del giorno. Sette
+casi, tutti verificati sull'estratto conto, e il canale e' stato configurato di conseguenza
+(kind `pos` con il codice terminale, come si era gia' fatto per «POS MPS Amex» con la 198).
+
+| Giorno | Dichiarato POS | Pay by link | Accredito | Nota |
+|---|---:|---:|---:|---|
+| VALDICHIANA 07/07 | 2.174,20 | 48,00 | 2.222,20 | esatto |
+| VALDICHIANA 15/07 | 1.999,20 | 60,10 | 2.059,30 | esatto |
+| TORINO 25/07 | 2.639,90 | 53,00 | 2.675,18 | 0,66 % commissioni |
+| TORINO 27/07 | 1.383,70 | 41,80 | 1.415,12 | 0,73 % |
+| TORINO 13/08 | 736,05 | 56,40 | 786,68 | 0,73 % |
+| VALMONTONE 12/08 | 1.306,22 | 202,90 | 1.497,90 | 0,74 % |
+| FRANCIACORTA 28/08 | — | 64,64 | 64,64 | sul terminale **BCC**, non MPS |
+
+Franciacorta e' l'eccezione. Barberino, Brugnato e Palmanova non hanno mai avuto pay by link
+nei mesi ricostruiti: prendono il POS MPS come standard, e se un domani passasse dal BCC il
+riscontro lo direbbe subito con una differenza.
+
+Effetto misurato: righe POS in differenza da 6 a 2 a luglio, da 8 a 6 ad agosto. Le rimaste
+sono commissioni oltre la tolleranza dell'1,5 % su importi minimi, piu' due giornate di Torino
+dove l'Amex risulta contato due volte nello specchietto. In `daily_revenue` il pay by link
+passa da «altro» a «carte», che e' quello che e'.
+
+---
+
+## giugno 2026
+
+Migration `NZ_ONLY_20260915_227`. 210 giornate, e anche qui i corrispettivi coincidono con il
+registro gia' presente su tutti e 210 i giorni.
+
+| | |
+|---|---:|
+| Corrispettivi | 389.279,32 € |
+| Fatture | 916,10 € |
+| Contanti | 66.369,90 € |
+| Spese di cassa | 566,68 € |
+| Versamenti | 77.652,15 € |
+| Chiusure verificate dalla banca | 194 su 210 |
+
+**38 versamenti dichiarati, 38 trovati in banca, nessuna differenza.** Zero giornate non
+quadrate, perche' a giugno nessun foglio ha la colonna CONTANTI e il contante e' stato
+ricavato per differenza: i totali per canale coincidono comunque con la riga TOTALE di ogni
+foglio, quindi la differenza e' un calcolo, non una stima.
+
+### Cosa e' emerso
+
+- **Sei versamenti di inizio giugno** sono in banca ma assenti dagli specchietti: sono il
+  contante di fine maggio, portato in banca il 01/06 e il 03/06 (Barberino 1.580,
+  Valdichiana 1.901,25, Palmanova 1.610, Franciacorta 1.835, Valmontone 3.275, Brugnato 550).
+  Registrati sulla giornata in cui il denaro esce dalla cassa.
+- **Torino 17/06**: quattro versamenti allo stesso ATM in cinque minuti (470 + 1.590 + 2.300 +
+  1.090). Il negozio ne dichiara tre, su tre giornate diverse secondo il periodo coperto; il
+  quarto, 1.090,00, non e' dichiarato da nessuna parte.
+- **Il 605,00 dell'08/07 era di giugno.** Quando mancava giugno l'avevo agganciato alla
+  chiusura dell'08/07 di Franciacorta, che risultava «differenza» (2.455 dichiarati contro
+  3.060 accreditati). Ora si sa che e' il contante 29-30 giugno versato il 01/07 e accreditato
+  il 08/07: e' stato staccato, rimesso al 30/06, e l'08/07 torna accreditato esatto.
+  Ricostruire a ritroso corregge il mese successivo.
+
+> **Terza miglioria per il motore**: il riscontro cerca il versamento solo in avanti, da
+> `closing_date` a `+6 giorni`. Quando il negozio versa tutto in un giorno e poi lo attribuisce
+> a giornate diverse (Torino 17/06), il movimento e' anteriore alla chiusura e non viene mai
+> trovato. Una finestra simmetrica di un paio di giorni all'indietro lo risolverebbe.
